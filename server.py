@@ -16,11 +16,15 @@ Endpoints:
                                owner defaults to facilitator
   POST /delete?box=ID       -> remove a user-created meta box (not pinned 0 / t0)
   POST /end                 -> ask the agent to wrap up once the queue drains
+  POST /pause?v=1|0         -> pause / resume both listeners (laptop-close mode):
+                               while paused /wait returns {"paused":true} at once
+                               and agents idle locally, re-checking /state ~1/min
   GET  /wait?owner=O&timeout=S -> agent long-poll; claims the oldest queued box
                                owned by O (facilitator|triage; defaults to triage,
                                the pre-routing loop's role) + its pending messages,
-                               or {"idle":true} on timeout, or {"end":true} once
-                               ended and O's queue is drained
+                               or {"idle":true} on timeout, {"paused":true} while
+                               paused, or {"end":true} once ended and O's queue
+                               is drained
   POST /reply?box=ID        -> body = the agent's reply text (plain text)
 
 Owner routing (2026-08-05): every box carries an owner tag, facilitator (tool
@@ -72,6 +76,7 @@ def _seed_state() -> dict:
         "claimed": {ow: [] for ow in OWNERS},  # message ids in each current claim
         "busy_ts": {ow: 0.0 for ow in OWNERS},
         "end": False,
+        "paused": False,
         "next_mid": 1,
     }
 
@@ -90,6 +95,7 @@ def _load() -> None:
 
 def _migrate() -> None:
     """Owner routing (2026-08-05): idempotent upgrade of pre-routing state."""
+    _state.setdefault("paused", False)
     for b in _state["boxes"]:
         b.setdefault("owner", "facilitator" if b["id"] == "0" or b["id"].startswith("m") else "triage")
     if not isinstance(_state.get("busy"), dict):  # scalar claim slots -> per-owner maps
@@ -179,6 +185,7 @@ class Handler(BaseHTTPRequestHandler):
             "busy": st["busy"],
             "queued": len(st["inbox"]),
             "end": st["end"],
+            "paused": st.get("paused", False),
             "listening": {ow: _waiters[ow] > 0 for ow in OWNERS},
             "listenerGap": {ow: round(time.time() - _last_wait[ow], 1) for ow in OWNERS},
         }
@@ -197,6 +204,9 @@ class Handler(BaseHTTPRequestHandler):
     def _wait_inner(self, deadline: float, owner: str) -> None:
         with _lock:
             while True:
+                if _state.get("paused"):  # laptop-close mode: send the listener home
+                    self._send(200, {"paused": True})
+                    return
                 # a claim older than 15 min with no reply is a dead listener: steal it back
                 for ow in OWNERS:
                     stale = _state["busy"][ow]
@@ -366,6 +376,13 @@ class Handler(BaseHTTPRequestHandler):
                 _save()
                 _lock.notify_all()
                 self._send(200, {"ok": True})
+
+            elif url.path == "/pause":
+                _state["paused"] = (q.get("v") or ["1"])[0] == "1"
+                _log("pause" if _state["paused"] else "unpause", "", "")
+                _save()
+                _lock.notify_all()  # in-flight waiters return {"paused":true} at once
+                self._send(200, {"ok": True, "paused": _state["paused"]})
 
             elif url.path == "/end":
                 _state["end"] = True

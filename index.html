@@ -51,6 +51,10 @@
   }
   .endbtn:hover{border-color:var(--must); color:var(--must)}
   .endbtn.arm{border-color:var(--must); color:#fff; background:var(--must)}
+  .pausebtn{font:12px var(--mono); color:var(--accent); background:var(--accent-soft);
+    border:none; border-radius:4px; padding:4px 12px; cursor:pointer; transition:.2s}
+  .pausebtn:hover{background:#E2DCFC}
+  body.paused .pausebtn{background:var(--accent); color:#fff}
 
   /* ---- layout ----------------------------------------------------------- */
   main{max-width:700px; margin:0 auto; padding:26px 18px 30vh}
@@ -253,6 +257,7 @@
   <span class="name">the partner project <em>release triage</em></span>
   <span class="live"><span class="dot" id="dot"></span><span id="livetext">idle</span></span>
   <span class="prog" id="prog"></span>
+  <button class="pausebtn" id="pausebtn">pause listeners</button>
   <button class="endbtn" id="endbtn">End session</button>
 </div>
 
@@ -507,6 +512,12 @@ function apply(state){
   live.textContent = writingBoxes.length
       ? ("replying to " + writingBoxes.map(x => x.id).join(" + ") + (state.queued ? " · " + state.queued + " queued" : ""))
       : state.queued ? (state.queued + " queued") : "idle";
+  document.body.classList.toggle("paused", !!state.paused);
+  document.getElementById("pausebtn").textContent = state.paused ? "resume listeners" : "pause listeners";
+  if (state.paused){
+    dot.classList.remove("on");
+    live.textContent = "paused" + (state.queued ? " · " + state.queued + " queued" : "");
+  }
   const doneN = state.boxes.filter(x => x.done).length;
   const yours = state.boxes.filter(x => !x.done && !x.parked && !(x.writing || x.pending > 0) && x.ball === "you").length;
   document.getElementById("prog").innerHTML = "<b>" + doneN + "</b>/" + state.boxes.length + " done" +
@@ -519,7 +530,7 @@ function apply(state){
 
   // listener presence, per agent: each is either long-polling (listening),
   // composing a claimed reply (busy), or recently between the two. Otherwise: offline.
-  const offOwners = Object.keys(NAME).filter(ow =>
+  const offOwners = state.paused ? [] : Object.keys(NAME).filter(ow =>
     !state.listening[ow] && !state.busy[ow] && state.listenerGap[ow] > 300);
   document.body.classList.toggle("offline", offOwners.length > 0);
   if (offOwners.length){
@@ -558,6 +569,11 @@ async function poll(){
     }
   }
 }
+
+document.getElementById("pausebtn").addEventListener("click", async () => {
+  await fetch("/pause?v=" + (lastState?.paused ? 0 : 1), { method: "POST" }).catch(() => {});
+  poll();
+});
 
 let endArmed = false;
 document.getElementById("endbtn").addEventListener("click", async e => {
