@@ -10,13 +10,13 @@ See also, one level up in `../facilitator-internal/`: `port-notes.md` (port hist
 
 From the terminal session that owns the board, repeat forever:
 
-    timeout 600 curl -s "http://127.0.0.1:8877/wait?timeout=550"
+    timeout 600 curl -s "http://127.0.0.1:8877/wait?owner=facilitator&timeout=550"
 
 which returns `{"box": id, "title": ..., "messages": [...], "queued_after": n}` on a claim, `{"idle": true}` on timeout, `{"end": true}` once ended and drained. Answer a claim with:
 
     curl -s -X POST --data-binary "the reply text" "http://127.0.0.1:8877/reply?box=ID"
 
-- `/wait` claims the oldest queued box's pending messages and marks the box busy. Never leave a claim unanswered; busy blocks the whole queue (single busy slot until owner routing lands).
+- `/wait?owner=...` claims the oldest queued box in your owner lane and marks it busy. Never leave a claim unanswered; an open claim blocks your whole lane (each owner has its own busy slot, see Owner routing below).
 - Dead-connection claims roll back automatically and a claim older than 15 minutes is stolen back. Do not lean on either; answer what you claim.
 
 ## Replies
@@ -52,15 +52,15 @@ Real work ships from boxes: builds and scans go to subagents, results land back 
 
 `probe3.js` (repo root; needs `npm install puppeteer-core` and Chrome) is the page health probe: read-only apart from creating and then deleting its own `__probe box__`. The older `probe.js` was deliberately not ported; it sends junk messages into real boxes. Never point anything like it at a live board.
 
-## Owner routing (spec agreed 2026-08-05, UNBUILT)
+## Owner routing (built 2026-08-05)
 
-Two agents will share one board: this repo's agent owns the tool-meta boxes (`owner=facilitator`), the the partner project operating agent owns the release-triage boxes (`owner=triage`). Every box gets an owner tag; `/wait?owner=...` filters the queue, with an independent busy slot per owner so the two agents never block or steal from each other. Two meta sections, tool-meta on top, each with its own plus button; user-created boxes inherit the section's owner; the writing indicator names which agent is writing. Each agent runs this same loop with its owner param; they share the board and nothing else. Full spec and the existing-box owner mapping to confirm with the owner: `../facilitator-internal/port-notes.md` §4. Routing work starts only after the cutover below.
+Two agents share one board: this repo's agent owns the tool-meta boxes (`owner=facilitator`), the the partner project operating agent owns the release-triage boxes (`owner=triage`). Every box carries an owner tag; `/wait?owner=...` claims only that owner's boxes, and each owner has its own busy/claim slot and listener-presence tracking, so the two agents never block or steal from each other. An ownerless `/wait` defaults to triage, so the the partner project agent's pre-routing loop keeps working unmodified. Two meta sections sit on top, tool-meta first, each with its own plus button; user-created boxes inherit the section's owner; the writing indicator and the offline banner name the agent. Pinned meta boxes: `0` (facilitator) and `t0` (triage), neither deletable. Mapping applied to pre-routing boxes: `0` to facilitator, every numbered triage box to triage. Full spec: `../facilitator-internal/port-notes.md` §4.
 
-## Cutover from the the partner project archive (one-time, pending)
+The two loops, side by side:
 
-The pre-port original stays frozen at `~/projects/partner/the-archive/`. The live triage runs on it until cutover, so the archive's `state.json` and `transcript.jsonl` are the freshest truth. Steps, coordinated by the owner with the operating agent in the the partner project terminal:
+    timeout 600 curl -s "http://127.0.0.1:8877/wait?owner=facilitator&timeout=550"   # this repo's agent
+    timeout 600 curl -s "http://127.0.0.1:8877/wait?owner=triage&timeout=550"        # the partner project agent
 
-1. Operating agent stops its listen loop, kills the server on 8877, confirms the port is free.
-2. Copy the archive's current `state.json` and `transcript.jsonl` into this repo, beside `server.py`. (Runtime data, gitignored. The porting session was not permitted to copy them, and any earlier snapshot would be stale by now anyway.)
-3. Launch `python3 server.py` from this repo. Verify box count and ids match pre-port. Refresh the window.
-4. Resume the listen loop. The discussion continues; the archive is never written again.
+## Cutover from the the partner project archive (done 2026-08-05)
+
+The pre-port original is frozen at `~/projects/partner/the-archive/`. Its final `state.json` and `transcript.jsonl` were copied here on the owner's explicit terminal direction (the old server was already down), the repo's server took over port 8877, and box count and ids were verified identical. The archive is never written again; this repo is the only live copy.

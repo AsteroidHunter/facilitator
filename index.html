@@ -90,7 +90,7 @@
   .bucket h2{font:italic 500 24px var(--serif); margin:0; letter-spacing:.01em}
   .bucket .rule{flex:1; height:1px; background:var(--line); transform:translateY(-4px)}
   .bucket .tag{font:11px var(--mono); letter-spacing:.08em; text-transform:uppercase; padding:2px 9px; border-radius:99px}
-  .bucket.meta  .tag{color:var(--accent); background:var(--accent-soft)}
+  .bucket.toolmeta .tag, .bucket.triagemeta .tag{color:var(--accent); background:var(--accent-soft)}
   .bucket.now   .tag{color:var(--accent); background:var(--accent-soft)}
   .metabox .parkbtn, .metabox .donebtn{display:none}
   .xbtn{flex:none; font:14px var(--mono); color:var(--sub); background:none; border:none;
@@ -266,12 +266,18 @@
 </main>
 
 <script>
-const SECTIONS = [["meta", "Meta"], ["now", "Now"], ["done", "Done"], ["later", "Later"]];
+const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
+                  ["now", "Now"], ["done", "Done"], ["later", "Later"]];
+const METAS = [["toolmeta", "facilitator"], ["triagemeta", "triage"]];
+const NAME = { facilitator: "facilitator agent", triage: "triage agent" };
 const els = {};       // box id -> {box, reply, meta, ta, send, donebtn, toc, sec}
 const secEls = {}, tocGroups = {};
 let lastState = null;
 
-function statusOf(b){ return b.bucket === "meta" ? "meta" : b.done ? "done" : b.parked ? "later" : "now"; }
+function statusOf(b){
+  return b.bucket === "meta" ? (b.owner === "facilitator" ? "toolmeta" : "triagemeta")
+       : b.done ? "done" : b.parked ? "later" : "now";
+}
 
 function h(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 
@@ -314,7 +320,7 @@ function build(state){
   state.boxes.forEach((b, i) => {
     const entry = h("div", "toc-entry");
     entry.appendChild(h("span", "tage"));
-    entry.appendChild(h("span", "tnum", b.id === "0" ? "•" : b.id));
+    entry.appendChild(h("span", "tnum", (b.id === "0" || b.id === "t0") ? "•" : b.id));
     entry.appendChild(h("span", "tdot"));
     entry.appendChild(h("span", "ttitle", b.title));
     entry.addEventListener("click", () => {
@@ -326,7 +332,7 @@ function build(state){
     box.id = "box-" + b.id;
 
     const head = h("div", "head");
-    if (b.bucket === "meta" && b.id !== "0"){
+    if (b.bucket === "meta" && b.id !== "0" && b.id !== "t0"){
       const x = h("button", "xbtn", "×");
       x.title = "remove this box";
       x.addEventListener("click", async e => {
@@ -383,16 +389,19 @@ function build(state){
                   titleEl, tocTitle: entry.querySelector(".ttitle"), ctx };
   });
 
-  // "+" row under the meta boxes: one click = new box, its first message names it
-  const addRow = h("div", "addrow");
-  const addBtn = h("button", "addbtn", "＋ new box");
-  addBtn.addEventListener("click", async () => {
-    const r = await fetch("/create", { method: "POST" }).then(x => x.json()).catch(() => null);
-    if (r?.id) localStorage.setItem("focusbox", r.id);  // survive the rebuild reload
-    poll();  // unknown id triggers the rebuild
-  });
-  addRow.appendChild(addBtn);
-  secEls.meta.list.appendChild(addRow);
+  // "+" row under each meta section: one click = new box owned by that section,
+  // its first message names it
+  for (const [key, owner] of METAS){
+    const addRow = h("div", "addrow");
+    const addBtn = h("button", "addbtn", "＋ new box");
+    addBtn.addEventListener("click", async () => {
+      const r = await fetch("/create?owner=" + owner, { method: "POST" }).then(x => x.json()).catch(() => null);
+      if (r?.id) localStorage.setItem("focusbox", r.id);  // survive the rebuild reload
+      poll();  // unknown id triggers the rebuild
+    });
+    addRow.appendChild(addBtn);
+    secEls[key].list.appendChild(addRow);
+  }
 
   // after a rebuild caused by creating a box, land the cursor in it
   const fb = localStorage.getItem("focusbox");
@@ -469,10 +478,10 @@ function apply(state){
     el.box.classList.toggle("waiting", waiting);
     if (!waiting && !b.done) el.box.classList.remove("peek");
     el.box.classList.toggle("yourturn", !b.done && !waiting && b.ball === "you");
-    el.wstat.innerHTML = b.writing ? '<span class="w2">Claude is writing</span>'
+    el.wstat.innerHTML = b.writing ? '<span class="w2">' + NAME[b.owner] + ' is writing</span>'
                        : (b.queuePos ? "sent ✓ " + ord(b.queuePos) + " in line" : "");
     const bits = [];
-    if (b.writing) bits.push('<span class="w">Claude is writing</span>');
+    if (b.writing) bits.push('<span class="w">' + NAME[b.owner] + ' is writing</span>');
     else if (b.queuePos) bits.push("sent ✓ · " + ord(b.queuePos) + " in line");
     if (b.pending && !b.writing) bits.push(b.pending + " message" + (b.pending > 1 ? "s" : "") + " since last reply");
     else if (b.pending > 1 && b.writing) bits.push(b.pending + " messages folding in");
@@ -492,10 +501,12 @@ function apply(state){
   }
   const dot = document.getElementById("dot");
   const live = document.getElementById("livetext");
-  const busyBox = state.boxes.find(x => x.writing);
-  dot.classList.toggle("on", !!state.busy || state.queued > 0);
-  live.textContent = busyBox ? ("replying to " + busyBox.id + (state.queued ? " · " + state.queued + " queued" : ""))
-                   : state.queued ? (state.queued + " queued") : "idle";
+  const writingBoxes = state.boxes.filter(x => x.writing);
+  const anyBusy = Object.values(state.busy).some(Boolean);
+  dot.classList.toggle("on", anyBusy || state.queued > 0);
+  live.textContent = writingBoxes.length
+      ? ("replying to " + writingBoxes.map(x => x.id).join(" + ") + (state.queued ? " · " + state.queued + " queued" : ""))
+      : state.queued ? (state.queued + " queued") : "idle";
   const doneN = state.boxes.filter(x => x.done).length;
   const yours = state.boxes.filter(x => !x.done && !x.parked && !(x.writing || x.pending > 0) && x.ball === "you").length;
   document.getElementById("prog").innerHTML = "<b>" + doneN + "</b>/" + state.boxes.length + " done" +
@@ -506,15 +517,17 @@ function apply(state){
   }
   document.body.classList.toggle("ended", !!state.end);
 
-  // listener presence: Claude is either long-polling (listening), composing a
-  // claimed reply (busy), or recently between the two. Otherwise: offline.
-  const off = !state.listening && !state.busy && state.listenerGap > 300;
-  document.body.classList.toggle("offline", off);
-  if (off){
+  // listener presence, per agent: each is either long-polling (listening),
+  // composing a claimed reply (busy), or recently between the two. Otherwise: offline.
+  const offOwners = Object.keys(NAME).filter(ow =>
+    !state.listening[ow] && !state.busy[ow] && state.listenerGap[ow] > 300);
+  document.body.classList.toggle("offline", offOwners.length > 0);
+  if (offOwners.length){
     document.getElementById("offline").textContent =
-      "Claude's listener is offline (last heard " + Math.round(state.listenerGap / 60) +
-      " min ago). Messages still queue safely; replies resume when the terminal side wakes.";
-    live.textContent = "listener offline";
+      "Offline: " + offOwners.map(ow => NAME[ow] + " (last heard " +
+      Math.round(state.listenerGap[ow] / 60) + " min ago)").join(", ") +
+      ". Messages still queue safely; replies resume when that terminal side wakes.";
+    live.textContent = offOwners.length === 2 ? "listeners offline" : NAME[offOwners[0]] + " offline";
   }
 }
 

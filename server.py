@@ -11,14 +11,22 @@ Endpoints:
   POST /done?box=ID&v=1|0   -> mark a box done / not done
   POST /park?box=ID&v=1|0   -> park a box to Later / bring it back
   POST /context?box=ID      -> body = the box's two-line context strip (agent-kept)
-  POST /create              -> body's first line titles a new meta box (empty =
-                               "…", named later by its first message); ids m1, m2...
-  POST /delete?box=ID       -> remove a user-created meta box (not box 0)
+  POST /create?owner=O      -> body's first line titles a new meta box (empty =
+                               "…", named later by its first message); ids m1, m2...;
+                               owner defaults to facilitator
+  POST /delete?box=ID       -> remove a user-created meta box (not pinned 0 / t0)
   POST /end                 -> ask the agent to wrap up once the queue drains
-  GET  /wait?timeout=S      -> agent long-poll; returns next claimed box + its
-                               pending messages, or {"idle":true} on timeout,
-                               or {"end":true} once ended and drained
+  GET  /wait?owner=O&timeout=S -> agent long-poll; claims the oldest queued box
+                               owned by O (facilitator|triage; defaults to triage,
+                               the pre-routing loop's role) + its pending messages,
+                               or {"idle":true} on timeout, or {"end":true} once
+                               ended and O's queue is drained
   POST /reply?box=ID        -> body = the agent's reply text (plain text)
+
+Owner routing (2026-08-05): every box carries an owner tag, facilitator (tool
+discussion, the facilitator repo's agent) or triage (the partner project release, the
+operating agent). Each owner has its own busy/claim slot and listener-presence
+tracking, so the two agents drain the same board without blocking each other.
 
 State persists to state.json next to this file; every send/reply also appends
 to transcript.jsonl so the discussion survives anything.
@@ -38,15 +46,16 @@ HERE = Path(__file__).resolve().parent
 STATE_PATH = HERE / "state.json"
 TRANSCRIPT_PATH = HERE / "transcript.jsonl"
 PORT = 8877
+OWNERS = ("facilitator", "triage")
 
 SEED = []  # (scrubbed)
 
 _lock = threading.Condition()
 _state: dict = {}
-# runtime-only listener presence (not persisted): how the UI knows whether the
-# agent's long-poll is actually connected right now
-_waiters = 0
-_last_wait = time.time()
+# runtime-only listener presence (not persisted), per owner: how the UI knows
+# whether each agent's long-poll is actually connected right now
+_waiters = {ow: 0 for ow in OWNERS}
+_last_wait = {ow: time.time() for ow in OWNERS}
 
 
 def _seed_state() -> dict:
@@ -54,13 +63,14 @@ def _seed_state() -> dict:
         "boxes": [
             {
                 "id": bid, "bucket": bucket, "title": title, "reply": reply,
-                "pending": [], "done": False, "replies": 0,
+                "pending": [], "done": False, "replies": 0, "owner": "triage",
             }
             for bid, bucket, title, reply in SEED
         ],
-        "inbox": [],          # box ids, FIFO
-        "busy": None,         # box id the agent is composing for
-        "claimed": [],        # message ids included in the current claim
+        "inbox": [],          # box ids, FIFO (shared; owner-filtered at claim time)
+        "busy": {ow: None for ow in OWNERS},   # box id each agent is composing for
+        "claimed": {ow: [] for ow in OWNERS},  # message ids in each current claim
+        "busy_ts": {ow: 0.0 for ow in OWNERS},
         "end": False,
         "next_mid": 1,
     }
@@ -72,9 +82,27 @@ def _load() -> None:
         _state = json.loads(STATE_PATH.read_text())
         for b in _state["boxes"]:  # ages start counting from first sight
             b.setdefault("ts", time.time())
+        _migrate()
     else:
         _state = _seed_state()
         _save()
+
+
+def _migrate() -> None:
+    """Owner routing (2026-08-05): idempotent upgrade of pre-routing state."""
+    for b in _state["boxes"]:
+        b.setdefault("owner", "facilitator" if b["id"] == "0" or b["id"].startswith("m") else "triage")
+    if not isinstance(_state.get("busy"), dict):  # scalar claim slots -> per-owner maps
+        _state["busy"] = {ow: None for ow in OWNERS}
+        _state["claimed"] = {ow: [] for ow in OWNERS}
+        _state["busy_ts"] = {ow: 0.0 for ow in OWNERS}
+    if _box("t0") is None:  # box 0 is the facilitator agent's; triage-meta gets its own pin
+        _state["boxes"].insert(_state["boxes"].index(_box("0")) + 1 if _box("0") else 0, {
+            "id": "t0", "bucket": "meta", "title": "Release triage: drop meta thoughts here",
+            "reply": "", "pending": [], "done": False, "parked": False, "replies": 0,
+            "ball": "you", "ts": time.time(), "owner": "triage",
+        })
+    _save()
 
 
 def _save() -> None:
@@ -115,13 +143,23 @@ class Handler(BaseHTTPRequestHandler):
             with _lock:
                 self._send(200, self._ui_state())
         elif url.path == "/wait":
-            timeout = float(parse_qs(url.query).get("timeout", ["570"])[0])
-            self._wait(timeout)
+            q = parse_qs(url.query)
+            timeout = float(q.get("timeout", ["570"])[0])
+            owner = (q.get("owner") or ["triage"])[0]  # default: the pre-routing loop's role
+            if owner not in OWNERS:
+                self._send(400, {"error": "unknown owner"})
+                return
+            self._wait(timeout, owner)
         else:
             self._send(404, {"error": "not found"})
 
     def _ui_state(self) -> dict:
         st = _state
+        qpos, seen = {}, {ow: 0 for ow in OWNERS}  # queue position within each owner's lane
+        for i in st["inbox"]:
+            ow = (_box(i) or {}).get("owner", "triage")
+            seen[ow] += 1
+            qpos[i] = seen[ow]
         return {
             "boxes": [
                 {
@@ -131,64 +169,70 @@ class Handler(BaseHTTPRequestHandler):
                     "parked": b.get("parked", False),
                     "ts": b.get("ts", 0),
                     "context": b.get("context", ""),
+                    "owner": b.get("owner", "triage"),
                     "pending": len(b["pending"]),
-                    "writing": st["busy"] == b["id"],
-                    "queuePos": (st["inbox"].index(b["id"]) + 1) if b["id"] in st["inbox"] else 0,
+                    "writing": st["busy"][b.get("owner", "triage")] == b["id"],
+                    "queuePos": qpos.get(b["id"], 0),
                 }
                 for b in st["boxes"]
             ],
             "busy": st["busy"],
             "queued": len(st["inbox"]),
             "end": st["end"],
-            "listening": _waiters > 0,
-            "listenerGap": round(time.time() - _last_wait, 1),
+            "listening": {ow: _waiters[ow] > 0 for ow in OWNERS},
+            "listenerGap": {ow: round(time.time() - _last_wait[ow], 1) for ow in OWNERS},
         }
 
-    def _wait(self, timeout: float) -> None:
-        global _waiters, _last_wait
+    def _wait(self, timeout: float, owner: str) -> None:
         deadline = time.monotonic() + min(timeout, 590)
         with _lock:
-            _waiters += 1
+            _waiters[owner] += 1
         try:
-            self._wait_inner(deadline)
+            self._wait_inner(deadline, owner)
         finally:
             with _lock:
-                _waiters -= 1
-                _last_wait = time.time()
+                _waiters[owner] -= 1
+                _last_wait[owner] = time.time()
 
-    def _wait_inner(self, deadline: float) -> None:
+    def _wait_inner(self, deadline: float, owner: str) -> None:
         with _lock:
             while True:
                 # a claim older than 15 min with no reply is a dead listener: steal it back
-                if _state["busy"] is not None and time.time() - _state.get("busy_ts", 0) > 900:
-                    stale = _state["busy"]
-                    _state["busy"] = None
-                    _state["claimed"] = []
-                    if _box(stale)["pending"] and stale not in _state["inbox"]:
-                        _state["inbox"].insert(0, stale)
-                    _save()
-                if _state["inbox"] and _state["busy"] is None:
-                    bid = _state["inbox"].pop(0)
-                    box = _box(bid)
-                    _state["busy"] = bid
-                    _state["claimed"] = [m["mid"] for m in box["pending"]]
-                    _state["busy_ts"] = time.time()
-                    _save()
-                    try:
-                        self._send(200, {
-                            "box": bid, "title": box["title"],
-                            "messages": [m["text"] for m in box["pending"]],
-                            "queued_after": len(_state["inbox"]),
-                        })
-                    except OSError:
-                        # listener died mid-handoff: roll the claim back so the
-                        # message is never stranded on a dead connection
-                        _state["busy"] = None
-                        _state["claimed"] = []
-                        _state["inbox"].insert(0, bid)
+                for ow in OWNERS:
+                    stale = _state["busy"][ow]
+                    if stale is not None and time.time() - _state["busy_ts"].get(ow, 0) > 900:
+                        _state["busy"][ow] = None
+                        _state["claimed"][ow] = []
+                        if _box(stale) and _box(stale)["pending"] and stale not in _state["inbox"]:
+                            _state["inbox"].insert(0, stale)
                         _save()
-                    return
-                if _state["end"] and not _state["inbox"] and _state["busy"] is None:
+                if _state["busy"][owner] is None:
+                    bid = next((i for i in _state["inbox"]
+                                if (_box(i) or {}).get("owner", "triage") == owner), None)
+                    if bid is not None:
+                        _state["inbox"].remove(bid)
+                        box = _box(bid)
+                        _state["busy"][owner] = bid
+                        _state["claimed"][owner] = [m["mid"] for m in box["pending"]]
+                        _state["busy_ts"][owner] = time.time()
+                        _save()
+                        try:
+                            self._send(200, {
+                                "box": bid, "title": box["title"],
+                                "messages": [m["text"] for m in box["pending"]],
+                                "queued_after": sum(1 for i in _state["inbox"]
+                                                    if (_box(i) or {}).get("owner", "triage") == owner),
+                            })
+                        except OSError:
+                            # listener died mid-handoff: roll the claim back so the
+                            # message is never stranded on a dead connection
+                            _state["busy"][owner] = None
+                            _state["claimed"][owner] = []
+                            _state["inbox"].insert(0, bid)
+                            _save()
+                        return
+                if _state["end"] and _state["busy"][owner] is None and not any(
+                        (_box(i) or {}).get("owner", "triage") == owner for i in _state["inbox"]):
                     self._send(200, {"end": True})
                     return
                 remaining = deadline - time.monotonic()
@@ -218,7 +262,7 @@ class Handler(BaseHTTPRequestHandler):
                 if box["bucket"] == "meta" and box["id"] != "0" and box["title"] == "…":
                     first = text.splitlines()[0].strip()
                     box["title"] = (first[:48] + "…") if len(first) > 48 else first
-                if bid not in _state["inbox"] and _state["busy"] != bid:
+                if bid not in _state["inbox"] and _state["busy"][box.get("owner", "triage")] != bid:
                     _state["inbox"].append(bid)
                 _log("user", bid, text)
                 _save()
@@ -226,21 +270,21 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"ok": True})
 
             elif url.path == "/reply":
-                global _last_wait
-                _last_wait = time.time()  # a reply proves the agent is alive too
                 box = _box(bid)
                 if box is None:
                     self._send(400, {"error": "bad box"})
                     return
+                ow = box.get("owner", "triage")
+                _last_wait[ow] = time.time()  # a reply proves that agent is alive too
                 box["reply"] = text
                 box["replies"] += 1
                 box["ball"] = "you"  # agent replied: awaiting the human
                 box["ts"] = time.time()
-                claimed = set(_state["claimed"]) if _state["busy"] == bid else set()
+                claimed = set(_state["claimed"][ow]) if _state["busy"][ow] == bid else set()
                 box["pending"] = [m for m in box["pending"] if m["mid"] not in claimed]
-                if _state["busy"] == bid:
-                    _state["busy"] = None
-                    _state["claimed"] = []
+                if _state["busy"][ow] == bid:
+                    _state["busy"][ow] = None
+                    _state["claimed"][ow] = []
                 # anything he sent while I was composing goes back in line
                 if box["pending"] and bid not in _state["inbox"]:
                     _state["inbox"].append(bid)
@@ -286,15 +330,20 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"ok": True})
 
             elif url.path == "/create":
+                owner = (q.get("owner") or ["facilitator"])[0]
+                if owner not in OWNERS:
+                    self._send(400, {"error": "unknown owner"})
+                    return
                 title = (text or "…").splitlines()[0][:80]
                 n = 1 + sum(1 for b in _state["boxes"] if b["id"].startswith("m"))
                 bid_new = f"m{n}"
-                # keep meta boxes grouped: insert after the last meta-bucket box
-                idx = max(i for i, b in enumerate(_state["boxes"]) if b["bucket"] == "meta") + 1
+                # keep each meta section grouped: insert after its last same-owner meta box
+                idx = max([i for i, b in enumerate(_state["boxes"])
+                           if b["bucket"] == "meta" and b.get("owner") == owner] or [-1]) + 1
                 _state["boxes"].insert(idx, {
                     "id": bid_new, "bucket": "meta", "title": title, "reply": "",
                     "pending": [], "done": False, "parked": False, "replies": 0,
-                    "ball": "me",
+                    "ball": "me", "ts": time.time(), "owner": owner,
                 })
                 _log("create", bid_new, title)
                 _save()
@@ -303,15 +352,16 @@ class Handler(BaseHTTPRequestHandler):
 
             elif url.path == "/delete":
                 box = _box(bid)
-                if box is None or bid == "0" or box["bucket"] != "meta":
+                if box is None or bid in ("0", "t0") or box["bucket"] != "meta":
                     self._send(400, {"error": "only user-created meta boxes can be deleted"})
                     return
                 _state["boxes"].remove(box)
                 if bid in _state["inbox"]:
                     _state["inbox"].remove(bid)
-                if _state["busy"] == bid:
-                    _state["busy"] = None
-                    _state["claimed"] = []
+                ow = box.get("owner", "triage")
+                if _state["busy"][ow] == bid:
+                    _state["busy"][ow] = None
+                    _state["claimed"][ow] = []
                 _log("delete", bid, box["title"])
                 _save()
                 _lock.notify_all()
@@ -334,8 +384,8 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> None:
     _load()
     with _lock:
-        _state["busy"] = None  # a restart never resumes mid-claim
-        _state["claimed"] = []
+        _state["busy"] = {ow: None for ow in OWNERS}  # a restart never resumes mid-claim
+        _state["claimed"] = {ow: [] for ow in OWNERS}
         # re-queue any box that still has unanswered messages
         for b in _state["boxes"]:
             if b["pending"] and b["id"] not in _state["inbox"]:
