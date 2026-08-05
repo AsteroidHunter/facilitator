@@ -1,0 +1,12 @@
+# runtime discussion data: the owner's live board, not source (port doc §5)
+/state.json
+/state.tmp
+/transcript.jsonl
+
+# probe tooling deps, if ever installed beside probe3.js
+/node_modules/
+/package.json
+/package-lock.json
+
+.DS_Store
+__pycache__/

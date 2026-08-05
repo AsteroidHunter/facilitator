@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#FBF8F2; --card:#FFFEFB; --ink:#211D17; --sub:#75695A;
+    --line:#E6DFD2; --line-strong:#D8CFBE;
+    --accent:#432BFF; --accent-soft:#EEEBFF;
+    --green:#2F6B3C; --green-bg:#EDF4E8; --green-line:#C4D9BB;
+    --must:#A8442A; --must-bg:#F7EAE4;
+    --could:#8A6D1F; --could-bg:#F5EFDD;
+    --later:#5A6473; --later-bg:#EAEDF1;
+    --serif:"Newsreader", Georgia, serif;
+    --sans:"IBM Plex Sans", -apple-system, sans-serif;
+    --mono:"IBM Plex Mono", ui-monospace, monospace;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font:15px/1.55 var(--sans);
+    background-image:radial-gradient(circle at 18% -4%, #FFFDF7 0%, rgba(255,253,247,0) 52%);
+  }
+
+  /* ---- status bar ------------------------------------------------------- */
+  .bar{
+    position:sticky; top:0; z-index:10;
+    display:flex; align-items:center; gap:14px;
+    padding:10px 20px;
+    background:color-mix(in srgb, var(--paper) 84%, transparent);
+    backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .bar .name{font:600 15px var(--serif); letter-spacing:.01em}
+  .bar .name em{font-style:italic; font-weight:400; color:var(--sub)}
+  .bar .live{display:flex; align-items:center; gap:8px; margin-left:auto; font:12px var(--mono); color:var(--sub)}
+  .dot{width:8px; height:8px; border-radius:50%; background:var(--line-strong); flex:none; transition:background .3s}
+  .dot.on{background:var(--accent); animation:pulse 1.2s ease-in-out infinite}
+  @keyframes pulse{50%{opacity:.35}}
+  .prog{font:12px var(--mono); color:var(--sub); white-space:nowrap}
+  .prog b{color:var(--green); font-weight:500}
+  .endbtn{
+    font:12px var(--mono); color:var(--sub); background:none; border:1px solid var(--line);
+    border-radius:99px; padding:4px 12px; cursor:pointer; transition:.2s;
+  }
+  .endbtn:hover{border-color:var(--must); color:var(--must)}
+  .endbtn.arm{border-color:var(--must); color:#fff; background:var(--must)}
+
+  /* ---- layout ----------------------------------------------------------- */
+  main{max-width:700px; margin:0 auto; padding:26px 18px 30vh}
+  .box{scroll-margin-top:64px}
+
+  /* ---- left sidebar (outline) ------------------------------------------- */
+  :root{--tocw:238px}
+  #toc{
+    position:fixed; left:0; top:45px; bottom:0; width:var(--tocw); overflow-y:auto;
+    padding:18px 10px 30px 14px; border-right:1px solid var(--line);
+    background:color-mix(in srgb, var(--paper) 92%, #fff 8%);
+  }
+  #tocgrip{position:fixed; left:calc(var(--tocw) - 3px); top:45px; bottom:0; width:7px;
+    cursor:col-resize; z-index:6}
+  #tocgrip:hover, #tocgrip.drag{background:var(--accent-soft)}
+  body.resizing{user-select:none; cursor:col-resize}
+  #toc .toc-group{margin:0 0 18px}
+  #toc .toc-bucket{font:11px var(--mono); letter-spacing:.09em; text-transform:uppercase;
+    color:var(--sub); margin:0 6px 7px}
+  .toc-entry{display:flex; align-items:center; gap:8px; padding:4px 6px; border-radius:7px;
+    cursor:pointer; font:13px/1.3 var(--sans); color:var(--ink)}
+  .toc-entry:hover{background:var(--accent-soft)}
+  .toc-entry .tage{font:10px var(--mono); color:#B4AA99; flex:none; width:30px; text-align:right}
+  .toc-entry .tnum{font:10.5px var(--mono); color:var(--sub); flex:none; width:26px}
+  .toc-entry .tdot{width:7px; height:7px; border-radius:50%; flex:none; background:var(--line-strong)}
+  .toc-entry .ttitle{flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .toc-entry.t-you .tdot{background:var(--accent)}
+  .toc-entry.t-queued .tdot{background:#C99B23}
+  .toc-entry.t-writing .tdot{background:#C99B23; animation:pulse 1.2s ease-in-out infinite}
+  .toc-entry.t-queued .ttitle, .toc-entry.t-writing .ttitle{color:#8A6D1F}
+  .toc-entry.t-done .tdot{background:var(--green)}
+  .toc-entry.t-done .ttitle{color:var(--green); opacity:.75}
+  @media (min-width: 990px){ main{margin-left:calc(var(--tocw) + (100vw - var(--tocw) - 700px)/2)} }
+  @media (max-width: 989px){ #toc, #tocgrip{display:none} }
+  .lede{font:15px/1.5 var(--sans); color:var(--sub); margin:4px 2px 26px; max-width:56ch}
+  .bucket{margin:34px 0 12px; display:flex; align-items:baseline; gap:10px}
+  .bucket h2{font:italic 500 24px var(--serif); margin:0; letter-spacing:.01em}
+  .bucket .rule{flex:1; height:1px; background:var(--line); transform:translateY(-4px)}
+  .bucket .tag{font:11px var(--mono); letter-spacing:.08em; text-transform:uppercase; padding:2px 9px; border-radius:99px}
+  .bucket.meta  .tag{color:var(--accent); background:var(--accent-soft)}
+  .bucket.now   .tag{color:var(--accent); background:var(--accent-soft)}
+  .metabox .parkbtn, .metabox .donebtn{display:none}
+  .xbtn{flex:none; font:14px var(--mono); color:var(--sub); background:none; border:none;
+    cursor:pointer; padding:0 4px; line-height:1; transition:color .2s}
+  .xbtn:hover{color:var(--must)}
+  .addrow{margin:2px 0 14px}
+  .addbtn{font:12.5px var(--mono); color:var(--sub); background:none; cursor:pointer;
+    border:1px dashed var(--line-strong); border-radius:9px; padding:7px 14px; transition:.2s}
+  .addbtn:hover{color:var(--accent); border-color:var(--accent)}
+  .addinput{font:14px var(--sans); color:var(--ink); background:var(--card);
+    border:1px solid var(--accent); border-radius:9px; padding:8px 11px; width:60%; outline:none}
+  .bucket.later .tag{color:var(--later); background:var(--later-bg)}
+  .bucket.done  .tag{color:var(--green); background:var(--green-bg)}
+
+  /* ---- box -------------------------------------------------------------- */
+  .box{
+    background:var(--card); border:1px solid var(--line); border-radius:12px;
+    margin:0 0 14px; overflow:hidden;
+    transition:border-color .35s, background .45s, box-shadow .25s;
+    animation:rise .45s cubic-bezier(.2,.7,.3,1) both;
+  }
+  @keyframes rise{from{opacity:0; transform:translateY(6px)}}
+  .box:focus-within{border-color:var(--line-strong); box-shadow:0 2px 14px rgba(60,45,20,.05)}
+  .head{display:flex; align-items:center; gap:10px; padding:12px 14px 0; cursor:default}
+  .num{font:500 11px var(--mono); color:var(--sub); background:var(--paper);
+       border:1px solid var(--line); border-radius:6px; padding:2px 7px; flex:none}
+  .title{font:500 17.5px/1.25 var(--serif); flex:1; min-width:0}
+  .donebtn, .parkbtn{
+    flex:none; font:12px var(--mono); color:var(--sub); background:none; cursor:pointer;
+    border:1px solid var(--line); border-radius:99px; padding:3px 11px; transition:.2s;
+  }
+  .donebtn:hover{border-color:var(--green); color:var(--green)}
+  .parkbtn:hover{border-color:var(--later); color:var(--later)}
+  .ctx{font:italic 12.5px/1.45 var(--sans); color:var(--sub); padding:6px 14px 0;
+    border-left:2px solid var(--line); margin:6px 14px 0}
+  .ctx:empty{display:none}
+  /* folded rows are title-only: the context block hides until reopened/peeked */
+  .box.waiting:not(.peek) .ctx, .box.done:not(.peek) .ctx, .box.parked:not(.peek) .ctx{display:none}
+  .body{padding:8px 14px 13px}
+  .reply{color:var(--ink)}
+  .reply p{margin:0 0 9px}
+  .reply p:last-child, .reply ul:last-child, .reply ol:last-child{margin-bottom:0}
+  .reply ul, .reply ol{margin:0 0 9px; padding-left:20px}
+  .reply li{margin:3px 0}
+  .reply.fresh{animation:fresh 1.6s ease-out}
+  @keyframes fresh{0%{background:var(--accent-soft)} 100%{background:transparent}}
+  .meta{font:11.5px var(--mono); color:var(--sub); margin-top:9px; min-height:15px; display:flex; gap:6px; align-items:center}
+  .meta .w{color:var(--accent)}
+  .meta .w::after{content:"…"; animation:ell 1.4s steps(4) infinite}
+  @keyframes ell{0%{content:""} 25%{content:"."} 50%{content:".."} 75%{content:"..."}}
+
+  .compose{display:flex; gap:8px; margin-top:9px; align-items:flex-end}
+  textarea{
+    flex:1; resize:none; font:14.5px/1.45 var(--sans); color:var(--ink);
+    background:var(--paper); border:1px solid var(--line); border-radius:9px;
+    padding:8px 11px; min-height:38px; max-height:170px; outline:none; transition:border-color .2s;
+  }
+  textarea:focus{border-color:var(--accent)}
+  textarea::placeholder{color:#B4AA99}
+  .sendbtn{
+    flex:none; font:600 13px var(--sans); color:#fff; background:var(--accent);
+    border:none; border-radius:9px; padding:9px 16px; cursor:pointer;
+    transition:transform .12s, opacity .2s;
+  }
+  .sendbtn:hover{transform:translateY(-1px)}
+  .sendbtn:active{transform:translateY(0) scale(.97)}
+  .sendbtn:disabled{opacity:.35; cursor:default; transform:none}
+
+  /* ---- waiting state (sent, agent hasn't replied yet) ------------------- */
+  .box.waiting{background:#FBF6E8; border-color:#E7DCC0}
+  .box.waiting .head{cursor:pointer; padding-bottom:12px}
+  .box.waiting .body{display:none}
+  .box.waiting.peek .head{padding-bottom:0}
+  .box.waiting.peek .body{display:block}
+  .wstat{display:none; font:11.5px var(--mono); color:#8A6D1F; flex:none}
+  .box.waiting .wstat{display:inline}
+  .wstat .w2::after{content:"…"; animation:ell 1.4s steps(4) infinite}
+
+  /* ---- your-turn chip --------------------------------------------------- */
+  .turn{display:none; font:10.5px var(--mono); letter-spacing:.04em; color:var(--accent);
+        background:var(--accent-soft); border-radius:99px; padding:2px 8px; flex:none}
+  .box.yourturn .turn{display:inline}
+
+  /* ---- done state ------------------------------------------------------- */
+  .box.done{background:var(--green-bg); border-color:var(--green-line)}
+  .box.done .title{color:var(--green)}
+  .box.done .num{background:transparent; border-color:var(--green-line); color:var(--green)}
+  .box.done .donebtn{border-color:var(--green); background:var(--green); color:#fff}
+  .box.done .head{cursor:pointer; padding-bottom:12px}
+  .box.done .body{display:none}
+  .box.done.peek .head{padding-bottom:0}
+  .box.done.peek .body{display:block}
+  .box.done .title::after{content:" ✓"; color:var(--green)}
+
+  /* ---- parked (later) state --------------------------------------------- */
+  .box.parked{background:var(--later-bg); border-color:#CDD4DE}
+  .box.parked .title{color:var(--later)}
+  .box.parked .num{background:transparent; border-color:#CDD4DE; color:var(--later)}
+  .box.parked .parkbtn{border-color:var(--later); background:var(--later); color:#fff}
+  .box.parked .head{cursor:pointer; padding-bottom:12px}
+  .box.parked .body{display:none}
+  .box.parked.peek .head{padding-bottom:0}
+  .box.parked.peek .body{display:block}
+  .toc-entry.t-later .tdot{background:var(--later)}
+  .toc-entry.t-later .ttitle{color:var(--later); opacity:.8}
+
+  /* ---- listener-offline banner ------------------------------------------ */
+  #offline{
+    display:none; position:sticky; top:45px; z-index:9;
+    padding:9px 20px; font:13px var(--sans); color:#7A2E1B;
+    background:#FAE9E2; border-bottom:1px solid #E8C4B4;
+  }
+  body.offline #offline{display:block}
+  body.offline .dot{background:#C0442A !important; animation:none}
+
+  .endnote{display:none; margin:40px 2px; font:italic 400 17px var(--serif); color:var(--sub)}
+  body.ended .endnote{display:block}
+  @media (prefers-reduced-motion: reduce){ *{animation:none !important; transition:none !important} }
+
+  /* ============ structural skin: square corners + bracket buttons =========== */
+  .box, textarea, .sendbtn, .donebtn, .parkbtn, .addbtn, .addinput, .endbtn,
+  .toc-entry{border-radius:4px !important}
+  .num{background:transparent; border:none; padding:0; width:auto}
+  /* buttons: borderless soft-tint boxes; the old hover glow is the resting look */
+  .sendbtn, .donebtn, .parkbtn, .addbtn, .endbtn{border:none !important}
+  .sendbtn{background:var(--accent-soft); color:var(--accent); font-weight:600;
+    min-height:38px; padding:0 16px; display:flex; align-items:center}
+  .sendbtn:hover{background:#E2DCFC; transform:none}
+  .sendbtn:active{transform:scale(.97)}
+  .donebtn{background:var(--green-bg); color:var(--green)}
+  .donebtn:hover{background:#DEEDD9}
+  .parkbtn{background:var(--later-bg); color:var(--later)}
+  .parkbtn:hover{background:#DFE3EA}
+  .addbtn{background:var(--accent-soft); color:var(--accent)}
+  .addbtn:hover{background:#E2DCFC}
+  .endbtn{background:var(--must-bg); color:var(--must)}
+  .endbtn:hover{background:#F2DCD3}
+  .box.done .donebtn{background:var(--green); color:#fff}
+  .box.parked .parkbtn{background:var(--later); color:#fff}
+  .ctx{
+    font-style:normal; color:#3A3563;
+    background:var(--accent-soft); border:1px solid #D9D3FA;
+    border-radius:4px; padding:7px 11px; margin:9px 14px 0;
+  }
+  /* state labels wear small drawn brackets instead of pill fills */
+  .turn{
+    background:none; border-radius:0; position:relative; padding:2px 8px;
+  }
+  .turn::before, .turn::after{
+    content:""; position:absolute; top:1px; bottom:1px; width:3px;
+    border:1px solid currentColor;
+  }
+  .turn::before{left:0; border-right:none}
+  .turn::after{right:0; border-left:none}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <span class="name">the partner project <em>release triage</em></span>
+  <span class="live"><span class="dot" id="dot"></span><span id="livetext">idle</span></span>
+  <span class="prog" id="prog"></span>
+  <button class="endbtn" id="endbtn">End session</button>
+</div>
+
+<div id="offline"></div>
+<nav id="toc"></nav>
+<div id="tocgrip"></div>
+
+<main>
+  <div id="sections"></div>
+  <p class="endnote">Session ended. Claude is writing the wrap-up in the terminal — decisions, updated buckets, next steps.</p>
+</main>
+
+<script>
+const SECTIONS = [["meta", "Meta"], ["now", "Now"], ["done", "Done"], ["later", "Later"]];
+const els = {};       // box id -> {box, reply, meta, ta, send, donebtn, toc, sec}
+const secEls = {}, tocGroups = {};
+let lastState = null;
+
+function statusOf(b){ return b.bucket === "meta" ? "meta" : b.done ? "done" : b.parked ? "later" : "now"; }
+
+function h(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+// light formatting: paragraphs on blank lines, dash/numbered lists, **bold**
+function fmt(t){
+  const esc = t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const bold = esc.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+  return bold.split(/\n\n+/).map(par => {
+    const lines = par.split("\n");
+    if (lines.length && lines.every(l => /^(- |\d+[.)] )/.test(l))){
+      const ol = /^\d/.test(lines[0]);
+      return (ol ? "<ol>" : "<ul>") +
+        lines.map(l => "<li>" + l.replace(/^(- |\d+[.)] )/, "") + "</li>").join("") +
+        (ol ? "</ol>" : "</ul>");
+    }
+    return "<p>" + par.replace(/\n/g, "<br>") + "</p>";
+  }).join("");
+}
+
+function build(state){
+  const sections = document.getElementById("sections");
+  const toc = document.getElementById("toc");
+  for (const [key, label] of SECTIONS){
+    const group = h("div", "toc-group");
+    group.appendChild(h("div", "toc-bucket", label));
+    toc.appendChild(group);
+    tocGroups[key] = group;
+
+    const shead = h("div", "bucket " + key);
+    shead.appendChild(h("h2", null, label));
+    shead.appendChild(h("span", "rule"));
+    const cnt = h("span", "tag", "");
+    shead.appendChild(cnt);
+    sections.appendChild(shead);
+    const list = h("div");
+    sections.appendChild(list);
+    secEls[key] = { list, cnt };
+  }
+
+  state.boxes.forEach((b, i) => {
+    const entry = h("div", "toc-entry");
+    entry.appendChild(h("span", "tage"));
+    entry.appendChild(h("span", "tnum", b.id === "0" ? "•" : b.id));
+    entry.appendChild(h("span", "tdot"));
+    entry.appendChild(h("span", "ttitle", b.title));
+    entry.addEventListener("click", () => {
+      document.getElementById("box-" + b.id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+
+    const box = h("article", "box" + (b.bucket === "meta" ? " metabox" : ""));
+    box.style.animationDelay = (i * 22) + "ms";
+    box.id = "box-" + b.id;
+
+    const head = h("div", "head");
+    if (b.bucket === "meta" && b.id !== "0"){
+      const x = h("button", "xbtn", "×");
+      x.title = "remove this box";
+      x.addEventListener("click", async e => {
+        e.stopPropagation();
+        await fetch("/delete?box=" + encodeURIComponent(b.id), { method: "POST" }).catch(() => {});
+        poll();
+      });
+      head.appendChild(x);
+    }
+    head.appendChild(h("span", "num", b.id));
+    const titleEl = h("span", "title", b.title);
+    head.appendChild(titleEl);
+    const wstat = h("span", "wstat");
+    head.appendChild(wstat);
+    head.appendChild(h("span", "turn", "your turn"));
+    const park = h("button", "parkbtn", "later");
+    head.appendChild(park);
+    const done = h("button", "donebtn", "done");
+    head.appendChild(done);
+    box.appendChild(head);
+
+    const ctx = h("div", "ctx", b.context || "");
+    box.appendChild(ctx);
+
+    const body = h("div", "body");
+    const reply = h("div", "reply");
+    reply.dataset.raw = b.reply;
+    reply.innerHTML = fmt(b.reply);
+    const meta = h("div", "meta");
+    const compose = h("div", "compose");
+    const ta = h("textarea");
+    ta.placeholder = "Reply to this point…";
+    ta.rows = 1;
+    const send = h("button", "sendbtn", "Send");
+    compose.append(ta, send);
+    body.append(reply, meta, compose);
+    box.appendChild(body);
+
+    const sec = statusOf(b);
+    secEls[sec].list.appendChild(box);
+    tocGroups[sec].appendChild(entry);
+
+    ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 170) + "px"; });
+    ta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); doSend(b.id); } });
+    send.addEventListener("click", () => doSend(b.id));
+    done.addEventListener("click", e => { e.stopPropagation(); toggleFlag(b.id, "done"); });
+    park.addEventListener("click", e => { e.stopPropagation(); toggleFlag(b.id, "park"); });
+    head.addEventListener("click", () => {
+      if (box.classList.contains("done") || box.classList.contains("waiting") || box.classList.contains("parked"))
+        box.classList.toggle("peek");
+    });
+
+    els[b.id] = { box, reply, meta, ta, send, donebtn: done, wstat, toc: entry, sec,
+                  titleEl, tocTitle: entry.querySelector(".ttitle"), ctx };
+  });
+
+  // "+" row under the meta boxes: one click = new box, its first message names it
+  const addRow = h("div", "addrow");
+  const addBtn = h("button", "addbtn", "＋ new box");
+  addBtn.addEventListener("click", async () => {
+    const r = await fetch("/create", { method: "POST" }).then(x => x.json()).catch(() => null);
+    if (r?.id) localStorage.setItem("focusbox", r.id);  // survive the rebuild reload
+    poll();  // unknown id triggers the rebuild
+  });
+  addRow.appendChild(addBtn);
+  secEls.meta.list.appendChild(addRow);
+
+  // after a rebuild caused by creating a box, land the cursor in it
+  const fb = localStorage.getItem("focusbox");
+  if (fb && els[fb]){
+    localStorage.removeItem("focusbox");
+    els[fb].box.scrollIntoView({ block: "center" });
+    els[fb].ta.focus();
+  }
+}
+
+async function doSend(id){
+  const el = els[id];
+  const text = el.ta.value.trim();
+  if (!text) return;
+  el.send.disabled = true;
+  try {
+    const r = await fetch("/send?box=" + encodeURIComponent(id), { method: "POST", body: text });
+    if (!r.ok) throw new Error(r.status);
+    el.ta.value = ""; el.ta.style.height = "auto";   // clear only after the server has it
+    poll();
+  } catch (err) {
+    el.meta.textContent = "send failed, text kept — try again";
+  } finally {
+    el.send.disabled = false;
+  }
+}
+
+async function toggleFlag(id, kind){
+  const cls = kind === "done" ? "done" : "parked";
+  const on = els[id].box.classList.contains(cls);
+  els[id].box.classList.remove("peek");
+  await fetch("/" + kind + "?box=" + encodeURIComponent(id) + "&v=" + (on ? 0 : 1), { method: "POST" }).catch(() => {});
+  poll();
+}
+
+function apply(state){
+  if (state.boxes.some(b => !els[b.id])) { location.reload(); return; }  // new boxes arrived
+  for (const id of Object.keys(els)){    // deleted boxes leave the page
+    if (!state.boxes.some(b => b.id === id)){
+      els[id].box.remove(); els[id].toc.remove(); delete els[id];
+    }
+  }
+
+  // scroll anchor: whatever you're typing in (else the box under the viewport
+  // center — what you're reading) must not move when boxes above fold/expand
+  const focusEl = document.activeElement && document.activeElement.tagName === "TEXTAREA" ? document.activeElement : null;
+  let anchorEl = focusEl ? focusEl.closest(".box") : null;
+  if (!anchorEl) anchorEl = document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.closest(".box") || null;
+  if (!anchorEl) anchorEl = [...document.querySelectorAll(".box")].find(x => x.getBoundingClientRect().bottom > 60);
+  const anchorTop = anchorEl ? anchorEl.getBoundingClientRect().top : 0;
+
+  for (const b of state.boxes){
+    const el = els[b.id];
+    if (!el) continue;
+    if (el.reply.dataset.raw !== b.reply){
+      el.reply.dataset.raw = b.reply;
+      el.reply.innerHTML = fmt(b.reply);
+      el.reply.classList.remove("fresh"); void el.reply.offsetWidth; el.reply.classList.add("fresh");
+    }
+    if (el.titleEl.textContent !== b.title){   // first message just named a new box
+      el.titleEl.textContent = b.title;
+      el.tocTitle.textContent = b.title;
+    }
+    if (el.ctx.textContent !== (b.context || "")) el.ctx.textContent = b.context || "";
+    el.box.classList.toggle("done", b.done);
+    el.box.classList.toggle("parked", !!b.parked);
+    const s = statusOf(b);
+    if (el.sec !== s){
+      secEls[s].list.appendChild(el.box);
+      tocGroups[s].appendChild(el.toc);
+      el.sec = s;
+    }
+    const waiting = !b.done && (b.writing || b.pending > 0);
+    el.box.classList.toggle("waiting", waiting);
+    if (!waiting && !b.done) el.box.classList.remove("peek");
+    el.box.classList.toggle("yourturn", !b.done && !waiting && b.ball === "you");
+    el.wstat.innerHTML = b.writing ? '<span class="w2">Claude is writing</span>'
+                       : (b.queuePos ? "sent ✓ " + ord(b.queuePos) + " in line" : "");
+    const bits = [];
+    if (b.writing) bits.push('<span class="w">Claude is writing</span>');
+    else if (b.queuePos) bits.push("sent ✓ · " + ord(b.queuePos) + " in line");
+    if (b.pending && !b.writing) bits.push(b.pending + " message" + (b.pending > 1 ? "s" : "") + " since last reply");
+    else if (b.pending > 1 && b.writing) bits.push(b.pending + " messages folding in");
+    el.meta.innerHTML = bits.join(" · ");
+    if (el.toc){
+      el.toc.className = "toc-entry " + (
+        b.done ? "t-done" : b.parked ? "t-later" : b.writing ? "t-writing" : b.pending > 0 ? "t-queued" :
+        b.ball === "you" ? "t-you" : "");
+      el.toc.querySelector(".tage").textContent = age(b.ts);
+    }
+  }
+  if (anchorEl){
+    const delta = anchorEl.getBoundingClientRect().top - anchorTop;
+    // behavior:"instant" — the page's smooth scroll-behavior would animate the
+    // correction into a visible glide, which IS the shift we're preventing
+    if (delta) window.scrollBy({ top: delta, left: 0, behavior: "instant" });
+  }
+  const dot = document.getElementById("dot");
+  const live = document.getElementById("livetext");
+  const busyBox = state.boxes.find(x => x.writing);
+  dot.classList.toggle("on", !!state.busy || state.queued > 0);
+  live.textContent = busyBox ? ("replying to " + busyBox.id + (state.queued ? " · " + state.queued + " queued" : ""))
+                   : state.queued ? (state.queued + " queued") : "idle";
+  const doneN = state.boxes.filter(x => x.done).length;
+  const yours = state.boxes.filter(x => !x.done && !x.parked && !(x.writing || x.pending > 0) && x.ball === "you").length;
+  document.getElementById("prog").innerHTML = "<b>" + doneN + "</b>/" + state.boxes.length + " done" +
+    (yours ? " · " + yours + " await you" : "");
+  for (const [key] of SECTIONS){
+    secEls[key].cnt.textContent = state.boxes.filter(x => statusOf(x) === key).length;
+    tocGroups[key].style.display = tocGroups[key].children.length > 1 ? "" : "none";
+  }
+  document.body.classList.toggle("ended", !!state.end);
+
+  // listener presence: Claude is either long-polling (listening), composing a
+  // claimed reply (busy), or recently between the two. Otherwise: offline.
+  const off = !state.listening && !state.busy && state.listenerGap > 300;
+  document.body.classList.toggle("offline", off);
+  if (off){
+    document.getElementById("offline").textContent =
+      "Claude's listener is offline (last heard " + Math.round(state.listenerGap / 60) +
+      " min ago). Messages still queue safely; replies resume when the terminal side wakes.";
+    live.textContent = "listener offline";
+  }
+}
+
+function ord(n){ return n + ({1:"st",2:"nd",3:"rd"}[n % 10 > 3 || [11,12,13].includes(n % 100) ? 0 : n % 10] || "th"); }
+
+function age(ts){
+  if (!ts) return "";
+  const s = Date.now() / 1000 - ts;
+  if (s < 60) return "now";
+  if (s < 3600) return Math.floor(s / 60) + "m";
+  if (s < 86400) return Math.floor(s / 3600) + "h";
+  return Math.floor(s / 86400) + "d";
+}
+
+let pollFails = 0;
+async function poll(){
+  try {
+    const state = await (await fetch("/state")).json();
+    pollFails = 0;
+    if (!lastState) build(state);
+    apply(state);
+    lastState = state;
+  } catch (e) {
+    if (++pollFails >= 3){   // server itself unreachable, distinct from listener-offline
+      document.body.classList.add("offline");
+      document.getElementById("offline").textContent =
+        "The facilitator server is unreachable. Nothing sent now will arrive; ask in the terminal to restart it.";
+    }
+  }
+}
+
+let endArmed = false;
+document.getElementById("endbtn").addEventListener("click", async e => {
+  const btn = e.currentTarget;
+  if (!endArmed){ endArmed = true; btn.textContent = "Sure? End it"; btn.classList.add("arm");
+    setTimeout(() => { endArmed = false; btn.textContent = "End session"; btn.classList.remove("arm"); }, 3500);
+    return; }
+  await fetch("/end", { method: "POST" }).catch(() => {});
+  btn.textContent = "Ended"; btn.disabled = true;
+});
+
+// resizable outline: drag the grip, clamped, remembered
+{
+  const clamp = w => Math.max(170, Math.min(420, w));
+  const saved = parseInt(localStorage.getItem("tocw") || "", 10);
+  if (saved) document.documentElement.style.setProperty("--tocw", clamp(saved) + "px");
+  const grip = document.getElementById("tocgrip");
+  grip.addEventListener("mousedown", e => {
+    e.preventDefault();
+    grip.classList.add("drag"); document.body.classList.add("resizing");
+    const move = ev => {
+      const w = clamp(ev.clientX);
+      document.documentElement.style.setProperty("--tocw", w + "px");
+    };
+    const up = () => {
+      grip.classList.remove("drag"); document.body.classList.remove("resizing");
+      localStorage.setItem("tocw", parseInt(getComputedStyle(document.documentElement).getPropertyValue("--tocw"), 10));
+      removeEventListener("mousemove", move); removeEventListener("mouseup", up);
+    };
+    addEventListener("mousemove", move); addEventListener("mouseup", up);
+  });
+}
+
+poll();
+setInterval(poll, 1200);
+</script>
+</body>
+</html>
