@@ -4,7 +4,7 @@ For the agent sitting behind the board. Read this cold and start; nothing else i
 
 The tool: `server.py` (Python stdlib, no dependencies, port 8877) serves `index.html` (vanilla JS) at http://127.0.0.1:8877. Stacked discussion boxes, one per point, each a mini-thread between the owner and one agent. Messages queue FIFO into one terminal session; every message and reply persists (`state.json`, `transcript.jsonl`, both written beside the server, both gitignored). The endpoint reference is the module docstring in `server.py`; keep it truthful as endpoints change.
 
-See also, one level up in `../facilitator-internal/`: `port-notes.md` (port history, routing spec, backlog, iteration log), `triage-process.md` (the triage process this tool serves; its Phase 4 is this doctrine's origin), `open-questions.md` (open questions, entry 1: thread management).
+See also, one level up in `../facilitator-internal/`: `port-notes.md` (port history, routing spec, backlog, iteration log) and `open-questions.md` (open questions, entry 1: thread management). The triage process this tool serves lives at `~/notes/triage-process.md`; its Phase 4 is this doctrine's origin.
 
 ## The loop
 
