@@ -78,6 +78,7 @@ def _seed_state() -> dict:
         "end": False,
         "paused": False,
         "next_mid": 1,
+        "next_bid": 1,
     }
 
 
@@ -96,6 +97,10 @@ def _load() -> None:
 def _migrate() -> None:
     """Owner routing (2026-08-05): idempotent upgrade of pre-routing state."""
     _state.setdefault("paused", False)
+    # monotonic box-id counter: count-based ids collided after a deletion
+    _state.setdefault("next_bid", 1 + max(
+        [int(b["id"][1:]) for b in _state["boxes"]
+         if b["id"].startswith("m") and b["id"][1:].isdigit()] or [0]))
     for b in _state["boxes"]:
         b.setdefault("owner", "facilitator" if b["id"] == "0" or b["id"].startswith("m") else "triage")
     if not isinstance(_state.get("busy"), dict):  # scalar claim slots -> per-owner maps
@@ -345,8 +350,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(400, {"error": "unknown owner"})
                     return
                 title = (text or "…").splitlines()[0][:80]
-                n = 1 + sum(1 for b in _state["boxes"] if b["id"].startswith("m"))
-                bid_new = f"m{n}"
+                bid_new = f"m{_state['next_bid']}"  # never reused, even after deletes
+                _state["next_bid"] += 1
                 # keep each meta section grouped: insert after its last same-owner meta box
                 idx = max([i for i, b in enumerate(_state["boxes"])
                            if b["bucket"] == "meta" and b.get("owner") == owner] or [-1]) + 1
