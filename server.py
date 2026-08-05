@@ -9,6 +9,11 @@ Endpoints:
   GET  /state               -> full UI state (page polls this)
   POST /send?box=ID         -> body = the human's message text (plain text)
   POST /done?box=ID&v=1|0   -> mark a box done / not done
+  POST /park?box=ID&v=1|0   -> park a box to Later / bring it back
+  POST /context?box=ID      -> body = the box's two-line context strip (agent-kept)
+  POST /create              -> body's first line titles a new meta box (empty =
+                               "…", named later by its first message); ids m1, m2...
+  POST /delete?box=ID       -> remove a user-created meta box (not box 0)
   POST /end                 -> ask the agent to wrap up once the queue drains
   GET  /wait?timeout=S      -> agent long-poll; returns next claimed box + its
                                pending messages, or {"idle":true} on timeout,
