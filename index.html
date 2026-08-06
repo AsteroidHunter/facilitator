@@ -172,6 +172,9 @@
   .wstat{display:none; font:11.5px var(--mono); color:#8A6D1F; flex:none}
   .box.waiting .wstat{display:inline}
   .wstat .w2::after{content:"…"; animation:ell 1.4s steps(4) infinite}
+  /* the animated dots must not change the label's width: a growing label
+     re-wraps long titles every tick and shoves the whole page below */
+  .wstat .w2::after, .meta .w::after{display:inline-block; width:1.1em; text-align:left}
 
   /* ---- your-turn chip --------------------------------------------------- */
   .turn{display:none; font:10.5px var(--mono); letter-spacing:.04em; color:var(--accent);
@@ -483,14 +486,16 @@ function apply(state){
     el.box.classList.toggle("waiting", waiting);
     if (!waiting && !b.done) el.box.classList.remove("peek");
     el.box.classList.toggle("yourturn", !b.done && !waiting && b.ball === "you");
-    el.wstat.innerHTML = b.writing ? '<span class="w2">' + NAME[b.owner] + ' is writing</span>'
-                       : (b.queuePos ? "sent ✓ " + ord(b.queuePos) + " in line" : "");
+    const ws = b.writing ? '<span class="w2">' + NAME[b.owner] + ' is writing</span>'
+             : (b.queuePos ? "sent ✓ " + ord(b.queuePos) + " in line" : "");
+    if (el.wstat.innerHTML !== ws) el.wstat.innerHTML = ws;  // rewriting every poll restarts the dots and re-wraps the title row
     const bits = [];
     if (b.writing) bits.push('<span class="w">' + NAME[b.owner] + ' is writing</span>');
     else if (b.queuePos) bits.push("sent ✓ · " + ord(b.queuePos) + " in line");
     if (b.pending && !b.writing) bits.push(b.pending + " message" + (b.pending > 1 ? "s" : "") + " since last reply");
     else if (b.pending > 1 && b.writing) bits.push(b.pending + " messages folding in");
-    el.meta.innerHTML = bits.join(" · ");
+    const mh = bits.join(" · ");
+    if (el.meta.innerHTML !== mh) el.meta.innerHTML = mh;
     if (el.toc){
       el.toc.className = "toc-entry " + (
         b.done ? "t-done" : b.parked ? "t-later" : b.writing ? "t-writing" : b.pending > 0 ? "t-queued" :
