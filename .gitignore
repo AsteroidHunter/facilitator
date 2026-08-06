@@ -6,6 +6,9 @@
 # machine-local lane config: names real project directories (leak rules)
 /run.config.json
 
+# real seed content: private discussion topics, never committed (leak rules)
+/seed.json
+
 # probe tooling deps, if ever installed beside probe3.js
 /node_modules/
 /package.json
