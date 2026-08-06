@@ -80,34 +80,50 @@ def lane_covered(st, owner):
     return st["listenerGap"].get(owner, 9e9) < 1800
 
 
-def tmux_pane_command(name):
-    """Current foreground command of a tmux session's pane, or None if no session."""
+def claude_pane(name):
+    """Pane id of the claude running anywhere inside tmux session `name`.
+    None = no such session; "" = session exists but no claude pane."""
     if not shutil.which("tmux"):
         return None
-    r = subprocess.run(["tmux", "display-message", "-p", "-t", name, "#{pane_current_command}"],
+    r = subprocess.run(["tmux", "list-panes", "-s", "-t", name,
+                        "-F", "#{pane_id} #{pane_current_command}"],
                        capture_output=True, text=True)
-    return r.stdout.strip() if r.returncode == 0 else None
+    if r.returncode != 0:
+        return None
+    for line in r.stdout.splitlines():
+        pid, _, cmd = line.partition(" ")
+        if cmd.startswith("claude") or cmd == "node":
+            return pid
+    return ""
 
 
 def instruct(lane, dry):
-    """Type the attach instruction into the lane's EXISTING tmux claude session.
-    Returns True if delivered. Never types into a bare shell."""
+    """Type the attach instruction into the claude PANE of the lane's tmux
+    session (a session's active pane may be a bare shell; the claude can live
+    in any pane). Verifies the text landed before pressing Enter. Returns True
+    if delivered. Never types into a shell."""
     name, text = lane.get("tmux"), lane["instruction"]
     if not name:
         return False
-    cmd = tmux_pane_command(name)
-    if cmd is None:
+    pane = claude_pane(name)
+    if pane is None:
         print(f"listener {lane['owner']}: tmux session {name} not found")
         return False
-    if not (cmd.startswith("claude") or cmd == "node"):
-        print(f"listener {lane['owner']}: tmux {name} is running {cmd!r}, not claude; not typing into it")
+    if not pane:
+        print(f"listener {lane['owner']}: no claude pane inside tmux {name}; not typing into shells")
         return False
     if dry:
-        print(f"listener {lane['owner']}: would send the attach instruction to tmux {name}")
+        print(f"listener {lane['owner']}: would send the attach instruction to tmux {name} pane {pane}")
         return True
-    subprocess.run(["tmux", "send-keys", "-t", name, text], check=True)
-    subprocess.run(["tmux", "send-keys", "-t", name, "Enter"], check=True)
-    print(f"listener {lane['owner']}: instructed the existing claude in tmux {name}")
+    subprocess.run(["tmux", "send-keys", "-t", pane, "-l", text], check=True)
+    time.sleep(1)
+    seen = subprocess.run(["tmux", "capture-pane", "-p", "-t", pane],
+                          capture_output=True, text=True).stdout
+    if text[:40] not in seen:
+        print(f"listener {lane['owner']}: instruction did not land in pane {pane}; Enter NOT pressed")
+        return False
+    subprocess.run(["tmux", "send-keys", "-t", pane, "Enter"], check=True)
+    print(f"listener {lane['owner']}: instructed the claude in tmux {name} (pane {pane})")
     return True
 
 
