@@ -27,6 +27,10 @@ which returns `{"box": id, "title": ..., "messages": [...], "queued_after": n}` 
 - Every reply fully self-contained. The box shows ONLY the latest reply, so a short follow-up ERASES a longer answer. Restate rather than reference; this burned once.
 - A reply that closes or parks a box carries zero new information. Folded boxes go unread. Keep-in-mind notes go to an open box or the project docs.
 
+## Titles
+
+A user-created box is auto-named with the chopped first line of its first message, which reads badly. When you claim such a box (title ends in "…" or just parrots the message), set a brief accurate title as part of answering it: `POST /title?box=ID`, raw text body. Keep titles short enough to sit on one line.
+
 ## Status changes
 
 - Only the owner closes. The agent flags duplicates and proposes merges; green comes from the owner's hand or his explicit word. A box was once closed by the agent mid-use and had to be reopened; do not repeat that.

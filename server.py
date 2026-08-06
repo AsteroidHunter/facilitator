@@ -11,6 +11,8 @@ Endpoints:
   POST /done?box=ID&v=1|0   -> mark a box done / not done
   POST /park?box=ID&v=1|0   -> park a box to Later / bring it back
   POST /context?box=ID      -> body = the box's two-line context strip (agent-kept)
+  POST /title?box=ID        -> body = replacement title (agent keeps titles brief;
+                               auto-names are just the chopped first message)
   POST /create?owner=O      -> body's first line titles a new meta box (empty =
                                "…", named later by its first message); ids m1, m2...;
                                owner defaults to facilitator
@@ -340,6 +342,17 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(400, {"error": "bad box"})
                     return
                 box["context"] = text[:220]  # two lines, agent-maintained
+                _save()
+                _lock.notify_all()
+                self._send(200, {"ok": True})
+
+            elif url.path == "/title":
+                box = _box(bid)
+                if box is None or not text:
+                    self._send(400, {"error": "bad box or empty title"})
+                    return
+                box["title"] = text.splitlines()[0][:80]
+                _log("title", bid, box["title"])
                 _save()
                 _lock.notify_all()
                 self._send(200, {"ok": True})
