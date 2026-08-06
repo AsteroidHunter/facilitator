@@ -346,7 +346,7 @@ function makeBox(b, i, state){
     box.id = "box-" + b.id;
 
     const head = h("div", "head");
-    if (b.bucket === "meta" && b.id !== "0" && b.id !== "t0"){
+    if (b.bucket === "meta"){
       const x = h("button", "xbtn", "×");
       x.title = "remove this box";
       x.addEventListener("click", async e => {

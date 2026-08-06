@@ -16,7 +16,7 @@ Endpoints:
   POST /create?owner=O      -> body's first line titles a new meta box (empty =
                                "…", named later by its first message); ids m1, m2...;
                                owner defaults to facilitator
-  POST /delete?box=ID       -> remove a user-created meta box (not pinned 0 / t0)
+  POST /delete?box=ID       -> remove a meta box (the standing 0 / t0 included)
   POST /end                 -> ask the agent to wrap up once the queue drains
   POST /pause?v=1|0         -> pause / resume both listeners (laptop-close mode):
                                while paused /wait returns {"paused":true} at once
@@ -390,8 +390,8 @@ class Handler(BaseHTTPRequestHandler):
 
             elif url.path == "/delete":
                 box = _box(bid)
-                if box is None or bid in ("0", "t0") or box["bucket"] != "meta":
-                    self._send(400, {"error": "only user-created meta boxes can be deleted"})
+                if box is None or box["bucket"] != "meta":
+                    self._send(400, {"error": "only meta boxes can be deleted"})
                     return
                 _state["boxes"].remove(box)
                 if bid in _state["inbox"]:
