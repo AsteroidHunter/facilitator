@@ -30,12 +30,14 @@ Endpoints:
   POST /reply?box=ID        -> body = the agent's reply text (plain text)
 
 Owner routing (2026-08-05): every box carries an owner tag, facilitator (tool
-discussion, the facilitator repo's agent) or triage (the partner project release, the
-operating agent). Each owner has its own busy/claim slot and listener-presence
+discussion, this repo's agent) or triage (the project under discussion, its
+own agent). Each owner has its own busy/claim slot and listener-presence
 tracking, so the two agents drain the same board without blocking each other.
 
 State persists to state.json next to this file; every send/reply also appends
-to transcript.jsonl so the discussion survives anything.
+to transcript.jsonl so the discussion survives anything. A first-ever start
+(no state.json) seeds the board title and boxes from seed.json if present;
+see seed.example.json. Real discussion content never ships in this code.
 """
 
 from __future__ import annotations
@@ -54,7 +56,7 @@ TRANSCRIPT_PATH = HERE / "transcript.jsonl"
 PORT = 8877
 OWNERS = ("facilitator", "triage")
 
-SEED = []  # (scrubbed)
+SEED_PATH = HERE / "seed.json"
 
 _lock = threading.Condition()
 _state: dict = {}
@@ -65,13 +67,19 @@ _last_wait = {ow: time.time() for ow in OWNERS}
 
 
 def _seed_state() -> dict:
+    """First-ever start: board title and boxes come from seed.json if present
+    (see seed.example.json); otherwise the board starts empty."""
+    seed = json.loads(SEED_PATH.read_text()) if SEED_PATH.exists() else {}
     return {
+        "title": seed.get("title", "facilitator"),
         "boxes": [
             {
-                "id": bid, "bucket": bucket, "title": title, "reply": reply,
-                "pending": [], "done": False, "replies": 0, "owner": "triage",
+                "id": it["id"], "bucket": it["bucket"], "title": it["title"],
+                "reply": it.get("context", ""),
+                "pending": [], "done": False, "replies": 0,
+                "owner": it.get("owner", "triage"),
             }
-            for bid, bucket, title, reply in SEED
+            for it in seed.get("items", [])
         ],
         "inbox": [],          # box ids, FIFO (shared; owner-filtered at claim time)
         "busy": {ow: None for ow in OWNERS},   # box id each agent is composing for
@@ -99,6 +107,7 @@ def _load() -> None:
 def _migrate() -> None:
     """Owner routing (2026-08-05): idempotent upgrade of pre-routing state."""
     _state.setdefault("paused", False)
+    _state.setdefault("title", "facilitator")
     # monotonic box-id counter: count-based ids collided after a deletion
     _state.setdefault("next_bid", 1 + max(
         [int(b["id"][1:]) for b in _state["boxes"]
@@ -193,6 +202,7 @@ class Handler(BaseHTTPRequestHandler):
             "queued": len(st["inbox"]),
             "end": st["end"],
             "paused": st.get("paused", False),
+            "title": st.get("title", "facilitator"),
             "listening": {ow: _waiters[ow] > 0 for ow in OWNERS},
             "listenerGap": {ow: round(time.time() - _last_wait[ow], 1) for ow in OWNERS},
         }

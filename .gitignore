@@ -1,12 +1,12 @@
-# runtime discussion data: the owner's live board, not source (port doc §5)
+# runtime discussion data: the owner's live board, not source
 /state.json
 /state.tmp
 /transcript.jsonl
 
-# machine-local lane config: names real project directories (leak rules)
+# machine-local lane config: names real project directories
 /run.config.json
 
-# real seed content: private discussion topics, never committed (leak rules)
+# real seed content: private discussion topics, never committed
 /seed.json
 
 # probe tooling deps, if ever installed beside probe3.js

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Project board</title>
+<title>facilitator</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -257,7 +257,7 @@
 <body>
 
 <div class="bar">
-  <span class="name">the partner project <em>release triage</em></span>
+  <span class="name" id="boardname">facilitator</span>
   <span class="live"><span class="dot" id="dot"></span><span id="livetext">idle</span></span>
   <span class="prog" id="prog"></span>
   <button class="pausebtn" id="pausebtn">pause listeners</button>
@@ -552,6 +552,19 @@ function apply(state){
   if (state.paused){
     dot.classList.remove("on");
     live.textContent = "paused" + (state.queued ? " · " + state.queued + " queued" : "");
+  }
+  // board title comes from state (seeded via seed.json), not from the page
+  if (state.title && document.title !== state.title){
+    document.title = state.title;
+    const nm = document.getElementById("boardname");
+    const sp = state.title.indexOf(" ");
+    nm.textContent = "";
+    if (sp > 0){
+      nm.append(state.title.slice(0, sp) + " ");
+      const em = document.createElement("em");
+      em.textContent = state.title.slice(sp + 1);
+      nm.append(em);
+    } else nm.textContent = state.title;
   }
   const doneN = state.boxes.filter(x => x.done).length;
   const yours = state.boxes.filter(x => !x.done && !x.parked && !(x.writing || x.pending > 0) && x.ball === "you").length;
