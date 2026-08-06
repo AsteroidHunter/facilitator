@@ -325,7 +325,13 @@ function build(state){
     secEls[key] = { list, cnt };
   }
 
-  state.boxes.forEach((b, i) => {
+  state.boxes.forEach((b, i) => makeBox(b, i, state));
+  addRows();
+  landFocus();
+}
+
+// one box + its outline entry, inserted at its position within its section
+function makeBox(b, i, state){
     const entry = h("div", "toc-entry");
     entry.appendChild(h("span", "tage"));
     entry.appendChild(h("span", "tnum", (b.id === "0" || b.id === "t0") ? "•" : b.id));
@@ -380,8 +386,20 @@ function build(state){
     box.appendChild(body);
 
     const sec = statusOf(b);
-    secEls[sec].list.appendChild(box);
-    tocGroups[sec].appendChild(entry);
+    // slot in where the state array says this box belongs; during the initial
+    // build the next box does not exist yet, so this appends in order
+    const peers = state.boxes.filter(x => statusOf(x) === sec);
+    const nextB = peers[peers.findIndex(x => x.id === b.id) + 1];
+    const nextEl = nextB && els[nextB.id];
+    if (nextEl && nextEl.box.parentNode === secEls[sec].list){
+      secEls[sec].list.insertBefore(box, nextEl.box);
+      tocGroups[sec].insertBefore(entry, nextEl.toc);
+    } else {
+      const addRow = secEls[sec].list.querySelector(":scope > .addrow");
+      if (addRow) secEls[sec].list.insertBefore(box, addRow);
+      else secEls[sec].list.appendChild(box);
+      tocGroups[sec].appendChild(entry);
+    }
 
     ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 170) + "px"; });
     ta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); doSend(b.id); } });
@@ -395,10 +413,11 @@ function build(state){
 
     els[b.id] = { box, reply, meta, ta, send, donebtn: done, wstat, toc: entry, sec,
                   titleEl, tocTitle: entry.querySelector(".ttitle"), ctx };
-  });
+}
 
-  // "+" row under each meta section: one click = new box owned by that section,
-  // its first message names it
+// "+" row under each meta section: one click = new box owned by that section,
+// its first message names it
+function addRows(){
   for (const [key, owner] of METAS){
     const addRow = h("div", "addrow");
     const addBtn = h("button", "addbtn", "＋ new box");
@@ -411,7 +430,10 @@ function build(state){
     secEls[key].list.appendChild(addRow);
   }
 
-  // after a rebuild caused by creating a box, land the cursor in it
+}
+
+// land the cursor in a box the user just created
+function landFocus(){
   const fb = localStorage.getItem("focusbox");
   if (fb && els[fb]){
     localStorage.removeItem("focusbox");
@@ -446,7 +468,6 @@ async function toggleFlag(id, kind){
 }
 
 function apply(state){
-  if (state.boxes.some(b => !els[b.id])) { location.reload(); return; }  // new boxes arrived
   for (const id of Object.keys(els)){    // deleted boxes leave the page
     if (!state.boxes.some(b => b.id === id)){
       els[id].box.remove(); els[id].toc.remove(); delete els[id];
@@ -460,6 +481,15 @@ function apply(state){
   if (!anchorEl) anchorEl = document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.closest(".box") || null;
   if (!anchorEl) anchorEl = [...document.querySelectorAll(".box")].find(x => x.getBoundingClientRect().bottom > 60);
   const anchorTop = anchorEl ? anchorEl.getBoundingClientRect().top : 0;
+
+  // new boxes appear in place (no reload, no white flash); the anchor
+  // correction below absorbs any shift they cause above the viewport
+  for (const b of state.boxes){
+    if (!els[b.id]){
+      makeBox(b, 0, state);
+      landFocus();
+    }
+  }
 
   for (const b of state.boxes){
     const el = els[b.id];
