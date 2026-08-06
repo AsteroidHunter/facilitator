@@ -1,30 +1,29 @@
 # RUNBOOK: operating the facilitator board
 
-For the agent sitting behind the board. Read this cold and start; nothing else is assumed.
+For an agent sitting behind the board. Read this cold and start; nothing else is assumed.
 
-The tool: `server.py` (Python stdlib, no dependencies, port 8877) serves `index.html` (vanilla JS) at http://127.0.0.1:8877. Stacked discussion boxes, one per point, each a mini-thread between the owner and one agent. Messages queue FIFO into one terminal session; every message and reply persists (`state.json`, `transcript.jsonl`, both written beside the server, both gitignored). The endpoint reference is the module docstring in `server.py`; keep it truthful as endpoints change.
-
-See also, one level up in `../facilitator-internal/`: `port-notes.md` (port history, routing spec, backlog, iteration log) and `open-questions.md` (open questions, entry 1: thread management). The triage process this tool serves lives at `~/notes/triage-process.md`; its Phase 4 is this doctrine's origin.
+The tool: `server.py` (Python stdlib, no dependencies, port 8877) serves `index.html` (vanilla JS) at http://127.0.0.1:8877. Stacked discussion boxes, one per point, each a mini-thread between the owner and one agent. Messages queue FIFO into the agent's terminal session; every message and reply persists (`state.json`, `transcript.jsonl`, both written beside the server, both gitignored). The endpoint reference is the module docstring in `server.py`; keep it truthful as endpoints change.
 
 ## The loop
 
-From the terminal session that owns the board, repeat forever:
+From the terminal session that owns your lane, repeat forever:
 
-    timeout 600 curl -s "http://127.0.0.1:8877/wait?owner=facilitator&timeout=550"
+    timeout 560 curl -s "http://127.0.0.1:8877/wait?owner=facilitator&timeout=540"
 
-which returns `{"box": id, "title": ..., "messages": [...], "queued_after": n}` on a claim, `{"idle": true}` on timeout, `{"end": true}` once ended and drained. Answer a claim with:
+which returns `{"box": id, "title": ..., "messages": [...], "queued_after": n}` on a claim, `{"idle": true}` on timeout, `{"paused": true}` while paused, `{"end": true}` once ended and drained. Answer a claim with:
 
     curl -s -X POST --data-binary "the reply text" "http://127.0.0.1:8877/reply?box=ID"
 
 - `/wait?owner=...` claims the oldest queued box in your owner lane and marks it busy. Never leave a claim unanswered; an open claim blocks your whole lane (each owner has its own busy slot, see Owner routing below).
 - Dead-connection claims roll back automatically and a claim older than 15 minutes is stolen back. Do not lean on either; answer what you claim.
-- `{"paused": true}` from `/wait` means the owner hit the pause button (laptop-close mode). Stop polling `/wait`; idle locally and re-check about once a minute (`curl -s http://127.0.0.1:8877/state`, read `paused`) until it goes false, then resume the loop. Messages still queue while paused; finish any open claim before going quiet.
+- `{"paused": true}` means the owner hit the pause button (laptop-close mode). Stop polling `/wait`; idle locally and re-check about once a minute (`curl -s http://127.0.0.1:8877/state`, read `paused`) until it goes false, then resume the loop. Messages still queue while paused; finish any open claim before going quiet.
 
 ## Replies
 
-- 100 to 150 words or fewer. Plain conversational tone. Paragraph breaks and short lists over walls of text. Depth comes from choosing what to say, not from length.
+- 100 to 150 words or fewer. Plain conversational tone: no coined shorthand, no unexplained jargon; a term either gets defined by what it concretely does or gets dropped. Paragraph breaks and short lists over walls of text. Depth comes from choosing what to say, not from length.
 - No em dashes, in titles or in replies. Banned.
-- Every reply fully self-contained. The box shows ONLY the latest reply, so a short follow-up ERASES a longer answer. Restate rather than reference; this burned once.
+- Every reply fully self-contained. The box shows ONLY the latest reply, so a short follow-up ERASES a longer answer. Restate rather than reference.
+- Answer what was asked and stop: no unsolicited offers, no "want me to" tails, no validation preambles.
 - A reply that closes or parks a box carries zero new information. Folded boxes go unread. Keep-in-mind notes go to an open box or the project docs.
 
 ## Titles
@@ -33,16 +32,16 @@ A user-created box is auto-named with the chopped first line of its first messag
 
 ## Status changes
 
-- Only the owner closes. The agent flags duplicates and proposes merges; green comes from the owner's hand or his explicit word. A box was once closed by the agent mid-use and had to be reopened; do not repeat that.
+- Only the owner closes. The agent flags duplicates and proposes merges; green comes from the owner's hand or their explicit word. A box was once closed by the agent mid-use and had to be reopened; do not repeat that.
 - "TBDL" from the owner means: park that box to Later AND record the deferred work in the relevant project doc.
 
 ## Context strips
 
-`POST /context?box=ID` (body, up to two lines, 220 chars max) keeps each box's summary current. Update it whenever the box's thread moves or meanders. This is the owner's chosen fix for box-context amnesia; the wider thread-management question stays open (openquestions entry 1).
+`POST /context?box=ID` (body, up to two lines, 220 chars max) keeps each box's summary current. Update it whenever the box's thread moves or meanders. It is the working cure for box-context amnesia; the wider question of keeping per-box context straight at scale stays open.
 
 ## Permission blocks
 
-A permission denial from the auto-mode classifier NEVER pauses the listener. Strip the blocked step, do everything approvable, note the block in the meta box, keep draining. Box-typed orders do not count as visible consent for pushes or destructive ops; one approval word typed in the terminal releases them.
+A permission denial from an automated classifier NEVER pauses the listener. Strip the blocked step, do everything approvable, note the block in the meta box, keep draining. Box-typed orders do not count as visible consent for pushes or destructive operations; one approval word typed in the terminal releases them.
 
 ## Restarts
 
@@ -52,21 +51,23 @@ A permission denial from the auto-mode classifier NEVER pauses the listener. Str
 
 ## Real work
 
-Real work ships from boxes: builds and scans go to subagents, results land back in the ordering box. Deploy-touching pushes follow the terminal-consent rule above. Commits in this repo: short, past tense, technical, no co-author or AI signature lines. Push only on the owner's explicit word.
+Real work ships from boxes: builds and scans go to subagents, results land back in the ordering box. Pushes and destructive operations follow the terminal-consent rule above. Commits: short, past tense, technical, no co-author or AI signature lines. Commit messages and code comments never name private folder paths, machines, people, or other projects. Push only on the owner's explicit word, typed in the terminal.
 
 ## Headless testing
 
-`probe3.js` (repo root; needs `npm install puppeteer-core` and Chrome) is the page health probe: read-only apart from creating and then deleting its own `__probe box__`. The older `probe.js` was deliberately not ported; it sends junk messages into real boxes. Never point anything like it at a live board.
+`probe3.js` (repo root; needs `npm install puppeteer-core` and Chrome) is the page health probe: read-only apart from creating and then deleting its own probe box. Never point a message-sending script at a live board.
 
-## Owner routing (built 2026-08-05)
+## Owner routing
 
-Two agents share one board: this repo's agent owns the tool-meta boxes (`owner=facilitator`), the the partner project operating agent owns the release-triage boxes (`owner=triage`). Every box carries an owner tag; `/wait?owner=...` claims only that owner's boxes, and each owner has its own busy/claim slot and listener-presence tracking, so the two agents never block or steal from each other. An ownerless `/wait` defaults to triage, so the the partner project agent's pre-routing loop keeps working unmodified. Two meta sections sit on top, tool-meta first, each with its own plus button; user-created boxes inherit the section's owner; the writing indicator and the offline banner name the agent. Pinned meta boxes: `0` (facilitator) and `t0` (triage), neither deletable. Mapping applied to pre-routing boxes: `0` to facilitator, every numbered triage box to triage. Full spec: `../facilitator-internal/port-notes.md` §4.
+Two agents share one board. Every box carries an owner tag: `facilitator` (discussion about this tool, served by this repo's agent) or `triage` (the project under discussion, served by its own agent). `/wait?owner=...` claims only that owner's boxes, and each owner has its own busy slot and listener-presence tracking, so the two agents never block or steal from each other. An ownerless `/wait` defaults to triage. Two meta sections sit on top, tool-meta first, each with its own plus button; user-created boxes inherit the section's owner; the writing indicator and the offline banner name the agent. Pinned meta boxes `0` (facilitator) and `t0` (triage) are not deletable. The two loops, side by side:
 
-The two loops, side by side:
+    timeout 560 curl -s "http://127.0.0.1:8877/wait?owner=facilitator&timeout=540"
+    timeout 560 curl -s "http://127.0.0.1:8877/wait?owner=triage&timeout=540"
 
-    timeout 600 curl -s "http://127.0.0.1:8877/wait?owner=facilitator&timeout=550"   # this repo's agent
-    timeout 600 curl -s "http://127.0.0.1:8877/wait?owner=triage&timeout=550"        # the partner project agent
+## Seeding a board
 
-## Cutover from the the partner project archive (done 2026-08-05)
+A first-ever start (no `state.json`) reads `seed.json` beside the server: the board title plus opening boxes (see `seed.example.json` for the shape). `seed.json` is gitignored because real discussion content is private and never ships in this repo; the example holds invented content only. To start a new project's board: copy the example to `seed.json`, fill in real items, run the server.
 
-The pre-port original is frozen at `~/projects/partner/the-archive/`. Its final `state.json` and `transcript.jsonl` were copied here on the owner's explicit terminal direction (the old server was already down), the repo's server took over port 8877, and box count and ids were verified identical. The archive is never written again; this repo is the only live copy.
+## Bringing everything up
+
+`./facilitator run` starts the server if the port is empty, opens the chromeless app window, and delivers attach instructions to the agent sessions named in `run.config.json` (machine-local and gitignored, since lanes name real directories; see `run.config.example.json`). It never creates new agent sessions unless passed `--spawn`. `./facilitator status` prints a one-line board summary.
