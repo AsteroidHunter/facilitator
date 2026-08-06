@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 """facilitator: board CLI.
 
-  facilitator run [--force] [--dry-run]   start the server, the app window, and
-                                          an agent listener per configured lane
-  facilitator status                      one-line board state
+  facilitator run [--spawn] [--force] [--dry-run]
+      start the server and the app window, then get a listener onto every
+      uncovered lane: an existing tmux session named in the config gets the
+      attach instruction typed into its running claude (send-keys); otherwise
+      the instruction is printed for pasting. NEW sessions are created only
+      with --spawn. --force ignores the lane-covered guard.
+  facilitator status
+      one-line board state
 
 Reads run.config.json beside this script: machine-local and gitignored, since
-lanes name real directories; copy run.config.example.json and fill it in.
-Python stdlib only, like the server.
+lanes name real directories and tmux sessions; copy run.config.example.json
+and fill it in. Python stdlib only, like the server.
 """
 
 import json
@@ -75,10 +80,42 @@ def lane_covered(st, owner):
     return st["listenerGap"].get(owner, 9e9) < 1800
 
 
+def tmux_pane_command(name):
+    """Current foreground command of a tmux session's pane, or None if no session."""
+    if not shutil.which("tmux"):
+        return None
+    r = subprocess.run(["tmux", "display-message", "-p", "-t", name, "#{pane_current_command}"],
+                       capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def instruct(lane, dry):
+    """Type the attach instruction into the lane's EXISTING tmux claude session.
+    Returns True if delivered. Never types into a bare shell."""
+    name, text = lane.get("tmux"), lane["instruction"]
+    if not name:
+        return False
+    cmd = tmux_pane_command(name)
+    if cmd is None:
+        print(f"listener {lane['owner']}: tmux session {name} not found")
+        return False
+    if not (cmd.startswith("claude") or cmd == "node"):
+        print(f"listener {lane['owner']}: tmux {name} is running {cmd!r}, not claude; not typing into it")
+        return False
+    if dry:
+        print(f"listener {lane['owner']}: would send the attach instruction to tmux {name}")
+        return True
+    subprocess.run(["tmux", "send-keys", "-t", name, text], check=True)
+    subprocess.run(["tmux", "send-keys", "-t", name, "Enter"], check=True)
+    print(f"listener {lane['owner']}: instructed the existing claude in tmux {name}")
+    return True
+
+
 def spawn(lane, dry):
+    """Create a FRESH claude session for the lane (only ever on --spawn)."""
     owner, d, prompt = lane["owner"], str(Path(lane["dir"]).expanduser()), lane["prompt"]
     if dry:
-        print(f"listener {owner}: would spawn a claude session in {d}")
+        print(f"listener {owner}: would spawn a NEW claude session in {d}")
         return
     if shutil.which("tmux"):
         name = f"facil-{owner}"
@@ -95,13 +132,14 @@ def spawn(lane, dry):
     subprocess.run(["osascript",
                     "-e", f'tell application "Terminal" to do script "{esc}"',
                     "-e", 'tell application "Terminal" to activate'], check=False)
-    print(f"listener {owner}: spawned ({how})")
+    print(f"listener {owner}: spawned NEW session ({how})")
 
 
 def cmd_run(args):
     cfg = load_config()
     dry = "--dry-run" in args
     force = "--force" in args
+    do_spawn = "--spawn" in args
     ensure_server(cfg["port"], dry)
     open_app(cfg, dry)
     st = state(cfg["port"])
@@ -114,9 +152,16 @@ def cmd_run(args):
                 why = "attached right now"
             else:
                 why = f"heard {round(st['listenerGap'].get(ow, 0) / 60)} min ago"
-            print(f"listener {ow}: lane covered ({why}); skipping. --force spawns anyway")
+            print(f"listener {ow}: lane covered ({why}); skipping. --force overrides")
             continue
-        spawn(lane, dry)
+        if instruct(lane, dry):
+            continue
+        if do_spawn:
+            spawn(lane, dry)
+        else:
+            print(f"listener {ow}: no reachable session. Paste this into the right claude yourself,\n"
+                  f"  or rerun with --spawn to create a fresh session:\n"
+                  f"  {lane['instruction']}")
 
 
 def cmd_status():
