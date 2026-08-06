@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""facilitator: board CLI.
+
+  facilitator run [--force] [--dry-run]   start the server, the app window, and
+                                          an agent listener per configured lane
+  facilitator status                      one-line board state
+
+Reads run.config.json beside this script: machine-local and gitignored, since
+lanes name real directories; copy run.config.example.json and fill it in.
+Python stdlib only, like the server.
+"""
+
+import json
+import shlex
+import shutil
+import subprocess
+import sys
+import time
+import urllib.request
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+CONFIG = HERE / "run.config.json"
+LOG = "/tmp/facilitator-8877.log"
+
+
+def load_config():
+    if not CONFIG.exists():
+        sys.exit(f"no {CONFIG.name} beside the script; copy run.config.example.json and fill in real lanes")
+    return json.loads(CONFIG.read_text())
+
+
+def state(port, timeout=2):
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/state", timeout=timeout) as f:
+            return json.load(f)
+    except OSError:
+        return None
+
+
+def ensure_server(port, dry):
+    if state(port):
+        print(f"server: already up on {port}")
+        return
+    if dry:
+        print(f"server: would start {HERE / 'server.py'}")
+        return
+    subprocess.Popen([sys.executable, str(HERE / "server.py")],
+                     stdout=open(LOG, "ab"), stderr=subprocess.STDOUT,
+                     start_new_session=True)
+    for _ in range(40):
+        if state(port):
+            print(f"server: started on {port} (log: {LOG})")
+            return
+        time.sleep(0.25)
+    sys.exit(f"server failed to come up; see {LOG}")
+
+
+def open_app(cfg, dry):
+    url = cfg.get("app_url") or f"http://127.0.0.1:{cfg['port']}"
+    if dry:
+        print(f"window: would open {url} as a chromeless app window")
+        return
+    subprocess.run(["open", "-na", "Google Chrome", "--args", f"--app={url}"], check=False)
+    print("window: opened")
+
+
+def lane_covered(st, owner):
+    """True when some agent has this lane: attached right now, mid-claim, or
+    heard from within 30 min (between long-poll cycles listening reads false)."""
+    if st is None:
+        return False
+    if st["listening"].get(owner) or st["busy"].get(owner):
+        return True
+    return st["listenerGap"].get(owner, 9e9) < 1800
+
+
+def spawn(lane, dry):
+    owner, d, prompt = lane["owner"], str(Path(lane["dir"]).expanduser()), lane["prompt"]
+    if dry:
+        print(f"listener {owner}: would spawn a claude session in {d}")
+        return
+    if shutil.which("tmux"):
+        name = f"facil-{owner}"
+        if subprocess.run(["tmux", "has-session", "-t", name], capture_output=True).returncode == 0:
+            print(f"listener {owner}: tmux session {name} already exists; attach with: tmux attach -t {name}")
+            return
+        subprocess.run(["tmux", "new-session", "-d", "-s", name, "-c", d, "claude", prompt], check=True)
+        term_cmd = f"tmux attach -t {name}"
+        how = f"tmux {name}"
+    else:
+        term_cmd = f"cd {shlex.quote(d)} && claude {shlex.quote(prompt)}"
+        how = "terminal window"
+    esc = term_cmd.replace("\\", "\\\\").replace('"', '\\"')
+    subprocess.run(["osascript",
+                    "-e", f'tell application "Terminal" to do script "{esc}"',
+                    "-e", 'tell application "Terminal" to activate'], check=False)
+    print(f"listener {owner}: spawned ({how})")
+
+
+def cmd_run(args):
+    cfg = load_config()
+    dry = "--dry-run" in args
+    force = "--force" in args
+    ensure_server(cfg["port"], dry)
+    open_app(cfg, dry)
+    st = state(cfg["port"])
+    for lane in cfg["lanes"]:
+        ow = lane["owner"]
+        if not force and lane_covered(st, ow):
+            if st["busy"].get(ow):
+                why = f"mid-claim on box {st['busy'][ow]}"
+            elif st["listening"].get(ow):
+                why = "attached right now"
+            else:
+                why = f"heard {round(st['listenerGap'].get(ow, 0) / 60)} min ago"
+            print(f"listener {ow}: lane covered ({why}); skipping. --force spawns anyway")
+            continue
+        spawn(lane, dry)
+
+
+def cmd_status():
+    cfg = load_config()
+    st = state(cfg["port"])
+    if st is None:
+        sys.exit(f"server: DOWN (port {cfg['port']})")
+    lanes = ", ".join(
+        f"{ow}: " + ("attached" if st["listening"][ow]
+                     else f"last heard {round(st['listenerGap'][ow] / 60)}m ago")
+        for ow in st["listening"])
+    print(f"server up, {len(st['boxes'])} boxes, {st['queued']} queued"
+          + (", PAUSED" if st.get("paused") else "") + f" | {lanes}")
+
+
+def main():
+    args = sys.argv[1:]
+    cmd = args[0] if args and not args[0].startswith("-") else "run"
+    if cmd == "run":
+        cmd_run(args)
+    elif cmd == "status":
+        cmd_status()
+    else:
+        sys.exit(__doc__.strip())
+
+
+if __name__ == "__main__":
+    main()

@@ -3,6 +3,9 @@
 /state.tmp
 /transcript.jsonl
 
+# machine-local lane config: names real project directories (leak rules)
+/run.config.json
+
 # probe tooling deps, if ever installed beside probe3.js
 /node_modules/
 /package.json

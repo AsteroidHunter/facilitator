@@ -1,0 +1,15 @@
+{
+  "port": 8877,
+  "lanes": [
+    {
+      "owner": "facilitator",
+      "dir": "~/projects/myproject/facilitator",
+      "prompt": "You are the facilitator agent. Read RUNBOOK.md in this directory, then run the listen loop with owner=facilitator and answer box claims per the doctrine. The server is already running; never start a second one."
+    },
+    {
+      "owner": "triage",
+      "dir": "~/projects/myproject",
+      "prompt": "You are the second agent on the discussion board. Read the facilitator repo's RUNBOOK.md, then run the listen loop with owner=triage and answer box claims per the doctrine. Your project context lives in this directory. The server is already running; never start a second one."
+    }
+  ]
+}
