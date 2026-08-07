@@ -193,11 +193,13 @@ class Handler(BaseHTTPRequestHandler):
                     "context": b.get("context", ""),
                     "owner": b.get("owner", "triage"),
                     "pending": len(b["pending"]),
+                    "pendingTexts": [m["text"] for m in b["pending"]],
                     "writing": st["busy"][b.get("owner", "triage")] == b["id"],
                     "queuePos": qpos.get(b["id"], 0),
                 }
                 for b in st["boxes"]
             ],
+            "pwd": str(HERE),
             "busy": st["busy"],
             "queued": len(st["inbox"]),
             "end": st["end"],
