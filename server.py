@@ -51,10 +51,22 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 HERE = Path(__file__).resolve().parent
+
+
+def _lane_dirs() -> dict:
+    """Per-owner project directory from run.config.json (machine-local, gitignored);
+    served to the page for the pwd line, never part of tracked content."""
+    try:
+        cfg = json.loads((HERE / "run.config.json").read_text())
+        return {ln["owner"]: str(Path(ln["dir"]).expanduser())
+                for ln in cfg.get("lanes", []) if ln.get("owner") and ln.get("dir")}
+    except Exception:
+        return {}
 STATE_PATH = HERE / "state.json"
 TRANSCRIPT_PATH = HERE / "transcript.jsonl"
 PORT = 8877
 OWNERS = ("facilitator", "triage")
+_LANE_DIRS = _lane_dirs()
 
 SEED_PATH = HERE / "seed.json"
 
@@ -200,6 +212,7 @@ class Handler(BaseHTTPRequestHandler):
                 for b in st["boxes"]
             ],
             "pwd": str(HERE),
+            "pwds": {**{ow: str(HERE) for ow in OWNERS}, **_LANE_DIRS},
             "busy": st["busy"],
             "queued": len(st["inbox"]),
             "end": st["end"],

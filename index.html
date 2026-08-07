@@ -326,6 +326,20 @@
   }
   .tocadd:hover{color:var(--accent)}
   #toc .toc-bucket{display:flex; align-items:center; gap:6px}
+  .toc-entry.t-sel{background:var(--accent-soft)}
+  /* the card grid's quiet compass: rows are projects, columns their cards */
+  #navpad{display:none}
+  body.focus #navpad{
+    display:flex; flex-direction:column; align-items:center; gap:2px;
+    position:fixed; right:26px; bottom:34px; z-index:5;
+  }
+  #navpad button{
+    font:16px var(--mono); color:#C9BFAE; background:none; border:none;
+    cursor:pointer; padding:2px 6px; line-height:1; transition:color .2s;
+  }
+  #navpad button:hover{color:var(--accent)}
+  #navpad > div{display:flex; gap:14px}
+  @media (max-width:989px){ body.focus #navpad{display:none} }
 </style>
 </head>
 <body class="focus">
@@ -342,6 +356,12 @@
 <nav id="toc"></nav>
 <div id="tocgrip"></div>
 
+<div id="navpad">
+  <button id="nup" title="previous project row">˄</button>
+  <div><button id="nleft" title="previous card">‹</button><button id="nright" title="next card">›</button></div>
+  <button id="ndown" title="next project row">˅</button>
+</div>
+
 <main>
   <div id="pwdline"></div>
   <div id="sections"></div>
@@ -357,16 +377,65 @@ const els = {};       // box id -> {box, reply, meta, ta, send, donebtn, toc, se
 const secEls = {}, tocGroups = {};
 let lastState = null;
 
-// focus mode: one discussion fills the page; the left bar chooses which
+// focus mode: one discussion fills the page. Cards form a grid: each project
+// (owner) is a row, its conversations the columns; arrows walk it, the left
+// bar jumps anywhere directly.
 const FOCUS = document.body.classList.contains("focus");
 let selectedId = localStorage.getItem("selbox") || null;
+const lastSel = {};   // owner -> the card you were on when you left its row
 
-function select(id){
+function select(id, opts){
   if (!els[id]) return;
   selectedId = id; localStorage.setItem("selbox", id);
-  for (const k of Object.keys(els)) els[k].box.classList.toggle("sel", k === id);
-  els[id].ta.focus({ preventScroll: true });
+  const b = lastState?.boxes.find(x => x.id === id);
+  if (b) lastSel[b.owner] = id;
+  for (const k of Object.keys(els)){
+    els[k].box.classList.toggle("sel", k === id);
+    els[k].toc.classList.toggle("t-sel", k === id);
+  }
+  if (opts?.focus) els[id].ta.focus({ preventScroll: true });
+  updatePwd();
   scrollTo({ top: 0, behavior: "instant" });
+}
+
+function updatePwd(st){
+  st = st || lastState;
+  if (!FOCUS || !st) return;
+  const owner = st.boxes.find(x => x.id === selectedId)?.owner;
+  const dir = (st.pwds || {})[owner] || st.pwd || "";
+  const p = document.getElementById("pwdline");
+  if (p.textContent !== dir) p.textContent = dir;
+}
+
+// project rows in fixed order: tool meta on top, the rest as the board lists them
+function rowsOf(state){
+  const owners = [];
+  for (const b of state.boxes) if (!owners.includes(b.owner)) owners.push(b.owner);
+  owners.sort((a, b) => (a === "facilitator" ? -1 : b === "facilitator" ? 1 : 0));
+  return owners;
+}
+
+function nav(dx, dy){
+  if (!FOCUS || !lastState) return;
+  const st = lastState;
+  const cur = st.boxes.find(b => b.id === selectedId) || st.boxes[0];
+  if (!cur) return;
+  if (dy){
+    const owners = rowsOf(st);
+    const oi = Math.min(Math.max(owners.indexOf(cur.owner) + dy, 0), owners.length - 1);
+    const owner = owners[oi];
+    if (owner === cur.owner) return;
+    const row = st.boxes.filter(b => b.owner === owner);
+    if (!row.length) return;
+    const pick = (lastSel[owner] && row.find(b => b.id === lastSel[owner]))
+              || row.find(b => !b.done && !b.parked && !(b.writing || b.pending > 0) && b.ball === "you")
+              || row[0];
+    select(pick.id);
+  } else if (dx){
+    const row = st.boxes.filter(b => b.owner === cur.owner);
+    const i = Math.min(Math.max(row.findIndex(b => b.id === cur.id) + dx, 0), row.length - 1);
+    if (row[i] && row[i].id !== cur.id) select(row[i].id);
+  }
 }
 
 // keep a valid selection: fall back when the selected box is gone or unset
@@ -379,6 +448,7 @@ function applySelection(state){
     selectedId = pick.id; localStorage.setItem("selbox", selectedId);
   }
   for (const k of Object.keys(els)) els[k].box.classList.toggle("sel", k === selectedId);
+  updatePwd(state);
 }
 
 function statusOf(b){
@@ -551,7 +621,7 @@ function landFocus(){
   const fb = localStorage.getItem("focusbox");
   if (fb && els[fb]){
     localStorage.removeItem("focusbox");
-    if (FOCUS){ select(fb); return; }
+    if (FOCUS){ select(fb, { focus: true }); return; }
     els[fb].box.scrollIntoView({ block: "center" });
     els[fb].ta.focus();
   }
@@ -654,7 +724,7 @@ function apply(state){
     if (el.toc){
       el.toc.className = "toc-entry " + (
         b.done ? "t-done" : b.parked ? "t-later" : b.writing ? "t-writing" : b.pending > 0 ? "t-queued" :
-        b.ball === "you" ? "t-you" : "");
+        b.ball === "you" ? "t-you" : "") + (FOCUS && b.id === selectedId ? " t-sel" : "");
       el.toc.querySelector(".tage").textContent = age(b.ts);
     }
   }
@@ -665,10 +735,6 @@ function apply(state){
     if (delta) window.scrollBy({ top: delta, left: 0, behavior: "instant" });
   }
   applySelection(state);
-  if (FOCUS && state.pwd){
-    const p = document.getElementById("pwdline");
-    if (p.textContent !== state.pwd) p.textContent = state.pwd;
-  }
   const dot = document.getElementById("dot");
   const live = document.getElementById("livetext");
   const writingBoxes = state.boxes.filter(x => x.writing);
@@ -747,6 +813,21 @@ async function poll(){
     }
   }
 }
+
+// the grid compass: arrow keys when not typing (Esc leaves the input), and
+// the quiet on-page arrows
+addEventListener("keydown", e => {
+  if (!FOCUS) return;
+  const t = e.target;
+  const typing = t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT");
+  if (typing){ if (e.key === "Escape") t.blur(); return; }
+  const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+  if (d){ e.preventDefault(); nav(d[0], d[1]); }
+});
+document.getElementById("nleft").addEventListener("click", () => nav(-1, 0));
+document.getElementById("nright").addEventListener("click", () => nav(1, 0));
+document.getElementById("nup").addEventListener("click", () => nav(0, -1));
+document.getElementById("ndown").addEventListener("click", () => nav(0, 1));
 
 document.getElementById("pausebtn").addEventListener("click", async () => {
   await fetch("/pause?v=" + (lastState?.paused ? 0 : 1), { method: "POST" }).catch(() => {});
