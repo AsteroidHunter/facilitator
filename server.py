@@ -17,6 +17,10 @@ Endpoints:
                                "…", named later by its first message); ids m1, m2...;
                                owner defaults to facilitator
   POST /delete?box=ID       -> remove a meta box (the standing 0 / t0 included)
+  POST /upload?name=F       -> body = raw image bytes; saves to uploads/ beside the
+                               server (gitignored), returns {"url": "/uploads/..."};
+                               GET /uploads/<file> serves it back
+  GET  /uploads/<file>      -> a previously uploaded image
   POST /end                 -> ask the agent to wrap up once the queue drains
   POST /pause?v=1|0         -> pause / resume both listeners (laptop-close mode):
                                while paused /wait returns {"paused":true} at once
@@ -184,6 +188,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": "unknown owner"})
                 return
             self._wait(timeout, owner)
+        elif url.path.startswith("/uploads/"):
+            p = HERE / "uploads" / Path(url.path).name  # .name strips any traversal
+            ctypes = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                      ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml"}
+            if p.is_file() and p.suffix.lower() in ctypes:
+                self._send(200, p.read_bytes(), ctypes[p.suffix.lower()])
+            else:
+                self._send(404, {"error": "not found"})
         else:
             self._send(404, {"error": "not found"})
 
@@ -288,6 +300,22 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         q = parse_qs(url.query)
         bid = (q.get("box") or [""])[0]
+
+        if url.path == "/upload":  # binary body (dropped image); never decode as text
+            n = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(n) if n else b""
+            if not raw:
+                self._send(400, {"error": "empty upload"})
+                return
+            name = (q.get("name") or ["file"])[0]
+            safe = "".join(c for c in name if c.isalnum() or c in "._-")[-60:] or "file"
+            up = HERE / "uploads"
+            up.mkdir(exist_ok=True)
+            fname = f"{int(time.time() * 1000)}-{safe}"
+            (up / fname).write_bytes(raw)
+            self._send(200, {"url": "/uploads/" + fname})
+            return
+
         text = self._read_body().strip()
 
         with _lock:

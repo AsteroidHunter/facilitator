@@ -9,6 +9,9 @@
 # real seed content: private discussion topics, never committed
 /seed.json
 
+# dropped images: runtime discussion content, never committed
+/uploads/
+
 # probe tooling deps, if ever installed beside probe3.js
 /node_modules/
 /package.json

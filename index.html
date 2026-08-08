@@ -257,9 +257,10 @@
   /* the left bar stays; the right side shows exactly one box, chosen there.
      One shared measure sizes every element in the column; nothing is px-fixed. */
   body.focus{--col:min(42rem, 88vw)}
+  html:has(body.focus), body.focus{overflow:hidden}   /* the page never scrolls, either axis; the reply pane does */
   body.focus main{
     max-width:none; margin:0 0 0 var(--tocw); padding:0 40px;
-    min-height:calc(100vh - 45px);
+    height:calc(100vh - 41px); overflow:hidden;
     display:flex; flex-direction:column; align-items:center;
   }
   @media (max-width:989px){ body.focus main{margin-left:0} }
@@ -304,7 +305,7 @@
     display:flex !important; flex-direction:column; flex:1; min-height:0;
     padding:22px 0 26px;
   }
-  body.focus .box.sel .reply{font-size:15.5px}
+  body.focus .box.sel .reply{font-size:15.5px; overflow-y:auto; min-height:0}
   .pendlist{display:none}
   body.focus .box.sel .pendlist{
     display:block; margin-top:auto; padding-top:16px;
@@ -340,11 +341,45 @@
   #navpad button:hover{color:var(--accent)}
   #navpad > div{display:flex; gap:14px}
   @media (max-width:989px){ body.focus #navpad{display:none} }
+  /* in-app project tabs: the board filtered to one project per tab; labels
+     come from the lane directories at runtime, never from this file. Real tab
+     shapes seated on the bar's bottom edge; the active one opens into the page.
+     Pulling one out is the drag itself: grab a tab and tug it downward. */
+  /* fixed bar height in focus mode: every one-line element centers on the
+     same 23px line, and the tabs seat on the bottom edge with their label
+     lifted onto that exact line (7px pad + 16px line puts its center at 23) */
+  body.focus .bar{height:40px; padding-top:0; padding-bottom:0}
+  body.focus #toc, body.focus #tocgrip{top:41px}
+  body.focus #offline{top:41px}
+  #tabbar{display:none}
+  body.focus #tabbar{
+    display:flex; align-items:center; align-self:center; gap:4px; margin-right:10px;
+  }
+  /* the pill tab: centered in the bar, so its self-centered label
+     lands on the shared text line with equal tight air around the word */
+  .ptab{
+    font:500 13px/16px var(--sans); color:var(--sub);
+    background:transparent; border:1px solid transparent;
+    border-radius:6px; cursor:pointer; user-select:none;
+    height:28px; padding:0 14px;
+  }
+  .ptab:hover{color:var(--ink); background:color-mix(in srgb, var(--paper) 55%, transparent)}
+  .ptab.on{color:var(--ink); background:var(--paper); border-color:var(--line)}
+  .ptab.tearing{opacity:.45}
+  body.focus .name{display:none}
+  .reply .shot, .pendlist .shot{display:block; max-width:100%; border-radius:6px; margin:8px 0}
+  textarea.dropping{border-color:var(--accent) !important}
+  body.focus .box.sel textarea.dropping{background:var(--accent-soft)}
+  /* home, greyed out until it does something */
+  #homeico{display:none}
+  body.focus #homeico{display:flex; align-items:center; color:#C9BFAE}
 </style>
 </head>
 <body class="focus">
 
 <div class="bar">
+  <span id="homeico" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></span>
+  <span id="tabbar"></span>
   <span class="name" id="boardname">facilitator</span>
   <span class="live"><span class="dot" id="dot"></span><span id="livetext">idle</span></span>
   <span class="prog" id="prog"></span>
@@ -384,6 +419,80 @@ const FOCUS = document.body.classList.contains("focus");
 let selectedId = localStorage.getItem("selbox") || null;
 const lastSel = {};   // owner -> the card you were on when you left its row
 
+// project tabs: one owner shown at a time; ?project=owner locks a pulled-out
+// window to that project alone
+const LOCKED = new URLSearchParams(location.search).get("project");
+let activeOwner = LOCKED || localStorage.getItem("activeproj") || "facilitator";
+if (LOCKED) document.body.classList.add("locked");
+
+function labelOf(state, owner){
+  const dir = (state.pwds || {})[owner] || "";
+  return dir.split("/").filter(Boolean).pop() || owner;
+}
+
+function pickInRow(state, owner){
+  const row = state.boxes.filter(b => b.owner === owner);
+  if (!row.length) return null;
+  return (lastSel[owner] && row.find(b => b.id === lastSel[owner]))
+      || row.find(b => !b.done && !b.parked && !(b.writing || b.pending > 0) && b.ball === "you")
+      || row[0];
+}
+
+function setTab(owner){
+  if (LOCKED && owner !== LOCKED) return;
+  activeOwner = owner; localStorage.setItem("activeproj", owner);
+  const pick = lastState && pickInRow(lastState, owner);
+  if (pick) select(pick.id);
+  if (lastState) apply(lastState);   // refilter the bar, outline and counters now
+}
+
+let tabsBuilt = false;
+let tabDrag = null;   // pull-out: tug a tab downward off the bar and it opens as its own window
+function renderTabs(st){
+  if (!FOCUS || !st) return;
+  const bar = document.getElementById("tabbar");
+  const owners = LOCKED ? [LOCKED] : rowsOf(st);
+  if (!tabsBuilt || bar.childElementCount !== owners.length){
+    bar.textContent = "";
+    for (const ow of owners){
+      const t = h("button", "ptab");
+      t.dataset.owner = ow;
+      t.appendChild(h("span", "plabel", labelOf(st, ow)));
+      if (!LOCKED){
+        t.addEventListener("mousedown", e => { tabDrag = { ow, y: e.clientY, pulled: false, el: t }; });
+      }
+      t.addEventListener("click", () => {
+        if (tabDrag?.pulled) return;   // a pull is not a tab switch
+        setTab(ow);
+      });
+      bar.appendChild(t);
+    }
+    tabsBuilt = true;
+  }
+  for (const t of bar.children){
+    t.classList.toggle("on", t.dataset.owner === activeOwner);
+    const lbl = t.querySelector(".plabel");
+    const want = labelOf(st, t.dataset.owner);
+    if (lbl.textContent !== want) lbl.textContent = want;
+  }
+}
+// tearing works like a browser tab: past the threshold the tab dims, and on
+// release the project's own window opens where the cursor let go
+addEventListener("mousemove", e => {
+  if (tabDrag && !tabDrag.pulled && e.clientY - tabDrag.y > 40){
+    tabDrag.pulled = true;
+    tabDrag.el.classList.add("tearing");
+  }
+});
+addEventListener("mouseup", e => {
+  if (tabDrag?.pulled){
+    tabDrag.el.classList.remove("tearing");
+    open(location.pathname + "?project=" + tabDrag.ow, "_blank",
+         "popup=yes,width=1100,height=850,left=" + Math.max(0, e.screenX - 200) + ",top=" + Math.max(0, e.screenY - 20));
+  }
+  setTimeout(() => { tabDrag = null; }, 0);
+});
+
 function select(id, opts){
   if (!els[id]) return;
   selectedId = id; localStorage.setItem("selbox", id);
@@ -422,15 +531,8 @@ function nav(dx, dy){
   if (!cur) return;
   if (dy){
     const owners = rowsOf(st);
-    const oi = Math.min(Math.max(owners.indexOf(cur.owner) + dy, 0), owners.length - 1);
-    const owner = owners[oi];
-    if (owner === cur.owner) return;
-    const row = st.boxes.filter(b => b.owner === owner);
-    if (!row.length) return;
-    const pick = (lastSel[owner] && row.find(b => b.id === lastSel[owner]))
-              || row.find(b => !b.done && !b.parked && !(b.writing || b.pending > 0) && b.ball === "you")
-              || row[0];
-    select(pick.id);
+    const oi = Math.min(Math.max(owners.indexOf(activeOwner) + dy, 0), owners.length - 1);
+    if (owners[oi] !== activeOwner) setTab(owners[oi]);
   } else if (dx){
     const row = st.boxes.filter(b => b.owner === cur.owner);
     const i = Math.min(Math.max(row.findIndex(b => b.id === cur.id) + dx, 0), row.length - 1);
@@ -438,13 +540,16 @@ function nav(dx, dy){
   }
 }
 
-// keep a valid selection: fall back when the selected box is gone or unset
+// keep a valid selection within the active project: fall back when the
+// selected box is gone, unset, or belongs to another tab
 function applySelection(state){
   if (!FOCUS || !state.boxes.length) return;
-  if (!selectedId || !state.boxes.some(b => b.id === selectedId)){
-    const pick = state.boxes.find(b => !b.done && !b.parked && !(b.writing || b.pending > 0) && b.ball === "you")
-              || state.boxes.find(b => !b.done && !b.parked)
-              || state.boxes[0];
+  const pool = state.boxes.filter(b => b.owner === activeOwner);
+  const scope = pool.length ? pool : state.boxes;
+  if (!selectedId || !scope.some(b => b.id === selectedId)){
+    const pick = scope.find(b => !b.done && !b.parked && !(b.writing || b.pending > 0) && b.ball === "you")
+              || scope.find(b => !b.done && !b.parked)
+              || scope[0];
     selectedId = pick.id; localStorage.setItem("selbox", selectedId);
   }
   for (const k of Object.keys(els)) els[k].box.classList.toggle("sel", k === selectedId);
@@ -458,10 +563,15 @@ function statusOf(b){
 
 function h(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 
+// a bare /uploads/... token (a dropped image's home) renders as the image
+function imgify(s){
+  return s.replace(/(^|[\s>])(\/uploads\/[^\s<]+)/g, '$1<img class="shot" src="$2">');
+}
+
 // light formatting: paragraphs on blank lines, dash/numbered lists, **bold**
 function fmt(t){
   const esc = t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const bold = esc.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+  const bold = imgify(esc.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>"));
   return bold.split(/\n\n+/).map(par => {
     const lines = par.split("\n");
     if (lines.length && lines.every(l => /^(- |\d+[.)] )/.test(l))){
@@ -586,6 +696,19 @@ function makeBox(b, i, state){
     }
 
     ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 170) + "px"; });
+    // dropped images upload immediately; their /uploads/ address joins the text
+    ta.addEventListener("dragover", e => { e.preventDefault(); ta.classList.add("dropping"); });
+    ta.addEventListener("dragleave", () => ta.classList.remove("dropping"));
+    ta.addEventListener("drop", async e => {
+      e.preventDefault(); ta.classList.remove("dropping");
+      const files = [...(e.dataTransfer?.files || [])].filter(f => f.type.startsWith("image/"));
+      for (const f of files){
+        const r = await fetch("/upload?name=" + encodeURIComponent(f.name), { method: "POST", body: f })
+          .then(x => x.json()).catch(() => null);
+        if (r?.url) ta.value = (ta.value ? ta.value.trimEnd() + "\n" : "") + r.url + "\n";
+      }
+      ta.dispatchEvent(new Event("input"));
+    });
     ta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); doSend(b.id); } });
     send.addEventListener("click", () => doSend(b.id));
     done.addEventListener("click", e => { e.stopPropagation(); toggleFlag(b.id, "done"); });
@@ -697,7 +820,7 @@ function apply(state){
     if (el.pend.dataset.raw !== pt){
       el.pend.dataset.raw = pt;
       el.pend.innerHTML = (b.pendingTexts || [])
-        .map(t => "<p>" + t.replace(/&/g, "&amp;").replace(/</g, "&lt;") + "</p>").join("");
+        .map(t => "<p>" + imgify(t.replace(/&/g, "&amp;").replace(/</g, "&lt;")) + "</p>").join("");
     }
     el.box.classList.toggle("done", b.done);
     el.box.classList.toggle("parked", !!b.parked);
@@ -725,6 +848,7 @@ function apply(state){
       el.toc.className = "toc-entry " + (
         b.done ? "t-done" : b.parked ? "t-later" : b.writing ? "t-writing" : b.pending > 0 ? "t-queued" :
         b.ball === "you" ? "t-you" : "") + (FOCUS && b.id === selectedId ? " t-sel" : "");
+      el.toc.style.display = (FOCUS && b.owner !== activeOwner) ? "none" : "";
       el.toc.querySelector(".tage").textContent = age(b.ts);
     }
   }
@@ -762,14 +886,19 @@ function apply(state){
       nm.append(em);
     } else nm.textContent = state.title;
   }
-  const doneN = state.boxes.filter(x => x.done).length;
-  const yours = state.boxes.filter(x => !x.done && !x.parked && !(x.writing || x.pending > 0) && x.ball === "you").length;
-  document.getElementById("prog").innerHTML = "<b>" + doneN + "</b>/" + state.boxes.length + " done" +
+  // in focus mode the counters and outline speak for the active tab only
+  const scope = FOCUS ? state.boxes.filter(x => x.owner === activeOwner) : state.boxes;
+  const doneN = scope.filter(x => x.done).length;
+  const yours = scope.filter(x => !x.done && !x.parked && !(x.writing || x.pending > 0) && x.ball === "you").length;
+  document.getElementById("prog").innerHTML = "<b>" + doneN + "</b>/" + scope.length + " done" +
     (yours ? " · " + yours + " await you" : "");
   for (const [key] of SECTIONS){
-    secEls[key].cnt.textContent = state.boxes.filter(x => statusOf(x) === key).length;
-    tocGroups[key].style.display = tocGroups[key].children.length > 1 ? "" : "none";
+    secEls[key].cnt.textContent = scope.filter(x => statusOf(x) === key).length;
+    const visible = [...tocGroups[key].children]
+      .filter(c => c.classList.contains("toc-entry") && c.style.display !== "none").length;
+    tocGroups[key].style.display = visible ? "" : "none";
   }
+  renderTabs(state);
   document.body.classList.toggle("ended", !!state.end);
 
   // listener presence, per agent: each is either long-polling (listening),
@@ -818,6 +947,12 @@ async function poll(){
 // the quiet on-page arrows
 addEventListener("keydown", e => {
   if (!FOCUS) return;
+  if (e.metaKey && /^[1-9]$/.test(e.key) && lastState){   // command+number jumps tabs
+    const owners = LOCKED ? [LOCKED] : rowsOf(lastState);
+    const ow = owners[+e.key - 1];
+    if (ow){ e.preventDefault(); setTab(ow); }
+    return;
+  }
   const t = e.target;
   const typing = t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT");
   if (typing){ if (e.key === "Escape") t.blur(); return; }
