@@ -259,7 +259,7 @@
   body.focus{--col:min(42rem, 88vw)}
   html:has(body.focus), body.focus{overflow:hidden}   /* the page never scrolls, either axis; the reply pane does */
   body.focus main{
-    max-width:none; margin:0 0 0 var(--tocw); padding:0 40px;
+    max-width:none; margin:0 var(--rightw) 0 var(--tocw); padding:0 34px;
     height:calc(100vh - 41px); overflow:hidden;
     display:flex; flex-direction:column; align-items:center;
   }
@@ -322,31 +322,41 @@
   }
   body.focus .box.sel .sendbtn{background:none; color:var(--sub); font-weight:500}
   body.focus .box.sel .sendbtn:hover{background:none; color:var(--accent)}
-  /* ---- focus left column: workspaces / quick chat / terminal ------------ */
-  #leftcol, #pillbar{display:none}
+  /* ---- focus layout: left rail, trio, carousel, right column ------------ */
+  /* Placement per the 20260809 mockup. Sharp corners are intentional. */
+  #leftcol, #rightcol, #rail, #carousel, #taskchip{display:none}
   body.focus #toc{display:none}
-  /* three separate cards with air between them, floating on the page,
-     as drawn: not one fused column */
+  body.focus{--rightw:280px}
   body.focus #leftcol{
-    display:flex; flex-direction:column; gap:14px;
-    position:fixed; left:0; top:41px; bottom:0; width:var(--tocw);
-    padding:16px 12px 16px 16px;
+    display:block; position:fixed; left:0; top:41px; bottom:0; width:var(--tocw);
   }
-  #leftcol section{
+  /* the clock: day, time, date as plain text, upper left */
+  #clockbox{position:absolute; top:26px; left:22px; font:400 20px/1.45 var(--serif)}
+  #ck-time{font-size:24px; font-weight:500}
+  #ck-day, #ck-date{color:var(--sub)}
+  /* workspaces: seamless vertical tabs whose bottom sits on the window's
+     half line; the active row's right end opens into the canvas */
+  body.focus #wsl{
+    position:absolute; left:0; right:0; bottom:50%;
+    display:flex; flex-direction:column; gap:6px; padding-left:14px;
+  }
+  .wsrow{
+    font:500 13px var(--sans); color:var(--sub); background:transparent;
+    border:1px solid var(--line); border-radius:0; padding:7px 12px;
+    cursor:pointer; user-select:none;
+  }
+  .wsrow.on{
+    color:var(--ink); background:var(--paper);
+    border-right:none; margin-right:-1px;   /* the right end merges into the canvas */
+  }
+  /* quick chat below the half line, a sharp card */
+  body.focus #qchat{
+    position:absolute; left:14px; right:12px; top:calc(50% + 14px); bottom:16px;
     display:flex; flex-direction:column; min-height:0;
-    background:var(--card); border:1px solid var(--line); border-radius:4px;
+    background:#fff; border:1px solid var(--line); border-radius:0;
   }
-  #leftcol section#qchat{background:#fff}
-  #wsl{flex:0 0 auto; max-height:32%}
-  #qchat{flex:1 1 0}
-  #leftcol section#term{flex:0 0 26%; background:#1B1813; border-color:#2A2620; overflow:hidden}
   .paneh{font:11px var(--mono); letter-spacing:.09em; text-transform:uppercase;
     color:var(--sub); padding:10px 12px 6px}
-  #term .paneh{color:#8A8272}
-  #wslist{padding:0 10px 10px}
-  .wsrow{font:13px var(--sans); color:var(--ink); border:1px solid var(--line);
-    background:var(--paper); border-radius:4px; padding:6px 10px; margin:0 0 8px}
-  .wsrow.on{border-color:#C9C2F2; background:var(--accent-soft); color:var(--accent)}
   #qmsgs{flex:1; overflow-y:auto; padding:8px 12px; display:flex; flex-direction:column}
   .qrow{display:flex; margin-top:10px}
   .qrow.cont{margin-top:2px}
@@ -373,18 +383,87 @@
   #qcompose button{width:30px; height:30px; flex:none; border:none; border-radius:50%;
     background:var(--accent); color:#fff; font-size:16px; font-weight:700;
     cursor:pointer; padding:0; align-self:flex-end}
-  #termout{flex:1; overflow-y:auto; margin:0; padding:6px 10px 10px;
-    font:10.5px/1.5 var(--mono); color:#C9C2B2; white-space:pre-wrap; word-break:break-all}
-  /* the pill strip: the project's chats as a loading bar, done greens left */
-  body.focus #pillbar{display:flex; align-items:center; gap:3px; width:100%;
-    margin:16px 0 0; padding:9px; background:var(--card);
-    border:1px solid var(--line); border-radius:4px}
-  .pill{flex:1 1 0; min-width:10px; height:20px; border-radius:3px; cursor:pointer;
-    border:1px solid transparent; transition:opacity .15s}
-  .pill.g{background:var(--green); opacity:.75}
-  .pill.r{background:var(--must); opacity:.45}
-  .pill.on{border-color:var(--ink); opacity:1}
-  .pill:hover{opacity:1}
+  /* ---- right column: goal, current task, toggl stub --------------------- */
+  body.focus #rightcol{
+    display:flex; flex-direction:column; gap:14px;
+    position:fixed; right:0; top:41px; bottom:0; width:var(--rightw);
+    padding:26px 22px 16px 8px;
+  }
+  /* ---- the trio: rail, goal box, task box share one visual family ------- */
+  .trio{border:1px solid var(--line); border-radius:0; background:transparent}
+  #goalbox{
+    border-color:#B3372A; color:#B3372A; min-height:52px; position:relative;
+    display:flex; align-items:center; padding:8px 22px;
+    font:500 15px var(--mono); transition:box-shadow .2s, background .2s;
+  }
+  #goalbox.lit{background:#FBEAE6; box-shadow:0 0 0 2px #E8C4B4}
+  #taskbox{
+    color:var(--ink); min-height:44px; position:relative;
+    display:flex; align-items:center; padding:8px 22px;
+    font:400 14px var(--mono);
+  }
+  .trio-text{flex:1; min-width:0; white-space:pre-wrap; word-break:break-word;
+    text-align:center}
+  .trio-text:empty::before{content:attr(data-empty); color:#B4AA99}
+  #goalbox .trio-text:empty::before{color:#D89A8C}
+  .trio-edit{position:absolute; right:4px; top:4px; font:11px var(--mono);
+    color:#C9BFAE; background:none; border:none; cursor:pointer; padding:2px 4px}
+  #taskbox .trio-edit:nth-of-type(2){right:22px}
+  .trio-edit:hover{color:var(--accent)}
+  .trio input{flex:1; font:inherit; color:inherit; background:#fff;
+    border:1px solid var(--line); border-radius:0; padding:4px 6px; outline:none}
+  #togglstub{
+    flex:0 0 36%; margin-top:auto; margin-bottom:5%;
+    border:1px solid var(--line); border-radius:0;
+    display:flex; align-items:center; justify-content:center; text-align:center;
+    font:400 15px var(--mono); color:#B4AA99;
+  }
+  /* ---- the rail: started date, dotted track, red goal dot --------------- */
+  body.focus #rail{
+    display:flex; align-items:center; gap:10px; width:100%;
+    margin:18px 0 0; padding:0 4px; border:none;
+  }
+  #rail-start{font:11px var(--mono); color:var(--sub); flex:none}
+  #rail-line{flex:1; position:relative; height:22px}
+  #rail-line::before{content:""; position:absolute; left:0; right:0; top:50%;
+    height:1px; background:var(--line-strong)}
+  #rail-dots{position:absolute; inset:0; display:flex; align-items:center;
+    justify-content:space-evenly}
+  .dotk{width:11px; height:11px; border-radius:50%; border:1px solid var(--line-strong);
+    background:var(--paper); cursor:pointer; flex:none; transition:transform .15s}
+  .dotk:hover{transform:scale(1.35)}
+  .dotk.done{background:#3E9C54; border-color:#2F6B3C}
+  .dotk.ongoing{background:#E8C337; border-color:#B99B1E}
+  .dotk.pending{background:#D8CFBE; border-color:#B4AA99}
+  .dotk.goal{background:#C0392B; border-color:#8E2A1F}
+  .dotk.sel{box-shadow:0 0 0 3px var(--accent-soft)}
+  #taskchip{margin:8px 0 0; font:12px var(--mono); color:var(--sub)}
+  body.focus #taskchip:not(:empty){display:block}
+  #taskchip button{font:inherit; color:var(--must); background:none; border:none; cursor:pointer}
+  /* ---- the carousel: the workspace's other chats, queued ---------------- */
+  body.focus #carousel{
+    display:flex; gap:14px; width:100%; padding:14px 2px 18px;
+    overflow-x:auto; overscroll-behavior-x:contain; flex:none;
+    justify-content:safe center;
+  }
+  .ccard{
+    flex:0 0 96px; height:120px; position:relative; overflow:hidden;
+    border:1px solid var(--line); border-radius:0; background:var(--card);
+    cursor:pointer; padding:9px 10px; display:flex; flex-direction:column;
+  }
+  .ccard .ct{font:500 12px/1.3 var(--sans); color:var(--ink);
+    display:-webkit-box; -webkit-line-clamp:5; -webkit-box-orient:vertical; overflow:hidden}
+  .ccard .ca{margin-top:auto; font:10.5px var(--mono); color:var(--sub)}
+  .ccard.you{background:#FBF3D9; border-color:#E0C879}   /* agent addressed: yours */
+  .ccard.wait{background:var(--green-bg); border-color:var(--green-line)}  /* answered: theirs */
+  .ccard.donec{background:var(--green-bg); border-color:var(--green-line); opacity:.7}
+  /* the one-shot sweep, adapted from the expediter card's working shimmer:
+     a translating white gradient stripe inside an overflow-hidden overlay */
+  .sweep{position:absolute; inset:0; overflow:hidden; pointer-events:none}
+  .sweep i{position:absolute; inset:0;
+    background:linear-gradient(90deg, transparent 0%, rgba(255,255,255,.6) 50%, transparent 100%);
+    animation:cardsweep 1.1s ease-out 2; will-change:transform}
+  @keyframes cardsweep{0%{transform:translateX(-100%)} 100%{transform:translateX(100%)}}
   .tocadd{
     font:12px var(--mono); color:var(--sub); background:none; border:none;
     cursor:pointer; padding:0 4px; line-height:1;
@@ -417,20 +496,26 @@
   body.focus #offline{top:41px}
   #tabbar{display:none}
   body.focus #tabbar{
-    display:flex; align-items:center; align-self:center; gap:4px; margin-right:10px;
+    display:flex; align-items:flex-end; align-self:flex-end; gap:4px;
+    height:38px; margin-right:10px;
   }
-  /* the pill tab: centered in the bar, so its self-centered label
-     lands on the shared text line with equal tight air around the word */
+  /* seated sharp tabs per the 20260809 mockup: the active one's bottom opens
+     into the canvas */
   .ptab{
     font:500 13px/16px var(--sans); color:var(--sub);
-    background:transparent; border:1px solid transparent;
-    border-radius:6px; cursor:pointer; user-select:none;
-    height:28px; padding:0 14px;
+    background:transparent; border:1px solid transparent; border-bottom:none;
+    border-radius:0; cursor:pointer; user-select:none;
+    position:relative; top:1px;
+    height:38px; padding:0 16px 5px;
   }
-  .ptab:hover{color:var(--ink); background:color-mix(in srgb, var(--paper) 55%, transparent)}
+  .ptab:hover{color:var(--ink)}
   .ptab.on{color:var(--ink); background:var(--paper); border-color:var(--line)}
   .ptab.tearing{opacity:.45}
   body.focus .name{display:none}
+  body.focus #offline{
+    position:fixed; left:50%; bottom:14px; top:auto; transform:translateX(-50%);
+    z-index:20; border:1px solid #E8C4B4; max-width:64ch; border-radius:0;
+  }
   .reply .shot, .pendlist .shot{display:block; max-width:100%; border-radius:6px; margin:8px 0}
   textarea.dropping{border-color:var(--accent) !important}
   body.focus .box.sel textarea.dropping{background:var(--accent-soft)}
@@ -456,8 +541,12 @@
 <div id="tocgrip"></div>
 
 <div id="leftcol">
+  <div id="clockbox" aria-live="off">
+    <div id="ck-day"></div>
+    <div id="ck-time"></div>
+    <div id="ck-date"></div>
+  </div>
   <section id="wsl">
-    <div class="paneh">workspaces</div>
     <div id="wslist"></div>
   </section>
   <section id="qchat">
@@ -465,10 +554,19 @@
     <div id="qmsgs"></div>
     <div id="qcompose"><textarea id="qta" rows="1" placeholder="quick question…"></textarea><button id="qsend" title="send">↑</button></div>
   </section>
-  <section id="term">
-    <div class="paneh">terminal</div>
-    <pre id="termout"></pre>
-  </section>
+</div>
+
+<div id="rightcol">
+  <div id="goalbox" class="trio">
+    <span class="trio-text" id="goaltext"></span>
+    <button class="trio-edit" id="goaledit" title="edit goal">✎</button>
+  </div>
+  <div id="taskbox" class="trio">
+    <span class="trio-text" id="tasktext"></span>
+    <button class="trio-edit" id="taskstatus" title="cycle status">◐</button>
+    <button class="trio-edit" id="taskedit" title="edit task">✎</button>
+  </div>
+  <div id="togglstub">toggl clone,<br>but better</div>
 </div>
 
 <div id="navpad">
@@ -478,9 +576,14 @@
 </div>
 
 <main>
-  <div id="pillbar"></div>
+  <div id="rail" class="trio">
+    <span id="rail-start"></span>
+    <div id="rail-line"><div id="rail-dots"></div></div>
+  </div>
+  <div id="taskchip"></div>
   <div id="pwdline"></div>
   <div id="sections"></div>
+  <div id="carousel"></div>
   <p class="endnote">Session ended. Claude is writing the wrap-up in the terminal — decisions, updated buckets, next steps.</p>
 </main>
 
@@ -616,9 +719,10 @@ function nav(dx, dy){
     const oi = Math.min(Math.max(owners.indexOf(activeOwner) + dy, 0), owners.length - 1);
     if (owners[oi] !== activeOwner) setTab(owners[oi]);
   } else if (dx){
-    const row = st.boxes.filter(b => b.owner === cur.owner);
-    const i = Math.min(Math.max(row.findIndex(b => b.id === cur.id) + dx, 0), row.length - 1);
-    if (row[i] && row[i].id !== cur.id) select(row[i].id);
+    const row = carouselRow(st);
+    if (!row.length) return;
+    const pick = dx > 0 ? row[0] : row[row.length - 1];
+    if (pick) select(pick.id);
   }
 }
 
@@ -982,20 +1086,9 @@ function apply(state){
   }
   renderTabs(state);
   if (FOCUS){
-    const pb = document.getElementById("pillbar");
-    const row = state.boxes.filter(b => b.owner === activeOwner);
-    const ordered = [...row.filter(b => b.done), ...row.filter(b => !b.done)];
-    const sig = ordered.map(b => b.id + (b.done ? "g" : "r") + (b.id === selectedId ? "!" : "")).join(",");
-    if (pb.dataset.sig !== sig){
-      pb.dataset.sig = sig;
-      pb.textContent = "";
-      for (const b of ordered){
-        const p = h("span", "pill " + (b.done ? "g" : "r") + (b.id === selectedId ? " on" : ""));
-        p.title = b.title;
-        p.addEventListener("click", () => select(b.id));
-        pb.appendChild(p);
-      }
-    }
+    renderWorkspaces(state);
+    renderTrio(state);
+    renderCarousel(state);
   }
   document.body.classList.toggle("ended", !!state.end);
 
@@ -1011,6 +1104,185 @@ function apply(state){
       Math.round(state.listenerGap[ow] / 60) + " min ago)").join(", ") +
       ". Messages still queue safely; replies resume when that terminal side wakes.";
     live.textContent = offOwners.length === 2 ? "listeners offline" : NAME[offOwners[0]] + " offline";
+  }
+}
+
+// ---- the clock: day, time, date, plain text, upper left -------------------
+const DAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const MONTHS = ["January","February","March","April","May","June","July",
+                "August","September","October","November","December"];
+const MONTHS3 = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function tickClock(){
+  const n = new Date();
+  let hr = n.getHours();
+  const ap = hr >= 12 ? "PM" : "AM";
+  hr = hr % 12 || 12;
+  document.getElementById("ck-day").textContent = DAYS[n.getDay()];
+  document.getElementById("ck-time").textContent =
+    hr + ":" + String(n.getMinutes()).padStart(2, "0") + " " + ap;
+  document.getElementById("ck-date").textContent =
+    MONTHS[n.getMonth()] + " " + ord(n.getDate());
+}
+
+// ---- workspaces and the trio (rail / goal box / task box) -----------------
+// One class of element: all three render from the same workspace record and
+// post to the same endpoints the agent uses.
+let selectedWs = null;    // workspace within the active project
+let selectedTask = null;  // task picked by clicking its dot
+let taskFilter = null;    // when set, the carousel shows that task's chats
+
+function curWs(state){
+  const list = (state.workspaces || {})[activeOwner] || [];
+  return list.find(w => w.id === selectedWs) || list[0] || null;
+}
+
+async function api(path, body){
+  try { await fetch(path, { method: "POST", body: body || "" }); } catch (e) {}
+  poll();
+}
+
+function renderWorkspaces(state){
+  const el = document.getElementById("wslist");
+  const list = (state.workspaces || {})[activeOwner] || [];
+  const cur = curWs(state);
+  const sig = activeOwner + "|" + list.map(w => w.id + w.name).join(",") + "|" + (cur && cur.id);
+  if (el.dataset.sig === sig) return;
+  el.dataset.sig = sig;
+  el.textContent = "";
+  for (const w of list){
+    const r = h("div", "wsrow" + (cur && w.id === cur.id ? " on" : ""), w.name);
+    r.addEventListener("click", () => { selectedWs = w.id; selectedTask = taskFilter = null; apply(lastState); });
+    el.appendChild(r);
+  }
+}
+
+function fmtStart(ts){
+  if (!ts) return "";
+  const d = new Date(ts * 1000);
+  return MONTHS3[d.getMonth()] + " " + ord(d.getDate());
+}
+
+function taskOf(w, tid){ return w ? w.tasks.find(t => t.id === tid) : null; }
+
+function selectTask(tid){
+  if (selectedTask === tid){ selectedTask = null; taskFilter = null; }
+  else { selectedTask = tid; taskFilter = tid; }
+  if (lastState) apply(lastState);
+}
+
+function renderTrio(state){
+  const w = curWs(state);
+  const dots = document.getElementById("rail-dots");
+  const start = document.getElementById("rail-start");
+  const goalT = document.getElementById("goaltext");
+  const taskT = document.getElementById("tasktext");
+  start.textContent = w ? fmtStart(w.started) : "";
+  goalT.dataset.empty = "goal";
+  taskT.dataset.empty = "current task";
+  if (!goalT.querySelector("input")) goalT.textContent = (w && w.goal) || "";
+  const shown = w && (taskOf(w, selectedTask) || taskOf(w, w.current));
+  if (!taskT.querySelector("input")) taskT.textContent = shown ? shown.text : "";
+  const sig = w ? w.id + "|" + w.tasks.map(t => t.id + t.status).join(",") + "|" + selectedTask : "";
+  if (dots.dataset.sig === sig) return;
+  dots.dataset.sig = sig;
+  dots.textContent = "";
+  if (!w) return;
+  for (const t of w.tasks){
+    const d = h("span", "dotk " + t.status + (t.id === selectedTask ? " sel" : ""));
+    d.title = t.text || "(unnamed task)";
+    d.addEventListener("click", () => selectTask(t.id));
+    dots.appendChild(d);
+  }
+  const g = h("span", "dotk goal");
+  g.title = (w.goal || "the goal") + " (the reason this workspace exists)";
+  g.addEventListener("mouseenter", () => document.getElementById("goalbox").classList.add("lit"));
+  g.addEventListener("mouseleave", () => document.getElementById("goalbox").classList.remove("lit"));
+  dots.appendChild(g);
+  const chip = document.getElementById("taskchip");
+  if (taskFilter && taskOf(w, taskFilter)){
+    chip.textContent = "chats under: " + (taskOf(w, taskFilter).text || "(unnamed)") + "  ";
+    const x = h("button", null, "clear ✕");
+    x.addEventListener("click", () => selectTask(taskFilter));
+    chip.appendChild(x);
+  } else chip.textContent = "";
+}
+
+// inline edit for the trio's texts: swap the span for an input; Enter saves
+function inlineEdit(spanEl, initial, onSave){
+  if (spanEl.querySelector("input")) return;
+  spanEl.textContent = "";
+  const inp = document.createElement("input");
+  inp.value = initial || "";
+  spanEl.appendChild(inp);
+  inp.focus();
+  inp.select();
+  const finish = save => {
+    const v = inp.value.trim();
+    spanEl.textContent = initial || "";
+    if (save) onSave(v);
+  };
+  inp.addEventListener("keydown", e => {
+    if (e.key === "Enter"){ e.preventDefault(); finish(true); }
+    if (e.key === "Escape") finish(false);
+    e.stopPropagation();
+  });
+  inp.addEventListener("blur", () => finish(false));
+}
+
+// ---- the carousel: the workspace's other chats as a queue -----------------
+// Front: chats the agent has addressed (yellow), newest first. Back: chats
+// answered and waiting on the agent (green), the just-answered one last.
+function carouselRow(state){
+  const w = curWs(state);
+  let pool = state.boxes.filter(b =>
+    b.owner === activeOwner && b.id !== "q" && (!w || b.ws === w.id));
+  if (taskFilter) pool = pool.filter(b => b.task === taskFilter);
+  else pool = pool.filter(b => !b.done && !b.parked);
+  pool = pool.filter(b => b.id !== selectedId);
+  const you = pool.filter(b => !b.done && b.ball === "you")
+    .sort((a, b) => (b.agentTs || 0) - (a.agentTs || 0));
+  const wait = pool.filter(b => !b.done && b.ball !== "you")
+    .sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  const done = pool.filter(b => b.done);
+  return [...you, ...wait, ...done];
+}
+
+function relAge(ts){
+  if (!ts) return "no reply yet";
+  const sec = Date.now() / 1000 - ts;
+  if (sec < 60) return "replied just now";
+  if (sec < 3600) return "replied " + Math.floor(sec / 60) + "m ago";
+  if (sec < 86400) return "replied " + Math.floor(sec / 3600) + "h ago";
+  return "replied " + Math.floor(sec / 86400) + "d ago";
+}
+
+const prevBall = {};
+function renderCarousel(state){
+  const car = document.getElementById("carousel");
+  const row = carouselRow(state);
+  const fresh = row.filter(b => !b.done && b.ball !== "you" && prevBall[b.id] === "you")
+                   .map(b => b.id);
+  for (const b of state.boxes) prevBall[b.id] = b.ball;
+  const sig = row.map(b => b.id + b.ball + (b.done ? "d" : "") +
+                      Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",") +
+              "|" + selectedId + "|" + taskFilter;
+  if (car.dataset.sig === sig && !fresh.length) return;
+  car.dataset.sig = sig;
+  car.textContent = "";
+  for (const b of row){
+    const cls = b.done ? "donec" : (b.ball === "you" ? "you" : "wait");
+    const c = h("div", "ccard " + cls);
+    c.appendChild(h("div", "ct", b.title));
+    c.appendChild(h("div", "ca", b.done ? "done" : relAge(b.agentTs)));
+    if (fresh.includes(b.id)){
+      const sw = h("div", "sweep");
+      const stripe = h("i");
+      stripe.addEventListener("animationend", () => sw.remove());
+      sw.appendChild(stripe);
+      c.appendChild(sw);
+    }
+    c.addEventListener("click", () => select(b.id));
+    car.appendChild(c);
   }
 }
 
@@ -1100,9 +1372,6 @@ document.getElementById("endbtn").addEventListener("click", async e => {
   });
 }
 
-// left column: one workspace per project for now
-document.getElementById("wslist").appendChild(h("div", "wsrow on", "main"));
-
 // quick chat: the q box's thread as text-message bubbles, served by journal
 let qSig = "";
 async function pollQ(){
@@ -1146,23 +1415,43 @@ async function doQSend(){
 qsend.addEventListener("click", doQSend);
 qta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); doQSend(); } });
 
-// terminal: live tail of the server log
-let tSig = "";
-async function pollT(){
-  if (!FOCUS) return;
-  try {
-    const r = await (await fetch("/log?lines=120")).json();
-    const txt = r.lines.join("\n");
-    if (txt !== tSig){
-      tSig = txt;
-      const el = document.getElementById("termout");
-      el.textContent = txt;
-      el.scrollTop = el.scrollHeight;
-    }
-  } catch (e) {}
-}
 setInterval(pollQ, 2500); pollQ();
-setInterval(pollT, 3000); pollT();
+
+tickClock();
+setInterval(tickClock, 1000);
+
+document.getElementById("goaledit").addEventListener("click", () => {
+  const w = lastState && curWs(lastState);
+  if (!w) return;
+  inlineEdit(document.getElementById("goaltext"), w.goal,
+    v => api("/ws/goal?owner=" + activeOwner + "&ws=" + w.id, v));
+});
+document.getElementById("taskedit").addEventListener("click", () => {
+  const w = lastState && curWs(lastState);
+  if (!w) return;
+  const t = taskOf(w, selectedTask) || taskOf(w, w.current);
+  if (t) inlineEdit(document.getElementById("tasktext"), t.text,
+    v => api("/ws/task?owner=" + activeOwner + "&ws=" + w.id + "&id=" + t.id, v));
+  else inlineEdit(document.getElementById("tasktext"), "",
+    v => v && api("/ws/task?owner=" + activeOwner + "&ws=" + w.id, v));
+});
+document.getElementById("taskstatus").addEventListener("click", () => {
+  const w = lastState && curWs(lastState);
+  if (!w) return;
+  const t = taskOf(w, selectedTask) || taskOf(w, w.current);
+  if (!t) return;
+  const next = { pending: "ongoing", ongoing: "done", done: "pending" }[t.status] || "ongoing";
+  api("/ws/task?owner=" + activeOwner + "&ws=" + w.id + "&id=" + t.id + "&status=" + next);
+});
+{
+  const car = document.getElementById("carousel");
+  car.addEventListener("wheel", e => {
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)){
+      e.preventDefault();
+      car.scrollLeft += e.deltaY;
+    }
+  }, { passive: false });
+}
 
 poll();
 setInterval(poll, 1200);

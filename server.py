@@ -23,8 +23,14 @@ Endpoints:
   GET  /uploads/<file>      -> a previously uploaded image
   GET  /thread?box=ID&n=N   -> last N user/agent messages of a box from the
                                transcript (the quick-chat panel's history)
-  GET  /log?lines=N         -> tail of the server log file (the terminal panel);
-                               path from $FACILITATOR_LOG
+  GET  /log?lines=N         -> tail of the server log file; path from $FACILITATOR_LOG
+  POST /ws/goal?owner&ws    -> body = the workspace's goal text
+  POST /ws/task?owner&ws[&id][&status][&del=1] -> body = task text; no id creates,
+                               status one of pending|ongoing|done, del removes
+  POST /ws/current?owner&ws&id -> set the workspace's current task
+  POST /assign?box=ID&task=T -> file a chat under a task (empty task unfiles)
+  POST /dismiss?box=ID      -> drop the box's queued messages unanswered (they
+                               stay in the transcript)
   POST /end                 -> ask the agent to wrap up once the queue drains
   POST /pause?v=1|0         -> pause / resume both listeners (laptop-close mode):
                                while paused /wait returns {"paused":true} at once
@@ -157,6 +163,20 @@ def _migrate() -> None:
             "ball": "you", "ts": time.time(), "owner": "journal",
         })
     _state.setdefault("ever_listened", {})
+    # workspaces (2026-08-09): each owner gets at least one, a named collection
+    # of chats aimed at a goal, with a task list the human and agent both edit
+    ws = _state.setdefault("workspaces", {})
+    for ow in OWNERS:
+        if not ws.get(ow):
+            started = min([b.get("ts", time.time()) for b in _state["boxes"]
+                           if b.get("owner") == ow] or [time.time()])
+            ws[ow] = [{"id": "w1", "name": "main", "started": started,
+                       "goal": "", "tasks": [], "current": None}]
+    _state.setdefault("next_tid", 1)
+    for b in _state["boxes"]:
+        b.setdefault("ws", ws[b.get("owner", "triage")][0]["id"])
+        b.setdefault("task", None)
+        b.setdefault("agent_ts", 0)
     _save()
 
 
@@ -176,6 +196,11 @@ def _log(kind: str, box: str, text: str) -> None:
 
 def _box(bid: str) -> dict | None:
     return next((b for b in _state["boxes"] if b["id"] == bid), None)
+
+
+def _ws(owner: str, wid: str) -> dict | None:
+    return next((w for w in _state.get("workspaces", {}).get(owner, [])
+                 if w["id"] == wid), None)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -265,6 +290,8 @@ class Handler(BaseHTTPRequestHandler):
                     "owner": b.get("owner", "triage"),
                     "pending": len(b["pending"]),
                     "pendingTexts": [m["text"] for m in b["pending"]],
+                    "ws": b.get("ws"), "task": b.get("task"),
+                    "agentTs": b.get("agent_ts", 0),
                     "writing": st["busy"][b.get("owner", "triage")] == b["id"],
                     "queuePos": qpos.get(b["id"], 0),
                 }
@@ -279,6 +306,7 @@ class Handler(BaseHTTPRequestHandler):
             "title": st.get("title", "facilitator"),
             "listening": {ow: _waiters[ow] > 0 for ow in OWNERS},
             "everListened": st.get("ever_listened", {}),
+            "workspaces": st.get("workspaces", {}),
             "listenerGap": {ow: round(time.time() - _last_wait[ow], 1) for ow in OWNERS},
         }
 
@@ -400,7 +428,8 @@ class Handler(BaseHTTPRequestHandler):
                 _last_wait[ow] = time.time()  # a reply proves that agent is alive too
                 box["reply"] = text
                 box["replies"] += 1
-                box["ball"] = "you"  # agent replied: awaiting the human
+                box["ball"] = "you"
+                box["agent_ts"] = time.time()  # agent replied: awaiting the human
                 box["ts"] = time.time()
                 claimed = set(_state["claimed"][ow]) if _state["busy"][ow] == bid else set()
                 box["pending"] = [m for m in box["pending"] if m["mid"] not in claimed]
@@ -499,6 +528,88 @@ class Handler(BaseHTTPRequestHandler):
                 _save()
                 _lock.notify_all()
                 self._send(200, {"ok": True})
+
+            elif url.path == "/ws/goal":
+                w = _ws((q.get("owner") or [""])[0], (q.get("ws") or [""])[0])
+                if w is None:
+                    self._send(400, {"error": "unknown workspace"})
+                    return
+                w["goal"] = text
+                _log("goal", w["id"], text)
+                _save()
+                self._send(200, {"ok": True})
+
+            elif url.path == "/ws/task":
+                ow = (q.get("owner") or [""])[0]
+                w = _ws(ow, (q.get("ws") or [""])[0])
+                if w is None:
+                    self._send(400, {"error": "unknown workspace"})
+                    return
+                tid = (q.get("id") or [""])[0]
+                status = (q.get("status") or [""])[0]
+                if not tid:  # create; body names it
+                    tid = f"t{_state['next_tid']}"
+                    _state["next_tid"] += 1
+                    w["tasks"].append({"id": tid, "text": text, "status": "pending"})
+                    _log("task+", tid, text)
+                else:
+                    t = next((t for t in w["tasks"] if t["id"] == tid), None)
+                    if t is None:
+                        self._send(400, {"error": "unknown task"})
+                        return
+                    if (q.get("del") or [""])[0] == "1":
+                        w["tasks"].remove(t)
+                        for b in _state["boxes"]:
+                            if b.get("task") == tid:
+                                b["task"] = None
+                        _log("task-", tid, t["text"])
+                    else:
+                        if status in ("pending", "ongoing", "done"):
+                            t["status"] = status
+                        if text:
+                            t["text"] = text
+                        _log("task", tid, f"{t['status']} {t['text']}")
+                _save()
+                self._send(200, {"ok": True, "id": tid})
+
+            elif url.path == "/ws/current":
+                w = _ws((q.get("owner") or [""])[0], (q.get("ws") or [""])[0])
+                if w is None:
+                    self._send(400, {"error": "unknown workspace"})
+                    return
+                tid = (q.get("id") or [""])[0] or None
+                w["current"] = tid
+                _log("current", tid or "", "")
+                _save()
+                self._send(200, {"ok": True})
+
+            elif url.path == "/assign":
+                box = _box(bid)
+                if box is None:
+                    self._send(400, {"error": "unknown box"})
+                    return
+                box["task"] = (q.get("task") or [""])[0] or None
+                _log("assign", bid, box["task"] or "none")
+                _save()
+                self._send(200, {"ok": True})
+
+            elif url.path == "/dismiss":  # drop a box's queued messages, unanswered
+                box = _box(bid)
+                if box is None:
+                    self._send(400, {"error": "unknown box"})
+                    return
+                n = len(box["pending"])
+                box["pending"] = []
+                if bid in _state["inbox"]:
+                    _state["inbox"].remove(bid)
+                ow = box.get("owner", "triage")
+                if _state["busy"].get(ow) == bid:
+                    _state["busy"][ow] = None
+                    _state["claimed"][ow] = []
+                _log("dismiss", bid, f"{n} queued dropped")
+                _save()
+                _lock.notify_all()
+                self._send(200, {"ok": True, "dropped": n})
 
             elif url.path == "/pause":
                 _state["paused"] = (q.get("v") or ["1"])[0] == "1"
