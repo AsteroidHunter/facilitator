@@ -70,4 +70,4 @@ A first-ever start (no `state.json`) reads `seed.json` beside the server: the bo
 
 ## Bringing everything up
 
-`./facilitator run` starts the server if the port is empty, opens the chromeless app window, and delivers attach instructions to the agent sessions named in `run.config.json` (machine-local and gitignored, since lanes name real directories; see `run.config.example.json`). It never creates new agent sessions unless passed `--spawn`. `./facilitator status` prints a one-line board summary.
+`./facilitator run` starts the server if the port is empty and opens the chromeless app window, nothing else: it never touches tmux by default, and only reports lanes with no listener, printing the attach instruction for pasting. `--attach` types that instruction into the existing tmux sessions named in `run.config.json` (machine-local and gitignored, since lanes name real directories; see `run.config.example.json`); `--spawn` additionally creates new agent sessions where none is reachable. `./facilitator status` prints a one-line board summary.

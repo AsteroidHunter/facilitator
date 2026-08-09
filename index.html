@@ -310,6 +310,7 @@
   body.focus .box.sel .pendlist{
     display:block; margin-top:auto; padding-top:16px;
     font:italic 13.5px/1.5 var(--sans); color:var(--sub);
+    max-height:26vh; overflow-y:auto;   /* a huge paste scrolls here, never shoves the input */
   }
   body.focus .box.sel .pendlist:empty{display:none}
   body.focus .box.sel .pendlist p{margin:0 0 7px}
@@ -321,6 +322,69 @@
   }
   body.focus .box.sel .sendbtn{background:none; color:var(--sub); font-weight:500}
   body.focus .box.sel .sendbtn:hover{background:none; color:var(--accent)}
+  /* ---- focus left column: workspaces / quick chat / terminal ------------ */
+  #leftcol, #pillbar{display:none}
+  body.focus #toc{display:none}
+  /* three separate cards with air between them, floating on the page,
+     as drawn: not one fused column */
+  body.focus #leftcol{
+    display:flex; flex-direction:column; gap:14px;
+    position:fixed; left:0; top:41px; bottom:0; width:var(--tocw);
+    padding:16px 12px 16px 16px;
+  }
+  #leftcol section{
+    display:flex; flex-direction:column; min-height:0;
+    background:var(--card); border:1px solid var(--line); border-radius:4px;
+  }
+  #leftcol section#qchat{background:#fff}
+  #wsl{flex:0 0 auto; max-height:32%}
+  #qchat{flex:1 1 0}
+  #leftcol section#term{flex:0 0 26%; background:#1B1813; border-color:#2A2620; overflow:hidden}
+  .paneh{font:11px var(--mono); letter-spacing:.09em; text-transform:uppercase;
+    color:var(--sub); padding:10px 12px 6px}
+  #term .paneh{color:#8A8272}
+  #wslist{padding:0 10px 10px}
+  .wsrow{font:13px var(--sans); color:var(--ink); border:1px solid var(--line);
+    background:var(--paper); border-radius:4px; padding:6px 10px; margin:0 0 8px}
+  .wsrow.on{border-color:#C9C2F2; background:var(--accent-soft); color:var(--accent)}
+  #qmsgs{flex:1; overflow-y:auto; padding:8px 12px; display:flex; flex-direction:column}
+  .qrow{display:flex; margin-top:10px}
+  .qrow.cont{margin-top:2px}
+  .qrow.me{justify-content:flex-end}
+  .qb{max-width:78%; padding:8px 13px; font:15px/1.35 var(--sans);
+    white-space:pre-wrap; word-break:break-word}
+  .qb.me{background:var(--accent); color:#fff; border-radius:18px 18px 4px 18px}
+  .qb.ag{background:#E9E9EB; color:#111; border-radius:18px 18px 18px 4px}
+  .qrow.cont .qb.me{border-radius:18px 4px 4px 18px}
+  .qrow.cont .qb.ag{border-radius:4px 18px 18px 4px}
+  .qtyping{align-self:flex-start; background:#E9E9EB; border-radius:18px 18px 18px 4px;
+    padding:12px 14px; margin-top:10px; display:flex; gap:4px}
+  .qtyping i{width:7px; height:7px; border-radius:50%; background:#8E8E93;
+    animation:qdot 1.2s infinite}
+  .qtyping i:nth-child(2){animation-delay:.15s}
+  .qtyping i:nth-child(3){animation-delay:.3s}
+  @keyframes qdot{0%,60%,100%{opacity:.35; transform:translateY(0)} 30%{opacity:1; transform:translateY(-3px)}}
+  #qcompose{display:flex; gap:8px; padding:8px 10px; border-top:1px solid #E5E5EA;
+    background:rgba(249,249,249,.94)}
+  #qcompose textarea{flex:1; resize:none; font:15px/1.35 var(--sans); color:#111;
+    background:#fff; border:1px solid #C7C7CC; border-radius:16px; padding:6px 12px;
+    outline:none; max-height:90px}
+  #qcompose textarea:focus{border-color:var(--accent)}
+  #qcompose button{width:30px; height:30px; flex:none; border:none; border-radius:50%;
+    background:var(--accent); color:#fff; font-size:16px; font-weight:700;
+    cursor:pointer; padding:0; align-self:flex-end}
+  #termout{flex:1; overflow-y:auto; margin:0; padding:6px 10px 10px;
+    font:10.5px/1.5 var(--mono); color:#C9C2B2; white-space:pre-wrap; word-break:break-all}
+  /* the pill strip: the project's chats as a loading bar, done greens left */
+  body.focus #pillbar{display:flex; align-items:center; gap:3px; width:100%;
+    margin:16px 0 0; padding:9px; background:var(--card);
+    border:1px solid var(--line); border-radius:4px}
+  .pill{flex:1 1 0; min-width:10px; height:20px; border-radius:3px; cursor:pointer;
+    border:1px solid transparent; transition:opacity .15s}
+  .pill.g{background:var(--green); opacity:.75}
+  .pill.r{background:var(--must); opacity:.45}
+  .pill.on{border-color:var(--ink); opacity:1}
+  .pill:hover{opacity:1}
   .tocadd{
     font:12px var(--mono); color:var(--sub); background:none; border:none;
     cursor:pointer; padding:0 4px; line-height:1;
@@ -391,6 +455,22 @@
 <nav id="toc"></nav>
 <div id="tocgrip"></div>
 
+<div id="leftcol">
+  <section id="wsl">
+    <div class="paneh">workspaces</div>
+    <div id="wslist"></div>
+  </section>
+  <section id="qchat">
+    <div class="paneh">quick chat</div>
+    <div id="qmsgs"></div>
+    <div id="qcompose"><textarea id="qta" rows="1" placeholder="quick question…"></textarea><button id="qsend" title="send">↑</button></div>
+  </section>
+  <section id="term">
+    <div class="paneh">terminal</div>
+    <pre id="termout"></pre>
+  </section>
+</div>
+
 <div id="navpad">
   <button id="nup" title="previous project row">˄</button>
   <div><button id="nleft" title="previous card">‹</button><button id="nright" title="next card">›</button></div>
@@ -398,6 +478,7 @@
 </div>
 
 <main>
+  <div id="pillbar"></div>
   <div id="pwdline"></div>
   <div id="sections"></div>
   <p class="endnote">Session ended. Claude is writing the wrap-up in the terminal — decisions, updated buckets, next steps.</p>
@@ -407,7 +488,7 @@
 const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
                   ["now", "Now"], ["done", "Done"], ["later", "Later"]];
 const METAS = [["toolmeta", "facilitator"], ["triagemeta", "triage"]];
-const NAME = { facilitator: "facilitator agent", triage: "triage agent" };
+const NAME = { facilitator: "facilitator agent", triage: "triage agent", journal: "journal agent" };
 const els = {};       // box id -> {box, reply, meta, ta, send, donebtn, toc, sec}
 const secEls = {}, tocGroups = {};
 let lastState = null;
@@ -519,7 +600,8 @@ function updatePwd(st){
 // project rows in fixed order: tool meta on top, the rest as the board lists them
 function rowsOf(state){
   const owners = [];
-  for (const b of state.boxes) if (!owners.includes(b.owner)) owners.push(b.owner);
+  for (const b of state.boxes)
+    if (b.owner !== "journal" && !owners.includes(b.owner)) owners.push(b.owner);
   owners.sort((a, b) => (a === "facilitator" ? -1 : b === "facilitator" ? 1 : 0));
   return owners;
 }
@@ -899,11 +981,28 @@ function apply(state){
     tocGroups[key].style.display = visible ? "" : "none";
   }
   renderTabs(state);
+  if (FOCUS){
+    const pb = document.getElementById("pillbar");
+    const row = state.boxes.filter(b => b.owner === activeOwner);
+    const ordered = [...row.filter(b => b.done), ...row.filter(b => !b.done)];
+    const sig = ordered.map(b => b.id + (b.done ? "g" : "r") + (b.id === selectedId ? "!" : "")).join(",");
+    if (pb.dataset.sig !== sig){
+      pb.dataset.sig = sig;
+      pb.textContent = "";
+      for (const b of ordered){
+        const p = h("span", "pill " + (b.done ? "g" : "r") + (b.id === selectedId ? " on" : ""));
+        p.title = b.title;
+        p.addEventListener("click", () => select(b.id));
+        pb.appendChild(p);
+      }
+    }
+  }
   document.body.classList.toggle("ended", !!state.end);
 
   // listener presence, per agent: each is either long-polling (listening),
   // composing a claimed reply (busy), or recently between the two. Otherwise: offline.
   const offOwners = state.paused ? [] : Object.keys(NAME).filter(ow =>
+    (state.everListened || {})[ow] &&
     !state.listening[ow] && !state.busy[ow] && state.listenerGap[ow] > 300);
   document.body.classList.toggle("offline", offOwners.length > 0);
   if (offOwners.length){
@@ -1000,6 +1099,70 @@ document.getElementById("endbtn").addEventListener("click", async e => {
     addEventListener("mousemove", move); addEventListener("mouseup", up);
   });
 }
+
+// left column: one workspace per project for now
+document.getElementById("wslist").appendChild(h("div", "wsrow on", "main"));
+
+// quick chat: the q box's thread as text-message bubbles, served by journal
+let qSig = "";
+async function pollQ(){
+  if (!FOCUS) return;
+  try {
+    const r = await (await fetch("/thread?box=q&n=60")).json();
+    const sig = JSON.stringify(r.messages.map(m => m.ts));
+    const writing = !!lastState?.boxes.find(b => b.id === "q")?.writing;
+    if (sig + writing !== qSig){
+      qSig = sig + writing;
+      const qm = document.getElementById("qmsgs");
+      qm.textContent = "";
+      let prev = null;
+      for (const m of r.messages){
+        const side = m.kind === "user" ? "me" : "ag";
+        const row = h("div", "qrow " + side + (prev === m.kind ? " cont" : ""));
+        row.appendChild(h("div", "qb " + side, m.text));
+        qm.appendChild(row);
+        prev = m.kind;
+      }
+      if (writing){
+        const t = h("div", "qtyping");
+        t.append(h("i"), h("i"), h("i"));
+        qm.appendChild(t);
+      }
+      qm.scrollTop = qm.scrollHeight;
+    }
+  } catch (e) {}
+}
+const qta = document.getElementById("qta"), qsend = document.getElementById("qsend");
+async function doQSend(){
+  const t = qta.value.trim();
+  if (!t) return;
+  qsend.disabled = true;
+  try {
+    await fetch("/send?box=q", { method: "POST", body: t });
+    qta.value = "";
+    pollQ();
+  } finally { qsend.disabled = false; }
+}
+qsend.addEventListener("click", doQSend);
+qta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); doQSend(); } });
+
+// terminal: live tail of the server log
+let tSig = "";
+async function pollT(){
+  if (!FOCUS) return;
+  try {
+    const r = await (await fetch("/log?lines=120")).json();
+    const txt = r.lines.join("\n");
+    if (txt !== tSig){
+      tSig = txt;
+      const el = document.getElementById("termout");
+      el.textContent = txt;
+      el.scrollTop = el.scrollHeight;
+    }
+  } catch (e) {}
+}
+setInterval(pollQ, 2500); pollQ();
+setInterval(pollT, 3000); pollT();
 
 poll();
 setInterval(poll, 1200);

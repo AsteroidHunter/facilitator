@@ -21,6 +21,10 @@ Endpoints:
                                server (gitignored), returns {"url": "/uploads/..."};
                                GET /uploads/<file> serves it back
   GET  /uploads/<file>      -> a previously uploaded image
+  GET  /thread?box=ID&n=N   -> last N user/agent messages of a box from the
+                               transcript (the quick-chat panel's history)
+  GET  /log?lines=N         -> tail of the server log file (the terminal panel);
+                               path from $FACILITATOR_LOG
   POST /end                 -> ask the agent to wrap up once the queue drains
   POST /pause?v=1|0         -> pause / resume both listeners (laptop-close mode):
                                while paused /wait returns {"paused":true} at once
@@ -48,6 +52,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -55,6 +60,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 HERE = Path(__file__).resolve().parent
+LOG_PATH = Path(os.environ.get("FACILITATOR_LOG", "/tmp/facilitator-8877.log"))
 
 
 def _lane_dirs() -> dict:
@@ -69,7 +75,7 @@ def _lane_dirs() -> dict:
 STATE_PATH = HERE / "state.json"
 TRANSCRIPT_PATH = HERE / "transcript.jsonl"
 PORT = 8877
-OWNERS = ("facilitator", "triage")
+OWNERS = ("facilitator", "triage", "journal")  # journal: the quick-chat side panel's lane
 _LANE_DIRS = _lane_dirs()
 
 SEED_PATH = HERE / "seed.json"
@@ -114,10 +120,9 @@ def _load() -> None:
         _state = json.loads(STATE_PATH.read_text())
         for b in _state["boxes"]:  # ages start counting from first sight
             b.setdefault("ts", time.time())
-        _migrate()
     else:
         _state = _seed_state()
-        _save()
+    _migrate()
 
 
 def _migrate() -> None:
@@ -140,6 +145,18 @@ def _migrate() -> None:
             "reply": "", "pending": [], "done": False, "parked": False, "replies": 0,
             "ball": "you", "ts": time.time(), "owner": "triage",
         })
+    # a third owner appearing in OWNERS gets its claim slots on upgrade
+    for slot in ("busy", "claimed", "busy_ts"):
+        if isinstance(_state.get(slot), dict):
+            for ow in OWNERS:
+                _state[slot].setdefault(ow, [] if slot == "claimed" else (0.0 if slot == "busy_ts" else None))
+    if _box("q") is None:  # the quick-chat thread, served by the journal lane
+        _state["boxes"].append({
+            "id": "q", "bucket": "meta", "title": "quick chat",
+            "reply": "", "pending": [], "done": False, "parked": False, "replies": 0,
+            "ball": "you", "ts": time.time(), "owner": "journal",
+        })
+    _state.setdefault("ever_listened", {})
     _save()
 
 
@@ -152,6 +169,9 @@ def _save() -> None:
 def _log(kind: str, box: str, text: str) -> None:
     with TRANSCRIPT_PATH.open("a") as f:
         f.write(json.dumps({"ts": time.time(), "kind": kind, "box": box, "text": text}) + "\n")
+    snippet = " ".join(str(text).split())[:80]
+    tag = f"[{box}]" if box else ""
+    print(f"{time.strftime('%H:%M:%S')}  {kind:<7}{tag:<7} {snippet}", flush=True)
 
 
 def _box(bid: str) -> dict | None:
@@ -161,12 +181,15 @@ def _box(bid: str) -> dict | None:
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code: int, payload: dict | bytes, ctype: str = "application/json") -> None:
         body = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # the client hung up mid-response (a timed-out poll); not an error
 
     def _read_body(self) -> str:
         n = int(self.headers.get("Content-Length") or 0)
@@ -188,6 +211,30 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": "unknown owner"})
                 return
             self._wait(timeout, owner)
+        elif url.path == "/thread":
+            qs = parse_qs(url.query)
+            tbid = (qs.get("box") or [""])[0]
+            n = int((qs.get("n") or ["60"])[0])
+            out = []
+            try:
+                with TRANSCRIPT_PATH.open() as f:
+                    for line in f:
+                        try:
+                            e = json.loads(line)
+                        except ValueError:
+                            continue
+                        if e.get("box") == tbid and e.get("kind") in ("user", "agent"):
+                            out.append({"kind": e["kind"], "text": e.get("text", ""), "ts": e.get("ts", 0)})
+            except FileNotFoundError:
+                pass
+            self._send(200, {"messages": out[-n:]})
+        elif url.path == "/log":
+            n = int((parse_qs(url.query).get("lines") or ["120"])[0])
+            try:
+                lines = LOG_PATH.read_text(errors="replace").splitlines()[-n:]
+            except OSError:
+                lines = []
+            self._send(200, {"lines": lines})
         elif url.path.startswith("/uploads/"):
             p = HERE / "uploads" / Path(url.path).name  # .name strips any traversal
             ctypes = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
@@ -231,6 +278,7 @@ class Handler(BaseHTTPRequestHandler):
             "paused": st.get("paused", False),
             "title": st.get("title", "facilitator"),
             "listening": {ow: _waiters[ow] > 0 for ow in OWNERS},
+            "everListened": st.get("ever_listened", {}),
             "listenerGap": {ow: round(time.time() - _last_wait[ow], 1) for ow in OWNERS},
         }
 
@@ -238,6 +286,10 @@ class Handler(BaseHTTPRequestHandler):
         deadline = time.monotonic() + min(timeout, 590)
         with _lock:
             _waiters[owner] += 1
+            ev = _state.setdefault("ever_listened", {})
+            if not ev.get(owner):
+                ev[owner] = True
+                _save()
         try:
             self._wait_inner(deadline, owner)
         finally:
@@ -479,8 +531,15 @@ def main() -> None:
             if b["pending"] and b["id"] not in _state["inbox"]:
                 _state["inbox"].append(b["id"])
         _save()
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print(f"facilitator on http://127.0.0.1:{PORT}")
+    class QuietServer(ThreadingHTTPServer):
+        def handle_error(self, request, client_address):
+            et = sys.exc_info()[0]
+            if et in (BrokenPipeError, ConnectionResetError):
+                return  # dropped connections are routine here, never worth a traceback
+            super().handle_error(request, client_address)
+
+    server = QuietServer(("127.0.0.1", PORT), Handler)
+    print(f"facilitator on http://127.0.0.1:{PORT}, {len(_state['boxes'])} boxes", flush=True)
     server.serve_forever()
 
 

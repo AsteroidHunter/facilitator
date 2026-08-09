@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """facilitator: board CLI.
 
-  facilitator run [--spawn] [--force] [--dry-run]
-      start the server and the app window, then get a listener onto every
-      uncovered lane: an existing tmux session named in the config gets the
-      attach instruction typed into its running claude (send-keys); otherwise
-      the instruction is printed for pasting. NEW sessions are created only
-      with --spawn. --force ignores the lane-covered guard.
+  facilitator run [--attach] [--spawn] [--force] [--dry-run]
+      start the server and the app window. That is all it touches by default:
+      uncovered lanes are only REPORTED, with the attach instruction printed
+      for pasting. --attach types that instruction into the lane's existing
+      tmux claude (send-keys); --spawn additionally creates a fresh session
+      for lanes with no reachable one. --force ignores the lane-covered guard.
   facilitator status
       one-line board state
 
@@ -152,10 +152,14 @@ def spawn(lane, dry):
 
 
 def cmd_run(args):
+    """Server and window only, by default. The CLI never touches tmux unless
+    asked: --attach types the instruction into existing lane sessions, --spawn
+    creates fresh ones. Without either it just reports each lane's state."""
     cfg = load_config()
     dry = "--dry-run" in args
     force = "--force" in args
     do_spawn = "--spawn" in args
+    do_attach = "--attach" in args or do_spawn
     ensure_server(cfg["port"], dry)
     open_app(cfg, dry)
     st = state(cfg["port"])
@@ -168,7 +172,12 @@ def cmd_run(args):
                 why = "attached right now"
             else:
                 why = f"heard {round(st['listenerGap'].get(ow, 0) / 60)} min ago"
-            print(f"listener {ow}: lane covered ({why}); skipping. --force overrides")
+            print(f"listener {ow}: lane covered ({why})")
+            continue
+        if not do_attach:
+            print(f"listener {ow}: not attached. Tell that agent to start listening, or\n"
+                  f"  rerun with --attach to type the instruction into its tmux session:\n"
+                  f"  {lane['instruction']}")
             continue
         if instruct(lane, dry):
             continue
