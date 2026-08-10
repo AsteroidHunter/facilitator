@@ -258,13 +258,32 @@
      One shared measure sizes every element in the column; nothing is px-fixed. */
   body.focus{--col:min(42rem, 88vw)}
   html:has(body.focus), body.focus{overflow:hidden}   /* the page never scrolls, either axis; the reply pane does */
-  body.focus main{
-    max-width:none; margin:0 var(--rightw) 0 var(--tocw); padding:0 34px;
-    height:calc(100vh - 41px); overflow:hidden;
-    display:flex; flex-direction:column; align-items:center;
+  /* the drawn window maps to the area under the bar; every region sits at its
+     exact percentage from the excalidraw file (canvas height var --ch) */
+  body.focus{
+    --bar-h:41px;
+    --ch:calc(100vh - var(--bar-h));   /* the drawn window maps to this canvas */
+    /* geometry lifted from facilitator_inspiration_ui_2.md, one entry per
+       drawn region: x/w as viewport widths, y/h as fractions of the canvas */
+    --clock-x:7.1vw;   --clock-y:0.061;
+    --rail-x:26.5vw;   --rail-w:46vw;    --rail-y:0.06;   --rail-hh:0.07;
+    --chip-y:0.118;
+    --wsl-x:4.2vw;     --side-w:22vw;    --wsl-y:0.284;   --wsl-h:0.183;
+    --qc-x:4.1vw;      --qc-y:0.49;      --qc-h:0.391;
+    --chat-x:33.5vw;   --chat-w:35.2vw;  --chat-y:0.153;  --chat-h:0.618;
+    --car-w:36.3vw;    --car-y:0.815;    --car-h:0.155;
+    --pane-w:7.2vw;    --pane-gap:2.4vw;
+    --goal-x:74vw;     --goal-y:0.051;   --goal-h:0.091;
+    --task-x:74.1vw;   --task-y:0.167;   --task-h:0.154;
+    --tg-x:74.5vw;     --tg-y:0.425;     --tg-h:0.449;
   }
-  @media (max-width:989px){ body.focus main{margin-left:0} }
-  body.focus #sections{width:var(--col); max-width:100%; flex:1; display:flex; flex-direction:column}
+  body.focus main{
+    max-width:none; margin:0; padding:0; overflow:hidden;
+    position:fixed; left:var(--chat-x); width:var(--chat-w);
+    top:calc(var(--bar-h) + var(--ch)*var(--chat-y)); height:calc(var(--ch)*var(--chat-h));
+    display:flex; flex-direction:column; align-items:stretch;
+  }
+  body.focus #sections{width:100%; max-width:100%; flex:1; display:flex; flex-direction:column}
   body.focus #sections > div:not(.bucket){display:contents}
   body.focus .bucket, body.focus .addrow{display:none}
   #pwdline{display:none}
@@ -322,36 +341,37 @@
   }
   body.focus .box.sel .sendbtn{background:none; color:var(--sub); font-weight:500}
   body.focus .box.sel .sendbtn:hover{background:none; color:var(--accent)}
-  /* ---- focus layout: left rail, trio, carousel, right column ------------ */
-  /* Placement per the 20260809 mockup. Sharp corners are intentional. */
+  /* ---- focus layout: regions at their drawn percentages ----------------- */
   #leftcol, #rightcol, #rail, #carousel, #taskchip{display:none}
   body.focus #toc{display:none}
-  body.focus{--rightw:280px}
-  body.focus #leftcol{
-    display:block; position:fixed; left:0; top:41px; bottom:0; width:var(--tocw);
-  }
-  /* the clock: day, time, date as plain text, upper left */
-  #clockbox{position:absolute; top:26px; left:22px; font:400 20px/1.45 var(--serif)}
-  #ck-time{font-size:24px; font-weight:500}
+  body.focus #leftcol, body.focus #rightcol{display:contents}
+  /* the clock: x 7.1%, y 6.1% of the canvas */
+  #clockbox{position:fixed; left:var(--clock-x); top:calc(var(--bar-h) + var(--ch)*var(--clock-y));
+    font:400 19px/1.4 var(--serif)}
+  #ck-time{font-size:23px; font-weight:500}
   #ck-day, #ck-date{color:var(--sub)}
-  /* workspaces: seamless vertical tabs whose bottom sits on the window's
-     half line; the active row's right end opens into the canvas */
+  /* workspaces: a sharp panel at x 4.2%, y 28.4..46.7%, rows flush right,
+     the active row's right border open into the canvas */
   body.focus #wsl{
-    position:absolute; left:0; right:0; bottom:50%;
-    display:flex; flex-direction:column; gap:6px; padding-left:14px;
+    position:fixed; left:var(--wsl-x); width:var(--side-w);
+    top:calc(var(--bar-h) + var(--ch)*var(--wsl-y)); height:calc(var(--ch)*var(--wsl-h));
+    background:var(--card); border:1px solid var(--line); border-radius:0;
+    display:flex; flex-direction:column; gap:5px; padding:6px 0 6px 6px;
+    overflow-y:auto;
   }
   .wsrow{
-    font:500 13px var(--sans); color:var(--sub); background:transparent;
-    border:1px solid var(--line); border-radius:0; padding:7px 12px;
-    cursor:pointer; user-select:none;
+    font:500 12.5px var(--sans); color:var(--sub); background:var(--card);
+    border:1px solid var(--line); border-radius:0; padding:5px 10px;
+    cursor:pointer; user-select:none; margin-right:4px;
   }
   .wsrow.on{
     color:var(--ink); background:var(--paper);
-    border-right:none; margin-right:-1px;   /* the right end merges into the canvas */
+    border-right:none; margin-right:-1px;   /* opens into the canvas, as drawn */
   }
-  /* quick chat below the half line, a sharp card */
+  /* quick chat: x 4.1%, y 49..88.1% */
   body.focus #qchat{
-    position:absolute; left:14px; right:12px; top:calc(50% + 14px); bottom:16px;
+    position:fixed; left:var(--qc-x); width:var(--side-w);
+    top:calc(var(--bar-h) + var(--ch)*var(--qc-y)); height:calc(var(--ch)*var(--qc-h));
     display:flex; flex-direction:column; min-height:0;
     background:#fff; border:1px solid var(--line); border-radius:0;
   }
@@ -383,22 +403,20 @@
   #qcompose button{width:30px; height:30px; flex:none; border:none; border-radius:50%;
     background:var(--accent); color:#fff; font-size:16px; font-weight:700;
     cursor:pointer; padding:0; align-self:flex-end}
-  /* ---- right column: goal, current task, toggl stub --------------------- */
-  body.focus #rightcol{
-    display:flex; flex-direction:column; gap:14px;
-    position:fixed; right:0; top:41px; bottom:0; width:var(--rightw);
-    padding:26px 22px 16px 8px;
-  }
   /* ---- the trio: rail, goal box, task box share one visual family ------- */
   .trio{border:1px solid var(--line); border-radius:0; background:transparent}
   #goalbox{
-    border-color:#B3372A; color:#B3372A; min-height:52px; position:relative;
+    position:fixed; left:var(--goal-x); width:var(--side-w);
+    top:calc(var(--bar-h) + var(--ch)*var(--goal-y)); height:calc(var(--ch)*var(--goal-h));
+    border-color:#940000; color:#940000;
     display:flex; align-items:center; padding:8px 22px;
     font:500 15px var(--mono); transition:box-shadow .2s, background .2s;
   }
   #goalbox.lit{background:#FBEAE6; box-shadow:0 0 0 2px #E8C4B4}
   #taskbox{
-    color:var(--ink); min-height:44px; position:relative;
+    position:fixed; left:var(--task-x); width:var(--side-w);
+    top:calc(var(--bar-h) + var(--ch)*var(--task-y)); height:calc(var(--ch)*var(--task-h));
+    color:var(--ink);
     display:flex; align-items:center; padding:8px 22px;
     font:400 14px var(--mono);
   }
@@ -413,22 +431,25 @@
   .trio input{flex:1; font:inherit; color:inherit; background:#fff;
     border:1px solid var(--line); border-radius:0; padding:4px 6px; outline:none}
   #togglstub{
-    flex:0 0 36%; margin-top:auto; margin-bottom:5%;
+    position:fixed; left:var(--tg-x); width:var(--side-w);
+    top:calc(var(--bar-h) + var(--ch)*var(--tg-y)); height:calc(var(--ch)*var(--tg-h));
     border:1px solid var(--line); border-radius:0;
     display:flex; align-items:center; justify-content:center; text-align:center;
     font:400 15px var(--mono); color:#B4AA99;
   }
   /* ---- the rail: started date, dotted track, red goal dot --------------- */
   body.focus #rail{
-    display:flex; align-items:center; gap:10px; width:100%;
-    margin:18px 0 0; padding:0 4px; border:none;
+    position:fixed; left:var(--rail-x); width:var(--rail-w);
+    top:calc(var(--bar-h) + var(--ch)*var(--rail-y)); height:calc(var(--ch)*var(--rail-hh));
+    display:flex; align-items:center; gap:10px; border:none;
   }
   #rail-start{font:11px var(--mono); color:var(--sub); flex:none}
   #rail-line{flex:1; position:relative; height:22px}
   #rail-line::before{content:""; position:absolute; left:0; right:0; top:50%;
     height:1px; background:var(--line-strong)}
-  #rail-dots{position:absolute; inset:0; display:flex; align-items:center;
-    justify-content:space-evenly}
+  #rail-dots{position:absolute; left:8%; right:26%; top:0; bottom:0;
+    display:flex; align-items:center; justify-content:space-evenly}
+  .dotk.goal{position:absolute; left:calc(100% * 0.87 + 8px)}
   .dotk{width:11px; height:11px; border-radius:50%; border:1px solid var(--line-strong);
     background:var(--paper); cursor:pointer; flex:none; transition:transform .15s}
   .dotk:hover{transform:scale(1.35)}
@@ -437,17 +458,19 @@
   .dotk.pending{background:#D8CFBE; border-color:#B4AA99}
   .dotk.goal{background:#C0392B; border-color:#8E2A1F}
   .dotk.sel{box-shadow:0 0 0 3px var(--accent-soft)}
-  #taskchip{margin:8px 0 0; font:12px var(--mono); color:var(--sub)}
+  #taskchip{position:fixed; left:var(--rail-x); top:calc(var(--bar-h) + var(--ch)*var(--chip-y));
+    font:12px var(--mono); color:var(--sub)}
   body.focus #taskchip:not(:empty){display:block}
   #taskchip button{font:inherit; color:var(--must); background:none; border:none; cursor:pointer}
   /* ---- the carousel: the workspace's other chats, queued ---------------- */
   body.focus #carousel{
-    display:flex; gap:14px; width:100%; padding:14px 2px 18px;
-    overflow-x:auto; overscroll-behavior-x:contain; flex:none;
-    justify-content:safe center;
+    position:fixed; left:var(--chat-x); width:var(--car-w);
+    top:calc(var(--bar-h) + var(--ch)*var(--car-y)); height:calc(var(--ch)*var(--car-h));
+    display:flex; gap:var(--pane-gap); padding:0;
+    overflow-x:auto; overscroll-behavior-x:contain;
   }
   .ccard{
-    flex:0 0 96px; height:120px; position:relative; overflow:hidden;
+    flex:0 0 var(--pane-w); min-width:64px; height:100%; position:relative; overflow:hidden;
     border:1px solid var(--line); border-radius:0; background:var(--card);
     cursor:pointer; padding:9px 10px; display:flex; flex-direction:column;
   }
@@ -1193,11 +1216,13 @@ function renderTrio(state){
     d.addEventListener("click", () => selectTask(t.id));
     dots.appendChild(d);
   }
+  const line = document.getElementById("rail-line");
+  line.querySelector(".dotk.goal")?.remove();
   const g = h("span", "dotk goal");
   g.title = (w.goal || "the goal") + " (the reason this workspace exists)";
   g.addEventListener("mouseenter", () => document.getElementById("goalbox").classList.add("lit"));
   g.addEventListener("mouseleave", () => document.getElementById("goalbox").classList.remove("lit"));
-  dots.appendChild(g);
+  line.appendChild(g);
   const chip = document.getElementById("taskchip");
   if (taskFilter && taskOf(w, taskFilter)){
     chip.textContent = "chats under: " + (taskOf(w, taskFilter).text || "(unnamed)") + "  ";
