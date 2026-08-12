@@ -400,7 +400,9 @@
     border-top:1px solid var(--line); margin-top:var(--sp-xs)}
   body.focus .box.sel textarea{
     background:transparent; border:none !important; box-shadow:none;
-    padding:var(--sp-s) 0; font-size:17px; line-height:1.5;
+    /* the side padding paired with equal negative margin keeps the text flush
+       while giving the block caret room so the edges cannot slice it */
+    padding:var(--sp-s) 4px; margin:0 -4px; font-size:17px; line-height:1.5;
     max-height:calc(var(--ch)*0.28); overflow-y:auto; min-height:44px;
   }
   body.focus .box.sel .sendbtn{background:none; color:var(--sub); font-weight:500}
@@ -1084,7 +1086,6 @@ function makeBox(b, i, state){
     const pend = h("div", "pendlist");   // your still-unanswered messages, dim, above the input
     const compose = h("div", "compose");
     const ta = h("textarea");
-    ta.placeholder = "Reply to this point";
     ta.rows = 1;
     const send = h("button", "sendbtn", "Send");
     compose.append(ta, send);
