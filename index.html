@@ -9,7 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root{
-    --paper:#FBF8F2; --card:#FFFEFB; --ink:#211D17; --sub:#75695A;
+    --paper:#F5F4F1; --card:#FFFFFF; --ink:#211D17; --sub:#75695A;
     --line:#E6DFD2; --line-strong:#D8CFBE;
     --accent:#432BFF; --accent-soft:#EEEBFF;
     --green:#2F6B3C; --green-bg:#EDF4E8; --green-line:#C4D9BB;
@@ -25,7 +25,7 @@
   body{
     margin:0; background:var(--paper); color:var(--ink);
     font:15px/1.55 var(--sans);
-    background-image:radial-gradient(circle at 18% -4%, #FFFDF7 0%, rgba(255,253,247,0) 52%);
+    background-image:radial-gradient(circle at 18% -4%, #FCFCFB 0%, rgba(252,252,251,0) 52%);
   }
 
   /* ---- status bar ------------------------------------------------------- */
@@ -51,6 +51,10 @@
   }
   .endbtn:hover{border-color:var(--must); color:var(--must)}
   .endbtn.arm{border-color:var(--must); color:#fff; background:var(--must)}
+  #bgpick{width:24px; height:20px; padding:0; border:1px solid var(--line-strong);
+    border-radius:4px; background:none; cursor:pointer; flex:none}
+  #bgpick::-webkit-color-swatch-wrapper{padding:2px}
+  #bgpick::-webkit-color-swatch{border:none; border-radius:2px}
   .pausebtn{font:12px var(--mono); color:var(--accent); background:var(--accent-soft);
     border:none; border-radius:4px; padding:4px 12px; cursor:pointer; transition:.2s}
   .pausebtn:hover{background:#E2DCFC}
@@ -111,7 +115,7 @@
 
   /* ---- box -------------------------------------------------------------- */
   .box{
-    background:var(--card); border:1px solid var(--line); border-radius:12px;
+    background:var(--card); border:1px solid var(--line); border-radius:7px;
     margin:0 0 14px; overflow:hidden;
     transition:border-color .35s, background .45s, box-shadow .25s;
     animation:rise .45s cubic-bezier(.2,.7,.3,1) both;
@@ -258,32 +262,53 @@
      One shared measure sizes every element in the column; nothing is px-fixed. */
   body.focus{--col:min(42rem, 88vw)}
   html:has(body.focus), body.focus{overflow:hidden}   /* the page never scrolls, either axis; the reply pane does */
+  body.focus{
+    background-image:radial-gradient(circle, rgba(190,187,180,.40) 1.1px, transparent 1.1px);
+    background-size:var(--grid) var(--grid);
+    background-position:calc(var(--grid)/2) calc(var(--grid)/2);
+  }
+  body.focus.dragging, body.focus.dragging *{cursor:grabbing !important; user-select:none}
   /* the drawn window maps to the area under the bar; every region sits at its
      exact percentage from the excalidraw file (canvas height var --ch) */
   body.focus{
     --bar-h:41px;
-    --ch:calc(100vh - var(--bar-h));   /* the drawn window maps to this canvas */
-    /* geometry lifted from the ui_3 drawing, one entry per drawn region */
-    --clock-x:2.4vw;   --clock-y:0.026;
-    --rail-x:25.5vw;   --rail-w:46.5vw;  --rail-y:0.055;  --rail-hh:0.065;
+    /* the app is a locked-ratio stage, sized to the largest rectangle in the
+       16:10 to 16:9 band that fits the window, centered with neutral margin
+       around it. shape the window however; the app never squishes. */
+    --cw:1440px; --ch:900px;   /* fixed design size; #stage scales to fit */
+    --ox:0px; --oy:0px;
+    /* geometry from the ui_3 drawing, as fractions of the stage */
+    --clock-x:calc(var(--ox) + var(--cw)*0.024);   --clock-y:0.026;
     --chip-y:0.118;
-    --chips-x:4.5vw;   --chips-w:22vw;   --chips-y:0.210; --chips-h:0.048;
-    --tik-x:4.5vw;     --tik-w:21.5vw;   --tik-y:0.254;   --tik-h:0.393;
-    --tik-row:0.056;   --tik-on-w:27.2vw;
-    --m1-x:7.2vw;      --m1-w:21.6vw;    --m1-y:0.709;    --m1-h:0.181;
-    --frame-x:32.4vw;  --frame-w:36.9vw; --frame-y:0.128; --frame-h:0.818;
-    --pad-x:0.8vw;     --pad-y:0.022;
-    --tg-x:74.8vw;     --tg-w:22vw;      --tg-y:0.034;    --tg-h:0.406;
-    --m2-x:73.2vw;     --m2-w:19.8vw;    --m2-y:0.513;    --m2-h:0.25;
-    --goal-x:78.5vw;   --goal-w:19.7vw;  --goal-y:0.825;  --goal-h:0.142;
+    --chips-x:calc(var(--ox) + var(--cw)*0.045);   --chips-w:calc(var(--cw)*0.22);
+    --chips-y:0.210; --chips-h:0.048;
+    --tik-x:calc(var(--ox) + var(--cw)*0.045);     --tik-w:calc(var(--cw)*0.245);
+    --tik-y:0.254;   --tik-h:0.393;
+    --tik-row:0.056; --tik-on-w:calc(var(--cw)*0.272);
+    --m1-x:calc(var(--ox) + var(--cw)*0.072);      --m1-w:calc(var(--cw)*0.216);
+    --m1-y:0.709;    --m1-h:0.181;
+    --frame-x:calc(var(--ox) + var(--cw)*0.324);   --frame-w:calc(var(--cw)*0.369);
+    --frame-y:0.128; --frame-h:0.818;
+    --pad-x:calc(var(--cw)*0.02);  --pad-y:0.008;
+    --tg-x:calc(var(--ox) + var(--cw)*0.748);      --tg-w:calc(var(--cw)*0.22);
+    --tg-y:0.034;    --tg-h:0.406;
+    --m2-x:calc(var(--ox) + var(--cw)*0.732);      --m2-w:calc(var(--cw)*0.198);
+    --m2-y:0.513;    --m2-h:0.25;
+    --goal-x:calc(var(--ox) + var(--cw)*0.785);    --goal-w:calc(var(--cw)*0.197);
+    --goal-y:0.825;  --goal-h:0.142;
+    /* spacing tokens, fractions of the stage, no raw pixels */
+    --sp-xs:calc(var(--ch)*0.005);  --sp-s:calc(var(--ch)*0.0095);
+    --sp-m:calc(var(--ch)*0.0195);  --sp-x:calc(var(--cw)*0.0085);
+    --grid:calc(var(--cw)*0.016);
+    --pane-w:calc(var(--cw)*0.072); --pane-gap:calc(var(--cw)*0.024);
   }
   body.focus main{
     max-width:none; margin:0; overflow:hidden;
     position:fixed; left:var(--frame-x); width:var(--frame-w);
-    top:calc(var(--bar-h) + var(--ch)*var(--frame-y)); height:calc(var(--ch)*var(--frame-h));
-    border:1px solid var(--line-strong); background:var(--card);
+    top:calc(var(--oy) + var(--ch)*var(--frame-y) - 2.5*var(--grid)); height:calc(var(--ch)*var(--frame-h));
+    border:1px solid var(--line-strong); background:#fff; border-radius:7px;
     box-shadow:0 2px 18px rgba(60,45,20,.06);
-    padding:calc(var(--ch)*var(--pad-y)) var(--pad-x);
+    padding:calc(var(--ch)*0.022) var(--pad-x);
     display:flex; flex-direction:column; align-items:stretch;
   }
   body.focus #sections{width:100%; max-width:100%; flex:1; display:flex; flex-direction:column}
@@ -291,8 +316,8 @@
   body.focus .bucket, body.focus .addrow{display:none}
   #pwdline{display:none}
   body.focus #pwdline{
-    display:block; width:var(--col); max-width:100%;
-    font:11.5px var(--mono); color:#B4AA99; padding:26px 0 0;
+    display:block; width:100%;
+    font:11.5px var(--mono); color:#B4AA99; padding:0;
   }
   body.focus .box{display:none}
   body.focus .box.sel{
@@ -300,13 +325,27 @@
     background:transparent !important; border:none !important; box-shadow:none !important;
     animation:none; margin:0; overflow:visible;
   }
-  body.focus .box.sel .head{padding:14px 0 0; flex-wrap:wrap; row-gap:4px}
+  body.focus .box.sel .head{padding:var(--sp-xs) 0 0; flex-wrap:wrap; row-gap:var(--sp-xs)}
+  body.focus .box.sel .turn{display:none !important}
+  body.focus .box.sel{position:static; animation:none}
+  body.focus .box.sel .xbtn{
+    position:absolute; top:9px; right:9px; left:auto; z-index:4;
+    width:16px; height:16px; border-radius:50%;
+    background:#FF9F98; font-size:0; padding:0; border:none;
+  }
+  body.focus .box.sel .xbtn::before, body.focus .box.sel .xbtn::after{
+    content:""; position:absolute; left:50%; top:50%;
+    width:9px; height:1.2px; background:#1e1e1e; border-radius:1px;
+  }
+  body.focus .box.sel .xbtn::before{transform:translate(-50%,-50%) rotate(45deg)}
+  body.focus .box.sel .xbtn::after{transform:translate(-50%,-50%) rotate(-45deg)}
+  body.focus .box.sel .xbtn:hover{background:#F8837A}
   body.focus .box.sel .num{display:none}
   body.focus .box.sel .title{
     order:10; flex:0 0 100%; min-width:0; white-space:normal;
     font:500 30px/1.25 var(--serif); margin-top:8px;
   }
-  body.focus .box.sel .wstat{order:1}
+  body.focus .box.sel .wstat{display:none}
   body.focus .box.sel .turn{order:2}
   body.focus .box.sel .xbtn{order:5; margin-left:auto}
   body.focus .box.sel .parkbtn{order:6}
@@ -318,16 +357,18 @@
   body.focus .box.sel .parkbtn:hover{color:var(--later)}
   body.focus .box.sel .ctx{
     display:block !important; margin:18px 0 0; padding:12px 16px;
-    background:color-mix(in srgb, var(--paper) 55%, #EFE8D8);
-    border:none; border-radius:6px; color:var(--sub); font-size:13.5px;
-    box-shadow:inset 0 1px 5px rgba(60,45,20,.13);
+    background:#FAFAF7; border:1px solid var(--line); border-radius:5px;
+    color:var(--ink); font-size:15px; line-height:1.5; box-shadow:none;
   }
   body.focus .box.sel .ctx:empty{display:none !important}
+  body.focus .box.sel .head, body.focus .box.sel .ctx{flex:none}
   body.focus .box.sel .body{
-    display:flex !important; flex-direction:column; flex:1; min-height:0;
-    padding:22px 0 26px;
+    display:flex !important; flex-direction:column; flex:1 1 0; min-height:0;
+    overflow:hidden;
+    padding:var(--sp-m) 0 0;
   }
-  body.focus .box.sel .reply{font-size:15.5px; overflow-y:auto; min-height:0}
+  body.focus .box.sel .reply{flex:1 1 auto; min-height:calc(var(--ch)*0.08)}
+  body.focus .box.sel .reply{font-size:17px; line-height:1.55; overflow-y:auto; min-height:0}
   .pendlist{display:none}
   body.focus .box.sel .pendlist{
     display:block; margin-top:auto; padding-top:16px;
@@ -337,10 +378,12 @@
   body.focus .box.sel .pendlist:empty{display:none}
   body.focus .box.sel .pendlist p{margin:0 0 7px}
   body.focus .box.sel .pendlist:empty + .compose{margin-top:auto}
-  body.focus .box.sel .compose{padding-bottom:28px; gap:10px}
+  body.focus .box.sel .compose{padding-bottom:0; gap:var(--sp-x);
+    border-top:1px solid var(--line); margin-top:var(--sp-xs)}
   body.focus .box.sel textarea{
     background:transparent; border:none !important; box-shadow:none;
-    padding:10px 0; font-size:15px;
+    padding:var(--sp-s) 0; font-size:17px; line-height:1.5;
+    max-height:calc(var(--ch)*0.28); overflow-y:auto; min-height:44px;
   }
   body.focus .box.sel .sendbtn{background:none; color:var(--sub); font-weight:500}
   body.focus .box.sel .sendbtn:hover{background:none; color:var(--accent)}
@@ -349,15 +392,15 @@
   body.focus #toc, body.focus #tocgrip{display:none}   /* the old outline and its resize grip */
   body.focus #leftcol, body.focus #rightcol{display:contents}
   /* the clock: x 7.1%, y 6.1% of the canvas */
-  #clockbox{position:fixed; left:var(--clock-x); top:calc(var(--bar-h) + var(--ch)*var(--clock-y));
-    font:400 19px/1.4 var(--serif)}
+  #clockbox{position:fixed; left:var(--clock-x); top:calc(var(--oy) + var(--ch)*var(--clock-y));
+    font:500 24px/1.45 var(--mono); color:var(--ink)}
   #rail-add{display:none}   /* not in the ui_3 drawing; tasks come via the agent */
   /* spring-up chips: one per ticket needing eyes; green while its agent works,
      yellow while it awaits input; click jumps to the ticket */
   #chips{position:fixed; left:var(--chips-x); width:var(--chips-w);
-    top:calc(var(--bar-h) + var(--ch)*var(--chips-y));
+    top:calc(var(--oy) + var(--ch)*var(--chips-y));
     height:calc(var(--ch)*var(--chips-h)); overflow:hidden;
-    display:flex; flex-wrap:wrap; gap:5px; align-content:flex-end}
+    display:flex; flex-wrap:wrap; gap:var(--sp-xs); align-content:flex-end}
   .chip.more{background:var(--paper); display:flex; align-items:center;
     justify-content:center; font:9px var(--mono); color:var(--sub)}
   .chip{width:2.6vw; min-width:20px; height:calc(var(--ch)*0.030);
@@ -371,31 +414,50 @@
      toward the chat frame, its right border erased as drawn */
   body.focus #tickets{
     position:fixed; left:var(--tik-x); width:var(--tik-w);
-    top:calc(var(--bar-h) + var(--ch)*var(--tik-y)); height:calc(var(--ch)*var(--tik-h));
-    background:var(--card); border:1px solid var(--line); border-radius:0;
+    top:calc(var(--oy) + var(--ch)*var(--tik-y) - 2*var(--grid));
+    height:calc(var(--ch)*var(--tik-h) + 3*var(--grid));
+    background:#fff; border:1px solid var(--line); border-radius:7px;
     box-shadow:0 1px 10px rgba(60,45,20,.04);
-    padding:calc(var(--ch)*0.012) 0 calc(var(--ch)*0.012) 0.7vw;
-    display:flex; flex-direction:column; gap:calc(var(--ch)*0.007);
-    overflow:visible;
+    display:flex; flex-direction:column; overflow:hidden;
   }
+  #tikhead{flex:none; display:flex; gap:4px; padding:6px 8px; border-bottom:1px solid var(--line)}
+  .tvb{flex:1; font:600 12px var(--mono); color:var(--sub); background:none; border:none;
+    border-radius:5px; padding:6px 0; cursor:pointer; letter-spacing:.04em}
+  .tvb:hover{background:var(--paper)}
+  .tvb.on{color:var(--accent); background:var(--accent-soft)}
+  #tiklist{flex:1; overflow-y:auto; display:flex; flex-direction:column;
+    gap:calc(var(--ch)*0.007);
+    padding:calc(var(--ch)*0.012) 0.6vw calc(var(--ch)*0.012) 0.7vw}
   .trow{
-    position:relative; height:calc(var(--ch)*var(--tik-row)); flex:none;
-    border:none; border-radius:0; background:var(--paper);
-    display:flex; align-items:center; gap:8px; padding:0 12px;
-    margin-right:0.6vw; cursor:pointer; overflow:hidden;
-    transition:background .15s;
+    position:relative; flex:none; height:calc(var(--ch)*0.072);
+    border:1px solid var(--line); border-radius:5px; background:#fff;
+    box-shadow:0 1px 4px rgba(60,45,20,.05);
+    display:flex; flex-direction:column;
+    cursor:pointer; overflow:hidden;
+    transition:border-color .15s;
   }
-  .trow:hover{background:var(--accent-soft)}
+  .trow:hover{border-color:var(--line-strong)}
+  .trowin{display:flex; align-items:center; gap:var(--sp-x); height:100%;
+    padding:0 var(--sp-x)}
+  .ttl{flex:1; min-width:0; font:500 17px/1.3 var(--sans); color:var(--ink);
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden}
+  .tmeta{flex:none; display:flex; flex-direction:column; align-items:flex-end; gap:2px}
+  .tmeta .tage{font:600 12.5px var(--mono); color:var(--sub); font-variant-numeric:tabular-nums;
+    min-height:16px}
+  .tmeta .teng{font:400 10.5px var(--mono); color:#B4AA99}
+  .tnum{flex:none; font:600 13px var(--mono); color:var(--sub);
+    min-width:2.4em; text-align:right}
   .tempty{font:italic 12.5px var(--sans); color:#B4AA99; padding:8px 12px}
   .trow .tt{flex:1; min-width:0; font:500 12.5px/1.25 var(--sans); color:var(--ink);
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   .trow .ta{flex:none; font:10px var(--mono); color:var(--sub)}
-  .trow.working{background:#EAF7E4}
+  .trow.working{background:#F0FAEB; border-color:#C4D9BB}
+  .trow.yours{background:#FFFBE8; border-color:#E8DCAE}
+  .trow.queuedc{background:#EDF0F4; border-color:#CDD4DE}
+  .trow.donec{opacity:.55}
   .trow.on{
-    width:var(--tik-on-w); margin-right:0;
-    background:var(--card); z-index:3;   /* the seamless overhang, as drawn */
-    border:1px solid var(--line); border-right:none;
-    box-shadow:0 2px 10px rgba(60,45,20,.05);
+    border-color:var(--line-strong);
+    box-shadow:0 2px 10px rgba(60,45,20,.08);   /* contained, no overhang */
   }
   /* past capacity the panel contains itself: internal scroll, no overhang */
   body.focus #tickets.scroll{overflow-y:auto; overflow-x:hidden}
@@ -403,15 +465,14 @@
     border-right:1px solid var(--line)}
   .trow.on .tt{font-weight:600}
   /* magic stubs, contents to be explained */
-  #magic1, #magic2{position:fixed; border:1px dashed var(--line-strong); border-radius:0;
+  #magic1, #magic2{position:fixed; border:1px dashed var(--line-strong); border-radius:7px;
+    background:#fff;
     display:flex; align-items:center; justify-content:center;
     font:400 12.5px var(--mono); color:#B4AA99; letter-spacing:.04em}
   #magic1{left:var(--m1-x); width:var(--m1-w);
-    top:calc(var(--bar-h) + var(--ch)*var(--m1-y)); height:calc(var(--ch)*var(--m1-h))}
+    top:calc(var(--oy) + var(--ch)*var(--m1-y)); height:calc(var(--ch)*var(--m1-h))}
   #magic2{left:var(--m2-x); width:var(--m2-w);
-    top:calc(var(--bar-h) + var(--ch)*var(--m2-y)); height:calc(var(--ch)*var(--m2-h))}
-  #ck-time{font-size:23px; font-weight:500}
-  #ck-day, #ck-date{color:var(--sub)}
+    top:calc(var(--oy) + var(--ch)*var(--m2-y)); height:calc(var(--ch)*var(--m2-h))}
   /* workspaces: a sharp panel at x 4.2%, y 28.4..46.7%, rows flush right,
      the active row's right border open into the canvas */
   body.focus #wsl{
@@ -469,8 +530,9 @@
   .trio{border:1px solid var(--line); border-radius:0; background:transparent}
   #goalbox{
     position:fixed; left:var(--goal-x); width:var(--goal-w);
-    top:calc(var(--bar-h) + var(--ch)*var(--goal-y)); height:calc(var(--ch)*var(--goal-h));
-    border-color:#D9A79B; background:#FDF3EF; color:#8E3B2C;
+    overflow:hidden;
+    top:calc(var(--oy) + var(--ch)*var(--goal-y)); height:calc(var(--ch)*var(--goal-h));
+    border-color:#D9A79B; background:#FDF3EF; color:#8E3B2C; border-radius:7px;
     display:flex; align-items:center; padding:8px 22px;
     font:500 15px var(--mono); transition:box-shadow .2s, background .2s;
   }
@@ -483,7 +545,7 @@
     font:400 14px var(--mono);
   }
   .trio-text{flex:1; min-width:0; white-space:pre-wrap; word-break:break-word;
-    text-align:center}
+    text-align:left}
   .trio-text:empty::before{content:attr(data-empty); color:#B4AA99}
   #goalbox .trio-text:empty::before{color:#D89A8C}
   .trio-edit{position:absolute; right:4px; top:4px; font:11px var(--mono);
@@ -492,17 +554,45 @@
   .trio-edit:hover{color:var(--accent)}
   .trio input{flex:1; font:inherit; color:inherit; background:#fff;
     border:1px solid var(--line); border-radius:0; padding:4px 6px; outline:none}
-  #togglstub{
+  #togglstub{display:none}   /* the to-do box takes this region; toggl comes later */
+  #todobox{display:none}
+  body.focus #todobox{
     position:fixed; left:var(--tg-x); width:var(--tg-w);
-    top:calc(var(--bar-h) + var(--ch)*var(--tg-y)); height:calc(var(--ch)*var(--tg-h));
-    border:1px dashed var(--line-strong); border-radius:0;
-    display:flex; align-items:center; justify-content:center; text-align:center;
-    font:400 12.5px var(--mono); color:#B4AA99; letter-spacing:.04em;
+    top:calc(var(--oy) + var(--ch)*var(--tg-y)); height:calc(var(--ch)*var(--tg-h));
+    background:#fff; border:1px solid var(--line); border-radius:7px;
+    box-shadow:0 1px 10px rgba(60,45,20,.04);
+    display:flex; flex-direction:column; overflow:hidden;
   }
+  #todolist{flex:1; overflow-y:auto; padding:var(--sp-s) 0}
+  .todorow{display:flex; align-items:center; gap:var(--sp-x);
+    padding:var(--sp-xs) var(--sp-x); cursor:pointer}
+  .todorow:hover{background:var(--accent-soft)}
+  .todorow.sel{background:var(--accent-soft)}
+  .tdot{width:11px; height:11px; border-radius:50%; flex:none; cursor:pointer;
+    border:1px solid var(--line-strong); background:#E9ECEF}
+  .todorow.done .tdot{background:#59D624; border-color:#3E9C1B}
+  .todorow.ongoing .tdot{background:#FFD43B; border-color:#C9A21E}
+  .tdtext{flex:1; min-width:0; font:400 13.5px/1.35 var(--sans); color:var(--ink);
+    word-break:break-word}
+  .todorow.done .tdtext{color:var(--sub); text-decoration:line-through}
+  .tdx{flex:none; font:12px var(--mono); color:transparent; background:none;
+    border:none; cursor:pointer; padding:0 2px}
+  .todorow:hover .tdx{color:#B4AA99}
+  .tdx:hover{color:var(--must) !important}
+  #todoadd{border:none; border-top:1px solid var(--line); outline:none;
+    font:400 13.5px var(--sans); color:var(--ink); background:var(--paper);
+    padding:var(--sp-s) var(--sp-x)}
+  #todoadd::placeholder{color:#B4AA99}
+  /* selecting a task highlights its chats in the left box */
+  .trow.match{background:var(--accent-soft); border-color:#C9C2F2}
   /* ---- the rail: started date, dotted track, red goal dot --------------- */
   body.focus #rail{
-    position:fixed; left:var(--rail-x); width:var(--rail-w);
-    top:calc(var(--bar-h) + var(--ch)*var(--rail-y)); height:calc(var(--ch)*var(--rail-hh));
+    position:fixed;
+    /* under the chat card and exactly as wide as its content */
+    left:calc(var(--frame-x) + var(--pad-x));
+    width:calc(var(--frame-w) - 2*var(--pad-x));
+    top:calc(var(--oy) + var(--ch)*(var(--frame-y) + var(--frame-h)) - 2.5*var(--grid) + 2*var(--grid));
+    height:18px;
     display:flex; align-items:center; gap:10px; border:none;
   }
   #rail-start{font:11px var(--mono); color:var(--sub); flex:none}
@@ -511,7 +601,8 @@
     height:1px; background:var(--line-strong)}
   #rail-dots{position:absolute; left:8%; right:26%; top:0; bottom:0;
     display:flex; align-items:center; justify-content:space-evenly}
-  .dotk.goal{position:absolute; left:calc(100% * 0.87 + 8px)}
+  #rail-line > .dotk.goal{position:absolute; right:0; left:auto;
+    top:calc(50% - max(9px, 0.72vw)/2); border-radius:0}   /* square, at the line's very end */
   .dotk{width:max(9px, 0.72vw); height:max(9px, 0.72vw); border-radius:50%;
     border:1px solid var(--line-strong);
     background:var(--paper); cursor:pointer; flex:none; transition:transform .15s}
@@ -521,7 +612,7 @@
   .dotk.pending{background:#E9ECEF; border-color:#B4AA99}
   .dotk.goal{background:#C0392B; border-color:#8E2A1F}
   .dotk.sel{box-shadow:0 0 0 3px var(--accent-soft)}
-  #taskchip{position:fixed; left:var(--rail-x); top:calc(var(--bar-h) + var(--ch)*var(--chip-y));
+  #taskchip{position:fixed; left:var(--rail-x); top:calc(var(--oy) + var(--ch)*var(--chip-y));
     font:12px var(--mono); color:var(--sub)}
   body.focus #taskchip:not(:empty){display:block}
   #taskchip button{font:inherit; color:var(--must); background:none; border:none; cursor:pointer}
@@ -563,6 +654,14 @@
     cursor:pointer; padding:2px 6px; line-height:1; transition:color .2s;
   }
   #navpad button:hover{color:var(--accent)}
+  #chips, #navpad, #offline{display:none !important}
+  /* the stage: the whole app at a fixed 1440x900, scaled as one piece to fit
+     any window shape, centered, so nothing ever distorts or overflows */
+  #stage{display:none}
+  body.focus #stage{
+    display:block; position:fixed; left:0; top:var(--bar-h);
+    width:var(--cw); height:var(--ch); transform-origin:top left; z-index:1;
+  }
   /* regions absent from the ui_3 drawing stay dormant regardless of their
      own rule bodies */
   body.focus #wsl, body.focus #qchat, body.focus #taskbox,
@@ -618,6 +717,7 @@
   <span class="name" id="boardname">facilitator</span>
   <span class="live"><span class="dot" id="dot"></span><span id="livetext">idle</span></span>
   <span class="prog" id="prog"></span>
+  <input type="color" id="bgpick" title="background color (temporary)" value="#F5F4F1">
   <button class="pausebtn" id="pausebtn">pause listeners</button>
   <button class="endbtn" id="endbtn">End session</button>
 </div>
@@ -626,6 +726,7 @@
 <nav id="toc"></nav>
 <div id="tocgrip"></div>
 
+<div id="stage">
 <div id="leftcol">
   <div id="clockbox" aria-live="off">
     <div id="ck-day"></div>
@@ -656,9 +757,13 @@
 </div>
 
 <div id="chips"></div>
-<div id="tickets"></div>
+<div id="tickets"><div id="tikhead"><button id="tv-todo" class="tvb on">to-do</button><button id="tv-done" class="tvb">done</button></div><div id="tiklist"></div></div>
 <div id="magic1">magic box 1</div>
 <div id="magic2">magic box 2</div>
+<div id="todobox">
+  <div id="todolist"></div>
+  <input id="todoadd" placeholder="add a to-do…">
+</div>
 
 <div id="navpad">
   <button id="nup" title="previous project row">˄</button>
@@ -677,6 +782,7 @@
   <div id="carousel"></div>
   <p class="endnote">Session ended. Claude is writing the wrap-up in the terminal — decisions, updated buckets, next steps.</p>
 </main>
+</div>
 
 <script>
 const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
@@ -718,6 +824,7 @@ function setTab(owner){
   activeOwner = owner; localStorage.setItem("activeproj", owner);
   const pick = lastState && pickInRow(lastState, owner);
   if (pick) select(pick.id);
+  applySavedLayout();
   if (lastState) apply(lastState);   // refilter the bar, outline and counters now
 }
 
@@ -800,7 +907,7 @@ function rowsOf(state){
   return owners;
 }
 
-function nav(dx, dy){
+function nav(dx, dy, opts){
   if (!FOCUS || !lastState) return;
   const st = lastState;
   const cur = st.boxes.find(b => b.id === selectedId) || st.boxes[0];
@@ -810,10 +917,11 @@ function nav(dx, dy){
     const oi = Math.min(Math.max(owners.indexOf(activeOwner) + dy, 0), owners.length - 1);
     if (owners[oi] !== activeOwner) setTab(owners[oi]);
   } else if (dx){
-    const row = carouselRow(st);
-    if (!row.length) return;
-    const pick = dx > 0 ? row[0] : row[row.length - 1];
-    if (pick) select(pick.id);
+    const pool = poolOf(st);
+    if (!pool.length) return;
+    const i = pool.findIndex(b => b.id === selectedId);
+    const pick = pool[(i + dx + pool.length) % pool.length];
+    if (pick) select(pick.id, opts);
   }
 }
 
@@ -945,6 +1053,7 @@ function makeBox(b, i, state){
     const reply = h("div", "reply");
     reply.dataset.raw = b.reply;
     reply.innerHTML = fmt(b.reply);
+    reply.addEventListener("animationend", () => reply.classList.remove("fresh"));
     const meta = h("div", "meta");
     const pend = h("div", "pendlist");   // your still-unanswered messages, dim, above the input
     const compose = h("div", "compose");
@@ -972,7 +1081,7 @@ function makeBox(b, i, state){
       tocGroups[sec].appendChild(entry);
     }
 
-    ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 170) + "px"; });
+    ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; });   // CSS max-height caps it
     // dropped images upload immediately; their /uploads/ address joins the text
     ta.addEventListener("dragover", e => { e.preventDefault(); ta.classList.add("dropping"); });
     ta.addEventListener("dragleave", () => ta.classList.remove("dropping"));
@@ -1180,6 +1289,7 @@ function apply(state){
     renderWorkspaces(state);
     renderTrio(state);
     renderCarousel(state);
+    renderTodos(state);
   }
   document.body.classList.toggle("ended", !!state.end);
 
@@ -1210,7 +1320,8 @@ function tickClock(){
   hr = hr % 12 || 12;
   document.getElementById("ck-day").textContent = DAYS[n.getDay()];
   document.getElementById("ck-time").textContent =
-    hr + ":" + String(n.getMinutes()).padStart(2, "0") + " " + ap;
+    hr + ":" + String(n.getMinutes()).padStart(2, "0") + ":" +
+    String(n.getSeconds()).padStart(2, "0") + " " + ap;
   document.getElementById("ck-date").textContent =
     MONTHS[n.getMonth()] + " " + ord(n.getDate());
 }
@@ -1220,6 +1331,7 @@ function tickClock(){
 // post to the same endpoints the agent uses.
 let selectedWs = null;    // workspace within the active project
 let selectedTask = null;  // task picked by clicking its dot
+let ticketView = "todo";  // left panel tab: to-do | done
 let taskFilter = null;    // when set, the carousel shows that task's chats
 
 function curWs(state){
@@ -1256,8 +1368,8 @@ function fmtStart(ts){
 function taskOf(w, tid){ return w ? w.tasks.find(t => t.id === tid) : null; }
 
 function selectTask(tid){
-  if (selectedTask === tid){ selectedTask = null; taskFilter = null; }
-  else { selectedTask = tid; taskFilter = tid; }
+  selectedTask = selectedTask === tid ? null : tid;
+  taskFilter = null;   // selection highlights chats now, never filters them
   if (lastState) apply(lastState);
 }
 
@@ -1291,13 +1403,7 @@ function renderTrio(state){
   g.addEventListener("mouseenter", () => document.getElementById("goalbox").classList.add("lit"));
   g.addEventListener("mouseleave", () => document.getElementById("goalbox").classList.remove("lit"));
   line.appendChild(g);
-  const chip = document.getElementById("taskchip");
-  if (taskFilter && taskOf(w, taskFilter)){
-    chip.textContent = "chats under: " + (taskOf(w, taskFilter).text || "(unnamed)") + "  ";
-    const x = h("button", null, "clear ✕");
-    x.addEventListener("click", () => selectTask(taskFilter));
-    chip.appendChild(x);
-  } else chip.textContent = "";
+  document.getElementById("taskchip").textContent = "";
 }
 
 // inline edit for the trio's texts: swap the span for an input; Enter saves
@@ -1325,12 +1431,21 @@ function inlineEdit(spanEl, initial, onSave){
 // ---- the carousel: the workspace's other chats as a queue -----------------
 // Front: chats the agent has addressed (yellow), newest first. Back: chats
 // answered and waiting on the agent (green), the just-answered one last.
+function poolOf(state){
+  const w = curWs(state);
+  return state.boxes.filter(b =>
+    b.owner === activeOwner && b.id !== "q" && (!w || b.ws === w.id))
+    .sort((a, b) => {
+      const g = x => x.done ? 2 : (x.ball === "you" ? 0 : 1);
+      if (g(a) !== g(b)) return g(a) - g(b);
+      if (g(a) === 1) return (a.ts || 0) - (b.ts || 0);   // just-answered sinks to the bottom
+      return (b.agentTs || 0) - (a.agentTs || 0);          // newest agent reply on top
+    });
+}
+
 function carouselRow(state){
   const w = curWs(state);
-  let pool = state.boxes.filter(b =>
-    b.owner === activeOwner && b.id !== "q" && (!w || b.ws === w.id));
-  if (taskFilter) pool = pool.filter(b => b.task === taskFilter);
-  else pool = pool.filter(b => !b.done && !b.parked);
+  const pool = poolOf(state);
   pool = pool.filter(b => b.id !== selectedId);
   const you = pool.filter(b => !b.done && b.ball === "you")
     .sort((a, b) => (b.agentTs || 0) - (a.agentTs || 0));
@@ -1349,6 +1464,42 @@ function relAge(ts){
   return "replied " + Math.floor(sec / 86400) + "d ago";
 }
 
+// the to-do box: same list as the rail's dots, earliest at the top, the ones
+// nearer the goal at the bottom; either side can add, edit, cycle, or remove
+function renderTodos(state){
+  const list = document.getElementById("todolist");
+  const w = curWs(state);
+  const sig = w ? w.id + "|" + w.tasks.map(t => t.id + t.status + t.text).join(",") + "|" + selectedTask : "";
+  if (list.dataset.sig === sig) return;
+  list.dataset.sig = sig;
+  list.textContent = "";
+  if (!w) return;
+  for (const t of w.tasks){
+    const row = h("div", "todorow " + t.status + (t.id === selectedTask ? " sel" : ""));
+    const dot = h("span", "tdot");
+    dot.title = "click to cycle status";
+    dot.addEventListener("click", e => {
+      e.stopPropagation();
+      const next = { pending: "ongoing", ongoing: "done", done: "pending" }[t.status] || "ongoing";
+      api("/ws/task?owner=" + activeOwner + "&ws=" + w.id + "&id=" + t.id + "&status=" + next);
+    });
+    const txt = h("span", "tdtext", t.text || "(unnamed)");
+    txt.addEventListener("dblclick", e => {
+      e.stopPropagation();
+      inlineEdit(txt, t.text, v => v && api("/ws/task?owner=" + activeOwner + "&ws=" + w.id + "&id=" + t.id, v));
+    });
+    const x = h("button", "tdx", "✕");
+    x.title = "remove this to-do";
+    x.addEventListener("click", e => {
+      e.stopPropagation();
+      api("/ws/task?owner=" + activeOwner + "&ws=" + w.id + "&id=" + t.id + "&del=1");
+    });
+    row.append(dot, txt, x);
+    row.addEventListener("click", () => selectTask(t.id));
+    list.appendChild(row);
+  }
+}
+
 const prevBall = {};
 function shortAge(ts){
   if (!ts) return "";
@@ -1359,30 +1510,35 @@ function shortAge(ts){
   return Math.floor(sec / 86400) + "d";
 }
 function renderCarousel(state){
-  const tik = document.getElementById("tickets");
+  const tik = document.getElementById("tiklist");
   const chips = document.getElementById("chips");
   const w = curWs(state);
-  let pool = state.boxes.filter(b =>
-    b.owner === activeOwner && b.id !== "q" && (!w || b.ws === w.id));
-  if (taskFilter) pool = pool.filter(b => b.task === taskFilter);
-  else pool = pool.filter(b => !b.done && !b.parked);
+  const all = poolOf(state);    // every chat of the workspace, grouped and sorted
+  const pool = all.filter(b => ticketView === "done" ? b.done : !b.done);  // panel tab
   const fresh = pool.filter(b => !b.done && b.ball !== "you" && prevBall[b.id] === "you")
                     .map(b => b.id);
   for (const b of state.boxes) prevBall[b.id] = b.ball;
-  // rows in board order, stable; the open one overhangs; working rows green
-  const sig = pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.done ? "d" : "") +
-                      (b.id === selectedId ? "!" : "") +
+  const sig = ticketView + "|" + pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.done ? "d" : "") + b.pending +
+                      (b.id === selectedId ? "!" : "") + (b.task || "") +
                       Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",") +
-              "|" + taskFilter;
-  const cap = Math.max(3, Math.floor(0.393 / 0.063));   // rows that fit the drawn panel
-  tik.classList.toggle("scroll", pool.length > cap);
+              "|" + selectedTask;
   if (tik.dataset.sig !== sig || fresh.length){
     tik.dataset.sig = sig;
     tik.textContent = "";
     for (const b of pool){
-      const r = h("div", "trow" + (b.id === selectedId ? " on" : "") + (b.writing ? " working" : ""));
-      r.appendChild(h("div", "tt", b.title));
-      r.appendChild(h("div", "ta", b.done ? "done" : shortAge(b.agentTs)));
+      const r = h("div", "trow" + (b.id === selectedId ? " on" : "") + (b.writing ? " working" : "") +
+                  (!b.writing && !b.done && b.ball === "you" ? " yours" : "") +
+                  (!b.writing && !b.done && b.ball !== "you" ? " queuedc" : "") +
+                  (b.done ? " donec" : "") +
+                  (selectedTask && b.task === selectedTask ? " match" : ""));
+      const inner = h("div", "trowin");
+      if (/^[0-9]/.test(b.id)) inner.appendChild(h("span", "tnum", b.id));
+      inner.appendChild(h("div", "ttl", b.title));
+      const meta = h("div", "tmeta");
+      meta.appendChild(h("span", "tage", b.done ? "done" : shortAge(b.agentTs)));
+      meta.appendChild(h("span", "teng", b.engine || "claude"));
+      inner.appendChild(meta);
+      r.appendChild(inner);
       if (fresh.includes(b.id)){
         const sw = h("div", "sweep");
         const stripe = h("i");
@@ -1393,7 +1549,7 @@ function renderCarousel(state){
       r.addEventListener("click", () => select(b.id));
       tik.appendChild(r);
     }
-    if (!pool.length) tik.appendChild(h("div", "tempty", "no open chats here"));
+    if (!pool.length) tik.appendChild(h("div", "tempty", ticketView === "done" ? "no done chats yet" : "no open chats here"));
     tik.querySelector(".trow.on")?.scrollIntoView({ block: "nearest" });
   }
   // chips spring up above the panel: green while its agent works, yellow
@@ -1452,6 +1608,27 @@ async function poll(){
 // the quiet on-page arrows
 addEventListener("keydown", e => {
   if (!FOCUS) return;
+  if (e.metaKey && e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")){
+    // command+shift+arrows: previous/next card, in and out of the text box
+    e.preventDefault();
+    nav(e.key === "ArrowLeft" ? -1 : 1, 0, { focus: true });
+    return;
+  }
+  if (e.metaKey && e.shiftKey && ["[", "]", "{", "}"].includes(e.key)){
+    // command+shift+brackets: previous/next card, works while typing,
+    // cursor lands in the next card's text box
+    e.preventDefault();
+    nav(e.key === "[" || e.key === "{" ? -1 : 1, 0, { focus: true });
+    return;
+  }
+  if (e.metaKey && (e.key === "t" || e.key === "T")){   // command+T: new card, input focused
+    e.preventDefault();
+    fetch("/create?owner=" + activeOwner, { method: "POST" })
+      .then(x => x.json())
+      .then(r => { if (r?.id){ localStorage.setItem("focusbox", r.id); poll(); } })
+      .catch(() => {});
+    return;
+  }
   if (e.metaKey && /^[1-9]$/.test(e.key) && lastState){   // command+number jumps tabs
     const owners = LOCKED ? [LOCKED] : rowsOf(lastState);
     const ow = owners[+e.key - 1];
@@ -1461,14 +1638,33 @@ addEventListener("keydown", e => {
   const t = e.target;
   const typing = t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT");
   if (typing){ if (e.key === "Escape") t.blur(); return; }
-  const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+  const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[e.key];   // up/down freed; cmd+number switches projects
   if (d){ e.preventDefault(); nav(d[0], d[1]); }
 });
+{
+  const setView = v => {
+    ticketView = v;
+    document.getElementById("tv-todo").classList.toggle("on", v === "todo");
+    document.getElementById("tv-done").classList.toggle("on", v === "done");
+    if (lastState) apply(lastState);
+  };
+  document.getElementById("tv-todo").addEventListener("click", () => setView("todo"));
+  document.getElementById("tv-done").addEventListener("click", () => setView("done"));
+}
 document.getElementById("nleft").addEventListener("click", () => nav(-1, 0));
 document.getElementById("nright").addEventListener("click", () => nav(1, 0));
 document.getElementById("nup").addEventListener("click", () => nav(0, -1));
 document.getElementById("ndown").addEventListener("click", () => nav(0, 1));
 
+{
+  const pick = document.getElementById("bgpick");
+  const saved = localStorage.getItem("bgcolor");
+  if (saved){ document.body.style.setProperty("--paper", saved); pick.value = saved; }
+  pick.addEventListener("input", () => {
+    document.body.style.setProperty("--paper", pick.value);
+    localStorage.setItem("bgcolor", pick.value);
+  });
+}
 document.getElementById("pausebtn").addEventListener("click", async () => {
   await fetch("/pause?v=" + (lastState?.paused ? 0 : 1), { method: "POST" }).catch(() => {});
   poll();
@@ -1554,6 +1750,88 @@ setInterval(pollQ, 2500); pollQ();
 tickClock();
 setInterval(tickClock, 1000);
 
+// scale the fixed 1440x900 stage to the largest that fits, centered
+function fitStage(){
+  if (!FOCUS) return;
+  const stage = document.getElementById("stage");
+  if (!stage) return;
+  const bar = 41, DW = 1440, DH = 900;
+  const availH = innerHeight - bar;
+  // fixed size, never scaled: center it, and only scale DOWN if the window is
+  // smaller than the app so nothing is lost; elements keep their size otherwise
+  // fixed size, never scaled: the app is a locked rectangle, centered. The
+  // elements inside never resize; a smaller window just shows less of it.
+  const tx = Math.max(0, (innerWidth - DW) / 2);
+  const ty = Math.max(0, (availH - DH) / 2);
+  stage.style.transform = `translate(${tx}px, ${ty}px)`;
+}
+addEventListener("resize", fitStage);
+fitStage();
+
+{
+  const ta = document.getElementById("todoadd");
+  ta.addEventListener("keydown", e => {
+    e.stopPropagation();
+    if (e.key === "Enter"){
+      const v = ta.value.trim();
+      if (!v) return;
+      const w = lastState && curWs(lastState);
+      if (!w) return;
+      ta.value = "";
+      api("/ws/task?owner=" + activeOwner + "&ws=" + w.id, v);
+    }
+  });
+}
+
+// every region on the canvas moves: hold Option and drag; positions snap to
+// the 24px dot grid and persist per project
+const GRID = 1440 * 0.016;   // matches the dot spacing on the stage
+const REGION_SEL = "main, #clockbox, #rail, #tickets, #magic1, #magic2, #todobox, #goalbox";
+function regionId(el){ return el.tagName === "MAIN" ? "main" : el.id; }
+function applySavedLayout(){
+  for (const el of document.querySelectorAll(REGION_SEL)){
+    const saved = dragEnabled ? localStorage.getItem("pos." + activeOwner + "." + regionId(el)) : null;
+    if (saved){
+      try {
+        const p = JSON.parse(saved);
+        el.style.left = p.x + "px";
+        el.style.top = p.y + "px";
+      } catch (e) {}
+    } else {
+      el.style.left = "";
+      el.style.top = "";
+    }
+  }
+}
+let dragging = null;
+let dragEnabled = true;    // hold Option and drag a box to move it; snaps to the grid
+addEventListener("pointerdown", e => {
+  if (!FOCUS || !dragEnabled || !e.altKey) return;
+  const el = e.target.closest(REGION_SEL);
+  if (!el) return;
+  e.preventDefault();
+  const r = el.getBoundingClientRect();
+  const sr = document.getElementById("stage").getBoundingClientRect();
+  // positions are stage-local; subtract the stage's origin so the box lands
+  // under the cursor no matter where the fixed stage is centered
+  dragging = { el, dx: e.clientX - r.x, dy: e.clientY - r.y, sx: sr.x, sy: sr.y, x: 0, y: 0 };
+  document.body.classList.add("dragging");
+});
+addEventListener("pointermove", e => {
+  if (!dragging) return;
+  dragging.x = Math.max(0, Math.round((e.clientX - dragging.dx - dragging.sx) / GRID) * GRID);
+  dragging.y = Math.max(0, Math.round((e.clientY - dragging.dy - dragging.sy) / GRID) * GRID);
+  dragging.el.style.left = dragging.x + "px";
+  dragging.el.style.top = dragging.y + "px";
+});
+addEventListener("pointerup", () => {
+  if (!dragging) return;
+  localStorage.setItem("pos." + activeOwner + "." + regionId(dragging.el),
+    JSON.stringify({ x: dragging.x, y: dragging.y }));
+  document.body.classList.remove("dragging");
+  dragging = null;
+});
+
 document.getElementById("goaledit").addEventListener("click", () => {
   const w = lastState && curWs(lastState);
   if (!w) return;
@@ -1587,6 +1865,7 @@ document.getElementById("taskstatus").addEventListener("click", () => {
   }, { passive: false });
 }
 
+applySavedLayout();
 poll();
 setInterval(poll, 1200);
 </script>
