@@ -265,10 +265,15 @@
      One shared measure sizes every element in the column; nothing is px-fixed. */
   body.focus{--col:min(42rem, 88vw)}
   html:has(body.focus), body.focus{overflow:hidden}   /* the page never scrolls, either axis; the reply pane does */
-  /* the star pattern lives on the stage, not the window: the stage is a
-     fixed rectangle that centers itself, so a pattern painted on the window
-     drifts against the boxes at every window size except the design size.
-     On the stage the stars move with the boxes and stay glued to them. */
+  /* the star field fills the whole window, but its phase is locked to the
+     stage: fitStage() slides the pattern's origin to wherever the centered
+     stage lands, so the stars under the boxes always line up with them and
+     the field still runs to every window edge with no bands. */
+  body.focus{
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M6 4.2 L6.5 5.5 L7.8 6 L6.5 6.5 L6 7.8 L5.5 6.5 L4.2 6 L5.5 5.5 Z' fill='%23C9BFAE' fill-opacity='.55'/%3E%3C/svg%3E");
+    background-size:var(--grid) var(--grid);
+    background-position:0 var(--bar-h);   /* fitStage refines this per resize */
+  }
   body.focus.dragging, body.focus.dragging *{cursor:grabbing !important; user-select:none}
   /* the drawn window maps to the area under the bar; every region sits at its
      exact percentage from the excalidraw file (canvas height var --ch) */
@@ -679,9 +684,6 @@
   body.focus #stage{
     display:block; position:fixed; left:0; top:var(--bar-h);
     width:var(--cw); height:var(--ch); transform-origin:top left; z-index:1;
-    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M6 4.2 L6.5 5.5 L7.8 6 L6.5 6.5 L6 7.8 L5.5 6.5 L4.2 6 L5.5 5.5 Z' fill='%23C9BFAE' fill-opacity='.55'/%3E%3C/svg%3E");
-    background-size:var(--grid) var(--grid);
-    background-position:0 0;   /* star centers at half-cell points, where edges sit */
   }
   /* regions absent from the ui_3 drawing stay dormant regardless of their
      own rule bodies */
@@ -1852,6 +1854,8 @@ function fitStage(){
   const tx = Math.max(0, (innerWidth - DW) / 2);
   const ty = Math.max(0, (availH - DH) / 2);
   stage.style.transform = `translate(${tx}px, ${ty}px)`;
+  // slide the window-wide star field so its phase matches the stage's origin
+  document.body.style.backgroundPosition = tx + "px " + (bar + ty) + "px";
 }
 addEventListener("resize", fitStage);
 fitStage();
