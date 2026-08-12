@@ -1695,6 +1695,14 @@ addEventListener("keydown", e => {
   const t = e.target;
   const typing = t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT");
   if (typing){ if (e.key === "Escape") t.blur(); return; }
+  if ((e.key === "Backspace" || e.key === "Delete") && selectedId){
+    const b = lastState?.boxes.find(x => x.id === selectedId);
+    if (b?.bucket === "meta"){   // same cards the remove cross appears on
+      e.preventDefault();
+      fetch("/delete?box=" + encodeURIComponent(selectedId), { method: "POST" }).then(() => poll()).catch(() => {});
+    }
+    return;
+  }
   const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[e.key];   // up/down freed; cmd+number switches projects
   if (d){ e.preventDefault(); nav(d[0], d[1]); }
 });
