@@ -267,7 +267,9 @@
   body.focus{
     background-image:radial-gradient(circle, rgba(190,187,180,.40) 1.1px, transparent 1.1px);
     background-size:var(--grid) var(--grid);
-    background-position:calc(var(--grid)/2) calc(var(--grid)/2);
+    /* the stage starts under the bar, so the lattice anchors there too;
+       box edges land exactly on dot lines only in stage coordinates */
+    background-position:calc(var(--grid)/2) calc(var(--bar-h) + var(--grid)/2);
   }
   body.focus.dragging, body.focus.dragging *{cursor:grabbing !important; user-select:none}
   /* the drawn window maps to the area under the bar; every region sits at its
@@ -279,35 +281,38 @@
        around it. shape the window however; the app never squishes. */
     --cw:1440px; --ch:900px;   /* fixed design size; #stage scales to fit */
     --ox:0px; --oy:0px;
-    /* geometry from the ui_3 drawing, as fractions of the stage */
+    /* geometry from the ui_3 drawing, snapped to the dot lattice 20260812:
+       every x/w fraction is 0.008*(n+0.5) or 0.008*n of the stage width and
+       every y/h fraction is 0.0128*(m+0.5) or 0.0128*m of the stage height,
+       so each box edge sits exactly on a dot line (grid pitch = cw*0.008) */
     --clock-x:calc(var(--ox) + var(--cw)*0.024);   --clock-y:0.026;
     --chip-y:0.118;
-    --chips-x:calc(var(--ox) + var(--cw)*0.045);   --chips-w:calc(var(--cw)*0.22);
-    --chips-y:0.210; --chips-h:0.048;
-    --tik-x:calc(var(--ox) + var(--cw)*0.045);     --tik-w:calc(var(--cw)*0.245);
-    --tik-y:0.254;   --tik-h:0.393;
+    --chips-x:calc(var(--ox) + var(--cw)*0.044);   --chips-w:calc(var(--cw)*0.216);
+    --chips-y:0.2112; --chips-h:0.0512;
+    --tik-x:calc(var(--ox) + var(--cw)*0.044);     --tik-w:calc(var(--cw)*0.248);
+    --tik-y:0.1984;  --tik-h:0.4736;
     --tik-row:0.056; --tik-on-w:calc(var(--cw)*0.272);
-    --m1-x:calc(var(--ox) + var(--cw)*0.072);      --m1-w:calc(var(--cw)*0.216);
-    --m1-y:0.709;    --m1-h:0.181;
-    --frame-x:calc(var(--ox) + var(--cw)*0.324);   --frame-w:calc(var(--cw)*0.369);
-    --frame-y:0.128; --frame-h:0.818;
-    --pad-x:calc(var(--cw)*0.02);  --pad-y:0.008;
-    --tg-x:calc(var(--ox) + var(--cw)*0.748);      --tg-w:calc(var(--cw)*0.22);
-    --tg-y:0.034;    --tg-h:0.406;
-    --m2-x:calc(var(--ox) + var(--cw)*0.732);      --m2-w:calc(var(--cw)*0.198);
-    --m2-y:0.513;    --m2-h:0.25;
-    --goal-x:calc(var(--ox) + var(--cw)*0.785);    --goal-w:calc(var(--cw)*0.197);
-    --goal-y:0.825;  --goal-h:0.142;
+    --m1-x:calc(var(--ox) + var(--cw)*0.068);      --m1-w:calc(var(--cw)*0.216);
+    --m1-y:0.7104;   --m1-h:0.1792;
+    --frame-x:calc(var(--ox) + var(--cw)*0.324);   --frame-w:calc(var(--cw)*0.368);
+    --frame-y:0.0704; --frame-h:0.8064;
+    --pad-x:calc(var(--cw)*0.016);  --pad-y:0.008;
+    --tg-x:calc(var(--ox) + var(--cw)*0.748);      --tg-w:calc(var(--cw)*0.216);
+    --tg-y:0.032;    --tg-h:0.4096;
+    --m2-x:calc(var(--ox) + var(--cw)*0.732);      --m2-w:calc(var(--cw)*0.2);
+    --m2-y:0.5184;   --m2-h:0.2432;
+    --goal-x:calc(var(--ox) + var(--cw)*0.788);    --goal-w:calc(var(--cw)*0.192);
+    --goal-y:0.8256; --goal-h:0.1408;
     /* spacing tokens, fractions of the stage, no raw pixels */
     --sp-xs:calc(var(--ch)*0.005);  --sp-s:calc(var(--ch)*0.0095);
     --sp-m:calc(var(--ch)*0.0195);  --sp-x:calc(var(--cw)*0.0085);
-    --grid:calc(var(--cw)*0.016);
+    --grid:calc(var(--cw)*0.008);
     --pane-w:calc(var(--cw)*0.072); --pane-gap:calc(var(--cw)*0.024);
   }
   body.focus main{
     max-width:none; margin:0; overflow:hidden;
     position:fixed; left:var(--frame-x); width:var(--frame-w);
-    top:calc(var(--oy) + var(--ch)*var(--frame-y) - 2.5*var(--grid)); height:calc(var(--ch)*var(--frame-h));
+    top:calc(var(--oy) + var(--ch)*var(--frame-y)); height:calc(var(--ch)*var(--frame-h));
     border:1px solid var(--line-strong); background:#fff; border-radius:7px;
     box-shadow:0 2px 18px rgba(60,45,20,.06);
     padding:calc(var(--ch)*0.022) var(--pad-x);
@@ -416,8 +421,8 @@
      toward the chat frame, its right border erased as drawn */
   body.focus #tickets{
     position:fixed; left:var(--tik-x); width:var(--tik-w);
-    top:calc(var(--oy) + var(--ch)*var(--tik-y) - 2*var(--grid));
-    height:calc(var(--ch)*var(--tik-h) + 3*var(--grid));
+    top:calc(var(--oy) + var(--ch)*var(--tik-y));
+    height:calc(var(--ch)*var(--tik-h));
     background:#fff; border:1px solid var(--line); border-radius:7px;
     box-shadow:0 1px 10px rgba(60,45,20,.04);
     display:flex; flex-direction:column; overflow:hidden;
@@ -596,8 +601,8 @@
     /* under the chat card and exactly as wide as its content */
     left:calc(var(--frame-x) + var(--pad-x));
     width:calc(var(--frame-w) - 2*var(--pad-x));
-    top:calc(var(--oy) + var(--ch)*(var(--frame-y) + var(--frame-h)) - 2.5*var(--grid) + 2*var(--grid));
-    height:18px;
+    top:calc(var(--oy) + var(--ch)*(var(--frame-y) + var(--frame-h)) + 4*var(--grid));
+    height:calc(2*var(--grid));   /* centered track lands exactly on a dot row */
     display:flex; align-items:center; gap:10px; border:none;
   }
   #rail-start{font:11px var(--mono); color:var(--sub); flex:none}
