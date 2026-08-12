@@ -60,6 +60,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import sys
 import threading
 import time
@@ -84,6 +85,17 @@ STATE_PATH = HERE / "state.json"
 TRANSCRIPT_PATH = HERE / "transcript.jsonl"
 PORT = 8877
 OWNERS = ("facilitator", "triage", "journal")  # journal: the quick-chat side panel's lane
+
+# names for unnamed cards, handed out without repeats among live cards
+FAIRY_NAMES = (
+    "Thistledown Pixie Waltz", "Mossbank Sprite Parade", "Glowworm Court Jester",
+    "Dewdrop Troll Picnic", "Bramble Elf Sonata", "Foxglove Gnome Errand",
+    "Toadstool Fae Council", "Willow Wisp Detour", "Acorn Imp Heist",
+    "Fernshade Nixie Riddle", "Clover Brownie Feast", "Pondlight Kelpie Drift",
+    "Twilight Boggart Shuffle", "Honeymead Dryad Toast", "Frostbell Goblin March",
+    "Starlit Selkie Crossing", "Buttercup Ogre Nap", "Silverfern Faun Prank",
+    "Mushroom Hobgoblin Tea", "Cobweb Banshee Lullaby", "Riverbed Undine Chorus",
+)
 _LANE_DIRS = _lane_dirs()
 
 SEED_PATH = HERE / "seed.json"
@@ -499,7 +511,12 @@ class Handler(BaseHTTPRequestHandler):
                 if owner not in OWNERS:
                     self._send(400, {"error": "unknown owner"})
                     return
-                title = (text or "…").splitlines()[0][:80]
+                title = (text or "").splitlines()[0][:80] if text else ""
+                if not title:
+                    # an unnamed card gets a whimsical name no live card is using
+                    used = {b["title"] for b in _state["boxes"]}
+                    free = [n for n in FAIRY_NAMES if n not in used]
+                    title = random.choice(free or FAIRY_NAMES)
                 bid_new = f"m{_state['next_bid']}"  # never reused, even after deletes
                 _state["next_bid"] += 1
                 # keep each meta section grouped: insert after its last same-owner meta box

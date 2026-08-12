@@ -159,6 +159,7 @@
     padding:8px 11px; min-height:38px; max-height:170px; outline:none; transition:border-color .2s;
   }
   textarea:focus{border-color:var(--accent)}
+  textarea, input, [contenteditable]{caret-shape:block}   /* the fat blinking cursor */
   textarea::placeholder{color:#B4AA99}
   .sendbtn{
     flex:none; font:600 13px var(--sans); color:#fff; background:var(--accent);
@@ -1168,6 +1169,12 @@ function editTitle(id){
   t.setAttribute("contenteditable", "plaintext-only");
   if (old === "…") t.textContent = "";
   t.focus();
+  // the assigned name starts fully selected: typing replaces it, Enter keeps it
+  if (t.textContent){
+    const range = document.createRange();
+    range.selectNodeContents(t);
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+  }
   const end = () => { t.removeAttribute("contenteditable"); t.onkeydown = null; t.onblur = null; };
   const commit = () => {
     const name = t.textContent.trim();
