@@ -8,9 +8,9 @@ The tool: `server.py` (Python stdlib, no dependencies, port 8877) serves `index.
 
 From the terminal session that owns your lane, repeat forever:
 
-    timeout 560 curl -s "http://127.0.0.1:8877/wait?owner=facilitator&timeout=540"
+    timeout 560 curl -s "http://127.0.0.1:8877/wait?owner=facilitator&timeout=540&agent=claude"
 
-which returns `{"box": id, "title": ..., "messages": [...], "queued_after": n}` on a claim, `{"idle": true}` on timeout, `{"paused": true}` while paused, `{"end": true}` once ended and drained. Answer a claim with:
+`agent=` states your name; the board's card rows show each lane's live agent name, or offline, from exactly this. It returns `{"box": id, "title": ..., "messages": [...], "queued_after": n}` on a claim, `{"idle": true}` on timeout, `{"paused": true}` while paused, `{"end": true}` once ended and drained. Answer a claim with:
 
     curl -s -X POST --data-binary "the reply text" "http://127.0.0.1:8877/reply?box=ID"
 
@@ -61,8 +61,8 @@ Real work ships from boxes: builds and scans go to subagents, results land back 
 
 Two agents share one board. Every box carries an owner tag: `facilitator` (discussion about this tool, served by this repo's agent) or `triage` (the project under discussion, served by its own agent). `/wait?owner=...` claims only that owner's boxes, and each owner has its own busy slot and listener-presence tracking, so the two agents never block or steal from each other. An ownerless `/wait` defaults to triage. Two meta sections sit on top, tool-meta first, each with its own plus button; user-created boxes inherit the section's owner; the writing indicator and the offline banner name the agent. Every meta box carries the owner's remove cross, the standing `0` (facilitator) and `t0` (triage) included; a lane with its standing box removed just works from its remaining boxes, and notes that would have gone there go to an open box or the project docs. The two loops, side by side:
 
-    timeout 560 curl -s "http://127.0.0.1:8877/wait?owner=facilitator&timeout=540"
-    timeout 560 curl -s "http://127.0.0.1:8877/wait?owner=triage&timeout=540"
+    timeout 560 curl -s "http://127.0.0.1:8877/wait?owner=facilitator&timeout=540&agent=claude"
+    timeout 560 curl -s "http://127.0.0.1:8877/wait?owner=triage&timeout=540&agent=claude"
 
 ## Seeding a board
 

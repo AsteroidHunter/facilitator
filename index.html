@@ -1584,7 +1584,9 @@ function renderCarousel(state){
   const fresh = pool.filter(b => !b.done && b.ball !== "you" && prevBall[b.id] === "you")
                     .map(b => b.id);
   for (const b of state.boxes) prevBall[b.id] = b.ball;
-  const sig = ticketView + "|" + pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.done ? "d" : "") + b.pending +
+  const lane = state.agents?.[activeOwner];
+  const sig = ticketView + "|" + (lane ? lane.name + lane.alive : "") + "|" +
+              pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.done ? "d" : "") + b.pending +
                       (b.id === selectedId ? "!" : "") + (b.task || "") + b.title +
                       Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",") +
               "|" + selectedTask;
@@ -1603,7 +1605,9 @@ function renderCarousel(state){
       inner.appendChild(ttl);
       const meta = h("div", "tmeta");
       meta.appendChild(h("span", "tage", b.done ? "done" : shortAge(b.agentTs)));
-      meta.appendChild(h("span", "teng", b.engine || "claude"));
+      // the tag is the lane's live truth, never a stored per-card value
+      const ag = state.agents?.[b.owner];
+      meta.appendChild(h("span", "teng", ag ? (ag.alive ? ag.name : "offline") : ""));
       inner.appendChild(meta);
       r.appendChild(inner);
       if (fresh.includes(b.id)){
