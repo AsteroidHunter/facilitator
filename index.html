@@ -1273,13 +1273,9 @@ function apply(state){
     const ws = b.writing ? '<span class="w2">' + NAME[b.owner] + ' is writing</span>'
              : (b.queuePos ? "sent ✓ " + ord(b.queuePos) + " in line" : "");
     if (el.wstat.innerHTML !== ws) el.wstat.innerHTML = ws;  // rewriting every poll restarts the dots and re-wraps the title row
-    const bits = [];
-    if (b.writing) bits.push('<span class="w">' + NAME[b.owner] + ' is writing</span>');
-    else if (b.queuePos) bits.push("sent ✓ · " + ord(b.queuePos) + " in line");
-    if (b.pending && !b.writing) bits.push(b.pending + " message" + (b.pending > 1 ? "s" : "") + " since last reply");
-    else if (b.pending > 1 && b.writing) bits.push(b.pending + " messages folding in");
-    const mh = bits.join(" · ");
-    if (el.meta.innerHTML !== mh) el.meta.innerHTML = mh;
+    // the queue chatter (sent, nth in line, messages since) is gone on the
+    // owner's order; the element still carries transient send-failure notes
+    if (el.meta.textContent && el.meta.textContent.indexOf("send failed") !== 0) el.meta.textContent = "";
     if (el.toc){
       el.toc.className = "toc-entry " + (
         b.done ? "t-done" : b.parked ? "t-later" : b.writing ? "t-writing" : b.pending > 0 ? "t-queued" :
