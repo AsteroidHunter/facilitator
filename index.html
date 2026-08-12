@@ -1196,7 +1196,7 @@ async function doSend(id){
     el.ta.value = ""; el.ta.style.height = "auto";   // clear only after the server has it
     poll();
     cancelAutoNext();
-    autoNext = setTimeout(() => { autoNext = null; if (FOCUS) nav(1, 0, { focus: true }); }, 3000);
+    autoNext = setTimeout(() => { autoNext = null; if (FOCUS) nav(1, 0, { focus: true }); }, 1700);
   } catch (err) {
     el.meta.textContent = "send failed, text kept — try again";
   } finally {
