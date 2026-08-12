@@ -466,10 +466,9 @@
   .tmeta .tage{font:600 12.5px var(--mono); color:var(--sub); font-variant-numeric:tabular-nums;
     min-height:16px}
   .tmeta .teng{font:400 10.5px var(--mono); color:#B4AA99}
-  .tnum{flex:none; font:600 13px var(--mono); color:var(--sub);
-    /* half the old reserved width, centered, and the negative margins halve
-       the flex gap on both sides evenly */
-    min-width:1.2em; text-align:center; margin:0 calc(var(--sp-x)/-2)}
+  /* the number lives inside the title text, so it sits on the title's first
+     line by construction, wrapped or not */
+  .tnum{font:600 13px var(--mono); color:var(--sub); margin-right:.45em}
   .tempty{font:italic 12.5px var(--sans); color:#B4AA99; padding:8px 12px}
   .trow .tt{flex:1; min-width:0; font:500 12.5px/1.25 var(--sans); color:var(--ink);
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
@@ -1598,8 +1597,9 @@ function renderCarousel(state){
                   (b.done ? " donec" : "") +
                   (selectedTask && b.task === selectedTask ? " match" : ""));
       const inner = h("div", "trowin");
-      if (/^[0-9]/.test(b.id)) inner.appendChild(h("span", "tnum", b.id));
-      inner.appendChild(h("div", "ttl", b.title));
+      const ttl = h("div", "ttl", b.title);
+      if (/^[0-9]/.test(b.id)) ttl.prepend(h("span", "tnum", b.id));
+      inner.appendChild(ttl);
       const meta = h("div", "tmeta");
       meta.appendChild(h("span", "tage", b.done ? "done" : shortAge(b.agentTs)));
       meta.appendChild(h("span", "teng", b.engine || "claude"));
