@@ -425,9 +425,9 @@
   #tikhead{flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 8px 0; border-bottom:1px solid var(--line)}
   /* same seated-tab shape as the project tabs up top; the active one's
      bottom opens into the list, so its fill matches the list's white */
-  .tvb{font:500 13px/16px var(--sans); color:var(--sub); background:transparent;
+  .tvb{flex:1; font:500 13px/16px var(--sans); color:var(--sub); background:transparent;
     border:1px solid transparent; border-bottom:none; border-radius:0;
-    padding:6px 14px 5px; cursor:pointer; user-select:none; position:relative; top:1px}
+    padding:6px 0 5px; cursor:pointer; user-select:none; position:relative; top:1px}
   .tvb:hover{color:var(--ink)}
   .tvb.on{color:var(--ink); background:var(--card); border-color:var(--line)}
   #tiklist{flex:1; overflow-y:auto; display:flex; flex-direction:column;
