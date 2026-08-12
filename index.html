@@ -126,8 +126,8 @@
   .num{font:500 11px var(--mono); color:var(--sub); background:var(--paper);
        border:1px solid var(--line); border-radius:6px; padding:2px 7px; flex:none}
   .title{font:500 17.5px/1.25 var(--serif); flex:1; min-width:0}
-  .title[contenteditable]{outline:none; border-bottom:1px dashed var(--line-strong)}
-  .title[contenteditable]:empty::before{content:"name this card…"; color:var(--sub)}
+  .title[contenteditable]{outline:none}
+  .title[contenteditable]:empty::before{content:"Chat Name"; color:var(--line-strong)}
   .donebtn, .parkbtn{
     flex:none; font:12px var(--mono); color:var(--sub); background:none; cursor:pointer;
     border:1px solid var(--line); border-radius:99px; padding:3px 11px; transition:.2s;
@@ -744,7 +744,7 @@
   <section id="qchat">
     <div class="paneh">quick chat</div>
     <div id="qmsgs"></div>
-    <div id="qcompose"><textarea id="qta" rows="1" placeholder="quick question…"></textarea><button id="qsend" title="send">↑</button></div>
+    <div id="qcompose"><textarea id="qta" rows="1" placeholder="quick question"></textarea><button id="qsend" title="send">↑</button></div>
   </section>
 </div>
 
@@ -767,7 +767,7 @@
 <div id="magic2">magic box 2</div>
 <div id="todobox">
   <div id="todolist"></div>
-  <input id="todoadd" placeholder="add a to-do…">
+  <input id="todoadd" placeholder="add a to-do">
 </div>
 
 <div id="navpad">
@@ -1066,7 +1066,7 @@ function makeBox(b, i, state){
     const pend = h("div", "pendlist");   // your still-unanswered messages, dim, above the input
     const compose = h("div", "compose");
     const ta = h("textarea");
-    ta.placeholder = "Reply to this point…";
+    ta.placeholder = "Reply to this point";
     ta.rows = 1;
     const send = h("button", "sendbtn", "Send");
     compose.append(ta, send);
