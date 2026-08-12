@@ -126,6 +126,8 @@
   .num{font:500 11px var(--mono); color:var(--sub); background:var(--paper);
        border:1px solid var(--line); border-radius:6px; padding:2px 7px; flex:none}
   .title{font:500 17.5px/1.25 var(--serif); flex:1; min-width:0}
+  .title[contenteditable]{outline:none; border-bottom:1px dashed var(--line-strong)}
+  .title[contenteditable]:empty::before{content:"name this card…"; color:var(--sub)}
   .donebtn, .parkbtn{
     flex:none; font:12px var(--mono); color:var(--sub); background:none; cursor:pointer;
     border:1px solid var(--line); border-radius:99px; padding:3px 11px; transition:.2s;
@@ -1136,10 +1138,37 @@ function landFocus(){
   const fb = localStorage.getItem("focusbox");
   if (fb && els[fb]){
     localStorage.removeItem("focusbox");
-    if (FOCUS){ select(fb, { focus: true }); return; }
-    els[fb].box.scrollIntoView({ block: "center" });
-    els[fb].ta.focus();
+    if (FOCUS) select(fb);
+    else els[fb].box.scrollIntoView({ block: "center" });
+    editTitle(fb);
   }
+}
+
+// a just-created card: the cursor starts in the title; Enter saves the name
+// and drops the cursor into the message input
+function editTitle(id){
+  const el = els[id]; if (!el) return;
+  const t = el.titleEl, old = t.textContent;
+  t.setAttribute("contenteditable", "plaintext-only");
+  if (old === "…") t.textContent = "";
+  t.focus();
+  const end = () => { t.removeAttribute("contenteditable"); t.onkeydown = null; t.onblur = null; };
+  const commit = () => {
+    const name = t.textContent.trim();
+    end();
+    if (name && name !== old){
+      t.textContent = name;
+      if (el.tocTitle) el.tocTitle.textContent = name;
+      fetch("/title?box=" + encodeURIComponent(id), { method: "POST", body: name })
+        .then(() => poll()).catch(() => {});
+    } else t.textContent = old;
+  };
+  t.onkeydown = e => {
+    e.stopPropagation();   // card-switching keys must not fire while naming
+    if (e.key === "Enter"){ e.preventDefault(); commit(); el.ta.focus(); }
+    else if (e.key === "Escape"){ end(); t.textContent = old; el.ta.focus(); }
+  };
+  t.onblur = () => { if (t.isContentEditable) commit(); };
 }
 
 async function doSend(id){
@@ -1203,7 +1232,7 @@ function apply(state){
       el.reply.innerHTML = fmt(b.reply);
       el.reply.classList.remove("fresh"); void el.reply.offsetWidth; el.reply.classList.add("fresh");
     }
-    if (el.titleEl.textContent !== b.title){   // first message just named a new box
+    if (!el.titleEl.isContentEditable && el.titleEl.textContent !== b.title){   // first message just named a new box
       el.titleEl.textContent = b.title;
       el.tocTitle.textContent = b.title;
     }
@@ -1442,9 +1471,12 @@ function poolOf(state){
   return state.boxes.filter(b =>
     b.owner === activeOwner && b.id !== "q" && (!w || b.ws === w.id))
     .sort((a, b) => {
-      const g = x => x.done ? 2 : (x.ball === "you" ? 0 : 1);
+      // never-answered cards (just created, or sent and still waiting) stay
+      // on top so a new card cannot sink out of sight
+      const g = x => x.done ? 3 : !x.agentTs ? 0 : (x.ball === "you" ? 1 : 2);
       if (g(a) !== g(b)) return g(a) - g(b);
-      if (g(a) === 1) return (a.ts || 0) - (b.ts || 0);   // just-answered sinks to the bottom
+      if (g(a) === 0) return (b.ts || 0) - (a.ts || 0);   // newest created on top
+      if (g(a) === 2) return (a.ts || 0) - (b.ts || 0);   // just-answered sinks to the bottom
       return (b.agentTs || 0) - (a.agentTs || 0);          // newest agent reply on top
     });
 }
@@ -1525,7 +1557,7 @@ function renderCarousel(state){
                     .map(b => b.id);
   for (const b of state.boxes) prevBall[b.id] = b.ball;
   const sig = ticketView + "|" + pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.done ? "d" : "") + b.pending +
-                      (b.id === selectedId ? "!" : "") + (b.task || "") +
+                      (b.id === selectedId ? "!" : "") + (b.task || "") + b.title +
                       Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",") +
               "|" + selectedTask;
   if (tik.dataset.sig !== sig || fresh.length){
