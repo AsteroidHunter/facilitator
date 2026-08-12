@@ -454,7 +454,9 @@
     min-height:16px}
   .tmeta .teng{font:400 10.5px var(--mono); color:#B4AA99}
   .tnum{flex:none; font:600 13px var(--mono); color:var(--sub);
-    min-width:2.4em; text-align:right}
+    /* half the old reserved width, centered, and the negative margins halve
+       the flex gap on both sides evenly */
+    min-width:1.2em; text-align:center; margin:0 calc(var(--sp-x)/-2)}
   .tempty{font:italic 12.5px var(--sans); color:#B4AA99; padding:8px 12px}
   .trow .tt{flex:1; min-width:0; font:500 12.5px/1.25 var(--sans); color:var(--ink);
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
