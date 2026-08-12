@@ -420,11 +420,14 @@
     box-shadow:0 1px 10px rgba(60,45,20,.04);
     display:flex; flex-direction:column; overflow:hidden;
   }
-  #tikhead{flex:none; display:flex; gap:4px; padding:6px 8px; border-bottom:1px solid var(--line)}
-  .tvb{flex:1; font:600 12px var(--mono); color:var(--sub); background:none; border:none;
-    border-radius:5px; padding:6px 0; cursor:pointer; letter-spacing:.04em}
-  .tvb:hover{background:var(--paper)}
-  .tvb.on{color:var(--accent); background:var(--accent-soft)}
+  #tikhead{flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 8px 0; border-bottom:1px solid var(--line)}
+  /* same seated-tab shape as the project tabs up top; the active one's
+     bottom opens into the list, so its fill matches the list's white */
+  .tvb{font:500 13px/16px var(--sans); color:var(--sub); background:transparent;
+    border:1px solid transparent; border-bottom:none; border-radius:0;
+    padding:6px 14px 5px; cursor:pointer; user-select:none; position:relative; top:1px}
+  .tvb:hover{color:var(--ink)}
+  .tvb.on{color:var(--ink); background:var(--card); border-color:var(--line)}
   #tiklist{flex:1; overflow-y:auto; display:flex; flex-direction:column;
     gap:calc(var(--ch)*0.007);
     padding:calc(var(--ch)*0.012) 0.6vw calc(var(--ch)*0.012) 0.7vw}
