@@ -1702,6 +1702,22 @@ addEventListener("keydown", e => {
   const t = e.target;
   const typing = t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT");
   if (typing){ if (e.key === "Escape") t.blur(); return; }
+  if (e.altKey && e.shiftKey && e.key.startsWith("Arrow") && dragEnabled){
+    // option+shift+arrows: resize the box under the mouse by one grid cell,
+    // sizes snapped to whole cells and remembered like dragged positions
+    const el = document.elementFromPoint(mouse.x, mouse.y)?.closest(REGION_SEL);
+    if (el){
+      e.preventDefault();
+      const r = el.getBoundingClientRect();
+      const dw = e.key === "ArrowRight" ? GRID : e.key === "ArrowLeft" ? -GRID : 0;
+      const dh = e.key === "ArrowDown" ? GRID : e.key === "ArrowUp" ? -GRID : 0;
+      const w = Math.max(2 * GRID, Math.round((r.width + dw) / GRID) * GRID);
+      const h = Math.max(2 * GRID, Math.round((r.height + dh) / GRID) * GRID);
+      el.style.width = w + "px"; el.style.height = h + "px";
+      localStorage.setItem("size." + activeOwner + "." + regionId(el), JSON.stringify({ w, h }));
+      return;
+    }
+  }
   if ((e.key === "Backspace" || e.key === "Delete") && selectedId){
     const b = lastState?.boxes.find(x => x.id === selectedId);
     if (b?.bucket === "meta"){   // same cards the remove cross appears on
@@ -1876,10 +1892,23 @@ function applySavedLayout(){
       el.style.left = "";
       el.style.top = "";
     }
+    const sz = dragEnabled ? localStorage.getItem("size." + activeOwner + "." + regionId(el)) : null;
+    if (sz){
+      try {
+        const p = JSON.parse(sz);
+        el.style.width = p.w + "px";
+        el.style.height = p.h + "px";
+      } catch (e) {}
+    } else {
+      el.style.width = "";
+      el.style.height = "";
+    }
   }
 }
 let dragging = null;
 let dragEnabled = true;    // hold Option and drag a box to move it; snaps to the grid
+const mouse = { x: 0, y: 0 };   // the resize hotkey targets the box under the cursor
+addEventListener("pointermove", e => { mouse.x = e.clientX; mouse.y = e.clientY; });
 addEventListener("pointerdown", e => {
   if (!FOCUS || !dragEnabled || !e.altKey) return;
   const el = e.target.closest(REGION_SEL);
