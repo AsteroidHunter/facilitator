@@ -376,12 +376,19 @@
   body.focus .box.sel .reply{font-size:17px; line-height:1.55; overflow-y:auto; min-height:0}
   .pendlist{display:none}
   body.focus .box.sel .pendlist{
-    display:block; margin-top:auto; padding-top:16px;
-    font:italic 13.5px/1.5 var(--sans); color:var(--sub);
-    max-height:26vh; overflow-y:auto;   /* a huge paste scrolls here, never shoves the input */
+    /* one-sided bubbles: your still-unanswered messages sit on the right,
+       upright and full size, and vanish the moment the reply lands */
+    display:flex; flex-direction:column; align-items:flex-end; gap:6px;
+    margin-top:auto; padding-top:12px;
+    font:15px/1.5 var(--sans); color:var(--ink);
+    max-height:34vh; overflow-y:auto;   /* only a huge paste ever scrolls */
   }
   body.focus .box.sel .pendlist:empty{display:none}
-  body.focus .box.sel .pendlist p{margin:0 0 7px}
+  body.focus .box.sel .pendlist p{
+    margin:0; max-width:78%; text-align:left; white-space:pre-wrap;
+    background:var(--accent-soft); border-radius:12px 12px 3px 12px;
+    padding:8px 12px;
+  }
   body.focus .box.sel .pendlist:empty + .compose{margin-top:auto}
   body.focus .box.sel .compose{padding-bottom:0; gap:var(--sp-x);
     border-top:1px solid var(--line); margin-top:var(--sp-xs)}
