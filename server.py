@@ -37,10 +37,13 @@ Endpoints:
   POST /pause?v=1|0         -> pause / resume both listeners (laptop-close mode):
                                while paused /wait returns {"paused":true} at once
                                and agents idle locally, re-checking /state ~1/min
-  GET  /wait?owner=O&timeout=S -> agent long-poll; claims the oldest queued box
-                               owned by O (facilitator|triage; defaults to triage,
-                               the pre-routing loop's role) + its pending messages,
-                               or {"idle":true} on timeout, {"paused":true} while
+  GET  /wait?owner=O&timeout=S[&agent=NAME] -> agent long-poll; claims the oldest
+                               queued box owned by O (facilitator|triage; defaults
+                               to triage, the pre-routing loop's role) + its pending
+                               messages. agent= states the caller's name; the card
+                               rows' little tag shows the lane's live name or
+                               offline, never a stored guess. Also returns
+                               {"idle":true} on timeout, {"paused":true} while
                                paused, or {"end":true} once ended and O's queue
                                is drained
   POST /reply?box=ID        -> body = the agent's reply text (plain text)
@@ -105,7 +108,10 @@ _state: dict = {}
 # runtime-only listener presence (not persisted), per owner: how the UI knows
 # whether each agent's long-poll is actually connected right now
 _waiters = {ow: 0 for ow in OWNERS}
-_last_wait = {ow: time.time() for ow in OWNERS}
+# zero, not boot time: a lane counts as alive only once its agent actually asks
+_last_wait = {ow: 0.0 for ow in OWNERS}
+# the name each lane's agent last stated on its /wait call; None until stated
+_agent_names: dict = {ow: None for ow in OWNERS}
 
 
 def _seed_state() -> dict:
@@ -249,6 +255,9 @@ class Handler(BaseHTTPRequestHandler):
             if owner not in OWNERS:
                 self._send(400, {"error": "unknown owner"})
                 return
+            agent = (q.get("agent") or [None])[0]
+            if agent:
+                _agent_names[owner] = agent[:24]
             self._wait(timeout, owner)
         elif url.path == "/thread":
             qs = parse_qs(url.query)
@@ -323,6 +332,14 @@ class Handler(BaseHTTPRequestHandler):
             "everListened": st.get("ever_listened", {}),
             "workspaces": st.get("workspaces", {}),
             "listenerGap": {ow: round(time.time() - _last_wait[ow], 1) for ow in OWNERS},
+            # the row tag's truth: the lane's last stated agent name, and alive
+            # meaning connected now, seen within the steal window, or holding a card
+            "agents": {ow: {
+                "name": _agent_names[ow] or "claude",
+                "alive": _waiters[ow] > 0
+                         or (time.time() - _last_wait[ow]) < 900
+                         or bool(st["busy"][ow]),
+            } for ow in OWNERS},
         }
 
     def _wait(self, timeout: float, owner: str) -> None:
