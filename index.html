@@ -889,6 +889,7 @@ addEventListener("mouseup", e => {
 
 function select(id, opts){
   if (!els[id]) return;
+  cancelAutoNext();
   selectedId = id; localStorage.setItem("selbox", id);
   const b = lastState?.boxes.find(x => x.id === id);
   if (b) lastSel[b.owner] = id;
@@ -1096,7 +1097,7 @@ function makeBox(b, i, state){
       tocGroups[sec].appendChild(entry);
     }
 
-    ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; });   // CSS max-height caps it
+    ta.addEventListener("input", () => { cancelAutoNext(); ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; });   // CSS max-height caps it
     // dropped images upload immediately; their /uploads/ address joins the text
     ta.addEventListener("dragover", e => { e.preventDefault(); ta.classList.add("dropping"); });
     ta.addEventListener("dragleave", () => ta.classList.remove("dropping"));
@@ -1178,6 +1179,11 @@ function editTitle(id){
   t.onblur = () => { if (t.isContentEditable) commit(); };
 }
 
+// after a send, three quiet seconds moves you on; any typing or a manual
+// card switch cancels the jump
+let autoNext = null;
+function cancelAutoNext(){ clearTimeout(autoNext); autoNext = null; }
+
 async function doSend(id){
   const el = els[id];
   const text = el.ta.value.trim();
@@ -1188,6 +1194,8 @@ async function doSend(id){
     if (!r.ok) throw new Error(r.status);
     el.ta.value = ""; el.ta.style.height = "auto";   // clear only after the server has it
     poll();
+    cancelAutoNext();
+    autoNext = setTimeout(() => { autoNext = null; if (FOCUS) nav(1, 0, { focus: true }); }, 3000);
   } catch (err) {
     el.meta.textContent = "send failed, text kept — try again";
   } finally {
