@@ -31,6 +31,8 @@ Endpoints:
   POST /assign?box=ID&task=T -> file a chat under a task (empty task unfiles)
   POST /dismiss?box=ID      -> drop the box's queued messages unanswered (they
                                stay in the transcript)
+  POST /progress?box=ID     -> interim note while holding a claim; keeps the
+                               card green and resets the steal timer, no release
   POST /end                 -> ask the agent to wrap up once the queue drains
   POST /pause?v=1|0         -> pause / resume both listeners (laptop-close mode):
                                while paused /wait returns {"paused":true} at once
@@ -292,6 +294,7 @@ class Handler(BaseHTTPRequestHandler):
                     "pendingTexts": [m["text"] for m in b["pending"]],
                     "ws": b.get("ws"), "task": b.get("task"),
                     "agentTs": b.get("agent_ts", 0),
+                    "engine": b.get("engine", "claude"),
                     "writing": st["busy"][b.get("owner", "triage")] == b["id"],
                     "queuePos": qpos.get(b["id"], 0),
                 }
@@ -502,10 +505,12 @@ class Handler(BaseHTTPRequestHandler):
                 # keep each meta section grouped: insert after its last same-owner meta box
                 idx = max([i for i, b in enumerate(_state["boxes"])
                            if b["bucket"] == "meta" and b.get("owner") == owner] or [-1]) + 1
+                ws0 = (_state.get("workspaces", {}).get(owner) or [{}])[0].get("id")
                 _state["boxes"].insert(idx, {
                     "id": bid_new, "bucket": "meta", "title": title, "reply": "",
                     "pending": [], "done": False, "parked": False, "replies": 0,
                     "ball": "me", "ts": time.time(), "owner": owner,
+                    "ws": ws0, "task": None, "agent_ts": 0,
                 })
                 _log("create", bid_new, title)
                 _save()
@@ -591,6 +596,20 @@ class Handler(BaseHTTPRequestHandler):
                 box["task"] = (q.get("task") or [""])[0] or None
                 _log("assign", bid, box["task"] or "none")
                 _save()
+                self._send(200, {"ok": True})
+
+            elif url.path == "/progress":  # interim note during a build: keeps
+                box = _box(bid)                # the claim (card stays green) and
+                ow = box.get("owner", "triage") if box else None  # heartbeats
+                if box is None or _state["busy"].get(ow) != bid:
+                    self._send(400, {"error": "not holding this box"})
+                    return
+                box["reply"] = text
+                box["ts"] = time.time()
+                _state["busy_ts"][ow] = time.time()   # resets the 15-min steal
+                _log("progress", bid, text)
+                _save()
+                _lock.notify_all()
                 self._send(200, {"ok": True})
 
             elif url.path == "/dismiss":  # drop a box's queued messages, unanswered
