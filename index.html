@@ -264,14 +264,10 @@
      One shared measure sizes every element in the column; nothing is px-fixed. */
   body.focus{--col:min(42rem, 88vw)}
   html:has(body.focus), body.focus{overflow:hidden}   /* the page never scrolls, either axis; the reply pane does */
-  body.focus{
-    /* small faint four-point stars at the grid cell centers; box edges run
-       on the cell lines, midway between stars. The stage starts under the
-       bar, so the pattern anchors there too. */
-    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M6 4.2 L6.5 5.5 L7.8 6 L6.5 6.5 L6 7.8 L5.5 6.5 L4.2 6 L5.5 5.5 Z' fill='%23C9BFAE' fill-opacity='.55'/%3E%3C/svg%3E");
-    background-size:var(--grid) var(--grid);
-    background-position:0 var(--bar-h);
-  }
+  /* the star pattern lives on the stage, not the window: the stage is a
+     fixed rectangle that centers itself, so a pattern painted on the window
+     drifts against the boxes at every window size except the design size.
+     On the stage the stars move with the boxes and stay glued to them. */
   body.focus.dragging, body.focus.dragging *{cursor:grabbing !important; user-select:none}
   /* the drawn window maps to the area under the bar; every region sits at its
      exact percentage from the excalidraw file (canvas height var --ch) */
@@ -673,6 +669,9 @@
   body.focus #stage{
     display:block; position:fixed; left:0; top:var(--bar-h);
     width:var(--cw); height:var(--ch); transform-origin:top left; z-index:1;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M6 4.2 L6.5 5.5 L7.8 6 L6.5 6.5 L6 7.8 L5.5 6.5 L4.2 6 L5.5 5.5 Z' fill='%23C9BFAE' fill-opacity='.55'/%3E%3C/svg%3E");
+    background-size:var(--grid) var(--grid);
+    background-position:0 0;   /* star centers at half-cell points, where edges sit */
   }
   /* regions absent from the ui_3 drawing stay dormant regardless of their
      own rule bodies */
@@ -1833,8 +1832,9 @@ fitStage();
 }
 
 // every region on the canvas moves: hold Option and drag; positions snap to
-// the 24px dot grid and persist per project
-const GRID = 1440 * 0.016;   // matches the dot spacing on the stage
+// the star lines and persist per project
+const GRID = 1440 * 0.008;         // the star pitch on the stage
+const onStar = v => Math.round((v - GRID / 2) / GRID) * GRID + GRID / 2;   // nearest star line
 const REGION_SEL = "main, #clockbox, #rail, #tickets, #magic1, #magic2, #todobox, #goalbox";
 function regionId(el){ return el.tagName === "MAIN" ? "main" : el.id; }
 function applySavedLayout(){
@@ -1843,8 +1843,10 @@ function applySavedLayout(){
     if (saved){
       try {
         const p = JSON.parse(saved);
-        el.style.left = p.x + "px";
-        el.style.top = p.y + "px";
+        // saved offsets from before the finer grid land off the star lines;
+        // re-snap on the way in so a dragged box still spans dot to dot
+        el.style.left = onStar(p.x) + "px";
+        el.style.top = onStar(p.y) + "px";
       } catch (e) {}
     } else {
       el.style.left = "";
@@ -1868,8 +1870,8 @@ addEventListener("pointerdown", e => {
 });
 addEventListener("pointermove", e => {
   if (!dragging) return;
-  dragging.x = Math.max(0, Math.round((e.clientX - dragging.dx - dragging.sx) / GRID) * GRID);
-  dragging.y = Math.max(0, Math.round((e.clientY - dragging.dy - dragging.sy) / GRID) * GRID);
+  dragging.x = Math.max(GRID / 2, onStar(e.clientX - dragging.dx - dragging.sx));
+  dragging.y = Math.max(GRID / 2, onStar(e.clientY - dragging.dy - dragging.sy));
   dragging.el.style.left = dragging.x + "px";
   dragging.el.style.top = dragging.y + "px";
 });
