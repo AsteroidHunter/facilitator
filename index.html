@@ -163,9 +163,10 @@
     padding:8px 11px; min-height:38px; max-height:170px; outline:none; transition:border-color .2s;
   }
   textarea:focus{border-color:var(--accent)}
-  /* the app draws its own caret: one fixed-width bar over every typing spot,
-     because a native block caret resizes to match the glyph under it */
-  #fatcaret{display:none; position:fixed; width:7px; background:var(--ink);
+  /* the app draws its own caret: a terminal style block cell over every
+     typing spot. its size follows the focused field's font, half an em wide,
+     never the width of the letter under it. js sets width and height */
+  #fatcaret{display:none; position:fixed; background:var(--ink);
     pointer-events:none; z-index:99}
   #fatcaret.on{display:block; animation:fcblink 1.06s step-end infinite}
   @keyframes fcblink{from{opacity:1} 50%{opacity:0} to{opacity:1}}
@@ -666,14 +667,15 @@
   .ccard.you{background:#FBF3D9; border-color:#E0C879}   /* agent addressed: yours */
   .ccard.wait{background:var(--green-bg); border-color:var(--green-line)}  /* answered: theirs */
   .ccard.donec{background:var(--green-bg); border-color:var(--green-line); opacity:.7}
-  /* the working shimmer: a soft band sweeps a green row continuously for as
-     long as the card is actually being worked, and only then */
+  /* the working shimmer, kept identical to the owner's iterated version: a
+     full width soft wash crossing the row, transform driven, only while green */
   .trow.working::after{
-    content:""; position:absolute; top:0; bottom:0; width:52px; left:-52px;
-    background:linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent);
-    animation:worksweep 1.5s linear infinite; pointer-events:none;
+    content:""; position:absolute; inset:0;
+    background:linear-gradient(90deg, transparent 0%, rgba(255,255,255,.55) 50%, transparent 100%);
+    animation:ticket-working-shimmer 1.6s linear infinite;
+    will-change:transform; pointer-events:none;
   }
-  @keyframes worksweep{to{left:100%}}
+  @keyframes ticket-working-shimmer{0%{transform:translateX(-100%)} 100%{transform:translateX(100%)}}
   .tocadd{
     font:12px var(--mono); color:var(--sub); background:none; border:none;
     cursor:pointer; padding:0 4px; line-height:1;
@@ -2156,9 +2158,10 @@ document.getElementById("taskstatus").addEventListener("click", () => {
 }
 
 // ---- the fat caret --------------------------------------------------------
-// one app-drawn bar stands in for the native caret on every typing surface:
-// card reply boxes, the title while naming, the to-do input, quick chat. it
-// keeps one width no matter which letter sits under it.
+// a terminal style block cursor stands in for the native caret on every
+// typing surface: card reply boxes, the title while naming, the to-do input,
+// quick chat. its cell is sized by the field's font, never by the letter
+// under it, and its left edge sits exactly on the insertion point.
 {
   const bar = document.createElement("div");
   bar.id = "fatcaret";
@@ -2175,10 +2178,6 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     if (el.tagName === "TEXTAREA") return el;
     if (el.tagName === "INPUT") return (el.type === "text" || el.type === "search") ? el : null;
     return el.closest("[contenteditable]");
-  };
-  const lineH = (el, cs) => {
-    const lh = parseFloat(cs.lineHeight);
-    return isNaN(lh) ? Math.round(parseFloat(cs.fontSize) * 1.25) : lh;
   };
 
   // textarea and input path: rebuild the mirror with the field's font, box
@@ -2207,23 +2206,23 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     mirror.appendChild(mark);
     const mr = mirror.getBoundingClientRect();
     const kr = mark.getClientRects()[0] || mark.getBoundingClientRect();
-    const h = lineH(el, cs);
+    // the marker's inline box hugs the glyphs; the block centers on it
     return { x: r.left + (kr.left - mr.left) - el.scrollLeft,
-             y: r.top + (kr.top - mr.top) - el.scrollTop - (h - kr.height) / 2,
-             h, clip: r };
+             top: r.top + (kr.top - mr.top) - el.scrollTop,
+             cell: kr.height, fs: parseFloat(cs.fontSize), clip: r };
   }
 
   // contenteditable path: a collapsed range reports the caret box directly
   function ceCaret(el){
+    const fs = parseFloat(getComputedStyle(el).fontSize);
     const sel = getSelection();
     if (sel.rangeCount){
       const rr = sel.getRangeAt(0).getBoundingClientRect();
-      if (rr.height) return { x: rr.left, y: rr.top, h: rr.height, clip: el.getBoundingClientRect() };
+      if (rr.height) return { x: rr.left, top: rr.top, cell: rr.height, fs, clip: el.getBoundingClientRect() };
     }
-    // an empty editable gives a zero rect; park the bar at the field's start
+    // an empty editable gives a zero rect; park the block at the field's start
     const r = el.getBoundingClientRect();
-    const h = lineH(el, getComputedStyle(el));
-    return { x: r.left, y: r.top + (r.height - h) / 2, h, clip: r };
+    return { x: r.left, top: r.top, cell: r.height, fs, clip: r };
   }
 
   let raf = 0, px = 0, py = 0;
@@ -2234,18 +2233,23 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     if (!collapsed){ bar.classList.remove("on"); return; }   // a selection marks its own spot
     const c = isField ? fieldCaret(cur) : ceCaret(cur);
     if (!c){ bar.classList.remove("on"); return; }
+    // one character cell, sized by the field's font: half an em wide, a bit
+    // over an em tall, centered on the glyph box so it hugs the letters
+    const bw = c.fs * 0.5, bh = c.fs * 1.1;
+    const y = c.top + (c.cell - bh) / 2;
     // a caret scrolled out of the field's box must not hover over other ui
-    if (c.y + c.h < c.clip.top - 1 || c.y > c.clip.bottom + 1 ||
-        c.x + 7 < c.clip.left - 1 || c.x > c.clip.right + 5){
+    if (y + bh < c.clip.top - 1 || y > c.clip.bottom + 1 ||
+        c.x + bw < c.clip.left - 1 || c.x > c.clip.right + 5){
       bar.classList.remove("on"); return;
     }
     bar.style.left = c.x + "px";
-    bar.style.top = c.y + "px";
-    bar.style.height = c.h + "px";
-    if (!bar.classList.contains("on") || c.x !== px || c.y !== py){
-      // restart the blink so the bar lands solid, the way a native caret does
+    bar.style.top = y + "px";
+    bar.style.width = bw + "px";
+    bar.style.height = bh + "px";
+    if (!bar.classList.contains("on") || c.x !== px || y !== py){
+      // restart the blink so the block lands solid, the way a native caret does
       bar.classList.remove("on"); void bar.offsetWidth; bar.classList.add("on");
-      px = c.x; py = c.y;
+      px = c.x; py = y;
     }
   }
   const queue = () => { if (!raf) raf = requestAnimationFrame(place); };
