@@ -1545,12 +1545,15 @@ function poolOf(state){
     b.owner === activeOwner && b.id !== "q" && (!w || b.ws === w.id))
     .sort((a, b) => {
       // an untouched new card stays on top; the first send drops it into the
-      // waiting group at the bottom like any other queued card
-      const g = x => x.done ? 3 : (!x.agentTs && !x.pending && !x.writing) ? 0 : (x.ball === "you" ? 1 : 2);
+      // waiting group; anything green (in progress) sinks below all of that
+      const g = x => x.done ? 4
+        : (x.writing || x.bg) ? 3
+        : (!x.agentTs && !x.pending) ? 0
+        : (x.ball === "you" ? 1 : 2);
       if (g(a) !== g(b)) return g(a) - g(b);
       if (g(a) === 0) return (b.ts || 0) - (a.ts || 0);   // newest created on top
-      if (g(a) === 2) return (a.ts || 0) - (b.ts || 0);   // just-answered sinks to the bottom
-      return (b.agentTs || 0) - (a.agentTs || 0);          // newest agent reply on top
+      if (g(a) === 1) return (b.agentTs || 0) - (a.agentTs || 0);   // newest agent reply on top
+      return (a.ts || 0) - (b.ts || 0);                    // waiting and working: oldest first
     });
 }
 
