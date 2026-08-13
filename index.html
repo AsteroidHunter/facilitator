@@ -168,8 +168,7 @@
      never the width of the letter under it. js sets width and height */
   #fatcaret{display:none; position:fixed; background:var(--ink);
     pointer-events:none; z-index:99}
-  #fatcaret.on{display:block; animation:fcblink 1.06s step-end infinite}
-  @keyframes fcblink{from{opacity:1} 50%{opacity:0} to{opacity:1}}
+  #fatcaret.on{display:block}   /* static; no blink */
   .fc-hide{caret-color:transparent}   /* only tracked editors drop the native caret */
   textarea::placeholder{color:#B4AA99}
   .sendbtn{
