@@ -742,9 +742,10 @@
   }
   .reply .shot, .pendlist .shot{display:block; max-width:100%; border-radius:6px; margin:8px 0}
   .reply blockquote, .pendlist blockquote{
-    margin:0 0 0 2px; padding:2px 0 2px 12px;
+    margin:0 0 9px 2px; padding:2px 0 2px 12px;   /* same 9px rhythm as paragraphs */
     border-left:3px solid var(--line-strong); color:var(--sub);
   }
+  .reply blockquote:last-child{margin-bottom:0}
   textarea.dropping{border-color:var(--accent) !important}
   body.focus .box.sel textarea.dropping{background:var(--accent-soft)}
   /* home, greyed out until it does something */
