@@ -39,7 +39,7 @@ A user-created box is auto-named with the chopped first line of its first messag
 
 ## Context strips
 
-`POST /context?box=ID` (body, up to two lines, 220 chars max) keeps each box's summary current. Update it whenever the box's thread moves or meanders. It is the working cure for box-context amnesia; the wider question of keeping per-box context straight at scale stays open.
+`POST /context?box=ID` (body, up to two lines, 220 chars max) keeps each box's summary current; the same text rides every reply's required `ctx=`. Its job is orientation, never recap: line one says why the card exists and what it is trying to settle; line two says where that stands right now. Details of the latest exchange do not belong in it. It is the working cure for box-context amnesia; the wider question of keeping per-box context straight at scale stays open.
 
 ## Permission blocks
 
