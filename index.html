@@ -59,6 +59,10 @@
     border:none; border-radius:4px; padding:4px 12px; cursor:pointer; transition:.2s}
   .pausebtn:hover{background:#E2DCFC}
   body.paused .pausebtn{background:var(--accent); color:#fff}
+  #editbtn{font:13px var(--mono); color:var(--accent); background:var(--accent-soft);
+    border:none; border-radius:4px; padding:3px 9px; cursor:pointer; transition:.2s; flex:none}
+  #editbtn:hover{background:#E2DCFC}
+  body.editmode #editbtn{background:var(--accent); color:#fff}
 
   /* ---- layout ----------------------------------------------------------- */
   main{max-width:700px; margin:0 auto; padding:26px 18px 30vh}
@@ -741,6 +745,16 @@
   /* home, greyed out until it does something */
   #homeico{display:none}
   body.focus #homeico{display:flex; align-items:center; color:#C9BFAE}
+  /* on-canvas edit mode: the bar's pencil toggles it; boxes then drag with no
+     keys held and wear small squares that snap-resize them */
+  body.editmode :is(main, #clockbox, #rail, #tickets, #magic1, #magic2, #todobox, #goalbox),
+  body.editmode :is(main, #clockbox, #rail, #tickets, #magic1, #magic2, #todobox, #goalbox) *{cursor:move}
+  #edithandles{position:fixed; left:0; top:0; width:var(--cw); height:var(--ch);
+    pointer-events:none; z-index:30; display:none}
+  body.editmode #edithandles{display:block}
+  .rhandle{position:absolute; width:9px; height:9px; background:#fff;
+    border:1px solid var(--accent); border-radius:2px; pointer-events:auto;
+    box-shadow:0 1px 3px rgba(60,45,20,.25)}
 </style>
 </head>
 <body class="focus">
@@ -751,6 +765,7 @@
   <span class="name" id="boardname">facilitator</span>
   <span class="live"><span class="dot" id="dot"></span><span id="livetext">idle</span></span>
   <span class="prog" id="prog"></span>
+  <button id="editbtn" title="edit layout">✎</button>
   <input type="color" id="bgpick" title="background color (temporary)" value="#F5F4F1">
   <button class="pausebtn" id="pausebtn">pause listeners</button>
   <button class="endbtn" id="endbtn">End session</button>
@@ -1962,6 +1977,150 @@ addEventListener("pointerup", () => {
   document.body.classList.remove("dragging");
   dragging = null;
 });
+
+// the pencil: on-canvas edit mode. while it is on, a plain drag moves a
+// region and the small squares on its edges resize it; everything snaps to
+// the same star grid and saves under the same keys as the option gestures,
+// which keep working in both modes
+let editMode = false;
+let editPending = null;    // pointerdown seen; becomes a drag only after real movement
+let sizing = null;
+let squelchClick = false;  // a drag just ended; swallow the click it produced
+const handleLayer = document.createElement("div");
+handleLayer.id = "edithandles";
+document.getElementById("stage").appendChild(handleLayer);
+let handleItems = [];
+let handleRaf = 0;
+const HANDLE_CURSOR = { nw: "nwse-resize", se: "nwse-resize", ne: "nesw-resize",
+  sw: "nesw-resize", n: "ns-resize", s: "ns-resize", e: "ew-resize", w: "ew-resize" };
+function setEditMode(on){
+  if (!FOCUS) return;
+  editMode = on;
+  document.body.classList.toggle("editmode", on);
+  if (on){
+    buildHandles();
+    trackHandles();
+  } else {
+    cancelAnimationFrame(handleRaf);
+    handleLayer.textContent = "";
+    handleItems = [];
+    editPending = null;
+    sizing = null;
+  }
+}
+document.getElementById("editbtn").addEventListener("click", () => setEditMode(!editMode));
+function buildHandles(){
+  handleLayer.textContent = "";
+  handleItems = [];
+  for (const el of document.querySelectorAll(REGION_SEL)){
+    for (const dir of ["nw", "n", "ne", "e", "se", "s", "sw", "w"]){
+      const hd = document.createElement("div");
+      hd.className = "rhandle";
+      hd.dataset.region = regionId(el);
+      hd.dataset.dir = dir;
+      hd.style.cursor = HANDLE_CURSOR[dir];
+      hd.addEventListener("pointerdown", ev => beginSize(ev, el, dir));
+      handleLayer.appendChild(hd);
+      handleItems.push({ el, dir, hd });
+    }
+  }
+}
+// handles chase the boxes every frame, so they stay glued through drags,
+// resizes and content changes without hooking any other code path
+function trackHandles(){
+  const sr = document.getElementById("stage").getBoundingClientRect();
+  for (const it of handleItems){
+    const r = it.el.getBoundingClientRect();
+    if (!r.width && !r.height){ it.hd.style.display = "none"; continue; }
+    it.hd.style.display = "";
+    const x = it.dir.includes("w") ? r.x : it.dir.includes("e") ? r.x + r.width : r.x + r.width / 2;
+    const y = it.dir.includes("n") ? r.y : it.dir.includes("s") ? r.y + r.height : r.y + r.height / 2;
+    it.hd.style.left = (x - sr.x - 4.5) + "px";
+    it.hd.style.top = (y - sr.y - 4.5) + "px";
+  }
+  handleRaf = requestAnimationFrame(trackHandles);
+}
+function beginSize(e, el, dir){
+  if (!editMode || e.button !== 0) return;
+  e.preventDefault();   // keeps the grab from focusing or selecting anything
+  e.stopPropagation();
+  const r = el.getBoundingClientRect();
+  const sr = document.getElementById("stage").getBoundingClientRect();
+  sizing = { el, dir, px: e.clientX, py: e.clientY,
+    left: r.x - sr.x, top: r.y - sr.y, w: r.width, h: r.height,
+    // the far edges, snapped: a west or north pull anchors on these
+    right: onStar(r.x - sr.x + r.width), bottom: onStar(r.y - sr.y + r.height),
+    moved: false };
+}
+addEventListener("pointermove", e => {
+  if (!sizing) return;
+  const s = sizing;
+  const dx = e.clientX - s.px, dy = e.clientY - s.py;
+  // widths and heights stay whole cells, never under two; a west or north
+  // pull moves the origin to a star line and keeps the far edge pinned
+  let w = Math.max(2 * GRID, Math.round((s.w + (s.dir.includes("e") ? dx : 0)) / GRID) * GRID);
+  let h = Math.max(2 * GRID, Math.round((s.h + (s.dir.includes("s") ? dy : 0)) / GRID) * GRID);
+  if (s.dir.includes("w")){
+    const left = Math.min(Math.max(GRID / 2, onStar(s.left + dx)), s.right - 2 * GRID);
+    w = s.right - left;
+    s.el.style.left = left + "px";
+    s.x = left;
+  }
+  if (s.dir.includes("n")){
+    const top = Math.min(Math.max(GRID / 2, onStar(s.top + dy)), s.bottom - 2 * GRID);
+    h = s.bottom - top;
+    s.el.style.top = top + "px";
+    s.y = top;
+  }
+  s.el.style.width = w + "px";
+  s.el.style.height = h + "px";
+  s.outw = w; s.outh = h;
+  s.moved = true;
+});
+addEventListener("pointerup", () => {
+  editPending = null;
+  if (!sizing) return;
+  const s = sizing;
+  sizing = null;
+  if (!s.moved) return;
+  squelchClick = true;
+  localStorage.setItem("size." + activeOwner + "." + regionId(s.el),
+    JSON.stringify({ w: s.outw, h: s.outh }));
+  if (s.x != null || s.y != null){
+    // a moved origin must be saved too or the resize half-reverts on reload
+    localStorage.setItem("pos." + activeOwner + "." + regionId(s.el),
+      JSON.stringify({ x: s.x != null ? s.x : onStar(s.left), y: s.y != null ? s.y : onStar(s.top) }));
+  }
+});
+addEventListener("pointerdown", e => {
+  squelchClick = false;
+  if (!editMode || !dragEnabled || e.altKey || e.button !== 0 || dragging || sizing) return;
+  const el = e.target.closest(REGION_SEL);
+  if (!el) return;
+  // no grab yet: a plain click inside a card must stay a click; only real
+  // movement turns it into a drag
+  const r = el.getBoundingClientRect();
+  const sr = document.getElementById("stage").getBoundingClientRect();
+  editPending = { el, px: e.clientX, py: e.clientY,
+    dx: e.clientX - r.x, dy: e.clientY - r.y, sx: sr.x, sy: sr.y };
+});
+addEventListener("pointermove", e => {
+  if (!editPending || dragging || sizing) return;
+  if (Math.hypot(e.clientX - editPending.px, e.clientY - editPending.py) < 4) return;
+  const p = editPending;
+  editPending = null;
+  // hand the gesture to the option-drag machinery above: same snap, same save
+  dragging = { el: p.el, dx: p.dx, dy: p.dy, sx: p.sx, sy: p.sy,
+    x: onStar(p.px - p.dx - p.sx), y: onStar(p.py - p.dy - p.sy) };
+  squelchClick = true;
+  document.body.classList.add("dragging");
+});
+addEventListener("click", e => {
+  if (!squelchClick) return;
+  squelchClick = false;
+  e.preventDefault();
+  e.stopPropagation();
+}, true);
 
 document.getElementById("goaledit").addEventListener("click", () => {
   const w = lastState && curWs(lastState);
