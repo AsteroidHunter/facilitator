@@ -471,7 +471,7 @@
     box-shadow:0 1px 4px rgba(60,45,20,.05);
     display:flex; flex-direction:column;
     cursor:pointer; overflow:hidden;
-    transition:border-color .15s;
+    transition:border-color .3s, background-color .3s;
   }
   .trow:hover{border-color:var(--line-strong)}
   .trowin{display:flex; align-items:center; gap:var(--sp-x); height:100%;
@@ -1636,6 +1636,9 @@ function renderCarousel(state){
               "|" + selectedTask;
   if (tik.dataset.sig !== sig){
     tik.dataset.sig = sig;
+    // remember where each row sat, so survivors glide instead of teleporting
+    const oldPos = {};
+    for (const prev of tik.children) if (prev.dataset && prev.dataset.id) oldPos[prev.dataset.id] = prev.getBoundingClientRect().top;
     tik.textContent = "";
     for (const b of pool){
       const busy = b.writing || b.bg;   // claimed, or a worker's job runs behind it
@@ -1655,10 +1658,25 @@ function renderCarousel(state){
       meta.appendChild(h("span", "teng", ag ? (ag.alive ? ag.name : "offline") : ""));
       inner.appendChild(meta);
       r.appendChild(inner);
+      r.dataset.id = b.id;
       r.addEventListener("click", () => select(b.id));
       tik.appendChild(r);
     }
     if (!pool.length) tik.appendChild(h("div", "tempty", ticketView === "done" ? "no done chats yet" : "no open chats here"));
+    // surviving rows glide to their new spots, the 220ms rise of the sister
+    // board, instead of teleporting on every re-sort
+    for (const row of tik.children){
+      const was = row.dataset && oldPos[row.dataset.id];
+      if (was == null) continue;
+      const dy = was - row.getBoundingClientRect().top;
+      if (Math.abs(dy) < 2) continue;
+      row.style.transition = "none";
+      row.style.transform = "translateY(" + dy + "px)";
+      void row.offsetHeight;
+      row.style.transition = "transform 220ms cubic-bezier(0.25, 1, 0.5, 1)";
+      row.style.transform = "";
+      row.addEventListener("transitionend", () => { row.style.transition = ""; }, { once: true });
+    }
     tik.querySelector(".trow.on")?.scrollIntoView({ block: "nearest" });
   }
   // chips spring up above the panel: green while its agent works, yellow
@@ -2175,6 +2193,40 @@ document.getElementById("taskstatus").addEventListener("click", () => {
   mirror.style.cssText = "position:fixed; top:0; left:-9999px; visibility:hidden; pointer-events:none";
   document.body.appendChild(mirror);
 
+  // per font metrics. asc is inline box top to baseline, measured in the dom
+  // itself (a zero size inline block sits exactly on the text baseline), so
+  // it matches the caret rects the layout engine reports. fbA and fbD are the
+  // font's full cell above and below the baseline, from canvas TextMetrics
+  const mcache = new Map();
+  const mctx = document.createElement("canvas").getContext("2d");
+  function fmetrics(cs){
+    const key = cs.fontStyle + "|" + cs.fontWeight + "|" + cs.fontSize + "|" + cs.fontFamily;
+    let m = mcache.get(key);
+    if (m) return m;
+    const d = document.createElement("div");
+    d.style.cssText = "position:fixed; left:-9999px; top:0; visibility:hidden; line-height:normal";
+    d.style.fontFamily = cs.fontFamily; d.style.fontSize = cs.fontSize;
+    d.style.fontWeight = cs.fontWeight; d.style.fontStyle = cs.fontStyle;
+    const w = document.createElement("span"); w.textContent = "H";
+    const p = document.createElement("span");
+    p.style.cssText = "display:inline-block; width:0; height:0";
+    d.append(w, p); document.body.appendChild(d);
+    const wr = w.getBoundingClientRect();
+    m = { asc: p.getBoundingClientRect().bottom - wr.top, boxH: wr.height };
+    d.remove();
+    let fbA = NaN, fbD = NaN;
+    try {
+      mctx.font = cs.fontStyle + " " + cs.fontWeight + " " + cs.fontSize + " " + cs.fontFamily;
+      const tm = mctx.measureText("H");
+      fbA = tm.fontBoundingBoxAscent; fbD = tm.fontBoundingBoxDescent;
+    } catch (e) {}
+    if (fbA > 0 && fbD >= 0){ m.fbA = fbA; m.fbD = fbD; }
+    else { m.fbA = m.asc; m.fbD = parseFloat(cs.fontSize) * 1.18 - m.asc; }
+    // web fonts still loading would freeze wrong numbers into the cache
+    if (!document.fonts || document.fonts.status === "loaded") mcache.set(key, m);
+    return m;
+  }
+
   let cur = null, isField = false;
   const trackable = el => {
     if (!el || el.nodeType !== 1) return null;
@@ -2209,23 +2261,29 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     mirror.appendChild(mark);
     const mr = mirror.getBoundingClientRect();
     const kr = mark.getClientRects()[0] || mark.getBoundingClientRect();
-    // the marker's inline box hugs the glyphs; the block centers on it
+    const m = fmetrics(cs);
+    // the baseline is the marker's inline box top plus the font's ascent
     return { x: r.left + (kr.left - mr.left) - el.scrollLeft,
-             top: r.top + (kr.top - mr.top) - el.scrollTop,
-             cell: kr.height, fs: parseFloat(cs.fontSize), clip: r };
+             base: r.top + (kr.top - mr.top) - el.scrollTop + m.asc,
+             fs: parseFloat(cs.fontSize), fbA: m.fbA, fbD: m.fbD, clip: r };
   }
 
   // contenteditable path: a collapsed range reports the caret box directly
   function ceCaret(el){
-    const fs = parseFloat(getComputedStyle(el).fontSize);
+    const cs = getComputedStyle(el);
+    const fs = parseFloat(cs.fontSize);
+    const m = fmetrics(cs);
     const sel = getSelection();
     if (sel.rangeCount){
       const rr = sel.getRangeAt(0).getBoundingClientRect();
-      if (rr.height) return { x: rr.left, top: rr.top, cell: rr.height, fs, clip: el.getBoundingClientRect() };
+      if (rr.height) return { x: rr.left, base: rr.top + m.asc, fs, fbA: m.fbA, fbD: m.fbD,
+                              clip: el.getBoundingClientRect() };
     }
-    // an empty editable gives a zero rect; park the block at the field's start
+    // an empty editable gives a zero rect; park the block at the field's
+    // start, on the baseline the strut line box will give the first letter
     const r = el.getBoundingClientRect();
-    return { x: r.left, top: r.top, cell: r.height, fs, clip: r };
+    return { x: r.left, base: r.top + (r.height - m.boxH) / 2 + m.asc, fs,
+             fbA: m.fbA, fbD: m.fbD, clip: r };
   }
 
   let raf = 0, px = 0, py = 0;
@@ -2236,10 +2294,11 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     if (!collapsed){ bar.classList.remove("on"); return; }   // a selection marks its own spot
     const c = isField ? fieldCaret(cur) : ceCaret(cur);
     if (!c){ bar.classList.remove("on"); return; }
-    // one character cell, sized by the field's font: half an em wide, a bit
-    // over an em tall, centered on the glyph box so it hugs the letters
-    const bw = c.fs * 0.5, bh = c.fs * 1.1;
-    const y = c.top + (c.cell - bh) / 2;
+    // terminal cell: half an em wide and the font's full cell tall, from the
+    // ascent line above the caps down to descender depth below the baseline
+    const bw = c.fs * 0.5;
+    const bh = c.fbA + c.fbD;
+    const y = c.base - c.fbA;
     // a caret scrolled out of the field's box must not hover over other ui
     if (y + bh < c.clip.top - 1 || y > c.clip.bottom + 1 ||
         c.x + bw < c.clip.left - 1 || c.x > c.clip.right + 5){
