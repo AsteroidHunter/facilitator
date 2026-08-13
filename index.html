@@ -1234,7 +1234,20 @@ function editTitle(id){
 // after a send, three quiet seconds moves you on; any typing or a manual
 // card switch cancels the jump
 let autoNext = null;
+const AUTONEXT_MS = 0;   // future user setting: quiet time after a send before moving on
+let lastLeftId = null;   // the card the last auto-jump left, for command+z bounce
 function cancelAutoNext(){ clearTimeout(autoNext); autoNext = null; }
+
+// after a send, move to the next YELLOW card: one awaiting his read, never a
+// green working card or a grey queued one
+function jumpNextYellow(fromId){
+  if (!lastState) return;
+  const p = poolOf(lastState).filter(b =>
+    !b.done && !(b.writing || b.bg) && b.ball === "you" && b.id !== fromId);
+  if (!p.length) return;
+  lastLeftId = fromId;
+  select(p[0].id, { focus: true });
+}
 
 async function doSend(id){
   const el = els[id];
@@ -1254,7 +1267,7 @@ async function doSend(id){
     el.pend.appendChild(bub);
     poll();
     cancelAutoNext();
-    autoNext = setTimeout(() => { autoNext = null; if (FOCUS) nav(1, 0, { focus: true }); }, 1700);
+    autoNext = setTimeout(() => { autoNext = null; if (FOCUS) jumpNextYellow(id); }, AUTONEXT_MS);
   } catch (err) {
     el.meta.textContent = "send failed, text kept — try again";
   } finally {
@@ -1748,6 +1761,16 @@ addEventListener("keydown", e => {
     nav(e.key === "[" || e.key === "{" ? -1 : 1, 0, { focus: true });
     return;
   }
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === "z" || e.key === "Z")){
+    // command+z bounces back to the card the last send left, and back again
+    if (lastLeftId && els[lastLeftId]){
+      e.preventDefault();
+      const there = lastLeftId;
+      lastLeftId = selectedId;
+      select(there, { focus: true });
+    }
+    return;
+  }
   if (e.metaKey && (e.key === "t" || e.key === "T")){   // command+T: new card, input focused
     e.preventDefault();
     fetch("/create?owner=" + activeOwner, { method: "POST" })
@@ -2214,14 +2237,16 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     const wr = w.getBoundingClientRect();
     m = { asc: p.getBoundingClientRect().bottom - wr.top, boxH: wr.height };
     d.remove();
-    let fbA = NaN, fbD = NaN;
+    let fbA = NaN, fbD = NaN, capH = NaN;
     try {
       mctx.font = cs.fontStyle + " " + cs.fontWeight + " " + cs.fontSize + " " + cs.fontFamily;
       const tm = mctx.measureText("H");
       fbA = tm.fontBoundingBoxAscent; fbD = tm.fontBoundingBoxDescent;
+      capH = tm.actualBoundingBoxAscent;
     } catch (e) {}
     if (fbA > 0 && fbD >= 0){ m.fbA = fbA; m.fbD = fbD; }
     else { m.fbA = m.asc; m.fbD = parseFloat(cs.fontSize) * 1.18 - m.asc; }
+    m.capH = capH > 0 ? capH : parseFloat(cs.fontSize) * 0.7;
     // web fonts still loading would freeze wrong numbers into the cache
     if (!document.fonts || document.fonts.status === "loaded") mcache.set(key, m);
     return m;
@@ -2277,13 +2302,13 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     if (sel.rangeCount){
       const rr = sel.getRangeAt(0).getBoundingClientRect();
       if (rr.height) return { x: rr.left, base: rr.top + m.asc, fs, fbA: m.fbA, fbD: m.fbD,
-                              clip: el.getBoundingClientRect() };
+                              capH: m.capH, clip: el.getBoundingClientRect() };
     }
     // an empty editable gives a zero rect; park the block at the field's
     // start, on the baseline the strut line box will give the first letter
     const r = el.getBoundingClientRect();
     return { x: r.left, base: r.top + (r.height - m.boxH) / 2 + m.asc, fs,
-             fbA: m.fbA, fbD: m.fbD, clip: r };
+             fbA: m.fbA, fbD: m.fbD, capH: m.capH, clip: r };
   }
 
   let raf = 0, px = 0, py = 0;
@@ -2294,11 +2319,19 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     if (!collapsed){ bar.classList.remove("on"); return; }   // a selection marks its own spot
     const c = isField ? fieldCaret(cur) : ceCaret(cur);
     if (!c){ bar.classList.remove("on"); return; }
-    // terminal cell: half an em wide and the font's full cell tall, from the
-    // ascent line above the caps down to descender depth below the baseline
+    // terminal cell: half an em wide. the serif title reads Title Case, so
+    // its block spans the ink band, cap height down to the baseline and zero
+    // pixels past it; every other field keeps the font's full cell, ascent
+    // line down to descender depth, which reads right beside lowercase text
     const bw = c.fs * 0.5;
-    const bh = c.fbA + c.fbD;
-    const y = c.base - c.fbA;
+    let bh, y;
+    if (!isField && cur.classList.contains("title")){
+      bh = c.capH + 1;   // one pixel of optical overshoot above the caps
+      y = c.base - bh;
+    } else {
+      bh = c.fbA + c.fbD;
+      y = c.base - c.fbA;
+    }
     // a caret scrolled out of the field's box must not hover over other ui
     if (y + bh < c.clip.top - 1 || y > c.clip.bottom + 1 ||
         c.x + bw < c.clip.left - 1 || c.x > c.clip.right + 5){
