@@ -9,6 +9,8 @@ Endpoints:
   GET  /state               -> full UI state (page polls this)
   POST /send?box=ID         -> body = the human's message text (plain text)
   POST /done?box=ID&v=1|0   -> mark a box done / not done
+  POST /working?box=ID&v=1|0 -> a worker's job runs behind this box: it shows
+                               green without holding the lane's claim
   POST /park?box=ID&v=1|0   -> park a box to Later / bring it back
   POST /context?box=ID      -> body = the box's two-line context strip (agent-kept)
   POST /title?box=ID        -> body = replacement title (agent keeps titles brief;
@@ -317,6 +319,7 @@ class Handler(BaseHTTPRequestHandler):
                     "agentTs": b.get("agent_ts", 0),
                     "engine": b.get("engine", "claude"),
                     "writing": st["busy"][b.get("owner", "triage")] == b["id"],
+                    "bg": b.get("bg", False),   # a worker's job runs behind this card
                     "queuePos": qpos.get(b["id"], 0),
                 }
                 for b in st["boxes"]
@@ -489,6 +492,19 @@ class Handler(BaseHTTPRequestHandler):
                 _lock.notify_all()
                 self._send(200, {"ok": True})
 
+            elif url.path == "/working":
+                # a worker's job runs behind this card: green without a claim,
+                # so the lane stays free while the work happens elsewhere
+                box = _box(bid)
+                if box is None:
+                    self._send(400, {"error": "bad box"})
+                    return
+                box["bg"] = (q.get("v") or ["1"])[0] == "1"
+                _log("working" if box["bg"] else "workdone", bid, "")
+                _save()
+                _lock.notify_all()
+                self._send(200, {"ok": True})
+
             elif url.path == "/park":
                 box = _box(bid)
                 if box is None:
@@ -514,26 +530,30 @@ class Handler(BaseHTTPRequestHandler):
 
             elif url.path == "/title":
                 box = _box(bid)
-                if box is None or not text:
+                if box is None or (not text and box["title"]):
                     self._send(400, {"error": "bad box or empty title"})
                     return
-                box["title"] = text.splitlines()[0][:80]
+                if not text:
+                    # naming was abandoned: hand out a whimsical name no live
+                    # card is already wearing
+                    used = {b["title"] for b in _state["boxes"]}
+                    free = [n for n in FAIRY_NAMES if n not in used]
+                    box["title"] = random.choice(free or FAIRY_NAMES)
+                else:
+                    box["title"] = text.splitlines()[0][:80]
                 _log("title", bid, box["title"])
                 _save()
                 _lock.notify_all()
-                self._send(200, {"ok": True})
+                self._send(200, {"ok": True, "title": box["title"]})
 
             elif url.path == "/create":
                 owner = (q.get("owner") or ["facilitator"])[0]
                 if owner not in OWNERS:
                     self._send(400, {"error": "unknown owner"})
                     return
+                # born nameless; a whimsical name lands only if naming is walked
+                # away from (the empty-body /title call below)
                 title = (text or "").splitlines()[0][:80] if text else ""
-                if not title:
-                    # an unnamed card gets a whimsical name no live card is using
-                    used = {b["title"] for b in _state["boxes"]}
-                    free = [n for n in FAIRY_NAMES if n not in used]
-                    title = random.choice(free or FAIRY_NAMES)
                 bid_new = f"m{_state['next_bid']}"  # never reused, even after deletes
                 _state["next_bid"] += 1
                 # keep each meta section grouped: insert after its last same-owner meta box
