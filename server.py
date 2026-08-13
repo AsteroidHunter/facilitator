@@ -48,7 +48,11 @@ Endpoints:
                                {"idle":true} on timeout, {"paused":true} while
                                paused, or {"end":true} once ended and O's queue
                                is drained
-  POST /reply?box=ID        -> body = the agent's reply text (plain text). If
+  POST /reply?box=ID&ctx=S  -> body = the agent's reply text (plain text); ctx
+                               is a REQUIRED urlencoded two-line summary strip
+                               (220 chars max) stored as the box's context, so
+                               a reply and a fresh summary always land together
+                               and a reply without one is refused (400). If
                                messages landed on the box that the agent was
                                never handed, the reply does NOT land; the call
                                returns {"retry":true,"folded":[texts]} handing
@@ -464,6 +468,13 @@ class Handler(BaseHTTPRequestHandler):
                 if box is None:
                     self._send(400, {"error": "bad box"})
                     return
+                # every reply must carry a fresh two-line summary strip in the
+                # ctx query param (urlencoded, 220 chars); a reply without one
+                # is refused so the card's summary can never go missing
+                ctx = (q.get("ctx") or [""])[0].strip()
+                if not ctx:
+                    self._send(400, {"error": "missing context strip: pass ctx="})
+                    return
                 ow = box.get("owner", "triage")
                 _last_wait[ow] = time.time()  # a reply proves that agent is alive too
                 # the reply gate: a reply cannot land while this box holds
@@ -487,12 +498,17 @@ class Handler(BaseHTTPRequestHandler):
                 box["ts"] = time.time()
                 box["pending"] = [m for m in box["pending"] if m["mid"] not in handed]
                 box["handed"] = []
+                box["context"] = ctx[:220]
                 if _state["busy"][ow] == bid:
                     _state["busy"][ow] = None
                     _state["claimed"][ow] = []
                 # anything he sent while I was composing goes back in line
                 if box["pending"] and bid not in _state["inbox"]:
                     _state["inbox"].append(bid)
+                # and a fully answered box leaves the line, or the next claim
+                # hands the agent an empty turn
+                if not box["pending"] and bid in _state["inbox"]:
+                    _state["inbox"].remove(bid)
                 _log("agent", bid, text)
                 _save()
                 _lock.notify_all()
