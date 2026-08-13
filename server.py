@@ -52,12 +52,7 @@ Endpoints:
                                is a REQUIRED urlencoded two-line summary strip
                                (220 chars max) stored as the box's context, so
                                a reply and a fresh summary always land together
-                               and a reply without one is refused (400). If
-                               messages landed on the box that the agent was
-                               never handed, the reply does NOT land; the call
-                               returns {"retry":true,"folded":[texts]} handing
-                               them over, and the agent folds them in and sends
-                               again. A reply can never go out stale.
+                               and a reply without one is refused (400).
 
 Owner routing (2026-08-05): every box carries an owner tag, facilitator (tool
 discussion, this repo's agent) or triage (the project under discussion, its
@@ -477,27 +472,13 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 ow = box.get("owner", "triage")
                 _last_wait[ow] = time.time()  # a reply proves that agent is alive too
-                # the reply gate: a reply cannot land while this box holds
-                # messages the agent was never handed. The gate hands them over
-                # in the refusal, so the resent reply already folds them in and
-                # an answer can never go out stale.
-                handed = set(box.get("handed", []))
-                if _state["busy"][ow] == bid:
-                    handed |= set(_state["claimed"][ow])
-                fresh = [m for m in box["pending"] if m["mid"] not in handed]
-                if fresh:
-                    box["handed"] = list(handed | {m["mid"] for m in fresh})
-                    _save()
-                    self._send(200, {"retry": True,
-                                     "folded": [m["text"] for m in fresh]})
-                    return
                 box["reply"] = text
                 box["replies"] += 1
                 box["ball"] = "you"
                 box["agent_ts"] = time.time()  # agent replied: awaiting the human
                 box["ts"] = time.time()
-                box["pending"] = [m for m in box["pending"] if m["mid"] not in handed]
-                box["handed"] = []
+                claimed = set(_state["claimed"][ow]) if _state["busy"][ow] == bid else set()
+                box["pending"] = [m for m in box["pending"] if m["mid"] not in claimed]
                 box["context"] = ctx[:220]
                 if _state["busy"][ow] == bid:
                     _state["busy"][ow] = None
@@ -708,7 +689,6 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 n = len(box["pending"])
                 box["pending"] = []
-                box["handed"] = []
                 if bid in _state["inbox"]:
                     _state["inbox"].remove(bid)
                 ow = box.get("owner", "triage")
