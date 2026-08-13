@@ -159,7 +159,13 @@
     padding:8px 11px; min-height:38px; max-height:170px; outline:none; transition:border-color .2s;
   }
   textarea:focus{border-color:var(--accent)}
-  textarea, input, [contenteditable]{caret-shape:block}   /* the fat blinking cursor */
+  /* the app draws its own caret: one fixed-width bar over every typing spot,
+     because a native block caret resizes to match the glyph under it */
+  #fatcaret{display:none; position:fixed; width:7px; background:var(--ink);
+    pointer-events:none; z-index:99}
+  #fatcaret.on{display:block; animation:fcblink 1.06s step-end infinite}
+  @keyframes fcblink{from{opacity:1} 50%{opacity:0} to{opacity:1}}
+  .fc-hide{caret-color:transparent}   /* only tracked editors drop the native caret */
   textarea::placeholder{color:#B4AA99}
   .sendbtn{
     flex:none; font:600 13px var(--sans); color:#fff; background:var(--accent);
@@ -1190,12 +1196,20 @@ function editTitle(id){
       if (el.tocTitle) el.tocTitle.textContent = name;
       fetch("/title?box=" + encodeURIComponent(id), { method: "POST", body: name })
         .then(() => poll()).catch(() => {});
+    } else if (!name && !old){
+      // naming walked away from: the server hands out a whimsical name
+      fetch("/title?box=" + encodeURIComponent(id), { method: "POST" })
+        .then(() => poll()).catch(() => {});
     } else t.textContent = old;
   };
   t.onkeydown = e => {
     e.stopPropagation();   // card-switching keys must not fire while naming
     if (e.key === "Enter"){ e.preventDefault(); commit(); el.ta.focus(); }
-    else if (e.key === "Escape"){ end(); t.textContent = old; el.ta.focus(); }
+    else if (e.key === "Escape"){
+      if (!old && !t.textContent.trim()) commit();
+      else { end(); t.textContent = old; }
+      el.ta.focus();
+    }
   };
   t.onblur = () => { if (t.isContentEditable) commit(); };
 }
@@ -1309,7 +1323,7 @@ function apply(state){
     if (el.meta.textContent && el.meta.textContent.indexOf("send failed") !== 0) el.meta.textContent = "";
     if (el.toc){
       el.toc.className = "toc-entry " + (
-        b.done ? "t-done" : b.parked ? "t-later" : b.writing ? "t-writing" : b.pending > 0 ? "t-queued" :
+        b.done ? "t-done" : b.parked ? "t-later" : (b.writing || b.bg) ? "t-writing" : b.pending > 0 ? "t-queued" :
         b.ball === "you" ? "t-you" : "") + (FOCUS && b.id === selectedId ? " t-sel" : "");
       el.toc.style.display = (FOCUS && b.owner !== activeOwner) ? "none" : "";
       el.toc.querySelector(".tage").textContent = age(b.ts);
@@ -1596,7 +1610,7 @@ function renderCarousel(state){
   const pool = all.filter(b => ticketView === "done" ? b.done : !b.done);  // panel tab
   const lane = state.agents?.[activeOwner];
   const sig = ticketView + "|" + (lane ? lane.name + lane.alive : "") + "|" +
-              pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.done ? "d" : "") + b.pending +
+              pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
                       (b.id === selectedId ? "!" : "") + (b.task || "") + b.title +
                       Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",") +
               "|" + selectedTask;
@@ -1604,9 +1618,10 @@ function renderCarousel(state){
     tik.dataset.sig = sig;
     tik.textContent = "";
     for (const b of pool){
-      const r = h("div", "trow" + (b.id === selectedId ? " on" : "") + (b.writing ? " working" : "") +
-                  (!b.writing && !b.done && b.ball === "you" ? " yours" : "") +
-                  (!b.writing && !b.done && b.ball !== "you" ? " queuedc" : "") +
+      const busy = b.writing || b.bg;   // claimed, or a worker's job runs behind it
+      const r = h("div", "trow" + (b.id === selectedId ? " on" : "") + (busy ? " working" : "") +
+                  (!busy && !b.done && b.ball === "you" ? " yours" : "") +
+                  (!busy && !b.done && b.ball !== "you" ? " queuedc" : "") +
                   (b.done ? " donec" : "") +
                   (selectedTask && b.task === selectedTask ? " match" : ""));
       const inner = h("div", "trowin");
@@ -1979,6 +1994,123 @@ document.getElementById("taskstatus").addEventListener("click", () => {
       car.scrollLeft += e.deltaY;
     }
   }, { passive: false });
+}
+
+// ---- the fat caret --------------------------------------------------------
+// one app-drawn bar stands in for the native caret on every typing surface:
+// card reply boxes, the title while naming, the to-do input, quick chat. it
+// keeps one width no matter which letter sits under it.
+{
+  const bar = document.createElement("div");
+  bar.id = "fatcaret";
+  document.body.appendChild(bar);
+  // the mirror clones the focused field's text layout so a marker span can
+  // stand where the caret is; it stays invisible and out of the layout
+  const mirror = document.createElement("div");
+  mirror.style.cssText = "position:fixed; top:0; left:-9999px; visibility:hidden; pointer-events:none";
+  document.body.appendChild(mirror);
+
+  let cur = null, isField = false;
+  const trackable = el => {
+    if (!el || el.nodeType !== 1) return null;
+    if (el.tagName === "TEXTAREA") return el;
+    if (el.tagName === "INPUT") return (el.type === "text" || el.type === "search") ? el : null;
+    return el.closest("[contenteditable]");
+  };
+  const lineH = (el, cs) => {
+    const lh = parseFloat(cs.lineHeight);
+    return isNaN(lh) ? Math.round(parseFloat(cs.fontSize) * 1.25) : lh;
+  };
+
+  // textarea and input path: rebuild the mirror with the field's font, box
+  // and wrap rules, text up to the caret, then read the marker's spot
+  function fieldCaret(el){
+    if (el.selectionStart == null) return null;
+    const cs = getComputedStyle(el);
+    const r = el.getBoundingClientRect();
+    for (const p of ["fontFamily","fontSize","fontWeight","fontStyle","lineHeight",
+                     "letterSpacing","wordSpacing","textTransform","textIndent",
+                     "paddingTop","paddingRight","paddingBottom","paddingLeft",
+                     "borderTopWidth","borderRightWidth","borderBottomWidth","borderLeftWidth"])
+      mirror.style[p] = cs[p];
+    mirror.style.borderStyle = "solid";
+    mirror.style.borderColor = "transparent";
+    mirror.style.boxSizing = "border-box";
+    mirror.style.width = r.width + "px";
+    // a single-line input never wraps, it scrolls sideways instead
+    mirror.style.whiteSpace = el.tagName === "INPUT" ? "pre" : "pre-wrap";
+    mirror.style.wordWrap = el.tagName === "INPUT" ? "normal" : "break-word";
+    mirror.textContent = el.value.slice(0, el.selectionStart);
+    const mark = document.createElement("span");
+    // the marker carries the rest of the text so it wraps exactly like the
+    // real field; its first fragment starts at the caret
+    mark.textContent = el.value.slice(el.selectionStart) || ".";
+    mirror.appendChild(mark);
+    const mr = mirror.getBoundingClientRect();
+    const kr = mark.getClientRects()[0] || mark.getBoundingClientRect();
+    const h = lineH(el, cs);
+    return { x: r.left + (kr.left - mr.left) - el.scrollLeft,
+             y: r.top + (kr.top - mr.top) - el.scrollTop - (h - kr.height) / 2,
+             h, clip: r };
+  }
+
+  // contenteditable path: a collapsed range reports the caret box directly
+  function ceCaret(el){
+    const sel = getSelection();
+    if (sel.rangeCount){
+      const rr = sel.getRangeAt(0).getBoundingClientRect();
+      if (rr.height) return { x: rr.left, y: rr.top, h: rr.height, clip: el.getBoundingClientRect() };
+    }
+    // an empty editable gives a zero rect; park the bar at the field's start
+    const r = el.getBoundingClientRect();
+    const h = lineH(el, getComputedStyle(el));
+    return { x: r.left, y: r.top + (r.height - h) / 2, h, clip: r };
+  }
+
+  let raf = 0, px = 0, py = 0;
+  function place(){
+    raf = 0;
+    if (!cur || !cur.isConnected){ cur = null; bar.classList.remove("on"); return; }
+    const collapsed = isField ? cur.selectionStart === cur.selectionEnd : getSelection().isCollapsed;
+    if (!collapsed){ bar.classList.remove("on"); return; }   // a selection marks its own spot
+    const c = isField ? fieldCaret(cur) : ceCaret(cur);
+    if (!c){ bar.classList.remove("on"); return; }
+    // a caret scrolled out of the field's box must not hover over other ui
+    if (c.y + c.h < c.clip.top - 1 || c.y > c.clip.bottom + 1 ||
+        c.x + 7 < c.clip.left - 1 || c.x > c.clip.right + 5){
+      bar.classList.remove("on"); return;
+    }
+    bar.style.left = c.x + "px";
+    bar.style.top = c.y + "px";
+    bar.style.height = c.h + "px";
+    if (!bar.classList.contains("on") || c.x !== px || c.y !== py){
+      // restart the blink so the bar lands solid, the way a native caret does
+      bar.classList.remove("on"); void bar.offsetWidth; bar.classList.add("on");
+      px = c.x; py = c.y;
+    }
+  }
+  const queue = () => { if (!raf) raf = requestAnimationFrame(place); };
+
+  document.addEventListener("focusin", e => {
+    const el = trackable(e.target);
+    if (cur && cur !== el) cur.classList.remove("fc-hide");
+    cur = el;
+    isField = !!el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT");
+    if (cur) cur.classList.add("fc-hide");
+    queue();
+  });
+  document.addEventListener("focusout", () => {
+    if (cur) cur.classList.remove("fc-hide");
+    cur = null; queue();
+  });
+  document.addEventListener("selectionchange", queue);
+  document.addEventListener("input", queue, true);
+  document.addEventListener("keyup", queue, true);
+  document.addEventListener("scroll", queue, true);
+  addEventListener("resize", queue);
+  // a poll can reflow the page under a focused field with no input event;
+  // a light steady re-place keeps the bar honest
+  setInterval(() => { if (cur) queue(); }, 300);
 }
 
 applySavedLayout();

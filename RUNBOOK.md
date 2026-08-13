@@ -53,6 +53,14 @@ A permission denial from an automated classifier NEVER pauses the listener. Stri
 
 Real work ships from boxes: builds and scans go to subagents, results land back in the ordering box. Pushes and destructive operations follow the terminal-consent rule above. Commits: short, past tense, technical, no co-author or AI signature lines. Commit messages and code comments never name private folder paths, machines, people, or other projects. Push only on the owner's explicit word, typed in the terminal.
 
+## Delegation
+
+Anything past about a minute of hands-on work (code edits, builds, scans, renders) goes to a throwaway worker agent; the listener answers cards and never grinds. Sort by the shape of the job before starting, never mid-way: a misjudged job is finished by the listener, not handed off half done.
+
+Every worker brief carries six parts: the goal as one checkable sentence; full context, since the worker starts knowing nothing; boundaries, what it must not touch and which neighboring work is someone else's; the output contract, the exact shape coming back; proof, the worker verifies its own work (driven browser or equivalent) before reporting; and the house rules (plain words, no em dashes, no signatures, never restart the server, delete any probe box after use). Quality test: a stranger with no history could do the job right from the brief alone.
+
+While a worker runs, mark its ordering card `POST /working?box=ID&v=1`: the card glows green with the row sweep while the lane stays free; clear with `v=0` when the result lands. Green means exactly: claimed right now, or a job running behind.
+
 ## Headless testing
 
 `probe3.js` (repo root; needs `npm install puppeteer-core` and Chrome) is the page health probe: read-only apart from creating and then deleting its own probe box. Never point a message-sending script at a live board.
