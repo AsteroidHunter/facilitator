@@ -385,10 +385,13 @@
     /* one-sided bubbles: your still-unanswered messages sit on the right,
        upright and full size, and vanish the moment the reply lands */
     display:flex; flex-direction:column; align-items:flex-end; gap:6px;
-    margin-top:auto; padding-top:12px;
+    margin-top:auto; padding-top:12px; padding-bottom:16px;
     font:15px/1.5 var(--sans); color:var(--ink);
     max-height:34vh; overflow-y:auto;   /* only a huge paste ever scrolls */
   }
+  /* a just-sent bubble springs up from the input, the phone-message feel */
+  body.focus .box.sel .pendlist p.pop{animation:bubblein .38s cubic-bezier(.18,.89,.32,1.28)}
+  @keyframes bubblein{from{opacity:0; transform:translateY(26px) scale(.92)}}
   body.focus .box.sel .pendlist:empty{display:none}
   body.focus .box.sel .pendlist p{
     margin:0; max-width:78%; text-align:left; white-space:pre-wrap;
@@ -1210,6 +1213,13 @@ async function doSend(id){
     const r = await fetch("/send?box=" + encodeURIComponent(id), { method: "POST", body: text });
     if (!r.ok) throw new Error(r.status);
     el.ta.value = ""; el.ta.style.height = "auto";   // clear only after the server has it
+    // show the bubble immediately, and pre-mark the list as current so the
+    // next poll's redraw does not tear down the spring animation mid-flight
+    el.pend.dataset.raw = el.pend.dataset.raw ? el.pend.dataset.raw + "\n\n" + text : text;
+    const bub = document.createElement("p");
+    bub.className = "pop";
+    bub.textContent = text;
+    el.pend.appendChild(bub);
     poll();
     cancelAutoNext();
     autoNext = setTimeout(() => { autoNext = null; if (FOCUS) nav(1, 0, { focus: true }); }, 1700);
@@ -1271,9 +1281,12 @@ function apply(state){
     if (el.ctx.textContent !== (b.context || "")) el.ctx.textContent = b.context || "";
     const pt = (b.pendingTexts || []).join("\n\n");
     if (el.pend.dataset.raw !== pt){
+      const before = el.pend.children.length;
       el.pend.dataset.raw = pt;
       el.pend.innerHTML = (b.pendingTexts || [])
         .map(t => "<p>" + imgify(t.replace(/&/g, "&amp;").replace(/</g, "&lt;")) + "</p>").join("");
+      // messages that arrived from elsewhere (another window) still spring in
+      for (let i = before; i < el.pend.children.length; i++) el.pend.children[i].classList.add("pop");
     }
     el.box.classList.toggle("done", b.done);
     el.box.classList.toggle("parked", !!b.parked);
