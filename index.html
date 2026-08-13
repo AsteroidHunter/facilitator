@@ -1396,8 +1396,12 @@ function apply(state){
   const scope = FOCUS ? state.boxes.filter(x => x.owner === activeOwner) : state.boxes;
   const doneN = scope.filter(x => x.done).length;
   const yours = scope.filter(x => !x.done && !x.parked && !(x.writing || x.pending > 0) && x.ball === "you").length;
+  // the honest gap: the agent is alive and absent from the listening call
+  // with nothing held and no live job registered; say so instead of nothing
+  const offrec = state.agents?.[activeOwner]?.offrecord;
   document.getElementById("prog").innerHTML = "<b>" + doneN + "</b>/" + scope.length + " done" +
-    (yours ? " · " + yours + " await you" : "");
+    (yours ? " · " + yours + " await you" : "") +
+    (offrec ? " · <span style='color:#C9A21E'>working, card not marked</span>" : "");
   for (const [key] of SECTIONS){
     secEls[key].cnt.textContent = scope.filter(x => statusOf(x) === key).length;
     const visible = [...tocGroups[key].children]

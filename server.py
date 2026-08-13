@@ -9,8 +9,12 @@ Endpoints:
   GET  /state               -> full UI state (page polls this)
   POST /send?box=ID         -> body = the human's message text (plain text)
   POST /done?box=ID&v=1|0   -> mark a box done / not done
-  POST /working?box=ID&v=1|0 -> a worker's job runs behind this box: it shows
-                               green without holding the lane's claim
+  POST /working?box=ID&v=1|0 -> a job runs behind this box: it shows green
+                               without holding the lane's claim. Registration
+                               starts a heartbeat clock; without /ping every
+                               75s the green expires on its own
+  POST /ping?box=ID         -> heartbeat for a registered job; refreshes its
+                               green while the job actually runs
   POST /park?box=ID&v=1|0   -> park a box to Later / bring it back
   POST /context?box=ID      -> body = the box's two-line context strip (agent-kept)
   POST /title?box=ID        -> body = replacement title (agent keeps titles brief;
@@ -93,6 +97,7 @@ def _lane_dirs() -> dict:
 STATE_PATH = HERE / "state.json"
 TRANSCRIPT_PATH = HERE / "transcript.jsonl"
 PORT = 8877
+BG_STALE = 75.0   # seconds without a /ping before a registered job stops counting as green
 OWNERS = ("facilitator", "triage", "journal")  # journal: the quick-chat side panel's lane
 
 # names for unnamed cards, handed out without repeats among live cards
@@ -323,7 +328,9 @@ class Handler(BaseHTTPRequestHandler):
                     "agentTs": b.get("agent_ts", 0),
                     "engine": b.get("engine", "claude"),
                     "writing": st["busy"][b.get("owner", "triage")] == b["id"],
-                    "bg": b.get("bg", False),   # a worker's job runs behind this card
+                    # green only while the job's heartbeat is fresh: a job
+                    # that stopped pinging cannot keep a card green
+                    "bg": bool(b.get("bg")) and (time.time() - b.get("bg_ts", 0)) < BG_STALE,
                     "queuePos": qpos.get(b["id"], 0),
                 }
                 for b in st["boxes"]
@@ -346,6 +353,14 @@ class Handler(BaseHTTPRequestHandler):
                 "alive": _waiters[ow] > 0
                          or (time.time() - _last_wait[ow]) < 900
                          or bool(st["busy"][ow]),
+                # alive but absent from the listening call for over a minute,
+                # holding nothing and with no live job registered: the agent is
+                # working off the record and the bar says so
+                "offrecord": _waiters[ow] == 0 and st["busy"][ow] is None
+                             and 60 < (time.time() - _last_wait[ow]) < 900
+                             and not any(
+                                 b.get("bg") and (time.time() - b.get("bg_ts", 0)) < BG_STALE
+                                 for b in st["boxes"] if b.get("owner", "triage") == ow),
             } for ow in OWNERS},
         }
 
@@ -509,17 +524,29 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"ok": True})
 
             elif url.path == "/working":
-                # a worker's job runs behind this card: green without a claim,
-                # so the lane stays free while the work happens elsewhere
+                # a job runs behind this card: green without a claim, so the
+                # lane stays free. Registration starts a heartbeat clock; the
+                # job (or agent) must /ping while it runs, or green expires.
                 box = _box(bid)
                 if box is None:
                     self._send(400, {"error": "bad box"})
                     return
                 box["bg"] = (q.get("v") or ["1"])[0] == "1"
+                box["bg_ts"] = time.time()
                 _log("working" if box["bg"] else "workdone", bid, "")
                 _save()
                 _lock.notify_all()
                 self._send(200, {"ok": True})
+
+            elif url.path == "/ping":
+                # heartbeat for a registered job; keeps the card's green alive
+                box = _box(bid)
+                if box is None:
+                    self._send(400, {"error": "bad box"})
+                    return
+                if box.get("bg"):
+                    box["bg_ts"] = time.time()
+                self._send(200, {"ok": True, "bg": bool(box.get("bg"))})
 
             elif url.path == "/park":
                 box = _box(bid)
