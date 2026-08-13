@@ -26,6 +26,10 @@ From the terminal session that owns your lane, repeat forever:
 - Answer what was asked and stop: no unsolicited offers, no "want me to" tails, no validation preambles.
 - A reply that closes or parks a box carries zero new information. Folded boxes go unread. Keep-in-mind notes go to an open box or the project docs.
 
+## The reply gate
+
+A reply cannot land stale. If messages arrived on the box after your claim, `POST /reply` refuses, returning `{"retry": true, "folded": [texts]}` with everything you missed; fold those into the answer and send again. The refused texts count as handed to you, so the resend lands (unless still more arrived, which bounces the same way). This is server-enforced; no polling or discipline involved.
+
 ## Titles
 
 A user-created box is auto-named with the chopped first line of its first message, which reads badly. When you claim such a box (title ends in "…" or just parrots the message), set a brief accurate title as part of answering it: `POST /title?box=ID`, raw text body. Keep titles short enough to sit on one line.
