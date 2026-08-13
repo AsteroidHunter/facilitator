@@ -2329,8 +2329,10 @@ document.getElementById("taskstatus").addEventListener("click", () => {
       bh = c.capH + 1;   // one pixel of optical overshoot above the caps
       y = c.base - bh;
     } else {
-      bh = c.fbA + c.fbD;
-      y = c.base - c.fbA;
+      // text boxes: 1.1em centered on the glyph band, the accepted look;
+      // the font's full bounding cell read too tall here
+      bh = c.fs * 1.1;
+      y = c.base - c.fbA + (c.fbA + c.fbD - bh) / 2;
     }
     // a caret scrolled out of the field's box must not hover over other ui
     if (y + bh < c.clip.top - 1 || y > c.clip.bottom + 1 ||
