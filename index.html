@@ -656,13 +656,14 @@
   .ccard.you{background:#FBF3D9; border-color:#E0C879}   /* agent addressed: yours */
   .ccard.wait{background:var(--green-bg); border-color:var(--green-line)}  /* answered: theirs */
   .ccard.donec{background:var(--green-bg); border-color:var(--green-line); opacity:.7}
-  /* the one-shot sweep, adapted from the expediter card's working shimmer:
-     a translating white gradient stripe inside an overflow-hidden overlay */
-  .sweep{position:absolute; inset:0; overflow:hidden; pointer-events:none}
-  .sweep i{position:absolute; inset:0;
-    background:linear-gradient(90deg, transparent 0%, rgba(255,255,255,.6) 50%, transparent 100%);
-    animation:cardsweep 1.1s ease-out 2; will-change:transform}
-  @keyframes cardsweep{0%{transform:translateX(-100%)} 100%{transform:translateX(100%)}}
+  /* the working shimmer: a soft band sweeps a green row continuously for as
+     long as the card is actually being worked, and only then */
+  .trow.working::after{
+    content:""; position:absolute; top:0; bottom:0; width:52px; left:-52px;
+    background:linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent);
+    animation:worksweep 1.5s linear infinite; pointer-events:none;
+  }
+  @keyframes worksweep{to{left:100%}}
   .tocadd{
     font:12px var(--mono); color:var(--sub); background:none; border:none;
     cursor:pointer; padding:0 4px; line-height:1;
@@ -1579,7 +1580,6 @@ function renderTodos(state){
   }
 }
 
-const prevBall = {};
 function shortAge(ts){
   if (!ts) return "";
   const sec = Date.now() / 1000 - ts;
@@ -1594,16 +1594,13 @@ function renderCarousel(state){
   const w = curWs(state);
   const all = poolOf(state);    // every chat of the workspace, grouped and sorted
   const pool = all.filter(b => ticketView === "done" ? b.done : !b.done);  // panel tab
-  const fresh = pool.filter(b => !b.done && b.ball !== "you" && prevBall[b.id] === "you")
-                    .map(b => b.id);
-  for (const b of state.boxes) prevBall[b.id] = b.ball;
   const lane = state.agents?.[activeOwner];
   const sig = ticketView + "|" + (lane ? lane.name + lane.alive : "") + "|" +
               pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.done ? "d" : "") + b.pending +
                       (b.id === selectedId ? "!" : "") + (b.task || "") + b.title +
                       Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",") +
               "|" + selectedTask;
-  if (tik.dataset.sig !== sig || fresh.length){
+  if (tik.dataset.sig !== sig){
     tik.dataset.sig = sig;
     tik.textContent = "";
     for (const b of pool){
@@ -1623,13 +1620,6 @@ function renderCarousel(state){
       meta.appendChild(h("span", "teng", ag ? (ag.alive ? ag.name : "offline") : ""));
       inner.appendChild(meta);
       r.appendChild(inner);
-      if (fresh.includes(b.id)){
-        const sw = h("div", "sweep");
-        const stripe = h("i");
-        stripe.addEventListener("animationend", () => sw.remove());
-        sw.appendChild(stripe);
-        r.appendChild(sw);
-      }
       r.addEventListener("click", () => select(b.id));
       tik.appendChild(r);
     }
