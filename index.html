@@ -741,6 +741,10 @@
     font-size:12px; padding:7px 12px;
   }
   .reply .shot, .pendlist .shot{display:block; max-width:100%; border-radius:6px; margin:8px 0}
+  .reply blockquote, .pendlist blockquote{
+    margin:0 0 0 2px; padding:2px 0 2px 12px;
+    border-left:3px solid var(--line-strong); color:var(--sub);
+  }
   textarea.dropping{border-color:var(--accent) !important}
   body.focus .box.sel textarea.dropping{background:var(--accent-soft)}
   /* home, greyed out until it does something */
@@ -1010,6 +1014,10 @@ function fmt(t){
   const bold = imgify(esc.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>"));
   return bold.split(/\n\n+/).map(par => {
     const lines = par.split("\n");
+    if (lines.length && lines.every(l => /^&gt; ?/.test(l))){
+      // the escape pass has already turned > into &gt; by this point
+      return "<blockquote>" + lines.map(l => l.replace(/^&gt; ?/, "")).join("<br>") + "</blockquote>";
+    }
     if (lines.length && lines.every(l => /^(- |\d+[.)] )/.test(l))){
       const ol = /^\d/.test(lines[0]);
       // numbered points split by blank lines each become their own list,
