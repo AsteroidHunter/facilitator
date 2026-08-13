@@ -53,10 +53,11 @@ Endpoints:
                                paused, or {"end":true} once ended and O's queue
                                is drained
   POST /reply?box=ID&ctx=S  -> body = the agent's reply text (plain text); ctx
-                               is a REQUIRED urlencoded two-line summary strip
-                               (220 chars max) stored as the box's context, so
-                               a reply and a fresh summary always land together
-                               and a reply without one is refused (400).
+                               is a REQUIRED urlencoded summary strip, 50
+                               words max, stored as the box's context, so a
+                               reply and a fresh summary always land together;
+                               missing or overlong strips are refused (400),
+                               never silently truncated.
 
 Owner routing (2026-08-05): every box carries an owner tag, facilitator (tool
 discussion, this repo's agent) or triage (the project under discussion, its
@@ -485,6 +486,10 @@ class Handler(BaseHTTPRequestHandler):
                 if not ctx:
                     self._send(400, {"error": "missing context strip: pass ctx="})
                     return
+                if len(ctx.split()) > 50:
+                    # refused outright, never silently chopped
+                    self._send(400, {"error": "context strip over 50 words"})
+                    return
                 ow = box.get("owner", "triage")
                 _last_wait[ow] = time.time()  # a reply proves that agent is alive too
                 box["reply"] = text
@@ -494,7 +499,7 @@ class Handler(BaseHTTPRequestHandler):
                 box["ts"] = time.time()
                 claimed = set(_state["claimed"][ow]) if _state["busy"][ow] == bid else set()
                 box["pending"] = [m for m in box["pending"] if m["mid"] not in claimed]
-                box["context"] = ctx[:220]
+                box["context"] = ctx
                 if _state["busy"][ow] == bid:
                     _state["busy"][ow] = None
                     _state["claimed"][ow] = []
@@ -566,7 +571,10 @@ class Handler(BaseHTTPRequestHandler):
                 if box is None:
                     self._send(400, {"error": "bad box"})
                     return
-                box["context"] = text[:220]  # two lines, agent-maintained
+                if len(text.split()) > 50:
+                    self._send(400, {"error": "context strip over 50 words"})
+                    return
+                box["context"] = text  # agent-maintained; refused over 50 words
                 _save()
                 _lock.notify_all()
                 self._send(200, {"ok": True})
