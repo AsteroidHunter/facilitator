@@ -63,7 +63,7 @@ Anything past about a minute of hands-on work (code edits, builds, scans, render
 
 Every worker brief carries six parts: the goal as one checkable sentence; full context, since the worker starts knowing nothing; boundaries, what it must not touch and which neighboring work is someone else's; the output contract, the exact shape coming back; proof, the worker verifies its own work (driven browser or equivalent) before reporting; and the house rules (plain words, no em dashes, no signatures, never restart the server, delete any probe box after use). Quality test: a stranger with no history could do the job right from the brief alone.
 
-While a worker runs, mark its ordering card `POST /working?box=ID&v=1`: the card glows green with the row sweep while the lane stays free; clear with `v=0` when the result lands. Green means exactly: claimed right now, or a job running behind.
+Any work belonging to a card carries that card's green flag for exactly as long as it is happening: worker runs, but also verifying a worker's result, post-build checks, and committing that card's code after the claim is released. `POST /working?box=ID&v=1` before starting, `v=0` the moment the card's work truly ends. Green means exactly: claimed right now, or that card's work happening anywhere. A board that shows no green while the agent visibly works is a lie by omission; do not produce it.
 
 ## Headless testing
 
