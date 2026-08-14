@@ -22,6 +22,13 @@ Endpoints:
   POST /create?owner=O      -> body's first line titles a new meta box (empty =
                                "…", named later by its first message); ids m1, m2...;
                                owner defaults to facilitator
+  POST /project?name=N      -> body = the chosen folder's absolute path (under
+                               the home directory): creates a new project lane
+                               whose owner id is a slug of N, stores {id, name,
+                               dir} in state.json so restarts keep it, gives the
+                               lane a standing meta box, and returns the id;
+                               empty names, duplicates and bad folders are
+                               refused (400)
   POST /delete?box=ID       -> remove a meta box (the standing 0 / t0 included)
   POST /upload?name=F       -> body = raw image bytes; saves to uploads/ beside the
                                server (gitignored), returns {"url": "/uploads/..."};
@@ -30,6 +37,10 @@ Endpoints:
   GET  /thread?box=ID&n=N   -> last N user/agent messages of a box from the
                                transcript (the quick-chat panel's history)
   GET  /log?lines=N         -> tail of the server log file; path from $FACILITATOR_LOG
+  GET  /dirs?path=P         -> the subdirectories of P (name + absolute path)
+                               for the page's folder chooser; empty P means the
+                               home directory; hidden folders are excluded and
+                               paths outside the home directory are refused
   POST /ws/goal?owner&ws    -> body = the workspace's goal text
   POST /ws/task?owner&ws[&id][&status][&del=1] -> body = task text; no id creates,
                                status one of pending|ongoing|done, del removes
@@ -43,6 +54,11 @@ Endpoints:
   POST /pause?v=1|0         -> pause / resume both listeners (laptop-close mode):
                                while paused /wait returns {"paused":true} at once
                                and agents idle locally, re-checking /state ~1/min
+  GET  /fresh?owner=O       -> while O's agent holds a card: any messages that
+                               landed on that card after the claim, handed over
+                               and folded into the claim, so the one reply
+                               covers them and nothing is delivered twice;
+                               {"messages": []} when nothing new or no card held
   GET  /wait?owner=O&timeout=S[&agent=NAME] -> agent long-poll; claims the oldest
                                queued box owned by O (facilitator|triage; defaults
                                to triage, the pre-routing loop's role) + its pending
@@ -100,6 +116,8 @@ TRANSCRIPT_PATH = HERE / "transcript.jsonl"
 PORT = 8877
 BG_STALE = 75.0   # seconds without a /ping before a registered job stops counting as green
 OWNERS = ("facilitator", "triage", "journal")  # journal: the quick-chat side panel's lane
+# the built-in three above are the floor; project lanes stored in state.json
+# extend OWNERS at load and at creation, via _register_owner below
 
 # names for unnamed cards, handed out without repeats among live cards
 FAIRY_NAMES = (
@@ -124,6 +142,17 @@ _waiters = {ow: 0 for ow in OWNERS}
 _last_wait = {ow: 0.0 for ow in OWNERS}
 # the name each lane's agent last stated on its /wait call; None until stated
 _agent_names: dict = {ow: None for ow in OWNERS}
+
+
+def _register_owner(ow: str) -> None:
+    """A stored or just-created project lane joins the runtime owner set and
+    the listener-presence structures; idempotent, so _migrate can re-run it."""
+    global OWNERS
+    if ow not in OWNERS:
+        OWNERS = OWNERS + (ow,)
+    _waiters.setdefault(ow, 0)
+    _last_wait.setdefault(ow, 0.0)
+    _agent_names.setdefault(ow, None)
 
 
 def _seed_state() -> dict:
@@ -167,6 +196,10 @@ def _migrate() -> None:
     """Owner routing (2026-08-05): idempotent upgrade of pre-routing state."""
     _state.setdefault("paused", False)
     _state.setdefault("title", "facilitator")
+    # project lanes (2026-08-13): stored lanes merge with the built-in three
+    # first, so every per-owner loop below covers them too
+    for p in _state.setdefault("projects", []):
+        _register_owner(p["id"])
     # monotonic box-id counter: count-based ids collided after a deletion
     _state.setdefault("next_bid", 1 + max(
         [int(b["id"][1:]) for b in _state["boxes"]
@@ -271,6 +304,28 @@ class Handler(BaseHTTPRequestHandler):
             if agent:
                 _agent_names[owner] = agent[:24]
             self._wait(timeout, owner)
+        elif url.path == "/fresh":
+            # mid-work delivery: while an agent holds a card, hand over anything
+            # that landed on that card after the claim and fold it into the
+            # claim, so the one reply covers it and nothing arrives twice
+            q = parse_qs(url.query)
+            owner = (q.get("owner") or ["triage"])[0]
+            if owner not in OWNERS:
+                self._send(400, {"error": "unknown owner"})
+                return
+            with _lock:
+                fbid = _state["busy"].get(owner)
+                fbox = _box(fbid) if fbid else None
+                if fbox is None:
+                    self._send(200, {"messages": []})
+                    return
+                have = set(_state["claimed"][owner])
+                fresh = [m for m in fbox["pending"] if m["mid"] not in have]
+                if fresh:
+                    _state["claimed"][owner].extend(m["mid"] for m in fresh)
+                    _log("fresh", fbid, f"{len(fresh)} mid-work message(s) handed over")
+                    _save()
+                self._send(200, {"box": fbid, "messages": [m["text"] for m in fresh]})
         elif url.path == "/thread":
             qs = parse_qs(url.query)
             tbid = (qs.get("box") or [""])[0]
@@ -295,6 +350,33 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 lines = []
             self._send(200, {"lines": lines})
+        elif url.path == "/dirs":
+            # the page's folder chooser: one folder's subdirectories, rooted at
+            # and fenced to the user's home; hidden folders stay out of sight
+            q = parse_qs(url.query)
+            home = Path.home()
+            raw = (q.get("path") or [""])[0].strip()
+            try:
+                p = (Path(raw).expanduser() if raw else home).resolve()
+            except OSError:
+                self._send(400, {"error": "bad path"})
+                return
+            if p != home and home not in p.parents:
+                self._send(400, {"error": "outside the home directory"})
+                return
+            if not p.is_dir():
+                self._send(400, {"error": "not a directory"})
+                return
+            try:
+                subs = sorted((c for c in p.iterdir()
+                               if c.is_dir() and not c.name.startswith(".")),
+                              key=lambda c: c.name.lower())
+            except OSError:
+                self._send(400, {"error": "unreadable directory"})
+                return
+            self._send(200, {"path": str(p),
+                             "parent": str(p.parent) if p != home else None,
+                             "dirs": [{"name": c.name, "path": str(c)} for c in subs]})
         elif url.path.startswith("/uploads/"):
             p = HERE / "uploads" / Path(url.path).name  # .name strips any traversal
             ctypes = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
@@ -325,6 +407,10 @@ class Handler(BaseHTTPRequestHandler):
                     "owner": b.get("owner", "triage"),
                     "pending": len(b["pending"]),
                     "pendingTexts": [m["text"] for m in b["pending"]],
+                    # send times matching pendingTexts one to one; 0 for
+                    # entries queued before times were recorded, which the
+                    # page shows unstamped
+                    "pendingStamps": [m.get("ts", 0) for m in b["pending"]],
                     "ws": b.get("ws"), "task": b.get("task"),
                     "agentTs": b.get("agent_ts", 0),
                     "engine": b.get("engine", "claude"),
@@ -337,7 +423,9 @@ class Handler(BaseHTTPRequestHandler):
                 for b in st["boxes"]
             ],
             "pwd": str(HERE),
-            "pwds": {**{ow: str(HERE) for ow in OWNERS}, **_LANE_DIRS},
+            "pwds": {**{ow: str(HERE) for ow in OWNERS}, **_LANE_DIRS,
+                     **{p["id"]: p["dir"] for p in st.get("projects", [])}},
+            "projects": st.get("projects", []),
             "busy": st["busy"],
             "queued": len(st["inbox"]),
             "end": st["end"],
@@ -459,7 +547,7 @@ class Handler(BaseHTTPRequestHandler):
                 if box is None or not text:
                     self._send(400, {"error": "bad box or empty text"})
                     return
-                box["pending"].append({"mid": _state["next_mid"], "text": text})
+                box["pending"].append({"mid": _state["next_mid"], "text": text, "ts": time.time()})
                 box["ball"] = "me"  # his message sent: the ball is in the agent's court
                 box["ts"] = time.time()
                 _state["next_mid"] += 1
@@ -621,6 +709,50 @@ class Handler(BaseHTTPRequestHandler):
                 _save()
                 _lock.notify_all()
                 self._send(200, {"ok": True, "id": bid_new})
+
+            elif url.path == "/project":
+                # a new project lane from the page's plus tab: slug the name,
+                # store {id, name, dir} so restarts keep it, give the lane its
+                # per-owner slots and a standing meta box so the tab has a face
+                name = (q.get("name") or [""])[0].strip()
+                slug = "".join(c if c.isalnum() else "-" for c in name.lower())
+                while "--" in slug:
+                    slug = slug.replace("--", "-")
+                slug = slug.strip("-")
+                if not name or not slug:
+                    self._send(400, {"error": "empty name"})
+                    return
+                if slug in OWNERS or any(p["id"] == slug for p in _state.get("projects", [])):
+                    self._send(400, {"error": "duplicate project"})
+                    return
+                home = Path.home()
+                try:
+                    d = Path(text).expanduser().resolve() if text else None
+                except OSError:
+                    d = None
+                if d is None or not d.is_dir() or (d != home and home not in d.parents):
+                    self._send(400, {"error": "body must be a folder under home"})
+                    return
+                _state.setdefault("projects", []).append({"id": slug, "name": name, "dir": str(d)})
+                _register_owner(slug)
+                _state["busy"].setdefault(slug, None)
+                _state["claimed"].setdefault(slug, [])
+                _state["busy_ts"].setdefault(slug, 0.0)
+                _state.setdefault("workspaces", {})[slug] = [{
+                    "id": "w1", "name": "main", "started": time.time(),
+                    "goal": "", "tasks": [], "current": None}]
+                bid_new = f"m{_state['next_bid']}"
+                _state["next_bid"] += 1
+                _state["boxes"].append({
+                    "id": bid_new, "bucket": "meta", "title": name, "reply": "",
+                    "pending": [], "done": False, "parked": False, "replies": 0,
+                    "ball": "you", "ts": time.time(), "owner": slug,
+                    "ws": "w1", "task": None, "agent_ts": 0,
+                })
+                _log("project", slug, f"{name} -> {d}")
+                _save()
+                _lock.notify_all()
+                self._send(200, {"ok": True, "id": slug, "name": name, "dir": str(d)})
 
             elif url.path == "/delete":
                 box = _box(bid)
