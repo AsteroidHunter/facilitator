@@ -53,7 +53,7 @@ A permission denial from an automated classifier NEVER pauses the listener. Stri
 
 ## Real work
 
-Real work ships from boxes: builds and scans go to subagents, results land back in the ordering box. Pushes and destructive operations follow the terminal-consent rule above. Commits: short, past tense, technical, no co-author or AI signature lines. Commit messages and code comments never name private folder paths, machines, people, or other projects. Push only on the owner's explicit word, typed in the terminal.
+Real work ships from boxes: builds and scans go to subagents, results land back in the ordering box. Pushes and destructive operations follow the terminal-consent rule above. Commits happen only on the owner's order, never automatically after changes; finished work sits uncommitted until he asks. Messages: short, past tense, technical, no co-author or AI signature lines. Commit messages and code comments never name private folder paths, machines, people, or other projects. Push only on the owner's explicit word, typed in the terminal.
 
 ## Delegation
 
@@ -65,7 +65,7 @@ Any work belonging to a card carries that card's green flag for exactly as long 
 
 Green is verified, not trusted: registration starts a heartbeat clock, and without `POST /ping?box=ID` at least every 75 seconds the green expires on its own, so a dead job can never leave a card stuck green. Keep a pinger beside any long job:
 
-    ( while curl -s -o /dev/null "http://127.0.0.1:8877/ping?box=ID"; do sleep 30; done ) &
+    ( while curl -s -o /dev/null -X POST "http://127.0.0.1:8877/ping?box=ID"; do sleep 30; done ) &
 
 and kill it when the work ends. The server also watches the other direction: an agent alive but absent from the listening call for over a minute, holding no claim and no live job, makes the bar read "working, card not marked". Do not let that be true of you.
 

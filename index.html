@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>facilitator</title>
+<link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -392,21 +393,42 @@
   body.focus .box.sel .reply{font-size:17px; line-height:1.55; overflow-y:auto; min-height:0}
   .pendlist{display:none}
   body.focus .box.sel .pendlist{
-    /* one-sided bubbles: your still-unanswered messages sit on the right,
-       upright and full size, and vanish the moment the reply lands */
-    display:flex; flex-direction:column; align-items:flex-end; gap:6px;
-    margin-top:auto; padding-top:12px; padding-bottom:16px;
+    /* sent and waiting: a slim bar above the input line, half a left ticket
+       row tall, counting the messages the agent has not answered yet. a
+       click opens it into the full list, right aligned and full ink, and
+       another click folds it back; the whole thing vanishes the moment the
+       reply lands and the pending list empties */
+    display:flex; flex-direction:column; flex:none; gap:var(--sp-s);
+    margin-top:auto;
     font:15px/1.5 var(--sans); color:var(--ink);
-    max-height:34vh; overflow-y:auto;   /* only a huge paste ever scrolls */
+    cursor:pointer; user-select:none;
   }
-  /* a just-sent bubble springs up from the input, the phone-message feel */
-  body.focus .box.sel .pendlist p.pop{animation:bubblein .38s cubic-bezier(.18,.89,.32,1.28)}
-  @keyframes bubblein{from{opacity:0; transform:translateY(26px) scale(.92)}}
+  body.focus .box.sel .pendlist::before{
+    content:attr(data-label);
+    display:flex; align-items:center; justify-content:center; align-self:stretch;
+    height:calc(var(--ch)*0.072/2);   /* half a #tiklist ticket row */
+    padding:0 12px; border-radius:4px;
+    background:#FFF1E0; color:var(--must); font:14px var(--mono);
+  }
   body.focus .box.sel .pendlist:empty{display:none}
-  body.focus .box.sel .pendlist p{
-    margin:0; max-width:78%; text-align:left; white-space:pre-wrap;
-    background:var(--accent-soft); border-radius:12px 12px 3px 12px;
-    padding:8px 12px;
+  body.focus .box.sel .pendlist p{display:none}   /* folded: the bar alone shows */
+  body.focus .box.sel .pendlist.open{background:#FFF1E0; border-radius:4px; padding:10px 12px}
+  body.focus .box.sel .pendlist.open::before{padding:0}
+  body.focus .box.sel .pendlist.open p{
+    display:block; margin:0;
+    text-align:right; white-space:pre-wrap;
+  }
+  /* consecutive sends split by a thin hairline sitting flat on the panel,
+     spaced evenly off both messages; a blank line inside one message draws
+     no line, so it still reads as that message's own breath */
+  body.focus .box.sel .pendlist.open p + p{
+    border-top:1px solid var(--line-strong); padding-top:var(--sp-s);
+  }
+  /* each message's send time: a small grey clock above the text, inside the
+     same hairline section; a send with no recorded time simply carries none */
+  body.focus .box.sel .pendlist.open p .stamp{
+    display:block; margin:0 0 2px;
+    font:10.5px/1.35 var(--mono); color:var(--sub); text-align:right;
   }
   body.focus .box.sel .pendlist:empty + .compose{margin-top:auto}
   body.focus .box.sel .compose{padding-bottom:0; gap:var(--sp-x);
@@ -734,6 +756,62 @@
   .ptab:hover{color:var(--ink)}
   .ptab.on{color:var(--ink); background:var(--paper); border-color:var(--line)}
   .ptab.tearing{opacity:.45}
+  /* the plus: opens a fresh project tab. A thin rule and clear air keep it
+     from ever reading as part of the last tab */
+  .tabsep{flex:none; align-self:center; width:1px; height:20px;
+    background:var(--line-strong); margin:0 6px 0 8px}
+  .ptabplus{flex:none; align-self:center; width:24px; height:24px; padding:0;
+    font:500 15px/1 var(--mono); color:var(--ink); background:none;
+    border:none; cursor:pointer; transition:opacity .2s; opacity:.75}
+  .ptabplus:hover{opacity:1}
+  /* the not-yet-named tab while its folder is being chosen */
+  .ptab.draft{color:var(--ink); background:var(--paper); border-color:var(--line);
+    font-style:italic}
+  #projnote{display:none; flex:none; font:12px var(--mono); color:var(--must);
+    background:var(--must-bg); border-radius:4px; padding:3px 10px}
+  #projnote.show{display:inline-block}
+  /* ---- new-project tab: the landing ------------------------------------- */
+  /* one composed block, centered on the real window, never on the stage
+     frame (which a saved drag layout may have moved): an imperative title,
+     one readable line tying it to the browser below it, the path, a calm
+     folder list ending only on whole rows, and the select action, prominent
+     by size and placement, never by saturation. The whole board skeleton,
+     the frame included, steps away while choosing.
+     States: reading, unreadable folder, no folders inside, listing. */
+  #newproj{display:none}
+  body.choosing #sections, body.choosing #pwdline{display:none}
+  body.choosing .box{display:none !important}
+  body.choosing :is(main, #clockbox, #tickets, #magic1, #magic2, #todobox,
+    #goalbox, #rail, #taskchip){display:none !important}
+  body.choosing #newproj{
+    display:flex; flex-direction:column; position:fixed; z-index:5;
+    left:50%; top:calc(41px + (100vh - 41px)/2); transform:translate(-50%,-50%);
+    width:min(27rem, 86vw);
+  }
+  #nphead{font:500 30px/1.25 var(--serif); color:var(--ink); margin:0 0 8px}
+  #npsub{font:15px/1.5 var(--sans); color:var(--sub); margin:0 0 14px}
+  #chpath{font:12.5px var(--mono); color:var(--sub); word-break:break-all;
+    margin:0 0 8px}
+  #chlist{max-height:56vh; overflow-y:auto;
+    display:flex; flex-direction:column;
+    background:var(--card); border-radius:4px; padding:6px; margin:0 0 18px;
+    scroll-snap-type:y mandatory; scroll-padding-top:6px}
+  #chlist.loading{opacity:.55}
+  .chrow{font:14px/1.4 var(--sans); color:var(--ink); background:none; border:none;
+    text-align:left; border-radius:4px; padding:10px 12px; cursor:pointer; flex:none;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    scroll-snap-align:start}
+  .chrow:hover{background:var(--accent-soft)}
+  .chrow.up{color:var(--sub)}
+  .chempty, .chload{font:14px var(--sans); color:var(--sub); padding:10px 12px}
+  .cherr{font:13.5px var(--sans); color:var(--must); background:var(--must-bg);
+    border-radius:4px; padding:9px 12px; margin:0 0 2px}
+  /* the select action: the block's one tinted box, the house's borderless
+     soft tint, no saturated fill; prominent by size and placement */
+  #chpick{align-self:flex-start; font:600 14px var(--sans); color:var(--accent);
+    background:var(--accent-soft); border:none; border-radius:4px; padding:12px 22px;
+    cursor:pointer; transition:background .2s}
+  #chpick:hover{background:#E2DCFC}
   body.focus .name{display:none}
   body.focus #offline{
     position:fixed; left:14px; bottom:12px; top:auto; transform:none;
@@ -741,6 +819,21 @@
     font-size:12px; padding:7px 12px;
   }
   .reply .shot, .pendlist .shot{display:block; max-width:100%; border-radius:6px; margin:8px 0}
+  .reply .codeblock, .pendlist .codeblock{
+    margin:0 0 9px; padding:10px 12px; border-radius:8px;     /* same 9px rhythm */
+    background:#EFF1F4; border:0;   /* clean cool grey; the beige read as mud */
+    font:12.5px/1.5 var(--mono); color:var(--ink);
+    white-space:pre; overflow-x:auto;
+    user-select:all; -webkit-user-select:all;   /* one click grabs the whole command */
+    position:relative;
+  }
+  .codeblock .copybtn{
+    position:absolute; top:6px; right:8px; padding:2px 8px;
+    font:11px var(--mono); color:var(--sub); background:#FFFFFFB8;
+    border:0; border-radius:5px; cursor:pointer; opacity:.75;
+    user-select:none; -webkit-user-select:none;
+  }
+  .codeblock .copybtn:hover{opacity:1}
   .reply blockquote, .pendlist blockquote{
     margin:0 0 9px 2px; padding:2px 0 2px 12px;   /* same 9px rhythm as paragraphs */
     border-left:3px solid var(--line-strong); color:var(--sub);
@@ -768,6 +861,7 @@
 <div class="bar">
   <span id="homeico" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></span>
   <span id="tabbar"></span>
+  <span id="projnote"></span>
   <span class="name" id="boardname">facilitator</span>
   <span class="live"><span class="dot" id="dot"></span><span id="livetext">idle</span></span>
   <span class="prog" id="prog"></span>
@@ -839,11 +933,22 @@
 </main>
 </div>
 
+<!-- the new-project landing lives outside the stage: it centers on the real
+     window, untouched by the stage transform or any saved drag layout -->
+<div id="newproj">
+  <h2 id="nphead">Choose a project folder</h2>
+  <p id="npsub">The folder you pick becomes this tab's board.</p>
+  <div id="chpath"></div>
+  <div id="chlist"></div>
+  <button id="chpick">select this folder</button>
+</div>
+
 <script>
 const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
                   ["now", "Now"], ["done", "Done"], ["later", "Later"]];
 const METAS = [["toolmeta", "facilitator"], ["triagemeta", "triage"]];
 const NAME = { facilitator: "facilitator agent", triage: "triage agent", journal: "journal agent" };
+const laneName = ow => NAME[ow] || (ow + " agent");   // project lanes name themselves
 const els = {};       // box id -> {box, reply, meta, ta, send, donebtn, toc, sec}
 const secEls = {}, tocGroups = {};
 let lastState = null;
@@ -870,12 +975,13 @@ function pickInRow(state, owner){
   const row = state.boxes.filter(b => b.owner === owner);
   if (!row.length) return null;
   return (lastSel[owner] && row.find(b => b.id === lastSel[owner]))
-      || row.find(b => !b.done && !b.parked && !(b.writing || b.pending > 0) && b.ball === "you")
+      || row.find(awaitsYou)
       || row[0];
 }
 
 function setTab(owner){
   if (LOCKED && owner !== LOCKED) return;
+  if (draft) endDraft();   // an unfinished new tab disappears on switching away
   activeOwner = owner; localStorage.setItem("activeproj", owner);
   const pick = lastState && pickInRow(lastState, owner);
   if (pick) select(pick.id);
@@ -883,13 +989,14 @@ function setTab(owner){
   if (lastState) apply(lastState);   // refilter the bar, outline and counters now
 }
 
-let tabsBuilt = false;
 let tabDrag = null;   // pull-out: tug a tab downward off the bar and it opens as its own window
 function renderTabs(st){
   if (!FOCUS || !st) return;
   const bar = document.getElementById("tabbar");
   const owners = LOCKED ? [LOCKED] : rowsOf(st);
-  if (!tabsBuilt || bar.childElementCount !== owners.length){
+  const sig = owners.join(",") + (draft ? "|draft" : "") + (LOCKED ? "|locked" : "");
+  if (bar.dataset.sig !== sig){
+    bar.dataset.sig = sig;
     bar.textContent = "";
     for (const ow of owners){
       const t = h("button", "ptab");
@@ -904,9 +1011,21 @@ function renderTabs(st){
       });
       bar.appendChild(t);
     }
-    tabsBuilt = true;
+    if (draft){
+      const t = h("button", "ptab draft");
+      t.appendChild(h("span", "plabel", "new project"));
+      bar.appendChild(t);
+    }
+    if (!LOCKED){
+      // the plus sits past a thin rule and clear air, never inside the last tab
+      bar.appendChild(h("span", "tabsep"));
+      const plus = h("button", "ptabplus", "+");
+      plus.title = "new project tab";
+      plus.addEventListener("click", plusClick);
+      bar.appendChild(plus);
+    }
   }
-  for (const t of bar.children){
+  for (const t of bar.querySelectorAll(".ptab:not(.draft)")){
     t.classList.toggle("on", t.dataset.owner === activeOwner);
     const lbl = t.querySelector(".plabel");
     const want = labelOf(st, t.dataset.owner);
@@ -928,6 +1047,101 @@ addEventListener("mouseup", e => {
          "popup=yes,width=1100,height=850,left=" + Math.max(0, e.screenX - 200) + ",top=" + Math.max(0, e.screenY - 20));
   }
   setTimeout(() => { tabDrag = null; }, 0);
+});
+
+// the plus tab: a fresh tab in a choosing state. It becomes a real lane only
+// when a folder is picked; switching away first drops it, no half-made lanes.
+const DRAFT = "__new__";
+let draft = null;   // {path} while the new tab is choosing its folder
+function projNote(msg){
+  const n = document.getElementById("projnote");
+  n.textContent = msg;
+  n.classList.add("show");
+  clearTimeout(projNote.t);
+  projNote.t = setTimeout(() => n.classList.remove("show"), 6000);
+}
+function endDraft(){
+  draft = null;
+  document.body.classList.remove("choosing");
+}
+function plusClick(){
+  // a live server from before /project and /dirs serves no projects list in
+  // /state; the flow would only 404 there, so say what is missing instead
+  if (!lastState || !("projects" in lastState)){
+    projNote("new projects need the server restart");
+    return;
+  }
+  draft = { path: null };
+  activeOwner = DRAFT;   // never saved: a reload forgets the unfinished tab
+  document.body.classList.add("choosing");
+  // the landing opens with the folder browser already live: no second click
+  document.getElementById("chpath").textContent = "";
+  document.getElementById("chlist").textContent = "";
+  fitList();   // a stale height from an earlier draft must not carry over
+  loadDirs("");
+  renderTabs(lastState);
+  apply(lastState);
+}
+async function loadDirs(p){
+  const list = document.getElementById("chlist");
+  // the reading state, never a flash of wrong emptiness: a first open says
+  // so in plain words; a walk keeps the old listing, dimmed, until the new
+  // one lands
+  if (!list.children.length) list.appendChild(h("div", "chload", "reading this folder"));
+  list.classList.add("loading");
+  const r = await fetch("/dirs?path=" + encodeURIComponent(p || ""))
+    .then(x => x.ok ? x.json() : null).catch(() => null);
+  if (!draft) return;
+  list.classList.remove("loading");
+  if (!r){
+    // an unreadable folder: an inline plain-words row; the listing stays
+    list.querySelector(".chload")?.remove();
+    list.querySelector(".cherr")?.remove();
+    list.prepend(h("div", "cherr", "that folder can't be opened"));
+    return;
+  }
+  draft.path = r.path;
+  document.getElementById("chpath").textContent = r.path;
+  list.textContent = "";
+  if (r.parent){
+    const up = h("button", "chrow up", "up one level");
+    up.addEventListener("click", () => loadDirs(r.parent));
+    list.appendChild(up);
+  }
+  for (const d of r.dirs){
+    const row = h("button", "chrow", d.name);
+    row.addEventListener("click", () => loadDirs(d.path));
+    list.appendChild(row);
+  }
+  if (!r.dirs.length) list.appendChild(h("div", "chempty", "no folders inside"));
+  fitList();
+}
+// the list ends only on whole rows: its height is an exact multiple of the
+// measured row height plus the list's own padding, refit on every listing
+// and on window resize, so no row is ever cut at the bottom edge
+function fitList(){
+  const list = document.getElementById("chlist");
+  const row = list.querySelector(".chrow");
+  if (!row){ list.style.maxHeight = ""; return; }
+  const rowH = row.getBoundingClientRect().height;
+  const pad = 12;   // the list's 6px top and bottom padding
+  const other = document.getElementById("newproj").getBoundingClientRect().height
+              - list.getBoundingClientRect().height;   // copy, path, button, gaps
+  const avail = (innerHeight - 41) - 120 - other;   // breathing margin kept
+  const rows = Math.min(14, Math.max(3, Math.floor((avail - pad) / rowH)));
+  list.style.maxHeight = (rows * rowH + pad) + "px";
+}
+addEventListener("resize", () => { if (draft) fitList(); });
+document.getElementById("chpick").addEventListener("click", async () => {
+  if (!draft?.path) return;
+  const name = draft.path.split("/").filter(Boolean).pop() || "project";
+  const r = await fetch("/project?name=" + encodeURIComponent(name),
+      { method: "POST", body: draft.path })
+    .then(x => x.ok ? x.json() : null).catch(() => null);
+  if (!r?.id){ projNote("could not create that project"); return; }
+  endDraft();
+  activeOwner = r.id; localStorage.setItem("activeproj", r.id);
+  await poll();   // the new lane arrives with its card, tab label and directory
 });
 
 function select(id, opts){
@@ -959,6 +1173,9 @@ function rowsOf(state){
   const owners = [];
   for (const b of state.boxes)
     if (b.owner !== "journal" && !owners.includes(b.owner)) owners.push(b.owner);
+  // stored project lanes keep their tab even with every card deleted
+  for (const p of (state.projects || []))
+    if (!owners.includes(p.id)) owners.push(p.id);
   owners.sort((a, b) => (a === "facilitator" ? -1 : b === "facilitator" ? 1 : 0));
   return owners;
 }
@@ -984,11 +1201,11 @@ function nav(dx, dy, opts){
 // keep a valid selection within the active project: fall back when the
 // selected box is gone, unset, or belongs to another tab
 function applySelection(state){
-  if (!FOCUS || !state.boxes.length) return;
+  if (!FOCUS || !state.boxes.length || draft) return;   // a choosing tab holds no card
   const pool = state.boxes.filter(b => b.owner === activeOwner);
   const scope = pool.length ? pool : state.boxes;
   if (!selectedId || !scope.some(b => b.id === selectedId)){
-    const pick = scope.find(b => !b.done && !b.parked && !(b.writing || b.pending > 0) && b.ball === "you")
+    const pick = scope.find(awaitsYou)
               || scope.find(b => !b.done && !b.parked)
               || scope[0];
     selectedId = pick.id; localStorage.setItem("selbox", selectedId);
@@ -1011,6 +1228,29 @@ function imgify(s){
 
 // light formatting: paragraphs on blank lines, dash/numbered lists, **bold**
 function fmt(t){
+  // fenced code first: lines between ``` markers become one <pre> kept
+  // verbatim, so commands copy out exactly as sent; the prose around a
+  // fence runs back through this same formatter untouched
+  if (/^```/m.test(t)){
+    const segs = [];
+    let prose = [], code = [], inCode = false;
+    for (const line of t.split("\n")){
+      if (/^```/.test(line)){
+        if (inCode){ segs.push({ code: true, text: code.join("\n") }); code = []; }
+        else { segs.push({ code: false, text: prose.join("\n") }); prose = []; }
+        inCode = !inCode;
+        continue;
+      }
+      (inCode ? code : prose).push(line);
+    }
+    if (code.length) segs.push({ code: true, text: code.join("\n") });
+    if (prose.length) segs.push({ code: false, text: prose.join("\n") });
+    return segs.map(s => s.code
+      ? '<pre class="codeblock"><button class="copybtn">copy</button><code>' +
+        s.text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") +
+        "</code></pre>"
+      : (s.text.trim() ? fmt(s.text) : "")).join("");
+  }
   const esc = t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const bold = imgify(esc.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>"));
   return bold.split(/\n\n+/).map(par => {
@@ -1118,7 +1358,8 @@ function makeBox(b, i, state){
     reply.innerHTML = fmt(b.reply);
     reply.addEventListener("animationend", () => reply.classList.remove("fresh"));
     const meta = h("div", "meta");
-    const pend = h("div", "pendlist");   // your still-unanswered messages, dim, above the input
+    const pend = h("div", "pendlist");   // sent-and-waiting bar; a click unfolds the list
+    pend.addEventListener("click", () => pend.classList.toggle("open"));
     const compose = h("div", "compose");
     const ta = h("textarea");
     ta.rows = 1;
@@ -1257,6 +1498,26 @@ function jumpNextYellow(fromId){
   select(p[0].id, { focus: true });
 }
 
+// the stamp on a sent-and-waiting message: a short clock time, plus a plain
+// month-and-day date in front only when the send was not today; empty when
+// the send time is unknown (entries queued before the server recorded times)
+function stampText(ts){
+  if (!ts) return "";
+  const d = new Date(ts * 1000);
+  if (isNaN(d.getTime())) return "";
+  const hr = d.getHours();
+  const clock = (hr % 12 || 12) + ":" + String(d.getMinutes()).padStart(2, "0") + " " + (hr < 12 ? "AM" : "PM");
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return clock;
+  const day = MONTHS3[d.getMonth()] + " " + d.getDate() + (d.getFullYear() === now.getFullYear() ? "" : " " + d.getFullYear());
+  return day + ", " + clock;
+}
+
+function stampHTML(ts){
+  const s = stampText(ts);   // digits, letters and punctuation only; nothing to escape
+  return s ? '<span class="stamp">' + s + "</span>" : "";
+}
+
 async function doSend(id){
   const el = els[id];
   const text = el.ta.value.trim();
@@ -1266,13 +1527,16 @@ async function doSend(id){
     const r = await fetch("/send?box=" + encodeURIComponent(id), { method: "POST", body: text });
     if (!r.ok) throw new Error(r.status);
     el.ta.value = ""; el.ta.style.height = "auto";   // clear only after the server has it
-    // show the bubble immediately, and pre-mark the list as current so the
-    // next poll's redraw does not tear down the spring animation mid-flight
+    // count it into the bar immediately, and pre-mark the list as current so
+    // the next poll's redraw brings nothing it does not already hold
     el.pend.dataset.raw = el.pend.dataset.raw ? el.pend.dataset.raw + "\n\n" + text : text;
     const bub = document.createElement("p");
-    bub.className = "pop";
-    bub.textContent = text;
+    const st = document.createElement("span");
+    st.className = "stamp";
+    st.textContent = stampText(Date.now() / 1000);   // client clock; the poll's server time takes over
+    bub.append(st, text);
     el.pend.appendChild(bub);
+    el.pend.dataset.label = "↑ Sent messages (" + el.pend.children.length + ")";
     poll();
     cancelAutoNext();
     autoNext = setTimeout(() => { autoNext = null; if (FOCUS) jumpNextYellow(id); }, AUTONEXT_MS);
@@ -1334,12 +1598,12 @@ function apply(state){
     if (el.ctx.textContent !== (b.context || "")) el.ctx.textContent = b.context || "";
     const pt = (b.pendingTexts || []).join("\n\n");
     if (el.pend.dataset.raw !== pt){
-      const before = el.pend.children.length;
       el.pend.dataset.raw = pt;
+      const stamps = b.pendingStamps || [];   // absent from a pre-stamp server: every send unstamped
       el.pend.innerHTML = (b.pendingTexts || [])
-        .map(t => "<p>" + imgify(t.replace(/&/g, "&amp;").replace(/</g, "&lt;")) + "</p>").join("");
-      // messages that arrived from elsewhere (another window) still spring in
-      for (let i = before; i < el.pend.children.length; i++) el.pend.children[i].classList.add("pop");
+        .map((t, i) => "<p>" + stampHTML(stamps[i]) + imgify(t.replace(/&/g, "&amp;").replace(/</g, "&lt;")) + "</p>").join("");
+      el.pend.dataset.label = "↑ Sent messages (" + el.pend.children.length + ")";
+      if (!el.pend.children.length) el.pend.classList.remove("open");   // answered: nothing left to show
     }
     el.box.classList.toggle("done", b.done);
     el.box.classList.toggle("parked", !!b.parked);
@@ -1353,15 +1617,17 @@ function apply(state){
     el.box.classList.toggle("waiting", waiting);
     if (!waiting && !b.done) el.box.classList.remove("peek");
     el.box.classList.toggle("yourturn", !b.done && !waiting && b.ball === "you");
-    const ws = b.writing ? '<span class="w2">' + NAME[b.owner] + ' is writing</span>'
+    const ws = b.writing ? '<span class="w2">' + laneName(b.owner) + ' is writing</span>'
              : (b.queuePos ? "sent ✓ " + ord(b.queuePos) + " in line" : "");
     if (el.wstat.innerHTML !== ws) el.wstat.innerHTML = ws;  // rewriting every poll restarts the dots and re-wraps the title row
     // the queue chatter (sent, nth in line, messages since) is gone on the
     // owner's order; the element still carries transient send-failure notes
     if (el.meta.textContent && el.meta.textContent.indexOf("send failed") !== 0) el.meta.textContent = "";
     if (el.toc){
+      const cs = cardState(b);
+      // quirk kept: pending queues the entry even when the ball sits with you
       el.toc.className = "toc-entry " + (
-        b.done ? "t-done" : b.parked ? "t-later" : (b.writing || b.bg) ? "t-writing" : b.pending > 0 ? "t-queued" :
+        cs === "done" ? "t-done" : cs === "parked" ? "t-later" : cs === "working" ? "t-writing" : b.pending > 0 ? "t-queued" :
         b.ball === "you" ? "t-you" : "") + (FOCUS && b.id === selectedId ? " t-sel" : "");
       el.toc.style.display = (FOCUS && b.owner !== activeOwner) ? "none" : "";
       el.toc.querySelector(".tage").textContent = age(b.ts);
@@ -1404,7 +1670,7 @@ function apply(state){
   // in focus mode the counters and outline speak for the active tab only
   const scope = FOCUS ? state.boxes.filter(x => x.owner === activeOwner) : state.boxes;
   const doneN = scope.filter(x => x.done).length;
-  const yours = scope.filter(x => !x.done && !x.parked && !(x.writing || x.pending > 0) && x.ball === "you").length;
+  const yours = scope.filter(awaitsYou).length;
   // the honest gap: the agent is alive and absent from the listening call
   // with nothing held and no live job registered; say so instead of nothing
   const offrec = state.agents?.[activeOwner]?.offrecord;
@@ -1428,16 +1694,16 @@ function apply(state){
 
   // listener presence, per agent: each is either long-polling (listening),
   // composing a claimed reply (busy), or recently between the two. Otherwise: offline.
-  const offOwners = state.paused ? [] : Object.keys(NAME).filter(ow =>
+  const offOwners = state.paused ? [] : Object.keys(state.listening || NAME).filter(ow =>
     (state.everListened || {})[ow] &&
     !state.listening[ow] && !state.busy[ow] && state.listenerGap[ow] > 300);
   document.body.classList.toggle("offline", offOwners.length > 0);
   if (offOwners.length){
     document.getElementById("offline").textContent =
-      "Offline: " + offOwners.map(ow => NAME[ow] + " (last heard " +
+      "Offline: " + offOwners.map(ow => laneName(ow) + " (last heard " +
       Math.round(state.listenerGap[ow] / 60) + " min ago)").join(", ") +
       ". Messages still queue safely; replies resume when that terminal side wakes.";
-    live.textContent = offOwners.length === 2 ? "listeners offline" : NAME[offOwners[0]] + " offline";
+    live.textContent = offOwners.length === 2 ? "listeners offline" : laneName(offOwners[0]) + " offline";
   }
 }
 
@@ -1561,6 +1827,27 @@ function inlineEdit(spanEl, initial, onSave){
   inp.addEventListener("blur", () => finish(false));
 }
 
+// ---- card state: the single home of state decisions -----------------------
+// one name per card: done, parked, working, new, yours, queued. consumers
+// map the name to their own classes, group numbers, and colors; the two
+// helpers under it keep old per-site quirks exactly as they were.
+function cardState(b){
+  return b.done ? "done"
+       : b.parked ? "parked"
+       : (b.writing || b.bg) ? "working"
+       : (!b.agentTs && !b.pending) ? "new"
+       : b.ball === "you" ? "yours"
+       : "queued";
+}
+// the queue panel's view: a parked card sorts and colors as if open
+function queueState(b){ return b.parked ? cardState({ ...b, parked: false }) : cardState(b); }
+// the strict await of the bar count and auto-select: pending vetoes it and
+// bg alone does not count as working there
+function awaitsYou(b){
+  const s = cardState(b);
+  return s !== "done" && s !== "parked" && !(b.writing || b.pending > 0) && b.ball === "you";
+}
+
 // ---- the carousel: the workspace's other chats as a queue -----------------
 // Front: chats the agent has addressed (yellow), newest first. Back: chats
 // answered and waiting on the agent (green), the just-answered one last.
@@ -1571,10 +1858,7 @@ function poolOf(state){
     .sort((a, b) => {
       // an untouched new card stays on top; the first send drops it into the
       // waiting group; anything green (in progress) sinks below all of that
-      const g = x => x.done ? 4
-        : (x.writing || x.bg) ? 3
-        : (!x.agentTs && !x.pending) ? 0
-        : (x.ball === "you" ? 1 : 2);
+      const g = x => ({ "new": 0, yours: 1, queued: 2, working: 3, done: 4 })[queueState(x)];
       if (g(a) !== g(b)) return g(a) - g(b);
       if (g(a) === 0) return (b.ts || 0) - (a.ts || 0);   // newest created on top
       if (g(a) === 1) return (b.agentTs || 0) - (a.agentTs || 0);   // newest agent reply on top
@@ -1666,11 +1950,14 @@ function renderCarousel(state){
     for (const prev of tik.children) if (prev.dataset && prev.dataset.id) oldPos[prev.dataset.id] = prev.getBoundingClientRect().top;
     tik.textContent = "";
     for (const b of pool){
-      const busy = b.writing || b.bg;   // claimed, or a worker's job runs behind it
+      const s = queueState(b);   // working covers claimed and a worker's job behind it
+      // quirks kept: a claimed done row still pulses, and an untouched row
+      // falls in with yours or queued by where the ball sits
+      const busy = s === "working" || (s === "done" && (b.writing || b.bg));
       const r = h("div", "trow" + (b.id === selectedId ? " on" : "") + (busy ? " working" : "") +
-                  (!busy && !b.done && b.ball === "you" ? " yours" : "") +
-                  (!busy && !b.done && b.ball !== "you" ? " queuedc" : "") +
-                  (b.done ? " donec" : "") +
+                  (s === "yours" || (s === "new" && b.ball === "you") ? " yours" : "") +
+                  (s === "queued" || (s === "new" && b.ball !== "you") ? " queuedc" : "") +
+                  (s === "done" ? " donec" : "") +
                   (selectedTask && b.task === selectedTask ? " match" : ""));
       const inner = h("div", "trowin");
       const ttl = h("div", "ttl", b.title);
@@ -1706,7 +1993,8 @@ function renderCarousel(state){
   }
   // chips spring up above the panel: green while its agent works, yellow
   // while the ticket awaits input; click jumps there
-  const need = pool.filter(b => !b.done && (b.writing || b.ball === "you"));
+  // quirk kept: the claim and the ball alone gate a chip; bg does not
+  const need = pool.filter(b => cardState(b) !== "done" && (b.writing || b.ball === "you"));
   const csig = need.map(b => b.id + (b.writing ? "g" : "y")).join(",");
   if (chips.dataset.sig !== csig){
     chips.dataset.sig = csig;
@@ -1785,6 +2073,7 @@ addEventListener("keydown", e => {
   }
   if (e.metaKey && (e.key === "t" || e.key === "T")){   // command+T: new card, input focused
     e.preventDefault();
+    if (draft) return;   // a choosing tab has no lane to put a card in yet
     fetch("/create?owner=" + activeOwner, { method: "POST" })
       .then(x => x.json())
       .then(r => { if (r?.id){ localStorage.setItem("focusbox", r.id); poll(); } })
@@ -1954,6 +2243,18 @@ function fitStage(){
   document.body.style.backgroundPosition = tx + "px " + (bar + ty) + "px";
 }
 addEventListener("resize", fitStage);
+
+// the copy button on fenced blocks: one click puts the block's text on the clipboard
+document.addEventListener("click", e => {
+  const b = e.target.closest?.(".copybtn");
+  if (!b) return;
+  e.stopPropagation();
+  const code = b.parentElement.querySelector("code");
+  navigator.clipboard.writeText(code ? code.textContent : "").then(() => {
+    b.textContent = "copied";
+    setTimeout(() => { b.textContent = "copy"; }, 1200);
+  }).catch(() => {});
+});
 fitStage();
 
 {
@@ -2290,14 +2591,43 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     // a single-line input never wraps, it scrolls sideways instead
     mirror.style.whiteSpace = el.tagName === "INPUT" ? "pre" : "pre-wrap";
     mirror.style.wordWrap = el.tagName === "INPUT" ? "normal" : "break-word";
-    mirror.textContent = el.value.slice(0, el.selectionStart);
-    const mark = document.createElement("span");
-    // the marker carries the rest of the text so it wraps exactly like the
-    // real field; its first fragment starts at the caret
-    mark.textContent = el.value.slice(el.selectionStart) || ".";
-    mirror.appendChild(mark);
+    const typed = el.value.slice(0, el.selectionStart);
+    const rest = el.value.slice(el.selectionStart);
+    mirror.textContent = typed;
     const mr = mirror.getBoundingClientRect();
-    const kr = mark.getClientRects()[0] || mark.getBoundingClientRect();
+    let kr;
+    if (!rest && /\S$/.test(typed)){
+      // live typing at the end of a word: any marker glyph would weld onto
+      // that word, and at a full line the welded pair wraps in the mirror
+      // while the real text stays put, so the block drew one line below the
+      // caret; the right edge of the last typed character is the true spot
+      const rg = document.createRange();
+      rg.setStart(mirror.firstChild, typed.length - 1);
+      rg.setEnd(mirror.firstChild, typed.length);
+      const rr = rg.getClientRects()[0] || rg.getBoundingClientRect();
+      kr = { left: rr.right, top: rr.top };
+    } else if (!rest && / $/.test(typed) && el.tagName !== "INPUT"){
+      // live typing spaces at a full line, measured against Chrome's own
+      // caret: each space advances its full width while it still fits the
+      // line, and once the spaces hang past the edge the caret pins about
+      // 1.7px inside the content edge and rides there, on the space's own
+      // line; it never drops until a real letter wraps
+      const rg = document.createRange();
+      rg.setStart(mirror.firstChild, typed.length - 1);
+      rg.setEnd(mirror.firstChild, typed.length);
+      const rr = rg.getClientRects()[0] || rg.getBoundingClientRect();
+      const edge = mr.right - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingRight) - 1.7;
+      kr = { left: Math.min(rr.right, edge), top: rr.top };
+    } else {
+      const mark = document.createElement("span");
+      // the marker carries the rest of the text so it wraps exactly like the
+      // real field; its first fragment starts at the caret. at the very end
+      // of the text a placeholder dot stands in on the spot typing lands,
+      // which after a pressed line break is the start of the next line
+      mark.textContent = rest || ".";
+      mirror.appendChild(mark);
+      kr = mark.getClientRects()[0] || mark.getBoundingClientRect();
+    }
     const m = fmetrics(cs);
     // the baseline is the marker's inline box top plus the font's ascent
     return { x: r.left + (kr.left - mr.left) - el.scrollLeft,
