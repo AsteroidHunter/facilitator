@@ -150,8 +150,6 @@
   .reply p:last-child, .reply ul:last-child, .reply ol:last-child{margin-bottom:0}
   .reply ul, .reply ol{margin:0 0 9px; padding-left:20px}
   .reply li{margin:3px 0}
-  .reply.fresh{animation:fresh 1.6s ease-out}
-  @keyframes fresh{0%{background:var(--accent-soft)} 100%{background:transparent}}
   .meta{font:11.5px var(--mono); color:var(--sub); margin-top:9px; min-height:15px; display:flex; gap:6px; align-items:center}
   .meta .w{color:var(--accent)}
   .meta .w::after{content:"…"; animation:ell 1.4s steps(4) infinite}
@@ -276,6 +274,10 @@
      One shared measure sizes every element in the column; nothing is px-fixed. */
   body.focus{--col:min(42rem, 88vw)}
   html:has(body.focus), body.focus{overflow:hidden}   /* the page never scrolls, either axis; the reply pane does */
+  /* scrolls stop dead at the edges: no rubber band, no chained bounce, in
+     the page or in any scrolling region (reply, card body, composer, list) */
+  html, body{overscroll-behavior:none}
+  #tiklist, #tickets, .box .body, .box .reply, textarea{overscroll-behavior:none}
   /* the star field fills the whole window, but its phase is locked to the
      stage: fitStage() slides the pattern's origin to wherever the centered
      stage lands, so the stars under the boxes always line up with them and
@@ -404,7 +406,10 @@
     cursor:pointer; user-select:none;
   }
   body.focus .box.sel .pendlist::before{
-    content:attr(data-label);
+    content:"↑ " attr(data-label);   /* the arrow flips with the fold state */
+  }
+  body.focus .box.sel .pendlist.open::before{content:"↓ " attr(data-label)}
+  body.focus .box.sel .pendlist::before{
     display:flex; align-items:center; justify-content:center; align-self:stretch;
     height:calc(var(--ch)*0.072/2);   /* half a #tiklist ticket row */
     padding:0 12px; border-radius:4px;
@@ -412,7 +417,12 @@
   }
   body.focus .box.sel .pendlist:empty{display:none}
   body.focus .box.sel .pendlist p{display:none}   /* folded: the bar alone shows */
-  body.focus .box.sel .pendlist.open{background:#FFF1E0; border-radius:4px; padding:10px 12px}
+  body.focus .box.sel .pendlist.open{
+    /* the box's color melts in over a short gradient at its top edge, no hard
+       line against the card; the label and messages stay full ink */
+    background:linear-gradient(to bottom, rgba(255,241,224,0), #FFF1E0 26px);
+    border-radius:4px; padding:10px 12px;
+  }
   body.focus .box.sel .pendlist.open::before{padding:0}
   body.focus .box.sel .pendlist.open p{
     display:block; margin:0;
@@ -422,7 +432,9 @@
      spaced evenly off both messages; a blank line inside one message draws
      no line, so it still reads as that message's own breath */
   body.focus .box.sel .pendlist.open p + p{
-    border-top:1px solid var(--line-strong); padding-top:var(--sp-s);
+    /* the stamps above each message mark the boundaries now; spacing alone
+       splits neighbours, the hairline retired on the owner's word */
+    padding-top:var(--sp-s);
   }
   /* each message's send time: a small grey clock above the text, inside the
      same hairline section; a send with no recorded time simply carries none */
@@ -486,6 +498,19 @@
   #tiklist{flex:1; overflow-y:auto; display:flex; flex-direction:column;
     gap:calc(var(--ch)*0.007);
     padding:calc(var(--ch)*0.012) 0.6vw calc(var(--ch)*0.012) 0.7vw}
+  /* the list's scrollbar, slimmed: a 7px lane, bare track, a rounded thumb
+     in the line-strong ink, a shade deeper under the pointer. scoped to the
+     ticket panel only; the rest of the page keeps its stock bars */
+  /* the thumb floats off the right edge (transparent border trick) and only
+     shows while the list actually scrolls or the pointer hovers it */
+  #tiklist::-webkit-scrollbar, #tickets::-webkit-scrollbar{width:9px}
+  #tiklist::-webkit-scrollbar-track, #tickets::-webkit-scrollbar-track{background:transparent}
+  #tiklist::-webkit-scrollbar-thumb, #tickets::-webkit-scrollbar-thumb{
+    background:transparent; border:3px solid transparent;
+    background-clip:padding-box; border-radius:99px}
+  #tiklist.scrolling::-webkit-scrollbar-thumb, #tiklist:hover::-webkit-scrollbar-thumb,
+  #tickets.scrolling::-webkit-scrollbar-thumb, #tickets:hover::-webkit-scrollbar-thumb{
+    background-color:var(--line-strong)}
   .trow{
     position:relative; flex:none; height:calc(var(--ch)*0.072);
     border:1px solid var(--line); border-radius:5px; background:#fff;
@@ -497,6 +522,7 @@
   .trow:hover{border-color:var(--line-strong)}
   .trowin{display:flex; align-items:center; gap:var(--sp-x); height:100%;
     padding:0 var(--sp-x)}
+  .trow.seen .ttl{color:#847A6B}   /* read but still awaiting: the title relaxes */
   .ttl{flex:1; min-width:0; font:500 17px/1.3 var(--sans); color:var(--ink);
     display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden}
   .tmeta{flex:none; display:flex; flex-direction:column; align-items:flex-end; gap:2px}
@@ -516,7 +542,11 @@
   .trow.donec{opacity:.55}
   .trow.on{
     border-color:var(--line-strong);
-    box-shadow:0 2px 10px rgba(60,45,20,.08);   /* contained, no overhang */
+    /* the selected row rises off the list: the chat frame's own shadow shape,
+       inked deeper so it reads at a glance, plus a one-pixel lift. z-index
+       keeps the spread from sliding under the neighbour below. colors stay */
+    transform:translateY(-1px); z-index:1;
+    box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
   }
   /* past capacity the panel contains itself: internal scroll, no overhang */
   body.focus #tickets.scroll{overflow-y:auto; overflow-x:hidden}
@@ -770,26 +800,52 @@
   #projnote{display:none; flex:none; font:12px var(--mono); color:var(--must);
     background:var(--must-bg); border-radius:4px; padding:3px 10px}
   #projnote.show{display:inline-block}
-  /* ---- new-project tab: the landing ------------------------------------- */
-  /* one composed block, centered on the real window, never on the stage
-     frame (which a saved drag layout may have moved): an imperative title,
-     one readable line tying it to the browser below it, the path, a calm
-     folder list ending only on whole rows, and the select action, prominent
-     by size and placement, never by saturation. The whole board skeleton,
-     the frame included, steps away while choosing.
-     States: reading, unreadable folder, no folders inside, listing. */
+  /* ---- new-project tab: the owner's landing ------------------------------ */
+  /* a plain page in the app's own background with the dotted grid off: the
+     wordmark, a bordered panel listing the open folders with the selected
+     one bold, and one orange button that swaps to the folder browser as the
+     flow's second screen. Both screens center on the real window, untouched
+     by the stage or drag layouts. */
   #newproj{display:none}
+  body.choosing{background-image:none}   /* no dots on this page */
   body.choosing #sections, body.choosing #pwdline{display:none}
   body.choosing .box{display:none !important}
   body.choosing :is(main, #clockbox, #tickets, #magic1, #magic2, #todobox,
     #goalbox, #rail, #taskchip){display:none !important}
   body.choosing #newproj{
-    display:flex; flex-direction:column; position:fixed; z-index:5;
-    left:50%; top:calc(41px + (100vh - 41px)/2); transform:translate(-50%,-50%);
-    width:min(27rem, 86vw);
+    display:flex; flex-direction:column; align-items:center; position:fixed;
+    z-index:5; left:50%; top:calc(41px + (100vh - 41px)*.44);
+    transform:translate(-50%,-50%);
   }
-  #nphead{font:500 30px/1.25 var(--serif); color:var(--ink); margin:0 0 8px}
-  #npsub{font:15px/1.5 var(--sans); color:var(--sub); margin:0 0 14px}
+  #nphome{display:flex; flex-direction:column; align-items:center;
+    width:min(630px, 88vw)}
+  #npbrowse{display:none}
+  #newproj.browse #nphome{display:none}
+  #newproj.browse #npbrowse{display:flex; flex-direction:column;
+    width:min(27rem, 86vw)}
+  #npbrand{font:600 46px/1.05 var(--sans); letter-spacing:-.03em;
+    color:var(--ink)}
+  /* the panel: an orange header strip naming the list, a white body of one
+     faintly tinted row per open project, one dark hairline around both,
+     rounded to the page's card radius. The orange is the page's own, the
+     same as the sent-and-waiting bar */
+  #nppanel{width:100%; margin:26px 0 0;
+    background:var(--card); border:1px solid var(--ink); border-radius:7px;
+    overflow:hidden}
+  #nphead{display:flex; align-items:center; height:40px; padding:0 14px;
+    background:#FFF1E0; font:500 13px var(--sans); color:var(--ink)}
+  #nprows{display:flex; flex-direction:column; gap:14px; padding:10px 6px 12px}
+  .nprow{display:block; width:100%; padding:9px 14px; text-align:left;
+    font:500 14.5px/1.35 var(--sans); color:var(--ink);
+    background:rgba(255,241,224,.55); border:none; border-radius:4px;
+    cursor:pointer; transition:background .15s}
+  .nprow:hover{background:#FFF1E0}
+  .nprow.sel{font-weight:600}   /* the selected project reads bold */
+  #npstart{margin:18px 0 0; font:600 15px var(--sans); color:var(--ink);
+    background:#FFF1E0; border:none; border-radius:7px;
+    padding:15px 34px; cursor:pointer; transition:background .2s}
+  #npstart:hover{background:#FFE7CC}
+  /* the flow's second screen: the folder browser, unchanged machinery */
   #chpath{font:12.5px var(--mono); color:var(--sub); word-break:break-all;
     margin:0 0 8px}
   #chlist{max-height:56vh; overflow-y:auto;
@@ -819,21 +875,28 @@
     font-size:12px; padding:7px 12px;
   }
   .reply .shot, .pendlist .shot{display:block; max-width:100%; border-radius:6px; margin:8px 0}
+  /* the wrapper, not the scrolling pre, anchors the copy button: an absolute
+     child of a scroller rides the scrolled content, so the button lives one
+     level up and stays pinned to the visible corner while the code scrolls */
+  .codeblockwrap{position:relative; margin:0 0 9px}
   .reply .codeblock, .pendlist .codeblock{
-    margin:0 0 9px; padding:10px 12px; border-radius:8px;     /* same 9px rhythm */
+    margin:0; padding:10px 12px; border-radius:8px;           /* same 9px rhythm */
     background:#EFF1F4; border:0;   /* clean cool grey; the beige read as mud */
     font:12.5px/1.5 var(--mono); color:var(--ink);
     white-space:pre; overflow-x:auto;
     user-select:all; -webkit-user-select:all;   /* one click grabs the whole command */
-    position:relative;
   }
-  .codeblock .copybtn{
-    position:absolute; top:6px; right:8px; padding:2px 8px;
-    font:11px var(--mono); color:var(--sub); background:#FFFFFFB8;
-    border:0; border-radius:5px; cursor:pointer; opacity:.75;
+  .codeblockwrap .copybtn{
+    position:absolute; top:6px; right:8px; padding:4px 6px;
+    display:flex; align-items:center; color:var(--sub);
+    background:#FFFFFF;   /* solid: the button must read over any code beneath */
+    box-shadow:0 1px 4px rgba(33,29,23,.18);
+    border:0; border-radius:5px; cursor:pointer;
     user-select:none; -webkit-user-select:none;
+    opacity:0; pointer-events:none; transition:opacity .15s;   /* shows on hover only */
   }
-  .codeblock .copybtn:hover{opacity:1}
+  .codeblockwrap:hover .copybtn{opacity:1; pointer-events:auto}
+  .codeblockwrap .copybtn:hover{color:var(--ink)}
   .reply blockquote, .pendlist blockquote{
     margin:0 0 9px 2px; padding:2px 0 2px 12px;   /* same 9px rhythm as paragraphs */
     border-left:3px solid var(--line-strong); color:var(--sub);
@@ -934,13 +997,23 @@
 </div>
 
 <!-- the new-project landing lives outside the stage: it centers on the real
-     window, untouched by the stage transform or any saved drag layout -->
+     window, untouched by the stage transform or any saved drag layout.
+     First screen: the wordmark, the open-projects card, the start button.
+     Second screen: the folder browser. -->
 <div id="newproj">
-  <h2 id="nphead">Choose a project folder</h2>
-  <p id="npsub">The folder you pick becomes this tab's board.</p>
-  <div id="chpath"></div>
-  <div id="chlist"></div>
-  <button id="chpick">select this folder</button>
+  <div id="nphome">
+    <div id="npbrand">Facilitator</div>
+    <div id="nppanel">
+      <div id="nphead">Active Folders</div>
+      <div id="nprows"></div>
+    </div>
+    <button id="npstart">Open a new folder</button>
+  </div>
+  <div id="npbrowse">
+    <div id="chpath"></div>
+    <div id="chlist"></div>
+    <button id="chpick">select this folder</button>
+  </div>
 </div>
 
 <script>
@@ -1071,17 +1144,43 @@ function plusClick(){
     projNote("new projects need the server restart");
     return;
   }
-  draft = { path: null };
+  draft = { screen: "home", path: null, from: activeOwner };
   activeOwner = DRAFT;   // never saved: a reload forgets the unfinished tab
   document.body.classList.add("choosing");
-  // the landing opens with the folder browser already live: no second click
+  document.getElementById("newproj").classList.remove("browse");
+  renderHome(lastState);
+  renderTabs(lastState);
+  apply(lastState);
+}
+// the landing's panel: every open tab as a row by its display name; the row
+// of the project already showing is the selected one and reads bold
+function renderHome(st){
+  if (!draft || draft.screen !== "home" || !st) return;
+  const box = document.getElementById("nprows");
+  const owners = rowsOf(st);
+  const sig = owners.map(ow => ow + labelOf(st, ow)).join(",") + "|" + draft.from;
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+  box.textContent = "";
+  for (const ow of owners){
+    const row = h("button", "nprow" + (ow === draft.from ? " sel" : ""), labelOf(st, ow));
+    row.addEventListener("click", () => {
+      // the bold moves on the click itself; the switch paints a beat later
+      for (const s of box.children) s.classList.toggle("sel", s === row);
+      if (ow !== draft.from) setTimeout(() => setTab(ow), 140);
+    });
+    box.appendChild(row);
+  }
+}
+document.getElementById("npstart").addEventListener("click", () => {
+  if (!draft) return;
+  draft.screen = "browse";
+  document.getElementById("newproj").classList.add("browse");
   document.getElementById("chpath").textContent = "";
   document.getElementById("chlist").textContent = "";
   fitList();   // a stale height from an earlier draft must not carry over
   loadDirs("");
-  renderTabs(lastState);
-  apply(lastState);
-}
+});
 async function loadDirs(p){
   const list = document.getElementById("chlist");
   // the reading state, never a flash of wrong emptiness: a first open says
@@ -1133,27 +1232,56 @@ function fitList(){
 }
 addEventListener("resize", () => { if (draft) fitList(); });
 document.getElementById("chpick").addEventListener("click", async () => {
-  if (!draft?.path) return;
-  const name = draft.path.split("/").filter(Boolean).pop() || "project";
-  const r = await fetch("/project?name=" + encodeURIComponent(name),
-      { method: "POST", body: draft.path })
-    .then(x => x.ok ? x.json() : null).catch(() => null);
-  if (!r?.id){ projNote("could not create that project"); return; }
+  if (!draft?.path){ projNote("no folder is open yet"); return; }
+  const path = draft.path;
+  const name = path.split("/").filter(Boolean).pop() || "project";
+  // a folder already behind an open tab: name that tab instead of refusing
+  const open = lastState && rowsOf(lastState)
+    .find(ow => (lastState.pwds || {})[ow] === path);
+  if (open){ projNote("that folder is already open as " + labelOf(lastState, open)); return; }
+  const x = await fetch("/project?name=" + encodeURIComponent(name),
+      { method: "POST", body: path }).catch(() => null);
+  const r = x ? await x.json().catch(() => null) : null;
+  if (!x?.ok || !r?.id){
+    // the server states its refusal; the note repeats it in plain words
+    projNote({ "duplicate project": "a project named " + name + " is already open",
+               "body must be a folder under home": "that folder is outside your home folder",
+               "empty name": "that folder has no usable name" }[r?.error]
+             || "could not create that project");
+    return;
+  }
   endDraft();
   activeOwner = r.id; localStorage.setItem("activeproj", r.id);
   await poll();   // the new lane arrives with its card, tab label and directory
 });
 
+// which replies the owner has laid eyes on: box id -> time of the viewing;
+// selecting a card counts as reading the reply it shows
+const seenReplies = JSON.parse(localStorage.getItem("seenReplies") || "{}");
+function markSeen(id){
+  seenReplies[id] = Date.now() / 1000;
+  localStorage.setItem("seenReplies", JSON.stringify(seenReplies));
+}
+
 function select(id, opts){
   if (!els[id]) return;
   cancelAutoNext();
   selectedId = id; localStorage.setItem("selbox", id);
+  markSeen(id);
   const b = lastState?.boxes.find(x => x.id === id);
   if (b) lastSel[b.owner] = id;
   for (const k of Object.keys(els)){
     els[k].box.classList.toggle("sel", k === id);
     els[k].toc.classList.toggle("t-sel", k === id);
   }
+  // the ticket rows re-render on the poll, up to a second later; the selection
+  // shadow must move the instant of the click, so flip the class directly,
+  // and bring the chosen row into the panel's view in the same breath
+  for (const r of document.querySelectorAll("#tiklist .trow")){
+    r.classList.toggle("on", r.dataset.id === id);
+    if (r.dataset.id === id && r.classList.contains("yours")) r.classList.add("seen");
+  }
+  document.querySelector("#tiklist .trow.on")?.scrollIntoView({ block: "nearest" });
   if (opts?.focus) els[id].ta.focus({ preventScroll: true });
   updatePwd();
   scrollTo({ top: 0, behavior: "instant" });
@@ -1246,9 +1374,9 @@ function fmt(t){
     if (code.length) segs.push({ code: true, text: code.join("\n") });
     if (prose.length) segs.push({ code: false, text: prose.join("\n") });
     return segs.map(s => s.code
-      ? '<pre class="codeblock"><button class="copybtn">copy</button><code>' +
+      ? '<div class="codeblockwrap"><button class="copybtn" title="copy">' + COPY_ICON + '</button><pre class="codeblock"><code>' +
         s.text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") +
-        "</code></pre>"
+        "</code></pre></div>"
       : (s.text.trim() ? fmt(s.text) : "")).join("");
   }
   const esc = t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -1356,7 +1484,6 @@ function makeBox(b, i, state){
     const reply = h("div", "reply");
     reply.dataset.raw = b.reply;
     reply.innerHTML = fmt(b.reply);
-    reply.addEventListener("animationend", () => reply.classList.remove("fresh"));
     const meta = h("div", "meta");
     const pend = h("div", "pendlist");   // sent-and-waiting bar; a click unfolds the list
     pend.addEventListener("click", () => pend.classList.toggle("open"));
@@ -1536,7 +1663,7 @@ async function doSend(id){
     st.textContent = stampText(Date.now() / 1000);   // client clock; the poll's server time takes over
     bub.append(st, text);
     el.pend.appendChild(bub);
-    el.pend.dataset.label = "↑ Sent messages (" + el.pend.children.length + ")";
+    el.pend.dataset.label = "Sent messages (" + el.pend.children.length + ")";
     poll();
     cancelAutoNext();
     autoNext = setTimeout(() => { autoNext = null; if (FOCUS) jumpNextYellow(id); }, AUTONEXT_MS);
@@ -1589,7 +1716,6 @@ function apply(state){
     if (el.reply.dataset.raw !== b.reply){
       el.reply.dataset.raw = b.reply;
       el.reply.innerHTML = fmt(b.reply);
-      el.reply.classList.remove("fresh"); void el.reply.offsetWidth; el.reply.classList.add("fresh");
     }
     if (!el.titleEl.isContentEditable && el.titleEl.textContent !== b.title){   // first message just named a new box
       el.titleEl.textContent = b.title;
@@ -1602,7 +1728,7 @@ function apply(state){
       const stamps = b.pendingStamps || [];   // absent from a pre-stamp server: every send unstamped
       el.pend.innerHTML = (b.pendingTexts || [])
         .map((t, i) => "<p>" + stampHTML(stamps[i]) + imgify(t.replace(/&/g, "&amp;").replace(/</g, "&lt;")) + "</p>").join("");
-      el.pend.dataset.label = "↑ Sent messages (" + el.pend.children.length + ")";
+      el.pend.dataset.label = "Sent messages (" + el.pend.children.length + ")";
       if (!el.pend.children.length) el.pend.classList.remove("open");   // answered: nothing left to show
     }
     el.box.classList.toggle("done", b.done);
@@ -1684,6 +1810,7 @@ function apply(state){
     tocGroups[key].style.display = visible ? "" : "none";
   }
   renderTabs(state);
+  if (draft && draft.screen === "home") renderHome(state);   // new lanes join the landing card live
   if (FOCUS){
     renderWorkspaces(state);
     renderTrio(state);
@@ -1931,6 +2058,26 @@ function shortAge(ts){
   if (sec < 86400) return Math.floor(sec / 3600) + "h";
   return Math.floor(sec / 86400) + "d";
 }
+// while a row works its age is noise; the slot carries a terminal spinner
+// instead, the ten braille frames at 100ms a step. one interval serves every
+// green row and only lives while one exists; each rebuild stamps the current
+// frame itself (see the tage line below), so the ticker and the poll-driven
+// re-renders never fight over the text. ages return on the next quiet poll.
+const SPIN_FRAMES = ["|","/","-","\\"];   // the classic terminal spinner, bolder than braille dots
+let spinFrame = 0, spinTimer = null;
+function syncSpinner(){
+  const has = document.querySelector("#tiklist .trow.working");
+  if (has && spinTimer == null){
+    spinTimer = setInterval(() => {
+      const ages = document.querySelectorAll("#tiklist .trow.working .tage");
+      if (!ages.length){ clearInterval(spinTimer); spinTimer = null; return; }
+      spinFrame = (spinFrame + 1) % SPIN_FRAMES.length;
+      for (const a of ages) a.textContent = SPIN_FRAMES[spinFrame];
+    }, 180);
+  } else if (!has && spinTimer != null){
+    clearInterval(spinTimer); spinTimer = null;
+  }
+}
 function renderCarousel(state){
   const tik = document.getElementById("tiklist");
   const chips = document.getElementById("chips");
@@ -1940,6 +2087,7 @@ function renderCarousel(state){
   const lane = state.agents?.[activeOwner];
   const sig = ticketView + "|" + (lane ? lane.name + lane.alive : "") + "|" +
               pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
+                      ((seenReplies[b.id] || 0) >= (b.agentTs || 0) ? "r" : "") +
                       (b.id === selectedId ? "!" : "") + (b.task || "") + b.title +
                       Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",") +
               "|" + selectedTask;
@@ -1954,7 +2102,9 @@ function renderCarousel(state){
       // quirks kept: a claimed done row still pulses, and an untouched row
       // falls in with yours or queued by where the ball sits
       const busy = s === "working" || (s === "done" && (b.writing || b.bg));
+      const seenTs = seenReplies[b.id] || 0;
       const r = h("div", "trow" + (b.id === selectedId ? " on" : "") + (busy ? " working" : "") +
+                  (s === "yours" && seenTs >= (b.agentTs || 0) ? " seen" : "") +
                   (s === "yours" || (s === "new" && b.ball === "you") ? " yours" : "") +
                   (s === "queued" || (s === "new" && b.ball !== "you") ? " queuedc" : "") +
                   (s === "done" ? " donec" : "") +
@@ -1964,7 +2114,7 @@ function renderCarousel(state){
       if (/^[0-9]/.test(b.id)) ttl.prepend(h("span", "tnum", b.id));
       inner.appendChild(ttl);
       const meta = h("div", "tmeta");
-      meta.appendChild(h("span", "tage", b.done ? "done" : shortAge(b.agentTs)));
+      meta.appendChild(h("span", "tage", busy ? SPIN_FRAMES[spinFrame] : b.done ? "done" : shortAge(b.agentTs)));
       // the tag is the lane's live truth, never a stored per-card value
       const ag = state.agents?.[b.owner];
       meta.appendChild(h("span", "teng", ag ? (ag.alive ? ag.name : "offline") : ""));
@@ -2014,6 +2164,7 @@ function renderCarousel(state){
       chips.appendChild(c);
     }
   }
+  syncSpinner();
 }
 
 function ord(n){ return n + ({1:"st",2:"nd",3:"rd"}[n % 10 > 3 || [11,12,13].includes(n % 100) ? 0 : n % 10] || "th"); }
@@ -2048,8 +2199,9 @@ async function poll(){
 // the quiet on-page arrows
 addEventListener("keydown", e => {
   if (!FOCUS) return;
-  if (e.metaKey && e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")){
-    // command+shift+arrows: previous/next card, in and out of the text box
+  if (e.ctrlKey && !e.metaKey && e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")){
+    // control+shift+arrows: previous/next card, in and out of the text box
+    // (moved off command+shift+arrows, which natively selects to line ends)
     e.preventDefault();
     nav(e.key === "ArrowLeft" ? -1 : 1, 0, { focus: true });
     return;
@@ -2244,15 +2396,32 @@ function fitStage(){
 }
 addEventListener("resize", fitStage);
 
-// the copy button on fenced blocks: one click puts the block's text on the clipboard
+// the ticket list's scrollbar thumb shows only while scrolling (or hover):
+// a short-lived class carries the visibility, fading out after the wheel rests
+{
+  const lists = ["tiklist", "tickets"].map(id => document.getElementById(id)).filter(Boolean);
+  for (const el of lists){
+    let t = null;
+    el.addEventListener("scroll", () => {
+      el.classList.add("scrolling");
+      clearTimeout(t);
+      t = setTimeout(() => el.classList.remove("scrolling"), 700);
+    }, { passive: true });
+  }
+}
+
+// the copy button on fenced blocks: one click puts the block's text on the
+// clipboard; the icon is the standard two-sheets copy glyph, drawn inline
+const COPY_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+const COPIED_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5 10 18.5 20 6"/></svg>';
 document.addEventListener("click", e => {
   const b = e.target.closest?.(".copybtn");
   if (!b) return;
   e.stopPropagation();
   const code = b.parentElement.querySelector("code");
   navigator.clipboard.writeText(code ? code.textContent : "").then(() => {
-    b.textContent = "copied";
-    setTimeout(() => { b.textContent = "copy"; }, 1200);
+    b.innerHTML = COPIED_ICON;
+    setTimeout(() => { b.innerHTML = COPY_ICON; }, 1200);
   }).catch(() => {});
 });
 fitStage();
