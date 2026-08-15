@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
     --paper:#F5F4F1; --card:#FFFFFF; --ink:#211D17; --sub:#75695A;
@@ -20,6 +21,7 @@
     --serif:"Newsreader", Georgia, serif;
     --sans:"IBM Plex Sans", -apple-system, sans-serif;
     --mono:"IBM Plex Mono", ui-monospace, monospace;
+    --inter:"Inter", -apple-system, sans-serif;   /* the new-project landing only */
   }
   *{box-sizing:border-box}
   html{scroll-behavior:smooth}
@@ -154,6 +156,17 @@
   .meta .w{color:var(--accent)}
   .meta .w::after{content:"…"; animation:ell 1.4s steps(4) infinite}
   @keyframes ell{0%{content:""} 25%{content:"."} 50%{content:".."} 75%{content:"..."}}
+  /* older replies: a quiet stepper at the right end of the grey row under
+     the reply. the arrows rest near-invisible and brighten on hover; the
+     position marker only speaks while an older reply is actually showing */
+  .histnav{margin-left:auto; display:flex; align-items:center; gap:1px}
+  .histnav[hidden]{display:none}
+  .histbtn{font:12px var(--mono); color:#C9BFAE; background:none; border:none;
+    cursor:pointer; padding:0 4px; line-height:1; transition:color .2s}
+  .histbtn:hover:not(:disabled){color:var(--accent)}
+  .histbtn:disabled{cursor:default; opacity:.4}
+  .histpos{padding:0 3px}
+  .box.histview .reply{opacity:.8}
 
   .compose{display:flex; gap:8px; margin-top:9px; align-items:flex-end}
   textarea{
@@ -786,6 +799,12 @@
   .ptab:hover{color:var(--ink)}
   .ptab.on{color:var(--ink); background:var(--paper); border-color:var(--line)}
   .ptab.tearing{opacity:.45}
+  /* a held tab rides the pointer sideways: it lifts on the selected row's own
+     shadow and must paint over whatever it crosses */
+  .ptab.dragging{color:var(--ink); background:var(--paper); border-color:var(--line);
+    z-index:2; box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
+  /* the others glide aside on the board's one 220ms curve, never teleport */
+  .ptab.gliding{transition:transform 220ms cubic-bezier(0.25, 1, 0.5, 1)}
   /* the plus: opens a fresh project tab. A thin rule and clear air keep it
      from ever reading as part of the last tab */
   .tabsep{flex:none; align-self:center; width:1px; height:20px;
@@ -801,11 +820,13 @@
     background:var(--must-bg); border-radius:4px; padding:3px 10px}
   #projnote.show{display:inline-block}
   /* ---- new-project tab: the owner's landing ------------------------------ */
-  /* a plain page in the app's own background with the dotted grid off: the
-     wordmark, a bordered panel listing the open folders with the selected
-     one bold, and one orange button that swaps to the folder browser as the
-     flow's second screen. Both screens center on the real window, untouched
-     by the stage or drag layouts. */
+  /* one centered screen, the dotted grid off: the wordmark over a sunken
+     white well listing the open folders, the current one bold, then the
+     raised start button that opens the system folder chooser. All landing
+     type is Inter (row paths stay grey mono); no text on this screen may
+     be orange: orange lives only in the well's text selection and in its
+     scrollbar thumb. Centers on the real window, untouched by the stage
+     or drag layouts. */
   #newproj{display:none}
   body.choosing{background-image:none}   /* no dots on this page */
   body.choosing #sections, body.choosing #pwdline{display:none}
@@ -818,56 +839,50 @@
     transform:translate(-50%,-50%);
   }
   #nphome{display:flex; flex-direction:column; align-items:center;
-    width:min(630px, 88vw)}
-  #npbrowse{display:none}
-  #newproj.browse #nphome{display:none}
-  #newproj.browse #npbrowse{display:flex; flex-direction:column;
-    width:min(27rem, 86vw)}
-  #npbrand{font:600 46px/1.05 var(--sans); letter-spacing:-.03em;
-    color:var(--ink)}
-  /* the panel: an orange header strip naming the list, a white body of one
-     faintly tinted row per open project, one dark hairline around both,
-     rounded to the page's card radius. The orange is the page's own, the
-     same as the sent-and-waiting bar */
-  #nppanel{width:100%; margin:26px 0 0;
-    background:var(--card); border:1px solid var(--ink); border-radius:7px;
-    overflow:hidden}
-  #nphead{display:flex; align-items:center; height:40px; padding:0 14px;
-    background:#FFF1E0; font:500 13px var(--sans); color:var(--ink)}
-  #nprows{display:flex; flex-direction:column; gap:14px; padding:10px 6px 12px}
-  .nprow{display:block; width:100%; padding:9px 14px; text-align:left;
-    font:500 14.5px/1.35 var(--sans); color:var(--ink);
-    background:rgba(255,241,224,.55); border:none; border-radius:4px;
-    cursor:pointer; transition:background .15s}
-  .nprow:hover{background:#FFF1E0}
-  .nprow.sel{font-weight:600}   /* the selected project reads bold */
-  #npstart{margin:18px 0 0; font:600 15px var(--sans); color:var(--ink);
-    background:#FFF1E0; border:none; border-radius:7px;
-    padding:15px 34px; cursor:pointer; transition:background .2s}
-  #npstart:hover{background:#FFE7CC}
-  /* the flow's second screen: the folder browser, unchanged machinery */
-  #chpath{font:12.5px var(--mono); color:var(--sub); word-break:break-all;
-    margin:0 0 8px}
-  #chlist{max-height:56vh; overflow-y:auto;
-    display:flex; flex-direction:column;
-    background:var(--card); border-radius:4px; padding:6px; margin:0 0 18px;
-    scroll-snap-type:y mandatory; scroll-padding-top:6px}
-  #chlist.loading{opacity:.55}
-  .chrow{font:14px/1.4 var(--sans); color:var(--ink); background:none; border:none;
-    text-align:left; border-radius:4px; padding:10px 12px; cursor:pointer; flex:none;
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-    scroll-snap-align:start}
-  .chrow:hover{background:var(--accent-soft)}
-  .chrow.up{color:var(--sub)}
-  .chempty, .chload{font:14px var(--sans); color:var(--sub); padding:10px 12px}
-  .cherr{font:13.5px var(--sans); color:var(--must); background:var(--must-bg);
-    border-radius:4px; padding:9px 12px; margin:0 0 2px}
-  /* the select action: the block's one tinted box, the house's borderless
-     soft tint, no saturated fill; prominent by size and placement */
-  #chpick{align-self:flex-start; font:600 14px var(--sans); color:var(--accent);
-    background:var(--accent-soft); border:none; border-radius:4px; padding:12px 22px;
-    cursor:pointer; transition:background .2s}
-  #chpick:hover{background:#E2DCFC}
+    width:min(30rem, 88vw)}
+  /* the landing's three pieces arrive one beat apart on the page's own
+     soft rise; the reduced-motion rule above stills them all */
+  @keyframes npmelt{from{opacity:0; transform:translateY(6px)}}
+  #npbrand, #nppanel, #npstart{animation:npmelt .2s cubic-bezier(.2,.7,.3,1) both}
+  #nppanel{animation-delay:.05s}
+  #npstart{animation-delay:.1s}
+  #npbrand{font:700 40px/1.1 var(--inter); letter-spacing:-.02em; color:var(--ink)}
+  /* the folders box: embedded, never floating; a white sunken well in the
+     paper, inset shadow only, no outer shadow, corners near square */
+  #nppanel{width:100%; margin:20px 0 0; padding:6px;
+    background:#FFFFFF;
+    border:none; border-radius:4px; min-height:330px;
+    box-shadow:inset 0 1px 6px rgba(60,45,20,.14), inset 0 0 0 1px rgba(60,45,20,.08)}
+  /* the one place orange may rest: selecting text inside the well */
+  #nppanel ::selection{background:#FFD9B3; color:var(--ink)}
+  #nphead{margin:0 0 2px; padding:10px 12px 6px;
+    font:500 13px var(--inter); color:#514A40}
+  #nprows{display:flex; flex-direction:column; gap:2px; padding:0 0 4px;
+    max-height:56vh; overflow-y:auto}
+  /* the well's scrollbar: the thumb is the landing's other orange */
+  #nprows::-webkit-scrollbar{width:9px}
+  #nprows::-webkit-scrollbar-track{background:transparent}
+  #nprows::-webkit-scrollbar-thumb{background:#F0B27E; border:3px solid transparent;
+    background-clip:padding-box; border-radius:99px}
+  /* rows are plain information, never controls: no hover, no pointer, no
+     fill; their text stays selectable */
+  .nprow{display:flex; flex-direction:column; gap:1px; width:100%;
+    padding:9px 12px; text-align:left}
+  .npname{font:400 15px/1.35 var(--inter); color:var(--ink)}
+  .nppath{font:11px var(--mono); color:var(--sub); max-width:100%;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .nprow.sel .npname{font-weight:600}   /* the current project reads bold */
+  /* the start button: a raised bevel, square corners, pastel orange body,
+     black label; pressing inverts the bevel and drops the label one pixel */
+  #npstart{margin:18px 0 0; font:600 14px var(--inter); color:#000;
+    background:#FFF1E0; border:none; border-radius:0;
+    padding:12px 26px; cursor:pointer;
+    box-shadow:inset -1px -1px 0 #3A2E20, inset 1px 1px 0 #FFFFFF,
+      inset -2px -2px 0 #D3A878, inset 2px 2px 0 #FFF9F1}
+  #npstart:active{
+    box-shadow:inset -1px -1px 0 #FFFFFF, inset 1px 1px 0 #3A2E20,
+      inset -2px -2px 0 #FFF9F1, inset 2px 2px 0 #D3A878;
+    padding:13px 25px 11px 27px}
   body.focus .name{display:none}
   body.focus #offline{
     position:fixed; left:14px; bottom:12px; top:auto; transform:none;
@@ -998,8 +1013,8 @@
 
 <!-- the new-project landing lives outside the stage: it centers on the real
      window, untouched by the stage transform or any saved drag layout.
-     First screen: the wordmark, the open-projects card, the start button.
-     Second screen: the folder browser. -->
+     One screen: the wordmark, the open-folders well, the start button that
+     opens the system folder chooser. -->
 <div id="newproj">
   <div id="nphome">
     <div id="npbrand">Facilitator</div>
@@ -1008,11 +1023,6 @@
       <div id="nprows"></div>
     </div>
     <button id="npstart">Open a new folder</button>
-  </div>
-  <div id="npbrowse">
-    <div id="chpath"></div>
-    <div id="chlist"></div>
-    <button id="chpick">select this folder</button>
   </div>
 </div>
 
@@ -1058,13 +1068,27 @@ function setTab(owner){
   activeOwner = owner; localStorage.setItem("activeproj", owner);
   const pick = lastState && pickInRow(lastState, owner);
   if (pick) select(pick.id);
+  else deselect();   // a lane with no cards shows plain paper, never another lane's card
   applySavedLayout();
   if (lastState) apply(lastState);   // refilter the bar, outline and counters now
 }
 
-let tabDrag = null;   // pull-out: tug a tab downward off the bar and it opens as its own window
+// clear the selection entirely: without this, a lane with no cards kept
+// rendering the previously selected card from another lane
+function deselect(){
+  selectedId = null; localStorage.removeItem("selbox");
+  for (const k of Object.keys(els)){
+    els[k].box.classList.remove("sel");
+    els[k].toc.classList.remove("t-sel");
+  }
+  for (const r of document.querySelectorAll("#tiklist .trow")) r.classList.remove("on");
+}
+
+let tabDrag = null;   // one grip, two gestures: sideways reorders the bar, a downward tug tears the tab out
+let tabGlide = null;  // the settle timer after a drop; the bar may not repaint under it
 function renderTabs(st){
   if (!FOCUS || !st) return;
+  if (tabDrag?.mode === "reorder" || tabGlide) return;   // a live drag owns the bar; the repaint lands after the drop
   const bar = document.getElementById("tabbar");
   const owners = LOCKED ? [LOCKED] : rowsOf(st);
   const sig = owners.join(",") + (draft ? "|draft" : "") + (LOCKED ? "|locked" : "");
@@ -1076,10 +1100,13 @@ function renderTabs(st){
       t.dataset.owner = ow;
       t.appendChild(h("span", "plabel", labelOf(st, ow)));
       if (!LOCKED){
-        t.addEventListener("mousedown", e => { tabDrag = { ow, y: e.clientY, pulled: false, el: t }; });
+        t.addEventListener("mousedown", e => {
+          if (tabGlide) return;   // a drop still settling holds the bar
+          tabDrag = { ow, x: e.clientX, y: e.clientY, mode: null, pulled: false, el: t };
+        });
       }
       t.addEventListener("click", () => {
-        if (tabDrag?.pulled) return;   // a pull is not a tab switch
+        if (tabDrag?.pulled || tabDrag?.mode === "reorder") return;   // a pull or a slide is not a tab switch
         setTab(ow);
       });
       bar.appendChild(t);
@@ -1105,22 +1132,101 @@ function renderTabs(st){
     if (lbl.textContent !== want) lbl.textContent = want;
   }
 }
-// tearing works like a browser tab: past the threshold the tab dims, and on
-// release the project's own window opens where the cursor let go
+// the first clear direction locks the gesture for the whole drag: mostly
+// sideways slides the tab along the bar, mostly downward tears it out, and
+// once locked the other mode cannot fire. tearing works like a browser tab:
+// past the threshold the tab dims, and on release the project's own window
+// opens where the cursor let go
 addEventListener("mousemove", e => {
-  if (tabDrag && !tabDrag.pulled && e.clientY - tabDrag.y > 40){
+  if (!tabDrag) return;
+  if (!e.buttons){   // the release landed outside the window; the grip is stale
+    if (tabDrag.mode === "reorder") dropReorder();
+    tabDrag = null;
+    return;
+  }
+  const dx = e.clientX - tabDrag.x, dy = e.clientY - tabDrag.y;
+  if (!tabDrag.mode){
+    if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;   // under the lock threshold a click stays a click
+    if (Math.abs(dx) > Math.abs(dy)) startReorder();
+    else tabDrag.mode = "tear";
+  }
+  if (tabDrag.mode === "reorder") moveReorder(e);
+  else if (!tabDrag.pulled && dy > 40){
     tabDrag.pulled = true;
     tabDrag.el.classList.add("tearing");
   }
 });
 addEventListener("mouseup", e => {
-  if (tabDrag?.pulled){
+  if (tabDrag?.mode === "reorder") dropReorder();
+  else if (tabDrag?.pulled){
     tabDrag.el.classList.remove("tearing");
     open(location.pathname + "?project=" + tabDrag.ow, "_blank",
          "popup=yes,width=1100,height=850,left=" + Math.max(0, e.screenX - 200) + ",top=" + Math.max(0, e.screenY - 20));
   }
   setTimeout(() => { tabDrag = null; }, 0);
 });
+
+// the sideways lock: the resting spots are measured once, the held tab lifts,
+// and every swap reads against those fixed midpoints
+function startReorder(){
+  const t = tabDrag;
+  t.tabs = [...document.querySelectorAll("#tabbar .ptab:not(.draft)")];
+  t.idx = t.tabs.indexOf(t.el);
+  if (t.idx < 0){ tabDrag = null; return; }   // the bar rebuilt under the grip; the drag dies quietly
+  t.mode = "reorder";
+  t.rects = t.tabs.map(el => el.getBoundingClientRect());
+  t.gap = 4;   // the bar's own flex gap
+  t.slot = t.idx;
+  t.el.classList.add("dragging");
+  for (const el of t.tabs) if (el !== t.el) el.classList.add("gliding");
+}
+function moveReorder(e){
+  const t = tabDrag, r = t.rects, i = t.idx;
+  const raw = e.clientX - t.x;
+  // the strip contains only what you see: the held tab pins at the ends,
+  // and the plus, the rule and a draft tab are never part of the drag
+  const dx = Math.max(r[0].left - r[i].left,
+             Math.min(r[r.length - 1].right - r[i].right, raw));
+  t.el.style.transform = "translate(" + dx + "px, -2px)";
+  // the claim follows the pointer, never the pinned tab: a clamped center
+  // cannot pass an edge midpoint when the held tab is at least as wide as
+  // the edge tab, which walled off the first and last slots. counting the
+  // resting midpoints the pointer center has passed is monotone and yields
+  // every slot from 0 to the last, ends included, past the strip included
+  const center = r[i].left + r[i].width / 2 + raw;
+  let slot = 0;
+  for (let j = 0; j < r.length; j++)
+    if (j !== i && center > r[j].left + r[j].width / 2) slot++;
+  if (slot === t.slot) return;
+  t.slot = slot;
+  const shift = r[i].width + t.gap;
+  for (let j = 0; j < t.tabs.length; j++){
+    if (j === i) continue;
+    const move = j < i ? (j >= slot ? shift : 0) : (j <= slot ? -shift : 0);
+    t.tabs[j].style.transform = move ? "translateX(" + move + "px)" : "";
+  }
+}
+// the drop: the held tab glides the last stretch down into its slot, the
+// order is written down, and only after the glide does the bar repaint
+function dropReorder(){
+  const t = tabDrag, r = t.rects, i = t.idx, slot = t.slot;
+  let left = r[i].left;
+  if (slot > i) for (let j = i + 1; j <= slot; j++) left += r[j].width + t.gap;
+  if (slot < i) for (let j = slot; j < i; j++) left -= r[j].width + t.gap;
+  const order = t.tabs.map(el => el.dataset.owner);
+  order.splice(slot, 0, order.splice(i, 1)[0]);
+  try { localStorage.setItem("taborder", JSON.stringify(order)); } catch (err) {}
+  t.el.style.transition = "transform 220ms cubic-bezier(0.25, 1, 0.5, 1)";
+  t.el.style.transform = "translate(" + (left - r[i].left) + "px, 0)";
+  tabGlide = setTimeout(() => {   // a timer, not transitionend: a zero-length glide fires no event
+    tabGlide = null;
+    t.el.classList.remove("dragging");
+    t.el.style.transition = ""; t.el.style.transform = "";
+    for (const el of t.tabs){ el.classList.remove("gliding"); el.style.transform = ""; }
+    document.getElementById("tabbar").dataset.sig = "";
+    if (lastState) renderTabs(lastState);
+  }, 240);
+}
 
 // the plus tab: a fresh tab in a choosing state. It becomes a real lane only
 // when a folder is picked; switching away first drops it, no half-made lanes.
@@ -1144,115 +1250,80 @@ function plusClick(){
     projNote("new projects need the server restart");
     return;
   }
-  draft = { screen: "home", path: null, from: activeOwner };
+  draft = { screen: "home", from: activeOwner };
   activeOwner = DRAFT;   // never saved: a reload forgets the unfinished tab
   document.body.classList.add("choosing");
-  document.getElementById("newproj").classList.remove("browse");
   renderHome(lastState);
   renderTabs(lastState);
   apply(lastState);
 }
-// the landing's panel: every open tab as a row by its display name; the row
-// of the project already showing is the selected one and reads bold
+// the landing's panel: every open tab as a plain informational row by its
+// display name; no row is a control (the tab bar owns switching), and the
+// row of the project already showing reads bold
 function renderHome(st){
   if (!draft || draft.screen !== "home" || !st) return;
   const box = document.getElementById("nprows");
   const owners = rowsOf(st);
-  const sig = owners.map(ow => ow + labelOf(st, ow)).join(",") + "|" + draft.from;
+  const sig = owners.map(ow => ow + labelOf(st, ow) + ((st.pwds || {})[ow] || "")).join(",") + "|" + draft.from;
   if (box.dataset.sig === sig) return;
   box.dataset.sig = sig;
   box.textContent = "";
   for (const ow of owners){
-    const row = h("button", "nprow" + (ow === draft.from ? " sel" : ""), labelOf(st, ow));
-    row.addEventListener("click", () => {
-      // the bold moves on the click itself; the switch paints a beat later
-      for (const s of box.children) s.classList.toggle("sel", s === row);
-      if (ow !== draft.from) setTimeout(() => setTab(ow), 140);
-    });
+    const row = h("div", "nprow" + (ow === draft.from ? " sel" : ""));
+    row.appendChild(h("span", "npname", labelOf(st, ow)));
+    row.appendChild(h("span", "nppath", (st.pwds || {})[ow] || ""));
     box.appendChild(row);
   }
 }
-document.getElementById("npstart").addEventListener("click", () => {
-  if (!draft) return;
-  draft.screen = "browse";
-  document.getElementById("newproj").classList.add("browse");
-  document.getElementById("chpath").textContent = "";
-  document.getElementById("chlist").textContent = "";
-  fitList();   // a stale height from an earlier draft must not carry over
-  loadDirs("");
-});
-async function loadDirs(p){
-  const list = document.getElementById("chlist");
-  // the reading state, never a flash of wrong emptiness: a first open says
-  // so in plain words; a walk keeps the old listing, dimmed, until the new
-  // one lands
-  if (!list.children.length) list.appendChild(h("div", "chload", "reading this folder"));
-  list.classList.add("loading");
-  const r = await fetch("/dirs?path=" + encodeURIComponent(p || ""))
-    .then(x => x.ok ? x.json() : null).catch(() => null);
-  if (!draft) return;
-  list.classList.remove("loading");
-  if (!r){
-    // an unreadable folder: an inline plain-words row; the listing stays
-    list.querySelector(".chload")?.remove();
-    list.querySelector(".cherr")?.remove();
-    list.prepend(h("div", "cherr", "that folder can't be opened"));
-    return;
+// the start button hands folder choosing to the system: GET /pickdir opens
+// the desktop chooser and answers with the chosen path, which then creates
+// the lane the same way the old in-page browser did
+document.getElementById("npstart").addEventListener("click", async () => {
+  if (!draft || draft.picking) return;   // one chooser at a time
+  draft.picking = true;
+  try {
+    const x = await fetch("/pickdir").catch(() => null);
+    if (!draft) return;   // the draft was dropped while the chooser sat open
+    if (!x){ projNote("could not reach the server"); return; }
+    if (x.status === 404){
+      // a live server from before the endpoint: only a restart adds it
+      projNote("the system picker needs the server restart");
+      return;
+    }
+    const r = await x.json().catch(() => null);
+    if (r?.cancelled) return;   // dismissed the chooser: nothing to say
+    if (!r?.path){ projNote("could not open the folder picker"); return; }
+    const path = r.path.replace(/\/+$/, "") || r.path;
+    const name = path.split("/").filter(Boolean).pop() || "project";
+    // a folder already behind an open tab: name that tab instead of refusing
+    const open = lastState && rowsOf(lastState)
+      .find(ow => (lastState.pwds || {})[ow] === path);
+    if (open){ projNote("that folder is already open as " + labelOf(lastState, open)); return; }
+    const px = await fetch("/project?name=" + encodeURIComponent(name),
+        { method: "POST", body: path }).catch(() => null);
+    const pr = px ? await px.json().catch(() => null) : null;
+    if (!px?.ok || !pr?.id){
+      // the server states its refusal; the note repeats it in plain words.
+      // a duplicate answer with no visible tab of that name means the id
+      // collides with a reserved internal lane: older servers refuse those,
+      // so the note must not claim the folder is already open
+      let msg = { "body must be a folder under home": "that folder is outside your home folder",
+                  "empty name": "that folder has no usable name" }[pr?.error]
+              || "could not create that project";
+      if (pr?.error === "duplicate project"){
+        const named = lastState && rowsOf(lastState).some(ow => labelOf(lastState, ow) === name);
+        msg = named ? "a project named " + name + " is already open"
+                    : "that name is reserved right now, the folder can be added after the next server restart";
+      }
+      projNote(msg);
+      return;
+    }
+    endDraft();
+    activeOwner = pr.id; localStorage.setItem("activeproj", pr.id);
+    await poll();   // the new lane arrives with its tab label and directory
+  } finally {
+    if (draft) draft.picking = false;
   }
-  draft.path = r.path;
-  document.getElementById("chpath").textContent = r.path;
-  list.textContent = "";
-  if (r.parent){
-    const up = h("button", "chrow up", "up one level");
-    up.addEventListener("click", () => loadDirs(r.parent));
-    list.appendChild(up);
-  }
-  for (const d of r.dirs){
-    const row = h("button", "chrow", d.name);
-    row.addEventListener("click", () => loadDirs(d.path));
-    list.appendChild(row);
-  }
-  if (!r.dirs.length) list.appendChild(h("div", "chempty", "no folders inside"));
-  fitList();
-}
-// the list ends only on whole rows: its height is an exact multiple of the
-// measured row height plus the list's own padding, refit on every listing
-// and on window resize, so no row is ever cut at the bottom edge
-function fitList(){
-  const list = document.getElementById("chlist");
-  const row = list.querySelector(".chrow");
-  if (!row){ list.style.maxHeight = ""; return; }
-  const rowH = row.getBoundingClientRect().height;
-  const pad = 12;   // the list's 6px top and bottom padding
-  const other = document.getElementById("newproj").getBoundingClientRect().height
-              - list.getBoundingClientRect().height;   // copy, path, button, gaps
-  const avail = (innerHeight - 41) - 120 - other;   // breathing margin kept
-  const rows = Math.min(14, Math.max(3, Math.floor((avail - pad) / rowH)));
-  list.style.maxHeight = (rows * rowH + pad) + "px";
-}
-addEventListener("resize", () => { if (draft) fitList(); });
-document.getElementById("chpick").addEventListener("click", async () => {
-  if (!draft?.path){ projNote("no folder is open yet"); return; }
-  const path = draft.path;
-  const name = path.split("/").filter(Boolean).pop() || "project";
-  // a folder already behind an open tab: name that tab instead of refusing
-  const open = lastState && rowsOf(lastState)
-    .find(ow => (lastState.pwds || {})[ow] === path);
-  if (open){ projNote("that folder is already open as " + labelOf(lastState, open)); return; }
-  const x = await fetch("/project?name=" + encodeURIComponent(name),
-      { method: "POST", body: path }).catch(() => null);
-  const r = x ? await x.json().catch(() => null) : null;
-  if (!x?.ok || !r?.id){
-    // the server states its refusal; the note repeats it in plain words
-    projNote({ "duplicate project": "a project named " + name + " is already open",
-               "body must be a folder under home": "that folder is outside your home folder",
-               "empty name": "that folder has no usable name" }[r?.error]
-             || "could not create that project");
-    return;
-  }
-  endDraft();
-  activeOwner = r.id; localStorage.setItem("activeproj", r.id);
-  await poll();   // the new lane arrives with its card, tab label and directory
 });
 
 // which replies the owner has laid eyes on: box id -> time of the viewing;
@@ -1266,6 +1337,7 @@ function markSeen(id){
 function select(id, opts){
   if (!els[id]) return;
   cancelAutoNext();
+  if (hist && hist.id !== id) histExit(hist.id);   // every card opens on its live reply
   selectedId = id; localStorage.setItem("selbox", id);
   markSeen(id);
   const b = lastState?.boxes.find(x => x.id === id);
@@ -1290,7 +1362,9 @@ function select(id, opts){
 function updatePwd(st){
   st = st || lastState;
   if (!FOCUS || !st) return;
-  const owner = st.boxes.find(x => x.id === selectedId)?.owner;
+  // no selection (an empty lane): the active tab's own folder, never the global default
+  const owner = st.boxes.find(x => x.id === selectedId)?.owner
+             || (activeOwner !== DRAFT ? activeOwner : null);
   const dir = (st.pwds || {})[owner] || st.pwd || "";
   const p = document.getElementById("pwdline");
   if (p.textContent !== dir) p.textContent = dir;
@@ -1300,12 +1374,19 @@ function updatePwd(st){
 function rowsOf(state){
   const owners = [];
   for (const b of state.boxes)
-    if (b.owner !== "journal" && !owners.includes(b.owner)) owners.push(b.owner);
+    if (b.owner !== "qchat" && !owners.includes(b.owner)) owners.push(b.owner);   // the quick chat lane never gets a tab
   // stored project lanes keep their tab even with every card deleted
   for (const p of (state.projects || []))
     if (!owners.includes(p.id)) owners.push(p.id);
   owners.sort((a, b) => (a === "facilitator" ? -1 : b === "facilitator" ? 1 : 0));
-  return owners;
+  // a dragged tab order outlives reloads and server restarts: saved lanes
+  // lead in their saved sequence, lanes the array does not know keep the
+  // natural order after them, and stale saved ids must never throw
+  let saved = [];
+  try { saved = JSON.parse(localStorage.getItem("taborder") || "[]"); } catch (err) {}
+  if (!Array.isArray(saved)) saved = [];
+  const lead = saved.filter(ow => owners.includes(ow));
+  return [...lead, ...owners.filter(ow => !lead.includes(ow))];
 }
 
 function nav(dx, dy, opts){
@@ -1331,13 +1412,14 @@ function nav(dx, dy, opts){
 function applySelection(state){
   if (!FOCUS || !state.boxes.length || draft) return;   // a choosing tab holds no card
   const pool = state.boxes.filter(b => b.owner === activeOwner);
-  const scope = pool.length ? pool : state.boxes;
-  if (!selectedId || !scope.some(b => b.id === selectedId)){
-    const pick = scope.find(awaitsYou)
-              || scope.find(b => !b.done && !b.parked)
-              || scope[0];
+  if (!pool.length){ deselect(); updatePwd(state); return; }   // an empty lane shows plain paper, never another lane's card
+  if (!selectedId || !pool.some(b => b.id === selectedId)){
+    const pick = pool.find(awaitsYou)
+              || pool.find(b => !b.done && !b.parked)
+              || pool[0];
     selectedId = pick.id; localStorage.setItem("selbox", selectedId);
   }
+  if (hist && hist.id !== selectedId) histExit(hist.id);   // selection moved without select()
   for (const k of Object.keys(els)) els[k].box.classList.toggle("sel", k === selectedId);
   updatePwd(state);
 }
@@ -1485,6 +1567,21 @@ function makeBox(b, i, state){
     reply.dataset.raw = b.reply;
     reply.innerHTML = fmt(b.reply);
     const meta = h("div", "meta");
+    // transient notes (send failures) get their own span, so clearing them
+    // never wipes the stepper controls sharing the row
+    const metaNote = h("span");
+    const histnav = h("span", "histnav");
+    const histUp = h("button", "histbtn", "↑");
+    histUp.title = "older reply (control shift up)";
+    const histPos = h("span", "histpos");
+    const histDown = h("button", "histbtn", "↓");
+    histDown.title = "newer reply (control shift down)";
+    histDown.disabled = true;
+    histnav.hidden = true;
+    histnav.append(histUp, histPos, histDown);
+    histUp.addEventListener("click", () => histStep(1));
+    histDown.addEventListener("click", () => histStep(-1));
+    meta.append(metaNote, histnav);
     const pend = h("div", "pendlist");   // sent-and-waiting bar; a click unfolds the list
     pend.addEventListener("click", () => pend.classList.toggle("open"));
     const compose = h("div", "compose");
@@ -1534,7 +1631,8 @@ function makeBox(b, i, state){
         box.classList.toggle("peek");
     });
 
-    els[b.id] = { box, reply, meta, pend, ta, send, donebtn: done, wstat, toc: entry, sec,
+    els[b.id] = { box, reply, meta, metaNote, histnav, histPos, histUp, histDown,
+                  pend, ta, send, donebtn: done, wstat, toc: entry, sec,
                   titleEl, tocTitle: entry.querySelector(".ttitle"), ctx };
 }
 
@@ -1664,11 +1762,12 @@ async function doSend(id){
     bub.append(st, text);
     el.pend.appendChild(bub);
     el.pend.dataset.label = "Sent messages (" + el.pend.children.length + ")";
+    if (hist && hist.id === id) histExit(id);   // a send lands you back on the live reply
     poll();
     cancelAutoNext();
     autoNext = setTimeout(() => { autoNext = null; if (FOCUS) jumpNextYellow(id); }, AUTONEXT_MS);
   } catch (err) {
-    el.meta.textContent = "send failed, text kept — try again";
+    el.metaNote.textContent = "send failed, text kept — try again";
   } finally {
     el.send.disabled = false;
   }
@@ -1682,11 +1781,78 @@ async function toggleFlag(id, kind){
   poll();
 }
 
+// ---- older replies --------------------------------------------------------
+// control shift up steps the selected card back through its past agent
+// replies, control shift down returns toward live; the small arrows in the
+// grey row under the reply click the same steps. While an older reply shows,
+// dataset.raw keeps holding the live text, so apply()'s rewrite guard leaves
+// the view alone across polls; an actual new reply changes the raw, which
+// drops the cached thread and snaps the card back to live.
+const histCache = {};   // box id -> promise of past agent replies, oldest first, live excluded
+let hist = null;        // {id, step} while an older reply shows; step 1 = one back from live
+
+function histList(id){
+  if (!histCache[id]){
+    histCache[id] = fetch("/thread?box=" + encodeURIComponent(id) + "&n=200")
+      .then(x => x.json())
+      .then(r => {
+        const list = (r.messages || []).filter(m => m.kind === "agent").map(m => m.text);
+        // the newest transcript entry is normally the live reply itself
+        if (list.length && els[id] && list[list.length - 1] === els[id].reply.dataset.raw) list.pop();
+        return list;
+      })
+      .catch(() => { delete histCache[id]; return []; });
+  }
+  return histCache[id];
+}
+
+function histExit(id){
+  const was = hist && hist.id === id;
+  if (was) hist = null;
+  const el = els[id];
+  if (!el) return;
+  el.box.classList.remove("histview");
+  el.histPos.textContent = "";
+  el.histUp.disabled = false;
+  el.histDown.disabled = true;
+  if (was){
+    el.reply.innerHTML = fmt(el.reply.dataset.raw);
+    el.reply.scrollTop = 0;
+  }
+}
+
+async function histStep(dir){   // +1 steps older, -1 steps back toward live
+  if (!FOCUS || !selectedId || !els[selectedId]) return;
+  const id = selectedId;
+  const list = await histList(id);
+  if (id !== selectedId || !els[id] || !list.length) return;   // card changed or nothing older
+  const cur = hist && hist.id === id ? hist.step : 0;
+  const step = Math.min(Math.max(cur + dir, 0), list.length);
+  if (step === cur) return;
+  if (!step){ histExit(id); return; }
+  hist = { id, step };
+  const el = els[id];
+  el.reply.innerHTML = fmt(list[list.length - step]);
+  el.reply.scrollTop = 0;
+  el.box.classList.add("histview");
+  el.histPos.textContent = (list.length - step + 1) + " of " + (list.length + 1);
+  el.histUp.disabled = step >= list.length;
+  el.histDown.disabled = false;
+}
+
 function apply(state){
   for (const id of Object.keys(els)){    // deleted boxes leave the page
     if (!state.boxes.some(b => b.id === id)){
+      if (hist && hist.id === id) hist = null;
+      delete histCache[id];
       els[id].box.remove(); els[id].toc.remove(); delete els[id];
     }
+  }
+  // a selection carried over from another lane (a reload into an empty lane,
+  // or the selected card's lane changing) never renders on this tab
+  if (FOCUS && selectedId && activeOwner !== DRAFT){
+    const sb = state.boxes.find(x => x.id === selectedId);
+    if (!sb || sb.owner !== activeOwner) deselect();
   }
 
   // scroll anchor: whatever you're typing in (else the box under the viewport
@@ -1715,7 +1881,9 @@ function apply(state){
     if (!el) continue;
     if (el.reply.dataset.raw !== b.reply){
       el.reply.dataset.raw = b.reply;
-      el.reply.innerHTML = fmt(b.reply);
+      delete histCache[b.id];   // a fresh reply outdates the cached thread
+      if (hist && hist.id === b.id) histExit(b.id);   // and snaps a history view back to live
+      else el.reply.innerHTML = fmt(b.reply);
     }
     if (!el.titleEl.isContentEditable && el.titleEl.textContent !== b.title){   // first message just named a new box
       el.titleEl.textContent = b.title;
@@ -1748,7 +1916,8 @@ function apply(state){
     if (el.wstat.innerHTML !== ws) el.wstat.innerHTML = ws;  // rewriting every poll restarts the dots and re-wraps the title row
     // the queue chatter (sent, nth in line, messages since) is gone on the
     // owner's order; the element still carries transient send-failure notes
-    if (el.meta.textContent && el.meta.textContent.indexOf("send failed") !== 0) el.meta.textContent = "";
+    if (el.metaNote.textContent && el.metaNote.textContent.indexOf("send failed") !== 0) el.metaNote.textContent = "";
+    el.histnav.hidden = b.replies < 2;   // a single reply has nothing older to step to
     if (el.toc){
       const cs = cardState(b);
       // quirk kept: pending queues the entry even when the ball sits with you
@@ -1968,11 +2137,11 @@ function cardState(b){
 }
 // the queue panel's view: a parked card sorts and colors as if open
 function queueState(b){ return b.parked ? cardState({ ...b, parked: false }) : cardState(b); }
-// the strict await of the bar count and auto-select: pending vetoes it and
-// bg alone does not count as working there
+// the strict await of the bar count and auto-select: pending vetoes it, and
+// so does work in flight, claimed or registered; green outranks the ball
 function awaitsYou(b){
   const s = cardState(b);
-  return s !== "done" && s !== "parked" && !(b.writing || b.pending > 0) && b.ball === "you";
+  return s !== "done" && s !== "parked" && !(b.writing || b.bg || b.pending > 0) && b.ball === "you";
 }
 
 // ---- the carousel: the workspace's other chats as a queue -----------------
@@ -2143,15 +2312,16 @@ function renderCarousel(state){
   }
   // chips spring up above the panel: green while its agent works, yellow
   // while the ticket awaits input; click jumps there
-  // quirk kept: the claim and the ball alone gate a chip; bg does not
+  // quirk kept: the claim and the ball alone gate a chip; bg does not open
+  // one, but it turns an open chip green: work in flight outranks the ball
   const need = pool.filter(b => cardState(b) !== "done" && (b.writing || b.ball === "you"));
-  const csig = need.map(b => b.id + (b.writing ? "g" : "y")).join(",");
+  const csig = need.map(b => b.id + ((b.writing || b.bg) ? "g" : "y")).join(",");
   if (chips.dataset.sig !== csig){
     chips.dataset.sig = csig;
     chips.textContent = "";
     const MAXCHIPS = 8;
     for (const b of need.slice(0, MAXCHIPS)){
-      const c = h("span", "chip " + (b.writing ? "g" : "y"));
+      const c = h("span", "chip " + ((b.writing || b.bg) ? "g" : "y"));
       c.title = b.title;
       c.addEventListener("click", () => select(b.id));
       chips.appendChild(c);
@@ -2204,6 +2374,13 @@ addEventListener("keydown", e => {
     // (moved off command+shift+arrows, which natively selects to line ends)
     e.preventDefault();
     nav(e.key === "ArrowLeft" ? -1 : 1, 0, { focus: true });
+    return;
+  }
+  if (e.ctrlKey && !e.metaKey && e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")){
+    // control+shift+up/down, the sibling pair: the selected card's older
+    // replies and back toward live, in and out of the text box
+    e.preventDefault();
+    histStep(e.key === "ArrowUp" ? 1 : -1);
     return;
   }
   if (e.metaKey && e.shiftKey && ["[", "]", "{", "}"].includes(e.key)){
@@ -2329,7 +2506,8 @@ document.getElementById("endbtn").addEventListener("click", async e => {
   });
 }
 
-// quick chat: the q box's thread as text-message bubbles, served by journal
+// quick chat: the q box's thread as text-message bubbles, served by the qchat
+// lane; the panel is dormant in the current board but the machinery stays
 let qSig = "";
 async function pollQ(){
   if (!FOCUS) return;

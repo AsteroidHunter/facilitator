@@ -25,22 +25,30 @@ Endpoints:
   POST /project?name=N      -> body = the chosen folder's absolute path (under
                                the home directory): creates a new project lane
                                whose owner id is a slug of N, stores {id, name,
-                               dir} in state.json so restarts keep it, gives the
-                               lane a standing meta box, and returns the id;
-                               empty names, duplicates and bad folders are
-                               refused (400)
+                               dir} in state.json so restarts keep it, and
+                               returns the id; no card is created with the lane;
+                               a taken id walks numbered suffixes (-2, -3) until
+                               free; empty names and bad folders are refused (400)
   POST /delete?box=ID       -> remove a meta box (the standing 0 / t0 included)
   POST /upload?name=F       -> body = raw image bytes; saves to uploads/ beside the
                                server (gitignored), returns {"url": "/uploads/..."};
                                GET /uploads/<file> serves it back
   GET  /uploads/<file>      -> a previously uploaded image
   GET  /thread?box=ID&n=N   -> last N user/agent messages of a box from the
-                               transcript (the quick-chat panel's history)
+                               transcript (read by the reply history stepper
+                               and the quick chat panel)
   GET  /log?lines=N         -> tail of the server log file; path from $FACILITATOR_LOG
   GET  /dirs?path=P         -> the subdirectories of P (name + absolute path)
                                for the page's folder chooser; empty P means the
                                home directory; hidden folders are excluded and
                                paths outside the home directory are refused
+  GET  /pickdir             -> the system folder chooser on the desktop this
+                               server runs in: blocks until a folder is chosen,
+                               then {"path": "..."}; a dismissed chooser answers
+                               {"cancelled": true}, a real failure {"error": "..."}.
+                               With FACILITATOR_PICKDIR_STUB set on the server
+                               process the value answers at once and no dialog
+                               ever opens, so tests can drive the flow headless
   POST /ws/goal?owner&ws    -> body = the workspace's goal text
   POST /ws/task?owner&ws[&id][&status][&del=1] -> body = task text; no id creates,
                                status one of pending|ongoing|done, del removes
@@ -68,12 +76,20 @@ Endpoints:
                                {"idle":true} on timeout, {"paused":true} while
                                paused, or {"end":true} once ended and O's queue
                                is drained
-  POST /reply?box=ID&ctx=S  -> body = the agent's reply text (plain text); ctx
-                               is a REQUIRED urlencoded summary strip, 50
-                               words max, stored as the box's context, so a
-                               reply and a fresh summary always land together;
-                               missing or overlong strips are refused (400),
-                               never silently truncated.
+  POST /reply?box=ID&ctx=S[&quiet=1] -> body = the agent's reply text (plain
+                               text); ctx is a REQUIRED urlencoded summary
+                               strip, 50 words max, stored as the box's
+                               context, so a reply and a fresh summary always
+                               land together; missing or overlong strips are
+                               refused (400), never silently truncated.
+                               quiet=1 stores the reply, summary, count and
+                               stamp the same way and changes nothing else:
+                               the ball stays untouched, so the card's color
+                               keeps coming from the work itself (green while
+                               claimed or registered, grey while queued,
+                               yellow only when a real answer awaits a read).
+                               For interim notes while the card's work is in
+                               flight.
 
 Owner routing (2026-08-05): every box carries an owner tag, facilitator (tool
 discussion, this repo's agent) or triage (the project under discussion, its
@@ -91,6 +107,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import subprocess
 import sys
 import threading
 import time
@@ -115,7 +132,7 @@ STATE_PATH = HERE / "state.json"
 TRANSCRIPT_PATH = HERE / "transcript.jsonl"
 PORT = 8877
 BG_STALE = 75.0   # seconds without a /ping before a registered job stops counting as green
-OWNERS = ("facilitator", "triage", "journal")  # journal: the quick-chat side panel's lane
+OWNERS = ("facilitator", "triage", "qchat")  # qchat: the quick chat panel's lane, dormant in the current board
 # the built-in three above are the floor; project lanes stored in state.json
 # extend OWNERS at load and at creation, via _register_owner below
 
@@ -221,11 +238,11 @@ def _migrate() -> None:
         if isinstance(_state.get(slot), dict):
             for ow in OWNERS:
                 _state[slot].setdefault(ow, [] if slot == "claimed" else (0.0 if slot == "busy_ts" else None))
-    if _box("q") is None:  # the quick-chat thread, served by the journal lane
+    if _box("q") is None:  # the quick-chat thread, served by the qchat lane
         _state["boxes"].append({
             "id": "q", "bucket": "meta", "title": "quick chat",
             "reply": "", "pending": [], "done": False, "parked": False, "replies": 0,
-            "ball": "you", "ts": time.time(), "owner": "journal",
+            "ball": "you", "ts": time.time(), "owner": "qchat",
         })
     _state.setdefault("ever_listened", {})
     # workspaces (2026-08-09): each owner gets at least one, a named collection
@@ -377,6 +394,36 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"path": str(p),
                              "parent": str(p.parent) if p != home else None,
                              "dirs": [{"name": c.name, "path": str(c)} for c in subs]})
+        elif url.path == "/pickdir":
+            # tests must never open the dialog: FACILITATOR_PICKDIR_STUB set on
+            # the server process answers with its value instead of the chooser
+            stub = os.environ.get("FACILITATOR_PICKDIR_STUB")
+            if stub:
+                self._send(200, {"path": stub})
+                return
+            try:
+                r = subprocess.run(
+                    ["osascript", "-e",
+                     'POSIX path of (choose folder with prompt "Open a new folder")'],
+                    capture_output=True, text=True, timeout=300)
+            except subprocess.TimeoutExpired:
+                # a chooser left unanswered closes with the subprocess; to the
+                # page that is the same quiet non-choice as a cancel
+                self._send(200, {"cancelled": True})
+                return
+            except OSError as e:
+                self._send(200, {"error": str(e)})
+                return
+            if r.returncode != 0:
+                # the chooser exits nonzero on cancel (-128); anything else
+                # nonzero is a real failure and says so
+                err = (r.stderr or "").strip()
+                if not err or "-128" in err:
+                    self._send(200, {"cancelled": True})
+                else:
+                    self._send(200, {"error": err})
+                return
+            self._send(200, {"path": r.stdout.strip()})
         elif url.path.startswith("/uploads/"):
             p = HERE / "uploads" / Path(url.path).name  # .name strips any traversal
             ctypes = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
@@ -582,8 +629,16 @@ class Handler(BaseHTTPRequestHandler):
                 _last_wait[ow] = time.time()  # a reply proves that agent is alive too
                 box["reply"] = text
                 box["replies"] += 1
-                box["ball"] = "you"
-                box["agent_ts"] = time.time()  # agent replied: awaiting the human
+                # quiet=1 marks an interim note while the card's work is in
+                # flight: the reply, summary, count and stamp land like any
+                # reply and nothing else moves. The ball stays untouched, so
+                # the card's color keeps coming from the work itself: green
+                # while claimed or registered, grey while queued, yellow only
+                # once a real answer awaits a read.
+                quiet = (q.get("quiet") or ["0"])[0] == "1"
+                if not quiet:
+                    box["ball"] = "you"
+                box["agent_ts"] = time.time()  # when the agent last replied
                 box["ts"] = time.time()
                 claimed = set(_state["claimed"][ow]) if _state["busy"][ow] == bid else set()
                 box["pending"] = [m for m in box["pending"] if m["mid"] not in claimed]
@@ -713,7 +768,7 @@ class Handler(BaseHTTPRequestHandler):
             elif url.path == "/project":
                 # a new project lane from the page's plus tab: slug the name,
                 # store {id, name, dir} so restarts keep it, give the lane its
-                # per-owner slots and a standing meta box so the tab has a face
+                # per-owner slots; the tab appears with an empty board
                 name = (q.get("name") or [""])[0].strip()
                 slug = "".join(c if c.isalnum() else "-" for c in name.lower())
                 while "--" in slug:
@@ -722,9 +777,16 @@ class Handler(BaseHTTPRequestHandler):
                 if not name or not slug:
                     self._send(400, {"error": "empty name"})
                     return
-                if slug in OWNERS or any(p["id"] == slug for p in _state.get("projects", [])):
-                    self._send(400, {"error": "duplicate project"})
-                    return
+                # a taken id walks numbered suffixes until free; built-in owner
+                # ids (hidden internal lanes included) and stored project ids
+                # both count as taken, so no folder name is ever refused for
+                # colliding with a lane the page never shows
+                taken = set(OWNERS) | {p["id"] for p in _state.get("projects", [])}
+                if slug in taken:
+                    n = 2
+                    while f"{slug}-{n}" in taken:
+                        n += 1
+                    slug = f"{slug}-{n}"
                 home = Path.home()
                 try:
                     d = Path(text).expanduser().resolve() if text else None
@@ -741,14 +803,8 @@ class Handler(BaseHTTPRequestHandler):
                 _state.setdefault("workspaces", {})[slug] = [{
                     "id": "w1", "name": "main", "started": time.time(),
                     "goal": "", "tasks": [], "current": None}]
-                bid_new = f"m{_state['next_bid']}"
-                _state["next_bid"] += 1
-                _state["boxes"].append({
-                    "id": bid_new, "bucket": "meta", "title": name, "reply": "",
-                    "pending": [], "done": False, "parked": False, "replies": 0,
-                    "ball": "you", "ts": time.time(), "owner": slug,
-                    "ws": "w1", "task": None, "agent_ts": 0,
-                })
+                # no card is created with the lane: a fresh folder opens onto
+                # an empty board and cards come only from the owner's hand
                 _log("project", slug, f"{name} -> {d}")
                 _save()
                 _lock.notify_all()
