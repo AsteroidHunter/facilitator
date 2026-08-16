@@ -107,10 +107,17 @@
   .bucket .tag{font:11px var(--mono); letter-spacing:.08em; text-transform:uppercase; padding:2px 9px; border-radius:99px}
   .bucket.toolmeta .tag, .bucket.triagemeta .tag{color:var(--accent); background:var(--accent-soft)}
   .bucket.now   .tag{color:var(--accent); background:var(--accent-soft)}
-  .metabox .parkbtn, .metabox .donebtn{display:none}
+  .parkbtn, .donebtn{display:none}   /* the old done/later text buttons are retired on every card */
   .xbtn{flex:none; font:14px var(--mono); color:var(--sub); background:none; border:none;
     cursor:pointer; padding:0 4px; line-height:1; transition:color .2s}
   .xbtn:hover{color:var(--must)}
+  /* orange archive/defer button, sits in the card head's right cluster */
+  .arcbtn{flex:none; display:inline-flex; align-items:center; justify-content:center;
+    color:#000; background:none; border:none; cursor:pointer; padding:0}
+  /* in focus it mirrors the cross: a round chip, same size and line, pastel orange, black icon */
+  body.focus .box.sel .arcbtn{position:absolute; top:9px; right:34px; z-index:4;
+    width:16px; height:16px; border-radius:50%; background:#F6C08A; padding:0}
+  body.focus .box.sel .arcbtn:hover{background:#F2B072}
   .addrow{margin:2px 0 14px}
   .addbtn{font:12.5px var(--mono); color:var(--sub); background:none; cursor:pointer;
     border:1px dashed var(--line-strong); border-radius:9px; padding:7px 14px; transition:.2s}
@@ -156,16 +163,7 @@
   .meta .w{color:var(--accent)}
   .meta .w::after{content:"…"; animation:ell 1.4s steps(4) infinite}
   @keyframes ell{0%{content:""} 25%{content:"."} 50%{content:".."} 75%{content:"..."}}
-  /* older replies: a quiet stepper at the right end of the grey row under
-     the reply. the arrows rest near-invisible and brighten on hover; the
-     position marker only speaks while an older reply is actually showing */
-  .histnav{margin-left:auto; display:flex; align-items:center; gap:1px}
-  .histnav[hidden]{display:none}
-  .histbtn{font:12px var(--mono); color:#C9BFAE; background:none; border:none;
-    cursor:pointer; padding:0 4px; line-height:1; transition:color .2s}
-  .histbtn:hover:not(:disabled){color:var(--accent)}
-  .histbtn:disabled{cursor:default; opacity:.4}
-  .histpos{padding:0 3px}
+  /* while an older reply shows (histview) the reply text dims a little */
   .box.histview .reply{opacity:.8}
 
   .compose{display:flex; gap:8px; margin-top:9px; align-items:flex-end}
@@ -219,7 +217,6 @@
   .box.done .body{display:none}
   .box.done.peek .head{padding-bottom:0}
   .box.done.peek .body{display:block}
-  .box.done .title::after{content:" ✓"; color:var(--green)}
 
   /* ---- parked (later) state --------------------------------------------- */
   .box.parked{background:var(--later-bg); border-color:#CDD4DE}
@@ -855,8 +852,7 @@
     box-shadow:inset 0 1px 6px rgba(60,45,20,.14), inset 0 0 0 1px rgba(60,45,20,.08)}
   /* the one place orange may rest: selecting text inside the well */
   #nppanel ::selection{background:#FFD9B3; color:var(--ink)}
-  #nphead{margin:0 0 2px; padding:10px 12px 6px;
-    font:500 13px var(--inter); color:#514A40}
+  #nphead{display:none}   /* the whole Active Folders bar removed */
   #nprows{display:flex; flex-direction:column; gap:2px; padding:0 0 4px;
     max-height:56vh; overflow-y:auto}
   /* the well's scrollbar: the thumb is the landing's other orange */
@@ -871,7 +867,6 @@
   .npname{font:400 15px/1.35 var(--inter); color:var(--ink)}
   .nppath{font:11px var(--mono); color:var(--sub); max-width:100%;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-  .nprow.sel .npname{font-weight:600}   /* the current project reads bold */
   /* the start button: a raised bevel, square corners, pastel orange body,
      black label; pressing inverts the bevel and drops the label one pixel */
   #npstart{margin:18px 0 0; font:600 14px var(--inter); color:#000;
@@ -984,7 +979,7 @@
 </div>
 
 <div id="chips"></div>
-<div id="tickets"><div id="tikhead"><button id="tv-todo" class="tvb on">to-do</button><button id="tv-done" class="tvb">done</button></div><div id="tiklist"></div></div>
+<div id="tickets"><div id="tikhead"><button id="tv-todo" class="tvb on">doing</button><button id="tv-deferred" class="tvb">deferred</button><button id="tv-done" class="tvb">done</button></div><div id="tiklist"></div></div>
 <div id="magic1">magic box 1</div>
 <div id="magic2">magic box 2</div>
 <div id="todobox">
@@ -1537,18 +1532,27 @@ function makeBox(b, i, state){
     box.id = "box-" + b.id;
 
     const head = h("div", "head");
-    if (b.bucket === "meta"){
-      const x = h("button", "xbtn", "×");
-      x.title = "remove this box";
-      x.addEventListener("click", async e => {
-        e.stopPropagation();
-        await fetch("/delete?box=" + encodeURIComponent(b.id), { method: "POST" }).catch(() => {});
-        poll();
-      });
-      head.appendChild(x);
-    }
+    // the remove cross now renders on every card, not just meta boxes, so all cards share one design
+    const x = h("button", "xbtn", "×");
+    x.title = "done (an empty card is removed instead)";
+    x.addEventListener("click", async e => {
+      e.stopPropagation();
+      // a card with content closes to the done tab and stays retrievable; only an empty card is removed
+      const hasContent = b.replies > 0 || (b.reply && b.reply.trim()) || (b.pending && b.pending.length);
+      const ep = hasContent ? ("/done?box=" + encodeURIComponent(b.id) + "&v=1") : ("/delete?box=" + encodeURIComponent(b.id));
+      await fetch(ep, { method: "POST" }).catch(() => {});
+      // dismiss this card from the center and jump to the next ongoing chat, so no extra click is needed
+      const doing = poolOf(lastState).filter(o => !o.done && !o.parked && o.id !== b.id && o.id !== "0" && o.id !== "t0");
+      if (doing.length) select(doing[0].id); else deselect();
+      poll();
+    });
+    head.appendChild(x);
     head.appendChild(h("span", "num", b.id));
     const titleEl = h("span", "title", b.title);
+    titleEl.tabIndex = 0;
+    // clicking or tabbing into the title starts an inline rename
+    titleEl.addEventListener("mousedown", () => editTitle(b.id, { fromClick: true }));
+    titleEl.addEventListener("focus", () => { if (!titleEl.isContentEditable) editTitle(b.id); });
     head.appendChild(titleEl);
     const wstat = h("span", "wstat");
     head.appendChild(wstat);
@@ -1557,6 +1561,12 @@ function makeBox(b, i, state){
     head.appendChild(park);
     const done = h("button", "donebtn", "done");
     head.appendChild(done);
+    // orange archive button: defers the card into the deferred tab (parks it)
+    const arc = h("button", "arcbtn");
+    arc.title = "defer to the deferred tab";
+    arc.innerHTML = '<svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" stroke="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
+    arc.addEventListener("click", e => { e.stopPropagation(); toggleFlag(b.id, "park"); });
+    head.appendChild(arc);
     box.appendChild(head);
 
     const ctx = h("div", "ctx", b.context || "");
@@ -1567,21 +1577,15 @@ function makeBox(b, i, state){
     reply.dataset.raw = b.reply;
     reply.innerHTML = fmt(b.reply);
     const meta = h("div", "meta");
-    // transient notes (send failures) get their own span, so clearing them
-    // never wipes the stepper controls sharing the row
+    // transient notes (send failures) get their own span
     const metaNote = h("span");
-    const histnav = h("span", "histnav");
-    const histUp = h("button", "histbtn", "↑");
-    histUp.title = "older reply (control shift up)";
-    const histPos = h("span", "histpos");
-    const histDown = h("button", "histbtn", "↓");
-    histDown.title = "newer reply (control shift down)";
-    histDown.disabled = true;
-    histnav.hidden = true;
-    histnav.append(histUp, histPos, histDown);
-    histUp.addEventListener("click", () => histStep(1));
-    histDown.addEventListener("click", () => histStep(-1));
-    meta.append(metaNote, histnav);
+    // the visible reply-history stepper (arrows + position marker) was removed;
+    // these off-screen nodes stay only so histStep/histExit keep writing their
+    // state harmlessly. control+shift+up/down drives the history now.
+    const histUp = h("button");
+    const histPos = h("span");
+    const histDown = h("button");
+    meta.append(metaNote);
     const pend = h("div", "pendlist");   // sent-and-waiting bar; a click unfolds the list
     pend.addEventListener("click", () => pend.classList.toggle("open"));
     const compose = h("div", "compose");
@@ -1631,9 +1635,22 @@ function makeBox(b, i, state){
         box.classList.toggle("peek");
     });
 
-    els[b.id] = { box, reply, meta, metaNote, histnav, histPos, histUp, histDown,
+    els[b.id] = { box, reply, meta, metaNote, histPos, histUp, histDown,
                   pend, ta, send, donebtn: done, wstat, toc: entry, sec,
-                  titleEl, tocTitle: entry.querySelector(".ttitle"), ctx };
+                  titleEl, tocTitle: entry.querySelector(".ttitle"), ctx, arc, x };
+
+    // explicit focus ring: title -> text -> Send -> cross -> moon -> (wrap)
+    const ring = [titleEl, ta, send, x, arc];
+    for (const node of [ta, send, x, arc]){
+      node.addEventListener("keydown", e => {
+        if (e.key === "Tab"){
+          e.preventDefault();
+          const idx = ring.indexOf(node);
+          const next = (idx + (e.shiftKey ? -1 : 1) + ring.length) % ring.length;
+          ring[next].focus();
+        }
+      });
+    }
 }
 
 // "+" row under each meta section: one click = new box owned by that section,
@@ -1666,17 +1683,20 @@ function landFocus(){
 
 // a just-created card: the cursor starts in the title; Enter saves the name
 // and drops the cursor into the message input
-function editTitle(id){
+function editTitle(id, opts){
+  opts = opts || {};
   const el = els[id]; if (!el) return;
   const t = el.titleEl, old = t.textContent;
   t.setAttribute("contenteditable", "plaintext-only");
   if (old === "…") t.textContent = "";
-  t.focus();
-  // the assigned name starts fully selected: typing replaces it, Enter keeps it
-  if (t.textContent){
-    const range = document.createRange();
-    range.selectNodeContents(t);
-    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+  // a click edits in place with the caret where you click; other entries (new card, tab) focus and select all
+  if (!opts.fromClick){
+    t.focus();
+    if (t.textContent){
+      const range = document.createRange();
+      range.selectNodeContents(t);
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    }
   }
   const end = () => { t.removeAttribute("contenteditable"); t.onkeydown = null; t.onblur = null; };
   const commit = () => {
@@ -1696,6 +1716,7 @@ function editTitle(id){
   t.onkeydown = e => {
     e.stopPropagation();   // card-switching keys must not fire while naming
     if (e.key === "Enter"){ e.preventDefault(); commit(); el.ta.focus(); }
+    else if (e.key === "Tab"){ e.preventDefault(); commit(); (e.shiftKey ? el.arc : el.ta).focus(); }
     else if (e.key === "Escape"){
       if (!old && !t.textContent.trim()) commit();
       else { end(); t.textContent = old; }
@@ -1917,7 +1938,6 @@ function apply(state){
     // the queue chatter (sent, nth in line, messages since) is gone on the
     // owner's order; the element still carries transient send-failure notes
     if (el.metaNote.textContent && el.metaNote.textContent.indexOf("send failed") !== 0) el.metaNote.textContent = "";
-    el.histnav.hidden = b.replies < 2;   // a single reply has nothing older to step to
     if (el.toc){
       const cs = cardState(b);
       // quirk kept: pending queues the entry even when the ball sits with you
@@ -2131,7 +2151,8 @@ function cardState(b){
   return b.done ? "done"
        : b.parked ? "parked"
        : (b.writing || b.bg) ? "working"
-       : (!b.agentTs && !b.pending) ? "new"
+       // a card with prior replies was answered before, so it is never new even when a seeded board left its agent stamp at 0
+       : (!b.agentTs && !b.pending && !b.replies) ? "new"
        : b.ball === "you" ? "yours"
        : "queued";
 }
@@ -2252,7 +2273,7 @@ function renderCarousel(state){
   const chips = document.getElementById("chips");
   const w = curWs(state);
   const all = poolOf(state);    // every chat of the workspace, grouped and sorted
-  const pool = all.filter(b => ticketView === "done" ? b.done : !b.done);  // panel tab
+  const pool = all.filter(b => ticketView === "done" ? b.done : ticketView === "deferred" ? (b.parked && !b.done) : (!b.done && !b.parked));  // panel tab: doing | deferred | done
   const lane = state.agents?.[activeOwner];
   const sig = ticketView + "|" + (lane ? lane.name + lane.alive : "") + "|" +
               pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
@@ -2293,7 +2314,7 @@ function renderCarousel(state){
       r.addEventListener("click", () => select(b.id));
       tik.appendChild(r);
     }
-    if (!pool.length) tik.appendChild(h("div", "tempty", ticketView === "done" ? "no done chats yet" : "no open chats here"));
+    if (!pool.length) tik.appendChild(h("div", "tempty", ticketView === "done" ? "no done chats yet" : ticketView === "deferred" ? "no deferred chats yet" : "no open chats here"));
     // surviving rows glide to their new spots, the 220ms rise of the sister
     // board, instead of teleporting on every re-sort
     for (const row of tik.children){
@@ -2449,10 +2470,12 @@ addEventListener("keydown", e => {
   const setView = v => {
     ticketView = v;
     document.getElementById("tv-todo").classList.toggle("on", v === "todo");
+    document.getElementById("tv-deferred").classList.toggle("on", v === "deferred");
     document.getElementById("tv-done").classList.toggle("on", v === "done");
     if (lastState) apply(lastState);
   };
   document.getElementById("tv-todo").addEventListener("click", () => setView("todo"));
+  document.getElementById("tv-deferred").addEventListener("click", () => setView("deferred"));
   document.getElementById("tv-done").addEventListener("click", () => setView("done"));
 }
 document.getElementById("nleft").addEventListener("click", () => nav(-1, 0));
