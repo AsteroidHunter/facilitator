@@ -30,10 +30,13 @@ Endpoints:
                                a taken id walks numbered suffixes (-2, -3) until
                                free; empty names and bad folders are refused (400)
   POST /delete?box=ID       -> remove a meta box (the standing 0 / t0 included)
-  POST /upload?name=F       -> body = raw image bytes; saves to uploads/ beside the
-                               server (gitignored), returns {"url": "/uploads/..."};
-                               GET /uploads/<file> serves it back
-  GET  /uploads/<file>      -> a previously uploaded image
+  POST /upload?name=F       -> body = raw image bytes; saves to the sibling internal
+                               folder ../facilitator-internal/uploads/ (outside the
+                               repo, never pushed), returns {"url": "/uploads/..."}
+                               unchanged; GET /uploads/<file> serves it back
+  GET  /uploads/<file>      -> a previously uploaded image: served from the internal
+                               uploads folder, falling back to the old in-repo
+                               uploads/ for images saved before the move
   GET  /thread?box=ID&n=N   -> last N user/agent messages of a box from the
                                transcript (read by the reply history stepper
                                and the quick chat panel)
@@ -130,6 +133,11 @@ def _lane_dirs() -> dict:
         return {}
 STATE_PATH = HERE / "state.json"
 TRANSCRIPT_PATH = HERE / "transcript.jsonl"
+# uploaded images now save outside the repo, in the sibling internal folder
+# (not a git repo, never pushed); reads still fall back to the old in-repo
+# uploads/ so the images saved there before this change keep resolving
+INTERNAL_UPLOADS = HERE.parent / "facilitator-internal" / "uploads"
+INTERNAL_UPLOADS.mkdir(parents=True, exist_ok=True)
 PORT = 8877
 BG_STALE = 75.0   # seconds without a /ping before a registered job stops counting as green
 OWNERS = ("facilitator", "triage", "qchat")  # qchat: the quick chat panel's lane, dormant in the current board
@@ -402,9 +410,18 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"path": stub})
                 return
             try:
+                # activate the chooser first so it opens frontmost and its
+                # sidebar and search take clicks; restore the prior front app
+                # after. (osascript dialogs open unfocused otherwise.)
                 r = subprocess.run(
-                    ["osascript", "-e",
-                     'POSIX path of (choose folder with prompt "Open a new folder")'],
+                    ["osascript",
+                     "-e", 'tell application "System Events"',
+                     "-e", 'set prior to first process whose frontmost is true',
+                     "-e", 'activate',
+                     "-e", 'set picked to POSIX path of (choose folder with prompt "Open a new folder")',
+                     "-e", 'set frontmost of prior to true',
+                     "-e", 'return picked',
+                     "-e", 'end tell'],
                     capture_output=True, text=True, timeout=300)
             except subprocess.TimeoutExpired:
                 # a chooser left unanswered closes with the subprocess; to the
@@ -425,7 +442,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(200, {"path": r.stdout.strip()})
         elif url.path.startswith("/uploads/"):
-            p = HERE / "uploads" / Path(url.path).name  # .name strips any traversal
+            fn = Path(url.path).name  # .name strips any traversal on both paths below
+            p = INTERNAL_UPLOADS / fn
+            if not p.is_file():
+                p = HERE / "uploads" / fn  # fall back to images saved before the move
             ctypes = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
                       ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml"}
             if p.is_file() and p.suffix.lower() in ctypes:
@@ -579,11 +599,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             name = (q.get("name") or ["file"])[0]
             safe = "".join(c for c in name if c.isalnum() or c in "._-")[-60:] or "file"
-            up = HERE / "uploads"
-            up.mkdir(exist_ok=True)
+            up = INTERNAL_UPLOADS  # new uploads land outside the repo
+            up.mkdir(parents=True, exist_ok=True)
             fname = f"{int(time.time() * 1000)}-{safe}"
             (up / fname).write_bytes(raw)
-            self._send(200, {"url": "/uploads/" + fname})
+            self._send(200, {"url": "/uploads/" + fname})  # URL unchanged; page needs no change
             return
 
         text = self._read_body().strip()
