@@ -93,6 +93,15 @@ Endpoints:
                                yellow only when a real answer awaits a read).
                                For interim notes while the card's work is in
                                flight.
+  POST /note?box=ID&ctx=S   -> the named interim-note action: stores the body
+                               and ctx summary like /reply (reply, count,
+                               agent_ts, ts, context) and marks the card
+                               working (bg heartbeat), but never sets the ball
+                               to "you". So the computed state is "working"
+                               (green), never "yours" (yellow): a progress
+                               note structurally cannot float a card to the
+                               top. A normal /reply stays the answer action
+                               that hands the ball to you.
 
 Owner routing (2026-08-05): every box carries an owner tag, facilitator (tool
 discussion, this repo's agent) or triage (the project under discussion, its
@@ -293,6 +302,28 @@ def _ws(owner: str, wid: str) -> dict | None:
                  if w["id"] == wid), None)
 
 
+def _card_state(b: dict, st: dict) -> str:
+    """The one value a card's color and sort come from, computed server-side so
+    the page never has to infer state from scattered flags. Mirrors the old
+    client cardState(): done | parked | working | new | yours | queued. working
+    requires the background heartbeat to be live (bg set AND pinged within
+    BG_STALE), so a job that stopped pinging cannot hold a card green."""
+    owner = b.get("owner", "triage")
+    writing = st["busy"].get(owner) == b["id"]
+    bg = bool(b.get("bg")) and (time.time() - b.get("bg_ts", 0)) < BG_STALE
+    if b["done"]:
+        return "done"
+    if b.get("parked", False):
+        return "parked"
+    if writing or bg:
+        return "working"
+    if not b.get("agent_ts", 0) and not b["pending"] and not b["replies"]:
+        return "new"
+    if b.get("ball", "you") == "you":
+        return "yours"
+    return "queued"
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code: int, payload: dict | bytes, ctype: str = "application/json") -> None:
         body = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
@@ -485,6 +516,10 @@ class Handler(BaseHTTPRequestHandler):
                     # green only while the job's heartbeat is fresh: a job
                     # that stopped pinging cannot keep a card green
                     "bg": bool(b.get("bg")) and (time.time() - b.get("bg_ts", 0)) < BG_STALE,
+                    # the single source of truth for color and sort: one name
+                    # computed server-side, mirroring the raw flags above so the
+                    # page never has to reconcile them itself
+                    "state": _card_state(b, st),
                     "queuePos": qpos.get(b["id"], 0),
                 }
                 for b in st["boxes"]
@@ -674,6 +709,38 @@ class Handler(BaseHTTPRequestHandler):
                 if not box["pending"] and bid in _state["inbox"]:
                     _state["inbox"].remove(bid)
                 _log("agent", bid, text)
+                _save()
+                _lock.notify_all()
+                self._send(200, {"ok": True})
+
+            elif url.path == "/note":
+                # the formalized interim-note action. Stores the body and the
+                # ctx summary exactly like /reply (reply, replies, agent_ts,
+                # ts, context) AND marks the card working (bg heartbeat), but
+                # never sets ball="you". So the computed state is "working"
+                # (green), never "yours" (yellow): a progress note structurally
+                # cannot turn a card yellow or float it to the top.
+                box = _box(bid)
+                if box is None:
+                    self._send(400, {"error": "bad box"})
+                    return
+                ctx = (q.get("ctx") or [""])[0].strip()
+                if not ctx:
+                    self._send(400, {"error": "missing context strip: pass ctx="})
+                    return
+                if len(ctx.split()) > 50:
+                    self._send(400, {"error": "context strip over 50 words"})
+                    return
+                ow = box.get("owner", "triage")
+                _last_wait[ow] = time.time()  # a note proves that agent is alive too
+                box["reply"] = text
+                box["replies"] += 1
+                box["agent_ts"] = time.time()
+                box["ts"] = time.time()
+                box["context"] = ctx
+                box["bg"] = True              # green via the heartbeat path: no
+                box["bg_ts"] = time.time()    # claim taken, and the ball untouched
+                _log("note", bid, text)
                 _save()
                 _lock.notify_all()
                 self._send(200, {"ok": True})

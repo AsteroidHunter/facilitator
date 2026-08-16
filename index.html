@@ -293,7 +293,7 @@
      stage lands, so the stars under the boxes always line up with them and
      the field still runs to every window edge with no bands. */
   body.focus{
-    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M6 4.2 L6.5 5.5 L7.8 6 L6.5 6.5 L6 7.8 L5.5 6.5 L4.2 6 L5.5 5.5 Z' fill='%23C9BFAE' fill-opacity='.55'/%3E%3C/svg%3E");
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M6 4.2 L6.5 5.5 L7.8 6 L6.5 6.5 L6 7.8 L5.5 6.5 L4.2 6 L5.5 5.5 Z' fill='%23C9BFAE' fill-opacity='.18'/%3E%3C/svg%3E");
     background-size:var(--grid) var(--grid);
     background-position:0 var(--bar-h);   /* fitStage refines this per resize */
   }
@@ -1420,8 +1420,11 @@ function applySelection(state){
 }
 
 function statusOf(b){
-  return b.bucket === "meta" ? (b.owner === "facilitator" ? "toolmeta" : "triagemeta")
-       : b.done ? "done" : b.parked ? "later" : "now";
+  if (b.bucket === "meta") return b.owner === "facilitator" ? "toolmeta" : "triagemeta";
+  // the left-tab group comes from the one state too: done -> Done, parked ->
+  // Later, everything live -> Now
+  const s = cardState(b);
+  return s === "done" ? "done" : s === "parked" ? "later" : "now";
 }
 
 function h(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
@@ -1920,18 +1923,22 @@ function apply(state){
       el.pend.dataset.label = "Sent messages (" + el.pend.children.length + ")";
       if (!el.pend.children.length) el.pend.classList.remove("open");   // answered: nothing left to show
     }
-    el.box.classList.toggle("done", b.done);
-    el.box.classList.toggle("parked", !!b.parked);
+    const cs = cardState(b);   // one state: box color, left tab, and toc all read it
+    el.box.classList.toggle("done", cs === "done");
+    el.box.classList.toggle("parked", cs === "parked");
     const s = statusOf(b);
     if (el.sec !== s){
       secEls[s].list.appendChild(el.box);
       tocGroups[s].appendChild(el.toc);
       el.sec = s;
     }
-    const waiting = !b.done && (b.writing || b.pending > 0);
+    // waiting/yourturn are the box's own liveness overlay: writing is the live
+    // claim (bg alone never collapses the box) and pending is the unread count,
+    // neither of which the collapsed state carries; the done gate reads state
+    const waiting = cs !== "done" && (b.writing || b.pending > 0);
     el.box.classList.toggle("waiting", waiting);
-    if (!waiting && !b.done) el.box.classList.remove("peek");
-    el.box.classList.toggle("yourturn", !b.done && !waiting && b.ball === "you");
+    if (!waiting && cs !== "done") el.box.classList.remove("peek");
+    el.box.classList.toggle("yourturn", cs !== "done" && !waiting && b.ball === "you");
     const ws = b.writing ? '<span class="w2">' + laneName(b.owner) + ' is writing</span>'
              : (b.queuePos ? "sent ✓ " + ord(b.queuePos) + " in line" : "");
     if (el.wstat.innerHTML !== ws) el.wstat.innerHTML = ws;  // rewriting every poll restarts the dots and re-wraps the title row
@@ -1939,11 +1946,12 @@ function apply(state){
     // owner's order; the element still carries transient send-failure notes
     if (el.metaNote.textContent && el.metaNote.textContent.indexOf("send failed") !== 0) el.metaNote.textContent = "";
     if (el.toc){
-      const cs = cardState(b);
-      // quirk kept: pending queues the entry even when the ball sits with you
+      // quirk kept: pending queues the entry even when the ball sits with you;
+      // otherwise yours (or a new card whose ball is with you) paints t-you,
+      // all off the one state
       el.toc.className = "toc-entry " + (
         cs === "done" ? "t-done" : cs === "parked" ? "t-later" : cs === "working" ? "t-writing" : b.pending > 0 ? "t-queued" :
-        b.ball === "you" ? "t-you" : "") + (FOCUS && b.id === selectedId ? " t-sel" : "");
+        (cs === "yours" || (cs === "new" && b.ball === "you")) ? "t-you" : "") + (FOCUS && b.id === selectedId ? " t-sel" : "");
       el.toc.style.display = (FOCUS && b.owner !== activeOwner) ? "none" : "";
       el.toc.querySelector(".tage").textContent = age(b.ts);
     }
@@ -2148,21 +2156,29 @@ function inlineEdit(spanEl, initial, onSave){
 // map the name to their own classes, group numbers, and colors; the two
 // helpers under it keep old per-site quirks exactly as they were.
 function cardState(b){
-  return b.done ? "done"
+  // the server now computes one authoritative state per card; the inline
+  // version stays only as a fallback for an older server that omits it
+  return b.state || (
+         b.done ? "done"
        : b.parked ? "parked"
        : (b.writing || b.bg) ? "working"
        // a card with prior replies was answered before, so it is never new even when a seeded board left its agent stamp at 0
        : (!b.agentTs && !b.pending && !b.replies) ? "new"
        : b.ball === "you" ? "yours"
-       : "queued";
+       : "queued");
 }
-// the queue panel's view: a parked card sorts and colors as if open
-function queueState(b){ return b.parked ? cardState({ ...b, parked: false }) : cardState(b); }
+// the queue panel's view: a parked card sorts and colors as if open. state is
+// nulled in the copy so cardState recomputes from the flags instead of handing
+// back the server's "parked" when we peel the park off
+function queueState(b){ return b.parked ? cardState({ ...b, parked: false, state: null }) : cardState(b); }
 // the strict await of the bar count and auto-select: pending vetoes it, and
 // so does work in flight, claimed or registered; green outranks the ball
 function awaitsYou(b){
   const s = cardState(b);
-  return s !== "done" && s !== "parked" && !(b.writing || b.bg || b.pending > 0) && b.ball === "you";
+  // done/parked and work-in-flight are all folded into the state; a still-new
+  // card only awaits you when the ball sits with you, and pending vetoes the
+  // strict await either way
+  return (s === "yours" || (s === "new" && b.ball === "you")) && !(b.pending > 0);
 }
 
 // ---- the carousel: the workspace's other chats as a queue -----------------
@@ -2273,7 +2289,9 @@ function renderCarousel(state){
   const chips = document.getElementById("chips");
   const w = curWs(state);
   const all = poolOf(state);    // every chat of the workspace, grouped and sorted
-  const pool = all.filter(b => ticketView === "done" ? b.done : ticketView === "deferred" ? (b.parked && !b.done) : (!b.done && !b.parked));  // panel tab: doing | deferred | done
+  // panel tab from the one state: done -> done, parked -> deferred, else doing
+  const pool = all.filter(b => { const s = cardState(b);
+    return ticketView === "done" ? s === "done" : ticketView === "deferred" ? s === "parked" : (s !== "done" && s !== "parked"); });
   const lane = state.agents?.[activeOwner];
   const sig = ticketView + "|" + (lane ? lane.name + lane.alive : "") + "|" +
               pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
@@ -2291,7 +2309,7 @@ function renderCarousel(state){
       const s = queueState(b);   // working covers claimed and a worker's job behind it
       // quirks kept: a claimed done row still pulses, and an untouched row
       // falls in with yours or queued by where the ball sits
-      const busy = s === "working" || (s === "done" && (b.writing || b.bg));
+      const busy = s === "working" || (s === "done" && cardState({ ...b, done: false, parked: false, state: null }) === "working");
       const seenTs = seenReplies[b.id] || 0;
       const r = h("div", "trow" + (b.id === selectedId ? " on" : "") + (busy ? " working" : "") +
                   (s === "yours" && seenTs >= (b.agentTs || 0) ? " seen" : "") +
@@ -2304,7 +2322,7 @@ function renderCarousel(state){
       if (/^[0-9]/.test(b.id)) ttl.prepend(h("span", "tnum", b.id));
       inner.appendChild(ttl);
       const meta = h("div", "tmeta");
-      meta.appendChild(h("span", "tage", busy ? SPIN_FRAMES[spinFrame] : b.done ? "done" : shortAge(b.agentTs)));
+      meta.appendChild(h("span", "tage", busy ? SPIN_FRAMES[spinFrame] : s === "done" ? "done" : shortAge(b.agentTs)));
       // the tag is the lane's live truth, never a stored per-card value
       const ag = state.agents?.[b.owner];
       meta.appendChild(h("span", "teng", ag ? (ag.alive ? ag.name : "offline") : ""));
@@ -2335,14 +2353,18 @@ function renderCarousel(state){
   // while the ticket awaits input; click jumps there
   // quirk kept: the claim and the ball alone gate a chip; bg does not open
   // one, but it turns an open chip green: work in flight outranks the ball
+  // gate kept: the live claim (writing, not bg) and the ball alone open a chip,
+  // a distinction the collapsed state can't draw. the color, though, is the one
+  // state: green while working (a claim or a live bg job), else yellow
   const need = pool.filter(b => cardState(b) !== "done" && (b.writing || b.ball === "you"));
-  const csig = need.map(b => b.id + ((b.writing || b.bg) ? "g" : "y")).join(",");
+  const chipColor = b => queueState(b) === "working" ? "g" : "y";
+  const csig = need.map(b => b.id + chipColor(b)).join(",");
   if (chips.dataset.sig !== csig){
     chips.dataset.sig = csig;
     chips.textContent = "";
     const MAXCHIPS = 8;
     for (const b of need.slice(0, MAXCHIPS)){
-      const c = h("span", "chip " + ((b.writing || b.bg) ? "g" : "y"));
+      const c = h("span", "chip " + chipColor(b));
       c.title = b.title;
       c.addEventListener("click", () => select(b.id));
       chips.appendChild(c);
