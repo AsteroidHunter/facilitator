@@ -1541,7 +1541,7 @@ function makeBox(b, i, state){
     x.addEventListener("click", async e => {
       e.stopPropagation();
       // a card with content closes to the done tab and stays retrievable; only an empty card is removed
-      const hasContent = b.replies > 0 || (b.reply && b.reply.trim()) || (b.pending && b.pending.length);
+      const hasContent = b.replies > 0 || (b.reply && b.reply.trim()) || b.pending > 0;
       const ep = hasContent ? ("/done?box=" + encodeURIComponent(b.id) + "&v=1") : ("/delete?box=" + encodeURIComponent(b.id));
       await fetch(ep, { method: "POST" }).catch(() => {});
       // dismiss this card from the center and jump to the next ongoing chat, so no extra click is needed
@@ -2459,7 +2459,7 @@ addEventListener("keydown", e => {
     return;
   }
   const t = e.target;
-  const typing = t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT");
+  const typing = t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable);
   if (typing){ if (e.key === "Escape") t.blur(); return; }
   if (e.altKey && e.shiftKey && e.key.startsWith("Arrow") && dragEnabled){
     // option+shift+arrows: resize the box under the mouse by one grid cell,
@@ -2481,7 +2481,11 @@ addEventListener("keydown", e => {
     const b = lastState?.boxes.find(x => x.id === selectedId);
     if (b?.bucket === "meta"){   // same cards the remove cross appears on
       e.preventDefault();
-      fetch("/delete?box=" + encodeURIComponent(selectedId), { method: "POST" }).then(() => poll()).catch(() => {});
+      // match the cross: a card with any conversation closes to done and stays
+      // retrievable; only a truly empty card is removed for good
+      const hasContent = b.replies > 0 || (b.reply && b.reply.trim()) || b.pending > 0;
+      const ep = hasContent ? ("/done?box=" + encodeURIComponent(selectedId) + "&v=1") : ("/delete?box=" + encodeURIComponent(selectedId));
+      fetch(ep, { method: "POST" }).then(() => poll()).catch(() => {});
     }
     return;
   }
