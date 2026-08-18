@@ -887,6 +887,7 @@
   /* auto side margins center a shot narrower than the column; one wider than
      the column is capped by max-width and the auto margins fall to zero */
   .reply .shot, .pendlist .shot{display:block; max-width:100%; border-radius:6px; margin:8px auto}
+  .reply a, .pendlist a{color:inherit; text-decoration:underline; text-underline-offset:2px}
   /* a row of images written on one line: the columns come from that line's
      own count (data-n), capped at four so a long line keeps usable width.
      each cell caps its shot, so none is blown up past its size */
@@ -1453,6 +1454,15 @@ function imgify(s){
   });
 }
 
+// a bare http(s) address becomes a real link, opening beside the app; the
+// same trailing punctuation rule as imgify keeps sentence marks out of it
+function linkify(s){
+  return s.replace(/(^|[\s>])(https?:\/\/[^\s<]+)/g, (m, pre, addr) => {
+    const url = addr.replace(/[.,;:!?)\]"']+$/, "");
+    return pre + '<a href="' + url + '" target="_blank" rel="noopener">' + url + '</a>' + addr.slice(url.length);
+  });
+}
+
 // a block holding only images (two or more) is laid out by the lines it was
 // written on: addresses sharing a line share a row, an address alone on its
 // line stays its own centered block, so the writer sets the shape. a block
@@ -1497,7 +1507,7 @@ function fmt(t){
       : (s.text.trim() ? fmt(s.text) : "")).join("");
   }
   const esc = t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const bold = imgify(esc.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>"));
+  const bold = linkify(imgify(esc.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")));
   return bold.split(/\n\n+/).map(par => {
     const lines = par.split("\n");
     if (lines.length && lines.every(l => /^&gt; ?/.test(l))){
@@ -1957,7 +1967,7 @@ function apply(state){
       const stamps = b.pendingStamps || [];   // absent from a pre-stamp server: every send unstamped
       el.pend.innerHTML = (b.pendingTexts || [])
         .map((t, i) => {
-          const body = imgify(t.replace(/&/g, "&amp;").replace(/</g, "&lt;"));
+          const body = linkify(imgify(t.replace(/&/g, "&amp;").replace(/</g, "&lt;")));
           return "<p>" + stampHTML(stamps[i]) + (shotgrid(body) || body) + "</p>";
         }).join("");
       el.pend.dataset.label = "Sent messages (" + el.pend.children.length + ")";
