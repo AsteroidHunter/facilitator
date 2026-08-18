@@ -1814,10 +1814,24 @@ function stampHTML(ts){
   return s ? '<span class="stamp">' + s + "</span>" : "";
 }
 
+// writing to a done card takes it back to doing, on both send paths. The flag
+// is read before the send and flipped after the message is in, so a flip that
+// fails can never eat the message; done only, a parked card stays parked
+function boxDone(id){
+  const b = lastState && lastState.boxes.find(x => x.id === id);
+  return !!(b && b.done);
+}
+
+function undone(id){
+  fetch("/done?box=" + encodeURIComponent(id) + "&v=0", { method: "POST" })
+    .then(() => poll()).catch(() => {});
+}
+
 async function doSend(id){
   const el = els[id];
   const text = el.ta.value.trim();
   if (!text) return;
+  const reopen = boxDone(id);   // before the send; the poll below clears the flag
   el.send.disabled = true;
   try {
     const r = await fetch("/send?box=" + encodeURIComponent(id), { method: "POST", body: text });
@@ -1834,6 +1848,7 @@ async function doSend(id){
     el.pend.appendChild(bub);
     el.pend.dataset.label = "Sent messages (" + el.pend.children.length + ")";
     if (hist && hist.id === id) histExit(id);   // a send lands you back on the live reply
+    if (reopen) undone(id);   // the message is in; the flip rides behind it
     poll();
     cancelAutoNext();
     autoNext = setTimeout(() => { autoNext = null; if (FOCUS) jumpNextYellow(id); }, AUTONEXT_MS);
