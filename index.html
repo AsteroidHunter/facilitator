@@ -940,6 +940,161 @@
   .rhandle{position:absolute; width:9px; height:9px; background:#fff;
     border:1px solid var(--accent); border-radius:2px; pointer-events:auto;
     box-shadow:0 1px 3px rgba(60,45,20,.25)}
+
+  /* ============ document view (?doc=1) ==================================== */
+  /* the same lane, drawn as one scrolling typed page. every rule below is
+     scoped to body.docview, so the board view above is left exactly as it was.
+     the x and y numbers come from the approved mock, measured at 1440x900
+     with the bar's 41px taken off the top. */
+  #docroot{display:none}
+  body.docview #stage{display:none !important}
+  /* the bar keeps only its tabs in this view: the name label, the bar clock,
+     the sandbox word, pause, end session, the listener tag and the await
+     count all stay out. the big day block below is the only clock here */
+  body.docview .live, body.docview .prog, body.docview #pausebtn,
+  body.docview #endbtn, body.docview #editbtn, body.docview #bgpick,
+  body.docview .name{display:none !important}
+  #docclock, #docmock{display:none}
+
+  /* the document view's own paper: one warm near-white behind the typed page.
+     the board's paper and its star field are untouched, since every rule here
+     is scoped to body.docview */
+  body.docview{background:#fffbf8; background-image:none}
+  body.docview .bar{background:color-mix(in srgb, #fffbf8 84%, transparent)}
+
+  body.docview #docroot{display:block; position:fixed; left:0; right:0;
+    top:41px; bottom:0; z-index:1}
+  /* the clock and the chat list sit exactly where the board's own widgets
+     sit: the board is a locked 1440x900 canvas centered in the window, so
+     the same centering math places them here without the stage */
+  #docnow{position:absolute;
+    left:calc(max(0px, (100% - 1440px)/2) + 34.56px);
+    top:calc(max(0px, (100% - 900px)/2) + 23.4px);
+    font:500 24px/1.45 var(--mono); color:var(--ink)}
+  #docleft{position:absolute;
+    left:calc(max(0px, (100% - 1440px)/2) + 63.36px);
+    top:calc(max(0px, (100% - 900px)/2) + 178.56px);
+    width:357.12px; height:426.24px;
+    display:flex; flex-direction:column; gap:10px}
+  /* the document in the space right of the list, and on a wide window a
+     right rail after it */
+  /* the text column stands exactly where the board's chat frame stands: the
+     same centering math, the frame's own left (1440*0.324 = 466.56px) and its
+     width (1440*0.368 = 529.92px). a narrow window lets the column shrink */
+  #docwrap{position:absolute; inset:0; box-sizing:border-box;
+    padding:18px 26px 0 calc(max(0px, (100% - 1440px)/2) + 466.56px);
+    display:grid; column-gap:30px; row-gap:14px;
+    grid-template-columns:minmax(0, 529.92px);
+    grid-template-rows:auto minmax(0, 1fr)}
+  /* the document and the outline scroll on their own; no visible bars */
+  #docscroll::-webkit-scrollbar, #docoutline::-webkit-scrollbar{width:0; height:0}
+  #docscroll, #docoutline{scrollbar-width:none}
+
+  /* the three pages: quiet text, never boxed. the app's own tab size */
+  #doctabs{flex:none; display:flex; align-items:center; gap:16px}
+  #doctabs button{font:500 13px var(--sans); color:var(--sub);
+    background:none; border:none; padding:0; cursor:pointer}
+  #doctabs button:hover{color:var(--ink)}
+  #doctabs button.on{color:var(--ink)}
+
+  /* the strip over the document column: date, progress, goal. start-aligned
+     so the bar sits level with the clock's first line, not mid block */
+  #doctop{grid-column:1; grid-row:1; width:100%;
+    align-self:start; display:flex; align-items:center; gap:14px}
+  #doctopl{flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:14px}
+  #docdate{flex:none; font:11.5px var(--mono); color:#B4AA99}
+  /* progress: one pastel green fill, done over done plus doing, and the rest
+     of the run left empty inside the hairline */
+  #docbar{flex:1 1 auto; min-width:120px; max-width:520px; height:10px;
+    border:1px solid var(--line-strong); background:transparent; display:flex}
+  #docdone{width:0; background:var(--green-line)}
+  /* the goal the board view already shows, quiet and small. no goal draws
+     nothing at all, and a long one clips on the line rather than dotting off */
+  #docgoal{flex:0 1 170px; min-width:0; margin-left:auto;
+    display:flex; align-items:center; overflow:hidden}
+  #docgoal.off{display:none}
+  #docgoal span{display:block; max-height:2.7em; overflow:hidden;
+    font:400 11px/1.35 var(--mono); color:var(--sub)}
+
+  /* the left outline: typography only, no boxes. unfiled chats are ordinary
+     rows in the same rhythm, sitting straight above the first task heading.
+     it fills the list rectangle under the page tabs */
+  #docoutline{flex:1 1 auto; min-height:0; overflow-y:auto; padding:0 0 20px}
+  .docgroup{position:relative; margin:0 0 16px}
+  .docgroup:last-child{margin-bottom:0}
+  .dochead{margin:0 0 3px; font:500 16px/1.25 var(--serif); font-style:normal;
+    color:var(--ink)}
+  .docrail{position:absolute; left:3px; top:22px; bottom:3px; width:1px;
+    background:var(--line-strong)}
+  /* a long title wraps rather than trailing off into dots */
+  .docrow{display:flex; align-items:flex-start; gap:8px; padding:3px 0;
+    cursor:pointer}
+  .docrow .rdot{flex:none; width:8px; height:8px; border-radius:50%;
+    border:1px solid; margin:5px 0 0 14px}
+  .docrow .rdur{flex:none; width:26px; text-align:right; margin-top:2px;
+    font:400 10px/1.3 var(--mono); color:#B4AA99}
+  .docrow .rttl{flex:1; min-width:0; padding-right:6px;
+    font:400 13px/1.3 var(--sans); color:var(--ink); overflow-wrap:break-word}
+  .docrow.d-yellow .rdot{background:#FFD43B; border-color:#C9A21E}
+  .docrow.d-green .rdot{background:#59D624; border-color:#3E9C1B}
+  .docrow.d-grey .rdot{background:#E9ECEF; border-color:#B4AA99}
+  .docrow.d-done{opacity:.55}
+
+  /* the document column: the focus view's own sizes, title, path and prose */
+  #docscroll{grid-column:1; grid-row:2; width:100%; overflow-y:auto; padding:0 0 40vh}
+  /* a task heading, typed on the page itself. the chats filed under it follow,
+     so the document reads heading, its sections, next heading. one step under
+     the section titles, the app's serif upright, with air above it so it parts
+     one group of sections from the last. the left outline mirrors these lines */
+  /* a task is the parent of its chats, so its header outranks the card
+     headers: one step up the same bold inter scale */
+  .doctask{margin:40px 0 16px; font:700 36px/1.25 var(--inter); font-style:normal;
+    letter-spacing:.005em; color:var(--ink); outline:none; cursor:text}
+  #docsections > .doctask:first-child{margin-top:2px}
+  .doctask:empty::before{content:"Task"; color:var(--line-strong)}
+  .doctitle{font:700 30px/1.25 var(--inter); font-style:normal;
+    letter-spacing:.005em; color:var(--ink); outline:none; cursor:text}
+  .doctitle:empty::before{content:"Chat Name"; color:var(--line-strong)}
+  .docpath{margin-top:3px; font:11.5px var(--mono); color:#B4AA99;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  /* your own unanswered message keeps the board's right-hand voice */
+  body.docview .docpend{margin-top:11px; font:400 17px/1.55 var(--sans);
+    color:var(--sub); text-align:right}
+  body.docview .docprose{margin-top:11px; font:400 17px/1.55 var(--sans); color:var(--ink)}
+  body.docview .docpend:empty, body.docview .docprose:empty{display:none}
+  body.docview .docprose p, body.docview .docpend p{margin:0 0 .5em}
+  body.docview .docprose p:last-child, body.docview .docpend p:last-child{margin-bottom:0}
+  body.docview .docprose ul, body.docview .docprose ol{margin:0 0 .5em; padding-left:1.1em}
+  body.docview .docprose li{margin:0 0 .1em}
+  body.docview .docprose blockquote{margin:0 0 .5em 2px; padding-left:14px}
+  .docsep{height:1px; background:var(--line-strong); margin:15px 0 0}
+  /* the reply line: click it, type, Enter sends to that chat */
+  .docreply{margin:2px 0 26px; min-height:22px; outline:none;
+    font:400 17px/1.55 var(--sans); color:var(--ink)}
+  #docnew{min-height:22px; outline:none;
+    font:400 17px/1.55 var(--sans); color:var(--ink)}
+  /* the resting block: the composer's own cell at this text size, half an em
+     wide and 1.1 em tall. the live #fatcaret takes over on focus */
+  body.docview .docsec.on .docreply:empty::before, body.docview #docnew:empty::before{
+    content:""; display:inline-block; width:8.5px; height:18.7px;
+    background:var(--ink); vertical-align:-.24em;
+  }
+  /* a focused line hands the block to the app's own #fatcaret; the resting
+     one must go, so this rule outranks the two above */
+  body.docview .docsec.on .docreply:focus:empty::before,
+  body.docview #docnew:focus:empty::before{content:none}
+
+  /* the right rail: the empty side of the page, kept as the place the timer
+     panel goes later. the two placeholder boxes that used to stand here were
+     removed. drawn only when the window has room for a third
+     column. the name avoids .docrail, which is the outline's own hairline */
+  #docside{grid-column:2; grid-row:1 / span 2; display:none; position:relative}
+  /* wide window: the rail opens in whatever room is left right of the column.
+     the column itself never moves, so the strip keeps riding above it */
+  @media (min-width:1250px){
+    body.docview #docwrap{grid-template-columns:minmax(0, 529.92px) minmax(0, 1fr)}
+    body.docview #docside{display:block}
+  }
 </style>
 </head>
 <body class="focus">
@@ -949,6 +1104,8 @@
   <span id="tabbar"></span>
   <span id="projnote"></span>
   <span class="name" id="boardname">facilitator</span>
+  <span class="clock" id="docclock"></span>
+  <span id="docmock">sandbox</span>
   <span class="live"><span class="dot" id="dot"></span><span id="livetext">idle</span></span>
   <span class="prog" id="prog"></span>
   <button id="editbtn" title="edit layout">✎</button>
@@ -1034,6 +1191,39 @@
   </div>
 </div>
 
+<!-- the document view, drawn only under ?doc=1: the same lane as one
+     scrolling typed page. it lives outside the stage, which stays hidden
+     while this view is up. -->
+<div id="docroot">
+  <div id="docnow" aria-live="off">
+    <div id="dn-day"></div>
+    <div id="dn-time"></div>
+    <div id="dn-date"></div>
+  </div>
+  <div id="docleft">
+    <div id="doctabs">
+      <button data-page="todo">Doing</button>
+      <button data-page="deferred">Deferred</button>
+      <button data-page="done">Done</button>
+    </div>
+    <nav id="docoutline"></nav>
+  </div>
+  <div id="docwrap">
+    <div id="doctop">
+      <div id="doctopl">
+        <div id="docdate"></div>
+        <div id="docbar"><span id="docdone"></span></div>
+      </div>
+      <div id="docgoal" class="off"><span></span></div>
+    </div>
+    <div id="docscroll">
+      <div id="docsections"></div>
+      <div id="docnew" contenteditable="plaintext-only"></div>
+    </div>
+    <aside id="docside"></aside>
+  </div>
+</div>
+
 <script>
 const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
                   ["now", "Now"], ["done", "Done"], ["later", "Later"]];
@@ -1057,6 +1247,22 @@ const LOCKED = new URLSearchParams(location.search).get("project");
 let activeOwner = LOCKED || localStorage.getItem("activeproj") || "facilitator";
 if (LOCKED) document.body.classList.add("locked");
 
+// ?doc=1 swaps the board of cards for the document view of the same lane.
+// the branch happens here, before anything paints; with no query param the
+// page below runs exactly as it always did.
+const DOC = new URLSearchParams(location.search).get("doc") === "1";
+if (DOC) document.body.classList.add("docview");
+
+// &mock=1 on top of the document view: the same page drawn from built-in fake
+// data, for testing the look without the live board. it only means anything
+// with doc=1, and while it is on the page makes no request of its own and
+// writes nothing the real views read.
+const MOCK = DOC && new URLSearchParams(location.search).get("mock") === "1";
+if (MOCK){
+  document.body.classList.add("mockview");
+  activeOwner = "example";   // the sandbox lane, so a saved project never steers it
+}
+
 function labelOf(state, owner){
   const dir = (state.pwds || {})[owner] || "";
   return dir.split("/").filter(Boolean).pop() || owner;
@@ -1071,6 +1277,7 @@ function pickInRow(state, owner){
 }
 
 function setTab(owner){
+  if (MOCK) return;   // one lane in the sandbox, and the saved project key stays untouched
   if (LOCKED && owner !== LOCKED) return;
   if (draft) endDraft();   // an unfinished new tab disappears on switching away
   activeOwner = owner; localStorage.setItem("activeproj", owner);
@@ -1107,7 +1314,7 @@ function renderTabs(st){
       const t = h("button", "ptab");
       t.dataset.owner = ow;
       t.appendChild(h("span", "plabel", labelOf(st, ow)));
-      if (!LOCKED){
+      if (!LOCKED && !MOCK){   // no drag in the sandbox: a reorder would save a real tab order
         t.addEventListener("mousedown", e => {
           if (tabGlide) return;   // a drop still settling holds the bar
           tabDrag = { ow, x: e.clientX, y: e.clientY, mode: null, pulled: false, el: t };
@@ -1252,6 +1459,7 @@ function endDraft(){
   document.body.classList.remove("choosing");
 }
 function plusClick(){
+  if (MOCK) return;   // the sandbox makes no lanes
   // a live server from before /project and /dirs serves no projects list in
   // /state; the flow would only 404 there, so say what is missing instead
   if (!lastState || !("projects" in lastState)){
@@ -1904,6 +2112,7 @@ function histExit(id){
   if (was){
     el.reply.innerHTML = fmt(el.reply.dataset.raw);
     el.reply.scrollTop = 0;
+    if (DOC) docMirrorReply(id);   // the document view shows the same walk
   }
 }
 
@@ -1924,6 +2133,7 @@ async function histStep(dir){   // +1 steps older, -1 steps back toward live
   el.histPos.textContent = (list.length - step + 1) + " of " + (list.length + 1);
   el.histUp.disabled = step >= list.length;
   el.histDown.disabled = false;
+  if (DOC) docMirrorReply(id);   // the document view shows the same walk
 }
 
 function apply(state){
@@ -2072,6 +2282,7 @@ function apply(state){
     tocGroups[key].style.display = visible ? "" : "none";
   }
   renderTabs(state);
+  if (DOC) renderDoc(state);   // the document view rides the same poll
   if (draft && draft.screen === "home") renderHome(state);   // new lanes join the landing card live
   if (FOCUS){
     renderWorkspaces(state);
@@ -2106,12 +2317,23 @@ function tickClock(){
   let hr = n.getHours();
   const ap = hr >= 12 ? "PM" : "AM";
   hr = hr % 12 || 12;
-  document.getElementById("ck-day").textContent = DAYS[n.getDay()];
-  document.getElementById("ck-time").textContent =
-    hr + ":" + String(n.getMinutes()).padStart(2, "0") + ":" +
-    String(n.getSeconds()).padStart(2, "0") + " " + ap;
-  document.getElementById("ck-date").textContent =
-    MONTHS[n.getMonth()] + " " + ord(n.getDate());
+  const day = DAYS[n.getDay()];
+  const time = hr + ":" + String(n.getMinutes()).padStart(2, "0") + ":" +
+               String(n.getSeconds()).padStart(2, "0") + " " + ap;
+  const date = MONTHS[n.getMonth()] + " " + ord(n.getDate());
+  document.getElementById("ck-day").textContent = day;
+  document.getElementById("ck-time").textContent = time;
+  document.getElementById("ck-date").textContent = date;
+  // the same three lines at the top left of the document view
+  const dnd = document.getElementById("dn-day");
+  if (dnd){
+    dnd.textContent = day;
+    document.getElementById("dn-time").textContent = time;
+    document.getElementById("dn-date").textContent = date;
+  }
+  // the document view's bar clock; the element is hidden in the board view
+  const dc = document.getElementById("docclock");
+  if (dc) dc.textContent = hr + ":" + String(n.getMinutes()).padStart(2, "0") + " " + ap;
 }
 
 // ---- workspaces and the trio (rail / goal box / task box) -----------------
@@ -2510,6 +2732,7 @@ addEventListener("keydown", e => {
   }
   if (e.metaKey && (e.key === "t" || e.key === "T")){   // command+T: new card, input focused
     e.preventDefault();
+    if (MOCK) return;   // the sandbox never creates a real card
     if (draft) return;   // a choosing tab has no lane to put a card in yet
     fetch("/create?owner=" + activeOwner, { method: "POST" })
       .then(x => x.json())
@@ -2542,7 +2765,9 @@ addEventListener("keydown", e => {
       return;
     }
   }
-  if ((e.key === "Backspace" || e.key === "Delete") && selectedId){
+  // the document view has no card-closing key: a stray backspace over a page
+  // of prose must never close a real chat
+  if ((e.key === "Backspace" || e.key === "Delete") && selectedId && !DOC){
     const b = lastState?.boxes.find(x => x.id === selectedId);
     if (b?.bucket === "meta"){   // same cards the remove cross appears on
       e.preventDefault();
@@ -2555,7 +2780,7 @@ addEventListener("keydown", e => {
     return;
   }
   const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[e.key];   // up/down freed; cmd+number switches projects
-  if (d){ e.preventDefault(); nav(d[0], d[1]); }
+  if (d && !DOC){ e.preventDefault(); nav(d[0], d[1]); }   // left and right do nothing in the document view
 });
 {
   const setView = v => {
@@ -2664,7 +2889,7 @@ async function doQSend(){
 qsend.addEventListener("click", doQSend);
 qta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); doQSend(); } });
 
-setInterval(pollQ, 2500); pollQ();
+if (!MOCK){ setInterval(pollQ, 2500); pollQ(); }   // the sandbox asks the server for nothing
 
 tickClock();
 setInterval(tickClock, 1000);
@@ -3176,9 +3401,531 @@ document.getElementById("taskstatus").addEventListener("click", () => {
   setInterval(() => { if (cur) queue(); }, 300);
 }
 
+// ---- the document view ----------------------------------------------------
+// the lane the board would show, drawn as one scrolling typed page: an
+// outline on the left, the chats as sections in the middle, typing as the
+// only control. nothing below runs unless DOC is on.
+
+// tasks have no server endpoint this round, so the page keeps them itself.
+// every task read and write goes through this one object; when the server
+// grows a home for them, only load and save change.
+const docTasks = {
+  key(lane){ return "doc.tasks." + lane; },
+  load(lane){
+    if (MOCK) return docMockTasks;   // the sandbox holds its tasks in memory, never in the real key
+    try {
+      const raw = JSON.parse(localStorage.getItem(this.key(lane)) || "[]");
+      if (!Array.isArray(raw)) return [];
+      return raw
+        .filter(t => t && typeof t.title === "string")
+        .map(t => ({ id: String(t.id || ""), title: t.title,
+                     boxes: Array.isArray(t.boxes) ? t.boxes.map(String) : [] }));
+    } catch (e) { return []; }
+  },
+  save(lane, list){
+    if (MOCK){ docMockTasks = list; return; }   // memory only; a reload resets the sandbox
+    try { localStorage.setItem(this.key(lane), JSON.stringify(list)); } catch (e) {}
+  },
+};
+
+const docEls = {};        // box id -> the section's parts, so a poll never rebuilds a line being typed in
+const docHeads = {};      // task key -> the heading line drawn in the document flow
+let docSel = null;        // the section the arrows and plain typing land on
+
+// the lane's chats in the state's own order: creation order, and a reply
+// never moves one
+function docPool(state){
+  const w = curWs(state);
+  return state.boxes.filter(b => b.owner === activeOwner && b.id !== "q" && (!w || b.ws === w.id));
+}
+// the three pages read the one card state, same as the board's tabs
+function docPage(state){
+  return docPool(state).filter(b => {
+    const s = cardState(b);
+    return ticketView === "done" ? s === "done"
+         : ticketView === "deferred" ? s === "parked"
+         : (s !== "done" && s !== "parked");
+  });
+}
+function docDot(b){
+  const s = cardState(b);
+  return s === "done" ? "d-green" : (s === "parked" || s === "queued") ? "d-grey" : "d-yellow";
+}
+
+// the typed structure of the page, read once and drawn twice: the document
+// shows it as headings with sections under them, the outline mirrors it as
+// headings with rows. chats made before any heading come first, ungrouped.
+function docStructure(state){
+  const rows = docPage(state);
+  const tasks = docTasks.load(activeOwner);
+  const filed = new Map();
+  tasks.forEach((t, i) => t.boxes.forEach(id => filed.set(id, i)));
+  // an old stored task can carry no id, so the position stands in for one
+  const groups = tasks.map((t, i) => ({ key: t.id || "t" + i, title: t.title,
+                                        boxes: t.boxes, rows: [] }));
+  const loose = [];
+  for (const b of rows){
+    const i = filed.get(b.id);
+    if (i != null && groups[i]) groups[i].rows.push(b);
+    else loose.push(b);
+  }
+  return { groups, loose };
+}
+
+function docSelect(id, opts){
+  docSel = id;
+  if (els[id]) select(id);   // the reply-history walk reads the board's own selection
+  for (const k of Object.keys(docEls)) docEls[k].sec.classList.toggle("on", k === id);
+  for (const r of document.querySelectorAll("#docoutline .docrow"))
+    r.classList.toggle("on", r.dataset.id === id);
+  const sec = docEls[id] && docEls[id].sec;
+  if (sec && !opts?.quiet) sec.scrollIntoView({ block: "nearest" });
+}
+
+function docWalk(dir){
+  if (!lastState) return;
+  // the arrows follow the page as it reads, headings and all
+  const st = docStructure(lastState);
+  const list = st.loose.concat(...st.groups.map(g => g.rows));
+  if (!list.length) return;
+  const i = list.findIndex(b => b.id === docSel);
+  const pick = list[Math.min(Math.max(i + dir, 0), list.length - 1)] || list[0];
+  docSelect(pick.id);
+}
+
+// the walk through older replies writes into the hidden board card; carry it
+// across so the document shows the step
+function docMirrorReply(id){
+  if (docEls[id] && els[id]) docEls[id].prose.innerHTML = els[id].reply.innerHTML;
+}
+
+function docSend(id, text){
+  if (MOCK) return docMockSend(id, text);   // the sandbox answers itself, with no request
+  const reopen = boxDone(id);   // before the send, same rule as the board card
+  fetch("/send?box=" + encodeURIComponent(id), { method: "POST", body: text })
+    .then(r => { if (r.ok && reopen) undone(id); })   // only once the message is in
+    .then(() => poll()).catch(() => {});
+}
+
+// a chat title renames in place, the same gesture as the board's card title
+function docEditTitle(id){
+  const t = docEls[id] && docEls[id].title;
+  if (!t || t.isContentEditable) return;
+  const old = t.textContent;
+  // the outline row mirrors every keystroke, so both places move as one
+  const mirror = document.querySelector('#docoutline .docrow[data-id="' + CSS.escape(id) + '"] .rttl');
+  t.setAttribute("contenteditable", "plaintext-only");
+  const end = () => { t.removeAttribute("contenteditable"); t.onkeydown = null; t.onblur = null; t.oninput = null; };
+  t.oninput = () => { if (mirror) mirror.textContent = t.textContent; };
+  const commit = () => {
+    const name = t.textContent.trim();
+    end();
+    if (name && name !== old){
+      t.textContent = name;
+      if (MOCK) docMockTitle(id, name);   // the sandbox renames its own copy
+      else fetch("/title?box=" + encodeURIComponent(id), { method: "POST", body: name })
+        .then(() => poll()).catch(() => {});
+    } else { t.textContent = old; if (mirror) mirror.textContent = old; }
+  };
+  t.onkeydown = e => {
+    e.stopPropagation();
+    if (e.key === "Enter"){ e.preventDefault(); commit(); }
+    else if (e.key === "Escape"){ end(); t.textContent = old; if (mirror) mirror.textContent = old; t.blur(); }
+  };
+  t.onblur = () => { if (t.isContentEditable) commit(); };
+}
+
+// a heading renames where it stands, the same gesture as a chat title. the
+// store is the one the outline reads, so the new name shows in both places
+function docRenameTask(key, name){
+  const list = docTasks.load(activeOwner);
+  const i = list.findIndex((t, n) => (t.id || "t" + n) === key);
+  if (i < 0 || list[i].title === name) return;
+  list[i].title = name;
+  docTasks.save(activeOwner, list);
+  if (lastState) renderDoc(lastState);
+}
+
+function docEditHead(el){
+  if (el.isContentEditable) return;
+  const old = el.textContent;
+  // the outline heading mirrors every keystroke, same as the chat titles
+  const mirror = document.querySelector('#docoutline .dochead[data-task="' + CSS.escape(el.dataset.task) + '"]');
+  el.setAttribute("contenteditable", "plaintext-only");
+  const end = () => { el.removeAttribute("contenteditable"); el.onkeydown = null; el.onblur = null; el.oninput = null; };
+  el.oninput = () => { if (mirror) mirror.textContent = el.textContent; };
+  const commit = () => {
+    const name = el.textContent.trim();
+    end();
+    if (name && name !== old){ el.textContent = name; docRenameTask(el.dataset.task, name); }
+    else { el.textContent = old; if (mirror) mirror.textContent = old; }
+  };
+  el.onkeydown = e => {
+    e.stopPropagation();
+    if (e.key === "Enter"){ e.preventDefault(); commit(); }
+    else if (e.key === "Escape"){ end(); el.textContent = old; if (mirror) mirror.textContent = old; el.blur(); }
+  };
+  el.onblur = () => { if (el.isContentEditable) commit(); };
+}
+
+function docHeadEl(g){
+  const el = h("div", "doctask", g.title);
+  el.dataset.task = g.key;
+  el.addEventListener("mousedown", () => docEditHead(el));
+  return el;
+}
+
+function docSection(b){
+  const sec = h("div", "docsec");
+  sec.dataset.id = b.id;
+  const title = h("div", "doctitle", b.title);
+  title.addEventListener("mousedown", () => docEditTitle(b.id));
+  const path = h("div", "docpath");
+  const pend = h("div", "docpend");
+  // the app's own reply class carries code blocks, lists and images along
+  const prose = h("div", "docprose reply");
+  const sep = h("div", "docsep");
+  const line = h("div", "docreply");
+  line.setAttribute("contenteditable", "plaintext-only");
+  line.addEventListener("focus", () => docSelect(b.id, { quiet: true }));
+  line.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey){
+      e.preventDefault();
+      const text = (line.textContent || "").trim();
+      if (!text) return;
+      line.textContent = "";
+      docSend(b.id, text);
+    }
+  });
+  sec.addEventListener("mousedown", e => {
+    if (e.target === title) return;   // a title click is a rename, not a jump
+    docSelect(b.id, { quiet: true });
+  });
+  sec.append(title, path, pend, prose, sep, line);
+  return { sec, title, path, pend, prose, line };
+}
+
+function docUpdate(b, parts){
+  if (!parts.title.isContentEditable && parts.title.textContent !== b.title)
+    parts.title.textContent = b.title;
+  const dir = (lastState && lastState.pwds ? lastState.pwds[b.owner] : "") || "";
+  if (parts.path.textContent !== dir) parts.path.textContent = dir;
+  // an older reply is on show: leave the prose where the walk put it
+  if (!(hist && hist.id === b.id)){
+    const raw = b.reply || "";
+    if (parts.prose.dataset.raw !== raw){
+      parts.prose.dataset.raw = raw;
+      parts.prose.innerHTML = fmt(raw);
+    }
+  }
+  const p = (b.pendingTexts || []).slice(-1)[0] || "";
+  if (parts.pend.dataset.raw !== p){
+    parts.pend.dataset.raw = p;
+    parts.pend.innerHTML = p ? fmt(p) : "";
+  }
+}
+
+// the outline is the mirror: the same headings and the same order the
+// document draws, in the list's own typography
+function docOutline(state, st){
+  const box = document.getElementById("docoutline");
+  // a repaint mid rename would replace the mirrored row under the typer's
+  // hands; the next tick repaints once the edit ends
+  const ae = document.activeElement;
+  if (ae && (ae.classList.contains("doctitle") || ae.classList.contains("doctask"))) return;
+  const { groups, loose } = st || docStructure(state);
+  const rows = loose.concat(...groups.map(g => g.rows));
+  // the filing belongs in the signature too: moving a chat under a task
+  // changes nothing else, and the outline has to repaint for it
+  const sig = ticketView + "|" +
+    groups.map(g => g.title + ":" + g.boxes.join("+")).join(">") + "|" +
+    rows.map(b => b.id + cardState(b) + b.title + shortAge(b.agentTs || b.ts) +
+                  (b.id === docSel ? "!" : "")).join(",");
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+  box.textContent = "";
+
+  const rowEl = b => {
+    const s = cardState(b);
+    const r = h("div", "docrow " + docDot(b) + (s === "done" ? " d-done" : "") +
+                       (b.id === docSel ? " on" : ""));
+    r.dataset.id = b.id;
+    r.appendChild(h("span", "rdot"));
+    r.appendChild(h("span", "rdur", s === "done" ? "/" : shortAge(b.agentTs || b.ts)));
+    r.appendChild(h("span", "rttl", b.title));
+    r.addEventListener("click", () => docSelect(b.id));
+    return r;
+  };
+  // chats made before any task heading sit on top, ungrouped
+  if (loose.length){
+    const g = h("div", "docgroup");
+    for (const b of loose) g.appendChild(rowEl(b));
+    box.appendChild(g);
+  }
+  for (const grp of groups){
+    const g = h("div", "docgroup");
+    const dh = h("div", "dochead", grp.title);
+    dh.dataset.task = grp.key;   // the live rename mirror finds it by this
+    g.appendChild(dh);
+    g.appendChild(h("div", "docrail"));
+    for (const b of grp.rows) g.appendChild(rowEl(b));
+    box.appendChild(g);
+  }
+}
+
+function renderDoc(state){
+  const wrap = document.getElementById("docsections");
+  const st = docStructure(state);
+  // document order: the unfiled chats, then a heading and the chats under it,
+  // heading after heading. only this order rebuilds the page, so a rename or a
+  // new reply never touches a line being typed in
+  const list = st.loose.concat(...st.groups.map(g => g.rows));
+  const sig = st.loose.map(b => b.id).join(",") + "|" +
+    st.groups.map(g => g.key + ":" + g.rows.map(b => b.id).join("+")).join(">");
+  if (wrap.dataset.sig !== sig){
+    wrap.dataset.sig = sig;
+    for (const id of Object.keys(docEls)){
+      if (!list.some(b => b.id === id)){ docEls[id].sec.remove(); delete docEls[id]; }
+    }
+    for (const k of Object.keys(docHeads)){
+      if (!st.groups.some(g => g.key === k)){ docHeads[k].remove(); delete docHeads[k]; }
+    }
+    for (const b of st.loose){
+      if (!docEls[b.id]) docEls[b.id] = docSection(b);
+      wrap.appendChild(docEls[b.id].sec);
+    }
+    for (const g of st.groups){
+      if (!docHeads[g.key]) docHeads[g.key] = docHeadEl(g);
+      wrap.appendChild(docHeads[g.key]);
+      for (const b of g.rows){
+        if (!docEls[b.id]) docEls[b.id] = docSection(b);
+        wrap.appendChild(docEls[b.id].sec);
+      }
+    }
+  }
+  // a rename lands on the heading wherever it is drawn, unless it is the one
+  // being typed in
+  for (const g of st.groups){
+    const el = docHeads[g.key];
+    if (el && !el.isContentEditable && el.textContent !== g.title) el.textContent = g.title;
+  }
+  for (const b of list) docUpdate(b, docEls[b.id]);
+  if (!docSel || !docEls[docSel]) docSelect(list.length ? list[0].id : null, { quiet: true });
+  docOutline(state, st);
+
+  // progress: one green fill, done over done plus doing, the rest left empty.
+  // deferred cards count in neither
+  const all = docPool(state);
+  let done = 0, doing = 0;
+  for (const b of all){
+    const s = cardState(b);
+    if (s === "done") done++;
+    else if (s !== "parked") doing++;
+  }
+  const total = done + doing;
+  const seg = document.getElementById("docdone");
+  seg.style.width = (total ? done / total * 100 : 0).toFixed(2) + "%";
+
+  // the goal: the workspace record the board's own goal box reads, no more
+  const w = curWs(state);
+  const goal = (w && w.goal) || "";
+  const gbox = document.getElementById("docgoal");
+  if (gbox.firstChild.textContent !== goal){
+    gbox.firstChild.textContent = goal;
+    gbox.title = goal;   // the block holds two lines; hover carries the rest
+  }
+  gbox.classList.toggle("off", !goal);
+
+  const n = new Date();
+  const date = MONTHS3[n.getMonth()] + " " + ord(n.getDate());
+  const dd = document.getElementById("docdate");
+  if (dd.textContent !== date) dd.textContent = date;
+  for (const t of document.querySelectorAll("#doctabs button"))
+    t.classList.toggle("on", t.dataset.page === ticketView);
+}
+
+// the bottom line: a task heading, or a whole new chat
+function docTitleFrom(text){
+  const words = text.replace(/\s+/g, " ").trim().split(" ").slice(0, 7).join(" ");
+  return words.length > 60 ? words.slice(0, 60).trim() : words;
+}
+async function docCompose(text){
+  const first = text.split("\n")[0].trim();
+  if (/^task\s+\S/i.test(first)){
+    const list = docTasks.load(activeOwner);
+    list.push({ id: "k" + Date.now(), title: first, boxes: [] });
+    docTasks.save(activeOwner, list);
+    if (lastState) renderDoc(lastState);
+    return;
+  }
+  if (MOCK) return docMockCompose(text);   // the sandbox makes its own chat instead
+  // a short single line names a new chat; anything longer is its first
+  // message, and the title is made from its first words
+  const short = !text.includes("\n") && text.length <= 60;
+  const title = short ? text : docTitleFrom(text);
+  const r = await fetch("/create?owner=" + encodeURIComponent(activeOwner),
+                        { method: "POST", body: title }).then(x => x.json()).catch(() => null);
+  if (!r || !r.id) return;
+  const list = docTasks.load(activeOwner);
+  if (list.length){
+    list[list.length - 1].boxes.push(r.id);   // a new chat files under the newest task heading
+    docTasks.save(activeOwner, list);
+  }
+  if (!short) await fetch("/send?box=" + encodeURIComponent(r.id),
+                          { method: "POST", body: text }).catch(() => {});
+  docSel = r.id;
+  await poll();
+}
+
+// ---- the sandbox (?doc=1&mock=1) ------------------------------------------
+// the same view, drawn from the fake lane below so the look and the typing can
+// be tried without the live board. everything here is memory only: no request
+// leaves the page, no stored key is touched, and a reload starts it over.
+const DOCMOCKPWD = "/Users/you/projects/example";   // a made-up folder, never a real one
+const DOCMOCKANSWER = "A reply would land here; this sandbox answers every message with this line.";
+let docMockState = null;   // built at boot, thrown away on reload
+let docMockTasks = [];     // the task headings, held here instead of localStorage
+let docMockSeq = 0;
+
+function docMockChat(id, title, mins, st, reply){
+  const t = Math.floor(Date.now() / 1000) - mins * 60;
+  return { id, owner: activeOwner, ws: "w1", title, reply,
+           ts: t, agentTs: t, state: st,
+           done: st === "done", parked: st === "parked",
+           pendingTexts: [], pending: 0, replies: 1,
+           ball: st === "yours" ? "you" : "agent" };
+}
+
+function docMockBuild(){
+  docMockTasks = [
+    { id: "k1", title: "Make search useful", boxes: ["m2"] },
+    { id: "k2", title: "Quiet the keyboard", boxes: ["m3"] },
+  ];
+  docMockSeq = 6;
+  return {
+    title: "example board",
+    projects: [],
+    pwds: { [activeOwner]: DOCMOCKPWD },
+    workspaces: { [activeOwner]: [{ id: "w1", name: "example", tasks: [],
+      goal: "Keep every note in one plain folder." }] },
+    boxes: [
+      docMockChat("m1", "Outline spacing", 5, "yours",
+        "The rows in the left column sat too close together, so there is more air between them now and the dots stay on the title line. A long title wraps under the duration instead of running off the edge.\n\nIf the tighter rows read better to you, say so and the old spacing comes back."),
+      docMockChat("m2", "Search across notes", 40, "yours",
+        "Search now walks every note in the folder and returns the ten closest matches, newest first. It is plain text matching, which is quick and easy to predict.\n\nThe next step would be to keep the last few searches around, so the same lookup never has to be typed twice."),
+      docMockChat("m3", "Keys instead of clicks", 120, "queued",
+        "The arrow keys walk the list and plain typing lands in the reply line, so a short session needs no mouse at all. The full list of keys sits at the top of the notes file.\n\nOne question is left for you: whether Escape should leave the field or close the page. It leaves the field for now."),
+      docMockChat("m4", "Weekly digest", 180, "parked",
+        "Parked until the writing side settles. The draft groups the week by day and keeps every entry to one line, which is short enough to read on a phone."),
+      docMockChat("m5", "First run setup", 1440, "done",
+        "Setup is one step now: pick a folder, and the tool writes its own settings next to it. Nothing lands outside that folder, so removing the tool means deleting the folder."),
+      docMockChat("m6", "Import a folder", 2880, "done",
+        "Import reads a folder of text files and turns each file into a note, keeping the file name as the title. Files it cannot read are listed at the end instead of stopping the run."),
+    ],
+  };
+}
+
+function docMockFind(id){ return docMockState.boxes.find(b => b.id === id); }
+function docMockPaint(){ if (docMockState) renderDoc(docMockState); }
+
+// a send lands as your pending message, and the canned answer arrives a moment
+// later, so the whole transition can be watched
+function docMockSend(id, text){
+  const b = docMockFind(id);
+  if (!b) return;
+  b.pendingTexts = b.pendingTexts.concat(text);
+  b.pending = b.pendingTexts.length;
+  b.ts = Math.floor(Date.now() / 1000);
+  if (b.state === "done"){ b.done = false; b.state = "queued"; }   // writing to a done chat takes it back to doing
+  else if (b.state !== "parked") b.state = "queued";               // a parked chat stays parked
+  b.ball = "agent";
+  docMockPaint();
+  setTimeout(() => {
+    b.reply = DOCMOCKANSWER;
+    b.pendingTexts = []; b.pending = 0;
+    b.agentTs = Math.floor(Date.now() / 1000);
+    if (b.state !== "parked"){ b.state = "yours"; b.ball = "you"; }
+    docMockPaint();
+  }, 2000);
+}
+
+function docMockTitle(id, name){
+  const b = docMockFind(id);
+  if (!b) return;
+  b.title = name;
+  docMockPaint();
+}
+
+function docMockCompose(text){
+  const short = !text.includes("\n") && text.length <= 60;
+  const title = short ? text : docTitleFrom(text);
+  const id = "m" + (++docMockSeq);
+  docMockState.boxes.push(docMockChat(id, title, 0, "new", ""));
+  const list = docTasks.load(activeOwner);
+  if (list.length){
+    list[list.length - 1].boxes.push(id);   // files under the newest heading, same as the live view
+    docTasks.save(activeOwner, list);
+  }
+  docSel = id;
+  if (short) docMockPaint();
+  else docMockSend(id, text);
+}
+
+function docMockBoot(){
+  docMockState = docMockBuild();
+  lastState = docMockState;   // the folder line and the section walk read this
+  document.title = docMockState.title;
+  const nm = document.getElementById("boardname");
+  nm.textContent = "example ";
+  const em = document.createElement("em");
+  em.textContent = "board";
+  nm.append(em);
+  renderTabs(docMockState);
+  docMockPaint();
+}
+
+if (DOC){
+  const nl = document.getElementById("docnew");
+  nl.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey){
+      e.preventDefault();
+      const text = (nl.textContent || "").trim();
+      if (!text) return;
+      nl.textContent = "";
+      docCompose(text);
+    }
+  });
+  for (const t of document.querySelectorAll("#doctabs button")){
+    t.addEventListener("click", () => {
+      ticketView = t.dataset.page;
+      docSel = null;
+      if (MOCK) docMockPaint();          // the sandbox repaints itself; the board apply stays out of it
+      else if (lastState) apply(lastState);
+    });
+  }
+  // up and down walk the sections; a plain key lands in the selected
+  // section's reply line, with no click needed first
+  addEventListener("keydown", e => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const t = e.target;
+    if (t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable)) return;
+    if (e.key === "ArrowUp" || e.key === "ArrowDown"){
+      e.preventDefault();
+      docWalk(e.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
+    if (e.key.length !== 1) return;
+    const line = docSel && docEls[docSel] ? docEls[docSel].line : null;
+    if (!line) return;
+    e.preventDefault();
+    line.focus();
+    document.execCommand("insertText", false, e.key);
+  });
+}
+
 applySavedLayout();
-poll();
-setInterval(poll, 1200);
+if (MOCK) docMockBoot();   // no poll in the sandbox: the clock ticks off the browser, the rest is fake
+else { poll(); setInterval(poll, 1200); }
 </script>
 </body>
 </html>
