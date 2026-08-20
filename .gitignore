@@ -1,5 +1,6 @@
 # runtime discussion data: the owner's live board, not source
 /state.json
+/state.json.bak-*
 /state.tmp
 /transcript.jsonl
 
