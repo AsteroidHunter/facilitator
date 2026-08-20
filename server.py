@@ -5,7 +5,8 @@ FIFO; the agent (Claude, in the terminal session that launched this) drains the
 queue one box at a time via GET /wait (long-poll) and answers via POST /reply.
 
 Endpoints:
-  GET  /                    -> index.html
+  GET  /                    -> index.html, the card board
+  GET  /page                -> page.html, the same lanes drawn as one typed page
   GET  /state               -> full UI state (page polls this)
   POST /send?box=ID         -> body = the human's message text (plain text)
   POST /done?box=ID&v=1|0   -> mark a box done / not done
@@ -346,6 +347,10 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         if url.path == "/":
             self._send(200, (HERE / "index.html").read_bytes(), "text/html; charset=utf-8")
+        elif url.path == "/page":
+            # the second UI: the same lanes and the same cards drawn as one typed
+            # page, in its own file so editing it can never touch the card board
+            self._send(200, (HERE / "page.html").read_bytes(), "text/html; charset=utf-8")
         elif url.path == "/state":
             with _lock:
                 self._send(200, self._ui_state())
