@@ -3615,6 +3615,69 @@ addEventListener("keydown", e => {
 // perfect. The only honest reading is a real click on the real screen, so this
 // writes down one gesture, the grow and the shrink together, and posts it as
 // json to the upload route, which lands it in facilitator-internal/uploads as
+// <epoch-ms>-zoomlog.json.
+// Nothing here changes how the zoom looks or moves. The two functions are
+// wrapped from outside rather than edited, a frame does nothing but write one
+// number into an array that already exists, and every reading, sum and string
+// is built almost a second after the picture has come to rest.
+// One switch turns all of it off: set this to false.
+const P3_PROBE = true;
+
+if (P3_PROBE) (function(){
+  const FRAMES = 12000;   // about 100 seconds at 120Hz, far longer than a gesture
+  const SETTLE = 900;     // quiet kept after the shrink lands, so its tail shows
+  const KEEP = 600;       // entries held from each observer, oldest dropped first
+  const stamps = new Float64Array(FRAMES);   // preallocated: a frame never allocates
+  let n = 0, raf = 0, cap = null;
+  const r2 = x => Math.round(x * 100) / 100;
+  const r3 = x => Math.round(x * 1000) / 1000;
+
+  // all a frame does is write down when it happened. it never reads the page,
+  // never adds anything up and never builds a string, so the measuring cannot
+  // become the thing being measured
+  function tick(t){
+    if (n < FRAMES) stamps[n++] = t;
+    raf = requestAnimationFrame(tick);
+  }
+
+  // the observers start now, at load, rather than on the click, so the gesture
+  // never pays for starting them. entries are kept as they come and read much
+  // later; the oldest go once there are too many, so a board left open all day
+  // cannot grow this without end
+  function watch(type, extra){
+    const box = { on: false, list: [] };
+    try {
+      const po = new PerformanceObserver(l => {
+        const es = l.getEntries();
+        for (let i = 0; i < es.length; i++) box.list.push(es[i]);
+        if (box.list.length > KEEP) box.list.splice(0, KEEP >> 1);
+      });
+      po.observe(Object.assign({ type, buffered: true }, extra));
+      box.on = true;
+    } catch (err) {}   // a kind of entry this browser has not got is simply missing
+    return box;
+  }
+  const longs = watch("longtask");
+  // only the events slow enough to be worth looking at, which is the usual line
+  // drawn at one frame's worth of delay
+  const evts = watch("event", { durationThreshold: 16 });
+  const nets = watch("resource");   // the board's own polls, by when they landed
+
+  // when the browser really started an animation, against when it was asked to.
+  // ready settles on the frame it is first committed, and startTime is on the
+  // same clock performance.now() reads
+  function mark(a, slot){
+    if (!a) return slot;
+    try { slot.duration = r2(a.effect.getTiming().duration || 0); } catch (err) {}
+    a.ready.then(() => { slot.ready = performance.now(); slot.startTime = a.startTime; },
+      () => {});
+    a.finished.then(() => { slot.done = performance.now(); },
+      () => { slot.stopped = performance.now(); });
+    return slot;
+  }
+
+  // the two functions are left exactly as they are and wrapped from outside, so
+  // taking this block away puts the zoom back with nothing else to undo
   const openWas = p3ZoomOpen, closeWas = p3ZoomClose;
 
   p3ZoomOpen = function(img){
@@ -3784,6 +3847,14 @@ addEventListener("keydown", e => {
     // the upload route takes any bytes at all and writes them under the
     // internal uploads folder with the time in front of the name, so this needs
     // no route of its own and no server change
+    fetch("/upload?name=zoomlog.json", { method: "POST", body }).catch(() => {});
+  }
+})();
+// --------------------------------------------------------- end of the probe
+
+// magic box 2: a small copy of this tool's own cards, always the facilitator
+// lane's whatever project tab is open, so a thought can go to the facilitator
+// agent without leaving the tab you are in. same title, reply and composer a
 // real card has; the grey summary strip is deliberately left out
 const miniEls = {};
 // the card it sits on is kept across reloads, per project tab, so a reload does
