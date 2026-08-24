@@ -128,11 +128,6 @@
   .title{font:625 17.5px/1.25 var(--inter); flex:1; min-width:0}
   .title[contenteditable]{outline:none}
   .title[contenteditable]:empty::before{content:"Chat Name"; color:var(--line-strong)}
-  .ctx{font:italic 12.5px/1.45 var(--sans); color:var(--sub); padding:6px 14px 0;
-    border-left:2px solid var(--line); margin:6px 14px 0}
-  .ctx:empty{display:none}
-  /* folded rows are title-only: the context block hides until reopened/peeked */
-  .box.waiting:not(.peek) .ctx, .box.done:not(.peek) .ctx, .box.parked:not(.peek) .ctx{display:none}
   .body{padding:8px 14px 13px}
   .reply{color:var(--ink)}
   .reply p{margin:0 0 9px}
@@ -229,11 +224,6 @@
   .sendbtn:active{transform:scale(.97)}
   .addbtn{background:var(--accent-soft); color:var(--accent)}
   .addbtn:hover{background:#E2DCFC}
-  .ctx{
-    font-style:normal; color:#3A3563;
-    background:var(--accent-soft); border:1px solid #D9D3FA;
-    border-radius:4px; padding:7px 11px; margin:9px 14px 0;
-  }
 
   /* ============ focus mode: one discussion fills the page ================ */
   /* the left bar stays; the right side shows exactly one box, chosen there.
@@ -336,13 +326,7 @@
   }
   body.focus .box.sel .wstat{display:none}
   body.focus .box.sel .xbtn{order:5; margin-left:auto}
-  body.focus .box.sel .ctx{
-    display:block !important; margin:18px 0 0; padding:13px 16px;
-    background:#FAFAF7; border:1px solid var(--line); border-radius:5px;
-    color:var(--ink); font-size:17px; line-height:1.55; box-shadow:none;
-  }
-  body.focus .box.sel .ctx:empty{display:none !important}
-  body.focus .box.sel .head, body.focus .box.sel .ctx{flex:none}
+  body.focus .box.sel .head{flex:none}
   body.focus .box.sel .body{
     display:flex !important; flex-direction:column; flex:1 1 0; min-height:0;
     overflow:hidden;
@@ -511,7 +495,6 @@
     border-right:1px solid var(--line)}
   .trow.on .tt{font-weight:600}
   /* magic stubs, contents to be explained */
-  #magic1, #magic2{position:fixed; border:1px dashed var(--line-strong); border-radius:7px;
     background:#fff;
     display:flex; align-items:center; justify-content:center;
     font:400 12.5px var(--mono); color:#B4AA99; letter-spacing:.04em}
@@ -1955,7 +1938,6 @@ function apply(state){
       el.titleEl.textContent = b.title;
       el.tocTitle.textContent = b.title;
     }
-    if (el.ctx.textContent !== (b.context || "")) el.ctx.textContent = b.context || "";
     const pt = (b.pendingTexts || []).join("\n\n");
     if (el.pend.dataset.raw !== pt){
       el.pend.dataset.raw = pt;
@@ -2178,6 +2160,7 @@ function inlineEdit(spanEl, initial, onSave){
 // one name per card: done, parked, working, new, yours, queued. consumers
 // map the name to their own classes, group numbers, and colors; the two
 // helpers under it keep old per-site quirks exactly as they were.
+// real card has; the grey summary strip is deliberately left out
 function cardState(b){
   // the server now computes one authoritative state per card; the inline
   // version stays only as a fallback for an older server that omits it
