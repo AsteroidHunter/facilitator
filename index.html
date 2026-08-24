@@ -495,13 +495,33 @@
     border-right:1px solid var(--line)}
   .trow.on .tt{font-weight:600}
   /* magic stubs, contents to be explained */
+  #magic1, #magic2, #magic3{position:fixed; border:1px dashed var(--line-strong); border-radius:7px;
     background:#fff;
     display:flex; align-items:center; justify-content:center;
     font:400 12.5px var(--mono); color:#B4AA99; letter-spacing:.04em}
   #magic1{left:var(--m1-x); width:var(--m1-w);
     top:calc(var(--oy) + var(--ch)*var(--m1-y)); height:calc(var(--ch)*var(--m1-h))}
-  #magic2{left:var(--m2-x); width:var(--m2-w);
+  /* magic box 2 sits in the top right region the to-do box used to hold, so it
+     keeps that region's own --tg- geometry rather than a new set of numbers */
+  #magic2{left:var(--tg-x); width:var(--tg-w);
+    top:calc(var(--oy) + var(--ch)*var(--tg-y)); height:calc(var(--ch)*var(--tg-h))}
+  #magic3{left:var(--m2-x); width:var(--m2-w);
     top:calc(var(--oy) + var(--ch)*var(--m2-y)); height:calc(var(--ch)*var(--m2-h))}
+  body.focus .region-off{visibility:hidden; pointer-events:none}
+  /* magic box 2 holds a small copy of this tool's own cards, so any of them can
+     be read and answered from any project tab. the parts and the styling are
+     lifted straight off the large card: title, reply, a composer that is a line
+     rather than a box, a plain text send, and the same two round chips. text is
+     two smaller than the large card's 17. every rule is scoped to #magic2 so
+     none of it can reach the board's own cards */
+  /* filled, the small card IS magic box 2: the stub's own dashed outline and
+     background step aside so there is one rounded rectangle, not two */
+  #magic2.filled{display:block; padding:0; overflow:visible;
+    border:none; background:none}
+  #magic2 .mlist{height:100%; padding:0;
+    display:flex; flex-direction:column}
+  #magic2 .mbox{background:var(--card); border:1px solid var(--line);
+    border-radius:7px; padding:9px 11px; display:flex; flex-direction:column;
   #magic2 .mtitle{font:625 15px/1.25 var(--inter); color:var(--ink);
     margin-top:8px; padding-right:46px; flex:none; cursor:text}
   #magic2 .mtitle[contenteditable]{outline:none}
@@ -616,32 +636,11 @@
   #togglstub{display:none}   /* the to-do box takes this region; toggl comes later */
   #todobox{display:none}
   body.focus #todobox{
-    position:fixed; left:var(--tg-x); width:var(--tg-w);
-    top:calc(var(--oy) + var(--ch)*var(--tg-y)); height:calc(var(--ch)*var(--tg-h));
-    background:#fff; border:1px solid var(--line); border-radius:7px;
-    box-shadow:0 1px 10px rgba(60,45,20,.04);
-    display:flex; flex-direction:column; overflow:hidden;
-  }
-  #todolist{flex:1; overflow-y:auto; padding:var(--sp-s) 0}
-  .todorow{display:flex; align-items:center; gap:var(--sp-x);
-    padding:var(--sp-xs) var(--sp-x); cursor:pointer}
-  .todorow:hover{background:var(--accent-soft)}
-  .todorow.sel{background:var(--accent-soft)}
+  #togglstub{display:none}   /* magic box 2 takes this region; toggl comes later */
+  /* the to-do box that used to sit in this region is gone; magic box 2 holds it
+     now. the dot class below stays because the outline entries share it */
   .tdot{width:11px; height:11px; border-radius:50%; flex:none; cursor:pointer;
     border:1px solid var(--line-strong); background:#E9ECEF}
-  .todorow.done .tdot{background:#59D624; border-color:#3E9C1B}
-  .todorow.ongoing .tdot{background:#FFD43B; border-color:#C9A21E}
-  .tdtext{flex:1; min-width:0; font:400 13.5px/1.35 var(--sans); color:var(--ink);
-    word-break:break-word}
-  .todorow.done .tdtext{color:var(--sub); text-decoration:line-through}
-  .tdx{flex:none; font:12px var(--mono); color:transparent; background:none;
-    border:none; cursor:pointer; padding:0 2px}
-  .todorow:hover .tdx{color:#B4AA99}
-  .tdx:hover{color:var(--must) !important}
-  #todoadd{border:none; border-top:1px solid var(--line); outline:none;
-    font:400 13.5px var(--sans); color:var(--ink); background:var(--paper);
-    padding:var(--sp-s) var(--sp-x)}
-  #todoadd::placeholder{color:#B4AA99}
   /* selecting a task highlights its chats in the left box */
   .trow.match{background:var(--accent-soft); border-color:#C9C2F2}
   /* ---- the rail: started date, dotted track, red goal dot --------------- */
@@ -755,6 +754,14 @@
   }
   .ptab:hover{color:var(--ink)}
   .ptab.on{color:var(--ink); background:var(--paper); border-color:var(--line)}
+  /* a lane still holding a reply he has not opened says so with weight alone,
+     the way a mail client does: no dot, no count, no colour. selection is a
+     seated tab shape (paper fill, border, ink text) and never uses weight, so
+     the two can sit on one tab and still read apart. 600 is the board's own
+     bold, the same step the selected ticket row takes */
+  /* 20260823: weight alone was invisible to the reader, twice. a mail client darkens
+     as well as bolding, and that is what makes an unread line jump out of a
+     list of grey ones. so unread takes the board's own ink too */
   .ptab.tearing{opacity:.45}
   /* a held tab rides the pointer sideways: it lifts on the selected row's own
      shadow and must paint over whatever it crosses */
@@ -789,6 +796,7 @@
   body.choosing #sections, body.choosing #pwdline{display:none}
   body.choosing .box{display:none !important}
   body.choosing :is(main, #clockbox, #tickets, #magic1, #magic2, #todobox,
+  body.choosing :is(main, #clockbox, #tickets, #magic1, #magic2, #magic3,
     #goalbox, #rail, #taskchip){display:none !important}
   body.choosing #newproj{
     display:flex; flex-direction:column; align-items:center; position:fixed;
@@ -892,14 +900,25 @@
   body.focus #homeico{display:flex; align-items:center; color:#C9BFAE}
   /* on-canvas edit mode: the bar's pencil toggles it; boxes then drag with no
      keys held and wear small squares that snap-resize them */
-  body.editmode :is(main, #clockbox, #rail, #tickets, #magic1, #magic2, #todobox, #goalbox),
-  body.editmode :is(main, #clockbox, #rail, #tickets, #magic1, #magic2, #todobox, #goalbox) *{cursor:move}
+  body.editmode :is(main, #clockbox, #rail, #tickets, #magic1, #magic2, #magic3, #goalbox),
+  body.editmode :is(main, #clockbox, #rail, #tickets, #magic1, #magic2, #magic3, #goalbox) *{cursor:move}
   #edithandles{position:fixed; left:0; top:0; width:var(--cw); height:var(--ch);
     pointer-events:none; z-index:30; display:none}
   body.editmode #edithandles{display:block}
   .rhandle{position:absolute; width:9px; height:9px; background:#fff;
     border:1px solid var(--accent); border-radius:2px; pointer-events:auto;
     box-shadow:0 1px 3px rgba(60,45,20,.25)}
+  /* the region cross, one per box while the pencil is on: a plain black cross,
+     no chip behind it. it sits just outside the top right corner, clear of the
+     resize squares and of whatever the box itself is holding */
+  .rkill{position:absolute; width:16px; height:16px;
+    background:none; border:none; padding:0; cursor:pointer; pointer-events:auto;
+    transform:translate(-50%,-50%); z-index:31; opacity:.72; transition:opacity .18s}
+  .rkill:hover{opacity:1}
+  .rkill::before, .rkill::after{content:""; position:absolute; left:50%; top:50%;
+    width:12px; height:1.4px; background:#1e1e1e; border-radius:1px}
+  .rkill::before{transform:translate(-50%,-50%) rotate(45deg)}
+  .rkill::after{transform:translate(-50%,-50%) rotate(-45deg)}
 
 </style>
 </head>
@@ -910,12 +929,8 @@
   <span id="tabbar"></span>
   <span id="projnote"></span>
   <span class="name" id="boardname">facilitator</span>
-  <span class="live"><span class="dot" id="dot"></span><span id="livetext">idle</span></span>
-  <span class="prog" id="prog"></span>
   <button id="editbtn" title="edit layout">✎</button>
   <input type="color" id="bgpick" title="background color (temporary)" value="#F5F4F1">
-  <button class="pausebtn" id="pausebtn">pause listeners</button>
-  <button class="endbtn" id="endbtn">End session</button>
 </div>
 
 <div id="offline"></div>
@@ -956,10 +971,7 @@
 <div id="tickets"><div id="tikhead"><button id="tv-todo" class="tvb on">doing</button><button id="tv-deferred" class="tvb">deferred</button><button id="tv-done" class="tvb">done</button></div><div id="tiklist"></div></div>
 <div id="magic1">magic box 1</div>
 <div id="magic2">magic box 2</div>
-<div id="todobox">
-  <div id="todolist"></div>
-  <input id="todoadd" placeholder="add a to-do">
-</div>
+<div id="magic3">magic box 3</div>
 
 <div id="navpad">
   <button id="nup" title="previous project row">˄</button>
@@ -1002,7 +1014,7 @@ const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
 const METAS = [["toolmeta", "facilitator"], ["triagemeta", "triage"]];
 const NAME = { facilitator: "facilitator agent", triage: "triage agent", journal: "journal agent" };
 const laneName = ow => NAME[ow] || (ow + " agent");   // project lanes name themselves
-const els = {};       // box id -> {box, reply, meta, ta, send, donebtn, toc, sec}
+const els = {};       // box id -> {box, reply, meta, ta, send, toc, sec}
 const secEls = {}, tocGroups = {};
 let lastState = null;
 
@@ -2679,10 +2691,97 @@ fitStage();
 const GRID = 1440 * 0.008;         // the star pitch on the stage
 const onStar = v => Math.round((v - GRID / 2) / GRID) * GRID + GRID / 2;   // nearest star line
 const REGION_SEL = "main, #clockbox, #rail, #tickets, #magic1, #magic2, #todobox, #goalbox";
+const REGION_SEL = "main, #clockbox, #rail, #tickets, #magic1, #magic2, #magic3, #goalbox";
 function regionId(el){ return el.tagName === "MAIN" ? "main" : el.id; }
-function applySavedLayout(){
+// each tab keeps its own layout, and a tab that has never been arranged at all
+// starts from the facilitator tab's; the first drag or resize inside a tab
+// writes that tab's own key and it stops inheriting, so tabs stay independent.
+// the inheriting is all or nothing on purpose: mixing one tab's saved size with
+// another tab's saved position puts boxes on top of each other
+function layoutSource(){
+  if (!dragEnabled) return null;
   for (const el of document.querySelectorAll(REGION_SEL)){
-    const saved = dragEnabled ? localStorage.getItem("pos." + activeOwner + "." + regionId(el)) : null;
+    const id = regionId(el);
+    if (localStorage.getItem("pos." + activeOwner + "." + id) ||
+        localStorage.getItem("size." + activeOwner + "." + id)) return activeOwner;
+  }
+  return "facilitator";
+}
+// the top right region changed hands: the to-do box became magic box 2, and the
+// old magic box 2 became magic box 3. saved layouts are keyed by region id, so
+// the stored keys are renamed once to match, or both boxes land in the wrong
+// place for anyone who had arranged them
+const MAGIC_RENAME = "magicrename.1";
+function renameMagicLayouts(){
+  if (!dragEnabled || localStorage.getItem(MAGIC_RENAME)) return;
+  localStorage.setItem(MAGIC_RENAME, "1");
+  const move = (from, to) => {
+    const hits = [];
+    for (let i = 0; i < localStorage.length; i++){
+      const k = localStorage.key(i);
+      const m = k && new RegExp("^(pos|size)\\.(.+)\\." + from + "$").exec(k);
+      if (m) hits.push([k, m[1] + "." + m[2] + "." + to]);
+    }
+    for (const [oldK, newK] of hits){
+      const v = localStorage.getItem(oldK);
+      localStorage.removeItem(oldK);
+      if (v !== null) localStorage.setItem(newK, v);
+    }
+  };
+  move("magic2", "magic3");   // has to run before the next line
+  move("todobox", "magic2");
+}
+
+// one time, on the first load after this shipped: every tab that was already
+// arranged gets the facilitator tab's layout copied into its own keys, so all
+// the tabs start out matching. tabs still save their own layout after this, so
+// they stay independent. the old values are kept under layoutbak. in case the
+// copy is not wanted
+const LAYOUT_SYNC = "layoutsync.1";
+function syncLayoutsOnce(){
+  if (!dragEnabled || localStorage.getItem(LAYOUT_SYNC)) return;
+  localStorage.setItem(LAYOUT_SYNC, "1");
+  const lanes = new Set();
+  for (let i = 0; i < localStorage.length; i++){
+    const m = /^(?:pos|size)\.([^.]+)\./.exec(localStorage.key(i) || "");
+    if (m && m[1] !== "facilitator") lanes.add(m[1]);
+  }
+  for (const lane of lanes){
+    for (const el of document.querySelectorAll(REGION_SEL)){
+      const id = regionId(el);
+      for (const kind of ["pos", "size"]){
+        const mine = kind + "." + lane + "." + id;
+        const old = localStorage.getItem(mine);
+        if (old !== null) localStorage.setItem("layoutbak." + mine, old);
+        const src = localStorage.getItem(kind + ".facilitator." + id);
+        if (src !== null) localStorage.setItem(mine, src);
+        else localStorage.removeItem(mine);
+      }
+    }
+  }
+}
+// the panel tab had its goal box and its goal rail taken off in the
+// stylesheet, before the cross existed. that goes into the same store the cross
+// writes, so the cross can put them back like anything else
+const HIDE_SEED = "hideseed.1";
+function seedHiddenOnce(){
+  if (localStorage.getItem(HIDE_SEED)) return;
+  localStorage.setItem(HIDE_SEED, "1");
+  localStorage.setItem("hide.sketchbook.goalbox", "1");
+  localStorage.setItem("hide.sketchbook.rail", "1");
+}
+
+function applySavedLayout(){
+  const src = layoutSource();
+  // which tab is open, for the stylesheet: a tab can drop boxes it has no use
+  // for without touching any other tab
+  document.body.dataset.lane = activeOwner;
+  for (const el of document.querySelectorAll(REGION_SEL)){
+    // put away by the cross, on this tab only. never inherited from another tab,
+    // unlike position and size, because a tab is curated on purpose
+    el.classList.toggle("region-off",
+      !!localStorage.getItem("hide." + activeOwner + "." + regionId(el)));
+    const saved = src ? localStorage.getItem("pos." + src + "." + regionId(el)) : null;
     if (saved){
       try {
         const p = JSON.parse(saved);
@@ -2695,7 +2794,7 @@ function applySavedLayout(){
       el.style.left = "";
       el.style.top = "";
     }
-    const sz = dragEnabled ? localStorage.getItem("size." + activeOwner + "." + regionId(el)) : null;
+    const sz = src ? localStorage.getItem("size." + src + "." + regionId(el)) : null;
     if (sz){
       try {
         const p = JSON.parse(sz);
@@ -2751,7 +2850,17 @@ const handleLayer = document.createElement("div");
 handleLayer.id = "edithandles";
 document.getElementById("stage").appendChild(handleLayer);
 let handleItems = [];
+let killItems = [];
 let handleRaf = 0;
+// the cross on each box while the pencil is on. hiding is per tab and never
+// inherited from another tab, so putting a box away here leaves every other tab
+// exactly as it was
+function toggleRegionHidden(id){
+  const key = "hide." + activeOwner + "." + id;
+  if (localStorage.getItem(key)) localStorage.removeItem(key);
+  else localStorage.setItem(key, "1");
+  applySavedLayout();
+}
 const HANDLE_CURSOR = { nw: "nwse-resize", se: "nwse-resize", ne: "nesw-resize",
   sw: "nesw-resize", n: "ns-resize", s: "ns-resize", e: "ew-resize", w: "ew-resize" };
 function setEditMode(on){
@@ -2765,6 +2874,7 @@ function setEditMode(on){
     cancelAnimationFrame(handleRaf);
     handleLayer.textContent = "";
     handleItems = [];
+    killItems = [];
     editPending = null;
     sizing = null;
   }
@@ -2773,6 +2883,7 @@ document.getElementById("editbtn").addEventListener("click", () => setEditMode(!
 function buildHandles(){
   handleLayer.textContent = "";
   handleItems = [];
+  killItems = [];
   for (const el of document.querySelectorAll(REGION_SEL)){
     for (const dir of ["nw", "n", "ne", "e", "se", "s", "sw", "w"]){
       const hd = document.createElement("div");
@@ -2784,6 +2895,20 @@ function buildHandles(){
       handleLayer.appendChild(hd);
       handleItems.push({ el, dir, hd });
     }
+    // the cross that puts this box away on this tab, and takes it back out. it
+    // lives on the handle layer rather than inside the box, so the drag that
+    // moves a box in edit mode never sees it
+    const kill = document.createElement("button");
+    kill.className = "rkill";
+    kill.dataset.region = regionId(el);
+    kill.title = "hide this box on this tab";
+    kill.addEventListener("pointerdown", ev => ev.stopPropagation());
+    kill.addEventListener("click", ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      toggleRegionHidden(regionId(el));
+    });
+    handleLayer.appendChild(kill);
+    killItems.push({ el, kill });
   }
 }
 // handles chase the boxes every frame, so they stay glued through drags,
@@ -2792,12 +2917,26 @@ function trackHandles(){
   const sr = document.getElementById("stage").getBoundingClientRect();
   for (const it of handleItems){
     const r = it.el.getBoundingClientRect();
+    // a box taken off this tab keeps its rect, so its squares have to be pulled
+    // by hand or they float over nothing
+    if (it.el.classList.contains("region-off")){ it.hd.style.display = "none"; continue; }
     if (!r.width && !r.height){ it.hd.style.display = "none"; continue; }
     it.hd.style.display = "";
     const x = it.dir.includes("w") ? r.x : it.dir.includes("e") ? r.x + r.width : r.x + r.width / 2;
     const y = it.dir.includes("n") ? r.y : it.dir.includes("s") ? r.y + r.height : r.y + r.height / 2;
     it.hd.style.left = (x - sr.x - 4.5) + "px";
     it.hd.style.top = (y - sr.y - 4.5) + "px";
+  }
+  for (const it of killItems){
+    const r = it.el.getBoundingClientRect();
+    if (it.el.classList.contains("region-off")){ it.kill.style.display = "none"; continue; }
+    if (!r.width && !r.height){ it.kill.style.display = "none"; continue; }
+    it.kill.style.display = "";
+    // just outside the top right corner, clear of the corner square. inside it
+    // would land exactly on a card's own moon and cross, which sit at the same
+    // inset, and would cover whatever the box is holding
+    it.kill.style.left = (r.x + r.width + 14 - sr.x) + "px";
+    it.kill.style.top = (r.y - 14 - sr.y) + "px";
   }
   handleRaf = requestAnimationFrame(trackHandles);
 }
@@ -3118,6 +3257,9 @@ document.getElementById("taskstatus").addEventListener("click", () => {
 }
 
 
+renameMagicLayouts();
+syncLayoutsOnce();
+seedHiddenOnce();
 applySavedLayout();
 poll(); setInterval(poll, 1200);
 </script>
