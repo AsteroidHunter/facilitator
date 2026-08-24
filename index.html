@@ -527,6 +527,74 @@
     top:calc(var(--oy) + var(--ch)*var(--tg-y)); height:calc(var(--ch)*var(--tg-h))}
   #magic3{left:var(--m2-x); width:var(--m2-w);
     top:calc(var(--oy) + var(--ch)*var(--m2-y)); height:calc(var(--ch)*var(--m2-h))}
+  /* magic box 3 holds a picture the agent puts there, a plot above all. filled,
+     it takes the same face a card has, so nothing new is introduced; empty, it
+     carries the two marks for what belongs in it, drawn in the board's own ink
+     like the spotify mark on the player */
+  #magic3.filled{border:1px solid var(--line); background:var(--card);
+    padding:6px; overflow:hidden}
+  #magic3 .p3img{width:100%; height:100%; object-fit:contain; display:block}
+  #magic3 .p3stub{display:flex; align-items:center; justify-content:center; gap:8px;
+    color:var(--ink); opacity:.26; line-height:0}
+  #magic3 .p3stub span{font:300 18px/1 var(--mono); line-height:1}
+  /* both rules above set display, which beats the hidden attribute on their own.
+     without this the stub and the picture are on screen at the same time */
+  #magic3 [hidden]{display:none}
+  /* on the pastureland tab the same box holds a chat instead of a picture, so
+     an agent can be talked to from the board. the look is not a new one: the
+     quick chat panel further down this stylesheet is already a copy of the
+     pastureland app's thread, so its row, bubble and dot rules are shared by
+     selector rather than restated, and only the two ids that panel owns
+     (#qmsgs, #qcompose) needed a twin here, because an id is worn once */
+  body:not(.editmode) #magic3.filled .p3img{cursor:zoom-in}
+  #p3zoom{display:none}
+  #p3zoom.on{display:block; position:fixed; inset:0; z-index:40}
+  /* the board's own ink rather than black, so the page behind reads as dimmed
+     rather than switched off. it starts clear and the fade brings it in, so it
+     can never paint at full strength for a frame before the growing begins.
+     will-change was missing here and the picture below already had it. without
+     it chrome still gives the veil its own layer, but only because an opacity
+     is animating: measured, the veil's one compositing reason was
+     ActiveOpacityAnimation. a layer handed over on that ground is built on the
+     grow's first frame and thrown away on its last, so a full screen box is
+     rastered and then folded back into the page inside the 300ms. asking for
+     it by name keeps it through the whole thing. it costs nothing at rest
+     because the layer above is display:none when no picture is open, which is
+     the same reason the picture's own will-change is safe to leave standing.
+     the colour is written opaque and the .62 is carried by the fade instead,
+     which is the same pixels either way: a colour at .62 alpha shown at full
+     opacity and the same colour at full alpha shown at .62 opacity composite
+     to one number. it is written this way because chrome treats the two very
+     differently. measured off the layer tree: with the alpha in the colour the
+     veil is four real tiles, 23,347,200 bytes of texture, rastered and handed
+     to the gpu on the frame the click lands on. with the colour opaque chrome
+     sees a flat fill and makes it a solid colour layer: zero tiles, zero bytes,
+     zero raster work, and a solid quad to draw every frame instead of a full
+     screen texture to sample. that 23MB was two thirds of everything the open
+     had to build in its first frame, 34.6MB down to 11.5MB, and the shrink
+     builds nothing at all: that gap is the only cost measurement can find that
+     the grow pays and the shrink does not. whether it is the whole of the
+     stutter only a real click on a real screen can say */
+  #p3zoom .p3veil{position:absolute; inset:0; opacity:0;
+    background:#211d17; will-change:opacity}
+  /* the picture is placed at its full size and then carried back to the panel's
+     rectangle by a transform, so the corner it grows from is the top left one */
+  #p3zoom .p3img{position:absolute; object-fit:contain; display:block;
+    transform-origin:0 0; will-change:transform}
+  /* the player's glass, put down for the length of the zoom and picked straight
+     back up. a backdrop-filter has to sample the page behind it again on every
+     frame the page is damaged, and the growing picture with the fading veil
+     over it damages the whole screen on every one of the 300ms's frames, so
+     this blur is the only piece of per-frame drawing work on the board while
+     the zoom is moving. A/B'd here: with the filter off the compositor's draw
+     time across the grow fell from 8.04ms to 5.06ms. it can go because the
+     veil is over the player the entire time, and because the board behind the
+     player is near flat paper: with the blur off the panel's own face moves by
+     at most 8 of 255 on a channel. the rule above is untouched, so the resting
+     look is the resting look */
+  body.p3zoom #magic1.filled{backdrop-filter:none; -webkit-backdrop-filter:none}
+  /* a box taken off this tab: gone, and gone in edit mode too, with no ghost of
+     it left behind. its resize squares and its cross go with it */
   body.focus .region-off{visibility:hidden; pointer-events:none}
   /* magic box 2 holds a small copy of this tool's own cards, so any of them can
      be read and answered from any project tab. the parts and the styling are
@@ -1372,6 +1440,12 @@ function setTab(owner){
   if (pick) select(pick.id);
   else deselect();   // a lane with no cards shows plain paper, never another lane's card
   applySavedLayout();
+  panelPoll();   // magic box 3 carries this tab's picture, not the last tab's
+  // and this tab's chat, not the last tab's. after panelPoll on purpose: the
+  // two share one box, and whichever arrives empties it first. going in this
+  // order the chat is always the one leaving second, and its teardown is the
+  // one that checks for the picture panel's mark before putting the stub line
+  // back, so the panel that just arrived is never wiped by the one leaving
   if (lastState) apply(lastState);   // refilter the bar, outline and counters now
 }
 
@@ -2965,6 +3039,452 @@ spotClaimCode().then(() => { spotBuild(); spotPoll(); });
 // id>-internal/, and it shows up here. one picture per tab, so a plot drawn for
 // one project never appears on another, and an agent working in that project
 // never has to reach into this repo to show something. the server hands that
+// folder over at /laneimg/<lane>/<file>. deleting the file empties the panel
+// again. P3_LANE below is the one tab the panel belongs to. every other tab
+// keeps the plain stub magic box 3 always was. this is the only place the name
+// is written down, so moving the panel to another tab is a one word change here
+const P3_LANE = "sketchbook";
+const P3_EXT = ["png", "svg", "jpg", "jpeg", "gif", "webp"];
+const P3_ICON = {
+  // an axis with three bars, and a framed picture: the two things that belong here
+  plot: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3v17h17"/><path d="M8 17v-5M12.5 17V7.5M17 17v-7"/></svg>',
+  image: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2.5"/><circle cx="8.6" cy="9.6" r="1.5"/><path d="M20.6 15.6l-4.8-4.6L4.6 19.4"/></svg>',
+};
+let p3For = null;    // the tab the panel is currently drawn for
+let p3Ext = null;    // the extension that answered last time, tried first next time
+let p3Src = null;    // and which of the two places it came from, for the same reason
+let p3Size = -1;     // bytes of what is on screen, which is how a redrawn plot is spotted
+let p3Url = null;    // the object url the img is holding, revoked when it is replaced
+let p3Look = 0;      // polls counted, so the lane folder gets looked at now and then
+                     // even while the pre-restart path is the one holding the panel up
+
+function panelBuild(){
+  const host = document.getElementById("magic3");
+  if (!host || host.dataset.p3 === "1") return host;
+  host.textContent = "";
+  host.dataset.p3 = "1";
+  const stub = h("div", "p3stub");
+  stub.innerHTML = P3_ICON.plot + "<span>/</span>" + P3_ICON.image;
+  const img = document.createElement("img");
+  img.className = "p3img"; img.alt = ""; img.hidden = true;
+  host.append(stub, img);
+  host._p3 = { stub, img };
+  return host;
+}
+function panelClear(host){
+  if (!host || !host._p3) return;   // already taken apart by a tab switch
+  p3Ext = null; p3Src = null; p3Size = -1;
+  host._p3.img.hidden = true;
+  host._p3.img.removeAttribute("src");
+  if (p3Url){ URL.revokeObjectURL(p3Url); p3Url = null; }
+  host._p3.stub.hidden = false;
+  host.classList.remove("filled");
+}
+// back to the plain dashed box with its one line of text, marks and picture and
+// every scrap of panel state dropped, so a tab that does not use the panel is
+// left looking exactly as it did before the panel existed
+function panelOff(host){
+  if (!host || host.dataset.p3 !== "1") return;
+  if (p3Url){ URL.revokeObjectURL(p3Url); p3Url = null; }
+  p3For = null; p3Ext = null; p3Src = null; p3Size = -1;
+  host._p3 = null;
+  delete host.dataset.p3;
+  host.classList.remove("filled");
+  host.textContent = "magic box 3";
+}
+// every place this tab's picture could be, in the order they get tried: the
+// lane's own internal folder first, all six extensions, and only after all of
+// those come up empty the old uploads path
+function panelSources(lane, sweep){
+  const list = P3_EXT.map(ext => ({ src: "lane", ext,
+    url: "/laneimg/" + encodeURIComponent(lane) + "/panel." + ext }));
+  // PRE-RESTART PATH: the running server has no /laneimg route yet, so until it
+  // is restarted this is the only place it can read a panel picture from. these
+  // three lines can be deleted once the new route is live
+  for (const ext of P3_EXT)
+    list.push({ src: "uploads", ext,
+      url: "/uploads/panel-" + encodeURIComponent(lane) + "." + ext });
+  // the one file that answered last time jumps to the front, so a panel that is
+  // already filled costs one request per poll rather than a dozen. on a sweep
+  // poll it stays in place instead, which is how a picture that turns up in the
+  // lane folder takes the panel back off the old path
+  const i = list.findIndex(c => c.src === p3Src && c.ext === p3Ext);
+  if (i > 0 && !sweep) list.unshift(list.splice(i, 1)[0]);
+  return list;
+}
+async function panelPoll(){
+  // one tab's thing only: everywhere else the box goes back to the stub and no
+  // panel file is ever asked for
+  if (activeOwner !== P3_LANE){ panelOff(document.getElementById("magic3")); return; }
+  const host = panelBuild();
+  if (!host || !host._p3) return;
+  if (p3For !== activeOwner){ p3For = activeOwner; panelClear(host); }
+  // while the old path is the one answering, look through the lane folder in
+  // full every fifth poll (20s), so the lane folder still wins in the end
+  // without every poll paying for the whole list
+  p3Look++;
+  const sweep = p3Src === "uploads" && p3Look % 5 === 0;
+  for (const cand of panelSources(activeOwner, sweep)){
+    const r = await fetch(cand.url, { cache: "no-store" }).catch(() => null);
+    // a switch away while the fetch was in the air took the panel apart behind
+    // this poll: it is answering for the tab we just left, so it says nothing
+    if (!host._p3) return;
+    if (!r || !r.ok) continue;
+    const blob = await r.blob().catch(() => null);
+    if (!host._p3) return;
+    if (!blob || !blob.size) continue;
+    const moved = cand.src !== p3Src;   // same size in the other place is still a different picture
+    p3Ext = cand.ext; p3Src = cand.src;
+    // swapped only when the bytes differ or the picture came from somewhere
+    // else, so a panel that has not changed is never rebuilt and never blinks
+    if (blob.size !== p3Size || moved){
+      p3Size = blob.size;
+      const url = URL.createObjectURL(blob);
+      host._p3.img.src = url;
+      if (p3Url) URL.revokeObjectURL(p3Url);
+      p3Url = url;
+    }
+    host._p3.img.hidden = false;
+    host._p3.stub.hidden = true;
+    host.classList.add("filled");
+    return;
+  }
+  panelClear(host);
+}
+// no build up front any more: panelPoll builds it, and only on the tab that
+// gets it, so loading straight onto another tab never flashes the marks
+panelPoll(); setInterval(panelPoll, 4000);
+
+// magic box 3 on the pastureland tab: a chat, the picture panel's counterpart.
+// the tab bar reads "pastureland" because a tab is named after its folder, but
+// the lane id underneath is triage, and the lane id is what activeOwner holds,
+// so triage is the name that goes here. like P3_LANE above this is the only
+// place it is written down, so moving the chat is a one word change.
+//
+// nothing new was invented for it to talk to, and no server change was needed.
+// the thread is the card called q, "quick chat", owned by the qchat lane: the
+// card the dormant quick chat panel in the left column was built for. GET
+// /thread?box=q reads it and POST /send?box=q posts to it, both live today. an
+// agent answers it the way every agent on this board does, by long polling
+// /wait?owner=qchat and posting /reply?box=q. qchat is a registered owner in
+// the server and rowsOf keeps it out of the tab bar, so a conversation held
+// here can never turn up as a card among the pastureland cards.
+const P3_VEIL_ALPHA = 0.62;
+let p3Zoom = null;        // what is open, and null whenever nothing is
+
+// the layer, built the first time a picture is opened and kept afterwards
+function p3Layer(){
+  let layer = document.getElementById("p3zoom");
+  if (layer) return layer;
+  layer = h("div");
+  layer.id = "p3zoom";
+  layer.appendChild(h("div", "p3veil"));
+  document.body.appendChild(layer);
+  // anywhere that is not the picture itself puts it back, which is the whole
+  // screen minus the picture, veil and margin alike
+  layer.addEventListener("click", e => { if (e.target !== p3Zoom?.img) p3ZoomClose(); });
+  return layer;
+}
+// where a picture of this shape sits inside a box of that shape, centred and
+// letterboxed: object-fit paints it this way inside the panel, so this is the
+// rectangle the eye sees, and the eye is what has to be moved
+function p3Fit(img, x, y, bw, bh){
+  const nw = img.naturalWidth || bw, nh = img.naturalHeight || bh;
+  const s = Math.min(bw / nw, bh / nh);
+  const w = nw * s, h2 = nh * s;
+  return { x: x + (bw - w) / 2, y: y + (bh - h2) / 2, w, h: h2 };
+}
+// the panel's inside, read off the panel itself rather than off the picture, so
+// it still answers while the picture is away in the layer
+function p3PanelRect(img){
+  const host = document.getElementById("magic3");
+  if (!host) return null;
+  const r = host.getBoundingClientRect(), cs = getComputedStyle(host);
+  const pl = parseFloat(cs.paddingLeft) || 0, pt = parseFloat(cs.paddingTop) || 0;
+  const bw = host.clientWidth - pl - (parseFloat(cs.paddingRight) || 0);
+  const bh = host.clientHeight - pt - (parseFloat(cs.paddingBottom) || 0);
+  if (bw <= 0 || bh <= 0) return null;
+  return p3Fit(img, r.x + (parseFloat(cs.borderLeftWidth) || 0) + pl,
+    r.y + (parseFloat(cs.borderTopWidth) || 0) + pt, bw, bh);
+}
+// the screen less its margin. the margin shrinks with the window so a small one
+// still gets a big picture
+function p3ScreenRect(img){
+  const pad = Math.min(P3_ZOOM_PAD, innerWidth * 0.06, innerHeight * 0.06);
+  return p3Fit(img, pad, pad, innerWidth - pad * 2, innerHeight - pad * 2);
+}
+function p3ZoomPlace(img, r){
+  img.style.left = r.x + "px"; img.style.top = r.y + "px";
+  img.style.width = r.w + "px"; img.style.height = r.h + "px";
+}
+const p3ZoomStill = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function p3ZoomOpen(img){
+  if (p3Zoom || !img.naturalWidth) return;
+  const from = p3PanelRect(img);
+  if (!from) return;
+  const layer = p3Layer();
+  layer.classList.add("on");
+  // the mark the rest of the board reads to get out of the way of the moving
+  // picture. it sits here, after the panel has been measured and with the rest
+  // of the writes, so the one rule that answers it lands in the same style pass
+  // as the layer itself and no second one is asked for
+  document.body.classList.add("p3zoom");
+  layer.appendChild(img);   // the panel's own picture, lifted out whole
+  const to = p3ScreenRect(img);
+  p3ZoomPlace(img, to);
+  p3Zoom = { img, to, veil: layer.querySelector(".p3veil"), closing: false };
+  // it is already at full size now; the transform below carries it back to the
+  // panel's rectangle and lets go, which is what lands it back exactly rather
+  // than a hair off
+  const ms = p3ZoomStill() ? 0 : P3_ZOOM_MS;
+  p3Zoom.anim = img.animate([{ transform: p3ZoomInvert(from, to) }, { transform: "none" }],
+    { duration: ms, easing: P3_ZOOM_EASE, fill: "both" });
+  p3Zoom.veilAnim = p3Zoom.veil.animate([{ opacity: 0 }, { opacity: P3_VEIL_ALPHA }],
+    { duration: ms, easing: P3_ZOOM_EASE, fill: "both" });
+  // a picture swapped in while this one is open takes the screen at its own
+  // shape instead of sitting inside the shape of the one it replaced
+  img.addEventListener("load", p3ZoomRefit);
+}
+// the transform that puts a picture placed at `to` back over `from`. one scale
+// for both axes: both rectangles are the picture's own shape, so nothing skews
+function p3ZoomInvert(from, to){
+  return "translate(" + (from.x - to.x) + "px, " + (from.y - to.y) + "px) scale("
+    + (from.w / to.w) + ")";
+}
+function p3ZoomRefit(){
+  const z = p3Zoom;
+  if (!z || z.closing || z.anim.playState === "running") return;
+  z.to = p3ScreenRect(z.img);
+  p3ZoomPlace(z.img, z.to);
+}
+function p3ZoomClose(){
+  if (!p3Zoom || p3Zoom.closing) return;
+  const z = p3Zoom;
+  z.closing = true;
+  z.img.removeEventListener("load", p3ZoomRefit);
+  // measured now rather than remembered from the click, so a panel that moved,
+  // or a picture that changed shape while it was open, is still caught exactly
+  const back = p3ZoomInvert(p3PanelRect(z.img) || z.to, z.to);
+  // caught halfway out it turns around from where it is, and takes only the time
+  // it has already spent to get home, so an accidental click does not drag
+  const held = getComputedStyle(z.img).transform;
+  const part = z.anim.playState === "running"
+    ? Math.max(0.4, (z.anim.currentTime || 0) / P3_ZOOM_MS) : 1;
+  const ms = p3ZoomStill() ? 0 : P3_ZOOM_MS * part;
+  z.anim.cancel(); z.veilAnim.cancel();
+  z.anim = z.img.animate([{ transform: held }, { transform: back }],
+    { duration: ms, easing: P3_ZOOM_EASE, fill: "both" });
+  z.veilAnim = z.veil.animate([{ opacity: getComputedStyle(z.veil).opacity }, { opacity: 0 }],
+    { duration: ms, easing: P3_ZOOM_EASE, fill: "both" });
+  z.anim.onfinish = () => {
+    z.anim.cancel(); z.veilAnim.cancel();
+    z.img.style.cssText = "";
+    const host = document.getElementById("magic3");
+    // home only if the panel still wants it: a tab switched while it was open
+    // has already thrown this picture away and built itself a fresh one
+    if (host && host._p3 && host._p3.img === z.img) host.appendChild(z.img);
+    else z.img.remove();
+    document.getElementById("p3zoom").classList.remove("on");
+    // last, and only here: the player's glass comes back after the shrink has
+    // landed and the veil is already gone, so nothing of it is on screen while
+    // the picture is still moving
+    document.body.classList.remove("p3zoom");
+    p3Zoom = null;
+  };
+}
+// the click that opens it, delegated: the panel builds and unbuilds its picture
+// on its own schedule and this never has to be hung on the new one
+document.addEventListener("click", e => {
+  if (editMode || squelchClick) return;   // in edit mode a press on a box is a drag, not this
+  const img = e.target.closest?.("#magic3.filled .p3img");
+  if (img) p3ZoomOpen(img);
+});
+// Escape is the way out that does not depend on the clicking working. capture,
+// so nothing else on the board gets to answer it while a picture is open
+addEventListener("keydown", e => {
+  if (e.key !== "Escape" || !p3Zoom) return;
+  e.preventDefault(); e.stopPropagation();
+  p3ZoomClose();
+}, true);
+
+// ---------------------------------------------------------------------------
+// TEMPORARY. DELETE THIS WHOLE BLOCK ONCE THE ZOOM IS SETTLED.
+// The zoom has been called fixed twice off headless numbers and it still
+// stutters on the real screen. Headless chrome paints to an offscreen surface
+// with no vsync, so it never misses a frame and its numbers always come back
+// perfect. The only honest reading is a real click on the real screen, so this
+// writes down one gesture, the grow and the shrink together, and posts it as
+// json to the upload route, which lands it in facilitator-internal/uploads as
+  const openWas = p3ZoomOpen, closeWas = p3ZoomClose;
+
+  p3ZoomOpen = function(img){
+    if (cap) return openWas(img);   // one gesture at a time, never two at once
+    const asked = performance.now();
+    openWas(img);
+    const back = performance.now();
+    if (!p3Zoom) return;            // no picture, or no panel to grow out of
+    n = 0;
+    cap = { base: asked, img: p3Zoom.img, to: p3Zoom.to, anim: p3Zoom.anim,
+      open: mark(p3Zoom.anim, { asked, back }),
+      openVeil: mark(p3Zoom.veilAnim, {}) };
+    raf = requestAnimationFrame(tick);
+  };
+
+  p3ZoomClose = function(){
+    if (!cap || cap.close || !p3Zoom || p3Zoom.closing) return closeWas();
+    const z = p3Zoom, asked = performance.now();
+    closeWas();
+    const back = performance.now();
+    cap.close = mark(z.anim, { asked, back });   // closing swapped in a new one
+    cap.closeVeil = mark(z.veilAnim, {});
+    // the report is built a beat after the picture has landed, never while it
+    // is still moving. the timer is the belt to the promise's braces, in case
+    // the promise never settles, and whichever gets there first it is sent once.
+    // both are handed the gesture they belong to, so a late timer from the last
+    // one cannot cut short the next one
+    const mine = cap;
+    z.anim.finished.then(() => sendSoon(mine), () => sendSoon(mine));
+    setTimeout(() => sendSoon(mine), P3_ZOOM_MS + 2000);
+  };
+
+  function sendSoon(mine){
+    if (!mine || mine.sent || cap !== mine) return;
+    mine.sent = true;
+    setTimeout(report, SETTLE);
+  }
+
+  // where the picture grew from, read back off the animation's own first
+  // keyframe rather than measured again, so the page is asked for nothing while
+  // the picture is moving. chrome hands the transform back either as it was
+  // written or as a matrix, so both are read here
+  function keyRect(a, to){
+    try {
+      const k = (a.effect.getKeyframes()[0] || {}).transform || "";
+      let dx, dy, s;
+      const m = k.match(/matrix\(([^)]+)\)/);
+      if (m){ const v = m[1].split(",").map(Number); s = v[0]; dx = v[4]; dy = v[5]; }
+      else {
+        const p = k.match(/translate\(\s*(-?[\d.]+)px[,\s]+(-?[\d.]+)px\s*\)\s*scale\(\s*([\d.]+)/);
+        if (!p) return null;
+        dx = +p[1]; dy = +p[2]; s = +p[3];
+      }
+      if (!to || !isFinite(s)) return null;
+      return { x: r3(to.x + dx), y: r3(to.y + dy), w: r3(to.w * s), h: r3(to.h * s) };
+    } catch (err) { return null; }
+  }
+  const rect = r => r ? { x: r3(r.x), y: r3(r.y), w: r3(r.w), h: r3(r.h) } : null;
+
+  function report(){
+    const c = cap;
+    if (!c) return;
+    cancelAnimationFrame(raf); raf = 0;
+    cap = null;   // free for the next gesture the moment this one is written
+    const img = c.img, base = c.base, till = performance.now();
+
+    // every frame of the gesture, as a run of offsets from the click and a run
+    // of the gaps between them, which is where a dropped frame shows itself
+    const t = [], dt = [];
+    for (let i = 0; i < n; i++){
+      t.push(r2(stamps[i] - base));
+      if (i) dt.push(r2(stamps[i] - stamps[i - 1]));
+    }
+    // how the frames behaved between two moments: how many there were, how far
+    // apart, and how many gaps are wide enough to hold a whole frame that never
+    // arrived. the middle gap is this screen's own beat, so it is the ruler
+    function span(a, b){
+      const g = [];
+      let count = 0;
+      for (let i = 0; i < n; i++){
+        if (stamps[i] < a || stamps[i] > b) continue;
+        count++;
+        if (i && stamps[i - 1] >= a) g.push(stamps[i] - stamps[i - 1]);
+      }
+      if (!g.length) return { frames: count, gaps: 0 };
+      const s = g.slice().sort((x, y) => x - y);
+      const mid = s[s.length >> 1];
+      let missed = 0;
+      for (const x of g){ const k = Math.round(x / mid) - 1; if (k > 0) missed += k; }
+      return { frames: count, gaps: g.length, medianGap: r2(mid),
+        p95Gap: r2(s[Math.min(s.length - 1, Math.floor(s.length * 0.95))]),
+        worstGap: r2(s[s.length - 1]), missedFrames: missed };
+    }
+    const off = x => x == null ? null : r2(x - base);
+    function leg(x, veil, a, b){
+      if (!x) return null;
+      const end = x.done != null ? x.done : x.stopped;
+      return {
+        askedAt: off(x.asked),                    // when the click asked for it
+        codeRanFor: r2(x.back - x.asked),         // how long the zoom's own code took
+        askedFor: x.duration == null ? null : x.duration,   // the length it asked for
+        reallyStartedAt: off(x.ready),            // when the browser had it running
+        startDelay: x.ready == null ? null : r2(x.ready - x.asked),
+        timelineStart: x.startTime == null ? null : r2(x.startTime - base),
+        endedAt: off(end),
+        ranFor: (end == null || x.ready == null) ? null : r2(end - x.ready),
+        turnedRoundEarly: x.stopped != null,      // cancelled part way, not finished
+        veilStartDelay: (!veil || veil.ready == null) ? null : r2(veil.ready - x.asked),
+        veilEndedAt: !veil ? null : off(veil.done != null ? veil.done : veil.stopped),
+        frames: span(a, b)
+      };
+    }
+    const openEnd = c.open.done || c.open.stopped || (c.close && c.close.asked) || till;
+    const closeEnd = !c.close ? till
+      : (c.close.done || c.close.stopped || (c.close.asked + (c.close.duration || 0)));
+
+    // only what happened around this gesture. the fetches reach further back so
+    // the poll before the click is in the picture too
+    const win = (list, from) => list.filter(e => e.startTime >= from && e.startTime <= till);
+    const doc = {
+      what: "temporary p3 zoom probe: one gesture, grow and shrink",
+      when: new Date().toISOString(),
+      screen: {
+        devicePixelRatio, innerWidth, innerHeight,
+        hardwareConcurrency: navigator.hardwareConcurrency || null,
+        reducedMotion: matchMedia("(prefers-reduced-motion: reduce)").matches,
+        pageWasVisible: document.visibilityState === "visible",
+        observersRunning: { longtask: longs.on, event: evts.on, resource: nets.on },
+        userAgent: navigator.userAgent
+      },
+      picture: {
+        naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight,
+        startRect: keyRect(c.anim, c.to),
+        endRect: rect(c.to),
+        // the panel measured again once everything is at rest. it should be the
+        // same rectangle the grow started from; if it is not, the panel moved
+        panelRectAfter: rect(p3PanelRect(img)),
+        // how much bigger than its own pixels the screen has to draw it at the
+        // end, and how many device pixels that is, which is what a re-raster of
+        // it would have to cost
+        endScale: img.naturalWidth ? r3(c.to.w / img.naturalWidth) : null,
+        endDevicePixels: [Math.round(c.to.w * devicePixelRatio),
+          Math.round(c.to.h * devicePixelRatio)]
+      },
+      askedOf: { ms: P3_ZOOM_MS, easing: P3_ZOOM_EASE },
+      open: leg(c.open, c.openVeil, c.open.asked, openEnd),
+      close: leg(c.close, c.closeVeil, c.close ? c.close.asked : till, closeEnd),
+      // the whole window, click through to a beat after it landed, so the beat
+      // before and after the two legs can be compared with them
+      wholeGesture: span(base, till),
+      longtasks: win(longs.list, base - 500)
+        .map(e => ({ at: off(e.startTime), ms: r2(e.duration), name: e.name })),
+      events: win(evts.list, base - 500).map(e => ({ name: e.name, at: off(e.startTime),
+        ms: r2(e.duration), waitedBeforeHandler: r2(e.processingStart - e.startTime),
+        handlerRanFor: r2(e.processingEnd - e.processingStart) })),
+      fetches: win(nets.list, base - 4000).map(e => ({ url: e.name.replace(location.origin, ""),
+        at: off(e.startTime), ms: r2(e.duration) })),
+      frames: { count: n, arrayWasFull: n >= FRAMES, clickAt: r2(base),
+        note: "t is milliseconds since the click, dt is the gap before each one",
+        t: "@@t@@", dt: "@@dt@@" }
+    };
+    // long runs of numbers read better on one line than one number to a line,
+    // so they go in as a marker and the pretty printed text gets them back
+    let body = JSON.stringify(doc, null, 1);
+    body = body.replace('"@@t@@"', "[" + t.join(", ") + "]");
+    body = body.replace('"@@dt@@"', "[" + dt.join(", ") + "]");
+    // the upload route takes any bytes at all and writes them under the
+    // internal uploads folder with the time in front of the name, so this needs
+    // no route of its own and no server change
 // real card has; the grey summary strip is deliberately left out
 const miniEls = {};
 // the card it sits on is kept across reloads, per project tab, so a reload does
