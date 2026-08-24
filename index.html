@@ -615,7 +615,7 @@
     padding:10px 0 2px}
   #magic3 .c3stamp b{font-weight:600}
   /* ---- bubbles ---------------------------------------------------------- */
-  #magic3 .c3msg{max-width:75%; padding:10px 16px; font-size:14px;
+  #magic3 .c3msg{max-width:75%; padding:6px 10px; font-size:14px;
     word-wrap:break-word; white-space:pre-wrap}
   #magic3 .c3msg.user{background:var(--accent); color:var(--c3-sent-text);
     border-radius:18px 18px 4px 18px}
@@ -706,14 +706,14 @@
      send, and it wears no hover, active or disabled state at all */
   #magic3 .c3send{position:absolute; right:5px; bottom:5px; width:28px;
     height:28px; padding:0; border:none; border-radius:50%;
-    background:var(--accent); color:#fff; font-size:1rem; font-weight:200;
+    background:var(--accent); color:#fff; font-size:14px; font-weight:200;
     line-height:1; cursor:pointer; opacity:0; transform:scale(.5);
     pointer-events:none; transition:opacity .12s ease, transform .12s ease}
   #magic3 .c3send.show{opacity:1; transform:scale(1); pointer-events:auto}
   /* the ＋, first in the bar, wearing the pill's material scaled to a circle.
      the bar bottom aligns its items so the ＋ holds still while the pill
-     grows, and the one line pill is 5px the taller of the two: half of that
-     lifts the ＋ onto its optical centre line */
+     grows, and at this type size the one line pill is 1px the taller of the
+     two: half of that lifts the ＋ onto its optical centre line */
   #magic3 .c3attach{display:grid; place-items:center; width:34px; height:34px;
     padding:0; border:none; border-radius:50%;
     background-color:var(--c3-glass);
@@ -721,7 +721,7 @@
     -webkit-backdrop-filter:blur(16px) saturate(180%);
     box-shadow:var(--c3-stack-sm); color:var(--c3-text); font-size:1.25rem;
     font-weight:200; line-height:1; cursor:pointer; flex:none;
-    margin-bottom:2.5px}
+    margin-bottom:0.5px}
   #magic3 .c3file{display:none}
   /* picked and not yet sent: a strip between the thread and the bar, floating
      on the canvas the same way the bar does. the square is hard 64px and
@@ -3575,7 +3575,12 @@ function chatBuild(){
   const ta = document.createElement("textarea");
   ta.rows = 1;
   ta.placeholder = C3_PROMPTS[Math.floor(Math.random() * C3_PROMPTS.length)];
-  const send = h("button", "c3send", "↑");
+  // a drawn arrow instead of the ↑ character: the text glyph's stem runs
+  // long against its head, and only a path gives the stubby balance it needs
+  const send = h("button", "c3send");
+  send.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none">'
+    + '<path d="M7 11.5V3.5M3.6 6.9 7 3.5l3.4 3.4" stroke="#fff" stroke-width="2" '
+    + 'stroke-linecap="round" stroke-linejoin="round"/></svg>';
   send.title = "send";
   const jump = h("button", "c3jump");
   jump.title = "back to the newest";
