@@ -1450,6 +1450,22 @@
   /* the not-yet-named tab while its folder is being chosen */
   .ptab.draft{color:var(--ink); background:var(--paper); border-color:var(--line);
     font-style:italic}
+  /* closing a project tab: the cross the pencil already puts on every box, on
+     the same terms. it is that cross's own class, so its shape, size, line and
+     colour cannot drift from it; only where it sits is written here. it stands
+     in the tab's own right padding, centred on the label's line, and it is
+     positioned rather than laid out, so the bar cannot move by a pixel when the
+     pencil turns it on or off */
+  .ptab .rkill{display:none; left:auto; top:8px; right:0; transform:none}
+  body.editmode .ptab .rkill{display:block}
+  /* a closed tab is simply not in the bar. the pencil brings it back where it
+     belongs, its label greyed at the same .45 a tab already takes while it is
+     being pulled out, and its own cross puts it back for good. block is the
+     display a tab already computes to inside the bar's flex row, so a tab that
+     comes back is the tab that left, to the pixel */
+  .ptab.closed{display:none}
+  body.editmode .ptab.closed{display:block}
+  body.editmode .ptab.closed .plabel{opacity:.45}
   #projnote{display:none; flex:none; font:12px var(--mono); color:var(--must);
     background:var(--must-bg); border-radius:4px; padding:3px 10px}
   #projnote.show{display:inline-block}
@@ -1745,11 +1761,38 @@ function deselect(){
 
 let tabDrag = null;   // one grip, two gestures: sideways reorders the bar, a downward tug tears the tab out
 let tabGlide = null;  // the settle timer after a drop; the bar may not repaint under it
+// the tabs he has closed: his own view of the bar, never anything about the
+// lanes themselves. one key per lane, in the shape and with the plain "1" the
+// box cross already writes for a box put away, so a closed tab is as cheap to
+// undo as a hidden box and as private to this browser
+const TABHIDE = "tabhide.";
+function tabClosed(ow){
+  try { return !!localStorage.getItem(TABHIDE + ow); } catch (err) { return false; }
+}
 function renderTabs(st){
   if (!FOCUS || !st) return;
   if (tabDrag?.mode === "reorder" || tabGlide) return;   // a live drag owns the bar; the repaint lands after the drop
+  // a tab closed while he was on it, or closed in another window: the board
+  // steps to the first tab still in the bar. it may never sit on a lane the bar
+  // is not showing. setTab repaints on its own, and the paint below is the same
+  // paint either way, so this falls through rather than returning
+  if (!LOCKED && !draft){
+    let open = rowsOf(st);
+    // the bar may not be empty while lanes exist: the cross refuses to close
+    // the last tab, but the lane behind that last tab can still go away on the
+    // server, and then the first lane left takes its tab back. an unread reply
+    // never does this, only an empty bar does
+    if (!open.length && allRowsOf(st).length){
+      try { localStorage.removeItem(TABHIDE + allRowsOf(st)[0]); } catch (err) {}
+      open = rowsOf(st);
+    }
+    if (open.length && tabClosed(activeOwner)) setTab(open[0]);
+  }
   const bar = document.getElementById("tabbar");
-  const owners = LOCKED ? [LOCKED] : rowsOf(st);
+  // every lane is built, the closed ones included: they are held back by the
+  // stylesheet, not by the bar's contents, so closing one is a class flip and
+  // never a rebuild, and the drag's measured rects survive it
+  const owners = LOCKED ? [LOCKED] : allRowsOf(st);
   const sig = owners.join(",") + (draft ? "|draft" : "") + (LOCKED ? "|locked" : "");
   if (bar.dataset.sig !== sig){
     bar.dataset.sig = sig;
@@ -1761,13 +1804,16 @@ function renderTabs(st){
       lbl.dataset.label = lbl.textContent;   // the hidden line that holds this word's bold width
       t.appendChild(lbl);
       if (!LOCKED){
+        t.appendChild(tabKill(ow));
         t.addEventListener("mousedown", e => {
           if (tabGlide) return;   // a drop still settling holds the bar
+          if (t.classList.contains("closed")) return;   // a closed tab showing under the pencil is not draggable
           tabDrag = { ow, x: e.clientX, y: e.clientY, mode: null, pulled: false, el: t };
         });
       }
       t.addEventListener("click", () => {
         if (tabDrag?.pulled || tabDrag?.mode === "reorder") return;   // a pull or a slide is not a tab switch
+        if (t.classList.contains("closed")) return;   // its cross is its only control until it is back
         setTab(ow);
       });
       bar.appendChild(t);
@@ -1791,10 +1837,52 @@ function renderTabs(st){
     // the tab he is sitting on is bolded on the same terms as the rest: being
     // parked on a lane is not the same as having opened its cards
     t.classList.toggle("unread", laneUnread(st, t.dataset.owner));
+    // a closed lane holding a reply he has not opened stays closed: the bold is
+    // still marked on the tab, and the tab is still out of the bar. nothing
+    // here can put a tab back; only his own cross does that
+    const shut = tabClosed(t.dataset.owner);
+    t.classList.toggle("closed", shut);
+    const x = t.querySelector(".rkill");
+    if (x) x.title = shut ? "put this tab back" : "close this tab";
     const lbl = t.querySelector(".plabel");
     const want = labelOf(st, t.dataset.owner);
     if (lbl.textContent !== want){ lbl.textContent = want; lbl.dataset.label = want; }
   }
+}
+// the cross on a tab while the pencil is on. it is the box cross's own element,
+// class and all, so the two can never drift apart. the presses stop here so the
+// tab under it never reads one as a switch or as the start of a drag
+function tabKill(ow){
+  const x = h("button", "rkill");
+  x.addEventListener("mousedown", ev => ev.stopPropagation());
+  x.addEventListener("pointerdown", ev => ev.stopPropagation());
+  x.addEventListener("click", ev => {
+    ev.preventDefault(); ev.stopPropagation();
+    toggleTabClosed(ow);
+  });
+  return x;
+}
+// the cross on a tab, both ways, exactly as the cross on a box works: one
+// localStorage key is written or removed and nothing else. no card, no lane and
+// nothing on the server moves, so a tab put back brings its project back as it
+// was, cards, layout and pictures included
+function toggleTabClosed(ow){
+  if (LOCKED || !lastState) return;
+  if (tabClosed(ow)){
+    try { localStorage.removeItem(TABHIDE + ow); } catch (err) {}
+  } else {
+    const open = rowsOf(lastState);
+    if (open.length < 2) return;   // the last tab stays: the board must always have a lane to sit on
+    try { localStorage.setItem(TABHIDE + ow, "1"); } catch (err) {}
+    // he closed the tab he was on: the board takes the neighbour to its right,
+    // or the one to its left at the end of the bar
+    if (activeOwner === ow){
+      const i = open.indexOf(ow);
+      const next = open[i + 1] || open[i - 1];
+      if (next) setTab(next);
+    }
+  }
+  renderTabs(lastState);
 }
 // the first clear direction locks the gesture for the whole drag: mostly
 // sideways slides the tab along the bar, mostly downward tears it out, and
@@ -1834,7 +1922,11 @@ addEventListener("mouseup", e => {
 // and every swap reads against those fixed midpoints
 function startReorder(){
   const t = tabDrag;
-  t.tabs = [...document.querySelectorAll("#tabbar .ptab:not(.draft)")];
+  // the strip is what the bar is actually showing: a closed tab is in the bar's
+  // markup but takes no room, so it would put a zero-width rect in the middle of
+  // the measured line and every midpoint after it would read wrong
+  t.tabs = [...document.querySelectorAll("#tabbar .ptab:not(.draft)")]
+    .filter(el => el.getBoundingClientRect().width);
   t.idx = t.tabs.indexOf(t.el);
   if (t.idx < 0){ tabDrag = null; return; }   // the bar rebuilt under the grip; the drag dies quietly
   t.mode = "reorder";
@@ -1877,8 +1969,16 @@ function dropReorder(){
   let left = r[i].left;
   if (slot > i) for (let j = i + 1; j <= slot; j++) left += r[j].width + t.gap;
   if (slot < i) for (let j = slot; j < i; j++) left -= r[j].width + t.gap;
-  const order = t.tabs.map(el => el.dataset.owner);
-  order.splice(slot, 0, order.splice(i, 1)[0]);
+  const strip = t.tabs.map(el => el.dataset.owner);
+  strip.splice(slot, 0, strip.splice(i, 1)[0]);
+  // closed tabs sat out of the drag, so the strip is not the whole order: the
+  // held lane is lifted out of the full order and set down behind the visible
+  // lane it now follows, which leaves every closed lane exactly where it was.
+  // with nothing closed the full order is the strip and this writes what it
+  // always wrote
+  const order = (lastState ? allRowsOf(lastState) : strip).filter(ow => ow !== t.ow);
+  const prev = strip[strip.indexOf(t.ow) - 1];
+  order.splice(prev ? order.indexOf(prev) + 1 : 0, 0, t.ow);
   try { localStorage.setItem("taborder", JSON.stringify(order)); } catch (err) {}
   t.el.style.transition = "transform 220ms cubic-bezier(0.25, 1, 0.5, 1)";
   t.el.style.transform = "translate(" + (left - r[i].left) + "px, 0)";
@@ -1959,10 +2059,16 @@ document.getElementById("npstart").addEventListener("click", async () => {
     if (!r?.path){ projNote("could not open the folder picker"); return; }
     const path = r.path.replace(/\/+$/, "") || r.path;
     const name = path.split("/").filter(Boolean).pop() || "project";
-    // a folder already behind an open tab: name that tab instead of refusing
-    const open = lastState && rowsOf(lastState)
+    // a folder already behind a tab: name that tab instead of refusing. closed
+    // tabs count here, since the lane is still the server's; saying the folder
+    // is free would only earn a refusal it could not explain
+    const open = lastState && allRowsOf(lastState)
       .find(ow => (lastState.pwds || {})[ow] === path);
-    if (open){ projNote("that folder is already open as " + labelOf(lastState, open)); return; }
+    if (open){
+      projNote(tabClosed(open) ? "that folder is a project on a tab you closed"
+                               : "that folder is already open as " + labelOf(lastState, open));
+      return;
+    }
     const px = await fetch("/project?name=" + encodeURIComponent(name),
         { method: "POST", body: path }).catch(() => null);
     const pr = px ? await px.json().catch(() => null) : null;
@@ -1975,7 +2081,7 @@ document.getElementById("npstart").addEventListener("click", async () => {
                   "empty name": "that folder has no usable name" }[pr?.error]
               || "could not create that project";
       if (pr?.error === "duplicate project"){
-        const named = lastState && rowsOf(lastState).some(ow => labelOf(lastState, ow) === name);
+        const named = lastState && allRowsOf(lastState).some(ow => labelOf(lastState, ow) === name);
         msg = named ? "a project named " + name + " is already open"
                     : "that name is reserved right now, the folder can be added after the next server restart";
       }
@@ -2050,7 +2156,7 @@ function updatePwd(st){
 }
 
 // project rows in fixed order: tool meta on top, the rest as the board lists them
-function rowsOf(state){
+function allRowsOf(state){
   const owners = [];
   for (const b of state.boxes)
     if (b.owner !== "qchat" && !owners.includes(b.owner)) owners.push(b.owner);   // the quick chat lane never gets a tab
@@ -2066,6 +2172,11 @@ function rowsOf(state){
   if (!Array.isArray(saved)) saved = [];
   const lead = saved.filter(ow => owners.includes(ow));
   return [...lead, ...owners.filter(ow => !lead.includes(ow))];
+}
+// the lanes the bar is showing, which is what the keys walk and what counts as
+// a neighbour: a closed tab is simply not among them
+function rowsOf(state){
+  return allRowsOf(state).filter(ow => !tabClosed(ow));
 }
 
 function nav(dx, dy, opts){
