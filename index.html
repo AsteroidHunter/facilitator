@@ -276,8 +276,12 @@
     --tik-x:calc(var(--ox) + var(--cw)*0.044);     --tik-w:calc(var(--cw)*0.248);
     --tik-y:0.1984;  --tik-h:0.4736;
     --tik-row:0.056; --tik-on-w:calc(var(--cw)*0.272);
-    --m1-x:calc(var(--ox) + var(--cw)*0.068);      --m1-w:calc(var(--cw)*0.216);
-    --m1-y:0.7104;   --m1-h:0.1792;
+    /* 10% narrower than drawn, nudged right by half the difference so the box
+       keeps its centre exactly where it was (was x 0.068, w 0.216) */
+    --m1-x:calc(var(--ox) + var(--cw)*0.0788);     --m1-w:calc(var(--cw)*0.1944);
+    /* 15% shorter than drawn, lowered by half the difference so the box keeps
+       its centre exactly where it was (was y 0.7104, h 0.1792) */
+    --m1-y:0.72384;  --m1-h:0.15232;
     --frame-x:calc(var(--ox) + var(--cw)*0.324);   --frame-w:calc(var(--cw)*0.368);
     --frame-y:0.0704; --frame-h:0.8064;
     --pad-x:calc(var(--cw)*0.016);  --pad-y:0.008;
@@ -298,7 +302,9 @@
     position:fixed; left:var(--frame-x); width:var(--frame-w);
     top:calc(var(--oy) + var(--ch)*var(--frame-y)); height:calc(var(--ch)*var(--frame-h));
     border:1px solid var(--line-strong); background:#fff; border-radius:7px;
-    box-shadow:0 2px 18px rgba(60,45,20,.06);
+    /* raised while it holds the keys, the same lift the small card gets. it
+       settles back the moment magic box 2 is clicked into, so exactly one of
+       the two is ever standing up */
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
     transition:box-shadow .2s;
     padding:calc(var(--ch)*0.022) var(--pad-x);
@@ -553,9 +559,217 @@
     /* the stub rule centres its contents; the player needs its column to be the
        full height of the panel, or the buttons drift as the text grows */
     align-items:stretch;
+    /* the album's own colour, straight off the cover, put here by spotTint. with
+       no cover to read it is the page's own white */
+    --sp-tint:var(--paper);
+    /* THE FACE, and the whole of the tint. it used to be rgba(120,120,128,.03)
+       over a live blur of the board, with the album laid over it as a film.
+       what is here instead is one opaque colour: the album's HUE, its chroma
+       clamped, and its lightness thrown away and pinned near white.
+       pinning the lightness is the part that matters. an album colour carries
+       its own darkness with it, and every earlier attempt let that darkness
+       through: a dark brown sleeve over a white face gives mud, a dark blue one
+       gives grey, and no alpha or blend mode can undo it, because the darkness
+       is in the colour. so the lightness is not derived at all. .965 in oklch
+       lands the face between L* 95.5 and 96.2 on every cover measured, against
+       the page's own 95.8, so the panel is exactly as light as the page it sits
+       on whatever is playing, and the words keep the same contrast all day.
+       clamping the chroma is the other half. min(c, .03) is a ceiling, so a
+       neon sleeve cannot scream, and it is a ceiling rather than a floor, so a
+       black and white sleeve keeps the little chroma its own average has and
+       the face stays neutral instead of being given a hue that is not there.
+       oklch rather than hsl on purpose. hsl's L is not lightness: pinned at 95%
+       it measured L* 94.2 on a magenta cover and 95.9 on a cool one, and its S
+       delivers three times the chroma on magenta that it does on teal, so
+       neither half of the recipe would actually hold. oklch pins both.
+       relative colour syntax does the conversion in css, so spotTint still
+       emits nothing but the colour it found */
+    background-color:oklch(from var(--sp-tint) .965 min(c, .03) h);
+    /* the album changes with the song, so the face crosses over rather than
+       cutting. this used to live on the layer that carried the wash */
+    transition:background-color .6s ease;
+    /* three of the material's layers ride in the background rather than in a
+       pseudo element. a pseudo element would paint over the cover and the
+       words, because the cover and the column are positioned and come earlier
+       in the tree; a background layer can only ever sit under the panel's own
+       contents, which is where all three of these belong. first in the list
+       paints on top, and all three sit over the face colour above.
+       every value below is white or black at a chosen opacity: no colour that
+       is not already in this app is introduced.
+       the numbers in them were set against a face of 238 of 255, when the face
+       was a grey wash over a blur. the face is a pinned near white now and runs
+       about 245 in luminance, so the white in these layers has 10 levels of
+       headroom above it rather than 17 and weighs a little less than the
+       numbers say. they were left alone rather than retuned, and measured on
+       the new face they still do their job: the sheen still lifts the top left
+       corner 2.4 L* above the bottom right one, which is the whole of the
+       panel's lighting, since the face itself is now flat */
+    background-image:
+      /* GRAIN. perfectly smooth gradients are what make css glass read as
+         plastic, so the face carries a trace of tooth. drawn here with
+         feTurbulence and tiled at its own 120px, so it rasters once into the
+         panel's layer and nothing recomputes on a repaint.
+         dark only, on purpose: with 17 levels of headroom above the face and
+         238 below it, a balanced grain would need fourteen times the alpha on
+         its white half to weigh the same, and that half would clip. the alpha
+         matrix is .075 * (.5 - noise), so it is zero over half the tile, peaks
+         at .0375, and averages about .0035, which is eight tenths of a level
+         of darkening across the whole panel.
+         measured on the clean face at 2x, with every other layer off:
+         the face's standard deviation goes from 0.91 of a level to 1.49, so
+         the grain itself is 1.18 RMS on a face of 228, which is 0.52% of
+         contrast. the eye needs roughly 1% before random noise reads as noise
+         on a flat field, so this sits at half the threshold and is still
+         enough to stop the face being mathematically smooth. the deepest
+         speck in that patch is six levels down and there are a handful of them */
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch' seed='4'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -.075 0 0 0 .0375'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E"),
+      /* CORNER RIM LIGHT. a real surface turns most at a corner, so the corner
+         catches more of the light and the bright zone there is wider than it
+         is along a straight edge. these are centred exactly on each corner, so
+         the part that survives the 9px round is the arc itself and the few
+         pixels inside it: the effect is a widening of the rim light, not a
+         spot. 13px because the corner arc is 9px and the light has to run a
+         little past the end of it or it stops dead.
+         the top pair is stronger than the bottom pair for the same reason the
+         top catch is stronger than the bottom rim: the light is above.
+         the alphas look large for something this quiet because the white edge
+         glows already in the box-shadow list paint OVER this layer and squash
+         it. measured at 2x with every other layer off, .60 and .32 land as
+         2.6 and 3.1 levels at the top corners, 1.6 and 1.7 at the bottom two,
+         and exactly 0.00 at all four mid edges and at the centre, which is the
+         shape this wants */
+      radial-gradient(13px at 0 0, rgba(255,255,255,.60), rgba(255,255,255,0)),
+      radial-gradient(13px at 100% 0, rgba(255,255,255,.60), rgba(255,255,255,0)),
+      radial-gradient(11px at 0 100%, rgba(255,255,255,.32), rgba(255,255,255,0)),
+      radial-gradient(11px at 100% 100%, rgba(255,255,255,.32), rgba(255,255,255,0)),
+      /* SHEEN. apple names an illumination layer as part of the material, over
+         and above the blur and the vibrancy. this is that layer: one broad
+         wash across the whole face, brightest at the corner the light comes
+         from and gone before the opposite one.
+         145deg puts its start at the top left corner, which is where this
+         board's own light already is: body carries a radial highlight at
+         18% -4%, and the panel's top catch is on the top edge.
+         measured at 2x with every other layer off, it is 2.8 levels up at
+         the top left, 2.6 a third of the way across, 1.3 at two thirds and
+         0.00 at the bottom right. the tail runs to 84% on purpose: stopping it
+         short of the far corner makes it read as a band rather than as the
+         face being lit. the album wash sits over this and eats some of it,
+         which is why the numbers step down unevenly across the face */
+      linear-gradient(145deg,
+        rgba(255,255,255,.28) 0%,
+        rgba(255,255,255,.11) 42%,
+        rgba(255,255,255,0) 84%);
+    /* there is no backdrop-filter on this panel any more. it was
+       blur(16px) saturate(180%) brightness(.98), apple's own vibrancy numbers,
+       both halves of it, and this is the note that says where it went.
+       the face above had to become opaque for the album's colour to have
+       anything to blend against, and an opaque face means a blur of the board
+       can never reach the eye. a backdrop-filter nobody can see still costs a
+       resample of the whole region on every frame the board behind it is
+       damaged, and that cost was measured in this file already: 8.04ms of
+       compositor draw against 5.06ms with the filter off, which is the whole
+       reason the picture zoom rule further up switches it off for the length
+       of a zoom. that rule is left standing; it now has nothing to switch off.
+       what is lost is close to nothing, and that was measured here too. the
+       board behind this panel is bare paper: shot with the panel hidden, that
+       rectangle runs 234.3 to 244.0 of 255, standard deviation 1.11, and the
+       only texture in it is the 11.5px star field, which blur(16px) erased
+       anyway. the whole chain changed exactly one pixel of the panel by two
+       levels. if a picture or anything with contrast in it is ever put behind
+       this panel the trade turns around, and the price of taking the glass
+       back is that the album goes back to being a flat film.
+       rim lensing, the newest apple glass's bend at the edge, was built here on
+       20260823 and left out, so nobody spends another evening on it: an svg
+       feDisplacementMap fed by a hand drawn rim map, named from backdrop-filter
+       as url(#id), does move 11% of the pixels in chromium and costs under a
+       hundredth of a millisecond, but a lens over a flat field gives back the
+       flat field, and this field is flat */
+    /* the ring is the reference's own hairline token, not a black wash, and the
+       two drops are the typing bar's full stack: an object this size sits on the
+       bar's recipe, and the small button's tighter drops read flat under it.
+       the two lines added 20260822 are the lighting. apple's account of the
+       material (Meet Liquid Glass, WWDC25 session 219) is that its highlights
+       respond to the geometry and are what define the silhouette, and kube.io's
+       breakdown of the same effect describes the edge as a rim light whose
+       strength falls off as the wall turns away from the light. one hard
+       pixel of white cannot say either of those. so the top catch now has a
+       falloff under it rather than stopping dead, and the bottom wall gets the
+       same light a second time, weaker, after it has crossed the body. the
+       whole thing then reads as lit from above, which is the point.
+       the falloff's numbers are geometry, not taste: an inset shadow's band is
+       drawn between the box and the box shrunk by the spread and moved by the
+       offset, so a NEGATIVE spread pushes that inner edge back out and only the
+       blur is left to leak in. -7 with a +7 offset cancelled itself and the
+       glow measured two levels; -6 with a +12 offset leaves a real 6px band at
+       the top, the blur carries it out to about 12, and the sides and the
+       bottom stay clear because the inner edge is outside the box there.
+       listed after the hairline so the ring and the catch stay crisp over it.
+       two lines were added 20260823, and both are placed by list order rather
+       than by their own geometry, because an inset shadow's band always starts
+       at the box edge and the first line in the list paints on top.
+       the PANE THICKNESS line is the fourth entry. its band is the top 2px
+       (offset 2, no blur, no spread, so the inner rect is just the box moved
+       down 2 and the difference is a 2px strip with nothing on the sides or
+       the bottom). the white top catch and the grey ring are both listed above
+       it and both cover the first of those two pixels, so what is left on
+       screen is exactly one pixel of shade directly under the bright rim, and
+       it follows the 9px round because every inset shadow does. that one line
+       is what a pane's thickness looks like from the front.
+       .045 black on a 238 face is a drop of eleven levels: read against the
+       ring's own #c7c7cc, which is 199, it is a quarter of the ring's weight,
+       which is the difference between a hairline and a second border.
+       the CONTACT SHADOW is the first of the three drops. -1px of spread pulls
+       its rectangle a pixel inside the panel and the 1px offset puts it back,
+       so it clears the bottom edge by about a pixel and a half and no more.
+       the two drops under it are unchanged: this one is the seam, they are the
+       lift. without it the panel reads as floating over the paper */
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.9),
+      inset 0 -1px 0 rgba(255,255,255,.45),
+      inset 0 0 0 1px #c7c7cc,
+      inset 0 2px 0 rgba(0,0,0,.045),
+      inset 0 0 2px rgba(255,255,255,.35),
+      inset 0 12px 12px -6px rgba(255,255,255,.55),
+      0 1px 2px -1px rgba(0,0,0,.18),
+      0 1px 3px rgba(0,0,0,.07),
+      0 8px 20px rgba(0,0,0,.06);
+    /* the reference fades itself in rather than appearing in one frame. filled
        is added once, by spotBuild, so this runs on the first fill and never
        again on a poll. it fades the panel, nothing inside it: the cover and the
        words keep their own timings */
+    animation:spappear .35s ease;
+    font:12px/1.4 var(--sans); color:var(--ink); padding:11px; gap:12px}
+  @keyframes spappear{from{opacity:0}}
+  /* there is no ::before on this panel any more. it held the album as a layer
+     over the face, and that is the one place the album must not be, because a
+     positioned child paints OVER the inset box shadows: the hairline ring, the
+     white top catch, the thickness line, the rim glows. anything laid there
+     reaches the rim before it reaches the face. two passes proved it. a 14%
+     film washed the rim faintly and the face not at all. the color blend mode
+     was worse in the same direction: it hands a pixel as much hue as there is
+     room under white, so it gave the near white face almost nothing and the
+     ring, which is genuinely dark, a great deal. that is exactly what came
+     back: colour at the rims and none on the pane.
+     the album is the panel's own background-color now. background paints first,
+     the box shadows paint on top of it, so the rim treatment is untouched by
+     construction and every drop of the colour lands on the face */
+  #magic1 .spwrap{position:relative; z-index:1}
+  /* min-height:0 matters: without it a flex item's automatic minimum size lets
+     the column grow past the panel, which shoved the buttons down whenever the
+     artist wrapped to a second line */
+  #magic1 .spwrap{display:flex; flex-direction:column; flex:1; min-width:0;
+    min-height:0; justify-content:flex-end; gap:3px;
+    /* the group is anchored to the bottom, so this lifts the names and the
+       buttons together without letting either drift as the text grows */
+    padding-bottom:8px}
+  #magic1 .sprow{display:flex; align-items:flex-start; gap:8px; min-width:0}
+  #magic1 .sptop{display:flex; align-items:center; gap:6px; min-width:0}
+  #magic1 .sptop .sptitle{flex:1; min-width:0}
+  #magic1 .spcover{height:100%; aspect-ratio:1; flex:none; align-self:stretch;
+    position:relative; cursor:pointer; user-select:none}
+  /* two stacked covers, so a new song dissolves into the old one instead of
+     swapping hard. the incoming layer is raised and faded up while the outgoing
+     one fades away underneath it */
   #magic1 .spart{position:absolute; inset:0; width:100%; height:100%; display:block;
     border-radius:6px;
     object-fit:cover; background:rgba(120,120,128,.06);
@@ -613,8 +827,16 @@
   /* nothing has ever played on this browser and nothing is playing now: the
      panel carries the spotify mark alone, centred, instead of an empty frame.
      drawn in the board's own ink like the connect button's mark, no new colour */
+  #magic1 .splogo{display:none; color:var(--ink); opacity:.26; line-height:0}
   #magic1.filled.empty{align-items:center; justify-content:center}
   #magic1.filled.empty :is(.spcover, .spwrap){display:none}
+  #magic1.filled.empty .splogo{display:block}
+  #magic2 .mbox.off{display:none}
+  /* magic box 1: the Spotify player. same shapes as the rest of the app, the
+     app's own greys, nothing new brought in */
+  /* a message of yours is sent and unanswered: the card stays put and takes the
+     same pastel green the cards themselves use, so nothing new is introduced */
+  #magic2 .mbox.mwait{background:var(--green-bg); border-color:var(--green-line)}
   #magic2 .mtitle{font:625 15px/1.25 var(--inter); color:var(--ink);
     margin-top:8px; padding-right:46px; flex:none; cursor:text}
   #magic2 .mtitle[contenteditable]{outline:none}
@@ -2384,6 +2606,12 @@ let spotState = { playing:false, id:null, kind:"track", shuffle:false, repeat:"o
 // an episode against the song endpoint just fails, so the heart has to know
 // which of the two it is holding
 const spotLib = kind => kind === "episode" ? "/me/episodes" : "/me/tracks";
+let spotTintFor = null;                  // the cover the current tint came from
+
+// spotify pushes nothing, so the panel has to keep asking. it asks once a
+// second while a song is running and every five seconds when nothing is, and it
+// also asks again right as the running song is due to end, which is what makes
+// a song change land as it happens instead of up to a whole poll later
 let spotTimer = null, spotBusy = false, spotHold = 0;
 function spotSchedule(){
   clearTimeout(spotTimer);
@@ -2410,6 +2638,103 @@ function spotBurst(ms){
 // everything together. only the hue and the saturation of what it finds ever
 // reach the glass, because of the blend mode the wash is laid on in, so the
 // panel is lit by the album rather than painted with it
+function spotTint(host, url){
+  if (spotTintFor === url) return;
+  spotTintFor = url;
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.onload = () => {
+    try {
+      // 32 across, so 1024 pixels vote into 512 possible buckets. at the old 20
+      // some sleeves had only a handful of coloured pixels left to count, too
+      // few to trust: Unknown Pleasures kept 3 of them at 20 and 34 at 32. 48
+      // costs twice the work and picked no better, so 32 is the middle
+      const N = 32;
+      const c = document.createElement("canvas");
+      c.width = c.height = N;
+      const x = c.getContext("2d", { willReadFrequently: true });
+      x.drawImage(img, 0, 0, N, N);
+      const d = x.getImageData(0, 0, N, N).data;
+      let ar = 0, ag = 0, ab = 0, an = 0;   // the old average, kept as the fallback
+      const bins = new Map();
+      for (let i = 0; i < d.length; i += 4){
+        const r = d[i], g = d[i+1], b = d[i+2];
+        const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+        const w = 1 + (mx - mn) / 255 * 2.5;   // lean toward the colourful pixels
+        ar += r * w; ag += g * w; ab += b * w; an += w;
+        // a pixel with no colour in it gets no vote. .30 is the highest bar that
+        // still keeps a pastel sleeve, since IGOR's pink measures .30 and a bar
+        // of .35 threw that whole cover away. both lightness ends go too: down
+        // there the three channels sit within a few levels of each other and the
+        // hue is really jpeg noise, up there there is no room left below white
+        const sat = mx ? (mx - mn) / mx : 0;
+        const lit = (mx + mn) / 510;
+        if (sat < .30 || lit < .10 || lit > .90) continue;
+        // count coarsely, 8 levels a channel, so one flat region of the cover
+        // lands in one bucket and votes as a block. 16 levels split a region
+        // across several buckets and the winner turned into an accident of where
+        // the region happened to straddle an edge; 4 levels merged colours that
+        // are not the same and read Unknown Pleasures' navy as a dark grey
+        const key = (r >> 5) * 64 + (g >> 5) * 8 + (b >> 5);
+        const e = bins.get(key) || [0, 0, 0, 0];
+        e[0] += r; e[1] += g; e[2] += b; e[3]++;
+        bins.set(key, e);
+      }
+      let top = null;
+      bins.forEach(e => { if (!top || e[3] > top[3]) top = e; });
+      let r, g, b;
+      // six votes of the 1024 is about a 23 by 23 patch of the cover, so a
+      // winner that small is still a real part of the picture, not one stray pixel
+      if (top && top[3] >= 6){
+        // average inside the winning bucket only, which puts the colour back at
+        // full precision after the coarse count
+        r = Math.round(top[0] / top[3]);
+        g = Math.round(top[1] / top[3]);
+        b = Math.round(top[2] / top[3]);
+        // what reaches the glass is the gap between this colour's three
+        // channels, not its own darkness: the color blend mode takes the hue
+        // and the saturation and leaves the lightness behind. that gap closes
+        // at both ends of the lightness range: a near black or a pastel winner
+        // reads as grey again. so a winner outside .42 to .62 is moved into it, where it
+        // keeps at least three quarters of the gap its hue and saturation allow.
+        // rescaling the channels around a new midpoint moves neither of those,
+        // because hue only depends on where each channel sits between the lowest
+        // and the highest, and that stays put
+        const mx = Math.max(r, g, b), mn = Math.min(r, g, b), lit = (mx + mn) / 510;
+        const want = Math.min(.62, Math.max(.42, lit));
+        if (want !== lit && mx > mn){
+          const k = (1 - Math.abs(2 * want - 1)) / (1 - Math.abs(2 * lit - 1));
+          const lo = want * 255 - (mx - mn) * k / 2;
+          const fix = v => Math.max(0, Math.min(255, Math.round(lo + (v - mn) * k)));
+          r = fix(r); g = fix(g); b = fix(b);
+        }
+      } else {
+        // a black and white sleeve has no strong colour to find. the old average
+        // still tints it, faintly and neutrally, which beats no tint at all. it
+        // is left exactly where it is: pulling an average with no hue in it
+        // toward the middle would invent a colour out of jpeg noise
+        r = Math.round(ar / an); g = Math.round(ag / an); b = Math.round(ab / an);
+      }
+      // the colour goes out as itself, at no strength at all. it used to go out
+      // as a gradient of it at 14% and 5% alpha, to be laid over the panel as a
+      // film, and a film of a colour this dark can only ever grey the face down.
+      // the css rule on #magic1.filled is what turns this into a face: it keeps
+      // the hue, clamps the chroma and pins the lightness near white. how strong
+      // the tint is lives there now, in one number, min(c, .03)
+      host.style.setProperty("--sp-tint", "rgb(" + r + "," + g + "," + b + ")");
+    } catch (e) {
+      // the cover blocked the read. dropping the property rather than setting a
+      // colour hands the face back to the rule's own default, the page's white
+      host.style.removeProperty("--sp-tint");
+    }
+  };
+  img.onerror = () => host.style.removeProperty("--sp-tint");
+  img.src = url;
+}
+
+// spotify stops reporting a player once the device has been quiet for a while,
+// so the last track it did report is kept here and stays on the panel rather
+// than the panel emptying itself. kept in the browser so a reload keeps it too
 function spotRemember(t){
   try { localStorage.setItem("spot.last", JSON.stringify(t)); } catch (e) {}
 }
@@ -2463,6 +2788,9 @@ function spotPaint(host, el, t){
   host.classList.remove("empty");
   spotSwapText(el, t.name, t.artist, t.album ? t.artist + " — " + t.album : t.artist);
   spotCover(el, t.img);
+  if (t.img) spotTint(host, t.img);
+}
+
 function spotBuild(){
   const host = document.getElementById("magic1");
   if (!host || host.classList.contains("filled")) return host;
@@ -2549,6 +2877,14 @@ function spotBuild(){
   wrap.append(row, ctl);
   // the stub for a panel that has nothing to show: the same mark the connect
   // button draws, larger, and on its own
+  const logo = h("div", "splogo");
+  logo.innerHTML = '<svg viewBox="0 0 24 24" width="34" height="34" fill="currentColor" aria-hidden="true">'
+    + '<path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>';
+  host.append(cover, wrap, logo);   // the cover is the left hand element, the rest beside it
+  host.dataset.ready = "1";
+  host._sp = { artA, artB, front: artA, meta, title, artist, play };
+  // the remembered track goes up before the first poll answers, so a reload
+  // never flashes an empty panel on the way back to the same song
   const last = spotRecall();
   if (last) spotPaint(host, host._sp, last); else host.classList.add("empty");
   return host;
@@ -2604,6 +2940,7 @@ async function spotAsk(){
   }
   if (!t){
     host.classList.add("empty");
+    host.style.removeProperty("--sp-tint"); spotTintFor = null;   // back to the page's own white
     el.play.innerHTML = SPOT_ICON.play;
     spotState = { playing:false, id:null, kind:"track", shuffle:false, repeat:"off", saved:false, dur:0, progress:0 };
     return;
