@@ -94,7 +94,6 @@
   .bucket .tag{font:11px var(--mono); letter-spacing:.08em; text-transform:uppercase; padding:2px 9px; border-radius:99px}
   .bucket.toolmeta .tag, .bucket.triagemeta .tag{color:var(--accent); background:var(--accent-soft)}
   .bucket.now   .tag{color:var(--accent); background:var(--accent-soft)}
-  .parkbtn, .donebtn{display:none}   /* the old done/later text buttons are retired on every card */
   .xbtn{flex:none; font:14px var(--mono); color:var(--sub); background:none; border:none;
     cursor:pointer; padding:0 4px; line-height:1; transition:color .2s}
   .xbtn:hover{color:var(--must)}
@@ -126,16 +125,9 @@
   .head{display:flex; align-items:center; gap:10px; padding:12px 14px 0; cursor:default}
   .num{font:500 11px var(--mono); color:var(--sub); background:var(--paper);
        border:1px solid var(--line); border-radius:6px; padding:2px 7px; flex:none}
-  .title{font:500 17.5px/1.25 var(--serif); flex:1; min-width:0}
   .title{font:625 17.5px/1.25 var(--inter); flex:1; min-width:0}
   .title[contenteditable]{outline:none}
   .title[contenteditable]:empty::before{content:"Chat Name"; color:var(--line-strong)}
-  .donebtn, .parkbtn{
-    flex:none; font:12px var(--mono); color:var(--sub); background:none; cursor:pointer;
-    border:1px solid var(--line); border-radius:99px; padding:3px 11px; transition:.2s;
-  }
-  .donebtn:hover{border-color:var(--green); color:var(--green)}
-  .parkbtn:hover{border-color:var(--later); color:var(--later)}
   .ctx{font:italic 12.5px/1.45 var(--sans); color:var(--sub); padding:6px 14px 0;
     border-left:2px solid var(--line); margin:6px 14px 0}
   .ctx:empty{display:none}
@@ -191,16 +183,11 @@
      re-wraps long titles every tick and shoves the whole page below */
   .wstat .w2::after, .meta .w::after{display:inline-block; width:1.1em; text-align:left}
 
-  /* ---- your-turn chip --------------------------------------------------- */
-  .turn{display:none; font:10.5px var(--mono); letter-spacing:.04em; color:var(--accent);
-        background:var(--accent-soft); border-radius:99px; padding:2px 8px; flex:none}
-  .box.yourturn .turn{display:inline}
 
   /* ---- done state ------------------------------------------------------- */
   .box.done{background:var(--green-bg); border-color:var(--green-line)}
   .box.done .title{color:var(--green)}
   .box.done .num{background:transparent; border-color:var(--green-line); color:var(--green)}
-  .box.done .donebtn{border-color:var(--green); background:var(--green); color:#fff}
   .box.done .head{cursor:pointer; padding-bottom:12px}
   .box.done .body{display:none}
   .box.done.peek .head{padding-bottom:0}
@@ -210,7 +197,6 @@
   .box.parked{background:var(--later-bg); border-color:#CDD4DE}
   .box.parked .title{color:var(--later)}
   .box.parked .num{background:transparent; border-color:#CDD4DE; color:var(--later)}
-  .box.parked .parkbtn{border-color:var(--later); background:var(--later); color:#fff}
   .box.parked .head{cursor:pointer; padding-bottom:12px}
   .box.parked .body{display:none}
   .box.parked.peek .head{padding-bottom:0}
@@ -232,38 +218,22 @@
   @media (prefers-reduced-motion: reduce){ *{animation:none !important; transition:none !important} }
 
   /* ============ structural skin: square corners + bracket buttons =========== */
-  .box, textarea, .sendbtn, .donebtn, .parkbtn, .addbtn, .addinput, .endbtn,
+  .box, textarea, .sendbtn, .addbtn, .addinput,
   .toc-entry{border-radius:4px !important}
   .num{background:transparent; border:none; padding:0; width:auto}
   /* buttons: borderless soft-tint boxes; the old hover glow is the resting look */
-  .sendbtn, .donebtn, .parkbtn, .addbtn, .endbtn{border:none !important}
+  .sendbtn, .addbtn{border:none !important}
   .sendbtn{background:var(--accent-soft); color:var(--accent); font-weight:600;
     min-height:38px; padding:0 16px; display:flex; align-items:center}
   .sendbtn:hover{background:#E2DCFC; transform:none}
   .sendbtn:active{transform:scale(.97)}
-  .donebtn{background:var(--green-bg); color:var(--green)}
-  .donebtn:hover{background:#DEEDD9}
-  .parkbtn{background:var(--later-bg); color:var(--later)}
-  .parkbtn:hover{background:#DFE3EA}
   .addbtn{background:var(--accent-soft); color:var(--accent)}
   .addbtn:hover{background:#E2DCFC}
-  .box.done .donebtn{background:var(--green); color:#fff}
-  .box.parked .parkbtn{background:var(--later); color:#fff}
   .ctx{
     font-style:normal; color:#3A3563;
     background:var(--accent-soft); border:1px solid #D9D3FA;
     border-radius:4px; padding:7px 11px; margin:9px 14px 0;
   }
-  /* state labels wear small drawn brackets instead of pill fills */
-  .turn{
-    background:none; border-radius:0; position:relative; padding:2px 8px;
-  }
-  .turn::before, .turn::after{
-    content:""; position:absolute; top:1px; bottom:1px; width:3px;
-    border:1px solid currentColor;
-  }
-  .turn::before{left:0; border-right:none}
-  .turn::after{right:0; border-left:none}
 
   /* ============ focus mode: one discussion fills the page ================ */
   /* the left bar stays; the right side shows exactly one box, chosen there.
@@ -346,7 +316,6 @@
     animation:none; margin:0; overflow:visible;
   }
   body.focus .box.sel .head{padding:var(--sp-xs) 0 0; flex-wrap:wrap; row-gap:var(--sp-xs)}
-  body.focus .box.sel .turn{display:none !important}
   body.focus .box.sel{position:static; animation:none}
   body.focus .box.sel .xbtn{
     position:absolute; top:9px; right:9px; left:auto; z-index:4;
@@ -363,19 +332,10 @@
   body.focus .box.sel .num{display:none}
   body.focus .box.sel .title{
     order:10; flex:0 0 100%; min-width:0; white-space:normal;
-    font:500 30px/1.25 var(--serif); margin-top:8px;
     font:625 30px/1.25 var(--inter); margin-top:8px;
   }
   body.focus .box.sel .wstat{display:none}
-  body.focus .box.sel .turn{order:2}
   body.focus .box.sel .xbtn{order:5; margin-left:auto}
-  body.focus .box.sel .parkbtn{order:6}
-  body.focus .box.sel .donebtn{order:7}
-  body.focus .box.sel .donebtn, body.focus .box.sel .parkbtn{
-    background:none; color:var(--sub); font-size:11px; padding:2px 6px;
-  }
-  body.focus .box.sel .donebtn:hover{color:var(--green)}
-  body.focus .box.sel .parkbtn:hover{color:var(--later)}
   body.focus .box.sel .ctx{
     display:block !important; margin:18px 0 0; padding:13px 16px;
     background:#FAFAF7; border:1px solid var(--line); border-radius:5px;
@@ -2017,13 +1977,12 @@ function apply(state){
       tocGroups[s].appendChild(el.toc);
       el.sec = s;
     }
-    // waiting/yourturn are the box's own liveness overlay: writing is the live
-    // claim (bg alone never collapses the box) and pending is the unread count,
+    // waiting is the box's own liveness overlay: writing is the live claim
+    // (bg alone never collapses the box) and pending is the unread count,
     // neither of which the collapsed state carries; the done gate reads state
     const waiting = cs !== "done" && (b.writing || b.pending > 0);
     el.box.classList.toggle("waiting", waiting);
     if (!waiting && cs !== "done") el.box.classList.remove("peek");
-    el.box.classList.toggle("yourturn", cs !== "done" && !waiting && b.ball === "you");
     const ws = b.writing ? '<span class="w2">' + laneName(b.owner) + ' is writing</span>'
              : (b.queuePos ? "sent ✓ " + ord(b.queuePos) + " in line" : "");
     if (el.wstat.innerHTML !== ws) el.wstat.innerHTML = ws;  // rewriting every poll restarts the dots and re-wraps the title row
@@ -2048,20 +2007,7 @@ function apply(state){
     if (delta) window.scrollBy({ top: delta, left: 0, behavior: "instant" });
   }
   applySelection(state);
-  const dot = document.getElementById("dot");
-  const live = document.getElementById("livetext");
-  const writingBoxes = state.boxes.filter(x => x.writing);
-  const anyBusy = Object.values(state.busy).some(Boolean);
-  dot.classList.toggle("on", anyBusy || state.queued > 0);
-  live.textContent = writingBoxes.length
-      ? ("replying to " + writingBoxes.map(x => x.id).join(" + ") + (state.queued ? " · " + state.queued + " queued" : ""))
-      : state.queued ? (state.queued + " queued") : "idle";
   document.body.classList.toggle("paused", !!state.paused);
-  document.getElementById("pausebtn").textContent = state.paused ? "resume listeners" : "pause listeners";
-  if (state.paused){
-    dot.classList.remove("on");
-    live.textContent = "paused" + (state.queued ? " · " + state.queued + " queued" : "");
-  }
   // board title comes from state (seeded via seed.json), not from the page
   if (state.title && document.title !== state.title){
     document.title = state.title;
@@ -2075,16 +2021,8 @@ function apply(state){
       nm.append(em);
     } else nm.textContent = state.title;
   }
-  // in focus mode the counters and outline speak for the active tab only
+  // the per-section counts still speak for the active tab only
   const scope = FOCUS ? state.boxes.filter(x => x.owner === activeOwner) : state.boxes;
-  const doneN = scope.filter(x => x.done).length;
-  const yours = scope.filter(awaitsYou).length;
-  // the honest gap: the agent is alive and absent from the listening call
-  // with nothing held and no live job registered; say so instead of nothing
-  const offrec = state.agents?.[activeOwner]?.offrecord;
-  document.getElementById("prog").innerHTML = "<b>" + doneN + "</b>/" + scope.length + " done" +
-    (yours ? " · " + yours + " await you" : "") +
-    (offrec ? " · <span style='color:#C9A21E'>working, card not marked</span>" : "");
   for (const [key] of SECTIONS){
     secEls[key].cnt.textContent = scope.filter(x => statusOf(x) === key).length;
     const visible = [...tocGroups[key].children]
@@ -2097,7 +2035,6 @@ function apply(state){
     renderWorkspaces(state);
     renderTrio(state);
     renderCarousel(state);
-    renderTodos(state);
   }
   document.body.classList.toggle("ended", !!state.end);
 
