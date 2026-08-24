@@ -9,6 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
 <style>
   :root{
     --paper:#F5F4F1; --card:#FFFFFF; --ink:#211D17; --sub:#75695A;
@@ -21,7 +22,7 @@
     --serif:"Newsreader", Georgia, serif;
     --sans:"IBM Plex Sans", -apple-system, sans-serif;
     --mono:"IBM Plex Mono", ui-monospace, monospace;
-    --inter:"Inter", -apple-system, sans-serif;   /* the new-project landing only */
+    --inter:"Inter", -apple-system, sans-serif;   /* card titles and the new-project landing */
   }
   *{box-sizing:border-box}
   html{scroll-behavior:smooth}
@@ -140,6 +141,7 @@
   .num{font:500 11px var(--mono); color:var(--sub); background:var(--paper);
        border:1px solid var(--line); border-radius:6px; padding:2px 7px; flex:none}
   .title{font:500 17.5px/1.25 var(--serif); flex:1; min-width:0}
+  .title{font:625 17.5px/1.25 var(--inter); flex:1; min-width:0}
   .title[contenteditable]{outline:none}
   .title[contenteditable]:empty::before{content:"Chat Name"; color:var(--line-strong)}
   .donebtn, .parkbtn{
@@ -378,6 +380,7 @@
   body.focus .box.sel .title{
     order:10; flex:0 0 100%; min-width:0; white-space:normal;
     font:500 30px/1.25 var(--serif); margin-top:8px;
+    font:625 30px/1.25 var(--inter); margin-top:8px;
   }
   body.focus .box.sel .wstat{display:none}
   body.focus .box.sel .turn{order:2}
@@ -572,6 +575,36 @@
     top:calc(var(--oy) + var(--ch)*var(--m1-y)); height:calc(var(--ch)*var(--m1-h))}
   #magic2{left:var(--m2-x); width:var(--m2-w);
     top:calc(var(--oy) + var(--ch)*var(--m2-y)); height:calc(var(--ch)*var(--m2-h))}
+  #magic2 .mtitle{font:625 15px/1.25 var(--inter); color:var(--ink);
+    margin-top:8px; padding-right:46px; flex:none; cursor:text}
+  #magic2 .mtitle[contenteditable]{outline:none}
+  #magic2 .mtitle[contenteditable]:empty::before{content:"Chat Name"; color:var(--line-strong)}
+  /* the cross, copied off the card: round pink chip, two black bars */
+  #magic2 .mx{position:absolute; top:9px; right:9px; z-index:4;
+    width:16px; height:16px; border-radius:50%; background:#FF9F98;
+    border:none; padding:0; font-size:0; cursor:pointer}
+  #magic2 .mx::before, #magic2 .mx::after{content:""; position:absolute;
+    left:50%; top:50%; width:9px; height:1.2px; background:#1e1e1e; border-radius:1px}
+  #magic2 .mx::before{transform:translate(-50%,-50%) rotate(45deg)}
+  #magic2 .mx::after{transform:translate(-50%,-50%) rotate(-45deg)}
+  #magic2 .mx:hover{background:#F8837A}
+  /* the defer chip, copied off the card: round orange chip, black moon */
+  #magic2 .marc{position:absolute; top:9px; right:34px; z-index:4;
+    width:16px; height:16px; border-radius:50%; background:#F6C08A; color:#000;
+    border:none; padding:0; cursor:pointer;
+    display:inline-flex; align-items:center; justify-content:center}
+  #magic2 .marc:hover{background:#F2B072}
+  #magic2 .mreply{font:12px/1.55 var(--sans); color:var(--ink);
+    flex:1 1 auto; min-height:0; overflow-y:auto; padding-top:var(--sp-m)}
+  #magic2 .mreply:empty{display:none}
+  #magic2 .mreply p{margin:0 0 9px}
+  #magic2 .mreply p:last-child{margin-bottom:0}
+  #magic2 .mreply ul, #magic2 .mreply ol{margin:0 0 9px; padding-left:20px}
+  /* sent and unanswered: the same fold-open bar the large card carries, at the
+     small card's size. the arrow flips with the fold, a click opens the list */
+  #magic2 .mpend{display:flex; flex-direction:column; flex:none; gap:4px;
+    font:12px/1.45 var(--sans); color:var(--ink); cursor:pointer; user-select:none}
+  #magic2 .mpend:empty{display:none}
   /* workspaces: a sharp panel at x 4.2%, y 28.4..46.7%, rows flush right,
      the active row's right border open into the canvas */
   body.focus #wsl{
