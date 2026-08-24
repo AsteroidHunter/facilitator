@@ -546,6 +546,36 @@
      pastureland app's thread, so its row, bubble and dot rules are shared by
      selector rather than restated, and only the two ids that panel owns
      (#qmsgs, #qcompose) needed a twin here, because an id is worn once */
+  #magic3.chatting{
+    border:1px solid var(--line); background:var(--card);
+    padding:0; overflow:hidden;
+    /* the stub rule centres its one line of text. a thread wants the whole
+       height of the box as a column, the same reset the player makes */
+    flex-direction:column; align-items:stretch; justify-content:flex-start;
+  }
+  /* nothing in here is positioned, on purpose: the box's edge is a border here
+     rather than an inset shadow, but a positioned child would still paint over
+     one, and the player two boxes along was already caught by that */
+  /* the line under the newest sent bubble. a messaging app writes Delivered or Read
+     there in this grey and Not Delivered in this red; here it also says Queued,
+     the board's own word for a message no agent has taken yet, so nothing he
+     types can read as sent while it is only waiting */
+  #magic3 .c3rcpt{align-self:flex-end; padding:1px 4px 0;
+    font:600 11px var(--sans); color:#8E8E93}
+  #magic3 .c3rcpt.bad{color:#FF3B30}
+  /* only for a line that is not on the board at all, still in the air or never
+     landed. one the server is holding is genuinely sent and shows at full
+     strength, the way a messaging app shows it, with the line above saying so */
+  #magic3 .qb.wait{opacity:.55}
+  /* a line that never landed is clickable, to send it again. one class rather
+     than two, so edit mode's own move cursor still outranks it */
+  #magic3 .retry{cursor:pointer}
+  /* the picture clicked open. the panel clips whatever is inside it, so the one
+     way to fill the screen is to leave the panel: this layer hangs off body,
+     not off the stage, so the stage's own translate never enters the arithmetic
+     and the veil covers the bar too. it is only on screen while a picture is
+     open, and it is empty the rest of the time. the cursor is the only mark the
+     panel wears for this, and edit mode keeps its own move cursor */
   body:not(.editmode) #magic3.filled .p3img{cursor:zoom-in}
   #p3zoom{display:none}
   #p3zoom.on{display:block; position:fixed; inset:0; z-index:40}
@@ -967,6 +997,8 @@
      and is harmless here: without it a flex child's automatic minimum size lets
      the thread grow past its panel instead of scrolling, and the typing bar
      gets pushed out of the bottom */
+  #qmsgs, #magic3 .c3msgs{flex:1; min-height:0; overflow-y:auto; padding:8px 12px;
+    display:flex; flex-direction:column}
   .qrow{display:flex; margin-top:10px}
   .qrow.cont{margin-top:2px}
   .qrow.me{justify-content:flex-end}
@@ -983,13 +1015,13 @@
   .qtyping i:nth-child(2){animation-delay:.15s}
   .qtyping i:nth-child(3){animation-delay:.3s}
   @keyframes qdot{0%,60%,100%{opacity:.35; transform:translateY(0)} 30%{opacity:1; transform:translateY(-3px)}}
-  #qcompose{display:flex; gap:8px; padding:8px 10px; border-top:1px solid #E5E5EA;
+  #qcompose, #magic3 .c3bar{display:flex; gap:8px; padding:8px 10px; border-top:1px solid #E5E5EA;
     background:rgba(249,249,249,.94)}
-  #qcompose textarea{flex:1; resize:none; font:15px/1.35 var(--sans); color:#111;
+  #qcompose textarea, #magic3 .c3bar textarea{flex:1; resize:none; font:15px/1.35 var(--sans); color:#111;
     background:#fff; border:1px solid #C7C7CC; border-radius:16px; padding:6px 12px;
     outline:none; max-height:90px}
-  #qcompose textarea:focus{border-color:var(--accent)}
-  #qcompose button{width:30px; height:30px; flex:none; border:none; border-radius:50%;
+  #qcompose textarea:focus, #magic3 .c3bar textarea:focus{border-color:var(--accent)}
+  #qcompose button, #magic3 .c3bar button{width:30px; height:30px; flex:none; border:none; border-radius:50%;
     background:var(--accent); color:#fff; font-size:16px; font-weight:700;
     cursor:pointer; padding:0; align-self:flex-end}
   /* ---- the trio: rail, goal box, task box share one visual family ------- */
@@ -1020,9 +1052,6 @@
   .trio-edit:hover{color:var(--accent)}
   .trio input{flex:1; font:inherit; color:inherit; background:#fff;
     border:1px solid var(--line); border-radius:0; padding:4px 6px; outline:none}
-  #togglstub{display:none}   /* the to-do box takes this region; toggl comes later */
-  #todobox{display:none}
-  body.focus #todobox{
   #togglstub{display:none}   /* magic box 2 takes this region; toggl comes later */
   /* the to-do box that used to sit in this region is gone; magic box 2 holds it
      now. the dot class below stays because the outline entries share it */
@@ -1446,6 +1475,7 @@ function setTab(owner){
   // order the chat is always the one leaving second, and its teardown is the
   // one that checks for the picture panel's mark before putting the stub line
   // back, so the panel that just arrived is never wiped by the one leaving
+  chatPoll();
   if (lastState) apply(lastState);   // refilter the bar, outline and counters now
 }
 
@@ -1474,7 +1504,9 @@ function renderTabs(st){
     for (const ow of owners){
       const t = h("button", "ptab");
       t.dataset.owner = ow;
-      t.appendChild(h("span", "plabel", labelOf(st, ow)));
+      const lbl = h("span", "plabel", labelOf(st, ow));
+      lbl.dataset.label = lbl.textContent;   // the hidden line that holds this word's bold width
+      t.appendChild(lbl);
       if (!LOCKED){
         t.addEventListener("mousedown", e => {
           if (tabGlide) return;   // a drop still settling holds the bar
@@ -1503,6 +1535,8 @@ function renderTabs(st){
   }
   for (const t of bar.querySelectorAll(".ptab:not(.draft)")){
     t.classList.toggle("on", t.dataset.owner === activeOwner);
+    // the tab he is sitting on is bolded on the same terms as the rest: being
+    // parked on a lane is not the same as having opened its cards
     const lbl = t.querySelector(".plabel");
     const want = labelOf(st, t.dataset.owner);
     if (lbl.textContent !== want) lbl.textContent = want;
@@ -3169,6 +3203,196 @@ panelPoll(); setInterval(panelPoll, 4000);
 // /wait?owner=qchat and posting /reply?box=q. qchat is a registered owner in
 // the server and rowsOf keeps it out of the tab bar, so a conversation held
 // here can never turn up as a card among the pastureland cards.
+const C3_LANE = "triage";     // the one tab the chat belongs to
+const C3_BOX = "q";           // the card its thread lives on
+const C3_OWNER = "qchat";     // the lane an agent has to listen on to answer it
+const C3_POLL = 2000;         // ms between reads of the thread
+let c3For = null;             // the tab the chat is currently drawn for
+let c3Msgs = [];              // the thread as the server last handed it over
+let c3Sig = "";               // what is on screen, so an unmoved thread never redraws
+let c3Out = [];               // lines handed over and not yet back from /thread
+const C3_OUT_KEY = "c3out";   // where the ones that never landed wait out a reload
+try { c3Out = JSON.parse(localStorage.getItem(C3_OUT_KEY) || "[]"); } catch (e) {}
+if (!Array.isArray(c3Out)) c3Out = [];
+// only the lines that certainly did not reach the board are kept across a
+// reload. one that was still in the air might have landed, and it would come
+// back in the thread as well, which would put two bubbles up for one line
+function c3Save(){
+  try { localStorage.setItem(C3_OUT_KEY, JSON.stringify(c3Out.filter(o => o.failed))); }
+  catch (e) {}
+}
+
+function chatBuild(){
+  const host = document.getElementById("magic3");
+  if (!host || host.dataset.c3 === "1") return host;
+  // the picture panel is still standing in this box: its own poll takes it down
+  // this turn and the next chat poll builds. building over it would leave two
+  // panels each believing they own the element
+  if (host.dataset.p3 === "1") return null;
+  host.textContent = "";
+  host.dataset.c3 = "1";
+  host.classList.add("chatting");
+  const msgs = h("div", "c3msgs");
+  const bar = h("div", "c3bar");
+  const ta = document.createElement("textarea");
+  ta.rows = 1;
+  ta.placeholder = "message";
+  const send = h("button", null, "↑");
+  send.title = "send";
+  bar.append(ta, send);
+  host.append(msgs, bar);
+  send.addEventListener("click", chatSend);
+  // enter sends and shift enter breaks the line, the same two keys the quick
+  // chat panel uses
+  ta.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); chatSend(); }
+  });
+  host._c3 = { msgs, ta, send };
+  return host;
+}
+// back to the plain dashed box with its one line of text, every scrap of chat
+// state dropped, so a tab that does not have the chat is left looking exactly
+// as it did before the chat existed
+function chatOff(host){
+  if (!host || host.dataset.c3 !== "1") return;
+  c3For = null; c3Msgs = []; c3Sig = "";
+  host._c3 = null;
+  delete host.dataset.c3;
+  host.classList.remove("chatting");
+  // the picture panel may have taken the box over in this same turn, and its
+  // build empties the box first: putting the stub line back now would wipe it
+  if (host.dataset.p3 !== "1") host.textContent = "magic box 3";
+  // c3Out is left alone on purpose. a line that never reached the server is
+  // still his, and it comes back with the chat rather than dying on a tab switch
+}
+// one row of the thread, in the quick chat panel's classes, which are the
+// pastureland app's shapes: there is one chat look in this file, not two
+function chatRow(kind, text, waiting, cont){
+  const side = kind === "user" ? "me" : "ag";
+  const row = h("div", "qrow " + side + (cont ? " cont" : ""));
+  row.appendChild(h("div", "qb " + side + (waiting ? " wait" : ""), text));
+  return row;
+}
+function chatDraw(){
+  const host = document.getElementById("magic3");
+  if (!host || !host._c3) return;
+  const card = lastState && lastState.boxes.find(b => b.id === C3_BOX);
+  const writing = !!(card && card.writing);
+  // somebody is on the lane if it is long polling, or already composing a reply
+  const heard = !!(lastState && ((lastState.listening || {})[C3_OWNER] ||
+                                 (lastState.busy || {})[C3_OWNER]));
+  const sig = JSON.stringify([c3Msgs.map(m => m.kind + m.ts), writing, heard,
+                              c3Out.map(o => o.text + o.failed)]);
+  if (c3Sig === sig) return;
+  c3Sig = sig;
+  const list = host._c3.msgs;
+  list.textContent = "";
+  // anything he said after the last thing the agent said is still unanswered,
+  // which is the same set the server counts in the card's pending. it is not
+  // marked on the bubbles: the board has it, so it is sent, and the line at the
+  // bottom is where a messaging app says what became of it
+  let unanswered = 0;
+  for (let i = c3Msgs.length - 1; i >= 0 && c3Msgs[i].kind === "user"; i--) unanswered++;
+  let prev = null;
+  for (const m of c3Msgs){
+    list.appendChild(chatRow(m.kind, m.text, false, prev === m.kind));
+    prev = m.kind;
+  }
+  // a line the server has not taken yet sits at the end of the thread in his
+  // own words, so a send can never leave the screen looking like nothing at all
+  // happened, whether the post is still in the air or never landed
+  for (const o of c3Out){
+    const row = chatRow("user", o.text, true, prev === "user");
+    if (o.failed){
+      // the one way back out of a line that never landed: click it to try again.
+      // without this it would sit there for good, and throwing it away by itself
+      // is the one thing this panel must not do
+      row.classList.add("retry");
+      row.title = "click to send again";
+      row.addEventListener("click", () => {
+        if (!o.failed) return;
+        o.failed = false; c3Save(); c3Sig = ""; chatDraw(); chatPost(o);
+      });
+    }
+    list.appendChild(row);
+    prev = "user";
+  }
+  const bad = c3Out.some(o => o.failed);
+  const rcpt = bad ? "Not Delivered" : unanswered ? (heard ? "Delivered" : "Queued") : null;
+  if (rcpt) list.appendChild(h("div", "c3rcpt" + (bad ? " bad" : ""), rcpt));
+  if (writing){
+    const t = h("div", "qtyping");
+    t.append(h("i"), h("i"), h("i"));
+    list.appendChild(t);
+  }
+  list.scrollTop = list.scrollHeight;
+}
+async function chatFetch(){
+  try {
+    const r = await fetch("/thread?box=" + C3_BOX + "&n=60", { cache: "no-store" });
+    const j = await r.json();
+    if (Array.isArray(j.messages)) c3Msgs = j.messages;
+  } catch (e) {}
+}
+async function chatPost(out){
+  let ok = false;
+  try { ok = (await fetch("/send?box=" + C3_BOX, { method: "POST", body: out.text })).ok; }
+  catch (e) { ok = false; }
+  if (ok){
+    // /send writes the line to the transcript before it answers, so the very
+    // next read of the thread already holds it and the stand-in can go
+    await chatFetch();
+    const i = c3Out.indexOf(out);
+    if (i >= 0) c3Out.splice(i, 1);
+  } else {
+    out.failed = true;   // it never reached the board. say so, and keep the words
+  }
+  c3Save(); c3Sig = ""; chatDraw();
+}
+async function chatSend(){
+  const host = document.getElementById("magic3");
+  if (!host || !host._c3) return;
+  const ta = host._c3.ta;
+  const text = ta.value.trim();
+  if (!text) return;
+  ta.value = "";
+  // on screen before the request leaves, and it stays there until the thread
+  // comes back holding it, so there is no moment where his words are nowhere
+  const out = { text, failed: false };
+  c3Out.push(out);
+  c3Save(); c3Sig = ""; chatDraw();
+  await chatPost(out);
+}
+async function chatPoll(){
+  // one tab's thing only, the same rule the picture panel above follows
+  if (activeOwner !== C3_LANE){ chatOff(document.getElementById("magic3")); return; }
+  const host = chatBuild();
+  if (!host || !host._c3) return;
+  if (c3For !== activeOwner){ c3For = activeOwner; c3Sig = ""; }
+  await chatFetch();
+  if (!host._c3) return;   // a tab switch took the chat apart while that was in the air
+  chatDraw();
+}
+chatPoll(); setInterval(chatPoll, C3_POLL);
+
+// the picture, clicked, grows out of the panel until it fills the screen over a
+// dark veil, and shrinks back into the panel on the next click outside it or on
+// Escape. the thing that grows is the panel's own img, carried into the layer
+// and carried back after, not a copy: the poll above keeps swapping its src
+// underneath, so a plot redrawn while it is open simply appears, and there is
+// never a second object url in the room to be leaked
+// 300ms on the board's own curve, the one the tabs glide on. that curve is quick
+// off the mark and settles rather than stops, which is how a real object arrives;
+// 220 is right for a tab sliding one tab's width, and this crosses the whole
+// screen, so it gets the extra 80. past about 400 a zoom starts to feel slow
+const P3_ZOOM_MS = 300;
+const P3_ZOOM_EASE = "cubic-bezier(0.25, 1, 0.5, 1)";
+const P3_ZOOM_PAD = 56;   // air left around the picture, so it never touches an edge
+// how dark the veil ends up. it used to live in the veil's own colour as an
+// alpha and the fade ran to a plain 1; it is the fade's end point now so the
+// colour can be opaque, which is what keeps the veil off the raster threads.
+// the stylesheet above says why at length. the two have to agree: this number
+// and the alpha that was in that colour are the same .62
 const P3_VEIL_ALPHA = 0.62;
 let p3Zoom = null;        // what is open, and null whenever nothing is
 
