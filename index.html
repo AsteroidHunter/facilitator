@@ -43,28 +43,14 @@
   }
   .bar .name{font:600 15px var(--serif); letter-spacing:.01em}
   .bar .name em{font-style:italic; font-weight:400; color:var(--sub)}
-  .bar .live{display:flex; align-items:center; gap:8px; margin-left:auto; font:12px var(--mono); color:var(--sub)}
-  .dot{width:8px; height:8px; border-radius:50%; background:var(--line-strong); flex:none; transition:background .3s}
-  .dot.on{background:var(--accent); animation:pulse 1.2s ease-in-out infinite}
   @keyframes pulse{50%{opacity:.35}}
-  .prog{font:12px var(--mono); color:var(--sub); white-space:nowrap}
-  .prog b{color:var(--green); font-weight:500}
-  .endbtn{
-    font:12px var(--mono); color:var(--sub); background:none; border:1px solid var(--line);
-    border-radius:99px; padding:4px 12px; cursor:pointer; transition:.2s;
-  }
-  .endbtn:hover{border-color:var(--must); color:var(--must)}
-  .endbtn.arm{border-color:var(--must); color:#fff; background:var(--must)}
   #bgpick{width:24px; height:20px; padding:0; border:1px solid var(--line-strong);
     border-radius:4px; background:none; cursor:pointer; flex:none}
   #bgpick::-webkit-color-swatch-wrapper{padding:2px}
   #bgpick::-webkit-color-swatch{border:none; border-radius:2px}
-  .pausebtn{font:12px var(--mono); color:var(--accent); background:var(--accent-soft);
-    border:none; border-radius:4px; padding:4px 12px; cursor:pointer; transition:.2s}
-  .pausebtn:hover{background:#E2DCFC}
-  body.paused .pausebtn{background:var(--accent); color:#fff}
   #editbtn{font:13px var(--mono); color:var(--accent); background:var(--accent-soft);
-    border:none; border-radius:4px; padding:3px 9px; cursor:pointer; transition:.2s; flex:none}
+    border:none; border-radius:4px; padding:3px 9px; cursor:pointer; transition:.2s; flex:none;
+    margin-left:auto}   /* holds the right edge now the status row is gone */
   #editbtn:hover{background:#E2DCFC}
   body.editmode #editbtn{background:var(--accent); color:#fff}
 
@@ -261,8 +247,6 @@
   .parkbtn:hover{background:#DFE3EA}
   .addbtn{background:var(--accent-soft); color:var(--accent)}
   .addbtn:hover{background:#E2DCFC}
-  .endbtn{background:var(--must-bg); color:var(--must)}
-  .endbtn:hover{background:#F2DCD3}
   .box.done .donebtn{background:var(--green); color:#fff}
   .box.parked .parkbtn{background:var(--later); color:#fff}
   .ctx{
