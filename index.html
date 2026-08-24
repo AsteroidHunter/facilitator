@@ -288,9 +288,12 @@
     top:calc(var(--oy) + var(--ch)*var(--frame-y)); height:calc(var(--ch)*var(--frame-h));
     border:1px solid var(--line-strong); background:#fff; border-radius:7px;
     box-shadow:0 2px 18px rgba(60,45,20,.06);
+    box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
+    transition:box-shadow .2s;
     padding:calc(var(--ch)*0.022) var(--pad-x);
     display:flex; flex-direction:column; align-items:stretch;
   }
+  body.focus.minifocus main{box-shadow:0 2px 18px rgba(60,45,20,.06)}
   body.focus #sections{width:100%; max-width:100%; flex:1; display:flex; flex-direction:column}
   body.focus #sections > div:not(.bucket){display:contents}
   body.focus .bucket, body.focus .addrow{display:none}
@@ -522,6 +525,23 @@
     display:flex; flex-direction:column}
   #magic2 .mbox{background:var(--card); border:1px solid var(--line);
     border-radius:7px; padding:9px 11px; display:flex; flex-direction:column;
+    flex:1; min-height:0; position:relative; transition:box-shadow .2s}
+  #magic2 .mbox.off{display:none}
+  /* magic box 1: the Spotify player. same shapes as the rest of the app, the
+     app's own greys, nothing new brought in */
+  /* magic box 1: the Spotify player, on the same liquid glass the pastureland
+     typing bar uses. light face, real backdrop blur, the hairline ring and
+     the white top catch. text stays in the board's own ink and grey */
+  /* the official embed takes its colour from the album art. same idea here,
+     but as a light wash over the glass instead of a deep block, because the
+     board is a light surface */
+  #magic1.filled{display:flex; padding:0; overflow:hidden; border:none;
+    /* the corner, restored 20260822: the reference's 18px was tried and
+       not kept. only the glass itself was ever the ask */
+    border-radius:9px; position:relative;
+    /* the stub rule centres its contents; the player needs its column to be the
+       full height of the panel, or the buttons drift as the text grows */
+    align-items:stretch;
   #magic2 .mtitle{font:625 15px/1.25 var(--inter); color:var(--ink);
     margin-top:8px; padding-right:46px; flex:none; cursor:text}
   #magic2 .mtitle[contenteditable]{outline:none}
@@ -552,6 +572,7 @@
   #magic2 .mpend{display:flex; flex-direction:column; flex:none; gap:4px;
     font:12px/1.45 var(--sans); color:var(--ink); cursor:pointer; user-select:none}
   #magic2 .mpend:empty{display:none}
+  #magic2.mfocus .mbox{box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
   /* workspaces: a sharp panel at x 4.2%, y 28.4..46.7%, rows flush right,
      the active row's right border open into the canvas */
   body.focus #wsl{
@@ -579,7 +600,10 @@
   }
   .paneh{font:11px var(--mono); letter-spacing:.09em; text-transform:uppercase;
     color:var(--sub); padding:10px 12px 6px}
-  #qmsgs{flex:1; overflow-y:auto; padding:8px 12px; display:flex; flex-direction:column}
+  /* the chat in magic box 3 wears these rules too. min-height:0 matters there
+     and is harmless here: without it a flex child's automatic minimum size lets
+     the thread grow past its panel instead of scrolling, and the typing bar
+     gets pushed out of the bottom */
   .qrow{display:flex; margin-top:10px}
   .qrow.cont{margin-top:2px}
   .qrow.me{justify-content:flex-end}
@@ -1502,6 +1526,34 @@ function fmt(t){
   }).join("");
 }
 
+function replyHalves(t){
+  const text = t || "";
+  const lines = text.split("\n");
+  // the separator and the blank lines around it are punctuation for the split,
+  // not content, so neither card should show the gap they leave. whole blank
+  // lines go and nothing else: trimming the text itself would eat the indent
+  // off a first line that is code
+  const clip = a => {
+    while (a.length && !a[0].trim()) a.shift();
+    while (a.length && !a[a.length - 1].trim()) a.pop();
+    return a.join("\n");
+  };
+  // the same ^``` test fmt uses, so the two agree on where a fence starts and
+  // ends: a --- inside a fence is part of the thing being shown (yaml
+  // frontmatter, a rule in some file), and splitting there would hand fmt an
+  // opening ``` with no close and break the code block in both cards
+  let inCode = false;
+  for (let i = 0; i < lines.length; i++){
+    if (/^```/.test(lines[i])){ inCode = !inCode; continue; }
+    // only the first separator splits. a later --- is ordinary text and rides
+    // along in the normal half, where the reply meant it to sit
+    if (!inCode && lines[i].trim() === "---"){
+      return { short: clip(lines.slice(0, i)), full: clip(lines.slice(i + 1)) };
+    }
+  }
+  return { short: text, full: text };
+}
+
 function build(state){
   const sections = document.getElementById("sections");
   const toc = document.getElementById("toc");
@@ -1581,11 +1633,6 @@ function makeBox(b, i, state){
     head.appendChild(titleEl);
     const wstat = h("span", "wstat");
     head.appendChild(wstat);
-    head.appendChild(h("span", "turn", "your turn"));
-    const park = h("button", "parkbtn", "later");
-    head.appendChild(park);
-    const done = h("button", "donebtn", "done");
-    head.appendChild(done);
     // orange archive button: defers the card into the deferred tab (parks it)
     const arc = h("button", "arcbtn");
     arc.title = "defer to the deferred tab";
@@ -1594,13 +1641,13 @@ function makeBox(b, i, state){
     head.appendChild(arc);
     box.appendChild(head);
 
-    const ctx = h("div", "ctx", b.context || "");
-    box.appendChild(ctx);
 
     const body = h("div", "body");
     const reply = h("div", "reply");
     reply.dataset.raw = b.reply;
-    reply.innerHTML = fmt(b.reply);
+    // the large card shows the normal half; raw stays the whole reply so the
+    // changed check and the history compare still see every edit
+    reply.innerHTML = fmt(replyHalves(b.reply).full);
     const meta = h("div", "meta");
     // transient notes (send failures) get their own span
     const metaNote = h("span");
@@ -1653,16 +1700,14 @@ function makeBox(b, i, state){
     });
     ta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); doSend(b.id); } });
     send.addEventListener("click", () => doSend(b.id));
-    done.addEventListener("click", e => { e.stopPropagation(); toggleFlag(b.id, "done"); });
-    park.addEventListener("click", e => { e.stopPropagation(); toggleFlag(b.id, "park"); });
     head.addEventListener("click", () => {
       if (box.classList.contains("done") || box.classList.contains("waiting") || box.classList.contains("parked"))
         box.classList.toggle("peek");
     });
 
     els[b.id] = { box, reply, meta, metaNote, histPos, histUp, histDown,
-                  pend, ta, send, donebtn: done, wstat, toc: entry, sec,
-                  titleEl, tocTitle: entry.querySelector(".ttitle"), ctx, arc, x };
+                  pend, ta, send, wstat, toc: entry, sec,
+                  titleEl, tocTitle: entry.querySelector(".ttitle"), arc, x };
 
     // explicit focus ring: title -> text -> Send -> cross -> moon -> (wrap)
     const ring = [titleEl, ta, send, x, arc];
@@ -1762,7 +1807,9 @@ function cancelAutoNext(){ clearTimeout(autoNext); autoNext = null; }
 // green working card or a grey queued one
 function jumpNextYellow(fromId){
   if (!lastState) return;
-  const p = poolOf(lastState).filter(b =>
+  // stay inside the tab being looked at: sending from doing must never land on
+  // a deferred or done card
+  const p = viewPool(lastState).filter(b =>
     !b.done && !(b.writing || b.bg) && b.ball === "you" && b.id !== fromId);
   if (!p.length) return;
   lastLeftId = fromId;
@@ -1877,7 +1924,7 @@ function histExit(id){
   el.histUp.disabled = false;
   el.histDown.disabled = true;
   if (was){
-    el.reply.innerHTML = fmt(el.reply.dataset.raw);
+    el.reply.innerHTML = fmt(replyHalves(el.reply.dataset.raw).full);
     el.reply.scrollTop = 0;
   }
 }
@@ -1944,7 +1991,7 @@ function apply(state){
       el.reply.dataset.raw = b.reply;
       delete histCache[b.id];   // a fresh reply outdates the cached thread
       if (hist && hist.id === b.id) histExit(b.id);   // and snaps a history view back to live
-      else el.reply.innerHTML = fmt(b.reply);
+      else el.reply.innerHTML = fmt(replyHalves(b.reply).full);
     }
     if (!el.titleEl.isContentEditable && el.titleEl.textContent !== b.title){   // first message just named a new box
       el.titleEl.textContent = b.title;
@@ -2029,6 +2076,7 @@ function apply(state){
     renderWorkspaces(state);
     renderTrio(state);
     renderCarousel(state);
+    renderMiniCards(state);
   }
   document.body.classList.toggle("ended", !!state.end);
 
@@ -2043,7 +2091,7 @@ function apply(state){
       "Offline: " + offOwners.map(ow => laneName(ow) + " (last heard " +
       Math.round(state.listenerGap[ow] / 60) + " min ago)").join(", ") +
       ". Messages still queue safely; replies resume when that terminal side wakes.";
-    live.textContent = offOwners.length === 2 ? "listeners offline" : laneName(offOwners[0]) + " offline";
+    // the bar's own status line went with the strip; the banner below says it
   }
 }
 
@@ -2172,11 +2220,255 @@ function inlineEdit(spanEl, initial, onSave){
 // one name per card: done, parked, working, new, yours, queued. consumers
 // map the name to their own classes, group numbers, and colors; the two
 // helpers under it keep old per-site quirks exactly as they were.
+// magic box 1: a Spotify player on the same liquid glass the pastureland down
+// button uses. signs in with the flow Spotify calls PKCE, which needs no
+// secret, so the id below is public by design and the token never leaves this
+// browser.
 // real card has; the grey summary strip is deliberately left out
+const miniEls = {};
+// the card it sits on is kept across reloads, per project tab, so a reload does
+// not always drop you back on the first card of the list. the open tab is
+// stored under "activeproj", so this follows that naming with the lane on the end
+const miniKey = () => "minibox." + activeOwner;
+let miniId = localStorage.getItem(miniKey()) || null;   // the one card magic box 2 is showing
+let miniOrder = [];       // the cards it can walk through, board order
+let miniFocused = false;  // clicked into: the arrows and command T are ours
+
+// every move through the small card is written down, so the next load starts
+// where this one left off. a remembered card that has gone, been closed or been
+// deferred is simply not in miniOrder any more, and the fallback in the render
+// writes the first card over it
+function miniGo(id){
+  miniId = id;
+  if (id) localStorage.setItem(miniKey(), id);
+  else localStorage.removeItem(miniKey());
+}
+
+function miniStep(dir, opts){
+  opts = opts || {};
+  if (!miniOrder.length) return;
+  const at = miniOrder.indexOf(miniId);
+  miniGo(miniOrder[((at < 0 ? 0 : at) + dir + miniOrder.length) % miniOrder.length]);
+  if (lastState) renderMiniCards(lastState);
+  // the card being left is hidden by the render above, and hiding the box the
+  // caret sits in drops the caret on the page body. the large card's pair
+  // leaves you typing in the card you arrive at, so put it back by hand. after
+  // the render, because the render is what moves and hides the boxes
+  if (opts.focus) miniEls[miniId]?.ta?.focus();
+}
+let miniEditPending = null;   // name the card as soon as it has been drawn
+async function miniCreate(){
+  const r = await fetch("/create?owner=facilitator", { method: "POST" })
+    .then(x => x.json()).catch(() => null);
+  if (r?.id){ miniGo(r.id); miniEditPending = r.id; }
+  poll();
+}
+// renaming in place, the same shape as the large card's: a click edits where you
+// click, arriving any other way selects the whole name, Enter drops into the
+// message field, Escape puts the old name back, and leaving it commits
+function miniEditTitle(id, opts){
+  opts = opts || {};
+  const el = miniEls[id]; if (!el) return;
+  const t = el.title, old = t.textContent;
+  t.setAttribute("contenteditable", "plaintext-only");
+  if (old === "\u2026") t.textContent = "";
+  if (!opts.fromClick){
+    t.focus();
+    if (t.textContent){
+      const range = document.createRange();
+      range.selectNodeContents(t);
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    }
+  }
+  const end = () => { t.removeAttribute("contenteditable"); t.onkeydown = null; t.onblur = null; };
+  const commit = () => {
+    const name = t.textContent.trim();
+    end();
+    if (name && name !== old){
+      t.textContent = name;
+      fetch("/title?box=" + encodeURIComponent(id), { method: "POST", body: name })
+        .then(() => poll()).catch(() => {});
+    } else if (!name && !old){
+      fetch("/title?box=" + encodeURIComponent(id), { method: "POST" })
+        .then(() => poll()).catch(() => {});
+    } else t.textContent = old;
+  };
+  t.onkeydown = e => {
+    e.stopPropagation();   // the card-walking keys must not fire while naming
+    if (e.key === "Enter"){ e.preventDefault(); commit(); el.ta?.focus(); }
+    else if (e.key === "Escape"){
+      if (!old && !t.textContent.trim()) commit();
+      else { end(); t.textContent = old; }
+      el.ta?.focus();
+    }
+  };
+  t.onblur = () => { if (t.isContentEditable) commit(); };
+}
+// clicking anywhere inside magic box 2 hands it the keys; clicking anywhere
+// else hands them back to the board
+addEventListener("mousedown", e => {
+  const inside = !!(e.target.closest && e.target.closest("#magic2"));
+  if (inside === miniFocused) return;
+  miniFocused = inside;
+  document.getElementById("magic2")?.classList.toggle("mfocus", inside);
+  // exactly one of the two stands up: the large card settles while the small
+  // card is holding the keys
+  document.body.classList.toggle("minifocus", inside);
+}, true);
+// capture, so these never reach the board's own arrow and delete handling
+addEventListener("keydown", e => {
+  if (!miniFocused) return;
+  if (e.metaKey && (e.key === "t" || e.key === "T")){
+    e.preventDefault(); e.stopPropagation();
+    miniCreate();
+    return;
+  }
+  const t = document.activeElement;
+  const typing = t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable);
+  // control+shift+left/right is the board's card switcher, and the whole point
+  // of that pair is that it still works with the cursor sitting in a text box.
+  // the small card takes the same pair while it holds the keys, or the habit
+  // falls through and quietly walks the large card behind it instead.
+  // up and down are deliberately not listed: those stay the board's
+  const switcher = e.ctrlKey && !e.metaKey && e.shiftKey;
+  if (typing && !switcher) return;   // plain arrows belong to the caret while typing
+  if (e.key === "ArrowLeft" || e.key === "ArrowRight"){
+    e.preventDefault(); e.stopPropagation();
+    // typing when the pair was pressed means the caret was in a text box, so it
+    // belongs in the next card's text box. arriving from anywhere else leaves
+    // focus where it was rather than pulling it into a composer uninvited
+    miniStep(e.key === "ArrowRight" ? 1 : -1, { focus: typing });
+  }
+}, true);
+
+function renderMiniCards(state){
+  const host = document.getElementById("magic2");
+  if (!host) return;
+  const cards = state.boxes.filter(b => b.owner === "facilitator" && !b.done && !b.parked);
+  let list = host.querySelector(":scope > .mlist");
+  if (!list){
+    host.textContent = "";           // drops the "magic box 2" placeholder text
+    host.classList.add("filled");
+    list = h("div", "mlist");
+    host.appendChild(list);
+  }
+  miniOrder = cards.map(b => b.id);
+  // a just-created card is not in the state for a poll or two; hold the view on
+  // it until it lands, or the selection falls back and its name never opens
+  if (miniEditPending && miniOrder.includes(miniEditPending)) miniGo(miniEditPending);
+  if (!miniOrder.includes(miniId) && !(miniEditPending && miniId === miniEditPending)) miniGo(miniOrder[0] || null);
+  const live = new Set();
+  for (const b of cards){
+    live.add(b.id);
+    let el = miniEls[b.id];
+    if (!el){
+      const box = h("div", "mbox");
+      const title = h("div", "mtitle");
+      title.tabIndex = 0;
+      title.addEventListener("mousedown", () => miniEditTitle(b.id, { fromClick: true }));
+      title.addEventListener("focus", () => { if (!title.isContentEditable) miniEditTitle(b.id); });
+      // the same two round chips the large card carries, and the same jobs:
+      // the orange moon defers, the pink cross closes a card that holds a
+      // conversation and removes one that is empty
+      const arc = h("button", "marc");
+      arc.title = "defer to the deferred tab";
+      arc.innerHTML = '<svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" stroke="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
+      arc.addEventListener("click", e => { e.stopPropagation(); toggleFlag(b.id, "park"); });
+      const x = h("button", "mx");
+      x.title = "done (an empty card is removed instead)";
+      x.addEventListener("click", async e => {
+        e.stopPropagation();
+        const hasContent = b.replies > 0 || (b.reply && b.reply.trim()) || b.pending > 0;
+        const ep = hasContent ? ("/done?box=" + encodeURIComponent(b.id) + "&v=1")
+                              : ("/delete?box=" + encodeURIComponent(b.id));
+        await fetch(ep, { method: "POST" }).catch(() => {});
+        poll();
+      });
+      const reply = h("div", "mreply");
+      const pend = h("div", "mpend");
+      pend.addEventListener("click", () => pend.classList.toggle("open"));
+      const compose = h("div", "mcompose");
+      const ta = h("textarea");
+      ta.rows = 1;
+      const send = h("button", "msend", "Send");
+      compose.append(ta, send);
+      const fire = async () => {
+        const text = ta.value.trim();
+        if (!text) return;
+        send.disabled = true;
+        try {
+          // via=mini says this was typed in the small card. The big card sends
+          // no marker at all, so the agent can tell the two apart and the
+          // server can hold a small card answer to a small card's worth of room
+          const r = await fetch("/send?box=" + encodeURIComponent(b.id) + "&via=mini", { method: "POST", body: text });
+          if (r.ok){ ta.value = ""; ta.style.height = "auto"; poll(); }
+        } catch (e) {} finally { send.disabled = false; }
+      };
+      send.addEventListener("click", fire);
+      // the board's own arrow and delete keys must never see this typing
+      ta.addEventListener("keydown", e => {
+        e.stopPropagation();
+        if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); fire(); }
+      });
+      ta.addEventListener("keyup", e => e.stopPropagation());
+      ta.addEventListener("input", () => {
+        ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px";
+      });
+      box.append(arc, x, title, reply, pend, compose);
+      el = miniEls[b.id] = { box, title, reply, pend, ta };
+      list.appendChild(box);
+    }
+    // one card at a time; the rest stay built so their half-typed messages
+    // survive a walk away and back
+    el.box.classList.toggle("off", b.id !== miniId);
+    if (!el.title.isContentEditable && el.title.textContent !== (b.title || "")){
+      el.title.textContent = b.title || "";
+    }
+    // rewrite the reply only when it actually changed, or typing gets disturbed.
+    // the small card carries the short half; the large card carries the normal
+    // one. raw stays the whole reply so the check still sees every change
+    if (el.reply.dataset.raw !== (b.reply || "")){
+      el.reply.dataset.raw = b.reply || "";
+      el.reply.innerHTML = fmt(replyHalves(b.reply).short);
+    }
+    const pt = (b.pendingTexts || []).join("\n\n");
+    if (el.pend.dataset.raw !== pt){
+      el.pend.dataset.raw = pt;
+      const stamps = b.pendingStamps || [];
+      el.pend.innerHTML = (b.pendingTexts || [])
+        .map((t, i) => {
+          const body = linkify(imgify(t.replace(/&/g, "&amp;").replace(/</g, "&lt;")));
+          return "<p>" + stampHTML(stamps[i]) + (shotgrid(body) || body) + "</p>";
+        }).join("");
+      el.pend.dataset.label = "Sent messages (" + el.pend.children.length + ")";
+      if (!el.pend.children.length) el.pend.classList.remove("open");
+    }
+    el.box.classList.toggle("mwait", !!b.pending);
+  }
+  for (const id of Object.keys(miniEls)){
+    if (!live.has(id)){ miniEls[id].box.remove(); delete miniEls[id]; }
+  }
+  // reorder only when the order really changed; moving nodes every poll would
+  // fight a composer that is being typed into
+  const order = cards.map(b => b.id).join(",");
+  if (list.dataset.order !== order){
+    list.dataset.order = order;
+    for (const b of cards) list.appendChild(miniEls[b.id].box);
+  }
+  // opening the name has to come last: the reorder above moves the card's node,
+  // and moving a node that holds the caret blurs it, which would commit the
+  // rename the instant it opened
+  if (miniEditPending && miniEls[miniEditPending] && miniEditPending === miniId){
+    const id = miniEditPending;
+    miniEditPending = null;
+    miniEditTitle(id);
+  }
+}
+
 function cardState(b){
   // the server now computes one authoritative state per card; the inline
   // version stays only as a fallback for an older server that omits it
-  return b.state || (
+  const s = b.state || (
          b.done ? "done"
        : b.parked ? "parked"
        : (b.writing || b.bg) ? "working"
@@ -2184,6 +2476,12 @@ function cardState(b){
        : (!b.agentTs && !b.pending && !b.replies) ? "new"
        : b.ball === "you" ? "yours"
        : "queued");
+  // a message of his still sitting in the queue is waiting on the agent, not
+  // on him, so the card rests grey. an older reply can leave the ball on his
+  // side while a newer message is still in line, and that used to paint the
+  // card yellow. only yours is rewritten, so done, parked and every green
+  // state keep exactly the state they had
+  return (s === "yours" && b.pending > 0) ? "queued" : s;
 }
 // the queue panel's view: a parked card sorts and colors as if open. state is
 // nulled in the copy so cardState recomputes from the flags instead of handing
@@ -2202,6 +2500,17 @@ function awaitsYou(b){
 // ---- the carousel: the workspace's other chats as a queue -----------------
 // Front: chats the agent has addressed (yellow), newest first. Back: chats
 // answered and waiting on the agent (green), the just-answered one last.
+// the doing, deferred and done tabs are a filter over that same pool. the left
+// list and the arrow keys have to walk the same set, or the arrows cycle into
+// cards the list is not showing
+function viewFilter(b){
+  const s = cardState(b);
+  return ticketView === "done" ? s === "done"
+       : ticketView === "deferred" ? s === "parked"
+       : (s !== "done" && s !== "parked");
+}
+function viewPool(state){ return poolOf(state).filter(viewFilter); }
+
 function poolOf(state){
   const w = curWs(state);
   return state.boxes.filter(b =>
@@ -2212,8 +2521,8 @@ function poolOf(state){
       const g = x => ({ "new": 0, yours: 1, queued: 2, working: 3, done: 4 })[queueState(x)];
       if (g(a) !== g(b)) return g(a) - g(b);
       if (g(a) === 0) return (b.ts || 0) - (a.ts || 0);   // newest created on top
-      if (g(a) === 1) return (b.agentTs || 0) - (a.agentTs || 0);   // newest agent reply on top
-      return (a.ts || 0) - (b.ts || 0);                    // waiting and working: oldest first
+      if (g(a) === 1) return (b.agentTs || 0) - (a.agentTs || 0);   // newest reply on top: latest cards come to the top. it was oldest first for a day so a batch came back in send order, which was not wanted
+      return (b.ts || 0) - (a.ts || 0);                    // waiting, working and done: newest first
     });
 }
 
@@ -2236,42 +2545,6 @@ function relAge(ts){
   if (sec < 3600) return "replied " + Math.floor(sec / 60) + "m ago";
   if (sec < 86400) return "replied " + Math.floor(sec / 3600) + "h ago";
   return "replied " + Math.floor(sec / 86400) + "d ago";
-}
-
-// the to-do box: same list as the rail's dots, earliest at the top, the ones
-// nearer the goal at the bottom; either side can add, edit, cycle, or remove
-function renderTodos(state){
-  const list = document.getElementById("todolist");
-  const w = curWs(state);
-  const sig = w ? w.id + "|" + w.tasks.map(t => t.id + t.status + t.text).join(",") + "|" + selectedTask : "";
-  if (list.dataset.sig === sig) return;
-  list.dataset.sig = sig;
-  list.textContent = "";
-  if (!w) return;
-  for (const t of w.tasks){
-    const row = h("div", "todorow " + t.status + (t.id === selectedTask ? " sel" : ""));
-    const dot = h("span", "tdot");
-    dot.title = "click to cycle status";
-    dot.addEventListener("click", e => {
-      e.stopPropagation();
-      const next = { pending: "ongoing", ongoing: "done", done: "pending" }[t.status] || "ongoing";
-      api("/ws/task?owner=" + activeOwner + "&ws=" + w.id + "&id=" + t.id + "&status=" + next);
-    });
-    const txt = h("span", "tdtext", t.text || "(unnamed)");
-    txt.addEventListener("dblclick", e => {
-      e.stopPropagation();
-      inlineEdit(txt, t.text, v => v && api("/ws/task?owner=" + activeOwner + "&ws=" + w.id + "&id=" + t.id, v));
-    });
-    const x = h("button", "tdx", "✕");
-    x.title = "remove this to-do";
-    x.addEventListener("click", e => {
-      e.stopPropagation();
-      api("/ws/task?owner=" + activeOwner + "&ws=" + w.id + "&id=" + t.id + "&del=1");
-    });
-    row.append(dot, txt, x);
-    row.addEventListener("click", () => selectTask(t.id));
-    list.appendChild(row);
-  }
 }
 
 function shortAge(ts){
@@ -2308,8 +2581,7 @@ function renderCarousel(state){
   const w = curWs(state);
   const all = poolOf(state);    // every chat of the workspace, grouped and sorted
   // panel tab from the one state: done -> done, parked -> deferred, else doing
-  const pool = all.filter(b => { const s = cardState(b);
-    return ticketView === "done" ? s === "done" : ticketView === "deferred" ? s === "parked" : (s !== "done" && s !== "parked"); });
+  const pool = all.filter(viewFilter);
   const lane = state.agents?.[activeOwner];
   const sig = ticketView + "|" + (lane ? lane.name + lane.alive : "") + "|" +
               pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
@@ -2479,22 +2751,8 @@ addEventListener("keydown", e => {
   const t = e.target;
   const typing = t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable);
   if (typing){ if (e.key === "Escape") t.blur(); return; }
-  if (e.altKey && e.shiftKey && e.key.startsWith("Arrow") && dragEnabled){
-    // option+shift+arrows: resize the box under the mouse by one grid cell,
-    // sizes snapped to whole cells and remembered like dragged positions
-    const el = document.elementFromPoint(mouse.x, mouse.y)?.closest(REGION_SEL);
-    if (el){
-      e.preventDefault();
-      const r = el.getBoundingClientRect();
-      const dw = e.key === "ArrowRight" ? GRID : e.key === "ArrowLeft" ? -GRID : 0;
-      const dh = e.key === "ArrowDown" ? GRID : e.key === "ArrowUp" ? -GRID : 0;
-      const w = Math.max(2 * GRID, Math.round((r.width + dw) / GRID) * GRID);
-      const h = Math.max(2 * GRID, Math.round((r.height + dh) / GRID) * GRID);
-      el.style.width = w + "px"; el.style.height = h + "px";
-      localStorage.setItem("size." + activeOwner + "." + regionId(el), JSON.stringify({ w, h }));
-      return;
-    }
-  }
+  // the arrow key resize is gone, taken out on 20260822. boxes are
+  // still resized by the small squares in edit mode and moved by dragging
   if ((e.key === "Backspace" || e.key === "Delete") && selectedId){
     const b = lastState?.boxes.find(x => x.id === selectedId);
     if (b?.bucket === "meta"){   // same cards the remove cross appears on
@@ -2536,21 +2794,6 @@ document.getElementById("ndown").addEventListener("click", () => nav(0, 1));
     localStorage.setItem("bgcolor", pick.value);
   });
 }
-document.getElementById("pausebtn").addEventListener("click", async () => {
-  await fetch("/pause?v=" + (lastState?.paused ? 0 : 1), { method: "POST" }).catch(() => {});
-  poll();
-});
-
-let endArmed = false;
-document.getElementById("endbtn").addEventListener("click", async e => {
-  const btn = e.currentTarget;
-  if (!endArmed){ endArmed = true; btn.textContent = "Sure? End it"; btn.classList.add("arm");
-    setTimeout(() => { endArmed = false; btn.textContent = "End session"; btn.classList.remove("arm"); }, 3500);
-    return; }
-  await fetch("/end", { method: "POST" }).catch(() => {});
-  btn.textContent = "Ended"; btn.disabled = true;
-});
-
 // resizable outline: drag the grip, clamped, remembered
 {
   const clamp = w => Math.max(170, Math.min(420, w));
@@ -2671,26 +2914,10 @@ document.addEventListener("click", e => {
 });
 fitStage();
 
-{
-  const ta = document.getElementById("todoadd");
-  ta.addEventListener("keydown", e => {
-    e.stopPropagation();
-    if (e.key === "Enter"){
-      const v = ta.value.trim();
-      if (!v) return;
-      const w = lastState && curWs(lastState);
-      if (!w) return;
-      ta.value = "";
-      api("/ws/task?owner=" + activeOwner + "&ws=" + w.id, v);
-    }
-  });
-}
-
 // every region on the canvas moves: hold Option and drag; positions snap to
 // the star lines and persist per project
 const GRID = 1440 * 0.008;         // the star pitch on the stage
 const onStar = v => Math.round((v - GRID / 2) / GRID) * GRID + GRID / 2;   // nearest star line
-const REGION_SEL = "main, #clockbox, #rail, #tickets, #magic1, #magic2, #todobox, #goalbox";
 const REGION_SEL = "main, #clockbox, #rail, #tickets, #magic1, #magic2, #magic3, #goalbox";
 function regionId(el){ return el.tagName === "MAIN" ? "main" : el.id; }
 // each tab keeps its own layout, and a tab that has never been arranged at all
