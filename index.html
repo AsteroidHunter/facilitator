@@ -965,6 +965,35 @@
   #magic2 .mpend{display:flex; flex-direction:column; flex:none; gap:4px;
     font:12px/1.45 var(--sans); color:var(--ink); cursor:pointer; user-select:none}
   #magic2 .mpend:empty{display:none}
+  #magic2 .mpend::before{content:"\2191 " attr(data-label);
+    display:flex; align-items:center; justify-content:center; align-self:stretch;
+    height:20px; padding:0 10px; border-radius:4px;
+    /* grey rather than the large card's yellow: the app's own line grey with
+       its muted text, so no new colour comes in */
+    background:var(--line); color:var(--sub); font:11px var(--mono)}
+  #magic2 .mpend.open::before{content:"\2193 " attr(data-label); padding:0}
+  #magic2 .mpend p{display:none}
+  #magic2 .mpend.open{border-radius:4px; padding:8px 10px;
+    background:linear-gradient(to bottom, rgba(230,223,210,0), var(--line) 20px)}
+  #magic2 .mpend.open p{display:block; margin:0; text-align:right; white-space:pre-wrap}
+  #magic2 .mpend.open p + p{padding-top:6px}
+  #magic2 .mpend.open p .stamp{display:block; margin:0 0 2px;
+    font:9.5px/1.35 var(--mono); color:var(--sub); text-align:right}
+  /* a line, not a box, exactly as the large card's composer is drawn */
+  #magic2 .mcompose{display:flex; gap:var(--sp-x); align-items:flex-end; flex:none;
+    border-top:1px solid var(--line); margin-top:var(--sp-xs); padding-bottom:0}
+  #magic2 .mcompose textarea{flex:1; resize:none; background:transparent;
+    border:none; box-shadow:none; outline:none; color:var(--ink);
+    font:12px/1.5 var(--sans); padding:var(--sp-s) 4px; margin:0 -4px;
+    min-height:30px; max-height:110px; overflow-y:auto}
+  #magic2 .msend{background:none; border:none; cursor:pointer;
+    color:var(--sub); font:500 12px var(--sans);
+    /* the field's own bottom padding, so the two sit on one line */
+    padding:0 2px var(--sp-s)}
+  #magic2 .msend:hover{color:var(--accent)}
+  /* clicked into: the arrows and command T belong to this box until you click
+     back out. shown by lifting the box on the app's own raised shadow, the same
+     pair the other lifted surfaces use, rather than by recolouring anything */
   #magic2.mfocus .mbox{box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
   /* workspaces: a sharp panel at x 4.2%, y 28.4..46.7%, rows flush right,
      the active row's right border open into the canvas */
@@ -1178,6 +1207,20 @@
   /* 20260823: weight alone was invisible to the reader, twice. a mail client darkens
      as well as bolding, and that is what makes an unread line jump out of a
      list of grey ones. so unread takes the board's own ink too */
+  .ptab.unread{color:var(--ink)}
+  .ptab.unread .plabel{font-weight:600}
+  /* bold type is wider than medium, and a bar that shuffles sideways every
+     time a reply lands is worse than the problem it solves. so every label
+     always holds room for its bold self: the hidden zero-height line under it
+     carries the same word at 600, which sets the width whatever the visible
+     weight is. top alignment keeps the word on the same pixel row as before,
+     since a box with a hidden line in it can no longer be trusted to sit on
+     its baseline */
+  .plabel{display:inline-block; vertical-align:top}
+  .plabel[data-label]::after{
+    content:attr(data-label); display:block; height:0; overflow:hidden;
+    visibility:hidden; font-weight:600;
+  }
   .ptab.tearing{opacity:.45}
   /* a held tab rides the pointer sideways: it lifts on the selected row's own
      shadow and must paint over whatever it crosses */
@@ -1211,7 +1254,6 @@
   body.choosing{background-image:none}   /* no dots on this page */
   body.choosing #sections, body.choosing #pwdline{display:none}
   body.choosing .box{display:none !important}
-  body.choosing :is(main, #clockbox, #tickets, #magic1, #magic2, #todobox,
   body.choosing :is(main, #clockbox, #tickets, #magic1, #magic2, #magic3,
     #goalbox, #rail, #taskchip){display:none !important}
   body.choosing #newproj{
@@ -1537,9 +1579,10 @@ function renderTabs(st){
     t.classList.toggle("on", t.dataset.owner === activeOwner);
     // the tab he is sitting on is bolded on the same terms as the rest: being
     // parked on a lane is not the same as having opened its cards
+    t.classList.toggle("unread", laneUnread(st, t.dataset.owner));
     const lbl = t.querySelector(".plabel");
     const want = labelOf(st, t.dataset.owner);
-    if (lbl.textContent !== want) lbl.textContent = want;
+    if (lbl.textContent !== want){ lbl.textContent = want; lbl.dataset.label = want; }
   }
 }
 // the first clear direction locks the gesture for the whole drag: mostly
@@ -1744,6 +1787,18 @@ function markSeen(id){
   localStorage.setItem("seenReplies", JSON.stringify(seenReplies));
 }
 
+// does this lane still hold a reply he has not opened? this is the left
+// list's own seen test, card by card, so the tab and the row can never
+// disagree about what unread means: the agent has answered, the ball is with
+// him, nothing of his is still queued behind it, and he has not opened the
+// card since that answer landed. cardState keeps done and deferred cards out,
+// so a lane he has finished with never asks for him again
+function laneUnread(state, owner){
+  return !!state && state.boxes.some(b =>
+    b.owner === owner && b.id !== "q" && cardState(b) === "yours" &&
+    (seenReplies[b.id] || 0) < (b.agentTs || 0));
+}
+
 function select(id, opts){
   if (!els[id]) return;
   cancelAutoNext();
@@ -1752,6 +1807,9 @@ function select(id, opts){
   markSeen(id);
   const b = lastState?.boxes.find(x => x.id === id);
   if (b) lastSel[b.owner] = id;
+  // that card is read now, so its tab drops its bold on the click, not up to
+  // a poll later. the bar itself is only rebuilt when its lanes change
+  if (lastState) renderTabs(lastState);
   for (const k of Object.keys(els)){
     els[k].box.classList.toggle("sel", k === id);
     els[k].toc.classList.toggle("t-sel", k === id);
@@ -1809,7 +1867,7 @@ function nav(dx, dy, opts){
     const oi = Math.min(Math.max(owners.indexOf(activeOwner) + dy, 0), owners.length - 1);
     if (owners[oi] !== activeOwner) setTab(owners[oi]);
   } else if (dx){
-    const pool = poolOf(st);
+    const pool = viewPool(st);
     if (!pool.length) return;
     const i = pool.findIndex(b => b.id === selectedId);
     const pick = pool[(i + dx + pool.length) % pool.length];
@@ -1824,7 +1882,14 @@ function applySelection(state){
   const pool = state.boxes.filter(b => b.owner === activeOwner);
   if (!pool.length){ deselect(); updatePwd(state); return; }   // an empty lane shows plain paper, never another lane's card
   if (!selectedId || !pool.some(b => b.id === selectedId)){
-    const pick = pool.find(awaitsYou)
+    // prefer a card from the tab being looked at, and only fall back to the
+    // whole lane if that tab is empty, so the pick is never a deferred card
+    // while the doing tab is open
+    const inView = viewPool(state);
+    const pick = inView.find(awaitsYou)
+              || inView.find(b => !b.done && !b.parked)
+              || inView[0]
+              || pool.find(awaitsYou)
               || pool.find(b => !b.done && !b.parked)
               || pool[0];
     selectedId = pick.id; localStorage.setItem("selbox", selectedId);
@@ -1929,6 +1994,16 @@ function fmt(t){
   }).join("");
 }
 
+// one reply carries two lengths of itself in one text: the short version, then
+// a line of exactly ---, then the normal one. the small card has room for the
+// short half only and the large card wants the normal half only, so each asks
+// here for the piece it shows. both halves come back as source rather than as
+// cut html, so a half that is a list or a quote renders through fmt the same
+// way either card renders anything else.
+// the replies already on this board were written before the convention and
+// carry no separator at all. those have to keep rendering whole in both places,
+// so a text with no separator is its own short and its own normal and comes
+// back exactly as it went in
 function replyHalves(t){
   const text = t || "";
   const lines = text.split("\n");
