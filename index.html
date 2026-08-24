@@ -3576,15 +3576,20 @@ function p3ZoomClose(){
   // or a picture that changed shape while it was open, is still caught exactly
   const back = p3ZoomInvert(p3PanelRect(z.img) || z.to, z.to);
   // caught halfway out it turns around from where it is, and takes only the time
-  // it has already spent to get home, so an accidental click does not drag
+  // it has already spent to get home, so an accidental click does not drag.
+  // both of the shrink's starting values have to be read here, above the two
+  // cancels: cancelling an animation drops the computed value straight back to
+  // what the stylesheet says, and the sheet says the veil is 0, so a veil read
+  // after the cancel starts the fade at 0 and the dark goes in a single frame
   const held = getComputedStyle(z.img).transform;
+  const heldVeil = getComputedStyle(z.veil).opacity;
   const part = z.anim.playState === "running"
     ? Math.max(0.4, (z.anim.currentTime || 0) / P3_ZOOM_MS) : 1;
   const ms = p3ZoomStill() ? 0 : P3_ZOOM_MS * part;
   z.anim.cancel(); z.veilAnim.cancel();
   z.anim = z.img.animate([{ transform: held }, { transform: back }],
     { duration: ms, easing: P3_ZOOM_EASE, fill: "both" });
-  z.veilAnim = z.veil.animate([{ opacity: getComputedStyle(z.veil).opacity }, { opacity: 0 }],
+  z.veilAnim = z.veil.animate([{ opacity: heldVeil }, { opacity: 0 }],
     { duration: ms, easing: P3_ZOOM_EASE, fill: "both" });
   z.anim.onfinish = () => {
     z.anim.cancel(); z.veilAnim.cancel();
