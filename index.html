@@ -623,6 +623,16 @@
      at most 8 of 255 on a channel. the rule above is untouched, so the resting
      look is the resting look */
   body.p3zoom #magic1.filled{backdrop-filter:none; -webkit-backdrop-filter:none}
+  /* the bar's glass goes down for the same length, for a different reason. one
+     backdrop-filter left standing anywhere on the page is enough to make chrome
+     keep the whole frame to itself rather than hand it to the mac's own
+     compositor, so while this blur stands every frame of the zoom draws the
+     full screen picture in the browser. the cost belongs to the page, not to
+     the bar, and any single filter is enough to buy it. it can go because the
+     bar's face is mostly opaque paper and the veil is over it for the whole
+     gesture, so there is nothing behind it left to blur that anyone can see.
+     the .bar rule itself is untouched, so the resting look is the resting look */
+  body.p3zoom .bar{backdrop-filter:none; -webkit-backdrop-filter:none}
   /* a box taken off this tab: gone, and gone in edit mode too, with no ghost of
      it left behind. its resize squares and its cross go with it */
   body.focus .region-off{visibility:hidden; pointer-events:none}
