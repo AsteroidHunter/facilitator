@@ -81,6 +81,14 @@ Two agents share one board. Every box carries an owner tag: `facilitator` (discu
     timeout 560 curl -s "http://127.0.0.1:8877/wait?owner=facilitator&timeout=540&agent=claude"
     timeout 560 curl -s "http://127.0.0.1:8877/wait?owner=triage&timeout=540&agent=claude"
 
+## Showing a picture on your lane
+
+Magic box 3 holds one picture per lane, a plot above all. Write the file into your own project's internal folder, named `panel` with any image extension:
+
+    <your project folder>/<your lane id>-internal/panel.png
+
+So the `sketchbook` lane writes `~/projects/sketchbook/sketchbook-internal/panel.png`. Png, svg, jpg, gif and webp all work. The board picks it up within about four seconds, swaps itself when you rewrite the file, and falls back to its empty marks when you delete it. Nothing needs adding to the server, and no lane can read another's folder. Note that the panel is currently switched on for the `sketchbook` tab only; every other tab still shows the plain stub.
+
 ## Seeding a board
 
 A first-ever start (no `state.json`) reads `seed.json` beside the server: the board title plus opening boxes (see `seed.example.json` for the shape). `seed.json` is gitignored because real discussion content is private and never ships in this repo; the example holds invented content only. To start a new project's board: copy the example to `seed.json`, fill in real items, run the server.

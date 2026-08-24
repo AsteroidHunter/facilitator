@@ -8,7 +8,12 @@ Endpoints:
   GET  /                    -> index.html, the card board
   GET  /page                -> page.html, the same lanes drawn as one typed page
   GET  /state               -> full UI state (page polls this)
-  POST /send?box=ID         -> body = the human's message text (plain text)
+  POST /send?box=ID[&via=mini] -> body = the human's message text (plain text).
+                               via states where he typed it: mini is the small
+                               card in the corner, no via at all is the big card
+                               in the middle. Only the literal "mini" is stored
+                               (as the message's via field), so any other value
+                               and any older caller land exactly as before
   POST /done?box=ID&v=1|0   -> mark a box done / not done
   POST /working?box=ID&v=1|0 -> a job runs behind this box: it shows green
                                without holding the lane's claim. Registration
@@ -38,6 +43,19 @@ Endpoints:
   GET  /uploads/<file>      -> a previously uploaded image: served from the internal
                                uploads folder, falling back to the old in-repo
                                uploads/ for images saved before the move
+  GET  /laneimg/<lane>/<file> -> a picture out of that lane's OWN internal folder,
+                               <lane dir>/<lane id>-internal, the same rule this
+                               repo's facilitator-internal/ already follows. The
+                               lane dirs are the ones /state hands out as pwds.
+                               <file> must be one plain file name and the resolved
+                               path has to sit inside that folder, so .. segments,
+                               nested paths, absolute names and symlinks pointing
+                               out of it are all refused. Only the image content
+                               types /uploads/ serves are served; anything else,
+                               an unknown lane, a missing folder or a missing file
+                               is a 404. Lets an agent working in another project
+                               show a picture on the board without writing a file
+                               into this repo
   GET  /thread?box=ID&n=N   -> last N user/agent messages of a box from the
                                transcript (read by the reply history stepper
                                and the quick chat panel)
@@ -69,23 +87,43 @@ Endpoints:
   GET  /fresh?owner=O       -> while O's agent holds a card: any messages that
                                landed on that card after the claim, handed over
                                and folded into the claim, so the one reply
-                               covers them and nothing is delivered twice;
-                               {"messages": []} when nothing new or no card held
+                               covers them and nothing is delivered twice.
+                               Answers {box, messages, message_via}, with
+                               message_via in the same shape /wait uses: one
+                               entry per handed-over message in the same order,
+                               "mini" for a small card message and null for a
+                               big card one. A mini message handed over here
+                               becomes the newest message the claim covers, so
+                               it is the one that decides /reply's 100 word cap,
+                               and the agent has to be able to see it;
+                               {"messages": [], "message_via": []} when nothing
+                               new or no card held
   GET  /wait?owner=O&timeout=S[&agent=NAME] -> agent long-poll; claims the oldest
                                queued box owned by O (facilitator|triage; defaults
                                to triage, the pre-routing loop's role) + its pending
                                messages. agent= states the caller's name; the card
                                rows' little tag shows the lane's live name or
-                               offline, never a stored guess. Also returns
+                               offline, never a stored guess. A claim answers
+                               {box, title, messages, message_via, queued_after}:
+                               messages stays a list of plain strings and
+                               message_via runs beside it, one entry per message
+                               in the same order, "mini" for a small card message
+                               and null for a big card one. Also returns
                                {"idle":true} on timeout, {"paused":true} while
                                paused, or {"end":true} once ended and O's queue
                                is drained
-  POST /reply?box=ID&ctx=S[&quiet=1] -> body = the agent's reply text (plain
-                               text); ctx is a REQUIRED urlencoded summary
+  POST /reply?box=ID[&ctx=S][&quiet=1] -> body = the agent's reply text (plain
+                               text); ctx is an OPTIONAL urlencoded summary
                                strip, 50 words max, stored as the box's
-                               context, so a reply and a fresh summary always
-                               land together; missing or overlong strips are
-                               refused (400), never silently truncated.
+                               context when passed. The summary box was taken
+                               off the card 20260821 and nothing displays it;
+                               an overlong strip is still refused (400), never
+                               silently truncated.
+                               When the newest message the claim covers came
+                               from the small card (via=mini), a reply over 100
+                               whitespace separated words is refused the same
+                               way (400, nothing stored): that card is only a
+                               few lines tall. A big card message has no cap.
                                quiet=1 stores the reply, summary, count and
                                stamp the same way and changes nothing else:
                                the ball stays untouched, so the card's color
@@ -126,7 +164,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 HERE = Path(__file__).resolve().parent
 LOG_PATH = Path(os.environ.get("FACILITATOR_LOG", "/tmp/facilitator-8877.log"))
@@ -148,6 +186,10 @@ TRANSCRIPT_PATH = HERE / "transcript.jsonl"
 # uploads/ so the images saved there before this change keep resolving
 INTERNAL_UPLOADS = HERE.parent / "facilitator-internal" / "uploads"
 INTERNAL_UPLOADS.mkdir(parents=True, exist_ok=True)
+# everything an image route will hand back, written down once so /uploads/ and
+# /laneimg/ can never drift apart on what counts as a picture
+IMG_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+             ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml"}
 PORT = 8877
 BG_STALE = 75.0   # seconds without a /ping before a registered job stops counting as green
 OWNERS = ("facilitator", "triage", "qchat")  # qchat: the quick chat panel's lane, dormant in the current board
@@ -188,6 +230,24 @@ def _register_owner(ow: str) -> None:
     _waiters.setdefault(ow, 0)
     _last_wait.setdefault(ow, 0.0)
     _agent_names.setdefault(ow, None)
+
+
+def _lane_pwds() -> dict:
+    """Every lane's folder in one map: the built-in owners sit in this folder,
+    run.config.json overrides them, project lanes carry their own stored dir.
+    The page reads this as /state's pwds and /laneimg resolves against it, so
+    the two can never disagree about where a lane lives."""
+    return {**{ow: str(HERE) for ow in OWNERS}, **_LANE_DIRS,
+            **{p["id"]: p["dir"] for p in _state.get("projects", [])}}
+
+
+def _lane_internal(lane: str) -> Path | None:
+    """A lane's own internal folder, <lane dir>/<lane id>-internal: where that
+    project keeps the files that belong to it and never get pushed. This repo's
+    own facilitator-internal/ is already exactly that, one folder up from here.
+    None for a lane nobody has heard of."""
+    d = _lane_pwds().get(lane)
+    return Path(d) / (lane + "-internal") if d else None
 
 
 def _seed_state() -> dict:
@@ -320,6 +380,11 @@ def _card_state(b: dict, st: dict) -> str:
         return "working"
     if not b.get("agent_ts", 0) and not b["pending"] and not b["replies"]:
         return "new"
+    # a message of his still sitting in the queue waits on the agent, not on
+    # him, so the card stays grey. an older reply can leave the ball on his
+    # side while a newer message is still in line, and that used to read yellow
+    if b["pending"]:
+        return "queued"
     if b.get("ball", "you") == "you":
         return "yours"
     return "queued"
@@ -378,7 +443,7 @@ class Handler(BaseHTTPRequestHandler):
                 fbid = _state["busy"].get(owner)
                 fbox = _box(fbid) if fbid else None
                 if fbox is None:
-                    self._send(200, {"messages": []})
+                    self._send(200, {"messages": [], "message_via": []})
                     return
                 have = set(_state["claimed"][owner])
                 fresh = [m for m in fbox["pending"] if m["mid"] not in have]
@@ -386,7 +451,13 @@ class Handler(BaseHTTPRequestHandler):
                     _state["claimed"][owner].extend(m["mid"] for m in fresh)
                     _log("fresh", fbid, f"{len(fresh)} mid-work message(s) handed over")
                     _save()
-                self._send(200, {"box": fbid, "messages": [m["text"] for m in fresh]})
+                # the same marker /wait hands over, in the same shape and order:
+                # "mini" for the small card, null for the big one. A mini
+                # message that lands mid-work becomes the newest claimed one
+                # and brings /reply's 100 word cap with it, so an agent that
+                # never sees the marker gets its reply refused out of nowhere
+                self._send(200, {"box": fbid, "messages": [m["text"] for m in fresh],
+                                 "message_via": [m.get("via") for m in fresh]})
         elif url.path == "/thread":
             qs = parse_qs(url.query)
             tbid = (qs.get("box") or [""])[0]
@@ -482,10 +553,33 @@ class Handler(BaseHTTPRequestHandler):
             p = INTERNAL_UPLOADS / fn
             if not p.is_file():
                 p = HERE / "uploads" / fn  # fall back to images saved before the move
-            ctypes = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-                      ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml"}
-            if p.is_file() and p.suffix.lower() in ctypes:
-                self._send(200, p.read_bytes(), ctypes[p.suffix.lower()])
+            if p.is_file() and p.suffix.lower() in IMG_TYPES:
+                self._send(200, p.read_bytes(), IMG_TYPES[p.suffix.lower()])
+            else:
+                self._send(404, {"error": "not found"})
+        elif url.path.startswith("/laneimg/"):
+            # a picture out of the lane's own internal folder, so an agent
+            # working in another project writes next to its own code instead of
+            # reaching into this repo. one lane, one plain file name, images only
+            lane, _, fn = unquote(url.path[len("/laneimg/"):]).partition("/")
+            base = _lane_internal(lane) if lane else None
+            # a name with a separator in it is never a file in this folder, and
+            # refusing it here kills nested and absolute paths before pathlib
+            # gets a chance to be clever about them
+            if base is None or not fn or "/" in fn or fn in (".", ".."):
+                self._send(404, {"error": "not found"})
+                return
+            try:
+                # resolve both sides and check containment before reading a
+                # byte: .. segments and symlinks pointing out of the folder
+                # land somewhere that is not under base, and stop right here
+                base = base.resolve()
+                p = (base / fn).resolve()
+                inside = p != base and base in p.parents
+            except OSError:
+                inside = False   # unreadable or a symlink loop: same as missing
+            if inside and p.is_file() and p.suffix.lower() in IMG_TYPES:
+                self._send(200, p.read_bytes(), IMG_TYPES[p.suffix.lower()])
             else:
                 self._send(404, {"error": "not found"})
         else:
@@ -530,8 +624,7 @@ class Handler(BaseHTTPRequestHandler):
                 for b in st["boxes"]
             ],
             "pwd": str(HERE),
-            "pwds": {**{ow: str(HERE) for ow in OWNERS}, **_LANE_DIRS,
-                     **{p["id"]: p["dir"] for p in st.get("projects", [])}},
+            "pwds": _lane_pwds(),
             "projects": st.get("projects", []),
             "busy": st["busy"],
             "queued": len(st["inbox"]),
@@ -604,6 +697,12 @@ class Handler(BaseHTTPRequestHandler):
                             self._send(200, {
                                 "box": bid, "title": box["title"],
                                 "messages": [m["text"] for m in box["pending"]],
+                                # where each message was typed, one entry per
+                                # message in the same order: "mini" for the small
+                                # card, null for the big one. It rides beside
+                                # messages instead of inside it because agent
+                                # loops elsewhere read messages as plain strings
+                                "message_via": [m.get("via") for m in box["pending"]],
                                 "queued_after": sum(1 for i in _state["inbox"]
                                                     if (_box(i) or {}).get("owner", "triage") == owner),
                             })
@@ -654,7 +753,13 @@ class Handler(BaseHTTPRequestHandler):
                 if box is None or not text:
                     self._send(400, {"error": "bad box or empty text"})
                     return
-                box["pending"].append({"mid": _state["next_mid"], "text": text, "ts": time.time()})
+                msg = {"mid": _state["next_mid"], "text": text, "ts": time.time()}
+                # where he typed it: via=mini means the small card in the corner.
+                # Only that literal is kept, so a caller that passes nothing (the
+                # big card, any older sender) stores exactly what it always did
+                if (q.get("via") or [""])[0] == "mini":
+                    msg["via"] = "mini"
+                box["pending"].append(msg)
                 box["ball"] = "me"  # his message sent: the ball is in the agent's court
                 box["ts"] = time.time()
                 _state["next_mid"] += 1
@@ -674,18 +779,28 @@ class Handler(BaseHTTPRequestHandler):
                 if box is None:
                     self._send(400, {"error": "bad box"})
                     return
-                # every reply must carry a fresh two-line summary strip in the
-                # ctx query param (urlencoded, 220 chars); a reply without one
-                # is refused so the card's summary can never go missing
+                # the summary strip is optional as of 20260821: the owner had
+                # the summary box taken off the card, so nothing displays it and
+                # the agent no longer writes one. a ctx that is passed is still
+                # stored and still size checked, so older callers keep working
                 ctx = (q.get("ctx") or [""])[0].strip()
-                if not ctx:
-                    self._send(400, {"error": "missing context strip: pass ctx="})
-                    return
-                if len(ctx.split()) > 50:
+                if ctx and len(ctx.split()) > 50:
                     # refused outright, never silently chopped
                     self._send(400, {"error": "context strip over 50 words"})
                     return
                 ow = box.get("owner", "triage")
+                # a message typed in the small card gets a small answer back:
+                # that card is a few lines tall and a long reply is unreadable
+                # in it. The newest message the claim covers is the one being
+                # answered, so that one decides. Refused outright like the
+                # context strip above, never silently chopped
+                held = _state["claimed"][ow] if _state["busy"][ow] == bid else []
+                answering = next((m for m in box["pending"] if m["mid"] == held[-1]), None) if held else None
+                if answering is not None and answering.get("via") == "mini":
+                    words = len(text.split())
+                    if words > 100:
+                        self._send(400, {"error": f"small card reply over 100 words: {words} words"})
+                        return
                 _last_wait[ow] = time.time()  # a reply proves that agent is alive too
                 box["reply"] = text
                 box["replies"] += 1
@@ -702,7 +817,8 @@ class Handler(BaseHTTPRequestHandler):
                 box["ts"] = time.time()
                 claimed = set(_state["claimed"][ow]) if _state["busy"][ow] == bid else set()
                 box["pending"] = [m for m in box["pending"] if m["mid"] not in claimed]
-                box["context"] = ctx
+                if ctx:
+                    box["context"] = ctx
                 if _state["busy"][ow] == bid:
                     _state["busy"][ow] = None
                     _state["claimed"][ow] = []
@@ -730,10 +846,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(400, {"error": "bad box"})
                     return
                 ctx = (q.get("ctx") or [""])[0].strip()
-                if not ctx:
-                    self._send(400, {"error": "missing context strip: pass ctx="})
-                    return
-                if len(ctx.split()) > 50:
+                if ctx and len(ctx.split()) > 50:
                     self._send(400, {"error": "context strip over 50 words"})
                     return
                 ow = box.get("owner", "triage")
@@ -742,7 +855,8 @@ class Handler(BaseHTTPRequestHandler):
                 box["replies"] += 1
                 box["agent_ts"] = time.time()
                 box["ts"] = time.time()
-                box["context"] = ctx
+                if ctx:
+                    box["context"] = ctx
                 box["bg"] = True              # green via the heartbeat path: no
                 box["bg_ts"] = time.time()    # claim taken, and the ball untouched
                 _log("note", bid, text)
