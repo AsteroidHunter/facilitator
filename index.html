@@ -1576,10 +1576,13 @@
   #nprows::-webkit-scrollbar-track{background:transparent}
   #nprows::-webkit-scrollbar-thumb{background:#F0B27E; border:3px solid transparent;
     background-clip:padding-box; border-radius:99px}
-  /* rows are plain information, never controls: no hover, no pointer, no
-     fill; their text stays selectable */
+  /* rows are plain information, never controls, with one exception: the row
+     of a project whose tab he closed is the way back to it, so that row and
+     only that row takes clicks and says so with the pointer and a soft fill */
   .nprow{display:flex; flex-direction:column; gap:1px; width:100%;
     padding:9px 12px; text-align:left}
+  .nprow.shut{cursor:pointer; border-radius:5px}
+  .nprow.shut:hover{background:var(--accent-soft)}
   .npname{font:400 15px/1.35 var(--inter); color:var(--ink)}
   .nppath{font:11px var(--mono); color:var(--sub); max-width:100%;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
@@ -2139,23 +2142,27 @@ function plusClick(){
   renderTabs(lastState);
   apply(lastState);
 }
-// the landing's panel: every project the board holds as a plain informational
-// row by its display name; no row is a control (the tab bar owns switching),
-// and the row of the project already showing reads bold. a project whose tab he
-// closed sits here like any other, because this screen is the way back to it and
-// the path on the row is what he hands the folder chooser
+// the landing's panel: every project the board holds as a row by its display
+// name; open projects' rows are plain information (the tab bar owns
+// switching), but a closed project's row is itself the way back: clicking it
+// reopens that tab on the spot, no folder chooser needed
 function renderHome(st){
   if (!draft || draft.screen !== "home" || !st) return;
   const box = document.getElementById("nprows");
   const owners = allRowsOf(st);
-  const sig = owners.map(ow => ow + labelOf(st, ow) + ((st.pwds || {})[ow] || "")).join(",") + "|" + draft.from;
+  const sig = owners.map(ow => ow + labelOf(st, ow) + ((st.pwds || {})[ow] || "") + (tabClosed(ow) ? "~" : "")).join(",") + "|" + draft.from;
   if (box.dataset.sig === sig) return;
   box.dataset.sig = sig;
   box.textContent = "";
   for (const ow of owners){
-    const row = h("div", "nprow" + (ow === draft.from ? " sel" : ""));
+    const shut = tabClosed(ow);
+    const row = h("div", "nprow" + (ow === draft.from ? " sel" : "") + (shut ? " shut" : ""));
     row.appendChild(h("span", "npname", labelOf(st, ow)));
     row.appendChild(h("span", "nppath", (st.pwds || {})[ow] || ""));
+    if (shut){
+      row.title = "click to reopen this project";
+      row.addEventListener("click", () => reopenTab(ow));
+    }
     box.appendChild(row);
   }
 }
