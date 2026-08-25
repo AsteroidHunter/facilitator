@@ -1450,22 +1450,20 @@
   /* the not-yet-named tab while its folder is being chosen */
   .ptab.draft{color:var(--ink); background:var(--paper); border-color:var(--line);
     font-style:italic}
-  /* closing a project tab: the cross the pencil already puts on every box, on
-     the same terms. it is that cross's own class, so its shape, size, line and
-     colour cannot drift from it; only where it sits is written here. it stands
-     in the tab's own right padding, centred on the label's line, and it is
-     positioned rather than laid out, so the bar cannot move by a pixel when the
-     pencil turns it on or off */
+  /* closing a project tab: the cross the boxes already wear, on the same terms.
+     it is that cross's own class, so its shape, size, line and colour cannot
+     drift from it; only where it sits is written here. it stands in the tab's
+     own right padding, centred on the label's line, and it is positioned rather
+     than laid out, so no tab, and not the bar's width, can move by a pixel when
+     it comes and goes.
+     20260824: the pencil is for boxes and for nothing else. the cross comes out
+     under the pointer resting on that one tab, by the descendant hover alone, so
+     the other tabs stay bare */
   .ptab .rkill{display:none; left:auto; top:8px; right:0; transform:none}
-  body.editmode .ptab .rkill{display:block}
-  /* a closed tab is simply not in the bar. the pencil brings it back where it
-     belongs, its label greyed at the same .45 a tab already takes while it is
-     being pulled out, and its own cross puts it back for good. block is the
-     display a tab already computes to inside the bar's flex row, so a tab that
-     comes back is the tab that left, to the pixel */
+  .ptab:hover .rkill{display:block}
+  /* a closed tab is simply not in the bar, and it is nowhere else either: the
+     plus button's folder flow is the one way back to it */
   .ptab.closed{display:none}
-  body.editmode .ptab.closed{display:block}
-  body.editmode .ptab.closed .plabel{opacity:.45}
   #projnote{display:none; flex:none; font:12px var(--mono); color:var(--must);
     background:var(--must-bg); border-radius:4px; padding:3px 10px}
   #projnote.show{display:inline-block}
@@ -1496,7 +1494,16 @@
   #npbrand, #nppanel, #npstart{animation:npmelt .2s cubic-bezier(.2,.7,.3,1) both}
   #nppanel{animation-delay:.05s}
   #npstart{animation-delay:.1s}
-  #npbrand{font:700 40px/1.1 var(--inter); letter-spacing:-.02em; color:var(--ink)}
+  /* the brand line is one lockup: the mark stands immediately left of the word,
+     centred on the word's own line, and the word keeps the vertical place it
+     holds without it. Nothing on this server hands out a file from the repo
+     folder, so the mark rides in the page as a data URI: 256px in the file,
+     32px on screen, an exact 8:1 so the nearest-neighbour sampling pixelated
+     asks for lands on whole blocks. 32px is the word's own ink height and never
+     more, or the line box grows and the word moves down with it. */
+  #npbrand{font:700 40px/1.1 var(--inter); letter-spacing:-.02em; color:var(--ink);
+    display:flex; align-items:center; gap:6px}
+  #npmark{flex:none; width:32px; height:32px; image-rendering:pixelated}
   /* the folders box: embedded, never floating; a white sunken well in the
      paper, inset shadow only, no outer shadow, corners near square */
   #nppanel{width:100%; margin:20px 0 0; padding:6px;
@@ -1807,13 +1814,11 @@ function renderTabs(st){
         t.appendChild(tabKill(ow));
         t.addEventListener("mousedown", e => {
           if (tabGlide) return;   // a drop still settling holds the bar
-          if (t.classList.contains("closed")) return;   // a closed tab showing under the pencil is not draggable
           tabDrag = { ow, x: e.clientX, y: e.clientY, mode: null, pulled: false, el: t };
         });
       }
       t.addEventListener("click", () => {
         if (tabDrag?.pulled || tabDrag?.mode === "reorder") return;   // a pull or a slide is not a tab switch
-        if (t.classList.contains("closed")) return;   // its cross is its only control until it is back
         setTab(ow);
       });
       bar.appendChild(t);
@@ -1839,50 +1844,53 @@ function renderTabs(st){
     t.classList.toggle("unread", laneUnread(st, t.dataset.owner));
     // a closed lane holding a reply he has not opened stays closed: the bold is
     // still marked on the tab, and the tab is still out of the bar. nothing
-    // here can put a tab back; only his own cross does that
-    const shut = tabClosed(t.dataset.owner);
-    t.classList.toggle("closed", shut);
-    const x = t.querySelector(".rkill");
-    if (x) x.title = shut ? "put this tab back" : "close this tab";
+    // here can put a tab back; only the plus button's folder flow does that
+    t.classList.toggle("closed", tabClosed(t.dataset.owner));
     const lbl = t.querySelector(".plabel");
     const want = labelOf(st, t.dataset.owner);
     if (lbl.textContent !== want){ lbl.textContent = want; lbl.dataset.label = want; }
   }
 }
-// the cross on a tab while the pencil is on. it is the box cross's own element,
+// the cross on a tab, sitting there from the moment the tab is built and shown
+// by the stylesheet under the pointer alone. it is the box cross's own element,
 // class and all, so the two can never drift apart. the presses stop here so the
 // tab under it never reads one as a switch or as the start of a drag
 function tabKill(ow){
   const x = h("button", "rkill");
+  x.title = "close this tab";
   x.addEventListener("mousedown", ev => ev.stopPropagation());
   x.addEventListener("pointerdown", ev => ev.stopPropagation());
   x.addEventListener("click", ev => {
     ev.preventDefault(); ev.stopPropagation();
-    toggleTabClosed(ow);
+    closeTab(ow);
   });
   return x;
 }
-// the cross on a tab, both ways, exactly as the cross on a box works: one
-// localStorage key is written or removed and nothing else. no card, no lane and
-// nothing on the server moves, so a tab put back brings its project back as it
-// was, cards, layout and pictures included
-function toggleTabClosed(ow){
-  if (LOCKED || !lastState) return;
-  if (tabClosed(ow)){
-    try { localStorage.removeItem(TABHIDE + ow); } catch (err) {}
-  } else {
-    const open = rowsOf(lastState);
-    if (open.length < 2) return;   // the last tab stays: the board must always have a lane to sit on
-    try { localStorage.setItem(TABHIDE + ow, "1"); } catch (err) {}
-    // he closed the tab he was on: the board takes the neighbour to its right,
-    // or the one to its left at the end of the bar
-    if (activeOwner === ow){
-      const i = open.indexOf(ow);
-      const next = open[i + 1] || open[i - 1];
-      if (next) setTab(next);
-    }
+// closing a tab works exactly as putting a box away works: one localStorage key
+// is written and nothing else. no card, no lane and nothing on the server moves,
+// so the tab that comes back brings its project back as it was, cards, layout
+// and pictures included
+function closeTab(ow){
+  if (LOCKED || !lastState || tabClosed(ow)) return;
+  const open = rowsOf(lastState);
+  if (open.length < 2) return;   // the last tab stays: the board must always have a lane to sit on
+  try { localStorage.setItem(TABHIDE + ow, "1"); } catch (err) {}
+  // he closed the tab he was on: the board takes the neighbour to its right,
+  // or the one to its left at the end of the bar
+  if (activeOwner === ow){
+    const i = open.indexOf(ow);
+    const next = open[i + 1] || open[i - 1];
+    if (next) setTab(next);
   }
   renderTabs(lastState);
+}
+// the one way back, and the way he already knows: the plus button's folder flow
+// lands here holding the lane whose folder he chose. the key is dropped, the tab
+// is in the bar in its own place again, and the board steps onto it
+function reopenTab(ow){
+  try { localStorage.removeItem(TABHIDE + ow); } catch (err) {}
+  setTab(ow);   // this ends the choosing tab and lands on the card he left here
+  if (lastState) renderTabs(lastState);
 }
 // the first clear direction locks the gesture for the whole drag: mostly
 // sideways slides the tab along the bar, mostly downward tears it out, and
@@ -2021,13 +2029,15 @@ function plusClick(){
   renderTabs(lastState);
   apply(lastState);
 }
-// the landing's panel: every open tab as a plain informational row by its
-// display name; no row is a control (the tab bar owns switching), and the
-// row of the project already showing reads bold
+// the landing's panel: every project the board holds as a plain informational
+// row by its display name; no row is a control (the tab bar owns switching),
+// and the row of the project already showing reads bold. a project whose tab he
+// closed sits here like any other, because this screen is the way back to it and
+// the path on the row is what he hands the folder chooser
 function renderHome(st){
   if (!draft || draft.screen !== "home" || !st) return;
   const box = document.getElementById("nprows");
-  const owners = rowsOf(st);
+  const owners = allRowsOf(st);
   const sig = owners.map(ow => ow + labelOf(st, ow) + ((st.pwds || {})[ow] || "")).join(",") + "|" + draft.from;
   if (box.dataset.sig === sig) return;
   box.dataset.sig = sig;
@@ -2059,14 +2069,15 @@ document.getElementById("npstart").addEventListener("click", async () => {
     if (!r?.path){ projNote("could not open the folder picker"); return; }
     const path = r.path.replace(/\/+$/, "") || r.path;
     const name = path.split("/").filter(Boolean).pop() || "project";
-    // a folder already behind a tab: name that tab instead of refusing. closed
-    // tabs count here, since the lane is still the server's; saying the folder
-    // is free would only earn a refusal it could not explain
+    // a folder already behind a tab: name that tab instead of refusing. a
+    // folder whose tab he closed is the reopening itself, not a refusal: the
+    // lane is still the server's, and picking its folder here is him saying
+    // which one he wants back
     const open = lastState && allRowsOf(lastState)
       .find(ow => (lastState.pwds || {})[ow] === path);
     if (open){
-      projNote(tabClosed(open) ? "that folder is a project on a tab you closed"
-                               : "that folder is already open as " + labelOf(lastState, open));
+      if (tabClosed(open)) reopenTab(open);
+      else projNote("that folder is already open as " + labelOf(lastState, open));
       return;
     }
     const px = await fetch("/project?name=" + encodeURIComponent(name),
