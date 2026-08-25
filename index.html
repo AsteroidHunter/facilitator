@@ -1450,17 +1450,52 @@
   /* the not-yet-named tab while its folder is being chosen */
   .ptab.draft{color:var(--ink); background:var(--paper); border-color:var(--line);
     font-style:italic}
-  /* closing a project tab: the cross the boxes already wear, on the same terms.
-     it is that cross's own class, so its shape, size, line and colour cannot
-     drift from it; only where it sits is written here. it stands in the tab's
-     own right padding, centred on the label's line, and it is positioned rather
-     than laid out, so no tab, and not the bar's width, can move by a pixel when
-     it comes and goes.
-     20260824: the pencil is for boxes and for nothing else. the cross comes out
-     under the pointer resting on that one tab, by the descendant hover alone, so
-     the other tabs stay bare */
-  .ptab .rkill{display:none; left:auto; top:8px; right:0; transform:none}
-  .ptab:hover .rkill{display:block}
+  /* closing a project tab: no bare cross under the pointer. a mis-aimed click
+     may not throw a project out of the bar, so the tab carries a neutral mark
+     instead, the way a spreadsheet tab does, and Close lives one step inside
+     it. a chevron and not three dots: at 13px type three dots either blur into
+     one smudge or shrink to grit, while a single chevron on the board's own
+     1.4px line already says there is more here.
+     it is laid out and not positioned: an inline-block exactly as tall as the
+     label's own 16px line, aligned to its top, so the two centre lines coincide
+     by construction and cannot be eyeballed wrong. every tab holds its room
+     from the moment it is built and only the visibility flips, so the bar
+     cannot move by a pixel when the mark comes and goes. tabs are wider for it,
+     and part of that width is paid back out of the tab's own right padding.
+     20260824: the pencil is for boxes and for nothing else */
+  .ptabmenu{
+    display:inline-block; vertical-align:top; position:relative;
+    width:14px; height:16px; margin:0 -6px 0 7px; padding:0;
+    background:none; border:none; cursor:pointer; color:var(--sub);
+    visibility:hidden; transition:color .18s;
+  }
+  /* the tab under the pointer and the tab he is sitting on, never the rest. it
+     opens a menu and nothing else, so standing there is not dangerous */
+  .ptab:hover .ptabmenu, .ptab.on .ptabmenu, .ptabmenu.open{visibility:visible}
+  .ptabmenu:hover, .ptabmenu.open{color:var(--ink)}
+  .ptabmenu svg{position:absolute; inset:0; margin:auto}
+  /* a real target without a pixel of layout: the box stays 14 by 16 and this
+     reaches past it on every side */
+  .ptabmenu::after{content:""; position:absolute; left:-3px; right:-5px; top:-6px; bottom:-6px}
+  /* the mark's menu. the board had no floating menu of its own, so this is
+     built out of what its lifted surfaces already use and adds nothing: white
+     paper, the standard hairline, the small radius the rows and chips take, and
+     the app's own raised shadow, the same pair the other lifted surfaces use */
+  #tabmenu{
+    position:fixed; z-index:40; padding:4px;
+    background:#FFFFFF; border:1px solid var(--line); border-radius:5px;
+    box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
+  }
+  #tabmenu .tmitem{
+    display:block; width:100%; height:26px; padding:0 12px; text-align:left;
+    font:500 13px/26px var(--sans); color:var(--ink); white-space:nowrap;
+    background:none; border:none; border-radius:4px; cursor:pointer;
+  }
+  #tabmenu .tmitem:hover{background:var(--paper)}
+  /* the last tab stays: the board must always have a lane to sit on. the item
+     says so before the click rather than swallowing it */
+  #tabmenu .tmitem.off{color:var(--sub); opacity:.55; cursor:default}
+  #tabmenu .tmitem.off:hover{background:none}
   /* a closed tab is simply not in the bar, and it is nowhere else either: the
      plus button's folder flow is the one way back to it */
   .ptab.closed{display:none}
@@ -1785,7 +1820,7 @@ function renderTabs(st){
   // paint either way, so this falls through rather than returning
   if (!LOCKED && !draft){
     let open = rowsOf(st);
-    // the bar may not be empty while lanes exist: the cross refuses to close
+    // the bar may not be empty while lanes exist: Close refuses to take
     // the last tab, but the lane behind that last tab can still go away on the
     // server, and then the first lane left takes its tab back. an unread reply
     // never does this, only an empty bar does
@@ -1802,6 +1837,9 @@ function renderTabs(st){
   const owners = LOCKED ? [LOCKED] : allRowsOf(st);
   const sig = owners.join(",") + (draft ? "|draft" : "") + (LOCKED ? "|locked" : "");
   if (bar.dataset.sig !== sig){
+    // the marks go with the bar, so a menu hanging off one of them may not
+    // outlive it
+    closeTabMenu();
     bar.dataset.sig = sig;
     bar.textContent = "";
     for (const ow of owners){
@@ -1811,7 +1849,7 @@ function renderTabs(st){
       lbl.dataset.label = lbl.textContent;   // the hidden line that holds this word's bold width
       t.appendChild(lbl);
       if (!LOCKED){
-        t.appendChild(tabKill(ow));
+        t.appendChild(tabMenuMark(ow));
         t.addEventListener("mousedown", e => {
           if (tabGlide) return;   // a drop still settling holds the bar
           tabDrag = { ow, x: e.clientX, y: e.clientY, mode: null, pulled: false, el: t };
@@ -1851,21 +1889,80 @@ function renderTabs(st){
     if (lbl.textContent !== want){ lbl.textContent = want; lbl.dataset.label = want; }
   }
 }
-// the cross on a tab, sitting there from the moment the tab is built and shown
-// by the stylesheet under the pointer alone. it is the box cross's own element,
-// class and all, so the two can never drift apart. the presses stop here so the
-// tab under it never reads one as a switch or as the start of a drag
-function tabKill(ow){
-  const x = h("button", "rkill");
-  x.title = "close this tab";
-  x.addEventListener("mousedown", ev => ev.stopPropagation());
-  x.addEventListener("pointerdown", ev => ev.stopPropagation());
-  x.addEventListener("click", ev => {
+// the mark on a tab, sitting there from the moment the tab is built and shown
+// by the stylesheet on the tab under the pointer and on the tab he is on. it
+// opens the menu and does nothing else: the presses stop here, so the tab under
+// it never reads one as a switch or as the start of a drag, and a mis-aimed
+// click costs him a menu and never a project. drawn inline like the board's
+// other small glyphs, on the same 24 grid
+const TAB_CHEVRON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9.5 12 16 19 9.5"/></svg>';
+function tabMenuMark(ow){
+  const b = h("button", "ptabmenu");
+  b.title = "project menu";
+  b.innerHTML = TAB_CHEVRON;
+  b.addEventListener("mousedown", ev => ev.stopPropagation());
+  b.addEventListener("pointerdown", ev => ev.stopPropagation());
+  b.addEventListener("click", ev => {
     ev.preventDefault(); ev.stopPropagation();
+    // the same mark twice puts the menu away again
+    if (tabMenu && tabMenu.ow === ow) closeTabMenu(); else openTabMenu(ow, b);
+  });
+  return b;
+}
+// one menu at a time and one on the board at all: it hangs from the mark it was
+// opened on and holds the one thing that used to sit bare on the tab
+let tabMenu = null;
+function closeTabMenu(){
+  if (!tabMenu) return;
+  tabMenu.mark.classList.remove("open");
+  tabMenu.el.remove();
+  tabMenu = null;
+}
+function openTabMenu(ow, mark){
+  closeTabMenu();   // never two
+  const el = h("div"); el.id = "tabmenu";
+  const item = h("button", "tmitem", "Close project");
+  const last = !lastState || rowsOf(lastState).length < 2;
+  if (last){
+    // greyed rather than live and silent: he should read the rule before the
+    // click, not press a word and watch nothing happen
+    item.classList.add("off");
+    item.setAttribute("aria-disabled", "true");
+    item.title = "the last project tab stays open";
+  }
+  item.addEventListener("mousedown", ev => ev.stopPropagation());
+  item.addEventListener("click", ev => {
+    ev.preventDefault(); ev.stopPropagation();
+    if (item.classList.contains("off")) return;   // closeTab refuses this too
+    closeTabMenu();
     closeTab(ow);
   });
-  return x;
+  el.appendChild(item);
+  document.body.appendChild(el);
+  // anchored on the mark sideways and under the whole bar downward, so it never
+  // sits on the bar's own bottom rule. measured once it is in the page, since
+  // its width is its word's width, and held inside the window either way
+  const m = mark.getBoundingClientRect();
+  const tab = mark.closest(".ptab").getBoundingClientRect();
+  const w = el.getBoundingClientRect().width;
+  el.style.left = Math.max(8, Math.min(m.right - w, innerWidth - w - 8)) + "px";
+  el.style.top = (tab.bottom + 5) + "px";
+  mark.classList.add("open");
+  tabMenu = { ow, el, mark };
 }
+// the two ways out that do not depend on hitting the item: a press anywhere
+// that is neither this menu nor a mark, and Escape. both in capture, the shape
+// the picture layer already uses, so nothing else on the board answers first
+addEventListener("mousedown", e => {
+  if (!tabMenu) return;
+  if (e.target.closest?.("#tabmenu") || e.target.closest?.(".ptabmenu")) return;
+  closeTabMenu();
+}, true);
+addEventListener("keydown", e => {
+  if (e.key !== "Escape" || !tabMenu) return;
+  e.preventDefault(); e.stopPropagation();
+  closeTabMenu();
+}, true);
 // closing a tab works exactly as putting a box away works: one localStorage key
 // is written and nothing else. no card, no lane and nothing on the server moves,
 // so the tab that comes back brings its project back as it was, cards, layout
