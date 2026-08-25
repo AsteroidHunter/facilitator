@@ -1407,6 +1407,10 @@
     border-radius:0; cursor:pointer; user-select:none;
     position:relative; top:1px;
     height:38px; padding:0 16px 5px;
+    /* the only thing that ever animates on a resting tab is the dwell band on
+       its right, on the board's own curve and quick enough to read as one
+       movement rather than a stretch */
+    transition:padding-right 180ms cubic-bezier(0.25, 1, 0.5, 1);
   }
   .ptab:hover{color:var(--ink)}
   .ptab.on{color:var(--ink); background:var(--paper); border-color:var(--line)}
@@ -1450,75 +1454,68 @@
   /* the not-yet-named tab while its folder is being chosen */
   .ptab.draft{color:var(--ink); background:var(--paper); border-color:var(--line);
     font-style:italic}
-  /* closing a project tab: no bare cross under the pointer. a mis-aimed click
-     may not throw a project out of the bar, so the tab carries a neutral mark
-     instead, the way a spreadsheet tab does, and Close lives one step inside
-     it. a chevron and not three dots: at 13px type three dots either blur into
-     one smudge or shrink to grit, while a single chevron on the board's own
-     1.4px line already says there is more here.
-     20260825: laying it out cost every tab 15px. an inline box 14px wide with a
-     7px lead, 6px of which was clawed back by a negative tail, was reserved on
-     every tab from the moment the tab was built, and on every tab the pointer
-     was not on that room stood empty, which reads as a lopsided hole after the
-     name: 17px of air left of the word against 32px right of it. tabs were
-     wider for it too. so the mark is out of the flow entirely and
-     floats over the right padding the tab already had. a tab is its label plus
-     its own 16px on each side and nothing more, to the thousandth of a pixel
-     the same width it had before the mark existed, and the air on the two sides
-     of the name is equal again. only the visibility flips, and hidden it takes
-     no room and paints nothing.
+  /* closing a project tab: no bare cross under a moving pointer, and no mark
+     waiting on the tab either. a pointer that simply rests on one tab for five
+     unbroken seconds opens a band on that tab's right, and the cross lives in
+     that band and nowhere else. skimming the bar opens nothing, so a mis-aimed
+     click can never throw a project out, and a tab nobody is resting on carries
+     no mark at all: it is its label plus its own 16px on each side and nothing
+     more, the width it had before any of this existed.
+     20260825: this replaces a chevron and its one-item menu. the chevron was
+     right that a bare cross under a travelling pointer is dangerous, and wrong
+     about the cure: a mark has to be visible to be found, so every tab the
+     pointer crossed grew one, and a menu charges a second click for a single
+     word. the dwell buys the same safety with time instead of ink.
      20260824: the pencil is for boxes and for nothing else */
-  /* the numbers are measured off the label, never guessed. sideways: the right
-     padding band runs 16px, from the label's edge to the border, and a 12px box
-     at 2px in from the border centres in it, which leaves 3.8px of air to the
-     letters and 3.8px to the border once the stroke's round caps are counted.
-     the mark keeps the size it always had: the band is wide enough to hold it
-     clear on both sides, so nothing had to shrink.
-     downward it is hung on the lowercase body and not on its own box. the
-     label is 13px on a 16px line, its baseline 21px under the tab's top and its
-     x-height 6.79px, and the chevron's ink centres 0.53125 of its box down from
-     the box top. starting the box on the x-height's middle put it at 10.25px,
-     and at 3x that read low, because the eye levels a mark against the whole
-     word, ascenders and all, and not against the lowercase band alone. two
-     0.5px steps up land it at 9.25px, where the ink spans 16.30 to 20.95 and
-     the chevron's two tips sit on the x-height line itself. that is the number,
-     and it was chosen by looking */
-  .ptabmenu{
-    position:absolute; right:2px; top:9.25px;
-    width:12px; height:12px; padding:0;
+  /* the band is new room, not the tab's own padding: the label keeps its 16px
+     of air on both sides while the band is open, so the name never shifts
+     inside its tab and only the tabs after it move, which is the movement that
+     was asked for. it opens and shuts on the board's own curve */
+  .ptab.armed{padding-right:40px}   /* the tab's own 16, then the 24px band */
+  /* the numbers are measured off the label, never guessed. sideways the button
+     is the band: 24px wide, flush to both of the band's edges, so the ink's air
+     is equal by construction and not by adjustment. the arms are the region
+     cross's own two bars on the board's 1.4px line, shortened from 12px to 10px
+     to sit against 13px type, and a 10px bar 1.4px thick turned 45 degrees
+     spans (10 + 1.4)/sqrt2 = 8.06px, which leaves (24 - 8.06)/2 = 7.97px of
+     clear air on the label side and 7.97px on the border side. read back off
+     the rendered pixels at 3x those two came out 8.27 and 8.40, a difference of
+     0.125px that is the tab's own fractional width meeting the pixel grid and
+     nothing else.
+     downward it is hung on the word and not on the tab. the label is 13px on a
+     16px line, its baseline 21px under the tab's top, its ascenders topping out
+     at 11.33px and its x-height 6.79px, so the word's own band runs 11.33 to 21
+     and its middle is 16.17px, while the lowercase band alone would put the
+     middle at 17.61px. the arms centre in their 28px box, so the box is placed
+     by its middle: ink centre = 1px border + top + 14.
+     the aim was taken by looking, at 3x, in 0.5px steps. starting on the
+     lowercase middle (top 2.5px, ink centre 18) the ink hung 0.67px below the
+     baseline, which reads as a cross sitting on the line. 2.0 and 1.5 both
+     landed at 17 with 2.0px of air above and 0.33px below, still low. 1.0
+     lands the ink at 16, 1.0px under the ascenders and 1.33px over the
+     baseline, and that is what reads level. the paint grid moves this ink a
+     whole css pixel at a time here, so 16 is as close to 16.17 as it goes, and
+     the same 1px holds at every pixel ratio: off by 0.00 at 1x, 0.25 at 2x and
+     0.17 at 3x */
+  .ptabx{
+    position:absolute; right:0; top:1px;
+    width:24px; height:28px; padding:0;
     background:none; border:none; cursor:pointer; color:var(--sub);
-    visibility:hidden; transition:color .18s;
+    opacity:0; visibility:hidden;
+    transition:opacity 180ms, color .18s, visibility 0s linear 180ms;
   }
-  /* the tab under the pointer and the tab he is sitting on, never the rest. it
-     opens a menu and nothing else, so standing there is not dangerous */
-  .ptab:hover .ptabmenu, .ptab.on .ptabmenu, .ptabmenu.open{visibility:visible}
-  .ptabmenu:hover, .ptabmenu.open{color:var(--ink)}
-  .ptabmenu svg{position:absolute; inset:0; margin:auto}
-  /* a real target without a pixel of layout: the box stays 12 by 12 and this
-     reaches out from it to fill the padding band the mark floats in, 16 wide by
-     28 tall. it stops at the label's edge on one side and at the border on the
-     other, so it never steals a click meant for the name and no edge of it
-     leaves the tab */
-  .ptabmenu::after{content:""; position:absolute; left:-2px; right:-2px; top:-8px; bottom:-8px}
-  /* the mark's menu. the board had no floating menu of its own, so this is
-     built out of what its lifted surfaces already use and adds nothing: white
-     paper, the standard hairline, the small radius the rows and chips take, and
-     the app's own raised shadow, the same pair the other lifted surfaces use */
-  #tabmenu{
-    position:fixed; z-index:40; padding:4px;
-    background:#FFFFFF; border:1px solid var(--line); border-radius:5px;
-    box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
-  }
-  #tabmenu .tmitem{
-    display:block; width:100%; height:26px; padding:0 12px; text-align:left;
-    font:500 13px/26px var(--sans); color:var(--ink); white-space:nowrap;
-    background:none; border:none; border-radius:4px; cursor:pointer;
-  }
-  #tabmenu .tmitem:hover{background:var(--paper)}
-  /* the last tab stays: the board must always have a lane to sit on. the item
-     says so before the click rather than swallowing it */
-  #tabmenu .tmitem.off{color:var(--sub); opacity:.55; cursor:default}
-  #tabmenu .tmitem.off:hover{background:none}
+  .ptab.armed .ptabx{opacity:1; visibility:visible;
+    transition:opacity 180ms, color .18s, visibility 0s}
+  .ptabx:hover{color:var(--ink)}
+  /* the last tab stays: the board must always have a lane to sit on. the cross
+     says so by going pale before the click rather than swallowing it */
+  .ptabx.off{cursor:default}
+  .ptab.armed .ptabx.off{opacity:.3}
+  .ptabx.off:hover{color:var(--sub)}
+  .ptabx::before, .ptabx::after{content:""; position:absolute; left:50%; top:50%;
+    width:10px; height:1.4px; background:currentColor; border-radius:1px}
+  .ptabx::before{transform:translate(-50%,-50%) rotate(45deg)}
+  .ptabx::after{transform:translate(-50%,-50%) rotate(-45deg)}
   /* a closed tab is simply not in the bar, and it is nowhere else either: the
      plus button's folder flow is the one way back to it */
   .ptab.closed{display:none}
@@ -1861,9 +1858,9 @@ function renderTabs(st){
   const owners = LOCKED ? [LOCKED] : allRowsOf(st);
   const sig = owners.join(",") + (draft ? "|draft" : "") + (LOCKED ? "|locked" : "");
   if (bar.dataset.sig !== sig){
-    // the marks go with the bar, so a menu hanging off one of them may not
+    // the tabs go with the bar, so a dwell counted on one of them may not
     // outlive it
-    closeTabMenu();
+    disarmTab();
     bar.dataset.sig = sig;
     bar.textContent = "";
     for (const ow of owners){
@@ -1873,7 +1870,13 @@ function renderTabs(st){
       lbl.dataset.label = lbl.textContent;   // the hidden line that holds this word's bold width
       t.appendChild(lbl);
       if (!LOCKED){
-        t.appendChild(tabMenuMark(ow));
+        t.appendChild(tabKillMark(ow));
+        // the dwell is counted on the tab itself, so it runs wherever on the
+        // tab he happens to be resting, the cross's own band included. crossing
+        // into a child of the tab is not leaving the tab, so the band opening
+        // under the pointer cannot cancel the rest that opened it
+        t.addEventListener("mouseenter", () => tabDwell(t));
+        t.addEventListener("mouseleave", () => { if (tabArm?.el === t) disarmTab(); });
         t.addEventListener("mousedown", e => {
           if (tabGlide) return;   // a drop still settling holds the bar
           tabDrag = { ow, x: e.clientX, y: e.clientY, mode: null, pulled: false, el: t };
@@ -1899,8 +1902,17 @@ function renderTabs(st){
       bar.appendChild(plus);
     }
   }
+  // closing a tab is a class flip and never a rebuild, so the crosses learn
+  // here and not where they were built: the tab that is suddenly the only one
+  // left has to go pale on the same paint that emptied the bar around it
+  const alone = rowsOf(st).length < 2;
   for (const t of bar.querySelectorAll(".ptab:not(.draft)")){
     t.classList.toggle("on", t.dataset.owner === activeOwner);
+    const kill = t.querySelector(".ptabx");
+    if (kill){
+      kill.classList.toggle("off", alone);
+      kill.title = alone ? "the last project tab stays open" : "close project";
+    }
     // the tab he is sitting on is bolded on the same terms as the rest: being
     // parked on a lane is not the same as having opened its cards
     t.classList.toggle("unread", laneUnread(st, t.dataset.owner));
@@ -1913,80 +1925,45 @@ function renderTabs(st){
     if (lbl.textContent !== want){ lbl.textContent = want; lbl.dataset.label = want; }
   }
 }
-// the mark on a tab, sitting there from the moment the tab is built and shown
-// by the stylesheet on the tab under the pointer and on the tab he is on. it
-// opens the menu and does nothing else: the presses stop here, so the tab under
-// it never reads one as a switch or as the start of a drag, and a mis-aimed
-// click costs him a menu and never a project. drawn inline like the board's
-// other small glyphs, on the same 24 grid
-const TAB_CHEVRON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9.5 12 16 19 9.5"/></svg>';
-function tabMenuMark(ow){
-  const b = h("button", "ptabmenu");
-  b.title = "project menu";
-  b.innerHTML = TAB_CHEVRON;
+// the cross, built with every tab and held out of the layout entirely: it is
+// absolutely placed, so an unarmed tab measures the same to the thousandth of a
+// pixel as it did before any of this existed, and hidden it paints nothing. the
+// presses stop here, so the tab under it never reads one as a switch or as the
+// start of a drag: the cross closes the project and does nothing else
+function tabKillMark(ow){
+  const b = h("button", "ptabx");
+  b.title = "close project";
   b.addEventListener("mousedown", ev => ev.stopPropagation());
   b.addEventListener("pointerdown", ev => ev.stopPropagation());
   b.addEventListener("click", ev => {
-    ev.preventDefault(); ev.stopPropagation();
-    // the same mark twice puts the menu away again
-    if (tabMenu && tabMenu.ow === ow) closeTabMenu(); else openTabMenu(ow, b);
+    ev.preventDefault(); ev.stopPropagation();   // never a tab switch on the way
+    if (b.classList.contains("off")) return;     // closeTab refuses this too
+    disarmTab();   // the band shuts with the tab it belonged to
+    closeTab(ow);
   });
   return b;
 }
-// one menu at a time and one on the board at all: it hangs from the mark it was
-// opened on and holds the one thing that used to sit bare on the tab
-let tabMenu = null;
-function closeTabMenu(){
-  if (!tabMenu) return;
-  tabMenu.mark.classList.remove("open");
-  tabMenu.el.remove();
-  tabMenu = null;
+// the dwell. one timer for the whole bar, so one tab is armed by construction
+// and moving from tab to tab can never add up: the new tab clears whatever the
+// old one had counted and starts its own five seconds from zero. leaving a tab
+// throws its count away, so nothing short of five unbroken seconds on one tab
+// opens anything
+const TAB_DWELL = 5000;
+let tabArm = null;   // { el, timer } the tab counting, or the tab already armed
+function disarmTab(){
+  if (!tabArm) return;
+  clearTimeout(tabArm.timer);
+  tabArm.el.classList.remove("armed");
+  tabArm = null;
 }
-function openTabMenu(ow, mark){
-  closeTabMenu();   // never two
-  const el = h("div"); el.id = "tabmenu";
-  const item = h("button", "tmitem", "Close project");
-  const last = !lastState || rowsOf(lastState).length < 2;
-  if (last){
-    // greyed rather than live and silent: he should read the rule before the
-    // click, not press a word and watch nothing happen
-    item.classList.add("off");
-    item.setAttribute("aria-disabled", "true");
-    item.title = "the last project tab stays open";
-  }
-  item.addEventListener("mousedown", ev => ev.stopPropagation());
-  item.addEventListener("click", ev => {
-    ev.preventDefault(); ev.stopPropagation();
-    if (item.classList.contains("off")) return;   // closeTab refuses this too
-    closeTabMenu();
-    closeTab(ow);
-  });
-  el.appendChild(item);
-  document.body.appendChild(el);
-  // anchored on the mark sideways and under the whole bar downward, so it never
-  // sits on the bar's own bottom rule. measured once it is in the page, since
-  // its width is its word's width, and held inside the window either way
-  const m = mark.getBoundingClientRect();
-  const tab = mark.closest(".ptab").getBoundingClientRect();
-  const w = el.getBoundingClientRect().width;
-  el.style.left = Math.max(8, Math.min(m.right - w, innerWidth - w - 8)) + "px";
-  el.style.top = (tab.bottom + 5) + "px";
-  mark.classList.add("open");
-  tabMenu = { ow, el, mark };
+function tabDwell(t){
+  if (LOCKED || tabDrag || tabGlide) return;   // a hand on the bar is not a rest
+  disarmTab();
+  tabArm = { el: t, timer: setTimeout(() => {
+    if (tabArm?.el !== t) return;   // the rest ended while the clock ran out
+    t.classList.add("armed");
+  }, TAB_DWELL) };
 }
-// the two ways out that do not depend on hitting the item: a press anywhere
-// that is neither this menu nor a mark, and Escape. both in capture, the shape
-// the picture layer already uses, so nothing else on the board answers first
-addEventListener("mousedown", e => {
-  if (!tabMenu) return;
-  if (e.target.closest?.("#tabmenu") || e.target.closest?.(".ptabmenu")) return;
-  closeTabMenu();
-}, true);
-addEventListener("keydown", e => {
-  if (e.key !== "Escape" || !tabMenu) return;
-  e.preventDefault(); e.stopPropagation();
-  closeTabMenu();
-}, true);
 // closing a tab works exactly as putting a box away works: one localStorage key
 // is written and nothing else. no card, no lane and nothing on the server moves,
 // so the tab that comes back brings its project back as it was, cards, layout
@@ -2028,6 +2005,9 @@ addEventListener("mousemove", e => {
   const dx = e.clientX - tabDrag.x, dy = e.clientY - tabDrag.y;
   if (!tabDrag.mode){
     if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;   // under the lock threshold a click stays a click
+    // a gesture is not a rest: the bar is about to be measured and moved, and a
+    // band opening or shutting under the drag would move the rects it measures
+    disarmTab();
     if (Math.abs(dx) > Math.abs(dy)) startReorder();
     else tabDrag.mode = "tear";
   }
@@ -2051,11 +2031,20 @@ addEventListener("mouseup", e => {
 // and every swap reads against those fixed midpoints
 function startReorder(){
   const t = tabDrag;
+  // a dwell band still opening or shutting would put a moving number in the
+  // ruler, and the whole drag is measured once and then trusted. so every tab
+  // is snapped to its resting width before anything is read: the band is gone
+  // this instant rather than 180ms from now, and the transitions come back
+  // before the drag's own animations need them
+  const all = [...document.querySelectorAll("#tabbar .ptab")];
+  for (const el of all){ el.style.transition = "none"; el.classList.remove("armed"); }
+  document.getElementById("tabbar").getBoundingClientRect();   // the shut is real now
   // the strip is what the bar is actually showing: a closed tab is in the bar's
   // markup but takes no room, so it would put a zero-width rect in the middle of
   // the measured line and every midpoint after it would read wrong
   t.tabs = [...document.querySelectorAll("#tabbar .ptab:not(.draft)")]
     .filter(el => el.getBoundingClientRect().width);
+  for (const el of all) el.style.transition = "";
   t.idx = t.tabs.indexOf(t.el);
   if (t.idx < 0){ tabDrag = null; return; }   // the bar rebuilt under the grip; the drag dies quietly
   t.mode = "reorder";
