@@ -1456,16 +1456,36 @@
      it. a chevron and not three dots: at 13px type three dots either blur into
      one smudge or shrink to grit, while a single chevron on the board's own
      1.4px line already says there is more here.
-     it is laid out and not positioned: an inline-block exactly as tall as the
-     label's own 16px line, aligned to its top, so the two centre lines coincide
-     by construction and cannot be eyeballed wrong. every tab holds its room
-     from the moment it is built and only the visibility flips, so the bar
-     cannot move by a pixel when the mark comes and goes. tabs are wider for it,
-     and part of that width is paid back out of the tab's own right padding.
+     20260825: laying it out cost every tab 15px. an inline box 14px wide with a
+     7px lead, 6px of which was clawed back by a negative tail, was reserved on
+     every tab from the moment the tab was built, and on every tab the pointer
+     was not on that room stood empty, which reads as a lopsided hole after the
+     name: 17px of air left of the word against 32px right of it. tabs were
+     wider for it too. so the mark is out of the flow entirely and
+     floats over the right padding the tab already had. a tab is its label plus
+     its own 16px on each side and nothing more, to the thousandth of a pixel
+     the same width it had before the mark existed, and the air on the two sides
+     of the name is equal again. only the visibility flips, and hidden it takes
+     no room and paints nothing.
      20260824: the pencil is for boxes and for nothing else */
+  /* the numbers are measured off the label, never guessed. sideways: the right
+     padding band runs 16px, from the label's edge to the border, and a 12px box
+     at 2px in from the border centres in it, which leaves 3.8px of air to the
+     letters and 3.8px to the border once the stroke's round caps are counted.
+     the mark keeps the size it always had: the band is wide enough to hold it
+     clear on both sides, so nothing had to shrink.
+     downward it is hung on the lowercase body and not on its own box. the
+     label is 13px on a 16px line, its baseline 21px under the tab's top and its
+     x-height 6.79px, and the chevron's ink centres 0.53125 of its box down from
+     the box top. starting the box on the x-height's middle put it at 10.25px,
+     and at 3x that read low, because the eye levels a mark against the whole
+     word, ascenders and all, and not against the lowercase band alone. two
+     0.5px steps up land it at 9.25px, where the ink spans 16.30 to 20.95 and
+     the chevron's two tips sit on the x-height line itself. that is the number,
+     and it was chosen by looking */
   .ptabmenu{
-    display:inline-block; vertical-align:top; position:relative;
-    width:14px; height:16px; margin:0 -6px 0 7px; padding:0;
+    position:absolute; right:2px; top:9.25px;
+    width:12px; height:12px; padding:0;
     background:none; border:none; cursor:pointer; color:var(--sub);
     visibility:hidden; transition:color .18s;
   }
@@ -1474,9 +1494,12 @@
   .ptab:hover .ptabmenu, .ptab.on .ptabmenu, .ptabmenu.open{visibility:visible}
   .ptabmenu:hover, .ptabmenu.open{color:var(--ink)}
   .ptabmenu svg{position:absolute; inset:0; margin:auto}
-  /* a real target without a pixel of layout: the box stays 14 by 16 and this
-     reaches past it on every side */
-  .ptabmenu::after{content:""; position:absolute; left:-3px; right:-5px; top:-6px; bottom:-6px}
+  /* a real target without a pixel of layout: the box stays 12 by 12 and this
+     reaches out from it to fill the padding band the mark floats in, 16 wide by
+     28 tall. it stops at the label's edge on one side and at the border on the
+     other, so it never steals a click meant for the name and no edge of it
+     leaves the tab */
+  .ptabmenu::after{content:""; position:absolute; left:-2px; right:-2px; top:-8px; bottom:-8px}
   /* the mark's menu. the board had no floating menu of its own, so this is
      built out of what its lifted surfaces already use and adds nothing: white
      paper, the standard hairline, the small radius the rows and chips take, and
