@@ -6,18 +6,29 @@ The tool: `server.py` (Python stdlib, no dependencies, port 8877) serves `index.
 
 ## The loop
 
-From the terminal session that owns your lane, repeat forever:
+From the terminal session that owns your lane, repeat forever. Two calls, both required:
 
     timeout 560 curl -s "http://127.0.0.1:8877/wait?owner=facilitator&timeout=540&agent=claude"
+    curl -s -X POST "http://127.0.0.1:8877/ack?owner=facilitator&token=<the ack field>"
 
-`agent=` states your name; the board's card rows show each lane's live agent name, or offline, from exactly this. It returns `{"box": id, "title": ..., "messages": [...], "queued_after": n}` on a claim, `{"idle": true}` on timeout, `{"paused": true}` while paused, `{"end": true}` once ended and drained. Answer a claim with:
+`agent=` states your name; the board's card rows show each lane's live agent name, or offline, from exactly this. It returns `{"box": id, "title": ..., "messages": [...], "queued_after": n, "ack": token}` on a claim, `{"idle": true}` on timeout, `{"paused": true}` while paused, `{"end": true}` once ended and drained.
+
+The `ack` token is the receipt for the card you were just handed, and confirming it is part of claiming, not an extra. A hand-off is provisional until you confirm it, because the answer can die on the wire: your own kill timer fires, the connection drops, and the server thinks it delivered a card nobody ever saw. Confirm it the moment the claim lands, before you start reading or working. A card nobody confirms goes back to the front of its lane's queue after 90 seconds and its colour falls back to the queued grey, so nothing sits green with nobody on it. Confirming twice is fine; the second call answers the same `{"ok": true}`.
+
+WARNING: a loop without the confirm line claims cards it cannot keep. Every claim bounces back to the queue 90 seconds later and gets handed out again, forever, and your reply lands on a card you no longer hold.
+
+Answer a claim with:
 
     curl -s -X POST --data-binary "the reply text" "http://127.0.0.1:8877/reply?box=ID&ctx=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' "two line summary of where this card stands")"
 
 `ctx=` is REQUIRED: every reply carries a fresh two-line summary strip (220 chars max, urlencoded), stored as the card's grey summary box in the same move. The server refuses a reply without one. Write the summary first, from the reader's seat, then the reply.
 
 - `/wait?owner=...` claims the oldest queued box in your owner lane and marks it busy. Never leave a claim unanswered; an open claim blocks your whole lane (each owner has its own busy slot, see Owner routing below).
-- Dead-connection claims roll back automatically and a claim older than 15 minutes is stolen back. Do not lean on either; answer what you claim.
+- Three nets sit under a claim, in order: a hand-off written into a dead socket rolls back at once, an unconfirmed claim returns after 90 seconds, and a claim older than 15 minutes is stolen back. Do not lean on any of them; confirm what you claim and answer what you confirm.
+- Before going idle, check whether anything is waiting on your lane: `GET /unread?owner=YOURLANE` answers `{"queued": N, "claimed": M}`, messages still waiting plus messages in the claim you hold. It reads only, so it is safe from a hook. Paste this as a Stop hook command and go back to the loop instead of idling whenever `queued` is above zero:
+
+      curl -s "http://127.0.0.1:8877/unread?owner=facilitator"
+
 - `{"paused": true}` means the owner hit the pause button (laptop-close mode). Stop polling `/wait`; idle locally and re-check about once a minute (`curl -s http://127.0.0.1:8877/state`, read `paused`) until it goes false, then resume the loop. Messages still queue while paused; finish any open claim before going quiet.
 
 ## Replies
@@ -80,6 +91,8 @@ Two agents share one board. Every box carries an owner tag: `facilitator` (discu
 
     timeout 560 curl -s "http://127.0.0.1:8877/wait?owner=facilitator&timeout=540&agent=claude"
     timeout 560 curl -s "http://127.0.0.1:8877/wait?owner=triage&timeout=540&agent=claude"
+
+Each lane confirms its own claims against its own owner: `POST /ack?owner=facilitator&token=...` and `POST /ack?owner=triage&token=...`. A token belongs to one lane's claim and is refused (409) anywhere else.
 
 ## Showing a picture on your lane
 

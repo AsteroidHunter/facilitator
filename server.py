@@ -104,14 +104,39 @@ Endpoints:
                                messages. agent= states the caller's name; the card
                                rows' little tag shows the lane's live name or
                                offline, never a stored guess. A claim answers
-                               {box, title, messages, message_via, queued_after}:
-                               messages stays a list of plain strings and
+                               {box, title, messages, message_via, queued_after,
+                               ack}: messages stays a list of plain strings and
                                message_via runs beside it, one entry per message
                                in the same order, "mini" for a small card message
                                and null for a big card one. Also returns
                                {"idle":true} on timeout, {"paused":true} while
                                paused, or {"end":true} once ended and O's queue
-                               is drained
+                               is drained.
+                               Delivery is confirmed, always: ack carries a short
+                               token and the claim counts as provisional until
+                               POST /ack names it. There is no unconfirmed mode.
+                               An ack=1 in the query is accepted and ignored, so
+                               a loop that learned the flag still works
+  POST /ack?owner=O&token=T -> confirms the provisional claim that token was
+                               minted for and answers {"ok": true}; acking an
+                               already confirmed claim again says the same, so a
+                               resent ack is safe. An unknown or stale token is a
+                               409 with a short reason. A provisional claim
+                               nobody confirms within 90 seconds is released: the
+                               box goes back to the FRONT of its lane's queue and
+                               the card falls back to the queued grey, exactly
+                               like an unpicked card, never yellow. That clock is
+                               swept wherever the 15 minute steal-back is swept
+                               and on every /state, which the board polls about
+                               once a second, so it runs even with no /wait open.
+                               A loop that claims and never acks gets the same
+                               card handed back every 90 seconds
+  GET  /unread?owner=O      -> {"queued": N, "claimed": M} for that lane: messages
+                               still waiting to be handed over, and messages in
+                               the claim that lane's agent holds right now. Read
+                               only, it claims nothing and releases nothing; for
+                               a Stop hook checking whether anything is waiting
+                               before the agent goes idle, and for humans
   POST /reply?box=ID[&ctx=S][&quiet=1] -> body = the agent's reply text (plain
                                text); ctx is an OPTIONAL urlencoded summary
                                strip, 50 words max, stored as the box's
@@ -158,6 +183,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import secrets
 import subprocess
 import sys
 import threading
@@ -192,6 +218,10 @@ IMG_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
              ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml"}
 PORT = 8877
 BG_STALE = 75.0   # seconds without a /ping before a registered job stops counting as green
+# seconds a claim may sit unconfirmed before it goes back to the queue. Short on
+# purpose: the whole point is that a hand-off lost on the wire comes back while
+# the message still matters, not fifteen minutes later
+ACK_GRACE = 90.0
 OWNERS = ("facilitator", "triage", "qchat")  # qchat: the quick chat panel's lane, dormant in the current board
 # the built-in three above are the floor; project lanes stored in state.json
 # extend OWNERS at load and at creation, via _register_owner below
@@ -269,6 +299,10 @@ def _seed_state() -> dict:
         "busy": {ow: None for ow in OWNERS},   # box id each agent is composing for
         "claimed": {ow: [] for ow in OWNERS},  # message ids in each current claim
         "busy_ts": {ow: 0.0 for ow in OWNERS},
+        # confirmed delivery bookkeeping, one slot per owner beside the claim
+        # itself: {box, token, ts, confirmed} for the claim in play, None when
+        # the lane holds nothing
+        "ack": {ow: None for ow in OWNERS},
         "end": False,
         "paused": False,
         "next_mid": 1,
@@ -311,8 +345,11 @@ def _migrate() -> None:
             "reply": "", "pending": [], "done": False, "parked": False, "replies": 0,
             "ball": "you", "ts": time.time(), "owner": "triage",
         })
+    # confirmed delivery (2026-08-25): state written before it existed has no
+    # ack map at all, and an empty one reads exactly like no claim in play
+    _state.setdefault("ack", {})
     # a third owner appearing in OWNERS gets its claim slots on upgrade
-    for slot in ("busy", "claimed", "busy_ts"):
+    for slot in ("busy", "claimed", "busy_ts", "ack"):
         if isinstance(_state.get(slot), dict):
             for ow in OWNERS:
                 _state[slot].setdefault(ow, [] if slot == "claimed" else (0.0 if slot == "busy_ts" else None))
@@ -390,8 +427,45 @@ def _card_state(b: dict, st: dict) -> str:
     return "queued"
 
 
+def _release_unacked() -> None:
+    """The short clock behind confirmed delivery: a claim whose token never came
+    back through /ack went into a dead connection, so after ACK_GRACE the box
+    goes back to the FRONT of its lane's queue, the same move the 15 minute
+    steal-back makes. The card falls back to the queued grey because a box with
+    pending messages reads "queued" in _card_state, never yellow.
+
+    Only the claim a token was minted for can be released by it: a record left
+    behind by a claim that already ended is stale bookkeeping, not a release.
+    Callers hold _lock; this both saves and notifies when it moves anything."""
+    now = time.time()
+    moved = False
+    for ow, rec in list(_state.get("ack", {}).items()):
+        if not rec or rec.get("confirmed"):
+            continue
+        if _state["busy"].get(ow) != rec.get("box") or now - rec.get("ts", 0) <= ACK_GRACE:
+            continue
+        bid = rec["box"]
+        _state["busy"][ow] = None
+        _state["claimed"][ow] = []
+        _state["ack"][ow] = None
+        box = _box(bid)
+        if box and box["pending"] and bid not in _state["inbox"]:
+            _state["inbox"].insert(0, bid)
+        _log("unacked", bid, f"{ow} hand-off unconfirmed after {ACK_GRACE:.0f}s, box re-queued")
+        moved = True
+    if moved:
+        _save()
+        _lock.notify_all()
+
+
 class Handler(BaseHTTPRequestHandler):
-    def _send(self, code: int, payload: dict | bytes, ctype: str = "application/json") -> None:
+    def _send(self, code: int, payload: dict | bytes, ctype: str = "application/json") -> bool:
+        """True when the response reached the socket, False when the client was
+        already gone. Everything that just answers a page ignores the result;
+        the /wait hand-off reads it, because a claim written into a dead
+        connection has to be rolled back rather than counted as delivered.
+        Swallowing the failure here silently was what made that rollback
+        unreachable."""
         body = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
         try:
             self.send_response(code)
@@ -400,8 +474,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
-        except (BrokenPipeError, ConnectionResetError):
-            pass  # the client hung up mid-response (a timed-out poll); not an error
+        except OSError:
+            # the client hung up mid-response (a timed-out poll, a killed curl):
+            # routine here and never a traceback, but the caller has to be able
+            # to find out, so it is reported instead of hidden
+            return False
+        return True
 
     def _read_body(self) -> str:
         n = int(self.headers.get("Content-Length") or 0)
@@ -418,7 +496,28 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, (HERE / "page.html").read_bytes(), "text/html; charset=utf-8")
         elif url.path == "/state":
             with _lock:
+                # the board polls this about once a second, so the 90 second ack
+                # clock gets swept even when no /wait is running to sweep it
+                _release_unacked()
                 self._send(200, self._ui_state())
+        elif url.path == "/unread":
+            # a lane's unread count in one line, for a Stop hook deciding
+            # whether the agent may go idle and for a human checking a lane
+            # without reading the whole board. Read only: it claims nothing,
+            # releases nothing and sweeps nothing
+            q = parse_qs(url.query)
+            owner = (q.get("owner") or ["triage"])[0]
+            if owner not in OWNERS:
+                self._send(400, {"error": "unknown owner"})
+                return
+            with _lock:
+                held = set(_state["claimed"].get(owner) or [])
+                # anything not already in the claim is still waiting, including
+                # messages that landed on a held card after it was claimed
+                queued = sum(1 for b in _state["boxes"]
+                             if b.get("owner", "triage") == owner
+                             for m in b["pending"] if m["mid"] not in held)
+                self._send(200, {"queued": queued, "claimed": len(held)})
         elif url.path == "/wait":
             q = parse_qs(url.query)
             timeout = float(q.get("timeout", ["570"])[0])
@@ -429,6 +528,9 @@ class Handler(BaseHTTPRequestHandler):
             agent = (q.get("agent") or [None])[0]
             if agent:
                 _agent_names[owner] = agent[:24]
+            # every claim is confirmed delivery, so there is no flag to read; an
+            # ack=1 riding along in the query is accepted and ignored, never
+            # refused, so a loop that carries the flag keeps working
             self._wait(timeout, owner)
         elif url.path == "/fresh":
             # mid-work delivery: while an agent holds a card, hand over anything
@@ -674,6 +776,9 @@ class Handler(BaseHTTPRequestHandler):
                 if _state.get("paused"):  # laptop-close mode: send the listener home
                     self._send(200, {"paused": True})
                     return
+                # the short clock first: a hand-off nobody confirmed comes back
+                # after 90 seconds, long before the steal-back below notices
+                _release_unacked()
                 # a claim older than 15 min with no reply is a dead listener: steal it back
                 for ow in OWNERS:
                     stale = _state["busy"][ow]
@@ -692,27 +797,40 @@ class Handler(BaseHTTPRequestHandler):
                         _state["busy"][owner] = bid
                         _state["claimed"][owner] = [m["mid"] for m in box["pending"]]
                         _state["busy_ts"][owner] = time.time()
+                        # every claim is provisional: the token below is what
+                        # POST /ack has to name, and until it does this claim is
+                        # on the 90 second clock. A lane holds one claim, so one
+                        # record per lane says everything about it
+                        token = secrets.token_hex(6)
+                        _state["ack"][owner] = {"box": bid, "token": token,
+                                                "ts": time.time(), "confirmed": False}
                         _save()
-                        try:
-                            self._send(200, {
-                                "box": bid, "title": box["title"],
-                                "messages": [m["text"] for m in box["pending"]],
-                                # where each message was typed, one entry per
-                                # message in the same order: "mini" for the small
-                                # card, null for the big one. It rides beside
-                                # messages instead of inside it because agent
-                                # loops elsewhere read messages as plain strings
-                                "message_via": [m.get("via") for m in box["pending"]],
-                                "queued_after": sum(1 for i in _state["inbox"]
-                                                    if (_box(i) or {}).get("owner", "triage") == owner),
-                            })
-                        except OSError:
-                            # listener died mid-handoff: roll the claim back so the
-                            # message is never stranded on a dead connection
+                        payload = {
+                            "box": bid, "title": box["title"],
+                            "messages": [m["text"] for m in box["pending"]],
+                            # where each message was typed, one entry per
+                            # message in the same order: "mini" for the small
+                            # card, null for the big one. It rides beside
+                            # messages instead of inside it because agent
+                            # loops elsewhere read messages as plain strings
+                            "message_via": [m.get("via") for m in box["pending"]],
+                            "queued_after": sum(1 for i in _state["inbox"]
+                                                if (_box(i) or {}).get("owner", "triage") == owner),
+                            # the receipt this hand-off has to come back with
+                            "ack": token,
+                        }
+                        if not self._send(200, payload):
+                            # listener died mid-handoff: roll the claim back so
+                            # the message is never stranded on a dead connection.
+                            # It fires now that _send reports the failure
                             _state["busy"][owner] = None
                             _state["claimed"][owner] = []
-                            _state["inbox"].insert(0, bid)
+                            _state["ack"][owner] = None
+                            if bid not in _state["inbox"]:
+                                _state["inbox"].insert(0, bid)
+                            _log("dropped", bid, f"{owner} hand-off died on the wire, box re-queued")
                             _save()
+                            _lock.notify_all()
                         return
                 if _state["end"] and _state["busy"][owner] is None and not any(
                         (_box(i) or {}).get("owner", "triage") == owner for i in _state["inbox"]):
@@ -773,6 +891,34 @@ class Handler(BaseHTTPRequestHandler):
                 _save()
                 _lock.notify_all()
                 self._send(200, {"ok": True})
+
+            elif url.path == "/ack":
+                # the other half of the hand-off: the token /wait handed out
+                # comes back here and the provisional claim becomes a real one.
+                # Nothing else about the claim changes, so a confirmed claim is
+                # exactly what /fresh, /reply and the steal-back always saw
+                ow = (q.get("owner") or ["triage"])[0]
+                if ow not in OWNERS:
+                    self._send(400, {"error": "unknown owner"})
+                    return
+                token = (q.get("token") or [""])[0]
+                rec = _state.get("ack", {}).get(ow)
+                if not token or not rec or rec.get("token") != token:
+                    self._send(409, {"error": "unknown or stale token"})
+                    return
+                if rec.get("confirmed"):
+                    # idempotent: a resent ack is the same ack, never a 409
+                    self._send(200, {"ok": True, "box": rec["box"]})
+                    return
+                if _state["busy"].get(ow) != rec.get("box"):
+                    # the claim this token names is already over: released by
+                    # the 90 second clock, stolen back, replied to or dismissed
+                    self._send(409, {"error": "claim no longer held"})
+                    return
+                rec["confirmed"] = True
+                _log("ack", rec["box"], f"{ow} confirmed delivery")
+                _save()
+                self._send(200, {"ok": True, "box": rec["box"]})
 
             elif url.path == "/reply":
                 box = _box(bid)
@@ -1006,6 +1152,7 @@ class Handler(BaseHTTPRequestHandler):
                 _state["busy"].setdefault(slug, None)
                 _state["claimed"].setdefault(slug, [])
                 _state["busy_ts"].setdefault(slug, 0.0)
+                _state.setdefault("ack", {}).setdefault(slug, None)
                 _state.setdefault("workspaces", {})[slug] = [{
                     "id": "w1", "name": "main", "started": time.time(),
                     "goal": "", "tasks": [], "current": None}]
@@ -1155,6 +1302,7 @@ def main() -> None:
     with _lock:
         _state["busy"] = {ow: None for ow in OWNERS}  # a restart never resumes mid-claim
         _state["claimed"] = {ow: [] for ow in OWNERS}
+        _state["ack"] = {ow: None for ow in OWNERS}   # and no token outlives it
         # re-queue any box that still has unanswered messages
         for b in _state["boxes"]:
             if b["pending"] and b["id"] not in _state["inbox"]:
