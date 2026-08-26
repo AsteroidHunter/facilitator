@@ -18,7 +18,9 @@ Endpoints:
   POST /working?box=ID&v=1|0 -> a job runs behind this box: it shows green
                                without holding the lane's claim. Registration
                                starts a heartbeat clock; without /ping every
-                               75s the green expires on its own
+                               75s the green expires on its own. v=0 and that
+                               expiry are also where a turn deferred by a
+                               reply under the flag is handed over
   POST /ping?box=ID         -> heartbeat for a registered job; refreshes its
                                green while the job actually runs
   POST /park?box=ID&v=1|0   -> park a box to Later / bring it back
@@ -149,6 +151,12 @@ Endpoints:
                                whitespace separated words is refused the same
                                way (400, nothing stored): that card is only a
                                few lines tall. A big card message has no cap.
+                               A normal reply hands the ball to you only when
+                               no working flag is live on the box. While one
+                               is, nothing awaits you yet, so the turn is held
+                               as a deferred marker and handed over when that
+                               flag drops or expires: a mid-work reply cannot
+                               turn a green card yellow under running work.
                                quiet=1 stores the reply, summary, count and
                                stamp the same way and changes nothing else:
                                the ball stays untouched, so the card's color

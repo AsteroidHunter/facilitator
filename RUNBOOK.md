@@ -38,6 +38,7 @@ Answer a claim with:
 - Every reply fully self-contained. The box shows ONLY the latest reply, so a short follow-up ERASES a longer answer. Restate rather than reference.
 - Answer what was asked and stop: no unsolicited offers, no "want me to" tails, no validation preambles.
 - `&quiet=1` on the `/reply` call delivers an interim note while a card's work is in flight and changes nothing about the card's state: the reply and summary land as usual and the card's color keeps coming from the work itself. Register the card's green working flag (`/working` plus pings) the moment work is committed, keep it through interim notes, and drop it with the normal done note, so the card turns yellow only when something genuinely awaits the owner (his color law, 20260815). Its ONLY use stays progress notes on in-flight work; answers, done notes, and conversation always go normal. Quiet stays unused until the new `/reply` code arms at the owner's next restart.
+- The colour law is the server's now, not your discipline: a normal reply landing on a card whose green working flag is up does not turn that card yellow. The server holds the turn and hands it over the moment the flag drops (`/working?box=ID&v=0`) or its heartbeat expires, so a mid-work reply leaves the card green until the work actually ends.
 - A reply that closes or parks a box carries zero new information. Folded boxes go unread. Keep-in-mind notes go to an open box or the project docs.
 
 ## Titles
