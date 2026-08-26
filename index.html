@@ -4801,8 +4801,9 @@ function renderMiniCards(state){
 }
 
 function cardState(b){
-  // the server now computes one authoritative state per card; the inline
-  // version stays only as a fallback for an older server that omits it
+  // the server's state machine ships the one authoritative state per card;
+  // the inline derivation below serves only queueState's unpark recompute
+  // (state nulled in a copy) and an older server that omits the field
   const s = b.state || (
          b.done ? "done"
        : b.parked ? "parked"
@@ -4811,11 +4812,11 @@ function cardState(b){
        : (!b.agentTs && !b.pending && !b.replies) ? "new"
        : b.ball === "you" ? "yours"
        : "queued");
-  // a message of his still sitting in the queue is waiting on the agent, not
-  // on him, so the card rests grey. an older reply can leave the ball on his
-  // side while a newer message is still in line, and that used to paint the
-  // card yellow. only yours is rewritten, so done, parked and every green
-  // state keep exactly the state they had
+  // the machine never ships yours with messages still queued; this guard
+  // covers the recomputed path, where an older reply can leave the ball on
+  // his side while a newer message is still in line, and that used to paint
+  // the card yellow. only yours is rewritten, so done, parked and every
+  // green state keep exactly the state they had
   return (s === "yours" && b.pending > 0) ? "queued" : s;
 }
 // the queue panel's view: a parked card sorts and colors as if open. state is
