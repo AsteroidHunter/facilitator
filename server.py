@@ -400,6 +400,13 @@ def _ws(owner: str, wid: str) -> dict | None:
                  if w["id"] == wid), None)
 
 
+def _bg_live(b: dict) -> bool:
+    """Is this box's registered job still counting as green: bg set AND pinged
+    within BG_STALE. Written down once so the color law, the UI payload and the
+    deferred turn can never drift apart on what "still working" means."""
+    return bool(b.get("bg")) and (time.time() - b.get("bg_ts", 0)) < BG_STALE
+
+
 def _card_state(b: dict, st: dict) -> str:
     """The one value a card's color and sort come from, computed server-side so
     the page never has to infer state from scattered flags. Mirrors the old
@@ -408,7 +415,7 @@ def _card_state(b: dict, st: dict) -> str:
     BG_STALE), so a job that stopped pinging cannot hold a card green."""
     owner = b.get("owner", "triage")
     writing = st["busy"].get(owner) == b["id"]
-    bg = bool(b.get("bg")) and (time.time() - b.get("bg_ts", 0)) < BG_STALE
+    bg = _bg_live(b)
     if b["done"]:
         return "done"
     if b.get("parked", False):
@@ -716,7 +723,7 @@ class Handler(BaseHTTPRequestHandler):
                     "writing": st["busy"][b.get("owner", "triage")] == b["id"],
                     # green only while the job's heartbeat is fresh: a job
                     # that stopped pinging cannot keep a card green
-                    "bg": bool(b.get("bg")) and (time.time() - b.get("bg_ts", 0)) < BG_STALE,
+                    "bg": _bg_live(b),
                     # the single source of truth for color and sort: one name
                     # computed server-side, mirroring the raw flags above so the
                     # page never has to reconcile them itself
@@ -750,7 +757,7 @@ class Handler(BaseHTTPRequestHandler):
                 "offrecord": _waiters[ow] == 0 and st["busy"][ow] is None
                              and 60 < (time.time() - _last_wait[ow]) < 900
                              and not any(
-                                 b.get("bg") and (time.time() - b.get("bg_ts", 0)) < BG_STALE
+                                 _bg_live(b)
                                  for b in st["boxes"] if b.get("owner", "triage") == ow),
             } for ow in OWNERS},
         }
