@@ -152,11 +152,11 @@ Endpoints:
                                way (400, nothing stored): that card is only a
                                few lines tall. A big card message has no cap.
                                A normal reply hands the ball to you only when
-                               no working flag is live on the box. While one
-                               is, nothing awaits you yet, so the turn is held
-                               as a deferred marker and handed over when that
-                               flag drops or expires: a mid-work reply cannot
-                               turn a green card yellow under running work.
+                               no working flag beats on the box. While one
+                               does, nothing awaits you yet: the card goes to
+                               the deferred state and the turn is handed over
+                               when that flag drops or expires, so a mid-work
+                               reply cannot turn a green card yellow.
                                quiet=1 stores the reply, summary, count and
                                stamp the same way and changes nothing else:
                                the ball stays untouched, so the card's color
@@ -167,10 +167,10 @@ Endpoints:
                                flight.
   POST /note?box=ID&ctx=S   -> the named interim-note action: stores the body
                                and ctx summary like /reply (reply, count,
-                               agent_ts, ts, context) and marks the card
-                               working (bg heartbeat), but never sets the ball
-                               to "you". So the computed state is "working"
-                               (green), never "yours" (yellow): a progress
+                               agent_ts, ts, context) and moves the card to
+                               working (the flag's heartbeat), never handing
+                               the ball to "you". So the state stays a green
+                               working, never a yellow "yours": a progress
                                note structurally cannot float a card to the
                                top. A normal /reply stays the answer action
                                that hands the ball to you.
@@ -382,6 +382,24 @@ def _migrate() -> None:
         b.setdefault("ws", ws[b.get("owner", "triage")][0]["id"])
         b.setdefault("task", None)
         b.setdefault("agent_ts", 0)
+    # the card state machine (2026-08-26): boxes written before it carry the
+    # old scattered flags. bg and bg_ts collapse into hb; a fresh heartbeat
+    # keeps its green (deferred if a turn was recorded under the flag), a dead
+    # flag hands a recorded turn over now, and everything else lands where it
+    # rests. ball_due dies here; ball stays as the machine's turn register
+    for b in _state["boxes"]:
+        b.setdefault("ball", "you")
+        if "state" not in b:
+            b["hb"] = b.get("bg_ts", 0) if b.get("bg") else 0
+            if _hb_live(b):
+                b["state"] = "deferred" if b.get("ball_due") else "working"
+            else:
+                if b.get("ball_due"):
+                    b["ball"] = "you"
+                b["state"] = _rest(b)
+        b.setdefault("hb", 0)
+        for k in ("ball_due", "bg", "bg_ts"):
+            b.pop(k, None)
     _save()
 
 
@@ -408,46 +426,91 @@ def _ws(owner: str, wid: str) -> dict | None:
                  if w["id"] == wid), None)
 
 
-def _bg_live(b: dict) -> bool:
-    """Is this box's registered job still counting as green: bg set AND pinged
-    within BG_STALE. Written down once so the color law, the UI payload and the
-    deferred turn can never drift apart on what "still working" means."""
-    return bool(b.get("bg")) and (time.time() - b.get("bg_ts", 0)) < BG_STALE
+# ---- the card's state machine ---------------------------------------------
+# One explicit state per box, box["state"], moved only by events; the color is
+# a pure read of it (_shown). Three things sit outside the machine and only
+# mask that read, each already state of its own: the owner's done and parked
+# shelf bits, and the lane's claim slot (busy), all of which show their color
+# while the flow keeps moving beneath, so lifting any of them shows exactly
+# the card that went in. ball survives as the machine's turn register ("me" =
+# the agent owes him, "you" = a reply awaits him): the page reads whose-turn
+# off it, so it ships as written, but no color is ever computed from it.
+#
+# state (color)   new       untouched card (grey; yellow when born his, ball
+#                           "you": a seeded or standing card)
+#                 queued    a message of his waits on the agent (grey)
+#                 working   the flag's heartbeat is beating (green)
+#                 deferred  working, plus a reply that becomes his turn the
+#                           moment the work ends (green)
+#                 yours     an unanswered reply awaits him (yellow)
+#                 rest      nothing pending either way (grey)
+# event           /send                    -> queued; a beating flag keeps its
+#                                          green, and a deferred turn dies:
+#                                          he has answered
+#                 /reply                   -> yours; flag still beating ->
+#                                          deferred; leftover msgs -> queued
+#                 /reply quiet=1, /note, /progress   no turn handed over: the
+#                                          ball untouched, green stays green
+#                 /working v=1, /note, /ping        -> working (deferred stays)
+#                 flag drop or 75s expiry  -> deferred hands its turn over and
+#                                          lands yours; working lands at _rest
+#                 /dismiss                 -> _rest, a beating flag excepted
+# _rest, the landing rule: pending -> queued, never touched -> new, ball
+# "you" -> yours, else rest. Expiry is swept lazily at /state and /wait,
+# beside the unacked-claim clock, and by /working itself.
+
+GREEN = ("working", "deferred")
 
 
-def _card_state(b: dict, st: dict) -> str:
-    """The one value a card's color and sort come from, computed server-side so
-    the page never has to infer state from scattered flags. Mirrors the old
-    client cardState(): done | parked | working | new | yours | queued. working
-    requires the background heartbeat to be live (bg set AND pinged within
-    BG_STALE), so a job that stopped pinging cannot hold a card green."""
-    owner = b.get("owner", "triage")
-    writing = st["busy"].get(owner) == b["id"]
-    bg = _bg_live(b)
-    if b["done"]:
-        return "done"
-    if b.get("parked", False):
-        return "parked"
-    if writing or bg:
-        return "working"
-    if not b.get("agent_ts", 0) and not b["pending"] and not b["replies"]:
-        return "new"
-    # a message of his still sitting in the queue waits on the agent, not on
-    # him, so the card stays grey. an older reply can leave the ball on his
-    # side while a newer message is still in line, and that used to read yellow
+def _hb_live(b: dict) -> bool:
+    """The flag's heartbeat is fresh: hb (0 = no flag registered) was beaten
+    within BG_STALE. A registered flag gone quiet greys out but stays
+    registered, so a late /ping turns the card green again; only /working
+    v=0 unregisters."""
+    return (time.time() - b.get("hb", 0)) < BG_STALE
+
+
+def _green(b: dict) -> None:
+    """A beating flag turns the card green; already-green (deferred included)
+    stays exactly what it was."""
+    if b["state"] not in GREEN:
+        b["state"] = "working"
+
+
+def _rest(b: dict) -> str:
+    """Where a card lands when no work holds it green."""
     if b["pending"]:
         return "queued"
-    if b.get("ball", "you") == "you":
-        return "yours"
-    return "queued"
+    if not b.get("agent_ts", 0) and not b["replies"]:
+        return "new"
+    return "yours" if b.get("ball", "you") == "you" else "rest"
+
+
+def _shown(b: dict) -> str:
+    """The one value a card's color and sort come from: the masks first (the
+    owner's shelf, then the lane's held claim), then the machine state, with
+    deferred wearing working's green and rest the queued grey."""
+    s = ("done" if b["done"] else "parked" if b.get("parked", False)
+         else "working" if _state["busy"].get(b.get("owner", "triage")) == b["id"]
+         else b["state"])
+    return {"deferred": "working", "rest": "queued"}.get(s, s)
+
+
+def _handover(b: dict) -> None:
+    """A deferred card leaving green: the reply recorded under the flag is
+    finally waiting on him, so the turn register flips as the state moves."""
+    if b["state"] == "deferred":
+        b["ball"] = "you"
+        _log("handover", b["id"], "working flag down, deferred turn handed over")
 
 
 def _release_unacked() -> None:
     """The short clock behind confirmed delivery: a claim whose token never came
     back through /ack went into a dead connection, so after ACK_GRACE the box
     goes back to the FRONT of its lane's queue, the same move the 15 minute
-    steal-back makes. The card falls back to the queued grey because a box with
-    pending messages reads "queued" in _card_state, never yellow.
+    steal-back makes. The card falls back to the queued grey the moment the
+    claim mask lifts: beneath a claim the state is the "queued" his message
+    put it in, never yellow.
 
     Only the claim a token was minted for can be released by it: a record left
     behind by a claim that already ended is stale bookkeeping, not a release.
@@ -473,23 +536,18 @@ def _release_unacked() -> None:
         _lock.notify_all()
 
 
-def _settle_deferred() -> None:
-    """The second half of the deferred turn (20260826): a normal /reply that
-    landed while the card's working flag was live recorded ball_due instead of
-    handing the ball over, because nothing awaited him while the work still ran.
-    The moment that flag is no longer live the reply really is waiting on him,
-    so the marker becomes the ball and clears.
-
-    Both ways out of green come through here: /working v=0 calls it straight
-    after dropping the flag, and a flag that simply stopped pinging is caught by
-    the lazy sweep on /state and /wait, exactly where the ack clock is swept.
+def _sweep() -> None:
+    """The lazy clock behind green: a card whose flag heartbeat has gone stale
+    leaves the green states, deferred handing its turn over on the way out (a
+    claim still held keeps showing green through _shown's mask regardless).
+    Runs at /state and /wait, exactly where the ack clock is swept, and inside
+    /working itself, so a drop or an expiry lands within about a second.
     Callers hold _lock; this both saves and notifies when it moves anything."""
     moved = False
     for b in _state["boxes"]:
-        if b.get("ball_due") and not _bg_live(b):
-            b["ball_due"] = False
-            b["ball"] = "you"
-            _log("balldue", b["id"], "working flag down, deferred turn handed over")
+        if b["state"] in GREEN and not _hb_live(b):
+            _handover(b)
+            b["state"] = _rest(b)
             moved = True
     if moved:
         _save()
@@ -536,10 +594,10 @@ class Handler(BaseHTTPRequestHandler):
             with _lock:
                 # the board polls this about once a second, so the 90 second ack
                 # clock gets swept even when no /wait is running to sweep it,
-                # and an expired working flag hands over its deferred turn
-                # within about that same second
+                # and an expired working flag drops out of green (handing over
+                # a deferred turn) within about that same second
                 _release_unacked()
-                _settle_deferred()
+                _sweep()
                 self._send(200, self._ui_state())
         elif url.path == "/unread":
             # a lane's unread count in one line, for a Stop hook deciding
@@ -757,11 +815,11 @@ class Handler(BaseHTTPRequestHandler):
                     "writing": st["busy"][b.get("owner", "triage")] == b["id"],
                     # green only while the job's heartbeat is fresh: a job
                     # that stopped pinging cannot keep a card green
-                    "bg": _bg_live(b),
-                    # the single source of truth for color and sort: one name
-                    # computed server-side, mirroring the raw flags above so the
-                    # page never has to reconcile them itself
-                    "state": _card_state(b, st),
+                    "bg": _hb_live(b),
+                    # the single source of truth for color and sort: the
+                    # machine's state through the shelf mask, beside the raw
+                    # flags above so the page never has to reconcile them
+                    "state": _shown(b),
                     "queuePos": qpos.get(b["id"], 0),
                 }
                 for b in st["boxes"]
@@ -791,7 +849,7 @@ class Handler(BaseHTTPRequestHandler):
                 "offrecord": _waiters[ow] == 0 and st["busy"][ow] is None
                              and 60 < (time.time() - _last_wait[ow]) < 900
                              and not any(
-                                 _bg_live(b)
+                                 _hb_live(b)
                                  for b in st["boxes"] if b.get("owner", "triage") == ow),
             } for ow in OWNERS},
         }
@@ -820,9 +878,9 @@ class Handler(BaseHTTPRequestHandler):
                 # the short clock first: a hand-off nobody confirmed comes back
                 # after 90 seconds, long before the steal-back below notices
                 _release_unacked()
-                # and a working flag that stopped pinging owes its card the turn
-                # a reply deferred under it
-                _settle_deferred()
+                # and a working flag that stopped pinging drops its card out of
+                # green, handing over a turn deferred under it
+                _sweep()
                 # a claim older than 15 min with no reply is a dead listener: steal it back
                 for ow in OWNERS:
                     stale = _state["busy"][ow]
@@ -923,10 +981,10 @@ class Handler(BaseHTTPRequestHandler):
                     msg["via"] = "mini"
                 box["pending"].append(msg)
                 box["ball"] = "me"  # his message sent: the ball is in the agent's court
-                # he has read the card and answered it, so a turn still deferred
-                # behind a working flag has already been served: drop the marker
-                # or it resurfaces as yellow when the flag finally goes down
-                box["ball_due"] = False
+                # his message queues the card; a beating flag keeps its green,
+                # and a deferred turn dies here, since he has read and
+                # answered: it must not resurface when the flag goes down
+                box["state"] = "working" if _hb_live(box) else "queued"
                 box["ts"] = time.time()
                 _state["next_mid"] += 1
                 # untitled user-created meta box: its first message names it
@@ -998,24 +1056,14 @@ class Handler(BaseHTTPRequestHandler):
                 _last_wait[ow] = time.time()  # a reply proves that agent is alive too
                 box["reply"] = text
                 box["replies"] += 1
-                # quiet=1 marks an interim note while the card's work is in
-                # flight: the reply, summary, count and stamp land like any
-                # reply and nothing else moves. The ball stays untouched, so
-                # the card's color keeps coming from the work itself: green
-                # while claimed or registered, grey while queued, yellow only
-                # once a real answer awaits a read.
-                # and a normal reply hands the ball over ONLY when nothing is
-                # still running behind the card. While the working flag is live
-                # the card is green and nothing awaits him yet, so the turn is
-                # recorded as ball_due and handed over by _settle_deferred the
-                # moment the flag drops or its heartbeat expires. Repeated
-                # replies under one flag collapse into the one marker.
+                # the machine's answer move, taken once the claim is let go
+                # below: a quiet reply stores everything and moves nothing, so
+                # the color keeps coming from the work itself. A normal reply
+                # hands the turn over, but only when no working flag beats on
+                # the box: while one does, nothing awaits him yet, so the card
+                # goes deferred and the turn is handed over when that flag
+                # drops or its heartbeat expires.
                 quiet = (q.get("quiet") or ["0"])[0] == "1"
-                if not quiet:
-                    if _bg_live(box):
-                        box["ball_due"] = True
-                    else:
-                        box["ball"] = "you"
                 box["agent_ts"] = time.time()  # when the agent last replied
                 box["ts"] = time.time()
                 claimed = set(_state["claimed"][ow]) if _state["busy"][ow] == bid else set()
@@ -1025,6 +1073,13 @@ class Handler(BaseHTTPRequestHandler):
                 if _state["busy"][ow] == bid:
                     _state["busy"][ow] = None
                     _state["claimed"][ow] = []
+                if _hb_live(box):
+                    if not quiet:
+                        box["state"] = "deferred"
+                else:
+                    if not quiet:
+                        box["ball"] = "you"
+                    box["state"] = _rest(box)
                 # anything he sent while I was composing goes back in line
                 if box["pending"] and bid not in _state["inbox"]:
                     _state["inbox"].append(bid)
@@ -1040,10 +1095,10 @@ class Handler(BaseHTTPRequestHandler):
             elif url.path == "/note":
                 # the formalized interim-note action. Stores the body and the
                 # ctx summary exactly like /reply (reply, replies, agent_ts,
-                # ts, context) AND marks the card working (bg heartbeat), but
-                # never sets ball="you". So the computed state is "working"
-                # (green), never "yours" (yellow): a progress note structurally
-                # cannot turn a card yellow or float it to the top.
+                # ts, context) AND moves the card to working (the flag's
+                # heartbeat), never setting ball="you". So the state is a green
+                # "working", never a yellow "yours": a progress note
+                # structurally cannot turn a card yellow or float it to the top.
                 box = _box(bid)
                 if box is None:
                     self._send(400, {"error": "bad box"})
@@ -1060,8 +1115,8 @@ class Handler(BaseHTTPRequestHandler):
                 box["ts"] = time.time()
                 if ctx:
                     box["context"] = ctx
-                box["bg"] = True              # green via the heartbeat path: no
-                box["bg_ts"] = time.time()    # claim taken, and the ball untouched
+                box["hb"] = time.time()  # green via the heartbeat path: no
+                _green(box)              # claim taken, and the ball untouched
                 _log("note", bid, text)
                 _save()
                 _lock.notify_all()
@@ -1088,14 +1143,15 @@ class Handler(BaseHTTPRequestHandler):
                 if box is None:
                     self._send(400, {"error": "bad box"})
                     return
-                box["bg"] = (q.get("v") or ["1"])[0] == "1"
-                box["bg_ts"] = time.time()
-                # v=0 is one of the two ways out of green, so a turn deferred
-                # under this flag is handed over right here. v=1 re-registers
-                # and the flag is live again, so a pending marker just keeps
-                # waiting, which is what re-registering should mean
-                _settle_deferred()
-                _log("working" if box["bg"] else "workdone", bid, "")
+                box["hb"] = time.time() if (q.get("v") or ["1"])[0] == "1" else 0
+                if box["hb"]:
+                    _green(box)
+                # v=0 is one of the two ways out of green, so the sweep runs
+                # right here and a deferred turn is handed over at once. v=1
+                # re-registers and the flag beats again, so a deferred card
+                # just keeps waiting, which is what re-registering should mean
+                _sweep()
+                _log("working" if box["hb"] else "workdone", bid, "")
                 _save()
                 _lock.notify_all()
                 self._send(200, {"ok": True})
@@ -1106,9 +1162,10 @@ class Handler(BaseHTTPRequestHandler):
                 if box is None:
                     self._send(400, {"error": "bad box"})
                     return
-                if box.get("bg"):
-                    box["bg_ts"] = time.time()
-                self._send(200, {"ok": True, "bg": bool(box.get("bg"))})
+                if box.get("hb"):
+                    box["hb"] = time.time()
+                    _green(box)  # a registered job beating again takes back its green
+                self._send(200, {"ok": True, "bg": bool(box.get("hb"))})
 
             elif url.path == "/park":
                 box = _box(bid)
@@ -1171,6 +1228,7 @@ class Handler(BaseHTTPRequestHandler):
                 _state["boxes"].insert(idx, {
                     "id": bid_new, "bucket": "meta", "title": title, "reply": "",
                     "pending": [], "done": False, "parked": False, "replies": 0,
+                    "state": "new", "hb": 0,
                     "ball": "me", "ts": time.time(), "owner": owner,
                     "ws": ws0, "task": None, "agent_ts": 0,
                 })
@@ -1333,6 +1391,12 @@ class Handler(BaseHTTPRequestHandler):
                 if _state["busy"].get(ow) == bid:
                     _state["busy"][ow] = None
                     _state["claimed"][ow] = []
+                # a beating flag keeps its green through a dismissal; anything
+                # else lands where the card rests, an unanswered reply beneath
+                # the dropped queue showing again
+                if not _hb_live(box):
+                    _handover(box)
+                    box["state"] = _rest(box)
                 _log("dismiss", bid, f"{n} queued dropped")
                 _save()
                 _lock.notify_all()
