@@ -465,6 +465,29 @@ def _release_unacked() -> None:
         _lock.notify_all()
 
 
+def _settle_deferred() -> None:
+    """The second half of the deferred turn (20260826): a normal /reply that
+    landed while the card's working flag was live recorded ball_due instead of
+    handing the ball over, because nothing awaited him while the work still ran.
+    The moment that flag is no longer live the reply really is waiting on him,
+    so the marker becomes the ball and clears.
+
+    Both ways out of green come through here: /working v=0 calls it straight
+    after dropping the flag, and a flag that simply stopped pinging is caught by
+    the lazy sweep on /state and /wait, exactly where the ack clock is swept.
+    Callers hold _lock; this both saves and notifies when it moves anything."""
+    moved = False
+    for b in _state["boxes"]:
+        if b.get("ball_due") and not _bg_live(b):
+            b["ball_due"] = False
+            b["ball"] = "you"
+            _log("balldue", b["id"], "working flag down, deferred turn handed over")
+            moved = True
+    if moved:
+        _save()
+        _lock.notify_all()
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code: int, payload: dict | bytes, ctype: str = "application/json") -> bool:
         """True when the response reached the socket, False when the client was
@@ -504,8 +527,11 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/state":
             with _lock:
                 # the board polls this about once a second, so the 90 second ack
-                # clock gets swept even when no /wait is running to sweep it
+                # clock gets swept even when no /wait is running to sweep it,
+                # and an expired working flag hands over its deferred turn
+                # within about that same second
                 _release_unacked()
+                _settle_deferred()
                 self._send(200, self._ui_state())
         elif url.path == "/unread":
             # a lane's unread count in one line, for a Stop hook deciding
@@ -786,6 +812,9 @@ class Handler(BaseHTTPRequestHandler):
                 # the short clock first: a hand-off nobody confirmed comes back
                 # after 90 seconds, long before the steal-back below notices
                 _release_unacked()
+                # and a working flag that stopped pinging owes its card the turn
+                # a reply deferred under it
+                _settle_deferred()
                 # a claim older than 15 min with no reply is a dead listener: steal it back
                 for ow in OWNERS:
                     stale = _state["busy"][ow]
@@ -886,6 +915,10 @@ class Handler(BaseHTTPRequestHandler):
                     msg["via"] = "mini"
                 box["pending"].append(msg)
                 box["ball"] = "me"  # his message sent: the ball is in the agent's court
+                # he has read the card and answered it, so a turn still deferred
+                # behind a working flag has already been served: drop the marker
+                # or it resurfaces as yellow when the flag finally goes down
+                box["ball_due"] = False
                 box["ts"] = time.time()
                 _state["next_mid"] += 1
                 # untitled user-created meta box: its first message names it
@@ -963,9 +996,18 @@ class Handler(BaseHTTPRequestHandler):
                 # the card's color keeps coming from the work itself: green
                 # while claimed or registered, grey while queued, yellow only
                 # once a real answer awaits a read.
+                # and a normal reply hands the ball over ONLY when nothing is
+                # still running behind the card. While the working flag is live
+                # the card is green and nothing awaits him yet, so the turn is
+                # recorded as ball_due and handed over by _settle_deferred the
+                # moment the flag drops or its heartbeat expires. Repeated
+                # replies under one flag collapse into the one marker.
                 quiet = (q.get("quiet") or ["0"])[0] == "1"
                 if not quiet:
-                    box["ball"] = "you"
+                    if _bg_live(box):
+                        box["ball_due"] = True
+                    else:
+                        box["ball"] = "you"
                 box["agent_ts"] = time.time()  # when the agent last replied
                 box["ts"] = time.time()
                 claimed = set(_state["claimed"][ow]) if _state["busy"][ow] == bid else set()
@@ -1040,6 +1082,11 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 box["bg"] = (q.get("v") or ["1"])[0] == "1"
                 box["bg_ts"] = time.time()
+                # v=0 is one of the two ways out of green, so a turn deferred
+                # under this flag is handed over right here. v=1 re-registers
+                # and the flag is live again, so a pending marker just keeps
+                # waiting, which is what re-registering should mean
+                _settle_deferred()
                 _log("working" if box["bg"] else "workdone", bid, "")
                 _save()
                 _lock.notify_all()
