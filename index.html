@@ -1453,6 +1453,55 @@
   }
   .ptab:hover{color:var(--ink)}
   .ptab.on{color:var(--ink); background:var(--paper); border-color:var(--line)}
+  /* the seated tab's bottom two corners bend the other way. this is the notch a
+     browser tab makes where it meets its strip: at each bottom corner the paper
+     flares 7px out into the bar and the hairline curves out with it, so the
+     tab's sides run into the bar's bottom line rather than stopping dead on it
+     and the seam reads as one continuous stroke. same 7px as the top corners,
+     turned inside out.
+     each notch is one box painted by a single radial gradient drawn from the
+     corner the arc turns about. the gradient is the whole shape: clear inside
+     7px so the bar shows through the bite, the board's line ink for the pixel
+     between 7 and 8, the tab's own paper past 8. one circle therefore carries
+     the bite, the hairline and the fill at once, and the hairline is the same
+     stroke at every point of the arc by construction rather than by fitting.
+     the two ends land where they have to. at the top of the arc the ink pixel
+     is the ring between 7 and 8 measured sideways, which is exactly where the
+     tab's own 1px border stands, and the circle is vertical there, so the
+     border runs into the arc without a step. at the foot the same ring measured
+     downwards is exactly the bar's own 1px bottom border, and the circle is
+     horizontal there, so the arc runs off into that line. between them the
+     paper covers the bar's bottom border, which is what makes the tab's inside
+     open into the canvas across the flare as well as across the tab.
+     the numbers: 8px of offset is 7px of flare plus the tab's own border, since
+     a pseudo-element is placed from the padding box while the flare is measured
+     from the tab's outer edge. the box is 8 tall, the 7px of arc plus the ink
+     pixel under it, and 10 wide, the same 8 plus 2 more reaching back inside
+     the tab. those two are why nothing seams: a tab's outer edge can land on a
+     fraction of a pixel, and a boundary drawn on a fraction leaves a part-lit
+     sliver of whatever it was meant to cover. the far edge of the box is inside
+     the bite and paints nothing, and the near edge is two pixels deep in the
+     tab where the gradient's own paper meets the tab's paper, so neither edge
+     of this box is ever a seam, whatever fraction the tab lands on.
+     both notches are out of flow and take no pointer, so an armed, hovered,
+     dragged or resting tab still measures exactly what it always did. the three
+     states listed are the three that draw the seated shape; a resting tab has
+     no fill and no border to carry out into the bar. */
+  :is(.ptab.on, .ptab.dragging, .ptab.draft)::before,
+  :is(.ptab.on, .ptab.dragging, .ptab.draft)::after{
+    content:""; position:absolute; bottom:0; width:10px; height:8px;
+    pointer-events:none;
+  }
+  :is(.ptab.on, .ptab.dragging, .ptab.draft)::before{
+    left:-8px;
+    background:radial-gradient(circle 8px at 0 0,
+      transparent 0 7px, var(--line) 7px 8px, var(--paper) 8px);
+  }
+  :is(.ptab.on, .ptab.dragging, .ptab.draft)::after{
+    right:-8px;
+    background:radial-gradient(circle 8px at 100% 0,
+      transparent 0 7px, var(--line) 7px 8px, var(--paper) 8px);
+  }
   /* a lane still holding a reply he has not opened says so with weight alone,
      the way a mail client does: no dot, no count, no colour. selection is a
      seated tab shape (paper fill, border, ink text) and never uses weight, so
