@@ -2883,6 +2883,17 @@ function jumpNextYellow(fromId){
   const p = viewPool(lastState).filter(b =>
     !b.done && !(b.writing || b.bg) && b.ball === "you" && b.id !== fromId);
   if (!p.length) return;
+  // the send should land on the card that has waited on him
+  // longest, not the newest. agentTs is written in the same breath as the turn
+  // going back to him, so it marks when a card became his to read; ts moves on
+  // his own sends and on progress notes too, so it cannot mean that. a card the
+  // agent has never answered has only its own ts to age by, and one carrying
+  // neither stamp cannot be aged, so it sorts last instead of posing as the
+  // oldest thing here. the filter above already made a fresh array, so nothing
+  // else sees this sort, and equal stamps keep the list's own order
+  const waitingSince = b => b.agentTs || b.ts || Number.MAX_SAFE_INTEGER;
+  const listOrder = new Map(p.map((b, i) => [b.id, i]));
+  p.sort((a, b) => waitingSince(a) - waitingSince(b) || listOrder.get(a.id) - listOrder.get(b.id));
   lastLeftId = fromId;
   select(p[0].id, { focus: true });
 }
