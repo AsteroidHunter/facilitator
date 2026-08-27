@@ -99,7 +99,10 @@
     top:calc(var(--app-inset) + var(--bar-h));
     left:var(--app-inset); right:var(--app-inset); bottom:var(--app-inset);
     border:1px solid var(--line); border-top:none;
-    border-radius:0 0 7px 7px;
+    /* all four corners: the workspace is the rounded shape and the
+       bar simply stands above it, which is why the bar has no bottom corners
+       left to round */
+    border-radius:7px;
     pointer-events:none; z-index:11;
   }
 
