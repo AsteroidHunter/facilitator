@@ -1431,12 +1431,19 @@
     display:flex; align-items:flex-end; align-self:flex-end; gap:4px;
     height:38px; margin-right:10px;
   }
-  /* seated sharp tabs per the 20260809 mockup: the active one's bottom opens
-     into the canvas */
+  /* seated tabs per the 20260809 mockup: the active one's bottom opens into
+     the canvas. 20260827: the top two corners now take the cards' own 7px, so
+     a seated tab is rounded on the same terms as the shell around it and the
+     boxes under it. the radius rides on every tab rather than the selected one
+     alone, because the three states that draw the seated shape are .on,
+     .dragging and .draft, and a resting tab paints neither fill nor border, so
+     on that one the curve costs nothing and shows nothing. a radius moves no
+     edge: the height, the 1px seat, the padding and the label all measure to
+     the pixel what they measured before */
   .ptab{
     font:500 13px/16px var(--sans); color:var(--sub);
     background:transparent; border:1px solid transparent; border-bottom:none;
-    border-radius:0; cursor:pointer; user-select:none;
+    border-radius:7px 7px 0 0; cursor:pointer; user-select:none;
     position:relative; top:1px;
     height:38px; padding:0 16px 5px;
     /* the only thing that ever animates on a resting tab is the dwell band on
