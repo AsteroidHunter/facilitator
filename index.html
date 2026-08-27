@@ -71,10 +71,10 @@
      the lid and rounds its top two corners; #appframe is the boundary, one
      hairline of the board's line ink down the left, down the right and across
      the bottom, with the same 7px on the bottom two corners.
-     the two shapes are cut from one outer rectangle, so the frame's top line
-     lands exactly on the bar's top edge and their corner arcs are the same arc.
-     that is why the bar's lower corners stay square: the bar's own bottom
-     border closes the shape across, the way a lid meets a box.
+     the boundary begins where the bar ends, so the bar is not inside it: the
+     lid stands on top of the box rather than in it, and no line is ever drawn
+     over the bar. that is why the bar's lower corners stay square: the bar's
+     own bottom border closes the shape across, the way a lid meets a box.
      the boundary is one element drawn over the bar rather than a border on each
      piece, so a side line is a single unbroken stroke from the top corner to the
      bottom one with no seam where it passes the bar. it carries no fill and
@@ -92,8 +92,14 @@
   }
   #appframe{display:none}
   body.focus #appframe{
-    display:block; position:fixed; inset:var(--app-inset);
-    border:1px solid var(--line); border-radius:7px;
+    display:block; position:fixed;
+    /* the boundary starts under the bar, not around it: the bar is the lid
+       standing on top, and the three lines named, left, right and bottom,
+       enclose the workspace alone */
+    top:calc(var(--app-inset) + var(--bar-h));
+    left:var(--app-inset); right:var(--app-inset); bottom:var(--app-inset);
+    border:1px solid var(--line); border-top:none;
+    border-radius:0 0 7px 7px;
     pointer-events:none; z-index:11;
   }
 
