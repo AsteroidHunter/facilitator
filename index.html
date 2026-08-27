@@ -65,6 +65,38 @@
   #editbtn:hover{background:#E2DCFC}
   body.editmode #editbtn{background:var(--accent); color:#fff}
 
+  /* ---- the app's enclosure ----------------------------------------------- */
+  /* every outer edge of the app carries the cards' own 7px curve, so the shell
+     is rounded on the same terms as the things standing inside it. the bar is
+     the lid and rounds its top two corners; #appframe is the boundary, one
+     hairline of the board's line ink down the left, down the right and across
+     the bottom, with the same 7px on the bottom two corners.
+     the two shapes are cut from one outer rectangle, so the frame's top line
+     lands exactly on the bar's top edge and their corner arcs are the same arc.
+     that is why the bar's lower corners stay square: the bar's own bottom
+     border closes the shape across, the way a lid meets a box.
+     the boundary is one element drawn over the bar rather than a border on each
+     piece, so a side line is a single unbroken stroke from the top corner to the
+     bottom one with no seam where it passes the bar. it carries no fill and
+     takes no pointer, so nothing beneath it moves or stops answering.
+     1px is the thinnest line the board draws anywhere: it is the weight of a
+     card's border and of the bar's own bottom, so the boundary reads as the same
+     ink rather than a second, fainter one.
+     the air is the same on all four sides. #stage keeps its own top at --bar-h,
+     which this does not touch, so every region on the canvas stays on the exact
+     pixel it was placed on. */
+  :root{--app-inset:6px}
+  body.focus .bar{
+    margin:var(--app-inset) var(--app-inset) 0;
+    border-radius:7px 7px 0 0;
+  }
+  #appframe{display:none}
+  body.focus #appframe{
+    display:block; position:fixed; inset:var(--app-inset);
+    border:1px solid var(--line); border-radius:7px;
+    pointer-events:none; z-index:11;
+  }
+
   /* ---- layout ----------------------------------------------------------- */
   main{max-width:700px; margin:0 auto; padding:26px 18px 30vh}
   .box{scroll-margin-top:64px}
@@ -1683,6 +1715,8 @@
   <button id="editbtn" title="edit layout">✎</button>
   <input type="color" id="bgpick" title="background color (temporary)" value="#F5F4F1">
 </div>
+
+<div id="appframe" aria-hidden="true"></div>
 
 <div id="offline"></div>
 <nav id="toc"></nav>
