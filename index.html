@@ -69,47 +69,83 @@
   /* every outer edge of the app carries the cards' own 7px curve, so the shell
      is rounded on the same terms as the things standing inside it. the bar is
      the lid and rounds its top two corners; #appframe is the boundary, one
-     hairline of the board's line ink down the left, down the right and across
-     the bottom, with the same 7px on the bottom two corners.
+     closed rectangle in the board's line ink, one hairline on all four sides
+     and the same 7px on all four corners.
      the boundary begins where the bar ends, so the bar is not inside it: the
-     lid stands on top of the box rather than in it, and no line is ever drawn
-     over the bar. that is why the bar's lower corners stay square: the bar's
-     own bottom border closes the shape across, the way a lid meets a box.
-     the boundary is one element drawn over the bar rather than a border on each
-     piece, so a side line is a single unbroken stroke from the top corner to the
-     bottom one with no seam where it passes the bar. it carries no fill and
-     takes no pointer, so nothing beneath it moves or stops answering.
+     lid stands on top of the box rather than in it. the bar's lower corners
+     stay square, and the boundary's top line, which is the same line, is the
+     one that turns into the box's top corners.
+     the boundary is one element, not a border on each piece, so a side line is
+     a single unbroken stroke from its top corner to its bottom one. it carries
+     no fill and takes no pointer, so nothing beneath it moves or stops
+     answering.
      1px is the thinnest line the board draws anywhere: it is the weight of a
      card's border and of the bar's own bottom, so the boundary reads as the same
      ink rather than a second, fainter one.
      the air is the same on all four sides. #stage keeps its own top at --bar-h,
      which this does not touch, so every region on the canvas stays on the exact
-     pixel it was placed on. */
+     pixel it was placed on.
+     20260827, the seated tab's open bottom. the boundary's top line falls on one
+     pixel row, the row the bar's own bottom border used to hold, and that row is
+     the one a seated tab's paper covers: a tab is 38 tall, seated 1px low, and
+     its bottom edge lands exactly on it. that overlap is the whole trick of a
+     seated tab. it only reads as an open mouth if the tab's paper is painted
+     after the line, and the tab is painted inside the bar, so the line has to
+     be painted inside the bar too, before #tabbar.
+     the boundary itself cannot live in there. the page in focus is overflow
+     hidden and everything on the canvas is fixed, so the body's own box is only
+     as tall as the bar, and any absolutely positioned thing inside the bar is
+     cut off at the bar's bottom edge. that is why the boundary is fixed and
+     stands outside the bar. it is also why it cannot simply be moved behind the
+     bar and left at that: the bar is 84% paper over a 10px blur, and a line
+     lying behind it comes back a washed grey smear or nothing at all, both of
+     which were rendered and looked at before this was written.
+     so the boundary is fixed, whole and closed, and sits just under the bar,
+     where its top row is hidden; and the bar restates that one row itself, in
+     the ::before below, as full ink over its own blur and before its tabs. one
+     element owns the shape, one row of it is redrawn where the shape passes
+     through frosted glass, and the tabs cover both. */
   :root{--app-inset:6px}
   body.focus .bar{
     margin:var(--app-inset) var(--app-inset) 0;
     border-radius:7px 7px 0 0;
+    /* the bar keeps the 1px so that nothing in it moves, and gives up the ink.
+       drawn by the bar, that line runs the bar's full width and shoots 7px past
+       each of the boundary's top corners, leaving a stub hanging in the air over
+       the arc. the boundary's own top line stops where its corners turn */
+    border-bottom-color:transparent;
+  }
+  /* the bar's restatement of the boundary's top row. same box as #appframe to
+     the pixel, so the two are the same rectangle and cannot drift: the same
+     sides, the same 7px, and therefore the same arcs. the clip keeps only the
+     top row of it, the row inside the bar, so no arc is ever painted twice and
+     no edge of this box is ever visible as an edge. absolute, so it measures
+     from the bar's padding box, which is exactly the boundary's own left and
+     right; first in the bar, so every tab paints over it */
+  body.focus .bar::before{
+    content:""; position:absolute; pointer-events:none;
+    top:calc(var(--bar-h) - 2px); left:0; right:0; height:8px;
+    border:1px solid var(--line); border-bottom:none;
+    border-radius:7px 7px 0 0;
+    clip-path:inset(0 0 7px 0);
   }
   #appframe{display:none}
   body.focus #appframe{
     display:block; position:fixed;
-    /* the boundary starts under the bar, not around it: the bar is the lid
-       standing on top, and the three lines named, left, right and bottom,
-       enclose the workspace alone */
     /* the top line is laid on the very pixel the bar's own bottom border
-       occupies, so the two are one line and not two: the tab still meets the
-       bar's border the way it was fitted to, and the box still has a real top
-       edge for its corners to turn into */
+       occupies, so the two are one line and not two: the tab still meets that
+       line the way it was fitted to, and the box still has a real top edge for
+       its corners to turn into */
     top:calc(var(--app-inset) + var(--bar-h) - 2px);
     left:var(--app-inset); right:var(--app-inset); bottom:var(--app-inset);
     /* one closed rounded rectangle, all four sides and all four corners: a
        corner needs both of its edges to turn into, and rounding a box with no
-       top left the arcs hooking into nothing. the top line stands exactly where
-       the bar's own bottom border stood, and that border is given up below, so
-       there is one line under the bar and not two */
+       top left the arcs hooking into nothing */
     border:1px solid var(--line);
     border-radius:7px;
-    pointer-events:none; z-index:11;
+    /* under the bar, not over it. over it, this top line was painted across the
+       seated tab's mouth and shut it: that was the bar seen under the tab */
+    pointer-events:none; z-index:9;
   }
 
   /* ---- layout ----------------------------------------------------------- */
@@ -1471,9 +1507,11 @@
   /* the seated tab's bottom two corners bend the other way. this is the notch a
      browser tab makes where it meets its strip: at each bottom corner the paper
      flares 7px out into the bar and the hairline curves out with it, so the
-     tab's sides run into the bar's bottom line rather than stopping dead on it
+     tab's sides run into the line under the bar rather than stopping dead on it
      and the seam reads as one continuous stroke. same 7px as the top corners,
-     turned inside out.
+     turned inside out. that line is the workspace boundary's top edge, on the
+     row the bar's own bottom border used to hold; everything below is written
+     as the bar's bottom because the row did not move.
      each notch is one box painted by a single radial gradient drawn from the
      corner the arc turns about. the gradient is the whole shape: clear inside
      7px so the bar shows through the bite, the board's line ink for the pixel
