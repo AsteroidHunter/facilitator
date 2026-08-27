@@ -89,8 +89,6 @@
   body.focus .bar{
     margin:var(--app-inset) var(--app-inset) 0;
     border-radius:7px 7px 0 0;
-    /* the workspace's own top line takes this over, so the bar keeps none */
-    border-bottom:none;
   }
   #appframe{display:none}
   body.focus #appframe{
@@ -98,9 +96,11 @@
     /* the boundary starts under the bar, not around it: the bar is the lid
        standing on top, and the three lines named, left, right and bottom,
        enclose the workspace alone */
-    /* less the pixel the bar gave up with its bottom border, so this top
-       line lands exactly where that border stood and no daylight shows */
-    top:calc(var(--app-inset) + var(--bar-h) - 1px);
+    /* the top line is laid on the very pixel the bar's own bottom border
+       occupies, so the two are one line and not two: the tab still meets the
+       bar's border the way it was fitted to, and the box still has a real top
+       edge for its corners to turn into */
+    top:calc(var(--app-inset) + var(--bar-h) - 2px);
     left:var(--app-inset); right:var(--app-inset); bottom:var(--app-inset);
     /* one closed rounded rectangle, all four sides and all four corners: a
        corner needs both of its edges to turn into, and rounding a box with no
