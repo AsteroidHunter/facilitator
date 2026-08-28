@@ -1265,8 +1265,23 @@
   body.focus .box.sel textarea{
     background:transparent; border:none !important; box-shadow:none;
     /* the side padding paired with equal negative margin keeps the text flush
-       while giving the block caret room so the edges cannot slice it */
-    padding:var(--sp-s) 4px; margin:0 -4px; font-size:17px; line-height:1.5;
+       while giving the block caret room so the edges cannot slice it.
+       the right margin carries one more thing: the scrollbar's own lane, and
+       that is the whole of how the slim bar below costs the words nothing. a
+       lane the board draws itself is not an overlay, it is laid inside the
+       field's border box and takes its width off the content, so a lane added
+       and nothing given back would have pulled the wrap in by --sbar and
+       walked the right hand end of every line that far left. widening the box
+       by the same --sbar puts the lane in the step between the field and the
+       send square, which was empty, and leaves the words where they were to
+       the pixel: measured, the text column's two edges are the same number
+       before and after, at one line and at fifteen.
+       the gutter is held stable for the answer's own reason: overflow:auto
+       only makes room for a lane once the row actually overflows, so without
+       this the words would step sideways on the line that first scrolls */
+    padding:var(--sp-s) 4px; margin:0 calc(-4px - var(--sbar)) 0 -4px;
+    scrollbar-gutter:stable;
+    font-size:17px; line-height:1.5;
     max-height:calc(var(--ch)*0.28); overflow-y:auto; min-height:var(--row-min);
   }
   /* the typing row's own head, and the card's fourth fade. the fade
@@ -1478,19 +1493,28 @@
      room under its last line for the fade, so answers that used to fit exactly
      scroll by a few pixels and would otherwise wear a bar with nothing to say.
      the lane is written once as --sbar because the answer gives it back out of
-     its own right padding */
+     its own right padding.
+     the row he types in joins them last, and it was the one scroller
+     left on the stock macos bar: measured, that bar inked to 0.502 against this
+     one's 0.199, which is the answer's own number to the third decimal. it gives
+     the lane back out of its right margin rather than its padding, because its
+     padding is 4px of caret room and the lane is wider than that; the step
+     between the field and the send square held the difference and was empty */
   #tiklist::-webkit-scrollbar, #tickets::-webkit-scrollbar,
   #magic3 .mdlist::-webkit-scrollbar,
   #magic3 .cm-scroller::-webkit-scrollbar,
-  .box .reply::-webkit-scrollbar{width:var(--sbar)}
+  .box .reply::-webkit-scrollbar,
+  body.focus .box.sel textarea::-webkit-scrollbar{width:var(--sbar)}
   #tiklist::-webkit-scrollbar-track, #tickets::-webkit-scrollbar-track,
   #magic3 .mdlist::-webkit-scrollbar-track,
   #magic3 .cm-scroller::-webkit-scrollbar-track,
-  .box .reply::-webkit-scrollbar-track{background:transparent}
+  .box .reply::-webkit-scrollbar-track,
+  body.focus .box.sel textarea::-webkit-scrollbar-track{background:transparent}
   #tiklist::-webkit-scrollbar-thumb, #tickets::-webkit-scrollbar-thumb,
   #magic3 .mdlist::-webkit-scrollbar-thumb,
   #magic3 .cm-scroller::-webkit-scrollbar-thumb,
-  .box .reply::-webkit-scrollbar-thumb{
+  .box .reply::-webkit-scrollbar-thumb,
+  body.focus .box.sel textarea::-webkit-scrollbar-thumb{
     background:transparent; border:3px solid transparent;
     background-clip:padding-box; border-radius:99px}
   #tiklist.scrolling::-webkit-scrollbar-thumb, #tiklist:hover::-webkit-scrollbar-thumb,
@@ -1500,7 +1524,9 @@
   #magic3 .cm-scroller.scrolling::-webkit-scrollbar-thumb,
   #magic3 .cm-scroller:hover::-webkit-scrollbar-thumb,
   .box .reply.scrolling::-webkit-scrollbar-thumb,
-  .box .reply:hover::-webkit-scrollbar-thumb{
+  .box .reply:hover::-webkit-scrollbar-thumb,
+  body.focus .box.sel textarea.scrolling::-webkit-scrollbar-thumb,
+  body.focus .box.sel textarea:hover::-webkit-scrollbar-thumb{
     background-color:var(--line-strong)}
   .trow{
     position:relative; flex:none; height:calc(var(--ch)*0.072);
@@ -4193,13 +4219,14 @@ function watchRise(node){
   riseBand(node);
 }
 
-// the thumb shows while the answer is actually moving and fades out 700ms after
-// it rests, which is the ticket list's own trick and the markdown panes' after
-// it. restated here rather than shared with them for the reason the markdown
-// pane restated it: those two are wired once over elements that exist from the
-// first paint, and a card is built and rebuilt long after that block has run.
-// the number and the class are the same in all three, so the answer's bar
-// behaves exactly as the bars beside it do
+// the thumb shows while its own scroller is actually moving and fades out 700ms
+// after it rests, which is the ticket list's own trick and the markdown panes'
+// after it. restated here rather than shared with them for the reason the
+// markdown pane restated it: those two are wired once over elements that exist
+// from the first paint, and a card is built and rebuilt long after that block
+// has run. both scrollers on the card come through here, the answer and the row
+// he types in, and the class and the 700ms are the same in all of them, so
+// every bar on the board comes and goes alike
 function barFade(node){
   let t = null;
   node.addEventListener("scroll", () => {
@@ -4735,8 +4762,12 @@ function makeBox(b, i, state){
     // answer under the title, and the row he types in under the bar's hairline
     watchRise(reply);
     watchRise(ta);
-    // and the answer's own thumb, which is only inked while it is moving
+    // and the two thumbs on this card, each only inked while its own scroller
+    // is moving. the row he types in is on the same wiring as the answer and
+    // not on one of its own: the class and the 700ms are the sheet's, so the
+    // bar in the composer and the bar in the answer come and go alike
     barFade(reply);
+    barFade(ta);
 
     // explicit focus ring: title -> text -> attach -> send -> cross -> moon -> (wrap)
     const ring = [titleEl, ta, clip, send, x, arc];
