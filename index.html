@@ -578,54 +578,249 @@
     padding-left:calc(var(--pad-x)*2/3); padding-right:calc(var(--pad-x)*5/3);
     margin-bottom:3.5px;
   }
+  /* ---- the sent-and-waiting box ------------------------------------------- */
+  /* the card starts with no box at all. the board only carries a sent strip
+     while a send of his is unanswered, so the first send builds one and the
+     reply landing takes it away again.
+     the box is the answer's twin in width: it starts where the answer's first
+     letter starts and ends where the answer's own right margin used to end, and
+     both edges are written as the same thirds of --pad-x the answer is written
+     in, so the two are one column by construction.
+     the strip is what the shut bar's arrow is pinned to, and not the bar
+     itself: the bar is the whole box while the box is shut and nothing at all
+     while it is open, whereas the strip's bottom edge is the one edge that
+     stands still through every frame of a fold */
   .pendlist{display:none}
+  body.focus .box.sel{
+    --boxleft:calc(var(--pad-x)*2/3);
+    /* the shut bar's own height, half a left ticket row, written once because
+       two rules read it: the bar itself and the seat of the arrow standing in
+       the middle of it */
+    --pend-bar:calc(var(--ch)*0.072/2);      /* 32.39px */
+    /* half the card, the one number the open box is measured against. it is
+       not typed in: it is the pane's own height rule cut in two, so a pane
+       drawn at another size still stops its box on its own middle line */
+    --pend-cap:calc(var(--ch)*var(--frame-h)/2);   /* 362.88px */
+    /* what stands under the box: the bar's own hairline, the typing row at
+       rest, and the step between the two. the row is counted at rest on
+       purpose, since a composer grown to several lines pushes the pair past
+       the middle line, which is right: what he is in the middle of typing is
+       the one thing on the card allowed to */
+    --under-bar:calc(1px + var(--row-min) + var(--sp-s));
+    /* the arrow trade, and its wait, so it ends on the frame the run stamp
+       reaches its seat: the wait is the cluster's travel less the trade */
+    --chevfade:.18s; --chevwait:calc(0.38s - var(--chevfade));
+  }
   body.focus .box.sel .pendlist{
-    /* sent and waiting: a slim bar above the input line, half a left ticket
-       row tall, counting the messages the agent has not answered yet. a
-       click opens it into the full list, right aligned and full ink, and
-       another click folds it back; the whole thing vanishes the moment the
-       reply lands and the pending list empties */
     display:flex; flex-direction:column; flex:none; gap:var(--sp-s);
-    margin-top:auto;
-    font:15px/1.5 var(--sans); color:var(--ink);
+    position:relative;
+    margin:0 calc(var(--pad-x)*2/3) var(--sp-s) var(--boxleft);
+    /* the sent lines take the same step up the answer took, and the line stays
+       at 1.5 of the type. this rule sets the rows and nothing else: the
+       delivery words, the run stamp and the pulled times each write their own
+       size in mono below, so the sent words stay the plainly larger thing */
+    font:16px/1.5 var(--sans); color:var(--ink);
     cursor:pointer; user-select:none;
+    /* the hairline the arrow's seat has to reckon with. an absolute seat is
+       measured from inside the border, and the two dresses do not wear their
+       hairline in the same place: shut it is on the bar, open it is on the
+       strip. so the strip names the pixel it is wearing and the seat gives it
+       back, and the arrow cannot step by a pixel when the dress changes */
+    --strip-line:0px;
   }
-  body.focus .box.sel .pendlist::before{
-    content:"↑ " attr(data-label);   /* the arrow flips with the fold state */
+  body.focus .box.sel .pendlist.open{--strip-line:1px}
+  /* the shut bar. the same 32.4px click target the old one had, the pane's own
+     7px rounding, and the deep inset shade off its top inside edge the way a
+     recessed surface sits under light, so the box reads sunk INTO the card.
+     box-sizing is written out on purpose so the hairline cannot add 2px to the
+     32.4 and push the whole strip up off its row. neither arrow is laid in this
+     bar by its padding: both are pinned, each to its own seat */
+  body.focus .box.sel .pendhead{
+    display:flex; align-items:center; align-self:stretch; flex:none;
+    height:var(--pend-bar); padding:0 12px;
+    border-radius:7px;
+    box-shadow:var(--sunk-deep);
+    background:var(--card);
+    box-sizing:border-box; border:1px solid var(--line);
   }
-  body.focus .box.sel .pendlist.open::before{content:"↓ " attr(data-label)}
-  body.focus .box.sel .pendlist::before{
-    display:flex; align-items:center; justify-content:center; align-self:stretch;
-    height:calc(var(--ch)*0.072/2);   /* half a #tiklist ticket row */
-    padding:0 12px; border-radius:4px;
-    background:#FFF1E0; color:var(--must); font:14px var(--mono);
+  /* the chevron: two strokes meeting at a point, no stem, drawn as a path and
+     not a font glyph so the weight stays 1.5px at any device scale. there are
+     two of them, one nailed to each seat, and neither ever travels. the middle
+     of the shut bar carries the one pointing up; the open box's top left
+     corner, inside the box's own padding, carries the one pointing down.
+     opening dissolves the first into the second and shutting dissolves it back,
+     so what the eye reads is an arrow leaving one place and arriving at
+     another rather than an arrow sliding between them. both seats are fixed in
+     x, so there is no horizontal travel on any frame either way.
+     neither may take a press: they lie over the box, and the shut bar's one
+     lies over the foot of the lane while the box is open, so an arrow that
+     swallowed a pointer would cut a hole in the strip's own click and in the
+     pull that starts on the rows beneath it */
+  body.focus .box.sel .chev{
+    display:block; position:absolute; pointer-events:none;
+    /* the crossfade, quick and inside the fold's own family: both arrows are
+       drawn on the one curve, so what the leaving one gives up the arriving one
+       takes in the same instant and the pair's strength neither dips to nothing
+       nor doubles. the wait is worn by the shut dress alone, which is the dress
+       a shutting run is heading into, so the exchange sits at the head of an
+       opening and at the tail of a shutting */
+    transition:opacity var(--chevfade) var(--gentle) var(--chevwait);
   }
-  body.focus .box.sel .pendlist:empty{display:none}
-  body.focus .box.sel .pendlist p{display:none}   /* folded: the bar alone shows */
+  /* the shut bar's seat: the middle of that bar, measured up from the strip's
+     bottom edge rather than down from its top. the bottom edge is the one that
+     holds still while the box grows and shrinks, so the arrow fades out on the
+     exact spot it was standing on and fades back in on the spot the bar is
+     about to land on. nothing about it moves in either axis, ever */
+  body.focus .box.sel .chevmid{
+    left:50%; margin-left:-5.5px;                        /* half its own 11px */
+    bottom:calc((var(--pend-bar) - 7px)/2 - var(--strip-line));
+  }
+  /* the open box's seat: the top left corner, inside the box's own padding, on
+     the very line the run stamp is printed on. it is pinned inside the body and
+     not on the strip, so it rides the top of the box's content exactly as the
+     stamp does, on every frame of a run and not only on the last one.
+     the two numbers are what make the tangency. the whole part of the drop is
+     given to the pin, where chrome's rounding to a whole pixel reaches it and
+     does no harm, and the last 0.27 is given to the transform, which is applied
+     after that rounding and keeps its fraction; written as one 2.73 the arrow
+     stood most of a pixel clear of the print at some window sizes and level
+     with it at others. the arrow is a stroked diagonal with round ends and no
+     flat horizontal edge, so standing it off the pixel grid costs it nothing */
+  body.focus .box.sel .chevtop{
+    left:0; top:3px; transition-delay:0s;
+    transform:translateY(-0.27px) rotate(180deg);
+    opacity:0;
+  }
+  /* the exchange is read off the fold's own mark and not off the open class.
+     the open class is worn for the whole of a shutting run as well, so an arrow
+     that read it would hold the corner all the way down and jump back to the
+     middle on the last frame. this mark is turned at the head of every run */
+  body.focus .box.sel .pendlist.foldopen .chevmid{opacity:0; transition-delay:0s}
+  body.focus .box.sel .pendlist.foldopen .chevtop{opacity:1; transition-delay:var(--chevwait)}
+  /* folded, the rows are simply not there and the bar stands alone */
+  body.focus .box.sel .pendbody{display:none}
+  /* open, the whole strip is the box: the container takes the fill, the
+     hairline, the rounding and the sunk shade, so the header line and the rows
+     sit inside one box together. the header hands its own dress to the
+     container so no frame sits inside a frame.
+     the cap is half the card. under it the box still shrinks, and min-height:0
+     lets it go below its own content, so a card with less to spare cannot be
+     forced open past what it has and everything the cap declines to take goes
+     back to the answer.
+     the rail the drag uncovers is cut at the box's own inside edge, so a row
+     pulled left slides under the border the way a phone thread does */
   body.focus .box.sel .pendlist.open{
-    /* the box's color melts in over a short gradient at its top edge, no hard
-       line against the card; the label and messages stay full ink */
-    background:linear-gradient(to bottom, rgba(255,241,224,0), #FFF1E0 26px);
-    border-radius:4px; padding:10px 12px;
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:7px; padding:16px 12px 10px;
+    box-shadow:var(--sunk-deep);
+    overflow:hidden;
+    flex:0 1 auto; min-height:0;
+    max-height:calc(var(--pend-cap) - var(--under-bar));
+    /* the strip's own step between its two children goes with the bar, for the
+       same reason the bar goes: a step under a line of no height is a band of
+       white with nothing in it */
+    gap:0;
   }
-  body.focus .box.sel .pendlist.open::before{padding:0}
-  body.focus .box.sel .pendlist.open p{
-    display:block; margin:0;
+  /* open, the bar is nothing at all. its whole job is the shut state: the click
+     target, the fill, the hairline, the rounding, the sunk shade and the arrow
+     in its middle. open, the strip wears all of that and the arrow has moved to
+     the corner, so what the bar had left was its height, and that height was a
+     band of white between the top of the box and the run stamp with nothing
+     printed in it. it is kept in the tree because the arrow that fades out on a
+     fold is still its child, and because the shut state needs it back whole */
+  body.focus .box.sel .pendlist.open .pendhead{
+    padding:0; border:none; background:none; border-radius:0; box-shadow:none;
+    height:0;
+  }
+  /* open, the body is a column of two: the run stamp, which holds still on the
+     top line with the corner arrow tangent to it, and the lane of rows */
+  body.focus .box.sel .pendlist.open .pendbody{
+    display:flex; flex-direction:column; flex:1 1 auto; min-height:0;
+    position:relative; touch-action:pan-y;
+  }
+  /* the lane. min-height:0 is what makes it scroll rather than push the box
+     open: without it a flex child refuses to go under its content and the rows
+     would shove the composer out of the pane.
+     the top edge carries a 48px alpha ramp, two line boxes of the sent type, so
+     a row leaving the lane dissolves upward under the run stamp instead of
+     being cut square on the lane's own edge, and is a whole line deep in the
+     ramp before it is gone. the shape is the answer's own ramp turned over:
+     nothing at the edge, .35 at 38 hundredths of the way in, .80 at 72, full at
+     48. the two middle stops keep the climb a curve, so no band edge can be
+     read off it, and the ramp is alpha only and paints no ink */
+  body.focus .box.sel{--lanefade:48px}
+  body.focus .box.sel .pendscroll{
+    flex:1 1 auto; min-height:0;
+    overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain;
+    -webkit-mask-image:linear-gradient(to bottom,
+      rgba(0,0,0,0) 0,
+      rgba(0,0,0,.35) calc(var(--lanefade)*.38),
+      rgba(0,0,0,.80) calc(var(--lanefade)*.72),
+      rgba(0,0,0,1) var(--lanefade));
+    mask-image:linear-gradient(to bottom,
+      rgba(0,0,0,0) 0,
+      rgba(0,0,0,.35) calc(var(--lanefade)*.38),
+      rgba(0,0,0,.80) calc(var(--lanefade)*.72),
+      rgba(0,0,0,1) var(--lanefade));
+  }
+  /* the run's one time tag, in the chat panel's own run stamp manner: small,
+     muted, one for the whole run instead of one over every line. it is on
+     the right edge, so the tag ends on the same inside edge the lines below it
+     end on. it sits outside the sliding column, so the drag never moves it. the
+     room under it is the strip's own step and not a number of its own: the
+     stamp and the arrow share the top line, and the first row stands off that
+     line by the same amount every row below it stands off the row above it */
+  body.focus .box.sel .pendstamp{
+    flex:none;
+    text-align:right; font:12px var(--mono); color:var(--sub);
+    padding:0 0 var(--sp-s);
+  }
+  /* the column that slides. the drag writes --dx on the strip and both the
+     column and the times read it: the column goes left by it, each time goes
+     right by the same amount, so the times hold still at the box's right edge
+     while the words slide off them */
+  body.focus .box.sel .pendslide{transform:translateX(calc(var(--dx, 0px) * -1))}
+  body.focus .box.sel .pendlist:not(.drag) .pendslide,
+  body.focus .box.sel .pendlist:not(.drag) .ptime{
+    transition:transform .22s cubic-bezier(.22,1,.36,1), opacity .18s ease;
+  }
+  body.focus .box.sel .pendmsg + .pendmsg{padding-top:var(--sp-s)}
+  body.focus .box.sel .pendmsg p{
+    position:relative; margin:0;
     text-align:right; white-space:pre-wrap;
+    /* the sent line's own width: its left end never reaches past the
+       fifth of the box nearest that end, so the words are capped at four fifths
+       and wrap rather than run the whole way across. the cap is on the line's
+       own block and the block is pushed right by an automatic margin, so it is
+       the LEFT end that gives way and the right end that holds: a short line is
+       untouched, and a long one breaks at four fifths and takes a second line.
+       the delivery word under the line and the time that comes up on a drag are
+       both pinned to that right edge, which has not moved */
+    max-width:80%; margin-left:auto;
   }
-  /* consecutive sends split by a thin hairline sitting flat on the panel,
-     spaced evenly off both messages; a blank line inside one message draws
-     no line, so it still reads as that message's own breath */
-  body.focus .box.sel .pendlist.open p + p{
-    /* the stamps above each message mark the boundaries now; spacing alone
-       splits neighbours, the hairline retired on the owner's word */
-    padding-top:var(--sp-s);
+  /* the delivery word under a line, written the way the chat panel writes Read
+     and Delivered under its own sent bubbles: right aligned, muted, and clearly
+     quieter than the words above it. one of each on screen, ever: reading runs
+     in order, so if a line has been read the ones before it have been read too,
+     and a Read under every one of them says the same thing down the column. a
+     line with no word under it gives its room back, since two pixels under
+     every older line would read as a ragged column */
+  body.focus .box.sel .rcpt{
+    display:block; text-align:right;
+    font:10.5px/1.35 var(--mono); color:var(--sub);
+    padding:2px 0 0;
   }
-  /* each message's send time: a small grey clock above the text, inside the
-     same hairline section; a send with no recorded time simply carries none */
-  body.focus .box.sel .pendlist.open p .stamp{
-    display:block; margin:0 0 2px;
-    font:10.5px/1.35 var(--mono); color:var(--sub); text-align:right;
+  body.focus .box.sel .rcpt:empty{display:none}
+  /* each line's own send time, lying under its own message until the drag frees
+     the room. it is centred on the message it belongs to, so the times come up
+     on the rows they name */
+  body.focus .box.sel .ptime{
+    position:absolute; right:0; top:50%;
+    transform:translate(var(--dx, 0px), -50%);
+    opacity:var(--rv, 0);
+    font:10.5px/1.35 var(--mono); color:var(--sub);
+    white-space:nowrap; pointer-events:none;
   }
   /* ---- the foot of the card: the sent box, the bar and the row ------------ */
   /* the wrapper is laid over the answer at the card's floor rather than under
@@ -2852,6 +3047,196 @@ function seatSquare(ta, square){
   square.style.marginBottom = (hgt - mid - square.offsetHeight / 2) + "px";
 }
 
+// ---- the sent-and-waiting box ---------------------------------------------
+// the card carries no box at rest. the first send grows one, every send after
+// it drops a line into the box that already stands, folded or open as he last
+// left it, and the reply landing takes the box away with the pending list it
+// was drawn from. that is the board's own rule for the strip, unchanged.
+//
+// this is the one place the mock had to be left behind. the mock owns its rows
+// and never redraws them; the board's rows come off the server on every poll,
+// and the card used to write pend.innerHTML whole whenever the text changed.
+// that is fine for a bar with nothing in it and fatal here: it would throw away
+// the open class, both arrows, the lane's own scroll and any run in flight, on
+// the very frame a second send landed. so the rows are reconciled instead. the
+// server's pending list only ever grows until the agent claims it and clears it
+// whole, so a list that still begins with the rows on screen is appended to,
+// and only a list that has actually changed underneath is rebuilt.
+const CHEV_PATH = '<path d="M1 5.5 5.5 1.5 10 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>';
+// one glyph for the middle of the shut bar and one for the open box's corner,
+// each nailed to its own seat by the css and neither ever moved: a fold trades
+// their strength and nothing else. the corner one is the same path turned over
+// by the css rather than drawn again here
+function chevSVG(seat){
+  return '<svg class="chev ' + seat + '" width="11" height="7" viewBox="0 0 11 7"' +
+         ' fill="none" aria-hidden="true">' + CHEV_PATH + "</svg>";
+}
+
+// the box, built on the first send and never before it, and built folded: the
+// slim bar is all that arrives. the corner arrow is built inside the body and
+// not on the bar, so it rides the top of the box's own content column on every
+// frame of an opening exactly as the run stamp does, and the two stay tangent
+// all the way up rather than only at the end
+function growPend(el){
+  const pend = h("div", "pendlist");
+  pend.innerHTML = '<div class="pendhead">' + chevSVG("chevmid") + "</div>" +
+    '<div class="pendbody">' + chevSVG("chevtop") +
+    '<div class="pendstamp"></div>' +
+    '<div class="pendscroll"><div class="pendslide"></div></div></div>';
+  // always mounted directly over the bar he types on, which stands on the card
+  // itself, so the box lands on the card under the answer
+  el.pendwrap.insertBefore(pend, el.bottombar);
+  el.pend = pend;
+  wirePend(el, pend);
+  return pend;
+}
+
+function dropPend(el){
+  if (!el.pend) return;
+  el.pend.remove();
+  el.pend = null;
+  el.pendRaw = "";
+}
+
+// one row: the words, the time that comes up on a drag, and the delivery word
+function pendRow(text, ts){
+  const row = h("div", "pendmsg");
+  row.dataset.text = text;
+  const p = document.createElement("p");
+  const body = linkify(imgify(text.replace(/&/g, "&amp;").replace(/</g, "&lt;")));
+  p.innerHTML = shotgrid(body) || body;
+  const t = h("span", "ptime", stampText(ts));
+  p.appendChild(t);
+  row.append(p, h("span", "rcpt"));
+  row.addEventListener("animationend", () => row.classList.remove("pop"));
+  return row;
+}
+
+// the delivery words: one of each on screen, ever. the newest line
+// carries Delivered, the line before it carries Read and stands for the whole
+// run behind it, and the rest carry nothing. the pass runs over the entire
+// column rather than editing the two rows that changed, so the pair cannot
+// drift onto the wrong lines however long the run gets.
+// the board has no per message read receipt to draw on, so the pair is
+// positional, which is what the design asks for
+function stampRcpts(pend){
+  const rows = pend.querySelector(".pendslide").children, n = rows.length;
+  for (let i = 0; i < n; i++){
+    const want = i === n - 1 ? "Delivered" : i === n - 2 ? "Read" : "";
+    const r = rows[i].querySelector(".rcpt");
+    if (r.textContent !== want) r.textContent = want;
+  }
+}
+
+// newest at the foot. the lane is pinned to its own bottom after a line lands
+// and again the moment the box is opened, so the thing last sent is the thing
+// on screen. a folded box has a lane with no height, and setting the top of a
+// lane that cannot scroll is simply nothing
+function pendBottom(pend){
+  const lane = pend.querySelector(".pendscroll");
+  if (lane) lane.scrollTop = lane.scrollHeight;
+}
+
+// the run's one time tag: the first send of the run, since that is when the run
+// he is waiting on began. an entry queued before the server recorded times
+// carries none, and the tag is simply blank rather than wrong
+function stampRun(pend, stamps){
+  const s = pend.querySelector(".pendstamp");
+  const want = stampText(stamps && stamps[0]);
+  if (s.textContent !== want) s.textContent = want;
+}
+
+// the poll's own pass over the box. it is the only thing that may add or remove
+// rows on a redraw, and it adds nothing a send has already put there
+function syncPend(el, texts, stamps){
+  texts = texts || []; stamps = stamps || [];
+  if (!texts.length){ dropPend(el); return; }
+  const pend = el.pend || growPend(el);
+  const slide = pend.querySelector(".pendslide");
+  const have = [...slide.children];
+  // a list that still begins with what is on screen only grows; anything else
+  // is a list that changed underneath and is drawn again
+  const grows = texts.length >= have.length &&
+                have.every((row, i) => row.dataset.text === texts[i]);
+  if (!grows){
+    slide.textContent = "";
+    texts.forEach((t, i) => slide.appendChild(pendRow(t, stamps[i])));
+  } else {
+    // the times come from the server now, so an optimistic row's client clock
+    // is corrected in place without touching anything else about the row
+    have.forEach((row, i) => {
+      const t = row.querySelector(".ptime"), want = stampText(stamps[i]);
+      if (t && t.textContent !== want) t.textContent = want;
+    });
+    for (let i = have.length; i < texts.length; i++){
+      const row = pendRow(texts[i], stamps[i]);
+      if (pend.classList.contains("open")) row.classList.add("pop");
+      slide.appendChild(row);
+    }
+    if (texts.length > have.length) pendBottom(pend);
+  }
+  stampRcpts(pend);
+  stampRun(pend, stamps);
+  el.pendRaw = texts.join("\n\n");
+}
+
+// the strip's fold and the leftward pull, the phone gesture the chat panel
+// names but does not carry. a pull that moved is not a click, so the fold is
+// skipped for it and the box stays open
+function wirePend(el, strip){
+  const area = strip.querySelector(".pendbody");
+  const REVEAL = 64;   // how far left the column can be pulled
+  const LEAD = 24;     // room freed before a time starts to come up
+  let id = null, x0 = 0, y0 = 0, moved = false;
+
+  function set(dx){
+    strip.style.setProperty("--dx", dx + "px");
+    const rv = (dx - LEAD) / (REVEAL - LEAD);
+    strip.style.setProperty("--rv", Math.max(0, Math.min(1, rv)).toFixed(3));
+  }
+  // every fresh press clears the last gesture's verdict, so a pull that ended
+  // without a click cannot swallow the next real one
+  strip.addEventListener("pointerdown", () => { moved = false; }, true);
+  area.addEventListener("pointerdown", e => {
+    if (!strip.classList.contains("open") || id !== null) return;
+    id = e.pointerId; x0 = e.clientX; y0 = e.clientY;
+    area.setPointerCapture(id);
+  });
+  area.addEventListener("pointermove", e => {
+    if (e.pointerId !== id) return;
+    const dx = x0 - e.clientX;
+    if (!moved && (Math.abs(dx) > 3 || Math.abs(e.clientY - y0) > 3)){
+      moved = true; strip.classList.add("drag");   // the finger leads, untimed
+    }
+    if (moved) set(Math.max(0, Math.min(REVEAL, dx)));
+  });
+  function release(e){
+    if (e.pointerId !== id) return;
+    if (area.hasPointerCapture(id)) area.releasePointerCapture(id);
+    id = null;
+    strip.classList.remove("drag");   // the transition comes back, and springs
+    set(0);
+  }
+  area.addEventListener("pointerup", release);
+  area.addEventListener("pointercancel", release);
+
+  strip.addEventListener("click", () => {
+    if (moved) return;
+    foldPend(el, !strip.classList.contains("open"));
+  });
+}
+
+// a send never touches the fold: the first one builds the box and the slim bar
+// alone comes up, and every send after it drops a line into the box that
+// already stands. only a click on the bar opens it
+function foldPend(el, open){
+  const pend = el.pend;
+  if (!pend) return;
+  pend.classList.toggle("foldopen", open);
+  pend.classList.toggle("open", open);
+  if (open) pendBottom(pend);
+}
+
 // a picked or dropped file goes up the board's own upload road and its address
 // joins the text, which is what the card has always done with a dropped image
 async function attach(files, ta){
@@ -3118,8 +3503,6 @@ function makeBox(b, i, state){
     // is not built here; the card starts with none at all and the first send
     // grows one in, which is how the board has always carried it
     const pendwrap = h("div", "pendwrap");
-    const pend = h("div", "pendlist");   // sent-and-waiting bar; a click unfolds the list
-    pend.addEventListener("click", () => pend.classList.toggle("open"));
     const bottombar = h("div", "bottombar");
     const clipfile = h("input", "clipfile");
     clipfile.type = "file";
@@ -3139,7 +3522,7 @@ function makeBox(b, i, state){
     send.innerHTML = SEND_ICON;
     compose.append(ta, send);
     bottombar.append(clipfile, clip, compose);
-    pendwrap.append(meta, pend, bottombar);
+    pendwrap.append(meta, bottombar);
     body.append(reply, pendwrap);
     box.appendChild(body);
 
@@ -3234,8 +3617,10 @@ function makeBox(b, i, state){
       poll();
     });
 
+    // pend is null until the first send builds the box, and null again the
+    // moment the reply lands and empties the pending list
     els[b.id] = { box, reply, meta, metaNote, histPos, histUp, histDown,
-                  pend, ta, send, wstat, toc: entry, sec,
+                  pend: null, pendRaw: "", ta, send, wstat, toc: entry, sec,
                   titleEl, tocTitle: entry.querySelector(".ttitle"), arc, x,
                   topbar, bname, wtpick, wtmenu,
                   pendwrap, bottombar, clip, clipfile, tick };
@@ -3402,16 +3787,21 @@ async function doSend(id){
     if (!r.ok) throw new Error(r.status);
     el.ta.value = "";   // clear only after the server has it
     el.tick();          // the square goes with the words, and the row falls back to one line
-    // count it into the bar immediately, and pre-mark the list as current so
-    // the next poll's redraw brings nothing it does not already hold
-    el.pend.dataset.raw = el.pend.dataset.raw ? el.pend.dataset.raw + "\n\n" + text : text;
-    const bub = document.createElement("p");
-    const st = document.createElement("span");
-    st.className = "stamp";
-    st.textContent = stampText(Date.now() / 1000);   // client clock; the poll's server time takes over
-    bub.append(st, text);
-    el.pend.appendChild(bub);
-    el.pend.dataset.label = "Sent messages (" + el.pend.children.length + ")";
+    // the line lands in the box now and not a poll later. the first send builds
+    // the box, folded, and every send after it drops a line into the box that
+    // already stands, folded or open as he last left it: a send never touches
+    // the fold. the client clock stamps it and the poll's server time takes
+    // over. the raw is pre-marked as current so the redraw behind this brings
+    // nothing it does not already hold
+    const pend = el.pend || growPend(el);
+    const row = pendRow(text, Date.now() / 1000);
+    if (pend.classList.contains("open")) row.classList.add("pop");
+    pend.querySelector(".pendslide").appendChild(row);
+    stampRcpts(pend);
+    if (!pend.querySelector(".pendstamp").textContent)
+      stampRun(pend, [Date.now() / 1000]);
+    pendBottom(pend);
+    el.pendRaw = el.pendRaw ? el.pendRaw + "\n\n" + text : text;
     if (hist && hist.id === id) histExit(id);   // a send lands you back on the live reply
     if (reopen) undone(id);   // the message is in; the flip rides behind it
     poll();
@@ -3545,18 +3935,10 @@ function apply(state){
     // drop a hover
     const wtl = branchLabel(b);
     if (el.bname.textContent !== wtl) el.bname.textContent = wtl;
+    // the sent box, reconciled rather than redrawn: see syncPend. the guard is
+    // the joined text, so a poll that brings nothing new touches no dom at all
     const pt = (b.pendingTexts || []).join("\n\n");
-    if (el.pend.dataset.raw !== pt){
-      el.pend.dataset.raw = pt;
-      const stamps = b.pendingStamps || [];   // absent from a pre-stamp server: every send unstamped
-      el.pend.innerHTML = (b.pendingTexts || [])
-        .map((t, i) => {
-          const body = linkify(imgify(t.replace(/&/g, "&amp;").replace(/</g, "&lt;")));
-          return "<p>" + stampHTML(stamps[i]) + (shotgrid(body) || body) + "</p>";
-        }).join("");
-      el.pend.dataset.label = "Sent messages (" + el.pend.children.length + ")";
-      if (!el.pend.children.length) el.pend.classList.remove("open");   // answered: nothing left to show
-    }
+    if (el.pendRaw !== pt) syncPend(el, b.pendingTexts, b.pendingStamps);
     const cs = cardState(b);   // one state: box color, left tab, and toc all read it
     el.box.classList.toggle("done", cs === "done");
     el.box.classList.toggle("parked", cs === "parked");
