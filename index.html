@@ -6287,6 +6287,14 @@ let mdView = null;            // the codemirror view, made when the first file i
 let mdClean = "";             // the text as it stands on disk, which is what dirty measures against
 let mdLoad = null;            // the bundle's load promise, so it is asked for exactly once
 let mdLeave = false;          // back pressed once on unsaved work: the second press leaves
+// the open file, held across a tab switch. the panel really is taken apart when
+// he leaves the tab, because magic box 3 has three tenants and only one of them
+// may hold it at a time, so the DOM is not somewhere state can live. this is:
+// one plain object outside the DOM, carrying the editor's own state object
+// whole. a codemirror state outlives its view, so putting it back is one
+// constructor call and everything comes with it, his unsaved text, his cursor,
+// his selection and his undo history alike
+let mdKeep = null;
 let mdNoteT = null;
 
 // the vendored editor, fetched the first time a file is opened and never on
@@ -6363,7 +6371,7 @@ function mdBuild(){
 // as it did before the panel existed
 function mdOff(host){
   if (!host || host.dataset.md !== "1") return;
-  mdTearDown();
+  mdTearDown(true);
   mdFor = null; mdSig = ""; mdData = null;
   host._md = null;
   delete host.dataset.md;
@@ -6373,10 +6381,41 @@ function mdOff(host){
   // stub line back now would wipe whichever one just arrived
   if (host.dataset.p3 !== "1" && host.dataset.c3 !== "1") host.textContent = "magic box 3";
 }
-function mdTearDown(){
+// keep is true only where the panel is being taken down by a tab switch, and
+// false everywhere he himself closed the file: a file he pressed back on stays
+// closed, and one the board took off the screen comes back
+function mdTearDown(keep){
+  mdKeep = keep && mdView && mdOpen
+    ? { root: mdOpen.root, rel: mdOpen.rel, mtime: mdOpen.mtime, clean: mdClean,
+        state: mdView.state, top: mdView.scrollDOM.scrollTop }
+    : null;
   if (mdView){ mdView.destroy(); mdView = null; }
   document.removeEventListener("mouseup", mdMouseUp);
   mdOpen = null; mdClean = ""; mdLeave = false;
+}
+// the other half of that: the panel rebuilt on the tab he left it on, put back
+// on the file it was on. nothing is read off disk here, on purpose, because
+// what he had on screen may be ahead of what disk has and disk must not win
+function mdRestore(host){
+  if (!mdKeep || mdOpen || !window.CM6) return;
+  const k = mdKeep;
+  mdKeep = null;
+  mdOpen = { root: k.root, rel: k.rel, mtime: k.mtime };
+  mdClean = k.clean;
+  mdMount(host, "", false, k.state);
+  host._md.name.textContent = k.rel;
+  host._md.name.title = k.root + "/" + k.rel;
+  host.classList.add("editing");
+  // the scroll is the one thing the state does not carry, so it is put back by
+  // hand. twice: once now, and once after codemirror's own first measure, which
+  // sets the scroller's height and would otherwise clamp this to zero
+  mdView.scrollDOM.scrollTop = k.top;
+  requestAnimationFrame(() => { if (mdView && mdOpen) mdView.scrollDOM.scrollTop = k.top; });
+  // the kept state remembers whether the editor had the focus, and a rebuilt
+  // view has not. said out loud here rather than waited for, because a blur
+  // event will never arrive for a view that was destroyed before it could blur
+  mdView.dispatch({ effects: mdAwakeEff.of(mdView.hasFocus) });
+  mdDirty();
 }
 // one line at the foot of the panel. a receipt clears itself after a moment; a
 // refusal stays, because it is the only place he is told the save did not land
@@ -6440,7 +6479,7 @@ async function mdOpenFile(root, rel){
   if (!host._md) return;
   const d = r && r.ok ? await r.json().catch(() => null) : null;
   if (!d){ mdNote(host, "could not open " + rel, true); return; }
-  mdTearDown();
+  mdTearDown(false);
   mdOpen = { root, rel, mtime: d.mtime };
   mdClean = d.text;
   mdMount(host, d.text, d.crlf);
@@ -6699,9 +6738,12 @@ function mdLayer(){
 function mdBox(D, cls, w){
   return D.mark({ class: cls, attributes: { style: "--w:" + w + "px" } });
 }
-function mdMount(host, text, crlf){
+// seat is a state kept whole across a tab switch, and when there is one the
+// text and the endings are not read at all: that state already carries them,
+// along with his cursor and his undo history
+function mdMount(host, text, crlf, seat){
   const C = window.CM6, el = host._md;
-  const state = C.EditorState.create({
+  const state = seat || C.EditorState.create({
     doc: text,
     extensions: [
       // a file written with windows endings keeps them. without this codemirror
@@ -6762,7 +6804,7 @@ function mdClose(){
     mdNote(host, "not saved. press again to leave it", true);
     return;
   }
-  mdTearDown();
+  mdTearDown(false);
   host._md.edit.textContent = "";
   host._md.name.textContent = "";
   host.classList.remove("editing", "dirty");
@@ -6802,6 +6844,7 @@ async function mdPoll(){
   if (activeOwner !== MD_LANE){ mdOff(document.getElementById("magic3")); return; }
   const host = mdBuild();
   if (!host || !host._md) return;
+  mdRestore(host);   // a file open when he left this tab is open again before anything is drawn
   if (mdFor !== activeOwner){ mdFor = activeOwner; mdSig = ""; }
   const r = await fetch("/mdfiles", { cache: "no-store" }).catch(() => null);
   if (!host._md) return;   // a tab switch took the panel apart while that was in the air
