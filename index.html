@@ -6498,7 +6498,7 @@ async function mdOpenFile(root, rel){
 // has nothing to say about the yaml block at the head of every one of the
 // files, about a paragraph the file hard wraps, or about how far a list's
 // second line should hang, and all three of those are things he can see. this
-// is the layer that says it, written out of the four primitives the vendored
+// is the layer that says it, written out of the six primitives the vendored
 // bundle exports for exactly this.
 const MD_MONO = 8.4;   // one character of the board's mono at the editor's 14px: 0.6em, its own advance
 const MD_MARKAIR = 7;  // px of air between a list marker and its text
@@ -6507,7 +6507,7 @@ const MD_FMSCAN = 50;  // lines the opening --- will look ahead for its closing 
 let mdLayerExt = null;   // made once the bundle is in, then shared by every file opened after
 let mdAwakeEff = null;   // the effect a focus or a blur rides in on, made with the layer
 // the yaml block: line one is ---, and the block runs to the next line that is
-// ---- and nothing else. a --- with a blank line under it is a horizontal rule
+// --- and nothing else. a --- with a blank line under it is a horizontal rule
 // and not a block, and a closing fence further off than MD_FMSCAN lines is not
 // front matter either, it is one rule at the top of the file and another one
 // much further down. both of those fall through and are drawn as rules.
