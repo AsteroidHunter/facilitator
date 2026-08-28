@@ -288,6 +288,53 @@ def _lane_internal(lane: str) -> Path | None:
     return Path(d) / (lane + "-internal") if d else None
 
 
+# the worktree names a lane can offer, cached per lane for a few seconds. the
+# card's top bar asks for these, and it asks on every tab switch and every
+# opening of the list, so a bare shell-out on each call would put a git process
+# on the board's own thread several times a second. git itself is the only
+# source: a worktree name has to point at a worktree that exists, and the page
+# offers no way to type one in, so a stale or invented name cannot get in.
+_WT_CACHE: dict = {}
+_WT_TTL = 15.0
+
+
+def _lane_worktrees(lane: str) -> dict:
+    """The lane folder's own checked-out branch and the branches of every
+    worktree of the same repository, newest listing first. Read only: it runs
+    git's own list and writes nothing. A lane that is not a git checkout, or a
+    machine with no git, hands back nothing at all rather than raising, so the
+    bar simply shows no name and the list stays shut."""
+    d = _lane_pwds().get(lane)
+    if not d:
+        return {"current": "", "names": []}
+    hit = _WT_CACHE.get(lane)
+    if hit and time.time() - hit[0] < _WT_TTL:
+        return hit[1]
+    out = {"current": "", "names": []}
+    try:
+        # --porcelain is the stable form: one paragraph per worktree, the path
+        # on a "worktree " line and the ref on a "branch " line. a detached head
+        # carries no branch line at all and is skipped, since it names nothing a
+        # card could be moved onto
+        raw = subprocess.run(["git", "worktree", "list", "--porcelain"],
+                             cwd=d, capture_output=True, text=True, timeout=5)
+        if raw.returncode == 0:
+            here, path = Path(d).resolve(), None
+            for line in raw.stdout.splitlines():
+                if line.startswith("worktree "):
+                    path = Path(line[9:]).resolve()
+                elif line.startswith("branch "):
+                    name = line[7:].removeprefix("refs/heads/")
+                    if name not in out["names"]:
+                        out["names"].append(name)
+                    if path == here:
+                        out["current"] = name
+    except Exception:
+        pass
+    _WT_CACHE[lane] = (time.time(), out)
+    return out
+
+
 def _seed_state() -> dict:
     """First-ever start: board title and boxes come from seed.json if present
     (see seed.example.json); otherwise the board starts empty."""
@@ -599,6 +646,13 @@ class Handler(BaseHTTPRequestHandler):
                 _release_unacked()
                 _sweep()
                 self._send(200, self._ui_state())
+        elif url.path == "/worktrees":
+            # the names the card's top bar offers, straight out of git. no lock:
+            # nothing here reads or writes the board's state, it only asks the
+            # lane's own folder what worktrees it has
+            q = parse_qs(url.query)
+            owner = (q.get("owner") or ["facilitator"])[0]
+            self._send(200, _lane_worktrees(owner))
         elif url.path == "/unread":
             # a lane's unread count in one line, for a Stop hook deciding
             # whether the agent may go idle and for a human checking a lane
@@ -810,6 +864,9 @@ class Handler(BaseHTTPRequestHandler):
                     # page shows unstamped
                     "pendingStamps": [m.get("ts", 0) for m in b["pending"]],
                     "ws": b.get("ws"), "task": b.get("task"),
+                    # the card's own worktree, empty for a card that has never
+                    # been moved; the bar reads the lane's standing branch then
+                    "worktree": b.get("worktree", ""),
                     "agentTs": b.get("agent_ts", 0),
                     "engine": b.get("engine", "claude"),
                     "writing": st["busy"][b.get("owner", "triage")] == b["id"],
@@ -1176,6 +1233,25 @@ class Handler(BaseHTTPRequestHandler):
                 if box["parked"]:
                     box["done"] = False
                 _log("park" if box["parked"] else "unpark", bid, "")
+                _save()
+                _lock.notify_all()
+                self._send(200, {"ok": True})
+
+            elif url.path == "/worktree":
+                # the card's own worktree, held on the card and not guessed from
+                # a text convention. empty means the lane's standing branch,
+                # which is what the bar falls back to, so a card that has never
+                # been moved carries nothing and still shows a true name
+                box = _box(bid)
+                if box is None:
+                    self._send(400, {"error": "bad box"})
+                    return
+                name = (q.get("name") or [""])[0]
+                if name and name not in _lane_worktrees(box.get("owner", "triage"))["names"]:
+                    self._send(400, {"error": "unknown worktree"})
+                    return
+                box["worktree"] = name
+                _log("worktree", bid, name)
                 _save()
                 _lock.notify_all()
                 self._send(200, {"ok": True})

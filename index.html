@@ -408,12 +408,99 @@
     background:transparent !important; border:none !important; box-shadow:none !important;
     animation:none; margin:0; overflow:visible;
   }
-  body.focus .box.sel .head{padding:var(--sp-xs) 0 0; flex-wrap:wrap; row-gap:var(--sp-xs)}
   body.focus .box.sel{position:static; animation:none}
+
+  /* ---- the card's own top bar -------------------------------------------- */
+  /* a thin band across the head of the card, carrying the worktree name, the
+     defer chip and the close cross. it replaces the path line that used to
+     stand here: no filepath is printed on a card any more.
+     the card's own tokens live on body.focus beside the stage's, so every rule
+     below reads a name rather than a number. --cardbar-h and not --bar-h: the
+     status bar at the top of the window already owns that name and the two are
+     different heights.
+     --sq is the rounding every control on the card wears, the board's own 4px
+     inner corner; the 7px belongs to the things let INTO the card, the pane,
+     the sent box and the worktree list. --press is the one press shade, a tenth
+     of black mixed into whatever fill a control is wearing, so a control can
+     never carry a stale hover hex. --gentle is the one curve the card's timed
+     things are drawn on: its handles stay inside the unit box, so nothing it
+     drives can overshoot */
+  body.focus{
+    --cardbar-h:34px; --sq:4px; --press:10%;
+    --gentle:cubic-bezier(.42,.06,.38,1);
+  }
+  .topbar{display:none}
+  body.focus .box.sel .topbar{
+    display:flex; align-items:center; gap:9px; flex:none; position:relative;
+    height:var(--cardbar-h);
+    /* the bar runs edge to edge: the negative side and top margins eat the
+       pane's own padding and the pane's rounded corners clip the two ends.
+       the bottom margin hands back exactly what the removed path line took,
+       the pane's top padding plus that line's own 15px less the bar's height,
+       so the title, the answer and the composer keep the y they had */
+    margin:calc(var(--ch)*-0.022) calc(var(--pad-x)*-1)
+           calc(var(--ch)*0.022 + 15px - var(--cardbar-h));
+    padding:0 9px 0 var(--pad-x);
+    background:var(--card);
+    /* the divider where the bar meets the card body: the board's own hairline
+       ink, the same --line the composer draws its top edge in. an inset shadow
+       and not a border-bottom on purpose, since a border would take a pixel out
+       of the 34px content box and lift both buttons off their 9px seat. a white
+       bar over a white card needs the line most of all */
+    box-shadow:inset 0 -1px 0 var(--line);
+  }
+  /* the worktree name, in the face and size the path line used and the bar's
+     muted ink. a name too long for the room is cut at the buttons rather than
+     ended in dots, since the board writes none */
+  body.focus .box.sel .branch{
+    flex:1 1 auto; min-width:0;
+    font:11.5px var(--mono); color:var(--sub);
+    white-space:nowrap; overflow:hidden;
+  }
+  /* the name is chosen, never typed: a worktree name has to point at a worktree
+     that exists, so the fork and the words together are one click target that
+     drops the list of this lane's own worktrees under the bar. both are inline
+     spans, so the seat, the face and the ink of the closed bar are the ones it
+     already had and the only thing that changes at rest is the pointer */
+  body.focus .box.sel .wtpick{cursor:pointer}
+  body.focus .box.sel .bname{font:inherit; color:inherit; white-space:pre}
+  /* the worktree mark, a branch fork drawn in stroke only. it takes its ink
+     from the name beside it through currentColor, stands 11px so it matches the
+     cap height of the 11.5px mono line, and is dropped 1.4px below the baseline
+     so the fork sits on the line the letters sit on */
+  body.focus .box.sel .wt{width:11px; height:11px; margin-right:5px; vertical-align:-1.4px}
+  /* the list itself, drawn from the board's own reopen rows: white ground, one
+     hairline in --line, the pane's own 7px rounding, rows in small mono and
+     muted ink with the soft #FFF8EF fill under the pointer, which is the fill
+     the new-project rows already hover on. no icons in the rows, the way the
+     board writes them. it hangs off the bar rather than off the inline span, so
+     its left edge lands on the bar's own padding, which is where the fork
+     stands */
+  body.focus .box.sel .wtmenu{
+    position:absolute; left:var(--pad-x); top:100%; margin-top:6px; z-index:5;
+    display:none; min-width:150px; padding:4px;
+    background:var(--card); border:1px solid var(--line); border-radius:7px;
+    box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
+  }
+  body.focus .box.sel .wtmenu.open{display:block}
+  body.focus .box.sel .wtmenu button{
+    display:block; width:100%; text-align:left;
+    padding:6px 9px; border:none; background:none; border-radius:5px;
+    font:11.5px var(--mono); color:var(--sub); cursor:pointer; white-space:nowrap;
+  }
+  body.focus .box.sel .wtmenu button:hover{background:#FFF8EF}
+  /* the cross and the defer chip stop being pinned to the pane's corner and
+     become items of the bar, which sets them down on the same pixels they held:
+     16px wide, 9px down from the bar's top edge, 9px in from its right. both
+     wear the send square's shape now, the board's own 4px inner corner, so the
+     three controls on the card read as one family, and both open on the card's
+     own white with their own dark mark carrying them. the press is what tells
+     the seat apart from the ground under it, and on white it comes out a light
+     grey, which is the clearest press either chip can wear */
   body.focus .box.sel .xbtn{
-    position:absolute; top:9px; right:9px; left:auto; z-index:4;
-    width:16px; height:16px; border-radius:50%;
-    background:#FF9F98; font-size:0; padding:0; border:none;
+    position:relative; flex:none; order:5; margin-left:0; top:auto; right:auto; left:auto;
+    width:16px; height:16px; border-radius:var(--sq);
+    background:var(--card); font-size:0; padding:0; border:none;
   }
   body.focus .box.sel .xbtn::before, body.focus .box.sel .xbtn::after{
     content:""; position:absolute; left:50%; top:50%;
@@ -421,15 +508,41 @@
   }
   body.focus .box.sel .xbtn::before{transform:translate(-50%,-50%) rotate(45deg)}
   body.focus .box.sel .xbtn::after{transform:translate(-50%,-50%) rotate(-45deg)}
-  body.focus .box.sel .xbtn:hover{background:#F8837A}
+  body.focus .box.sel .xbtn:hover{background:color-mix(in srgb, #000 var(--press), var(--card))}
+  body.focus .box.sel .arcbtn{
+    position:relative; flex:none; top:auto; right:auto;
+    width:16px; height:16px; border-radius:var(--sq);
+    background:var(--card); color:#000; border:none; padding:0;
+    display:inline-flex; align-items:center; justify-content:center;
+  }
+  body.focus .box.sel .arcbtn:hover{background:color-mix(in srgb, #000 var(--press), var(--card))}
+  /* the path line is gone from the card: the bar above carries the name now */
+  body.focus #pwdline{display:none}
+
   body.focus .box.sel .num{display:none}
+  /* the title's side white space: the answer's own. it is written
+     as the same expression and not as the same number, so the two are one
+     column by construction and cannot drift if the pane is drawn at another
+     size. padding and not margin, for the reason the answer takes padding: the
+     title's box stays the full width of the card and only the words step in.
+     its own 8px margin goes: it was the second of two amounts stacked over one
+     line, and two numbers for one gap is how the gap stopped being nameable */
   body.focus .box.sel .title{
     order:10; flex:0 0 100%; min-width:0; white-space:normal;
-    font:625 30px/1.25 var(--inter); margin-top:8px;
+    font:625 30px/1.25 var(--inter); margin-top:0;
+    padding-left:calc(var(--pad-x)*2/3); padding-right:calc(var(--pad-x)*2/3);
   }
   body.focus .box.sel .wstat{display:none}
-  body.focus .box.sel .xbtn{order:5; margin-left:auto}
-  body.focus .box.sel .head{flex:none}
+  /* the title's own air: one measure over it and the same measure
+     under it, neither of them a lot. the measure is the title's own side inset,
+     so the title stands off the bar over it and off the answer under it by
+     exactly what it stands off the card's edge by. the snap at the foot of this
+     file spends its remainder in the lower of the two gaps, and tiltTitleAir
+     slides the title inside an unchanged head to put the pair back level */
+  body.focus .box.sel{--titleair:calc(var(--pad-x)*2/3)}
+  body.focus .box.sel .head{
+    padding:var(--titleair) 0 0; flex-wrap:wrap; row-gap:var(--sp-xs); flex:none;
+  }
   body.focus .box.sel .body{
     display:flex !important; flex-direction:column; flex:1 1 0; min-height:0;
     overflow:hidden;
@@ -1908,6 +2021,10 @@ const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
 const METAS = [["toolmeta", "facilitator"], ["triagemeta", "triage"]];
 const NAME = { facilitator: "facilitator agent", triage: "triage agent", journal: "journal agent" };
 const laneName = ow => NAME[ow] || (ow + " agent");   // project lanes name themselves
+// the worktree mark that stands before the name in the card's top bar: a branch
+// fork drawn in stroke only, so it takes the name's own muted ink through
+// currentColor and no second colour enters
+const WT_ICON = '<svg class="wt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>';
 const els = {};       // box id -> {box, reply, meta, ta, send, toc, sec}
 const secEls = {}, tocGroups = {};
 let lastState = null;
@@ -1930,6 +2047,47 @@ function labelOf(state, owner){
   const dir = (state.pwds || {})[owner] || "";
   return dir.split("/").filter(Boolean).pop() || owner;
 }
+
+// ---- the lane's worktrees -------------------------------------------------
+// the card's top bar names a worktree, and the names come from git by way of
+// /worktrees rather than from anything typed here. one entry per lane, held for
+// the life of the page: the answer changes only when he adds or removes a
+// worktree, and the bar redraws on every poll, so a fetch per redraw would put
+// a git process on the server several times a second. the cached map is read
+// synchronously by the redraw and filled by the promise behind it, so a lane
+// whose answer has not landed yet simply shows no name for a poll or two
+const wtLanes = {};      // owner -> {current, names}, once it has landed
+const wtPending = {};    // owner -> the promise in flight, so one fetch serves all askers
+function laneWorktrees(owner){
+  if (wtLanes[owner]) return Promise.resolve(wtLanes[owner]);
+  if (!wtPending[owner]){
+    wtPending[owner] = fetch("/worktrees?owner=" + encodeURIComponent(owner))
+      .then(r => r.json())
+      .then(r => { wtLanes[owner] = { current: r.current || "", names: r.names || [] };
+                   return wtLanes[owner]; })
+      .catch(() => ({ current: "", names: [] }))
+      .finally(() => { delete wtPending[owner]; });
+  }
+  return wtPending[owner];
+}
+// the name the bar prints: the card's own worktree when it has been moved, and
+// otherwise the lane's standing branch, which is what an empty field means
+function branchLabel(b){
+  if (b.worktree) return b.worktree;
+  const lane = wtLanes[b.owner];
+  if (lane) return lane.current;
+  laneWorktrees(b.owner);   // fill it for the next poll
+  return "";
+}
+function shutWtMenu(pick, menu){
+  menu.classList.remove("open");
+  pick.setAttribute("aria-expanded", "false");
+}
+// a click anywhere else shuts every open list and leaves its label alone
+document.addEventListener("click", () => {
+  for (const k of Object.keys(els))
+    if (els[k].wtmenu) shutWtMenu(els[k].wtpick, els[k].wtmenu);
+});
 
 function pickInRow(state, owner){
   const row = state.boxes.filter(b => b.owner === owner);
@@ -2679,6 +2837,27 @@ function makeBox(b, i, state){
     box.style.animationDelay = (i * 22) + "ms";
     box.id = "box-" + b.id;
 
+    // the card's own top bar. it stands above the head and carries the three
+    // things that used to be scattered over the card's corners and its path
+    // line: the worktree name with its fork, the defer chip and the close
+    // cross. it is built here and not once for the page because the bar belongs
+    // to the card, so a card switch cannot leave the last card's name standing
+    const topbar = h("div", "topbar");
+    const branch = h("span", "branch");
+    const wtpick = h("span", "wtpick");
+    wtpick.setAttribute("role", "button");
+    wtpick.tabIndex = 0;
+    wtpick.setAttribute("aria-haspopup", "listbox");
+    wtpick.setAttribute("aria-expanded", "false");
+    wtpick.innerHTML = WT_ICON;
+    const bname = h("span", "bname");
+    wtpick.appendChild(bname);
+    branch.appendChild(wtpick);
+    const wtmenu = h("div", "wtmenu");
+    wtmenu.setAttribute("role", "listbox");
+    topbar.append(branch, wtmenu);
+    box.appendChild(topbar);
+
     const head = h("div", "head");
     // the remove cross now renders on every card, not just meta boxes, so all cards share one design
     const x = h("button", "xbtn", "×");
@@ -2694,7 +2873,7 @@ function makeBox(b, i, state){
       if (doing.length) select(doing[0].id); else deselect();
       poll();
     });
-    head.appendChild(x);
+    topbar.appendChild(x);   // the cross is an item of the bar now, not a pinned corner
     head.appendChild(h("span", "num", b.id));
     const titleEl = h("span", "title", b.title);
     titleEl.tabIndex = 0;
@@ -2709,7 +2888,9 @@ function makeBox(b, i, state){
     arc.title = "defer to the deferred tab";
     arc.innerHTML = '<svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" stroke="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
     arc.addEventListener("click", e => { e.stopPropagation(); toggleFlag(b.id, "park"); });
-    head.appendChild(arc);
+    // the chip stands before the cross in the bar, the order the two corners
+    // held: defer on the left of close
+    topbar.insertBefore(arc, x);
     box.appendChild(head);
 
 
@@ -2776,9 +2957,46 @@ function makeBox(b, i, state){
         box.classList.toggle("peek");
     });
 
+    // the worktree list, one per card and reaching only into its own bar, so
+    // opening one card's list can never write another card's name. the names
+    // are the lane's own, fetched from git through /worktrees and never typed:
+    // a worktree name has to point at a worktree that exists
+    wtpick.addEventListener("click", async e => {
+      e.stopPropagation();   // or the document handler below shuts it again
+      const open = !wtmenu.classList.contains("open");
+      wtmenu.classList.toggle("open", open);
+      wtpick.setAttribute("aria-expanded", open ? "true" : "false");
+      if (!open) return;
+      const wt = await laneWorktrees(b.owner);
+      wtmenu.textContent = "";
+      for (const n of wt.names){
+        const row = h("button", null, n);
+        row.type = "button";
+        wtmenu.appendChild(row);
+      }
+    });
+    wtpick.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " "){ e.preventDefault(); wtpick.click(); }
+    });
+    wtmenu.addEventListener("click", async e => {
+      const row = e.target.closest("button");
+      if (!row) return;
+      e.stopPropagation();
+      shutWtMenu(wtpick, wtmenu);
+      // the name lands on the card and not only on the label: the server holds
+      // it, so a reload or another window shows the same name. the poll below
+      // writes the label back from the state either way
+      bname.textContent = row.textContent;
+      await fetch("/worktree?box=" + encodeURIComponent(b.id) +
+                  "&name=" + encodeURIComponent(row.textContent),
+                  { method: "POST" }).catch(() => {});
+      poll();
+    });
+
     els[b.id] = { box, reply, meta, metaNote, histPos, histUp, histDown,
                   pend, ta, send, wstat, toc: entry, sec,
-                  titleEl, tocTitle: entry.querySelector(".ttitle"), arc, x };
+                  titleEl, tocTitle: entry.querySelector(".ttitle"), arc, x,
+                  topbar, bname, wtpick, wtmenu };
 
     // explicit focus ring: title -> text -> Send -> cross -> moon -> (wrap)
     const ring = [titleEl, ta, send, x, arc];
@@ -3079,6 +3297,11 @@ function apply(state){
       el.titleEl.textContent = b.title;
       el.tocTitle.textContent = b.title;
     }
+    // the bar's worktree name, written only when it has actually changed: this
+    // runs on every poll and rewriting a text node under a pointer is enough to
+    // drop a hover
+    const wtl = branchLabel(b);
+    if (el.bname.textContent !== wtl) el.bname.textContent = wtl;
     const pt = (b.pendingTexts || []).join("\n\n");
     if (el.pend.dataset.raw !== pt){
       el.pend.dataset.raw = pt;
