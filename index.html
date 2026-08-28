@@ -625,11 +625,32 @@
      rule can name that edge. the script measures it and writes it here, and
      until it does the fallback is nothing, which leaves the band black to the
      floor and the answer whole, so the worst case is the old drawing and not a
-     hole. it changes nothing that is measured, only where this ramp may stop */
+     hole. it changes nothing that is measured, only where this ramp may stop.
+     the answer's other edge is cut into this same first layer, at its head.
+     the answer dissolves as it scrolls up under the title instead of
+     being cut square on the line the title stops at. so the layer opens with the
+     ramp below turned over, nothing at the top edge, .35 at 38 hundredths of the
+     way in, .80 at 72 and full at the end, which is the shape the sent box's own
+     lane already wears.
+     its depth is --upband and not --replyfade, and that one difference is the
+     whole of why it hides itself. --upband is how far the answer has been
+     scrolled, capped at the ramp's own depth, written on the element by the
+     script at the foot of this file. at the top of a scroll it is nothing, all
+     four stops collapse onto the top edge, and the layer starts at full ink: no
+     band under the title and a first line at full strength, which is the state a
+     short answer that cannot scroll is always in. one pixel of scroll buys one
+     pixel of ramp, and from --replyfade of scroll on it is the bottom ramp's
+     equal and stays there. so the band is never deeper than there is answer
+     above it to dissolve, and a grey wash under the title on a card with nothing
+     scrolled away is impossible by construction */
   body.focus .box.sel{--replyfade:22px}
   body.focus .box.sel .reply{
     -webkit-mask-image:
       linear-gradient(to bottom,
+        rgba(0,0,0,0) 0,
+        rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
+        rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
+        rgba(0,0,0,1) var(--upband, 0px),
         rgba(0,0,0,1) calc(100% - var(--boxband, 0px) - var(--replyfade)),
         rgba(0,0,0,.80) calc(100% - var(--boxband, 0px) - var(--replyfade)*.72),
         rgba(0,0,0,.35) calc(100% - var(--boxband, 0px) - var(--replyfade)*.38),
@@ -645,6 +666,10 @@
         rgba(0,0,0,0) calc(100% - var(--boxband, 0px)));
     mask-image:
       linear-gradient(to bottom,
+        rgba(0,0,0,0) 0,
+        rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
+        rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
+        rgba(0,0,0,1) var(--upband, 0px),
         rgba(0,0,0,1) calc(100% - var(--boxband, 0px) - var(--replyfade)),
         rgba(0,0,0,.80) calc(100% - var(--boxband, 0px) - var(--replyfade)*.72),
         rgba(0,0,0,.35) calc(100% - var(--boxband, 0px) - var(--replyfade)*.38),
@@ -3941,6 +3966,43 @@ function watchBand(el){
   write();
 }
 
+// how much of a scroller has gone up out of sight, written back on it as
+// --upband, which is the depth the ramp at its top edge is cut to. the answer
+// wears it, and dissolves under the title on its way up rather than being cut
+// square on the line the title stops at.
+// capped at the ramp's own depth, and the cap is read off --replyfade on the
+// element rather than typed here, so a ramp cut deeper in the sheet is followed
+// by this without a second number to keep in step. the read is kept on the node
+// once it lands: the depth is a constant in the sheet, and a getComputedStyle on
+// every scroll event would be a style recalc per frame for a number that never
+// changes. only a number is kept, though, and never an empty read: the depth is
+// written on the selected card and a card is built before it is selected, so the
+// first read on a fresh card comes back with nothing and has to be taken again.
+// whole pixels, for the reason boxBand is in whole pixels: this becomes a
+// gradient stop, and chrome paints a stop asked for at a whole number where it
+// was asked. it also means the property is only written on the pixels of scroll
+// that change it, and none at all once the cap is reached, so a long scroll
+// costs one number read and nothing written.
+// nothing here can move ink: it feeds a mask, and a mask changes what is
+// painted, never what is measured
+function riseBand(node){
+  if (!node._fade)
+    node._fade = parseFloat(getComputedStyle(node).getPropertyValue("--replyfade")) || 0;
+  const up = Math.min(Math.round(node.scrollTop), node._fade);
+  if (up === node._up) return;
+  node._up = up;
+  node.style.setProperty("--upband", up + "px");
+}
+
+// armed on the scroll itself, passive, since the only thing it does is read a
+// number the scroll has already settled and hand it to a gradient. once at the
+// start too, so a card built with its answer already part way down opens with
+// the right band rather than the wrong one until the first wheel
+function watchRise(node){
+  node.addEventListener("scroll", () => riseBand(node), { passive: true });
+  riseBand(node);
+}
+
 // every answer must end evenly against its box: the answer's room snaps down to
 // a whole number of its own text lines, so the last visible line always sits at
 // the same depth of the fade band. that snap is the whole reason the fade reads
@@ -4458,6 +4520,9 @@ function makeBox(b, i, state){
     // the ramp's top edge follows the wrapper from the card's first frame, box
     // or no box, so it is armed here and not when a box is built
     watchBand(els[b.id]);
+    // and the ramp at the head of the answer, armed here for the same reason:
+    // the answer and its scroll are both there from the card's first frame
+    watchRise(reply);
 
     // explicit focus ring: title -> text -> attach -> send -> cross -> moon -> (wrap)
     const ring = [titleEl, ta, clip, send, x, arc];
