@@ -822,6 +822,236 @@
     font:10.5px/1.35 var(--mono); color:var(--sub);
     white-space:nowrap; pointer-events:none;
   }
+
+  /* ---- the box's motion --------------------------------------------------- */
+  /* the box's arrival, and every line's after it. the chat panel's sent message
+     motion grows a bubble out of one of its own corners, which is right for a
+     small bubble and wrong at this size: a bar as wide as the card, scaled from
+     its corner, reads as a thing flying in from the lower left instead of a
+     thing appearing. so the corner, the scale and the lift are all dropped and
+     what is left is strength alone. the bar occupies its full seat from the
+     first frame and only becomes visible, which is what appearing in place
+     means. 220ms is about the shortest a fade can be and still be seen as a
+     fade rather than as a thing that was suddenly there, and the bar arriving at
+     the foot of the card is the one event here that nothing announces. the curve
+     stays an ease out and does not join the fold's family: a fade covers no
+     distance, so a slow start is not a soft start on it */
+  @keyframes pendfade{from{opacity:0}}
+  body.focus .box.sel .pendlist.appear{animation:pendfade .22s ease-out}
+  /* the one length the whole cluster moves in, both ways, and the spring, which
+     runs a touch longer than the box so the settle is still happening as the box
+     finishes and the two do not stop on one frame */
+  body.focus .box.sel{
+    --pend-move:.42s; --pend-spring:.62s;
+    /* the distance: far enough that the travel cannot be missed. it
+       is one sent line and the step under it, written as the sent type's own
+       line box plus that step rather than as a number, so what the eye reads is
+       the column coming up by one whole row. ten pixels stood here before, under
+       half a row, and nine tenths of it was spent before the run was half over,
+       which is a distance no eye can catch */
+    --pend-rise:calc(16px*1.5 + var(--sp-s));   /* 32.55px */
+  }
+  /* the rise is a heavy weight falling on a spring, gravity pulling upward. it
+     leaves its start at rest and gathers speed for the first two thirds of the
+     way; the spring meets it with a third of the travel left and takes the
+     weight off it, easing it down onto the seat. it never passes the seat and
+     never comes back off it: a heavy thing settles onto a spring rather than
+     springing off one. these numbers are that motion worked out step by step and
+     sampled every one percent, so the timing function is linear and the
+     keyframes carry the physics themselves. every step is a fraction of the
+     travel between one and zero and the fractions only ever fall, so the column
+     provably cannot overshoot and has nothing to spring back from */
+  @keyframes pendrise{
+    0%{transform:translate3d(0, calc(var(--pend-rise) * 1.0000), 0)}
+    1%{transform:translate3d(0, calc(var(--pend-rise) * 0.9997), 0)}
+    2%{transform:translate3d(0, calc(var(--pend-rise) * 0.9989), 0)}
+    3%{transform:translate3d(0, calc(var(--pend-rise) * 0.9975), 0)}
+    4%{transform:translate3d(0, calc(var(--pend-rise) * 0.9956), 0)}
+    5%{transform:translate3d(0, calc(var(--pend-rise) * 0.9931), 0)}
+    6%{transform:translate3d(0, calc(var(--pend-rise) * 0.9900), 0)}
+    7%{transform:translate3d(0, calc(var(--pend-rise) * 0.9864), 0)}
+    8%{transform:translate3d(0, calc(var(--pend-rise) * 0.9822), 0)}
+    9%{transform:translate3d(0, calc(var(--pend-rise) * 0.9775), 0)}
+    10%{transform:translate3d(0, calc(var(--pend-rise) * 0.9722), 0)}
+    11%{transform:translate3d(0, calc(var(--pend-rise) * 0.9664), 0)}
+    12%{transform:translate3d(0, calc(var(--pend-rise) * 0.9600), 0)}
+    13%{transform:translate3d(0, calc(var(--pend-rise) * 0.9531), 0)}
+    14%{transform:translate3d(0, calc(var(--pend-rise) * 0.9456), 0)}
+    15%{transform:translate3d(0, calc(var(--pend-rise) * 0.9375), 0)}
+    16%{transform:translate3d(0, calc(var(--pend-rise) * 0.9289), 0)}
+    17%{transform:translate3d(0, calc(var(--pend-rise) * 0.9198), 0)}
+    18%{transform:translate3d(0, calc(var(--pend-rise) * 0.9101), 0)}
+    19%{transform:translate3d(0, calc(var(--pend-rise) * 0.8998), 0)}
+    20%{transform:translate3d(0, calc(var(--pend-rise) * 0.8890), 0)}
+    21%{transform:translate3d(0, calc(var(--pend-rise) * 0.8776), 0)}
+    22%{transform:translate3d(0, calc(var(--pend-rise) * 0.8656), 0)}
+    23%{transform:translate3d(0, calc(var(--pend-rise) * 0.8531), 0)}
+    24%{transform:translate3d(0, calc(var(--pend-rise) * 0.8401), 0)}
+    25%{transform:translate3d(0, calc(var(--pend-rise) * 0.8265), 0)}
+    26%{transform:translate3d(0, calc(var(--pend-rise) * 0.8123), 0)}
+    27%{transform:translate3d(0, calc(var(--pend-rise) * 0.7976), 0)}
+    28%{transform:translate3d(0, calc(var(--pend-rise) * 0.7823), 0)}
+    29%{transform:translate3d(0, calc(var(--pend-rise) * 0.7665), 0)}
+    30%{transform:translate3d(0, calc(var(--pend-rise) * 0.7501), 0)}
+    31%{transform:translate3d(0, calc(var(--pend-rise) * 0.7332), 0)}
+    32%{transform:translate3d(0, calc(var(--pend-rise) * 0.7157), 0)}
+    33%{transform:translate3d(0, calc(var(--pend-rise) * 0.6977), 0)}
+    34%{transform:translate3d(0, calc(var(--pend-rise) * 0.6791), 0)}
+    35%{transform:translate3d(0, calc(var(--pend-rise) * 0.6599), 0)}
+    36%{transform:translate3d(0, calc(var(--pend-rise) * 0.6402), 0)}
+    37%{transform:translate3d(0, calc(var(--pend-rise) * 0.6199), 0)}
+    38%{transform:translate3d(0, calc(var(--pend-rise) * 0.5991), 0)}
+    39%{transform:translate3d(0, calc(var(--pend-rise) * 0.5777), 0)}
+    40%{transform:translate3d(0, calc(var(--pend-rise) * 0.5558), 0)}
+    41%{transform:translate3d(0, calc(var(--pend-rise) * 0.5333), 0)}
+    42%{transform:translate3d(0, calc(var(--pend-rise) * 0.5103), 0)}
+    43%{transform:translate3d(0, calc(var(--pend-rise) * 0.4867), 0)}
+    44%{transform:translate3d(0, calc(var(--pend-rise) * 0.4625), 0)}
+    45%{transform:translate3d(0, calc(var(--pend-rise) * 0.4378), 0)}
+    46%{transform:translate3d(0, calc(var(--pend-rise) * 0.4126), 0)}
+    47%{transform:translate3d(0, calc(var(--pend-rise) * 0.3867), 0)}
+    48%{transform:translate3d(0, calc(var(--pend-rise) * 0.3604), 0)}
+    49%{transform:translate3d(0, calc(var(--pend-rise) * 0.3339), 0)}
+    50%{transform:translate3d(0, calc(var(--pend-rise) * 0.3092), 0)}
+    51%{transform:translate3d(0, calc(var(--pend-rise) * 0.2864), 0)}
+    52%{transform:translate3d(0, calc(var(--pend-rise) * 0.2652), 0)}
+    53%{transform:translate3d(0, calc(var(--pend-rise) * 0.2456), 0)}
+    54%{transform:translate3d(0, calc(var(--pend-rise) * 0.2275), 0)}
+    55%{transform:translate3d(0, calc(var(--pend-rise) * 0.2107), 0)}
+    56%{transform:translate3d(0, calc(var(--pend-rise) * 0.1951), 0)}
+    57%{transform:translate3d(0, calc(var(--pend-rise) * 0.1807), 0)}
+    58%{transform:translate3d(0, calc(var(--pend-rise) * 0.1673), 0)}
+    59%{transform:translate3d(0, calc(var(--pend-rise) * 0.1550), 0)}
+    60%{transform:translate3d(0, calc(var(--pend-rise) * 0.1435), 0)}
+    61%{transform:translate3d(0, calc(var(--pend-rise) * 0.1329), 0)}
+    62%{transform:translate3d(0, calc(var(--pend-rise) * 0.1231), 0)}
+    63%{transform:translate3d(0, calc(var(--pend-rise) * 0.1140), 0)}
+    64%{transform:translate3d(0, calc(var(--pend-rise) * 0.1056), 0)}
+    65%{transform:translate3d(0, calc(var(--pend-rise) * 0.0978), 0)}
+    66%{transform:translate3d(0, calc(var(--pend-rise) * 0.0906), 0)}
+    67%{transform:translate3d(0, calc(var(--pend-rise) * 0.0839), 0)}
+    68%{transform:translate3d(0, calc(var(--pend-rise) * 0.0777), 0)}
+    69%{transform:translate3d(0, calc(var(--pend-rise) * 0.0719), 0)}
+    70%{transform:translate3d(0, calc(var(--pend-rise) * 0.0666), 0)}
+    71%{transform:translate3d(0, calc(var(--pend-rise) * 0.0617), 0)}
+    72%{transform:translate3d(0, calc(var(--pend-rise) * 0.0571), 0)}
+    73%{transform:translate3d(0, calc(var(--pend-rise) * 0.0529), 0)}
+    74%{transform:translate3d(0, calc(var(--pend-rise) * 0.0490), 0)}
+    75%{transform:translate3d(0, calc(var(--pend-rise) * 0.0454), 0)}
+    76%{transform:translate3d(0, calc(var(--pend-rise) * 0.0420), 0)}
+    77%{transform:translate3d(0, calc(var(--pend-rise) * 0.0389), 0)}
+    78%{transform:translate3d(0, calc(var(--pend-rise) * 0.0360), 0)}
+    79%{transform:translate3d(0, calc(var(--pend-rise) * 0.0334), 0)}
+    80%{transform:translate3d(0, calc(var(--pend-rise) * 0.0309), 0)}
+    81%{transform:translate3d(0, calc(var(--pend-rise) * 0.0286), 0)}
+    82%{transform:translate3d(0, calc(var(--pend-rise) * 0.0265), 0)}
+    83%{transform:translate3d(0, calc(var(--pend-rise) * 0.0246), 0)}
+    84%{transform:translate3d(0, calc(var(--pend-rise) * 0.0227), 0)}
+    85%{transform:translate3d(0, calc(var(--pend-rise) * 0.0211), 0)}
+    86%{transform:translate3d(0, calc(var(--pend-rise) * 0.0195), 0)}
+    87%{transform:translate3d(0, calc(var(--pend-rise) * 0.0181), 0)}
+    88%{transform:translate3d(0, calc(var(--pend-rise) * 0.0167), 0)}
+    89%{transform:translate3d(0, calc(var(--pend-rise) * 0.0155), 0)}
+    90%{transform:translate3d(0, calc(var(--pend-rise) * 0.0143), 0)}
+    91%{transform:translate3d(0, calc(var(--pend-rise) * 0.0133), 0)}
+    92%{transform:translate3d(0, calc(var(--pend-rise) * 0.0123), 0)}
+    93%{transform:translate3d(0, calc(var(--pend-rise) * 0.0114), 0)}
+    94%{transform:translate3d(0, calc(var(--pend-rise) * 0.0106), 0)}
+    95%{transform:translate3d(0, calc(var(--pend-rise) * 0.0098), 0)}
+    96%{transform:translate3d(0, calc(var(--pend-rise) * 0.0091), 0)}
+    97%{transform:translate3d(0, calc(var(--pend-rise) * 0.0084), 0)}
+    98%{transform:translate3d(0, calc(var(--pend-rise) * 0.0078), 0)}
+    99%{transform:translate3d(0, calc(var(--pend-rise) * 0.0072), 0)}
+    100%{transform:translate3d(0, calc(var(--pend-rise) * 0.0000), 0)}
+  }
+  /* the cluster is handed its own layer for the length of a run. without it the
+     column is repainted every frame against a box whose height is changing under
+     it, and the travel reads as steps rather than a glide; with it the rise is
+     one texture moved by the compositor and the height change beneath cannot
+     roughen it. the hint is worn only while a run is on, so nothing holds a
+     layer at rest */
+  body.focus .box.sel .pendlist.opening .pendbody,
+  body.focus .box.sel .pendlist.closing .pendbody{
+    will-change:transform, opacity; backface-visibility:hidden;
+  }
+  /* what rises is the box's whole content column: the run stamp, the corner
+     arrow standing on the stamp's line, and the lane of rows under both. they
+     are moved together because they are one thing, and moving the column itself
+     is the only way they cannot drift apart by a frame or a pixel.
+     strength is the quicker of the two on purpose, 240ms against the 620. a
+     column that faded for the whole run would reach full ink on the same frame
+     it stopped moving, and the eye would be handed the arriving and the settling
+     at once; landed early, the last stretch of the rise is carried at full
+     strength, so what ends the run is plainly a seat being taken */
+  body.focus .box.sel .pendlist.opening .pendbody{
+    animation:pendrise var(--pend-spring) linear, pendfade .24s var(--gentle);
+  }
+  /* the shutting is the opening run backwards: the column goes back down the
+     same distance on the same curve, so the stamp travels with the edge that is
+     coming down instead of standing on it. the dimming is the shorter of the
+     two, so the column is at nothing while the box still has a little way to
+     fall and the run ends on an empty box coming down onto the bar, where the
+     bar's own arrow blooms into the middle of it as it lands.
+     both are held at their far end. without that the column would flash back to
+     full ink and its own seat on the frame the animation ran out, which is a
+     frame or two before the class comes off */
+  @keyframes pendsink{to{transform:translate3d(0, var(--pend-rise), 0)}}
+  @keyframes penddim{to{opacity:0}}
+  body.focus .box.sel .pendlist.closing .pendbody{
+    animation:pendsink var(--pend-move) var(--gentle) forwards,
+              penddim .3s var(--gentle) forwards;
+  }
+  /* the open and the shut: gentle both ways rather than sudden.
+     the box's own height carries the change, from the folded bar up to whatever
+     the cap allows and back down again. the top and bottom padding travel with
+     it, on the same curve and the same time, because the open dress holds the
+     chevron ten pixels lower than the folded bar does and a padding that landed
+     in one step would drop the chevron on the last frame. the js measures the
+     far end on the real destination layout before the run starts, so the height
+     the run stops on is the height the css would have given anyway and taking
+     the inline numbers off at the end moves nothing.
+     the curve's handles both stay inside the unit box, so nothing can overshoot
+     and there is nothing to spring back from, which is what the box's own inside
+     edges need: a box that went past its cap and came back would show its rows
+     sliding under the border twice */
+  body.focus .box.sel .pendlist.motion{
+    overflow:hidden;
+    transition:height .32s var(--gentle),
+               padding-top .32s var(--gentle),
+               padding-bottom .32s var(--gentle);
+  }
+  /* a line arriving in a box that already stands: it came into being
+     where it stood, and it is to rise into that place instead. nothing new is
+     drawn for it. the sheet already owns a rise, and that motion is written as
+     multiples of one property, so handing the row a smaller value of that
+     property runs the same physics over a shorter distance. the distance is the
+     step that stands between one sent row and the next, so what the eye reads is
+     a line coming up by the height of the air between two lines. the length is
+     the fade's own, because this is one event: a rise that outlived the strength
+     it arrives at would leave the row settling after it had finished appearing */
+  body.focus .box.sel .pendmsg.pop{
+    --pend-rise:var(--sp-s);
+    animation:pendrise .22s linear, pendfade .22s ease-out;
+  }
+  /* the very first arrival, in two beats: the answer gives up the
+     room before anything at all is drawn in it, and only then does the bar come
+     up in the cleared room.
+     beat one is this pair of rules. the strip is mounted at no height and grown
+     to its own folded height on the card's gentle curve. nothing about the
+     answer is animated and nothing is kept in step by hand: the answer is the
+     one item that can give or take room, so every pixel the strip claims comes
+     off the answer in the same frame. invisible, clipped and untouchable while
+     it rises: what the eye is meant to read in beat one is the text yielding,
+     not a bar wiping into view, and a box already half its height would
+     otherwise be open to a click before it had arrived. the timing lives in the
+     second rule alone so the first can be worn while the start height is pinned,
+     without pinning it becoming a run of its own in the wrong direction.
+     the band under the box travels with the box, so what the answer gives up is
+     one continuous amount rather than a band landing whole on the first frame */
+  body.focus .box.sel .pendlist.rising{overflow:hidden; opacity:0; pointer-events:none}
+  body.focus .box.sel .pendlist.rising.timed{
+    transition:height .26s var(--gentle), margin-bottom .26s var(--gentle);
+  }
   /* ---- the foot of the card: the sent box, the bar and the row ------------ */
   /* the wrapper is laid over the answer at the card's floor rather than under
      it in the column, which is what lets the answer run on beneath it. the sent
@@ -3076,9 +3306,13 @@ function chevSVG(seat){
 // slim bar is all that arrives. the corner arrow is built inside the body and
 // not on the bar, so it rides the top of the box's own content column on every
 // frame of an opening exactly as the run stamp does, and the two stay tangent
-// all the way up rather than only at the end
-function growPend(el){
-  const pend = h("div", "pendlist");
+// all the way up rather than only at the end.
+// arrive is what tells a send from a poll. a send is an arrival he is watching,
+// so the box rises into the room the answer gives up; a poll bringing messages
+// that were already sent, on this page's first load or from another window, has
+// no arrival to show and mounts the box plainly
+function growPend(el, arrive){
+  const pend = h("div", "pendlist" + (arrive ? " rising" : ""));
   pend.innerHTML = '<div class="pendhead">' + chevSVG("chevmid") + "</div>" +
     '<div class="pendbody">' + chevSVG("chevtop") +
     '<div class="pendstamp"></div>' +
@@ -3088,7 +3322,55 @@ function growPend(el){
   el.pendwrap.insertBefore(pend, el.bottombar);
   el.pend = pend;
   wirePend(el, pend);
+  if (arrive) risePend(pend);
   return pend;
+}
+
+// the two beats of the first arrival. the css carries the curve, the 260ms and
+// the dress; this hands it the two ends and the handover.
+// the far end is measured on the mounted strip while it still stands at its own
+// height and before any clock is armed, so the number the run lands on is the
+// number the strip holds once the inline height comes off and the handover moves
+// nothing. the strip is never painted at that height: the reading, the pinning
+// to nothing and the arming all happen inside this one step. the start value is
+// pinned while the strip wears the untimed dress and only then is the timing put
+// on, or pinning it would itself become a run, from the far end down to nothing,
+// in front of the one that matters.
+// rows sent while it rises land in a body that is display:none folded, so they
+// add nothing to the height and the measured end stays true
+const PEND_RISE_MS = 260;   // the number the css rule carries
+function risePend(pend){
+  const to = pend.getBoundingClientRect().height;
+  const gap = getComputedStyle(pend).marginBottom;   // the band under the box,
+  // read rather than typed here, so it travels with the box on one run
+  pend.style.height = "0px";
+  pend.style.marginBottom = "0px";
+  void pend.offsetWidth;            // the start values land untimed
+  pend.classList.add("timed");
+  pend.style.height = to + "px";
+  pend.style.marginBottom = gap;
+  const land = e => {
+    if (e && (e.target !== pend || e.propertyName !== "height")) return;
+    pend.removeEventListener("transitionend", land);
+    clearTimeout(timer);
+    // beat two. the room is standing clear and the height it was held at is the
+    // height it holds on its own, so the inline numbers, the clipping and the
+    // timing all come off in one step and nothing shifts by a pixel; what is
+    // left is the strength alone
+    pend.style.height = "";
+    pend.style.marginBottom = "";
+    pend.classList.remove("rising", "timed");
+    pend.classList.add("appear");
+    pend.addEventListener("animationend", function off(ev){
+      if (ev.target !== pend) return;
+      pend.removeEventListener("animationend", off);
+      pend.classList.remove("appear");   // so a later reflow cannot replay it
+    });
+  };
+  // two ends can finish the run, the transition and a timer behind it, for the
+  // same reason the fold carries both
+  pend.addEventListener("transitionend", land);
+  const timer = setTimeout(land, PEND_RISE_MS + 40);
 }
 
 function dropPend(el){
@@ -3151,7 +3433,7 @@ function stampRun(pend, stamps){
 function syncPend(el, texts, stamps){
   texts = texts || []; stamps = stamps || [];
   if (!texts.length){ dropPend(el); return; }
-  const pend = el.pend || growPend(el);
+  const pend = el.pend || growPend(el, false);
   const slide = pend.querySelector(".pendslide");
   const have = [...slide.children];
   // a list that still begins with what is on screen only grows; anything else
@@ -3226,15 +3508,86 @@ function wirePend(el, strip){
   });
 }
 
-// a send never touches the fold: the first one builds the box and the slim bar
-// alone comes up, and every send after it drops a line into the box that
+// the run of the fold. the css carries the curve and the time; this only hands
+// it the two ends. the far end is measured on the real destination state, with
+// the inline numbers off, so the height the run stops on is the height the
+// destination would have held anyway: the last frame and the settled box are the
+// same box and nothing snaps when the numbers come off.
+// shutting is the one that needs care. the rows are display:none the moment the
+// open class leaves, so the class is put back for the length of the run and
+// taken off on the last frame instead: the box shuts with its rows still in it,
+// which is the whole of what is wanted.
+// every run is numbered, so a second click mid flight cannot be answered by a
+// finish that belongs to the run it interrupted.
+// a send never touches any of this: the first send builds the box and the slim
+// bar alone comes up, and every send after it drops a line into the box that
 // already stands. only a click on the bar opens it
+const PEND_MOTION = 420;   // the fallback timer behind the height transition
+const PEND_SPRING = 620;   // the cluster's spring, which outlives the box's own growth
 function foldPend(el, open){
   const pend = el.pend;
   if (!pend) return;
-  pend.classList.toggle("foldopen", open);
+  const mine = ++el.foldRun;
+  const from = pend.getBoundingClientRect().height;
+  const padFrom = padPair(pend);
+  // a run caught mid flight is frozen where it stands and re-aimed from there,
+  // so a fast second click turns the box around rather than teleporting it
+  pend.classList.remove("motion", "opening", "closing");
+  pend.style.height = "";
+  pend.style.paddingTop = "";
+  pend.style.paddingBottom = "";
   pend.classList.toggle("open", open);
   if (open) pendBottom(pend);
+  const to = pend.getBoundingClientRect().height;
+  const padTo = padPair(pend);
+  if (!open) pend.classList.add("open");
+  pend.style.height = from + "px";
+  pend.style.paddingTop = padFrom[0];
+  pend.style.paddingBottom = padFrom[1];
+  void pend.offsetWidth;   // the start values land before the run begins
+  pend.classList.add("motion");
+  // the arrows' exchange and the content column's own travel, both turned on in
+  // the same step the height is aimed in, so every timed thing in the run is
+  // armed on one frame and they cannot start a frame apart. the mark is turned
+  // either way, and the column has a dress for each direction: up onto its seat
+  // while the box grows, back down while it falls
+  pend.classList.toggle("foldopen", open);
+  pend.classList.add(open ? "opening" : "closing");
+  pend.style.height = to + "px";
+  pend.style.paddingTop = padTo[0];
+  pend.style.paddingBottom = padTo[1];
+
+  const done = e => {
+    if (e && (e.target !== pend || e.propertyName !== "height")) return;
+    pend.removeEventListener("transitionend", done);
+    clearTimeout(timer);
+    if (mine !== el.foldRun) return;   // a newer fold owns the box now
+    pend.classList.remove("motion");
+    pend.style.height = "";
+    pend.style.paddingTop = "";
+    pend.style.paddingBottom = "";
+    pend.classList.toggle("open", open);
+    if (open) pendBottom(pend);
+    // the box has landed; the weight may still be settling on its spring, so
+    // its class is let go only when that motion is actually over
+    setTimeout(() => {
+      if (mine !== el.foldRun) return;
+      pend.classList.remove("opening", "closing");
+    }, Math.max(0, PEND_SPRING - PEND_MOTION) + 40);
+  };
+  // two ends can finish a run: the transition itself, and a timer for the case
+  // where the two ends are already the same height and the browser has nothing
+  // to transition, which fires no event at all
+  pend.addEventListener("transitionend", done);
+  const timer = setTimeout(done, PEND_MOTION + 40);
+}
+// both paddings, read as a pair. the open dress is not symmetric, 16 over and 10
+// under, so a run driven from the top value alone would hold the bottom 6px too
+// deep for its whole length and give the 6px back on the frame the inline styles
+// come off, which is a shove in the lane exactly where the newest line sits
+function padPair(pend){
+  const cs = getComputedStyle(pend);
+  return [cs.paddingTop, cs.paddingBottom];
 }
 
 // a picked or dropped file goes up the board's own upload road and its address
@@ -3620,7 +3973,7 @@ function makeBox(b, i, state){
     // pend is null until the first send builds the box, and null again the
     // moment the reply lands and empties the pending list
     els[b.id] = { box, reply, meta, metaNote, histPos, histUp, histDown,
-                  pend: null, pendRaw: "", ta, send, wstat, toc: entry, sec,
+                  pend: null, pendRaw: "", foldRun: 0, ta, send, wstat, toc: entry, sec,
                   titleEl, tocTitle: entry.querySelector(".ttitle"), arc, x,
                   topbar, bname, wtpick, wtmenu,
                   pendwrap, bottombar, clip, clipfile, tick };
@@ -3793,7 +4146,7 @@ async function doSend(id){
     // the fold. the client clock stamps it and the poll's server time takes
     // over. the raw is pre-marked as current so the redraw behind this brings
     // nothing it does not already hold
-    const pend = el.pend || growPend(el);
+    const pend = el.pend || growPend(el, true);
     const row = pendRow(text, Date.now() / 1000);
     if (pend.classList.contains("open")) row.classList.add("pop");
     pend.querySelector(".pendslide").appendChild(row);
