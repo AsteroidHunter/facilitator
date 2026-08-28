@@ -428,6 +428,12 @@
   body.focus{
     --cardbar-h:34px; --sq:4px; --press:10%;
     --gentle:cubic-bezier(.42,.06,.38,1);
+    /* the one depth on the card, the pane's own warm ink and nothing else
+       drawn. it hangs off the top inside edge the way every sunk thing here
+       does, since the light the board is drawn under comes from above. the sent
+       box is set with it and so is the plus button's press seat, so the two
+       read as let into the same surface */
+    --sunk-deep:inset 0 3px 7px rgba(60,45,20,.22), inset 0 1px 2px rgba(60,45,20,.14);
   }
   .topbar{display:none}
   body.focus .box.sel .topbar{
@@ -543,13 +549,35 @@
   body.focus .box.sel .head{
     padding:var(--titleair) 0 0; flex-wrap:wrap; row-gap:var(--sp-xs); flex:none;
   }
+  /* the boxes are sunk INTO the page, so the answer runs on underneath them
+     rather than being pushed above: the body is the ground they are set into,
+     the answer fills the whole of it, and the sent box and the typing row are
+     laid on top at the foot. what runs underneath still runs underneath, it is
+     simply covered edge to edge by fill that is opaque */
   body.focus .box.sel .body{
     display:flex !important; flex-direction:column; flex:1 1 0; min-height:0;
-    overflow:hidden;
-    padding:var(--sp-m) 0 0;
+    overflow:hidden; position:relative;
+    padding:var(--titleair) 0 0;
   }
-  body.focus .box.sel .reply{flex:1 1 auto; min-height:calc(var(--ch)*0.08)}
-  body.focus .box.sel .reply{font-size:17px; line-height:1.55; overflow-y:auto; min-height:0}
+  /* the answer's own side white space. the left is the pane's side padding by
+     two thirds, one cell of the star grid the paper is printed on; the right is
+     five thirds of the same measure, so the words stand off the
+     card's right edge by more than the card stands off the pane's. both are
+     written as thirds of --pad-x and never as pixels, so a pane drawn at
+     another size steps by its own third. padding and not margin: the answer's
+     box stays the width it was and only the words move, and the mask below is
+     cut on that unchanged box.
+     3.5px of clear air under the last of its ink, a plain number and the one
+     thing on the card measured by eye and asked for by the pixel. it sits
+     behind the box on this card and cannot space anything by itself, so the
+     script at the foot of this file reads it off this rule and holds the ramp
+     that same distance off the box's top edge */
+  body.focus .box.sel .reply{
+    flex:1 1 auto; min-height:0; overflow-y:auto;
+    font-size:18px; line-height:1.55;
+    padding-left:calc(var(--pad-x)*2/3); padding-right:calc(var(--pad-x)*5/3);
+    margin-bottom:3.5px;
+  }
   .pendlist{display:none}
   body.focus .box.sel .pendlist{
     /* sent and waiting: a slim bar above the input line, half a left ticket
@@ -599,18 +627,154 @@
     display:block; margin:0 0 2px;
     font:10.5px/1.35 var(--mono); color:var(--sub); text-align:right;
   }
-  body.focus .box.sel .pendlist:empty + .compose{margin-top:auto}
-  body.focus .box.sel .compose{padding-bottom:0; gap:var(--sp-x);
-    border-top:1px solid var(--line); margin-top:var(--sp-xs)}
+  /* ---- the foot of the card: the sent box, the bar and the row ------------ */
+  /* the wrapper is laid over the answer at the card's floor rather than under
+     it in the column, which is what lets the answer run on beneath it. the sent
+     box is put in here on the first send, before the bar */
+  body.focus .box.sel .pendwrap{
+    position:absolute; left:0; right:0; bottom:0;
+    display:flex; flex-direction:column; pointer-events:auto;
+  }
+  /* the bar: the button, one step, and the row. the step is the strip's own
+     small one, the same air the sent box leaves under itself, so the gap beside
+     the button and the gap above it are one measure.
+     the bar stands its two on a common floor and does not centre them on one
+     another: centred, a 44px button beside a row grown to ten lines
+     is laid on the middle of those ten lines. flex-end puts the button's bottom
+     edge on the row's bottom edge instead, so it holds the foot at one line and
+     at ten alike and nothing has to be written by script to keep it there.
+     the bar stands in the answer's own left column, and the inset is a margin
+     and not a padding because of the line. a border is cut on the border box,
+     and a padded box's border box is still the full width of the card, so a
+     padding would run the hairline past the answer's first letter. as a margin
+     the border box is the answer's own column and the line starts where the
+     words start.
+     the row's own fill covers the answer behind it and the solid shade above it
+     fills the step up to the sent box. both are the card's own white, so
+     nothing new is painted and the answer under them is simply not on show */
+  body.focus .box.sel .bottombar{
+    display:flex; align-items:flex-end; gap:var(--sp-s); flex:none;
+    margin:0 calc(var(--pad-x)*2/3) 0 calc(var(--pad-x)*2/3);
+    border-top:1px solid var(--line);
+    background:var(--card);
+    box-shadow:0 calc(var(--sp-s) * -1) 0 var(--card);
+  }
+  /* the row he types on: the bare field under a hairline, and nothing else. the
+     line is not on the row, the bar above carries it, so the row gives up its
+     own top border or the two would stand a pixel apart and read as a mistake.
+     the row takes what is left of the bar and no more: the button and the step
+     are laid first and the row is handed the rest, so the three together
+     measure the answer's own column exactly and no width is typed in as a
+     number. min-width:0 is what lets it go under the width a textarea claims
+     for itself out of the box */
+  body.focus .box.sel .compose{
+    flex:1 1 auto; min-width:0; gap:var(--sp-x); align-items:flex-end;
+    background:none; border:none; border-radius:0; box-shadow:none;
+    padding:0; margin:0;
+  }
+  /* the row's own floor, written once because two rules read it: the field
+     itself, and the sent box's cap, which has to know what the bar takes out of
+     the room before it can work out what is left */
+  body.focus .box.sel{--row-min:44px}
   body.focus .box.sel textarea{
     background:transparent; border:none !important; box-shadow:none;
     /* the side padding paired with equal negative margin keeps the text flush
        while giving the block caret room so the edges cannot slice it */
     padding:var(--sp-s) 4px; margin:0 -4px; font-size:17px; line-height:1.5;
-    max-height:calc(var(--ch)*0.28); overflow-y:auto; min-height:44px;
+    max-height:calc(var(--ch)*0.28); overflow-y:auto; min-height:var(--row-min);
   }
-  body.focus .box.sel .sendbtn{background:none; color:var(--sub); font-weight:500}
-  body.focus .box.sel .sendbtn:hover{background:none; color:var(--accent)}
+  /* the send control. the enclosure is a rounded square on the board's own 4px
+     inner corner, the same --sq the two chips in the bar wear, over the card's
+     white with the arrow's own black carrying it. it is on screen only while
+     there is something to send, and it arrives by growing from half size on the
+     card's one curve. the seat is bottom aligned, the way the chat panel pins
+     its arrow to the pill's bottom edge so it holds still as the box grows; the
+     margin under it is written by js on every keystroke, so the square's middle
+     lands on the middle of the line being typed */
+  body.focus .box.sel .sendbtn{
+    flex:none; width:28px; height:28px; min-height:0; padding:0; border:none;
+    background:var(--card); color:#000;
+    display:grid; place-items:center; line-height:1; cursor:pointer;
+    opacity:0; transform:scale(.5); pointer-events:none;
+    transition:opacity .26s var(--gentle), transform .26s var(--gentle);
+  }
+  body.focus .box.sel .sendbtn.show{opacity:1; transform:scale(1); pointer-events:auto}
+  body.focus .box.sel .sendbtn:hover{background:color-mix(in srgb, #000 var(--press), var(--card))}
+  body.focus .box.sel .sendbtn:active{transform:scale(1)}
+  /* the attach button: outside the row and to its left, a button
+     of its own that goes into the screen while it is pressed and wears a plus.
+     at rest it is the bare glyph and nothing else, no fill, no line, no shade,
+     standing on the card itself; the button-ness exists only under the finger.
+     the ink is the board's own black, written as --ink and not as a
+     hex, the same near black the title and the answer are set in.
+     the target stands the typing row's own floor, read from the same custom
+     property the field's min-height reads, so the seat that appears on press
+     matches the row beside it edge for edge. the target is 44 and the glyph in
+     it is 17, centred, so the mark's middle stands 22px off the foot of the row
+     while the last line of type stands 21.3px off it: the plus lands on the
+     line being written, within seven tenths of a pixel, at one line and at ten
+     alike, and css alone holds it there */
+  body.focus .box.sel .clipbtn{
+    flex:none; width:28px; height:var(--row-min); padding:0; border:none;
+    background:none; border-radius:var(--sq);
+    display:grid; place-items:center; line-height:1; cursor:pointer;
+    color:var(--ink);
+    /* the seat has to sit behind the mark and in front of the bar's own white,
+       and this is the one line that puts it there: the button becomes a
+       stacking context of its own, so the seat can be sent behind the glyph
+       with a negative order and still land on top of everything outside the
+       button. without it, behind the glyph would mean behind the bar as well */
+    position:relative; isolation:isolate;
+    /* one timed thing on the button itself: the single pixel it drops. 110ms is
+       the shortest step here, since a press has to answer under the finger or
+       it is not a press, and the same 110ms carries it back up on release */
+    transition:transform .11s var(--gentle);
+  }
+  /* the seat, drawn on a layer of its own and not on the button, and that is
+     the whole trick of it. the button keeps the full 44px of the row as its
+     click target and the glyph keeps the exact pixel it holds at one line and
+     at ten, because nothing about the button's own box moves: the box is the
+     28 by 44 it was, the grid still centres the mark in it, and all that
+     changes is what is painted inside it.
+     square off its own width, and no number is typed to say so: the layer is
+     stretched to the button's two sides, 28, and given a ratio of one, so its
+     depth is its width whatever that width becomes. 8 comes off the top and 8
+     off the bottom of the 44, which is the trim, and the 28 it
+     lands on is the box the send square at the other end of this same bar
+     stands in. the corner is --sq and not the 7 the card and the sent box wear:
+     the 7 belongs to the things let into the card, the 4 to the controls, and
+     this seat is a control.
+     at rest it is nothing at all and takes no ink */
+  body.focus .box.sel .clipbtn::before{
+    content:""; position:absolute; z-index:-1;
+    left:0; right:0; top:50%; aspect-ratio:1; transform:translateY(-50%);
+    border-radius:var(--sq); border:1px solid var(--line);
+    background:color-mix(in srgb, #000 var(--press), var(--paper));
+    box-shadow:var(--sunk-deep);
+    opacity:0;
+    transition:opacity .11s var(--gentle);
+  }
+  /* the press, and it is the whole of what is wanted: the button goes INTO
+     the screen. a seat sinks in around the glyph, the deep inset the sent box
+     is set with, over the pressed paper fill, and the whole button drops a
+     single pixel, which is the travel a key has and the thing the eye reads as
+     depth. it is worn while the pointer is down and no longer, so the release
+     is a spring by construction and nothing has to be timed by hand.
+     the ink never moves on this card: it already stands at --ink and has
+     nowhere left to deepen to. what answers the finger is the seat */
+  body.focus .box.sel .clipbtn:active{transform:translateY(1px)}
+  body.focus .box.sel .clipbtn:active::before{opacity:1}
+  /* the picker itself, out of the layout the way the chat bar keeps its own: it
+     is display:none, so it is not a flex item and takes no room in the bar */
+  body.focus .box.sel .clipfile{display:none}
+  /* the send failure note, the one thing the card says back that the mock has
+     no place for. it stands at the top of the wrapper, over the sent box, in
+     the answer's own column and on the card's own white. zero height while it
+     is empty, so at rest it spends nothing and the band the fade is measured
+     against is the bar and the box alone */
+  body.focus .box.sel .meta{
+    margin:0 calc(var(--pad-x)*2/3); min-height:0; background:var(--card);
+  }
   /* ---- focus layout: regions at their drawn percentages ----------------- */
   #leftcol, #rightcol, #rail, #carousel, #taskchip{display:none}
   body.focus #toc, body.focus #tocgrip{display:none}   /* the old outline and its resize grip */
@@ -2025,6 +2189,13 @@ const laneName = ow => NAME[ow] || (ow + " agent");   // project lanes name them
 // fork drawn in stroke only, so it takes the name's own muted ink through
 // currentColor and no second colour enters
 const WT_ICON = '<svg class="wt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>';
+// the attach button's mark: two runs crossing at the middle of a 24 box, drawn
+// at the same 17px, the same 1.9 stroke, the same round caps and the same
+// currentColor the rest of the card's stroke work uses, so no new size and no
+// new colour enter. 14 units of the 24, which leaves the mark clear ground
+const PLUS_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>';
+// the send arrow, the chat panel's own path drawn at 14px in the square's black
+const SEND_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 11.5V3.5M3.6 6.9 7 3.5l3.4 3.4" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const els = {};       // box id -> {box, reply, meta, ta, send, toc, sec}
 const secEls = {}, tocGroups = {};
 let lastState = null;
@@ -2660,6 +2831,38 @@ function statusOf(b){
 
 function h(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 
+// the send square's seat. it is bottom aligned in the row, the way the chat
+// panel pins its arrow to the pill's bottom edge so it holds still while the
+// box grows, and the margin written here drops it so its middle lands on the
+// middle of the last line of type. while the field is at its cap and scrolling,
+// the last line on screen is the one it takes, which is the line being written.
+// the plus is not seated here: it has left the row for a bar of its own, and
+// that bar stands it on the row's own floor, so it holds
+// the bottom however many lines the row has grown to. css alone puts it there,
+// so a margin written onto it here could only lift it off the floor it keeps
+function seatSquare(ta, square){
+  const cs = getComputedStyle(ta);
+  const lh = parseFloat(cs.lineHeight);
+  const pt = parseFloat(cs.paddingTop), pb = parseFloat(cs.paddingBottom);
+  const hgt = ta.getBoundingClientRect().height;
+  if (!lh || !hgt) return;
+  const lines = Math.max(1, Math.round((ta.scrollHeight - pt - pb) / lh));
+  const foot = ta.scrollHeight > ta.clientHeight + 1 ? hgt - pb : pt + lines * lh;
+  const mid = foot - lh / 2;
+  square.style.marginBottom = (hgt - mid - square.offsetHeight / 2) + "px";
+}
+
+// a picked or dropped file goes up the board's own upload road and its address
+// joins the text, which is what the card has always done with a dropped image
+async function attach(files, ta){
+  for (const f of files.filter(x => x.type.startsWith("image/"))){
+    const r = await fetch("/upload?name=" + encodeURIComponent(f.name), { method: "POST", body: f })
+      .then(x => x.json()).catch(() => null);
+    if (r?.url) ta.value = (ta.value ? ta.value.trimEnd() + "\n" : "") + r.url + "\n";
+  }
+  ta.dispatchEvent(new Event("input"));
+}
+
 // a bare /uploads/... token (a dropped image's home) renders as the image
 function imgify(s){
   return s.replace(/(^|[\s>])(\/uploads\/[^\s<]+)/g, (m, pre, addr) => {
@@ -2910,14 +3113,34 @@ function makeBox(b, i, state){
     const histPos = h("span");
     const histDown = h("button");
     meta.append(metaNote);
+    // the foot of the card: one wrapper laid over the answer, holding the send
+    // failure note, the sent box once there is one, and the bar. the sent box
+    // is not built here; the card starts with none at all and the first send
+    // grows one in, which is how the board has always carried it
+    const pendwrap = h("div", "pendwrap");
     const pend = h("div", "pendlist");   // sent-and-waiting bar; a click unfolds the list
     pend.addEventListener("click", () => pend.classList.toggle("open"));
+    const bottombar = h("div", "bottombar");
+    const clipfile = h("input", "clipfile");
+    clipfile.type = "file";
+    clipfile.tabIndex = -1;
+    clipfile.setAttribute("aria-hidden", "true");
+    const clip = h("button", "clipbtn");
+    clip.type = "button";
+    clip.setAttribute("aria-label", "attach a file");
+    clip.title = "attach a file";
+    clip.innerHTML = PLUS_ICON;
     const compose = h("div", "compose");
     const ta = h("textarea");
     ta.rows = 1;
-    const send = h("button", "sendbtn", "Send");
+    const send = h("button", "sendbtn");
+    send.type = "button";
+    send.setAttribute("aria-label", "send");
+    send.innerHTML = SEND_ICON;
     compose.append(ta, send);
-    body.append(reply, meta, pend, compose);
+    bottombar.append(clipfile, clip, compose);
+    pendwrap.append(meta, pend, bottombar);
+    body.append(reply, pendwrap);
     box.appendChild(body);
 
     const sec = statusOf(b);
@@ -2936,22 +3159,40 @@ function makeBox(b, i, state){
       tocGroups[sec].appendChild(entry);
     }
 
-    ta.addEventListener("input", () => { cancelAutoNext(); ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; });   // CSS max-height caps it
+    // the row's own autosize: back to auto, then up to the content, and the css
+    // max-height caps it. the square's seat and its coming and going are read
+    // off the same keystroke, so the three can never be a frame apart
+    const tick = () => {
+      ta.style.height = "auto";
+      ta.style.height = ta.scrollHeight + "px";
+      seatSquare(ta, send);
+      send.classList.toggle("show", ta.value.trim().length > 0);
+    };
+    ta.addEventListener("input", () => { cancelAutoNext(); tick(); });
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(tick);
+    tick();
     // dropped images upload immediately; their /uploads/ address joins the text
     ta.addEventListener("dragover", e => { e.preventDefault(); ta.classList.add("dropping"); });
     ta.addEventListener("dragleave", () => ta.classList.remove("dropping"));
     ta.addEventListener("drop", async e => {
       e.preventDefault(); ta.classList.remove("dropping");
-      const files = [...(e.dataTransfer?.files || [])].filter(f => f.type.startsWith("image/"));
-      for (const f of files){
-        const r = await fetch("/upload?name=" + encodeURIComponent(f.name), { method: "POST", body: f })
-          .then(x => x.json()).catch(() => null);
-        if (r?.url) ta.value = (ta.value ? ta.value.trimEnd() + "\n" : "") + r.url + "\n";
-      }
-      ta.dispatchEvent(new Event("input"));
+      await attach([...(e.dataTransfer?.files || [])], ta);
     });
     ta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); doSend(b.id); } });
+    // both controls swallow the press while the box has the focus, the way the
+    // chat bar does it, so the caret never leaves the words
+    send.addEventListener("pointerdown", e => { if (document.activeElement === ta) e.preventDefault(); });
     send.addEventListener("click", () => doSend(b.id));
+    // the plus hands the press straight to the hidden picker, and what comes
+    // back goes up the board's own /upload road, the same one a dropped image
+    // takes, so a picked file and a dropped one land in exactly one place
+    clip.addEventListener("pointerdown", e => { if (document.activeElement === ta) e.preventDefault(); });
+    clip.addEventListener("click", () => clipfile.click());
+    clipfile.addEventListener("change", async () => {
+      const files = [...(clipfile.files || [])];
+      clipfile.value = "";   // so the same file picked twice fires twice
+      await attach(files, ta);
+    });
     head.addEventListener("click", () => {
       if (box.classList.contains("done") || box.classList.contains("waiting") || box.classList.contains("parked"))
         box.classList.toggle("peek");
@@ -2996,11 +3237,12 @@ function makeBox(b, i, state){
     els[b.id] = { box, reply, meta, metaNote, histPos, histUp, histDown,
                   pend, ta, send, wstat, toc: entry, sec,
                   titleEl, tocTitle: entry.querySelector(".ttitle"), arc, x,
-                  topbar, bname, wtpick, wtmenu };
+                  topbar, bname, wtpick, wtmenu,
+                  pendwrap, bottombar, clip, clipfile, tick };
 
-    // explicit focus ring: title -> text -> Send -> cross -> moon -> (wrap)
-    const ring = [titleEl, ta, send, x, arc];
-    for (const node of [ta, send, x, arc]){
+    // explicit focus ring: title -> text -> attach -> send -> cross -> moon -> (wrap)
+    const ring = [titleEl, ta, clip, send, x, arc];
+    for (const node of [ta, clip, send, x, arc]){
       node.addEventListener("keydown", e => {
         if (e.key === "Tab"){
           e.preventDefault();
@@ -3158,7 +3400,8 @@ async function doSend(id){
   try {
     const r = await fetch("/send?box=" + encodeURIComponent(id), { method: "POST", body: text });
     if (!r.ok) throw new Error(r.status);
-    el.ta.value = ""; el.ta.style.height = "auto";   // clear only after the server has it
+    el.ta.value = "";   // clear only after the server has it
+    el.tick();          // the square goes with the words, and the row falls back to one line
     // count it into the bar immediately, and pre-mark the list as current so
     // the next poll's redraw brings nothing it does not already hold
     el.pend.dataset.raw = el.pend.dataset.raw ? el.pend.dataset.raw + "\n\n" + text : text;
