@@ -1247,6 +1247,56 @@
     padding:var(--sp-s) 4px; margin:0 -4px; font-size:17px; line-height:1.5;
     max-height:calc(var(--ch)*0.28); overflow-y:auto; min-height:var(--row-min);
   }
+  /* the typing row's own head, and the card's fourth fade. the fade
+     lives on the top side of the line above this row only, and a long thing he
+     is typing is cut square by that line on the way past it. so the same ramp
+     goes on the underside of it, a horizontal mirror image of the one above.
+     the row grows a line at a time until it reaches its cap and then scrolls
+     inside itself, and the field's top edge stands directly under the bar's
+     hairline, so what was being sliced by that line now dissolves into it.
+     one layer and nothing to composite: this field has no box laid over it and
+     no second edge to reckon with, so it is the answer's first layer with only
+     its head kept, the same four stops, nothing at the edge, .35 at 38
+     hundredths of the way in, .80 at 72, full at --upband.
+     the mask is only worn while the row is actually scrolled, and that is a
+     safety rule and not a tidiness one. a mask puts the field on a layer of its
+     own, and a field on a layer of its own that changes height in the same
+     breath as its mask changes shape was caught here rendering its words as
+     nothing at all: type past the cap, scroll, then cut it back to one line and
+     the row came back empty until something else forced it to paint again.
+     rarely, but a composer that is sometimes blank is not a thing to ship. so
+     the script hangs .upfade on the field the moment a pixel has gone up out of
+     sight and takes it off again the moment none has, and with the class goes
+     the whole mask. at rest, which is where this row spends nearly all of its
+     life and the only state a blank would be read as broken in, there is no mask
+     on it at all and it paints exactly as it did before any of this. the class
+     turns at --upband of one pixel, where the ramp is one pixel deep and takes
+     nothing off anything, so nothing can be seen to switch.
+     --upband and --replyfade are both the answer's, and deliberately:
+     the same ramp turned over, so the two are one number and one shape, and
+     a change to either carries to both. --upband is written on this field by the
+     script off this field's own scroll, so it hides itself here exactly as it
+     does up there: at the top of what he has typed it is nothing, the stops
+     collapse onto the edge and the first line is at full ink, and no band shows
+     on a row that has not scrolled at all, which is most rows.
+     the block caret keeps its full ink in the band, and nothing here was bent to
+     hold it there. the board draws its own caret as a fixed block over the page
+     instead of letting the field draw one, so it stands outside this element and
+     outside this mask, and a line the ramp has taken nearly all the way out is
+     still marked at full strength. the native caret is already put out by that
+     same trick, so there is no second one left for the ramp to dim */
+  body.focus .box.sel textarea.upfade{
+    -webkit-mask-image:linear-gradient(to bottom,
+      rgba(0,0,0,0) 0,
+      rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
+      rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
+      rgba(0,0,0,1) var(--upband, 0px));
+    mask-image:linear-gradient(to bottom,
+      rgba(0,0,0,0) 0,
+      rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
+      rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
+      rgba(0,0,0,1) var(--upband, 0px));
+  }
   /* the send control. the enclosure is a rounded square on the board's own 4px
      inner corner, the same --sq the two chips in the bar wear, over the card's
      white with the arrow's own black carrying it. it is on screen only while
@@ -3967,9 +4017,9 @@ function watchBand(el){
 }
 
 // how much of a scroller has gone up out of sight, written back on it as
-// --upband, which is the depth the ramp at its top edge is cut to. the answer
-// wears it, and dissolves under the title on its way up rather than being cut
-// square on the line the title stops at.
+// --upband, which is the depth the ramp at its top edge is cut to. two of them
+// wear it: the answer, which dissolves under the title, and the row he types in,
+// which dissolves under the bar's hairline.
 // capped at the ramp's own depth, and the cap is read off --replyfade on the
 // element rather than typed here, so a ramp cut deeper in the sheet is followed
 // by this without a second number to keep in step. the read is kept on the node
@@ -3992,6 +4042,10 @@ function riseBand(node){
   if (up === node._up) return;
   node._up = up;
   node.style.setProperty("--upband", up + "px");
+  // and the mark the typing row's mask is hung on, so that row carries no mask
+  // at all while nothing has gone up out of sight. the answer does not read it:
+  // its mask is there for the ramp at its foot whatever the scroll is doing
+  node.classList.toggle("upfade", up > 0);
 }
 
 // armed on the scroll itself, passive, since the only thing it does is read a
@@ -4436,13 +4490,18 @@ function makeBox(b, i, state){
     }
 
     // the row's own autosize: back to auto, then up to the content, and the css
-    // max-height caps it. the square's seat and its coming and going are read
-    // off the same keystroke, so the three can never be a frame apart
+    // max-height caps it. the square's seat, its coming and going, and the ramp
+    // at the row's head are read off the same keystroke, so the four can never
+    // be a frame apart. the ramp is read here as well as on the scroll because a
+    // keystroke at the cap moves the field's scroll without the wheel touching
+    // it, and the height going to auto and back in the two lines above resets
+    // that scroll under it
     const tick = () => {
       ta.style.height = "auto";
       ta.style.height = ta.scrollHeight + "px";
       seatSquare(ta, send);
       send.classList.toggle("show", ta.value.trim().length > 0);
+      riseBand(ta);
     };
     ta.addEventListener("input", () => { cancelAutoNext(); tick(); });
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(tick);
@@ -4520,9 +4579,10 @@ function makeBox(b, i, state){
     // the ramp's top edge follows the wrapper from the card's first frame, box
     // or no box, so it is armed here and not when a box is built
     watchBand(els[b.id]);
-    // and the ramp at the head of the answer, armed here for the same reason:
-    // the answer and its scroll are both there from the card's first frame
+    // and the ramps at the head of the two things that scroll on this card: the
+    // answer under the title, and the row he types in under the bar's hairline
     watchRise(reply);
+    watchRise(ta);
 
     // explicit focus ring: title -> text -> attach -> send -> cross -> moon -> (wrap)
     const ring = [titleEl, ta, clip, send, x, arc];
