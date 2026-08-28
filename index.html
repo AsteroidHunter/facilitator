@@ -665,6 +665,33 @@
        order */
     mask-composite:intersect, add, add;
   }
+  /* the room the answer needs under its last word before that word can be read.
+     the answer scrolls, and a scroll stops when the foot of the content reaches
+     the element's own bottom edge. that edge is at the card's floor, --boxband
+     below the line the ramp is cut on, so the end of the scroll left the last
+     line at rest a whole band under the cut: dissolved by the ramp above it and
+     then painted over by the bar's own white, with no travel left to raise it.
+     the reader reached the end of the scroll without reaching the end of the
+     words, and on a long answer the final line or two were never on show at all.
+     the strip is handed back as padding at the foot. padding counts inside the
+     scrollable height, so the scroll gains exactly this much travel and the last
+     line rises exactly this far: onto the top of the ramp, where the mask is
+     still whole and the ink is still full.
+     the band plus the ramp, because both of them stand between the cut and full
+     ink, and both are read off the properties that draw them rather than typed
+     again, so a box opened taller or a ramp cut deeper carries this with it.
+     padding and not a margin or a spacer element: the mask's 100% and --boxband
+     are both measured on the answer's border box, and box-sizing:border-box
+     leaves a padded box the size it always was, so nothing the ramp is cut from
+     moves by a pixel.
+     an answer that already fits spends none of it. scrollHeight never reads
+     below the element's own height, so a short answer gains no travel and still
+     does not scroll. and while there is text left below, this padding is simply
+     out of sight past the foot of the words, where the ramp goes on doing its
+     old job of saying keep going */
+  body.focus .box.sel .reply{
+    padding-bottom:calc(var(--boxband, 0px) + var(--replyfade));
+  }
   /* ---- the sent-and-waiting box ------------------------------------------- */
   /* the card starts with no box at all. the board only carries a sent strip
      while a send of his is unanswered, so the first send builds one and the
@@ -3966,8 +3993,13 @@ function snapCard(){
   // down by a fraction of a line would only move the title for nothing
   const first = [...r.children].find(n => n.getBoundingClientRect().height > 2);
   if (!first) return;
-  const room = rect.height - boxBand(r, el.pendwrap) -
-               parseFloat(cs.paddingTop || 0) - parseFloat(cs.paddingBottom || 0);
+  // the room is the answer's first line down to the cut, and the padding at the
+  // foot is no part of it. that padding is the scroll's own run-out, it stands
+  // below the last word and below the cut both, and it moves no ink at the top
+  // of the answer, which is the state this pass measures in. subtracting it
+  // would take a band the reader never sees off a count of the lines he does,
+  // and push the whole answer off the line grid by that much
+  const room = rect.height - boxBand(r, el.pendwrap) - parseFloat(cs.paddingTop || 0);
   const rem = room % line;
   const s = rem > line / 2 ? rem - line : rem;
   if (Math.abs(s) > 0.5) r.style.marginTop = s.toFixed(2) + "px";
