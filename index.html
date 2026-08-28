@@ -1803,6 +1803,17 @@
      rather than left to the fc-hide class, because the vendored theme sets a
      caret colour of its own on this same element */
   #magic3 .cm-content{padding:var(--sp-s) 9px; caret-color:transparent}
+  /* the line's own left padding, restated here so the hanging indents further
+     down can be built on a number this file owns. 16px is exactly what the
+     vendored theme already set and what he has already looked at, so nothing
+     moves; it is written out so a rebuild of the bundle cannot move it, and so
+     an indented line and a plain one can be guaranteed to start on one column */
+  #magic3.mdpanel{--md-lpad:16px}
+  #magic3 .cm-line{padding:0 var(--md-lpad)}
+  /* a fenced block's lines carry a 28px floor from the vendored theme, which is
+     ten pixels of air per line at the 12px mono they are set in here. the floor
+     goes and the line height set above stands */
+  #magic3 .cm-codeblock-line{min-height:0}
   #magic3 .cm-gutters{display:none}
   /* the editor draws no selection layer of its own in here, so the selection on
      screen is the browser's native one and left alone it comes out the system
@@ -1822,10 +1833,13 @@
     max-width:4ch; opacity:1; transform:none; margin:0 1px}
   #magic3 .cm-formatting-inline, #magic3 .cm-formatting-block{
     color:#B4AA99; font-family:var(--mono)}
-  /* the list's dash and the quote's angle keep standing. the pack hides every
-     block marker alike, but a heading's # is markup while a list's dash is the
-     shape of the list itself: hidden, a list reads as loose lines with no list
-     in them. the heading line is the one line this rule does not reach */
+  /* the list's dash keeps standing. the pack hides every block marker alike,
+     but a heading's # is markup while a list's dash is the shape of the list
+     itself: hidden, a list reads as loose lines with no list in them. the
+     heading line is the one line this rule does not reach.
+     20260828: the quote's angle used to be named here too and no longer is.
+     the board's own layer takes the angle off a quoted line and draws the rule
+     down its left instead, so this rule never sees one */
   #magic3 .cm-line:not(.cm-heading-line) .cm-formatting-block{font-size:1em; opacity:1}
   /* headings take the card title's face, stepped down to fit a panel this
      narrow. the top two carry the title weight; the rest fall back to the body
@@ -1884,7 +1898,7 @@
      item. --hang is that item's own text column, written on the line by the
      plugin because it is different on every line; 6px is codemirror's own line
      padding, kept in the sum so nothing shifts sideways against the body */
-  #magic3 .md-hang{padding-left:calc(6px + var(--hang)); text-indent:calc(0px - var(--hang))}
+  #magic3 .md-hang{padding-left:calc(var(--md-lpad) + var(--hang)); text-indent:calc(0px - var(--hang))}
   /* the boxes that build that column: the file's own indent, and the marker.
      both take an exact width off the plugin. text-indent is inherited and an
      inline-block is a block container, so each one has to put it back to zero
@@ -1895,14 +1909,20 @@
      all. they are still in the document, still selectable, still typed over */
   #magic3 .md-li-ind, #magic3 .md-li-gap{font-size:0}
   /* a quoted block takes a rule down its left, in the same hairline every
-     surface on the board is edged with, and the quieter of the two inks */
-  #magic3 .md-quote{border-left:2px solid var(--line); padding-left:9px; color:var(--sub)}
+     surface on the board is edged with, and the quieter of the two inks. its
+     text sits 8px in from the body's column, so the quote reads as set in from
+     the page as well as ruled off from it */
+  #magic3 .md-quote{border-left:2px solid var(--line); color:var(--sub);
+    padding-left:calc(var(--md-lpad) + 6px)}
   /* a horizontal rule, drawn as a rule. the three characters are markup and
      are taken off the line, and the line itself becomes one hairline with
      10px of air over and under it. background-clip keeps the ink inside the
      1px content box, so the air stays air */
   #magic3 .md-hr{height:1px; padding:10px 0; font-size:0; line-height:0;
-    background:var(--line); background-clip:content-box}
+    /* content-box on purpose: this page sets border-box on everything, and
+       under it a 1px box with 10px of padding has no content box left at all
+       and the rule paints nothing */
+    box-sizing:content-box; background:var(--line); background-clip:content-box}
   /* the yaml block at the head of every one of the files, drawn as a block of
      properties rather than as body text: the board's paper behind it, the file
      list's own mono in front of it, the key in the panel's grey and the value
@@ -6523,6 +6543,7 @@ function mdLayer(){
     const hang = new Map();     // line -> the px column its text hangs on
     const marker = new Set();   // lines carrying a real list marker
     const quote = new Set();    // lines inside a blockquote
+    const quoteRaw = new Set();  // ...and the ones whose block has the cursor in it
     const rule = new Set();     // lines that are a horizontal rule and nothing else
     const itemOff = new Map();  // list item start -> its own text column, so a nested item can seat on it
     const listW = new Map();    // list start -> the marker column every item in it shares
@@ -6558,7 +6579,8 @@ function mdLayer(){
       }
       if (nd.name === "Blockquote"){
         const a = doc.lineAt(nd.from).number, b = doc.lineAt(nd.to).number;
-        for (let n = a; n <= b; n++) quote.add(n);
+        const raw = hot(nd.from, nd.to);
+        for (let n = a; n <= b; n++){ quote.add(n); if (raw) quoteRaw.add(n); }
         return;
       }
       // a heading's # is hidden by the pack and the space after it is not, so
@@ -6634,7 +6656,15 @@ function mdLayer(){
           if (i) out.push(mdBox(D, "md-li-ind", hang.get(n)).range(ln.from, ln.from + i));
         }
       }
-      if (quote.has(n)) cls.push("md-quote");
+      if (quote.has(n)){
+        cls.push("md-quote");
+        // the angle at the head of a quoted line. it used to stand, back when
+        // nothing else on the line said the line was quoted; the rule down the
+        // left says it now, and standing it only pushed the quote's first row
+        // out of line with the rows under it
+        const m = !quoteRaw.has(n) && /^[ \t]*(?:>[ \t]?)+/.exec(ln.text);
+        if (m && m[0].length) out.push(hide.range(ln.from, ln.from + m[0].length));
+      }
       if (rule.has(n)){
         cls.push("md-hr");
         out.push(hide.range(ln.from, ln.to));
