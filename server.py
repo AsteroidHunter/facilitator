@@ -377,39 +377,72 @@ _WT_CACHE: dict = {}
 _WT_TTL = 15.0
 
 
-def _lane_worktrees(lane: str) -> dict:
-    """The lane folder's own checked-out branch and the branches of every
-    worktree of the same repository, newest listing first. Read only: it runs
-    git's own list and writes nothing. A lane that is not a git checkout, or a
-    machine with no git, hands back nothing at all rather than raising, so the
-    bar simply shows no name and the list stays shut."""
-    d = _lane_pwds().get(lane)
-    if not d:
-        return {"current": "", "names": []}
-    hit = _WT_CACHE.get(lane)
-    if hit and time.time() - hit[0] < _WT_TTL:
-        return hit[1]
-    out = {"current": "", "names": []}
+def _wt_list(d: Path) -> dict | None:
+    """git's own worktree listing for one folder, parsed, or None when that
+    folder is not a checkout at all. Read only: it runs git's list and writes
+    nothing. None and not an empty answer, because the caller has to tell "no
+    repository here, try the next folder" apart from "a repository with nothing
+    to offer", and only the first of those is worth another look."""
+    if not d.is_dir():
+        return None
     try:
         # --porcelain is the stable form: one paragraph per worktree, the path
         # on a "worktree " line and the ref on a "branch " line. a detached head
         # carries no branch line at all and is skipped, since it names nothing a
         # card could be moved onto
         raw = subprocess.run(["git", "worktree", "list", "--porcelain"],
-                             cwd=d, capture_output=True, text=True, timeout=5)
-        if raw.returncode == 0:
-            here, path = Path(d).resolve(), None
-            for line in raw.stdout.splitlines():
-                if line.startswith("worktree "):
-                    path = Path(line[9:]).resolve()
-                elif line.startswith("branch "):
-                    name = line[7:].removeprefix("refs/heads/")
-                    if name not in out["names"]:
-                        out["names"].append(name)
-                    if path == here:
-                        out["current"] = name
+                             cwd=str(d), capture_output=True, text=True, timeout=5)
     except Exception:
-        pass
+        return None       # no git on this machine, or the folder went away under us
+    if raw.returncode != 0:
+        return None       # exit 128, "not a git repository": nothing here to list
+    out = {"current": "", "names": []}
+    here, path = d.resolve(), None
+    for line in raw.stdout.splitlines():
+        if line.startswith("worktree "):
+            path = Path(line[9:]).resolve()
+        elif line.startswith("branch "):
+            name = line[7:].removeprefix("refs/heads/")
+            if name not in out["names"]:
+                out["names"].append(name)
+            if path == here:
+                out["current"] = name
+    return out
+
+
+def _lane_worktrees(lane: str) -> dict:
+    """The lane folder's own checked-out branch and the branches of every
+    worktree of the same repository, newest listing first. Read only, and it
+    never raises: a lane with no repository under it, or a machine with no git,
+    hands back nothing at all, so the bar shows no name and offers no list.
+
+    Two folders are tried, in this order. A lane's dir is often a wrapper rather
+    than the checkout itself, with the repository one level in, in a child named
+    after the wrapper: projects/facilitator holds facilitator/, and the
+    triage lane's projects/pastureland holds pastureland/. So the lane's
+    own folder is asked first, and the same-name child only if that folder is
+    not a checkout. Only ever the same-name child and never an arbitrary one:
+    journal holds upstream-ref, a reference checkout that is not that
+    lane's project, and offering its branches as the lane's own would be a
+    quiet lie. A wrapper with no same-name checkout under it simply has no
+    repository, which is the true answer for it."""
+    d = _lane_pwds().get(lane)
+    if not d:
+        return {"current": "", "names": []}
+    hit = _WT_CACHE.get(lane)
+    if hit and time.time() - hit[0] < _WT_TTL:
+        return hit[1]
+    out = None
+    try:
+        here = Path(d)
+        for cand in (here, here / here.name):
+            out = _wt_list(cand)
+            if out is not None:
+                break
+    except Exception:
+        out = None        # an unusable path: the lane simply offers nothing
+    if out is None:
+        out = {"current": "", "names": []}
     _WT_CACHE[lane] = (time.time(), out)
     return out
 
