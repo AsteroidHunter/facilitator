@@ -1444,11 +1444,13 @@
     box-shadow:0 1px 10px rgba(60,45,20,.04);
     display:flex; flex-direction:column; overflow:hidden;
   }
-  /* the markdown panel's folder tabs stand in the same head row: one rule
-     for both, so the two can never drift apart on air, gap or hairline */
-  #tikhead, #magic3 .mdhead{flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 8px 0; border-bottom:1px solid var(--line)}
-  /* same seated-tab shape as the project tabs up top; the active one's
-     bottom opens into the list, so its fill matches the list's white */
+  /* the ticket panel's head row, holding the doing / deferred / done segments.
+     the markdown panel used to share this one rule with it; 20260828 it stopped,
+     because the two heads no longer want the same air on their sides, and its
+     own row is written out beside its own tabs further down */
+  #tikhead{flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 8px 0; border-bottom:1px solid var(--line)}
+  /* three equal segments on a square corner, each opening into the list under
+     it. this is the ticket panel's shape and only its shape now */
   .tvb{flex:1; font:500 13px/16px var(--sans); color:var(--sub); background:transparent;
     border:1px solid transparent; border-bottom:none; border-radius:0;
     padding:6px 0 5px; cursor:pointer; user-select:none; position:relative; top:1px}
@@ -1877,6 +1879,23 @@
     /* written out because the stub rule above sets 12.5px mono with letter
        spacing on it, and left alone that would reach every word in here */
     font:14px/1.55 var(--sans); color:var(--ink); letter-spacing:normal}
+  /* the folder tabs' own head row, and the panel's own workspace boundary. the
+     1px bottom border here is to these tabs exactly what the line under the bar
+     is to the project tabs: the edge they seat on, that the selected one's
+     paper then covers and its two notches carry out to either side.
+     20260828: 12px of side air rather than the ticket head's 8. a seated tab
+     flares 7px past its own edge, and at 8px that flare would land on the
+     panel's own border with nothing between them */
+  #magic3 .mdhead{flex:none; display:flex; align-items:flex-end; gap:4px;
+    padding:6px 12px 0; border-bottom:1px solid var(--line)}
+  /* the folder tabs ARE the project tabs: every .ptab rule up top applies here
+     unchanged, the 7px top corners and the browser-style bottom notches with
+     them, and only three things are said again. the seat, because the surface
+     under this head is the panel's own white and not the board's paper; height
+     auto over the bar's fixed 38, so the padding below can set the height; and
+     that padding, which is the 6 and 5 the segments in here used to carry, so
+     the head is exactly as tall as it was and the editor under it never moved */
+  #magic3 .mdtab{--seat:var(--card); height:auto; padding:6px 13px 5px}
   /* the file list. the rows are the worktree menu's rows: a folder of file
      names is the same thing a menu of branch names is, so it is the same
      11.5px mono row at the same 5px radius with the same warm hover */
@@ -1937,6 +1956,17 @@
      rather than left to the fc-hide class, because the vendored theme sets a
      caret colour of its own on this same element */
   #magic3 .cm-content{padding:var(--sp-s) 9px; caret-color:transparent}
+  /* the line's own left padding, restated here so the hanging indents further
+     down can be built on a number this file owns. 16px is exactly what the
+     vendored theme already set and what he has already looked at, so nothing
+     moves; it is written out so a rebuild of the bundle cannot move it, and so
+     an indented line and a plain one can be guaranteed to start on one column */
+  #magic3.mdpanel{--md-lpad:16px}
+  #magic3 .cm-line{padding:0 var(--md-lpad)}
+  /* a fenced block's lines carry a 28px floor from the vendored theme, which is
+     ten pixels of air per line at the 12px mono they are set in here. the floor
+     goes and the line height set above stands */
+  #magic3 .cm-codeblock-line{min-height:0}
   #magic3 .cm-gutters{display:none}
   /* the editor draws no selection layer of its own in here, so the selection on
      screen is the browser's native one and left alone it comes out the system
@@ -1956,10 +1986,13 @@
     max-width:4ch; opacity:1; transform:none; margin:0 1px}
   #magic3 .cm-formatting-inline, #magic3 .cm-formatting-block{
     color:#B4AA99; font-family:var(--mono)}
-  /* the list's dash and the quote's angle keep standing. the pack hides every
-     block marker alike, but a heading's # is markup while a list's dash is the
-     shape of the list itself: hidden, a list reads as loose lines with no list
-     in them. the heading line is the one line this rule does not reach */
+  /* the list's dash keeps standing. the pack hides every block marker alike,
+     but a heading's # is markup while a list's dash is the shape of the list
+     itself: hidden, a list reads as loose lines with no list in them. the
+     heading line is the one line this rule does not reach.
+     20260828: the quote's angle used to be named here too and no longer is.
+     the board's own layer takes the angle off a quoted line and draws the rule
+     down its left instead, so this rule never sees one */
   #magic3 .cm-line:not(.cm-heading-line) .cm-formatting-block{font-size:1em; opacity:1}
   /* headings take the card title's face, stepped down to fit a panel this
      narrow. the top two carry the title weight; the rest fall back to the body
@@ -2009,6 +2042,64 @@
   #magic3 .hljs-comment{color:#B4AA99; font-style:italic}
   #magic3 .hljs-params, #magic3 .hljs-variable,
   #magic3 .hljs-operator, #magic3 .hljs-punctuation{color:var(--ink)}
+  /* ---- the board's own layer over the pack ------------------------------ */
+  /* a paragraph's own line break, drawn as the single space markdown says it
+     is. it is a real space in a real text node rather than a margin, because
+     the reflowed line still has to have somewhere to break */
+  #magic3 .md-gap{white-space:pre-wrap}
+  /* the hanging indent, which is what makes a wrapped list item read as one
+     item. --hang is that item's own text column, written on the line by the
+     plugin because it is different on every line; --md-lpad is the line's own
+     left padding, kept in the sum so an indented line and a plain one start on
+     one column */
+  /* the hang is a length and never a percentage. a percentage looks tempting,
+     to keep a long yaml key from eating a panel dragged narrow, but text-indent
+     measures its percentages against the line's own width while padding-left
+     measures them against the line's containing block, so the two would not
+     cancel and every key would sit on a different column. rendered and looked
+     at before this was written */
+  #magic3 .md-hang{padding-left:calc(var(--md-lpad) + var(--hang)); text-indent:calc(0px - var(--hang))}
+  /* the boxes that build that column: the file's own indent, and the marker.
+     both take an exact width off the plugin. text-indent is inherited and an
+     inline-block is a block container, so each one has to put it back to zero
+     or it would pull its own contents left by the line's whole hang */
+  #magic3 .md-li-ind, #magic3 .md-li-mark{display:inline-block; width:var(--w); text-indent:0}
+  /* the indent's own characters are spaces and nothing else, and the box is
+     already exactly as wide as the level wants, so they are given no width at
+     all. they are still in the document, still selectable, still typed over */
+  #magic3 .md-li-ind, #magic3 .md-li-gap{font-size:0}
+  /* a quoted block takes a rule down its left, in the same hairline every
+     surface on the board is edged with, and the quieter of the two inks. its
+     text sits 8px in from the body's column, so the quote reads as set in from
+     the page as well as ruled off from it */
+  #magic3 .md-quote{border-left:2px solid var(--line); color:var(--sub);
+    padding-left:calc(var(--md-lpad) + 6px)}
+  /* a horizontal rule, drawn as a rule. the three characters are markup and
+     are taken off the line, and the line itself becomes one hairline with
+     10px of air over and under it. background-clip keeps the ink inside the
+     1px content box, so the air stays air */
+  #magic3 .md-hr{height:1px; padding:10px 0; font-size:0; line-height:0;
+    /* content-box on purpose: this page sets border-box on everything, and
+       under it a 1px box with 10px of padding has no content box left at all
+       and the rule paints nothing */
+    box-sizing:content-box; background:var(--line); background-clip:content-box}
+  /* the yaml block at the head of every one of the files, drawn as a block of
+     properties rather than as body text: the board's paper behind it, the file
+     list's own mono in front of it, the key in the panel's grey and the value
+     in its ink. nothing new is introduced, it is the inline code chip's own
+     paper widened to a band */
+  #magic3 .md-fm{background:var(--paper); font:11.5px/1.8 var(--mono); color:var(--ink)}
+  #magic3 .md-fm span{font:inherit}   /* the parser reads this block as prose; its type does not reach in here */
+  #magic3 .md-fm-key{color:var(--sub)}
+  /* the two --- fences are not text, they are the block's own top and bottom.
+     the characters are taken off in the plugin and the empty line left behind
+     is given 8px of height, which is the block's air and carries its corner */
+  #magic3 .md-fm-top, #magic3 .md-fm-bot{height:8px; font-size:0; line-height:0}
+  #magic3 .md-fm-top{border-radius:5px 5px 0 0}
+  #magic3 .md-fm-bot{border-radius:0 0 5px 5px}
+  /* the cursor inside the block: the fences come back as themselves, so what
+     he edits is the file and not a picture of it */
+  #magic3 .md-fm-raw{height:auto; font-size:11.5px; line-height:1.8}
   /* a box taken off this tab: gone, and gone in edit mode too, with no ghost of
      it left behind. its resize squares and its cross go with it */
   body.focus .region-off{visibility:hidden; pointer-events:none}
@@ -2588,13 +2679,19 @@
     border-radius:7px 7px 0 0; cursor:pointer; user-select:none;
     position:relative; top:1px;
     height:38px; padding:0 16px 5px;
+    /* the surface the seated tab opens into, named once here so the fill and
+       both notches read it from one place. up here that surface is the canvas
+       under the bar, which is the board's paper. the markdown panel's folder
+       tabs wear these same rules over a white panel and say so by setting this
+       one property; nothing else about the shape is restated down there */
+    --seat:var(--paper);
     /* the only thing that ever animates on a resting tab is the dwell band on
        its right, on the board's own curve and quick enough to read as one
        movement rather than a stretch */
     transition:padding-right 180ms cubic-bezier(0.25, 1, 0.5, 1);
   }
   .ptab:hover{color:var(--ink)}
-  .ptab.on{color:var(--ink); background:var(--paper); border-color:var(--line)}
+  .ptab.on{color:var(--ink); background:var(--seat); border-color:var(--line)}
   /* the seated tab's bottom two corners bend the other way. this is the notch a
      browser tab makes where it meets its strip: at each bottom corner the paper
      flares 7px out into the bar and the hairline curves out with it, so the
@@ -2639,12 +2736,12 @@
   :is(.ptab.on, .ptab.dragging, .ptab.draft)::before{
     left:-8px;
     background:radial-gradient(circle 8px at 0 0,
-      transparent 0 7px, var(--line) 7px 8px, var(--paper) 8px);
+      transparent 0 7px, var(--line) 7px 8px, var(--seat) 8px);
   }
   :is(.ptab.on, .ptab.dragging, .ptab.draft)::after{
     right:-8px;
     background:radial-gradient(circle 8px at 100% 0,
-      transparent 0 7px, var(--line) 7px 8px, var(--paper) 8px);
+      transparent 0 7px, var(--line) 7px 8px, var(--seat) 8px);
   }
   /* a lane still holding a reply he has not opened says so with weight alone,
      the way a mail client does: no dot, no count, no colour. selection is a
@@ -2671,7 +2768,7 @@
   .ptab.tearing{opacity:.45}
   /* a held tab rides the pointer sideways: it lifts on the selected row's own
      shadow and must paint over whatever it crosses */
-  .ptab.dragging{color:var(--ink); background:var(--paper); border-color:var(--line);
+  .ptab.dragging{color:var(--ink); background:var(--seat); border-color:var(--line);
     z-index:2; box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
   /* the others glide aside on the board's one 220ms curve, never teleport */
   .ptab.gliding{transition:transform 220ms cubic-bezier(0.25, 1, 0.5, 1)}
@@ -2684,7 +2781,7 @@
     border:none; cursor:pointer; transition:opacity .2s; opacity:.75}
   .ptabplus:hover{opacity:1}
   /* the not-yet-named tab while its folder is being chosen */
-  .ptab.draft{color:var(--ink); background:var(--paper); border-color:var(--line);
+  .ptab.draft{color:var(--ink); background:var(--seat); border-color:var(--line);
     font-style:italic}
   /* closing a project tab: no bare cross under a moving pointer, and no mark
      waiting on the tab either. a pointer that simply rests on one tab for five
@@ -6449,6 +6546,14 @@ let mdView = null;            // the codemirror view, made when the first file i
 let mdClean = "";             // the text as it stands on disk, which is what dirty measures against
 let mdLoad = null;            // the bundle's load promise, so it is asked for exactly once
 let mdLeave = false;          // back pressed once on unsaved work: the second press leaves
+// the open file, held across a tab switch. the panel really is taken apart when
+// he leaves the tab, because magic box 3 has three tenants and only one of them
+// may hold it at a time, so the DOM is not somewhere state can live. this is:
+// one plain object outside the DOM, carrying the editor's own state object
+// whole. a codemirror state outlives its view, so putting it back is one
+// constructor call and everything comes with it, his unsaved text, his cursor,
+// his selection and his undo history alike
+let mdKeep = null;
 let mdNoteT = null;
 
 // the vendored editor, fetched the first time a file is opened and never on
@@ -6494,7 +6599,7 @@ function mdBuild(){
   host.classList.add("mdpanel");
   const head = h("div", "mdhead");
   const tabs = MD_ROOTS.map(r => {
-    const b = h("button", "tvb", r.label);
+    const b = h("button", "ptab mdtab", r.label);
     // seated from the very first paint, so a head with nothing behind it yet
     // still shows one open folder rather than two shut ones
     b.classList.toggle("on", r.root === mdRoot);
@@ -6525,7 +6630,7 @@ function mdBuild(){
 // as it did before the panel existed
 function mdOff(host){
   if (!host || host.dataset.md !== "1") return;
-  mdTearDown();
+  mdTearDown(true);
   mdFor = null; mdSig = ""; mdData = null;
   host._md = null;
   delete host.dataset.md;
@@ -6535,10 +6640,41 @@ function mdOff(host){
   // stub line back now would wipe whichever one just arrived
   if (host.dataset.p3 !== "1" && host.dataset.c3 !== "1") host.textContent = "magic box 3";
 }
-function mdTearDown(){
+// keep is true only where the panel is being taken down by a tab switch, and
+// false everywhere he himself closed the file: a file he pressed back on stays
+// closed, and one the board took off the screen comes back
+function mdTearDown(keep){
+  mdKeep = keep && mdView && mdOpen
+    ? { root: mdOpen.root, rel: mdOpen.rel, mtime: mdOpen.mtime, clean: mdClean,
+        state: mdView.state, top: mdView.scrollDOM.scrollTop }
+    : null;
   if (mdView){ mdView.destroy(); mdView = null; }
   document.removeEventListener("mouseup", mdMouseUp);
   mdOpen = null; mdClean = ""; mdLeave = false;
+}
+// the other half of that: the panel rebuilt on the tab he left it on, put back
+// on the file it was on. nothing is read off disk here, on purpose, because
+// what he had on screen may be ahead of what disk has and disk must not win
+function mdRestore(host){
+  if (!mdKeep || mdOpen || !window.CM6) return;
+  const k = mdKeep;
+  mdKeep = null;
+  mdOpen = { root: k.root, rel: k.rel, mtime: k.mtime };
+  mdClean = k.clean;
+  mdMount(host, "", false, k.state);
+  host._md.name.textContent = k.rel;
+  host._md.name.title = k.root + "/" + k.rel;
+  host.classList.add("editing");
+  // the scroll is the one thing the state does not carry, so it is put back by
+  // hand. twice: once now, and once after codemirror's own first measure, which
+  // sets the scroller's height and would otherwise clamp this to zero
+  mdView.scrollDOM.scrollTop = k.top;
+  requestAnimationFrame(() => { if (mdView && mdOpen) mdView.scrollDOM.scrollTop = k.top; });
+  // the kept state remembers whether the editor had the focus, and a rebuilt
+  // view has not. said out loud here rather than waited for, because a blur
+  // event will never arrive for a view that was destroyed before it could blur
+  mdView.dispatch({ effects: mdAwakeEff.of(mdView.hasFocus) });
+  mdDirty();
 }
 // one line at the foot of the panel. a receipt clears itself after a moment; a
 // refusal stays, because it is the only place he is told the save did not land
@@ -6555,7 +6691,11 @@ function mdNote(host, text, bad){
 function mdDirty(){
   const host = document.getElementById("magic3");
   if (!host || !host._md) return false;
-  const dirty = !!mdView && !!mdOpen && mdView.state.doc.toString() !== mdClean;
+  // sliceDoc and not doc.toString: a document's toString always joins its lines
+  // with \n whatever separator the state was given, so on a file with windows
+  // endings the two strings could never match and the panel stood dirty from
+  // the moment it opened, with nothing typed into it
+  const dirty = !!mdView && !!mdOpen && mdView.state.sliceDoc() !== mdClean;
   host.classList.toggle("dirty", dirty);
   if (!dirty) mdLeave = false;
   return dirty;
@@ -6602,7 +6742,7 @@ async function mdOpenFile(root, rel){
   if (!host._md) return;
   const d = r && r.ok ? await r.json().catch(() => null) : null;
   if (!d){ mdNote(host, "could not open " + rel, true); return; }
-  mdTearDown();
+  mdTearDown(false);
   mdOpen = { root, rel, mtime: d.mtime };
   mdClean = d.text;
   mdMount(host, d.text, d.crlf);
@@ -6612,9 +6752,261 @@ async function mdOpenFile(root, rel){
   mdNote(host, "");
   mdDirty();
 }
-function mdMount(host, text, crlf){
+// ---- the board's own layer over the live preview pack ---------------------
+// the pack hides markers, draws tables, fences and images, and stops there. it
+// has nothing to say about the yaml block at the head of every one of the
+// files, about a paragraph the file hard wraps, or about how far a list's
+// second line should hang, and all three of those are things he can see. this
+// is the layer that says it, written out of the six primitives the vendored
+// bundle exports for exactly this.
+const MD_MONO = 8.4;   // one character of the board's mono at the editor's 14px: 0.6em, its own advance
+const MD_MARKAIR = 7;  // px of air between a list marker and its text
+const MD_MARKMIN = 20; // px a marker column is never narrower than, so a lone dash still steps a level
+const MD_FMSCAN = 50;  // lines the opening --- will look ahead for its closing one
+let mdLayerExt = null;   // made once the bundle is in, then shared by every file opened after
+let mdAwakeEff = null;   // the effect a focus or a blur rides in on, made with the layer
+// the yaml block: line one is ---, and the block runs to the next line that is
+// --- and nothing else. a --- with a blank line under it is a horizontal rule
+// and not a block, and a closing fence further off than MD_FMSCAN lines is not
+// front matter either, it is one rule at the top of the file and another one
+// much further down. both of those fall through and are drawn as rules.
+function mdFront(doc){
+  if (doc.lines < 3 || doc.line(1).text.trim() !== "---") return null;
+  if (!doc.line(2).text.trim()) return null;
+  const last = Math.min(doc.lines, MD_FMSCAN);
+  for (let n = 2; n <= last; n++){
+    if (doc.line(n).text.trim() === "---") return { open: 1, close: n };
+  }
+  return null;
+}
+// a state field and not a view plugin, and codemirror is strict about the
+// difference: a decoration that stands over a line break changes how tall the
+// document is, so it has to be part of the state the height map is built from
+// rather than something a plugin adds after the fact. the editor refuses it
+// outright from a plugin. the field therefore carries the one thing a plugin
+// would have read off the view, whether the editor has the focus, and the two
+// listeners in mdMount put it there.
+function mdLayer(){
+  if (mdLayerExt) return mdLayerExt;
+  const C = window.CM6, D = C.Decoration;
+  mdAwakeEff = C.StateEffect.define();
+  // what a paragraph's own line break is drawn as. a real space in a real text
+  // node, because the reflowed line still has to have somewhere to wrap, and a
+  // margin or a pseudo element would give it none
+  const gap = D.replace({ widget: new (class extends C.WidgetType {
+    toDOM(){ const s = document.createElement("span"); s.className = "md-gap"; s.textContent = " "; return s; }
+    eq(){ return true; }
+    ignoreEvent(){ return false; }
+  })() });
+  const hide = D.replace({});   // characters that are markup and nothing else
+
+  function build(st, focused){
+    const doc = st.doc, out = [];
+    // the raw file comes back where he is working and nowhere else, which is
+    // the pack's own rule for markers widened to whole blocks. focus is half of
+    // it: a file opened and not yet typed in is a page to read, and its cursor
+    // sitting at position 0 must not tear the front matter open. the other half
+    // is the drag guard the pack keeps, or a selection swept across the panel
+    // would reflow every paragraph it crossed under the pointer
+    const awake = focused && !st.field(C.mouseSelectingField, false);
+    const hot = (a, b) => awake && st.selection.ranges.some(r => r.to >= a && r.from <= b);
+
+    // ---- the yaml block -------------------------------------------------
+    const fm = mdFront(doc);
+    const fmTo = fm ? doc.line(fm.close).to : -1;
+    if (fm){
+      const raw = hot(doc.line(fm.open).from, fmTo);
+      for (let n = fm.open; n <= fm.close; n++){
+        const ln = doc.line(n), edge = n === fm.open || n === fm.close;
+        let cls = "md-fm";
+        if (n === fm.open) cls += " md-fm-top";
+        if (n === fm.close) cls += " md-fm-bot";
+        if (raw) cls += " md-fm-raw";
+        const attrs = {};
+        // key, colon, value. the key is told from the value by ink alone, and
+        // a value too long for the panel hangs under itself rather than
+        // falling back under its own key. the hang is the key's width, and
+        // this block is set in mono, so 1ch is exactly one of its characters
+        const key = edge ? null : /^[ \t]*[^\s:][^:]*:/.exec(ln.text);
+        if (key){
+          out.push(D.mark({ class: "md-fm-key" }).range(ln.from, ln.from + key[0].length));
+          cls += " md-hang";
+          attrs.style = "--hang:" + (key[0].length + 1) + "ch";
+        }
+        out.push(D.line({ class: cls, attributes: attrs }).range(ln.from));
+        // the two fences are not text, they are the block's own top and bottom
+        // air, so the characters go and the css gives those lines their height
+        if (edge && !raw && ln.to > ln.from) out.push(hide.range(ln.from, ln.to));
+      }
+    }
+
+    // ---- one walk of the tree, collecting ------------------------------
+    const merged = new Set();   // lines that end up inside the line above them
+    const hang = new Map();     // line -> the px column its text hangs on
+    const marker = new Set();   // lines carrying a real list marker
+    const quote = new Set();    // lines inside a blockquote
+    const quoteRaw = new Set();  // ...and the ones whose block has the cursor in it
+    const rule = new Set();     // lines that are a horizontal rule and nothing else
+    const itemOff = new Map();  // list item start -> its own text column, so a nested item can seat on it
+    const listW = new Map();    // list start -> the marker column every item in it shares
+    // a paragraph the file hard wraps is one paragraph. markdown says its own
+    // line breaks are single spaces, so away from the cursor that is what they
+    // are drawn as and the paragraph reflows to the panel's width. the file on
+    // disk is not touched by any of this: the newline is still there, still in
+    // the document, and a replaced range is the only thing standing over it
+    const join = (n) => {
+      const a = doc.line(n), b = doc.line(n + 1);
+      // two trailing spaces, or a backslash, is markdown's own hard break. the
+      // line really does end there, so it is left standing
+      let e = a.to, sp = 0;
+      while (e > a.from && a.text[e - a.from - 1] === " "){ e--; sp++; }
+      if (sp >= 2 || a.text.endsWith("\\")) return;
+      // the continuation's own leading air goes with the break, and so does a
+      // quote's angle: on one line the second angle is plumbing and not quoting
+      let i = 0;
+      while (i < b.length && (b.text[i] === " " || b.text[i] === "\t")) i++;
+      while (i < b.length && b.text[i] === ">"){
+        i++;
+        while (i < b.length && (b.text[i] === " " || b.text[i] === "\t")) i++;
+      }
+      out.push(gap.range(e, b.from + i));
+      merged.add(n + 1);
+    };
+    C.syntaxTree(st).iterate({ enter: nd => {
+      if (nd.to <= fmTo) return;   // the yaml block above owns its own lines
+      if (nd.name === "HorizontalRule"){
+        const ln = doc.lineAt(nd.from);
+        if (!hot(ln.from, ln.to)) rule.add(ln.number);
+        return;
+      }
+      if (nd.name === "Blockquote"){
+        const a = doc.lineAt(nd.from).number, b = doc.lineAt(nd.to).number;
+        const raw = hot(nd.from, nd.to);
+        for (let n = a; n <= b; n++){ quote.add(n); if (raw) quoteRaw.add(n); }
+        return;
+      }
+      // a heading's # is hidden by the pack and the space after it is not, so
+      // every heading in the panel stood one space right of its own body text.
+      // the space is markup too, and goes with the hash
+      if (/^ATXHeading/.test(nd.name)){
+        const mk = nd.node.firstChild, ln = doc.lineAt(nd.from);
+        if (!mk || mk.name !== "HeaderMark" || hot(ln.from, ln.to)) return;
+        let c = mk.to;
+        while (c < ln.to && ln.text[c - ln.from] === " ") c++;
+        if (c > mk.to) out.push(hide.range(mk.to, c));
+        return;
+      }
+      if (nd.name === "ListItem"){
+        const ln = doc.lineAt(nd.from), mk = nd.node.firstChild, list = nd.node.parent;
+        if (!mk || mk.name !== "ListMark" || !list) return;
+        // one marker column per list, off its widest marker, so 1. and 10. put
+        // their text in the same place instead of two places
+        let wide = listW.get(list.from);
+        if (wide === undefined){
+          wide = 1;
+          for (const kid of list.getChildren("ListItem")){
+            const km = kid.firstChild;
+            if (km && km.name === "ListMark") wide = Math.max(wide, km.to - km.from);
+          }
+          listW.set(list.from, wide);
+        }
+        const markW = Math.max(MD_MARKMIN, Math.round(wide * MD_MONO) + MD_MARKAIR);
+        // a nested item's marker seats exactly where its parent's text starts,
+        // which is what makes a level read as a level. no ladder of its own:
+        // the parent's marker column is the step, so the two can never cross
+        const up = list.parent;
+        const base = up && up.name === "ListItem" ? (itemOff.get(up.from) || 0) : 0;
+        const off = base + markW;
+        itemOff.set(nd.from, off);
+        let c = mk.to;
+        while (c < ln.to && (ln.text[c - ln.from] === " " || ln.text[c - ln.from] === "\t")) c++;
+        // the file's own indent becomes a box exactly one level wide, and the
+        // marker a box exactly one column wide. the characters inside are the
+        // file's, untouched and still selectable; the boxes only decide how
+        // much room they are given, which is what a proportional font cannot
+        // do on its own with three spaces
+        if (nd.from > ln.from) out.push(mdBox(D, "md-li-ind", base).range(ln.from, nd.from));
+        if (c > nd.from){
+          out.push(mdBox(D, "md-li-mark", markW).range(nd.from, c));
+          if (c > mk.to) out.push(D.mark({ class: "md-li-gap" }).range(mk.to, c));
+        }
+        marker.add(ln.number);
+        const end = doc.lineAt(nd.to).number;
+        for (let n = ln.number; n <= end; n++) hang.set(n, off);
+        return;
+      }
+      if (nd.name === "Paragraph"){
+        const a = doc.lineAt(nd.from).number, b = doc.lineAt(nd.to).number;
+        if (b > a && !hot(nd.from, nd.to)) for (let n = a; n < b; n++) join(n);
+      }
+    } });
+
+    // ---- one line decoration per line, and never on a line now inside another
+    const lines = new Set([...hang.keys(), ...quote, ...rule]);
+    for (const n of lines){
+      if (merged.has(n) || n <= (fm ? fm.close : 0)) continue;
+      const ln = doc.line(n), cls = [], attrs = {};
+      if (hang.has(n)){
+        cls.push("md-hang");
+        attrs.style = "--hang:" + hang.get(n) + "px";
+        // a line further down an item still has to start on the item's column,
+        // and its own indent is a handful of proportional spaces that do not
+        // reach it. same box as the marker line's, one level wider
+        if (!marker.has(n)){
+          let i = 0;
+          while (i < ln.length && (ln.text[i] === " " || ln.text[i] === "\t")) i++;
+          if (i) out.push(mdBox(D, "md-li-ind", hang.get(n)).range(ln.from, ln.from + i));
+        }
+      }
+      if (quote.has(n)){
+        cls.push("md-quote");
+        // the angle at the head of a quoted line. it used to stand, back when
+        // nothing else on the line said the line was quoted; the rule down the
+        // left says it now, and standing it only pushed the quote's first row
+        // out of line with the rows under it
+        const m = !quoteRaw.has(n) && /^[ \t]*(?:>[ \t]?)+/.exec(ln.text);
+        if (m && m[0].length) out.push(hide.range(ln.from, ln.from + m[0].length));
+      }
+      if (rule.has(n)){
+        cls.push("md-hr");
+        out.push(hide.range(ln.from, ln.to));
+      }
+      out.push(D.line({ class: cls.join(" "), attributes: attrs }).range(ln.from));
+    }
+    return D.set(out, true);
+  }
+
+  mdLayerExt = C.StateField.define({
+    create: st => ({ lit: false, deco: build(st, false) }),
+    update: (v, tr) => {
+      let lit = v.lit;
+      for (const e of tr.effects) if (e.is(mdAwakeEff)) lit = e.value;
+      // the document, the cursor and the focus are three of the four things any
+      // of this depends on. the fourth is the parse: codemirror parses a long
+      // file in slices and pushes an empty transaction each time it has more,
+      // so a tree that has moved is a rebuild too. scrolling is on neither
+      // list, on purpose. the walk is over the whole file, so a reflowed
+      // paragraph's height is known before it is ever scrolled to and the bar
+      // under his thumb does not jump as it arrives
+      if (lit === v.lit && !tr.docChanged && !tr.selection &&
+          C.syntaxTree(tr.state) === C.syntaxTree(tr.startState)) return v;
+      return { lit, deco: build(tr.state, lit) };
+    },
+    provide: f => C.EditorView.decorations.from(f, v => v.deco),
+  });
+  return mdLayerExt;
+}
+// a run of characters given an exact width in pixels. the width is written on
+// the span rather than in the stylesheet because it is different on every line
+function mdBox(D, cls, w){
+  return D.mark({ class: cls, attributes: { style: "--w:" + w + "px" } });
+}
+// seat is a state kept whole across a tab switch, and when there is one the
+// text and the endings are not read at all: that state already carries them,
+// along with his cursor and his undo history
+function mdMount(host, text, crlf, seat){
   const C = window.CM6, el = host._md;
-  const state = C.EditorState.create({
+  const state = seat || C.EditorState.create({
     doc: text,
     extensions: [
       // a file written with windows endings keeps them. without this codemirror
@@ -6637,6 +7029,9 @@ function mdMount(host, text, crlf){
       // system and the board has no such thing anywhere else on it
       ...C.codeBlockField({ copyButton: false }),
       C.editorTheme,
+      // the board's own layer, last of the drawing extensions so its line
+      // classes are added after the pack's and never lost to them
+      mdLayer(),
       // marks the cursor's line, which is what the stylesheet reveals that
       // line's raw markers on. the fill it paints is taken back off in css
       C.highlightActiveLine(),
@@ -6650,7 +7045,17 @@ function mdMount(host, text, crlf){
   mdView.contentDOM.addEventListener("mousedown",
     () => mdView && mdView.dispatch({ effects: C.setMouseSelecting.of(true) }));
   document.addEventListener("mouseup", mdMouseUp);
-  mdView.focus();
+  // the two events the board's layer cannot read off the state on its own.
+  // they are put on the element rather than handed to codemirror so the
+  // dispatch lands outside its own update, which it will not allow from inside
+  for (const ev of ["focus", "blur"]) mdView.contentDOM.addEventListener(ev, () => {
+    if (mdView) mdView.dispatch({ effects: mdAwakeEff.of(ev === "focus") });
+  });
+  // no focus on open, on purpose. the raw file comes back wherever the cursor
+  // is, and a fresh view's cursor is at position 0, which is the first line of
+  // the yaml block: focusing here would open every file on the one view of it
+  // kept out of sight. the first click is what puts him in the file, and it
+  // lands the cursor where he clicked, which is where the markup belongs
 }
 function mdClose(){
   const host = document.getElementById("magic3");
@@ -6662,7 +7067,7 @@ function mdClose(){
     mdNote(host, "not saved. press again to leave it", true);
     return;
   }
-  mdTearDown();
+  mdTearDown(false);
   host._md.edit.textContent = "";
   host._md.name.textContent = "";
   host.classList.remove("editing", "dirty");
@@ -6673,7 +7078,10 @@ function mdClose(){
 async function mdSave(){
   const host = document.getElementById("magic3");
   if (!host || !host._md || !mdView || !mdOpen) return;
-  const text = mdView.state.doc.toString();
+  // the same reason as in mdDirty, and here it is the file itself at stake:
+  // toString would have written every \r\n in the file back as a bare \n, which
+  // is the silent rewrite the line separator above was added to prevent
+  const text = mdView.state.sliceDoc();
   const r = await fetch("/mdsave?root=" + encodeURIComponent(mdOpen.root) +
                         "&rel=" + encodeURIComponent(mdOpen.rel) +
                         "&mtime=" + encodeURIComponent(mdOpen.mtime),
@@ -6702,6 +7110,7 @@ async function mdPoll(){
   if (activeOwner !== MD_LANE){ mdOff(document.getElementById("magic3")); return; }
   const host = mdBuild();
   if (!host || !host._md) return;
+  mdRestore(host);   // a file open when he left this tab is open again before anything is drawn
   if (mdFor !== activeOwner){ mdFor = activeOwner; mdSig = ""; }
   const r = await fetch("/mdfiles", { cache: "no-store" }).catch(() => null);
   if (!host._md) return;   // a tab switch took the panel apart while that was in the air
