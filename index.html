@@ -1308,7 +1308,9 @@
     box-shadow:0 1px 10px rgba(60,45,20,.04);
     display:flex; flex-direction:column; overflow:hidden;
   }
-  #tikhead{flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 8px 0; border-bottom:1px solid var(--line)}
+  /* the markdown panel's folder tabs stand in the same head row: one rule
+     for both, so the two can never drift apart on air, gap or hairline */
+  #tikhead, #magic3 .mdhead{flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 8px 0; border-bottom:1px solid var(--line)}
   /* same seated-tab shape as the project tabs up top; the active one's
      bottom opens into the list, so its fill matches the list's white */
   .tvb{flex:1; font:500 13px/16px var(--sans); color:var(--sub); background:transparent;
@@ -1324,13 +1326,26 @@
      ticket panel only; the rest of the page keeps its stock bars */
   /* the thumb floats off the right edge (transparent border trick) and only
      shows while the list actually scrolls or the pointer hovers it */
-  #tiklist::-webkit-scrollbar, #tickets::-webkit-scrollbar{width:9px}
-  #tiklist::-webkit-scrollbar-track, #tickets::-webkit-scrollbar-track{background:transparent}
-  #tiklist::-webkit-scrollbar-thumb, #tickets::-webkit-scrollbar-thumb{
+  /* the markdown panel's file list is on these same selectors: a list of
+     files scrolls the way the list of cards does, and so does the open
+     file under it, all three out of one rule */
+  #tiklist::-webkit-scrollbar, #tickets::-webkit-scrollbar,
+  #magic3 .mdlist::-webkit-scrollbar,
+  #magic3 .cm-scroller::-webkit-scrollbar{width:9px}
+  #tiklist::-webkit-scrollbar-track, #tickets::-webkit-scrollbar-track,
+  #magic3 .mdlist::-webkit-scrollbar-track,
+  #magic3 .cm-scroller::-webkit-scrollbar-track{background:transparent}
+  #tiklist::-webkit-scrollbar-thumb, #tickets::-webkit-scrollbar-thumb,
+  #magic3 .mdlist::-webkit-scrollbar-thumb,
+  #magic3 .cm-scroller::-webkit-scrollbar-thumb{
     background:transparent; border:3px solid transparent;
     background-clip:padding-box; border-radius:99px}
   #tiklist.scrolling::-webkit-scrollbar-thumb, #tiklist:hover::-webkit-scrollbar-thumb,
-  #tickets.scrolling::-webkit-scrollbar-thumb, #tickets:hover::-webkit-scrollbar-thumb{
+  #tickets.scrolling::-webkit-scrollbar-thumb, #tickets:hover::-webkit-scrollbar-thumb,
+  #magic3 .mdlist.scrolling::-webkit-scrollbar-thumb,
+  #magic3 .mdlist:hover::-webkit-scrollbar-thumb,
+  #magic3 .cm-scroller.scrolling::-webkit-scrollbar-thumb,
+  #magic3 .cm-scroller:hover::-webkit-scrollbar-thumb{
     background-color:var(--line-strong)}
   .trow{
     position:relative; flex:none; height:calc(var(--ch)*0.072);
@@ -1695,6 +1710,68 @@
      gesture, so there is nothing behind it left to blur that anyone can see.
      the .bar rule itself is untouched, so the resting look is the resting look */
   body.p3zoom .bar{backdrop-filter:none; -webkit-backdrop-filter:none}
+  /* ---- magic box 3 on the website tab: the markdown --------------------- */
+  /* the third tenant of this box, beside the picture panel and the chat above,
+     and it takes their rule exactly: one tab owns it and every other tab gets
+     the plain dashed stub back. two states on the one surface, the list of
+     files and an open file, and both wear a head row of the same height, so
+     nothing under it moves when one becomes the other */
+  #magic3.mdpanel{
+    border:1px solid var(--line); background:var(--card); padding:0; overflow:hidden;
+    /* the stub rule centres its one line of text; a panel wants the whole
+       height of the box as a column, the same reset the chat makes */
+    flex-direction:column; align-items:stretch; justify-content:flex-start;
+    /* written out because the stub rule above sets 12.5px mono with letter
+       spacing on it, and left alone that would reach every word in here */
+    font:14px/1.55 var(--sans); color:var(--ink); letter-spacing:normal}
+  /* the file list. the rows are the worktree menu's rows: a folder of file
+     names is the same thing a menu of branch names is, so it is the same
+     11.5px mono row at the same 5px radius with the same warm hover */
+  #magic3 .mdlist{flex:1; min-height:0; overflow-y:auto; overscroll-behavior:none;
+    display:flex; flex-direction:column; gap:2px; padding:4px}
+  #magic3 .mdrow{display:block; width:100%; text-align:left; border:none;
+    background:none; border-radius:5px; padding:6px 9px; cursor:pointer;
+    font:11.5px var(--mono); color:var(--sub);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  #magic3 .mdrow:hover{background:#FFF8EF}
+  /* the folder a file sits in, in front of its name and in the fainter ink, so
+     one glance reads the file and a second one reads where it lives. one line
+     either way, so every row in the list is the same height */
+  #magic3 .mdrowdir{color:#B4AA99}
+  /* the open file's bar, the head row's other face. 33px is the folder tabs'
+     own height added up: their head's 6px of top air, the tab's 6 and 5 of
+     padding and its 16px line. written down so the two states are exactly as
+     tall as each other and the editor never shifts under the switch */
+  #magic3 .mdbar{display:none; flex:none; align-items:center; gap:6px;
+    height:33px; padding:0 8px; border-bottom:1px solid var(--line)}
+  #magic3.editing .mdhead, #magic3.editing .mdlist{display:none}
+  #magic3.editing .mdbar{display:flex}
+  #magic3.editing .mdedit{display:block}
+  /* the chevron back to the list: the navigation pad's own control, the same
+     mono 16 in the same resting ink, reaching for the accent under the pointer */
+  #magic3 .mdback{flex:none; font:16px var(--mono); color:#C9BFAE; background:none;
+    border:none; cursor:pointer; padding:2px 6px; line-height:1; transition:color .2s}
+  #magic3 .mdback:hover{color:var(--accent)}
+  /* the open file's path inside its folder, in the list rows' own face */
+  #magic3 .mdname{flex:1; min-width:0; font:11.5px var(--mono); color:var(--sub);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  /* save is the small card's plain text send: no button face, the panel's grey,
+     the accent under the pointer. it is not there at all until there is
+     something to save, the way the card's send square only stands up once
+     something has been typed into the card */
+  #magic3 .mdsave{flex:none; background:none; border:none; cursor:pointer;
+    color:var(--sub); font:500 12px var(--sans); padding:0 2px;
+    opacity:0; pointer-events:none; transition:opacity .2s}
+  #magic3 .mdsave:hover{color:var(--accent)}
+  #magic3.dirty .mdsave{opacity:1; pointer-events:auto}
+  /* one line at the foot of the panel: a receipt in the board's grey, a refusal
+     in its rust. empty it takes no room and draws no border at all, so the
+     editor keeps the whole box until there is something to say */
+  #magic3 .mdnote{flex:none; font:10.5px/1.35 var(--mono); color:var(--sub);
+    padding:0 9px; overflow:hidden}
+  #magic3 .mdnote:not(:empty){padding:4px 9px 5px; border-top:1px solid var(--line)}
+  #magic3 .mdnote.bad{color:var(--must)}
+  #magic3 .mdedit{display:none; flex:1; min-height:0; overflow:hidden}
   /* a box taken off this tab: gone, and gone in edit mode too, with no ghost of
      it left behind. its resize squares and its cross go with it */
   body.focus .region-off{visibility:hidden; pointer-events:none}
@@ -2785,6 +2862,10 @@ function setTab(owner){
   // one that checks for the picture panel's mark before putting the stub line
   // back, so the panel that just arrived is never wiped by the one leaving
   chatPoll();
+  // and this tab's markdown, last of the three for the same reason: its
+  // teardown is the one that has to look for the other two before it puts
+  // the stub line back
+  mdPoll();
   if (lastState) apply(lastState);   // refilter the bar, outline and counters now
 }
 
@@ -6007,6 +6088,313 @@ async function chatPoll(){
 }
 chatPoll(); setInterval(chatPoll, C3_POLL);
 
+// magic box 3 on the website tab: the markdown, read and written where it
+// lives. the third tenant of this box, beside the picture panel and the chat
+// above, and it follows their rule exactly: one tab owns it, every other tab
+// gets the plain stub back. MD_LANE is the only place that tab's name is
+// written down, so moving the editor to another tab is a one word change here.
+const MD_LANE = "website";
+// the two folders the server will let this panel touch, in the order the head
+// offers them. the labels drop the project's own prefix, since every folder in
+// here carries it and saying it twice in a head this narrow tells him nothing.
+// the server has this same pair written down and checks it again on every
+// request, so nothing here is what makes the fence hold
+const MD_ROOTS = [
+  { root: "website-internal", label: "internal" },
+  { root: "website-wiki", label: "wiki" },
+];
+const MD_POLL = 4000;         // the picture panel's own cadence, for the same reason
+let mdFor = null;             // the tab the panel is currently drawn for
+let mdRoot = MD_ROOTS[0].root;   // which folder's files the list is showing
+let mdSig = "";               // the drawn list's signature; an unchanged list is left alone
+let mdData = null;            // the last answer /mdfiles gave
+let mdOpen = null;            // {root, rel, mtime} of the file in the editor, null in the list
+let mdView = null;            // the codemirror view, made when the first file is opened
+let mdClean = "";             // the text as it stands on disk, which is what dirty measures against
+let mdLoad = null;            // the bundle's load promise, so it is asked for exactly once
+let mdLeave = false;          // back pressed once on unsaved work: the second press leaves
+let mdNoteT = null;
+
+// the vendored editor, fetched the first time a file is opened and never on
+// boot: 1.6MB parsed at startup is a cost every board would pay and only this
+// one tab would use. a server from before the route answers 404 and the panel
+// says so instead of sitting there empty
+function mdBundle(){
+  if (window.CM6) return Promise.resolve(true);
+  if (mdLoad) return mdLoad;
+  mdLoad = new Promise(res => {
+    const s = document.createElement("script");
+    s.src = "/cm-markdown.js";
+    s.onload = () => res(!!window.CM6);
+    s.onerror = () => { mdLoad = null; res(false); };
+    document.head.append(s);
+  });
+  return mdLoad;
+}
+// the pack asks for this by name: while a drag selection is crossing markers it
+// wants to be told, or they flicker open and shut under the pointer
+function mdMouseUp(){
+  if (!mdView) return;
+  requestAnimationFrame(() => {
+    if (mdView) mdView.dispatch({ effects: window.CM6.setMouseSelecting.of(false) });
+  });
+}
+// the ticket list's own trick, restated because these two are built long after
+// that one was wired: the thumb shows while the pane is actually moving and
+// fades out 700ms after it rests
+function mdFade(el){
+  let t = null;
+  el.addEventListener("scroll", () => {
+    el.classList.add("scrolling");
+    clearTimeout(t);
+    t = setTimeout(() => el.classList.remove("scrolling"), 700);
+  }, { passive: true });
+}
+function mdBuild(){
+  const host = document.getElementById("magic3");
+  if (!host || host.dataset.md === "1") return host;
+  host.textContent = "";
+  host.dataset.md = "1";
+  host.classList.add("mdpanel");
+  const head = h("div", "mdhead");
+  const tabs = MD_ROOTS.map(r => {
+    const b = h("button", "tvb", r.label);
+    // seated from the very first paint, so a head with nothing behind it yet
+    // still shows one open folder rather than two shut ones
+    b.classList.toggle("on", r.root === mdRoot);
+    b.title = r.root;
+    b.onclick = () => { if (mdRoot === r.root) return; mdRoot = r.root; mdSig = ""; mdDrawList(); };
+    head.append(b);
+    return b;
+  });
+  const list = h("div", "mdlist");
+  mdFade(list);
+  const bar = h("div", "mdbar");
+  const back = h("button", "mdback", "‹");
+  back.title = "back to the files";
+  back.onclick = () => mdClose();
+  const name = h("span", "mdname");
+  const save = h("button", "mdsave", "save");
+  save.title = "save this file";
+  save.onclick = () => mdSave();
+  bar.append(back, name, save);
+  const edit = h("div", "mdedit");
+  const note = h("div", "mdnote");
+  host.append(head, list, bar, edit, note);
+  host._md = { head, tabs, list, bar, name, save, edit, note };
+  return host;
+}
+// back to the plain dashed box, with the editor taken down and every scrap of
+// panel state dropped, so a tab that does not use this is left looking exactly
+// as it did before the panel existed
+function mdOff(host){
+  if (!host || host.dataset.md !== "1") return;
+  mdTearDown();
+  mdFor = null; mdSig = ""; mdData = null;
+  host._md = null;
+  delete host.dataset.md;
+  host.classList.remove("mdpanel", "editing", "dirty");
+  // this teardown runs last of the three, so either of the other two may have
+  // taken the box over in this same turn and emptied it already. putting the
+  // stub line back now would wipe whichever one just arrived
+  if (host.dataset.p3 !== "1" && host.dataset.c3 !== "1") host.textContent = "magic box 3";
+}
+function mdTearDown(){
+  if (mdView){ mdView.destroy(); mdView = null; }
+  document.removeEventListener("mouseup", mdMouseUp);
+  mdOpen = null; mdClean = ""; mdLeave = false;
+}
+// one line at the foot of the panel. a receipt clears itself after a moment; a
+// refusal stays, because it is the only place he is told the save did not land
+function mdNote(host, text, bad){
+  if (!host || !host._md) return;
+  const n = host._md.note;
+  n.textContent = text || "";
+  n.classList.toggle("bad", !!bad);
+  clearTimeout(mdNoteT);
+  if (text && !bad) mdNoteT = setTimeout(() => {
+    if (host._md && host._md.note.textContent === text) mdNote(host, "");
+  }, 2500);
+}
+function mdDirty(){
+  const host = document.getElementById("magic3");
+  if (!host || !host._md) return false;
+  const dirty = !!mdView && !!mdOpen && mdView.state.doc.toString() !== mdClean;
+  host.classList.toggle("dirty", dirty);
+  if (!dirty) mdLeave = false;
+  return dirty;
+}
+function mdDrawList(){
+  const host = document.getElementById("magic3");
+  if (!host || !host._md) return;
+  const el = host._md;
+  MD_ROOTS.forEach((r, i) => el.tabs[i].classList.toggle("on", r.root === mdRoot));
+  const seat = ((mdData && mdData.roots) || []).find(r => r.root === mdRoot);
+  const files = (seat && seat.files) || [];
+  // the drawn list carries its own signature: rebuilding it on every poll would
+  // take the row out from under the pointer four times a minute for nothing
+  const sig = mdRoot + "|" + files.map(f => f.rel + ":" + f.mtime).join(",");
+  if (sig === mdSig) return;
+  mdSig = sig;
+  el.list.textContent = "";
+  if (!files.length){
+    // an empty folder is a fact and not a failure. the same italic line the
+    // ticket list puts up when a lane holds no cards in the open view
+    el.list.append(h("div", "tempty",
+      seat ? "no markdown in this folder yet" : "folder not found"));
+    return;
+  }
+  for (const f of files){
+    const b = h("button", "mdrow");
+    const dir = f.rel.slice(0, f.rel.length - f.name.length);
+    if (dir) b.append(h("span", "mdrowdir", dir));
+    b.append(document.createTextNode(f.name));
+    b.title = f.rel;
+    b.onclick = () => mdOpenFile(mdRoot, f.rel);
+    el.list.append(b);
+  }
+}
+async function mdOpenFile(root, rel){
+  const host = document.getElementById("magic3");
+  if (!host || !host._md) return;
+  mdNote(host, "opening");
+  const ready = await mdBundle();
+  if (!host._md) return;   // a tab switch took the panel apart while that loaded
+  if (!ready){ mdNote(host, "the editor did not load: restart the board's server", true); return; }
+  const r = await fetch("/mdfile?root=" + encodeURIComponent(root) +
+                        "&rel=" + encodeURIComponent(rel), { cache: "no-store" }).catch(() => null);
+  if (!host._md) return;
+  const d = r && r.ok ? await r.json().catch(() => null) : null;
+  if (!d){ mdNote(host, "could not open " + rel, true); return; }
+  mdTearDown();
+  mdOpen = { root, rel, mtime: d.mtime };
+  mdClean = d.text;
+  mdMount(host, d.text, d.crlf);
+  host._md.name.textContent = rel;
+  host._md.name.title = root + "/" + rel;
+  host.classList.add("editing");
+  mdNote(host, "");
+  mdDirty();
+}
+function mdMount(host, text, crlf){
+  const C = window.CM6, el = host._md;
+  const state = C.EditorState.create({
+    doc: text,
+    extensions: [
+      // a file written with windows endings keeps them. without this codemirror
+      // joins every line with \n on the way back out, and the first save would
+      // quietly rewrite the whole file for no reason he asked for
+      ...(crlf ? [C.EditorState.lineSeparator.of("\r\n")] : []),
+      C.markdown({ base: C.markdownLanguage }),
+      C.history(),
+      C.keymap.of([
+        { key: "Mod-s", preventDefault: true, run: () => { mdSave(); return true; } },
+        ...C.defaultKeymap, ...C.historyKeymap, C.indentWithTab,
+      ]),
+      C.collapseOnSelectionFacet.of(true),
+      C.mouseSelectingField,
+      C.livePreviewPlugin,
+      C.markdownStylePlugin,
+      C.linkPlugin({ openInNewTab: true }),
+      C.tableField,
+      // no copy button on fenced blocks: it is a control from another design
+      // system and the board has no such thing anywhere else on it
+      ...C.codeBlockField({ copyButton: false }),
+      C.editorTheme,
+      // marks the cursor's line, which is what the stylesheet reveals that
+      // line's raw markers on. the fill it paints is taken back off in css
+      C.highlightActiveLine(),
+      C.EditorView.lineWrapping,
+      C.EditorView.updateListener.of(u => { if (u.docChanged) mdDirty(); }),
+    ],
+  });
+  el.edit.textContent = "";
+  mdView = new C.EditorView({ state, parent: el.edit });
+  mdFade(mdView.scrollDOM);
+  mdView.contentDOM.addEventListener("mousedown",
+    () => mdView && mdView.dispatch({ effects: C.setMouseSelecting.of(true) }));
+  document.addEventListener("mouseup", mdMouseUp);
+  mdView.focus();
+}
+function mdClose(){
+  const host = document.getElementById("magic3");
+  if (!host || !host._md) return;
+  // unsaved work is never dropped on one click: the first press says so and the
+  // second one leaves, which is the only warning there is room for in here
+  if (mdDirty() && !mdLeave){
+    mdLeave = true;
+    mdNote(host, "not saved. press again to leave it", true);
+    return;
+  }
+  mdTearDown();
+  host._md.edit.textContent = "";
+  host._md.name.textContent = "";
+  host.classList.remove("editing", "dirty");
+  mdNote(host, "");
+  mdSig = "";
+  mdDrawList();
+}
+async function mdSave(){
+  const host = document.getElementById("magic3");
+  if (!host || !host._md || !mdView || !mdOpen) return;
+  const text = mdView.state.doc.toString();
+  const r = await fetch("/mdsave?root=" + encodeURIComponent(mdOpen.root) +
+                        "&rel=" + encodeURIComponent(mdOpen.rel) +
+                        "&mtime=" + encodeURIComponent(mdOpen.mtime),
+                        { method: "POST", body: text }).catch(() => null);
+  if (!host._md || !mdOpen) return;
+  const d = r ? await r.json().catch(() => null) : null;
+  if (r && r.status === 409){
+    // somebody else wrote the file while it was open in here. his text stays
+    // exactly where it is, in the editor, and the panel says so plainly rather
+    // than writing over their work or throwing his away
+    mdNote(host, "changed on disk, so this was not saved", true);
+    return;
+  }
+  if (!r || !r.ok || !d || !d.ok){
+    mdNote(host, (d && d.error) || "could not save", true);
+    return;
+  }
+  mdOpen.mtime = d.mtime;
+  mdClean = text;
+  mdSig = "";        // the file's stamp moved, so let the list redraw behind this
+  mdDirty();
+  mdNote(host, "saved");
+}
+async function mdPoll(){
+  // one tab's thing only, the same rule the picture panel and the chat follow
+  if (activeOwner !== MD_LANE){ mdOff(document.getElementById("magic3")); return; }
+  const host = mdBuild();
+  if (!host || !host._md) return;
+  if (mdFor !== activeOwner){ mdFor = activeOwner; mdSig = ""; }
+  const r = await fetch("/mdfiles", { cache: "no-store" }).catch(() => null);
+  if (!host._md) return;   // a tab switch took the panel apart while that was in the air
+  const d = r && r.ok ? await r.json().catch(() => null) : null;
+  if (!d){
+    // a server started before these routes existed. saying which one thing to
+    // do beats an empty box that looks broken
+    if (!mdData && mdSig !== "no-routes"){
+      mdSig = "no-routes";
+      host._md.list.textContent = "";
+      host._md.list.append(h("div", "tempty", "restart the board's server to reach the files"));
+    }
+    return;
+  }
+  mdData = d;
+  if (mdOpen){
+    // the open file's stamp as the list last saw it. moved means an agent has
+    // written it underneath, and saying so here is earlier and kinder than
+    // letting him type on and find out when the save is refused
+    const seat = d.roots.find(x => x.root === mdOpen.root);
+    const f = seat && seat.files.find(x => x.rel === mdOpen.rel);
+    if (f && f.mtime !== mdOpen.mtime && !host._md.note.classList.contains("bad"))
+      mdNote(host, "changed on disk since you opened it", true);
+    return;
+  }
+  mdDrawList();
+}
+mdPoll(); setInterval(mdPoll, MD_POLL);
+
 // the picture, clicked, grows out of the panel until it fills the screen over a
 // dark veil, and shrinks back into the panel on the next click outside it or on
 // Escape. the thing that grows is the panel's own img, carried into the layer
@@ -7357,17 +7745,23 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     const cs = getComputedStyle(el);
     const fs = parseFloat(cs.fontSize);
     const m = fmetrics(cs);
+    // the box the block has to stay inside. an editable that scrolls inside a
+    // pane of its own, which the markdown panel's editor does, is bounded by
+    // that pane and not by its own height: measured against itself a caret
+    // scrolled out of sight still counts as inside, and the block then hangs
+    // over whatever is drawn under the panel
+    const clip = (el.closest(".cm-scroller") || el).getBoundingClientRect();
     const sel = getSelection();
     if (sel.rangeCount){
       const rr = sel.getRangeAt(0).getBoundingClientRect();
       if (rr.height) return { x: rr.left, base: rr.top + m.asc, fs, fbA: m.fbA, fbD: m.fbD,
-                              capH: m.capH, clip: el.getBoundingClientRect() };
+                              capH: m.capH, clip };
     }
     // an empty editable gives a zero rect; park the block at the field's
     // start, on the baseline the strut line box will give the first letter
     const r = el.getBoundingClientRect();
     return { x: r.left, base: r.top + (r.height - m.boxH) / 2 + m.asc, fs,
-             fbA: m.fbA, fbD: m.fbD, capH: m.capH, clip: r };
+             fbA: m.fbA, fbD: m.fbD, capH: m.capH, clip };
   }
 
   let raf = 0, px = 0, py = 0;
