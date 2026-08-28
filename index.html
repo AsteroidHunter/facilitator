@@ -6432,7 +6432,11 @@ function mdNote(host, text, bad){
 function mdDirty(){
   const host = document.getElementById("magic3");
   if (!host || !host._md) return false;
-  const dirty = !!mdView && !!mdOpen && mdView.state.doc.toString() !== mdClean;
+  // sliceDoc and not doc.toString: a document's toString always joins its lines
+  // with \n whatever separator the state was given, so on a file with windows
+  // endings the two strings could never match and the panel stood dirty from
+  // the moment it opened, with nothing typed into it
+  const dirty = !!mdView && !!mdOpen && mdView.state.sliceDoc() !== mdClean;
   host.classList.toggle("dirty", dirty);
   if (!dirty) mdLeave = false;
   return dirty;
@@ -6815,7 +6819,10 @@ function mdClose(){
 async function mdSave(){
   const host = document.getElementById("magic3");
   if (!host || !host._md || !mdView || !mdOpen) return;
-  const text = mdView.state.doc.toString();
+  // the same reason as in mdDirty, and here it is the file itself at stake:
+  // toString would have written every \r\n in the file back as a bare \n, which
+  // is the silent rewrite the line separator above was added to prevent
+  const text = mdView.state.sliceDoc();
   const r = await fetch("/mdsave?root=" + encodeURIComponent(mdOpen.root) +
                         "&rel=" + encodeURIComponent(mdOpen.rel) +
                         "&mtime=" + encodeURIComponent(mdOpen.mtime),
