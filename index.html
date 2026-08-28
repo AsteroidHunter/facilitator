@@ -1235,14 +1235,35 @@
      padding would run the hairline past the answer's first letter. as a margin
      the border box is the answer's own column and the line starts where the
      words start.
-     the row's own fill covers the answer behind it and the solid shade above it
-     fills the step up to the sent box. both are the card's own white, so
-     nothing new is painted and the answer under them is simply not on show */
+     the row's own fill covers the answer behind it, and it is the card's own
+     white, so nothing new is painted and the answer under it is simply not on
+     show. the shade that used to stand above the bar has moved to its own rule
+     below, because it is only wanted some of the time */
   body.focus .box.sel .bottombar{
     display:flex; align-items:flex-end; gap:var(--sp-s); flex:none;
     margin:0 calc(var(--pad-x)*2/3) 0 calc(var(--pad-x)*2/3);
     border-top:1px solid var(--line);
     background:var(--card);
+  }
+  /* the white over the step, and it is hung on there being a sent box to leave
+     one. the shade is the bar's own fill carried a step up, the step being the
+     air the box leaves under itself, so the gap between the two is the card's
+     white and never the answer showing through it.
+     on a card with no box there is no step and nothing to fill, and this same
+     white was landing on the foot of the answer's fade instead. it looked
+     weird and sharp rather than a progressive fade. the
+     fade ends on the cut, which is 3.5px above the bar, and the shade began a
+     whole step above the bar, so it painted over the last 5.05px of the ramp
+     and stopped the words dead while they still carried a fifth of their ink. a
+     straight line across the letters where the dissolve should have finished.
+     measured off the mask itself, alpha fell 0.149 between two device rows
+     there; the fade under the title, kept gentle, never falls more
+     than 0.024 between two rows, and with this gated the fade above the bar
+     falls 0.024 too. the two edges are one curve again, which is what they were
+     always written to be: the same four stops off the same two numbers.
+     :has and not a class, because the script already puts the box into this
+     wrapper and takes it out again, so there is nothing else to keep in step */
+  body.focus .box.sel .pendwrap:has(.pendlist) .bottombar{
     box-shadow:0 calc(var(--sp-s) * -1) 0 var(--card);
   }
   /* the row he types on: the bare field under a hairline, and nothing else. the
