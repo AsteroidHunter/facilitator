@@ -373,6 +373,12 @@
     --m2-y:0.5184;   --m2-h:0.2432;
     --goal-x:calc(var(--ox) + var(--cw)*0.788);    --goal-w:calc(var(--cw)*0.192);
     --goal-y:0.8256; --goal-h:0.1408;
+    /* the slim scrollbar's lane, the one width every scroller on the board is
+       drawn to. it stands here with the measures and not down beside the rules
+       that paint it because two places read it: those rules, and the answer's
+       own right padding, which has to give back exactly this much so a lane
+       laid inside its box moves none of its words */
+    --sbar:9px;
     /* spacing tokens, fractions of the stage, no raw pixels */
     --sp-xs:calc(var(--ch)*0.005);  --sp-s:calc(var(--ch)*0.0095);
     --sp-m:calc(var(--ch)*0.0195);  --sp-x:calc(var(--cw)*0.0085);
@@ -582,11 +588,27 @@
      thing on the card measured by eye and asked for by the pixel. it sits
      behind the box on this card and cannot space anything by itself, so the
      script at the foot of this file reads it off this rule and holds the ramp
-     that same distance off the box's top edge */
+     that same distance off the box's top edge.
+     the right third is written less the scrollbar's lane, and the two together
+     still come to five thirds. a scrollbar the board draws itself is not an
+     overlay: it is laid inside the answer's border box and takes its width off
+     the words, so a lane added and nothing given back would have walked the
+     right hand edge of every line --sbar to the left. taking the lane out of
+     the padding puts the lane where the margin was and leaves the words where
+     they were, to the pixel, and the words still stand five thirds of --pad-x
+     off the answer's own right edge, counting the lane, exactly as before.
+     the gutter is held whether the answer scrolls or not, and that is the other
+     half of it: overflow:auto only makes room for the lane on the answers that
+     actually overflow, so without this a short answer would have spent the
+     smaller padding with no lane to fill it and its words would have stood
+     --sbar further right than a long one's. stable holds the room on every
+     answer, so one column serves them all */
   body.focus .box.sel .reply{
     flex:1 1 auto; min-height:0; overflow-y:auto;
     font-size:18px; line-height:1.55;
-    padding-left:calc(var(--pad-x)*2/3); padding-right:calc(var(--pad-x)*5/3);
+    padding-left:calc(var(--pad-x)*2/3);
+    padding-right:calc(var(--pad-x)*5/3 - var(--sbar));
+    scrollbar-gutter:stable;
     margin-bottom:3.5px;
   }
   /* the answer's own edge where it meets the sent box, and one of the card's
@@ -1443,15 +1465,30 @@
   /* the markdown panel's file list is on these same selectors: a list of
      files scrolls the way the list of cards does, and so does the open
      file under it, all three out of one rule */
+  /* the card's answer joins them: the stock bar it was left with
+     ran the whole height of the card and read as furniture. it takes the same
+     lane, the same bare track, the same thumb and the same self-hiding, so the
+     one scroller he reads on is drawn like every other scroller on the board.
+     the thumb's LENGTH is the browser's and is left alone: it says how much
+     there is to scroll, so an answer that only just overflows is meant to show
+     a nearly full length thumb. thin and out of sight at rest is the fix, and
+     that matters more here than in the lists: the answer now carries scroll
+     room under its last line for the fade, so answers that used to fit exactly
+     scroll by a few pixels and would otherwise wear a bar with nothing to say.
+     the lane is written once as --sbar because the answer gives it back out of
+     its own right padding */
   #tiklist::-webkit-scrollbar, #tickets::-webkit-scrollbar,
   #magic3 .mdlist::-webkit-scrollbar,
-  #magic3 .cm-scroller::-webkit-scrollbar{width:9px}
+  #magic3 .cm-scroller::-webkit-scrollbar,
+  .box .reply::-webkit-scrollbar{width:var(--sbar)}
   #tiklist::-webkit-scrollbar-track, #tickets::-webkit-scrollbar-track,
   #magic3 .mdlist::-webkit-scrollbar-track,
-  #magic3 .cm-scroller::-webkit-scrollbar-track{background:transparent}
+  #magic3 .cm-scroller::-webkit-scrollbar-track,
+  .box .reply::-webkit-scrollbar-track{background:transparent}
   #tiklist::-webkit-scrollbar-thumb, #tickets::-webkit-scrollbar-thumb,
   #magic3 .mdlist::-webkit-scrollbar-thumb,
-  #magic3 .cm-scroller::-webkit-scrollbar-thumb{
+  #magic3 .cm-scroller::-webkit-scrollbar-thumb,
+  .box .reply::-webkit-scrollbar-thumb{
     background:transparent; border:3px solid transparent;
     background-clip:padding-box; border-radius:99px}
   #tiklist.scrolling::-webkit-scrollbar-thumb, #tiklist:hover::-webkit-scrollbar-thumb,
@@ -1459,7 +1496,9 @@
   #magic3 .mdlist.scrolling::-webkit-scrollbar-thumb,
   #magic3 .mdlist:hover::-webkit-scrollbar-thumb,
   #magic3 .cm-scroller.scrolling::-webkit-scrollbar-thumb,
-  #magic3 .cm-scroller:hover::-webkit-scrollbar-thumb{
+  #magic3 .cm-scroller:hover::-webkit-scrollbar-thumb,
+  .box .reply.scrolling::-webkit-scrollbar-thumb,
+  .box .reply:hover::-webkit-scrollbar-thumb{
     background-color:var(--line-strong)}
   .trow{
     position:relative; flex:none; height:calc(var(--ch)*0.072);
@@ -4057,6 +4096,22 @@ function watchRise(node){
   riseBand(node);
 }
 
+// the thumb shows while the answer is actually moving and fades out 700ms after
+// it rests, which is the ticket list's own trick and the markdown panes' after
+// it. restated here rather than shared with them for the reason the markdown
+// pane restated it: those two are wired once over elements that exist from the
+// first paint, and a card is built and rebuilt long after that block has run.
+// the number and the class are the same in all three, so the answer's bar
+// behaves exactly as the bars beside it do
+function barFade(node){
+  let t = null;
+  node.addEventListener("scroll", () => {
+    node.classList.add("scrolling");
+    clearTimeout(t);
+    t = setTimeout(() => node.classList.remove("scrolling"), 700);
+  }, { passive: true });
+}
+
 // every answer must end evenly against its box: the answer's room snaps down to
 // a whole number of its own text lines, so the last visible line always sits at
 // the same depth of the fade band. that snap is the whole reason the fade reads
@@ -4583,6 +4638,8 @@ function makeBox(b, i, state){
     // answer under the title, and the row he types in under the bar's hairline
     watchRise(reply);
     watchRise(ta);
+    // and the answer's own thumb, which is only inked while it is moving
+    barFade(reply);
 
     // explicit focus ring: title -> text -> attach -> send -> cross -> moon -> (wrap)
     const ring = [titleEl, ta, clip, send, x, arc];
