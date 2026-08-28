@@ -1896,8 +1896,15 @@
   #magic3 .md-gap{white-space:pre-wrap}
   /* the hanging indent, which is what makes a wrapped list item read as one
      item. --hang is that item's own text column, written on the line by the
-     plugin because it is different on every line; 6px is codemirror's own line
-     padding, kept in the sum so nothing shifts sideways against the body */
+     plugin because it is different on every line; --md-lpad is the line's own
+     left padding, kept in the sum so an indented line and a plain one start on
+     one column */
+  /* the hang is a length and never a percentage. a percentage looks tempting,
+     to keep a long yaml key from eating a panel dragged narrow, but text-indent
+     measures its percentages against the line's own width while padding-left
+     measures them against the line's containing block, so the two would not
+     cancel and every key would sit on a different column. rendered and looked
+     at before this was written */
   #magic3 .md-hang{padding-left:calc(var(--md-lpad) + var(--hang)); text-indent:calc(0px - var(--hang))}
   /* the boxes that build that column: the file's own indent, and the marker.
      both take an exact width off the plugin. text-indent is inherited and an
