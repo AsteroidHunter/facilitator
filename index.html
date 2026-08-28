@@ -469,6 +469,18 @@
      already had and the only thing that changes at rest is the pointer */
   body.focus .box.sel .wtpick{cursor:pointer}
   body.focus .box.sel .bname{font:inherit; color:inherit; white-space:pre}
+  /* a lane with no repository under it has no names to offer, and a picker with
+     no rows opens as a thin empty rectangle and nothing else. so on such a lane
+     the fork, the name and the list are all gone: there is no target left to
+     click and no empty list to open.
+     what stays is the .branch span itself, emptied. it is the bar's one
+     flexible item, the thing that grows into the leftover room and so holds the
+     defer chip and the cross against the right end. an empty span still grows,
+     so those two land on the pixels they hold on a lane that does have
+     branches, and the bar's own height is the fixed --cardbar-h either way, so
+     nothing below the bar moves either */
+  body.focus .box.sel .branch.norepo .wtpick,
+  body.focus .box.sel .branch.norepo + .wtmenu{display:none}
   /* the worktree mark, a branch fork drawn in stroke only. it takes its ink
      from the name beside it through currentColor, stands 11px so it matches the
      cap height of the 11.5px mono line, and is dropped 1.4px below the baseline
@@ -2913,6 +2925,17 @@ function branchLabel(b){
   laneWorktrees(b.owner);   // fill it for the next poll
   return "";
 }
+// whether this lane has anything for the bar's fork to offer. an empty list is
+// what /worktrees answers for a lane with no git repository under its folder,
+// and it is also what a repository whose worktrees are all detached answers, so
+// the one question the bar has to ask is the same for both: is there a name to
+// pick. a lane whose answer has not landed yet counts as none, so the fork
+// arrives once when the answer does rather than flashing and going away
+function laneHasBranches(owner){
+  const lane = wtLanes[owner];
+  if (!lane){ laneWorktrees(owner); return false; }   // fill it for the next poll
+  return lane.names.length > 0;
+}
 function shutWtMenu(pick, menu){
   menu.classList.remove("open");
   pick.setAttribute("aria-expanded", "false");
@@ -4203,6 +4226,11 @@ function makeBox(b, i, state){
     // to the card, so a card switch cannot leave the last card's name standing
     const topbar = h("div", "topbar");
     const branch = h("span", "branch");
+    // the fork starts hidden and the redraw below uncovers it once the lane's
+    // names have landed. this way round on purpose: a lane with no repository
+    // never shows a fork at all, not even for the one frame before the answer
+    // arrives, which is the whole complaint being fixed here
+    branch.classList.add("norepo");
     const wtpick = h("span", "wtpick");
     wtpick.setAttribute("role", "button");
     wtpick.tabIndex = 0;
@@ -4393,7 +4421,7 @@ function makeBox(b, i, state){
     els[b.id] = { box, reply, meta, metaNote, histPos, histUp, histDown,
                   pend: null, pendRaw: "", foldRun: 0, ta, send, wstat, toc: entry, sec,
                   titleEl, tocTitle: entry.querySelector(".ttitle"), arc, x,
-                  topbar, bname, wtpick, wtmenu,
+                  topbar, branch, bname, wtpick, wtmenu, hasWt: false,
                   pendwrap, bottombar, clip, clipfile, tick };
     // the ramp's top edge follows the wrapper from the card's first frame, box
     // or no box, so it is armed here and not when a box is built
@@ -4711,6 +4739,16 @@ function apply(state){
     // drop a hover
     const wtl = branchLabel(b);
     if (el.bname.textContent !== wtl) el.bname.textContent = wtl;
+    // and whether the bar carries a fork at all. this runs on every poll too,
+    // so the class is written only on the flip, which happens once per lane when
+    // its names land. an open list on a lane that has just lost its names is
+    // shut in the same breath, since the thing that opened it is going away
+    const hasWt = laneHasBranches(b.owner);
+    if (el.hasWt !== hasWt){
+      el.hasWt = hasWt;
+      el.branch.classList.toggle("norepo", !hasWt);
+      if (!hasWt) shutWtMenu(el.wtpick, el.wtmenu);
+    }
     // the sent box, reconciled rather than redrawn: see syncPend. the guard is
     // the joined text, so a poll that brings nothing new touches no dom at all
     const pt = (b.pendingTexts || []).join("\n\n");
