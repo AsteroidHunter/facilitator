@@ -578,6 +578,82 @@
     padding-left:calc(var(--pad-x)*2/3); padding-right:calc(var(--pad-x)*5/3);
     margin-bottom:3.5px;
   }
+  /* the answer's own edge where it meets the sent box, and one of the card's
+     three fades.
+     on a card whose box stands under the answer in the column, the answer ends
+     at its own bottom edge and dissolves into the box over the ramp's depth. on
+     this card the box is laid OVER the answer, so the answer's own bottom edge
+     is far below, behind the box and the bar and the fill of both, and a ramp
+     cut there could never be seen. what can be seen is the line where the answer
+     actually stops, the box's own top edge, and cut dead that is full ink on one
+     row of pixels and nothing on the next. so the ramp is moved onto that line:
+     the same depth and the same two stops, written from the top instead of from
+     the bottom so it can end on the band the script measures.
+     the line is not quite the box's top edge and that matters. it is that edge
+     less the answer's own margin-bottom, the 3.5px of clear air, so the white
+     over this box is the same width the other cards leave.
+     three layers, and the two operators between them are the whole of it.
+     the first is the ramp above, multiplied into whatever the other two make, so
+     it governs the answer whatever the layers under it say.
+     the second is that same shape run across instead of up: full one ramp depth
+     to the left of the box, nothing on the box's own left edge, and back to full
+     a quarter of a depth inside it. the return lands well under the box's own
+     side padding, so it is finished under the box's fill and can never be seen,
+     and it keeps the answer under the box painted whole, so a box fading in over
+     those words fades in over words and not over a hole cut in them.
+     the third keeps the across ramp off the rest of the answer, and it is why a
+     plain across ramp was not the answer: one on its own would cut the same pale
+     stripe through every line from the title down, since a gradient knows
+     nothing about where the box stands. this layer is black down to the box's
+     top edge and nothing below it, and it is ADDED to the ramp rather than
+     multiplied, so above the box the answer is whole at its full width and below
+     it the ramp is the only thing left. it stays a hard line and it has to: it
+     is a switch and not a fade. the softness is carried by the first layer.
+     --boxband is the one number css cannot work out for itself: the box is the
+     answer's sibling laid over it and its height is its own content's, so no
+     rule can name that edge. the script measures it and writes it here, and
+     until it does the fallback is nothing, which leaves the band black to the
+     floor and the answer whole, so the worst case is the old drawing and not a
+     hole. it changes nothing that is measured, only where this ramp may stop */
+  body.focus .box.sel{--replyfade:22px}
+  body.focus .box.sel .reply{
+    -webkit-mask-image:
+      linear-gradient(to bottom,
+        rgba(0,0,0,1) calc(100% - var(--boxband, 0px) - var(--replyfade)),
+        rgba(0,0,0,.80) calc(100% - var(--boxband, 0px) - var(--replyfade)*.72),
+        rgba(0,0,0,.35) calc(100% - var(--boxband, 0px) - var(--replyfade)*.38),
+        rgba(0,0,0,0) calc(100% - var(--boxband, 0px))),
+      linear-gradient(to right,
+        rgba(0,0,0,1) calc(var(--boxleft) - var(--replyfade)),
+        rgba(0,0,0,.80) calc(var(--boxleft) - var(--replyfade)*.72),
+        rgba(0,0,0,.35) calc(var(--boxleft) - var(--replyfade)*.38),
+        rgba(0,0,0,0) var(--boxleft),
+        rgba(0,0,0,1) calc(var(--boxleft) + var(--replyfade)*.25)),
+      linear-gradient(to bottom,
+        rgba(0,0,0,1) calc(100% - var(--boxband, 0px)),
+        rgba(0,0,0,0) calc(100% - var(--boxband, 0px)));
+    mask-image:
+      linear-gradient(to bottom,
+        rgba(0,0,0,1) calc(100% - var(--boxband, 0px) - var(--replyfade)),
+        rgba(0,0,0,.80) calc(100% - var(--boxband, 0px) - var(--replyfade)*.72),
+        rgba(0,0,0,.35) calc(100% - var(--boxband, 0px) - var(--replyfade)*.38),
+        rgba(0,0,0,0) calc(100% - var(--boxband, 0px))),
+      linear-gradient(to right,
+        rgba(0,0,0,1) calc(var(--boxleft) - var(--replyfade)),
+        rgba(0,0,0,.80) calc(var(--boxleft) - var(--replyfade)*.72),
+        rgba(0,0,0,.35) calc(var(--boxleft) - var(--replyfade)*.38),
+        rgba(0,0,0,0) var(--boxleft),
+        rgba(0,0,0,1) calc(var(--boxleft) + var(--replyfade)*.25)),
+      linear-gradient(to bottom,
+        rgba(0,0,0,1) calc(100% - var(--boxband, 0px)),
+        rgba(0,0,0,0) calc(100% - var(--boxband, 0px)));
+    /* written once and unprefixed. this chrome takes -webkit-mask-composite as
+       an alias of it and resolves both to the standard keywords, so a second
+       prefixed line would say the same thing in words the alias immediately
+       translates back, and could only ever go wrong if the two fell out of
+       order */
+    mask-composite:intersect, add, add;
+  }
   /* ---- the sent-and-waiting box ------------------------------------------- */
   /* the card starts with no box at all. the board only carries a sent strip
      while a send of his is unanswered, so the first send builds one and the
@@ -2630,6 +2706,8 @@ let lastState = null;
 // bar jumps anywhere directly.
 const FOCUS = document.body.classList.contains("focus");
 let selectedId = localStorage.getItem("selbox") || null;
+let shownId = null;   // the card the page is actually showing, so a selection
+                      // that changed without a click can be noticed
 const lastSel = {};   // owner -> the card you were on when you left its row
 
 // project tabs: one owner shown at a time; ?project=owner locks a pulled-out
@@ -2714,7 +2792,7 @@ function setTab(owner){
 // clear the selection entirely: without this, a lane with no cards kept
 // rendering the previously selected card from another lane
 function deselect(){
-  selectedId = null; localStorage.removeItem("selbox");
+  selectedId = null; shownId = null; localStorage.removeItem("selbox");
   for (const k of Object.keys(els)){
     els[k].box.classList.remove("sel");
     els[k].toc.classList.remove("t-sel");
@@ -3145,7 +3223,7 @@ function select(id, opts){
   if (!els[id]) return;
   cancelAutoNext();
   if (hist && hist.id !== id) histExit(hist.id);   // every card opens on its live reply
-  selectedId = id; localStorage.setItem("selbox", id);
+  selectedId = id; shownId = id; localStorage.setItem("selbox", id);
   markSeen(id);
   const b = lastState?.boxes.find(x => x.id === id);
   if (b) lastSel[b.owner] = id;
@@ -3167,6 +3245,11 @@ function select(id, opts){
   if (opts?.focus) els[id].ta.focus({ preventScroll: true });
   updatePwd();
   scrollTo({ top: 0, behavior: "instant" });
+  // a card switch is a new answer of a new length in the same room, so the phase
+  // the last card's snap set means nothing here. once now and once on the next
+  // frame, since the card was display:none until the line above
+  snapCard();
+  requestAnimationFrame(snapCard);
 }
 
 function updatePwd(st){
@@ -3242,8 +3325,13 @@ function applySelection(state){
     selectedId = pick.id; localStorage.setItem("selbox", selectedId);
   }
   if (hist && hist.id !== selectedId) histExit(hist.id);   // selection moved without select()
+  const moved = shownId !== selectedId;
   for (const k of Object.keys(els)) els[k].box.classList.toggle("sel", k === selectedId);
   updatePwd(state);
+  // a selection that arrived without going through select(), which is the first
+  // load and any fallback pick, still lands on a card that was display:none a
+  // moment ago and has never been measured
+  if (moved){ shownId = selectedId; requestAnimationFrame(snapCard); }
 }
 
 function statusOf(b){
@@ -3322,7 +3410,11 @@ function growPend(el, arrive){
   el.pendwrap.insertBefore(pend, el.bottombar);
   el.pend = pend;
   wirePend(el, pend);
-  if (arrive) risePend(pend);
+  // the box arriving is the one thing that changes the card's RESTING geometry
+  // after it is built: the wrapper is 40.94px taller from now on, so the answer's
+  // room is that much shorter and the phase the snap set has to be set again. an
+  // arrival re-snaps when it lands, not while it is still rising
+  if (arrive) risePend(el, pend); else snapCard();
   return pend;
 }
 
@@ -3339,7 +3431,7 @@ function growPend(el, arrive){
 // rows sent while it rises land in a body that is display:none folded, so they
 // add nothing to the height and the measured end stays true
 const PEND_RISE_MS = 260;   // the number the css rule carries
-function risePend(pend){
+function risePend(el, pend){
   const to = pend.getBoundingClientRect().height;
   const gap = getComputedStyle(pend).marginBottom;   // the band under the box,
   // read rather than typed here, so it travels with the box on one run
@@ -3366,6 +3458,7 @@ function risePend(pend){
       pend.removeEventListener("animationend", off);
       pend.classList.remove("appear");   // so a later reflow cannot replay it
     });
+    snapCard();   // the box has taken its room; the answer ends against it again
   };
   // two ends can finish the run, the transition and a timer behind it, for the
   // same reason the fold carries both
@@ -3378,6 +3471,7 @@ function dropPend(el){
   el.pend.remove();
   el.pend = null;
   el.pendRaw = "";
+  snapCard();   // the room the box held is the answer's again
 }
 
 // one row: the words, the time that comes up on a drag, and the delivery word
@@ -3588,6 +3682,166 @@ function foldPend(el, open){
 function padPair(pend){
   const cs = getComputedStyle(pend);
   return [cs.paddingTop, cs.paddingBottom];
+}
+
+// ---- the fade, the snap and the title's air --------------------------------
+// three passes that hold one number between them, and they are the fragile part
+// of the card. the mock ran them over three fixed panes with one fixed answer
+// and no box until a send; here the answer, the card's furniture and the message
+// count all vary, and every difference below is written down where it is made.
+
+// the strip of the answer that stands below its room, measured off the wrapper
+// and written in whole pixels. it is the one thing both passes below need, so it
+// is worked out once here: the line the ramp is cut on and the line the snap
+// counts to are the same line by construction.
+// the wrapper and not the box: the box does not exist until the first send, and
+// the typing bar under it stands in the same place, so the wrapper's top edge is
+// the one edge that is there from the first frame.
+// whole pixels, and that is not tidiness. this band becomes a gradient stop in
+// the middle of the answer, and chrome does not paint a stop asked for at a
+// fraction of a pixel where it was asked; at every whole number it does. the
+// rounding spends at most half a pixel of the clear air over the box, and the
+// snap reads the same rounded number, so the answer's last line keeps its phase
+// to the pixel
+function boxBand(reply, wrap){
+  const clear = parseFloat(getComputedStyle(reply).marginBottom) || 0;
+  const b = reply.getBoundingClientRect().bottom -
+            (wrap.getBoundingClientRect().top - clear);
+  return Math.max(0, Math.round(b));
+}
+
+// the ramp's own top edge, written on the answer as --boxband. a ResizeObserver
+// and not a timer or a hook on each send: it delivers after layout and before
+// paint on every frame the wrapper's height changes, which is every frame of a
+// fold, of the first arrival and of a window resize, so the ramp's top edge and
+// the box's top edge are the same line on every frame rather than one frame
+// behind it. writing the property cannot start a loop: it feeds a mask, and a
+// mask changes what is painted, never what is measured
+function watchBand(el){
+  const write = () => el.reply.style.setProperty("--boxband", boxBand(el.reply, el.pendwrap) + "px");
+  if (window.ResizeObserver){
+    const ro = new ResizeObserver(write);
+    ro.observe(el.pendwrap);
+    ro.observe(el.reply);
+  }
+  write();
+}
+
+// every answer must end evenly against its box: the answer's room snaps down to
+// a whole number of its own text lines, so the last visible line always sits at
+// the same depth of the fade band. that snap is the whole reason the fade reads
+// clean: it stands the line the ramp is cut on on a whole line of type, so a
+// whole line's ink always lies inside the ramp and always dissolves to nothing.
+// the room's foot is the band and not the answer's own bottom edge, because on
+// this card the box is laid over the answer: the room runs from the answer's
+// first line down to the 3.5px of clear air above the box's top edge, and that
+// 3.5 is the answer's own margin-bottom read off the sheet rather than typed in
+// here, so the two feet are one measure by construction.
+// the remainder is spent as a margin at the top of the answer, and as the NEARER
+// whole line rather than always the next one down, so the move is at most half a
+// line and the air under the title is disturbed as little as the parity allows.
+// the answer's own foot is no help: the cut is the box's top edge less the clear
+// air, the box is pinned to the card's floor, and the answer scrolls from its own
+// first line, so a margin at the foot moves neither of those.
+//
+// three differences from the mock, and all three are the real board being
+// variable where the sheet was fixed.
+// the mock walks every .reply on its page. here that is 259 answers, all but one
+// of them inside a card that is display:none, whose every rect reads zero. so
+// this walks the one card on screen, which is also the only one whose numbers
+// mean anything.
+// the mock has four moments to run at, because nothing else on its page can
+// change. here the answer's room also changes when he switches cards, when a new
+// reply lands, and when the box arrives or leaves, so those call it too.
+// a fold does NOT call it, and neither does a send once the box exists. opening
+// and folding are reversible and return the box to the same resting height, so
+// there is nothing to re-snap for; and re-snapping mid fold would slide the
+// answer's lines under him while he is watching the box move
+function snapCard(){
+  if (!FOCUS) return;
+  const el = els[selectedId];
+  if (!el || !el.box.classList.contains("sel")) return;
+  const pend = el.pend;
+  if (pend && (pend.classList.contains("open") || pend.classList.contains("motion") ||
+               pend.classList.contains("rising"))) return;
+  const r = el.reply;
+  const head = el.box.querySelector(".head");
+  // the title's slide is undone before a single measurement is taken, so every
+  // run reads the sheet's own head and not the head the last run left
+  head.style.paddingTop = "";
+  el.titleEl.style.marginBottom = "";
+  r.style.marginTop = "";
+  const cs = getComputedStyle(r);
+  const line = parseFloat(cs.lineHeight);
+  const rect = r.getBoundingClientRect();
+  if (!line || !rect.height) return;     // a card that is not laid out yet
+  // an answer with no ink has no line grid to snap to, and pushing an empty box
+  // down by a fraction of a line would only move the title for nothing
+  const first = [...r.children].find(n => n.getBoundingClientRect().height > 2);
+  if (!first) return;
+  const room = rect.height - boxBand(r, el.pendwrap) -
+               parseFloat(cs.paddingTop || 0) - parseFloat(cs.paddingBottom || 0);
+  const rem = room % line;
+  const s = rem > line / 2 ? rem - line : rem;
+  if (Math.abs(s) > 0.5) r.style.marginTop = s.toFixed(2) + "px";
+  // the answer has moved, so the title's two gaps are no longer a pair. this
+  // runs from inside the snap and not beside it, so the two can never be a
+  // frame apart
+  tiltTitleAir(el, first);
+}
+
+// the card gives the title one measure of air over it and the same measure under
+// it, and the snap above has just spent its remainder in the lower of the two.
+// this puts the pair back level by sliding the title itself, and nothing else.
+// the slide is taken entirely inside the head: half comes off the head's own
+// padding and the same half goes onto the title's bottom margin, so the head's
+// height is the number it always was. that matters more than it looks: the head
+// is the one thing standing over the answer in the column, so a head that does
+// not change height is an answer that does not move, an unchanged room for the
+// snap to measure, an unchanged remainder, and a fade that cannot be touched by
+// anything written here. it also means this can never argue with itself, since
+// nothing it writes can change what it read.
+// the gaps are read off the type's own boxes and not off the elements'. a Range
+// over the words hands back the line's content box, which is where the letters
+// live; the element box is not. the two ways of measuring disagree by about
+// three and a half pixels and only one of them is white he can see.
+// the mock always finds a <p> under the answer. here fmt writes lists, quotes
+// and fenced blocks too, so the first line of ink is taken off whatever the
+// first laid-out child turns out to be
+function tiltTitleAir(el, first){
+  const head = el.box.querySelector(".head"), title = el.titleEl,
+        bar = el.topbar, reply = el.reply;
+  if (!head || !title || !bar || !first) return;
+  // the card's own padding, which is what stands here: the pass this is called
+  // from wound the last slide back before it measured anything
+  const hp = parseFloat(getComputedStyle(head).paddingTop);
+  const rg = document.createRange();
+  rg.selectNodeContents(title);
+  const t = rg.getBoundingClientRect();
+  rg.selectNodeContents(first);
+  const lines = rg.getClientRects();
+  let a = null;
+  for (let i = 0; i < lines.length && !a; i++) if (lines[i].height > 2) a = lines[i];
+  if (!a || !t.height) return;
+  const over = t.top - bar.getBoundingClientRect().bottom;
+  // the answer's scrollTop is added back because the first line's rect says
+  // where that line is now, and what this needs is where it is with the answer
+  // at its own top, which is the state every moment below is read in
+  const under = a.top + reply.scrollTop - t.bottom;
+  const tilt = (under - over) / 2;
+  if (!isFinite(tilt) || Math.abs(tilt) < 0.02) return;
+  // both halves are written on the sixty fourth of a pixel the engine lays out
+  // on, and that is not tidiness either. chrome cuts every length down to that
+  // grid rather than rounding it, so two numbers asked for off the grid come
+  // back a unit short of the one they were cut from, and a head one unit shorter
+  // is an answer one unit higher, which is a whole line re-drawn a device pixel
+  // off. asked for on the grid, the padding and the margin add back to exactly
+  // the sixty fourths the padding alone stood on
+  const GRID = 64;
+  const whole = Math.floor(hp * GRID);
+  const pad = Math.floor((hp + tilt) * GRID);
+  head.style.paddingTop = (pad / GRID) + "px";
+  title.style.marginBottom = ((whole - pad) / GRID) + "px";
 }
 
 // a picked or dropped file goes up the board's own upload road and its address
@@ -3977,6 +4231,9 @@ function makeBox(b, i, state){
                   titleEl, tocTitle: entry.querySelector(".ttitle"), arc, x,
                   topbar, bname, wtpick, wtmenu,
                   pendwrap, bottombar, clip, clipfile, tick };
+    // the ramp's top edge follows the wrapper from the card's first frame, box
+    // or no box, so it is armed here and not when a box is built
+    watchBand(els[b.id]);
 
     // explicit focus ring: title -> text -> attach -> send -> cross -> moon -> (wrap)
     const ring = [titleEl, ta, clip, send, x, arc];
@@ -4278,6 +4535,8 @@ function apply(state){
       delete histCache[b.id];   // a fresh reply outdates the cached thread
       if (hist && hist.id === b.id) histExit(b.id);   // and snaps a history view back to live
       else el.reply.innerHTML = fmt(replyHalves(b.reply).full);
+      // a new answer is a new line count in the same room, so the phase goes
+      if (b.id === selectedId) requestAnimationFrame(snapCard);
     }
     if (!el.titleEl.isContentEditable && el.titleEl.textContent !== b.title){   // first message just named a new box
       el.titleEl.textContent = b.title;
@@ -7174,6 +7433,13 @@ document.getElementById("taskstatus").addEventListener("click", () => {
   setInterval(() => { if (cur) queue(); }, 300);
 }
 
+
+// the card's snap runs once the board is up, again on the next frame, and once
+// more when the web fonts land, since each of those can change a line's height
+// under it. a resize changes the room itself, so it runs there too
+requestAnimationFrame(() => requestAnimationFrame(snapCard));
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(snapCard);
+addEventListener("resize", snapCard);
 
 renameMagicLayouts();
 syncLayoutsOnce();
