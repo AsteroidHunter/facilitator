@@ -1772,6 +1772,90 @@
   #magic3 .mdnote:not(:empty){padding:4px 9px 5px; border-top:1px solid var(--line)}
   #magic3 .mdnote.bad{color:var(--must)}
   #magic3 .mdedit{display:none; flex:1; min-height:0; overflow:hidden}
+  /* ---- the editor, wearing the board and not codemirror ----------------- */
+  /* every rule below carries this box's id on purpose: the vendored bundle
+     injects a stylesheet of its own with bare .cm- classes in it, and a bare
+     class here would lose to whichever of the two the browser saw last */
+  #magic3 .cm-editor{height:100%; background:none; font:14px/1.6 var(--sans); color:var(--ink)}
+  #magic3 .cm-editor.cm-focused{outline:none}
+  #magic3 .cm-scroller{font-family:var(--sans); line-height:1.6; overscroll-behavior:none}
+  /* the caret is the board's own block, which the fat caret draws over every
+     field it tracks and this one included. the native caret is put out here
+     rather than left to the fc-hide class, because the vendored theme sets a
+     caret colour of its own on this same element */
+  #magic3 .cm-content{padding:var(--sp-s) 9px; caret-color:transparent}
+  #magic3 .cm-gutters{display:none}
+  /* the editor draws no selection layer of its own in here, so the selection on
+     screen is the browser's native one and left alone it comes out the system
+     blue. this is that selection wearing the accent wash the board already
+     marks a matched row with, and the caret is set on the content above */
+  #magic3 .cm-content ::selection, #magic3 .cm-content::selection{background:var(--accent-soft)}
+  /* the cursor's line carries no fill here. it is marked only so the rule under
+     it can put that line's raw markers back */
+  #magic3 .cm-activeLine{background:none}
+  /* live preview, which is the whole reason for this editor: the markup is
+     hidden while the cursor is somewhere else and the line's markers come back
+     the moment the cursor lands on it. the pack on its own uncovers only the
+     one marker the cursor is actually touching, which is not what obsidian does
+     and not what was asked for, so the reveal is widened to the line here, over
+     the pack's own classes and without touching its decorations */
+  #magic3 .cm-activeLine .cm-formatting-inline{
+    max-width:4ch; opacity:1; transform:none; margin:0 1px}
+  #magic3 .cm-formatting-inline, #magic3 .cm-formatting-block{
+    color:#B4AA99; font-family:var(--mono)}
+  /* the list's dash and the quote's angle keep standing. the pack hides every
+     block marker alike, but a heading's # is markup while a list's dash is the
+     shape of the list itself: hidden, a list reads as loose lines with no list
+     in them. the heading line is the one line this rule does not reach */
+  #magic3 .cm-line:not(.cm-heading-line) .cm-formatting-block{font-size:1em; opacity:1}
+  /* headings take the card title's face, stepped down to fit a panel this
+     narrow. the top two carry the title weight; the rest fall back to the body
+     face, so six levels do not need six sizes to be told apart */
+  #magic3 .cm-header-1{font:625 18px/1.3 var(--inter); color:var(--ink)}
+  #magic3 .cm-header-2{font:625 16px/1.3 var(--inter); color:var(--ink)}
+  #magic3 .cm-header-3{font:600 14.5px/1.35 var(--sans); color:var(--ink)}
+  #magic3 .cm-header-4, #magic3 .cm-header-5, #magic3 .cm-header-6{
+    font:600 13px/1.4 var(--sans); color:var(--sub)}
+  #magic3 .cm-strong{font-weight:600; color:var(--ink)}
+  #magic3 .cm-emphasis{font-style:italic}
+  #magic3 .cm-strikethrough{text-decoration:line-through; color:var(--sub)}
+  /* inline code is a control-sized chip: the card's own 4px corner on the
+     board's paper, set in the board's mono */
+  #magic3 .cm-code{font:12.5px var(--mono); background:var(--paper);
+    border-radius:var(--sq); padding:1px 4px}
+  #magic3 .cm-link, #magic3 .cm-link-widget{color:var(--accent);
+    text-decoration:none; cursor:pointer}
+  #magic3 .cm-link-widget:hover{text-decoration:underline}
+  /* the table, redrawn on the board's own lines: the vendored theme paints it
+     in greys and blues it brought with it, and this is the panel's hairline and
+     the board's paper behind the head row, and nothing else */
+  #magic3 .cm-table-widget{margin:6px 0; overflow-x:auto}
+  #magic3 .cm-table-widget table{border-collapse:collapse; width:100%; font:12.5px/1.45 var(--sans)}
+  #magic3 .cm-table-widget th, #magic3 .cm-table-widget td{
+    border:1px solid var(--line); padding:4px 7px; text-align:left; color:var(--ink)}
+  #magic3 .cm-table-widget th{background:var(--paper); font-weight:600; color:var(--sub)}
+  /* a fenced block: the board's paper inside the panel's hairline, at the 7px
+     corner every surface let into a card carries. the pack's copy button is
+     turned off where the extension is made rather than hidden here, so nothing
+     ever draws it */
+  #magic3 .cm-codeblock-widget{background:var(--paper); border:1px solid var(--line);
+    border-radius:7px; margin:6px 0; padding:7px 9px}
+  #magic3 .cm-codeblock-widget pre, #magic3 .cm-codeblock-widget code{
+    font:12px/1.5 var(--mono); color:var(--ink); background:none; margin:0}
+  #magic3 .cm-codeblock-line{font:12px/1.5 var(--mono); color:var(--ink)}
+  #magic3 .cm-codeblock-fence{color:#B4AA99}
+  /* the highlighter's tokens mapped onto inks the board already owns. anything
+     not named here keeps the board's own ink, which is what a token with no
+     meaning of its own should be */
+  #magic3 .hljs-keyword, #magic3 .hljs-selector-tag,
+  #magic3 .hljs-literal, #magic3 .hljs-meta{color:var(--accent)}
+  #magic3 .hljs-string, #magic3 .hljs-attr, #magic3 .hljs-attribute{color:var(--green)}
+  #magic3 .hljs-number, #magic3 .hljs-built_in{color:var(--could)}
+  #magic3 .hljs-title, #magic3 .hljs-name,
+  #magic3 .hljs-class, #magic3 .hljs-function{color:var(--must)}
+  #magic3 .hljs-comment{color:#B4AA99; font-style:italic}
+  #magic3 .hljs-params, #magic3 .hljs-variable,
+  #magic3 .hljs-operator, #magic3 .hljs-punctuation{color:var(--ink)}
   /* a box taken off this tab: gone, and gone in edit mode too, with no ghost of
      it left behind. its resize squares and its cross go with it */
   body.focus .region-off{visibility:hidden; pointer-events:none}
