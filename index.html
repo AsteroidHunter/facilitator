@@ -194,10 +194,9 @@
   /* orange archive/defer button, sits in the card head's right cluster */
   .arcbtn{flex:none; display:inline-flex; align-items:center; justify-content:center;
     color:#000; background:none; border:none; cursor:pointer; padding:0}
-  /* in focus it mirrors the cross: a round chip, same size and line, pastel orange, black icon */
-  body.focus .box.sel .arcbtn{position:absolute; top:9px; right:34px; z-index:4;
-    width:16px; height:16px; border-radius:50%; background:#F6C08A; padding:0}
-  body.focus .box.sel .arcbtn:hover{background:#F2B072}
+  /* in focus the chip is no longer pinned to the card's corner and no longer
+     pastel: it is an item of the card's own top bar, and its seat, its shape and
+     its fill are written there with the cross it stands beside */
   .addrow{margin:2px 0 14px}
   .addbtn{font:12.5px var(--mono); color:var(--sub); background:none; cursor:pointer;
     border:1px dashed var(--line-strong); border-radius:9px; padding:7px 14px; transition:.2s}
