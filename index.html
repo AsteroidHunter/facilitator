@@ -921,27 +921,16 @@
   /* the lane. min-height:0 is what makes it scroll rather than push the box
      open: without it a flex child refuses to go under its content and the rows
      would shove the composer out of the pane.
-     the top edge carries a 48px alpha ramp, two line boxes of the sent type, so
-     a row leaving the lane dissolves upward under the run stamp instead of
-     being cut square on the lane's own edge, and is a whole line deep in the
-     ramp before it is gone. the shape is the answer's own ramp turned over:
-     nothing at the edge, .35 at 38 hundredths of the way in, .80 at 72, full at
-     48. the two middle stops keep the climb a curve, so no band edge can be
-     read off it, and the ramp is alpha only and paints no ink */
-  body.focus .box.sel{--lanefade:48px}
+     20260828: the top edge used to carry a 48px alpha ramp so a row leaving the
+     lane dissolved upward under the time instead of being cut on the edge. it
+     is gone. the lane is only about three lines deep, so 48px of
+     ramp reached the first sent line and washed it out where it stood rather
+     than only while it was leaving, and that is what was seen. the two other
+     ramps on this card, the one on the answer above the typing row and the one
+     under the title, are separate rules and are untouched */
   body.focus .box.sel .pendscroll{
     flex:1 1 auto; min-height:0;
     overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain;
-    -webkit-mask-image:linear-gradient(to bottom,
-      rgba(0,0,0,0) 0,
-      rgba(0,0,0,.35) calc(var(--lanefade)*.38),
-      rgba(0,0,0,.80) calc(var(--lanefade)*.72),
-      rgba(0,0,0,1) var(--lanefade));
-    mask-image:linear-gradient(to bottom,
-      rgba(0,0,0,0) 0,
-      rgba(0,0,0,.35) calc(var(--lanefade)*.38),
-      rgba(0,0,0,.80) calc(var(--lanefade)*.72),
-      rgba(0,0,0,1) var(--lanefade));
   }
   /* the run's one time tag, in the chat panel's own run stamp manner: small,
      muted, one for the whole run instead of one over every line. it is on
