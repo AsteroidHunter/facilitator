@@ -245,26 +245,28 @@
      typing spot. its size follows the focused field's font, half an em wide,
      never the width of the letter under it. js sets width and height */
   /* the block has to turn the letter under it white, or the letter is simply
-     gone while the caret stands on it. difference blending does that with no
-     knowledge of what is underneath: what lands on screen is the gap between
-     the block's own colour and the page behind it, so a light page comes back
-     dark and a dark letter comes back light.
-     the source colour is the card's own white minus the board's ink. every
-     surface this block ever stands on is that white: the composer, the card
-     title and the markdown panel all render #FFFFFF under it, measured. so
-     over blank page the block comes back as exactly var(--ink) and not as
-     pure black, which is the colour it has always been, and only the letter
-     under it changes.
-     the value is built as a difference of two colours the board already owns
-     rather than written out as a third one: the element paints the card's
-     white, its child paints ink over it and differences with it, and because
-     the element is a stacking context of its own that inner difference is
-     sealed inside it and only its result meets the page */
-  #fatcaret{display:none; position:fixed; background:var(--card);
-    mix-blend-mode:difference; pointer-events:none; z-index:99}
-  #fatcaret::before{content:""; position:absolute; inset:0;
-    background:var(--ink); mix-blend-mode:difference}
-  #fatcaret.on{display:block}   /* static; no blink */
+     gone while the caret stands on it. one blend cannot get there, because the
+     board's ink is not black: turning the page over under the block carries an
+     ink letter up to #DEE2E8 and no further, a pale blue grey, and every other
+     blend mode stops at the same ceiling.
+     so the block is laid as two layers over the one rectangle, both blending
+     with the page itself. the lower one paints the card's white and differences
+     with what is under it: white paper comes back as nothing and an ink letter
+     comes back as white less the ink. the upper one paints that same ink and
+     dodges, which divides what the lower one left by white less the ink, so the
+     letter lands on exactly #FFFFFF and the paper, already nothing, stays
+     exactly #000000. every surface this block stands on renders #FFFFFF under
+     it, measured: the composer, the card title and the markdown panel. both
+     results fall out of two colours the board already owns and neither is
+     written down.
+     they are two elements rather than one inside the other because a blend
+     reaches the page only from an element the page itself holds: nested, the
+     upper one would meet the lower one's own fill and never see the letter */
+  #fatcaret, #fatcaretlift{display:none; position:fixed;
+    pointer-events:none; z-index:99}
+  #fatcaret{background:var(--card); mix-blend-mode:difference}
+  #fatcaretlift{background:var(--ink); mix-blend-mode:color-dodge}
+  #fatcaret.on, #fatcaretlift.on{display:block}   /* static; no blink */
   .fc-hide{caret-color:transparent}   /* only tracked editors drop the native caret */
   textarea::placeholder{color:#B4AA99}
   .sendbtn{
@@ -8485,9 +8487,17 @@ document.getElementById("taskstatus").addEventListener("click", () => {
 // quick chat. its cell is sized by the field's font, never by the letter
 // under it, and its left edge sits exactly on the insertion point.
 {
+  // the block is two layers over the one rectangle, laid straight on the page
+  // so each blends with it in turn; the css beside them says why. they take
+  // the same spot and go on and off together, so everything below moves the
+  // pair and never one of them
   const bar = document.createElement("div");
   bar.id = "fatcaret";
-  document.body.appendChild(bar);
+  const lift = document.createElement("div");
+  lift.id = "fatcaretlift";
+  document.body.append(bar, lift);
+  const cells = [bar, lift];
+  const hide = () => { for (const el of cells) el.classList.remove("on"); };
   // the mirror clones the focused field's text layout so a marker span can
   // stand where the caret is; it stays invisible and out of the layout
   const mirror = document.createElement("div");
@@ -8663,11 +8673,11 @@ document.getElementById("taskstatus").addEventListener("click", () => {
   let raf = 0, px = 0, py = 0;
   function place(){
     raf = 0;
-    if (!cur || !cur.isConnected){ cur = null; bar.classList.remove("on"); return; }
+    if (!cur || !cur.isConnected){ cur = null; hide(); return; }
     const collapsed = isField ? cur.selectionStart === cur.selectionEnd : getSelection().isCollapsed;
-    if (!collapsed){ bar.classList.remove("on"); return; }   // a selection marks its own spot
+    if (!collapsed){ hide(); return; }   // a selection marks its own spot
     const c = isField ? fieldCaret(cur) : ceCaret(cur);
-    if (!c){ bar.classList.remove("on"); return; }
+    if (!c){ hide(); return; }
     // terminal cell: half an em wide. the serif title reads Title Case, so
     // its block spans the ink band, cap height down to the baseline and zero
     // pixels past it; every other field keeps the font's full cell, ascent
@@ -8686,15 +8696,18 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     // a caret scrolled out of the field's box must not hover over other ui
     if (y + bh < c.clip.top - 1 || y > c.clip.bottom + 1 ||
         c.x + bw < c.clip.left - 1 || c.x > c.clip.right + 5){
-      bar.classList.remove("on"); return;
+      hide(); return;
     }
-    bar.style.left = c.x + "px";
-    bar.style.top = y + "px";
-    bar.style.width = bw + "px";
-    bar.style.height = bh + "px";
+    for (const el of cells){
+      el.style.left = c.x + "px";
+      el.style.top = y + "px";
+      el.style.width = bw + "px";
+      el.style.height = bh + "px";
+    }
     if (!bar.classList.contains("on") || c.x !== px || y !== py){
       // restart the blink so the block lands solid, the way a native caret does
-      bar.classList.remove("on"); void bar.offsetWidth; bar.classList.add("on");
+      hide(); void bar.offsetWidth;
+      for (const el of cells) el.classList.add("on");
       px = c.x; py = y;
     }
   }
