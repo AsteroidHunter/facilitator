@@ -2148,25 +2148,18 @@
      the box's own line could find a place to wrap and make the marker two lines
      tall, and one out of the flow cannot. it takes the board's quieter ink, the
      one every mark that is not body text takes.
-     it is drawn and not a bullet character because the two characters this
-     needs do not match: in this face the hollow bullet's ink measures 6.07px
-     across at 14px against the filled one's 3.42px, so a sub item's mark came
-     out nearly twice its parent's. drawn, both are the one width, and that
-     width is a quarter of an em, which is the ink the face's own filled bullet
-     draws at this size, measured */
+     it is drawn and not a bullet character because the face's own filled
+     bullet is one width and its hollow one another, 3.42px against 6.07px of
+     ink at 14px. drawn, every level is the one width, and that width is a
+     quarter of an em, which is what the face's filled bullet draws at this
+     size, measured.
+     every level takes the same filled dot. the file's own indent
+     has already stepped the column over, so a level reads as a level from
+     where its mark stands and never from what shape the mark is */
   #magic3 .md-li-dot{position:relative}
   #magic3 .md-li-dot::before{content:""; position:absolute; left:0; top:50%;
     width:.25em; height:.25em; margin-top:-.125em; border-radius:50%;
     background:var(--sub)}
-  /* a level deeper takes the hollow ring, and the level under that goes back to
-     the filled dot. that is the browser's own default for a list inside a list,
-     minus its third step, which is a square: the round marker was asked for and
-     a square stops being one. two shapes are enough, because the file's own
-     indent has already stepped the column over and a third level is two whole
-     columns away from the first. the ring is the same outside width as the dot,
-     since the page sets border-box on everything and the hairline is drawn
-     inside it */
-  #magic3 .md-li-ring::before{background:none; border:1px solid var(--sub)}
   /* a quoted block takes a rule down its left, in the same hairline every
      surface on the board is edged with, and the quieter of the two inks. its
      text sits 8px in from the body's column, so the quote reads as set in from
@@ -6952,7 +6945,6 @@ function mdLayer(){
     const quoteRaw = new Set();  // ...and the ones whose block has the cursor in it
     const rule = new Set();     // lines that are a horizontal rule and nothing else
     const itemOff = new Map();  // list item start -> its own text column, so a nested item can seat on it
-    const itemDeep = new Map(); // ...and how many lists deep it is, which picks its marker's shape
     const listW = new Map();    // list start -> the marker column every item in it shares
     // a paragraph the file hard wraps is one paragraph. markdown says its own
     // line breaks are single spaces, so away from the cursor that is what they
@@ -7024,13 +7016,6 @@ function mdLayer(){
         const base = inner ? (itemOff.get(up.from) || 0) : 0;
         const off = base + markW;
         itemOff.set(nd.from, off);
-        // how many lists this item is standing inside, counted the same way the
-        // column above is: the parent item already knows its own, so one walk of
-        // the tree gives every level its number. the stylesheet turns it into a
-        // filled dot or a hollow ring, and it alternates, so a child never wears
-        // its parent's mark
-        const deep = inner ? (itemDeep.get(up.from) || 0) + 1 : 0;
-        itemDeep.set(nd.from, deep);
         // a dash, a star or a plus is a bullet and gets a round marker drawn over
         // it; a number is an ordered list's own and keeps standing as it is
         const dot = /^[-*+]$/.test(ln.text.slice(mk.from - ln.from, mk.to - ln.from));
@@ -7043,7 +7028,7 @@ function mdLayer(){
         // do on its own with three spaces
         if (nd.from > ln.from) out.push(mdBox(D, "md-li-ind", base).range(ln.from, nd.from));
         if (c > nd.from){
-          const cls = "md-li-mark" + (dot ? (deep % 2 ? " md-li-dot md-li-ring" : " md-li-dot") : "");
+          const cls = "md-li-mark" + (dot ? " md-li-dot" : "");
           out.push(mdBox(D, cls, markW).range(nd.from, c));
           if (c > mk.to) out.push(D.mark({ class: "md-li-gap" }).range(mk.to, c));
         }
