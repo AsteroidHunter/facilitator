@@ -8568,7 +8568,25 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     const clip = (el.closest(".cm-scroller") || el).getBoundingClientRect();
     const sel = getSelection();
     if (sel.rangeCount){
-      const rr = sel.getRangeAt(0).getBoundingClientRect();
+      const rg = sel.getRangeAt(0);
+      let rr = rg.getBoundingClientRect();
+      // a caret on a line with nothing typed on it: chrome hands back a rect of
+      // all zeros for that range, so there is no spot to read and the block
+      // fell through to the whole field's box below, which put it halfway down
+      // the file and out of the clip, and no caret showed at all on a new line.
+      // an empty line still has a line break element on it, and that break is a
+      // real inline box on that line: it sits on the column the first letter
+      // would take and is exactly as tall as the font's own cell, which is the
+      // same pair of numbers the branch above reads off a range that has a rect
+      if (!rr.height && rg.startContainer.nodeType === 1){
+        const n = rg.startContainer;
+        const kid = n.childNodes[rg.startOffset] || n.lastChild;
+        if (kid && kid.nodeName === "BR"){
+          const q = document.createRange();
+          q.selectNode(kid);
+          rr = q.getBoundingClientRect();
+        }
+      }
       if (rr.height) return { x: rr.left, base: rr.top + m.asc, fs, fbA: m.fbA, fbD: m.fbD,
                               capH: m.capH, clip };
     }
