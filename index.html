@@ -966,6 +966,14 @@
        the delivery word under the line and the time that comes up on a drag are
        both pinned to that right edge, which has not moved */
     max-width:80%; margin-left:auto;
+    /* a web address is one word with nothing in it a line may break at, so it
+       ran straight past the cap and the lane cut it off, and he could not read
+       the end of it. this lets a word that cannot fit break where it has to.
+       it only ever fires on a word too long for the line, so nothing that
+       already wrapped between words moves. the break lands on the cap's own
+       edge, which is the same edge every other line breaks on, so a broken
+       address still sits square against the right end with the rest of them */
+    overflow-wrap:break-word;
   }
   /* the delivery word under a line, written the way the chat panel writes Read
      and Delivered under its own sent bubbles: right aligned, muted, and clearly
