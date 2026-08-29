@@ -8530,6 +8530,16 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     return m;
   }
 
+  // the width of the lane a field's scrollbar sits in, read off the element
+  // rather than written down, so one line covers a lane held open at all times
+  // by scrollbar-gutter, a bar that shows up only once the words overflow, and
+  // a field that has no bar at all
+  function gutterWidth(el, cs){
+    const g = el.offsetWidth - el.clientWidth
+            - parseFloat(cs.borderLeftWidth) - parseFloat(cs.borderRightWidth);
+    return g > 0 ? g : 0;
+  }
+
   let cur = null, isField = false;
   const trackable = el => {
     if (!el || el.nodeType !== 1) return null;
@@ -8552,7 +8562,15 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     mirror.style.borderStyle = "solid";
     mirror.style.borderColor = "transparent";
     mirror.style.boxSizing = "border-box";
-    mirror.style.width = r.width + "px";
+    // the width a line of text actually gets, which is the field's box less the
+    // lane its scrollbar sits in. that lane is laid inside the box and taken
+    // off the words, and this composer holds one open at all times, so a mirror
+    // cut to the whole box gives every line room the field has not got: it
+    // keeps a word on a line the field has already pushed down, and the block
+    // then marks the caret in a text laid out differently from the one on
+    // screen, one line up while the word hangs there and about a word to the
+    // left once it drops
+    mirror.style.width = (r.width - gutterWidth(el, cs)) + "px";
     // a single-line input never wraps, it scrolls sideways instead
     mirror.style.whiteSpace = el.tagName === "INPUT" ? "pre" : "pre-wrap";
     mirror.style.wordWrap = el.tagName === "INPUT" ? "normal" : "break-word";
