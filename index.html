@@ -244,8 +244,26 @@
   /* the app draws its own caret: a terminal style block cell over every
      typing spot. its size follows the focused field's font, half an em wide,
      never the width of the letter under it. js sets width and height */
-  #fatcaret{display:none; position:fixed; background:var(--ink);
-    pointer-events:none; z-index:99}
+  /* the block has to turn the letter under it white, or the letter is simply
+     gone while the caret stands on it. difference blending does that with no
+     knowledge of what is underneath: what lands on screen is the gap between
+     the block's own colour and the page behind it, so a light page comes back
+     dark and a dark letter comes back light.
+     the source colour is the card's own white minus the board's ink. every
+     surface this block ever stands on is that white: the composer, the card
+     title and the markdown panel all render #FFFFFF under it, measured. so
+     over blank page the block comes back as exactly var(--ink) and not as
+     pure black, which is the colour it has always been, and only the letter
+     under it changes.
+     the value is built as a difference of two colours the board already owns
+     rather than written out as a third one: the element paints the card's
+     white, its child paints ink over it and differences with it, and because
+     the element is a stacking context of its own that inner difference is
+     sealed inside it and only its result meets the page */
+  #fatcaret{display:none; position:fixed; background:var(--card);
+    mix-blend-mode:difference; pointer-events:none; z-index:99}
+  #fatcaret::before{content:""; position:absolute; inset:0;
+    background:var(--ink); mix-blend-mode:difference}
   #fatcaret.on{display:block}   /* static; no blink */
   .fc-hide{caret-color:transparent}   /* only tracked editors drop the native caret */
   textarea::placeholder{color:#B4AA99}
