@@ -2022,9 +2022,9 @@ function stampHTML(ts){
   return s ? '<span class="stamp">' + s + "</span>" : "";
 }
 
-// writing to a done card takes it back to doing, on both send paths. The flag
-// is read before the send and flipped after the message is in, so a flip that
-// fails can never eat the message; done only, a parked card stays parked
+// writing to a done or parked card takes it back to doing. /send clears parked
+// on the server for every sender. The done flag is read here before the send
+// and flipped after the message is in, so a flip that fails can never eat it
 function boxDone(id){
   const b = lastState && lastState.boxes.find(x => x.id === id);
   return !!(b && b.done);
@@ -3836,15 +3836,16 @@ function docMockSend(id, text){
   b.pendingTexts = b.pendingTexts.concat(text);
   b.pending = b.pendingTexts.length;
   b.ts = Math.floor(Date.now() / 1000);
-  if (b.state === "done"){ b.done = false; b.state = "queued"; }   // writing to a done chat takes it back to doing
-  else if (b.state !== "parked") b.state = "queued";               // a parked chat stays parked
+  b.done = false;
+  b.parked = false;
+  b.state = "queued";   // writing to a done or parked chat takes it back to doing
   b.ball = "agent";
   docMockPaint();
   setTimeout(() => {
     b.reply = DOCMOCKANSWER;
     b.pendingTexts = []; b.pending = 0;
     b.agentTs = Math.floor(Date.now() / 1000);
-    if (b.state !== "parked"){ b.state = "yours"; b.ball = "you"; }
+    b.state = "yours"; b.ball = "you";
     docMockPaint();
   }, 2000);
 }
