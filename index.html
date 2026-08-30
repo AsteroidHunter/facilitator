@@ -391,6 +391,11 @@
     --tg-y:0.032;    --tg-h:0.4096;
     --m2-x:calc(var(--ox) + var(--cw)*0.732);      --m2-w:calc(var(--cw)*0.2);
     --m2-y:0.5184;   --m2-h:0.2432;
+    /* magic box 4 was added after the drawing, so it has no numbers of its own
+       in it. it takes magic box 3's column and starts on that box's bottom
+       edge, which is one star row like every other edge here, and stands 15
+       rows tall. only a starting place: it is dragged and sized like any box */
+    --m4-y:calc(var(--m2-y) + var(--m2-h));   --m4-h:0.192;
     --goal-x:calc(var(--ox) + var(--cw)*0.788);    --goal-w:calc(var(--cw)*0.192);
     --goal-y:0.8256; --goal-h:0.1408;
     /* the slim scrollbar's lane, the one width every scroller on the board is
@@ -1609,7 +1614,7 @@
     border-right:1px solid var(--line)}
   .trow.on .tt{font-weight:600}
   /* magic stubs, contents to be explained */
-  #magic1, #magic2, #magic3{position:fixed; border:1px dashed var(--line-strong); border-radius:7px;
+  #magic1, #magic2, #magic3, #magic4{position:fixed; border:1px dashed var(--line-strong); border-radius:7px;
     background:#fff;
     display:flex; align-items:center; justify-content:center;
     font:400 12.5px var(--mono); color:#B4AA99; letter-spacing:.04em}
@@ -1621,6 +1626,10 @@
     top:calc(var(--oy) + var(--ch)*var(--tg-y)); height:calc(var(--ch)*var(--tg-h))}
   #magic3{left:var(--m2-x); width:var(--m2-w);
     top:calc(var(--oy) + var(--ch)*var(--m2-y)); height:calc(var(--ch)*var(--m2-h))}
+  /* magic box 4 shares magic box 3's column and its width, and sits directly
+     under it, so the two read as one stack until either of them is dragged */
+  #magic4{left:var(--m2-x); width:var(--m2-w);
+    top:calc(var(--oy) + var(--ch)*var(--m4-y)); height:calc(var(--ch)*var(--m4-h))}
   /* magic box 3 holds a picture the agent puts there, a plot above all. filled,
      it takes the same face a card has, so nothing new is introduced; empty, it
      carries the two marks for what belongs in it, drawn in the board's own ink
@@ -2956,7 +2965,7 @@
   body.choosing #sections, body.choosing #pwdline{display:none}
   body.choosing .box{display:none !important}
   body.choosing :is(main, #clockbox, #tickets, #magic1, #magic2, #magic3,
-    #goalbox, #rail, #taskchip){display:none !important}
+    #magic4, #goalbox, #rail, #taskchip){display:none !important}
   body.choosing #newproj{
     display:flex; flex-direction:column; align-items:center; position:fixed;
     z-index:5; left:50%; top:calc(41px + (100vh - 41px)*.44);
@@ -3072,8 +3081,9 @@
   body.focus #homeico{display:flex; align-items:center; color:#C9BFAE}
   /* on-canvas edit mode: the bar's pencil toggles it; boxes then drag with no
      keys held and wear small squares that snap-resize them */
-  body.editmode :is(main, #clockbox, #rail, #tickets, #magic1, #magic2, #magic3, #goalbox),
-  body.editmode :is(main, #clockbox, #rail, #tickets, #magic1, #magic2, #magic3, #goalbox) *{cursor:move}
+  body.editmode :is(main, #clockbox, #rail, #tickets, #magic1, #magic2, #magic3, #magic4, #goalbox),
+  body.editmode :is(main, #clockbox, #rail, #tickets, #magic1, #magic2, #magic3, #magic4,
+    #goalbox) *{cursor:move}
   #edithandles{position:fixed; left:0; top:0; width:var(--cw); height:var(--ch);
     pointer-events:none; z-index:30; display:none}
   body.editmode #edithandles{display:block}
@@ -3146,6 +3156,7 @@
 <div id="magic1">magic box 1</div>
 <div id="magic2">magic box 2</div>
 <div id="magic3">magic box 3</div>
+<div id="magic4">magic box 4</div>
 
 <div id="navpad">
   <button id="nup" title="previous project row">˄</button>
@@ -8102,7 +8113,7 @@ fitStage();
 // the star lines and persist per project
 const GRID = 1440 * 0.008;         // the star pitch on the stage
 const onStar = v => Math.round((v - GRID / 2) / GRID) * GRID + GRID / 2;   // nearest star line
-const REGION_SEL = "main, #clockbox, #rail, #tickets, #magic1, #magic2, #magic3, #goalbox";
+const REGION_SEL = "main, #clockbox, #rail, #tickets, #magic1, #magic2, #magic3, #magic4, #goalbox";
 function regionId(el){ return el.tagName === "MAIN" ? "main" : el.id; }
 // each tab keeps its own layout, and a tab that has never been arranged at all
 // starts from the facilitator tab's; the first drag or resize inside a tab
