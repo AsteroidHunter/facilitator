@@ -5,7 +5,9 @@ const { createServer } = require("node:http");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
 
-const ROOT = path.resolve(__dirname, "..");
+const ROOT = process.env.FACILITATOR_TEST_ROOT
+  ? path.resolve(process.env.FACILITATOR_TEST_ROOT)
+  : path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
@@ -74,6 +76,49 @@ async function mountedEditor(source, height = 520) {
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   }, source, height);
   return page;
+}
+
+async function caretState(page) {
+  await page.evaluate(() => new Promise(resolve =>
+    requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  return page.evaluate(() => {
+    const rect = value => value && ({
+      left: value.left, top: value.top, right: value.right, bottom: value.bottom,
+      width: value.width ?? value.right - value.left,
+      height: value.height ?? value.bottom - value.top,
+    });
+    const selection = mdView.state.selection.main;
+    const pos = selection.head;
+    const caret = document.getElementById("fatcaret");
+    return {
+      pos,
+      assoc: selection.assoc,
+      before: pos ? mdView.state.sliceDoc(pos - 1, pos) : null,
+      after: pos < mdView.state.doc.length ? mdView.state.sliceDoc(pos, pos + 1) : null,
+      source: mdView.state.sliceDoc(),
+      minus: rect(mdView.coordsAtPos(pos, -1)),
+      plus: rect(mdView.coordsAtPos(pos, 1)),
+      caret: rect(caret.getBoundingClientRect()),
+      on: caret.classList.contains("on"),
+    };
+  });
+}
+
+async function setCursor(page, pos) {
+  await page.evaluate(position => {
+    mdView.focus();
+    mdView.dispatch({ selection: { anchor: position } });
+  }, pos);
+  return caretState(page);
+}
+
+async function arrowStates(page, start, key, count) {
+  const states = [await setCursor(page, start)];
+  for (let i = 0; i < count; i++) {
+    await page.keyboard.press(key);
+    states.push(await caretState(page));
+  }
+  return states;
 }
 
 async function focusGeometry(source, needle) {
@@ -205,5 +250,154 @@ test("block caret uses CodeMirror coordinates at a bullet gap", async () => {
       "the custom block caret falls outside the editor scroller");
   } finally {
     await page.close();
+  }
+});
+
+test("ordered marker traversal draws both sides of its source space", async () => {
+  const source = "1. Some written stuff";
+  const page = await mountedEditor(source);
+  try {
+    const forward = await arrowStates(page, 0, "ArrowRight", 4);
+    assert.deepEqual(forward.map(state => state.pos), [0, 1, 2, 3, 4]);
+    assert.deepEqual(forward.slice(1, 4).map(state => [state.before, state.after]), [
+      ["1", "."], [".", " "], [" ", "S"],
+    ]);
+    assert.equal(forward[3].minus.height, 0,
+      "the fixture no longer crosses the zero-size marker gap");
+    assert.ok(Math.abs(forward[2].caret.left - forward[2].minus.left) < 1.5,
+      "the caret before the source space left the ordered marker");
+    assert.ok(Math.abs(forward[3].caret.left - forward[3].plus.left) < 1.5,
+      "the caret after the source space did not reach the item text");
+    assert.ok(forward[3].caret.left - forward[2].caret.left > 4,
+      "one ArrowRight left both sides of the source space on the same pixel");
+    assert.ok(Math.abs(forward[3].caret.top - forward[2].caret.top) < 0.5,
+      "crossing the source space moved the caret off its row");
+
+    await page.keyboard.press("ArrowLeft");
+    const backwardText = await caretState(page);
+    await page.keyboard.press("ArrowLeft");
+    const backwardMarker = await caretState(page);
+    assert.equal(backwardText.pos, 3);
+    assert.equal(backwardMarker.pos, 2);
+    assert.ok(Math.abs(backwardText.caret.left - forward[3].caret.left) < 1.5);
+    assert.ok(Math.abs(backwardMarker.caret.left - forward[2].caret.left) < 1.5);
+
+    const textEdge = await page.evaluate(() => mdView.coordsAtPos(3, 1));
+    await page.mouse.click(textEdge.left + 1, (textEdge.top + textEdge.bottom) / 2);
+    const clicked = await caretState(page);
+    assert.equal(clicked.pos, 3, "clicking the first letter did not choose its leading edge");
+    assert.ok(Math.abs(clicked.caret.left - textEdge.left) < 1.5,
+      "the clicked caret did not draw on the selected text edge");
+    assert.equal(clicked.source, source);
+    await page.keyboard.press("Backspace");
+    assert.equal(await page.evaluate(() => mdView.state.sliceDoc()),
+      "Some written stuff", "CodeMirror's list-unwrapping edit stopped working");
+  } finally {
+    await page.close();
+  }
+});
+
+test("bullet and ordered marker gaps traverse in either direction", async () => {
+  const cases = [
+    { name: "bullet", source: "- Bullet item", markerEnd: 1, textStart: 2 },
+    { name: "multi-digit", source: "10. Tenth item", markerEnd: 3, textStart: 4 },
+    { name: "start value", source: "42. Forty-second item", markerEnd: 3, textStart: 4 },
+    { name: "parenthesis", source: "3) Third item", markerEnd: 2, textStart: 3 },
+  ];
+  for (const fixture of cases) {
+    const page = await mountedEditor(fixture.source);
+    try {
+      assert.equal(fixture.source.slice(fixture.markerEnd, fixture.textStart), " ");
+      const forward = await arrowStates(page, fixture.markerEnd, "ArrowRight", 1);
+      assert.equal(forward[1].pos, fixture.textStart, `${fixture.name} skipped a source position`);
+      assert.ok(forward[1].on, `${fixture.name} hid the custom caret`);
+      assert.ok(Math.abs(forward[1].caret.left - forward[1].plus.left) < 1.5,
+        `${fixture.name} did not reach the item text after its source space`);
+      assert.ok(forward[1].caret.left - forward[0].caret.left > 4,
+        `${fixture.name} left both space boundaries on the same pixel`);
+
+      await page.keyboard.press("ArrowRight");
+      await page.keyboard.press("ArrowLeft");
+      const backward = await caretState(page);
+      assert.equal(backward.pos, fixture.textStart);
+      assert.ok(Math.abs(backward.caret.left - forward[1].caret.left) < 1.5,
+        `${fixture.name} drew different forward and backward text edges`);
+      assert.equal(backward.source, fixture.source);
+    } finally {
+      await page.close();
+    }
+  }
+});
+
+test("zero-size list whitespace keeps every editable cursor stop visible", async () => {
+  const gapSource = "1.   Some written stuff";
+  const gapPage = await mountedEditor(gapSource);
+  try {
+    const gaps = await arrowStates(gapPage, 2, "ArrowRight", 3);
+    assert.deepEqual(gaps.map(state => state.pos), [2, 3, 4, 5]);
+    assert.equal(gapSource.slice(2, 5), "   ");
+    for (let i = 1; i < gaps.length; i++) {
+      assert.ok(gaps[i].caret.left > gaps[i - 1].caret.left,
+        `separator stop ${gaps[i].pos} did not advance`);
+      assert.ok(Math.abs(gaps[i].caret.top - gaps[0].caret.top) < 0.5,
+        `separator stop ${gaps[i].pos} left its row`);
+    }
+    assert.ok(Math.abs(gaps[0].caret.left - gaps[0].minus.left) < 1.5);
+    assert.ok(Math.abs(gaps[3].caret.left - gaps[3].plus.left) < 1.5);
+    assert.equal(gaps[3].source, gapSource);
+  } finally {
+    await gapPage.close();
+  }
+
+  const nestedCases = [
+    { source: "1. Parent item\n   7. Nested item", lineStart: 15, indent: 3 },
+    { source: "- Parent item\n  - Nested item", lineStart: 14, indent: 2 },
+  ];
+  for (const fixture of nestedCases) {
+    const page = await mountedEditor(fixture.source);
+    try {
+      const right = await arrowStates(page, fixture.lineStart, "ArrowRight", fixture.indent);
+      assert.deepEqual(right.map(state => state.pos),
+        Array.from({ length: fixture.indent + 1 }, (_, i) => fixture.lineStart + i));
+      const indentBox = await page.evaluate(() => {
+        const r = document.querySelector("#magic4 .md-li-ind").getBoundingClientRect();
+        return { left: r.left, right: r.right };
+      });
+      assert.ok(Math.abs(right[0].caret.left - indentBox.left) < 1.5);
+      assert.ok(Math.abs(right[right.length - 1].caret.left - indentBox.right) < 1.5);
+      for (let i = 1; i < right.length; i++) {
+        assert.ok(right[i].caret.left > right[i - 1].caret.left,
+          `nested indent stop ${right[i].pos} did not advance`);
+        assert.ok(Math.abs(right[i].caret.top - right[0].caret.top) < 0.5,
+          `nested indent stop ${right[i].pos} left its row`);
+      }
+
+      const left = [await caretState(page)];
+      for (let i = 0; i < fixture.indent; i++) {
+        await page.keyboard.press("ArrowLeft");
+        left.push(await caretState(page));
+      }
+      assert.deepEqual(left.map(state => state.pos), right.map(state => state.pos).reverse());
+      assert.deepEqual(left.map(state => state.caret.left),
+        right.map(state => state.caret.left).reverse());
+
+      const textStart = fixture.source.indexOf("Nested");
+      await setCursor(page, textStart + 2);
+      await page.keyboard.press("Home");
+      const textHome = await caretState(page);
+      await page.keyboard.press("Home");
+      const lineHome = await caretState(page);
+      await page.keyboard.press("End");
+      const lineEnd = await caretState(page);
+      assert.equal(textHome.pos, fixture.lineStart + fixture.indent);
+      assert.equal(lineHome.pos, fixture.lineStart);
+      assert.equal(lineEnd.pos, fixture.source.length);
+      assert.ok(Math.abs(textHome.caret.left - indentBox.right) < 1.5);
+      assert.ok(Math.abs(lineHome.caret.left - indentBox.left) < 1.5);
+      assert.ok(Math.abs(lineEnd.caret.top - lineHome.caret.top) < 0.5);
+      assert.equal(lineEnd.source, fixture.source);
+    } finally {
+      await page.close();
+    }
   }
 });
