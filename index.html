@@ -634,7 +634,7 @@
     padding-left:calc(var(--pad-x)*2/3);
     padding-right:calc(var(--pad-x)*5/3 - var(--sbar));
     scrollbar-gutter:stable;
-    margin-bottom:3.5px;
+    margin-bottom:var(--replyair);
   }
   /* the answer's own edge where it meets the sent box, and one of the card's
      three fades.
@@ -690,7 +690,7 @@
      equal and stays there. so the band is never deeper than there is answer
      above it to dissolve, and a grey wash under the title on a card with nothing
      scrolled away is impossible by construction */
-  body.focus .box.sel{--replyfade:22px}
+  body.focus .box.sel{--replyfade:22px; --replyair:3.5px}
   body.focus .box.sel .reply{
     -webkit-mask-image:
       linear-gradient(to bottom,
@@ -1337,7 +1337,17 @@
      one layer and nothing to composite: this field has no box laid over it and
      no second edge to reckon with, so it is the answer's first layer with only
      its head kept, the same four stops, nothing at the edge, .35 at 38
-     hundredths of the way in, .80 at 72, full at --upband.
+     hundredths of the way in, .80 at 72, full one --upramp later.
+     the answer's ramp ends --replyair above the hairline, so its mirror begins
+     that same distance below it. without that clear start the lower ramp reaches
+     full ink --replyair sooner and the two sides cannot match around the line.
+     --replyair is also the answer's margin-bottom, so one number holds both
+     clear strips without moving either element.
+     the clear strip spends only scroll beyond the ramp's own full depth. for
+     the first --replyfade of scroll --upair stays zero and --upramp grows one
+     pixel per pixel, exactly as it did before. the next --replyair slides that
+     full ramp down until the mirror is complete. the whole masked band is never
+     deeper than the text that has actually gone out of sight.
      the mask is only worn while the row is actually scrolled, and that is a
      safety rule and not a tidiness one. a mask puts the field on a layer of its
      own, and a field on a layer of its own that changes height in the same
@@ -1352,7 +1362,7 @@
      on it at all and it paints exactly as it did before any of this. the class
      turns at --upband of one pixel, where the ramp is one pixel deep and takes
      nothing off anything, so nothing can be seen to switch.
-     --upband and --replyfade are both the answer's, and deliberately:
+     --upramp and --replyfade are both the answer's, and deliberately:
      the same ramp turned over, so the two are one number and one shape, and
      a change to either carries to both. --upband is written on this field by the
      script off this field's own scroll, so it hides itself here exactly as it
@@ -1366,16 +1376,20 @@
      still marked at full strength. the native caret is already put out by that
      same trick, so there is no second one left for the ramp to dim */
   body.focus .box.sel textarea.upfade{
+    --upair:clamp(0px, calc(var(--upband, 0px) - var(--replyfade)), var(--replyair));
+    --upramp:min(var(--upband, 0px), var(--replyfade));
     -webkit-mask-image:linear-gradient(to bottom,
       rgba(0,0,0,0) 0,
-      rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
-      rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
-      rgba(0,0,0,1) var(--upband, 0px));
+      rgba(0,0,0,0) var(--upair),
+      rgba(0,0,0,.35) calc(var(--upair) + var(--upramp)*.38),
+      rgba(0,0,0,.80) calc(var(--upair) + var(--upramp)*.72),
+      rgba(0,0,0,1) calc(var(--upair) + var(--upramp)));
     mask-image:linear-gradient(to bottom,
       rgba(0,0,0,0) 0,
-      rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
-      rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
-      rgba(0,0,0,1) var(--upband, 0px));
+      rgba(0,0,0,0) var(--upair),
+      rgba(0,0,0,.35) calc(var(--upair) + var(--upramp)*.38),
+      rgba(0,0,0,.80) calc(var(--upair) + var(--upramp)*.72),
+      rgba(0,0,0,1) calc(var(--upair) + var(--upramp)));
   }
   /* the send control. the enclosure is a rounded square on the board's own 4px
      inner corner, the same --sq the two chips in the bar wear, over the card's
@@ -4273,12 +4287,13 @@ function watchBand(el){
 // --upband, which is the depth the ramp at its top edge is cut to. two of them
 // wear it: the answer, which dissolves under the title, and the row he types in,
 // which dissolves under the bar's hairline.
-// capped at the ramp's own depth, and the cap is read off --replyfade on the
-// element rather than typed here, so a ramp cut deeper in the sheet is followed
-// by this without a second number to keep in step. the read is kept on the node
-// once it lands: the depth is a constant in the sheet, and a getComputedStyle on
-// every scroll event would be a style recalc per frame for a number that never
-// changes. only a number is kept, though, and never an empty read: the depth is
+// capped at the ramp's own depth, except on the typing row where the matching
+// clear strip is added to that cap. both are read off --replyfade and --replyair
+// on the element rather than typed here, so a change in the sheet is followed
+// without a second number to keep in step. the reads are kept on the node once
+// they land: the two depths are constants in the sheet, and a getComputedStyle
+// on every scroll event would be a style recalc per frame for numbers that never
+// change. only numbers are kept, though, and never an empty read: the values are
 // written on the selected card and a card is built before it is selected, so the
 // first read on a fresh card comes back with nothing and has to be taken again.
 // whole pixels, for the reason boxBand is in whole pixels: this becomes a
@@ -4289,9 +4304,15 @@ function watchBand(el){
 // nothing here can move ink: it feeds a mask, and a mask changes what is
 // painted, never what is measured
 function riseBand(node){
-  if (!node._fade)
-    node._fade = parseFloat(getComputedStyle(node).getPropertyValue("--replyfade")) || 0;
-  const up = Math.min(Math.round(node.scrollTop), node._fade);
+  if (!node._fade || node._air == null){
+    const cs = getComputedStyle(node);
+    const fade = parseFloat(cs.getPropertyValue("--replyfade")) || 0;
+    if (fade){
+      node._fade = fade;
+      node._air = node.tagName === "TEXTAREA" ? parseFloat(cs.getPropertyValue("--replyair")) || 0 : 0;
+    }
+  }
+  const up = Math.min(Math.round(node.scrollTop), (node._fade || 0) + (node._air || 0));
   if (up === node._up) return;
   node._up = up;
   node.style.setProperty("--upband", up + "px");
