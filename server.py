@@ -60,27 +60,33 @@ Endpoints:
                                into this repo
   GET  /cm-markdown.js      -> the vendored CodeMirror 6 bundle beside index.html,
                                fetched the first time the markdown panel opens
-  GET  /mdfiles             -> every .md file under the two folders the markdown
-                               panel may touch (the website lane's own internal
-                               folder and its wiki), grouped by folder, each with
-                               its path relative to that folder and its stamp. A
-                               folder that is missing or empty comes back present
-                               and empty rather than not at all
-  GET  /mdfile?root=R&rel=P -> one markdown file's whole text plus the stamp the
-                               save guard wants back, and crlf saying which line
-                               endings it arrived in. R is one of the two folder
-                               names, P a path under it. The joined path is
-                               resolved and has to land inside that folder, so
-                               .. segments, absolute paths and symlinks pointing
-                               out are all refused (400), as is anything that is
-                               not a .md file or not utf-8 text
-  POST /mdsave?root=R&rel=P&mtime=S -> body = the file's whole new text, raw and
-                               unstripped. Same path rules as /mdfile. S is the
-                               stamp handed out on read: if the file's stamp has
-                               moved since, somebody else wrote it and the save
-                               is refused with 409 and the current stamp, never
-                               merged and never clobbered. Written temp-file-then
-                               -rename like state.json, and answers the new stamp
+  GET  /mdfiles?lane=L      -> every .md file under the two folders lane L's own
+                               markdown panel may touch (that lane's internal
+                               folder and its wiki, both named after the lane's
+                               own directory), grouped by folder, each with its
+                               path relative to that folder and its stamp, and
+                               each folder with the kind it answers to. A folder
+                               that is missing or empty comes back present and
+                               empty rather than not at all. A lane the panel is
+                               not mounted on has no folders here at all
+  GET  /mdfile?lane=L&root=R&rel=P -> one markdown file's whole text plus the
+                               stamp the save guard wants back, and crlf saying
+                               which line endings it arrived in. R has to be one
+                               of lane L's own two folder names, so one lane
+                               asking for another lane's folder is refused, and P
+                               is a path under it. The joined path is resolved
+                               and has to land inside that folder, so .. segments,
+                               absolute paths and symlinks pointing out are all
+                               refused (400), as is anything that is not a .md
+                               file or not utf-8 text
+  POST /mdsave?lane=L&root=R&rel=P&mtime=S -> body = the file's whole new text,
+                               raw and unstripped. Same lane and path rules as
+                               /mdfile. S is the stamp handed out on read: if the
+                               file's stamp has moved since, somebody else wrote
+                               it and the save is refused with 409 and the current
+                               stamp, never merged and never clobbered. Written
+                               temp-file-then-rename like state.json, and answers
+                               the new stamp
   GET  /thread?box=ID&n=N   -> last N user/agent messages of a box from the
                                transcript (read by the reply history stepper
                                and the quick chat panel)
@@ -311,41 +317,52 @@ def _lane_internal(lane: str) -> Path | None:
     return Path(d) / (lane + "-internal") if d else None
 
 
-# the only two folders the markdown editor may ever read or write: the website
-# lane's own internal folder and its wiki beside it. Named by lane and folder
-# name rather than by absolute path, the way _lane_internal already does it, so
-# no one machine's home directory gets written into tracked source and a lane
-# moved on disk carries its folders with it.
-MD_LANE = "website"
-MD_ROOT_NAMES = ("website-internal", "website-wiki")
+# the lanes the markdown editor is mounted on, and the two folders each of them
+# may read and write: that lane's own internal folder and its wiki beside it.
+# The folder names come off the lane's own directory and not its owner id,
+# because a lane can be named for its work while its folder is named for its
+# project: the triage lane lives in pastureland/ and keeps pastureland-internal
+# and pastureland-wiki. Worked out per lane rather than written down as paths,
+# the way _lane_internal already does it, so no one machine's home directory
+# gets into tracked source and a lane moved on disk carries its folders with it.
+# The lane list is what makes this a fence: a lane not on it has no folders at
+# all here, and every route below then refuses it.
+MD_LANES = ("website", "triage")
+MD_KINDS = ("internal", "wiki")
 
 
-def _md_roots() -> list[Path]:
-    """The allowed folders, fully resolved. Resolved once here so every path
-    check downstream compares real paths against real paths: a root that is
-    itself reached through a symlink still matches the files inside it. A lane
-    nobody has heard of yields nothing, and every route then refuses."""
-    d = _lane_pwds().get(MD_LANE)
+def _md_roots(lane: str) -> list[tuple]:
+    """One lane's allowed folders as (kind, folder) pairs, fully resolved, in the
+    order the page's head offers them. Resolved once here so every path check
+    downstream compares real paths against real paths: a root that is itself
+    reached through a symlink still matches the files inside it. Each folder
+    carries its kind rather than the caller counting on the order, so a folder
+    that could not be resolved at all takes only its own place out of the list.
+    A lane the panel is not mounted on, and a lane nobody has heard of, yield
+    nothing, and every route then refuses."""
+    d = _lane_pwds().get(lane) if lane in MD_LANES else None
     if not d:
         return []
     out = []
-    for name in MD_ROOT_NAMES:
+    for kind in MD_KINDS:
         try:
-            out.append((Path(d) / name).resolve())
+            out.append((kind, (Path(d) / (Path(d).name + "-" + kind)).resolve()))
         except OSError:
             pass   # unreadable or a symlink loop: the folder simply is not offered
     return out
 
 
-def _md_path(root: str, rel: str) -> Path | None:
+def _md_path(lane: str, root: str, rel: str) -> Path | None:
     """The file a markdown request names, or None when it is not genuinely one
-    of ours. root is a folder name out of MD_ROOT_NAMES and rel is a path under
-    it. resolve() is what does the work: it eats .. segments and follows every
-    symlink, so the containment test below sees where the path really lands and
-    not what it was spelled as. An absolute rel replaces the root outright under
-    pathlib's join, which is exactly why the same test catches it. Markdown
-    only, and never the folder itself."""
-    bases = {r.name: r for r in _md_roots()}
+    of that lane's. root is a folder name and rel is a path under it, and the
+    root has to be one of the two this lane itself owns: one lane asking for
+    another lane's folder by name gets nothing, since that name is not among
+    these. resolve() is what does the rest: it eats .. segments and follows
+    every symlink, so the containment test below sees where the path really
+    lands and not what it was spelled as. An absolute rel replaces the root
+    outright under pathlib's join, which is exactly why the same test catches
+    it. Markdown only, and never the folder itself."""
+    bases = {p.name: p for _, p in _md_roots(lane)}
     base = bases.get(root)
     if base is None or not rel:
         return None
@@ -959,19 +976,23 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._send(404, {"error": "not found"})
         elif url.path == "/mdfiles":
-            # what the markdown panel lists: every .md under the two allowed
-            # folders, each one re-checked for containment rather than trusted
-            # because it came out of a walk. A folder that does not exist yet,
-            # or holds nothing, comes back present and empty, so the panel can
-            # say so instead of looking broken
+            # what the markdown panel lists: every .md under the two folders the
+            # lane in the query owns, each one re-checked for containment rather
+            # than trusted because it came out of a walk. A folder that does not
+            # exist yet, or holds nothing, comes back present and empty, so the
+            # panel can say so instead of looking broken. The kind each folder
+            # answers to goes back with it, since that is what the page labels
+            # its two tabs with and it is the only part of the name a lane's
+            # panel can know before it has asked
+            lane = (parse_qs(url.query).get("lane") or [""])[0]
             roots = []
-            for base in _md_roots():
+            for kind, base in _md_roots(lane):
                 files = []
                 try:
                     for p in sorted(base.rglob("*.md")):
                         if any(part.startswith(".") for part in p.relative_to(base).parts):
                             continue   # hidden files and hidden folders stay out of sight
-                        real = _md_path(base.name, str(p.relative_to(base)))
+                        real = _md_path(lane, base.name, str(p.relative_to(base)))
                         if real is None or not real.is_file():
                             continue   # a symlink pointing out of the folder ends here
                         st = real.stat()
@@ -979,7 +1000,8 @@ class Handler(BaseHTTPRequestHandler):
                                       "mtime": str(st.st_mtime_ns), "size": st.st_size})
                 except OSError:
                     pass
-                roots.append({"root": base.name, "exists": base.is_dir(), "files": files})
+                roots.append({"root": base.name, "kind": kind,
+                              "exists": base.is_dir(), "files": files})
             self._send(200, {"roots": roots})
         elif url.path == "/mdfile":
             # one markdown file's whole text, with the stamp the save guard will
@@ -988,7 +1010,8 @@ class Handler(BaseHTTPRequestHandler):
             # characters that a later save would then write back over the real
             # bytes
             q = parse_qs(url.query)
-            p = _md_path((q.get("root") or [""])[0], (q.get("rel") or [""])[0])
+            p = _md_path((q.get("lane") or [""])[0], (q.get("root") or [""])[0],
+                         (q.get("rel") or [""])[0])
             if p is None:
                 self._send(400, {"error": "outside the markdown folders"})
                 return
@@ -1201,7 +1224,8 @@ class Handler(BaseHTTPRequestHandler):
             # losing it would break the round trip on the very first save
             n = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(n) if n else b""
-            p = _md_path((q.get("root") or [""])[0], (q.get("rel") or [""])[0])
+            p = _md_path((q.get("lane") or [""])[0], (q.get("root") or [""])[0],
+                         (q.get("rel") or [""])[0])
             if p is None:
                 self._send(400, {"error": "outside the markdown folders"})
                 return
