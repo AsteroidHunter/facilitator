@@ -241,9 +241,10 @@
     padding:8px 11px; min-height:38px; max-height:170px; outline:none; transition:border-color .2s;
   }
   textarea:focus{border-color:var(--accent)}
-  /* the app draws its own caret: a terminal style block cell over every
-     typing spot. its size follows the focused field's font, half an em wide,
-     never the width of the letter under it. js sets width and height */
+  /* the app draws its own caret: a terminal style block over every typing
+     spot. its height follows the focused field's font; when there is a visible
+     character under it, its width follows that rendered character's advance.
+     empty and unusable positions keep the established half-em cell */
   /* the block has to turn the letter under it white, or the letter is simply
      gone while the caret stands on it. one blend cannot get there, because the
      board's ink is not black: turning the page over under the block carries an
@@ -7990,14 +7991,34 @@ function age(ts){
   return Math.floor(s / 86400) + "d";
 }
 
+// The caret installs this callback below. If a data update actually moves or
+// restyles the focused editor, hand that change to the same event-driven queue.
+function focusedCaretContext(){
+  const active = document.activeElement;
+  if (!active || active === document.body) return null;
+  const field = active.tagName === "TEXTAREA" ||
+    (active.tagName === "INPUT" && (active.type === "text" || active.type === "search"));
+  const editor = (field || active.isContentEditable) ? active : active.closest("[contenteditable]");
+  if (!editor) return null;
+  const r = editor.getBoundingClientRect(), cs = getComputedStyle(editor);
+  return { editor, left: r.left, top: r.top, width: r.width, height: r.height,
+    font: cs.font + "|" + cs.letterSpacing + "|" + cs.wordSpacing };
+}
+let queueFatCaret = () => {};
 let pollFails = 0;
 async function poll(){
   try {
     const state = await (await fetch("/state")).json();
     pollFails = 0;
+    const caretBefore = focusedCaretContext();
     if (!lastState) build(state);
     apply(state);
     lastState = state;
+    const caretAfter = focusedCaretContext();
+    if (caretBefore && caretAfter && caretBefore.editor === caretAfter.editor &&
+        (caretBefore.left !== caretAfter.left || caretBefore.top !== caretAfter.top ||
+         caretBefore.width !== caretAfter.width || caretBefore.height !== caretAfter.height ||
+         caretBefore.font !== caretAfter.font)) queueFatCaret();
   } catch (e) {
     if (++pollFails >= 3){   // server itself unreachable, distinct from listener-offline
       document.body.classList.add("offline");
@@ -8599,8 +8620,9 @@ document.getElementById("taskstatus").addEventListener("click", () => {
 // ---- the fat caret --------------------------------------------------------
 // a terminal style block cursor stands in for the native caret on every
 // typing surface: card reply boxes, the title while naming, the to-do input,
-// quick chat. its cell is sized by the field's font, never by the letter
-// under it, and its left edge sits exactly on the insertion point.
+// quick chat and the markdown editor. its left edge sits exactly on the
+// insertion point. a visible character sets the block's width from the same
+// rendered text; empty positions keep the established half-em cell.
 {
   // the block is two layers over the one rectangle, laid straight on the page
   // so each blends with it in turn; the css beside them says why. they take
@@ -8665,6 +8687,144 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     return g > 0 ? g : 0;
   }
 
+  // Intl.Segmenter follows the browser's Unicode grapheme rules, so a range
+  // never stops inside a surrogate pair, combining sequence, emoji modifier,
+  // flag or ZWJ emoji. Older browsers fall back to a complete code point plus
+  // the common extenders and joins. Rare newer cluster rules may therefore use
+  // one code point's advance there, but never half of a UTF-16 surrogate.
+  let graphemeSegmenter = null;
+  try {
+    if (Intl && Intl.Segmenter)
+      graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  } catch (e) {}
+  let markRe = null;
+  try { markRe = new RegExp("\\p{Mark}", "u"); } catch (e) {}
+  const cpSize = cp => cp > 0xFFFF ? 2 : 1;
+  const isExtend = cp =>
+    (markRe && markRe.test(String.fromCodePoint(cp))) ||
+    (cp >= 0xFE00 && cp <= 0xFE0F) ||
+    (cp >= 0xE0100 && cp <= 0xE01EF) ||
+    (cp >= 0x1F3FB && cp <= 0x1F3FF) ||
+    (cp >= 0xE0020 && cp <= 0xE007F);
+  function firstGrapheme(text){
+    if (!text) return "";
+    if (graphemeSegmenter){
+      const first = graphemeSegmenter.segment(text)[Symbol.iterator]().next();
+      if (!first.done) return first.value.segment;
+    }
+    let end = cpSize(text.codePointAt(0));
+    if (text.charCodeAt(0) === 13 && text.charCodeAt(1) === 10) return text.slice(0, 2);
+    const firstCp = text.codePointAt(0);
+    const nextCp = text.codePointAt(end);
+    if (firstCp >= 0x1F1E6 && firstCp <= 0x1F1FF &&
+        nextCp >= 0x1F1E6 && nextCp <= 0x1F1FF) end += cpSize(nextCp);
+    const takeExtenders = () => {
+      while (end < text.length){
+        const cp = text.codePointAt(end);
+        if (!isExtend(cp)) break;
+        end += cpSize(cp);
+      }
+    };
+    takeExtenders();
+    while (text.codePointAt(end) === 0x200D){
+      end++;
+      if (end >= text.length) break;
+      const cp = text.codePointAt(end);
+      end += cpSize(cp);
+      takeExtenders();
+    }
+    return text.slice(0, end);
+  }
+
+  function graphemeAt(text, at){
+    if (at < 0 || at >= text.length) return "";
+    if (graphemeSegmenter){
+      const segments = graphemeSegmenter.segment(text);
+      let hit = typeof segments.containing === "function" ? segments.containing(at) : null;
+      if (!hit){
+        for (const segment of segments){
+          if (segment.index > at) break;
+          if (segment.index + segment.segment.length > at){ hit = segment; break; }
+        }
+      }
+      // A programmatic selection can land inside a visible cluster even though
+      // keyboard and pointer movement do not. Do not measure a suffix of it.
+      return hit && hit.index === at ? hit.segment : "";
+    }
+    if (at > 0){
+      const unit = text.charCodeAt(at);
+      const cp = text.codePointAt(at);
+      if ((unit >= 0xDC00 && unit <= 0xDFFF) || cp === 0x200D || isExtend(cp)) return "";
+      let p = at - 1;
+      if (p > 0 && text.charCodeAt(p) >= 0xDC00 && text.charCodeAt(p) <= 0xDFFF) p--;
+      const prev = text.codePointAt(p);
+      if (prev === 0x200D) return "";
+      if (cp >= 0x1F1E6 && cp <= 0x1F1FF){
+        let count = 0, i = at;
+        while (i > 0){
+          let j = i - 1;
+          if (j > 0 && text.charCodeAt(j) >= 0xDC00 && text.charCodeAt(j) <= 0xDFFF) j--;
+          const before = text.codePointAt(j);
+          if (before < 0x1F1E6 || before > 0x1F1FF) break;
+          count++; i = j;
+        }
+        if (count % 2) return "";
+      }
+    }
+    return firstGrapheme(text.slice(at));
+  }
+
+  function rangeAdvance(rg, line){
+    const rects = Array.from(rg.getClientRects())
+      .filter(r => r.width > 0 && r.height > 0);
+    if (rects.length !== 1) return null;
+    const rect = rects[0];
+    if (line && !(rect.top < line.bottom && rect.bottom > line.top)) return null;
+    const width = rect.width;
+    return Number.isFinite(width) && width > 0 ? width : null;
+  }
+
+  // Read the advance from a DOM Range in the actual laid-out text. This keeps
+  // font fallback, kerning, variable-font axes, letter spacing, zoom and tab
+  // stops in the browser's hands instead of duplicating them in a width table.
+  function textAdvance(node, from, text){
+    if (!node || !text || /[\r\n]/.test(text)) return null;
+    try {
+      const rg = document.createRange();
+      rg.setStart(node, from);
+      rg.setEnd(node, from + text.length);
+      return rangeAdvance(rg);
+    } catch (e) { return null; }
+  }
+
+  function textPoint(root, offset){
+    const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walk.nextNode())){
+      if (offset <= node.data.length) return { node, offset };
+      offset -= node.data.length;
+    }
+    return null;
+  }
+
+  function editableAdvance(root, caret, line){
+    if (!root.contains(caret.startContainer) && caret.startContainer !== root) return null;
+    try {
+      const before = document.createRange();
+      before.selectNodeContents(root);
+      before.setEnd(caret.startContainer, caret.startOffset);
+      const at = before.toString().length;
+      const text = root.textContent || "";
+      const grapheme = graphemeAt(text, at);
+      if (!grapheme || /[\r\n]/.test(grapheme)) return null;
+      const end = textPoint(root, at + grapheme.length);
+      if (!end) return null;
+      const rg = caret.cloneRange();
+      rg.setEnd(end.node, end.offset);
+      return rangeAdvance(rg, line);
+    } catch (e) { return null; }
+  }
+
   let cur = null, isField = false;
   const trackable = el => {
     if (!el || el.nodeType !== 1) return null;
@@ -8679,8 +8839,10 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     if (el.selectionStart == null) return null;
     const cs = getComputedStyle(el);
     const r = el.getBoundingClientRect();
-    for (const p of ["fontFamily","fontSize","fontWeight","fontStyle","lineHeight",
-                     "letterSpacing","wordSpacing","textTransform","textIndent",
+    for (const p of ["fontFamily","fontSize","fontWeight","fontStyle","fontStretch",
+                     "fontVariant","fontKerning","fontFeatureSettings","fontVariationSettings",
+                     "fontOpticalSizing","lineHeight","letterSpacing","wordSpacing",
+                     "textTransform","textIndent","textAlign","direction","tabSize",
                      "paddingTop","paddingRight","paddingBottom","paddingLeft",
                      "borderTopWidth","borderRightWidth","borderBottomWidth","borderLeftWidth"])
       mirror.style[p] = cs[p];
@@ -8695,7 +8857,9 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     // then marks the caret in a text laid out differently from the one on
     // screen, one line up while the word hangs there and about a word to the
     // left once it drops
-    mirror.style.width = (r.width - gutterWidth(el, cs)) + "px";
+    // Layout uses the field's untransformed box. Viewport zoom and an ancestor
+    // scale are applied below to the measured range, after wrapping is settled.
+    mirror.style.width = (el.offsetWidth - gutterWidth(el, cs)) + "px";
     // a single-line input never wraps, it scrolls sideways instead
     mirror.style.whiteSpace = el.tagName === "INPUT" ? "pre" : "pre-wrap";
     mirror.style.wordWrap = el.tagName === "INPUT" ? "normal" : "break-word";
@@ -8703,7 +8867,11 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     const rest = el.value.slice(el.selectionStart);
     mirror.textContent = typed;
     const mr = mirror.getBoundingClientRect();
-    let kr;
+    const fieldScaleX = el.offsetWidth ? r.width / el.offsetWidth : 1;
+    const mirrorScaleX = mirror.offsetWidth ? mr.width / mirror.offsetWidth : 1;
+    const rangeScaleX = Number.isFinite(fieldScaleX / mirrorScaleX)
+      ? fieldScaleX / mirrorScaleX : 1;
+    let kr, width = null;
     if (!rest && /\S$/.test(typed)){
       // live typing at the end of a word: any marker glyph would weld onto
       // that word, and at a full line the welded pair wraps in the mirror
@@ -8735,12 +8903,17 @@ document.getElementById("taskstatus").addEventListener("click", () => {
       mark.textContent = rest || ".";
       mirror.appendChild(mark);
       kr = mark.getClientRects()[0] || mark.getBoundingClientRect();
+      if (rest) width = textAdvance(mark.firstChild, 0,
+                                    graphemeAt(el.value, el.selectionStart));
     }
+    if (width) width *= rangeScaleX;
     const m = fmetrics(cs);
     // the baseline is the marker's inline box top plus the font's ascent
-    return { x: r.left + (kr.left - mr.left) - el.scrollLeft,
+    return { x: r.left + (kr.left - mr.left) * rangeScaleX
+                     - el.scrollLeft * fieldScaleX,
              base: r.top + (kr.top - mr.top) - el.scrollTop + m.asc,
-             fs: parseFloat(cs.fontSize), fbA: m.fbA, fbD: m.fbD, clip: r };
+             fs: parseFloat(cs.fontSize), fbA: m.fbA, fbD: m.fbD,
+             width, scaleX: fieldScaleX, clip: r };
   }
 
   // list indentation and the air after a marker keep their source characters
@@ -8791,6 +8964,8 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     const cs = getComputedStyle(el);
     const fs = parseFloat(cs.fontSize);
     const m = fmetrics(cs);
+    const er = el.getBoundingClientRect();
+    const scaleX = el.offsetWidth ? er.width / el.offsetWidth : 1;
     // the box the block has to stay inside. an editable that scrolls inside a
     // pane of its own, which the markdown panel's editor does, is bounded by
     // that pane and not by its own height: measured against itself a caret
@@ -8810,7 +8985,7 @@ document.getElementById("taskstatus").addEventListener("click", () => {
         const spaced = cmListSpaceCaret(pos);
         if (spaced){
           return { x: spaced.x, base: spaced.top + m.asc, fs, fbA: m.fbA, fbD: m.fbD,
-                   capH: m.capH, clip };
+                   capH: m.capH, scaleX, clip };
         }
         const side = main.assoc || (pos === line.from ? 1 : -1);
         let tall = null;
@@ -8820,8 +8995,20 @@ document.getElementById("taskstatus").addEventListener("click", () => {
           if (q.bottom > q.top){ tall = q; break; }
         }
         if (tall){
-          return { x: tall.left, base: tall.top + m.asc, fs, fbA: m.fbA, fbD: m.fbD,
-                   capH: m.capH, clip };
+          const x = tall.left;
+          let width = null;
+          const grapheme = graphemeAt(line.text, pos - line.from);
+          if (grapheme && !/[\r\n]/.test(grapheme)){
+            const end = mdView.coordsAtPos(pos + grapheme.length, -1);
+            // A visible grapheme cannot occupy two visual lines. Decorations
+            // may return a coordinate from another fragment; reject that and
+            // keep the established cell instead of drawing across the editor.
+            if (end && end.bottom > end.top && end.left > x &&
+                end.top < tall.bottom && end.bottom > tall.top)
+              width = end.left - x;
+          }
+          return { x, base: tall.top + m.asc, fs, fbA: m.fbA, fbD: m.fbD,
+                   capH: m.capH, width, scaleX, clip };
         }
       }
     }
@@ -8847,13 +9034,13 @@ document.getElementById("taskstatus").addEventListener("click", () => {
         }
       }
       if (rr.height) return { x: rr.left, base: rr.top + m.asc, fs, fbA: m.fbA, fbD: m.fbD,
-                              capH: m.capH, clip };
+                              capH: m.capH, width: editableAdvance(el, rg, rr), scaleX, clip };
     }
     // an empty editable gives a zero rect; park the block at the field's
     // start, on the baseline the strut line box will give the first letter
-    const r = el.getBoundingClientRect();
+    const r = er;
     return { x: r.left, base: r.top + (r.height - m.boxH) / 2 + m.asc, fs,
-             fbA: m.fbA, fbD: m.fbD, capH: m.capH, clip };
+             fbA: m.fbA, fbD: m.fbD, capH: m.capH, scaleX, clip };
   }
 
   let raf = 0, px = 0, py = 0;
@@ -8864,11 +9051,12 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     if (!collapsed){ hide(); return; }   // a selection marks its own spot
     const c = isField ? fieldCaret(cur) : ceCaret(cur);
     if (!c){ hide(); return; }
-    // terminal cell: half an em wide. the serif title reads Title Case, so
-    // its block spans the ink band, cap height down to the baseline and zero
-    // pixels past it; every other field keeps the font's full cell, ascent
-    // line down to descender depth, which reads right beside lowercase text
-    const bw = c.fs * 0.5;
+    // A visible grapheme supplies its rendered advance. Spaces and tabs work
+    // when the browser gives their range a usable width; empty positions, line
+    // endings and zero-size decorated text keep the accepted half-em cell.
+    // This changes only the fixed overlay; the editor and its text never move.
+    const bw = Number.isFinite(c.width) && c.width > 0
+      ? c.width : c.fs * 0.5 * (c.scaleX || 1);
     let bh, y;
     if (!isField && cur.classList.contains("title")){
       bh = c.capH + 1;   // one pixel of optical overshoot above the caps
@@ -8898,6 +9086,7 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     }
   }
   const queue = () => { if (!raf) raf = requestAnimationFrame(place); };
+  queueFatCaret = queue;
 
   document.addEventListener("focusin", e => {
     const el = trackable(e.target);
@@ -8916,9 +9105,11 @@ document.getElementById("taskstatus").addEventListener("click", () => {
   document.addEventListener("keyup", queue, true);
   document.addEventListener("scroll", queue, true);
   addEventListener("resize", queue);
-  // a poll can reflow the page under a focused field with no input event;
-  // a light steady re-place keeps the bar honest
-  setInterval(() => { if (cur) queue(); }, 300);
+  // A web font finishing can change advances without an input event. The app's
+  // own data poll calls the same queue after it changes the DOM, so no separate
+  // caret timer or animation loop is needed.
+  if (document.fonts && document.fonts.addEventListener)
+    document.fonts.addEventListener("loadingdone", queue);
 }
 
 
