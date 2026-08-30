@@ -7010,12 +7010,15 @@ function mdLayer(){
 
   function build(st, focused){
     const doc = st.doc, out = [];
-    // the raw file comes back where he is working and nowhere else, which is
-    // the pack's own rule for markers widened to whole blocks. focus is half of
-    // it: a file opened and not yet typed in is a page to read, and its cursor
-    // sitting at position 0 must not tear the front matter open. the other half
-    // is the drag guard the pack keeps, or a selection swept across the panel
-    // would reflow every paragraph it crossed under the pointer
+    // block syntax comes back around the active selection and nowhere else,
+    // which is the pack's own rule for markers widened to whole blocks. focus
+    // is half of it: a file opened and not yet typed in is a page to read, and
+    // its cursor sitting at position 0 must not tear the front matter open. the
+    // other half is the drag guard the pack keeps, or a selection swept across
+    // the panel would open every block it crossed under the pointer. soft
+    // paragraph breaks are the exception: markdown renders them as spaces in
+    // both states, so focusing a paragraph never changes its wrap or moves the
+    // page
     const awake = focused && !st.field(C.mouseSelectingField, false);
     const hot = (a, b) => awake && st.selection.ranges.some(r => r.to >= a && r.from <= b);
 
@@ -7058,10 +7061,11 @@ function mdLayer(){
     const itemOff = new Map();  // list item start -> its own text column, so a nested item can seat on it
     const listW = new Map();    // list start -> the marker column every item in it shares
     // a paragraph the file hard wraps is one paragraph. markdown says its own
-    // line breaks are single spaces, so away from the cursor that is what they
-    // are drawn as and the paragraph reflows to the panel's width. the file on
-    // disk is not touched by any of this: the newline is still there, still in
-    // the document, and a replaced range is the only thing standing over it
+    // line breaks are single spaces, so that is what they are drawn as whether
+    // the paragraph has the cursor or not. keeping the same joins in both states
+    // is what keeps the paragraph's height and everything below it still. the
+    // file on disk is not touched: the newline is still in the document, and a
+    // replaced range is the only thing standing over it
     const join = (n) => {
       const a = doc.line(n), b = doc.line(n + 1);
       // two trailing spaces, or a backslash, is markdown's own hard break. the
@@ -7150,7 +7154,7 @@ function mdLayer(){
       }
       if (nd.name === "Paragraph"){
         const a = doc.lineAt(nd.from).number, b = doc.lineAt(nd.to).number;
-        if (b > a && !hot(nd.from, nd.to)) for (let n = a; n < b; n++) join(n);
+        if (b > a) for (let n = a; n < b; n++) join(n);
       }
     } });
 
@@ -8739,7 +8743,8 @@ document.getElementById("taskstatus").addEventListener("click", () => {
              fs: parseFloat(cs.fontSize), fbA: m.fbA, fbD: m.fbD, clip: r };
   }
 
-  // contenteditable path: a collapsed range reports the caret box directly
+  // contenteditable path: codemirror maps its own decorated document first;
+  // every other editable uses the browser's collapsed range directly
   function ceCaret(el){
     const cs = getComputedStyle(el);
     const fs = parseFloat(cs.fontSize);
@@ -8750,6 +8755,31 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     // scrolled out of sight still counts as inside, and the block then hangs
     // over whatever is drawn under the panel
     const clip = (el.closest(".cm-scroller") || el).getBoundingClientRect();
+    // codemirror owns the mapping from document positions to the decorated dom.
+    // ask it first in its editor rather than reading the browser selection: a
+    // collapsed range inside a zero-size markdown marker has no height even
+    // though codemirror still knows the insertion point. prefer the character
+    // before an interior position and the character after a line start. the
+    // opposite side covers a zero-size decoration on the preferred side.
+    if (mdView && el === mdView.contentDOM && mdView.hasFocus){
+      const main = mdView.state.selection.main;
+      if (main.empty){
+        const pos = main.head, line = mdView.state.doc.lineAt(pos);
+        const side = main.assoc || (pos === line.from ? 1 : -1);
+        let point = null, tall = null;
+        for (const s of [side, -side]){
+          const q = mdView.coordsAtPos(pos, s);
+          if (!q) continue;
+          if (!point) point = q;
+          if (q.bottom > q.top){ tall = q; break; }
+        }
+        if (tall){
+          const x = point && Number.isFinite(point.left) ? point.left : tall.left;
+          return { x, base: tall.top + m.asc, fs, fbA: m.fbA, fbD: m.fbD,
+                   capH: m.capH, clip };
+        }
+      }
+    }
     const sel = getSelection();
     if (sel.rangeCount){
       const rg = sel.getRangeAt(0);
