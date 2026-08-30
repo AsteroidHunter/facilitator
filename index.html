@@ -8743,6 +8743,48 @@ document.getElementById("taskstatus").addEventListener("click", () => {
              fs: parseFloat(cs.fontSize), fbA: m.fbA, fbD: m.fbD, clip: r };
   }
 
+  // list indentation and the air after a marker keep their source characters
+  // in zero-size text inside a box that owns their visible width. codemirror
+  // can map either edge of that box, but an insertion point inside several
+  // spaces has no glyph box of its own. spread those real document positions
+  // across the box, and borrow only the row from a full-height edge
+  function cmListSpaceCaret(pos){
+    let at, node, holder, from, to;
+    try {
+      at = mdView.domAtPos(pos);
+      node = at.node;
+      if (node.nodeType === 1){
+        node = node.childNodes[at.offset] || node.childNodes[at.offset - 1];
+      }
+      if (!node || node.nodeType !== 3) return null;
+      holder = node.parentElement && node.parentElement.closest(".md-li-gap, .md-li-ind");
+      if (!holder || !mdView.contentDOM.contains(holder)) return null;
+      from = mdView.posAtDOM(node, 0);
+      to = mdView.posAtDOM(node, node.nodeValue.length);
+    } catch (e){ return null; }
+    if (to <= from || pos < from || pos > to) return null;
+
+    const before = mdView.coordsAtPos(from, -1);
+    const after = mdView.coordsAtPos(to, 1);
+    const tall = [before, after, mdView.coordsAtPos(from, 1), mdView.coordsAtPos(to, -1)]
+      .find(q => q && q.bottom > q.top);
+    if (!tall) return null;
+
+    let left, right;
+    if (holder.classList.contains("md-li-ind")){
+      const r = holder.getBoundingClientRect();
+      left = r.left; right = r.right;
+    } else {
+      const mark = holder.closest(".md-li-mark");
+      if (!mark) return null;
+      const r = mark.getBoundingClientRect();
+      left = before && before.bottom > before.top ? before.left : r.left;
+      right = after && after.bottom > after.top ? after.left : r.right;
+    }
+    if (!Number.isFinite(left) || !Number.isFinite(right)) return null;
+    return { x: left + (right - left) * (pos - from) / (to - from), top: tall.top };
+  }
+
   // contenteditable path: codemirror maps its own decorated document first;
   // every other editable uses the browser's collapsed range directly
   function ceCaret(el){
@@ -8765,17 +8807,20 @@ document.getElementById("taskstatus").addEventListener("click", () => {
       const main = mdView.state.selection.main;
       if (main.empty){
         const pos = main.head, line = mdView.state.doc.lineAt(pos);
+        const spaced = cmListSpaceCaret(pos);
+        if (spaced){
+          return { x: spaced.x, base: spaced.top + m.asc, fs, fbA: m.fbA, fbD: m.fbD,
+                   capH: m.capH, clip };
+        }
         const side = main.assoc || (pos === line.from ? 1 : -1);
-        let point = null, tall = null;
+        let tall = null;
         for (const s of [side, -side]){
           const q = mdView.coordsAtPos(pos, s);
           if (!q) continue;
-          if (!point) point = q;
           if (q.bottom > q.top){ tall = q; break; }
         }
         if (tall){
-          const x = point && Number.isFinite(point.left) ? point.left : tall.left;
-          return { x, base: tall.top + m.asc, fs, fbA: m.fbA, fbD: m.fbD,
+          return { x: tall.left, base: tall.top + m.asc, fs, fbA: m.fbA, fbD: m.fbD,
                    capH: m.capH, clip };
         }
       }
