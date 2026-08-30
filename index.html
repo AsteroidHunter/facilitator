@@ -1627,7 +1627,9 @@
   #magic3{left:var(--m2-x); width:var(--m2-w);
     top:calc(var(--oy) + var(--ch)*var(--m2-y)); height:calc(var(--ch)*var(--m2-h))}
   /* magic box 4 shares magic box 3's column and its width, and sits directly
-     under it, so the two read as one stack until either of them is dragged */
+     under it, so the two read as one stack until either of them is dragged.
+     the box is only on the page on the tab that mounts the markdown panel in
+     it, so on every other tab this rule has nothing to draw */
   #magic4{left:var(--m2-x); width:var(--m2-w);
     top:calc(var(--oy) + var(--ch)*var(--m4-y)); height:calc(var(--ch)*var(--m4-h))}
   /* magic box 3 holds a picture the agent puts there, a plot above all. filled,
@@ -3166,7 +3168,9 @@
 <div id="magic1">magic box 1</div>
 <div id="magic2">magic box 2</div>
 <div id="magic3">magic box 3</div>
-<div id="magic4">magic box 4</div>
+<!-- magic box 4 is deliberately not written here. it holds the markdown panel
+     and nothing else, so it is built into this spot on the tab whose mount
+     names it and is off the page entirely on every other tab -->
 
 <div id="navpad">
   <button id="nup" title="previous project row">˄</button>
@@ -6651,6 +6655,13 @@ const MD_MOUNTS = {
   website: { box: "magic3", stub: "magic box 3" },
   triage:  { box: "magic4", stub: "magic box 4" },
 };
+// the boxes those mounts name that the page does not already carry. magic box 4
+// is the only one today: it was added to hold this panel and has no other
+// tenant, so it belongs on the tab that mounts the panel in it and nowhere
+// else. worked out from the map rather than written down, so a mount moved to
+// another box, or a second lane given box 4, needs no edit anywhere here
+const MD_OWN = [...new Set(Object.values(MD_MOUNTS).map(m => m.box))]
+  .filter(box => !document.getElementById(box));
 // the two folders the server will let a lane's panel touch, in the order the
 // head offers them, and named by the kind of folder rather than by the folder:
 // a project's two folders are its own directory's name and one of these, so
@@ -6685,6 +6696,35 @@ let mdKeep = {};
 let mdNoteT = null;
 // the box the panel is in at this moment, or null when it is in none of them
 function mdHost(){ return mdHome ? document.getElementById(mdHome.box) : null; }
+// a box that belongs to this panel alone is on the page only while the open tab
+// mounts the panel in it, and is taken off the page everywhere else rather than
+// hidden. absent is the point: the region code walks the document, so a box
+// that is not there is never measured, never dragged, never resized and never
+// writes or clears a layout key for a tab it does not belong on. answers
+// whether the page changed, so a caller can put the edit handles back
+function mdBoxes(){
+  const mount = MD_MOUNTS[activeOwner];
+  let moved = false;
+  for (const box of MD_OWN){
+    const el = document.getElementById(box);
+    const want = !!mount && mount.box === box;
+    if (want === !!el) continue;
+    moved = true;
+    if (want){
+      const made = h("div", null, mount.stub);
+      made.id = box;
+      // exactly where the markup used to hold it, ahead of the pad and the
+      // card, so a box dragged over its neighbours stacks as it always did
+      document.getElementById("navpad").before(made);
+    } else {
+      // the panel comes out under its own hand before its box does, or an open
+      // file goes down with the box instead of being kept for the way back
+      if (mdHome && mdHome.box === box) mdOff();
+      el.remove();
+    }
+  }
+  return moved;
+}
 
 // the vendored editor, fetched the first time a file is opened and never on
 // boot: 1.6MB parsed at startup is a cost every board would pay and only this
@@ -7264,6 +7304,9 @@ async function mdPoll(){
   // was in whenever this tab is not that box's tab, which is what frees magic
   // box 3 for the chat on the way to the pastureland tab
   const mount = MD_MOUNTS[activeOwner];
+  // the panel's own box arrives before the build asks for it and leaves after
+  // the teardown below has let go of it
+  mdBoxes();
   if (mdHome && (!mount || mdHome.box !== mount.box)) mdOff();
   if (!mount) return;
   const host = mdBuild(mount);
@@ -8240,6 +8283,11 @@ function seedHiddenOnce(){
 }
 
 function applySavedLayout(){
+  // a box that belongs to the markdown panel is put on this tab or taken off it
+  // first, so everything below only ever sees the boxes this tab really has.
+  // the edit handles are pinned to the boxes that were there when the pencil
+  // went on, so a box that just arrived or left gets them rebuilt
+  if (mdBoxes() && editMode) buildHandles();
   const src = layoutSource();
   // which tab is open, for the stylesheet: a tab can drop boxes it has no use
   // for without touching any other tab
