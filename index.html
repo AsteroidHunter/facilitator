@@ -4998,9 +4998,9 @@ function stampHTML(ts){
   return s ? '<span class="stamp">' + s + "</span>" : "";
 }
 
-// writing to a done card takes it back to doing, on both send paths. The flag
-// is read before the send and flipped after the message is in, so a flip that
-// fails can never eat the message; done only, a parked card stays parked
+// writing to a done or parked card takes it back to doing. /send clears parked
+// on the server for every sender. The done flag is read here before the send
+// and flipped after the message is in, so a flip that fails can never eat it
 function boxDone(id){
   const b = lastState && lastState.boxes.find(x => x.id === id);
   return !!(b && b.done);

@@ -13,7 +13,9 @@ Endpoints:
                                card in the corner, no via at all is the big card
                                in the middle. Only the literal "mini" is stored
                                (as the message's via field), so any other value
-                               and any older caller land exactly as before
+                               and any older caller land exactly as before.
+                               Sending to a parked card also brings it back to
+                               Doing in the same saved update
   POST /done?box=ID&v=1|0   -> mark a box done / not done
   POST /working?box=ID&v=1|0 -> a job runs behind this box: it shows green
                                without holding the lane's claim. Registration
@@ -620,7 +622,8 @@ def _ws(owner: str, wid: str) -> dict | None:
 #                           moment the work ends (green)
 #                 yours     an unanswered reply awaits him (yellow)
 #                 rest      nothing pending either way (grey)
-# event           /send                    -> queued; a beating flag keeps its
+# event           /send                    -> clears parked, then queued; a
+#                                          beating flag keeps its
 #                                          green, and a deferred turn dies:
 #                                          he has answered
 #                 /reply                   -> yours; flag still beating ->
@@ -1281,6 +1284,7 @@ class Handler(BaseHTTPRequestHandler):
                 if (q.get("via") or [""])[0] == "mini":
                     msg["via"] = "mini"
                 box["pending"].append(msg)
+                box["parked"] = False
                 box["ball"] = "me"  # his message sent: the ball is in the agent's court
                 # his message queues the card; a beating flag keeps its green,
                 # and a deferred turn dies here, since he has read and
