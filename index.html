@@ -2162,9 +2162,14 @@
   /* the boxes that build that column: the file's own indent, and the marker.
      both take an exact width off the plugin. text-indent is inherited and an
      inline-block is a block container, so each one has to put it back to zero
-     or it would pull its own contents left by the line's whole hang */
+     or it would pull its own contents left by the line's whole hang. the live
+     preview's inline formatting marks are inline-flex containers, so they need
+     the same boundary: without it, an opening ** at the text column inherits
+     the negative hang inside its own clipped box and collapses to no width */
+  :is(#magic3, #magic4) .md-li-ind, :is(#magic3, #magic4) .md-li-mark,
+  :is(#magic3, #magic4) .md-hang .cm-formatting-inline{text-indent:0}
   :is(#magic3, #magic4) .md-li-ind, :is(#magic3, #magic4) .md-li-mark{
-    display:inline-block; width:var(--w); text-indent:0}
+    display:inline-block; width:var(--w)}
   /* the indent's own characters are spaces and nothing else, and the box is
      already exactly as wide as the level wants, so they are given no width at
      all. they are still in the document, still selectable, still typed over */
@@ -8958,6 +8963,35 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     return { x: left + (right - left) * (pos - from) / (to - from), top: tall.top };
   }
 
+  const cmInlineMarks = new Set(["EmphasisMark", "StrikethroughMark", "CodeMark"]);
+  function cmInlineMarkAt(pos){
+    try {
+      const tree = window.CM6.syntaxTree(mdView.state);
+      for (const side of [-1, 1]){
+        for (let node = tree.resolveInner(pos, side); node; node = node.parent){
+          if (cmInlineMarks.has(node.name)) return true;
+        }
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  // At a visible inline delimiter boundary, CodeMirror can return the end of
+  // the smaller syntax span on one side and the start of the next grapheme on
+  // the other. A block cursor covers that next grapheme, so two local sites on
+  // the same row use its + side regardless of arrow direction. Association
+  // still owns a real wrap boundary, and horizontally separated bidi sites:
+  // those are different visual caret positions rather than one styled seam.
+  function cmInlineGraphemeSide(pos, before, after, localGap){
+    if (!cmInlineMarkAt(pos) || !before || !after ||
+        before.bottom <= before.top || after.bottom <= after.top) return 0;
+    const overlap = Math.min(before.bottom, after.bottom) -
+      Math.max(before.top, after.top);
+    if (overlap <= Math.min(before.bottom - before.top,
+                            after.bottom - after.top) * 0.5) return 0;
+    return Math.abs(after.left - before.left) <= localGap ? 1 : 0;
+  }
+
   // contenteditable path: codemirror maps its own decorated document first;
   // every other editable uses the browser's collapsed range directly
   function ceCaret(el){
@@ -8987,17 +9021,21 @@ document.getElementById("taskstatus").addEventListener("click", () => {
           return { x: spaced.x, base: spaced.top + m.asc, fs, fbA: m.fbA, fbD: m.fbD,
                    capH: m.capH, scaleX, clip };
         }
-        const side = main.assoc || (pos === line.from ? 1 : -1);
+        const grapheme = graphemeAt(line.text, pos - line.from);
+        const before = mdView.coordsAtPos(pos, -1);
+        const after = mdView.coordsAtPos(pos, 1);
+        let side = main.assoc || (pos === line.from ? 1 : -1);
+        if (grapheme && !/[\r\n]/.test(grapheme) &&
+            cmInlineGraphemeSide(pos, before, after, 2 * scaleX)) side = 1;
         let tall = null;
         for (const s of [side, -side]){
-          const q = mdView.coordsAtPos(pos, s);
+          const q = s < 0 ? before : after;
           if (!q) continue;
           if (q.bottom > q.top){ tall = q; break; }
         }
         if (tall){
           const x = tall.left;
           let width = null;
-          const grapheme = graphemeAt(line.text, pos - line.from);
           if (grapheme && !/[\r\n]/.test(grapheme)){
             const end = mdView.coordsAtPos(pos + grapheme.length, -1);
             // A visible grapheme cannot occupy two visual lines. Decorations
