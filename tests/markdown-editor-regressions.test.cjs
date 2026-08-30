@@ -90,6 +90,7 @@ async function caretState(page) {
     const selection = mdView.state.selection.main;
     const pos = selection.head;
     const caret = document.getElementById("fatcaret");
+    const lift = document.getElementById("fatcaretlift");
     return {
       pos,
       assoc: selection.assoc,
@@ -99,7 +100,23 @@ async function caretState(page) {
       minus: rect(mdView.coordsAtPos(pos, -1)),
       plus: rect(mdView.coordsAtPos(pos, 1)),
       caret: rect(caret.getBoundingClientRect()),
+      lift: rect(lift.getBoundingClientRect()),
+      line: rect(document.querySelector("#magic4 .cm-activeLine").getBoundingClientRect()),
       on: caret.classList.contains("on"),
+      liftOn: lift.classList.contains("on"),
+      formatting: Array.from(document.querySelectorAll(
+        "#magic4 .cm-activeLine .cm-formatting-inline"
+      )).map(mark => {
+        const r = mark.getBoundingClientRect();
+        const style = getComputedStyle(mark);
+        return {
+          text: mark.textContent,
+          width: r.width,
+          height: r.height,
+          opacity: Number(style.opacity),
+          textIndent: style.textIndent,
+        };
+      }),
     };
   });
 }
@@ -109,6 +126,18 @@ async function setCursor(page, pos) {
     mdView.focus();
     mdView.dispatch({ selection: { anchor: position } });
   }, pos);
+  return caretState(page);
+}
+
+async function setCursorAssoc(page, pos, assoc) {
+  await page.evaluate(({ position, association }) => {
+    mdView.focus();
+    const Selection = mdView.state.selection.constructor;
+    mdView.dispatch({ selection: Selection.create([
+      Selection.cursor(position, association),
+    ]) });
+    document.dispatchEvent(new Event("selectionchange"));
+  }, { position: pos, association: assoc });
   return caretState(page);
 }
 
@@ -396,6 +425,336 @@ test("zero-size list whitespace keeps every editable cursor stop visible", async
       assert.ok(Math.abs(lineHome.caret.left - indentBox.left) < 1.5);
       assert.ok(Math.abs(lineEnd.caret.top - lineHome.caret.top) < 0.5);
       assert.equal(lineEnd.source, fixture.source);
+    } finally {
+      await page.close();
+    }
+  }
+});
+
+test("leading bold list syntax traverses every source position symmetrically", async () => {
+  const cases = [
+    { name: "ordered", source: "1. **Some written stuff**" },
+    { name: "bullet", source: "- **Some written stuff**" },
+    { name: "multi-digit", source: "123. **Some written stuff**" },
+    { name: "nested", source: "1. Parent\n   - **Some written stuff**", lineStart: 10 },
+  ];
+
+  for (const fixture of cases) {
+    const page = await mountedEditor(fixture.source);
+    try {
+      const lineStart = fixture.lineStart || 0;
+      const boldStart = fixture.source.indexOf("**", lineStart);
+      const boldClose = fixture.source.indexOf("**", boldStart + 2);
+      const parsed = await page.evaluate(() => Array.from(document.querySelectorAll(
+        "#magic4 .cm-formatting-inline"
+      )).map(mark => mark.textContent));
+      assert.deepEqual(parsed, ["**", "**"],
+        `${fixture.name} did not parse one strong construct`);
+
+      await setCursor(page, lineStart);
+      await new Promise(resolve => setTimeout(resolve, 250));
+      const forward = [await caretState(page)];
+      for (let pos = lineStart; pos < fixture.source.length; pos++) {
+        await page.keyboard.press("ArrowRight");
+        forward.push(await caretState(page));
+      }
+      assert.deepEqual(forward.map(state => state.pos),
+        Array.from({ length: fixture.source.length - lineStart + 1 },
+          (_, i) => lineStart + i),
+        `${fixture.name} skipped an editable source position moving right`);
+
+      for (let i = 0; i < forward.length; i++) {
+        const state = forward[i];
+        assert.equal(state.source, fixture.source,
+          `${fixture.name} traversal changed the Markdown source`);
+        assert.equal(state.formatting.length, 2,
+          `${fixture.name} did not reveal both delimiters as one active construct`);
+        assert.ok(state.formatting.every(mark => mark.text === "**" &&
+          mark.width > 8 && mark.height > 0 && mark.opacity === 1 &&
+          mark.textIndent === "0px"),
+        `${fixture.name} left a strong delimiter collapsed inside the hanging indent`);
+        assert.equal(state.on, true, `${fixture.name} hid the primary block cursor`);
+        assert.equal(state.liftOn, true, `${fixture.name} hid the lifted block cursor`);
+        for (const edge of ["left", "top", "width", "height"])
+          assert.ok(Math.abs(state.caret[edge] - state.lift[edge]) < 0.1,
+            `${fixture.name} cursor layers disagree at ${state.pos}`);
+        if (i) {
+          assert.ok(state.caret.left > forward[i - 1].caret.left + 0.2,
+            `${fixture.name} source stop ${state.pos} did not advance to the right`);
+          const rowOverlap = Math.min(state.caret.bottom, forward[0].caret.bottom) -
+            Math.max(state.caret.top, forward[0].caret.top);
+          assert.ok(rowOverlap > Math.min(state.caret.height,
+            forward[0].caret.height) * 0.75,
+          `${fixture.name} source stop ${state.pos} left its row`);
+        }
+        assert.ok(state.caret.top >= state.line.top - 0.5 &&
+          state.caret.bottom <= state.line.bottom + 0.5,
+        `${fixture.name} source stop ${state.pos} crossed its line bounds`);
+      }
+
+      const syntaxStops = [boldStart, boldStart + 1, boldStart + 2,
+        boldClose, boldClose + 1, boldClose + 2];
+      for (const pos of syntaxStops) {
+        const state = forward[pos - lineStart];
+        assert.ok(state.minus && state.plus &&
+          Math.max(state.minus.height, state.plus.height) > 0,
+        `${fixture.name} source stop ${pos} has no two-sided CodeMirror rectangle`);
+        if (pos !== boldStart)
+          assert.ok(state.minus.height > 0 && state.plus.height > 0,
+            `${fixture.name} delimiter interior ${pos} lost a full-height side`);
+      }
+
+      const backward = [forward.at(-1)];
+      for (let pos = fixture.source.length; pos > lineStart; pos--) {
+        await page.keyboard.press("ArrowLeft");
+        backward.push(await caretState(page));
+      }
+      assert.deepEqual(backward.map(state => state.pos),
+        forward.map(state => state.pos).reverse(),
+        `${fixture.name} skipped an editable source position moving left`);
+      for (let i = 0; i < backward.length; i++) {
+        const matching = forward[forward.length - 1 - i];
+        assert.ok(Math.abs(backward[i].caret.left - matching.caret.left) < 1.5,
+          `${fixture.name} draws position ${backward[i].pos} differently by direction`);
+        if (syntaxStops.includes(backward[i].pos))
+          assert.deepEqual(backward[i].caret, matching.caret,
+            `${fixture.name} changes the block at syntax seam ${backward[i].pos}`);
+        assert.equal(backward[i].source, fixture.source);
+      }
+    } finally {
+      await page.close();
+    }
+  }
+});
+
+test("shared inline delimiter seams have direction-independent block geometry", async () => {
+  for (const fixture of [
+    { name: "emphasis", source: "- *emphasis*", delimiter: "*" },
+    { name: "strikethrough", source: "1. ~~struck~~", delimiter: "~~" },
+    { name: "after-closing", source: "- **bold** after", delimiter: "**" },
+  ]) {
+    const page = await mountedEditor(fixture.source);
+    try {
+      const syntaxStart = fixture.source.indexOf(fixture.delimiter);
+      const syntaxClose = fixture.source.indexOf(fixture.delimiter,
+        syntaxStart + fixture.delimiter.length);
+      await setCursor(page, 0);
+      await new Promise(resolve => setTimeout(resolve, 250));
+      const forward = [await caretState(page)];
+      for (let pos = 0; pos < fixture.source.length; pos++) {
+        await page.keyboard.press("ArrowRight");
+        forward.push(await caretState(page));
+      }
+      const backward = [forward.at(-1)];
+      for (let pos = fixture.source.length; pos > 0; pos--) {
+        await page.keyboard.press("ArrowLeft");
+        backward.push(await caretState(page));
+      }
+      const reverseAt = new Map(backward.map(state => [state.pos, state]));
+      const seams = [];
+      for (let i = 0; i <= fixture.delimiter.length; i++) {
+        seams.push(syntaxStart + i, syntaxClose + i);
+      }
+      for (const pos of new Set(seams)) {
+        const right = forward[pos];
+        const left = reverseAt.get(pos);
+        assert.deepEqual(left.caret, right.caret,
+          `${fixture.name} changes the block at syntax seam ${pos}`);
+        assert.equal(left.source, fixture.source);
+        assert.equal(right.source, fixture.source);
+        assert.ok(right.formatting.every(mark => mark.width > 4 &&
+          mark.textIndent === "0px"),
+        `${fixture.name} delimiter stayed collapsed in its list hang`);
+      }
+    } finally {
+      await page.close();
+    }
+  }
+});
+
+test("inline delimiter seams preserve horizontally separate bidi affinity", async () => {
+  for (const fixture of [
+    { name: "one RTL grapheme", source: "1. **א** tail" },
+    { name: "RTL run", source: "- **שלום** tail" },
+  ]) {
+    const page = await mountedEditor(fixture.source);
+    try {
+      const contentStart = fixture.source.indexOf("**") + 2;
+      await setCursor(page, contentStart);
+      await new Promise(resolve => setTimeout(resolve, 250));
+      const before = await setCursorAssoc(page, contentStart, -1);
+      const after = await setCursorAssoc(page, contentStart, 1);
+      const overlap = Math.min(before.minus.bottom, before.plus.bottom) -
+        Math.max(before.minus.top, before.plus.top);
+      assert.ok(overlap > Math.min(before.minus.height, before.plus.height) * 0.5,
+        `${fixture.name} no longer exercises same-row bidi sites`);
+      assert.ok(Math.abs(before.plus.left - before.minus.left) > 2.5,
+        `${fixture.name} no longer exercises horizontally separate bidi sites`);
+      assert.equal(before.assoc, -1);
+      assert.equal(after.assoc, 1);
+      assert.equal(before.caret.left, before.minus.left,
+        `${fixture.name} lost its -1 visual affinity`);
+      assert.equal(after.caret.left, after.plus.left,
+        `${fixture.name} lost its +1 visual affinity`);
+      assert.notEqual(before.caret.left, after.caret.left,
+        `${fixture.name} bidi sites were incorrectly merged`);
+      assert.equal(before.source, fixture.source);
+      assert.equal(after.source, fixture.source);
+    } finally {
+      await page.close();
+    }
+  }
+});
+
+test("split-row delimiter seams retain wrap affinity and in-flow reveal", async () => {
+  const page = await mountedEditor("1. **WWWW**");
+  try {
+    await setCursor(page, 0);
+    await new Promise(resolve => setTimeout(resolve, 250));
+    const fixture = await page.evaluate(async () => {
+      const host = document.getElementById("magic4");
+      host.style.width = "210px";
+      mdView.requestMeasure();
+      const settle = () => new Promise(resolve => setTimeout(resolve, 60));
+      await settle();
+      for (let count = 4; count <= 50; count++) {
+        const source = `1. **${"W".repeat(count)}**`;
+        mdView.dispatch({
+          changes: { from: 0, to: mdView.state.doc.length, insert: source },
+          selection: { anchor: 0 },
+        });
+        await settle();
+        const seam = source.lastIndexOf("**");
+        const minus = mdView.coordsAtPos(seam, -1);
+        const plus = mdView.coordsAtPos(seam, 1);
+        const overlap = Math.min(minus.bottom, plus.bottom) -
+          Math.max(minus.top, plus.top);
+        if (minus.bottom > minus.top && plus.bottom > plus.top && overlap <= 0)
+          return { source, seam };
+      }
+      return null;
+    });
+    assert.ok(fixture, "could not place a formatting seam across a real wrap");
+
+    await setCursor(page, fixture.seam - 1);
+    await page.keyboard.press("ArrowRight");
+    const forward = await caretState(page);
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("ArrowLeft");
+    const backward = await caretState(page);
+    assert.equal(forward.pos, fixture.seam);
+    assert.equal(backward.pos, fixture.seam);
+    assert.equal(forward.assoc, -1);
+    assert.equal(backward.assoc, 1);
+    const rowOverlap = Math.min(forward.minus.bottom, forward.plus.bottom) -
+      Math.max(forward.minus.top, forward.plus.top);
+    assert.ok(rowOverlap <= 0, "the fixture no longer has two wrapped caret rows");
+    assert.equal(forward.caret.left, forward.minus.left,
+      "forward traversal lost the delimiter's preceding-row affinity");
+    assert.equal(backward.caret.left, backward.plus.left,
+      "backward traversal lost the delimiter's following-row affinity");
+    assert.notEqual(forward.caret.top, backward.caret.top,
+      "a true wrapped boundary was incorrectly collapsed to one row");
+
+    const reveal = await page.evaluate(async () => {
+      const settle = () => new Promise(resolve => setTimeout(resolve, 250));
+      const source = mdView.state.sliceDoc();
+      const line = () => document.querySelector("#magic4 .cm-activeLine")
+        .getBoundingClientRect().height;
+      const shown = line();
+      const suppress = document.createElement("style");
+      suppress.textContent = "#magic4 .cm-formatting-inline{" +
+        "max-width:0!important;opacity:0!important;margin:0!important}";
+      document.head.appendChild(suppress);
+      mdView.requestMeasure();
+      await settle();
+      const hidden = line();
+      suppress.remove();
+      mdView.requestMeasure();
+      await settle();
+      return { source, shown, hidden, restored: line() };
+    });
+    assert.equal(reveal.source, fixture.source,
+      "revealing wrapped syntax changed the Markdown source");
+    assert.ok(reveal.shown - reveal.hidden > 10,
+      "the fixture no longer records the accepted in-flow reveal row");
+    assert.ok(Math.abs(reveal.restored - reveal.shown) < 0.5,
+      "active delimiter geometry did not restore after the reveal check");
+  } finally {
+    await page.close();
+  }
+});
+
+test("leading bold list clicks resolve delimiter and text boundaries", async () => {
+  for (const fixture of [
+    { name: "ordered", source: "1. **Some written stuff**" },
+    { name: "bullet", source: "- **Some written stuff**" },
+  ]) {
+    const page = await mountedEditor(fixture.source);
+    try {
+      const boldStart = fixture.source.indexOf("**");
+      const firstLetter = boldStart + 2;
+      const boldClose = fixture.source.indexOf("**", firstLetter);
+      await setCursor(page, firstLetter);
+      await new Promise(resolve => setTimeout(resolve, 250));
+
+      for (const pos of [boldStart, boldStart + 1, firstLetter,
+        boldClose, boldClose + 1, boldClose + 2]) {
+        const target = await page.evaluate(position => {
+          const end = mdView.state.doc.length;
+          const side = position === end ? -1 : 1;
+          const r = mdView.coordsAtPos(position, side);
+          return { x: r.left + (position === end ? -0.5 : 0.5),
+            y: (r.top + r.bottom) / 2 };
+        }, pos);
+        await page.mouse.click(target.x, target.y);
+        const clicked = await caretState(page);
+        assert.equal(clicked.pos, pos,
+          `${fixture.name} click missed source position ${pos}`);
+        assert.equal(clicked.source, fixture.source,
+          `${fixture.name} click changed the Markdown source`);
+        assert.ok(Math.abs(clicked.caret.left -
+          (pos === fixture.source.length ? target.x + 0.5 : target.x - 0.5)) < 1.5,
+        `${fixture.name} block cursor did not follow click ${pos}`);
+      }
+    } finally {
+      await page.close();
+    }
+  }
+});
+
+test("leading bold list delimiters remain ordinary editable source", async () => {
+  for (const fixture of [
+    { name: "ordered", source: "1. **Some written stuff**" },
+    { name: "bullet", source: "- **Some written stuff**" },
+  ]) {
+    const page = await mountedEditor(fixture.source);
+    try {
+      const boldStart = fixture.source.indexOf("**");
+      const firstLetter = boldStart + 2;
+      const boldClose = fixture.source.indexOf("**", firstLetter);
+      const operations = [
+        { pos: boldStart, key: "Delete", removed: boldStart },
+        { pos: boldStart + 1, key: "Backspace", removed: boldStart },
+        { pos: firstLetter, key: "Backspace", removed: firstLetter - 1 },
+        { pos: boldClose, key: "Delete", removed: boldClose },
+        { pos: boldClose + 1, key: "Backspace", removed: boldClose },
+        { pos: boldClose + 2, key: "Backspace", removed: boldClose + 1 },
+      ];
+
+      for (const operation of operations) {
+        await setCursor(page, operation.pos);
+        await page.keyboard.press(operation.key);
+        const expected = fixture.source.slice(0, operation.removed) +
+          fixture.source.slice(operation.removed + 1);
+        assert.equal(await page.evaluate(() => mdView.state.sliceDoc()), expected,
+          `${fixture.name} ${operation.key} did not edit delimiter source normally`);
+        await page.keyboard.down("Meta");
+        await page.keyboard.press("z");
+        await page.keyboard.up("Meta");
+        assert.equal(await page.evaluate(() => mdView.state.sliceDoc()), fixture.source,
+          `${fixture.name} undo did not restore delimiter source`);
+      }
     } finally {
       await page.close();
     }
