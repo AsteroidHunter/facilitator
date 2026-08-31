@@ -2182,12 +2182,16 @@
      never touched. the star and plus a file may use for the same thing get the
      same treatment, since all three mean one list */
   :is(#magic3, #magic4) .md-li-dot, :is(#magic3, #magic4) .md-li-dot *{color:transparent}
-  /* the mark itself, at the box's own left edge, which is the marker column
-     every item in the list already shares, so nothing about the column or the
-     hang moves. it is taken out of the flow on purpose: an extra character in
-     the box's own line could find a place to wrap and make the marker two lines
-     tall, and one out of the flow cannot. it takes the board's quieter ink, the
-     one every mark that is not body text takes.
+  /* the mark itself, seated --air before the text edge. a bullet's drawn dot is
+     much narrower than the one-character source marker whose column it keeps;
+     pinning it to that column's left edge put all of the minimum column's extra
+     width between the dot and the text. its right edge now uses the same air as
+     an ordered marker, while the box, its editable source positions and the
+     hanging column stay exactly where they were. it is taken out of the flow on
+     purpose: an extra character in the box's own line could find a place to
+     wrap and make the marker two lines tall, and one out of the flow cannot. it
+     takes the board's quieter ink, the one every mark that is not body text
+     takes.
      it is drawn and not a bullet character because the face's own filled
      bullet is one width and its hollow one another, 3.42px against 6.07px of
      ink at 14px. drawn, every level is the one width, and that width is a
@@ -2197,7 +2201,7 @@
      has already stepped the column over, so a level reads as a level from
      where its mark stands and never from what shape the mark is */
   :is(#magic3, #magic4) .md-li-dot{position:relative}
-  :is(#magic3, #magic4) .md-li-dot::before{content:""; position:absolute; left:0; top:50%;
+  :is(#magic3, #magic4) .md-li-dot::before{content:""; position:absolute; left:auto; right:var(--air); top:50%;
     width:.25em; height:.25em; margin-top:-.125em; border-radius:50%;
     background:var(--sub)}
   /* a quoted block takes a rule down its left, in the same hairline every
@@ -7222,7 +7226,9 @@ function mdLayer(){
 // a run of characters given an exact width in pixels. the width is written on
 // the span rather than in the stylesheet because it is different on every line
 function mdBox(D, cls, w){
-  return D.mark({ class: cls, attributes: { style: "--w:" + w + "px" } });
+  return D.mark({ class: cls, attributes: {
+    style: "--w:" + w + "px;--air:" + MD_MARKAIR + "px",
+  } });
 }
 // seat is a state kept whole across a tab switch, and when there is one the
 // text and the endings are not read at all: that state already carries them,

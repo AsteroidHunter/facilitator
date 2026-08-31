@@ -121,6 +121,44 @@ async function caretState(page) {
   });
 }
 
+async function listLayoutState(page, textStart, markerIndex = 0) {
+  await page.evaluate(() => new Promise(resolve =>
+    requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  return page.evaluate(({ position, index }) => {
+    const rect = value => value && ({
+      left: value.left, top: value.top, right: value.right, bottom: value.bottom,
+      width: value.width ?? value.right - value.left,
+      height: value.height ?? value.bottom - value.top,
+    });
+    const mark = document.querySelectorAll("#magic4 .md-li-mark")[index];
+    if (!mark) return null;
+    const marker = mark.getBoundingClientRect();
+    const text = mdView.coordsAtPos(position, 1);
+    let ink;
+    if (mark.classList.contains("md-li-dot")) {
+      const pseudo = getComputedStyle(mark, "::before");
+      const width = parseFloat(pseudo.width);
+      const left = pseudo.left === "auto"
+        ? marker.width - parseFloat(pseudo.right) - width
+        : parseFloat(pseudo.left);
+      ink = { left: marker.left + left, right: marker.left + left + width,
+        width, top: marker.top + parseFloat(pseudo.top) + parseFloat(pseudo.marginTop) };
+    } else {
+      const raw = mark.querySelector(".cm-formatting-block");
+      ink = rect(raw && raw.getBoundingClientRect());
+    }
+    const line = mark.closest(".cm-line").getBoundingClientRect();
+    return {
+      marker: rect(marker),
+      ink,
+      text: rect(text),
+      gap: text.left - ink.right,
+      line: rect(line),
+      contentHeight: mdView.contentHeight,
+    };
+  }, { position: textStart, index: markerIndex });
+}
+
 async function setCursor(page, pos) {
   await page.evaluate(position => {
     mdView.focus();
@@ -354,6 +392,97 @@ test("bullet and ordered marker gaps traverse in either direction", async () => 
       assert.equal(backward.source, fixture.source);
     } finally {
       await page.close();
+    }
+  }
+});
+
+test("list typing keeps one baseline and production marker air", async () => {
+  const page = await mountedEditor("");
+  try {
+    await setCursor(page, 0);
+    const typed = [];
+    for (const character of ["-", " ", "S", "o", "m", "e"]) {
+      await page.keyboard.type(character);
+      typed.push(await caretState(page));
+    }
+    assert.equal(typed.at(-1).source, "- Some");
+    for (const state of typed) {
+      assert.ok(Math.abs(state.line.top - typed[0].line.top) < 0.25,
+        `typing ${JSON.stringify(state.source)} moved the list row vertically`);
+      assert.ok(Math.abs(state.line.height - typed[0].line.height) < 0.25,
+        `typing ${JSON.stringify(state.source)} changed the list line height`);
+      assert.ok(Math.abs(state.caret.top - typed[0].caret.top) < 0.25,
+        `typing ${JSON.stringify(state.source)} shifted the block cursor vertically`);
+      assert.ok(Math.abs(state.caret.height - typed[0].caret.height) < 0.25,
+        `typing ${JSON.stringify(state.source)} changed the block cursor height`);
+    }
+
+    const right = await arrowStates(page, 0, "ArrowRight", 6);
+    const left = [right.at(-1)];
+    for (let i = 0; i < 6; i++) {
+      await page.keyboard.press("ArrowLeft");
+      left.push(await caretState(page));
+    }
+    assert.deepEqual(right.map(state => state.pos), [0, 1, 2, 3, 4, 5, 6]);
+    assert.deepEqual(left.map(state => state.pos), [6, 5, 4, 3, 2, 1, 0]);
+    for (const state of [...right, ...left]) {
+      assert.ok(Math.abs(state.caret.top - typed[0].caret.top) < 0.25,
+        `source stop ${state.pos} shifted the block cursor vertically`);
+      assert.ok(Math.abs(state.line.height - typed[0].line.height) < 0.25,
+        `source stop ${state.pos} changed the list line height`);
+    }
+
+    const layout = await listLayoutState(page, 2);
+    assert.ok(Math.abs(layout.gap - 7) < 0.75,
+      `bullet ink left ${layout.gap.toFixed(2)}px before text instead of 7px`);
+  } finally {
+    await page.close();
+  }
+
+  const fixtures = [
+    { name: "star bullet", source: "* Some", textStart: 2 },
+    { name: "plus bullet", source: "+ Some", textStart: 2 },
+    { name: "ordered", source: "1. Some", textStart: 3 },
+    { name: "multi-digit", source: "123. Some", textStart: 5 },
+    // An active inline delimiter carries its established 1px reveal margin.
+    { name: "leading bold", source: "- **Some**", textStart: 2, expectedGap: 8 },
+    { name: "nested", source: "1. Parent\n   - Nested", textStart: 15, markerIndex: 1 },
+  ];
+  for (const fixture of fixtures) {
+    const fixturePage = await mountedEditor(fixture.source);
+    try {
+      await setCursor(fixturePage, fixture.textStart);
+      const layout = await listLayoutState(
+        fixturePage, fixture.textStart, fixture.markerIndex || 0);
+      assert.ok(layout, `${fixture.name} did not render a list marker`);
+      const expectedGap = fixture.expectedGap || 7;
+      assert.ok(Math.abs(layout.gap - expectedGap) < 0.75,
+        `${fixture.name} left ${layout.gap.toFixed(2)}px before text instead of ${expectedGap}px`);
+    } finally {
+      await fixturePage.close();
+    }
+  }
+
+  for (const fixture of [
+    { name: "wrapped", source: `- ${"wide words ".repeat(18)}`, start: 0, count: 8, width: 210 },
+    { name: "RTL", source: "- שלום עולם", start: 0, count: 7 },
+  ]) {
+    const fixturePage = await mountedEditor(fixture.source);
+    try {
+      if (fixture.width) await fixturePage.evaluate(width => {
+        document.getElementById("magic4").style.width = width + "px";
+        mdView.requestMeasure();
+      }, fixture.width);
+      const states = await arrowStates(
+        fixturePage, fixture.start, "ArrowRight", fixture.count);
+      for (const state of states) {
+        assert.ok(Math.abs(state.caret.top - states[0].caret.top) < 0.25,
+          `${fixture.name} source stop ${state.pos} shifted the cursor vertically`);
+        assert.ok(Math.abs(state.line.top - states[0].line.top) < 0.25,
+          `${fixture.name} source stop ${state.pos} left the first visual row`);
+      }
+    } finally {
+      await fixturePage.close();
     }
   }
 });
