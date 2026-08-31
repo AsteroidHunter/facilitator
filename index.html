@@ -2170,6 +2170,13 @@
   :is(#magic3, #magic4) .md-hang .cm-formatting-inline{text-indent:0}
   :is(#magic3, #magic4) .md-li-ind, :is(#magic3, #magic4) .md-li-mark{
     display:inline-block; width:var(--w)}
+  /* A marker column includes its separator. Keep that air on the right and
+     seat the file's real marker against it, so a short 1. in a column sized
+     for 123. ends on the same edge as its sibling. The outer width and the
+     line's hanging indent do not change; only the source glyphs' place inside
+     their already-owned column does. */
+  :is(#magic3, #magic4) .md-li-mark{
+    text-align:right; padding-right:var(--air)}
   /* the indent's own characters are spaces and nothing else, and the box is
      already exactly as wide as the level wants, so they are given no width at
      all. they are still in the document, still selectable, still typed over */
@@ -2184,10 +2191,10 @@
   :is(#magic3, #magic4) .md-li-dot, :is(#magic3, #magic4) .md-li-dot *{color:transparent}
   /* the mark itself, seated --air before the text edge. a bullet's drawn dot is
      much narrower than the one-character source marker whose column it keeps;
-     pinning it to that column's left edge put all of the minimum column's extra
-     width between the dot and the text. its right edge now uses the same air as
-     an ordered marker, while the box, its editable source positions and the
-     hanging column stay exactly where they were. it is taken out of the flow on
+     pinning either one to that column's left edge put all of the minimum
+     column's extra width between it and the text. both real marker and dot now
+     finish on the same edge, immediately before the reserved air. the outer
+     box and hanging column stay exactly where they were. it is taken out of the flow on
      purpose: an extra character in the box's own line could find a place to
      wrap and make the marker two lines tall, and one out of the flow cannot. it
      takes the board's quieter ink, the one every mark that is not body text
@@ -8957,7 +8964,12 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     let left, right;
     if (holder.classList.contains("md-li-ind")){
       const r = holder.getBoundingClientRect();
-      left = r.left; right = r.right;
+      // The following marker may be shorter than the column it owns. Its real
+      // source is right-aligned inside that column, so the final indentation
+      // stop belongs at the source marker's measured start, not at the empty
+      // left edge of the marker box.
+      left = r.left;
+      right = after && after.bottom > after.top ? after.left : r.right;
     } else {
       const mark = holder.closest(".md-li-mark");
       if (!mark) return null;
@@ -8966,20 +8978,81 @@ document.getElementById("taskstatus").addEventListener("click", () => {
       right = after && after.bottom > after.top ? after.left : r.right;
     }
     if (!Number.isFinite(left) || !Number.isFinite(right)) return null;
-    return { x: left + (right - left) * (pos - from) / (to - from), top: tall.top };
+    return { x: left + (right - left) * (pos - from) / (to - from),
+             top: tall.top, bottom: tall.bottom };
   }
 
   const cmInlineMarks = new Set(["EmphasisMark", "StrikethroughMark", "CodeMark"]);
-  function cmInlineMarkAt(pos){
+  function cmInlineMarkNode(pos){
     try {
       const tree = window.CM6.syntaxTree(mdView.state);
       for (const side of [-1, 1]){
         for (let node = tree.resolveInner(pos, side); node; node = node.parent){
-          if (cmInlineMarks.has(node.name)) return true;
+          if (cmInlineMarks.has(node.name)) return node;
         }
       }
     } catch (e) {}
-    return false;
+    return null;
+  }
+
+  function cmInlineMarkAt(pos){
+    return !!cmInlineMarkNode(pos);
+  }
+
+  const cmRectHeight = rect => rect && rect.bottom > rect.top
+    ? rect.bottom - rect.top : 0;
+  function cmRowsOverlap(a, b){
+    if (!cmRectHeight(a) || !cmRectHeight(b)) return false;
+    const overlap = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+    return overlap > Math.min(cmRectHeight(a), cmRectHeight(b)) * 0.5;
+  }
+
+  // Inline delimiter spans use their compact formatting box, two pixels below
+  // the body-font box on this face. The block has a fixed height, so borrowing
+  // that top makes it visibly dip even though the line never moved. Find the
+  // body-height endpoint outside this exact mark on the already-selected row.
+  // Row and horizontal affinity remain owned by CodeMirror's selected rect.
+  function cmInlineBodyTop(pos, selected, bodyHeight){
+    const mark = cmInlineMarkNode(pos);
+    if (!mark || !cmRectHeight(selected)) return selected && selected.top;
+    const candidates = [
+      mdView.coordsAtPos(mark.from, -1),
+      mdView.coordsAtPos(mark.to, 1),
+      mdView.coordsAtPos(mark.from, 1),
+      mdView.coordsAtPos(mark.to, -1),
+    ].filter(rect => cmRowsOverlap(rect, selected));
+    if (!candidates.length) return selected.top;
+    candidates.sort((a, b) =>
+      Math.abs(cmRectHeight(a) - bodyHeight) -
+      Math.abs(cmRectHeight(b) - bodyHeight));
+    return candidates[0].top;
+  }
+
+  // Return the one visible DOM rectangle occupied by the next source
+  // grapheme, but only when its logical start edge is the visual caret site
+  // CodeMirror selected. In RTL that start is the range's right edge, so the
+  // block extends left. At a distinct bidi or wrap affinity, the selected x
+  // does not match that edge and the caller deliberately keeps a bounded cell.
+  function cmGraphemeRect(pos, grapheme, selected, logical, tolerance){
+    if (!grapheme || /[\r\n]/.test(grapheme) ||
+        !cmRectHeight(selected) || !cmRectHeight(logical) ||
+        !cmRowsOverlap(selected, logical)) return null;
+    try {
+      const start = mdView.domAtPos(pos);
+      const end = mdView.domAtPos(pos + grapheme.length);
+      const range = document.createRange();
+      range.setStart(start.node, start.offset);
+      range.setEnd(end.node, end.offset);
+      const rects = Array.from(range.getClientRects())
+        .filter(rect => rect.width > 0 && rect.height > 0);
+      if (rects.length !== 1 || !cmRowsOverlap(rects[0], selected)) return null;
+      const rect = rects[0];
+      const edge = Math.abs(logical.left - rect.left) <=
+        Math.abs(logical.left - rect.right) ? rect.left : rect.right;
+      if (Math.abs(logical.left - edge) > tolerance ||
+          Math.abs(selected.left - logical.left) > tolerance) return null;
+      return rect;
+    } catch (e) { return null; }
   }
 
   // At a visible inline delimiter boundary, CodeMirror can return the end of
@@ -9022,37 +9095,30 @@ document.getElementById("taskstatus").addEventListener("click", () => {
       const main = mdView.state.selection.main;
       if (main.empty){
         const pos = main.head, line = mdView.state.doc.lineAt(pos);
-        const spaced = cmListSpaceCaret(pos);
-        if (spaced){
-          return { x: spaced.x, base: spaced.top + m.asc, fs, fbA: m.fbA, fbD: m.fbD,
-                   capH: m.capH, scaleX, clip };
-        }
         const grapheme = graphemeAt(line.text, pos - line.from);
         const before = mdView.coordsAtPos(pos, -1);
         const after = mdView.coordsAtPos(pos, 1);
-        let side = main.assoc || (pos === line.from ? 1 : -1);
-        if (grapheme && !/[\r\n]/.test(grapheme) &&
-            cmInlineGraphemeSide(pos, before, after, 2 * scaleX)) side = 1;
-        let tall = null;
-        for (const s of [side, -side]){
-          const q = s < 0 ? before : after;
-          if (!q) continue;
-          if (q.bottom > q.top){ tall = q; break; }
-        }
-        if (tall){
-          const x = tall.left;
-          let width = null;
-          if (grapheme && !/[\r\n]/.test(grapheme)){
-            const end = mdView.coordsAtPos(pos + grapheme.length, -1);
-            // A visible grapheme cannot occupy two visual lines. Decorations
-            // may return a coordinate from another fragment; reject that and
-            // keep the established cell instead of drawing across the editor.
-            if (end && end.bottom > end.top && end.left > x &&
-                end.top < tall.bottom && end.bottom > tall.top)
-              width = end.left - x;
+        const spaced = cmListSpaceCaret(pos);
+        let selected = null;
+        if (spaced){
+          selected = { left: spaced.x, right: spaced.x,
+                       top: spaced.top, bottom: spaced.bottom };
+        } else {
+          let side = main.assoc || (pos === line.from ? 1 : -1);
+          if (grapheme && !/[\r\n]/.test(grapheme) &&
+              cmInlineGraphemeSide(pos, before, after, 2 * scaleX)) side = 1;
+          for (const s of [side, -side]){
+            const q = s < 0 ? before : after;
+            if (!q) continue;
+            if (q.bottom > q.top){ selected = q; break; }
           }
-          return { x, base: tall.top + m.asc, fs, fbA: m.fbA, fbD: m.fbD,
-                   capH: m.capH, width, scaleX, clip };
+        }
+        if (selected){
+          const glyph = cmGraphemeRect(pos, grapheme, selected, after, 2 * scaleX);
+          const top = cmInlineBodyTop(pos, selected, m.boxH);
+          return { x: glyph ? glyph.left : selected.left, base: top + m.asc,
+                   fs, fbA: m.fbA, fbD: m.fbD,
+                   capH: m.capH, width: glyph && glyph.width, scaleX, clip };
         }
       }
     }
