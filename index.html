@@ -9147,9 +9147,15 @@ document.getElementById("taskstatus").addEventListener("click", () => {
                               capH: m.capH, width: editableAdvance(el, rg, rr), scaleX, clip };
     }
     // an empty editable gives a zero rect; park the block at the field's
-    // start, on the baseline the strut line box will give the first letter
+    // start, on the baseline the strut line box will give the first letter.
+    // the start is the content box's left edge and not the border box's: the
+    // focused card's title indents its words by a padding, and a block parked
+    // on the outer edge stood that whole inset left of where the first letter
+    // then landed. the inset is layout px, so it takes the same scale the rect
+    // took before the two are added
     const r = er;
-    return { x: r.left, base: r.top + (r.height - m.boxH) / 2 + m.asc, fs,
+    const inset = (parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft)) * scaleX;
+    return { x: r.left + inset, base: r.top + (r.height - m.boxH) / 2 + m.asc, fs,
              fbA: m.fbA, fbD: m.fbD, capH: m.capH, scaleX, clip };
   }
 

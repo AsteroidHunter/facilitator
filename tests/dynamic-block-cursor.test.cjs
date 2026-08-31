@@ -440,6 +440,80 @@ test("CodeMirror cursor measures its next rendered grapheme", async () => {
   }
 });
 
+test("a new card's empty title parks the cursor on the first letter's spot", async () => {
+  // the reported miss: a just-created card focuses its empty title, and the
+  // block stood at the title box's outer edge while the focused card's css
+  // pads the words in, so the first keystroke landed a padding to the right
+  // of the block. the board's own path runs here: apply() meets an unknown
+  // box, makeBox + landFocus select it and start the rename.
+  const page = await browser.newPage();
+  await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 2 });
+  await page.goto(`${origin}/index.html`, { waitUntil: "domcontentloaded" });
+  try {
+    const board = boxes => ({
+      boxes,
+      pwd: "/tmp/lane", pwds: { facilitator: "/tmp/lane" },
+      projects: [], busy: { facilitator: null }, queued: 0,
+      end: false, paused: false, title: "facilitator",
+      listening: { facilitator: false }, everListened: {}, workspaces: {},
+      listenerGap: { facilitator: 0 },
+      agents: { facilitator: { name: "claude", alive: false, away: false } },
+    });
+    const card = (id, title) => ({
+      id, bucket: "meta", title, reply: "", done: false, replies: 0,
+      ball: "me", parked: false, ts: 1, context: "", owner: "facilitator",
+      pending: 0, pendingTexts: [], pendingStamps: [], ws: null, task: null,
+      worktree: "", agentTs: 0, engine: "claude", writing: false, bg: false,
+      state: "new", queuePos: 0,
+    });
+
+    const empty = await page.evaluate(async ({ first, both }) => {
+      await document.fonts.ready;
+      build(first); apply(first); lastState = first;
+      // the create flow: the server grows a nameless box, focusbox remembers
+      // it, and the next poll's apply() lands the cursor in its title
+      localStorage.setItem("focusbox", "m2");
+      apply(both); lastState = both;
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const t = els.m2.titleEl;
+      const caret = document.getElementById("fatcaret").getBoundingClientRect();
+      return {
+        selected: els.m2.box.classList.contains("sel"),
+        editing: t.isContentEditable && document.activeElement === t,
+        text: t.textContent,
+        caretOn: document.getElementById("fatcaret").classList.contains("on"),
+        caretLeft: caret.left,
+      };
+    }, { first: board([card("m1", "an older card")]),
+         both: board([card("m1", "an older card"), card("m2", "")]) });
+
+    assert.ok(empty.selected, "the new card was not selected");
+    assert.ok(empty.editing, "the new card's title did not take the rename cursor");
+    assert.equal(empty.text, "", "the new card's title was not empty");
+    assert.ok(empty.caretOn, "no block cursor stood on the empty title");
+
+    await page.keyboard.type("A");
+    const typed = await page.evaluate(async () => {
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const t = els.m2.titleEl;
+      const rg = document.createRange();
+      rg.setStart(t.firstChild, 0);
+      rg.setEnd(t.firstChild, 1);
+      const caret = document.getElementById("fatcaret").getBoundingClientRect();
+      return { text: t.textContent, firstCharLeft: rg.getBoundingClientRect().left,
+               caretLeft: caret.left };
+    });
+
+    assert.equal(typed.text, "A", "the keystroke did not land in the title");
+    assert.ok(Math.abs(empty.caretLeft - typed.firstCharLeft) < 1,
+      `empty title cursor at ${empty.caretLeft} but the first letter landed at ${typed.firstCharLeft}`);
+    assert.ok(typed.caretLeft > typed.firstCharLeft,
+      "the cursor did not advance past the typed letter");
+  } finally {
+    await page.close();
+  }
+});
+
 test("list traversal and dynamic CodeMirror widths coexist", async () => {
   const source = "1.   aiW";
   const page = await codeMirrorFixture(source);
