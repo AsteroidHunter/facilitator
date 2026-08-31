@@ -89,6 +89,30 @@ async function caretState(page) {
     });
     const selection = mdView.state.selection.main;
     const pos = selection.head;
+    const source = mdView.state.sliceDoc();
+    const lineDoc = mdView.state.doc.lineAt(pos);
+    let grapheme = "";
+    try {
+      const tail = lineDoc.text.slice(pos - lineDoc.from);
+      grapheme = new Intl.Segmenter(undefined, { granularity: "grapheme" })
+        .segment(tail)[Symbol.iterator]().next().value?.segment || "";
+    } catch (error) {
+      grapheme = source.slice(pos, pos + 1);
+    }
+    let nextRange = null;
+    if (grapheme && !/[\r\n]/.test(grapheme)) {
+      try {
+        const start = mdView.domAtPos(pos);
+        const end = mdView.domAtPos(pos + grapheme.length);
+        const range = document.createRange();
+        range.setStart(start.node, start.offset);
+        range.setEnd(end.node, end.offset);
+        const visible = Array.from(range.getClientRects())
+          .filter(value => value.width > 0 && value.height > 0)
+          .map(rect);
+        if (visible.length === 1) nextRange = visible[0];
+      } catch (error) {}
+    }
     const caret = document.getElementById("fatcaret");
     const lift = document.getElementById("fatcaretlift");
     return {
@@ -96,7 +120,9 @@ async function caretState(page) {
       assoc: selection.assoc,
       before: pos ? mdView.state.sliceDoc(pos - 1, pos) : null,
       after: pos < mdView.state.doc.length ? mdView.state.sliceDoc(pos, pos + 1) : null,
-      source: mdView.state.sliceDoc(),
+      source,
+      grapheme,
+      nextRange,
       minus: rect(mdView.coordsAtPos(pos, -1)),
       plus: rect(mdView.coordsAtPos(pos, 1)),
       caret: rect(caret.getBoundingClientRect()),
@@ -133,6 +159,9 @@ async function listLayoutState(page, textStart, markerIndex = 0) {
     const mark = document.querySelectorAll("#magic4 .md-li-mark")[index];
     if (!mark) return null;
     const marker = mark.getBoundingClientRect();
+    const raw = mark.querySelector(".cm-formatting-block");
+    const rawRect = rect(raw && raw.getBoundingClientRect());
+    const gapBox = mark.querySelector(".md-li-gap");
     const text = mdView.coordsAtPos(position, 1);
     let ink;
     if (mark.classList.contains("md-li-dot")) {
@@ -144,15 +173,17 @@ async function listLayoutState(page, textStart, markerIndex = 0) {
       ink = { left: marker.left + left, right: marker.left + left + width,
         width, top: marker.top + parseFloat(pseudo.top) + parseFloat(pseudo.marginTop) };
     } else {
-      const raw = mark.querySelector(".cm-formatting-block");
-      ink = rect(raw && raw.getBoundingClientRect());
+      ink = rawRect;
     }
     const line = mark.closest(".cm-line").getBoundingClientRect();
     return {
       marker: rect(marker),
+      raw: rawRect,
+      gapBox: rect(gapBox && gapBox.getBoundingClientRect()),
       ink,
       text: rect(text),
       gap: text.left - ink.right,
+      sourceGap: rawRect ? text.left - rawRect.right : null,
       line: rect(line),
       contentHeight: mdView.contentHeight,
     };
@@ -487,6 +518,209 @@ test("list typing keeps one baseline and production marker air", async () => {
   }
 });
 
+test("list syntax stays on the exact body-font baseline", async () => {
+  for (const fixture of [
+    { name: "bullet", source: "- **Some**" },
+    { name: "ordered", source: "1. **Some**" },
+    { name: "multi-digit", source: "123. **Some**" },
+    { name: "nested", source: "1. Parent\n   - **Some**" },
+  ]) {
+    const page = await mountedEditor(fixture.source);
+    try {
+      const lineStart = fixture.source.lastIndexOf("\n") + 1;
+      const body = fixture.source.indexOf("Some", lineStart);
+      await setCursor(page, body);
+      await new Promise(resolve => setTimeout(resolve, 250));
+      const forward = await arrowStates(
+        page, lineStart, "ArrowRight", fixture.source.length - lineStart);
+      assert.deepEqual(forward.map(state => state.pos),
+        Array.from({ length: fixture.source.length - lineStart + 1 },
+          (_, index) => lineStart + index),
+        `${fixture.name} skipped a source position moving right`);
+      const reference = forward[body - lineStart];
+      for (const state of forward) {
+        assert.ok(Math.abs(state.caret.top - reference.caret.top) <= 0.5,
+          `${fixture.name} position ${state.pos} moved the block top by ` +
+          `${(state.caret.top - reference.caret.top).toFixed(2)}px`);
+        assert.ok(Math.abs(state.caret.bottom - reference.caret.bottom) <= 0.5,
+          `${fixture.name} position ${state.pos} moved the block bottom by ` +
+          `${(state.caret.bottom - reference.caret.bottom).toFixed(2)}px`);
+        assert.ok(Math.abs(state.line.top - reference.line.top) <= 0.25 &&
+          Math.abs(state.line.height - reference.line.height) <= 0.25,
+        `${fixture.name} position ${state.pos} changed its visual row`);
+      }
+
+      const backward = [forward.at(-1)];
+      for (let pos = fixture.source.length; pos > lineStart; pos--) {
+        await page.keyboard.press("ArrowLeft");
+        backward.push(await caretState(page));
+      }
+      assert.deepEqual(backward.map(state => state.pos),
+        forward.map(state => state.pos).reverse(),
+        `${fixture.name} skipped a source position moving left`);
+      for (const state of backward) {
+        assert.ok(Math.abs(state.caret.top - reference.caret.top) <= 0.5 &&
+          Math.abs(state.caret.bottom - reference.caret.bottom) <= 0.5,
+        `${fixture.name} position ${state.pos} changed baseline moving left`);
+      }
+    } finally {
+      await page.close();
+    }
+  }
+});
+
+test("list marker source, paint, separator, and clicks share one slot", async () => {
+  for (const marker of ["-", "*", "+"]) {
+    const source = `${marker} Some`;
+    const page = await mountedEditor(source);
+    try {
+      await setCursor(page, 2);
+      const layout = await listLayoutState(page, 2);
+      assert.ok(layout && layout.raw, `${marker} has no measurable source marker`);
+      assert.ok(Math.abs(layout.raw.right - layout.ink.right) <= 0.75,
+        `${marker} source ends ${Math.abs(layout.raw.right - layout.ink.right).toFixed(2)}px ` +
+        "from its painted dot");
+      assert.ok(Math.abs(layout.sourceGap - 7) <= 0.75,
+        `${marker} source leaves ${layout.sourceGap.toFixed(2)}px before text`);
+
+      const start = await setCursor(page, 0);
+      const end = await setCursor(page, 1);
+      assert.ok(Math.abs(start.caret.left - layout.raw.left) <= 1.5,
+        `${marker} start caret does not meet the visible source slot`);
+      assert.ok(Math.abs(end.caret.left - layout.raw.right) <= 1.5,
+        `${marker} end caret does not meet the painted marker edge`);
+
+      const y = (layout.raw.top + layout.raw.bottom) / 2;
+      await page.mouse.click(layout.raw.left + 0.5, y);
+      const clickedStart = await caretState(page);
+      assert.equal(clickedStart.pos, 0, `${marker} source-start click missed position 0`);
+      assert.ok(Math.abs(clickedStart.caret.left - layout.raw.left) <= 1.5);
+
+      await page.mouse.click((layout.ink.left + layout.ink.right) / 2, y);
+      const clickedInk = await caretState(page);
+      assert.equal(clickedInk.pos, 1, `${marker} painted marker click missed its source end`);
+      assert.ok(Math.abs(clickedInk.caret.left - layout.raw.right) <= 1.5);
+
+      await page.mouse.click(layout.text.left + 0.5, y);
+      const clickedText = await caretState(page);
+      assert.equal(clickedText.pos, 2, `${marker} separator click missed the text edge`);
+      assert.ok(Math.abs(clickedText.caret.left - layout.text.left) <= 1.5);
+    } finally {
+      await page.close();
+    }
+  }
+
+  const mixedSource = "1. Short\n123. Long";
+  const mixedPage = await mountedEditor(mixedSource);
+  try {
+    const short = await listLayoutState(mixedPage, mixedSource.indexOf("Short"), 0);
+    const long = await listLayoutState(mixedPage, mixedSource.indexOf("Long"), 1);
+    assert.ok(Math.abs(short.marker.width - long.marker.width) <= 0.25,
+      "ordered siblings stopped sharing their widest marker column");
+    for (const [name, layout] of [["1.", short], ["123.", long]]) {
+      assert.ok(Math.abs(layout.sourceGap - 7) <= 0.75,
+        `${name} leaves ${layout.sourceGap.toFixed(2)}px before text in a shared column`);
+      assert.ok(Math.abs(layout.raw.right - layout.text.left + 7) <= 0.75,
+        `${name} source is not right-aligned before the separator`);
+    }
+    assert.ok(Math.abs(short.raw.right - long.raw.right) <= 0.75,
+      "ordered siblings do not end on one marker edge");
+  } finally {
+    await mixedPage.close();
+  }
+
+  const boldPage = await mountedEditor("- **Some**");
+  try {
+    await setCursor(boldPage, 2);
+    const layout = await listLayoutState(boldPage, 2);
+    assert.ok(Math.abs(layout.sourceGap - 8) <= 0.75,
+      `leading bold leaves ${layout.sourceGap.toFixed(2)}px instead of its 7px air + 1px reveal`);
+  } finally {
+    await boldPage.close();
+  }
+
+  const nestedSource = "1. Parent\n   - Nested";
+  const nestedPage = await mountedEditor(nestedSource);
+  try {
+    const lineStart = nestedSource.lastIndexOf("\n") + 1;
+    const markerStart = nestedSource.indexOf("-", lineStart);
+    const textStart = nestedSource.indexOf("Nested");
+    await setCursor(nestedPage, textStart);
+    const layout = await listLayoutState(nestedPage, textStart, 1);
+    assert.ok(Math.abs(layout.raw.right - layout.ink.right) <= 0.75);
+    assert.ok(Math.abs(layout.sourceGap - 7) <= 0.75);
+    const indent = await arrowStates(
+      nestedPage, lineStart, "ArrowRight", markerStart - lineStart);
+    assert.equal(indent.at(-1).pos, markerStart);
+    assert.ok(Math.abs(indent.at(-1).caret.left - layout.raw.left) <= 1.5,
+      "nested indent endpoint does not reach the real marker start");
+    for (let index = 1; index < indent.length; index++) {
+      assert.ok(indent[index].caret.left > indent[index - 1].caret.left,
+        `nested indent position ${indent[index].pos} did not advance`);
+    }
+  } finally {
+    await nestedPage.close();
+  }
+});
+
+test("RTL list blocks cover only the selected next grapheme", async () => {
+  const plain = await mountedEditor("- שלום");
+  try {
+    for (const pos of [2, 3, 4, 5]) {
+      const state = await setCursorAssoc(plain, pos, 1);
+      assert.ok(state.nextRange, `plain RTL position ${pos} has no grapheme range`);
+      assert.ok(Math.abs(state.plus.left - state.nextRange.right) <= 1.5,
+        `plain RTL position ${pos} no longer has a right-edge logical start`);
+      assert.ok(Math.abs(state.caret.left - state.nextRange.left) <= 1,
+        `plain RTL position ${pos} starts outside its next grapheme`);
+      assert.ok(Math.abs(state.caret.width - state.nextRange.width) <= 1,
+        `plain RTL position ${pos} does not cover exactly one grapheme`);
+      assert.ok(Math.abs(state.caret.right - state.plus.left) <= 1.5,
+        `plain RTL position ${pos} lost its selected insertion edge`);
+    }
+  } finally {
+    await plain.close();
+  }
+
+  for (const fixture of [
+    { name: "RTL run", source: "- **שלום** tail" },
+    { name: "one RTL grapheme", source: "1. **א** tail" },
+  ]) {
+    const page = await mountedEditor(fixture.source);
+    try {
+      const contentStart = fixture.source.indexOf("**") + 2;
+      await setCursor(page, contentStart);
+      await new Promise(resolve => setTimeout(resolve, 250));
+      const preceding = await setCursorAssoc(page, contentStart, -1);
+      const content = await setCursorAssoc(page, contentStart, 1);
+      assert.ok(content.nextRange, `${fixture.name} has no next-grapheme range`);
+      assert.ok(Math.abs(content.caret.left - content.nextRange.left) <= 1 &&
+        Math.abs(content.caret.width - content.nextRange.width) <= 1,
+      `${fixture.name} does not cover the selected RTL grapheme`);
+      assert.ok(Math.abs(content.caret.right - content.plus.left) <= 1.5,
+        `${fixture.name} lost the RTL grapheme's logical start edge`);
+      assert.ok(Math.abs(preceding.caret.left - preceding.minus.left) <= 0.25,
+        `${fixture.name} lost its distinct preceding affinity site`);
+      assert.ok(preceding.caret.width <= 8,
+        `${fixture.name} preceding site spans ${preceding.caret.width.toFixed(2)}px across bidi content`);
+
+      const close = fixture.source.indexOf("**", contentStart);
+      const beforeClose = await setCursorAssoc(page, close, -1);
+      const onClose = await setCursorAssoc(page, close, 1);
+      assert.ok(beforeClose.caret.width <= 8,
+        `${fixture.name} closing seam spans ${beforeClose.caret.width.toFixed(2)}px`);
+      assert.ok(onClose.nextRange &&
+        Math.abs(onClose.caret.left - onClose.nextRange.left) <= 1 &&
+        Math.abs(onClose.caret.width - onClose.nextRange.width) <= 1,
+      `${fixture.name} closing delimiter does not cover one source grapheme`);
+      assert.notEqual(preceding.caret.left, content.caret.right,
+        `${fixture.name} collapsed two legitimate bidi sites`);
+    } finally {
+      await page.close();
+    }
+  }
+});
+
 test("zero-size list whitespace keeps every editable cursor stop visible", async () => {
   const gapSource = "1.   Some written stuff";
   const gapPage = await mountedEditor(gapSource);
@@ -519,10 +753,12 @@ test("zero-size list whitespace keeps every editable cursor stop visible", async
         Array.from({ length: fixture.indent + 1 }, (_, i) => fixture.lineStart + i));
       const indentBox = await page.evaluate(() => {
         const r = document.querySelector("#magic4 .md-li-ind").getBoundingClientRect();
-        return { left: r.left, right: r.right };
+        const marker = document.querySelectorAll("#magic4 .md-li-mark")[1];
+        const raw = marker.querySelector(".cm-formatting-block").getBoundingClientRect();
+        return { left: r.left, right: r.right, markerStart: raw.left };
       });
       assert.ok(Math.abs(right[0].caret.left - indentBox.left) < 1.5);
-      assert.ok(Math.abs(right[right.length - 1].caret.left - indentBox.right) < 1.5);
+      assert.ok(Math.abs(right[right.length - 1].caret.left - indentBox.markerStart) < 1.5);
       for (let i = 1; i < right.length; i++) {
         assert.ok(right[i].caret.left > right[i - 1].caret.left,
           `nested indent stop ${right[i].pos} did not advance`);
@@ -550,7 +786,7 @@ test("zero-size list whitespace keeps every editable cursor stop visible", async
       assert.equal(textHome.pos, fixture.lineStart + fixture.indent);
       assert.equal(lineHome.pos, fixture.lineStart);
       assert.equal(lineEnd.pos, fixture.source.length);
-      assert.ok(Math.abs(textHome.caret.left - indentBox.right) < 1.5);
+      assert.ok(Math.abs(textHome.caret.left - indentBox.markerStart) < 1.5);
       assert.ok(Math.abs(lineHome.caret.left - indentBox.left) < 1.5);
       assert.ok(Math.abs(lineEnd.caret.top - lineHome.caret.top) < 0.5);
       assert.equal(lineEnd.source, fixture.source);
@@ -723,9 +959,11 @@ test("inline delimiter seams preserve horizontally separate bidi affinity", asyn
       assert.equal(after.assoc, 1);
       assert.equal(before.caret.left, before.minus.left,
         `${fixture.name} lost its -1 visual affinity`);
-      assert.equal(after.caret.left, after.plus.left,
-        `${fixture.name} lost its +1 visual affinity`);
-      assert.notEqual(before.caret.left, after.caret.left,
+      assert.ok(after.nextRange &&
+        Math.abs(after.caret.left - after.nextRange.left) <= 1 &&
+        Math.abs(after.caret.right - after.plus.left) <= 1.5,
+      `${fixture.name} lost its +1 visual affinity`);
+      assert.notEqual(before.caret.left, after.caret.right,
         `${fixture.name} bidi sites were incorrectly merged`);
       assert.equal(before.source, fixture.source);
       assert.equal(after.source, fixture.source);
