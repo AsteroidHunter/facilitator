@@ -427,7 +427,7 @@
     background:#FFF1E0; color:var(--must); font:14px var(--mono);
   }
   body.focus .box.sel .pendlist:empty{display:none}
-  body.focus .box.sel .pendlist p{display:none}   /* folded: the bar alone shows */
+  body.focus .box.sel .pendlist .pending-message{display:none}   /* folded: the bar alone shows */
   body.focus .box.sel .pendlist.open{
     /* the box's color melts in over a short gradient at its top edge, no hard
        line against the card; the label and messages stay full ink */
@@ -435,21 +435,21 @@
     border-radius:4px; padding:10px 12px;
   }
   body.focus .box.sel .pendlist.open::before{padding:0}
-  body.focus .box.sel .pendlist.open p{
+  body.focus .box.sel .pendlist.open .pending-message{
     display:block; margin:0;
-    text-align:right; white-space:pre-wrap;
+    text-align:right;
   }
   /* consecutive sends split by a thin hairline sitting flat on the panel,
      spaced evenly off both messages; a blank line inside one message draws
      no line, so it still reads as that message's own breath */
-  body.focus .box.sel .pendlist.open p + p{
+  body.focus .box.sel .pendlist.open .pending-message + .pending-message{
     /* the stamps above each message mark the boundaries now; spacing alone
        splits neighbours, the hairline retired on the owner's word */
     padding-top:var(--sp-s);
   }
   /* each message's send time: a small grey clock above the text, inside the
      same hairline section; a send with no recorded time simply carries none */
-  body.focus .box.sel .pendlist.open p .stamp{
+  body.focus .box.sel .pendlist.open .pending-message .stamp{
     display:block; margin:0 0 2px;
     font:10.5px/1.35 var(--mono); color:var(--sub); text-align:right;
   }
@@ -606,6 +606,7 @@
   .qrow.me{justify-content:flex-end}
   .qb{max-width:78%; padding:8px 13px; font:15px/1.35 var(--sans);
     white-space:pre-wrap; word-break:break-word}
+  .qb.cardmd{white-space:normal}
   .qb.me{background:var(--accent); color:#fff; border-radius:18px 18px 4px 18px}
   .qb.ag{background:#E9E9EB; color:#111; border-radius:18px 18px 18px 4px}
   .qrow.cont .qb.me{border-radius:18px 4px 4px 18px}
@@ -934,6 +935,52 @@
     border-left:3px solid var(--line-strong); color:var(--sub);
   }
   .reply blockquote:last-child{margin-bottom:0}
+  /* Shared card prose styles. Main replies, pending messages, document replies
+     and mini-card equivalents all opt into the same cardmd contract. */
+  .cardmd{overflow-wrap:anywhere}
+  .cardmd p{margin:0 0 9px}
+  .cardmd > :last-child{margin-bottom:0}
+  .cardmd ul, .cardmd ol{margin:0 0 9px; padding-left:22px}
+  .cardmd li{margin:2px 0}
+  .cardmd li > ul, .cardmd li > ol{margin:3px 0 2px}
+  .cardmd h1, .cardmd h2, .cardmd h3, .cardmd h4, .cardmd h5, .cardmd h6{
+    margin:13px 0 7px; color:var(--ink); font-family:var(--inter); line-height:1.25;
+  }
+  .cardmd h1{font-size:1.55em}.cardmd h2{font-size:1.35em}.cardmd h3{font-size:1.2em}
+  .cardmd h4{font-size:1.1em}.cardmd h5{font-size:1em}.cardmd h6{font-size:.92em}
+  .cardmd a{color:inherit; text-decoration:underline; text-underline-offset:2px}
+  .cardmd .shot{display:block; max-width:100%; border-radius:6px; margin:8px auto}
+  .cardmd .shotgrid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:8px; margin:8px 0 9px; align-items:start}
+  .cardmd .shotgrid[data-n="3"]{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .cardmd .shotgrid[data-n="4"]{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .cardmd .shotgrid .shot{margin:0 auto}
+  .cardmd .inlinecode{font-family:var(--mono); font-size:inherit; line-height:inherit;
+    color:var(--ink); background:var(--paper); border-radius:var(--sq);
+    padding:1px 4px; white-space:pre-wrap}
+  .cardmd .codeblockwrap{position:relative; margin:0 0 9px}
+  .cardmd .codeblock{margin:0; padding:10px 12px; border-radius:8px;
+    background:#EFF1F4; border:0; font:12.5px/1.5 var(--mono); color:var(--ink);
+    white-space:pre; overflow-x:auto; user-select:all; -webkit-user-select:all}
+  .cardmd .codeblockwrap[data-language] .codeblock{padding-top:29px}
+  .cardmd .codelang{position:absolute; top:7px; left:12px; max-width:calc(100% - 62px);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    color:var(--sub); font:10.5px/1.4 var(--mono)}
+  .cardmd .codeblockwrap .copybtn{position:absolute; top:6px; right:8px; padding:4px 6px;
+    display:flex; align-items:center; color:var(--sub); background:#fff;
+    box-shadow:0 1px 4px rgba(33,29,23,.18); border:0; border-radius:5px;
+    cursor:pointer; user-select:none; -webkit-user-select:none; opacity:0;
+    pointer-events:none; transition:opacity .15s}
+  .cardmd .codeblockwrap:hover .copybtn{opacity:1; pointer-events:auto}
+  .cardmd .codeblockwrap .copybtn:hover{color:var(--ink)}
+  .cardmd blockquote{margin:0 0 9px 2px; padding:2px 0 2px 12px;
+    border-left:3px solid var(--line-strong); color:var(--sub)}
+  .cardmd .tablewrap{max-width:100%; overflow-x:auto; margin:0 0 9px}
+  .cardmd table{width:100%; border-collapse:collapse; font:inherit}
+  .cardmd th, .cardmd td{padding:5px 7px; border:1px solid var(--line); text-align:left}
+  .cardmd th{font-weight:650; background:var(--paper)}
+  .cardmd .md-align-center{text-align:center}.cardmd .md-align-right{text-align:right}
+  .cardmd hr{height:0; margin:13px 0; border:0; border-top:1px solid var(--line-strong)}
   textarea.dropping{border-color:var(--accent) !important}
   body.focus .box.sel textarea.dropping{background:var(--accent-soft)}
   /* home, greyed out until it does something */
@@ -1233,6 +1280,7 @@
   </div>
 </div>
 
+<script src="/card-markdown.js"></script>
 <script>
 const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
                   ["now", "Now"], ["done", "Done"], ["later", "Later"]];
@@ -1764,108 +1812,9 @@ function statusOf(b){
 
 function h(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 
-// a bare /uploads/... token (a dropped image's home) renders as the image
-function imgify(s){
-  return s.replace(/(^|[\s>])(\/uploads\/[^\s<]+)/g, (m, pre, addr) => {
-    // a trailing . or , closes the sentence, it is not part of the file name,
-    // so it stays visible text; a bare /uploads/ names no file and draws
-    // nothing, which is what a prose mention of the folder is
-    const url = addr.replace(/[.,;:!?)\]"']+$/, "");
-    if (url === "/uploads/") return m;
-    return pre + '<img class="shot" src="' + url + '">' + addr.slice(url.length);
-  });
-}
-
-// a bare http(s) address becomes a real link, opening beside the app; the
-// same trailing punctuation rule as imgify keeps sentence marks out of it
-function linkify(s){
-  return s.replace(/(^|[\s>])(https?:\/\/[^\s<]+)/g, (m, pre, addr) => {
-    const url = addr.replace(/[.,;:!?)\]"']+$/, "");
-    return pre + '<a href="' + url + '" target="_blank" rel="noopener">' + url + '</a>' + addr.slice(url.length);
-  });
-}
-
-// a block holding only images (two or more) is laid out by the lines it was
-// written on: addresses sharing a line share a row, an address alone on its
-// line stays its own centered block, so the writer sets the shape. a block
-// mixing prose and images keeps the stacked flow
-function shotgrid(html){
-  const shot = /<img class="shot"[^>]*>/g;
-  const all = html.match(shot);
-  if (!all || all.length < 2) return "";
-  if (html.replace(shot, "").trim()) return "";
-  return html.split("\n").map(line => {
-    const row = line.match(shot);
-    if (!row) return "";
-    if (row.length < 2) return row[0];   // alone on its line: already a centered block
-    // a span, not a div, keeps the pending list's <p> count right
-    return '<span class="shotgrid" data-n="' + Math.min(row.length, 4) + '">' + row.join("") + "</span>";
-  }).join("");
-}
-
-function proseMarks(s){
-  return linkify(imgify(s.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")));
-}
-
-// Protect code spans from every prose transform. A repeated backtick run is a
-// delimiter too, so double backticks work and can hold a literal single tick.
-function inlineCodes(s){
-  const fence = /(`+)(?!`)([^\n]+?)\1(?!`)/g;
-  let html = "", from = 0, match;
-  while ((match = fence.exec(s))){
-    html += proseMarks(s.slice(from, match.index));
-    html += '<code class="inlinecode">' + match[2] + "</code>";
-    from = fence.lastIndex;
-  }
-  return html + proseMarks(s.slice(from));
-}
-
-// light formatting: paragraphs on blank lines, dash/numbered lists, **bold**,
-// and inline code between matching backtick runs
-function fmt(t){
-  // fenced code first: lines between ``` markers become one <pre> kept
-  // verbatim, so commands copy out exactly as sent; the prose around a
-  // fence runs back through this same formatter untouched
-  if (/^```/m.test(t)){
-    const segs = [];
-    let prose = [], code = [], inCode = false;
-    for (const line of t.split("\n")){
-      if (/^```/.test(line)){
-        if (inCode){ segs.push({ code: true, text: code.join("\n") }); code = []; }
-        else { segs.push({ code: false, text: prose.join("\n") }); prose = []; }
-        inCode = !inCode;
-        continue;
-      }
-      (inCode ? code : prose).push(line);
-    }
-    if (code.length) segs.push({ code: true, text: code.join("\n") });
-    if (prose.length) segs.push({ code: false, text: prose.join("\n") });
-    return segs.map(s => s.code
-      ? '<div class="codeblockwrap"><button class="copybtn" title="copy">' + COPY_ICON + '</button><pre class="codeblock"><code>' +
-        s.text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") +
-        "</code></pre></div>"
-      : (s.text.trim() ? fmt(s.text) : "")).join("");
-  }
-  const esc = t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const rich = inlineCodes(esc);
-  return rich.split(/\n\n+/).map(par => {
-    const lines = par.split("\n");
-    if (lines.length && lines.every(l => /^&gt; ?/.test(l))){
-      // the escape pass has already turned > into &gt; by this point
-      return "<blockquote>" + lines.map(l => l.replace(/^&gt; ?/, "")).join("<br>") + "</blockquote>";
-    }
-    if (lines.length && lines.every(l => /^(- |\d+[.)] )/.test(l))){
-      const ol = /^\d/.test(lines[0]);
-      // numbered points split by blank lines each become their own list,
-      // so carry the source's number or every point renders as "1."
-      const start = ol ? parseInt(lines[0], 10) : 1;
-      return (ol ? '<ol start="' + start + '">' : "<ul>") +
-        lines.map(l => "<li>" + l.replace(/^(- |\d+[.)] )/, "") + "</li>").join("") +
-        (ol ? "</ol>" : "</ul>");
-    }
-    return shotgrid(par) || "<p>" + par.replace(/\n/g, "<br>") + "</p>";
-  }).join("");
-}
+// One renderer and one URL policy serve every card and document surface.
+function fmt(t){ return CardMarkdown.render(t || ""); }
+function replyFull(b){ return b.replyFull == null ? (b.reply || "") : b.replyFull; }
 
 function build(state){
   const sections = document.getElementById("sections");
@@ -1963,9 +1912,9 @@ function makeBox(b, i, state){
     box.appendChild(ctx);
 
     const body = h("div", "body");
-    const reply = h("div", "reply");
-    reply.dataset.raw = b.reply;
-    reply.innerHTML = fmt(b.reply);
+    const reply = h("div", "reply cardmd");
+    reply.dataset.raw = replyFull(b);
+    reply.innerHTML = fmt(reply.dataset.raw);
     const meta = h("div", "meta");
     // transient notes (send failures) get their own span
     const metaNote = h("span");
@@ -2180,11 +2129,13 @@ async function doSend(id){
     // count it into the bar immediately, and pre-mark the list as current so
     // the next poll's redraw brings nothing it does not already hold
     el.pend.dataset.raw = el.pend.dataset.raw ? el.pend.dataset.raw + "\n\n" + text : text;
-    const bub = document.createElement("p");
+    const bub = h("div", "pending-message cardmd");
     const st = document.createElement("span");
     st.className = "stamp";
     st.textContent = stampText(Date.now() / 1000);   // client clock; the poll's server time takes over
-    bub.append(st, text);
+    const content = h("div", "pending-body");
+    content.innerHTML = fmt(text);
+    bub.append(st, content);
     el.pend.appendChild(bub);
     el.pend.dataset.label = "Sent messages (" + el.pend.children.length + ")";
     if (hist && hist.id === id) histExit(id);   // a send lands you back on the live reply
@@ -2222,7 +2173,7 @@ function histList(id){
     histCache[id] = fetch("/thread?box=" + encodeURIComponent(id) + "&n=200")
       .then(x => x.json())
       .then(r => {
-        const list = (r.messages || []).filter(m => m.kind === "agent").map(m => m.text);
+        const list = (r.messages || []).filter(m => m.kind === "agent").map(m => m.replyFull ?? m.text);
         // the newest transcript entry is normally the live reply itself
         if (list.length && els[id] && list[list.length - 1] === els[id].reply.dataset.raw) list.pop();
         return list;
@@ -2307,11 +2258,12 @@ function apply(state){
   for (const b of state.boxes){
     const el = els[b.id];
     if (!el) continue;
-    if (el.reply.dataset.raw !== b.reply){
-      el.reply.dataset.raw = b.reply;
+    const rawReply = replyFull(b);
+    if (el.reply.dataset.raw !== rawReply){
+      el.reply.dataset.raw = rawReply;
       delete histCache[b.id];   // a fresh reply outdates the cached thread
       if (hist && hist.id === b.id) histExit(b.id);   // and snaps a history view back to live
-      else el.reply.innerHTML = fmt(b.reply);
+      else el.reply.innerHTML = fmt(rawReply);
     }
     if (!el.titleEl.isContentEditable && el.titleEl.textContent !== b.title){   // first message just named a new box
       el.titleEl.textContent = b.title;
@@ -2323,10 +2275,7 @@ function apply(state){
       el.pend.dataset.raw = pt;
       const stamps = b.pendingStamps || [];   // absent from a pre-stamp server: every send unstamped
       el.pend.innerHTML = (b.pendingTexts || [])
-        .map((t, i) => {
-          const body = linkify(imgify(t.replace(/&/g, "&amp;").replace(/</g, "&lt;")));
-          return "<p>" + stampHTML(stamps[i]) + (shotgrid(body) || body) + "</p>";
-        }).join("");
+        .map((t, i) => '<div class="pending-message cardmd">' + stampHTML(stamps[i]) + fmt(t) + "</div>").join("");
       el.pend.dataset.label = "Sent messages (" + el.pend.children.length + ")";
       if (!el.pend.children.length) el.pend.classList.remove("open");   // answered: nothing left to show
     }
@@ -3022,7 +2971,9 @@ async function pollQ(){
       for (const m of r.messages){
         const side = m.kind === "user" ? "me" : "ag";
         const row = h("div", "qrow " + side + (prev === m.kind ? " cont" : ""));
-        row.appendChild(h("div", "qb " + side, m.text));
+        const bubble = h("div", "qb cardmd " + side);
+        bubble.innerHTML = fmt(m.kind === "user" ? m.text : (m.replyFull ?? m.text));
+        row.appendChild(bubble);
         qm.appendChild(row);
         prev = m.kind;
       }
@@ -3925,9 +3876,9 @@ function docSection(b){
   const title = h("div", "doctitle", b.title);
   title.addEventListener("mousedown", () => docEditTitle(b.id));
   const path = h("div", "docpath");
-  const pend = h("div", "docpend");
+  const pend = h("div", "docpend cardmd");
   // the app's own reply class carries code blocks, lists and images along
-  const prose = h("div", "docprose reply");
+  const prose = h("div", "docprose reply cardmd");
   const sep = h("div", "docsep");
   const line = h("div", "docreply");
   line.setAttribute("contenteditable", "plaintext-only");
@@ -3956,16 +3907,17 @@ function docUpdate(b, parts){
   if (parts.path.textContent !== dir) parts.path.textContent = dir;
   // an older reply is on show: leave the prose where the walk put it
   if (!(hist && hist.id === b.id)){
-    const raw = b.reply || "";
+    const raw = replyFull(b);
     if (parts.prose.dataset.raw !== raw){
       parts.prose.dataset.raw = raw;
       parts.prose.innerHTML = fmt(raw);
     }
   }
-  const p = (b.pendingTexts || []).slice(-1)[0] || "";
-  if (parts.pend.dataset.raw !== p){
-    parts.pend.dataset.raw = p;
-    parts.pend.innerHTML = p ? fmt(p) : "";
+  const pending = b.pendingTexts || [];
+  const rawPending = pending.join("\n\n");
+  if (parts.pend.dataset.raw !== rawPending){
+    parts.pend.dataset.raw = rawPending;
+    parts.pend.innerHTML = pending.map(t => '<div class="docpending-message">' + fmt(t) + "</div>").join("");
   }
 }
 

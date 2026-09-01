@@ -963,7 +963,7 @@
     transition:transform .22s cubic-bezier(.22,1,.36,1), opacity .18s ease;
   }
   body.focus .box.sel .pendmsg + .pendmsg{padding-top:var(--sp-s)}
-  body.focus .box.sel .pendmsg p{
+  body.focus .box.sel .pendmsg .pendcontent{
     position:relative; margin:0;
     text-align:right; white-space:pre-wrap;
     /* the sent line's own width: its left end never reaches past the
@@ -1738,6 +1738,7 @@
   /* ---- bubbles ---------------------------------------------------------- */
   #magic3 .c3msg{max-width:75%; padding:6px 10px; font-size:14px;
     word-wrap:break-word; white-space:pre-wrap}
+  #magic3 .c3msg.cardmd{white-space:normal}
   #magic3 .c3msg.user{background:var(--accent); color:var(--c3-sent-text);
     border-radius:18px 18px 4px 18px}
   #magic3 .c3msg.agent{background:var(--c3-recv); color:var(--c3-recv-text);
@@ -2581,7 +2582,7 @@
   #magic2 .mreply:empty{display:none}
   #magic2 .mreply p{margin:0 0 9px}
   #magic2 .mreply p:last-child{margin-bottom:0}
-  #magic2 .mreply ul, #magic2 .mreply ol{margin:0 0 9px; padding-left:20px}
+  #magic2 .mreply ul, #magic2 .mreply ol{margin:0 0 9px; padding-left:22px}
   /* sent and unanswered: the same fold-open bar the large card carries, at the
      small card's size. the arrow flips with the fold, a click opens the list */
   #magic2 .mpend{display:flex; flex-direction:column; flex:none; gap:4px;
@@ -2594,12 +2595,12 @@
        its muted text, so no new colour comes in */
     background:var(--line); color:var(--sub); font:11px var(--mono)}
   #magic2 .mpend.open::before{content:"\2193 " attr(data-label); padding:0}
-  #magic2 .mpend p{display:none}
+  #magic2 .mpend .mpending-message{display:none}
   #magic2 .mpend.open{border-radius:4px; padding:8px 10px;
     background:linear-gradient(to bottom, rgba(230,223,210,0), var(--line) 20px)}
-  #magic2 .mpend.open p{display:block; margin:0; text-align:right; white-space:pre-wrap}
-  #magic2 .mpend.open p + p{padding-top:6px}
-  #magic2 .mpend.open p .stamp{display:block; margin:0 0 2px;
+  #magic2 .mpend.open .mpending-message{display:block; margin:0; text-align:right}
+  #magic2 .mpend.open .mpending-message + .mpending-message{padding-top:6px}
+  #magic2 .mpend.open .mpending-message .stamp{display:block; margin:0 0 2px;
     font:9.5px/1.35 var(--mono); color:var(--sub); text-align:right}
   /* a line, not a box, exactly as the large card's composer is drawn */
   #magic2 .mcompose{display:flex; gap:var(--sp-x); align-items:flex-end; flex:none;
@@ -2654,6 +2655,7 @@
   .qrow.me{justify-content:flex-end}
   .qb{max-width:78%; padding:8px 13px; font:15px/1.35 var(--sans);
     white-space:pre-wrap; word-break:break-word}
+  .qb.cardmd{white-space:normal}
   .qb.me{background:var(--accent); color:#fff; border-radius:18px 18px 4px 18px}
   .qb.ag{background:#E9E9EB; color:#111; border-radius:18px 18px 18px 4px}
   .qrow.cont .qb.me{border-radius:18px 4px 4px 18px}
@@ -3126,6 +3128,53 @@
     border-left:3px solid var(--line-strong); color:var(--sub);
   }
   .reply blockquote:last-child{margin-bottom:0}
+  /* Every place that renders card prose carries cardmd. Keeping the complete
+     subset here gives the full card, pending rows, document and mini card the
+     same visual vocabulary instead of relying on a surface-specific selector. */
+  .cardmd{overflow-wrap:anywhere}
+  .cardmd p{margin:0 0 9px}
+  .cardmd > :last-child{margin-bottom:0}
+  .cardmd ul, .cardmd ol{margin:0 0 9px; padding-left:22px}
+  .cardmd li{margin:2px 0}
+  .cardmd li > ul, .cardmd li > ol{margin:3px 0 2px}
+  .cardmd h1, .cardmd h2, .cardmd h3, .cardmd h4, .cardmd h5, .cardmd h6{
+    margin:13px 0 7px; color:var(--ink); font-family:var(--inter); line-height:1.25;
+  }
+  .cardmd h1{font-size:1.55em}.cardmd h2{font-size:1.35em}.cardmd h3{font-size:1.2em}
+  .cardmd h4{font-size:1.1em}.cardmd h5{font-size:1em}.cardmd h6{font-size:.92em}
+  .cardmd a{color:inherit; text-decoration:underline; text-underline-offset:2px}
+  .cardmd .shot{display:block; max-width:100%; border-radius:6px; margin:8px auto}
+  .cardmd .shotgrid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:8px; margin:8px 0 9px; align-items:start}
+  .cardmd .shotgrid[data-n="3"]{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .cardmd .shotgrid[data-n="4"]{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .cardmd .shotgrid .shot{margin:0 auto}
+  .cardmd .inlinecode{font-family:var(--mono); font-size:inherit; line-height:inherit;
+    color:var(--ink); background:var(--paper); border-radius:var(--sq);
+    padding:1px 4px; white-space:pre-wrap}
+  .cardmd .codeblockwrap{position:relative; margin:0 0 9px}
+  .cardmd .codeblock{margin:0; padding:10px 12px; border-radius:8px;
+    background:#EFF1F4; border:0; font:12.5px/1.5 var(--mono); color:var(--ink);
+    white-space:pre; overflow-x:auto; user-select:all; -webkit-user-select:all}
+  .cardmd .codeblockwrap[data-language] .codeblock{padding-top:29px}
+  .cardmd .codelang{position:absolute; top:7px; left:12px; max-width:calc(100% - 62px);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    color:var(--sub); font:10.5px/1.4 var(--mono)}
+  .cardmd .codeblockwrap .copybtn{position:absolute; top:6px; right:8px; padding:4px 6px;
+    display:flex; align-items:center; color:var(--sub); background:#fff;
+    box-shadow:0 1px 4px rgba(33,29,23,.18); border:0; border-radius:5px;
+    cursor:pointer; user-select:none; -webkit-user-select:none; opacity:0;
+    pointer-events:none; transition:opacity .15s}
+  .cardmd .codeblockwrap:hover .copybtn{opacity:1; pointer-events:auto}
+  .cardmd .codeblockwrap .copybtn:hover{color:var(--ink)}
+  .cardmd blockquote{margin:0 0 9px 2px; padding:2px 0 2px 12px;
+    border-left:3px solid var(--line-strong); color:var(--sub)}
+  .cardmd .tablewrap{max-width:100%; overflow-x:auto; margin:0 0 9px}
+  .cardmd table{width:100%; border-collapse:collapse; font:inherit}
+  .cardmd th, .cardmd td{padding:5px 7px; border:1px solid var(--line); text-align:left}
+  .cardmd th{font-weight:650; background:var(--paper)}
+  .cardmd .md-align-center{text-align:center}.cardmd .md-align-right{text-align:right}
+  .cardmd hr{height:0; margin:13px 0; border:0; border-top:1px solid var(--line-strong)}
   textarea.dropping{border-color:var(--accent) !important}
   body.focus .box.sel textarea.dropping{background:var(--accent-soft)}
   /* home, greyed out until it does something */
@@ -3247,6 +3296,7 @@
 </div>
 
 
+<script src="/card-markdown.js"></script>
 <script>
 const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
                   ["now", "Now"], ["done", "Done"], ["later", "Later"]];
@@ -4164,12 +4214,11 @@ function dropPend(el){
 function pendRow(text, ts){
   const row = h("div", "pendmsg");
   row.dataset.text = text;
-  const p = document.createElement("p");
-  const body = linkify(imgify(text.replace(/&/g, "&amp;").replace(/</g, "&lt;")));
-  p.innerHTML = shotgrid(body) || body;
+  const content = h("div", "pendcontent cardmd");
+  content.innerHTML = fmt(text);
   const t = h("span", "ptime", stampText(ts));
-  p.appendChild(t);
-  row.append(p, h("span", "rcpt"));
+  content.appendChild(t);
+  row.append(content, h("span", "rcpt"));
   row.addEventListener("animationend", () => row.classList.remove("pop"));
   return row;
 }
@@ -4611,146 +4660,12 @@ async function attach(files, ta){
   ta.dispatchEvent(new Event("input"));
 }
 
-// a bare /uploads/... token (a dropped image's home) renders as the image
-function imgify(s){
-  return s.replace(/(^|[\s>])(\/uploads\/[^\s<]+)/g, (m, pre, addr) => {
-    // a trailing . or , closes the sentence, it is not part of the file name,
-    // so it stays visible text; a bare /uploads/ names no file and draws
-    // nothing, which is what a prose mention of the folder is
-    const url = addr.replace(/[.,;:!?)\]"']+$/, "");
-    if (url === "/uploads/") return m;
-    return pre + '<img class="shot" src="' + url + '">' + addr.slice(url.length);
-  });
-}
-
-// a bare http(s) address becomes a real link, opening beside the app; the
-// same trailing punctuation rule as imgify keeps sentence marks out of it
-function linkify(s){
-  return s.replace(/(^|[\s>])(https?:\/\/[^\s<]+)/g, (m, pre, addr) => {
-    const url = addr.replace(/[.,;:!?)\]"']+$/, "");
-    return pre + '<a href="' + url + '" target="_blank" rel="noopener">' + url + '</a>' + addr.slice(url.length);
-  });
-}
-
-// a block holding only images (two or more) is laid out by the lines it was
-// written on: addresses sharing a line share a row, an address alone on its
-// line stays its own centered block, so the writer sets the shape. a block
-// mixing prose and images keeps the stacked flow
-function shotgrid(html){
-  const shot = /<img class="shot"[^>]*>/g;
-  const all = html.match(shot);
-  if (!all || all.length < 2) return "";
-  if (html.replace(shot, "").trim()) return "";
-  return html.split("\n").map(line => {
-    const row = line.match(shot);
-    if (!row) return "";
-    if (row.length < 2) return row[0];   // alone on its line: already a centered block
-    // a span, not a div, keeps the pending list's <p> count right
-    return '<span class="shotgrid" data-n="' + Math.min(row.length, 4) + '">' + row.join("") + "</span>";
-  }).join("");
-}
-
-function proseMarks(s){
-  return linkify(imgify(s.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")));
-}
-
-// Protect code spans from every prose transform. A repeated backtick run is a
-// delimiter too, so double backticks work and can hold a literal single tick.
-function inlineCodes(s){
-  const fence = /(`+)(?!`)([^\n]+?)\1(?!`)/g;
-  let html = "", from = 0, match;
-  while ((match = fence.exec(s))){
-    html += proseMarks(s.slice(from, match.index));
-    html += '<code class="inlinecode">' + match[2] + "</code>";
-    from = fence.lastIndex;
-  }
-  return html + proseMarks(s.slice(from));
-}
-
-// light formatting: paragraphs on blank lines, dash/numbered lists, **bold**,
-// and inline code between matching backtick runs
-function fmt(t){
-  // fenced code first: lines between ``` markers become one <pre> kept
-  // verbatim, so commands copy out exactly as sent; the prose around a
-  // fence runs back through this same formatter untouched
-  if (/^```/m.test(t)){
-    const segs = [];
-    let prose = [], code = [], inCode = false;
-    for (const line of t.split("\n")){
-      if (/^```/.test(line)){
-        if (inCode){ segs.push({ code: true, text: code.join("\n") }); code = []; }
-        else { segs.push({ code: false, text: prose.join("\n") }); prose = []; }
-        inCode = !inCode;
-        continue;
-      }
-      (inCode ? code : prose).push(line);
-    }
-    if (code.length) segs.push({ code: true, text: code.join("\n") });
-    if (prose.length) segs.push({ code: false, text: prose.join("\n") });
-    return segs.map(s => s.code
-      ? '<div class="codeblockwrap"><button class="copybtn" title="copy">' + COPY_ICON + '</button><pre class="codeblock"><code>' +
-        s.text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") +
-        "</code></pre></div>"
-      : (s.text.trim() ? fmt(s.text) : "")).join("");
-  }
-  const esc = t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const rich = inlineCodes(esc);
-  return rich.split(/\n\n+/).map(par => {
-    const lines = par.split("\n");
-    if (lines.length && lines.every(l => /^&gt; ?/.test(l))){
-      // the escape pass has already turned > into &gt; by this point
-      return "<blockquote>" + lines.map(l => l.replace(/^&gt; ?/, "")).join("<br>") + "</blockquote>";
-    }
-    if (lines.length && lines.every(l => /^(- |\d+[.)] )/.test(l))){
-      const ol = /^\d/.test(lines[0]);
-      // numbered points split by blank lines each become their own list,
-      // so carry the source's number or every point renders as "1."
-      const start = ol ? parseInt(lines[0], 10) : 1;
-      return (ol ? '<ol start="' + start + '">' : "<ul>") +
-        lines.map(l => "<li>" + l.replace(/^(- |\d+[.)] )/, "") + "</li>").join("") +
-        (ol ? "</ol>" : "</ul>");
-    }
-    return shotgrid(par) || "<p>" + par.replace(/\n/g, "<br>") + "</p>";
-  }).join("");
-}
-
-// one reply carries two lengths of itself in one text: the short version, then
-// a line of exactly ---, then the normal one. the small card has room for the
-// short half only and the large card wants the normal half only, so each asks
-// here for the piece it shows. both halves come back as source rather than as
-// cut html, so a half that is a list or a quote renders through fmt the same
-// way either card renders anything else.
-// the replies already on this board were written before the convention and
-// carry no separator at all. those have to keep rendering whole in both places,
-// so a text with no separator is its own short and its own normal and comes
-// back exactly as it went in
-function replyHalves(t){
-  const text = t || "";
-  const lines = text.split("\n");
-  // the separator and the blank lines around it are punctuation for the split,
-  // not content, so neither card should show the gap they leave. whole blank
-  // lines go and nothing else: trimming the text itself would eat the indent
-  // off a first line that is code
-  const clip = a => {
-    while (a.length && !a[0].trim()) a.shift();
-    while (a.length && !a[a.length - 1].trim()) a.pop();
-    return a.join("\n");
-  };
-  // the same ^``` test fmt uses, so the two agree on where a fence starts and
-  // ends: a --- inside a fence is part of the thing being shown (yaml
-  // frontmatter, a rule in some file), and splitting there would hand fmt an
-  // opening ``` with no close and break the code block in both cards
-  let inCode = false;
-  for (let i = 0; i < lines.length; i++){
-    if (/^```/.test(lines[i])){ inCode = !inCode; continue; }
-    // only the first separator splits. a later --- is ordinary text and rides
-    // along in the normal half, where the reply meant it to sit
-    if (!inCode && lines[i].trim() === "---"){
-      return { short: clip(lines.slice(0, i)), full: clip(lines.slice(i + 1)) };
-    }
-  }
-  return { short: text, full: text };
-}
+// One renderer and one URL policy serve every card surface. The server exposes
+// short and full reply variants separately, so authored Markdown is never
+// inspected here for transport punctuation.
+function fmt(t){ return CardMarkdown.render(t || ""); }
+function replyFull(b){ return b.replyFull == null ? (b.reply || "") : b.replyFull; }
+function replyShort(b){ return b.replyShort == null ? replyFull(b) : b.replyShort; }
 
 function build(state){
   const sections = document.getElementById("sections");
@@ -4869,11 +4784,9 @@ function makeBox(b, i, state){
 
 
     const body = h("div", "body");
-    const reply = h("div", "reply");
-    reply.dataset.raw = b.reply;
-    // the large card shows the normal half; raw stays the whole reply so the
-    // changed check and the history compare still see every edit
-    reply.innerHTML = fmt(replyHalves(b.reply).full);
+    const reply = h("div", "reply cardmd");
+    reply.dataset.raw = replyFull(b);
+    reply.innerHTML = fmt(reply.dataset.raw);
     const meta = h("div", "meta");
     // transient notes (send failures) get their own span
     const metaNote = h("span");
@@ -5241,7 +5154,7 @@ function histList(id){
     histCache[id] = fetch("/thread?box=" + encodeURIComponent(id) + "&n=200")
       .then(x => x.json())
       .then(r => {
-        const list = (r.messages || []).filter(m => m.kind === "agent").map(m => m.text);
+        const list = (r.messages || []).filter(m => m.kind === "agent").map(m => m.replyFull ?? m.text);
         // the newest transcript entry is normally the live reply itself
         if (list.length && els[id] && list[list.length - 1] === els[id].reply.dataset.raw) list.pop();
         return list;
@@ -5261,7 +5174,7 @@ function histExit(id){
   el.histUp.disabled = false;
   el.histDown.disabled = true;
   if (was){
-    el.reply.innerHTML = fmt(replyHalves(el.reply.dataset.raw).full);
+    el.reply.innerHTML = fmt(el.reply.dataset.raw);
     el.reply.scrollTop = 0;
   }
 }
@@ -5324,11 +5237,12 @@ function apply(state){
   for (const b of state.boxes){
     const el = els[b.id];
     if (!el) continue;
-    if (el.reply.dataset.raw !== b.reply){
-      el.reply.dataset.raw = b.reply;
+    const rawReply = replyFull(b);
+    if (el.reply.dataset.raw !== rawReply){
+      el.reply.dataset.raw = rawReply;
       delete histCache[b.id];   // a fresh reply outdates the cached thread
       if (hist && hist.id === b.id) histExit(b.id);   // and snaps a history view back to live
-      else el.reply.innerHTML = fmt(replyHalves(b.reply).full);
+      else el.reply.innerHTML = fmt(rawReply);
       // a new answer is a new line count in the same room, so the phase goes
       if (b.id === selectedId) requestAnimationFrame(snapCard);
     }
@@ -6331,20 +6245,10 @@ function c3Day(ms){
   return d.toLocaleDateString([], { month: "short", day: "numeric",
     year: d.getFullYear() === now.getFullYear() ? undefined : "numeric" });
 }
-// a line that is nothing but an uploaded picture's address is a picture, not
-// words: it becomes a frameless photo bubble of its own, and the words around
-// it keep theirs, in the order they were written
+// Stored thread prose always goes through the shared renderer. Pending local
+// file picks still use dedicated preview bubbles until the server returns them.
 function c3Blocks(text){
-  const out = [];
-  for (const line of String(text).split("\n")){
-    const t = line.trim();
-    if (/^\/uploads\/\S+$/.test(t)){ out.push({ shot: true, src: t }); continue; }
-    const last = out[out.length - 1];
-    if (last && !last.shot) last.text += "\n" + line;
-    else out.push({ shot: false, text: line });
-  }
-  const kept = out.filter(b => b.shot || b.text.trim() !== "");
-  return kept.length ? kept : [{ shot: false, text: String(text) }];
+  return [{ shot: false, text: String(text) }];
 }
 // the thread as one ordered list of things to draw: what the server is holding,
 // then whatever is still in his hands. the key is what the render matches on,
@@ -6356,8 +6260,9 @@ function c3Events(){
     while (seen.has(key)) key += "+";   // two lines on one tick, kept apart
     seen.add(key);
     // the transcript counts in seconds and everything here counts in ms
+    const prose = m.kind === "user" ? m.text : (m.replyFull ?? m.text);
     out.push({ key, role: m.kind === "user" ? "user" : "agent",
-               at: Math.round(m.ts * 1000), blocks: c3Blocks(m.text) });
+               at: Math.round(m.ts * 1000), blocks: c3Blocks(prose) });
   }
   for (const o of c3Out){
     const shots = (o.urls.length ? o.urls : o.shots.map(s => s.url))
@@ -6374,6 +6279,8 @@ function c3Events(){
 function c3Img(src){
   const img = document.createElement("img");
   const known = c3Shots.get(src);
+  const target = known ? known.src : CardMarkdown.safeImageTarget(src);
+  if (!target) return null;
   img.className = "waiting";
   // the real size, read off the blob before the send, holds the box open so
   // nothing under it jumps when the pixels arrive
@@ -6382,7 +6289,7 @@ function c3Img(src){
     img.classList.remove("waiting");
     if (c3Follow && performance.now() >= c3Air) c3Pin(true);
   });
-  img.src = known ? known.src : src;
+  img.src = target;
   return img;
 }
 // a wrapper is refilled only when its own words or pictures changed, so a poll
@@ -6400,9 +6307,15 @@ function c3Fill(w, ev, anim){
   for (const b of ev.blocks){
     const row = h("div", "c3row " + ev.role);
     row.dataset.time = time;
-    const msg = h("div", "c3msg " + ev.role + (b.shot ? " shot" : "") + (anim ? " anim" : ""));
-    if (b.shot) msg.appendChild(c3Img(b.src));
-    else msg.textContent = b.text;
+    const msg = h("div", "c3msg cardmd " + ev.role + (b.shot ? " shot" : "") + (anim ? " anim" : ""));
+    if (b.shot){
+      const image = c3Img(b.src);
+      if (image) msg.appendChild(image);
+      else {
+        msg.classList.remove("shot");
+        msg.innerHTML = fmt(String(b.src || ""));
+      }
+    } else msg.innerHTML = fmt(b.text);
     row.appendChild(msg);
     w.appendChild(row);
     last = row;
@@ -7846,7 +7759,7 @@ function renderMiniCards(state){
         await fetch(ep, { method: "POST" }).catch(() => {});
         poll();
       });
-      const reply = h("div", "mreply");
+      const reply = h("div", "mreply cardmd");
       const pend = h("div", "mpend");
       pend.addEventListener("click", () => pend.classList.toggle("open"));
       const compose = h("div", "mcompose");
@@ -7886,22 +7799,18 @@ function renderMiniCards(state){
     if (!el.title.isContentEditable && el.title.textContent !== (b.title || "")){
       el.title.textContent = b.title || "";
     }
-    // rewrite the reply only when it actually changed, or typing gets disturbed.
-    // the small card carries the short half; the large card carries the normal
-    // one. raw stays the whole reply so the check still sees every change
-    if (el.reply.dataset.raw !== (b.reply || "")){
-      el.reply.dataset.raw = b.reply || "";
-      el.reply.innerHTML = fmt(replyHalves(b.reply).short);
+    // The short variant is a state field, not punctuation hidden in the text.
+    const shortReply = replyShort(b);
+    if (el.reply.dataset.raw !== shortReply){
+      el.reply.dataset.raw = shortReply;
+      el.reply.innerHTML = fmt(shortReply);
     }
     const pt = (b.pendingTexts || []).join("\n\n");
     if (el.pend.dataset.raw !== pt){
       el.pend.dataset.raw = pt;
       const stamps = b.pendingStamps || [];
       el.pend.innerHTML = (b.pendingTexts || [])
-        .map((t, i) => {
-          const body = linkify(imgify(t.replace(/&/g, "&amp;").replace(/</g, "&lt;")));
-          return "<p>" + stampHTML(stamps[i]) + (shotgrid(body) || body) + "</p>";
-        }).join("");
+        .map((t, i) => '<div class="mpending-message cardmd">' + stampHTML(stamps[i]) + fmt(t) + "</div>").join("");
       el.pend.dataset.label = "Sent messages (" + el.pend.children.length + ")";
       if (!el.pend.children.length) el.pend.classList.remove("open");
     }
@@ -8325,7 +8234,9 @@ async function pollQ(){
       for (const m of r.messages){
         const side = m.kind === "user" ? "me" : "ag";
         const row = h("div", "qrow " + side + (prev === m.kind ? " cont" : ""));
-        row.appendChild(h("div", "qb " + side, m.text));
+        const bubble = h("div", "qb cardmd " + side);
+        bubble.innerHTML = fmt(m.kind === "user" ? m.text : (m.replyFull ?? m.text));
+        row.appendChild(bubble);
         qm.appendChild(row);
         prev = m.kind;
       }
