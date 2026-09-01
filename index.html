@@ -8705,6 +8705,21 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     return g > 0 ? g : 0;
   }
 
+  // offsetWidth is an integer, but flex layout routinely gives the composer a
+  // fractional border-box width. Losing that fraction can move the mirror just
+  // across a wrap boundary: a whole trailing word then lands on the next line
+  // in the mirror even though it still fits in the textarea. Keep layout's
+  // fractional width and add the box edges when width names the content box.
+  function fieldBoxWidth(el, cs){
+    let width = parseFloat(cs.width);
+    if (!Number.isFinite(width) || width <= 0) return el.offsetWidth;
+    if (cs.boxSizing !== "border-box"){
+      width += parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)
+             + parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth);
+    }
+    return width;
+  }
+
   // Intl.Segmenter follows the browser's Unicode grapheme rules, so a range
   // never stops inside a surrogate pair, combining sequence, emoji modifier,
   // flag or ZWJ emoji. Older browsers fall back to a complete code point plus
@@ -8875,9 +8890,11 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     // then marks the caret in a text laid out differently from the one on
     // screen, one line up while the word hangs there and about a word to the
     // left once it drops
-    // Layout uses the field's untransformed box. Viewport zoom and an ancestor
-    // scale are applied below to the measured range, after wrapping is settled.
-    mirror.style.width = (el.offsetWidth - gutterWidth(el, cs)) + "px";
+    // Layout uses the field's untransformed, fractional box. Viewport zoom and
+    // an ancestor scale are applied below after wrapping is settled.
+    const boxWidth = fieldBoxWidth(el, cs);
+    const mirrorWidth = Math.max(0, boxWidth - gutterWidth(el, cs));
+    mirror.style.width = mirrorWidth + "px";
     // a single-line input never wraps, it scrolls sideways instead
     mirror.style.whiteSpace = el.tagName === "INPUT" ? "pre" : "pre-wrap";
     mirror.style.wordWrap = el.tagName === "INPUT" ? "normal" : "break-word";
@@ -8885,8 +8902,8 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     const rest = el.value.slice(el.selectionStart);
     mirror.textContent = typed;
     const mr = mirror.getBoundingClientRect();
-    const fieldScaleX = el.offsetWidth ? r.width / el.offsetWidth : 1;
-    const mirrorScaleX = mirror.offsetWidth ? mr.width / mirror.offsetWidth : 1;
+    const fieldScaleX = boxWidth ? r.width / boxWidth : 1;
+    const mirrorScaleX = mirrorWidth ? mr.width / mirrorWidth : 1;
     const rangeScaleX = Number.isFinite(fieldScaleX / mirrorScaleX)
       ? fieldScaleX / mirrorScaleX : 1;
     let kr, width = null;
