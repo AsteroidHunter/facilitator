@@ -4838,10 +4838,9 @@ function makeBox(b, i, state){
     x.title = "done (an empty card is removed instead)";
     x.addEventListener("click", async e => {
       e.stopPropagation();
-      // a card with content closes to the done tab and stays retrievable; only an empty card is removed
-      const hasContent = b.replies > 0 || (b.reply && b.reply.trim()) || b.pending > 0;
-      const ep = hasContent ? ("/done?box=" + encodeURIComponent(b.id) + "&v=1") : ("/delete?box=" + encodeURIComponent(b.id));
-      await fetch(ep, { method: "POST" }).catch(() => {});
+      // the server reads the current record atomically, so a handler born with
+      // an empty card can never erase replies that arrived on later polls
+      await fetch("/close?box=" + encodeURIComponent(b.id), { method: "POST" }).catch(() => {});
       // dismiss this card from the center and jump to the next ongoing chat, so no extra click is needed
       const doing = poolOf(lastState).filter(o => !o.done && !o.parked && o.id !== b.id && o.id !== "0" && o.id !== "t0");
       if (doing.length) select(doing[0].id); else deselect();
@@ -7840,10 +7839,7 @@ function renderMiniCards(state){
       x.title = "done (an empty card is removed instead)";
       x.addEventListener("click", async e => {
         e.stopPropagation();
-        const hasContent = b.replies > 0 || (b.reply && b.reply.trim()) || b.pending > 0;
-        const ep = hasContent ? ("/done?box=" + encodeURIComponent(b.id) + "&v=1")
-                              : ("/delete?box=" + encodeURIComponent(b.id));
-        await fetch(ep, { method: "POST" }).catch(() => {});
+        await fetch("/close?box=" + encodeURIComponent(b.id), { method: "POST" }).catch(() => {});
         poll();
       });
       const reply = h("div", "mreply");
@@ -8249,11 +8245,8 @@ addEventListener("keydown", e => {
     const b = lastState?.boxes.find(x => x.id === selectedId);
     if (b?.bucket === "meta"){   // same cards the remove cross appears on
       e.preventDefault();
-      // match the cross: a card with any conversation closes to done and stays
-      // retrievable; only a truly empty card is removed for good
-      const hasContent = b.replies > 0 || (b.reply && b.reply.trim()) || b.pending > 0;
-      const ep = hasContent ? ("/done?box=" + encodeURIComponent(selectedId) + "&v=1") : ("/delete?box=" + encodeURIComponent(selectedId));
-      fetch(ep, { method: "POST" }).then(() => poll()).catch(() => {});
+      fetch("/close?box=" + encodeURIComponent(selectedId), { method: "POST" })
+        .then(() => poll()).catch(() => {});
     }
     return;
   }
