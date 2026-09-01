@@ -27,12 +27,19 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 CONFIG = HERE / "run.config.json"
 LOG = "/tmp/facilitator-8877.log"
+RETIRED_OWNERS = frozenset({"triage"})
 
 
 def load_config():
     if not CONFIG.exists():
         sys.exit(f"no {CONFIG.name} beside the script; copy run.config.example.json and fill in real lanes")
-    return json.loads(CONFIG.read_text())
+    cfg = json.loads(CONFIG.read_text())
+    retired = sorted({lane.get("owner") for lane in cfg.get("lanes", [])
+                      if isinstance(lane, dict) and lane.get("owner") in RETIRED_OWNERS})
+    if retired:
+        names = ", ".join(repr(owner) for owner in retired)
+        sys.exit(f"{CONFIG.name} requires owner migration: retired owner {names} is not allowed")
+    return cfg
 
 
 def state(port, timeout=2):

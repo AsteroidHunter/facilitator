@@ -408,16 +408,16 @@ async function codeMirrorFixture(source) {
   await page.setViewport({ width: 900, height: 720, deviceScaleFactor: 2 });
   await page.goto(`${origin}/index.html`, { waitUntil: "domcontentloaded" });
   await page.evaluate(async text => {
-    activeOwner = "triage";
+    activeOwner = "pastureland";
     mdBoxes();
-    const host = mdBuild(MD_MOUNTS.triage);
+    const host = mdBuild(MD_MOUNTS.pastureland);
     host.style.left = "32px";
     host.style.top = "32px";
     host.style.width = "420px";
     host.style.height = "300px";
     if (!await mdBundle()) throw new Error("CodeMirror bundle did not load");
-    mdFor = "triage";
-    mdOpen = { lane: "triage", root: "fixture-internal", rel: "fixture.md", mtime: "1" };
+    mdFor = "pastureland";
+    mdOpen = { lane: "pastureland", root: "fixture-internal", rel: "fixture.md", mtime: "1" };
     mdClean = text;
     mdMount(host, text, false);
     host.classList.add("editing");

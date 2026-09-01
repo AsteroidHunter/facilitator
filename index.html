@@ -1661,7 +1661,7 @@
   /* both rules above set display, which beats the hidden attribute on their own.
      without this the stub and the picture are on screen at the same time */
   #magic3 [hidden]{display:none}
-  /* on the triage tab the same box holds a chat instead of a picture, so an
+  /* on the pastureland tab the same box holds a chat instead of a picture, so an
      agent can be talked to from the board. the look is a faithful copy of the
      reference app's thread, restated here in full rather than borrowed: the
      quick chat panel further down this sheet is an older, looser copy of the
@@ -3250,8 +3250,8 @@
 <script>
 const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
                   ["now", "Now"], ["done", "Done"], ["later", "Later"]];
-const METAS = [["toolmeta", "facilitator"], ["triagemeta", "triage"]];
-const NAME = { facilitator: "facilitator agent", triage: "triage agent", journal: "journal agent" };
+const METAS = [["toolmeta", "facilitator"], ["triagemeta", "pastureland"]];
+const NAME = { facilitator: "facilitator agent", pastureland: "pastureland agent", journal: "journal agent" };
 const laneName = ow => NAME[ow] || (ow + " agent");   // project lanes name themselves
 // the worktree mark that stands before the name in the card's top bar: a branch
 // fork drawn in stroke only, so it takes the name's own muted ink through
@@ -3279,9 +3279,110 @@ const lastSel = {};   // owner -> the card you were on when you left its row
 
 // project tabs: one owner shown at a time; ?project=owner locks a pulled-out
 // window to that project alone
+const RETIRED_OWNERS = new Set(["triage"]);
+function retiredOwnerStorageKey(key){
+  for (const owner of RETIRED_OWNERS){
+    if (key === "tabhide." + owner || key === "minibox." + owner ||
+        key === "doc.tasks." + owner ||
+        key.startsWith("pos." + owner + ".") ||
+        key.startsWith("size." + owner + ".") ||
+        key.startsWith("hide." + owner + ".") ||
+        key.startsWith("layoutbak.pos." + owner + ".") ||
+        key.startsWith("layoutbak.size." + owner + ".")) return true;
+  }
+  return false;
+}
+function purgeRetiredOwnerStorage(){
+  try {
+    if (RETIRED_OWNERS.has(localStorage.getItem("activeproj")))
+      localStorage.removeItem("activeproj");
+  } catch (err) {}
+  let order = [];
+  try { order = JSON.parse(localStorage.getItem("taborder") || "[]"); } catch (err) {}
+  try {
+    if (Array.isArray(order)){
+      const kept = order.filter(owner => !RETIRED_OWNERS.has(owner));
+      if (kept.length !== order.length) localStorage.setItem("taborder", JSON.stringify(kept));
+    }
+    const remove = [];
+    for (let i = 0; i < localStorage.length; i++){
+      const key = localStorage.key(i);
+      if (key && retiredOwnerStorageKey(key)) remove.push(key);
+    }
+    for (const key of remove) localStorage.removeItem(key);
+  } catch (err) {}
+}
+purgeRetiredOwnerStorage();
 const LOCKED = new URLSearchParams(location.search).get("project");
 let activeOwner = LOCKED || localStorage.getItem("activeproj") || "facilitator";
+let ownerReady = false;
+let ownerRefused = false;
+let knownOwnerIds = new Set();
+let validActiveOwnerIds = new Set();
 if (LOCKED) document.body.classList.add("locked");
+
+function showOwnerRefusal(message){
+  ownerReady = false;
+  ownerRefused = true;
+  let notice = document.getElementById("owner-refused");
+  if (!notice){
+    notice = document.createElement("div");
+    notice.id = "owner-refused";
+    notice.style.cssText = "position:fixed;inset:0;z-index:100000;display:grid;place-items:center;" +
+      "padding:40px;background:#f4f0e8;color:#28231d;font:600 18px ui-monospace,monospace;text-align:center";
+    document.body.appendChild(notice);
+  }
+  notice.textContent = message;
+}
+function clearOwnerRefusal(){
+  ownerRefused = false;
+  document.getElementById("owner-refused")?.remove();
+}
+function stateCarriesRetiredOwner(state){
+  if ((state.boxes || []).some(box => RETIRED_OWNERS.has(box.owner))) return true;
+  if ((state.projects || []).some(project => RETIRED_OWNERS.has(project.id))) return true;
+  return ["pwds", "busy", "listening", "everListened", "workspaces", "listenerGap", "agents"]
+    .some(field => Object.keys(state[field] || {}).some(owner => RETIRED_OWNERS.has(owner)));
+}
+function validateActiveOwner(state){
+  if (stateCarriesRetiredOwner(state)){
+    showOwnerRefusal("Board state contains a retired owner and must be migrated before use.");
+    return false;
+  }
+  knownOwnerIds = new Set(Object.keys(state.pwds || {}));
+  validActiveOwnerIds = new Set([...knownOwnerIds].filter(owner => owner !== "qchat"));
+  if (LOCKED){
+    if (!validActiveOwnerIds.has(LOCKED)){
+      showOwnerRefusal('Project "' + LOCKED + '" is not available.');
+      return false;
+    }
+    activeOwner = LOCKED;
+  } else if (activeOwner !== DRAFT || !draft){
+    if (!validActiveOwnerIds.has(activeOwner)){
+      try { localStorage.removeItem("activeproj"); } catch (err) {}
+      activeOwner = validActiveOwnerIds.has("facilitator")
+        ? "facilitator" : ([...validActiveOwnerIds][0] || null);
+    }
+    if (!activeOwner){
+      showOwnerRefusal("No available project owner was returned by the server.");
+      return false;
+    }
+  }
+  const first = !ownerReady;
+  ownerReady = true;
+  clearOwnerRefusal();
+  if (first) applySavedLayout();
+  return true;
+}
+if (LOCKED && RETIRED_OWNERS.has(LOCKED))
+  showOwnerRefusal('Project "' + LOCKED + '" is not available.');
+for (const type of ["click", "pointerdown", "keydown", "submit"]){
+  addEventListener(type, event => {
+    if (!ownerRefused) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }, true);
+}
 
 
 function labelOf(state, owner){
@@ -3300,6 +3401,8 @@ function labelOf(state, owner){
 const wtLanes = {};      // owner -> {current, names}, once it has landed
 const wtPending = {};    // owner -> the promise in flight, so one fetch serves all askers
 function laneWorktrees(owner){
+  if (!ownerReady || !knownOwnerIds.has(owner))
+    return Promise.resolve({ current: "", names: [] });
   if (wtLanes[owner]) return Promise.resolve(wtLanes[owner]);
   if (!wtPending[owner]){
     wtPending[owner] = fetch("/worktrees?owner=" + encodeURIComponent(owner))
@@ -3350,6 +3453,7 @@ function pickInRow(state, owner){
 }
 
 function setTab(owner){
+  if (!ownerReady || !validActiveOwnerIds.has(owner)) return;
   if (LOCKED && owner !== LOCKED) return;
   if (draft) endDraft();   // an unfinished new tab disappears on switching away
   activeOwner = owner; localStorage.setItem("activeproj", owner);
@@ -5986,6 +6090,7 @@ function panelSources(lane, sweep){
   return list;
 }
 async function panelPoll(){
+  if (!ownerReady) return;
   // one tab's thing only: everywhere else the box goes back to the stub and no
   // panel file is ever asked for
   if (activeOwner !== P3_LANE){ panelOff(document.getElementById("magic3")); return; }
@@ -6030,8 +6135,8 @@ panelPoll(); setInterval(panelPoll, 4000);
 
 // magic box 3 on the pastureland tab: a chat, the picture panel's counterpart.
 // the tab bar reads "pastureland" because a tab is named after its folder, but
-// the lane id underneath is triage, and the lane id is what activeOwner holds,
-// so triage is the name that goes here. like P3_LANE above this is the only
+// the lane id underneath is pastureland, and the lane id is what activeOwner holds,
+// so pastureland is the name that goes here. like P3_LANE above this is the only
 // place it is written down, so moving the chat is a one word change.
 //
 // nothing new was invented for it to talk to, and no server change was needed.
@@ -6042,7 +6147,7 @@ panelPoll(); setInterval(panelPoll, 4000);
 // /wait?owner=qchat and posting /reply?box=q. qchat is a registered owner in
 // the server and rowsOf keeps it out of the tab bar, so a conversation held
 // here can never turn up as a card among the pastureland cards.
-const C3_LANE = "triage";     // the one tab the chat belongs to
+const C3_LANE = "pastureland";     // the one tab the chat belongs to
 const C3_BOX = "q";           // the card its thread lives on
 const C3_OWNER = "qchat";     // the lane an agent has to listen on to answer it
 const C3_POLL = 2000;         // ms between reads of the thread
@@ -6697,6 +6802,7 @@ async function chatSend(){
   try { await chatPost(out); } finally { el.send.disabled = false; }
 }
 async function chatPoll(){
+  if (!ownerReady) return;
   // one tab's thing only, the same rule the picture panel above follows
   if (activeOwner !== C3_LANE){ chatOff(document.getElementById("magic3")); return; }
   const host = chatBuild();
@@ -6718,7 +6824,7 @@ chatPoll(); setInterval(chatPoll, C3_POLL);
 // another box is an edit of one line
 const MD_MOUNTS = {
   website: { box: "magic3", stub: "magic box 3" },
-  triage:  { box: "magic4", stub: "magic box 4" },
+  pastureland:  { box: "magic4", stub: "magic box 4" },
 };
 // the boxes those mounts name that the page does not already carry. magic box 4
 // is the only one today: it was added to hold this panel and has no other
@@ -7370,6 +7476,7 @@ async function mdSave(){
   mdNote(host, "saved");
 }
 async function mdPoll(){
+  if (!ownerReady) return;
   // the tabs that own a box, the same rule the picture panel and the chat
   // follow, with two tabs rather than one. the panel comes out of the box it
   // was in whenever this tab is not that box's tab, which is what frees magic
@@ -7612,6 +7719,7 @@ function miniStep(dir, opts){
 }
 let miniEditPending = null;   // name the card as soon as it has been drawn
 async function miniCreate(){
+  if (!ownerReady) return;
   const r = await fetch("/create?owner=facilitator", { method: "POST" })
     .then(x => x.json()).catch(() => null);
   if (r?.id){ miniGo(r.id); miniEditPending = r.id; }
@@ -8062,6 +8170,7 @@ async function poll(){
   try {
     const state = await (await fetch("/state")).json();
     pollFails = 0;
+    if (!validateActiveOwner(state)) return;
     const caretBefore = focusedCaretContext();
     if (!lastState) build(state);
     apply(state);
@@ -8117,6 +8226,7 @@ addEventListener("keydown", e => {
   }
   if (e.metaKey && (e.key === "t" || e.key === "T")){   // command+T: new card, input focused
     e.preventDefault();
+    if (!ownerReady) return;
     if (draft) return;   // a choosing tab has no lane to put a card in yet
     fetch("/create?owner=" + activeOwner, { method: "POST" })
       .then(x => x.json())
@@ -8381,6 +8491,7 @@ function seedHiddenOnce(){
 }
 
 function applySavedLayout(){
+  if (!ownerReady) return;
   // a box that belongs to the markdown panel is put on this tab or taken off it
   // first, so everything below only ever sees the boxes this tab really has.
   // the edit handles are pinned to the boxes that were there when the pencil
