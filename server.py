@@ -132,8 +132,8 @@ Endpoints:
                                {"messages": [], "message_via": []} when nothing
                                new or no card held
   GET  /wait?owner=O&timeout=S[&agent=NAME] -> agent long-poll; claims the oldest
-                               queued box owned by O (facilitator|triage; defaults
-                               to triage, the pre-routing loop's role) + its pending
+                               queued box owned by O (facilitator|pastureland; defaults
+                               to pastureland, the pre-routing loop's role) + its pending
                                messages. agent= states the caller's name; the card
                                rows' little tag shows the lane's live name or
                                offline, never a stored guess. A claim answers
@@ -201,7 +201,7 @@ Endpoints:
                                /reply is the sole final handover action.
 
 Owner routing (2026-08-05): every box carries an owner tag, facilitator (tool
-discussion, this repo's agent) or triage (the project under discussion, its
+discussion, this repo's agent) or pastureland (the project under discussion, its
 own agent). Each owner has its own busy/claim slot and listener-presence
 tracking, so the two agents drain the same board without blocking each other.
 
@@ -227,6 +227,11 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 HERE = Path(__file__).resolve().parent
 LOG_PATH = Path(os.environ.get("FACILITATOR_LOG", "/tmp/facilitator-8877.log"))
+RETIRED_OWNERS = frozenset({"triage"})
+
+
+class OwnerMigrationRequired(ValueError):
+    """Persisted configuration or state still names a retired owner id."""
 
 
 def _lane_dirs() -> dict:
@@ -234,10 +239,17 @@ def _lane_dirs() -> dict:
     served to the page for the pwd line, never part of tracked content."""
     try:
         cfg = json.loads((HERE / "run.config.json").read_text())
-        return {ln["owner"]: str(Path(ln["dir"]).expanduser())
-                for ln in cfg.get("lanes", []) if ln.get("owner") and ln.get("dir")}
     except Exception:
         return {}
+    lanes = cfg.get("lanes", [])
+    retired = sorted({ln.get("owner") for ln in lanes
+                      if isinstance(ln, dict) and ln.get("owner") in RETIRED_OWNERS})
+    if retired:
+        names = ", ".join(repr(ow) for ow in retired)
+        raise OwnerMigrationRequired(
+            f"run.config.json requires owner migration: retired owner {names} is not allowed")
+    return {ln["owner"]: str(Path(ln["dir"]).expanduser())
+            for ln in lanes if ln.get("owner") and ln.get("dir")}
 STATE_PATH = HERE / "state.json"
 TRANSCRIPT_PATH = HERE / "transcript.jsonl"
 # uploaded images now save outside the repo, in the sibling internal folder
@@ -255,7 +267,7 @@ BG_STALE = 75.0   # seconds without a /ping before a registered job stops counti
 # purpose: the whole point is that a hand-off lost on the wire comes back while
 # the message still matters, not fifteen minutes later
 ACK_GRACE = 90.0
-OWNERS = ("facilitator", "triage", "qchat")  # qchat: the quick chat panel's lane, dormant in the current board
+OWNERS = ("facilitator", "pastureland", "qchat")  # qchat: the quick chat panel's lane, dormant in the current board
 # the built-in three above are the floor; project lanes stored in state.json
 # extend OWNERS at load and at creation, via _register_owner below
 
@@ -269,7 +281,7 @@ FAIRY_NAMES = (
     "Starlit Selkie Crossing", "Buttercup Ogre Nap", "Silverfern Faun Prank",
     "Mushroom Hobgoblin Tea", "Cobweb Banshee Lullaby", "Riverbed Undine Chorus",
 )
-_LANE_DIRS = _lane_dirs()
+_LANE_DIRS = {}
 
 SEED_PATH = HERE / "seed.json"
 
@@ -288,6 +300,9 @@ def _register_owner(ow: str) -> None:
     """A stored or just-created project lane joins the runtime owner set and
     the listener-presence structures; idempotent, so _migrate can re-run it."""
     global OWNERS
+    if ow in RETIRED_OWNERS:
+        raise OwnerMigrationRequired(
+            f"owner registration refused retired owner {ow!r}; persisted data requires migration")
     if ow not in OWNERS:
         OWNERS = OWNERS + (ow,)
     _waiters.setdefault(ow, 0)
@@ -317,13 +332,13 @@ def _lane_internal(lane: str) -> Path | None:
 # may read and write: that lane's own internal folder and its wiki beside it.
 # The folder names come off the lane's own directory and not its owner id,
 # because a lane can be named for its work while its folder is named for its
-# project: the triage lane lives in pastureland/ and keeps pastureland-internal
+# project: the pastureland lane lives in pastureland/ and keeps pastureland-internal
 # and pastureland-wiki. Worked out per lane rather than written down as paths,
 # the way _lane_internal already does it, so no one machine's home directory
 # gets into tracked source and a lane moved on disk carries its folders with it.
 # The lane list is what makes this a fence: a lane not on it has no folders at
 # all here, and every route below then refuses it.
-MD_LANES = ("website", "triage")
+MD_LANES = ("website", "pastureland")
 MD_KINDS = ("internal", "wiki")
 
 
@@ -432,7 +447,7 @@ def _lane_worktrees(lane: str) -> dict:
     Two folders are tried, in this order. A lane's dir is often a wrapper rather
     than the checkout itself, with the repository one level in, in a child named
     after the wrapper: projects/facilitator holds facilitator/, and the
-    triage lane's projects/pastureland holds pastureland/. So the lane's
+    pastureland lane's projects/pastureland holds pastureland/. So the lane's
     own folder is asked first, and the same-name child only if that folder is
     not a checkout. Only ever the same-name child and never an arbitrary one:
     journal holds upstream-ref, a reference checkout that is not that
@@ -471,7 +486,7 @@ def _seed_state() -> dict:
                 "id": it["id"], "bucket": it["bucket"], "title": it["title"],
                 "reply": it.get("context", ""),
                 "pending": [], "done": False, "replies": 0,
-                "owner": it.get("owner", "triage"),
+                "owner": it.get("owner", "pastureland"),
             }
             for it in seed.get("items", [])
         ],
@@ -490,14 +505,50 @@ def _seed_state() -> dict:
     }
 
 
+OWNER_KEYED_STATE = ("busy", "claimed", "busy_ts", "ack", "workspaces", "ever_listened")
+
+
+def _validate_persisted_owners(st: dict, source: str) -> None:
+    """Refuse retired ids before migration can register, default, or save them.
+
+    This is deliberately a validator, not a converter. The one-time live state
+    rewrite is an external cutover step, and a process must not decide how two
+    old and new values should be merged.
+    """
+    hits = []
+    boxes = st.get("boxes", []) if isinstance(st, dict) else []
+    if isinstance(boxes, list):
+        for i, box in enumerate(boxes):
+            if isinstance(box, dict) and box.get("owner") in RETIRED_OWNERS:
+                hits.append(f"boxes[{i}].owner={box['owner']!r}")
+    projects = st.get("projects", []) if isinstance(st, dict) else []
+    if isinstance(projects, list):
+        for i, project in enumerate(projects):
+            if isinstance(project, dict) and project.get("id") in RETIRED_OWNERS:
+                hits.append(f"projects[{i}].id={project['id']!r}")
+    if isinstance(st, dict):
+        for field in OWNER_KEYED_STATE:
+            value = st.get(field)
+            if isinstance(value, dict):
+                for owner in sorted(RETIRED_OWNERS.intersection(value)):
+                    hits.append(f"{field}[{owner!r}]")
+    if hits:
+        raise OwnerMigrationRequired(
+            f"{source} requires owner migration; retired owner data found at " + ", ".join(hits))
+
+
 def _load() -> None:
-    global _state
+    global _state, _LANE_DIRS
+    _LANE_DIRS = _lane_dirs()
     if STATE_PATH.exists():
         _state = json.loads(STATE_PATH.read_text())
-        for b in _state["boxes"]:  # ages start counting from first sight
-            b.setdefault("ts", time.time())
+        source = "state.json"
     else:
         _state = _seed_state()
+        source = "seed.json" if SEED_PATH.exists() else "new state"
+    _validate_persisted_owners(_state, source)
+    for b in _state["boxes"]:  # ages start counting from first sight
+        b.setdefault("ts", time.time())
     _migrate()
 
 
@@ -514,16 +565,16 @@ def _migrate() -> None:
         [int(b["id"][1:]) for b in _state["boxes"]
          if b["id"].startswith("m") and b["id"][1:].isdigit()] or [0]))
     for b in _state["boxes"]:
-        b.setdefault("owner", "facilitator" if b["id"] == "0" or b["id"].startswith("m") else "triage")
+        b.setdefault("owner", "facilitator" if b["id"] == "0" or b["id"].startswith("m") else "pastureland")
     if not isinstance(_state.get("busy"), dict):  # scalar claim slots -> per-owner maps
         _state["busy"] = {ow: None for ow in OWNERS}
         _state["claimed"] = {ow: [] for ow in OWNERS}
         _state["busy_ts"] = {ow: 0.0 for ow in OWNERS}
-    if _box("t0") is None:  # box 0 is the facilitator agent's; triage-meta gets its own pin
+    if _box("t0") is None:  # box 0 is the facilitator agent's; pastureland-meta gets its own pin
         _state["boxes"].insert(_state["boxes"].index(_box("0")) + 1 if _box("0") else 0, {
-            "id": "t0", "bucket": "meta", "title": "Release triage: drop meta thoughts here",
+            "id": "t0", "bucket": "meta", "title": "Release pastureland: drop meta thoughts here",
             "reply": "", "pending": [], "done": False, "parked": False, "replies": 0,
-            "ball": "you", "ts": time.time(), "owner": "triage",
+            "ball": "you", "ts": time.time(), "owner": "pastureland",
         })
     # confirmed delivery (2026-08-25): state written before it existed has no
     # ack map at all, and an empty one reads exactly like no claim in play
@@ -551,7 +602,7 @@ def _migrate() -> None:
                        "goal": "", "tasks": [], "current": None}]
     _state.setdefault("next_tid", 1)
     for b in _state["boxes"]:
-        b.setdefault("ws", ws[b.get("owner", "triage")][0]["id"])
+        b.setdefault("ws", ws[b.get("owner", "pastureland")][0]["id"])
         b.setdefault("task", None)
         b.setdefault("agent_ts", 0)
     # the card state machine (2026-08-26): boxes written before it carry the
@@ -668,7 +719,7 @@ def _shown(b: dict) -> str:
     wears working's green, rest wears queued grey, and note stays explicit for
     the page to paint with working's green."""
     s = ("done" if b["done"] else "parked" if b.get("parked", False)
-         else "working" if _state["busy"].get(b.get("owner", "triage")) == b["id"]
+         else "working" if _state["busy"].get(b.get("owner", "pastureland")) == b["id"]
          else b["state"])
     return {"deferred": "working", "rest": "queued"}.get(s, s)
 
@@ -685,7 +736,7 @@ def _release_claim(b: dict) -> str:
     """Consume this box's handed-over messages and free its lane. Messages sent
     while the agent was composing were not in the claim, so they stay pending
     and return to the queue exactly once. Callers hold _lock."""
-    ow = b.get("owner", "triage")
+    ow = b.get("owner", "pastureland")
     claimed = set(_state["claimed"][ow]) if _state["busy"][ow] == b["id"] else set()
     b["pending"] = [m for m in b["pending"] if m["mid"] not in claimed]
     if _state["busy"][ow] == b["id"]:
@@ -799,6 +850,9 @@ class Handler(BaseHTTPRequestHandler):
             # lane's own folder what worktrees it has
             q = parse_qs(url.query)
             owner = (q.get("owner") or ["facilitator"])[0]
+            if owner not in OWNERS:
+                self._send(400, {"error": "unknown owner"})
+                return
             self._send(200, _lane_worktrees(owner))
         elif url.path == "/unread":
             # a lane's unread count in one line, for a Stop hook deciding
@@ -806,7 +860,7 @@ class Handler(BaseHTTPRequestHandler):
             # without reading the whole board. Read only: it claims nothing,
             # releases nothing and sweeps nothing
             q = parse_qs(url.query)
-            owner = (q.get("owner") or ["triage"])[0]
+            owner = (q.get("owner") or ["pastureland"])[0]
             if owner not in OWNERS:
                 self._send(400, {"error": "unknown owner"})
                 return
@@ -815,13 +869,13 @@ class Handler(BaseHTTPRequestHandler):
                 # anything not already in the claim is still waiting, including
                 # messages that landed on a held card after it was claimed
                 queued = sum(1 for b in _state["boxes"]
-                             if b.get("owner", "triage") == owner
+                             if b.get("owner", "pastureland") == owner
                              for m in b["pending"] if m["mid"] not in held)
                 self._send(200, {"queued": queued, "claimed": len(held)})
         elif url.path == "/wait":
             q = parse_qs(url.query)
             timeout = float(q.get("timeout", ["570"])[0])
-            owner = (q.get("owner") or ["triage"])[0]  # default: the pre-routing loop's role
+            owner = (q.get("owner") or ["pastureland"])[0]  # default: the pre-routing loop's role
             if owner not in OWNERS:
                 self._send(400, {"error": "unknown owner"})
                 return
@@ -837,7 +891,7 @@ class Handler(BaseHTTPRequestHandler):
             # that landed on that card after the claim and fold it into the
             # claim, so the one reply covers it and nothing arrives twice
             q = parse_qs(url.query)
-            owner = (q.get("owner") or ["triage"])[0]
+            owner = (q.get("owner") or ["pastureland"])[0]
             if owner not in OWNERS:
                 self._send(400, {"error": "unknown owner"})
                 return
@@ -1058,7 +1112,7 @@ class Handler(BaseHTTPRequestHandler):
         st = _state
         qpos, seen = {}, {ow: 0 for ow in OWNERS}  # queue position within each owner's lane
         for i in st["inbox"]:
-            ow = (_box(i) or {}).get("owner", "triage")
+            ow = (_box(i) or {}).get("owner", "pastureland")
             seen[ow] += 1
             qpos[i] = seen[ow]
         return {
@@ -1070,7 +1124,7 @@ class Handler(BaseHTTPRequestHandler):
                     "parked": b.get("parked", False),
                     "ts": b.get("ts", 0),
                     "context": b.get("context", ""),
-                    "owner": b.get("owner", "triage"),
+                    "owner": b.get("owner", "pastureland"),
                     "pending": len(b["pending"]),
                     "pendingTexts": [m["text"] for m in b["pending"]],
                     # send times matching pendingTexts one to one; 0 for
@@ -1083,7 +1137,7 @@ class Handler(BaseHTTPRequestHandler):
                     "worktree": b.get("worktree", ""),
                     "agentTs": b.get("agent_ts", 0),
                     "engine": b.get("engine", "claude"),
-                    "writing": st["busy"][b.get("owner", "triage")] == b["id"],
+                    "writing": st["busy"][b.get("owner", "pastureland")] == b["id"],
                     # green only while the job's heartbeat is fresh: a job
                     # that stopped pinging cannot keep a card green
                     "bg": _hb_live(b),
@@ -1121,7 +1175,7 @@ class Handler(BaseHTTPRequestHandler):
                              and 60 < (time.time() - _last_wait[ow]) < 900
                              and not any(
                                  _hb_live(b)
-                                 for b in st["boxes"] if b.get("owner", "triage") == ow),
+                                 for b in st["boxes"] if b.get("owner", "pastureland") == ow),
             } for ow in OWNERS},
         }
 
@@ -1163,7 +1217,7 @@ class Handler(BaseHTTPRequestHandler):
                         _save()
                 if _state["busy"][owner] is None:
                     bid = next((i for i in _state["inbox"]
-                                if (_box(i) or {}).get("owner", "triage") == owner), None)
+                                if (_box(i) or {}).get("owner", "pastureland") == owner), None)
                     if bid is not None:
                         _state["inbox"].remove(bid)
                         box = _box(bid)
@@ -1188,7 +1242,7 @@ class Handler(BaseHTTPRequestHandler):
                             # loops elsewhere read messages as plain strings
                             "message_via": [m.get("via") for m in box["pending"]],
                             "queued_after": sum(1 for i in _state["inbox"]
-                                                if (_box(i) or {}).get("owner", "triage") == owner),
+                                                if (_box(i) or {}).get("owner", "pastureland") == owner),
                             # the receipt this hand-off has to come back with
                             "ack": token,
                         }
@@ -1206,7 +1260,7 @@ class Handler(BaseHTTPRequestHandler):
                             _lock.notify_all()
                         return
                 if _state["end"] and _state["busy"][owner] is None and not any(
-                        (_box(i) or {}).get("owner", "triage") == owner for i in _state["inbox"]):
+                        (_box(i) or {}).get("owner", "pastureland") == owner for i in _state["inbox"]):
                     self._send(200, {"end": True})
                     return
                 remaining = deadline - time.monotonic()
@@ -1311,7 +1365,7 @@ class Handler(BaseHTTPRequestHandler):
                 if box["bucket"] == "meta" and box["id"] != "0" and box["title"] == "…":
                     first = text.splitlines()[0].strip()
                     box["title"] = (first[:48] + "…") if len(first) > 48 else first
-                if bid not in _state["inbox"] and _state["busy"][box.get("owner", "triage")] != bid:
+                if bid not in _state["inbox"] and _state["busy"][box.get("owner", "pastureland")] != bid:
                     _state["inbox"].append(bid)
                 _log("user", bid, text)
                 _save()
@@ -1323,7 +1377,7 @@ class Handler(BaseHTTPRequestHandler):
                 # comes back here and the provisional claim becomes a real one.
                 # Nothing else about the claim changes, so a confirmed claim is
                 # exactly what /fresh, /reply and the steal-back always saw
-                ow = (q.get("owner") or ["triage"])[0]
+                ow = (q.get("owner") or ["pastureland"])[0]
                 if ow not in OWNERS:
                     self._send(400, {"error": "unknown owner"})
                     return
@@ -1363,7 +1417,7 @@ class Handler(BaseHTTPRequestHandler):
                     # refused outright, never silently chopped
                     self._send(400, {"error": "context strip over 50 words"})
                     return
-                ow = box.get("owner", "triage")
+                ow = box.get("owner", "pastureland")
                 # a message typed in the small card gets a small answer back:
                 # that card is a few lines tall and a long reply is unreadable
                 # in it. The newest message the claim covers is the one being
@@ -1409,7 +1463,7 @@ class Handler(BaseHTTPRequestHandler):
                 if ctx and len(ctx.split()) > 50:
                     self._send(400, {"error": "context strip over 50 words"})
                     return
-                ow = box.get("owner", "triage")
+                ow = box.get("owner", "pastureland")
                 _last_wait[ow] = time.time()  # a note proves that agent is alive too
                 box["reply"] = text
                 box["replies"] += 1
@@ -1494,7 +1548,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(400, {"error": "bad box"})
                     return
                 name = (q.get("name") or [""])[0]
-                if name and name not in _lane_worktrees(box.get("owner", "triage"))["names"]:
+                if name and name not in _lane_worktrees(box.get("owner", "pastureland"))["names"]:
                     self._send(400, {"error": "unknown worktree"})
                     return
                 box["worktree"] = name
@@ -1572,6 +1626,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not name or not slug:
                     self._send(400, {"error": "empty name"})
                     return
+                if slug in RETIRED_OWNERS:
+                    self._send(400, {"error": "reserved owner"})
+                    return
                 # a taken id walks numbered suffixes until free; built-in owner
                 # ids (hidden internal lanes included) and stored project ids
                 # both count as taken, so no folder name is ever refused for
@@ -1614,7 +1671,7 @@ class Handler(BaseHTTPRequestHandler):
                 _state["boxes"].remove(box)
                 if bid in _state["inbox"]:
                     _state["inbox"].remove(bid)
-                ow = box.get("owner", "triage")
+                ow = box.get("owner", "pastureland")
                 if _state["busy"][ow] == bid:
                     _state["busy"][ow] = None
                     _state["claimed"][ow] = []
@@ -1624,7 +1681,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"ok": True})
 
             elif url.path == "/ws/goal":
-                w = _ws((q.get("owner") or [""])[0], (q.get("ws") or [""])[0])
+                ow = (q.get("owner") or [""])[0]
+                if ow not in OWNERS:
+                    self._send(400, {"error": "unknown owner"})
+                    return
+                w = _ws(ow, (q.get("ws") or [""])[0])
                 if w is None:
                     self._send(400, {"error": "unknown workspace"})
                     return
@@ -1635,6 +1696,9 @@ class Handler(BaseHTTPRequestHandler):
 
             elif url.path == "/ws/task":
                 ow = (q.get("owner") or [""])[0]
+                if ow not in OWNERS:
+                    self._send(400, {"error": "unknown owner"})
+                    return
                 w = _ws(ow, (q.get("ws") or [""])[0])
                 if w is None:
                     self._send(400, {"error": "unknown workspace"})
@@ -1667,7 +1731,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"ok": True, "id": tid})
 
             elif url.path == "/ws/current":
-                w = _ws((q.get("owner") or [""])[0], (q.get("ws") or [""])[0])
+                ow = (q.get("owner") or [""])[0]
+                if ow not in OWNERS:
+                    self._send(400, {"error": "unknown owner"})
+                    return
+                w = _ws(ow, (q.get("ws") or [""])[0])
                 if w is None:
                     self._send(400, {"error": "unknown workspace"})
                     return
@@ -1689,7 +1757,7 @@ class Handler(BaseHTTPRequestHandler):
 
             elif url.path == "/progress":  # interim note during a build: keeps
                 box = _box(bid)                # the claim (card stays green) and
-                ow = box.get("owner", "triage") if box else None  # heartbeats
+                ow = box.get("owner", "pastureland") if box else None  # heartbeats
                 if box is None or _state["busy"].get(ow) != bid:
                     self._send(400, {"error": "not holding this box"})
                     return
@@ -1710,7 +1778,7 @@ class Handler(BaseHTTPRequestHandler):
                 box["pending"] = []
                 if bid in _state["inbox"]:
                     _state["inbox"].remove(bid)
-                ow = box.get("owner", "triage")
+                ow = box.get("owner", "pastureland")
                 if _state["busy"].get(ow) == bid:
                     _state["busy"][ow] = None
                     _state["claimed"][ow] = []
@@ -1747,7 +1815,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    _load()
+    try:
+        _load()
+    except OwnerMigrationRequired as e:
+        sys.exit(f"startup refused: {e}")
     with _lock:
         _state["busy"] = {ow: None for ow in OWNERS}  # a restart never resumes mid-claim
         _state["claimed"] = {ow: [] for ow in OWNERS}

@@ -58,17 +58,17 @@ async function mountedEditor(source, height = 520) {
   await page.setViewport({ width: 900, height: 760, deviceScaleFactor: 2 });
   await page.goto(`${origin}/index.html`, { waitUntil: "domcontentloaded" });
   await page.evaluate(async (text, panelHeight) => {
-    activeOwner = "triage";
+    activeOwner = "pastureland";
     mdBoxes();
-    const host = mdBuild(MD_MOUNTS.triage);
+    const host = mdBuild(MD_MOUNTS.pastureland);
     host.style.left = "32px";
     host.style.top = "32px";
     host.style.width = "340px";
     host.style.height = panelHeight + "px";
     const loaded = await mdBundle();
     if (!loaded) throw new Error("CodeMirror bundle did not load");
-    mdFor = "triage";
-    mdOpen = { lane: "triage", root: "fixture-internal", rel: "fixture.md", mtime: "1" };
+    mdFor = "pastureland";
+    mdOpen = { lane: "pastureland", root: "fixture-internal", rel: "fixture.md", mtime: "1" };
     mdClean = text;
     mdMount(host, text, false);
     host.classList.add("editing");

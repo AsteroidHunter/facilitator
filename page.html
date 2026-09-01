@@ -1236,8 +1236,8 @@
 <script>
 const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
                   ["now", "Now"], ["done", "Done"], ["later", "Later"]];
-const METAS = [["toolmeta", "facilitator"], ["triagemeta", "triage"]];
-const NAME = { facilitator: "facilitator agent", triage: "triage agent", journal: "journal agent" };
+const METAS = [["toolmeta", "facilitator"], ["triagemeta", "pastureland"]];
+const NAME = { facilitator: "facilitator agent", pastureland: "pastureland agent", journal: "journal agent" };
 const laneName = ow => NAME[ow] || (ow + " agent");   // project lanes name themselves
 const els = {};       // box id -> {box, reply, meta, ta, send, donebtn, toc, sec}
 const secEls = {}, tocGroups = {};
@@ -1252,9 +1252,110 @@ const lastSel = {};   // owner -> the card you were on when you left its row
 
 // project tabs: one owner shown at a time; ?project=owner locks a pulled-out
 // window to that project alone
+const RETIRED_OWNERS = new Set(["triage"]);
+function retiredOwnerStorageKey(key){
+  for (const owner of RETIRED_OWNERS){
+    if (key === "tabhide." + owner || key === "minibox." + owner ||
+        key === "doc.tasks." + owner ||
+        key.startsWith("pos." + owner + ".") ||
+        key.startsWith("size." + owner + ".") ||
+        key.startsWith("hide." + owner + ".") ||
+        key.startsWith("layoutbak.pos." + owner + ".") ||
+        key.startsWith("layoutbak.size." + owner + ".")) return true;
+  }
+  return false;
+}
+function purgeRetiredOwnerStorage(){
+  try {
+    if (RETIRED_OWNERS.has(localStorage.getItem("activeproj")))
+      localStorage.removeItem("activeproj");
+  } catch (err) {}
+  let order = [];
+  try { order = JSON.parse(localStorage.getItem("taborder") || "[]"); } catch (err) {}
+  try {
+    if (Array.isArray(order)){
+      const kept = order.filter(owner => !RETIRED_OWNERS.has(owner));
+      if (kept.length !== order.length) localStorage.setItem("taborder", JSON.stringify(kept));
+    }
+    const remove = [];
+    for (let i = 0; i < localStorage.length; i++){
+      const key = localStorage.key(i);
+      if (key && retiredOwnerStorageKey(key)) remove.push(key);
+    }
+    for (const key of remove) localStorage.removeItem(key);
+  } catch (err) {}
+}
+purgeRetiredOwnerStorage();
 const LOCKED = new URLSearchParams(location.search).get("project");
 let activeOwner = LOCKED || localStorage.getItem("activeproj") || "facilitator";
+let ownerReady = false;
+let ownerRefused = false;
+let knownOwnerIds = new Set();
+let validActiveOwnerIds = new Set();
 if (LOCKED) document.body.classList.add("locked");
+
+function showOwnerRefusal(message){
+  ownerReady = false;
+  ownerRefused = true;
+  let notice = document.getElementById("owner-refused");
+  if (!notice){
+    notice = document.createElement("div");
+    notice.id = "owner-refused";
+    notice.style.cssText = "position:fixed;inset:0;z-index:100000;display:grid;place-items:center;" +
+      "padding:40px;background:#f4f0e8;color:#28231d;font:600 18px ui-monospace,monospace;text-align:center";
+    document.body.appendChild(notice);
+  }
+  notice.textContent = message;
+}
+function clearOwnerRefusal(){
+  ownerRefused = false;
+  document.getElementById("owner-refused")?.remove();
+}
+function stateCarriesRetiredOwner(state){
+  if ((state.boxes || []).some(box => RETIRED_OWNERS.has(box.owner))) return true;
+  if ((state.projects || []).some(project => RETIRED_OWNERS.has(project.id))) return true;
+  return ["pwds", "busy", "listening", "everListened", "workspaces", "listenerGap", "agents"]
+    .some(field => Object.keys(state[field] || {}).some(owner => RETIRED_OWNERS.has(owner)));
+}
+function validateActiveOwner(state){
+  if (stateCarriesRetiredOwner(state)){
+    showOwnerRefusal("Board state contains a retired owner and must be migrated before use.");
+    return false;
+  }
+  knownOwnerIds = new Set(Object.keys(state.pwds || {}));
+  validActiveOwnerIds = new Set([...knownOwnerIds].filter(owner => owner !== "qchat"));
+  if (LOCKED){
+    if (!validActiveOwnerIds.has(LOCKED)){
+      showOwnerRefusal('Project "' + LOCKED + '" is not available.');
+      return false;
+    }
+    activeOwner = LOCKED;
+  } else if (activeOwner !== DRAFT || !draft){
+    if (!validActiveOwnerIds.has(activeOwner)){
+      try { localStorage.removeItem("activeproj"); } catch (err) {}
+      activeOwner = validActiveOwnerIds.has("facilitator")
+        ? "facilitator" : ([...validActiveOwnerIds][0] || null);
+    }
+    if (!activeOwner){
+      showOwnerRefusal("No available project owner was returned by the server.");
+      return false;
+    }
+  }
+  const first = !ownerReady;
+  ownerReady = true;
+  clearOwnerRefusal();
+  if (first) applySavedLayout();
+  return true;
+}
+if (LOCKED && RETIRED_OWNERS.has(LOCKED))
+  showOwnerRefusal('Project "' + LOCKED + '" is not available.');
+for (const type of ["click", "pointerdown", "keydown", "submit"]){
+  addEventListener(type, event => {
+    if (!ownerRefused) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }, true);
+}
 
 // ?doc=1 swaps the board of cards for the document view of the same lane.
 // the branch happens here, before anything paints; with no query param the
@@ -1270,6 +1371,9 @@ const MOCK = DOC && new URLSearchParams(location.search).get("mock") === "1";
 if (MOCK){
   document.body.classList.add("mockview");
   activeOwner = "example";   // the sandbox lane, so a saved project never steers it
+  ownerReady = true;
+  knownOwnerIds = new Set(["example"]);
+  validActiveOwnerIds = new Set(["example"]);
 }
 
 function labelOf(state, owner){
@@ -1286,6 +1390,7 @@ function pickInRow(state, owner){
 }
 
 function setTab(owner){
+  if (!ownerReady || !validActiveOwnerIds.has(owner)) return;
   if (MOCK) return;   // one lane in the sandbox, and the saved project key stays untouched
   if (LOCKED && owner !== LOCKED) return;
   if (draft) endDraft();   // an unfinished new tab disappears on switching away
@@ -2730,6 +2835,7 @@ async function poll(){
   try {
     const state = await (await fetch("/state")).json();
     pollFails = 0;
+    if (!validateActiveOwner(state)) return;
     const caretBefore = focusedCaretContext();
     if (!lastState) build(state);
     apply(state);
@@ -2786,6 +2892,7 @@ addEventListener("keydown", e => {
   if (e.metaKey && (e.key === "t" || e.key === "T")){   // command+T: new card, input focused
     e.preventDefault();
     if (MOCK) return;   // the sandbox never creates a real card
+    if (!ownerReady) return;
     if (draft) return;   // a choosing tab has no lane to put a card in yet
     fetch("/create?owner=" + activeOwner, { method: "POST" })
       .then(x => x.json())
@@ -3018,6 +3125,7 @@ const onStar = v => Math.round((v - GRID / 2) / GRID) * GRID + GRID / 2;   // ne
 const REGION_SEL = "main, #clockbox, #rail, #tickets, #magic1, #magic2, #todobox, #goalbox";
 function regionId(el){ return el.tagName === "MAIN" ? "main" : el.id; }
 function applySavedLayout(){
+  if (!ownerReady) return;
   for (const el of document.querySelectorAll(REGION_SEL)){
     const saved = dragEnabled ? localStorage.getItem("pos." + activeOwner + "." + regionId(el)) : null;
     if (saved){
@@ -3986,6 +4094,7 @@ function docTitleFrom(text){
   return words.length > 60 ? words.slice(0, 60).trim() : words;
 }
 async function docCompose(text){
+  if (!ownerReady) return;
   const first = text.split("\n")[0].trim();
   if (/^task\s+\S/i.test(first)){
     const list = docTasks.load(activeOwner);

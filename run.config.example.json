@@ -9,11 +9,11 @@
       "prompt": "You are the facilitator agent. Read RUNBOOK.md in this directory, then run the listen loop with owner=facilitator and answer box claims per the doctrine. The server is already running; never start a second one."
     },
     {
-      "owner": "triage",
+      "owner": "pastureland",
       "tmux": "my-project-session",
       "dir": "~/projects/myproject",
-      "instruction": "Attach to the facilitator board: read the facilitator repo's RUNBOOK.md, then run the listen loop with owner=triage and answer claims per doctrine. Server is already running.",
-      "prompt": "You are the second agent on the discussion board. Read the facilitator repo's RUNBOOK.md, then run the listen loop with owner=triage and answer box claims per the doctrine. The server is already running; never start a second one."
+      "instruction": "Attach to the facilitator board: read the facilitator repo's RUNBOOK.md, then run the listen loop with owner=pastureland and answer claims per doctrine. Server is already running.",
+      "prompt": "You are the second agent on the discussion board. Read the facilitator repo's RUNBOOK.md, then run the listen loop with owner=pastureland and answer box claims per the doctrine. The server is already running; never start a second one."
     }
   ]
 }
