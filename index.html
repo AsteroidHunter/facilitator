@@ -7829,12 +7829,15 @@ function cardState(b){
        : (!b.agentTs && !b.pending && !b.replies) ? "new"
        : b.ball === "you" ? "yours"
        : "queued");
+  // note is its own server-side progress state. It shares working's green
+  // presentation without losing the semantic distinction on the wire.
+  const shown = s === "note" ? "working" : s;
   // the machine never ships yours with messages still queued; this guard
   // covers the recomputed path, where an older reply can leave the ball on
   // his side while a newer message is still in line, and that used to paint
   // the card yellow. only yours is rewritten, so done, parked and every
   // green state keep exactly the state they had
-  return (s === "yours" && b.pending > 0) ? "queued" : s;
+  return (shown === "yours" && b.pending > 0) ? "queued" : shown;
 }
 // the queue panel's view: a parked card sorts and colors as if open. state is
 // nulled in the copy so cardState recomputes from the flags instead of handing

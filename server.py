@@ -89,7 +89,7 @@ Endpoints:
                                stamp, never merged and never clobbered. Written
                                temp-file-then-rename like state.json, and answers
                                the new stamp
-  GET  /thread?box=ID&n=N   -> last N user/agent messages of a box from the
+  GET  /thread?box=ID&n=N   -> last N user/agent/note messages of a box from the
                                transcript (read by the reply history stepper
                                and the quick chat panel)
   GET  /log?lines=N         -> tail of the server log file; path from $FACILITATOR_LOG
@@ -170,7 +170,7 @@ Endpoints:
                                only, it claims nothing and releases nothing; for
                                a Stop hook checking whether anything is waiting
                                before the agent goes idle, and for humans
-  POST /reply?box=ID[&ctx=S][&quiet=1] -> body = the agent's reply text (plain
+  POST /reply?box=ID[&ctx=S] -> body = the agent's final reply text (plain
                                text); ctx is an OPTIONAL urlencoded summary
                                strip, 50 words max, stored as the box's
                                context when passed. The summary box was taken
@@ -188,23 +188,17 @@ Endpoints:
                                the deferred state and the turn is handed over
                                when that flag drops or expires, so a mid-work
                                reply cannot turn a green card yellow.
-                               quiet=1 stores the reply, summary, count and
-                               stamp the same way and changes nothing else:
-                               the ball stays untouched, so the card's color
-                               keeps coming from the work itself (green while
-                               claimed or registered, grey while queued,
-                               yellow only when a real answer awaits a read).
-                               For interim notes while the card's work is in
-                               flight.
+                               The removed quiet query is rejected so a stale
+                               agent contract cannot turn progress into an
+                               accidental final handover.
   POST /note?box=ID&ctx=S   -> the named interim-note action: stores the body
                                and ctx summary like /reply (reply, count,
-                               agent_ts, ts, context) and moves the card to
-                               working (the flag's heartbeat), never handing
-                               the ball to "you". So the state stays a green
-                               working, never a yellow "yours": a progress
-                               note structurally cannot float a card to the
-                               top. A normal /reply stays the answer action
-                               that hands the ball to you.
+                               agent_ts, ts, context), consumes and releases
+                               any held claim, and enters the explicit note
+                               state with a fresh heartbeat. note is green
+                               while the work lives and rests grey if it dies;
+                               it never hands the ball to "you". A normal
+                               /reply is the sole final handover action.
 
 Owner routing (2026-08-05): every box carries an owner tag, facilitator (tool
 discussion, this repo's agent) or triage (the project under discussion, its
@@ -618,6 +612,8 @@ def _ws(owner: str, wid: str) -> dict | None:
 #                           "you": a seeded or standing card)
 #                 queued    a message of his waits on the agent (grey)
 #                 working   the flag's heartbeat is beating (green)
+#                 note      an interim progress note while its heartbeat is
+#                           beating (green; no turn waits on him)
 #                 deferred  working, plus a reply that becomes his turn the
 #                           moment the work ends (green)
 #                 yours     an unanswered reply awaits him (yellow)
@@ -628,17 +624,18 @@ def _ws(owner: str, wid: str) -> dict | None:
 #                                          he has answered
 #                 /reply                   -> yours; flag still beating ->
 #                                          deferred; leftover msgs -> queued
-#                 /reply quiet=1, /note, /progress   no turn handed over: the
-#                                          ball untouched, green stays green
-#                 /working v=1, /note, /ping        -> working (deferred stays)
+#                 /note                    -> note, starts heartbeat, consumes
+#                                          and releases a claim, ball stays me
+#                 /progress                no turn handed over; claim stays held
+#                 /working v=1, /ping      -> working (note/deferred stay)
 #                 flag drop or 75s expiry  -> deferred hands its turn over and
-#                                          lands yours; working lands at _rest
+#                                          lands yours; working/note land at _rest
 #                 /dismiss                 -> _rest, a beating flag excepted
 # _rest, the landing rule: pending -> queued, never touched -> new, ball
 # "you" -> yours, else rest. Expiry is swept lazily at /state and /wait,
 # beside the unacked-claim clock, and by /working itself.
 
-GREEN = ("working", "deferred")
+GREEN = ("working", "note", "deferred")
 
 
 def _hb_live(b: dict) -> bool:
@@ -650,8 +647,8 @@ def _hb_live(b: dict) -> bool:
 
 
 def _green(b: dict) -> None:
-    """A beating flag turns the card green; already-green (deferred included)
-    stays exactly what it was."""
+    """A beating flag turns the card green; semantic green states such as note
+    and deferred stay exactly what they were."""
     if b["state"] not in GREEN:
         b["state"] = "working"
 
@@ -667,8 +664,9 @@ def _rest(b: dict) -> str:
 
 def _shown(b: dict) -> str:
     """The one value a card's color and sort come from: the masks first (the
-    owner's shelf, then the lane's held claim), then the machine state, with
-    deferred wearing working's green and rest the queued grey."""
+    owner's shelf, then the lane's held claim), then the machine state. deferred
+    wears working's green, rest wears queued grey, and note stays explicit for
+    the page to paint with working's green."""
     s = ("done" if b["done"] else "parked" if b.get("parked", False)
          else "working" if _state["busy"].get(b.get("owner", "triage")) == b["id"]
          else b["state"])
@@ -681,6 +679,23 @@ def _handover(b: dict) -> None:
     if b["state"] == "deferred":
         b["ball"] = "you"
         _log("handover", b["id"], "working flag down, deferred turn handed over")
+
+
+def _release_claim(b: dict) -> str:
+    """Consume this box's handed-over messages and free its lane. Messages sent
+    while the agent was composing were not in the claim, so they stay pending
+    and return to the queue exactly once. Callers hold _lock."""
+    ow = b.get("owner", "triage")
+    claimed = set(_state["claimed"][ow]) if _state["busy"][ow] == b["id"] else set()
+    b["pending"] = [m for m in b["pending"] if m["mid"] not in claimed]
+    if _state["busy"][ow] == b["id"]:
+        _state["busy"][ow] = None
+        _state["claimed"][ow] = []
+    if b["pending"] and b["id"] not in _state["inbox"]:
+        _state["inbox"].append(b["id"])
+    if not b["pending"] and b["id"] in _state["inbox"]:
+        _state["inbox"].remove(b["id"])
+    return ow
 
 
 def _release_unacked() -> None:
@@ -857,7 +872,7 @@ class Handler(BaseHTTPRequestHandler):
                             e = json.loads(line)
                         except ValueError:
                             continue
-                        if e.get("box") == tbid and e.get("kind") in ("user", "agent"):
+                        if e.get("box") == tbid and e.get("kind") in ("user", "agent", "note"):
                             out.append({"kind": e["kind"], "text": e.get("text", ""), "ts": e.get("ts", 0)})
             except FileNotFoundError:
                 pass
@@ -1336,6 +1351,9 @@ class Handler(BaseHTTPRequestHandler):
                 if box is None:
                     self._send(400, {"error": "bad box"})
                     return
+                if "quiet" in q:
+                    self._send(400, {"error": "quiet replies were removed; use /note for progress"})
+                    return
                 # the summary strip is optional as of 20260821: the owner had
                 # the summary box taken off the card, so nothing displays it and
                 # the agent no longer writes one. a ctx that is passed is still
@@ -1361,49 +1379,28 @@ class Handler(BaseHTTPRequestHandler):
                 _last_wait[ow] = time.time()  # a reply proves that agent is alive too
                 box["reply"] = text
                 box["replies"] += 1
-                # the machine's answer move, taken once the claim is let go
-                # below: a quiet reply stores everything and moves nothing, so
-                # the color keeps coming from the work itself. A normal reply
-                # hands the turn over, but only when no working flag beats on
-                # the box: while one does, nothing awaits him yet, so the card
-                # goes deferred and the turn is handed over when that flag
-                # drops or its heartbeat expires.
-                quiet = (q.get("quiet") or ["0"])[0] == "1"
+                # The machine's sole answer move, taken once the claim is let
+                # go below. While a working flag beats, the final turn waits in
+                # deferred and is handed over when that work ends.
                 box["agent_ts"] = time.time()  # when the agent last replied
                 box["ts"] = time.time()
-                claimed = set(_state["claimed"][ow]) if _state["busy"][ow] == bid else set()
-                box["pending"] = [m for m in box["pending"] if m["mid"] not in claimed]
                 if ctx:
                     box["context"] = ctx
-                if _state["busy"][ow] == bid:
-                    _state["busy"][ow] = None
-                    _state["claimed"][ow] = []
+                _release_claim(box)
                 if _hb_live(box):
-                    if not quiet:
-                        box["state"] = "deferred"
+                    box["state"] = "deferred"
                 else:
-                    if not quiet:
-                        box["ball"] = "you"
+                    box["ball"] = "you"
                     box["state"] = _rest(box)
-                # anything he sent while I was composing goes back in line
-                if box["pending"] and bid not in _state["inbox"]:
-                    _state["inbox"].append(bid)
-                # and a fully answered box leaves the line, or the next claim
-                # hands the agent an empty turn
-                if not box["pending"] and bid in _state["inbox"]:
-                    _state["inbox"].remove(bid)
                 _log("agent", bid, text)
                 _save()
                 _lock.notify_all()
                 self._send(200, {"ok": True})
 
             elif url.path == "/note":
-                # the formalized interim-note action. Stores the body and the
-                # ctx summary exactly like /reply (reply, replies, agent_ts,
-                # ts, context) AND moves the card to working (the flag's
-                # heartbeat), never setting ball="you". So the state is a green
-                # "working", never a yellow "yours": a progress note
-                # structurally cannot turn a card yellow or float it to the top.
+                # The sole background-progress action. It releases a held claim,
+                # owns an explicit note state and keeps the turn with the agent,
+                # so it can never turn yellow when its heartbeat ends.
                 box = _box(bid)
                 if box is None:
                     self._send(400, {"error": "bad box"})
@@ -1420,8 +1417,10 @@ class Handler(BaseHTTPRequestHandler):
                 box["ts"] = time.time()
                 if ctx:
                     box["context"] = ctx
-                box["hb"] = time.time()  # green via the heartbeat path: no
-                _green(box)              # claim taken, and the ball untouched
+                _release_claim(box)
+                box["ball"] = "me"
+                box["hb"] = time.time()
+                box["state"] = "note"
                 _log("note", bid, text)
                 _save()
                 _lock.notify_all()
