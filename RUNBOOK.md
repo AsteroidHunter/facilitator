@@ -19,7 +19,7 @@ WARNING: a loop without the confirm line claims cards it cannot keep. Every clai
 
 Answer a claim with:
 
-    curl -s -X POST --data-binary "the reply text" "http://127.0.0.1:8877/reply?box=ID&ctx=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' "two line summary of where this card stands")"
+    curl -s -X POST --data-binary "the full reply text" "http://127.0.0.1:8877/reply?box=ID&ctx=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' "two line summary of where this card stands")"
 
 `ctx=` is REQUIRED: every reply carries a fresh two-line summary strip (220 chars max, urlencoded), stored as the card's grey summary box in the same move. The server refuses a reply without one. Write the summary first, from the reader's seat, then the reply.
 
@@ -36,6 +36,7 @@ Answer a claim with:
 - 100 to 150 words or fewer. Plain conversational tone: no coined shorthand, no unexplained jargon; a term either gets defined by what it concretely does or gets dropped. Paragraph breaks and short lists over walls of text. Depth comes from choosing what to say, not from length.
 - No em dashes, in titles or in replies. Banned.
 - Every reply fully self-contained. The box shows ONLY the latest reply, so a short follow-up ERASES a longer answer. Restate rather than reference.
+- A small-card version, when needed, is a separate urlencoded `short` query on `/reply`. If it is omitted, both cards show the full body. Never put `---` in the body as a hidden separator. It is authored Markdown and renders as a horizontal rule.
 - Answer what was asked and stop: no unsolicited offers, no "want me to" tails, no validation preambles.
 - `POST /note?box=ID` is the only background-progress action. It stores the interim text, consumes and releases any held claim, enters the explicit green note state, starts or refreshes the heartbeat, and keeps the turn with the agent. Keep pinging while work continues. A note whose heartbeat dies rests grey, never yellow. `/reply` is only for a final answer and rejects the removed `quiet` query.
 - The colour law is the machine's now, not your discipline: every card sits in one server-side state and the colour is a pure read of it. A normal reply under a live working flag lands the card in deferred, still green; the turn is handed over when the flag drops (`/working?box=ID&v=0`) or its heartbeat expires. A progress note stays in note until another event or the heartbeat ends.

@@ -62,6 +62,8 @@ Endpoints:
                                into this repo
   GET  /cm-markdown.js      -> the vendored CodeMirror 6 bundle beside index.html,
                                fetched the first time the markdown panel opens
+  GET  /card-markdown.js    -> the shared, finite card-prose renderer used by
+                               the board, page view and small card
   GET  /mdfiles?lane=L      -> every .md file under the two folders lane L's own
                                markdown panel may touch (that lane's internal
                                folder and its wiki, both named after the lane's
@@ -170,18 +172,24 @@ Endpoints:
                                only, it claims nothing and releases nothing; for
                                a Stop hook checking whether anything is waiting
                                before the agent goes idle, and for humans
-  POST /reply?box=ID[&ctx=S] -> body = the agent's final reply text (plain
-                               text); ctx is an OPTIONAL urlencoded summary
+  POST /reply?box=ID[&ctx=S][&short=S] -> body = the agent's full final reply
+                               text (plain text). short is an OPTIONAL,
+                               separately stored small-card version. When it
+                               is absent, the full text is used in both places.
+                               Authored punctuation, including a line containing
+                               only ---, always remains part of the reply.
+                               ctx is an OPTIONAL urlencoded summary
                                strip, 50 words max, stored as the box's
                                context when passed. The summary box was taken
                                off the card 20260821 and nothing displays it;
                                an overlong strip is still refused (400), never
                                silently truncated.
                                When the newest message the claim covers came
-                               from the small card (via=mini), a reply over 100
-                               whitespace separated words is refused the same
-                               way (400, nothing stored): that card is only a
-                               few lines tall. A big card message has no cap.
+                               from the small card (via=mini), its displayed
+                               variant over 100 whitespace separated words is
+                               refused (400, nothing stored). With no short
+                               value that means the full body. A big card
+                               message has no cap.
                                A normal reply hands the ball to you only when
                                no working flag beats on the box. While one
                                does, nothing awaits you yet: the card goes to
@@ -256,7 +264,6 @@ TRANSCRIPT_PATH = HERE / "transcript.jsonl"
 # (not a git repo, never pushed); reads still fall back to the old in-repo
 # uploads/ so the images saved there before this change keep resolving
 INTERNAL_UPLOADS = HERE.parent / "facilitator-internal" / "uploads"
-INTERNAL_UPLOADS.mkdir(parents=True, exist_ok=True)
 # everything an image route will hand back, written down once so /uploads/ and
 # /laneimg/ can never drift apart on what counts as a picture
 IMG_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
@@ -267,6 +274,16 @@ BG_STALE = 75.0   # seconds without a /ping before a registered job stops counti
 # purpose: the whole point is that a hand-off lost on the wire comes back while
 # the message still matters, not fifteen minutes later
 ACK_GRACE = 90.0
+# Version 1 removes the old convention that treated a line containing only ---
+# as a hidden short/full delimiter. Existing state is split once in _migrate;
+# every new reply has explicit fields and the Markdown renderer is never asked
+# to infer application state from authored punctuation.
+REPLY_VARIANTS_VERSION = 1
+# Transcript rows written before this physical marker used the retired ---
+# convention. Rows after it do not. File order, rather than event timestamps,
+# is the durable boundary because transcript timestamps are authored data and
+# may be missing, malformed, duplicated, or in the future.
+TRANSCRIPT_REPLY_SCHEMA = "reply_variants"
 OWNERS = ("facilitator", "pastureland", "qchat")  # qchat: the quick chat panel's lane, dormant in the current board
 # the built-in three above are the floor; project lanes stored in state.json
 # extend OWNERS at load and at creation, via _register_owner below
@@ -485,6 +502,8 @@ def _seed_state() -> dict:
             {
                 "id": it["id"], "bucket": it["bucket"], "title": it["title"],
                 "reply": it.get("context", ""),
+                "reply_full": it.get("context", ""),
+                "reply_short": it.get("context", ""),
                 "pending": [], "done": False, "replies": 0,
                 "owner": it.get("owner", "pastureland"),
             }
@@ -552,8 +571,103 @@ def _load() -> None:
     _migrate()
 
 
+def _legacy_reply_variants(value: str) -> tuple[str, str]:
+    """Reproduce the retired browser split for pre-version-1 saved data only.
+
+    This is deliberately a migration helper, not part of card formatting or a
+    fallback for new writes. A --- inside a column-zero backtick fence remains
+    content, and only the first outside fence was ever a delimiter.
+    """
+    text = value or ""
+    lines = text.split("\n")
+
+    def clipped(part: list[str]) -> str:
+        while part and not part[0].strip():
+            part.pop(0)
+        while part and not part[-1].strip():
+            part.pop()
+        return "\n".join(part)
+
+    in_code = False
+    for index, line in enumerate(lines):
+        if line.startswith("```"):
+            in_code = not in_code
+            continue
+        if not in_code and line.strip() == "---":
+            return clipped(lines[:index]), clipped(lines[index + 1:])
+    return text, text
+
+
+def _set_reply_variants(box: dict, full: str, short: str | None = None) -> None:
+    """Store explicit full and small-card text; reply stays as a full-text shim."""
+    box["reply_full"] = full
+    box["reply_short"] = full if short is None else short
+    box["reply"] = full
+
+
+def _is_reply_schema_boundary(event: dict) -> bool:
+    """True only for our durable transcript schema marker."""
+    try:
+        version = int(event.get("version", 0))
+    except (TypeError, ValueError):
+        return False
+    return (event.get("kind") == "schema" and
+            event.get("schema") == TRANSCRIPT_REPLY_SCHEMA and
+            version >= REPLY_VARIANTS_VERSION)
+
+
+def _ensure_reply_schema_boundary() -> None:
+    """Append the v1 transcript boundary exactly once.
+
+    The transcript is append-only. Scanning for the marker makes this safe when
+    a process stops between appending it and saving state: the next start sees
+    the already-durable marker instead of appending another. The state version
+    records that the migration ran, but readers deliberately trust file order.
+    """
+    found = False
+    needs_separator = False
+    try:
+        with TRANSCRIPT_PATH.open(errors="replace") as transcript:
+            for line in transcript:
+                try:
+                    event = json.loads(line)
+                except (TypeError, ValueError):
+                    continue
+                if isinstance(event, dict) and _is_reply_schema_boundary(event):
+                    found = True
+                    break
+    except FileNotFoundError:
+        pass
+    try:
+        with TRANSCRIPT_PATH.open("rb") as transcript:
+            transcript.seek(0, os.SEEK_END)
+            if transcript.tell():
+                transcript.seek(-1, os.SEEK_END)
+                needs_separator = transcript.read(1) != b"\n"
+    except FileNotFoundError:
+        pass
+    if not found or needs_separator:
+        marker = {
+            "kind": "schema",
+            "schema": TRANSCRIPT_REPLY_SCHEMA,
+            "version": REPLY_VARIANTS_VERSION,
+        }
+        with TRANSCRIPT_PATH.open("a") as transcript:
+            # A crash or manual repair may have left a truncated final JSON
+            # object with no newline. Separate it before the schema event so
+            # the durable boundary is independently parseable and all later
+            # appends start on their own records.
+            if needs_separator:
+                transcript.write("\n")
+            if not found:
+                transcript.write(json.dumps(marker) + "\n")
+            transcript.flush()
+            os.fsync(transcript.fileno())
+    _state["transcript_reply_variants_version"] = REPLY_VARIANTS_VERSION
+
+
 def _migrate() -> None:
-    """Owner routing (2026-08-05): idempotent upgrade of pre-routing state."""
+    """Apply each versioned, idempotent upgrade to saved board state."""
     _state.setdefault("paused", False)
     _state.setdefault("title", "facilitator")
     # project lanes (2026-08-13): stored lanes merge with the built-in three
@@ -623,6 +737,29 @@ def _migrate() -> None:
         b.setdefault("hb", 0)
         for k in ("ball_due", "bg", "bg_ts"):
             b.pop(k, None)
+    # Reply variants (2026-09-01) are a one-time data representation migration.
+    # A box that already has either explicit field is new-schema data even when
+    # a top-level marker is absent, as happens for a fresh seed or a partially
+    # migrated state. Only a genuine legacy box with neither field is split.
+    if _state.get("reply_variants_version", 0) < REPLY_VARIANTS_VERSION:
+        for b in _state["boxes"]:
+            if "reply_full" in b or "reply_short" in b:
+                full = b.get("reply_full", b.get("reply", ""))
+                short = b.get("reply_short", full)
+            else:
+                short, full = _legacy_reply_variants(b.get("reply", ""))
+            _set_reply_variants(b, full, short)
+        _state["reply_variants_version"] = REPLY_VARIANTS_VERSION
+    else:
+        # Versioned state should already have both fields. Defaults make a box
+        # manually added by an older helper safe without reviving the delimiter.
+        for b in _state["boxes"]:
+            full = b.get("reply_full", b.get("reply", ""))
+            _set_reply_variants(b, full, b.get("reply_short", full))
+    # The old first-pass timestamp cutoff was not a stable schema boundary.
+    # Drop it and append a file-order marker after every pre-v1 transcript row.
+    _state.pop("reply_variants_migrated_at", None)
+    _ensure_reply_schema_boundary()
     _save()
 
 
@@ -632,9 +769,11 @@ def _save() -> None:
     os.replace(tmp, STATE_PATH)
 
 
-def _log(kind: str, box: str, text: str) -> None:
+def _log(kind: str, box: str, text: str, **fields) -> None:
+    event = {"ts": time.time(), "kind": kind, "box": box, "text": text}
+    event.update(fields)
     with TRANSCRIPT_PATH.open("a") as f:
-        f.write(json.dumps({"ts": time.time(), "kind": kind, "box": box, "text": text}) + "\n")
+        f.write(json.dumps(event) + "\n")
     snippet = " ".join(str(text).split())[:80]
     tag = f"[{box}]" if box else ""
     print(f"{time.strftime('%H:%M:%S')}  {kind:<7}{tag:<7} {snippet}", flush=True)
@@ -919,6 +1058,7 @@ class Handler(BaseHTTPRequestHandler):
             tbid = (qs.get("box") or [""])[0]
             n = int((qs.get("n") or ["60"])[0])
             out = []
+            legacy_reply_rows = True
             try:
                 with TRANSCRIPT_PATH.open() as f:
                     for line in f:
@@ -926,8 +1066,26 @@ class Handler(BaseHTTPRequestHandler):
                             e = json.loads(line)
                         except ValueError:
                             continue
+                        if not isinstance(e, dict):
+                            continue
+                        if _is_reply_schema_boundary(e):
+                            legacy_reply_rows = False
+                            continue
                         if e.get("box") == tbid and e.get("kind") in ("user", "agent", "note"):
-                            out.append({"kind": e["kind"], "text": e.get("text", ""), "ts": e.get("ts", 0)})
+                            item = {"kind": e["kind"], "text": e.get("text", ""), "ts": e.get("ts", 0)}
+                            if e.get("kind") in ("agent", "note"):
+                                if "reply_full" in e or "reply_short" in e:
+                                    full = e.get("reply_full", e.get("text", ""))
+                                    short = e.get("reply_short", full)
+                                elif legacy_reply_rows:
+                                    # Only rows physically before the persisted
+                                    # schema marker get legacy compatibility.
+                                    # Timestamps never decide data representation.
+                                    short, full = _legacy_reply_variants(e.get("text", ""))
+                                else:
+                                    full = short = e.get("text", "")
+                                item.update({"text": full, "replyFull": full, "replyShort": short})
+                            out.append(item)
             except FileNotFoundError:
                 pass
             self._send(200, {"messages": out[-n:]})
@@ -1047,6 +1205,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, p.read_bytes(), "application/javascript; charset=utf-8")
             else:
                 self._send(404, {"error": "not found"})
+        elif url.path == "/card-markdown.js":
+            p = HERE / "card-markdown.js"
+            if p.is_file():
+                self._send(200, p.read_bytes(), "application/javascript; charset=utf-8")
+            else:
+                self._send(404, {"error": "not found"})
         elif url.path == "/mdfiles":
             # what the markdown panel lists: every .md under the two folders the
             # lane in the query owns, each one re-checked for containment rather
@@ -1119,7 +1283,12 @@ class Handler(BaseHTTPRequestHandler):
             "boxes": [
                 {
                     "id": b["id"], "bucket": b["bucket"], "title": b["title"],
-                    "reply": b["reply"], "done": b["done"], "replies": b["replies"],
+                    # reply remains the full-text compatibility field for older
+                    # clients. Current surfaces consume the explicit variants.
+                    "reply": b.get("reply_full", b.get("reply", "")),
+                    "replyFull": b.get("reply_full", b.get("reply", "")),
+                    "replyShort": b.get("reply_short", b.get("reply_full", b.get("reply", ""))),
+                    "done": b["done"], "replies": b["replies"],
                     "ball": b.get("ball", "you"),
                     "parked": b.get("parked", False),
                     "ts": b.get("ts", 0),
@@ -1418,6 +1587,11 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(400, {"error": "context strip over 50 words"})
                     return
                 ow = box.get("owner", "pastureland")
+                # The compact version is data, not punctuation inside the full
+                # prose. keep_blank_values distinguishes an intentionally empty
+                # small card from an omitted version, which mirrors the full one.
+                short_values = parse_qs(url.query, keep_blank_values=True).get("short")
+                short = short_values[0].strip() if short_values is not None else None
                 # a message typed in the small card gets a small answer back:
                 # that card is a few lines tall and a long reply is unreadable
                 # in it. The newest message the claim covers is the one being
@@ -1426,12 +1600,12 @@ class Handler(BaseHTTPRequestHandler):
                 held = _state["claimed"][ow] if _state["busy"][ow] == bid else []
                 answering = next((m for m in box["pending"] if m["mid"] == held[-1]), None) if held else None
                 if answering is not None and answering.get("via") == "mini":
-                    words = len(text.split())
+                    words = len((text if short is None else short).split())
                     if words > 100:
                         self._send(400, {"error": f"small card reply over 100 words: {words} words"})
                         return
                 _last_wait[ow] = time.time()  # a reply proves that agent is alive too
-                box["reply"] = text
+                _set_reply_variants(box, text, short)
                 box["replies"] += 1
                 # The machine's sole answer move, taken once the claim is let
                 # go below. While a working flag beats, the final turn waits in
@@ -1446,7 +1620,9 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     box["ball"] = "you"
                     box["state"] = _rest(box)
-                _log("agent", bid, text)
+                _log("agent", bid, text, reply_full=text,
+                     reply_short=box["reply_short"],
+                     reply_variants_version=REPLY_VARIANTS_VERSION)
                 _save()
                 _lock.notify_all()
                 self._send(200, {"ok": True})
@@ -1465,7 +1641,7 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 ow = box.get("owner", "pastureland")
                 _last_wait[ow] = time.time()  # a note proves that agent is alive too
-                box["reply"] = text
+                _set_reply_variants(box, text)
                 box["replies"] += 1
                 box["agent_ts"] = time.time()
                 box["ts"] = time.time()
@@ -1475,7 +1651,8 @@ class Handler(BaseHTTPRequestHandler):
                 box["ball"] = "me"
                 box["hb"] = time.time()
                 box["state"] = "note"
-                _log("note", bid, text)
+                _log("note", bid, text, reply_full=text, reply_short=text,
+                     reply_variants_version=REPLY_VARIANTS_VERSION)
                 _save()
                 _lock.notify_all()
                 self._send(200, {"ok": True})
@@ -1604,6 +1781,7 @@ class Handler(BaseHTTPRequestHandler):
                 ws0 = (_state.get("workspaces", {}).get(owner) or [{}])[0].get("id")
                 _state["boxes"].insert(idx, {
                     "id": bid_new, "bucket": "meta", "title": title, "reply": "",
+                    "reply_full": "", "reply_short": "",
                     "pending": [], "done": False, "parked": False, "replies": 0,
                     "state": "new", "hb": 0,
                     "ball": "me", "ts": time.time(), "owner": owner,
@@ -1761,10 +1939,11 @@ class Handler(BaseHTTPRequestHandler):
                 if box is None or _state["busy"].get(ow) != bid:
                     self._send(400, {"error": "not holding this box"})
                     return
-                box["reply"] = text
+                _set_reply_variants(box, text)
                 box["ts"] = time.time()
                 _state["busy_ts"][ow] = time.time()   # resets the 15-min steal
-                _log("progress", bid, text)
+                _log("progress", bid, text, reply_full=text, reply_short=text,
+                     reply_variants_version=REPLY_VARIANTS_VERSION)
                 _save()
                 _lock.notify_all()
                 self._send(200, {"ok": True})
@@ -1815,19 +1994,6 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    try:
-        _load()
-    except OwnerMigrationRequired as e:
-        sys.exit(f"startup refused: {e}")
-    with _lock:
-        _state["busy"] = {ow: None for ow in OWNERS}  # a restart never resumes mid-claim
-        _state["claimed"] = {ow: [] for ow in OWNERS}
-        _state["ack"] = {ow: None for ow in OWNERS}   # and no token outlives it
-        # re-queue any box that still has unanswered messages
-        for b in _state["boxes"]:
-            if b["pending"] and b["id"] not in _state["inbox"]:
-                _state["inbox"].append(b["id"])
-        _save()
     class QuietServer(ThreadingHTTPServer):
         def handle_error(self, request, client_address):
             et = sys.exc_info()[0]
@@ -1835,9 +2001,36 @@ def main() -> None:
                 return  # dropped connections are routine here, never worth a traceback
             super().handle_error(request, client_address)
 
-    server = QuietServer(("127.0.0.1", PORT), Handler)
-    print(f"facilitator on http://127.0.0.1:{PORT}, {len(_state['boxes'])} boxes", flush=True)
-    server.serve_forever()
+    # Own the listening socket before touching durable board data. In
+    # particular, a replacement started while the old server still owns the
+    # port must not migrate state or append the transcript schema boundary: the
+    # old process can still append legacy rows until it has actually stopped.
+    try:
+        server = QuietServer(("127.0.0.1", PORT), Handler)
+    except OSError as error:
+        print(f"facilitator could not listen on 127.0.0.1:{PORT}: {error}",
+              file=sys.stderr, flush=True)
+        raise SystemExit(1) from None
+
+    try:
+        INTERNAL_UPLOADS.mkdir(parents=True, exist_ok=True)
+        try:
+            _load()
+        except OwnerMigrationRequired as e:
+            sys.exit(f"startup refused: {e}")
+        with _lock:
+            _state["busy"] = {ow: None for ow in OWNERS}  # a restart never resumes mid-claim
+            _state["claimed"] = {ow: [] for ow in OWNERS}
+            _state["ack"] = {ow: None for ow in OWNERS}   # and no token outlives it
+            # re-queue any box that still has unanswered messages
+            for b in _state["boxes"]:
+                if b["pending"] and b["id"] not in _state["inbox"]:
+                    _state["inbox"].append(b["id"])
+            _save()
+        print(f"facilitator on http://127.0.0.1:{PORT}, {len(_state['boxes'])} boxes", flush=True)
+        server.serve_forever()
+    finally:
+        server.server_close()
 
 
 if __name__ == "__main__":
