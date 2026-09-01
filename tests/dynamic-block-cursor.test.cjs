@@ -231,6 +231,24 @@ function assertAdvance(reading, label, tolerance = 0.8) {
     `${label} cursor ${reading.caret.width} reaches into the next glyph`);
 }
 
+const boardState = boxes => ({
+  boxes,
+  pwd: "/tmp/lane", pwds: { facilitator: "/tmp/lane" },
+  projects: [], busy: { facilitator: null }, queued: 0,
+  end: false, paused: false, title: "facilitator",
+  listening: { facilitator: false }, everListened: {}, workspaces: {},
+  listenerGap: { facilitator: 0 },
+  agents: { facilitator: { name: "claude", alive: false, away: false } },
+});
+
+const boardCard = (id, title) => ({
+  id, bucket: "meta", title, reply: "", done: false, replies: 0,
+  ball: "me", parked: false, ts: 1, context: "", owner: "facilitator",
+  pending: 0, pendingTexts: [], pendingStamps: [], ws: null, task: null,
+  worktree: "", agentTs: 0, engine: "claude", writing: false, bg: false,
+  state: "new", queuePos: 0,
+});
+
 for (const pageName of ["index.html", "page.html"]) {
   test(`${pageName} sizes field cursors from live glyphs`, async () => {
     const page = await fixture(pageName);
@@ -450,23 +468,6 @@ test("a new card's empty title parks the cursor on the first letter's spot", asy
   await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 2 });
   await page.goto(`${origin}/index.html`, { waitUntil: "domcontentloaded" });
   try {
-    const board = boxes => ({
-      boxes,
-      pwd: "/tmp/lane", pwds: { facilitator: "/tmp/lane" },
-      projects: [], busy: { facilitator: null }, queued: 0,
-      end: false, paused: false, title: "facilitator",
-      listening: { facilitator: false }, everListened: {}, workspaces: {},
-      listenerGap: { facilitator: 0 },
-      agents: { facilitator: { name: "claude", alive: false, away: false } },
-    });
-    const card = (id, title) => ({
-      id, bucket: "meta", title, reply: "", done: false, replies: 0,
-      ball: "me", parked: false, ts: 1, context: "", owner: "facilitator",
-      pending: 0, pendingTexts: [], pendingStamps: [], ws: null, task: null,
-      worktree: "", agentTs: 0, engine: "claude", writing: false, bg: false,
-      state: "new", queuePos: 0,
-    });
-
     const empty = await page.evaluate(async ({ first, both }) => {
       await document.fonts.ready;
       build(first); apply(first); lastState = first;
@@ -484,8 +485,8 @@ test("a new card's empty title parks the cursor on the first letter's spot", asy
         caretOn: document.getElementById("fatcaret").classList.contains("on"),
         caretLeft: caret.left,
       };
-    }, { first: board([card("m1", "an older card")]),
-         both: board([card("m1", "an older card"), card("m2", "")]) });
+    }, { first: boardState([boardCard("m1", "an older card")]),
+         both: boardState([boardCard("m1", "an older card"), boardCard("m2", "")]) });
 
     assert.ok(empty.selected, "the new card was not selected");
     assert.ok(empty.editing, "the new card's title did not take the rename cursor");
@@ -509,6 +510,97 @@ test("a new card's empty title parks the cursor on the first letter's spot", asy
       `empty title cursor at ${empty.caretLeft} but the first letter landed at ${typed.firstCharLeft}`);
     assert.ok(typed.caretLeft > typed.firstCharLeft,
       "the cursor did not advance past the typed letter");
+  } finally {
+    await page.close();
+  }
+});
+
+test("focus composer keeps fractional wrap geometry", async () => {
+  const page = await browser.newPage();
+  await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 2 });
+  await page.goto(`${origin}/index.html`, { waitUntil: "domcontentloaded" });
+  try {
+    await page.evaluate(async state => {
+      await document.fonts.ready;
+      build(state); apply(state); lastState = state; select("m1");
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    }, boardState([boardCard("m1", "fixture")]));
+
+    const read = value => page.evaluate(async value => {
+      const ta = els.m1.ta;
+      ta.value = value;
+      els.m1.tick();
+      ta.focus();
+      ta.setSelectionRange(value.length, value.length);
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+      const cs = getComputedStyle(ta);
+      const field = ta.getBoundingClientRect();
+      let boxWidth = parseFloat(cs.width);
+      if (cs.boxSizing !== "border-box") {
+        boxWidth += parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)
+          + parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth);
+      }
+      const gutter = Math.max(0, ta.offsetWidth - ta.clientWidth
+        - parseFloat(cs.borderLeftWidth) - parseFloat(cs.borderRightWidth));
+      const availableWidth = boxWidth - gutter;
+
+      // An independent laid-out reference gives the last glyph's right edge
+      // using the textarea's fractional line width rather than offsetWidth.
+      const reference = document.createElement("div");
+      for (const prop of ["fontFamily", "fontSize", "fontWeight", "fontStyle", "fontStretch",
+        "fontVariant", "fontKerning", "fontFeatureSettings", "fontVariationSettings",
+        "fontOpticalSizing", "lineHeight", "letterSpacing", "wordSpacing", "textTransform",
+        "textIndent", "textAlign", "direction", "tabSize", "paddingTop", "paddingRight",
+        "paddingBottom", "paddingLeft", "borderTopWidth", "borderRightWidth",
+        "borderBottomWidth", "borderLeftWidth"])
+        reference.style[prop] = cs[prop];
+      reference.style.cssText += ";position:fixed;left:-8000px;top:0;visibility:hidden;" +
+        "box-sizing:border-box;border-style:solid;border-color:transparent;" +
+        `width:${availableWidth}px;white-space:pre-wrap;overflow-wrap:break-word`;
+      reference.textContent = value;
+      document.body.appendChild(reference);
+      const referenceRect = reference.getBoundingClientRect();
+      const last = document.createRange();
+      last.setStart(reference.firstChild, value.length - 1);
+      last.setEnd(reference.firstChild, value.length);
+      const lastRect = last.getClientRects()[0] || last.getBoundingClientRect();
+      const scale = field.width / boxWidth;
+      const expectedLeft = field.left + (lastRect.right - referenceRect.left) * scale
+        - ta.scrollLeft * scale;
+      reference.remove();
+
+      const caret = document.getElementById("fatcaret").getBoundingClientRect();
+      const internalMirror = [...document.body.children].find(node =>
+        node.style.position === "fixed" && node.style.left === "-9999px" &&
+        node.style.visibility === "hidden");
+      return {
+        availableWidth,
+        mirrorWidth: parseFloat(internalMirror.style.width),
+        expectedLeft,
+        caret: { left: caret.left, top: caret.top, bottom: caret.bottom },
+        field: { top: field.top, bottom: field.bottom },
+        scrollHeight: ta.scrollHeight,
+        clientHeight: ta.clientHeight,
+      };
+    }, value);
+
+    const trailingWord = await read("hi that is a fairly long set of notes, maybe keep ones " +
+      "that seem worth keeping (I think a few of these notes make the same point??)");
+    assert.ok(Math.abs(trailingWord.mirrorWidth - trailingWord.availableWidth) < 0.02,
+      "the composer mirror rounded away the field's fractional width");
+    assert.ok(Math.abs(trailingWord.caret.left - trailingWord.expectedLeft) < 1,
+      `the end cursor left a ${trailingWord.caret.left - trailingWord.expectedLeft}px gap`);
+
+    const wrapEdge = await read("hi that is a fairly long set of notes, maybe keep one s");
+    assert.ok(wrapEdge.scrollHeight <= wrapEdge.clientHeight + 1,
+      "the textarea itself unexpectedly wrapped or scrolled");
+    assert.ok(Math.abs(wrapEdge.caret.left - wrapEdge.expectedLeft) < 1,
+      "the drawn cursor wrapped while the textarea's text still fit");
+    assert.ok(wrapEdge.caret.top >= wrapEdge.field.top - 1 &&
+      wrapEdge.caret.bottom <= wrapEdge.field.bottom + 1,
+      "the drawn cursor escaped the unscrolled composer viewport");
   } finally {
     await page.close();
   }
