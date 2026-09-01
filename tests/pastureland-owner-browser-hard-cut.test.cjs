@@ -62,6 +62,11 @@ before(async () => {
   server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url, "http://127.0.0.1");
+      if (url.pathname === "/card-markdown.js") {
+        res.setHeader("content-type", "text/javascript; charset=utf-8");
+        res.end(await readFile(path.join(ROOT, "card-markdown.js")));
+        return;
+      }
       const files = {
         "/": "index.html",
         "/index.html": "index.html",
