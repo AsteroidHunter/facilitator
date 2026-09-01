@@ -10,7 +10,7 @@ const { promisify } = require("node:util");
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(__dirname, "..");
-const LEGACY_COMMIT = "f135702";
+const LEGACY_COMMIT = "0e2f191";
 
 async function freePort() {
   const probe = createServer();
