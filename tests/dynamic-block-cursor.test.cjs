@@ -458,7 +458,7 @@ test("CodeMirror cursor measures its next rendered grapheme", async () => {
   }
 });
 
-test("a new card's empty title parks the cursor on the first letter's spot", async () => {
+test("a new card's empty title matches the placeholder's first letter", async () => {
   // the reported miss: a just-created card focuses its empty title, and the
   // block stood at the title box's outer edge while the focused card's css
   // pads the words in, so the first keystroke landed a padding to the right
@@ -482,8 +482,10 @@ test("a new card's empty title parks the cursor on the first letter's spot", asy
         selected: els.m2.box.classList.contains("sel"),
         editing: t.isContentEditable && document.activeElement === t,
         text: t.textContent,
+        placeholder: getComputedStyle(t, "::before").content,
         caretOn: document.getElementById("fatcaret").classList.contains("on"),
         caretLeft: caret.left,
+        caretWidth: caret.width,
       };
     }, { first: boardState([boardCard("m1", "an older card")]),
          both: boardState([boardCard("m1", "an older card"), boardCard("m2", "")]) });
@@ -491,24 +493,40 @@ test("a new card's empty title parks the cursor on the first letter's spot", asy
     assert.ok(empty.selected, "the new card was not selected");
     assert.ok(empty.editing, "the new card's title did not take the rename cursor");
     assert.equal(empty.text, "", "the new card's title was not empty");
+    assert.equal(empty.placeholder, '"Chat Name"', "the new card did not show its placeholder");
     assert.ok(empty.caretOn, "no block cursor stood on the empty title");
 
-    await page.keyboard.type("A");
+    await page.keyboard.type("C");
     const typed = await page.evaluate(async () => {
       await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
       const t = els.m2.titleEl;
-      const rg = document.createRange();
-      rg.setStart(t.firstChild, 0);
-      rg.setEnd(t.firstChild, 1);
-      const caret = document.getElementById("fatcaret").getBoundingClientRect();
-      return { text: t.textContent, firstCharLeft: rg.getBoundingClientRect().left,
-               caretLeft: caret.left };
+      const glyph = document.createRange();
+      glyph.setStart(t.firstChild, 0);
+      glyph.setEnd(t.firstChild, 1);
+      const glyphRect = glyph.getBoundingClientRect();
+      const endCaret = document.getElementById("fatcaret").getBoundingClientRect();
+      const before = document.createRange();
+      before.setStart(t.firstChild, 0);
+      before.collapse(true);
+      const selection = getSelection();
+      selection.removeAllRanges();
+      selection.addRange(before);
+      document.dispatchEvent(new Event("selectionchange"));
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const beforeCaret = document.getElementById("fatcaret").getBoundingClientRect();
+      return { text: t.textContent, firstCharLeft: glyphRect.left,
+               firstCharWidth: glyphRect.width, endCaretLeft: endCaret.left,
+               beforeCaretWidth: beforeCaret.width };
     });
 
-    assert.equal(typed.text, "A", "the keystroke did not land in the title");
+    assert.equal(typed.text, "C", "the keystroke did not land in the title");
     assert.ok(Math.abs(empty.caretLeft - typed.firstCharLeft) < 1,
       `empty title cursor at ${empty.caretLeft} but the first letter landed at ${typed.firstCharLeft}`);
-    assert.ok(typed.caretLeft > typed.firstCharLeft,
+    assert.ok(Math.abs(typed.beforeCaretWidth - typed.firstCharWidth) < 1,
+      "the live cursor did not measure the rendered C");
+    assert.ok(Math.abs(empty.caretWidth - typed.beforeCaretWidth) < 1,
+      `empty title cursor width ${empty.caretWidth} did not match C width ${typed.beforeCaretWidth}`);
+    assert.ok(typed.endCaretLeft > typed.firstCharLeft,
       "the cursor did not advance past the typed letter");
   } finally {
     await page.close();
