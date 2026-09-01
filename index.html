@@ -7949,6 +7949,9 @@ function renderCarousel(state){
               "|" + selectedTask;
   if (tik.dataset.sig !== sig){
     tik.dataset.sig = sig;
+    // ordinary polls must not pull a manually scrolled list back to the
+    // selected row; only a selection new to this rendered list is revealed
+    const selectedBefore = tik.querySelector(".trow.on")?.dataset.id;
     // remember where each row sat, so survivors glide instead of teleporting
     const oldPos = {};
     for (const prev of tik.children) if (prev.dataset && prev.dataset.id) oldPos[prev.dataset.id] = prev.getBoundingClientRect().top;
@@ -7995,7 +7998,8 @@ function renderCarousel(state){
       row.style.transform = "";
       row.addEventListener("transitionend", () => { row.style.transition = ""; }, { once: true });
     }
-    tik.querySelector(".trow.on")?.scrollIntoView({ block: "nearest" });
+    if (selectedBefore !== selectedId)
+      tik.querySelector(".trow.on")?.scrollIntoView({ block: "nearest" });
   }
   // chips spring up above the panel: green while its agent works, yellow
   // while the ticket awaits input; click jumps there
