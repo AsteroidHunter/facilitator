@@ -63,10 +63,14 @@ for (const pageName of ["index.html", "page.html"]) {
       const result = await page.evaluate(() => {
         const source = "Use `<tag> **bold** https://example.com /uploads/x.png` " +
           "and **outside** https://openai.com plus ``double``.";
+        document.body.classList.add("focus");
+        const box = document.createElement("div");
+        box.className = "box sel";
         const host = document.createElement("div");
         host.className = "reply";
         host.innerHTML = fmt(source);
-        document.body.appendChild(host);
+        box.appendChild(host);
+        document.body.appendChild(box);
         const codes = [...host.querySelectorAll("code.inlinecode")];
         const style = codes[0] && getComputedStyle(codes[0]);
 
@@ -78,6 +82,8 @@ for (const pageName of ["index.html", "page.html"]) {
         return {
           codeTexts: codes.map(code => code.textContent),
           codeChildren: codes.map(code => code.childElementCount),
+          codeFontSize: style && style.fontSize,
+          hostFontSize: getComputedStyle(host).fontSize,
           links: [...host.querySelectorAll("a")].map(link => link.textContent),
           bold: [...host.querySelectorAll("b")].map(node => node.textContent),
           images: host.querySelectorAll("img").length,
@@ -95,6 +101,10 @@ for (const pageName of ["index.html", "page.html"]) {
         "double",
       ]);
       assert.deepEqual(result.codeChildren, [0, 0], "code content became active markup");
+      assert.equal(result.hostFontSize, pageName === "index.html" ? "18px" : "17px",
+        "test fixture did not use focused card typography");
+      assert.equal(result.codeFontSize, result.hostFontSize,
+        "inline code font size differs from its card text");
       assert.deepEqual(result.links, ["https://openai.com"], "code URL was linkified");
       assert.deepEqual(result.bold, ["outside"], "code markdown was formatted");
       assert.equal(result.images, 0, "code upload path became an image");

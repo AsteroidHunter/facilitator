@@ -3091,10 +3091,12 @@
   .reply .shotgrid[data-n="3"], .pendlist .shotgrid[data-n="3"]{grid-template-columns:repeat(3, 1fr)}
   .reply .shotgrid[data-n="4"], .pendlist .shotgrid[data-n="4"]{grid-template-columns:repeat(4, 1fr)}
   .reply .shotgrid .shot, .pendlist .shotgrid .shot{margin:0 auto}
-  /* inline code uses the same small mono chip as the markdown panel. pre-wrap
-     preserves command spacing while still allowing a long span to wrap */
+  /* inline code keeps the surrounding card text size and line height while
+     changing only its face to mono. pre-wrap preserves command spacing while
+     still allowing a long span to wrap */
   .reply .inlinecode, .pendlist .inlinecode{
-    font:12.5px/1.4 var(--mono); color:var(--ink); background:var(--paper);
+    font-family:var(--mono); font-size:inherit; line-height:inherit;
+    color:var(--ink); background:var(--paper);
     border-radius:var(--sq); padding:1px 4px; white-space:pre-wrap;
   }
   /* the wrapper, not the scrolling pre, anchors the copy button: an absolute
