@@ -2470,7 +2470,7 @@ function inlineEdit(spanEl, initial, onSave){
 function cardState(b){
   // the server now computes one authoritative state per card; the inline
   // version stays only as a fallback for an older server that omits it
-  return b.state || (
+  const s = b.state || (
          b.done ? "done"
        : b.parked ? "parked"
        : (b.writing || b.bg) ? "working"
@@ -2478,6 +2478,8 @@ function cardState(b){
        : (!b.agentTs && !b.pending && !b.replies) ? "new"
        : b.ball === "you" ? "yours"
        : "queued");
+  // note is a distinct server-side progress state with working's green display.
+  return s === "note" ? "working" : s;
 }
 // the queue panel's view: a parked card sorts and colors as if open. state is
 // nulled in the copy so cardState recomputes from the flags instead of handing
