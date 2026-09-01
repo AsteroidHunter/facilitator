@@ -17,6 +17,10 @@ Endpoints:
                                Sending to a parked card also brings it back to
                                Doing in the same saved update
   POST /done?box=ID&v=1|0   -> mark a box done / not done
+  POST /close?box=ID        -> atomically close from the authoritative card:
+                               a card with a reply, reply count, or pending
+                               message is marked done; only a truly empty meta
+                               card is removed
   POST /working?box=ID&v=1|0 -> a job runs behind this box: it shows green
                                without holding the lane's claim. Registration
                                starts a heartbeat clock; without /ping every
@@ -39,7 +43,9 @@ Endpoints:
                                returns the id; no card is created with the lane;
                                a taken id walks numbered suffixes (-2, -3) until
                                free; empty names and bad folders are refused (400)
-  POST /delete?box=ID       -> remove a meta box (the standing 0 / t0 included)
+  POST /delete?box=ID       -> legacy empty-meta removal route. A stale caller
+                               that sends a nonempty meta card here closes it to
+                               done instead, so old tabs cannot erase a thread
   POST /upload?name=F       -> body = raw image bytes; saves to the sibling internal
                                folder ../facilitator-internal/uploads/ (outside the
                                repo, never pushed), returns {"url": "/uploads/..."}
@@ -781,6 +787,41 @@ def _log(kind: str, box: str, text: str, **fields) -> None:
 
 def _box(bid: str) -> dict | None:
     return next((b for b in _state["boxes"] if b["id"] == bid), None)
+
+
+def _box_has_content(box: dict) -> bool:
+    """The persisted conversation test used by every destructive close path."""
+    return (box.get("replies", 0) > 0 or
+            bool((box.get("reply") or "").strip()) or
+            bool(box.get("pending")))
+
+
+def _mark_box_done(box: dict) -> str:
+    box["done"] = True
+    box["parked"] = False
+    _log("done", box["id"], "")
+    return "done"
+
+
+def _remove_empty_meta_box(box: dict) -> str:
+    """Remove one already-validated empty meta card. Caller holds _lock."""
+    bid = box["id"]
+    _state["boxes"].remove(box)
+    if bid in _state["inbox"]:
+        _state["inbox"].remove(bid)
+    ow = box.get("owner", "pastureland")
+    if _state["busy"][ow] == bid:
+        _state["busy"][ow] = None
+        _state["claimed"][ow] = []
+    _log("delete", bid, box["title"])
+    return "deleted"
+
+
+def _close_box(box: dict) -> str:
+    """Close from current state; only an empty meta card may be destroyed."""
+    if box["bucket"] != "meta" or _box_has_content(box):
+        return _mark_box_done(box)
+    return _remove_empty_meta_box(box)
 
 
 def _ws(owner: str, wid: str) -> dict | None:
@@ -1841,22 +1882,27 @@ class Handler(BaseHTTPRequestHandler):
                 _lock.notify_all()
                 self._send(200, {"ok": True, "id": slug, "name": name, "dir": str(d)})
 
+            elif url.path == "/close":
+                box = _box(bid)
+                if box is None:
+                    self._send(400, {"error": "bad box"})
+                    return
+                action = _close_box(box)
+                _save()
+                _lock.notify_all()
+                self._send(200, {"ok": True, "action": action})
+
             elif url.path == "/delete":
                 box = _box(bid)
                 if box is None or box["bucket"] != "meta":
                     self._send(400, {"error": "only meta boxes can be deleted"})
                     return
-                _state["boxes"].remove(box)
-                if bid in _state["inbox"]:
-                    _state["inbox"].remove(bid)
-                ow = box.get("owner", "pastureland")
-                if _state["busy"][ow] == bid:
-                    _state["busy"][ow] = None
-                    _state["claimed"][ow] = []
-                _log("delete", bid, box["title"])
+                # Compatibility for already-open pages and other old clients:
+                # the current persisted record decides, never their stale copy.
+                action = _close_box(box)
                 _save()
                 _lock.notify_all()
-                self._send(200, {"ok": True})
+                self._send(200, {"ok": True, "action": action})
 
             elif url.path == "/ws/goal":
                 ow = (q.get("owner") or [""])[0]
