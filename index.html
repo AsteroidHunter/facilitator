@@ -244,7 +244,8 @@
   /* the app draws its own caret: a terminal style block over every typing
      spot. its height follows the focused field's font; when there is a visible
      character under it, its width follows that rendered character's advance.
-     empty and unusable positions keep the established half-em cell */
+     an empty field showing generated placeholder text borrows that text's
+     first grapheme; other empty and unusable positions keep the half-em cell */
   /* the block has to turn the letter under it white, or the letter is simply
      gone while the caret stands on it. one blend cannot get there, because the
      board's ink is not black: turning the page over under the block carries an
@@ -8640,7 +8641,8 @@ document.getElementById("taskstatus").addEventListener("click", () => {
 // typing surface: card reply boxes, the title while naming, the to-do input,
 // quick chat and the markdown editor. its left edge sits exactly on the
 // insertion point. a visible character sets the block's width from the same
-// rendered text; empty positions keep the established half-em cell.
+// rendered text; generated placeholders lend their first grapheme to an empty
+// field, and other empty positions keep the established half-em cell.
 {
   // the block is two layers over the one rectangle, laid straight on the page
   // so each blends with it in turn; the css beside them says why. they take
@@ -8856,6 +8858,38 @@ document.getElementById("taskstatus").addEventListener("click", () => {
       rg.setEnd(end.node, end.offset);
       return rangeAdvance(rg, line);
     } catch (e) { return null; }
+  }
+
+  function generatedText(content){
+    if (!content || content === "none" || content === "normal") return "";
+    try { return JSON.parse(content); } catch (e) {}
+    const quote = content[0];
+    return (quote === '"' || quote === "'") && content.at(-1) === quote
+      ? content.slice(1, -1) : "";
+  }
+
+  // A CSS placeholder is painted text rather than a text node, so a collapsed
+  // range cannot lend editableAdvance its first character. Lay out that one
+  // generated grapheme with the pseudo-element's own computed font and use the
+  // same rendered advance a real first character would provide.
+  function generatedFirstAdvance(el, scaleX){
+    const pcs = getComputedStyle(el, "::before");
+    const grapheme = firstGrapheme(generatedText(pcs.content));
+    if (!grapheme) return null;
+    const probe = document.createElement("span");
+    for (const p of ["fontFamily", "fontSize", "fontWeight", "fontStyle", "fontStretch",
+                     "fontVariant", "fontKerning", "fontFeatureSettings",
+                     "fontVariationSettings", "fontOpticalSizing", "letterSpacing",
+                     "wordSpacing", "textTransform"])
+      probe.style[p] = pcs[p];
+    probe.style.cssText += ";position:fixed;left:-9999px;top:0;visibility:hidden;white-space:pre";
+    probe.textContent = grapheme;
+    document.body.appendChild(probe);
+    const rg = document.createRange();
+    rg.selectNodeContents(probe);
+    const width = rg.getBoundingClientRect().width;
+    probe.remove();
+    return Number.isFinite(width) && width > 0 ? width * scaleX : null;
   }
 
   let cur = null, isField = false;
@@ -9173,7 +9207,8 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     const r = er;
     const inset = (parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft)) * scaleX;
     return { x: r.left + inset, base: r.top + (r.height - m.boxH) / 2 + m.asc, fs,
-             fbA: m.fbA, fbD: m.fbD, capH: m.capH, scaleX, clip };
+             fbA: m.fbA, fbD: m.fbD, capH: m.capH,
+             width: generatedFirstAdvance(el, scaleX), scaleX, clip };
   }
 
   let raf = 0, px = 0, py = 0;
@@ -9185,7 +9220,8 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     const c = isField ? fieldCaret(cur) : ceCaret(cur);
     if (!c){ hide(); return; }
     // A visible grapheme supplies its rendered advance. Spaces and tabs work
-    // when the browser gives their range a usable width; empty positions, line
+    // when the browser gives their range a usable width; generated placeholder
+    // text can lend its first grapheme, while other empty positions, line
     // endings and zero-size decorated text keep the accepted half-em cell.
     // This changes only the fixed overlay; the editor and its text never move.
     const bw = Number.isFinite(c.width) && c.width > 0
