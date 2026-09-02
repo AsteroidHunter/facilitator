@@ -6,7 +6,8 @@
 <title>facilitator</title>
 <!-- the phone page. the same board, drawn for a phone: the project tabs across
      the top, one card filling the screen with the app's thin margins on all
-     four sides, and the card list in a drawer pulled in from the left edge.
+     four sides, the card list in a menu pulled in from the left edge and the
+     settings in one pulled in from the right.
      nothing else. the card is the desktop card at phone size: the same top
      bar, title, answer, sent box, composer and buttons, in the same colours
      and faces, read straight out of index.html rather than redrawn -->
@@ -37,15 +38,39 @@
     --sp-xs:4px; --sp-s:8px; --sp-x:10px;
     --pend-bar:32px;
     --titleair:calc(var(--pad-x)*2/3);
+    /* the menus' motion, taken from the drawer this page's menus are drawn
+       from: one run of 550ms, an ease in and out on a tap and an ease out on
+       the release of a drag, so a drag that is already moving is not asked to
+       start again. --drawer-curve is the one in force, written by the script
+       at whichever of the two the run was begun by */
+    --drawer-ms:.55s;
+    --drawer-tap:cubic-bezier(.445,.05,.55,.95);
+    --drawer-drag:cubic-bezier(.215,.61,.355,1);
+    --drawer-curve:var(--drawer-tap);
+    /* how far the page's corners round while a menu is out, and how far the
+       menu itself rises into place, both that drawer's own numbers */
+    --page-round:24px;
+    --panel-rise:20px;
   }
   *{box-sizing:border-box}
   html{height:100%; -webkit-text-size-adjust:100%}
   body{
     margin:0; background:var(--paper); color:var(--ink);
     font:15px/1.55 var(--sans);
-    background-image:radial-gradient(circle at 18% -4%, #FCFCFB 0%, rgba(252,252,251,0) 52%);
     position:fixed; left:0; top:0; width:100%; height:100%;
-    overflow:hidden; display:flex; flex-direction:column;
+    overflow:hidden;
+    -webkit-tap-highlight-color:transparent;
+  }
+  /* the page: the tabs, the note and the card, on the paper, as one surface. it
+     is a layer of its own so a menu can be laid BEHIND it and shown by sliding
+     the page itself aside, which is the motion the drawer this page's menus are
+     drawn from is built on. the app's thin margin and the paper are its own for
+     that reason: what slides has to be opaque and the whole size of the screen,
+     or a menu behind it would show through its middle instead of from under its
+     edge. it covers the body exactly, so nothing on it moved by a pixel */
+  #page{
+    position:absolute; inset:0; z-index:10;
+    display:flex; flex-direction:column; overflow:hidden;
     padding:calc(env(safe-area-inset-top, 0px) + var(--app-inset))
             calc(env(safe-area-inset-right, 0px) + var(--app-inset))
             var(--pad-b)
@@ -68,7 +93,14 @@
     --pad-b:calc(env(safe-area-inset-bottom, 0px) + var(--app-inset));
     --kb-inset:0px;
     --kb-anim:.25s cubic-bezier(.38,.7,.125,1);
-    transition:padding-bottom var(--kb-anim);
+    background:var(--paper);
+    background-image:radial-gradient(circle at 18% -4%, #FCFCFB 0%, rgba(252,252,251,0) 52%);
+    transform:translateX(var(--slide, 0px));
+    border-radius:var(--pageround, 0px);
+    box-shadow:var(--pageshade, none);
+    transition:padding-bottom var(--kb-anim),
+               transform var(--drawer-ms) var(--drawer-curve),
+               border-radius var(--drawer-ms) var(--drawer-curve);
   }
   body.kb{--pad-b:calc(var(--kb-inset) + var(--app-inset))}
   /* the box while the keyboard is up, and through the close's settle window.
@@ -138,7 +170,12 @@
   #cards{display:flex; flex-direction:column; flex:1 1 auto; min-height:0}
   main.blank #cards{display:none}
   .box{display:none; flex:1 1 auto; min-height:0; flex-direction:column}
-  .box.sel{display:flex}
+  /* the two depths the card's fades are cut to, the desktop's own numbers:
+     --replyfade is the ramp, --replyair the clear white the answer leaves over
+     the sent box, and --boxleft the column the box starts in. they are written
+     on the shown card alone, the way the desktop writes them, so the mask rules
+     below can only ever apply to a card that is laid out */
+  .box.sel{display:flex; --replyfade:22px; --replyair:3.5px; --boxleft:calc(var(--pad-x)*2/3)}
 
   /* the card's own top bar: the reply history on the left, the defer chip and
      the close cross on the right, over the hairline the desktop bar wears */
@@ -186,13 +223,87 @@
   .box.done .title{color:var(--green)}
   .box.parked .title{color:var(--later)}
 
-  .body{display:flex; flex-direction:column; flex:1 1 0; min-height:0; padding:var(--titleair) 0 0}
+  /* the sent box and the typing row are laid OVER the answer here, as they are
+     on the desktop card, and the body is the ground they are set into: the
+     answer fills the whole of it and runs on underneath them, covered edge to
+     edge by fill that is opaque. laid this way the answer's own bottom edge is
+     far below the line where its words actually stop, which is what lets the
+     ramp at the foot be cut on the box's top edge. nothing moves by a pixel:
+     the wrapper stood on the body's floor in the column and it stands on the
+     same floor pinned to it */
+  .body{display:flex; flex-direction:column; flex:1 1 0; min-height:0;
+    padding:var(--titleair) 0 0; position:relative; overflow:hidden}
   .reply{
     flex:1 1 auto; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
     overscroll-behavior:contain; color:var(--ink);
     font-size:17px; line-height:1.55;
-    padding:0 calc(var(--pad-x)*5/3 - var(--sbar)) 6px calc(var(--pad-x)*2/3);
+    padding:0 calc(var(--pad-x)*5/3 - var(--sbar)) 0 calc(var(--pad-x)*2/3);
     scrollbar-gutter:stable;
+    margin-bottom:var(--replyair);
+  }
+  /* the card's two fades, the desktop's rules at phone size and with the phone's
+     own seat in front of them. the depths, the stops and the compositing are the
+     desktop's to the number; what the desktop writes as body.focus .box.sel is
+     written here as .box.sel, which is the class this page gives the one card on
+     show.
+     down the answer, the first layer carries both. at its head the answer
+     dissolves under the title as it scrolls: nothing at the top edge, .35 at 38
+     hundredths of --upband, .80 at 72 and full at the end, --upband being how far
+     the answer has been scrolled capped at the ramp's own depth, so at rest all
+     four stops collapse onto the edge and the first line stands at full ink. at
+     its foot it dissolves into the sent box over the same ramp turned over,
+     ending on --boxband, the depth of the box and the typing row measured by the
+     script below, since no rule can name the top edge of a thing laid over the
+     answer.
+     the second layer is that shape run across at the box's left edge and the
+     third keeps it off the rest of the answer; the two are added and the first is
+     multiplied into the pair, so above the box the answer is whole at its full
+     width and below it the ramp is the only thing left */
+  .box.sel .reply{
+    -webkit-mask-image:
+      linear-gradient(to bottom,
+        rgba(0,0,0,0) 0,
+        rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
+        rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
+        rgba(0,0,0,1) var(--upband, 0px),
+        rgba(0,0,0,1) calc(100% - var(--boxband, 0px) - var(--replyfade)),
+        rgba(0,0,0,.80) calc(100% - var(--boxband, 0px) - var(--replyfade)*.72),
+        rgba(0,0,0,.35) calc(100% - var(--boxband, 0px) - var(--replyfade)*.38),
+        rgba(0,0,0,0) calc(100% - var(--boxband, 0px))),
+      linear-gradient(to right,
+        rgba(0,0,0,1) calc(var(--boxleft) - var(--replyfade)),
+        rgba(0,0,0,.80) calc(var(--boxleft) - var(--replyfade)*.72),
+        rgba(0,0,0,.35) calc(var(--boxleft) - var(--replyfade)*.38),
+        rgba(0,0,0,0) var(--boxleft),
+        rgba(0,0,0,1) calc(var(--boxleft) + var(--replyfade)*.25)),
+      linear-gradient(to bottom,
+        rgba(0,0,0,1) calc(100% - var(--boxband, 0px)),
+        rgba(0,0,0,0) calc(100% - var(--boxband, 0px)));
+    mask-image:
+      linear-gradient(to bottom,
+        rgba(0,0,0,0) 0,
+        rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
+        rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
+        rgba(0,0,0,1) var(--upband, 0px),
+        rgba(0,0,0,1) calc(100% - var(--boxband, 0px) - var(--replyfade)),
+        rgba(0,0,0,.80) calc(100% - var(--boxband, 0px) - var(--replyfade)*.72),
+        rgba(0,0,0,.35) calc(100% - var(--boxband, 0px) - var(--replyfade)*.38),
+        rgba(0,0,0,0) calc(100% - var(--boxband, 0px))),
+      linear-gradient(to right,
+        rgba(0,0,0,1) calc(var(--boxleft) - var(--replyfade)),
+        rgba(0,0,0,.80) calc(var(--boxleft) - var(--replyfade)*.72),
+        rgba(0,0,0,.35) calc(var(--boxleft) - var(--replyfade)*.38),
+        rgba(0,0,0,0) var(--boxleft),
+        rgba(0,0,0,1) calc(var(--boxleft) + var(--replyfade)*.25)),
+      linear-gradient(to bottom,
+        rgba(0,0,0,1) calc(100% - var(--boxband, 0px)),
+        rgba(0,0,0,0) calc(100% - var(--boxband, 0px)));
+    mask-composite:intersect, add, add;
+    /* the run-out the scroll needs under its last word: the band the box takes
+       plus the ramp, handed back as padding so the last line can rise onto the
+       top of the ramp where the ink is still full. padding counts inside the
+       scrollable height, so an answer that already fits gains no travel */
+    padding-bottom:calc(var(--boxband, 0px) + var(--replyfade));
   }
   .box.histview .reply{opacity:.8}
   .reply::-webkit-scrollbar{width:var(--sbar)}
@@ -202,7 +313,8 @@
   .reply.scrolling::-webkit-scrollbar-thumb{background-color:var(--line-strong)}
 
   /* ---- the sent box, folded to a bar, opened to the run ------------------- */
-  .pendwrap{flex:none; display:flex; flex-direction:column; background:var(--card)}
+  .pendwrap{position:absolute; left:0; right:0; bottom:0;
+    display:flex; flex-direction:column; background:var(--card)}
   .meta{margin:0 calc(var(--pad-x)*2/3); font:11.5px var(--mono); color:var(--sub); background:var(--card)}
   .meta:empty{display:none}
   .pendlist{
@@ -245,6 +357,12 @@
     display:flex; align-items:flex-end; gap:var(--sp-s); flex:none;
     margin:0 calc(var(--pad-x)*2/3); border-top:1px solid var(--line); background:var(--card);
   }
+  /* the white over the step under the sent box, and it is hung on there being a
+     box to leave one: the answer now runs on behind the bar, and without this
+     the words would show through the step between the box and the typing row.
+     on a card with no box there is no step, and painting one there would land
+     the card's white on the foot of the answer's own fade */
+  .pendwrap:has(.pendlist) .bottombar{box-shadow:0 calc(var(--sp-s) * -1) 0 var(--card)}
   .clipbtn{
     flex:none; width:28px; height:var(--row-min); padding:0; border:none;
     background:none; border-radius:var(--sq); color:var(--ink);
@@ -296,20 +414,36 @@
   .sendbtn.show{opacity:1; transform:scale(1); pointer-events:auto}
   .sendbtn:active{background:color-mix(in srgb, #000 var(--press), var(--card))}
 
-  /* ---- the card list, in a drawer off the left edge ------------------------ */
-  #scrim{position:fixed; inset:0; background:rgba(33,29,23,.18); opacity:0;
-    pointer-events:none; transition:opacity .26s var(--gentle); z-index:19}
-  #scrim.on{opacity:1; pointer-events:auto}
-  #drawer{
-    position:fixed; top:0; bottom:0; left:0; width:min(84vw, 340px); z-index:20;
-    background:#fff; border-right:1px solid var(--line);
-    box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
-    transform:translateX(-100%); transition:transform .26s var(--gentle);
+  /* ---- the card list off the left edge, the settings off the right --------- */
+  /* the shade over the page while a menu is out, and the tap that shuts it. it
+     lies on the page and travels with it, so it darkens the page alone and
+     never the menu the page has moved off */
+  #scrim{position:absolute; inset:0; background:rgba(33,29,23,.18);
+    opacity:var(--scrimv, 0); pointer-events:none; z-index:19;
+    transition:opacity var(--drawer-ms) var(--drawer-curve)}
+  body.menuout #scrim{pointer-events:auto}
+  /* both menus stand still at their own edge of the screen, BEHIND the page,
+     and are uncovered by the page sliding off them. while one is out it rises
+     the last of its own height into place and comes up from four tenths of its
+     strength to all of it, which is that drawer's own arrival */
+  #drawer, #settings{
+    position:fixed; top:0; bottom:0; width:min(84vw, 340px); z-index:5;
+    background:#fff;
     display:flex; flex-direction:column;
     padding-top:env(safe-area-inset-top, 0px); padding-bottom:env(safe-area-inset-bottom, 0px);
+    transform:translateY(var(--rise, var(--panel-rise)));
+    opacity:var(--panelv, .4);
+    transition:transform var(--drawer-ms) var(--drawer-curve),
+               opacity var(--drawer-ms) var(--drawer-curve);
   }
-  #drawer.open{transform:none}
-  #drawer.drag{transition:none}
+  /* the two corners that can be seen, the ones the page's edge stops against,
+     on the board's own 7px: the rounding every panel let into this paper wears,
+     the card pane's and the sent box's. the two at the screen's own edge are
+     left square, since a corner rounded there would only cut the paper */
+  #drawer{left:0; border-right:1px solid var(--line); border-radius:0 7px 7px 0}
+  #settings{right:0; border-left:1px solid var(--line); border-radius:7px 0 0 7px}
+  /* a finger on the page is followed frame by frame, so nothing on it is timed */
+  body.menudrag #page, body.menudrag #scrim, body.menudrag #drawer, body.menudrag #settings{transition:none}
   #tikhead{flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 8px 0; border-bottom:1px solid var(--line)}
   .tvb{flex:1; font:500 13px/16px var(--sans); color:var(--sub); background:transparent;
     border:1px solid transparent; border-bottom:none; border-radius:0;
@@ -341,11 +475,33 @@
   .trow.donec{opacity:.55}
   .trow.on{border-color:var(--line-strong); transform:translateY(-1px); z-index:1;
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
+  /* ---- the settings, on the panel off the right edge ---------------------- */
+  /* the header, its mark on the left in the line the card's own marks are drawn
+     in, and the card title's face and weight, which is the one heading face on
+     the board */
+  #sethead{
+    flex:none; display:flex; align-items:center; gap:var(--sp-s);
+    padding:14px 12px 11px; border-bottom:1px solid var(--line);
+    font:625 17px/1.25 var(--inter); color:var(--ink);
+  }
+  #setmark{flex:none; display:block; color:var(--sub)}
+  #setmark svg{display:block}
+  /* what the header stands over, stepped in to start under its first letter:
+     the header's own side padding, plus the mark and the step beside it */
+  #setgroup{
+    display:flex; flex-direction:column; gap:6px;
+    padding:12px 12px 12px calc(12px + 16px + var(--sp-s));
+  }
   /* the one thing on the phone the desktop has no need of: the ask for
-     notifications, behind a plain button, since a phone only asks on a tap */
-  #drawerfoot{flex:none; display:flex; flex-direction:column; gap:6px; padding:10px 8px; border-top:1px solid var(--line)}
-  #notify{align-self:flex-start; font:12.5px var(--mono); color:var(--accent); background:var(--accent-soft);
-    border:none; border-radius:4px; padding:7px 14px; cursor:pointer}
+     notifications, since a phone only asks on a tap. it is the card's own kind
+     of control, no border and the paper for a fill, and it takes the board's
+     one press shade mixed into that fill */
+  #notify{
+    align-self:flex-start; font:500 14px/1.2 var(--sans); color:var(--ink);
+    background:var(--paper); border:none; border-radius:var(--sq);
+    padding:9px 14px; cursor:pointer;
+  }
+  #notify:active{background:color-mix(in srgb, #000 var(--press), var(--paper))}
   #notify:disabled{opacity:.6}
   #notifynote{font:11.5px/1.4 var(--mono); color:var(--sub)}
   #notifynote:empty{display:none}
@@ -357,15 +513,17 @@
 </head>
 <body>
 
-<div class="bar"><span id="tabbar"></span></div>
-<div id="offline"></div>
-<main id="pane" class="blank">
-  <div id="empty">no cards on this tab yet</div>
-  <div id="cards"></div>
-</main>
+<div id="page">
+  <div class="bar"><span id="tabbar"></span></div>
+  <div id="offline"></div>
+  <main id="pane" class="blank">
+    <div id="empty">no cards on this tab yet</div>
+    <div id="cards"></div>
+  </main>
+  <div id="scrim"></div>
+</div>
 
-<div id="scrim"></div>
-<aside id="drawer" aria-label="cards">
+<aside id="drawer" aria-label="cards" data-side="left">
   <div id="tikhead">
     <button id="tv-todo" class="tvb on" type="button">doing</button>
     <button id="tv-deferred" class="tvb" type="button">deferred</button>
@@ -373,7 +531,11 @@
     <button id="tikadd" class="tikadd" type="button" title="new card" aria-label="new card">+</button>
   </div>
   <div id="tiklist"></div>
-  <div id="drawerfoot">
+</aside>
+
+<aside id="settings" aria-label="settings" data-side="right">
+  <div id="sethead"><span id="setmark"></span>Settings</div>
+  <div id="setgroup">
     <button id="notify" type="button">Notifications</button>
     <div id="notifynote"></div>
   </div>
@@ -386,6 +548,11 @@
 const PLUS_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>';
 const SEND_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 11.5V3.5M3.6 6.9 7 3.5l3.4 3.4" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const MOON_ICON = '<svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" stroke="none" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
+// the settings mark, drawn in the same line the plus is drawn in: one weight,
+// round ends, no fill. a gear, the mark every phone puts on its own settings:
+// a ring, and eight teeth standing on the ring rather than off it, which is
+// what tells a gear from a sun at this size
+const GEAR_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>';
 const CHEV_PATH = '<path d="M1 5.5 5.5 1.5 10 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>';
 const chevSVG = seat => '<svg class="chev ' + seat + '" width="11" height="7" viewBox="0 0 11 7" fill="none" aria-hidden="true">' + CHEV_PATH + "</svg>";
 
@@ -402,6 +569,61 @@ let wantBox = new URLSearchParams(location.search).get("box");   // a notificati
 
 // the card's helpers, the one state a card's colour and place come from, the
 // lanes and the times are shared with the desktop: card-logic.js
+
+// ---- the two numbers the card's fades are cut to -------------------------------
+// the desktop's own measures, restated here rather than shared: they are the
+// desktop page's script and this page may not write in it. the rules they feed
+// are the desktop's rules, so a change to either page's ramp has to be made in
+// both, and the numbers themselves live in the sheet where both can read them.
+//
+// how deep the sent box and the typing row stand over the answer, written on the
+// answer as --boxband. it is measured to the wrapper's top edge less the answer's
+// own clear air, so the white the ramp ends on is the same white every other card
+// leaves. whole pixels: this becomes a gradient stop, and chrome paints a stop
+// asked for at a whole number where it was asked and at a fraction not quite
+// there
+function boxBand(reply, wrap){
+  const clear = parseFloat(getComputedStyle(reply).marginBottom) || 0;
+  const b = reply.getBoundingClientRect().bottom -
+            (wrap.getBoundingClientRect().top - clear);
+  return Math.max(0, Math.round(b));
+}
+// a ResizeObserver and not a hook on each send: it delivers after layout and
+// before paint on every frame the wrapper's height changes, which is every frame
+// of the box's arrival and of a fold, so the ramp's top edge and the box's top
+// edge are the same line on every frame rather than one frame behind it
+function watchBand(el){
+  const write = () => el.reply.style.setProperty("--boxband", boxBand(el.reply, el.pendwrap) + "px");
+  if (window.ResizeObserver){
+    const ro = new ResizeObserver(write);
+    ro.observe(el.pendwrap);
+    ro.observe(el.reply);
+  }
+  write();
+}
+// how much of the answer has gone up out of sight, written back on it as
+// --upband, which is the depth the ramp under the title is cut to. capped at the
+// ramp's own depth, read off --replyfade on the element rather than typed here.
+// the read is kept on the node once it lands, but never an empty read: the value
+// is written on the shown card and a card is built before it is shown, so the
+// first read on a fresh card comes back with nothing and has to be taken again
+function riseBand(node){
+  if (!node._fade){
+    const fade = parseFloat(getComputedStyle(node).getPropertyValue("--replyfade")) || 0;
+    if (fade) node._fade = fade;
+  }
+  const up = Math.min(Math.round(node.scrollTop), node._fade || 0);
+  if (up === node._up) return;
+  node._up = up;
+  node.style.setProperty("--upband", up + "px");
+}
+// armed on the scroll itself, passive, since all it does is read a number the
+// scroll has already settled and hand it to a gradient. once at the start too,
+// so a card opened part way down opens with the right band
+function watchRise(node){
+  node.addEventListener("scroll", () => riseBand(node), { passive: true });
+  riseBand(node);
+}
 
 // ---- the card ----------------------------------------------------------------
 function makeBox(b){
@@ -503,12 +725,21 @@ function makeBox(b){
 
   els[b.id] = { box, reply, meta, ta, twin, send, tick, titleEl, arc, x, pendwrap, bottombar,
                 pend: null, pendRaw: "", histUp, histDown, histPos, clip, clipfile };
+  // the two fades: the band the box and the bar stand in, and the band the
+  // answer has scrolled away under the title
+  watchBand(els[b.id]);
+  watchRise(reply);
   return els[b.id];
 }
 
 // ---- the sent box --------------------------------------------------------------
-function growPend(el){
-  const pend = h("div", "pendlist");
+// arrive is what tells a send from a poll, exactly as it does on the desktop: a
+// send is an arrival he is watching, so the box rises into the room the answer
+// gives up and then fades in where it stands. a poll bringing messages that were
+// already sent, on a first load or from another window, has no arrival to show
+// and mounts the box plainly
+function growPend(el, arrive){
+  const pend = h("div", "pendlist" + (arrive ? " rising" : ""));
   pend.innerHTML = '<div class="pendhead">' + chevSVG("chevmid") + "</div>" +
     '<div class="pendbody">' + chevSVG("chevtop") + '<div class="pendstamp"></div>' +
     '<div class="pendscroll"><div class="pendslide"></div></div></div>';
@@ -518,39 +749,65 @@ function growPend(el){
   });
   el.pendwrap.insertBefore(pend, el.bottombar);
   el.pend = pend;
+  if (arrive) risePend(el, pend);
   return pend;
 }
-// the rows, the delivery words, the run stamp and the poll's own pass over the
-// box (syncPend) are shared with the desktop: card-logic.js
+// the arrival's two beats (risePend), the rows, the delivery words, the run
+// stamp and the poll's own pass over the box (syncPend) are shared with the
+// desktop: card-logic.js
 
 // ---- sending, closing, parking, naming ------------------------------------------
 function undone(id){
   fetch("/done?box=" + encodeURIComponent(id) + "&v=0", { method: "POST" }).then(() => poll()).catch(() => {});
 }
+// after a send the card moves on to the next one waiting on him, the desktop's
+// own move and its own wait
+let autoNext = null;
+const AUTONEXT_MS = 0;   // the desktop's number; a quiet time after a send before moving on
+// the tap is answered on the tap. the desktop waits for the server before it
+// draws the line because the server is on the same machine and answers in a
+// millisecond; the phone is a room and a radio away from it, and waiting there
+// is a second of nothing happening under his finger. so the line lands in the
+// box now and the poll behind it reconciles: the row carries the text the server
+// is being handed, so the pass over the box finds the row it would have added
+// and adds nothing. a send that does not land hands the words back
 async function doSend(id){
   const el = els[id];
   const text = el.ta.value.trim();
   if (!text) return;
   const reopen = boxDone(id);
-  el.send.disabled = true;
+  // no poll may take a line off this box until every send on it has landed
+  el.sending = (el.sending || 0) + 1;
+  el.sendGuard = Infinity;
+  el.ta.value = "";
+  el.tick();          // the square goes with the words, and the row falls back to one line
+  const pend = el.pend || growPend(el, true);
+  const row = pendRow(text);
+  if (pend.classList.contains("open")) row.classList.add("pop");
+  pend.querySelector(".pendslide").appendChild(row);
+  stampRcpts(pend);
+  if (!pend.querySelector(".pendstamp").textContent) stampRun(pend, [Date.now() / 1000]);
+  pendBottom(pend);
+  el.pendRaw = el.pendRaw ? el.pendRaw + "\n\n" + text : text;
+  if (hist && hist.id === id) histExit(id);   // a send lands you back on the live reply
+  clearTimeout(autoNext);
+  autoNext = setTimeout(() => { autoNext = null; jumpNextYellow(id); }, AUTONEXT_MS);
   try {
     const r = await fetch("/send?box=" + encodeURIComponent(id), { method: "POST", body: text });
     if (!r.ok) throw new Error(r.status);
-    el.ta.value = "";
-    el.tick();
-    const pend = el.pend || growPend(el);
-    pend.querySelector(".pendslide").appendChild(pendRow(text));
-    stampRcpts(pend);
-    if (!pend.querySelector(".pendstamp").textContent) stampRun(pend, [Date.now() / 1000]);
-    pendBottom(pend);
-    el.pendRaw = el.pendRaw ? el.pendRaw + "\n\n" + text : text;
-    if (hist && hist.id === id) histExit(id);
-    if (reopen) undone(id);
+    if (reopen) undone(id);   // the message is in; the flip rides behind it
     poll();
   } catch (err) {
     el.meta.textContent = "send failed, text kept, try again";
+    row.remove();
+    const left = [...pend.querySelector(".pendslide").children];
+    el.pendRaw = left.map(one => one.dataset.text).join("\n\n");
+    if (left.length) stampRcpts(pend); else dropPend(el);
+    // the words go back in the row he types on, unless he has started writing
+    // something else there, in which case the note above is all that is said
+    if (!el.ta.value.trim()){ el.ta.value = text; el.tick(); }
   } finally {
-    el.send.disabled = false;
+    if (--el.sending === 0) el.sendGuard = Date.now();
   }
 }
 async function createCard(){
@@ -593,8 +850,18 @@ function setTab(owner){
   if (pick) select(pick.id); else deselect();
   if (lastState) apply(lastState);
 }
+// the bar is scrolled by hand and must stay where his finger left it. two
+// things used to take it back to the start. the first is the rebuild below,
+// which empties the row and puts a fresh set of tabs in it: a scroller with no
+// content is a scroller at nothing, so the place is read before and written
+// back after. the second is the line at the foot: it brought the tab in view on
+// every pass, and a poll comes round every 1.2 seconds, so a bar scrolled off
+// the tab he is on was yanked back to it a moment later, which is what was seen.
+// it runs on a change of tab now and never on a redraw
+let tabShown = null;
 function renderTabs(st){
   const bar = document.getElementById("tabbar");
+  const lane = bar.parentNode;   // the bar is the row; its parent is the scroller
   if (tabTouch && tabTouch.rects) return;   // a tab being carried owns the bar
   // the bar the board draws, in the board's order and without the tabs the
   // board has closed. this page is a bridge, so it shows exactly those tabs;
@@ -608,6 +875,7 @@ function renderTabs(st){
   if (owners.length && !owners.includes(activeOwner)) setTab(owners[0]);
   const sig = owners.map(ow => ow + ":" + labelOf(st, ow)).join(",");
   if (bar.dataset.sig !== sig){
+    const at = lane.scrollLeft;
     bar.dataset.sig = sig;
     bar.textContent = "";
     for (const ow of owners){
@@ -620,12 +888,16 @@ function renderTabs(st){
       t.addEventListener("click", () => { if (!tabCarried) setTab(ow); });
       bar.appendChild(t);
     }
+    lane.scrollLeft = at;
   }
   for (const t of bar.querySelectorAll(".ptab")){
     t.classList.toggle("on", t.dataset.owner === activeOwner);
     t.classList.toggle("unread", laneUnread(st, t.dataset.owner));
   }
-  bar.querySelector(".ptab.on")?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  if (tabShown !== activeOwner){
+    tabShown = activeOwner;
+    bar.querySelector(".ptab.on")?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }
 }
 
 // ---- carrying a tab along the bar --------------------------------------------------
@@ -796,55 +1068,91 @@ document.getElementById("tv-deferred").addEventListener("click", () => setView("
 document.getElementById("tv-done").addEventListener("click", () => setView("done"));
 document.getElementById("tikadd").addEventListener("click", createCard);
 
-// the drawer comes in from the left edge under the finger and goes back the
-// same way; the scrim behind it takes a tap to shut it
+// ---- the two menus, and the one motion they share --------------------------------
+// the card list is pulled in from the left edge and the settings from the right,
+// and neither of them travels: each stands still at its own edge behind the page
+// and the page slides off it. this is the shape of the drawer in the other app
+// these were asked to be drawn from, part for part. one number, the fraction the
+// menu is out by, drives every part of it: the page's travel, the rounding of
+// the page's corners, the shade under the page's moving edge, the shade over the
+// page's face, and the menu's own lift and strength. the run is 550ms, on an
+// ease in and out when it is begun by a tap and an ease out when a drag lets go
+// of it part way, and a drag that lets go past the halfway mark opens
+const page = document.getElementById("page");
 const drawer = document.getElementById("drawer");
+const settings = document.getElementById("settings");
 const scrim = document.getElementById("scrim");
-function drawerWidth(){ return drawer.getBoundingClientRect().width; }
-function openDrawer(){
-  drawer.classList.remove("drag"); drawer.style.transform = "";
-  drawer.classList.add("open"); scrim.classList.add("on");
+const menus = [drawer, settings];   // the left one first: the drag reads the side off each
+function menuWidth(panel){ return panel.getBoundingClientRect().width; }
+function menuSign(panel){ return panel.dataset.side === "right" ? -1 : 1; }   // which way the page goes
+function menuOut(){ return menus.find(p => p.classList.contains("open")) || null; }
+// the one number, painted onto the page and the menu
+function paintMenu(panel, v){
+  const w = menuWidth(panel), dir = menuSign(panel);
+  page.style.setProperty("--slide", (dir * v * w).toFixed(2) + "px");
+  page.style.setProperty("--pageround", "calc(var(--page-round) * " + v.toFixed(4) + ")");
+  // the shade the page carries on the edge it is moving away from, so the page
+  // reads as the nearer of the two surfaces. it is there or it is not, like the
+  // drawer this is drawn from, and never a shade fading in on a still page
+  page.style.setProperty("--pageshade", v > 0 ? (-4 * dir) + "px 0 12px rgba(0,0,0,.15)" : "none");
+  page.style.setProperty("--scrimv", v ? v.toFixed(4) : "0");
+  panel.style.setProperty("--rise", "calc(var(--panel-rise) * " + (1 - v).toFixed(4) + ")");
+  panel.style.setProperty("--panelv", (0.4 + 0.6 * v).toFixed(4));
+  document.body.classList.toggle("menuout", v > 0);
+}
+// a run, on whichever of the two curves the thing that began it hands in. the
+// drag's dress comes off first and the page is measured while it is off, so what
+// follows is a run from where the finger left it and not a jump
+function runMenu(panel, v, curve){
+  document.documentElement.style.setProperty("--drawer-curve", curve);
+  if (document.body.classList.contains("menudrag")){
+    document.body.classList.remove("menudrag");
+    void page.offsetWidth;
+  }
+  panel.classList.toggle("open", v > 0);
+  paintMenu(panel, v);
+}
+function showMenu(panel, curve){
   if (lastState) renderTickets(lastState);
-  drawer.querySelector(".trow.on")?.scrollIntoView({ block: "nearest" });
+  runMenu(panel, 1, curve || "var(--drawer-tap)");
+  panel.querySelector(".trow.on")?.scrollIntoView({ block: "nearest" });
 }
-function closeDrawer(){
-  drawer.classList.remove("drag", "open"); drawer.style.transform = "";
-  scrim.classList.remove("on");
-}
+function hideMenu(panel, curve){ runMenu(panel, 0, curve || "var(--drawer-tap)"); }
+function openDrawer(){ showMenu(drawer); }
+function closeDrawer(){ hideMenu(drawer); }
 function drawerOpen(){ return drawer.classList.contains("open"); }
-scrim.addEventListener("click", closeDrawer);
+scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu(out); });
 {
-  const EDGE = 28;    // how far in from the left edge a pull may begin
-  let x0 = 0, y0 = 0, dx = 0, live = false, opening = false, decided = false;
+  const EDGE = 28;    // how far in from an edge a pull may begin
+  let panel = null, x0 = 0, y0 = 0, at = 0, live = false, opening = false, decided = false;
   const start = (x, y) => {
-    opening = !drawerOpen() && x <= EDGE;
-    if (!opening && !drawerOpen()) return;
-    live = true; decided = false; x0 = x; y0 = y; dx = 0;
+    const out = menuOut();
+    if (out){ panel = out; opening = false; }
+    else if (x <= EDGE){ panel = drawer; opening = true; }
+    else if (x >= innerWidth - EDGE){ panel = settings; opening = true; }
+    else { panel = null; return; }
+    live = true; decided = false; x0 = x; y0 = y; at = opening ? 0 : 1;
   };
   const move = (x, y, e) => {
     if (!live) return;
-    dx = x - x0;
+    const dx = x - x0;
     if (!decided){
       if (Math.abs(dx) < 6 && Math.abs(y - y0) < 6) return;
       if (Math.abs(y - y0) > Math.abs(dx)){ live = false; return; }   // a scroll, not a pull
       decided = true;
-      drawer.classList.add("drag");
+      document.body.classList.add("menudrag");
     }
     if (e && e.cancelable) e.preventDefault();
-    const w = drawerWidth();
-    const at = opening ? Math.min(0, -w + dx) : Math.min(0, dx);
-    drawer.style.transform = "translateX(" + at + "px)";
-    scrim.classList.add("on");
-    scrim.style.opacity = String(Math.max(0, Math.min(1, 1 + at / w)));
+    const w = menuWidth(panel), d = menuSign(panel) * dx;
+    at = Math.max(0, Math.min(1, (opening ? d : w + d) / w));
+    paintMenu(panel, at);
   };
   const end = () => {
     if (!live) return;
     live = false;
-    scrim.style.opacity = "";
     if (!decided) return;
-    const w = drawerWidth();
-    const shown = opening ? dx : w + dx;
-    if (shown > w / 3) openDrawer(); else closeDrawer();
+    // let go past the middle and it opens, before it and it goes back
+    runMenu(panel, at > 0.5 ? 1 : 0, "var(--drawer-drag)");
   };
   document.addEventListener("touchstart", e => { const t = e.touches[0]; if (t) start(t.clientX, t.clientY); }, { passive: true });
   document.addEventListener("touchmove", e => { const t = e.touches[0]; if (t) move(t.clientX, t.clientY, e); }, { passive: false });
@@ -881,7 +1189,13 @@ function apply(state){
     }
     if (!el.titleEl.isContentEditable && el.titleEl.textContent !== b.title) el.titleEl.textContent = b.title;
     const pt = (b.pendingTexts || []).join("\n\n");
-    if (el.pendRaw !== pt) syncPend(el, b.pendingTexts, b.pendingStamps);
+    // the line a send has just drawn is not the poll's to take away. a state
+    // fetched before the server had that message knows nothing about it, and the
+    // pass over the box would read the shorter list as the run being claimed and
+    // clear the box he is looking at. el.sendGuard is the moment the send landed,
+    // and stands at the end of time while one is still in flight
+    const stale = (state.fetchedAt || 0) < (el.sendGuard || 0);
+    if (el.pendRaw !== pt && !stale) syncPend(el, b.pendingTexts, b.pendingStamps);
     const cs = cardState(b);
     el.box.classList.toggle("done", cs === "done");
     el.box.classList.toggle("parked", cs === "parked");
@@ -924,7 +1238,10 @@ function goToBox(id){
 }
 async function poll(){
   try {
+    const asked = Date.now();   // when this state was asked for, which is what says
+    // whether it can know about a message sent since
     const state = await (await fetch("/state", { cache: "no-store" })).json();
+    state.fetchedAt = asked;
     pollFails = 0;
     document.body.classList.remove("offline");
     validateOwners(state);
@@ -1238,6 +1555,7 @@ function keyBytes(b64url){
   const raw = atob((b64url + pad).replace(/-/g, "+").replace(/_/g, "/"));
   return Uint8Array.from(raw, ch => ch.charCodeAt(0));
 }
+document.getElementById("setmark").innerHTML = GEAR_ICON;
 const notifyBtn = document.getElementById("notify");
 const notifyNote = document.getElementById("notifynote");
 function notifyState(on, note){
