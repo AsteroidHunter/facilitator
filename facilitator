@@ -9,6 +9,14 @@
       for lanes with no reachable one. --force ignores the lane-covered guard.
   facilitator status
       one-line board state
+  facilitator bridge [--dry-run]
+      publish the board on this Mac's Tailscale name over HTTPS, through
+      Tailscale Serve, and print a QR code that opens the phone page (/m).
+      The server keeps listening on 127.0.0.1 only; Tailscale does the
+      proxying, and being on the tailnet is the whole of the access control.
+      Needs HTTPS certificates switched on once for the tailnet, in the
+      Tailscale admin console; says so and stops when they are off.
+      --dry-run prints the serve command instead of running it
 
 Reads run.config.json beside this script: machine-local and gitignored, since
 lanes name real directories and tmux sessions; copy run.config.example.json
@@ -16,6 +24,7 @@ and fill it in. Python stdlib only, like the server.
 """
 
 import json
+import os
 import shlex
 import shutil
 import subprocess
@@ -28,6 +37,8 @@ HERE = Path(__file__).resolve().parent
 CONFIG = HERE / "run.config.json"
 LOG = "/tmp/facilitator-8877.log"
 RETIRED_OWNERS = frozenset({"triage"})
+# the Mac app keeps its command line inside the bundle and off PATH
+TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 
 
 def load_config():
@@ -209,6 +220,103 @@ def cmd_status():
           + (", PAUSED" if st.get("paused") else "") + f" | {lanes}")
 
 
+def board_port():
+    """The board's port from run.config.json when there is one; the server's
+    own default otherwise, so the bridge works on a machine with no lanes
+    written down yet."""
+    if not CONFIG.exists():
+        return 8877
+    try:
+        return int(json.loads(CONFIG.read_text()).get("port") or 8877)
+    except (ValueError, TypeError, OSError):
+        return 8877
+
+
+def find_tailscale():
+    """The tailscale command line: PATH first, then inside the Mac app."""
+    found = shutil.which("tailscale")
+    if found:
+        return found
+    if os.access(TAILSCALE_APP, os.X_OK):
+        return TAILSCALE_APP
+    return None
+
+
+def tailscale_status(ts):
+    """tailscale status as a dict, read only; exits with one line on any
+    failure to get it."""
+    try:
+        r = subprocess.run([ts, "status", "--json"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        sys.exit(f"tailscale: could not run status ({e})")
+    if r.returncode != 0:
+        sys.exit("tailscale: status failed: " + (r.stderr or r.stdout).strip())
+    try:
+        return json.loads(r.stdout)
+    except ValueError:
+        sys.exit("tailscale: status did not answer with json")
+
+
+def show_qr(url):
+    """The address as a code the phone camera reads, block characters two
+    module rows per line, with the address itself printed beside it. On a
+    terminal the modules are painted black on white whatever the theme, so
+    the code is never inverted; piped, the bare characters are printed."""
+    sys.path.insert(0, str(HERE))
+    import qr
+    lines = qr.render(qr.encode(url))
+    tty = sys.stdout.isatty()
+    mid = len(lines) // 2
+    for i, line in enumerate(lines):
+        body = ("\x1b[30;107m" + line + "\x1b[0m") if tty else line
+        print("  " + body + ("   " + url if i == mid else ""))
+
+
+def cmd_bridge(args):
+    """Publish the board through Tailscale Serve and print the way in. The
+    server keeps binding 127.0.0.1; Tailscale terminates HTTPS on the Mac's
+    tailnet name and proxies to it, and nothing outside the tailnet can reach
+    either. HTTPS is what lets a phone install the page and receive pushes,
+    and Tailscale only issues certificates once HTTPS is switched on for the
+    tailnet, which is a one time change in its admin console."""
+    dry = "--dry-run" in args
+    port = board_port()
+    if state(port) is None:
+        sys.exit(f"server: DOWN (port {port}); run facilitator run first")
+    ts = find_tailscale()
+    if ts is None:
+        sys.exit("tailscale: not found on PATH or at " + TAILSCALE_APP)
+    st = tailscale_status(ts)
+    if st.get("BackendState") != "Running":
+        sys.exit(f"tailscale: not connected (state {st.get('BackendState')})")
+    name = ((st.get("Self") or {}).get("DNSName") or "").rstrip(".")
+    if not name:
+        sys.exit("tailscale: this Mac has no tailnet name yet; switch on MagicDNS in the Tailscale admin console")
+    if not st.get("CertDomains"):
+        sys.exit("Tailscale HTTPS is off for this tailnet: switch on HTTPS certificates under DNS in the Tailscale admin console, then run facilitator bridge again.")
+    cmd = [ts, "serve", "--bg", "--https=443", f"http://127.0.0.1:{port}"]
+    shown = " ".join(shlex.quote(c) for c in cmd)
+    url = f"https://{name}/m"
+    if dry:
+        print(f"serve: would run {shown}")
+    else:
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            sys.exit(f"tailscale serve failed to run ({e})")
+        if r.returncode != 0:
+            sys.exit("tailscale serve failed: " + (r.stderr or r.stdout).strip())
+        print(f"serve: ran {shown}")
+        for line in (r.stdout or "").strip().splitlines():
+            print("  " + line)
+    print(f"phone page: {url}")
+    print()
+    show_qr(url)
+    print()
+    print("scan it with the phone camera; add the page to the home screen and use its Notifications button for pushes")
+    print(f"stop sharing with: {shlex.quote(ts)} serve reset")
+
+
 def main():
     args = sys.argv[1:]
     cmd = args[0] if args and not args[0].startswith("-") else "run"
@@ -216,6 +324,8 @@ def main():
         cmd_run(args)
     elif cmd == "status":
         cmd_status()
+    elif cmd == "bridge":
+        cmd_bridge(args)
     else:
         sys.exit(__doc__.strip())
 
