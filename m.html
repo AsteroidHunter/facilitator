@@ -764,11 +764,22 @@ function setTab(owner){
   if (pick) select(pick.id); else deselect();
   if (lastState) apply(lastState);
 }
+// the bar is scrolled by hand and must stay where his finger left it. two
+// things used to take it back to the start. the first is the rebuild below,
+// which empties the row and puts a fresh set of tabs in it: a scroller with no
+// content is a scroller at nothing, so the place is read before and written
+// back after. the second is the line at the foot: it brought the tab in view on
+// every pass, and a poll comes round every 1.2 seconds, so a bar scrolled off
+// the tab he is on was yanked back to it a moment later, which is what was seen.
+// it runs on a change of tab now and never on a redraw
+let tabShown = null;
 function renderTabs(st){
   const bar = document.getElementById("tabbar");
+  const lane = bar.parentNode;   // the bar is the row; its parent is the scroller
   const owners = allRowsOf(st);
   const sig = owners.map(ow => ow + ":" + labelOf(st, ow)).join(",");
   if (bar.dataset.sig !== sig){
+    const at = lane.scrollLeft;
     bar.dataset.sig = sig;
     bar.textContent = "";
     for (const ow of owners){
@@ -781,12 +792,16 @@ function renderTabs(st){
       t.addEventListener("click", () => setTab(ow));
       bar.appendChild(t);
     }
+    lane.scrollLeft = at;
   }
   for (const t of bar.querySelectorAll(".ptab")){
     t.classList.toggle("on", t.dataset.owner === activeOwner);
     t.classList.toggle("unread", laneUnread(st, t.dataset.owner));
   }
-  bar.querySelector(".ptab.on")?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  if (tabShown !== activeOwner){
+    tabShown = activeOwner;
+    bar.querySelector(".ptab.on")?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }
 }
 function applySelection(state){
   const pool = state.boxes.filter(b => b.owner === activeOwner && b.id !== "q");

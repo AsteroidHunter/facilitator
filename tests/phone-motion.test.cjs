@@ -430,3 +430,61 @@ test("a pull past the middle opens the card list and one short of it goes back",
     await page.close();
   }
 });
+
+test("the tab bar stays where he scrolled it, across a poll and a tap", async () => {
+  // enough lanes to fill the bar past the width of the screen. the folder each
+  // lane is given is only a name to the page, and nothing is written in it
+  const home = require("node:os").homedir();
+  for (const name of ["Lane two", "Lane three", "Lane four", "Lane five", "Lane six"]) {
+    const made = await fetch(`${origin}/project?name=${encodeURIComponent(name)}`, { method: "POST", body: home });
+    assert.equal(made.status, 200, "the fixture could not add a lane");
+  }
+  const { page, problems } = await openPhone("/m");
+  try {
+    await page.waitForFunction(() => document.querySelectorAll("#tabbar .ptab").length >= 7, { timeout: 5000 });
+    const room = await page.evaluate(() => {
+      const lane = document.querySelector(".bar");
+      return lane.scrollWidth - lane.clientWidth;
+    });
+    assert.ok(room > 60, `the bar under test does not overflow (${room})`);
+
+    await page.evaluate(() => { document.querySelector(".bar").scrollLeft = 120; });
+    await page.evaluate(() => poll());
+    await settle(1600);   // a hand-run poll and the clock's own one behind it
+    const afterPoll = await page.evaluate(() => ({
+      at: document.querySelector(".bar").scrollLeft,
+      polls: !!lastState,
+    }));
+    assert.equal(afterPoll.polls, true);
+    assert.equal(afterPoll.at, 120, "a poll yanked the bar back to the start");
+    await shot(page, "tabbar-scrolled");
+
+    // a tap on a tab standing in view leaves the bar exactly where it is
+    const tapped = await page.evaluate(() => {
+      const lane = document.querySelector(".bar").getBoundingClientRect();
+      const tab = [...document.querySelectorAll("#tabbar .ptab")].find(t => {
+        const r = t.getBoundingClientRect();
+        return r.left >= lane.left + 2 && r.right <= lane.right - 2 && !t.classList.contains("on");
+      });
+      tab.click();
+      return tab.dataset.owner;
+    });
+    await settle(300);
+    const afterTap = await page.evaluate(() => ({
+      at: document.querySelector(".bar").scrollLeft,
+      owner: activeOwner,
+      on: document.querySelector("#tabbar .ptab.on").dataset.owner,
+    }));
+    assert.equal(afterTap.owner, tapped, "the tap did not change lane");
+    assert.equal(afterTap.on, tapped);
+    assert.equal(afterTap.at, 120, "a tap yanked the bar back to the start");
+
+    // and the bar keeps its place when the lanes themselves are drawn again
+    await page.evaluate(() => { document.getElementById("tabbar").dataset.sig = ""; renderTabs(lastState); });
+    assert.equal(await page.evaluate(() => document.querySelector(".bar").scrollLeft), 120,
+      "a rebuild of the tabs lost the place he scrolled to");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
