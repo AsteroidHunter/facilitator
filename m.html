@@ -6,7 +6,8 @@
 <title>facilitator</title>
 <!-- the phone page. the same board, drawn for a phone: the project tabs across
      the top, one card filling the screen with the app's thin margins on all
-     four sides, and the card list in a drawer pulled in from the left edge.
+     four sides, the card list in a menu pulled in from the left edge and the
+     settings in one pulled in from the right.
      nothing else. the card is the desktop card at phone size: the same top
      bar, title, answer, sent box, composer and buttons, in the same colours
      and faces, read straight out of index.html rather than redrawn -->
@@ -429,11 +430,33 @@
   .trow.donec{opacity:.55}
   .trow.on{border-color:var(--line-strong); transform:translateY(-1px); z-index:1;
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
+  /* ---- the settings, on the panel off the right edge ---------------------- */
+  /* the header, its mark on the left in the line the card's own marks are drawn
+     in, and the card title's face and weight, which is the one heading face on
+     the board */
+  #sethead{
+    flex:none; display:flex; align-items:center; gap:var(--sp-s);
+    padding:14px 12px 11px; border-bottom:1px solid var(--line);
+    font:625 17px/1.25 var(--inter); color:var(--ink);
+  }
+  #setmark{flex:none; display:block; color:var(--sub)}
+  #setmark svg{display:block}
+  /* what the header stands over, stepped in to start under its first letter:
+     the header's own side padding, plus the mark and the step beside it */
+  #setgroup{
+    display:flex; flex-direction:column; gap:6px;
+    padding:12px 12px 12px calc(12px + 16px + var(--sp-s));
+  }
   /* the one thing on the phone the desktop has no need of: the ask for
-     notifications, behind a plain button, since a phone only asks on a tap */
-  #drawerfoot{flex:none; display:flex; flex-direction:column; gap:6px; padding:10px 8px; border-top:1px solid var(--line)}
-  #notify{align-self:flex-start; font:12.5px var(--mono); color:var(--accent); background:var(--accent-soft);
-    border:none; border-radius:4px; padding:7px 14px; cursor:pointer}
+     notifications, since a phone only asks on a tap. it is the card's own kind
+     of control, no border and the paper for a fill, and it takes the board's
+     one press shade mixed into that fill */
+  #notify{
+    align-self:flex-start; font:500 14px/1.2 var(--sans); color:var(--ink);
+    background:var(--paper); border:none; border-radius:var(--sq);
+    padding:9px 14px; cursor:pointer;
+  }
+  #notify:active{background:color-mix(in srgb, #000 var(--press), var(--paper))}
   #notify:disabled{opacity:.6}
   #notifynote{font:11.5px/1.4 var(--mono); color:var(--sub)}
   #notifynote:empty{display:none}
@@ -463,7 +486,11 @@
     <button id="tikadd" class="tikadd" type="button" title="new card" aria-label="new card">+</button>
   </div>
   <div id="tiklist"></div>
-  <div id="drawerfoot">
+</aside>
+
+<aside id="settings" aria-label="settings" data-side="right">
+  <div id="sethead"><span id="setmark"></span>Settings</div>
+  <div id="setgroup">
     <button id="notify" type="button">Notifications</button>
     <div id="notifynote"></div>
   </div>
@@ -476,6 +503,11 @@
 const PLUS_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>';
 const SEND_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 11.5V3.5M3.6 6.9 7 3.5l3.4 3.4" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const MOON_ICON = '<svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" stroke="none" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
+// the settings mark, drawn in the same line the plus is drawn in: one weight,
+// round ends, no fill. a gear, the mark every phone puts on its own settings:
+// a ring, and eight teeth standing on the ring rather than off it, which is
+// what tells a gear from a sun at this size
+const GEAR_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>';
 const CHEV_PATH = '<path d="M1 5.5 5.5 1.5 10 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>';
 const chevSVG = seat => '<svg class="chev ' + seat + '" width="11" height="7" viewBox="0 0 11 7" fill="none" aria-hidden="true">' + CHEV_PATH + "</svg>";
 
@@ -885,8 +917,9 @@ document.getElementById("tikadd").addEventListener("click", createCard);
 // of it part way, and a drag that lets go past the halfway mark opens
 const page = document.getElementById("page");
 const drawer = document.getElementById("drawer");
+const settings = document.getElementById("settings");
 const scrim = document.getElementById("scrim");
-const menus = [drawer];   // the settings panel joins this list where it is built
+const menus = [drawer, settings];   // the left one first: the drag reads the side off each
 function menuWidth(panel){ return panel.getBoundingClientRect().width; }
 function menuSign(panel){ return panel.dataset.side === "right" ? -1 : 1; }   // which way the page goes
 function menuOut(){ return menus.find(p => p.classList.contains("open")) || null; }
@@ -933,7 +966,7 @@ scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu
     const out = menuOut();
     if (out){ panel = out; opening = false; }
     else if (x <= EDGE){ panel = drawer; opening = true; }
-    else if (x >= innerWidth - EDGE && menus.length > 1){ panel = menus[1]; opening = true; }
+    else if (x >= innerWidth - EDGE){ panel = settings; opening = true; }
     else { panel = null; return; }
     live = true; decided = false; x0 = x; y0 = y; at = opening ? 0 : 1;
   };
@@ -1088,6 +1121,7 @@ function keyBytes(b64url){
   const raw = atob((b64url + pad).replace(/-/g, "+").replace(/_/g, "/"));
   return Uint8Array.from(raw, ch => ch.charCodeAt(0));
 }
+document.getElementById("setmark").innerHTML = GEAR_ICON;
 const notifyBtn = document.getElementById("notify");
 const notifyNote = document.getElementById("notifynote");
 function notifyState(on, note){
