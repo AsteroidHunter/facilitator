@@ -70,6 +70,14 @@ Endpoints:
                                fetched the first time the markdown panel opens
   GET  /card-markdown.js    -> the shared, finite card-prose renderer used by
                                the board, page view and small card
+  GET  /m                   -> m.html, the phone page: the project tabs, one
+                               card filling the screen, the card list in a
+                               drawer off the left edge, nothing else
+  GET  /m-manifest.json, /m-sw.js, /m-icon-<size>.png
+                            -> what makes the phone page installable: its web
+                               app manifest, its service worker (network first)
+                               and its home screen icons, cut from the board's
+                               own mark
   GET  /mdfiles?lane=L      -> every .md file under the two folders lane L's own
                                markdown panel may touch (that lane's internal
                                folder and its wiki, both named after the lane's
@@ -979,6 +987,19 @@ def _sweep() -> None:
         _lock.notify_all()
 
 
+# ---- the phone page and its push notifications ------------------------------
+# GET /m is the board for a phone: one card at a time, the project tabs across
+# the top, the card list in a drawer off the left edge. The files below are
+# what make it installable.
+PHONE_FILES = {
+    "/m": (HERE / "m.html", "text/html; charset=utf-8"),
+    "/m-sw.js": (HERE / "m-sw.js", "application/javascript; charset=utf-8"),
+    "/m-manifest.json": (HERE / "m-manifest.json", "application/manifest+json; charset=utf-8"),
+    "/m-icon-180.png": (HERE / "assets" / "m-icon-180.png", "image/png"),
+    "/m-icon-192.png": (HERE / "assets" / "m-icon-192.png", "image/png"),
+    "/m-icon-512.png": (HERE / "assets" / "m-icon-512.png", "image/png"),
+}
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code: int, payload: dict | bytes, ctype: str = "application/json") -> bool:
         """True when the response reached the socket, False when the client was
@@ -1250,6 +1271,16 @@ class Handler(BaseHTTPRequestHandler):
             p = HERE / "card-markdown.js"
             if p.is_file():
                 self._send(200, p.read_bytes(), "application/javascript; charset=utf-8")
+            else:
+                self._send(404, {"error": "not found"})
+        elif url.path in PHONE_FILES:
+            # the phone page and the files that make it installable, each a
+            # plain file beside this one (the icons under assets/). Served
+            # with the no-store every answer carries, so a changed page or
+            # worker is picked up on the next open rather than a cache later
+            p, ctype = PHONE_FILES[url.path]
+            if p.is_file():
+                self._send(200, p.read_bytes(), ctype)
             else:
                 self._send(404, {"error": "not found"})
         elif url.path == "/mdfiles":
