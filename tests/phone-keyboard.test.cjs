@@ -23,7 +23,8 @@ const SHOTS = "/tmp/m362-keyboard-shots";
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
 const KEYBOARD = 336;          // an iPhone keyboard with its accessory bar, in css px
 const INSET = 6;               // --app-inset, the card's thin margin from an edge
-const ROW_LINES = 5;           // the row's cap, in lines
+const OPEN_LINES = 5;          // the row's cap under the keyboard, in lines
+const CLOSED_SHARE = 0.28;     // the row's cap with the keyboard down: this share of the viewport's height
 const SEL = "article.box.sel textarea";
 
 let browser;
@@ -97,25 +98,34 @@ async function settle(ms = 250) {
 }
 
 // the row as the page lays it out. the tests type short lines, so a line of
-// text is a line of the row and the caret's line is a count of returns
+// text is a line of the row, the caret's line is a count of returns, and the
+// text's true height is a count of lines; the box is its rectangle, since the
+// cap can be a fraction of a pixel that clientHeight rounds away
 function rowShape() {
   const ta = document.querySelector("article.box.sel textarea");
   const cs = getComputedStyle(ta);
   const lh = parseFloat(cs.lineHeight), pt = parseFloat(cs.paddingTop), pb = parseFloat(cs.paddingBottom);
   const rect = ta.getBoundingClientRect();
+  const lines = ta.value.split("\n").length;
   const caretLine = ta.value.slice(0, ta.selectionEnd).split("\n").length;
+  const content = lines * lh + pt + pb;
   return {
     lh, pt, pb,
-    box: rect.height, top: rect.top, bottom: rect.bottom,
+    box: rect.height, top: rect.top, bottom: rect.bottom, cap: cs.maxHeight,
     sh: ta.scrollHeight, ch: ta.clientHeight, st: ta.scrollTop,
     maxScroll: ta.scrollHeight - ta.clientHeight,
-    lines: ta.value.split("\n").length,
+    lines, content,
+    leftBelow: content - ta.scrollTop - rect.height,
     caretLine,
     caretTop: pt + (caretLine - 1) * lh - ta.scrollTop,
     caretBottom: pt + caretLine * lh - ta.scrollTop,
     focused: document.activeElement === ta,
     selectionEnd: ta.selectionEnd,
   };
+}
+
+function caretInside(s) {
+  return s.caretTop >= -0.5 && s.caretBottom <= s.box + 0.5;
 }
 
 // where the card's foot, the tabs and the title stand, in the visual
@@ -138,20 +148,20 @@ function shellShape() {
   };
 }
 
-// a frame by frame record of the shell while the keyboard moves; the reader
-// above is handed over as source, since the page has no sight of this file
-async function startSampling(page) {
+// a frame by frame record while the keyboard moves; the reader is handed over
+// as source, since the page has no sight of this file
+async function startSampling(page, reader = shellShape) {
   await page.evaluate(src => {
-    window.__shellShape = new Function("return (" + src + ")")();
+    const read = new Function("return (" + src + ")")();
     window.__samples = [];
     window.__sampling = true;
     const step = () => {
       if (!window.__sampling) return;
-      window.__samples.push(window.__shellShape());
+      window.__samples.push(read());
       requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
-  }, shellShape.toString());
+  }, reader.toString());
 }
 
 // the motion in one direction only: nothing moves down then up, or up then down
@@ -254,33 +264,33 @@ test("the row grows to its text exactly, one to twelve lines, the caret's line i
     assert.equal(focused.selectionEnd, 0);
     assert.equal(focused.box, 44, "an empty row is not the row's floor");
 
+    const closedCap = CLOSED_SHARE * PHONE.height;   // the cap as it was: 28vh, about nine lines
     for (let n = 1; n <= 12; n++) {
       await typeLines(page, n, n);
       await settle(60);
       const s = await page.evaluate(rowShape);
       assert.equal(s.lines, n);
       assert.equal(s.caretLine, n);
-      const wanted = Math.max(44, Math.ceil(Math.min(n, ROW_LINES) * s.lh + s.pt + s.pb));
-      assert.equal(s.box, wanted, `at ${n} lines the row is ${s.box}, not ${wanted}`);
-      if (n <= ROW_LINES) {
+      const wanted = Math.max(44, Math.min(Math.ceil(s.content), closedCap));
+      assert.ok(Math.abs(s.box - wanted) <= 0.1, `at ${n} lines the row is ${s.box}, not ${wanted}`);
+      if (s.content <= closedCap) {
         assert.ok(s.sh <= s.ch, `at ${n} lines the row still scrolls: content ${s.sh} in a box of ${s.ch}`);
         assert.equal(s.st, 0);
       } else {
         assert.ok(s.maxScroll > 0, `at ${n} lines the row does not scroll inside`);
-        assert.ok(Math.abs(s.st - s.maxScroll) <= 0.5, `at ${n} lines there is ${s.maxScroll - s.st}px left to scroll below the caret`);
+        assert.ok(s.leftBelow <= 0.5, `at ${n} lines there is ${s.leftBelow}px left to scroll below the caret`);
       }
-      assert.ok(s.caretTop >= -0.5 && s.caretBottom <= s.ch + 0.5,
-        `at ${n} lines the caret's line (${s.caretTop} to ${s.caretBottom}) is not inside the box of ${s.ch}`);
+      assert.ok(caretInside(s), `at ${n} lines the caret's line (${s.caretTop} to ${s.caretBottom}) is not inside the box of ${s.box}`);
       if ([1, 3, 6, 12].includes(n)) await page.screenshot({ path: path.join(SHOTS, `composer-${String(n).padStart(2, "0")}.png`) });
     }
-    // the last line, deleted back: the row shrinks with the text and never scrolls
-    for (let n = 12; n > ROW_LINES; n--) {
+    // the last lines, deleted back: the row shrinks with the text and never scrolls
+    for (let n = 12; n > OPEN_LINES; n--) {
       for (let k = 0; k < `line ${n}`.length + 1; k++) await page.keyboard.press("Backspace");
     }
     await settle(60);
     const back = await page.evaluate(rowShape);
-    assert.equal(back.lines, ROW_LINES);
-    assert.equal(back.box, Math.ceil(ROW_LINES * back.lh + back.pt + back.pb));
+    assert.equal(back.lines, OPEN_LINES);
+    assert.equal(back.box, Math.ceil(OPEN_LINES * back.lh + back.pt + back.pb));
     assert.ok(back.sh <= back.ch, "the shrunken row is left scrolling");
     assert.deepEqual(problems, []);
   } finally {
@@ -423,7 +433,7 @@ test("a small shortfall is the phone's stale report and not a keyboard, and a sh
   }
 });
 
-test("focus brings the caret's line into view, a tapped line is where the caret is, and the row does not change at the keyboard edge", async () => {
+test("focus brings the caret's line into view, a tapped line is where the caret is, and the row keeps that line when it shrinks at the keyboard edge", async () => {
   const id = await create("Caret line on the phone");
   await api(`/reply?box=${id}`, "A reply to answer.");
   const { page, problems } = await openPhone(`/m?box=${id}`, { fake: true });
@@ -446,7 +456,7 @@ test("focus brings the caret's line into view, a tapped line is where the caret 
     const refocused = await page.evaluate(rowShape);
     assert.equal(refocused.caretLine, 12);
     assert.ok(Math.abs(refocused.st - refocused.maxScroll) <= 0.5, `focus left the caret's line out of view (scroll ${refocused.st} of ${refocused.maxScroll})`);
-    assert.ok(refocused.caretTop >= -0.5 && refocused.caretBottom <= refocused.ch + 0.5);
+    assert.ok(caretInside(refocused));
 
     // a tap on the third line, with the row scrolled to its top: the caret
     // lands on that line and the row does not move under the finger
@@ -461,16 +471,17 @@ test("focus brings the caret's line into view, a tapped line is where the caret 
     assert.equal(tapped.focused, true);
     assert.equal(tapped.caretLine, 3, `the tap put the caret on line ${tapped.caretLine}, not the third`);
     assert.equal(tapped.st, 0, "the row scrolled under the tap");
-    assert.ok(tapped.caretTop >= -0.5 && tapped.caretBottom <= tapped.ch + 0.5);
+    assert.ok(caretInside(tapped));
 
-    // the keyboard rises: the row keeps its size and its scroll, so the tapped
+    // the keyboard rises and the row shrinks to its five lines: the tapped
     // line is still the line in view when the keyboard has landed
     await page.evaluate(k => window.__keyboard.set(k.height, 0), { height: PHONE.height - KEYBOARD });
     await settle(600);
     const landed = await page.evaluate(rowShape);
-    assert.equal(landed.box, tapped.box, "the row changed size at the keyboard edge");
-    assert.equal(landed.st, 0, "the row scrolled at the keyboard edge");
+    assert.ok(Math.abs(landed.box - (OPEN_LINES * landed.lh + landed.pt + landed.pb)) <= 0.1, `the row is ${landed.box} under the keyboard, not five lines`);
+    assert.equal(landed.st, 0, "the row scrolled away from the tapped line at the keyboard edge");
     assert.equal(landed.caretLine, 3);
+    assert.ok(caretInside(landed));
     assert.equal((await page.evaluate(shellShape)).kb, true);
 
     // the caret on the last line, scrolled out of view by hand before the
@@ -488,6 +499,54 @@ test("focus brings the caret's line into view, a tapped line is where the caret 
     const relanded = await page.evaluate(rowShape);
     assert.equal(relanded.caretLine, 12);
     assert.ok(Math.abs(relanded.st - relanded.maxScroll) <= 0.5, `the landing left the caret's line out of view (scroll ${relanded.st} of ${relanded.maxScroll})`);
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("the row's cap is the desktop's share of the height with the keyboard down, five lines under it, and the caret's line stays in view on every frame of the rise", async () => {
+  const id = await create("Row cap on the phone");
+  await api(`/reply?box=${id}`, "A reply to answer.");
+  const { page, problems } = await openPhone(`/m?box=${id}`, { fake: true });
+  try {
+    await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
+    await page.focus(SEL);
+    await typeLines(page, 12);
+    await settle(60);
+    const closed = await page.evaluate(rowShape);
+    const closedCap = CLOSED_SHARE * PHONE.height;
+    assert.ok(Math.abs(parseFloat(closed.cap) - closedCap) <= 0.01, `the cap with the keyboard down is ${closed.cap}, not the ${closedCap}px share of the viewport it was`);
+    assert.ok(Math.abs(closed.box - closedCap) <= 0.1, `the row is ${closed.box} with the keyboard down, not ${closedCap}`);
+    assert.equal(closed.caretLine, 12);
+    assert.ok(caretInside(closed));
+    assert.ok(closed.leftBelow <= 0.5, `${closed.leftBelow}px left below the caret with the keyboard down`);
+
+    await startSampling(page, rowShape);
+    await page.evaluate(k => window.__keyboard.set(k.height, 0), { height: PHONE.height - KEYBOARD });
+    await settle(600);
+    await page.evaluate(() => { window.__sampling = false; });
+    const frames = await page.evaluate(() => window.__samples);
+    assert.ok(frames.length >= 8, `too few frames sampled (${frames.length})`);
+    frames.forEach((f, i) => {
+      assert.ok(caretInside(f), `frame ${i}: the caret's line (${f.caretTop} to ${f.caretBottom}) left the box of ${f.box}`);
+    });
+    const open = await page.evaluate(rowShape);
+    const openCap = OPEN_LINES * open.lh + open.pt + open.pb;
+    assert.ok(Math.abs(open.box - openCap) <= 0.1, `the row is ${open.box} under the keyboard, not ${openCap}`);
+    assert.equal(open.caretLine, 12);
+    assert.ok(caretInside(open));
+    assert.ok(open.leftBelow <= 0.5, `${open.leftBelow}px left below the caret under the keyboard`);
+    assert.ok(open.box < closed.box, "the row did not shrink under the keyboard");
+
+    await page.evaluate(() => document.activeElement.blur());
+    await settle(60);
+    await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height);
+    await settle(700);
+    const again = await page.evaluate(rowShape);
+    assert.ok(Math.abs(again.box - closedCap) <= 0.1, `the row is ${again.box} after the close, not ${closedCap}`);
+    assert.ok(caretInside(again));
+    assert.ok(again.leftBelow <= 0.5, `${again.leftBelow}px left below the caret after the close`);
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
