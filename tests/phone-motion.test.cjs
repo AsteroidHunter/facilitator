@@ -71,6 +71,45 @@ async function shot(page, name) {
   await page.screenshot({ path: path.join(SHOTS, name + ".png") });
 }
 
+// every part of a menu's motion, read off the page and the menu itself
+async function readMenu(page, sel) {
+  return page.evaluate(one => {
+    const panel = document.querySelector(one);
+    const surface = document.getElementById("page");
+    const p = getComputedStyle(surface), q = getComputedStyle(panel);
+    return {
+      open: panel.classList.contains("open"),
+      slide: Math.round(new DOMMatrix(p.transform).m41),
+      radius: p.borderTopLeftRadius,
+      shade: p.boxShadow,
+      width: Math.round(panel.getBoundingClientRect().width),
+      left: Math.round(panel.getBoundingClientRect().left),
+      right: Math.round(innerWidth - panel.getBoundingClientRect().right),
+      corners: [q.borderTopLeftRadius, q.borderTopRightRadius, q.borderBottomRightRadius, q.borderBottomLeftRadius],
+      lift: Math.round(new DOMMatrix(q.transform).m42),
+      fade: Number(q.opacity).toFixed(2),
+      scrim: Number(getComputedStyle(document.getElementById("scrim")).opacity).toFixed(2),
+      ms: p.transitionDuration,
+      curve: p.transitionTimingFunction,
+      panelMs: q.transitionDuration,
+    };
+  }, sel);
+}
+
+// a pull from an edge, held at a fraction of the menu's width so the frame it
+// stands on can be looked at, and then let go
+async function pull(page, side, fraction, hold) {
+  const width = await page.evaluate(one => document.querySelector(one).getBoundingClientRect().width,
+    side === "right" ? "#settings" : "#drawer");
+  const from = side === "right" ? 384 : 6;
+  const travel = Math.round(width * fraction) * (side === "right" ? -1 : 1);
+  await page.touchscreen.touchStart(from, 500);
+  for (let step = 1; step <= 8; step++) await page.touchscreen.touchMove(from + Math.round(travel * step / 8), 500);
+  if (hold) await hold();
+  await page.touchscreen.touchEnd();
+  await settle(750);
+}
+
 before(async () => {
   await mkdir(SHOTS, { recursive: true });
   fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-phone-motion-"));
@@ -308,5 +347,86 @@ test("a send moves on to the card that has waited longest, on the desktop's wait
   } finally {
     await page.close();
     await api("/park?box=0&v=0");
+  }
+});
+
+test("the card list is uncovered by the page sliding off it, on the reference drawer's run", async () => {
+  const { page, problems } = await openPhone("/m");
+  try {
+    await page.waitForSelector("article.box.sel", { timeout: 5000 });
+    const shut = await readMenu(page, "#drawer");
+    assert.equal(shut.open, false);
+    assert.equal(shut.slide, 0, "the page does not start square on the screen");
+    assert.equal(shut.radius, "0px", "the page starts with rounded corners");
+    assert.equal(shut.shade, "none", "the page carries a shade with nothing out");
+    assert.equal(shut.scrim, "0.00");
+    assert.equal(shut.lift, 20, "the menu does not wait below its place");
+    assert.equal(shut.fade, "0.40", "the menu does not wait at four tenths of its strength");
+    assert.equal(shut.left, 0, "the card list is not against the left edge");
+    // the two corners the page's edge stops against are rounded, the two at the
+    // screen's own edge are square
+    assert.deepEqual(shut.corners, ["0px", "7px", "7px", "0px"], "the card list's visible corners are not the board's 7px");
+    assert.match(shut.ms, /0\.55s/, "the run is not 550ms");
+    assert.match(shut.curve, /cubic-bezier\(0\.445, 0\.05, 0\.55, 0\.95\)/, "a tap does not open on the ease in and out");
+    assert.match(shut.panelMs, /0\.55s/, "the menu itself is on another clock than the page");
+    await shot(page, "drawer-closed");
+
+    await page.evaluate(() => openDrawer());
+    await settle(250);
+    const half = await readMenu(page, "#drawer");
+    assert.ok(half.slide > 0 && half.slide < half.width, `the page did not travel over time (${half.slide})`);
+    assert.ok(Number(half.fade) > 0.4 && Number(half.fade) < 1, `the menu did not come up over time (${half.fade})`);
+    await shot(page, "drawer-half");
+
+    await settle(500);
+    const out = await readMenu(page, "#drawer");
+    assert.equal(out.open, true);
+    assert.equal(out.slide, out.width, "the page did not move over by the menu's width");
+    assert.equal(out.radius, "24px", "the page's corners did not round to the reference drawer's 24px");
+    assert.match(out.shade, /rgba\(0, 0, 0, 0\.15\)/, "the page carries no shade on its moving edge");
+    assert.match(out.shade, /-4px 0px 12px/, "the shade is not on the edge the page moved away from");
+    assert.equal(out.lift, 0, "the menu did not rise into place");
+    assert.equal(out.fade, "1.00", "the menu did not come up to its full strength");
+    assert.equal(out.scrim, "1.00");
+    await shot(page, "drawer-open");
+
+    await page.evaluate(() => closeDrawer());
+    await settle(750);
+    const back = await readMenu(page, "#drawer");
+    assert.equal(back.open, false);
+    assert.equal(back.slide, 0, "the page did not come back");
+    assert.equal(back.radius, "0px", "the page kept its rounded corners");
+    assert.equal(back.shade, "none");
+    assert.equal(back.lift, 20);
+    assert.equal(back.fade, "0.40");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("a pull past the middle opens the card list and one short of it goes back", async () => {
+  const { page, problems } = await openPhone("/m");
+  try {
+    await page.waitForSelector("article.box.sel", { timeout: 5000 });
+    await pull(page, "left", 0.4);
+    const shy = await readMenu(page, "#drawer");
+    assert.equal(shy.open, false, "a pull short of the middle opened the menu");
+    assert.equal(shy.slide, 0);
+
+    let midway = null;
+    await pull(page, "left", 0.6, async () => {
+      midway = await readMenu(page, "#drawer");
+      await shot(page, "drawer-dragged");
+    });
+    assert.ok(midway.slide > 0 && midway.slide < midway.width, "the page does not follow the finger");
+    assert.equal(midway.ms, "0s", "the page is on a clock while the finger holds it");
+    const held = await readMenu(page, "#drawer");
+    assert.equal(held.open, true, "a pull past the middle did not open the menu");
+    assert.equal(held.slide, held.width);
+    assert.match(held.curve, /cubic-bezier\(0\.215, 0\.61, 0\.355, 1\)/, "a released drag does not finish on the ease out");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
   }
 });

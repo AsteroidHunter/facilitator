@@ -37,20 +37,50 @@
     --sp-xs:4px; --sp-s:8px; --sp-x:10px;
     --pend-bar:32px;
     --titleair:calc(var(--pad-x)*2/3);
+    /* the menus' motion, taken from the drawer this page's menus are drawn
+       from: one run of 550ms, an ease in and out on a tap and an ease out on
+       the release of a drag, so a drag that is already moving is not asked to
+       start again. --drawer-curve is the one in force, written by the script
+       at whichever of the two the run was begun by */
+    --drawer-ms:.55s;
+    --drawer-tap:cubic-bezier(.445,.05,.55,.95);
+    --drawer-drag:cubic-bezier(.215,.61,.355,1);
+    --drawer-curve:var(--drawer-tap);
+    /* how far the page's corners round while a menu is out, and how far the
+       menu itself rises into place, both that drawer's own numbers */
+    --page-round:24px;
+    --panel-rise:20px;
   }
   *{box-sizing:border-box}
   html{height:100%; -webkit-text-size-adjust:100%}
   body{
     margin:0; background:var(--paper); color:var(--ink);
     font:15px/1.55 var(--sans);
-    background-image:radial-gradient(circle at 18% -4%, #FCFCFB 0%, rgba(252,252,251,0) 52%);
     position:fixed; left:0; top:0; width:100%; height:100%;
-    overflow:hidden; display:flex; flex-direction:column;
+    overflow:hidden;
+    -webkit-tap-highlight-color:transparent;
+  }
+  /* the page: the tabs, the note and the card, on the paper, as one surface. it
+     is a layer of its own so a menu can be laid BEHIND it and shown by sliding
+     the page itself aside, which is the motion the drawer this page's menus are
+     drawn from is built on. the app's thin margin and the paper are its own for
+     that reason: what slides has to be opaque and the whole size of the screen,
+     or a menu behind it would show through its middle instead of from under its
+     edge. it covers the body exactly, so nothing on it moved by a pixel */
+  #page{
+    position:absolute; inset:0; z-index:10;
+    display:flex; flex-direction:column; overflow:hidden;
     padding:calc(env(safe-area-inset-top, 0px) + var(--app-inset))
             calc(env(safe-area-inset-right, 0px) + var(--app-inset))
             calc(env(safe-area-inset-bottom, 0px) + var(--app-inset))
             calc(env(safe-area-inset-left, 0px) + var(--app-inset));
-    -webkit-tap-highlight-color:transparent;
+    background:var(--paper);
+    background-image:radial-gradient(circle at 18% -4%, #FCFCFB 0%, rgba(252,252,251,0) 52%);
+    transform:translateX(var(--slide, 0px));
+    border-radius:var(--pageround, 0px);
+    box-shadow:var(--pageshade, none);
+    transition:transform var(--drawer-ms) var(--drawer-curve),
+               border-radius var(--drawer-ms) var(--drawer-curve);
   }
   button{font-family:inherit; -webkit-appearance:none; appearance:none}
 
@@ -338,20 +368,36 @@
   .sendbtn.show{opacity:1; transform:scale(1); pointer-events:auto}
   .sendbtn:active{background:color-mix(in srgb, #000 var(--press), var(--card))}
 
-  /* ---- the card list, in a drawer off the left edge ------------------------ */
-  #scrim{position:fixed; inset:0; background:rgba(33,29,23,.18); opacity:0;
-    pointer-events:none; transition:opacity .26s var(--gentle); z-index:19}
-  #scrim.on{opacity:1; pointer-events:auto}
-  #drawer{
-    position:fixed; top:0; bottom:0; left:0; width:min(84vw, 340px); z-index:20;
-    background:#fff; border-right:1px solid var(--line);
-    box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
-    transform:translateX(-100%); transition:transform .26s var(--gentle);
+  /* ---- the card list off the left edge, the settings off the right --------- */
+  /* the shade over the page while a menu is out, and the tap that shuts it. it
+     lies on the page and travels with it, so it darkens the page alone and
+     never the menu the page has moved off */
+  #scrim{position:absolute; inset:0; background:rgba(33,29,23,.18);
+    opacity:var(--scrimv, 0); pointer-events:none; z-index:19;
+    transition:opacity var(--drawer-ms) var(--drawer-curve)}
+  body.menuout #scrim{pointer-events:auto}
+  /* both menus stand still at their own edge of the screen, BEHIND the page,
+     and are uncovered by the page sliding off them. while one is out it rises
+     the last of its own height into place and comes up from four tenths of its
+     strength to all of it, which is that drawer's own arrival */
+  #drawer, #settings{
+    position:fixed; top:0; bottom:0; width:min(84vw, 340px); z-index:5;
+    background:#fff;
     display:flex; flex-direction:column;
     padding-top:env(safe-area-inset-top, 0px); padding-bottom:env(safe-area-inset-bottom, 0px);
+    transform:translateY(var(--rise, var(--panel-rise)));
+    opacity:var(--panelv, .4);
+    transition:transform var(--drawer-ms) var(--drawer-curve),
+               opacity var(--drawer-ms) var(--drawer-curve);
   }
-  #drawer.open{transform:none}
-  #drawer.drag{transition:none}
+  /* the two corners that can be seen, the ones the page's edge stops against,
+     on the board's own 7px: the rounding every panel let into this paper wears,
+     the card pane's and the sent box's. the two at the screen's own edge are
+     left square, since a corner rounded there would only cut the paper */
+  #drawer{left:0; border-right:1px solid var(--line); border-radius:0 7px 7px 0}
+  #settings{right:0; border-left:1px solid var(--line); border-radius:7px 0 0 7px}
+  /* a finger on the page is followed frame by frame, so nothing on it is timed */
+  body.menudrag #page, body.menudrag #scrim, body.menudrag #drawer, body.menudrag #settings{transition:none}
   #tikhead{flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 8px 0; border-bottom:1px solid var(--line)}
   .tvb{flex:1; font:500 13px/16px var(--sans); color:var(--sub); background:transparent;
     border:1px solid transparent; border-bottom:none; border-radius:0;
@@ -399,15 +445,17 @@
 </head>
 <body>
 
-<div class="bar"><span id="tabbar"></span></div>
-<div id="offline"></div>
-<main id="pane" class="blank">
-  <div id="empty">no cards on this tab yet</div>
-  <div id="cards"></div>
-</main>
+<div id="page">
+  <div class="bar"><span id="tabbar"></span></div>
+  <div id="offline"></div>
+  <main id="pane" class="blank">
+    <div id="empty">no cards on this tab yet</div>
+    <div id="cards"></div>
+  </main>
+  <div id="scrim"></div>
+</div>
 
-<div id="scrim"></div>
-<aside id="drawer" aria-label="cards">
+<aside id="drawer" aria-label="cards" data-side="left">
   <div id="tikhead">
     <button id="tv-todo" class="tvb on" type="button">doing</button>
     <button id="tv-deferred" class="tvb" type="button">deferred</button>
@@ -810,55 +858,90 @@ document.getElementById("tv-deferred").addEventListener("click", () => setView("
 document.getElementById("tv-done").addEventListener("click", () => setView("done"));
 document.getElementById("tikadd").addEventListener("click", createCard);
 
-// the drawer comes in from the left edge under the finger and goes back the
-// same way; the scrim behind it takes a tap to shut it
+// ---- the two menus, and the one motion they share --------------------------------
+// the card list is pulled in from the left edge and the settings from the right,
+// and neither of them travels: each stands still at its own edge behind the page
+// and the page slides off it. this is the shape of the drawer in the other app
+// these were asked to be drawn from, part for part. one number, the fraction the
+// menu is out by, drives every part of it: the page's travel, the rounding of
+// the page's corners, the shade under the page's moving edge, the shade over the
+// page's face, and the menu's own lift and strength. the run is 550ms, on an
+// ease in and out when it is begun by a tap and an ease out when a drag lets go
+// of it part way, and a drag that lets go past the halfway mark opens
+const page = document.getElementById("page");
 const drawer = document.getElementById("drawer");
 const scrim = document.getElementById("scrim");
-function drawerWidth(){ return drawer.getBoundingClientRect().width; }
-function openDrawer(){
-  drawer.classList.remove("drag"); drawer.style.transform = "";
-  drawer.classList.add("open"); scrim.classList.add("on");
+const menus = [drawer];   // the settings panel joins this list where it is built
+function menuWidth(panel){ return panel.getBoundingClientRect().width; }
+function menuSign(panel){ return panel.dataset.side === "right" ? -1 : 1; }   // which way the page goes
+function menuOut(){ return menus.find(p => p.classList.contains("open")) || null; }
+// the one number, painted onto the page and the menu
+function paintMenu(panel, v){
+  const w = menuWidth(panel), dir = menuSign(panel);
+  page.style.setProperty("--slide", (dir * v * w).toFixed(2) + "px");
+  page.style.setProperty("--pageround", "calc(var(--page-round) * " + v.toFixed(4) + ")");
+  // the shade the page carries on the edge it is moving away from, so the page
+  // reads as the nearer of the two surfaces. it is there or it is not, like the
+  // drawer this is drawn from, and never a shade fading in on a still page
+  page.style.setProperty("--pageshade", v > 0 ? (-4 * dir) + "px 0 12px rgba(0,0,0,.15)" : "none");
+  page.style.setProperty("--scrimv", v ? v.toFixed(4) : "0");
+  panel.style.setProperty("--rise", "calc(var(--panel-rise) * " + (1 - v).toFixed(4) + ")");
+  panel.style.setProperty("--panelv", (0.4 + 0.6 * v).toFixed(4));
+  document.body.classList.toggle("menuout", v > 0);
+}
+// a run, on whichever of the two curves the thing that began it hands in. the
+// drag's dress comes off first and the page is measured while it is off, so what
+// follows is a run from where the finger left it and not a jump
+function runMenu(panel, v, curve){
+  document.documentElement.style.setProperty("--drawer-curve", curve);
+  if (document.body.classList.contains("menudrag")){
+    document.body.classList.remove("menudrag");
+    void page.offsetWidth;
+  }
+  panel.classList.toggle("open", v > 0);
+  paintMenu(panel, v);
+}
+function showMenu(panel, curve){
   if (lastState) renderTickets(lastState);
-  drawer.querySelector(".trow.on")?.scrollIntoView({ block: "nearest" });
+  runMenu(panel, 1, curve || "var(--drawer-tap)");
+  panel.querySelector(".trow.on")?.scrollIntoView({ block: "nearest" });
 }
-function closeDrawer(){
-  drawer.classList.remove("drag", "open"); drawer.style.transform = "";
-  scrim.classList.remove("on");
-}
+function hideMenu(panel, curve){ runMenu(panel, 0, curve || "var(--drawer-tap)"); }
+function openDrawer(){ showMenu(drawer); }
+function closeDrawer(){ hideMenu(drawer); }
 function drawerOpen(){ return drawer.classList.contains("open"); }
-scrim.addEventListener("click", closeDrawer);
+scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu(out); });
 {
-  const EDGE = 28;    // how far in from the left edge a pull may begin
-  let x0 = 0, y0 = 0, dx = 0, live = false, opening = false, decided = false;
+  const EDGE = 28;    // how far in from an edge a pull may begin
+  let panel = null, x0 = 0, y0 = 0, at = 0, live = false, opening = false, decided = false;
   const start = (x, y) => {
-    opening = !drawerOpen() && x <= EDGE;
-    if (!opening && !drawerOpen()) return;
-    live = true; decided = false; x0 = x; y0 = y; dx = 0;
+    const out = menuOut();
+    if (out){ panel = out; opening = false; }
+    else if (x <= EDGE){ panel = drawer; opening = true; }
+    else if (x >= innerWidth - EDGE && menus.length > 1){ panel = menus[1]; opening = true; }
+    else { panel = null; return; }
+    live = true; decided = false; x0 = x; y0 = y; at = opening ? 0 : 1;
   };
   const move = (x, y, e) => {
     if (!live) return;
-    dx = x - x0;
+    const dx = x - x0;
     if (!decided){
       if (Math.abs(dx) < 6 && Math.abs(y - y0) < 6) return;
       if (Math.abs(y - y0) > Math.abs(dx)){ live = false; return; }   // a scroll, not a pull
       decided = true;
-      drawer.classList.add("drag");
+      document.body.classList.add("menudrag");
     }
     if (e && e.cancelable) e.preventDefault();
-    const w = drawerWidth();
-    const at = opening ? Math.min(0, -w + dx) : Math.min(0, dx);
-    drawer.style.transform = "translateX(" + at + "px)";
-    scrim.classList.add("on");
-    scrim.style.opacity = String(Math.max(0, Math.min(1, 1 + at / w)));
+    const w = menuWidth(panel), d = menuSign(panel) * dx;
+    at = Math.max(0, Math.min(1, (opening ? d : w + d) / w));
+    paintMenu(panel, at);
   };
   const end = () => {
     if (!live) return;
     live = false;
-    scrim.style.opacity = "";
     if (!decided) return;
-    const w = drawerWidth();
-    const shown = opening ? dx : w + dx;
-    if (shown > w / 3) openDrawer(); else closeDrawer();
+    // let go past the middle and it opens, before it and it goes back
+    runMenu(panel, at > 0.5 ? 1 : 0, "var(--drawer-drag)");
   };
   document.addEventListener("touchstart", e => { const t = e.touches[0]; if (t) start(t.clientX, t.clientY); }, { passive: true });
   document.addEventListener("touchmove", e => { const t = e.touches[0]; if (t) move(t.clientX, t.clientY, e); }, { passive: false });
