@@ -3415,13 +3415,48 @@ function deselect(){
 
 let tabDrag = null;   // one grip, two gestures: sideways reorders the bar, a downward tug tears the tab out
 let tabGlide = null;  // the settle timer after a drop; the bar may not repaint under it
-// the tabs he has closed: his own view of the bar, never anything about the
-// lanes themselves. one key per lane, in the shape and with the plain "1" the
-// box cross already writes for a box put away, so a closed tab is as cheap to
-// undo as a hidden box and as private to this browser
+// the tabs he has closed: his view of the bar, never anything about the lanes
+// themselves. it rides in the board's own tab record beside the order, so the
+// bar he closed a tab in is the bar the phone draws too, and a closed tab is
+// as cheap to undo as it ever was. TABHIDE is the key the closed set used to
+// live under, read once by the carry-over below and written nowhere
 const TABHIDE = "tabhide.";
-function tabClosed(ow){
-  try { return !!localStorage.getItem(TABHIDE + ow); } catch (err) { return false; }
+function tabClosed(ow, st){
+  return tabShut(st || lastState, ow);
+}
+// ---- the one-time carry-over out of this browser's own storage ---------------
+// the bar's arrangement and the read marks used to live in localStorage, one
+// browser at a time; they live on the board now. the first load after the move
+// hands this browser's arrangement and read marks over, once, so nothing he
+// had set up is lost. after that the old keys are never read again
+function seedTabsOnce(st){
+  if (!st || tabRecord(st).order.length) return;   // the board already holds an arrangement
+  let saved = [];
+  try { saved = JSON.parse(localStorage.getItem("taborder") || "[]"); } catch (err) {}
+  if (!Array.isArray(saved)) saved = [];
+  const rows = allRowsOf(st);
+  if (!rows.length) return;
+  const lead = saved.filter(ow => rows.includes(ow));
+  const closed = rows.filter(ow => {
+    try { return !!localStorage.getItem(TABHIDE + ow); } catch (err) { return false; }
+  });
+  writeTabs({ order: [...lead, ...rows.filter(ow => !lead.includes(ow))], closed });
+}
+const SEEN_SEEDED = "seenseeded";
+function seedSeenOnce(st){
+  if (!st) return;
+  try { if (localStorage.getItem(SEEN_SEEDED)) return; } catch (err) { return; }
+  let old = {};
+  try { old = JSON.parse(localStorage.getItem("seenReplies") || "{}"); } catch (err) {}
+  if (!old || typeof old !== "object") old = {};
+  const marks = {};
+  for (const b of st.boxes){
+    // the old mark was the time of the viewing: a card last opened after its
+    // last answer landed was read, and being read is what carries over
+    if ((old[b.id] || 0) >= (b.agentTs || 0)) marks[b.id] = b.replies || 0;
+  }
+  try { localStorage.setItem(SEEN_SEEDED, "1"); } catch (err) {}
+  setSeenMany(marks);
 }
 function renderTabs(st){
   if (!FOCUS || !st) return;
@@ -3437,10 +3472,12 @@ function renderTabs(st){
     // server, and then the first lane left takes its tab back. an unread reply
     // never does this, only an empty bar does
     if (!open.length && allRowsOf(st).length){
-      try { localStorage.removeItem(TABHIDE + allRowsOf(st)[0]); } catch (err) {}
+      const rec = tabRecord(st), first = allRowsOf(st)[0];
+      writeTabs({ order: rec.order.length ? rec.order : allRowsOf(st),
+                  closed: rec.closed.filter(ow => ow !== first) });
       open = rowsOf(st);
     }
-    if (open.length && tabClosed(activeOwner)) setTab(open[0]);
+    if (open.length && tabClosed(activeOwner, st)) setTab(open[0]);
   }
   const bar = document.getElementById("tabbar");
   // every lane is built, the closed ones included: they are held back by the
@@ -3510,7 +3547,7 @@ function renderTabs(st){
     // a closed lane holding a reply he has not opened stays closed: the bold is
     // still marked on the tab, and the tab is still out of the bar. nothing
     // here can put a tab back; only the plus button's folder flow does that
-    t.classList.toggle("closed", tabClosed(t.dataset.owner));
+    t.classList.toggle("closed", tabClosed(t.dataset.owner, st));
     const lbl = t.querySelector(".plabel");
     const want = labelOf(st, t.dataset.owner);
     if (lbl.textContent !== want){ lbl.textContent = want; lbl.dataset.label = want; }
@@ -3555,15 +3592,17 @@ function tabDwell(t){
     t.classList.add("armed");
   }, TAB_DWELL) };
 }
-// closing a tab works exactly as putting a box away works: one localStorage key
-// is written and nothing else. no card, no lane and nothing on the server moves,
-// so the tab that comes back brings its project back as it was, cards, layout
-// and pictures included
+// closing a tab works exactly as putting a box away works: the bar's record is
+// written and nothing else. no card and no lane moves, so the tab that comes
+// back brings its project back as it was, cards, layout and pictures included.
+// the record is the board's, so the phone's bar loses the tab on its next poll
 function closeTab(ow){
   if (LOCKED || !lastState || tabClosed(ow)) return;
   const open = rowsOf(lastState);
   if (open.length < 2) return;   // the last tab stays: the board must always have a lane to sit on
-  try { localStorage.setItem(TABHIDE + ow, "1"); } catch (err) {}
+  const rec = tabRecord(lastState);
+  writeTabs({ order: rec.order.length ? rec.order : allRowsOf(lastState),
+              closed: [...rec.closed, ow] });
   // he closed the tab he was on: the board takes the neighbour to its right,
   // or the one to its left at the end of the bar
   if (activeOwner === ow){
@@ -3577,7 +3616,11 @@ function closeTab(ow){
 // lands here holding the lane whose folder he chose. the key is dropped, the tab
 // is in the bar in its own place again, and the board steps onto it
 function reopenTab(ow){
-  try { localStorage.removeItem(TABHIDE + ow); } catch (err) {}
+  if (lastState){
+    const rec = tabRecord(lastState);
+    writeTabs({ order: rec.order.length ? rec.order : allRowsOf(lastState),
+                closed: rec.closed.filter(x => x !== ow) });
+  }
   setTab(ow);   // this ends the choosing tab and lands on the card he left here
   if (lastState) renderTabs(lastState);
 }
@@ -3688,7 +3731,7 @@ function dropReorder(){
   const order = (lastState ? allRowsOf(lastState) : strip).filter(ow => ow !== t.ow);
   const prev = strip[strip.indexOf(t.ow) - 1];
   order.splice(prev ? order.indexOf(prev) + 1 : 0, 0, t.ow);
-  try { localStorage.setItem("taborder", JSON.stringify(order)); } catch (err) {}
+  writeTabs({ order, closed: tabRecord(lastState).closed });
   t.el.style.transition = "transform 220ms cubic-bezier(0.25, 1, 0.5, 1)";
   t.el.style.transform = "translate(" + (left - r[i].left) + "px, 0)";
   tabGlide = setTimeout(() => {   // a timer, not transitionend: a zero-length glide fires no event
@@ -3738,12 +3781,12 @@ function renderHome(st){
   if (!draft || draft.screen !== "home" || !st) return;
   const box = document.getElementById("nprows");
   const owners = allRowsOf(st);
-  const sig = owners.map(ow => ow + labelOf(st, ow) + ((st.pwds || {})[ow] || "") + (tabClosed(ow) ? "~" : "")).join(",") + "|" + draft.from;
+  const sig = owners.map(ow => ow + labelOf(st, ow) + ((st.pwds || {})[ow] || "") + (tabClosed(ow, st) ? "~" : "")).join(",") + "|" + draft.from;
   if (box.dataset.sig === sig) return;
   box.dataset.sig = sig;
   box.textContent = "";
   for (const ow of owners){
-    const shut = tabClosed(ow);
+    const shut = tabClosed(ow, st);
     const row = h("div", "nprow" + (ow === draft.from ? " sel" : "") + (shut ? " shut" : ""));
     row.appendChild(h("span", "npname", labelOf(st, ow)));
     row.appendChild(h("span", "nppath", (st.pwds || {})[ow] || ""));
@@ -3859,7 +3902,7 @@ function updatePwd(st){
 // the lanes the bar is showing, which is what the keys walk and what counts as
 // a neighbour: a closed tab is simply not among them
 function rowsOf(state){
-  return allRowsOf(state).filter(ow => !tabClosed(ow));
+  return allRowsOf(state).filter(ow => !tabClosed(ow, state));
 }
 
 function nav(dx, dy, opts){
@@ -7387,7 +7430,7 @@ function renderCarousel(state){
   const lane = state.agents?.[activeOwner];
   const sig = ticketView + "|" + (lane ? lane.name + lane.alive : "") + "|" +
               pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
-                      ((seenReplies[b.id] || 0) >= (b.agentTs || 0) ? "r" : "") +
+                      ((seenReplies[b.id] || 0) >= (b.replies || 0) ? "r" : "") +
                       (b.id === selectedId ? "!" : "") + (b.task || "") + b.title +
                       Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",") +
               "|" + selectedTask;
@@ -7405,9 +7448,9 @@ function renderCarousel(state){
       // quirks kept: a claimed done row still pulses, and an untouched row
       // falls in with yours or queued by where the ball sits
       const busy = s === "working" || (s === "done" && cardState({ ...b, done: false, parked: false, state: null }) === "working");
-      const seenTs = seenReplies[b.id] || 0;
+      const read = seenReplies[b.id] || 0;
       const r = h("div", "trow" + (b.id === selectedId ? " on" : "") + (busy ? " working" : "") +
-                  (s === "yours" && seenTs >= (b.agentTs || 0) ? " seen" : "") +
+                  (s === "yours" && read >= (b.replies || 0) ? " seen" : "") +
                   (s === "yours" || (s === "new" && b.ball === "you") ? " yours" : "") +
                   (s === "queued" || (s === "new" && b.ball !== "you") ? " queuedc" : "") +
                   (s === "done" ? " donec" : "") +
@@ -7507,6 +7550,12 @@ async function poll(){
     const state = await (await fetch("/state")).json();
     pollFails = 0;
     if (!validateActiveOwner(state)) return;
+    // the read marks and the bar's arrangement are the board's, so they ride
+    // in on the state: taken in here, ahead of anything that draws from them,
+    // and this browser's old copies handed over once on the first load
+    seenSync(state);
+    seedTabsOnce(state);
+    seedSeenOnce(state);
     const caretBefore = focusedCaretContext();
     if (!lastState) build(state);
     apply(state);
