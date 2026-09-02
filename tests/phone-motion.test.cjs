@@ -193,3 +193,120 @@ test("the answer dissolves under the title as it scrolls and into the sent box a
     await page.close();
   }
 });
+
+test("the sent line lands on the tap, the box rises into it, and the poll reconciles", async () => {
+  // the seeded card is put out of the doing view so nothing else is waiting on
+  // him and the send stays on the card it was sent from, which is the card this
+  // test watches. the move to the next card has its own test below
+  await api("/park?box=0&v=1");
+  const id = await create("The send answers at once");
+  await api(`/reply?box=${id}`, LONG_REPLY);
+
+  const { page, problems } = await openPhone(`/m?box=${id}`);
+  try {
+    await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
+    await page.type("article.box.sel textarea", "Landed before the server answered");
+    // the click and the reading of the card happen in one turn of the event
+    // loop, so nothing the server says can have arrived in between
+    const atOnce = await page.evaluate(() => {
+      document.querySelector("article.box.sel .sendbtn").click();
+      const box = document.querySelector("article.box.sel");
+      const pend = box.querySelector(".pendlist");
+      return {
+        rows: [...box.querySelectorAll(".pendmsg")].map(r => r.dataset.text),
+        rising: pend.classList.contains("rising"),
+        timed: pend.classList.contains("timed"),
+        height: pend.style.height,
+        moving: getComputedStyle(pend).transitionProperty,
+        field: box.querySelector("textarea").value,
+        square: box.querySelector(".sendbtn").classList.contains("show"),
+      };
+    });
+    assert.deepEqual(atOnce.rows, ["Landed before the server answered"], "the line waited on the server");
+    assert.equal(atOnce.rising, true, "the box did not arrive on the shared rising dress");
+    assert.equal(atOnce.timed, true, "the arrival was not put on the clock");
+    assert.match(atOnce.moving, /height/, "the arrival is not a timed run");
+    assert.notEqual(atOnce.height, "0px", "the box was left at no height");
+    assert.equal(atOnce.field, "", "the words were left in the row he types on");
+    assert.equal(atOnce.square, false, "the send square stayed up with nothing to send");
+    // a burst over the arrival: the room opening under the answer, then the box
+    // coming up in it
+    await shot(page, "send-mid-1");
+    await settle(120);
+    await shot(page, "send-mid-2");
+    await settle(140);
+    await shot(page, "send-mid-3");
+
+    // the box is still on its way up a beat later, and standing on its own at the end
+    const mid = await page.evaluate(() => {
+      const pend = document.querySelector("article.box.sel .pendlist");
+      return { height: pend.getBoundingClientRect().height, rising: pend.classList.contains("rising") };
+    });
+    assert.ok(mid.height > 0, "the box never left the floor");
+    await settle(500);
+    const settled = await page.evaluate(() => {
+      const pend = document.querySelector("article.box.sel .pendlist");
+      const cs = getComputedStyle(pend);
+      return {
+        classes: pend.className,
+        inlineHeight: pend.style.height,
+        height: Math.round(pend.getBoundingClientRect().height),
+        bar: Math.round(parseFloat(cs.getPropertyValue("--pend-bar"))),
+        opacity: cs.opacity,
+        rows: [...document.querySelectorAll("article.box.sel .pendmsg")].map(r => r.dataset.text),
+        word: document.querySelector("article.box.sel .pendmsg .rcpt").textContent,
+      };
+    });
+    assert.equal(settled.classes, "pendlist", "the arrival left its dress on the box");
+    assert.equal(settled.inlineHeight, "", "the arrival left an inline height on the box");
+    assert.equal(settled.opacity, "1");
+    assert.ok(Math.abs(settled.height - settled.bar) <= 2, `the box did not land on its own folded height (${settled.height})`);
+    assert.deepEqual(settled.rows, ["Landed before the server answered"], "the poll doubled the sent line");
+    assert.equal(settled.word, "Delivered");
+    const saved = await (await fetch(origin + "/state")).json();
+    assert.deepEqual(saved.boxes.find(b => b.id === id).pendingTexts, ["Landed before the server answered"]);
+    const stamp = await page.evaluate(() => document.querySelector("article.box.sel .pendstamp").textContent);
+    assert.match(stamp, /\d{1,2}:\d{2} (AM|PM)$/, "the run's time was not taken over by the server's");
+    await shot(page, "send-settled");
+    assert.equal(await page.evaluate(() => selectedId), id, "the send left the card it was sent from");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+    await api("/park?box=0&v=0");
+  }
+});
+
+test("a send moves on to the card that has waited longest, on the desktop's wait", async () => {
+  const board = await readFile(path.join(ROOT, "index.html"), "utf8");
+  const phone = await readFile(path.join(ROOT, "m.html"), "utf8");
+  const wait = source => source.match(/const AUTONEXT_MS = (\d+)/)[1];
+  assert.equal(wait(phone), wait(board), "the phone waits a different time than the board before moving on");
+
+  // the seeded card also waits on him and was made before either of these, so it
+  // is put out of the doing view and the two under test are the only ones left
+  await api("/park?box=0&v=1");
+  const waiting = await create("The card that waits");
+  await api(`/reply?box=${waiting}`, "Waiting on him");
+  const from = await create("The card he sends from");
+  await api(`/reply?box=${from}`, "Also waiting on him");
+
+  const { page, problems } = await openPhone(`/m?box=${from}`);
+  try {
+    await page.waitForSelector(`#box-${from}.sel`, { timeout: 5000 });
+    await page.type("article.box.sel textarea", "Off you go");
+    await page.evaluate(() => document.querySelector("article.box.sel .sendbtn").click());
+    await page.waitForFunction(id => selectedId === id, { timeout: 3000 }, waiting);
+    const landed = await page.evaluate(() => ({
+      selected: selectedId,
+      shown: document.querySelector("article.box.sel")?.id,
+      only: document.querySelectorAll("article.box.sel").length,
+    }));
+    assert.equal(landed.selected, waiting, "the send did not move on to the waiting card");
+    assert.equal(landed.shown, "box-" + waiting, "the card on screen is not the one it moved to");
+    assert.equal(landed.only, 1);
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+    await api("/park?box=0&v=0");
+  }
+});

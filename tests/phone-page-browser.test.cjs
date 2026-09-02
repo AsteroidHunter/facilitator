@@ -303,6 +303,10 @@ test("a pull from the left edge brings in the card list with the desktop's three
 });
 
 test("the composer sends through /send, the plus attaches a picture, the cross closes through /close", async () => {
+  // a send moves on to the next card waiting on him, the way the board does, so
+  // the seeded card is put out of the doing view and this card stays on screen
+  // for the rest of the test. the move itself has its own test
+  await api("/park?box=0&v=1");
   const id = await create("Composer on the phone");
   await api(`/reply?box=${id}`, "Reply to answer");
   const { page, problems } = await openPhone(`/m?box=${id}`);
@@ -353,6 +357,7 @@ test("the composer sends through /send, the plus attaches a picture, the cross c
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
+    await api("/park?box=0&v=0");
   }
 });
 
