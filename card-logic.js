@@ -102,26 +102,96 @@ function allRowsOf(state){
   for (const p of (state.projects || []))
     if (!owners.includes(p.id)) owners.push(p.id);
   owners.sort((a, b) => (a === "facilitator" ? -1 : b === "facilitator" ? 1 : 0));
-  // a dragged tab order outlives reloads and server restarts: saved lanes
-  // lead in their saved sequence, lanes the array does not know keep the
-  // natural order after them, and stale saved ids must never throw
-  let saved = [];
-  try { saved = JSON.parse(localStorage.getItem("taborder") || "[]"); } catch (err) {}
-  if (!Array.isArray(saved)) saved = [];
+  // a dragged tab order outlives reloads, server restarts and the device it
+  // was dragged on: saved lanes lead in their saved sequence, lanes the record
+  // does not know keep the natural order after them, and stale saved ids must
+  // never throw
+  const saved = tabRecord(state).order;
   const lead = saved.filter(ow => owners.includes(ow));
   return [...lead, ...owners.filter(ow => !lead.includes(ow))];
+}
+
+// ---- the tab bar's record ---------------------------------------------------------
+// which lanes the bar shows and in what order is the board's own record, kept
+// on the server and handed out with the state, so the desktop and the phone
+// draw one bar and either of them may reorder it. an empty order is a board
+// that has never had an arrangement written, and both pages then fall back to
+// the natural lane order they always used.
+const TAB_HOLD = 3000;   // ms a page's own write outranks a poll already in flight
+let tabsHeld = null;     // {rec, until}: this page's write, until a poll carries it back
+function tabRecord(state){
+  const rec = (state && state.tabs) || {};
+  const now = {
+    order: Array.isArray(rec.order) ? rec.order : [],
+    closed: Array.isArray(rec.closed) ? rec.closed : [],
+  };
+  // a poll that left before this page's write must not undo it; once the
+  // record agrees, or the hold runs out, the server's answer is the truth
+  if (tabsHeld && Date.now() < tabsHeld.until &&
+      JSON.stringify(now) !== JSON.stringify(tabsHeld.rec)) return tabsHeld.rec;
+  return now;
+}
+function tabShut(state, ow){ return tabRecord(state).closed.includes(ow); }
+// one write, the whole record at once, so a reorder can never half land. what
+// the server answers is what the page keeps, never the copy it sent
+function writeTabs(rec){
+  const clean = { order: (rec.order || []).slice(), closed: (rec.closed || []).slice() };
+  tabsHeld = { rec: clean, until: Date.now() + TAB_HOLD };
+  return fetch("/tabs", { method: "POST", body: JSON.stringify(clean) })
+    .then(r => r.json())
+    .then(r => { if (r && r.tabs) tabsHeld = { rec: r.tabs, until: Date.now() + TAB_HOLD }; })
+    .catch(() => {});
 }
 function labelOf(state, owner){
   const dir = (state.pwds || {})[owner] || "";
   return dir.split("/").filter(Boolean).pop() || owner;
 }
 
-// which replies the owner has laid eyes on: box id -> time of the viewing;
-// selecting a card counts as reading the reply it shows
-const seenReplies = JSON.parse(localStorage.getItem("seenReplies") || "{}");
+// which replies the owner has laid eyes on: box id -> how many replies the
+// card carried when he last opened it; selecting a card counts as reading the
+// reply it shows. the board keeps this, one record per card, so a card opened
+// on the phone counts as read on the desktop too. the map below is this page's
+// copy of what the state last said, with its own writes held on top of it
+const SEEN_HOLD = 3000;   // ms a page's own write outranks a poll already in flight
+const seenReplies = {};
+const seenHeld = {};      // id -> {n, until}: this page's write, until a poll carries it back
+const seenTotals = {};    // id -> the replies the card carried at the last sync
+function seenSync(state){
+  const now = Date.now();
+  for (const b of (state.boxes || [])){
+    const said = b.seen || 0;
+    const held = seenHeld[b.id];
+    if (held && (said >= held.n || now >= held.until)) delete seenHeld[b.id];
+    seenReplies[b.id] = seenHeld[b.id] ? Math.max(said, seenHeld[b.id].n) : said;
+    seenTotals[b.id] = b.replies || 0;
+  }
+}
+// these cards are read now, up to the replies they are showing: the page marks
+// them at once and the board is told in one write, so the other device sees it
+// on its next poll. a mark that would lower a count is dropped, never sent
+function setSeenMany(marks){
+  const send = {};
+  for (const id of Object.keys(marks)){
+    const n = marks[id];
+    if (!(n > 0) || (seenReplies[id] || 0) >= n) continue;
+    seenReplies[id] = n;
+    seenHeld[id] = { n: n, until: Date.now() + SEEN_HOLD };
+    send[id] = n;
+  }
+  if (!Object.keys(send).length) return Promise.resolve();
+  return fetch("/seen", { method: "POST", body: JSON.stringify(send) })
+    .then(r => r.json())
+    .then(r => {
+      for (const [id, n] of Object.entries((r && r.seen) || {})){
+        if (typeof n !== "number") continue;
+        seenReplies[id] = n;
+        seenHeld[id] = { n: n, until: Date.now() + SEEN_HOLD };
+      }
+    })
+    .catch(() => {});
+}
 function markSeen(id){
-  seenReplies[id] = Date.now() / 1000;
-  localStorage.setItem("seenReplies", JSON.stringify(seenReplies));
+  if (seenTotals[id] != null) setSeenMany({ [id]: seenTotals[id] });
 }
 
 // does this lane still hold a reply he has not opened? this is the left
@@ -133,7 +203,7 @@ function markSeen(id){
 function laneUnread(state, owner){
   return !!state && state.boxes.some(b =>
     b.owner === owner && b.id !== "q" && cardState(b) === "yours" &&
-    (seenReplies[b.id] || 0) < (b.agentTs || 0));
+    (seenReplies[b.id] || 0) < (b.replies || 0));
 }
 
 function pickInRow(state, owner){
