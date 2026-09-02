@@ -24,28 +24,18 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
 <style>
   :root{
-    --paper:#F5F4F1; --card:#FFFFFF; --ink:#211D17; --sub:#75695A;
-    --line:#E6DFD2; --line-strong:#D8CFBE;
-    --accent:#432BFF; --accent-soft:#EEEBFF;
-    --green:#2F6B3C; --green-bg:#EDF4E8; --green-line:#C4D9BB;
-    --must:#A8442A; --must-bg:#F7EAE4;
-    --could:#8A6D1F; --could-bg:#F5EFDD;
-    --later:#5A6473; --later-bg:#EAEDF1;
-    --serif:"Newsreader", Georgia, serif;
-    --sans:"IBM Plex Sans", -apple-system, sans-serif;
-    --mono:"IBM Plex Mono", ui-monospace, monospace;
-    --inter:"Inter", -apple-system, sans-serif;
-    /* the board's own measures, at phone size. --app-inset is the thin margin
-       the desktop app frame keeps from the window's edge; the safe area is
-       added to it below so the margin is thin on every side of a phone with
-       a notch too. --pad-x is the card pane's side padding, and the title and
-       the answer step in from it by the same thirds the desktop uses */
-    --app-inset:6px; --pad-x:18px;
+    /* the colours, the faces and the card's own constants (--app-inset,
+       --cardbar-h, --sq, --press, --row-min, --sbar, --gentle, --sunk-deep)
+       are shared with the desktop: card-tokens.css, loaded right after this
+       sheet. what stands here is the board's own measures, at phone size.
+       --app-inset is the thin margin the desktop app frame keeps from the
+       window's edge; the safe area is added to it below so the margin is thin
+       on every side of a phone with a notch too. --pad-x is the card pane's
+       side padding, and the title and the answer step in from it by the same
+       thirds the desktop uses */
+    --pad-x:18px;
     --sp-xs:4px; --sp-s:8px; --sp-x:10px;
-    --cardbar-h:34px; --sq:4px; --press:10%; --row-min:44px; --sbar:9px;
     --pend-bar:32px;
-    --gentle:cubic-bezier(.42,.06,.38,1);
-    --sunk-deep:inset 0 3px 7px rgba(60,45,20,.22), inset 0 1px 2px rgba(60,45,20,.14);
     --titleair:calc(var(--pad-x)*2/3);
   }
   *{box-sizing:border-box}
@@ -213,7 +203,6 @@
     display:flex; flex-direction:column; flex:1 1 auto; min-height:0; position:relative;
     animation:pendfade .22s ease-out;
   }
-  @keyframes pendfade{from{opacity:0}}
   .pendlist.open .chevtop{position:absolute; left:0; top:3px; transform:rotate(180deg)}
   .pendstamp{flex:none; text-align:right; font:12px var(--mono); color:var(--sub); padding:0 0 var(--sp-s); min-height:1.2em}
   .pendscroll{flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain}
@@ -317,52 +306,10 @@
   #notifynote{font:11.5px/1.4 var(--mono); color:var(--sub)}
   #notifynote:empty{display:none}
 
-  /* ---- card prose, the same vocabulary every card surface carries ---------- */
-  .cardmd{overflow-wrap:anywhere}
-  .cardmd p{margin:0 0 9px}
-  .cardmd > :last-child{margin-bottom:0}
-  .cardmd ul, .cardmd ol{margin:0 0 9px; padding-left:22px}
-  .cardmd li{margin:2px 0}
-  .cardmd li > ul, .cardmd li > ol{margin:3px 0 2px}
-  .cardmd h1, .cardmd h2, .cardmd h3, .cardmd h4, .cardmd h5, .cardmd h6{
-    margin:13px 0 7px; color:var(--ink); font-family:var(--inter); line-height:1.25;
-  }
-  .cardmd h1{font-size:1.55em}.cardmd h2{font-size:1.35em}.cardmd h3{font-size:1.2em}
-  .cardmd h4{font-size:1.1em}.cardmd h5{font-size:1em}.cardmd h6{font-size:.92em}
-  .cardmd a{color:inherit; text-decoration:underline; text-underline-offset:2px}
-  .cardmd .shot{display:block; max-width:100%; border-radius:6px; margin:8px auto}
-  .cardmd .shotgrid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
-    gap:8px; margin:8px 0 9px; align-items:start}
-  .cardmd .shotgrid[data-n="3"]{grid-template-columns:repeat(3,minmax(0,1fr))}
-  .cardmd .shotgrid[data-n="4"]{grid-template-columns:repeat(4,minmax(0,1fr))}
-  .cardmd .shotgrid .shot{margin:0 auto}
-  .cardmd .inlinecode{font-family:var(--mono); font-size:inherit; line-height:inherit;
-    color:var(--ink); background:var(--paper); border-radius:var(--sq);
-    padding:1px 4px; white-space:pre-wrap}
-  .cardmd .codeblockwrap{position:relative; margin:0 0 9px}
-  .cardmd .codeblock{margin:0; padding:10px 12px; border-radius:8px;
-    background:#EFF1F4; border:0; font:12.5px/1.5 var(--mono); color:var(--ink);
-    white-space:pre; overflow-x:auto; user-select:all; -webkit-user-select:all}
-  .cardmd .codeblockwrap[data-language] .codeblock{padding-top:29px}
-  .cardmd .codelang{position:absolute; top:7px; left:12px; max-width:calc(100% - 62px);
-    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-    color:var(--sub); font:10.5px/1.4 var(--mono)}
-  .cardmd .codeblockwrap .copybtn{position:absolute; top:6px; right:8px; padding:4px 6px;
-    display:flex; align-items:center; color:var(--sub); background:#fff;
-    box-shadow:0 1px 4px rgba(33,29,23,.18); border:0; border-radius:5px;
-    cursor:pointer; user-select:none; -webkit-user-select:none; opacity:0;
-    pointer-events:none; transition:opacity .15s}
-  .cardmd .codeblockwrap:hover .copybtn{opacity:1; pointer-events:auto}
-  .cardmd blockquote{margin:0 0 9px 2px; padding:2px 0 2px 12px;
-    border-left:3px solid var(--line-strong); color:var(--sub)}
-  .cardmd .tablewrap{max-width:100%; overflow-x:auto; margin:0 0 9px}
-  .cardmd table{width:100%; border-collapse:collapse; font:inherit}
-  .cardmd th, .cardmd td{padding:5px 7px; border:1px solid var(--line); text-align:left}
-  .cardmd th{font-weight:650; background:var(--paper)}
-  .cardmd .md-align-center{text-align:center}.cardmd .md-align-right{text-align:right}
-  .cardmd hr{height:0; margin:13px 0; border:0; border-top:1px solid var(--line-strong)}
+  /* card prose, the .cardmd rules, is shared with the desktop: card-tokens.css */
   @media (prefers-reduced-motion: reduce){ *{animation:none !important; transition:none !important} }
 </style>
+<link rel="stylesheet" href="/card-tokens.css">
 </head>
 <body>
 
@@ -389,6 +336,7 @@
 </aside>
 
 <script src="/card-markdown.js"></script>
+<script src="/card-logic.js"></script>
 <script>
 // ---- what the desktop card carries, at phone size ---------------------------
 const PLUS_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>';
@@ -396,8 +344,6 @@ const SEND_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" a
 const MOON_ICON = '<svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" stroke="none" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
 const CHEV_PATH = '<path d="M1 5.5 5.5 1.5 10 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>';
 const chevSVG = seat => '<svg class="chev ' + seat + '" width="11" height="7" viewBox="0 0 11 7" fill="none" aria-hidden="true">' + CHEV_PATH + "</svg>";
-const MONTHS3 = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-const SPIN_FRAMES = ["|","/","-","\\"];
 
 const els = {};                 // box id -> the card's parts
 let lastState = null;
@@ -409,126 +355,11 @@ let ticketView = "todo";        // the drawer's tab: doing, deferred, done
 const lastSel = {};             // owner -> the card he was on when he left that tab
 let pendingFocus = null;        // a card just made: name it as soon as it is drawn
 let wantBox = new URLSearchParams(location.search).get("box");   // a notification opened the page on this card
-const seenReplies = JSON.parse(localStorage.getItem("seenReplies") || "{}");
 
-function h(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
-function fmt(t){ return CardMarkdown.render(t || ""); }
-function replyFull(b){ return b.replyFull == null ? (b.reply || "") : b.replyFull; }
-
-// the one state a card's colour and place come from, read the way the desktop
-// reads it: the server ships it, and the recompute only serves an older server
-function cardState(b){
-  const s = b.state || (
-         b.done ? "done"
-       : b.parked ? "parked"
-       : (b.writing || b.bg) ? "working"
-       : (!b.agentTs && !b.pending && !b.replies) ? "new"
-       : b.ball === "you" ? "yours"
-       : "queued");
-  const shown = s === "note" ? "working" : s;
-  return (shown === "yours" && b.pending > 0) ? "queued" : shown;
-}
-function queueState(b){ return b.parked ? cardState({ ...b, parked: false, state: null }) : cardState(b); }
-function awaitsYou(b){
-  const s = cardState(b);
-  return (s === "yours" || (s === "new" && b.ball === "you")) && !(b.pending > 0);
-}
-function viewFilter(b){
-  const s = cardState(b);
-  return ticketView === "done" ? s === "done"
-       : ticketView === "deferred" ? s === "parked"
-       : (s !== "done" && s !== "parked");
-}
-function poolOf(state){
-  return state.boxes.filter(b => b.owner === activeOwner && b.id !== "q")
-    .sort((a, b) => {
-      const g = x => ({ "new": 0, yours: 1, queued: 2, working: 3, done: 4 })[queueState(x)];
-      if (g(a) !== g(b)) return g(a) - g(b);
-      if (g(a) === 0) return (b.ts || 0) - (a.ts || 0);
-      if (g(a) === 1) return (b.agentTs || 0) - (a.agentTs || 0);
-      return (b.ts || 0) - (a.ts || 0);
-    });
-}
-function viewPool(state){ return poolOf(state).filter(viewFilter); }
-
-// the project tabs: the lanes the cards name plus the stored project lanes,
-// tool meta first, then in the saved bar order if this browser has one
-function allRowsOf(state){
-  const owners = [];
-  for (const b of state.boxes)
-    if (b.owner !== "qchat" && !owners.includes(b.owner)) owners.push(b.owner);
-  for (const p of (state.projects || []))
-    if (!owners.includes(p.id)) owners.push(p.id);
-  owners.sort((a, b) => (a === "facilitator" ? -1 : b === "facilitator" ? 1 : 0));
-  let saved = [];
-  try { saved = JSON.parse(localStorage.getItem("taborder") || "[]"); } catch (err) {}
-  if (!Array.isArray(saved)) saved = [];
-  const lead = saved.filter(ow => owners.includes(ow));
-  return [...lead, ...owners.filter(ow => !lead.includes(ow))];
-}
-function labelOf(state, owner){
-  const dir = (state.pwds || {})[owner] || "";
-  return dir.split("/").filter(Boolean).pop() || owner;
-}
-function laneUnread(state, owner){
-  return !!state && state.boxes.some(b =>
-    b.owner === owner && b.id !== "q" && cardState(b) === "yours" &&
-    (seenReplies[b.id] || 0) < (b.agentTs || 0));
-}
-function markSeen(id){
-  seenReplies[id] = Date.now() / 1000;
-  localStorage.setItem("seenReplies", JSON.stringify(seenReplies));
-}
-function pickInRow(state, owner){
-  const row = state.boxes.filter(b => b.owner === owner && b.id !== "q");
-  if (!row.length) return null;
-  return (lastSel[owner] && row.find(b => b.id === lastSel[owner]))
-      || row.find(awaitsYou)
-      || row[0];
-}
-
-function stampText(ts){
-  if (!ts) return "";
-  const d = new Date(ts * 1000);
-  if (isNaN(d.getTime())) return "";
-  const hr = d.getHours();
-  const clock = (hr % 12 || 12) + ":" + String(d.getMinutes()).padStart(2, "0") + " " + (hr < 12 ? "AM" : "PM");
-  const now = new Date();
-  if (d.toDateString() === now.toDateString()) return clock;
-  const day = MONTHS3[d.getMonth()] + " " + d.getDate() + (d.getFullYear() === now.getFullYear() ? "" : " " + d.getFullYear());
-  return day + ", " + clock;
-}
-function shortAge(ts){
-  if (!ts) return "";
-  const sec = Date.now() / 1000 - ts;
-  if (sec < 60) return "now";
-  if (sec < 3600) return Math.floor(sec / 60) + "m";
-  if (sec < 86400) return Math.floor(sec / 3600) + "h";
-  return Math.floor(sec / 86400) + "d";
-}
+// the card's helpers, the one state a card's colour and place come from, the
+// lanes and the times are shared with the desktop: card-logic.js
 
 // ---- the card ----------------------------------------------------------------
-async function attach(files, ta){
-  for (const f of files.filter(x => x.type.startsWith("image/"))){
-    const r = await fetch("/upload?name=" + encodeURIComponent(f.name || "picture"), { method: "POST", body: f })
-      .then(x => x.json()).catch(() => null);
-    if (r?.url) ta.value = (ta.value ? ta.value.trimEnd() + "\n" : "") + r.url + "\n";
-  }
-  ta.dispatchEvent(new Event("input"));
-}
-
-function seatSquare(ta, square){
-  const cs = getComputedStyle(ta);
-  const lh = parseFloat(cs.lineHeight);
-  const pt = parseFloat(cs.paddingTop), pb = parseFloat(cs.paddingBottom);
-  const hgt = ta.getBoundingClientRect().height;
-  if (!lh || !hgt) return;
-  const lines = Math.max(1, Math.round((ta.scrollHeight - pt - pb) / lh));
-  const foot = ta.scrollHeight > ta.clientHeight + 1 ? hgt - pb : pt + lines * lh;
-  const mid = foot - lh / 2;
-  square.style.marginBottom = (hgt - mid - square.offsetHeight / 2) + "px";
-}
-
 function makeBox(b){
   const box = h("article", "box");
   box.id = "box-" + b.id;
@@ -622,17 +453,6 @@ function makeBox(b){
   return els[b.id];
 }
 
-// the thumb in the answer only shows while the answer is moving, the way every
-// scroller on the board hides its bar at rest
-function barFade(node){
-  let timer = null;
-  node.addEventListener("scroll", () => {
-    node.classList.add("scrolling");
-    clearTimeout(timer);
-    timer = setTimeout(() => node.classList.remove("scrolling"), 700);
-  }, { passive: true });
-}
-
 // ---- the sent box --------------------------------------------------------------
 function growPend(el){
   const pend = h("div", "pendlist");
@@ -647,61 +467,10 @@ function growPend(el){
   el.pend = pend;
   return pend;
 }
-function dropPend(el){
-  if (!el.pend) return;
-  el.pend.remove();
-  el.pend = null;
-  el.pendRaw = "";
-}
-function pendRow(text){
-  const row = h("div", "pendmsg");
-  row.dataset.text = text;
-  const content = h("div", "pendcontent cardmd");
-  content.innerHTML = fmt(text);
-  row.append(content, h("span", "rcpt"));
-  return row;
-}
-function stampRcpts(pend){
-  const rows = pend.querySelector(".pendslide").children, n = rows.length;
-  for (let i = 0; i < n; i++){
-    const want = i === n - 1 ? "Delivered" : i === n - 2 ? "Read" : "";
-    const r = rows[i].querySelector(".rcpt");
-    if (r.textContent !== want) r.textContent = want;
-  }
-}
-function pendBottom(pend){
-  const lane = pend.querySelector(".pendscroll");
-  if (lane) lane.scrollTop = lane.scrollHeight;
-}
-function stampRun(pend, stamps){
-  const s = pend.querySelector(".pendstamp");
-  const want = stampText(stamps && stamps[0]);
-  if (s.textContent !== want) s.textContent = want;
-}
-function syncPend(el, texts, stamps){
-  texts = texts || []; stamps = stamps || [];
-  if (!texts.length){ dropPend(el); return; }
-  const pend = el.pend || growPend(el);
-  const slide = pend.querySelector(".pendslide");
-  const have = [...slide.children];
-  const grows = texts.length >= have.length && have.every((row, i) => row.dataset.text === texts[i]);
-  if (!grows){
-    slide.textContent = "";
-    texts.forEach(t => slide.appendChild(pendRow(t)));
-  } else {
-    for (let i = have.length; i < texts.length; i++) slide.appendChild(pendRow(texts[i]));
-    if (texts.length > have.length) pendBottom(pend);
-  }
-  stampRcpts(pend);
-  stampRun(pend, stamps);
-  el.pendRaw = texts.join("\n\n");
-}
+// the rows, the delivery words, the run stamp and the poll's own pass over the
+// box (syncPend) are shared with the desktop: card-logic.js
 
 // ---- sending, closing, parking, naming ------------------------------------------
-function boxDone(id){
-  const b = lastState && lastState.boxes.find(x => x.id === id);
-  return !!(b && b.done);
-}
 function undone(id){
   fetch("/done?box=" + encodeURIComponent(id) + "&v=0", { method: "POST" }).then(() => poll()).catch(() => {});
 }
@@ -731,47 +500,6 @@ async function doSend(id){
     el.send.disabled = false;
   }
 }
-async function toggleFlag(id, kind){
-  const cls = kind === "done" ? "done" : "parked";
-  const on = els[id].box.classList.contains(cls);
-  await fetch("/" + kind + "?box=" + encodeURIComponent(id) + "&v=" + (on ? 0 : 1), { method: "POST" }).catch(() => {});
-  poll();
-}
-function editTitle(id, opts){
-  opts = opts || {};
-  const el = els[id]; if (!el) return;
-  const t = el.titleEl, old = t.textContent;
-  t.setAttribute("contenteditable", "plaintext-only");
-  if (old === "…") t.textContent = "";
-  if (!opts.fromClick){
-    t.focus();
-    if (t.textContent){
-      const range = document.createRange();
-      range.selectNodeContents(t);
-      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
-    }
-  }
-  const end = () => { t.removeAttribute("contenteditable"); t.onkeydown = null; t.onblur = null; };
-  const commit = () => {
-    const name = t.textContent.trim();
-    end();
-    if (name && name !== old){
-      t.textContent = name;
-      fetch("/title?box=" + encodeURIComponent(id), { method: "POST", body: name }).then(() => poll()).catch(() => {});
-    } else if (!name && !old){
-      fetch("/title?box=" + encodeURIComponent(id), { method: "POST" }).then(() => poll()).catch(() => {});
-    } else t.textContent = old;
-  };
-  t.onkeydown = e => {
-    e.stopPropagation();
-    if (e.key === "Enter"){ e.preventDefault(); commit(); el.ta.focus(); }
-    else if (e.key === "Escape"){
-      if (!old && !t.textContent.trim()) commit();
-      else { end(); t.textContent = old; }
-    }
-  };
-  t.onblur = () => { if (t.isContentEditable) commit(); };
-}
 async function createCard(){
   if (!validOwners.has(activeOwner)) return;
   const r = await fetch("/create?owner=" + encodeURIComponent(activeOwner), { method: "POST" })
@@ -780,52 +508,8 @@ async function createCard(){
   await poll();
 }
 
-// ---- older replies -------------------------------------------------------------
-const histCache = {};
-let hist = null;
-function histList(id){
-  if (!histCache[id]){
-    histCache[id] = fetch("/thread?box=" + encodeURIComponent(id) + "&n=200")
-      .then(x => x.json())
-      .then(r => {
-        const list = (r.messages || []).filter(m => m.kind === "agent").map(m => m.replyFull ?? m.text);
-        if (list.length && els[id] && list[list.length - 1] === els[id].reply.dataset.raw) list.pop();
-        return list;
-      })
-      .catch(() => { delete histCache[id]; return []; });
-  }
-  return histCache[id];
-}
-function histExit(id){
-  const was = hist && hist.id === id;
-  if (was) hist = null;
-  const el = els[id];
-  if (!el) return;
-  el.box.classList.remove("histview");
-  el.histPos.textContent = "";
-  el.histUp.disabled = false;
-  el.histDown.disabled = true;
-  if (was){
-    el.reply.innerHTML = fmt(el.reply.dataset.raw);
-    el.reply.scrollTop = 0;
-  }
-}
-async function histStep(id, dir){
-  const list = await histList(id);
-  if (!els[id] || !list.length) return;
-  const cur = hist && hist.id === id ? hist.step : 0;
-  const step = Math.min(Math.max(cur + dir, 0), list.length);
-  if (step === cur) return;
-  if (!step){ histExit(id); return; }
-  hist = { id, step };
-  const el = els[id];
-  el.reply.innerHTML = fmt(list[list.length - step]);
-  el.reply.scrollTop = 0;
-  el.box.classList.add("histview");
-  el.histPos.textContent = (list.length - step + 1) + " of " + (list.length + 1);
-  el.histUp.disabled = step >= list.length;
-  el.histDown.disabled = false;
-}
+// older replies: histList, histExit and histStep are shared with the desktop in
+// card-logic.js
 
 // ---- selection and tabs ----------------------------------------------------------
 function select(id){
@@ -900,20 +584,6 @@ function applySelection(state){
 }
 
 // ---- the drawer's list, the desktop's ticket panel ----------------------------------
-let spinFrame = 0, spinTimer = null;
-function syncSpinner(){
-  const has = document.querySelector("#tiklist .trow.working");
-  if (has && spinTimer == null){
-    spinTimer = setInterval(() => {
-      const ages = document.querySelectorAll("#tiklist .trow.working .tage");
-      if (!ages.length){ clearInterval(spinTimer); spinTimer = null; return; }
-      spinFrame = (spinFrame + 1) % SPIN_FRAMES.length;
-      for (const a of ages) a.textContent = SPIN_FRAMES[spinFrame];
-    }, 180);
-  } else if (!has && spinTimer != null){
-    clearInterval(spinTimer); spinTimer = null;
-  }
-}
 function renderTickets(state){
   const tik = document.getElementById("tiklist");
   const pool = viewPool(state);

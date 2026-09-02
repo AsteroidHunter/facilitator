@@ -236,3 +236,21 @@ test("real server exposes the shared renderer", async () => {
   assert.match(result.contentType, /application\/javascript/);
   assert.match(result.body, /safeImageTarget/);
 });
+
+test("real server serves the shared card files and both pages load them", async () => {
+  for (const [route, type, mark] of [
+    ["/card-tokens.css", /^text\/css/, /\.cardmd\{overflow-wrap:anywhere\}/],
+    ["/card-logic.js", /^application\/javascript/, /function cardState\(b\)\{/],
+  ]) {
+    const result = await api(route);
+    assert.equal(result.status, 200, route);
+    assert.match(result.contentType, type, route);
+    assert.match(result.body, mark, route);
+  }
+  for (const name of ["index.html", "m.html"]) {
+    const source = await readFile(path.join(ROOT, name), "utf8");
+    assert.match(source, /<link rel="stylesheet" href="\/card-tokens\.css">/, `${name} does not load card-tokens.css`);
+    assert.match(source, /<script src="\/card-markdown\.js"><\/script>\n<script src="\/card-logic\.js"><\/script>/,
+      `${name} does not load card-logic.js right after card-markdown.js`);
+  }
+});

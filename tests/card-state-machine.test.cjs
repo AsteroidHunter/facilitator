@@ -148,9 +148,10 @@ test("note is a claim-releasing progress state and quiet replies are gone", asyn
   assert.equal(state.box.ball, "you");
 });
 
-for (const pageName of ["index.html", "page.html"]) {
+// the board keeps its cardState in the shared card-logic.js; the page view keeps its own
+for (const [pageName, file] of [["index.html", "card-logic.js"], ["page.html", "page.html"]]) {
   test(`${pageName} paints the note state as working green`, async () => {
-    const html = await readFile(path.join(ROOT, pageName), "utf8");
+    const html = await readFile(path.join(ROOT, file), "utf8");
     const start = html.indexOf("function cardState(b){");
     const end = html.indexOf("\n// the queue panel", start);
     assert.ok(start >= 0 && end > start, "cardState source was not found");

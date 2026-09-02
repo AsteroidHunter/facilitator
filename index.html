@@ -22,19 +22,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
 <style>
-  :root{
-    --paper:#F5F4F1; --card:#FFFFFF; --ink:#211D17; --sub:#75695A;
-    --line:#E6DFD2; --line-strong:#D8CFBE;
-    --accent:#432BFF; --accent-soft:#EEEBFF;
-    --green:#2F6B3C; --green-bg:#EDF4E8; --green-line:#C4D9BB;
-    --must:#A8442A; --must-bg:#F7EAE4;
-    --could:#8A6D1F; --could-bg:#F5EFDD;
-    --later:#5A6473; --later-bg:#EAEDF1;
-    --serif:"Newsreader", Georgia, serif;
-    --sans:"IBM Plex Sans", -apple-system, sans-serif;
-    --mono:"IBM Plex Mono", ui-monospace, monospace;
-    --inter:"Inter", -apple-system, sans-serif;   /* card titles and the new-project landing */
-  }
+  /* the colours, the faces and the card's own constants are shared with the
+     phone page: card-tokens.css, loaded right after this sheet */
   *{box-sizing:border-box}
   html{scroll-behavior:smooth}
   body{
@@ -105,7 +94,6 @@
      the ::before below, as full ink over its own blur and before its tabs. one
      element owns the shape, one row of it is redrawn where the shape passes
      through frosted glass, and the tabs cover both. */
-  :root{--app-inset:6px}
   body.focus .bar{
     margin:var(--app-inset) var(--app-inset) 0;
     border-radius:7px 7px 0 0;
@@ -400,12 +388,7 @@
     --m4-y:calc(var(--m2-y) + var(--m2-h));   --m4-h:0.192;
     --goal-x:calc(var(--ox) + var(--cw)*0.788);    --goal-w:calc(var(--cw)*0.192);
     --goal-y:0.8256; --goal-h:0.1408;
-    /* the slim scrollbar's lane, the one width every scroller on the board is
-       drawn to. it stands here with the measures and not down beside the rules
-       that paint it because two places read it: those rules, and the answer's
-       own right padding, which has to give back exactly this much so a lane
-       laid inside its box moves none of its words */
-    --sbar:9px;
+    /* --sbar, the slim scrollbar's lane, is a shared token in card-tokens.css */
     /* spacing tokens, fractions of the stage, no raw pixels */
     --sp-xs:calc(var(--ch)*0.005);  --sp-s:calc(var(--ch)*0.0095);
     --sp-m:calc(var(--ch)*0.0195);  --sp-x:calc(var(--cw)*0.0085);
@@ -446,27 +429,9 @@
   /* a thin band across the head of the card, carrying the worktree name, the
      defer chip and the close cross. it replaces the path line that used to
      stand here: no filepath is printed on a card any more.
-     the card's own tokens live on body.focus beside the stage's, so every rule
-     below reads a name rather than a number. --cardbar-h and not --bar-h: the
-     status bar at the top of the window already owns that name and the two are
-     different heights.
-     --sq is the rounding every control on the card wears, the board's own 4px
-     inner corner; the 7px belongs to the things let INTO the card, the pane,
-     the sent box and the worktree list. --press is the one press shade, a tenth
-     of black mixed into whatever fill a control is wearing, so a control can
-     never carry a stale hover hex. --gentle is the one curve the card's timed
-     things are drawn on: its handles stay inside the unit box, so nothing it
-     drives can overshoot */
-  body.focus{
-    --cardbar-h:34px; --sq:4px; --press:10%;
-    --gentle:cubic-bezier(.42,.06,.38,1);
-    /* the one depth on the card, the pane's own warm ink and nothing else
-       drawn. it hangs off the top inside edge the way every sunk thing here
-       does, since the light the board is drawn under comes from above. the sent
-       box is set with it and so is the plus button's press seat, so the two
-       read as let into the same surface */
-    --sunk-deep:inset 0 3px 7px rgba(60,45,20,.22), inset 0 1px 2px rgba(60,45,20,.14);
-  }
+     the card's own tokens, --cardbar-h, --sq, --press, --gentle and
+     --sunk-deep, are shared with the phone page and live in card-tokens.css
+     with their reasons, so every rule below reads a name rather than a number */
   .topbar{display:none}
   body.focus .box.sel .topbar{
     display:flex; align-items:center; gap:9px; flex:none; position:relative;
@@ -1009,20 +974,8 @@
   }
 
   /* ---- the box's motion --------------------------------------------------- */
-  /* the box's arrival, and every line's after it. the chat panel's sent message
-     motion grows a bubble out of one of its own corners, which is right for a
-     small bubble and wrong at this size: a bar as wide as the card, scaled from
-     its corner, reads as a thing flying in from the lower left instead of a
-     thing appearing. so the corner, the scale and the lift are all dropped and
-     what is left is strength alone. the bar occupies its full seat from the
-     first frame and only becomes visible, which is what appearing in place
-     means. 220ms is about the shortest a fade can be and still be seen as a
-     fade rather than as a thing that was suddenly there, and the bar arriving at
-     the foot of the card is the one event here that nothing announces. the curve
-     stays an ease out and does not join the fold's family: a fade covers no
-     distance, so a slow start is not a soft start on it */
-  @keyframes pendfade{from{opacity:0}}
-  body.focus .box.sel .pendlist.appear{animation:pendfade .22s ease-out}
+  /* the box's arrival, the pendfade keyframes and the appear dress, is shared
+     with the phone page and lives in card-tokens.css with its reasons */
   /* the one length the whole cluster moves in, both ways, and the spring, which
      runs a touch longer than the box so the settle is still happening as the box
      finishes and the two do not stop on one frame */
@@ -1218,25 +1171,9 @@
     --pend-rise:var(--sp-s);
     animation:pendrise .22s linear, pendfade .22s ease-out;
   }
-  /* the very first arrival, in two beats: the answer gives up the
-     room before anything at all is drawn in it, and only then does the bar come
-     up in the cleared room.
-     beat one is this pair of rules. the strip is mounted at no height and grown
-     to its own folded height on the card's gentle curve. nothing about the
-     answer is animated and nothing is kept in step by hand: the answer is the
-     one item that can give or take room, so every pixel the strip claims comes
-     off the answer in the same frame. invisible, clipped and untouchable while
-     it rises: what the eye is meant to read in beat one is the text yielding,
-     not a bar wiping into view, and a box already half its height would
-     otherwise be open to a click before it had arrived. the timing lives in the
-     second rule alone so the first can be worn while the start height is pinned,
-     without pinning it becoming a run of its own in the wrong direction.
-     the band under the box travels with the box, so what the answer gives up is
-     one continuous amount rather than a band landing whole on the first frame */
-  body.focus .box.sel .pendlist.rising{overflow:hidden; opacity:0; pointer-events:none}
-  body.focus .box.sel .pendlist.rising.timed{
-    transition:height .26s var(--gentle), margin-bottom .26s var(--gentle);
-  }
+  /* the very first arrival, in two beats: beat one is the rising
+     dress, shared with the phone page in card-tokens.css with its reasons, and
+     risePend in card-logic.js hands it the two ends and the handover */
   /* ---- the foot of the card: the sent box, the bar and the row ------------ */
   /* the wrapper is laid over the answer at the card's floor rather than under
      it in the column, which is what lets the answer run on beneath it. the sent
@@ -1303,10 +1240,7 @@
     background:none; border:none; border-radius:0; box-shadow:none;
     padding:0; margin:0;
   }
-  /* the row's own floor, written once because two rules read it: the field
-     itself, and the sent box's cap, which has to know what the bar takes out of
-     the room before it can work out what is left */
-  body.focus .box.sel{--row-min:44px}
+  /* --row-min, the row's own floor, is a shared token in card-tokens.css */
   body.focus .box.sel textarea{
     background:transparent; border:none !important; box-shadow:none;
     /* the side padding paired with equal negative margin keeps the text flush
@@ -3128,53 +3062,7 @@
     border-left:3px solid var(--line-strong); color:var(--sub);
   }
   .reply blockquote:last-child{margin-bottom:0}
-  /* Every place that renders card prose carries cardmd. Keeping the complete
-     subset here gives the full card, pending rows, document and mini card the
-     same visual vocabulary instead of relying on a surface-specific selector. */
-  .cardmd{overflow-wrap:anywhere}
-  .cardmd p{margin:0 0 9px}
-  .cardmd > :last-child{margin-bottom:0}
-  .cardmd ul, .cardmd ol{margin:0 0 9px; padding-left:22px}
-  .cardmd li{margin:2px 0}
-  .cardmd li > ul, .cardmd li > ol{margin:3px 0 2px}
-  .cardmd h1, .cardmd h2, .cardmd h3, .cardmd h4, .cardmd h5, .cardmd h6{
-    margin:13px 0 7px; color:var(--ink); font-family:var(--inter); line-height:1.25;
-  }
-  .cardmd h1{font-size:1.55em}.cardmd h2{font-size:1.35em}.cardmd h3{font-size:1.2em}
-  .cardmd h4{font-size:1.1em}.cardmd h5{font-size:1em}.cardmd h6{font-size:.92em}
-  .cardmd a{color:inherit; text-decoration:underline; text-underline-offset:2px}
-  .cardmd .shot{display:block; max-width:100%; border-radius:6px; margin:8px auto}
-  .cardmd .shotgrid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
-    gap:8px; margin:8px 0 9px; align-items:start}
-  .cardmd .shotgrid[data-n="3"]{grid-template-columns:repeat(3,minmax(0,1fr))}
-  .cardmd .shotgrid[data-n="4"]{grid-template-columns:repeat(4,minmax(0,1fr))}
-  .cardmd .shotgrid .shot{margin:0 auto}
-  .cardmd .inlinecode{font-family:var(--mono); font-size:inherit; line-height:inherit;
-    color:var(--ink); background:var(--paper); border-radius:var(--sq);
-    padding:1px 4px; white-space:pre-wrap}
-  .cardmd .codeblockwrap{position:relative; margin:0 0 9px}
-  .cardmd .codeblock{margin:0; padding:10px 12px; border-radius:8px;
-    background:#EFF1F4; border:0; font:12.5px/1.5 var(--mono); color:var(--ink);
-    white-space:pre; overflow-x:auto; user-select:all; -webkit-user-select:all}
-  .cardmd .codeblockwrap[data-language] .codeblock{padding-top:29px}
-  .cardmd .codelang{position:absolute; top:7px; left:12px; max-width:calc(100% - 62px);
-    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-    color:var(--sub); font:10.5px/1.4 var(--mono)}
-  .cardmd .codeblockwrap .copybtn{position:absolute; top:6px; right:8px; padding:4px 6px;
-    display:flex; align-items:center; color:var(--sub); background:#fff;
-    box-shadow:0 1px 4px rgba(33,29,23,.18); border:0; border-radius:5px;
-    cursor:pointer; user-select:none; -webkit-user-select:none; opacity:0;
-    pointer-events:none; transition:opacity .15s}
-  .cardmd .codeblockwrap:hover .copybtn{opacity:1; pointer-events:auto}
-  .cardmd .codeblockwrap .copybtn:hover{color:var(--ink)}
-  .cardmd blockquote{margin:0 0 9px 2px; padding:2px 0 2px 12px;
-    border-left:3px solid var(--line-strong); color:var(--sub)}
-  .cardmd .tablewrap{max-width:100%; overflow-x:auto; margin:0 0 9px}
-  .cardmd table{width:100%; border-collapse:collapse; font:inherit}
-  .cardmd th, .cardmd td{padding:5px 7px; border:1px solid var(--line); text-align:left}
-  .cardmd th{font-weight:650; background:var(--paper)}
-  .cardmd .md-align-center{text-align:center}.cardmd .md-align-right{text-align:right}
-  .cardmd hr{height:0; margin:13px 0; border:0; border-top:1px solid var(--line-strong)}
+  /* card prose, the .cardmd rules, is shared with the phone page: card-tokens.css */
   textarea.dropping{border-color:var(--accent) !important}
   body.focus .box.sel textarea.dropping{background:var(--accent-soft)}
   /* home, greyed out until it does something */
@@ -3204,6 +3092,7 @@
   .rkill::after{transform:translate(-50%,-50%) rotate(-45deg)}
 
 </style>
+<link rel="stylesheet" href="/card-tokens.css">
 </head>
 <body class="focus">
 
@@ -3297,6 +3186,7 @@
 
 
 <script src="/card-markdown.js"></script>
+<script src="/card-logic.js"></script>
 <script>
 const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
                   ["now", "Now"], ["done", "Done"], ["later", "Later"]];
@@ -3435,11 +3325,6 @@ for (const type of ["click", "pointerdown", "keydown", "submit"]){
 }
 
 
-function labelOf(state, owner){
-  const dir = (state.pwds || {})[owner] || "";
-  return dir.split("/").filter(Boolean).pop() || owner;
-}
-
 // ---- the lane's worktrees -------------------------------------------------
 // the card's top bar names a worktree, and the names come from git by way of
 // /worktrees rather than from anything typed here. one entry per lane, held for
@@ -3493,14 +3378,6 @@ document.addEventListener("click", () => {
   for (const k of Object.keys(els))
     if (els[k].wtmenu) shutWtMenu(els[k].wtpick, els[k].wtmenu);
 });
-
-function pickInRow(state, owner){
-  const row = state.boxes.filter(b => b.owner === owner);
-  if (!row.length) return null;
-  return (lastSel[owner] && row.find(b => b.id === lastSel[owner]))
-      || row.find(awaitsYou)
-      || row[0];
-}
 
 function setTab(owner){
   if (!ownerReady || !validActiveOwnerIds.has(owner)) return;
@@ -3935,26 +3812,6 @@ document.getElementById("npstart").addEventListener("click", async () => {
   }
 });
 
-// which replies the owner has laid eyes on: box id -> time of the viewing;
-// selecting a card counts as reading the reply it shows
-const seenReplies = JSON.parse(localStorage.getItem("seenReplies") || "{}");
-function markSeen(id){
-  seenReplies[id] = Date.now() / 1000;
-  localStorage.setItem("seenReplies", JSON.stringify(seenReplies));
-}
-
-// does this lane still hold a reply he has not opened? this is the left
-// list's own seen test, card by card, so the tab and the row can never
-// disagree about what unread means: the agent has answered, the ball is with
-// him, nothing of his is still queued behind it, and he has not opened the
-// card since that answer landed. cardState keeps done and deferred cards out,
-// so a lane he has finished with never asks for him again
-function laneUnread(state, owner){
-  return !!state && state.boxes.some(b =>
-    b.owner === owner && b.id !== "q" && cardState(b) === "yours" &&
-    (seenReplies[b.id] || 0) < (b.agentTs || 0));
-}
-
 function select(id, opts){
   if (!els[id]) return;
   cancelAutoNext();
@@ -3999,24 +3856,6 @@ function updatePwd(st){
   if (p.textContent !== dir) p.textContent = dir;
 }
 
-// project rows in fixed order: tool meta on top, the rest as the board lists them
-function allRowsOf(state){
-  const owners = [];
-  for (const b of state.boxes)
-    if (b.owner !== "qchat" && !owners.includes(b.owner)) owners.push(b.owner);   // the quick chat lane never gets a tab
-  // stored project lanes keep their tab even with every card deleted
-  for (const p of (state.projects || []))
-    if (!owners.includes(p.id)) owners.push(p.id);
-  owners.sort((a, b) => (a === "facilitator" ? -1 : b === "facilitator" ? 1 : 0));
-  // a dragged tab order outlives reloads and server restarts: saved lanes
-  // lead in their saved sequence, lanes the array does not know keep the
-  // natural order after them, and stale saved ids must never throw
-  let saved = [];
-  try { saved = JSON.parse(localStorage.getItem("taborder") || "[]"); } catch (err) {}
-  if (!Array.isArray(saved)) saved = [];
-  const lead = saved.filter(ow => owners.includes(ow));
-  return [...lead, ...owners.filter(ow => !lead.includes(ow))];
-}
 // the lanes the bar is showing, which is what the keys walk and what counts as
 // a neighbour: a closed tab is simply not among them
 function rowsOf(state){
@@ -4078,29 +3917,6 @@ function statusOf(b){
   return s === "done" ? "done" : s === "parked" ? "later" : "now";
 }
 
-function h(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
-
-// the send square's seat. it is bottom aligned in the row, the way the chat
-// panel pins its arrow to the pill's bottom edge so it holds still while the
-// box grows, and the margin written here drops it so its middle lands on the
-// middle of the last line of type. while the field is at its cap and scrolling,
-// the last line on screen is the one it takes, which is the line being written.
-// the plus is not seated here: it has left the row for a bar of its own, and
-// that bar stands it on the row's own floor, so it holds
-// the bottom however many lines the row has grown to. css alone puts it there,
-// so a margin written onto it here could only lift it off the floor it keeps
-function seatSquare(ta, square){
-  const cs = getComputedStyle(ta);
-  const lh = parseFloat(cs.lineHeight);
-  const pt = parseFloat(cs.paddingTop), pb = parseFloat(cs.paddingBottom);
-  const hgt = ta.getBoundingClientRect().height;
-  if (!lh || !hgt) return;
-  const lines = Math.max(1, Math.round((ta.scrollHeight - pt - pb) / lh));
-  const foot = ta.scrollHeight > ta.clientHeight + 1 ? hgt - pb : pt + lines * lh;
-  const mid = foot - lh / 2;
-  square.style.marginBottom = (hgt - mid - square.offsetHeight / 2) + "px";
-}
-
 // ---- the sent-and-waiting box ---------------------------------------------
 // the card carries no box at rest. the first send grows one, every send after
 // it drops a line into the box that already stands, folded or open as he last
@@ -4154,142 +3970,13 @@ function growPend(el, arrive){
   return pend;
 }
 
-// the two beats of the first arrival. the css carries the curve, the 260ms and
-// the dress; this hands it the two ends and the handover.
-// the far end is measured on the mounted strip while it still stands at its own
-// height and before any clock is armed, so the number the run lands on is the
-// number the strip holds once the inline height comes off and the handover moves
-// nothing. the strip is never painted at that height: the reading, the pinning
-// to nothing and the arming all happen inside this one step. the start value is
-// pinned while the strip wears the untimed dress and only then is the timing put
-// on, or pinning it would itself become a run, from the far end down to nothing,
-// in front of the one that matters.
-// rows sent while it rises land in a body that is display:none folded, so they
-// add nothing to the height and the measured end stays true
-const PEND_RISE_MS = 260;   // the number the css rule carries
-function risePend(el, pend){
-  const to = pend.getBoundingClientRect().height;
-  const gap = getComputedStyle(pend).marginBottom;   // the band under the box,
-  // read rather than typed here, so it travels with the box on one run
-  pend.style.height = "0px";
-  pend.style.marginBottom = "0px";
-  void pend.offsetWidth;            // the start values land untimed
-  pend.classList.add("timed");
-  pend.style.height = to + "px";
-  pend.style.marginBottom = gap;
-  const land = e => {
-    if (e && (e.target !== pend || e.propertyName !== "height")) return;
-    pend.removeEventListener("transitionend", land);
-    clearTimeout(timer);
-    // beat two. the room is standing clear and the height it was held at is the
-    // height it holds on its own, so the inline numbers, the clipping and the
-    // timing all come off in one step and nothing shifts by a pixel; what is
-    // left is the strength alone
-    pend.style.height = "";
-    pend.style.marginBottom = "";
-    pend.classList.remove("rising", "timed");
-    pend.classList.add("appear");
-    pend.addEventListener("animationend", function off(ev){
-      if (ev.target !== pend) return;
-      pend.removeEventListener("animationend", off);
-      pend.classList.remove("appear");   // so a later reflow cannot replay it
-    });
-    snapCard();   // the box has taken its room; the answer ends against it again
-  };
-  // two ends can finish the run, the transition and a timer behind it, for the
-  // same reason the fold carries both
-  pend.addEventListener("transitionend", land);
-  const timer = setTimeout(land, PEND_RISE_MS + 40);
-}
-
-function dropPend(el){
-  if (!el.pend) return;
-  el.pend.remove();
-  el.pend = null;
-  el.pendRaw = "";
-  snapCard();   // the room the box held is the answer's again
-}
-
-// one row: the words, the time that comes up on a drag, and the delivery word
-function pendRow(text, ts){
-  const row = h("div", "pendmsg");
-  row.dataset.text = text;
-  const content = h("div", "pendcontent cardmd");
-  content.innerHTML = fmt(text);
-  const t = h("span", "ptime", stampText(ts));
-  content.appendChild(t);
-  row.append(content, h("span", "rcpt"));
-  row.addEventListener("animationend", () => row.classList.remove("pop"));
-  return row;
-}
-
-// the delivery words: one of each on screen, ever. the newest line
-// carries Delivered, the line before it carries Read and stands for the whole
-// run behind it, and the rest carry nothing. the pass runs over the entire
-// column rather than editing the two rows that changed, so the pair cannot
-// drift onto the wrong lines however long the run gets.
-// the board has no per message read receipt to draw on, so the pair is
-// positional, which is what the design asks for
-function stampRcpts(pend){
-  const rows = pend.querySelector(".pendslide").children, n = rows.length;
-  for (let i = 0; i < n; i++){
-    const want = i === n - 1 ? "Delivered" : i === n - 2 ? "Read" : "";
-    const r = rows[i].querySelector(".rcpt");
-    if (r.textContent !== want) r.textContent = want;
-  }
-}
-
-// newest at the foot. the lane is pinned to its own bottom after a line lands
-// and again the moment the box is opened, so the thing last sent is the thing
-// on screen. a folded box has a lane with no height, and setting the top of a
-// lane that cannot scroll is simply nothing
-function pendBottom(pend){
-  const lane = pend.querySelector(".pendscroll");
-  if (lane) lane.scrollTop = lane.scrollHeight;
-}
-
-// the run's one time tag: the first send of the run, since that is when the run
-// he is waiting on began. an entry queued before the server recorded times
-// carries none, and the tag is simply blank rather than wrong
-function stampRun(pend, stamps){
-  const s = pend.querySelector(".pendstamp");
-  const want = stampText(stamps && stamps[0]);
-  if (s.textContent !== want) s.textContent = want;
-}
-
-// the poll's own pass over the box. it is the only thing that may add or remove
-// rows on a redraw, and it adds nothing a send has already put there
-function syncPend(el, texts, stamps){
-  texts = texts || []; stamps = stamps || [];
-  if (!texts.length){ dropPend(el); return; }
-  const pend = el.pend || growPend(el, false);
-  const slide = pend.querySelector(".pendslide");
-  const have = [...slide.children];
-  // a list that still begins with what is on screen only grows; anything else
-  // is a list that changed underneath and is drawn again
-  const grows = texts.length >= have.length &&
-                have.every((row, i) => row.dataset.text === texts[i]);
-  if (!grows){
-    slide.textContent = "";
-    texts.forEach((t, i) => slide.appendChild(pendRow(t, stamps[i])));
-  } else {
-    // the times come from the server now, so an optimistic row's client clock
-    // is corrected in place without touching anything else about the row
-    have.forEach((row, i) => {
-      const t = row.querySelector(".ptime"), want = stampText(stamps[i]);
-      if (t && t.textContent !== want) t.textContent = want;
-    });
-    for (let i = have.length; i < texts.length; i++){
-      const row = pendRow(texts[i], stamps[i]);
-      if (pend.classList.contains("open")) row.classList.add("pop");
-      slide.appendChild(row);
-    }
-    if (texts.length > have.length) pendBottom(pend);
-  }
-  stampRcpts(pend);
-  stampRun(pend, stamps);
-  el.pendRaw = texts.join("\n\n");
-}
+// the first arrival's two beats (risePend), the rows, the delivery words, the
+// run stamp and the poll's own pass over the box (syncPend) are shared with the
+// phone page in card-logic.js. what the desktop tells it: the rows carry the
+// time a drag reveals, and the box taking or giving back its room re-snaps the
+// answer's lines against it
+pendTimes = true;
+pendRoomChanged = snapCard;
 
 // the strip's fold and the leftward pull, the phone gesture the chat panel
 // names but does not carry. a pull that moved is not a click, so the fold is
@@ -4510,23 +4197,6 @@ function watchRise(node){
   riseBand(node);
 }
 
-// the thumb shows while its own scroller is actually moving and fades out 700ms
-// after it rests, which is the ticket list's own trick and the markdown panes'
-// after it. restated here rather than shared with them for the reason the
-// markdown pane restated it: those two are wired once over elements that exist
-// from the first paint, and a card is built and rebuilt long after that block
-// has run. both scrollers on the card come through here, the answer and the row
-// he types in, and the class and the 700ms are the same in all of them, so
-// every bar on the board comes and goes alike
-function barFade(node){
-  let t = null;
-  node.addEventListener("scroll", () => {
-    node.classList.add("scrolling");
-    clearTimeout(t);
-    t = setTimeout(() => node.classList.remove("scrolling"), 700);
-  }, { passive: true });
-}
-
 // every answer must end evenly against its box: the answer's room snaps down to
 // a whole number of its own text lines, so the last visible line always sits at
 // the same depth of the fade band. that snap is the whole reason the fade reads
@@ -4649,22 +4319,8 @@ function tiltTitleAir(el, first){
   title.style.marginBottom = ((whole - pad) / GRID) + "px";
 }
 
-// a picked or dropped file goes up the board's own upload road and its address
-// joins the text, which is what the card has always done with a dropped image
-async function attach(files, ta){
-  for (const f of files.filter(x => x.type.startsWith("image/"))){
-    const r = await fetch("/upload?name=" + encodeURIComponent(f.name), { method: "POST", body: f })
-      .then(x => x.json()).catch(() => null);
-    if (r?.url) ta.value = (ta.value ? ta.value.trimEnd() + "\n" : "") + r.url + "\n";
-  }
-  ta.dispatchEvent(new Event("input"));
-}
-
-// One renderer and one URL policy serve every card surface. The server exposes
-// short and full reply variants separately, so authored Markdown is never
-// inspected here for transport punctuation.
-function fmt(t){ return CardMarkdown.render(t || ""); }
-function replyFull(b){ return b.replyFull == null ? (b.reply || "") : b.replyFull; }
+// fmt and replyFull are shared with the phone page in card-logic.js; the short
+// reply variant is the desktop's own
 function replyShort(b){ return b.replyShort == null ? replyFull(b) : b.replyShort; }
 
 function build(state){
@@ -4983,50 +4639,10 @@ function landFocus(){
   }
 }
 
-// a just-created card: the cursor starts in the title; Enter saves the name
-// and drops the cursor into the message input
-function editTitle(id, opts){
-  opts = opts || {};
-  const el = els[id]; if (!el) return;
-  const t = el.titleEl, old = t.textContent;
-  t.setAttribute("contenteditable", "plaintext-only");
-  if (old === "…") t.textContent = "";
-  // a click edits in place with the caret where you click; other entries (new card, tab) focus and select all
-  if (!opts.fromClick){
-    t.focus();
-    if (t.textContent){
-      const range = document.createRange();
-      range.selectNodeContents(t);
-      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
-    }
-  }
-  const end = () => { t.removeAttribute("contenteditable"); t.onkeydown = null; t.onblur = null; };
-  const commit = () => {
-    const name = t.textContent.trim();
-    end();
-    if (name && name !== old){
-      t.textContent = name;
-      if (el.tocTitle) el.tocTitle.textContent = name;
-      fetch("/title?box=" + encodeURIComponent(id), { method: "POST", body: name })
-        .then(() => poll()).catch(() => {});
-    } else if (!name && !old){
-      // naming walked away from: the server hands out a whimsical name
-      fetch("/title?box=" + encodeURIComponent(id), { method: "POST" })
-        .then(() => poll()).catch(() => {});
-    } else t.textContent = old;
-  };
-  t.onkeydown = e => {
-    e.stopPropagation();   // card-switching keys must not fire while naming
-    if (e.key === "Enter"){ e.preventDefault(); commit(); el.ta.focus(); }
-    else if (e.key === "Tab"){ e.preventDefault(); commit(); (e.shiftKey ? el.arc : el.ta).focus(); }
-    else if (e.key === "Escape"){
-      if (!old && !t.textContent.trim()) commit();
-      else { end(); t.textContent = old; }
-      el.ta.focus();
-    }
-  };
-  t.onblur = () => { if (t.isContentEditable) commit(); };
-}
+// editTitle is shared with the phone page in card-logic.js. the desktop's
+// keyboard path through the title, Tab commits and moves on and Escape hands
+// focus back to the composer, is switched on here
+keyboardTitle = true;
 
 // after a send, three quiet seconds moves you on; any typing or a manual
 // card switch cancels the jump
@@ -5035,44 +4651,7 @@ const AUTONEXT_MS = 0;   // future user setting: quiet time after a send before 
 let lastLeftId = null;   // the card the last auto-jump left, for command+z bounce
 function cancelAutoNext(){ clearTimeout(autoNext); autoNext = null; }
 
-// after a send, move to the next YELLOW card: one awaiting his read, never a
-// green working card or a grey queued one
-function jumpNextYellow(fromId){
-  if (!lastState) return;
-  // stay inside the tab being looked at: sending from doing must never land on
-  // a deferred or done card
-  const p = viewPool(lastState).filter(b =>
-    !b.done && !(b.writing || b.bg) && b.ball === "you" && b.id !== fromId);
-  if (!p.length) return;
-  // the send should land on the card that has waited on him
-  // longest, not the newest. agentTs is written in the same breath as the turn
-  // going back to him, so it marks when a card became his to read; ts moves on
-  // his own sends and on progress notes too, so it cannot mean that. a card the
-  // agent has never answered has only its own ts to age by, and one carrying
-  // neither stamp cannot be aged, so it sorts last instead of posing as the
-  // oldest thing here. the filter above already made a fresh array, so nothing
-  // else sees this sort, and equal stamps keep the list's own order
-  const waitingSince = b => b.agentTs || b.ts || Number.MAX_SAFE_INTEGER;
-  const listOrder = new Map(p.map((b, i) => [b.id, i]));
-  p.sort((a, b) => waitingSince(a) - waitingSince(b) || listOrder.get(a.id) - listOrder.get(b.id));
-  lastLeftId = fromId;
-  select(p[0].id, { focus: true });
-}
-
-// the stamp on a sent-and-waiting message: a short clock time, plus a plain
-// month-and-day date in front only when the send was not today; empty when
-// the send time is unknown (entries queued before the server recorded times)
-function stampText(ts){
-  if (!ts) return "";
-  const d = new Date(ts * 1000);
-  if (isNaN(d.getTime())) return "";
-  const hr = d.getHours();
-  const clock = (hr % 12 || 12) + ":" + String(d.getMinutes()).padStart(2, "0") + " " + (hr < 12 ? "AM" : "PM");
-  const now = new Date();
-  if (d.toDateString() === now.toDateString()) return clock;
-  const day = MONTHS3[d.getMonth()] + " " + d.getDate() + (d.getFullYear() === now.getFullYear() ? "" : " " + d.getFullYear());
-  return day + ", " + clock;
-}
+// jumpNextYellow and stampText live in card-logic.js, shared with the phone page
 
 function stampHTML(ts){
   const s = stampText(ts);   // digits, letters and punctuation only; nothing to escape
@@ -5082,11 +4661,6 @@ function stampHTML(ts){
 // writing to a done or parked card takes it back to doing. /send clears parked
 // on the server for every sender. The done flag is read here before the send
 // and flipped after the message is in, so a flip that fails can never eat it
-function boxDone(id){
-  const b = lastState && lastState.boxes.find(x => x.id === id);
-  return !!(b && b.done);
-}
-
 function undone(id){
   fetch("/done?box=" + encodeURIComponent(id) + "&v=0", { method: "POST" })
     .then(() => poll()).catch(() => {});
@@ -5122,7 +4696,10 @@ async function doSend(id){
     if (reopen) undone(id);   // the message is in; the flip rides behind it
     poll();
     cancelAutoNext();
-    autoNext = setTimeout(() => { autoNext = null; if (FOCUS) jumpNextYellow(id); }, AUTONEXT_MS);
+    autoNext = setTimeout(() => {
+      autoNext = null;
+      if (FOCUS && jumpNextYellow(id, { focus: true })) lastLeftId = id;
+    }, AUTONEXT_MS);
   } catch (err) {
     el.metaNote.textContent = "send failed, text kept — try again";
   } finally {
@@ -5130,72 +4707,10 @@ async function doSend(id){
   }
 }
 
-async function toggleFlag(id, kind){
-  const cls = kind === "done" ? "done" : "parked";
-  const on = els[id].box.classList.contains(cls);
-  els[id].box.classList.remove("peek");
-  await fetch("/" + kind + "?box=" + encodeURIComponent(id) + "&v=" + (on ? 0 : 1), { method: "POST" }).catch(() => {});
-  poll();
-}
-
 // ---- older replies --------------------------------------------------------
 // control shift up steps the selected card back through its past agent
-// replies, control shift down returns toward live; the small arrows in the
-// grey row under the reply click the same steps. While an older reply shows,
-// dataset.raw keeps holding the live text, so apply()'s rewrite guard leaves
-// the view alone across polls; an actual new reply changes the raw, which
-// drops the cached thread and snaps the card back to live.
-const histCache = {};   // box id -> promise of past agent replies, oldest first, live excluded
-let hist = null;        // {id, step} while an older reply shows; step 1 = one back from live
-
-function histList(id){
-  if (!histCache[id]){
-    histCache[id] = fetch("/thread?box=" + encodeURIComponent(id) + "&n=200")
-      .then(x => x.json())
-      .then(r => {
-        const list = (r.messages || []).filter(m => m.kind === "agent").map(m => m.replyFull ?? m.text);
-        // the newest transcript entry is normally the live reply itself
-        if (list.length && els[id] && list[list.length - 1] === els[id].reply.dataset.raw) list.pop();
-        return list;
-      })
-      .catch(() => { delete histCache[id]; return []; });
-  }
-  return histCache[id];
-}
-
-function histExit(id){
-  const was = hist && hist.id === id;
-  if (was) hist = null;
-  const el = els[id];
-  if (!el) return;
-  el.box.classList.remove("histview");
-  el.histPos.textContent = "";
-  el.histUp.disabled = false;
-  el.histDown.disabled = true;
-  if (was){
-    el.reply.innerHTML = fmt(el.reply.dataset.raw);
-    el.reply.scrollTop = 0;
-  }
-}
-
-async function histStep(dir){   // +1 steps older, -1 steps back toward live
-  if (!FOCUS || !selectedId || !els[selectedId]) return;
-  const id = selectedId;
-  const list = await histList(id);
-  if (id !== selectedId || !els[id] || !list.length) return;   // card changed or nothing older
-  const cur = hist && hist.id === id ? hist.step : 0;
-  const step = Math.min(Math.max(cur + dir, 0), list.length);
-  if (step === cur) return;
-  if (!step){ histExit(id); return; }
-  hist = { id, step };
-  const el = els[id];
-  el.reply.innerHTML = fmt(list[list.length - step]);
-  el.reply.scrollTop = 0;
-  el.box.classList.add("histview");
-  el.histPos.textContent = (list.length - step + 1) + " of " + (list.length + 1);
-  el.histUp.disabled = step >= list.length;
-  el.histDown.disabled = false;
-}
+// replies, control shift down returns toward live: histStep, histExit and
+// histList are shared with the phone page in card-logic.js
 
 function apply(state){
   for (const id of Object.keys(els)){    // deleted boxes leave the page
@@ -5358,7 +4873,6 @@ function apply(state){
 const DAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const MONTHS = ["January","February","March","April","May","June","July",
                 "August","September","October","November","December"];
-const MONTHS3 = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 function tickClock(){
   const n = new Date();
   let hr = n.getHours();
@@ -7832,70 +7346,13 @@ function renderMiniCards(state){
   }
 }
 
-function cardState(b){
-  // the server's state machine ships the one authoritative state per card;
-  // the inline derivation below serves only queueState's unpark recompute
-  // (state nulled in a copy) and an older server that omits the field
-  const s = b.state || (
-         b.done ? "done"
-       : b.parked ? "parked"
-       : (b.writing || b.bg) ? "working"
-       // a card with prior replies was answered before, so it is never new even when a seeded board left its agent stamp at 0
-       : (!b.agentTs && !b.pending && !b.replies) ? "new"
-       : b.ball === "you" ? "yours"
-       : "queued");
-  // note is its own server-side progress state. It shares working's green
-  // presentation without losing the semantic distinction on the wire.
-  const shown = s === "note" ? "working" : s;
-  // the machine never ships yours with messages still queued; this guard
-  // covers the recomputed path, where an older reply can leave the ball on
-  // his side while a newer message is still in line, and that used to paint
-  // the card yellow. only yours is rewritten, so done, parked and every
-  // green state keep exactly the state they had
-  return (shown === "yours" && b.pending > 0) ? "queued" : shown;
-}
-// the queue panel's view: a parked card sorts and colors as if open. state is
-// nulled in the copy so cardState recomputes from the flags instead of handing
-// back the server's "parked" when we peel the park off
-function queueState(b){ return b.parked ? cardState({ ...b, parked: false, state: null }) : cardState(b); }
-// the strict await of the bar count and auto-select: pending vetoes it, and
-// so does work in flight, claimed or registered; green outranks the ball
-function awaitsYou(b){
-  const s = cardState(b);
-  // done/parked and work-in-flight are all folded into the state; a still-new
-  // card only awaits you when the ball sits with you, and pending vetoes the
-  // strict await either way
-  return (s === "yours" || (s === "new" && b.ball === "you")) && !(b.pending > 0);
-}
-
 // ---- the carousel: the workspace's other chats as a queue -----------------
 // Front: chats the agent has addressed (yellow), newest first. Back: chats
 // answered and waiting on the agent (green), the just-answered one last.
-// the doing, deferred and done tabs are a filter over that same pool. the left
-// list and the arrow keys have to walk the same set, or the arrows cycle into
-// cards the list is not showing
-function viewFilter(b){
-  const s = cardState(b);
-  return ticketView === "done" ? s === "done"
-       : ticketView === "deferred" ? s === "parked"
-       : (s !== "done" && s !== "parked");
-}
-function viewPool(state){ return poolOf(state).filter(viewFilter); }
-
-function poolOf(state){
-  const w = curWs(state);
-  return state.boxes.filter(b =>
-    b.owner === activeOwner && b.id !== "q" && (!w || b.ws === w.id))
-    .sort((a, b) => {
-      // an untouched new card stays on top; the first send drops it into the
-      // waiting group; anything green (in progress) sinks below all of that
-      const g = x => ({ "new": 0, yours: 1, queued: 2, working: 3, done: 4 })[queueState(x)];
-      if (g(a) !== g(b)) return g(a) - g(b);
-      if (g(a) === 0) return (b.ts || 0) - (a.ts || 0);   // newest created on top
-      if (g(a) === 1) return (b.agentTs || 0) - (a.agentTs || 0);   // newest reply on top: latest cards come to the top. it was oldest first for a day so a batch came back in send order, which was not wanted
-      return (b.ts || 0) - (a.ts || 0);                    // waiting, working and done: newest first
-    });
-}
+// cardState, queueState, awaitsYou, viewFilter, viewPool and poolOf are shared
+// with the phone page in card-logic.js. the desktop narrows the lane's pool to
+// the chosen workspace, and hands poolOf that test here
+poolScope = state => { const w = curWs(state); return w ? (b => b.ws === w.id) : null; };
 
 function carouselRow(state){
   const w = curWs(state);
@@ -7918,34 +7375,8 @@ function relAge(ts){
   return "replied " + Math.floor(sec / 86400) + "d ago";
 }
 
-function shortAge(ts){
-  if (!ts) return "";
-  const sec = Date.now() / 1000 - ts;
-  if (sec < 60) return "now";
-  if (sec < 3600) return Math.floor(sec / 60) + "m";
-  if (sec < 86400) return Math.floor(sec / 3600) + "h";
-  return Math.floor(sec / 86400) + "d";
-}
-// while a row works its age is noise; the slot carries a terminal spinner
-// instead, the ten braille frames at 100ms a step. one interval serves every
-// green row and only lives while one exists; each rebuild stamps the current
-// frame itself (see the tage line below), so the ticker and the poll-driven
-// re-renders never fight over the text. ages return on the next quiet poll.
-const SPIN_FRAMES = ["|","/","-","\\"];   // the classic terminal spinner, bolder than braille dots
-let spinFrame = 0, spinTimer = null;
-function syncSpinner(){
-  const has = document.querySelector("#tiklist .trow.working");
-  if (has && spinTimer == null){
-    spinTimer = setInterval(() => {
-      const ages = document.querySelectorAll("#tiklist .trow.working .tage");
-      if (!ages.length){ clearInterval(spinTimer); spinTimer = null; return; }
-      spinFrame = (spinFrame + 1) % SPIN_FRAMES.length;
-      for (const a of ages) a.textContent = SPIN_FRAMES[spinFrame];
-    }, 180);
-  } else if (!has && spinTimer != null){
-    clearInterval(spinTimer); spinTimer = null;
-  }
-}
+// shortAge and the list's spinner (syncSpinner, SPIN_FRAMES, spinFrame) are
+// shared with the phone page in card-logic.js
 function renderCarousel(state){
   const tik = document.getElementById("tiklist");
   const chips = document.getElementById("chips");
@@ -8109,7 +7540,7 @@ addEventListener("keydown", e => {
     // control+shift+up/down, the sibling pair: the selected card's older
     // replies and back toward live, in and out of the text box
     e.preventDefault();
-    histStep(e.key === "ArrowUp" ? 1 : -1);
+    histStep(selectedId, e.key === "ArrowUp" ? 1 : -1);
     return;
   }
   if (e.metaKey && e.shiftKey && ["[", "]", "{", "}"].includes(e.key)){
