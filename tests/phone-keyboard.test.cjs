@@ -142,7 +142,7 @@ function shellShape() {
     row: ta.height, rowBottom: ta.bottom - vvTop,
     bodyTop: body.getBoundingClientRect().top, bodyHeight: body.getBoundingClientRect().height,
     kb: body.classList.contains("kb"), lifting: body.classList.contains("lifting"),
-    inset: body.style.getPropertyValue("--kb-inset"),
+    inset: document.getElementById("page").style.getPropertyValue("--kb-inset"),   // the clearance is the page's own
     shellTop: body.style.getPropertyValue("--shell-top"), shellH: body.style.getPropertyValue("--shell-h"),
     vvh: document.documentElement.style.getPropertyValue("--vvh"),
   };

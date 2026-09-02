@@ -102,7 +102,9 @@
                transform var(--drawer-ms) var(--drawer-curve),
                border-radius var(--drawer-ms) var(--drawer-curve);
   }
-  body.kb{--pad-b:calc(var(--kb-inset) + var(--app-inset))}
+  /* the clearance is the page's own, so the keyboard's value is set on the
+     page as well: a property an element declares is not the one it inherits */
+  body.kb #page{--pad-b:calc(var(--kb-inset) + var(--app-inset))}
   /* the box while the keyboard is up, and through the close's settle window.
      the top follows the visual viewport, for the phone that slides the layout
      viewport under the keyboard; the height is the learned full-screen height
@@ -1433,7 +1435,7 @@ function applyShell(kb, top, height, base){
   const lifting = performance.now() < liftUntil;
   body.classList.toggle("kb", kb);
   body.classList.toggle("lifting", lifting);
-  if (inset !== appliedInset){ appliedInset = inset; body.style.setProperty("--kb-inset", inset + "px"); }
+  if (inset !== appliedInset){ appliedInset = inset; document.getElementById("page").style.setProperty("--kb-inset", inset + "px"); }
   document.documentElement.style.setProperty("--vvh", height + "px");
   if (kb || lifting){
     const t = Math.round(top), hgt = Math.round(base);
@@ -1477,8 +1479,8 @@ function liftLanded(byClock){
   if (appliedKb){ if (document.activeElement === el.ta) revealCaret(el.ta, el.twin); }
   else snapBack(el);
 }
-document.body.addEventListener("transitionend", e => {
-  if (e.target === document.body && e.propertyName === "padding-bottom") liftLanded(false);
+document.getElementById("page").addEventListener("transitionend", e => {
+  if (e.target === e.currentTarget && e.propertyName === "padding-bottom") liftLanded(false);
 });
 // the phone can hand a scroller its pre-close offset a frame after its own
 // close motion, past the end of the range the taller box leaves, and paint a
