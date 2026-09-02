@@ -135,9 +135,18 @@ test("a real run clears earlier sharing, serves, prints the way in, and stays op
   const code = checkWayIn(proc.stdout);
   assert.doesNotMatch(proc.stdout, /stop sharing with/, "the old stop sharing instruction is still printed");
   assert.doesNotMatch(proc.stdout, /sharing off/);
-  // the drawn code is the encoder's own symbol for that address
+  // the drawn code is the encoder's own symbol for that address, with a
+  // quiet zone of one module: one blank column each side, the first line
+  // carrying the code's first row in its lower half, and only the last line
+  // blank (the odd row count padded to a pair)
   const matrix = await qr("https://mac.tail0000.ts.net/m");
-  const quiet = 4;
+  const quiet = 1;
+  assert.equal(code.length, Math.ceil((matrix.length + 2) / 2), "the code is not drawn with a one module quiet zone");
+  assert.ok(code.every(line => line.length === 2 + matrix.length + 2), "a row is wider than the symbol plus one module each side");
+  assert.equal(code[0].slice(2, 10), " ▄▄▄▄▄▄▄", "the top margin is not one module");
+  assert.ok(code.slice(0, -1).every(line => line[2] === " " && line.at(-1) === " " && line.slice(3, -1).trim() !== ""),
+    "a row lacks its one module margin or carries no module");
+  assert.equal(code.at(-1).trim(), "", "the last line is not the blank padding pair");
   const rows = [];
   for (let y = 0; y < matrix.length + 2 * quiet; y++) rows.push(Array(matrix.length + 2 * quiet).fill(false));
   matrix.forEach((row, y) => row.forEach((v, x) => { rows[y + quiet][x + quiet] = v; }));
@@ -298,6 +307,6 @@ test("every symbol carries valid finders, timing, format and version fields", as
   const rendered = await run("python3", ["-c",
     "import qr; print('\\n'.join(qr.render(qr.encode('A'))))"], { cwd: ROOT });
   const lines = rendered.stdout.replace(/\n$/, "").split("\n");
-  assert.equal(lines.length, Math.ceil((21 + 8) / 2), "render draws two module rows per line with a four module quiet zone");
-  assert.ok(lines.every(line => /^[ ▀▄█]+$/.test(line) && line.length === 21 + 8));
+  assert.equal(lines.length, Math.ceil((21 + 2) / 2), "render draws two module rows per line with a one module quiet zone");
+  assert.ok(lines.every(line => /^[ ▀▄█]+$/.test(line) && line.length === 21 + 2));
 });
