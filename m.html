@@ -1,0 +1,1120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<title>facilitator</title>
+<!-- the phone page. the same board, drawn for a phone: the project tabs across
+     the top, one card filling the screen with the app's thin margins on all
+     four sides, and the card list in a drawer pulled in from the left edge.
+     nothing else. the card is the desktop card at phone size: the same top
+     bar, title, answer, sent box, composer and buttons, in the same colours
+     and faces, read straight out of index.html rather than redrawn -->
+<link rel="manifest" href="/m-manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="facilitator">
+<meta name="theme-color" content="#F5F4F1">
+<link rel="apple-touch-icon" href="/m-icon-180.png">
+<link rel="icon" href="/m-icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F5F4F1; --card:#FFFFFF; --ink:#211D17; --sub:#75695A;
+    --line:#E6DFD2; --line-strong:#D8CFBE;
+    --accent:#432BFF; --accent-soft:#EEEBFF;
+    --green:#2F6B3C; --green-bg:#EDF4E8; --green-line:#C4D9BB;
+    --must:#A8442A; --must-bg:#F7EAE4;
+    --could:#8A6D1F; --could-bg:#F5EFDD;
+    --later:#5A6473; --later-bg:#EAEDF1;
+    --serif:"Newsreader", Georgia, serif;
+    --sans:"IBM Plex Sans", -apple-system, sans-serif;
+    --mono:"IBM Plex Mono", ui-monospace, monospace;
+    --inter:"Inter", -apple-system, sans-serif;
+    /* the board's own measures, at phone size. --app-inset is the thin margin
+       the desktop app frame keeps from the window's edge; the safe area is
+       added to it below so the margin is thin on every side of a phone with
+       a notch too. --pad-x is the card pane's side padding, and the title and
+       the answer step in from it by the same thirds the desktop uses */
+    --app-inset:6px; --pad-x:18px;
+    --sp-xs:4px; --sp-s:8px; --sp-x:10px;
+    --cardbar-h:34px; --sq:4px; --press:10%; --row-min:44px; --sbar:9px;
+    --pend-bar:32px;
+    --gentle:cubic-bezier(.42,.06,.38,1);
+    --sunk-deep:inset 0 3px 7px rgba(60,45,20,.22), inset 0 1px 2px rgba(60,45,20,.14);
+    --titleair:calc(var(--pad-x)*2/3);
+  }
+  *{box-sizing:border-box}
+  html{height:100%; -webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font:15px/1.55 var(--sans);
+    background-image:radial-gradient(circle at 18% -4%, #FCFCFB 0%, rgba(252,252,251,0) 52%);
+    position:fixed; left:0; top:0; width:100%; height:100%;
+    overflow:hidden; display:flex; flex-direction:column;
+    padding:calc(env(safe-area-inset-top, 0px) + var(--app-inset))
+            calc(env(safe-area-inset-right, 0px) + var(--app-inset))
+            calc(env(safe-area-inset-bottom, 0px) + var(--app-inset))
+            calc(env(safe-area-inset-left, 0px) + var(--app-inset));
+    -webkit-tap-highlight-color:transparent;
+  }
+  button{font-family:inherit; -webkit-appearance:none; appearance:none}
+
+  /* ---- the project tabs, seated the way the desktop bar seats them --------- */
+  .bar{
+    flex:none; height:39px; overflow-x:auto; overflow-y:hidden;
+    scrollbar-width:none;
+    /* the bar's bottom line is its last pixel row, painted as background so a
+       seated tab's paper can stand on it and open into the canvas below */
+    background:linear-gradient(to top, var(--line) 1px, transparent 1px);
+  }
+  .bar::-webkit-scrollbar{display:none}
+  #tabbar{display:flex; align-items:flex-end; gap:4px; height:39px; padding:0 10px; width:max-content; min-width:100%}
+  .ptab{
+    flex:none; font:500 13px/16px var(--sans); color:var(--sub);
+    background:transparent; border:1px solid transparent; border-bottom:none;
+    border-radius:7px 7px 0 0; cursor:pointer; user-select:none; -webkit-user-select:none;
+    position:relative; height:39px; padding:0 16px 6px;
+    --seat:var(--paper);
+  }
+  .ptab.on{color:var(--ink); background:var(--seat); border-color:var(--line)}
+  .ptab.unread{color:var(--ink)}
+  .ptab.unread .plabel{font-weight:600}
+  .plabel{display:inline-block; vertical-align:top}
+  .plabel[data-label]::after{
+    content:attr(data-label); display:block; height:0; overflow:hidden;
+    visibility:hidden; font-weight:600;
+  }
+  .ptab.on::before, .ptab.on::after{
+    content:""; position:absolute; bottom:0; width:10px; height:8px; pointer-events:none;
+  }
+  .ptab.on::before{
+    left:-8px;
+    background:radial-gradient(circle 8px at 0 0, transparent 0 7px, var(--line) 7px 8px, var(--seat) 8px);
+  }
+  .ptab.on::after{
+    right:-8px;
+    background:radial-gradient(circle 8px at 100% 0, transparent 0 7px, var(--line) 7px 8px, var(--seat) 8px);
+  }
+
+  /* ---- the server unreachable note, the board's own --------------------- */
+  #offline{
+    display:none; flex:none; margin-top:var(--sp-s);
+    padding:9px 12px; font:13px var(--sans); color:#7A2E1B;
+    background:#FAE9E2; border:1px solid #E8C4B4; border-radius:7px;
+  }
+  body.offline #offline{display:block}
+
+  /* ---- the card pane ------------------------------------------------------ */
+  main{
+    flex:1 1 auto; min-height:0; margin-top:var(--sp-s);
+    background:var(--card); border:1px solid var(--line-strong); border-radius:7px;
+    box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
+    display:flex; flex-direction:column; overflow:hidden; position:relative;
+  }
+  #empty{display:none; flex:1; align-items:center; justify-content:center;
+    font:italic 400 17px var(--serif); color:var(--sub); padding:20px; text-align:center}
+  main.blank #empty{display:flex}
+  #cards{display:flex; flex-direction:column; flex:1 1 auto; min-height:0}
+  main.blank #cards{display:none}
+  .box{display:none; flex:1 1 auto; min-height:0; flex-direction:column}
+  .box.sel{display:flex}
+
+  /* the card's own top bar: the reply history on the left, the defer chip and
+     the close cross on the right, over the hairline the desktop bar wears */
+  .topbar{
+    flex:none; display:flex; align-items:center; gap:9px; position:relative;
+    height:var(--cardbar-h); padding:0 6px 0 calc(var(--pad-x)*2/3);
+    background:var(--card); box-shadow:inset 0 -1px 0 var(--line);
+  }
+  /* the history control is also the bar's one flexible item, the thing that
+     holds the two chips against the right end, so it keeps its room on a
+     card with nothing older and only its marks go */
+  .histctl{flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:0;
+    font:11.5px var(--mono); color:var(--sub); white-space:nowrap; visibility:hidden}
+  .box.hashist .histctl{visibility:visible}
+  .histbtn{flex:none; width:28px; height:28px; padding:0; border:none; border-radius:var(--sq);
+    background:var(--card); color:var(--ink); display:grid; place-items:center; cursor:pointer}
+  .histbtn:active{background:color-mix(in srgb, #000 var(--press), var(--card))}
+  .histbtn:disabled{opacity:.28}
+  .histbtn.older svg{transform:rotate(0deg)}
+  .histbtn.newer svg{transform:rotate(180deg)}
+  .histpos{margin-left:4px}
+  .histpos:empty{display:none}
+  /* the two chips wear the desktop's 16px mark on a 28px seat, the seat being
+     what a finger needs; the mark, the ink and the press are the desktop's */
+  .arcbtn, .xbtn{
+    flex:none; width:28px; height:28px; padding:0; border:none; border-radius:var(--sq);
+    background:var(--card); color:#000; position:relative; cursor:pointer;
+    display:inline-flex; align-items:center; justify-content:center;
+  }
+  .arcbtn:active, .xbtn:active{background:color-mix(in srgb, #000 var(--press), var(--card))}
+  .xbtn::before, .xbtn::after{
+    content:""; position:absolute; left:50%; top:50%;
+    width:9px; height:1.2px; background:#1e1e1e; border-radius:1px;
+  }
+  .xbtn::before{transform:translate(-50%,-50%) rotate(45deg)}
+  .xbtn::after{transform:translate(-50%,-50%) rotate(-45deg)}
+
+  .head{flex:none; padding:var(--titleair) 0 0}
+  .title{
+    display:block; min-width:0; white-space:normal; overflow-wrap:anywhere;
+    font:625 24px/1.25 var(--inter); color:var(--ink);
+    padding:0 calc(var(--pad-x)*2/3); min-height:1.25em; outline:none;
+  }
+  .title[contenteditable]:empty::before{content:"Chat Name"; color:var(--line-strong)}
+  .box.done .title{color:var(--green)}
+  .box.parked .title{color:var(--later)}
+
+  .body{display:flex; flex-direction:column; flex:1 1 0; min-height:0; padding:var(--titleair) 0 0}
+  .reply{
+    flex:1 1 auto; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
+    overscroll-behavior:contain; color:var(--ink);
+    font-size:17px; line-height:1.55;
+    padding:0 calc(var(--pad-x)*5/3 - var(--sbar)) 6px calc(var(--pad-x)*2/3);
+    scrollbar-gutter:stable;
+  }
+  .box.histview .reply{opacity:.8}
+  .reply::-webkit-scrollbar{width:var(--sbar)}
+  .reply::-webkit-scrollbar-track{background:transparent}
+  .reply::-webkit-scrollbar-thumb{background:transparent; border:3px solid transparent;
+    background-clip:padding-box; border-radius:99px}
+  .reply.scrolling::-webkit-scrollbar-thumb{background-color:var(--line-strong)}
+
+  /* ---- the sent box, folded to a bar, opened to the run ------------------- */
+  .pendwrap{flex:none; display:flex; flex-direction:column; background:var(--card)}
+  .meta{margin:0 calc(var(--pad-x)*2/3); font:11.5px var(--mono); color:var(--sub); background:var(--card)}
+  .meta:empty{display:none}
+  .pendlist{
+    display:flex; flex-direction:column; flex:none; position:relative;
+    margin:0 calc(var(--pad-x)*2/3) var(--sp-s);
+    font:15px/1.5 var(--sans); color:var(--ink);
+    cursor:pointer; user-select:none; -webkit-user-select:none;
+  }
+  .pendhead{
+    display:flex; align-items:center; justify-content:center; align-self:stretch; flex:none;
+    height:var(--pend-bar); padding:0 12px; border-radius:7px;
+    box-shadow:var(--sunk-deep); background:var(--card);
+    box-sizing:border-box; border:1px solid var(--line);
+  }
+  .chev{display:block; flex:none}
+  .pendbody{display:none}
+  .pendlist.open{
+    background:var(--card); border:1px solid var(--line); border-radius:7px;
+    padding:12px 12px 10px; box-shadow:var(--sunk-deep); overflow:hidden;
+    max-height:38vh; max-height:calc(var(--vvh, 100vh) * .38);
+  }
+  .pendlist.open .pendhead{display:none}
+  .pendlist.open .pendbody{
+    display:flex; flex-direction:column; flex:1 1 auto; min-height:0; position:relative;
+    animation:pendfade .22s ease-out;
+  }
+  @keyframes pendfade{from{opacity:0}}
+  .pendlist.open .chevtop{position:absolute; left:0; top:3px; transform:rotate(180deg)}
+  .pendstamp{flex:none; text-align:right; font:12px var(--mono); color:var(--sub); padding:0 0 var(--sp-s); min-height:1.2em}
+  .pendscroll{flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain}
+  .pendmsg + .pendmsg{padding-top:var(--sp-s)}
+  .pendmsg .pendcontent{
+    position:relative; margin:0 0 0 auto; text-align:right; white-space:pre-wrap;
+    max-width:80%; overflow-wrap:break-word;
+  }
+  .rcpt{display:block; text-align:right; font:10.5px/1.35 var(--mono); color:var(--sub); padding:2px 0 0}
+  .rcpt:empty{display:none}
+
+  /* ---- the foot: the plus, the row he types on, the send square ------------ */
+  .bottombar{
+    display:flex; align-items:flex-end; gap:var(--sp-s); flex:none;
+    margin:0 calc(var(--pad-x)*2/3); border-top:1px solid var(--line); background:var(--card);
+  }
+  .clipbtn{
+    flex:none; width:28px; height:var(--row-min); padding:0; border:none;
+    background:none; border-radius:var(--sq); color:var(--ink);
+    display:grid; place-items:center; line-height:1; cursor:pointer;
+    position:relative; isolation:isolate; transition:transform .11s var(--gentle);
+  }
+  .clipbtn::before{
+    content:""; position:absolute; z-index:-1; left:0; right:0; top:50%; aspect-ratio:1;
+    transform:translateY(-50%); border-radius:var(--sq); border:1px solid var(--line);
+    background:color-mix(in srgb, #000 var(--press), var(--paper));
+    box-shadow:var(--sunk-deep); opacity:0; transition:opacity .11s var(--gentle);
+  }
+  .clipbtn:active{transform:translateY(1px)}
+  .clipbtn:active::before{opacity:1}
+  .clipfile{display:none}
+  .compose{flex:1 1 auto; min-width:0; display:flex; gap:var(--sp-x); align-items:flex-end}
+  textarea{
+    flex:1; min-width:0; resize:none; font:17px/1.5 var(--sans); color:var(--ink);
+    background:transparent; border:none; outline:none;
+    padding:var(--sp-s) 4px; margin:0 -4px;
+    min-height:var(--row-min); max-height:28vh; max-height:calc(var(--vvh, 100vh) * .28); overflow-y:auto;
+  }
+  textarea::placeholder{color:#B4AA99}
+  .sendbtn{
+    flex:none; width:28px; height:28px; min-height:0; padding:0; border:none;
+    background:var(--card); color:#000; border-radius:var(--sq);
+    display:grid; place-items:center; line-height:1; cursor:pointer;
+    opacity:0; transform:scale(.5); pointer-events:none;
+    transition:opacity .26s var(--gentle), transform .26s var(--gentle);
+  }
+  .sendbtn.show{opacity:1; transform:scale(1); pointer-events:auto}
+  .sendbtn:active{background:color-mix(in srgb, #000 var(--press), var(--card))}
+
+  /* ---- the card list, in a drawer off the left edge ------------------------ */
+  #scrim{position:fixed; inset:0; background:rgba(33,29,23,.18); opacity:0;
+    pointer-events:none; transition:opacity .26s var(--gentle); z-index:19}
+  #scrim.on{opacity:1; pointer-events:auto}
+  #drawer{
+    position:fixed; top:0; bottom:0; left:0; width:min(84vw, 340px); z-index:20;
+    background:#fff; border-right:1px solid var(--line);
+    box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
+    transform:translateX(-100%); transition:transform .26s var(--gentle);
+    display:flex; flex-direction:column;
+    padding-top:env(safe-area-inset-top, 0px); padding-bottom:env(safe-area-inset-bottom, 0px);
+  }
+  #drawer.open{transform:none}
+  #drawer.drag{transition:none}
+  #tikhead{flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 8px 0; border-bottom:1px solid var(--line)}
+  .tvb{flex:1; font:500 13px/16px var(--sans); color:var(--sub); background:transparent;
+    border:1px solid transparent; border-bottom:none; border-radius:0;
+    padding:6px 0 5px; cursor:pointer; user-select:none; -webkit-user-select:none; position:relative; top:1px}
+  .tvb.on{color:var(--ink); background:var(--card); border-color:var(--line)}
+  .tikadd{flex:none; align-self:center; width:28px; height:28px; padding:0; margin-left:4px;
+    font:500 15px/1 var(--mono); color:var(--ink); background:none; border:none; cursor:pointer; opacity:.75}
+  #tiklist{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; display:flex; flex-direction:column;
+    gap:6px; padding:10px 8px}
+  .trow{
+    position:relative; flex:none; height:52px;
+    border:1px solid var(--line); border-radius:5px; background:#fff;
+    box-shadow:0 1px 4px rgba(60,45,20,.05);
+    display:flex; flex-direction:column; cursor:pointer; overflow:hidden;
+    transition:border-color .3s, background-color .3s;
+  }
+  .trowin{display:flex; align-items:center; gap:var(--sp-x); height:100%; padding:0 var(--sp-x)}
+  .trow.seen .ttl{color:#847A6B}
+  .ttl{flex:1; min-width:0; font:500 15px/1.3 var(--sans); color:var(--ink);
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden}
+  .tmeta{flex:none; display:flex; flex-direction:column; align-items:flex-end; gap:2px}
+  .tmeta .tage{font:600 12.5px var(--mono); color:var(--sub); font-variant-numeric:tabular-nums; min-height:16px}
+  .tmeta .teng{font:400 10.5px var(--mono); color:#B4AA99}
+  .tnum{font:600 13px var(--mono); color:var(--sub); margin-right:.45em}
+  .tempty{font:italic 12.5px var(--sans); color:#B4AA99; padding:8px 12px}
+  .trow.working{background:#F0FAEB; border-color:#C4D9BB}
+  .trow.yours{background:#FFFBE8; border-color:#E8DCAE}
+  .trow.queuedc{background:#EDF0F4; border-color:#CDD4DE}
+  .trow.donec{opacity:.55}
+  .trow.on{border-color:var(--line-strong); transform:translateY(-1px); z-index:1;
+    box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
+
+  /* ---- card prose, the same vocabulary every card surface carries ---------- */
+  .cardmd{overflow-wrap:anywhere}
+  .cardmd p{margin:0 0 9px}
+  .cardmd > :last-child{margin-bottom:0}
+  .cardmd ul, .cardmd ol{margin:0 0 9px; padding-left:22px}
+  .cardmd li{margin:2px 0}
+  .cardmd li > ul, .cardmd li > ol{margin:3px 0 2px}
+  .cardmd h1, .cardmd h2, .cardmd h3, .cardmd h4, .cardmd h5, .cardmd h6{
+    margin:13px 0 7px; color:var(--ink); font-family:var(--inter); line-height:1.25;
+  }
+  .cardmd h1{font-size:1.55em}.cardmd h2{font-size:1.35em}.cardmd h3{font-size:1.2em}
+  .cardmd h4{font-size:1.1em}.cardmd h5{font-size:1em}.cardmd h6{font-size:.92em}
+  .cardmd a{color:inherit; text-decoration:underline; text-underline-offset:2px}
+  .cardmd .shot{display:block; max-width:100%; border-radius:6px; margin:8px auto}
+  .cardmd .shotgrid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:8px; margin:8px 0 9px; align-items:start}
+  .cardmd .shotgrid[data-n="3"]{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .cardmd .shotgrid[data-n="4"]{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .cardmd .shotgrid .shot{margin:0 auto}
+  .cardmd .inlinecode{font-family:var(--mono); font-size:inherit; line-height:inherit;
+    color:var(--ink); background:var(--paper); border-radius:var(--sq);
+    padding:1px 4px; white-space:pre-wrap}
+  .cardmd .codeblockwrap{position:relative; margin:0 0 9px}
+  .cardmd .codeblock{margin:0; padding:10px 12px; border-radius:8px;
+    background:#EFF1F4; border:0; font:12.5px/1.5 var(--mono); color:var(--ink);
+    white-space:pre; overflow-x:auto; user-select:all; -webkit-user-select:all}
+  .cardmd .codeblockwrap[data-language] .codeblock{padding-top:29px}
+  .cardmd .codelang{position:absolute; top:7px; left:12px; max-width:calc(100% - 62px);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    color:var(--sub); font:10.5px/1.4 var(--mono)}
+  .cardmd .codeblockwrap .copybtn{position:absolute; top:6px; right:8px; padding:4px 6px;
+    display:flex; align-items:center; color:var(--sub); background:#fff;
+    box-shadow:0 1px 4px rgba(33,29,23,.18); border:0; border-radius:5px;
+    cursor:pointer; user-select:none; -webkit-user-select:none; opacity:0;
+    pointer-events:none; transition:opacity .15s}
+  .cardmd .codeblockwrap:hover .copybtn{opacity:1; pointer-events:auto}
+  .cardmd blockquote{margin:0 0 9px 2px; padding:2px 0 2px 12px;
+    border-left:3px solid var(--line-strong); color:var(--sub)}
+  .cardmd .tablewrap{max-width:100%; overflow-x:auto; margin:0 0 9px}
+  .cardmd table{width:100%; border-collapse:collapse; font:inherit}
+  .cardmd th, .cardmd td{padding:5px 7px; border:1px solid var(--line); text-align:left}
+  .cardmd th{font-weight:650; background:var(--paper)}
+  .cardmd .md-align-center{text-align:center}.cardmd .md-align-right{text-align:right}
+  .cardmd hr{height:0; margin:13px 0; border:0; border-top:1px solid var(--line-strong)}
+  @media (prefers-reduced-motion: reduce){ *{animation:none !important; transition:none !important} }
+</style>
+</head>
+<body>
+
+<div class="bar"><span id="tabbar"></span></div>
+<div id="offline"></div>
+<main id="pane" class="blank">
+  <div id="empty">no cards on this tab yet</div>
+  <div id="cards"></div>
+</main>
+
+<div id="scrim"></div>
+<aside id="drawer" aria-label="cards">
+  <div id="tikhead">
+    <button id="tv-todo" class="tvb on" type="button">doing</button>
+    <button id="tv-deferred" class="tvb" type="button">deferred</button>
+    <button id="tv-done" class="tvb" type="button">done</button>
+    <button id="tikadd" class="tikadd" type="button" title="new card" aria-label="new card">+</button>
+  </div>
+  <div id="tiklist"></div>
+</aside>
+
+<script src="/card-markdown.js"></script>
+<script>
+// ---- what the desktop card carries, at phone size ---------------------------
+const PLUS_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>';
+const SEND_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 11.5V3.5M3.6 6.9 7 3.5l3.4 3.4" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const MOON_ICON = '<svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" stroke="none" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
+const CHEV_PATH = '<path d="M1 5.5 5.5 1.5 10 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>';
+const chevSVG = seat => '<svg class="chev ' + seat + '" width="11" height="7" viewBox="0 0 11 7" fill="none" aria-hidden="true">' + CHEV_PATH + "</svg>";
+const MONTHS3 = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const SPIN_FRAMES = ["|","/","-","\\"];
+
+const els = {};                 // box id -> the card's parts
+let lastState = null;
+let pollFails = 0;
+let selectedId = localStorage.getItem("selbox") || null;
+let activeOwner = localStorage.getItem("activeproj") || "facilitator";
+let validOwners = new Set();
+let ticketView = "todo";        // the drawer's tab: doing, deferred, done
+const lastSel = {};             // owner -> the card he was on when he left that tab
+let pendingFocus = null;        // a card just made: name it as soon as it is drawn
+let wantBox = new URLSearchParams(location.search).get("box");   // a notification opened the page on this card
+const seenReplies = JSON.parse(localStorage.getItem("seenReplies") || "{}");
+
+function h(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function fmt(t){ return CardMarkdown.render(t || ""); }
+function replyFull(b){ return b.replyFull == null ? (b.reply || "") : b.replyFull; }
+
+// the one state a card's colour and place come from, read the way the desktop
+// reads it: the server ships it, and the recompute only serves an older server
+function cardState(b){
+  const s = b.state || (
+         b.done ? "done"
+       : b.parked ? "parked"
+       : (b.writing || b.bg) ? "working"
+       : (!b.agentTs && !b.pending && !b.replies) ? "new"
+       : b.ball === "you" ? "yours"
+       : "queued");
+  const shown = s === "note" ? "working" : s;
+  return (shown === "yours" && b.pending > 0) ? "queued" : shown;
+}
+function queueState(b){ return b.parked ? cardState({ ...b, parked: false, state: null }) : cardState(b); }
+function awaitsYou(b){
+  const s = cardState(b);
+  return (s === "yours" || (s === "new" && b.ball === "you")) && !(b.pending > 0);
+}
+function viewFilter(b){
+  const s = cardState(b);
+  return ticketView === "done" ? s === "done"
+       : ticketView === "deferred" ? s === "parked"
+       : (s !== "done" && s !== "parked");
+}
+function poolOf(state){
+  return state.boxes.filter(b => b.owner === activeOwner && b.id !== "q")
+    .sort((a, b) => {
+      const g = x => ({ "new": 0, yours: 1, queued: 2, working: 3, done: 4 })[queueState(x)];
+      if (g(a) !== g(b)) return g(a) - g(b);
+      if (g(a) === 0) return (b.ts || 0) - (a.ts || 0);
+      if (g(a) === 1) return (b.agentTs || 0) - (a.agentTs || 0);
+      return (b.ts || 0) - (a.ts || 0);
+    });
+}
+function viewPool(state){ return poolOf(state).filter(viewFilter); }
+
+// the project tabs: the lanes the cards name plus the stored project lanes,
+// tool meta first, then in the saved bar order if this browser has one
+function allRowsOf(state){
+  const owners = [];
+  for (const b of state.boxes)
+    if (b.owner !== "qchat" && !owners.includes(b.owner)) owners.push(b.owner);
+  for (const p of (state.projects || []))
+    if (!owners.includes(p.id)) owners.push(p.id);
+  owners.sort((a, b) => (a === "facilitator" ? -1 : b === "facilitator" ? 1 : 0));
+  let saved = [];
+  try { saved = JSON.parse(localStorage.getItem("taborder") || "[]"); } catch (err) {}
+  if (!Array.isArray(saved)) saved = [];
+  const lead = saved.filter(ow => owners.includes(ow));
+  return [...lead, ...owners.filter(ow => !lead.includes(ow))];
+}
+function labelOf(state, owner){
+  const dir = (state.pwds || {})[owner] || "";
+  return dir.split("/").filter(Boolean).pop() || owner;
+}
+function laneUnread(state, owner){
+  return !!state && state.boxes.some(b =>
+    b.owner === owner && b.id !== "q" && cardState(b) === "yours" &&
+    (seenReplies[b.id] || 0) < (b.agentTs || 0));
+}
+function markSeen(id){
+  seenReplies[id] = Date.now() / 1000;
+  localStorage.setItem("seenReplies", JSON.stringify(seenReplies));
+}
+function pickInRow(state, owner){
+  const row = state.boxes.filter(b => b.owner === owner && b.id !== "q");
+  if (!row.length) return null;
+  return (lastSel[owner] && row.find(b => b.id === lastSel[owner]))
+      || row.find(awaitsYou)
+      || row[0];
+}
+
+function stampText(ts){
+  if (!ts) return "";
+  const d = new Date(ts * 1000);
+  if (isNaN(d.getTime())) return "";
+  const hr = d.getHours();
+  const clock = (hr % 12 || 12) + ":" + String(d.getMinutes()).padStart(2, "0") + " " + (hr < 12 ? "AM" : "PM");
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return clock;
+  const day = MONTHS3[d.getMonth()] + " " + d.getDate() + (d.getFullYear() === now.getFullYear() ? "" : " " + d.getFullYear());
+  return day + ", " + clock;
+}
+function shortAge(ts){
+  if (!ts) return "";
+  const sec = Date.now() / 1000 - ts;
+  if (sec < 60) return "now";
+  if (sec < 3600) return Math.floor(sec / 60) + "m";
+  if (sec < 86400) return Math.floor(sec / 3600) + "h";
+  return Math.floor(sec / 86400) + "d";
+}
+
+// ---- the card ----------------------------------------------------------------
+async function attach(files, ta){
+  for (const f of files.filter(x => x.type.startsWith("image/"))){
+    const r = await fetch("/upload?name=" + encodeURIComponent(f.name || "picture"), { method: "POST", body: f })
+      .then(x => x.json()).catch(() => null);
+    if (r?.url) ta.value = (ta.value ? ta.value.trimEnd() + "\n" : "") + r.url + "\n";
+  }
+  ta.dispatchEvent(new Event("input"));
+}
+
+function seatSquare(ta, square){
+  const cs = getComputedStyle(ta);
+  const lh = parseFloat(cs.lineHeight);
+  const pt = parseFloat(cs.paddingTop), pb = parseFloat(cs.paddingBottom);
+  const hgt = ta.getBoundingClientRect().height;
+  if (!lh || !hgt) return;
+  const lines = Math.max(1, Math.round((ta.scrollHeight - pt - pb) / lh));
+  const foot = ta.scrollHeight > ta.clientHeight + 1 ? hgt - pb : pt + lines * lh;
+  const mid = foot - lh / 2;
+  square.style.marginBottom = (hgt - mid - square.offsetHeight / 2) + "px";
+}
+
+function makeBox(b){
+  const box = h("article", "box");
+  box.id = "box-" + b.id;
+
+  const topbar = h("div", "topbar");
+  const histctl = h("div", "histctl");
+  const histUp = h("button", "histbtn older");
+  histUp.type = "button"; histUp.title = "older reply"; histUp.setAttribute("aria-label", "older reply");
+  histUp.innerHTML = chevSVG("");
+  const histDown = h("button", "histbtn newer");
+  histDown.type = "button"; histDown.title = "newer reply"; histDown.setAttribute("aria-label", "newer reply");
+  histDown.innerHTML = chevSVG("");
+  histDown.disabled = true;
+  const histPos = h("span", "histpos");
+  histctl.append(histUp, histDown, histPos);
+  histUp.addEventListener("click", () => histStep(b.id, 1));
+  histDown.addEventListener("click", () => histStep(b.id, -1));
+  const arc = h("button", "arcbtn");
+  arc.type = "button"; arc.title = "defer to the deferred tab"; arc.setAttribute("aria-label", "defer");
+  arc.innerHTML = MOON_ICON;
+  arc.addEventListener("click", e => { e.stopPropagation(); toggleFlag(b.id, "park"); });
+  const x = h("button", "xbtn");
+  x.type = "button"; x.title = "done (an empty card is removed instead)"; x.setAttribute("aria-label", "close");
+  x.addEventListener("click", async e => {
+    e.stopPropagation();
+    await fetch("/close?box=" + encodeURIComponent(b.id), { method: "POST" }).catch(() => {});
+    const doing = lastState ? poolOf(lastState).filter(o => !o.done && !o.parked && o.id !== b.id && o.id !== "0" && o.id !== "t0") : [];
+    if (doing.length) select(doing[0].id); else deselect();
+    poll();
+  });
+  topbar.append(histctl, arc, x);
+  box.appendChild(topbar);
+
+  const head = h("div", "head");
+  const titleEl = h("span", "title", b.title);
+  titleEl.addEventListener("click", () => { if (!titleEl.isContentEditable) editTitle(b.id, { fromClick: true }); });
+  head.appendChild(titleEl);
+  box.appendChild(head);
+
+  const body = h("div", "body");
+  const reply = h("div", "reply cardmd");
+  reply.dataset.raw = replyFull(b);
+  reply.innerHTML = fmt(reply.dataset.raw);
+  barFade(reply);
+  const pendwrap = h("div", "pendwrap");
+  const meta = h("div", "meta");
+  const bottombar = h("div", "bottombar");
+  const clipfile = h("input", "clipfile");
+  clipfile.type = "file";
+  clipfile.accept = "image/*";
+  clipfile.multiple = true;
+  clipfile.tabIndex = -1;
+  clipfile.setAttribute("aria-hidden", "true");
+  const clip = h("button", "clipbtn");
+  clip.type = "button"; clip.title = "attach a picture"; clip.setAttribute("aria-label", "attach a picture");
+  clip.innerHTML = PLUS_ICON;
+  const compose = h("div", "compose");
+  const ta = h("textarea");
+  ta.rows = 1;
+  const send = h("button", "sendbtn");
+  send.type = "button"; send.setAttribute("aria-label", "send");
+  send.innerHTML = SEND_ICON;
+  compose.append(ta, send);
+  bottombar.append(clipfile, clip, compose);
+  pendwrap.append(meta, bottombar);
+  body.append(reply, pendwrap);
+  box.appendChild(body);
+  document.getElementById("cards").appendChild(box);
+
+  const tick = () => {
+    ta.style.height = "auto";
+    ta.style.height = ta.scrollHeight + "px";
+    seatSquare(ta, send);
+    send.classList.toggle("show", ta.value.trim().length > 0);
+  };
+  ta.addEventListener("input", tick);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(tick);
+  tick();
+  send.addEventListener("pointerdown", e => { if (document.activeElement === ta) e.preventDefault(); });
+  send.addEventListener("click", () => doSend(b.id));
+  clip.addEventListener("pointerdown", e => { if (document.activeElement === ta) e.preventDefault(); });
+  clip.addEventListener("click", () => clipfile.click());
+  clipfile.addEventListener("change", async () => {
+    const files = [...(clipfile.files || [])];
+    clipfile.value = "";
+    await attach(files, ta);
+  });
+
+  els[b.id] = { box, reply, meta, ta, send, tick, titleEl, arc, x, pendwrap, bottombar,
+                pend: null, pendRaw: "", histUp, histDown, histPos, clip, clipfile };
+  return els[b.id];
+}
+
+// the thumb in the answer only shows while the answer is moving, the way every
+// scroller on the board hides its bar at rest
+function barFade(node){
+  let timer = null;
+  node.addEventListener("scroll", () => {
+    node.classList.add("scrolling");
+    clearTimeout(timer);
+    timer = setTimeout(() => node.classList.remove("scrolling"), 700);
+  }, { passive: true });
+}
+
+// ---- the sent box --------------------------------------------------------------
+function growPend(el){
+  const pend = h("div", "pendlist");
+  pend.innerHTML = '<div class="pendhead">' + chevSVG("chevmid") + "</div>" +
+    '<div class="pendbody">' + chevSVG("chevtop") + '<div class="pendstamp"></div>' +
+    '<div class="pendscroll"><div class="pendslide"></div></div></div>';
+  pend.addEventListener("click", () => {
+    pend.classList.toggle("open");
+    if (pend.classList.contains("open")) pendBottom(pend);
+  });
+  el.pendwrap.insertBefore(pend, el.bottombar);
+  el.pend = pend;
+  return pend;
+}
+function dropPend(el){
+  if (!el.pend) return;
+  el.pend.remove();
+  el.pend = null;
+  el.pendRaw = "";
+}
+function pendRow(text){
+  const row = h("div", "pendmsg");
+  row.dataset.text = text;
+  const content = h("div", "pendcontent cardmd");
+  content.innerHTML = fmt(text);
+  row.append(content, h("span", "rcpt"));
+  return row;
+}
+function stampRcpts(pend){
+  const rows = pend.querySelector(".pendslide").children, n = rows.length;
+  for (let i = 0; i < n; i++){
+    const want = i === n - 1 ? "Delivered" : i === n - 2 ? "Read" : "";
+    const r = rows[i].querySelector(".rcpt");
+    if (r.textContent !== want) r.textContent = want;
+  }
+}
+function pendBottom(pend){
+  const lane = pend.querySelector(".pendscroll");
+  if (lane) lane.scrollTop = lane.scrollHeight;
+}
+function stampRun(pend, stamps){
+  const s = pend.querySelector(".pendstamp");
+  const want = stampText(stamps && stamps[0]);
+  if (s.textContent !== want) s.textContent = want;
+}
+function syncPend(el, texts, stamps){
+  texts = texts || []; stamps = stamps || [];
+  if (!texts.length){ dropPend(el); return; }
+  const pend = el.pend || growPend(el);
+  const slide = pend.querySelector(".pendslide");
+  const have = [...slide.children];
+  const grows = texts.length >= have.length && have.every((row, i) => row.dataset.text === texts[i]);
+  if (!grows){
+    slide.textContent = "";
+    texts.forEach(t => slide.appendChild(pendRow(t)));
+  } else {
+    for (let i = have.length; i < texts.length; i++) slide.appendChild(pendRow(texts[i]));
+    if (texts.length > have.length) pendBottom(pend);
+  }
+  stampRcpts(pend);
+  stampRun(pend, stamps);
+  el.pendRaw = texts.join("\n\n");
+}
+
+// ---- sending, closing, parking, naming ------------------------------------------
+function boxDone(id){
+  const b = lastState && lastState.boxes.find(x => x.id === id);
+  return !!(b && b.done);
+}
+function undone(id){
+  fetch("/done?box=" + encodeURIComponent(id) + "&v=0", { method: "POST" }).then(() => poll()).catch(() => {});
+}
+async function doSend(id){
+  const el = els[id];
+  const text = el.ta.value.trim();
+  if (!text) return;
+  const reopen = boxDone(id);
+  el.send.disabled = true;
+  try {
+    const r = await fetch("/send?box=" + encodeURIComponent(id), { method: "POST", body: text });
+    if (!r.ok) throw new Error(r.status);
+    el.ta.value = "";
+    el.tick();
+    const pend = el.pend || growPend(el);
+    pend.querySelector(".pendslide").appendChild(pendRow(text));
+    stampRcpts(pend);
+    if (!pend.querySelector(".pendstamp").textContent) stampRun(pend, [Date.now() / 1000]);
+    pendBottom(pend);
+    el.pendRaw = el.pendRaw ? el.pendRaw + "\n\n" + text : text;
+    if (hist && hist.id === id) histExit(id);
+    if (reopen) undone(id);
+    poll();
+  } catch (err) {
+    el.meta.textContent = "send failed, text kept, try again";
+  } finally {
+    el.send.disabled = false;
+  }
+}
+async function toggleFlag(id, kind){
+  const cls = kind === "done" ? "done" : "parked";
+  const on = els[id].box.classList.contains(cls);
+  await fetch("/" + kind + "?box=" + encodeURIComponent(id) + "&v=" + (on ? 0 : 1), { method: "POST" }).catch(() => {});
+  poll();
+}
+function editTitle(id, opts){
+  opts = opts || {};
+  const el = els[id]; if (!el) return;
+  const t = el.titleEl, old = t.textContent;
+  t.setAttribute("contenteditable", "plaintext-only");
+  if (old === "…") t.textContent = "";
+  if (!opts.fromClick){
+    t.focus();
+    if (t.textContent){
+      const range = document.createRange();
+      range.selectNodeContents(t);
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    }
+  }
+  const end = () => { t.removeAttribute("contenteditable"); t.onkeydown = null; t.onblur = null; };
+  const commit = () => {
+    const name = t.textContent.trim();
+    end();
+    if (name && name !== old){
+      t.textContent = name;
+      fetch("/title?box=" + encodeURIComponent(id), { method: "POST", body: name }).then(() => poll()).catch(() => {});
+    } else if (!name && !old){
+      fetch("/title?box=" + encodeURIComponent(id), { method: "POST" }).then(() => poll()).catch(() => {});
+    } else t.textContent = old;
+  };
+  t.onkeydown = e => {
+    e.stopPropagation();
+    if (e.key === "Enter"){ e.preventDefault(); commit(); el.ta.focus(); }
+    else if (e.key === "Escape"){
+      if (!old && !t.textContent.trim()) commit();
+      else { end(); t.textContent = old; }
+    }
+  };
+  t.onblur = () => { if (t.isContentEditable) commit(); };
+}
+async function createCard(){
+  if (!validOwners.has(activeOwner)) return;
+  const r = await fetch("/create?owner=" + encodeURIComponent(activeOwner), { method: "POST" })
+    .then(x => x.json()).catch(() => null);
+  if (r?.id){ pendingFocus = r.id; closeDrawer(); }
+  await poll();
+}
+
+// ---- older replies -------------------------------------------------------------
+const histCache = {};
+let hist = null;
+function histList(id){
+  if (!histCache[id]){
+    histCache[id] = fetch("/thread?box=" + encodeURIComponent(id) + "&n=200")
+      .then(x => x.json())
+      .then(r => {
+        const list = (r.messages || []).filter(m => m.kind === "agent").map(m => m.replyFull ?? m.text);
+        if (list.length && els[id] && list[list.length - 1] === els[id].reply.dataset.raw) list.pop();
+        return list;
+      })
+      .catch(() => { delete histCache[id]; return []; });
+  }
+  return histCache[id];
+}
+function histExit(id){
+  const was = hist && hist.id === id;
+  if (was) hist = null;
+  const el = els[id];
+  if (!el) return;
+  el.box.classList.remove("histview");
+  el.histPos.textContent = "";
+  el.histUp.disabled = false;
+  el.histDown.disabled = true;
+  if (was){
+    el.reply.innerHTML = fmt(el.reply.dataset.raw);
+    el.reply.scrollTop = 0;
+  }
+}
+async function histStep(id, dir){
+  const list = await histList(id);
+  if (!els[id] || !list.length) return;
+  const cur = hist && hist.id === id ? hist.step : 0;
+  const step = Math.min(Math.max(cur + dir, 0), list.length);
+  if (step === cur) return;
+  if (!step){ histExit(id); return; }
+  hist = { id, step };
+  const el = els[id];
+  el.reply.innerHTML = fmt(list[list.length - step]);
+  el.reply.scrollTop = 0;
+  el.box.classList.add("histview");
+  el.histPos.textContent = (list.length - step + 1) + " of " + (list.length + 1);
+  el.histUp.disabled = step >= list.length;
+  el.histDown.disabled = false;
+}
+
+// ---- selection and tabs ----------------------------------------------------------
+function select(id){
+  if (!els[id]) return;
+  if (hist && hist.id !== id) histExit(hist.id);
+  selectedId = id; localStorage.setItem("selbox", id);
+  markSeen(id);
+  const b = lastState?.boxes.find(x => x.id === id);
+  if (b) lastSel[b.owner] = id;
+  for (const k of Object.keys(els)) els[k].box.classList.toggle("sel", k === id);
+  document.getElementById("pane").classList.remove("blank");
+  for (const r of document.querySelectorAll("#tiklist .trow")){
+    r.classList.toggle("on", r.dataset.id === id);
+    if (r.dataset.id === id && r.classList.contains("yours")) r.classList.add("seen");
+  }
+  if (lastState) renderTabs(lastState);
+}
+function deselect(){
+  selectedId = null; localStorage.removeItem("selbox");
+  for (const k of Object.keys(els)) els[k].box.classList.remove("sel");
+  document.getElementById("pane").classList.add("blank");
+  for (const r of document.querySelectorAll("#tiklist .trow")) r.classList.remove("on");
+}
+function setTab(owner){
+  if (!validOwners.has(owner)) return;
+  activeOwner = owner; localStorage.setItem("activeproj", owner);
+  const pick = lastState && pickInRow(lastState, owner);
+  if (pick) select(pick.id); else deselect();
+  if (lastState) apply(lastState);
+}
+function renderTabs(st){
+  const bar = document.getElementById("tabbar");
+  const owners = allRowsOf(st);
+  const sig = owners.map(ow => ow + ":" + labelOf(st, ow)).join(",");
+  if (bar.dataset.sig !== sig){
+    bar.dataset.sig = sig;
+    bar.textContent = "";
+    for (const ow of owners){
+      const t = h("button", "ptab");
+      t.type = "button";
+      t.dataset.owner = ow;
+      const lbl = h("span", "plabel", labelOf(st, ow));
+      lbl.dataset.label = lbl.textContent;
+      t.appendChild(lbl);
+      t.addEventListener("click", () => setTab(ow));
+      bar.appendChild(t);
+    }
+  }
+  for (const t of bar.querySelectorAll(".ptab")){
+    t.classList.toggle("on", t.dataset.owner === activeOwner);
+    t.classList.toggle("unread", laneUnread(st, t.dataset.owner));
+  }
+  bar.querySelector(".ptab.on")?.scrollIntoView({ inline: "nearest", block: "nearest" });
+}
+function applySelection(state){
+  const pool = state.boxes.filter(b => b.owner === activeOwner && b.id !== "q");
+  if (!pool.length){ deselect(); return; }
+  if (!selectedId || !pool.some(b => b.id === selectedId)){
+    const inView = viewPool(state);
+    const pick = inView.find(awaitsYou)
+              || inView.find(b => !b.done && !b.parked)
+              || inView[0]
+              || pool.find(awaitsYou)
+              || pool.find(b => !b.done && !b.parked)
+              || pool[0];
+    select(pick.id);
+    return;
+  }
+  if (hist && hist.id !== selectedId) histExit(hist.id);
+  for (const k of Object.keys(els)) els[k].box.classList.toggle("sel", k === selectedId);
+  document.getElementById("pane").classList.remove("blank");
+}
+
+// ---- the drawer's list, the desktop's ticket panel ----------------------------------
+let spinFrame = 0, spinTimer = null;
+function syncSpinner(){
+  const has = document.querySelector("#tiklist .trow.working");
+  if (has && spinTimer == null){
+    spinTimer = setInterval(() => {
+      const ages = document.querySelectorAll("#tiklist .trow.working .tage");
+      if (!ages.length){ clearInterval(spinTimer); spinTimer = null; return; }
+      spinFrame = (spinFrame + 1) % SPIN_FRAMES.length;
+      for (const a of ages) a.textContent = SPIN_FRAMES[spinFrame];
+    }, 180);
+  } else if (!has && spinTimer != null){
+    clearInterval(spinTimer); spinTimer = null;
+  }
+}
+function renderTickets(state){
+  const tik = document.getElementById("tiklist");
+  const pool = viewPool(state);
+  const lane = state.agents?.[activeOwner];
+  const sig = ticketView + "|" + (lane ? lane.name + lane.alive : "") + "|" +
+              pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
+                      ((seenReplies[b.id] || 0) >= (b.agentTs || 0) ? "r" : "") +
+                      (b.id === selectedId ? "!" : "") + b.title +
+                      Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",");
+  if (tik.dataset.sig === sig) return;
+  tik.dataset.sig = sig;
+  tik.textContent = "";
+  for (const b of pool){
+    const s = queueState(b);
+    const busy = s === "working" || (s === "done" && cardState({ ...b, done: false, parked: false, state: null }) === "working");
+    const seenTs = seenReplies[b.id] || 0;
+    const r = h("div", "trow" + (b.id === selectedId ? " on" : "") + (busy ? " working" : "") +
+                (s === "yours" && seenTs >= (b.agentTs || 0) ? " seen" : "") +
+                (s === "yours" || (s === "new" && b.ball === "you") ? " yours" : "") +
+                (s === "queued" || (s === "new" && b.ball !== "you") ? " queuedc" : "") +
+                (s === "done" ? " donec" : ""));
+    const inner = h("div", "trowin");
+    const ttl = h("div", "ttl", b.title);
+    if (/^[0-9]/.test(b.id)) ttl.prepend(h("span", "tnum", b.id));
+    inner.appendChild(ttl);
+    const meta = h("div", "tmeta");
+    meta.appendChild(h("span", "tage", busy ? SPIN_FRAMES[spinFrame] : s === "done" ? "done" : shortAge(b.agentTs)));
+    const ag = state.agents?.[b.owner];
+    meta.appendChild(h("span", "teng", ag ? (ag.alive ? ag.name : "offline") : ""));
+    inner.appendChild(meta);
+    r.appendChild(inner);
+    r.dataset.id = b.id;
+    r.addEventListener("click", () => { select(b.id); closeDrawer(); });
+    tik.appendChild(r);
+  }
+  if (!pool.length) tik.appendChild(h("div", "tempty", ticketView === "done" ? "no done chats yet" : ticketView === "deferred" ? "no deferred chats yet" : "no open chats here"));
+  syncSpinner();
+}
+function setView(v){
+  ticketView = v;
+  document.getElementById("tv-todo").classList.toggle("on", v === "todo");
+  document.getElementById("tv-deferred").classList.toggle("on", v === "deferred");
+  document.getElementById("tv-done").classList.toggle("on", v === "done");
+  if (lastState) renderTickets(lastState);
+}
+document.getElementById("tv-todo").addEventListener("click", () => setView("todo"));
+document.getElementById("tv-deferred").addEventListener("click", () => setView("deferred"));
+document.getElementById("tv-done").addEventListener("click", () => setView("done"));
+document.getElementById("tikadd").addEventListener("click", createCard);
+
+// the drawer comes in from the left edge under the finger and goes back the
+// same way; the scrim behind it takes a tap to shut it
+const drawer = document.getElementById("drawer");
+const scrim = document.getElementById("scrim");
+function drawerWidth(){ return drawer.getBoundingClientRect().width; }
+function openDrawer(){
+  drawer.classList.remove("drag"); drawer.style.transform = "";
+  drawer.classList.add("open"); scrim.classList.add("on");
+  if (lastState) renderTickets(lastState);
+  drawer.querySelector(".trow.on")?.scrollIntoView({ block: "nearest" });
+}
+function closeDrawer(){
+  drawer.classList.remove("drag", "open"); drawer.style.transform = "";
+  scrim.classList.remove("on");
+}
+function drawerOpen(){ return drawer.classList.contains("open"); }
+scrim.addEventListener("click", closeDrawer);
+{
+  const EDGE = 28;    // how far in from the left edge a pull may begin
+  let x0 = 0, y0 = 0, dx = 0, live = false, opening = false, decided = false;
+  const start = (x, y) => {
+    opening = !drawerOpen() && x <= EDGE;
+    if (!opening && !drawerOpen()) return;
+    live = true; decided = false; x0 = x; y0 = y; dx = 0;
+  };
+  const move = (x, y, e) => {
+    if (!live) return;
+    dx = x - x0;
+    if (!decided){
+      if (Math.abs(dx) < 6 && Math.abs(y - y0) < 6) return;
+      if (Math.abs(y - y0) > Math.abs(dx)){ live = false; return; }   // a scroll, not a pull
+      decided = true;
+      drawer.classList.add("drag");
+    }
+    if (e && e.cancelable) e.preventDefault();
+    const w = drawerWidth();
+    const at = opening ? Math.min(0, -w + dx) : Math.min(0, dx);
+    drawer.style.transform = "translateX(" + at + "px)";
+    scrim.classList.add("on");
+    scrim.style.opacity = String(Math.max(0, Math.min(1, 1 + at / w)));
+  };
+  const end = () => {
+    if (!live) return;
+    live = false;
+    scrim.style.opacity = "";
+    if (!decided) return;
+    const w = drawerWidth();
+    const shown = opening ? dx : w + dx;
+    if (shown > w / 3) openDrawer(); else closeDrawer();
+  };
+  document.addEventListener("touchstart", e => { const t = e.touches[0]; if (t) start(t.clientX, t.clientY); }, { passive: true });
+  document.addEventListener("touchmove", e => { const t = e.touches[0]; if (t) move(t.clientX, t.clientY, e); }, { passive: false });
+  document.addEventListener("touchend", end);
+  document.addEventListener("touchcancel", end);
+  // a mouse pulls it too, for the desktop browser that opens this page
+  document.addEventListener("mousedown", e => { if (e.button === 0) start(e.clientX, e.clientY); });
+  document.addEventListener("mousemove", e => move(e.clientX, e.clientY, null));
+  document.addEventListener("mouseup", end);
+}
+
+// ---- the poll ------------------------------------------------------------------------
+function apply(state){
+  for (const id of Object.keys(els)){
+    if (!state.boxes.some(b => b.id === id)){
+      if (hist && hist.id === id) hist = null;
+      delete histCache[id];
+      els[id].box.remove(); delete els[id];
+    }
+  }
+  for (const b of state.boxes){
+    if (b.id === "q") continue;
+    if (!els[b.id]) makeBox(b);
+    const el = els[b.id];
+    const rawReply = replyFull(b);
+    if (el.reply.dataset.raw !== rawReply){
+      el.reply.dataset.raw = rawReply;
+      delete histCache[b.id];
+      if (hist && hist.id === b.id) histExit(b.id);
+      else el.reply.innerHTML = fmt(rawReply);
+    }
+    if (!el.titleEl.isContentEditable && el.titleEl.textContent !== b.title) el.titleEl.textContent = b.title;
+    const pt = (b.pendingTexts || []).join("\n\n");
+    if (el.pendRaw !== pt) syncPend(el, b.pendingTexts, b.pendingStamps);
+    const cs = cardState(b);
+    el.box.classList.toggle("done", cs === "done");
+    el.box.classList.toggle("parked", cs === "parked");
+    el.box.classList.toggle("hashist", (b.replies || 0) > 1);
+    if (el.meta.textContent && el.meta.textContent.indexOf("send failed") !== 0) el.meta.textContent = "";
+  }
+  if (selectedId && !state.boxes.some(b => b.id === selectedId && b.owner === activeOwner)) deselect();
+  applySelection(state);
+  renderTabs(state);
+  renderTickets(state);
+  if (state.title && document.title !== state.title) document.title = state.title;
+  if (pendingFocus && els[pendingFocus]){
+    const id = pendingFocus; pendingFocus = null;
+    select(id);
+    editTitle(id);
+  }
+}
+function validateOwners(state){
+  validOwners = new Set(Object.keys(state.pwds || {}).filter(ow => ow !== "qchat"));
+  if (!validOwners.has(activeOwner)){
+    localStorage.removeItem("activeproj");
+    activeOwner = validOwners.has("facilitator") ? "facilitator" : ([...validOwners][0] || "facilitator");
+  }
+}
+// a card asked for by a notification: its tab first, then the card itself
+function goToBox(id){
+  if (!lastState) { wantBox = id; return; }
+  const b = lastState.boxes.find(x => x.id === id);
+  if (!b) return;
+  if (b.owner !== activeOwner && validOwners.has(b.owner)){
+    activeOwner = b.owner; localStorage.setItem("activeproj", b.owner);
+  }
+  select(id);
+  apply(lastState);
+}
+async function poll(){
+  try {
+    const state = await (await fetch("/state", { cache: "no-store" })).json();
+    pollFails = 0;
+    document.body.classList.remove("offline");
+    validateOwners(state);
+    lastState = state;
+    if (wantBox){
+      const want = wantBox; wantBox = null;
+      const b = state.boxes.find(x => x.id === want);
+      if (b && validOwners.has(b.owner)){ activeOwner = b.owner; localStorage.setItem("activeproj", b.owner); selectedId = want; }
+    }
+    apply(state);
+  } catch (e) {
+    if (++pollFails >= 3){
+      document.body.classList.add("offline");
+      document.getElementById("offline").textContent =
+        "The facilitator server is unreachable. Nothing sent now will arrive; ask in the terminal to restart it.";
+    }
+  }
+}
+poll();
+setInterval(() => { if (!document.hidden) poll(); }, 1200);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
+
+// the on screen keyboard takes the bottom of the screen: the page follows the
+// visual viewport so the row he types on stays in view above it
+function fitViewport(){
+  const vv = window.visualViewport;
+  if (!vv) return;
+  document.body.style.height = vv.height + "px";
+  document.body.style.top = vv.offsetTop + "px";
+  document.documentElement.style.setProperty("--vvh", vv.height + "px");
+}
+if (window.visualViewport){
+  window.visualViewport.addEventListener("resize", fitViewport);
+  window.visualViewport.addEventListener("scroll", fitViewport);
+  fitViewport();
+}
+
+// ---- installing --------------------------------------------------------------------
+if ("serviceWorker" in navigator){
+  navigator.serviceWorker.register("/m-sw.js", { scope: "/m" })
+    .catch(() => {});   // plain http off localhost has no worker, and the page works without one
+}
+</script>
+</body>
+</html>
