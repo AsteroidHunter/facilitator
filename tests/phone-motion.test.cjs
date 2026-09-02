@@ -488,3 +488,119 @@ test("the tab bar stays where he scrolled it, across a poll and a tap", async ()
     await page.close();
   }
 });
+
+test("the settings come in from the right, with the header, its mark and the notifications control", async () => {
+  const { page, problems } = await openPhone("/m");
+  try {
+    await page.waitForSelector("article.box.sel", { timeout: 5000 });
+    const shut = await readMenu(page, "#settings");
+    assert.equal(shut.open, false);
+    assert.equal(shut.right, 0, "the settings panel is not against the right edge");
+    assert.deepEqual(shut.corners, ["7px", "0px", "0px", "7px"], "the settings panel's visible corners are not the board's 7px");
+    assert.equal(shut.lift, 20);
+    assert.equal(shut.fade, "0.40");
+
+    const made = await page.evaluate(() => {
+      const head = document.getElementById("sethead");
+      const gear = document.querySelector("#setmark svg");
+      const button = document.getElementById("notify");
+      const ink = getComputedStyle(document.documentElement);
+      const own = getComputedStyle(button);
+      return {
+        header: head.textContent.trim(),
+        gear: !!gear,
+        gearStroke: gear && gear.getAttribute("stroke"),
+        gearFill: gear && gear.getAttribute("fill"),
+        gearWeight: gear && gear.getAttribute("stroke-width"),
+        label: button.textContent,
+        indent: getComputedStyle(document.getElementById("setgroup")).paddingLeft,
+        headPad: getComputedStyle(head).paddingLeft,
+        fill: own.backgroundColor,
+        border: own.borderStyle,
+        colour: own.color,
+        paper: ink.getPropertyValue("--paper").trim(),
+        ink: ink.getPropertyValue("--ink").trim(),
+        accent: ink.getPropertyValue("--accent").trim(),
+        gone: !document.getElementById("drawerfoot") && !document.querySelector("#drawer #notify"),
+      };
+    });
+    assert.equal(made.header, "Settings", "the panel's header is not Settings");
+    assert.equal(made.gear, true, "the header carries no gear");
+    assert.equal(made.gearStroke, "currentColor", "the gear is not drawn in the card's line style");
+    assert.equal(made.gearFill, "none");
+    assert.equal(made.gearWeight, "1.9", "the gear is not the weight the plus is drawn at");
+    assert.equal(made.label, "Notifications");
+    assert.ok(parseFloat(made.indent) > parseFloat(made.headPad), "Notifications is not stepped in under the header");
+    assert.equal(made.border, "none", "the control has a border");
+    assert.equal(made.fill, "rgb(245, 244, 241)", "the control is not on the board's own paper tint");
+    assert.equal(made.colour, "rgb(33, 29, 23)", "the control is not in the board's own ink");
+    assert.equal(made.gone, true, "the old button is still in the card list");
+
+    // the mark and the fill are the app's own and nothing new
+    assert.equal(made.paper, "#F5F4F1");
+    assert.equal(made.ink, "#211D17");
+
+    await page.evaluate(() => showMenu(settings));
+    await settle(750);
+    const out = await readMenu(page, "#settings");
+    assert.equal(out.open, true);
+    assert.equal(out.slide, -out.width, "the page did not move off the settings panel");
+    assert.equal(out.radius, "24px");
+    assert.match(out.shade, /rgba\(0, 0, 0, 0\.15\) 4px 0px 12px/, "the shade is not on the edge the page moved away from");
+    assert.equal(out.lift, 0);
+    assert.equal(out.fade, "1.00");
+    await shot(page, "settings-open");
+
+    // the control does what the button in the card list did: it asks, and says
+    // what it was told. the headless browser has no push service, so what is
+    // proved here is the ask and the answer being shown
+    const asked = await page.evaluate(async () => {
+      const said = [];
+      const real = Notification.requestPermission;
+      Notification.requestPermission = async () => { said.push("asked"); return "denied"; };
+      document.getElementById("notify").click();
+      await new Promise(r => setTimeout(r, 200));
+      Notification.requestPermission = real;
+      return { said, note: document.getElementById("notifynote").textContent };
+    });
+    assert.deepEqual(asked.said, ["asked"], "the control did not ask for notifications");
+    assert.match(asked.note, /Notifications are off/, "the control did not show what it was told");
+    await shot(page, "settings-refused");
+
+    await page.evaluate(() => hideMenu(settings));
+    await settle(750);
+    const back = await readMenu(page, "#settings");
+    assert.equal(back.open, false);
+    assert.equal(back.slide, 0);
+    assert.equal(back.lift, 20);
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("a pull from the right edge brings the settings in", async () => {
+  const { page, problems } = await openPhone("/m");
+  try {
+    await page.waitForSelector("article.box.sel", { timeout: 5000 });
+    await shot(page, "settings-closed");
+    let midway = null;
+    await pull(page, "right", 0.6, async () => {
+      midway = await readMenu(page, "#settings");
+      await shot(page, "settings-half");
+    });
+    assert.ok(midway.slide < 0 && midway.slide > -midway.width, "the page does not follow the finger to the left");
+    const out = await readMenu(page, "#settings");
+    assert.equal(out.open, true, "a pull past the middle did not bring the settings in");
+    assert.equal(out.slide, -out.width);
+    // and a tap on what is left of the page shuts it again
+    await page.touchscreen.tap(20, 700);
+    await settle(750);
+    const shut = await readMenu(page, "#settings");
+    assert.equal(shut.open, false, "a tap on the page did not shut the settings");
+    assert.equal(shut.slide, 0);
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
