@@ -70,6 +70,13 @@ Endpoints:
                                fetched the first time the markdown panel opens
   GET  /card-markdown.js    -> the shared, finite card-prose renderer used by
                                the board, page view and small card
+  GET  /card-tokens.css     -> the card's shared sheet: the colour and font
+                               tokens, the card's constants, the card prose
+                               rules and the sent box's arrival dress, loaded
+                               by the board and the phone page
+  GET  /card-logic.js       -> the card's shared logic: the card state rules,
+                               the lanes, the sent box's rows and the helpers
+                               the board and the phone page carry in common
   GET  /m                   -> m.html, the phone page: the project tabs, one
                                card filling the screen, the card list in a
                                drawer off the left edge, nothing else
@@ -1432,6 +1439,18 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, {"error": "not found"})
         elif url.path == "/card-markdown.js":
             p = HERE / "card-markdown.js"
+            if p.is_file():
+                self._send(200, p.read_bytes(), "application/javascript; charset=utf-8")
+            else:
+                self._send(404, {"error": "not found"})
+        elif url.path == "/card-tokens.css":
+            p = HERE / "card-tokens.css"
+            if p.is_file():
+                self._send(200, p.read_bytes(), "text/css; charset=utf-8")
+            else:
+                self._send(404, {"error": "not found"})
+        elif url.path == "/card-logic.js":
+            p = HERE / "card-logic.js"
             if p.is_file():
                 self._send(200, p.read_bytes(), "application/javascript; charset=utf-8")
             else:
