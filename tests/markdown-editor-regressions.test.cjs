@@ -34,6 +34,16 @@ before(async () => {
         res.end(await readFile(path.join(ROOT, "card-markdown.js")));
         return;
       }
+      if (pathname === "/card-tokens.css") {
+        res.setHeader("content-type", "text/css; charset=utf-8");
+        res.end(await readFile(path.join(ROOT, "card-tokens.css")));
+        return;
+      }
+      if (pathname === "/card-logic.js") {
+        res.setHeader("content-type", "text/javascript; charset=utf-8");
+        res.end(await readFile(path.join(ROOT, "card-logic.js")));
+        return;
+      }
       res.statusCode = 404;
       res.end("not found");
     } catch (error) {

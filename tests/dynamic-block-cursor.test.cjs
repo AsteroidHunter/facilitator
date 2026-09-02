@@ -23,6 +23,8 @@ before(async () => {
         "/page.html": "page.html",
         "/cm-markdown.js": "cm-markdown.js",
         "/card-markdown.js": "card-markdown.js",
+        "/card-tokens.css": "card-tokens.css",
+        "/card-logic.js": "card-logic.js",
       };
       const file = files[pathname];
       if (!file) {
@@ -30,8 +32,8 @@ before(async () => {
         res.end("not found");
         return;
       }
-      res.setHeader("content-type", file.endsWith(".js")
-        ? "text/javascript; charset=utf-8" : "text/html; charset=utf-8");
+      res.setHeader("content-type", file.endsWith(".js") ? "text/javascript; charset=utf-8"
+        : file.endsWith(".css") ? "text/css; charset=utf-8" : "text/html; charset=utf-8");
       res.end(await readFile(path.join(ROOT, file)));
     } catch (error) {
       res.statusCode = 500;
