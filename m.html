@@ -48,10 +48,36 @@
     overflow:hidden; display:flex; flex-direction:column;
     padding:calc(env(safe-area-inset-top, 0px) + var(--app-inset))
             calc(env(safe-area-inset-right, 0px) + var(--app-inset))
-            calc(env(safe-area-inset-bottom, 0px) + var(--app-inset))
+            var(--pad-b)
             calc(env(safe-area-inset-left, 0px) + var(--app-inset));
     -webkit-tap-highlight-color:transparent;
+    /* the foot's clearance. at rest it is the home indicator's safe area plus
+       the app's thin margin; with the keyboard up it is the keyboard's own
+       inset plus that same margin, so the card's foot sits on the keyboard's
+       top edge the way it sits on the screen's edge, and the safe area, which
+       the phone keeps reporting under a keyboard that already covers it, is
+       not left as a blank strip above the keys. --kb-inset is the one number
+       the keyboard script writes: the learned full-screen height less the
+       visual viewport's while the keyboard is provably up, 0 otherwise. the
+       clearance moves on the keyboard's own clock and curve, --kb-anim: the
+       phone animates its keyboard over a quarter second on a spring whose
+       published approximation these control points are, and shows the page
+       no frames of that motion, so a clearance applied the moment the
+       viewport reports is the yank, and one played on the keyboard's own
+       curve keeps step with the keys */
+    --pad-b:calc(env(safe-area-inset-bottom, 0px) + var(--app-inset));
+    --kb-inset:0px;
+    --kb-anim:.25s cubic-bezier(.38,.7,.125,1);
+    transition:padding-bottom var(--kb-anim);
   }
+  body.kb{--pad-b:calc(var(--kb-inset) + var(--app-inset))}
+  /* the box while the keyboard is up, and through the close's settle window.
+     the top follows the visual viewport, for the phone that slides the layout
+     viewport under the keyboard; the height is the learned full-screen height
+     and never the viewport's own, so the box never changes size at a keyboard
+     edge. the script drops both once the keyboard is really gone, and lands
+     on the geometry the box already had */
+  body.kb, body.lifting{top:var(--shell-top, 0px); height:var(--shell-h, 100%)}
   button{font-family:inherit; -webkit-appearance:none; appearance:none}
 
   /* ---- the project tabs, seated the way the desktop bar seats them --------- */
@@ -888,20 +914,186 @@ function takeFocusTap(e){
   ta.focus({ preventScroll: true });
 }
 
-// the on screen keyboard takes the bottom of the screen: the page follows the
-// visual viewport so the row he types on stays in view above it
-function fitViewport(){
+// ---- the keyboard ----------------------------------------------------------------------
+// the on screen keyboard takes the bottom of the screen. the page never reads
+// the keyboard itself: it learns the full-screen height of the visual viewport
+// while nothing is being edited (the baseline), and a viewport at least
+// MIN_KEYBOARD_PX shorter than that while something is being edited is the
+// keyboard; a smaller shortfall is the phone's stale report after a dismissal,
+// or a focus pan, and reads as no keyboard. what the keyboard moves is the
+// foot's clearance, --kb-inset, which the css above plays on the keyboard's
+// clock and curve; the body's box keeps its full-screen height throughout and
+// follows the viewport's top when the phone slides the layout viewport, so
+// nothing is resized at an edge, and the box is held through the close's
+// settle window until the keyboard is really gone. the close starts at the
+// focus loss, before the viewport reports, which is when the phone starts the
+// keyboard's own motion; the corrections, a window scrolled under the box and
+// a window left short, run at the close and never while he types.
+const MIN_KEYBOARD_PX = 100;
+const KB_ANIM_MS = 250;                    // the css --kb-anim: the keyboard's own duration
+const LIFT_SETTLE_MS = KB_ANIM_MS + 200;   // the settle window, which a landing closes early
+const CLOSE_RETRY_MS = 350;                // the viewport reports late after a close
+const MAX_SHOVE_CLEARS = 3;                // per keystroke; a phone that keeps re-shoving is yielded to
+const HEAL_THRESHOLD_PX = 4;               // a window left this much short of the baseline is stuck
+let baseline = 0, baselineWidth = 0;
+let kbUp = false, appliedKb = false, appliedInset = 0;
+let appliedTop = null, appliedHeight = null, appliedVvHeight = null;
+let liftUntil = 0, liftTimer = null, closeRetry = null, shoveClears = 0;
+
+function editing(){
+  const a = document.activeElement;
+  return !!a && a !== document.body && (a.matches("textarea, input:not([type=file])") || a.isContentEditable);
+}
+function readWorld(){
   const vv = window.visualViewport;
-  if (!vv) return;
-  document.body.style.height = vv.height + "px";
-  document.body.style.top = vv.offsetTop + "px";
-  document.documentElement.style.setProperty("--vvh", vv.height + "px");
+  const vvHeight = vv ? vv.height : window.innerHeight;
+  if (window.innerWidth !== baselineWidth){ baselineWidth = window.innerWidth; baseline = 0; }   // a rotation: relearn
+  const focused = editing();
+  // only a keyboard-free frame teaches the baseline, and only upward: a
+  // shrunken viewport must never be mistaken for the full screen
+  if (!focused) baseline = Math.max(baseline, vvHeight, window.innerHeight);
+  if (!baseline) baseline = Math.max(vvHeight, window.innerHeight);
+  return { focused, baseline, vvHeight, vvTop: vv ? vv.offsetTop : 0 };
+}
+function keyboardInset(base, vvHeight){
+  const d = base - vvHeight;
+  return d >= MIN_KEYBOARD_PX ? d : 0;
+}
+function reconcile(){
+  const w = readWorld();
+  const kb = w.focused && keyboardInset(w.baseline, w.vvHeight) > 0;
+  const wasUp = kbUp;
+  kbUp = kb;
+  let top = w.vvTop, height = w.vvHeight;
+  const x = Math.round(window.scrollX), y = Math.round(window.scrollY);
+  const heightChanged = appliedVvHeight === null || Math.round(height) !== appliedVvHeight;
+  if (wasUp && kb && !heightChanged && (x !== 0 || y !== 0)){
+    // a shove: the keyboard steady, the viewport moved by a scroll of the
+    // window to reveal the caret. cleared on its own frame, and the box is
+    // handed the numbers it already has, so it writes nothing
+    if (shoveClears < MAX_SHOVE_CLEARS){
+      shoveClears++;
+      window.scrollTo(0, 0);
+      top = appliedTop; height = appliedVvHeight;
+    }
+  } else if (kb && !wasUp && y !== 0){
+    // an open on a scrolled window: the height is the real change, the top
+    // describes a scroll about to be taken back, so it stands where it is
+    top = appliedTop === null ? 0 : appliedTop;
+  }
+  applyShell(kb, top, height, w.baseline);
+  if (wasUp && !kb) keyboardClosed();
+}
+// the one writer: the two classes, the inset, the box
+function applyShell(kb, top, height, base){
+  const body = document.body;
+  const inset = kb ? keyboardInset(base, height) : 0;
+  if (kb !== appliedKb){ appliedKb = kb; armLift(); }
+  const lifting = performance.now() < liftUntil;
+  body.classList.toggle("kb", kb);
+  body.classList.toggle("lifting", lifting);
+  if (inset !== appliedInset){ appliedInset = inset; body.style.setProperty("--kb-inset", inset + "px"); }
+  document.documentElement.style.setProperty("--vvh", Math.round(height) + "px");
+  if (kb || lifting){
+    const t = Math.round(top), hgt = Math.round(base);
+    if (t !== appliedTop || hgt !== appliedHeight){
+      appliedTop = t; appliedHeight = hgt;
+      body.style.setProperty("--shell-top", t + "px");
+      body.style.setProperty("--shell-h", hgt + "px");
+    }
+    appliedVvHeight = Math.round(height);
+  } else if (appliedTop !== null){
+    appliedTop = appliedHeight = appliedVvHeight = null;
+    body.style.removeProperty("--shell-top");
+    body.style.removeProperty("--shell-h");
+  }
+}
+// a keyboard edge opens the settle window; the foot's own transitionend closes
+// it early and exactly, this clock closes one that never fires it
+function armLift(){
+  liftUntil = performance.now() + LIFT_SETTLE_MS;
+  if (liftTimer) clearTimeout(liftTimer);
+  liftTimer = setTimeout(() => { liftTimer = null; liftLanded(true); }, LIFT_SETTLE_MS + 20);
+}
+// the foot has landed. the window closes here for an open, and for a close
+// whose viewport already reads whole; a close the phone has not finished
+// reporting keeps the clock, so the box's top stands until the layout viewport
+// is slid back. an open landed brings the caret's line into view, a close
+// landed puts the scrollers back in bounds
+function liftLanded(byClock){
+  const w = readWorld();
+  const whole = keyboardInset(w.baseline, w.vvHeight) === 0 && w.vvTop <= 1;
+  if (byClock || appliedKb || whole) liftUntil = 0;
+  reconcile();
+  const el = selectedId && els[selectedId];
+  if (!el) return;
+  if (appliedKb){ if (document.activeElement === el.ta) revealCaret(el.ta, el.twin); }
+  else snapBack(el);
+}
+document.body.addEventListener("transitionend", e => {
+  if (e.target === document.body && e.propertyName === "padding-bottom") liftLanded(false);
+});
+// the phone can hand a scroller its pre-close offset a frame after its own
+// close motion, past the end of the range the taller box leaves, and paint a
+// white band there until the next scroll
+function snapBack(el){
+  for (const node of [el.reply, el.ta]){
+    const max = Math.max(0, node.scrollHeight - node.clientHeight);
+    if (node.scrollTop > max) node.scrollTop = max;
+  }
+}
+// the close's corrections: a window still scrolled or a viewport still slid
+// once the keyboard is gone is displacement, and goes; on the retry, by when
+// the dismissal's motion is over, a window still short of the baseline is
+// stuck and one display-none reflow heals it, with the scrollers' places put
+// back around it
+function correctionPass(retry){
+  const x = Math.round(window.scrollX), y = Math.round(window.scrollY);
+  const top = Math.round(window.visualViewport ? window.visualViewport.offsetTop : 0);
+  if (x !== 0 || y !== 0 || top > 1) window.scrollTo(0, 0);
+  if (!retry) return;
+  if (baseline - window.innerHeight > HEAL_THRESHOLD_PX){
+    const scrolled = [...document.querySelectorAll("*")].filter(n => n.scrollTop > 0).map(n => [n, n.scrollTop]);
+    document.body.style.display = "none";
+    void document.body.offsetHeight;
+    document.body.style.display = "";
+    for (const [n, st] of scrolled) n.scrollTop = st;
+  }
+  const el = selectedId && els[selectedId];
+  if (el) snapBack(el);
+}
+function keyboardClosed(){
+  if (closeRetry) clearTimeout(closeRetry);
+  shoveClears = 0;
+  correctionPass(false);
+  closeRetry = setTimeout(() => {
+    closeRetry = null;
+    if (!kbUp) correctionPass(true);
+  }, CLOSE_RETRY_MS);
+}
+document.addEventListener("focusin", reconcile);
+document.addEventListener("focusout", () => requestAnimationFrame(reconcile));   // a frame's grace: focus may be hopping between fields
+for (const type of ["beforeinput", "keydown"]){
+  document.addEventListener(type, e => { if (e.target instanceof HTMLTextAreaElement) shoveClears = 0; }, true);
 }
 if (window.visualViewport){
-  window.visualViewport.addEventListener("resize", fitViewport);
-  window.visualViewport.addEventListener("scroll", fitViewport);
-  fitViewport();
+  window.visualViewport.addEventListener("resize", reconcile);
+  window.visualViewport.addEventListener("scroll", reconcile);
 }
+window.addEventListener("resize", () => {
+  reconcile();
+  const el = selectedId && els[selectedId];
+  if (el) el.tick();   // the row wraps at a new width
+});
+window.addEventListener("orientationchange", () => { baseline = 0; reconcile(); });
+// a window scrolled while a field is focused with no keyboard up is the phone
+// fighting the box: back on the same frame. with the keyboard up the close
+// pass owns the residue
+window.addEventListener("scroll", () => {
+  if (!editing() || document.body.classList.contains("kb")) return;
+  if (window.scrollX !== 0 || window.scrollY !== 0) window.scrollTo(0, 0);
+}, { passive: true });
+reconcile();
 
 // ---- installing, and being told when a card turns to his turn -------------------------
 let swReg = null;
