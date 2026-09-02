@@ -75,9 +75,24 @@ Endpoints:
                                drawer off the left edge, nothing else
   GET  /m-manifest.json, /m-sw.js, /m-icon-<size>.png
                             -> what makes the phone page installable: its web
-                               app manifest, its service worker (network first)
-                               and its home screen icons, cut from the board's
-                               own mark
+                               app manifest, its service worker (network
+                               first, shows the push notifications) and its
+                               home screen icons, cut from the board's own mark
+  GET  /push/key            -> {"key": ...}: the VAPID public key, base64url,
+                               that the phone subscribes with. The key pair
+                               lives in vapid-key.pem beside state.json,
+                               gitignored and made by openssl on first need
+  POST /push/subscribe      -> body = the browser's push subscription as JSON
+                               ({endpoint, keys, ...}); kept in state.json under
+                               push_subs, one per endpoint. Each time a card
+                               turns to the owner's turn (a plain reply with no
+                               live working flag, or a working flag dropped or
+                               expired while a reply waited in deferred) one
+                               payload-less push goes to every subscription,
+                               signed with a VAPID token openssl produces; the
+                               phone's worker then reads /state for the card.
+                               Progress notes never push. A subscription the
+                               push service reports gone (404, 410) is dropped
   GET  /mdfiles?lane=L      -> every .md file under the two folders lane L's own
                                markdown panel may touch (that lane's internal
                                folder and its wiki, both named after the lane's
@@ -235,6 +250,7 @@ see seed.example.json. Real discussion content never ships in this code.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import random
@@ -243,6 +259,8 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
@@ -912,11 +930,25 @@ def _shown(b: dict) -> str:
     return {"deferred": "working", "rest": "queued"}.get(s, s)
 
 
+def _turn_to_you(b: dict) -> None:
+    """The one move that makes a card the owner's turn. The turn register
+    flips, the moment is kept so the phone can tell which card turned last,
+    and one push goes to every phone subscribed. Callers hold _lock and save
+    right after; the push itself runs on its own thread, so no request waits
+    on a push service. Exactly two events lead here: a plain reply with no
+    live working flag, and a deferred turn handed over when its flag drops
+    or expires. A progress note never does."""
+    b["ball"] = "you"
+    b["turn_ts"] = time.time()
+    if _state.get("push_subs"):
+        threading.Thread(target=_push_turn, args=(b["id"],), daemon=True).start()
+
+
 def _handover(b: dict) -> None:
     """A deferred card leaving green: the reply recorded under the flag is
     finally waiting on him, so the turn register flips as the state moves."""
     if b["state"] == "deferred":
-        b["ball"] = "you"
+        _turn_to_you(b)
         _log("handover", b["id"], "working flag down, deferred turn handed over")
 
 
@@ -990,7 +1022,7 @@ def _sweep() -> None:
 # ---- the phone page and its push notifications ------------------------------
 # GET /m is the board for a phone: one card at a time, the project tabs across
 # the top, the card list in a drawer off the left edge. The files below are
-# what make it installable.
+# what make it installable and let it be told when a card turns to his turn.
 PHONE_FILES = {
     "/m": (HERE / "m.html", "text/html; charset=utf-8"),
     "/m-sw.js": (HERE / "m-sw.js", "application/javascript; charset=utf-8"),
@@ -999,6 +1031,137 @@ PHONE_FILES = {
     "/m-icon-192.png": (HERE / "assets" / "m-icon-192.png", "image/png"),
     "/m-icon-512.png": (HERE / "assets" / "m-icon-512.png", "image/png"),
 }
+# Web push without a payload: the push service only has to be told "wake the
+# phone's worker", and the worker reads /state itself, so nothing here is
+# encrypted and the one piece of cryptography left is the VAPID signature, an
+# ES256 JWT. The openssl command line does that, so this file stays standard
+# library only: openssl makes the key pair once, into a gitignored file beside
+# state.json, and signs each token. The DER signature it prints is turned into
+# the raw r||s form the JWT wants, which is plain byte handling.
+PUSH_KEY_PATH = HERE / "vapid-key.pem"
+PUSH_CONTACT = "mailto:facilitator@localhost"   # the token's sub claim, a contact push services may use
+PUSH_TTL = 86400                                # seconds a push may wait for a phone that is off
+_push_lock = threading.Lock()
+_push_public: bytes | None = None
+_push_tokens: dict = {}                         # audience -> (expiry, token), one token serves an hour
+
+
+def _b64url(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+
+def _openssl(args: list, data: bytes = b"") -> bytes:
+    """One openssl command with data on its stdin; the bytes it printed.
+    Its own words come back as the error when it fails."""
+    r = subprocess.run(["openssl", *args], input=data, capture_output=True, timeout=30)
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.decode(errors="replace").strip() or "openssl failed")
+    return r.stdout
+
+
+def _push_key_file() -> Path:
+    """The P-256 key pair, made on first need and kept beside state.json."""
+    with _push_lock:
+        if not PUSH_KEY_PATH.is_file():
+            pem = _openssl(["ecparam", "-genkey", "-name", "prime256v1", "-noout"])
+            PUSH_KEY_PATH.write_bytes(pem)
+            os.chmod(PUSH_KEY_PATH, 0o600)
+    return PUSH_KEY_PATH
+
+
+def _push_public_key() -> bytes:
+    """The 65 byte uncompressed point: the last 65 bytes of the DER public
+    key openssl prints, which is what the page hands the browser as the
+    application server key and what the k= part of the push header carries."""
+    global _push_public
+    if _push_public is None:
+        der = _openssl(["ec", "-in", str(_push_key_file()), "-pubout", "-outform", "DER"])
+        point = der[-65:]
+        if len(point) != 65 or point[0] != 4:
+            raise RuntimeError("unexpected public key shape from openssl")
+        _push_public = point
+    return _push_public
+
+
+def _der_to_raw(sig: bytes) -> bytes:
+    """An ECDSA signature as openssl prints it (a DER SEQUENCE of two
+    INTEGERs) as the 64 raw bytes a JWT carries: r then s, 32 bytes each."""
+    if len(sig) < 8 or sig[0] != 0x30:
+        raise ValueError("not a DER signature")
+    at = 2 if sig[1] < 0x80 else 2 + (sig[1] & 0x7F)
+    out = b""
+    for _ in range(2):
+        if sig[at] != 0x02:
+            raise ValueError("not a DER signature")
+        n = sig[at + 1]
+        value = sig[at + 2:at + 2 + n].lstrip(b"\x00")
+        if len(value) > 32:
+            raise ValueError("not a P-256 signature")
+        out += value.rjust(32, b"\x00")
+        at += 2 + n
+    return out
+
+
+def _vapid_token(aud: str) -> str:
+    """The signed token for one push service origin, twelve hours long and
+    reused for an hour so a burst of pushes does not spawn a burst of
+    openssl processes."""
+    now = int(time.time())
+    hit = _push_tokens.get(aud)
+    if hit and hit[0] > now:
+        return hit[1]
+    dumps = lambda obj: _b64url(json.dumps(obj, separators=(",", ":")).encode())
+    signing = (dumps({"typ": "JWT", "alg": "ES256"}) + "." +
+               dumps({"aud": aud, "exp": now + 12 * 3600, "sub": PUSH_CONTACT}))
+    der = _openssl(["dgst", "-sha256", "-sign", str(_push_key_file())], signing.encode())
+    token = signing + "." + _b64url(_der_to_raw(der))
+    _push_tokens[aud] = (now + 3600, token)
+    return token
+
+
+def _push_one(sub: dict) -> int:
+    """One payload-less push to one subscription; the status the service
+    answered, 0 when it could not be reached at all."""
+    endpoint = sub["endpoint"]
+    u = urlparse(endpoint)
+    aud = f"{u.scheme}://{u.netloc}"
+    req = urllib.request.Request(endpoint, data=b"", method="POST", headers={
+        "TTL": str(PUSH_TTL),
+        "Authorization": f"vapid t={_vapid_token(aud)}, k={_b64url(_push_public_key())}",
+        "Content-Length": "0",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except (urllib.error.URLError, OSError):
+        return 0
+
+
+def _push_turn(bid: str) -> None:
+    """Every subscribed phone is told once that a card turned to his turn.
+    Runs on its own thread: it only reads the subscriptions under the lock,
+    talks to the push services with it released, and takes it again only to
+    drop subscriptions the services report gone."""
+    with _lock:
+        subs = list(_state.get("push_subs", []))
+    gone = []
+    for sub in subs:
+        try:
+            code = _push_one(sub)
+        except Exception as e:   # a signing failure: reported, never fatal
+            print(f"{time.strftime('%H:%M:%S')}  push   [{bid}] failed: {e}", flush=True)
+            continue
+        host = urlparse(sub.get("endpoint", "")).netloc
+        print(f"{time.strftime('%H:%M:%S')}  push   [{bid}] {code or 'unreachable'} {host}", flush=True)
+        if code in (404, 410):
+            gone.append(sub["endpoint"])
+    if gone:
+        with _lock:
+            _state["push_subs"] = [s for s in _state.get("push_subs", []) if s.get("endpoint") not in gone]
+            _save()
+
 
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code: int, payload: dict | bytes, ctype: str = "application/json") -> bool:
@@ -1283,6 +1446,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, p.read_bytes(), ctype)
             else:
                 self._send(404, {"error": "not found"})
+        elif url.path == "/push/key":
+            try:
+                key = _b64url(_push_public_key())
+            except Exception as e:
+                self._send(500, {"error": f"push key unavailable: {e}"})
+                return
+            self._send(200, {"key": key})
         elif url.path == "/mdfiles":
             # what the markdown panel lists: every .md under the two folders the
             # lane in the query owns, each one re-checked for containment rather
@@ -1377,6 +1547,9 @@ class Handler(BaseHTTPRequestHandler):
                     # been moved; the bar reads the lane's standing branch then
                     "worktree": b.get("worktree", ""),
                     "agentTs": b.get("agent_ts", 0),
+                    # when the card last turned to his turn: the phone's push
+                    # handler reads /state and names the card that turned last
+                    "turnTs": b.get("turn_ts", 0),
                     "engine": b.get("engine", "claude"),
                     "writing": st["busy"][b.get("owner", "pastureland")] == b["id"],
                     # green only while the job's heartbeat is fresh: a job
@@ -1690,7 +1863,7 @@ class Handler(BaseHTTPRequestHandler):
                 if _hb_live(box):
                     box["state"] = "deferred"
                 else:
-                    box["ball"] = "you"
+                    _turn_to_you(box)
                     box["state"] = _rest(box)
                 _log("agent", bid, text, reply_full=text,
                      reply_short=box["reply_short"],
@@ -2048,6 +2221,28 @@ class Handler(BaseHTTPRequestHandler):
                 _save()
                 _lock.notify_all()
                 self._send(200, {"ok": True, "dropped": n})
+
+            elif url.path == "/push/subscribe":
+                # the phone's push subscription, kept whole so a push can be
+                # addressed to it; one record per endpoint, the newest wins
+                try:
+                    sub = json.loads(text) if text else None
+                except ValueError:
+                    sub = None
+                endpoint = sub.get("endpoint") if isinstance(sub, dict) else None
+                if (not isinstance(endpoint, str) or len(endpoint) > 2048
+                        or not endpoint.startswith(("https://", "http://"))):
+                    self._send(400, {"error": "bad subscription"})
+                    return
+                keys = sub.get("keys") if isinstance(sub.get("keys"), dict) else {}
+                rec = {"endpoint": endpoint,
+                       "keys": {k: str(v) for k, v in keys.items() if k in ("p256dh", "auth")},
+                       "ts": time.time()}
+                subs = [s for s in _state.get("push_subs", []) if s.get("endpoint") != endpoint]
+                subs.append(rec)
+                _state["push_subs"] = subs
+                _save()
+                self._send(200, {"ok": True, "count": len(subs)})
 
             elif url.path == "/pause":
                 _state["paused"] = (q.get("v") or ["1"])[0] == "1"
