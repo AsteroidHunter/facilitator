@@ -428,6 +428,12 @@
      and are uncovered by the page sliding off them. while one is out it rises
      the last of its own height into place and comes up from four tenths of its
      strength to all of it, which is that drawer's own arrival */
+  /* the one being shown is the only one there is. both stand behind the page
+     and each is wider than the strip the other uncovers, so a menu left in
+     place would show through beside the one asked for. it is taken away
+     for as long as the run that puts it back: the wait is nothing on the way
+     in, so it is there before it moves, and the whole run on the way out, so
+     it goes only once it has finished leaving */
   #drawer, #settings{
     position:fixed; top:0; bottom:0; width:min(84vw, 340px); z-index:5;
     background:#fff;
@@ -435,9 +441,12 @@
     padding-top:env(safe-area-inset-top, 0px); padding-bottom:env(safe-area-inset-bottom, 0px);
     transform:translateY(var(--rise, var(--panel-rise)));
     opacity:var(--panelv, .4);
+    visibility:hidden; --menuwait:var(--drawer-ms);
     transition:transform var(--drawer-ms) var(--drawer-curve),
-               opacity var(--drawer-ms) var(--drawer-curve);
+               opacity var(--drawer-ms) var(--drawer-curve),
+               visibility 0s linear var(--menuwait);
   }
+  #drawer.live, #settings.live{visibility:visible; --menuwait:0s}
   /* the two corners that can be seen, the ones the page's edge stops against,
      on the board's own 7px: the rounding every panel let into this paper wears,
      the card pane's and the sent box's. the two at the screen's own edge are
@@ -1100,6 +1109,7 @@ function paintMenu(panel, v){
   page.style.setProperty("--scrimv", v ? v.toFixed(4) : "0");
   panel.style.setProperty("--rise", "calc(var(--panel-rise) * " + (1 - v).toFixed(4) + ")");
   panel.style.setProperty("--panelv", (0.4 + 0.6 * v).toFixed(4));
+  panel.classList.toggle("live", v > 0);   // and the other one is not on show at all
   document.body.classList.toggle("menuout", v > 0);
 }
 // a run, on whichever of the two curves the thing that began it hands in. the
