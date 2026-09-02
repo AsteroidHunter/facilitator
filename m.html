@@ -112,7 +112,12 @@
   #cards{display:flex; flex-direction:column; flex:1 1 auto; min-height:0}
   main.blank #cards{display:none}
   .box{display:none; flex:1 1 auto; min-height:0; flex-direction:column}
-  .box.sel{display:flex}
+  /* the two depths the card's fades are cut to, the desktop's own numbers:
+     --replyfade is the ramp, --replyair the clear white the answer leaves over
+     the sent box, and --boxleft the column the box starts in. they are written
+     on the shown card alone, the way the desktop writes them, so the mask rules
+     below can only ever apply to a card that is laid out */
+  .box.sel{display:flex; --replyfade:22px; --replyair:3.5px; --boxleft:calc(var(--pad-x)*2/3)}
 
   /* the card's own top bar: the reply history on the left, the defer chip and
      the close cross on the right, over the hairline the desktop bar wears */
@@ -160,13 +165,87 @@
   .box.done .title{color:var(--green)}
   .box.parked .title{color:var(--later)}
 
-  .body{display:flex; flex-direction:column; flex:1 1 0; min-height:0; padding:var(--titleair) 0 0}
+  /* the sent box and the typing row are laid OVER the answer here, as they are
+     on the desktop card, and the body is the ground they are set into: the
+     answer fills the whole of it and runs on underneath them, covered edge to
+     edge by fill that is opaque. laid this way the answer's own bottom edge is
+     far below the line where its words actually stop, which is what lets the
+     ramp at the foot be cut on the box's top edge. nothing moves by a pixel:
+     the wrapper stood on the body's floor in the column and it stands on the
+     same floor pinned to it */
+  .body{display:flex; flex-direction:column; flex:1 1 0; min-height:0;
+    padding:var(--titleair) 0 0; position:relative; overflow:hidden}
   .reply{
     flex:1 1 auto; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
     overscroll-behavior:contain; color:var(--ink);
     font-size:17px; line-height:1.55;
-    padding:0 calc(var(--pad-x)*5/3 - var(--sbar)) 6px calc(var(--pad-x)*2/3);
+    padding:0 calc(var(--pad-x)*5/3 - var(--sbar)) 0 calc(var(--pad-x)*2/3);
     scrollbar-gutter:stable;
+    margin-bottom:var(--replyair);
+  }
+  /* the card's two fades, the desktop's rules at phone size and with the phone's
+     own seat in front of them. the depths, the stops and the compositing are the
+     desktop's to the number; what the desktop writes as body.focus .box.sel is
+     written here as .box.sel, which is the class this page gives the one card on
+     show.
+     down the answer, the first layer carries both. at its head the answer
+     dissolves under the title as it scrolls: nothing at the top edge, .35 at 38
+     hundredths of --upband, .80 at 72 and full at the end, --upband being how far
+     the answer has been scrolled capped at the ramp's own depth, so at rest all
+     four stops collapse onto the edge and the first line stands at full ink. at
+     its foot it dissolves into the sent box over the same ramp turned over,
+     ending on --boxband, the depth of the box and the typing row measured by the
+     script below, since no rule can name the top edge of a thing laid over the
+     answer.
+     the second layer is that shape run across at the box's left edge and the
+     third keeps it off the rest of the answer; the two are added and the first is
+     multiplied into the pair, so above the box the answer is whole at its full
+     width and below it the ramp is the only thing left */
+  .box.sel .reply{
+    -webkit-mask-image:
+      linear-gradient(to bottom,
+        rgba(0,0,0,0) 0,
+        rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
+        rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
+        rgba(0,0,0,1) var(--upband, 0px),
+        rgba(0,0,0,1) calc(100% - var(--boxband, 0px) - var(--replyfade)),
+        rgba(0,0,0,.80) calc(100% - var(--boxband, 0px) - var(--replyfade)*.72),
+        rgba(0,0,0,.35) calc(100% - var(--boxband, 0px) - var(--replyfade)*.38),
+        rgba(0,0,0,0) calc(100% - var(--boxband, 0px))),
+      linear-gradient(to right,
+        rgba(0,0,0,1) calc(var(--boxleft) - var(--replyfade)),
+        rgba(0,0,0,.80) calc(var(--boxleft) - var(--replyfade)*.72),
+        rgba(0,0,0,.35) calc(var(--boxleft) - var(--replyfade)*.38),
+        rgba(0,0,0,0) var(--boxleft),
+        rgba(0,0,0,1) calc(var(--boxleft) + var(--replyfade)*.25)),
+      linear-gradient(to bottom,
+        rgba(0,0,0,1) calc(100% - var(--boxband, 0px)),
+        rgba(0,0,0,0) calc(100% - var(--boxband, 0px)));
+    mask-image:
+      linear-gradient(to bottom,
+        rgba(0,0,0,0) 0,
+        rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
+        rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
+        rgba(0,0,0,1) var(--upband, 0px),
+        rgba(0,0,0,1) calc(100% - var(--boxband, 0px) - var(--replyfade)),
+        rgba(0,0,0,.80) calc(100% - var(--boxband, 0px) - var(--replyfade)*.72),
+        rgba(0,0,0,.35) calc(100% - var(--boxband, 0px) - var(--replyfade)*.38),
+        rgba(0,0,0,0) calc(100% - var(--boxband, 0px))),
+      linear-gradient(to right,
+        rgba(0,0,0,1) calc(var(--boxleft) - var(--replyfade)),
+        rgba(0,0,0,.80) calc(var(--boxleft) - var(--replyfade)*.72),
+        rgba(0,0,0,.35) calc(var(--boxleft) - var(--replyfade)*.38),
+        rgba(0,0,0,0) var(--boxleft),
+        rgba(0,0,0,1) calc(var(--boxleft) + var(--replyfade)*.25)),
+      linear-gradient(to bottom,
+        rgba(0,0,0,1) calc(100% - var(--boxband, 0px)),
+        rgba(0,0,0,0) calc(100% - var(--boxband, 0px)));
+    mask-composite:intersect, add, add;
+    /* the run-out the scroll needs under its last word: the band the box takes
+       plus the ramp, handed back as padding so the last line can rise onto the
+       top of the ramp where the ink is still full. padding counts inside the
+       scrollable height, so an answer that already fits gains no travel */
+    padding-bottom:calc(var(--boxband, 0px) + var(--replyfade));
   }
   .box.histview .reply{opacity:.8}
   .reply::-webkit-scrollbar{width:var(--sbar)}
@@ -176,7 +255,8 @@
   .reply.scrolling::-webkit-scrollbar-thumb{background-color:var(--line-strong)}
 
   /* ---- the sent box, folded to a bar, opened to the run ------------------- */
-  .pendwrap{flex:none; display:flex; flex-direction:column; background:var(--card)}
+  .pendwrap{position:absolute; left:0; right:0; bottom:0;
+    display:flex; flex-direction:column; background:var(--card)}
   .meta{margin:0 calc(var(--pad-x)*2/3); font:11.5px var(--mono); color:var(--sub); background:var(--card)}
   .meta:empty{display:none}
   .pendlist{
@@ -219,6 +299,12 @@
     display:flex; align-items:flex-end; gap:var(--sp-s); flex:none;
     margin:0 calc(var(--pad-x)*2/3); border-top:1px solid var(--line); background:var(--card);
   }
+  /* the white over the step under the sent box, and it is hung on there being a
+     box to leave one: the answer now runs on behind the bar, and without this
+     the words would show through the step between the box and the typing row.
+     on a card with no box there is no step, and painting one there would land
+     the card's white on the foot of the answer's own fade */
+  .pendwrap:has(.pendlist) .bottombar{box-shadow:0 calc(var(--sp-s) * -1) 0 var(--card)}
   .clipbtn{
     flex:none; width:28px; height:var(--row-min); padding:0; border:none;
     background:none; border-radius:var(--sq); color:var(--ink);
@@ -359,6 +445,61 @@ let wantBox = new URLSearchParams(location.search).get("box");   // a notificati
 // the card's helpers, the one state a card's colour and place come from, the
 // lanes and the times are shared with the desktop: card-logic.js
 
+// ---- the two numbers the card's fades are cut to -------------------------------
+// the desktop's own measures, restated here rather than shared: they are the
+// desktop page's script and this page may not write in it. the rules they feed
+// are the desktop's rules, so a change to either page's ramp has to be made in
+// both, and the numbers themselves live in the sheet where both can read them.
+//
+// how deep the sent box and the typing row stand over the answer, written on the
+// answer as --boxband. it is measured to the wrapper's top edge less the answer's
+// own clear air, so the white the ramp ends on is the same white every other card
+// leaves. whole pixels: this becomes a gradient stop, and chrome paints a stop
+// asked for at a whole number where it was asked and at a fraction not quite
+// there
+function boxBand(reply, wrap){
+  const clear = parseFloat(getComputedStyle(reply).marginBottom) || 0;
+  const b = reply.getBoundingClientRect().bottom -
+            (wrap.getBoundingClientRect().top - clear);
+  return Math.max(0, Math.round(b));
+}
+// a ResizeObserver and not a hook on each send: it delivers after layout and
+// before paint on every frame the wrapper's height changes, which is every frame
+// of the box's arrival and of a fold, so the ramp's top edge and the box's top
+// edge are the same line on every frame rather than one frame behind it
+function watchBand(el){
+  const write = () => el.reply.style.setProperty("--boxband", boxBand(el.reply, el.pendwrap) + "px");
+  if (window.ResizeObserver){
+    const ro = new ResizeObserver(write);
+    ro.observe(el.pendwrap);
+    ro.observe(el.reply);
+  }
+  write();
+}
+// how much of the answer has gone up out of sight, written back on it as
+// --upband, which is the depth the ramp under the title is cut to. capped at the
+// ramp's own depth, read off --replyfade on the element rather than typed here.
+// the read is kept on the node once it lands, but never an empty read: the value
+// is written on the shown card and a card is built before it is shown, so the
+// first read on a fresh card comes back with nothing and has to be taken again
+function riseBand(node){
+  if (!node._fade){
+    const fade = parseFloat(getComputedStyle(node).getPropertyValue("--replyfade")) || 0;
+    if (fade) node._fade = fade;
+  }
+  const up = Math.min(Math.round(node.scrollTop), node._fade || 0);
+  if (up === node._up) return;
+  node._up = up;
+  node.style.setProperty("--upband", up + "px");
+}
+// armed on the scroll itself, passive, since all it does is read a number the
+// scroll has already settled and hand it to a gradient. once at the start too,
+// so a card opened part way down opens with the right band
+function watchRise(node){
+  node.addEventListener("scroll", () => riseBand(node), { passive: true });
+  riseBand(node);
+}
+
 // ---- the card ----------------------------------------------------------------
 function makeBox(b){
   const box = h("article", "box");
@@ -450,6 +591,10 @@ function makeBox(b){
 
   els[b.id] = { box, reply, meta, ta, send, tick, titleEl, arc, x, pendwrap, bottombar,
                 pend: null, pendRaw: "", histUp, histDown, histPos, clip, clipfile };
+  // the two fades: the band the box and the bar stand in, and the band the
+  // answer has scrolled away under the title
+  watchBand(els[b.id]);
+  watchRise(reply);
   return els[b.id];
 }
 
