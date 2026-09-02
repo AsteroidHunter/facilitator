@@ -259,17 +259,19 @@ def tailscale_status(ts):
 
 def show_qr(url):
     """The address as a code the phone camera reads, block characters two
-    module rows per line, with the address itself printed beside it. On a
-    terminal the modules are painted black on white whatever the theme, so
-    the code is never inverted; piped, the bare characters are printed."""
+    module rows per line, with the address itself printed on its own line
+    under it: beside a row it ran past a narrow terminal's width, and the
+    wrapped tail was drawn inside the code as an extra row. On a terminal
+    the modules are painted black on white whatever the theme, so the code
+    is never inverted; piped, the bare characters are printed."""
     sys.path.insert(0, str(HERE))
     import qr
     lines = qr.render(qr.encode(url))
     tty = sys.stdout.isatty()
-    mid = len(lines) // 2
-    for i, line in enumerate(lines):
+    for line in lines:
         body = ("\x1b[30;107m" + line + "\x1b[0m") if tty else line
-        print("  " + body + ("   " + url if i == mid else ""))
+        print("  " + body)
+    print("  " + url)
 
 
 def cmd_bridge(args):
