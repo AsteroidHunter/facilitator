@@ -94,6 +94,7 @@ before(async () => {
   await writeFile(path.join(fixtureDir, "server.py"), patched);
   await copyFile(path.join(ROOT, "index.html"), path.join(fixtureDir, "index.html"));
   await copyFile(path.join(ROOT, "page.html"), path.join(fixtureDir, "page.html"));
+  await copyFile(path.join(ROOT, "card-markdown.js"), path.join(fixtureDir, "card-markdown.js"));
   await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
     title: "browser authoritative close test", items: [],
   }));
