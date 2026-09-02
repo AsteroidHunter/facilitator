@@ -308,6 +308,14 @@
   .trow.donec{opacity:.55}
   .trow.on{border-color:var(--line-strong); transform:translateY(-1px); z-index:1;
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
+  /* the one thing on the phone the desktop has no need of: the ask for
+     notifications, behind a plain button, since a phone only asks on a tap */
+  #drawerfoot{flex:none; display:flex; flex-direction:column; gap:6px; padding:10px 8px; border-top:1px solid var(--line)}
+  #notify{align-self:flex-start; font:12.5px var(--mono); color:var(--accent); background:var(--accent-soft);
+    border:none; border-radius:4px; padding:7px 14px; cursor:pointer}
+  #notify:disabled{opacity:.6}
+  #notifynote{font:11.5px/1.4 var(--mono); color:var(--sub)}
+  #notifynote:empty{display:none}
 
   /* ---- card prose, the same vocabulary every card surface carries ---------- */
   .cardmd{overflow-wrap:anywhere}
@@ -374,6 +382,10 @@
     <button id="tikadd" class="tikadd" type="button" title="new card" aria-label="new card">+</button>
   </div>
   <div id="tiklist"></div>
+  <div id="drawerfoot">
+    <button id="notify" type="button">Notifications</button>
+    <div id="notifynote"></div>
+  </div>
 </aside>
 
 <script src="/card-markdown.js"></script>
@@ -1110,11 +1122,65 @@ if (window.visualViewport){
   fitViewport();
 }
 
-// ---- installing --------------------------------------------------------------------
+// ---- installing, and being told when a card turns to his turn -------------------------
+let swReg = null;
 if ("serviceWorker" in navigator){
   navigator.serviceWorker.register("/m-sw.js", { scope: "/m" })
+    .then(reg => { swReg = reg; })
     .catch(() => {});   // plain http off localhost has no worker, and the page works without one
+  navigator.serviceWorker.addEventListener("message", e => { if (e.data?.box) goToBox(e.data.box); });
 }
+function keyBytes(b64url){
+  const pad = "=".repeat((4 - b64url.length % 4) % 4);
+  const raw = atob((b64url + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, ch => ch.charCodeAt(0));
+}
+const notifyBtn = document.getElementById("notify");
+const notifyNote = document.getElementById("notifynote");
+function notifyState(on, note){
+  notifyBtn.textContent = on ? "Notifications on" : "Notifications";
+  notifyBtn.disabled = !!on;
+  notifyNote.textContent = note || "";
+}
+async function pushRegistration(){
+  if (!("serviceWorker" in navigator)) return null;
+  return swReg || navigator.serviceWorker.ready.catch(() => null);
+}
+async function sendSubscription(sub){
+  const r = await fetch("/push/subscribe", { method: "POST", body: JSON.stringify(sub.toJSON()) });
+  if (!r.ok) throw new Error("subscribe " + r.status);
+}
+async function askNotifications(){
+  if (!("PushManager" in window) || !("Notification" in window)){
+    notifyState(false, "Add this page to the home screen first, then ask again from there");
+    return;
+  }
+  const reg = await pushRegistration();
+  if (!reg){ notifyState(false, "Notifications need the page served over https"); return; }
+  const permission = await Notification.requestPermission();
+  if (permission !== "granted"){ notifyState(false, "Notifications are off in the phone's settings for this page"); return; }
+  try {
+    const key = (await (await fetch("/push/key")).json()).key;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) });
+    await sendSubscription(sub);
+    notifyState(true, "");
+  } catch (err) {
+    notifyState(false, "Could not subscribe: " + (err && err.message ? err.message : err));
+  }
+}
+notifyBtn.addEventListener("click", askNotifications);
+// a phone already subscribed says so, and hands the server its subscription
+// again so a board whose state was reset learns it back
+(async () => {
+  if (!("PushManager" in window)) return;
+  const reg = await pushRegistration();
+  if (!reg) return;
+  try {
+    const sub = await reg.pushManager.getSubscription();
+    if (sub && Notification.permission === "granted"){ await sendSubscription(sub); notifyState(true, ""); }
+  } catch (err) {}
+})();
 </script>
 </body>
 </html>
