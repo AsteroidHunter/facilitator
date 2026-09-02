@@ -307,10 +307,13 @@ def encode(text: str, level: str = "M") -> list:
     return best
 
 
-def render(matrix: list, quiet: int = 4) -> list:
+def render(matrix: list, quiet: int = 1) -> list:
     """Lines of text drawing the code two module rows per line with the half
     block characters, dark modules as the block, with a quiet zone of light
-    modules all round it."""
+    modules all round it. The standard asks for four; on a terminal that is
+    a wide box round the code, and one module is enough: Apple's Vision and
+    CoreImage decoders both read the terminal rendering with one at every
+    size, cell shape and colour theme tried, camera blur and tilt included."""
     size = len(matrix)
     width = size + 2 * quiet
     rows = [[False] * width for _ in range(quiet)]
