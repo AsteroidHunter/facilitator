@@ -599,8 +599,13 @@ function makeBox(b){
 }
 
 // ---- the sent box --------------------------------------------------------------
-function growPend(el){
-  const pend = h("div", "pendlist");
+// arrive is what tells a send from a poll, exactly as it does on the desktop: a
+// send is an arrival he is watching, so the box rises into the room the answer
+// gives up and then fades in where it stands. a poll bringing messages that were
+// already sent, on a first load or from another window, has no arrival to show
+// and mounts the box plainly
+function growPend(el, arrive){
+  const pend = h("div", "pendlist" + (arrive ? " rising" : ""));
   pend.innerHTML = '<div class="pendhead">' + chevSVG("chevmid") + "</div>" +
     '<div class="pendbody">' + chevSVG("chevtop") + '<div class="pendstamp"></div>' +
     '<div class="pendscroll"><div class="pendslide"></div></div></div>';
@@ -610,39 +615,65 @@ function growPend(el){
   });
   el.pendwrap.insertBefore(pend, el.bottombar);
   el.pend = pend;
+  if (arrive) risePend(el, pend);
   return pend;
 }
-// the rows, the delivery words, the run stamp and the poll's own pass over the
-// box (syncPend) are shared with the desktop: card-logic.js
+// the arrival's two beats (risePend), the rows, the delivery words, the run
+// stamp and the poll's own pass over the box (syncPend) are shared with the
+// desktop: card-logic.js
 
 // ---- sending, closing, parking, naming ------------------------------------------
 function undone(id){
   fetch("/done?box=" + encodeURIComponent(id) + "&v=0", { method: "POST" }).then(() => poll()).catch(() => {});
 }
+// after a send the card moves on to the next one waiting on him, the desktop's
+// own move and its own wait
+let autoNext = null;
+const AUTONEXT_MS = 0;   // the desktop's number; a quiet time after a send before moving on
+// the tap is answered on the tap. the desktop waits for the server before it
+// draws the line because the server is on the same machine and answers in a
+// millisecond; the phone is a room and a radio away from it, and waiting there
+// is a second of nothing happening under his finger. so the line lands in the
+// box now and the poll behind it reconciles: the row carries the text the server
+// is being handed, so the pass over the box finds the row it would have added
+// and adds nothing. a send that does not land hands the words back
 async function doSend(id){
   const el = els[id];
   const text = el.ta.value.trim();
   if (!text) return;
   const reopen = boxDone(id);
-  el.send.disabled = true;
+  // no poll may take a line off this box until every send on it has landed
+  el.sending = (el.sending || 0) + 1;
+  el.sendGuard = Infinity;
+  el.ta.value = "";
+  el.tick();          // the square goes with the words, and the row falls back to one line
+  const pend = el.pend || growPend(el, true);
+  const row = pendRow(text);
+  if (pend.classList.contains("open")) row.classList.add("pop");
+  pend.querySelector(".pendslide").appendChild(row);
+  stampRcpts(pend);
+  if (!pend.querySelector(".pendstamp").textContent) stampRun(pend, [Date.now() / 1000]);
+  pendBottom(pend);
+  el.pendRaw = el.pendRaw ? el.pendRaw + "\n\n" + text : text;
+  if (hist && hist.id === id) histExit(id);   // a send lands you back on the live reply
+  clearTimeout(autoNext);
+  autoNext = setTimeout(() => { autoNext = null; jumpNextYellow(id); }, AUTONEXT_MS);
   try {
     const r = await fetch("/send?box=" + encodeURIComponent(id), { method: "POST", body: text });
     if (!r.ok) throw new Error(r.status);
-    el.ta.value = "";
-    el.tick();
-    const pend = el.pend || growPend(el);
-    pend.querySelector(".pendslide").appendChild(pendRow(text));
-    stampRcpts(pend);
-    if (!pend.querySelector(".pendstamp").textContent) stampRun(pend, [Date.now() / 1000]);
-    pendBottom(pend);
-    el.pendRaw = el.pendRaw ? el.pendRaw + "\n\n" + text : text;
-    if (hist && hist.id === id) histExit(id);
-    if (reopen) undone(id);
+    if (reopen) undone(id);   // the message is in; the flip rides behind it
     poll();
   } catch (err) {
     el.meta.textContent = "send failed, text kept, try again";
+    row.remove();
+    const left = [...pend.querySelector(".pendslide").children];
+    el.pendRaw = left.map(one => one.dataset.text).join("\n\n");
+    if (left.length) stampRcpts(pend); else dropPend(el);
+    // the words go back in the row he types on, unless he has started writing
+    // something else there, in which case the note above is all that is said
+    if (!el.ta.value.trim()){ el.ta.value = text; el.tick(); }
   } finally {
-    el.send.disabled = false;
+    if (--el.sending === 0) el.sendGuard = Date.now();
   }
 }
 async function createCard(){
@@ -861,7 +892,13 @@ function apply(state){
     }
     if (!el.titleEl.isContentEditable && el.titleEl.textContent !== b.title) el.titleEl.textContent = b.title;
     const pt = (b.pendingTexts || []).join("\n\n");
-    if (el.pendRaw !== pt) syncPend(el, b.pendingTexts, b.pendingStamps);
+    // the line a send has just drawn is not the poll's to take away. a state
+    // fetched before the server had that message knows nothing about it, and the
+    // pass over the box would read the shorter list as the run being claimed and
+    // clear the box he is looking at. el.sendGuard is the moment the send landed,
+    // and stands at the end of time while one is still in flight
+    const stale = (state.fetchedAt || 0) < (el.sendGuard || 0);
+    if (el.pendRaw !== pt && !stale) syncPend(el, b.pendingTexts, b.pendingStamps);
     const cs = cardState(b);
     el.box.classList.toggle("done", cs === "done");
     el.box.classList.toggle("parked", cs === "parked");
@@ -899,7 +936,10 @@ function goToBox(id){
 }
 async function poll(){
   try {
+    const asked = Date.now();   // when this state was asked for, which is what says
+    // whether it can know about a message sent since
     const state = await (await fetch("/state", { cache: "no-store" })).json();
+    state.fetchedAt = asked;
     pollFails = 0;
     document.body.classList.remove("offline");
     validateOwners(state);
