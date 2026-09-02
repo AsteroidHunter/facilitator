@@ -127,6 +127,22 @@ Endpoints:
                                stamp, never merged and never clobbered. Written
                                temp-file-then-rename like state.json, and answers
                                the new stamp
+  POST /tabs                -> body = the project tab bar's whole record as
+                               JSON, {"order": [owner ids], "closed": [owner
+                               ids]}: which tabs the bar shows and in what
+                               order. Kept here rather than in one browser, so
+                               the board and the phone show the same tabs in
+                               the same order and either can reorder them.
+                               Every id has to be a known owner (400
+                               otherwise, nothing stored) and a repeated id is
+                               dropped. Answers the stored record
+  POST /seen                -> body = {"<box id>": <replies read>, ...}: how
+                               many of each card's replies the owner has read,
+                               so a card read on the phone counts as read on
+                               the board too. Counts are whole numbers, never
+                               below zero; an unknown box or a bad count is a
+                               400 with nothing stored at all. Answers the
+                               stored counts for the ids it was given
   GET  /thread?box=ID&n=N   -> last N user/agent/note messages of a box from the
                                transcript (read by the reply history stepper
                                and the quick chat panel)
@@ -754,10 +770,22 @@ def _migrate() -> None:
             ws[ow] = [{"id": "w1", "name": "main", "started": started,
                        "goal": "", "tasks": [], "current": None}]
     _state.setdefault("next_tid", 1)
+    # the project tab bar (2026-09-02): which tabs are shown and in what order
+    # is one board-wide record, not one browser's own. An empty order is a
+    # board that has never had one written, and every page then falls back to
+    # the natural lane order it always used
+    if not isinstance(_state.get("tabs"), dict):
+        _state["tabs"] = {}
+    for field in ("order", "closed"):
+        if not isinstance(_state["tabs"].get(field), list):
+            _state["tabs"][field] = []
     for b in _state["boxes"]:
         b.setdefault("ws", ws[b.get("owner", "pastureland")][0]["id"])
         b.setdefault("task", None)
         b.setdefault("agent_ts", 0)
+        # how many of this card's replies he has read (2026-09-02): a board
+        # record, so opening a card on the phone marks it read on the board
+        b.setdefault("seen", 0)
     # the card state machine (2026-08-26): boxes written before it carry the
     # old scattered flags. bg and bg_ts collapse into hb; a fresh heartbeat
     # keeps its green (deferred if a turn was recorded under the flag), a dead
@@ -1566,6 +1594,10 @@ class Handler(BaseHTTPRequestHandler):
                     # been moved; the bar reads the lane's standing branch then
                     "worktree": b.get("worktree", ""),
                     "agentTs": b.get("agent_ts", 0),
+                    # replies already read, the board's record rather than one
+                    # browser's: the page bolds a card whose reply count has
+                    # passed this, on whichever device is looking
+                    "seen": b.get("seen", 0),
                     # when the card last turned to his turn: the phone's push
                     # handler reads /state and names the card that turned last
                     "turnTs": b.get("turn_ts", 0),
@@ -1590,6 +1622,9 @@ class Handler(BaseHTTPRequestHandler):
             "end": st["end"],
             "paused": st.get("paused", False),
             "title": st.get("title", "facilitator"),
+            # the one tab bar both pages draw: the lane order and the lanes he
+            # has closed. An empty order means no arrangement has been saved
+            "tabs": st.get("tabs", {"order": [], "closed": []}),
             "listening": {ow: _waiters[ow] > 0 for ow in OWNERS},
             "everListened": st.get("ever_listened", {}),
             "workspaces": st.get("workspaces", {}),
@@ -2049,7 +2084,7 @@ class Handler(BaseHTTPRequestHandler):
                     "pending": [], "done": False, "parked": False, "replies": 0,
                     "state": "new", "hb": 0,
                     "ball": "me", "ts": time.time(), "owner": owner,
-                    "ws": ws0, "task": None, "agent_ts": 0,
+                    "ws": ws0, "task": None, "agent_ts": 0, "seen": 0,
                 })
                 _log("create", bid_new, title)
                 _save()
@@ -2262,6 +2297,65 @@ class Handler(BaseHTTPRequestHandler):
                 _state["push_subs"] = subs
                 _save()
                 self._send(200, {"ok": True, "count": len(subs)})
+
+            elif url.path == "/tabs":
+                # the tab bar's whole record in one write, so a reorder can
+                # never half land: the lane order and the lanes he has closed
+                # arrive together and replace what was stored
+                try:
+                    rec = json.loads(text) if text else None
+                except ValueError:
+                    rec = None
+                if (not isinstance(rec, dict) or not isinstance(rec.get("order"), list)
+                        or not isinstance(rec.get("closed"), list)):
+                    self._send(400, {"error": "bad tab record"})
+                    return
+                # every id is checked before anything is stored, so a record
+                # naming a lane this board does not have changes nothing
+                clean = {}
+                for field in ("order", "closed"):
+                    ids = []
+                    for ow in rec[field]:
+                        if not isinstance(ow, str) or ow not in OWNERS:
+                            self._send(400, {"error": "unknown owner"})
+                            return
+                        if ow not in ids:   # a repeat is the same tab twice; keep the first
+                            ids.append(ow)
+                    clean[field] = ids
+                _state["tabs"] = clean
+                _save()
+                _lock.notify_all()
+                self._send(200, {"ok": True, "tabs": clean})
+
+            elif url.path == "/seen":
+                # the read marks: for each card named, how many of its replies
+                # he has read. One record per card on the board itself, so the
+                # phone and the board can never disagree about what is unread
+                try:
+                    rec = json.loads(text) if text else None
+                except ValueError:
+                    rec = None
+                if not isinstance(rec, dict) or not rec:
+                    self._send(400, {"error": "bad seen record"})
+                    return
+                marks = []
+                for bid_, n in rec.items():
+                    box = _box(bid_)
+                    if box is None:
+                        self._send(400, {"error": "bad box"})
+                        return
+                    # a bool is an int in this language and is not a count
+                    if isinstance(n, bool) or not isinstance(n, int) or n < 0:
+                        self._send(400, {"error": "bad count"})
+                        return
+                    marks.append((box, n))
+                out = {}
+                for box, n in marks:
+                    box["seen"] = n
+                    out[box["id"]] = n
+                _save()
+                _lock.notify_all()
+                self._send(200, {"ok": True, "seen": out})
 
             elif url.path == "/pause":
                 _state["paused"] = (q.get("v") or ["1"])[0] == "1"
