@@ -1,0 +1,143 @@
+/* The card's shared sheet: what the desktop board (index.html) and the phone
+   page (m.html) draw a card from in common, kept once. Each page loads it right
+   after its own style, which is where the card prose rules stood on both pages
+   before they moved here, so the cascade each page had is the cascade it keeps.
+   The spacing measures are not here on purpose: the desktop derives its own
+   from a 1440x900 design and the phone types its own at phone size. */
+
+/* ---- the colours and the faces ------------------------------------------ */
+:root{
+  --paper:#F5F4F1; --card:#FFFFFF; --ink:#211D17; --sub:#75695A;
+  --line:#E6DFD2; --line-strong:#D8CFBE;
+  --accent:#432BFF; --accent-soft:#EEEBFF;
+  --green:#2F6B3C; --green-bg:#EDF4E8; --green-line:#C4D9BB;
+  --must:#A8442A; --must-bg:#F7EAE4;
+  --could:#8A6D1F; --could-bg:#F5EFDD;
+  --later:#5A6473; --later-bg:#EAEDF1;
+  --serif:"Newsreader", Georgia, serif;
+  --sans:"IBM Plex Sans", -apple-system, sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, monospace;
+  --inter:"Inter", -apple-system, sans-serif;   /* card titles and the new-project landing */
+}
+
+/* ---- the card's own constants ------------------------------------------- */
+/* --app-inset is the thin margin the app frame keeps from the window's edge.
+   --cardbar-h is the card's top bar, and not --bar-h: the status bar at the
+   top of the desktop window already owns that name and the two are different
+   heights.
+   --sq is the rounding every control on the card wears, the board's own 4px
+   inner corner; the 7px belongs to the things let INTO the card, the pane,
+   the sent box and the worktree list. --press is the one press shade, a tenth
+   of black mixed into whatever fill a control is wearing, so a control can
+   never carry a stale hover hex. --gentle is the one curve the card's timed
+   things are drawn on: its handles stay inside the unit box, so nothing it
+   drives can overshoot.
+   --sunk-deep is the one depth on the card, the pane's own warm ink and
+   nothing else drawn. it hangs off the top inside edge the way every sunk
+   thing here does, since the light the board is drawn under comes from above.
+   the sent box is set with it and so is the plus button's press seat, so the
+   two read as let into the same surface.
+   --sbar is the slim scrollbar's lane, the one width every scroller on the
+   board is drawn to. two places read it: the rules that paint the bar, and
+   the answer's own right padding, which has to give back exactly this much so
+   a lane laid inside its box moves none of its words.
+   --row-min is the typing row's own floor, written once because two rules
+   read it: the field itself, and the sent box's cap, which has to know what
+   the bar takes out of the room before it can work out what is left */
+:root{
+  --app-inset:6px;
+  --cardbar-h:34px; --sq:4px; --press:10%; --row-min:44px; --sbar:9px;
+  --gentle:cubic-bezier(.42,.06,.38,1);
+  --sunk-deep:inset 0 3px 7px rgba(60,45,20,.22), inset 0 1px 2px rgba(60,45,20,.14);
+}
+
+/* ---- card prose ---------------------------------------------------------- */
+/* Every place that renders card prose carries cardmd. Keeping the complete
+   subset here gives the full card, pending rows, document and mini card the
+   same visual vocabulary instead of relying on a surface-specific selector. */
+.cardmd{overflow-wrap:anywhere}
+.cardmd p{margin:0 0 9px}
+.cardmd > :last-child{margin-bottom:0}
+.cardmd ul, .cardmd ol{margin:0 0 9px; padding-left:22px}
+.cardmd li{margin:2px 0}
+.cardmd li > ul, .cardmd li > ol{margin:3px 0 2px}
+.cardmd h1, .cardmd h2, .cardmd h3, .cardmd h4, .cardmd h5, .cardmd h6{
+  margin:13px 0 7px; color:var(--ink); font-family:var(--inter); line-height:1.25;
+}
+.cardmd h1{font-size:1.55em}.cardmd h2{font-size:1.35em}.cardmd h3{font-size:1.2em}
+.cardmd h4{font-size:1.1em}.cardmd h5{font-size:1em}.cardmd h6{font-size:.92em}
+.cardmd a{color:inherit; text-decoration:underline; text-underline-offset:2px}
+.cardmd .shot{display:block; max-width:100%; border-radius:6px; margin:8px auto}
+.cardmd .shotgrid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px; margin:8px 0 9px; align-items:start}
+.cardmd .shotgrid[data-n="3"]{grid-template-columns:repeat(3,minmax(0,1fr))}
+.cardmd .shotgrid[data-n="4"]{grid-template-columns:repeat(4,minmax(0,1fr))}
+.cardmd .shotgrid .shot{margin:0 auto}
+.cardmd .inlinecode{font-family:var(--mono); font-size:inherit; line-height:inherit;
+  color:var(--ink); background:var(--paper); border-radius:var(--sq);
+  padding:1px 4px; white-space:pre-wrap}
+.cardmd .codeblockwrap{position:relative; margin:0 0 9px}
+.cardmd .codeblock{margin:0; padding:10px 12px; border-radius:8px;
+  background:#EFF1F4; border:0; font:12.5px/1.5 var(--mono); color:var(--ink);
+  white-space:pre; overflow-x:auto; user-select:all; -webkit-user-select:all}
+.cardmd .codeblockwrap[data-language] .codeblock{padding-top:29px}
+.cardmd .codelang{position:absolute; top:7px; left:12px; max-width:calc(100% - 62px);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  color:var(--sub); font:10.5px/1.4 var(--mono)}
+.cardmd .codeblockwrap .copybtn{position:absolute; top:6px; right:8px; padding:4px 6px;
+  display:flex; align-items:center; color:var(--sub); background:#fff;
+  box-shadow:0 1px 4px rgba(33,29,23,.18); border:0; border-radius:5px;
+  cursor:pointer; user-select:none; -webkit-user-select:none; opacity:0;
+  pointer-events:none; transition:opacity .15s}
+.cardmd .codeblockwrap:hover .copybtn{opacity:1; pointer-events:auto}
+.cardmd .codeblockwrap .copybtn:hover{color:var(--ink)}
+.cardmd blockquote{margin:0 0 9px 2px; padding:2px 0 2px 12px;
+  border-left:3px solid var(--line-strong); color:var(--sub)}
+.cardmd .tablewrap{max-width:100%; overflow-x:auto; margin:0 0 9px}
+.cardmd table{width:100%; border-collapse:collapse; font:inherit}
+.cardmd th, .cardmd td{padding:5px 7px; border:1px solid var(--line); text-align:left}
+.cardmd th{font-weight:650; background:var(--paper)}
+.cardmd .md-align-center{text-align:center}.cardmd .md-align-right{text-align:right}
+.cardmd hr{height:0; margin:13px 0; border:0; border-top:1px solid var(--line-strong)}
+
+/* ---- the sent box's arrival ---------------------------------------------- */
+/* the dress the desktop's risePend puts on the sent box as it comes in. the
+   selectors seat it on .box.sel, which both pages give the card on show, and
+   not on the desktop's body.focus, which the phone never wears: the desktop is
+   always in focus mode, so the two are the same seat there. the plain body in
+   front keeps the weight the desktop's rules had, so they still outrank the
+   fold's own motion dress there. the phone does not run this yet; the rules
+   stand here so it can.
+   the box's arrival, and every line's after it. the chat panel's sent message
+   motion grows a bubble out of one of its own corners, which is right for a
+   small bubble and wrong at this size: a bar as wide as the card, scaled from
+   its corner, reads as a thing flying in from the lower left instead of a
+   thing appearing. so the corner, the scale and the lift are all dropped and
+   what is left is strength alone. the bar occupies its full seat from the
+   first frame and only becomes visible, which is what appearing in place
+   means. 220ms is about the shortest a fade can be and still be seen as a
+   fade rather than as a thing that was suddenly there, and the bar arriving at
+   the foot of the card is the one event here that nothing announces. the curve
+   stays an ease out and does not join the fold's family: a fade covers no
+   distance, so a slow start is not a soft start on it */
+@keyframes pendfade{from{opacity:0}}
+body .box.sel .pendlist.appear{animation:pendfade .22s ease-out}
+/* the very first arrival, in two beats: the answer gives up the
+   room before anything at all is drawn in it, and only then does the bar come
+   up in the cleared room.
+   beat one is this pair of rules. the strip is mounted at no height and grown
+   to its own folded height on the card's gentle curve. nothing about the
+   answer is animated and nothing is kept in step by hand: the answer is the
+   one item that can give or take room, so every pixel the strip claims comes
+   off the answer in the same frame. invisible, clipped and untouchable while
+   it rises: what the eye is meant to read in beat one is the text yielding,
+   not a bar wiping into view, and a box already half its height would
+   otherwise be open to a click before it had arrived. the timing lives in the
+   second rule alone so the first can be worn while the start height is pinned,
+   without pinning it becoming a run of its own in the wrong direction.
+   the band under the box travels with the box, so what the answer gives up is
+   one continuous amount rather than a band landing whole on the first frame */
+body .box.sel .pendlist.rising{overflow:hidden; opacity:0; pointer-events:none}
+body .box.sel .pendlist.rising.timed{
+  transition:height .26s var(--gentle), margin-bottom .26s var(--gentle);
+}
