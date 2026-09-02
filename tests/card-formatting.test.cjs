@@ -383,7 +383,7 @@ for (const pageName of ["index.html", "page.html"]) {
     try {
       const suffix = pageName === "page.html" ? "?mock=1" : "";
       await page.goto(`${origin}/${pageName}${suffix}`, { waitUntil: "domcontentloaded" });
-      const result = await page.evaluate(async () => {
+      const result = await page.evaluate(async board => {
         globalThis.__historyPwned = 0;
         const id = "browser-history-proof";
         const card = document.createElement("article");
@@ -420,7 +420,7 @@ for (const pageName of ["index.html", "page.html"]) {
           }
           return nativeFetch(input, options);
         };
-        await histStep(1);
+        await (board ? histStep(selectedId, 1) : histStep(1));   // the board's shared histStep names the card
         globalThis.fetch = nativeFetch;
         for (const node of reply.querySelectorAll("a, img")) {
           for (const type of ["click", "load", "error", "mouseover"])
@@ -443,7 +443,7 @@ for (const pageName of ["index.html", "page.html"]) {
           activeAttributes,
           pwned: globalThis.__historyPwned,
         };
-      });
+      }, pageName === "index.html");
       assert.deepEqual(result, {
         historyView: true,
         cardmd: true,
@@ -576,8 +576,9 @@ test("page document view formats every pending message through the real surface"
 
 test("every pending surface calls the shared formatter", async () => {
   const index = await readFile(path.join(ROOT, "index.html"), "utf8");
+  const logic = await readFile(path.join(ROOT, "card-logic.js"), "utf8");
   const page = await readFile(path.join(ROOT, "page.html"), "utf8");
-  assert.match(index, /h\("div", "pendcontent cardmd"\)[\s\S]*?content\.innerHTML = fmt\(text\)/);
+  assert.match(logic, /h\("div", "pendcontent cardmd"\)[\s\S]*?content\.innerHTML = fmt\(text\)/);
   assert.match(index, /class="mpending-message cardmd"[^\n]+fmt\(t\)/);
   assert.match(page, /h\("div", "pending-message cardmd"\)[\s\S]*?content\.innerHTML = fmt\(text\)/);
   assert.match(page, /class="pending-message cardmd"[^\n]+fmt\(t\)/);
@@ -586,12 +587,15 @@ test("every pending surface calls the shared formatter", async () => {
 
 test("browser coverage inventory includes every thread fetch call site", async () => {
   const index = await readFile(path.join(ROOT, "index.html"), "utf8");
+  const logic = await readFile(path.join(ROOT, "card-logic.js"), "utf8");
   const page = await readFile(path.join(ROOT, "page.html"), "utf8");
-  assert.equal((index.match(/fetch\("\/thread\?box=/g) || []).length, 3,
+  assert.equal((index.match(/fetch\("\/thread\?box=/g) || []).length, 2,
     "index gained an unreviewed thread renderer");
+  assert.equal((logic.match(/fetch\("\/thread\?box=/g) || []).length, 1,
+    "the shared card logic gained an unreviewed thread renderer");
   assert.equal((page.match(/fetch\("\/thread\?box=/g) || []).length, 2,
     "page gained an unreviewed thread renderer");
-  assert.match(index, /el\.reply\.innerHTML = fmt\(list\[list\.length - step\]\)/);
+  assert.match(logic, /el\.reply\.innerHTML = fmt\(list\[list\.length - step\]\)/);
   assert.match(page, /el\.reply\.innerHTML = fmt\(list\[list\.length - step\]\)/);
   assert.match(index, /bubble\.innerHTML = fmt\(m\.kind === "user"/);
   assert.match(page, /bubble\.innerHTML = fmt\(m\.kind === "user"/);
