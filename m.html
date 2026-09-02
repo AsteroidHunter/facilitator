@@ -48,10 +48,36 @@
     overflow:hidden; display:flex; flex-direction:column;
     padding:calc(env(safe-area-inset-top, 0px) + var(--app-inset))
             calc(env(safe-area-inset-right, 0px) + var(--app-inset))
-            calc(env(safe-area-inset-bottom, 0px) + var(--app-inset))
+            var(--pad-b)
             calc(env(safe-area-inset-left, 0px) + var(--app-inset));
     -webkit-tap-highlight-color:transparent;
+    /* the foot's clearance. at rest it is the home indicator's safe area plus
+       the app's thin margin; with the keyboard up it is the keyboard's own
+       inset plus that same margin, so the card's foot sits on the keyboard's
+       top edge the way it sits on the screen's edge, and the safe area, which
+       the phone keeps reporting under a keyboard that already covers it, is
+       not left as a blank strip above the keys. --kb-inset is the one number
+       the keyboard script writes: the learned full-screen height less the
+       visual viewport's while the keyboard is provably up, 0 otherwise. the
+       clearance moves on the keyboard's own clock and curve, --kb-anim: the
+       phone animates its keyboard over a quarter second on a spring whose
+       published approximation these control points are, and shows the page
+       no frames of that motion, so a clearance applied the moment the
+       viewport reports is the yank, and one played on the keyboard's own
+       curve keeps step with the keys */
+    --pad-b:calc(env(safe-area-inset-bottom, 0px) + var(--app-inset));
+    --kb-inset:0px;
+    --kb-anim:.25s cubic-bezier(.38,.7,.125,1);
+    transition:padding-bottom var(--kb-anim);
   }
+  body.kb{--pad-b:calc(var(--kb-inset) + var(--app-inset))}
+  /* the box while the keyboard is up, and through the close's settle window.
+     the top follows the visual viewport, for the phone that slides the layout
+     viewport under the keyboard; the height is the learned full-screen height
+     and never the viewport's own, so the box never changes size at a keyboard
+     edge. the script drops both once the keyboard is really gone, and lands
+     on the geometry the box already had */
+  body.kb, body.lifting{top:var(--shell-top, 0px); height:var(--shell-h, 100%)}
   button{font-family:inherit; -webkit-appearance:none; appearance:none}
 
   /* ---- the project tabs, seated the way the desktop bar seats them --------- */
@@ -235,13 +261,31 @@
   .clipbtn:active::before{opacity:1}
   .clipfile{display:none}
   .compose{flex:1 1 auto; min-width:0; display:flex; gap:var(--sp-x); align-items:flex-end}
+  /* the row's cap: the desktop's share of the height with the keyboard down,
+     and five whole lines while it is up, the count the row could hold above
+     the keyboard. the box shrinks at the keyboard's edge, and the script
+     brings the caret's line back inside it on that same frame */
   textarea{
     flex:1; min-width:0; resize:none; font:17px/1.5 var(--sans); color:var(--ink);
     background:transparent; border:none; outline:none;
     padding:var(--sp-s) 4px; margin:0 -4px;
     min-height:var(--row-min); max-height:28vh; max-height:calc(var(--vvh, 100vh) * .28); overflow-y:auto;
   }
+  body.kb textarea{max-height:calc(5 * 1.5em + 2 * var(--sp-s))}
   textarea::placeholder{color:#B4AA99}
+  /* the phone skips its caret reveal, the scroll of the whole page that
+     brings a freshly focused field into view, when the field is at opacity 0
+     on that frame: one fiftieth of a second blink on focus, a frame the eye
+     cannot catch. the script blinks the same way on every keystroke while
+     the keyboard is up, since the reveal fires on those too */
+  textarea:focus{animation:focus-blink .02s}
+  @keyframes focus-blink{from{opacity:0}}
+  /* the twin the row is measured on: the same rule as the row, the row's own
+     width, out of the flow and out of sight. the row's height is read off it,
+     so the row itself is never collapsed to be measured, which is what threw
+     its scroll and the caret off */
+  .compose textarea.twin{position:absolute; top:0; left:0; visibility:hidden; pointer-events:none;
+    height:auto; min-height:0; max-height:none; overflow:hidden; margin:0}
   .sendbtn{
     flex:none; width:28px; height:28px; min-height:0; padding:0; border:none;
     background:var(--card); color:#000; border-radius:var(--sq);
@@ -422,21 +466,30 @@ function makeBox(b){
   const send = h("button", "sendbtn");
   send.type = "button"; send.setAttribute("aria-label", "send");
   send.innerHTML = SEND_ICON;
-  compose.append(ta, send);
+  const twin = h("textarea", "twin");
+  twin.rows = 1; twin.tabIndex = -1; twin.readOnly = true; twin.setAttribute("aria-hidden", "true");
+  compose.append(ta, send, twin);
   bottombar.append(clipfile, clip, compose);
   pendwrap.append(meta, bottombar);
   body.append(reply, pendwrap);
   box.appendChild(body);
   document.getElementById("cards").appendChild(box);
 
-  const tick = () => {
-    ta.style.height = "auto";
-    ta.style.height = ta.scrollHeight + "px";
+  // the row grows to its text, measured on the twin (fitRow), and the line
+  // under the caret is brought into view after every keystroke and on focus
+  // (revealCaret); the blink keeps the phone from scrolling the page for the
+  // caret on a keystroke while the keyboard is up, and on any grown line
+  const tick = typed => {
+    const grew = fitRow(ta, twin);
+    if (document.activeElement === ta && (grew || (typed && document.body.classList.contains("kb")))) blinkRow(ta);
+    revealCaret(ta, twin);
     seatSquare(ta, send);
     send.classList.toggle("show", ta.value.trim().length > 0);
   };
-  ta.addEventListener("input", tick);
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(tick);
+  ta.addEventListener("input", () => tick(true));
+  ta.addEventListener("focus", () => requestAnimationFrame(() => revealCaret(ta, twin)));
+  ta.addEventListener("mousedown", takeFocusTap);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => tick());
   tick();
   send.addEventListener("pointerdown", e => { if (document.activeElement === ta) e.preventDefault(); });
   send.addEventListener("click", () => doSend(b.id));
@@ -448,7 +501,7 @@ function makeBox(b){
     await attach(files, ta);
   });
 
-  els[b.id] = { box, reply, meta, ta, send, tick, titleEl, arc, x, pendwrap, bottombar,
+  els[b.id] = { box, reply, meta, ta, twin, send, tick, titleEl, arc, x, pendwrap, bottombar,
                 pend: null, pendRaw: "", histUp, histDown, histPos, clip, clipfile };
   return els[b.id];
 }
@@ -894,20 +947,283 @@ poll();
 setInterval(() => { if (!document.hidden) poll(); }, 1200);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
 
-// the on screen keyboard takes the bottom of the screen: the page follows the
-// visual viewport so the row he types on stays in view above it
-function fitViewport(){
+// ---- the row he types on -----------------------------------------------------------
+// the row is measured on its twin, never by collapsing the row itself: a row
+// collapsed to be measured hands its scroll to the engine's clamp for the length
+// of one layout, and the engine's own reveal of the caret, made at the
+// keystroke, is thrown away with it. the height written is a whole count of
+// lines rounded up to a whole pixel, since a line is 25.5px tall and a scroll
+// height the engine rounds down leaves half a pixel to scroll. the css caps
+// it: the desktop's share of the height with the keyboard down, five lines
+// while it is up.
+function rowMetrics(ta){
+  const cs = getComputedStyle(ta);
+  return { lh: parseFloat(cs.lineHeight) || 0, pt: parseFloat(cs.paddingTop) || 0, pb: parseFloat(cs.paddingBottom) || 0 };
+}
+// how many lines the twin lays its text on, snapped to a whole line so the
+// engine's rounding of the scroll height cannot leave a fraction of one
+function twinLines(twin, m){
+  return Math.max(1, Math.round((twin.scrollHeight - m.pt - m.pb) / m.lh));
+}
+// the row's height from its text; whether it grew, for the blink. a row not on
+// screen has no width to wrap at and keeps the height it had
+function fitRow(ta, twin){
+  const m = rowMetrics(ta);
+  if (!m.lh || !ta.clientWidth) return false;
+  twin.style.width = ta.clientWidth + "px";
+  twin.value = ta.value;
+  const want = Math.ceil(twinLines(twin, m) * m.lh + m.pt + m.pb);
+  const was = parseFloat(ta.style.height) || 0;
+  ta.style.height = want + "px";
+  return want > was;
+}
+// the caret's line, counted on the twin from the text up to the end of the word
+// the caret is in: a word the wrap carries whole to the next line is then
+// counted on the line it stands on, which the text cut at the caret would miss
+function caretLine(ta, twin, m){
+  const v = ta.value;
+  let end = ta.selectionEnd;
+  while (end < v.length && !/\s/.test(v[end])) end++;
+  twin.value = v.slice(0, end);
+  return { line: twinLines(twin, m), last: end === v.length };
+}
+// once the row holds more than its cap it scrolls inside, and the caret's line
+// is brought inside the box: the last line brings the row's foot with it, so
+// nothing is left below to scroll, and the first brings the row's head. after
+// every keystroke, since a height write throws the engine's own reveal off, on
+// focus, so the line he tapped is the line in view once the keyboard is up,
+// at the keyboard's edge, where the cap shrinks the box, and when it lands.
+// the box is read as a rectangle rather than as clientHeight, which the engine
+// rounds while the cap is a fraction, and the end of the text is asked for as
+// the whole scroll height, which the engine clamps to the true last position
+function revealCaret(ta, twin){
+  if (ta.scrollHeight <= ta.clientHeight) return;
+  const m = rowMetrics(ta);
+  if (!m.lh) return;
+  const at = caretLine(ta, twin, m);
+  const box = ta.getBoundingClientRect().height;
+  if (at.last){
+    if (ta.scrollTop + box < ta.scrollHeight - 0.5) ta.scrollTop = ta.scrollHeight;
+    return;
+  }
+  const top = at.line === 1 ? 0 : m.pt + (at.line - 1) * m.lh;
+  const bottom = m.pt + at.line * m.lh;
+  let st = ta.scrollTop;
+  if (bottom > st + box) st = bottom - box;
+  if (top < st) st = top;
+  if (Math.abs(st - ta.scrollTop) > 0.5) ta.scrollTop = st;
+}
+// the one frame blink that keeps the phone from scrolling the page to reveal
+// the caret (the css does the same on focus): the previous blink is cancelled
+// first, so fast typing stacks nothing
+let rowBlink = null;
+function blinkRow(ta){
+  if (!ta.animate) return;
+  if (rowBlink) rowBlink.cancel();
+  rowBlink = ta.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 20 });
+}
+// the focusing tap on an empty row. the phone's own focus from a tap runs its
+// caret reveal, which scrolls the whole page under the rising keyboard, and the
+// one refusal it honours is preventScroll on a focus call, which a tap can never
+// carry. so the tap into an empty row is refused and the focus made here inside
+// the same gesture; an empty row has one caret position, so the hand made focus
+// lands the caret where the tap would have. a row holding text is left to the
+// engine: a refused tap places no caret, and the caret would land wherever a
+// scripted focus leaves it rather than under the finger
+function takeFocusTap(e){
+  const ta = e.currentTarget;
+  if (e.button !== 0 || document.activeElement === ta || ta.value.length) return;
+  e.preventDefault();
+  ta.focus({ preventScroll: true });
+}
+
+// ---- the keyboard ----------------------------------------------------------------------
+// the on screen keyboard takes the bottom of the screen. the page never reads
+// the keyboard itself: it learns the full-screen height of the visual viewport
+// while nothing is being edited (the baseline), and a viewport at least
+// MIN_KEYBOARD_PX shorter than that while something is being edited is the
+// keyboard; a smaller shortfall is the phone's stale report after a dismissal,
+// or a focus pan, and reads as no keyboard. what the keyboard moves is the
+// foot's clearance, --kb-inset, which the css above plays on the keyboard's
+// clock and curve; the body's box keeps its full-screen height throughout and
+// follows the viewport's top when the phone slides the layout viewport, so
+// nothing is resized at an edge, and the box is held through the close's
+// settle window until the keyboard is really gone. the close starts at the
+// focus loss, before the viewport reports, which is when the phone starts the
+// keyboard's own motion; the corrections, a window scrolled under the box and
+// a window left short, run at the close and never while he types.
+const MIN_KEYBOARD_PX = 100;
+const KB_ANIM_MS = 250;                    // the css --kb-anim: the keyboard's own duration
+const LIFT_SETTLE_MS = KB_ANIM_MS + 200;   // the settle window, which a landing closes early
+const CLOSE_RETRY_MS = 350;                // the viewport reports late after a close
+const MAX_SHOVE_CLEARS = 3;                // per keystroke; a phone that keeps re-shoving is yielded to
+const HEAL_THRESHOLD_PX = 4;               // a window left this much short of the baseline is stuck
+let baseline = 0, baselineWidth = 0;
+let kbUp = false, appliedKb = false, appliedInset = 0;
+let appliedTop = null, appliedHeight = null, appliedVvHeight = null;
+let liftUntil = 0, liftTimer = null, closeRetry = null, shoveClears = 0;
+
+function editing(){
+  const a = document.activeElement;
+  return !!a && a !== document.body && (a.matches("textarea, input:not([type=file])") || a.isContentEditable);
+}
+function readWorld(){
   const vv = window.visualViewport;
-  if (!vv) return;
-  document.body.style.height = vv.height + "px";
-  document.body.style.top = vv.offsetTop + "px";
-  document.documentElement.style.setProperty("--vvh", vv.height + "px");
+  const vvHeight = vv ? vv.height : window.innerHeight;
+  if (window.innerWidth !== baselineWidth){ baselineWidth = window.innerWidth; baseline = 0; }   // a rotation: relearn
+  const focused = editing();
+  // only a keyboard-free frame teaches the baseline, and only upward: a
+  // shrunken viewport must never be mistaken for the full screen
+  if (!focused) baseline = Math.max(baseline, vvHeight, window.innerHeight);
+  if (!baseline) baseline = Math.max(vvHeight, window.innerHeight);
+  return { focused, baseline, vvHeight, vvTop: vv ? vv.offsetTop : 0 };
+}
+function keyboardInset(base, vvHeight){
+  const d = base - vvHeight;
+  return d >= MIN_KEYBOARD_PX ? d : 0;
+}
+function reconcile(){
+  const w = readWorld();
+  const kb = w.focused && keyboardInset(w.baseline, w.vvHeight) > 0;
+  const wasUp = kbUp;
+  kbUp = kb;
+  let top = w.vvTop, height = w.vvHeight;
+  const x = Math.round(window.scrollX), y = Math.round(window.scrollY);
+  const heightChanged = appliedVvHeight === null || Math.round(height) !== appliedVvHeight;
+  if (wasUp && kb && !heightChanged && (x !== 0 || y !== 0)){
+    // a shove: the keyboard steady, the viewport moved by a scroll of the
+    // window to reveal the caret. cleared on its own frame, and the box is
+    // handed the numbers it already has, so it writes nothing
+    if (shoveClears < MAX_SHOVE_CLEARS){
+      shoveClears++;
+      window.scrollTo(0, 0);
+      top = appliedTop; height = appliedVvHeight;
+    }
+  } else if (kb && !wasUp && y !== 0){
+    // an open on a scrolled window: the height is the real change, the top
+    // describes a scroll about to be taken back, so it stands where it is
+    top = appliedTop === null ? 0 : appliedTop;
+  }
+  applyShell(kb, top, height, w.baseline);
+  if (wasUp && !kb) keyboardClosed();
+}
+// the one writer: the two classes, the inset, the box
+function applyShell(kb, top, height, base){
+  const body = document.body;
+  const inset = kb ? keyboardInset(base, height) : 0;
+  const edge = kb !== appliedKb;
+  if (edge){ appliedKb = kb; armLift(); }
+  const lifting = performance.now() < liftUntil;
+  body.classList.toggle("kb", kb);
+  body.classList.toggle("lifting", lifting);
+  if (inset !== appliedInset){ appliedInset = inset; body.style.setProperty("--kb-inset", inset + "px"); }
+  document.documentElement.style.setProperty("--vvh", height + "px");
+  if (kb || lifting){
+    const t = Math.round(top), hgt = Math.round(base);
+    if (t !== appliedTop || hgt !== appliedHeight){
+      appliedTop = t; appliedHeight = hgt;
+      body.style.setProperty("--shell-top", t + "px");
+      body.style.setProperty("--shell-h", hgt + "px");
+    }
+    appliedVvHeight = Math.round(height);
+  } else if (appliedTop !== null){
+    appliedTop = appliedHeight = appliedVvHeight = null;
+    body.style.removeProperty("--shell-top");
+    body.style.removeProperty("--shell-h");
+  }
+  // the row's cap changes with the keyboard (the css): the caret's line is
+  // brought back inside the box on the same frame the box changes
+  if (edge){
+    const el = selectedId && els[selectedId];
+    if (el && document.activeElement === el.ta) revealCaret(el.ta, el.twin);
+  }
+}
+// a keyboard edge opens the settle window; the foot's own transitionend closes
+// it early and exactly, this clock closes one that never fires it
+function armLift(){
+  liftUntil = performance.now() + LIFT_SETTLE_MS;
+  if (liftTimer) clearTimeout(liftTimer);
+  liftTimer = setTimeout(() => { liftTimer = null; liftLanded(true); }, LIFT_SETTLE_MS + 20);
+}
+// the foot has landed. the window closes here for an open, and for a close
+// whose viewport already reads whole; a close the phone has not finished
+// reporting keeps the clock, so the box's top stands until the layout viewport
+// is slid back. an open landed brings the caret's line into view, a close
+// landed puts the scrollers back in bounds
+function liftLanded(byClock){
+  const w = readWorld();
+  const whole = keyboardInset(w.baseline, w.vvHeight) === 0 && w.vvTop <= 1;
+  if (byClock || appliedKb || whole) liftUntil = 0;
+  reconcile();
+  const el = selectedId && els[selectedId];
+  if (!el) return;
+  if (appliedKb){ if (document.activeElement === el.ta) revealCaret(el.ta, el.twin); }
+  else snapBack(el);
+}
+document.body.addEventListener("transitionend", e => {
+  if (e.target === document.body && e.propertyName === "padding-bottom") liftLanded(false);
+});
+// the phone can hand a scroller its pre-close offset a frame after its own
+// close motion, past the end of the range the taller box leaves, and paint a
+// white band there until the next scroll
+function snapBack(el){
+  for (const node of [el.reply, el.ta]){
+    const max = Math.max(0, node.scrollHeight - node.clientHeight);
+    if (node.scrollTop > max) node.scrollTop = max;
+  }
+}
+// the close's corrections: a window still scrolled or a viewport still slid
+// once the keyboard is gone is displacement, and goes; on the retry, by when
+// the dismissal's motion is over, a window still short of the baseline is
+// stuck and one display-none reflow heals it, with the scrollers' places put
+// back around it
+function correctionPass(retry){
+  const x = Math.round(window.scrollX), y = Math.round(window.scrollY);
+  const top = Math.round(window.visualViewport ? window.visualViewport.offsetTop : 0);
+  if (x !== 0 || y !== 0 || top > 1) window.scrollTo(0, 0);
+  if (!retry) return;
+  if (baseline - window.innerHeight > HEAL_THRESHOLD_PX){
+    const scrolled = [...document.querySelectorAll("*")].filter(n => n.scrollTop > 0).map(n => [n, n.scrollTop]);
+    document.body.style.display = "none";
+    void document.body.offsetHeight;
+    document.body.style.display = "";
+    for (const [n, st] of scrolled) n.scrollTop = st;
+  }
+  const el = selectedId && els[selectedId];
+  if (el) snapBack(el);
+}
+function keyboardClosed(){
+  if (closeRetry) clearTimeout(closeRetry);
+  shoveClears = 0;
+  correctionPass(false);
+  closeRetry = setTimeout(() => {
+    closeRetry = null;
+    if (!kbUp) correctionPass(true);
+  }, CLOSE_RETRY_MS);
+}
+document.addEventListener("focusin", reconcile);
+document.addEventListener("focusout", () => requestAnimationFrame(reconcile));   // a frame's grace: focus may be hopping between fields
+for (const type of ["beforeinput", "keydown"]){
+  document.addEventListener(type, e => { if (e.target instanceof HTMLTextAreaElement) shoveClears = 0; }, true);
 }
 if (window.visualViewport){
-  window.visualViewport.addEventListener("resize", fitViewport);
-  window.visualViewport.addEventListener("scroll", fitViewport);
-  fitViewport();
+  window.visualViewport.addEventListener("resize", reconcile);
+  window.visualViewport.addEventListener("scroll", reconcile);
 }
+window.addEventListener("resize", () => {
+  reconcile();
+  const el = selectedId && els[selectedId];
+  if (el) el.tick();   // the row wraps at a new width
+});
+window.addEventListener("orientationchange", () => { baseline = 0; reconcile(); });
+// a window scrolled while a field is focused with no keyboard up is the phone
+// fighting the box: back on the same frame. with the keyboard up the close
+// pass owns the residue
+window.addEventListener("scroll", () => {
+  if (!editing() || document.body.classList.contains("kb")) return;
+  if (window.scrollX !== 0 || window.scrollY !== 0) window.scrollTo(0, 0);
+}, { passive: true });
+reconcile();
 
 // ---- installing, and being told when a card turns to his turn -------------------------
 let swReg = null;
