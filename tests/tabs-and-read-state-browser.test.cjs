@@ -1,8 +1,9 @@
 // The board's tab bar and its read marks, driven headless against a real
-// fixture server: the bar draws the order the board holds, a drag and a close
-// are written back to it, an outside change lands on the next poll, opening a
-// card marks it read for every device, and the one-time carry-over out of this
-// browser's own storage happens once and never again.
+// fixture server, on the desktop board and on the phone page: the bar draws
+// the order the board holds, a drag and a close are written back to it, an
+// outside change lands on the next poll, a tab carried on the phone reaches
+// the desktop, opening a card marks it read for every device, and the
+// one-time carry-over out of one browser's own storage happens once only.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawn } = require("node:child_process");
@@ -16,6 +17,7 @@ const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const DESK = { width: 1440, height: 900 };
+const PHONE = { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
 
 let browser;
 let child;
@@ -74,6 +76,15 @@ async function until(check, ms = 4000) {
 // each one gets its own browsing context, so what one test leaves in storage
 // is never what the next test starts from
 async function openBoard(storage) {
+  return openPage("/", DESK, storage);
+}
+
+// the same page at phone size, with a touch screen
+async function openPhone() {
+  return openPage("/m", PHONE, null);
+}
+
+async function openPage(route, viewport, storage) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   const problems = [];
@@ -90,11 +101,33 @@ async function openBoard(storage) {
       } catch (err) {}
     }, storage);
   }
-  await page.setViewport(DESK);
-  await page.goto(origin + "/", { waitUntil: "domcontentloaded" });
+  await page.setViewport(viewport);
+  await page.goto(origin + route, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => typeof lastState !== "undefined" && lastState !== null, { timeout: 8000 });
   await settle(400);
   return { page, problems, context };
+}
+
+// the phone's own reorder: a press held on the tab, then the finger slides it
+// past the tab beside it, then the finger lifts
+async function carryTab(page, owner, pastOwner) {
+  const spots = await page.$$eval("#tabbar .ptab", tabs => tabs.map(t => {
+    const r = t.getBoundingClientRect();
+    return { owner: t.dataset.owner, x: r.x, y: r.y, w: r.width, h: r.height };
+  }));
+  const held = spots.find(s => s.owner === owner);
+  const past = spots.find(s => s.owner === pastOwner);
+  const from = held.x + held.w / 2;
+  const to = past.x < held.x ? past.x + 2 : past.x + past.w - 2;
+  const y = held.y + held.h / 2;
+  await page.touchscreen.touchStart(from, y);
+  await settle(700);   // the press is held: the tab lifts
+  for (let step = 1; step <= 10; step++) {
+    await page.touchscreen.touchMove(from + (to - from) * step / 10, y);
+    await settle(30);
+  }
+  await page.touchscreen.touchEnd();
+  await settle(400);
 }
 
 const barOrder = page => page.$$eval("#tabbar .ptab:not(.draft)", tabs => tabs.map(t => t.dataset.owner));
@@ -146,11 +179,16 @@ before(async () => {
   }
   if (!ready) throw new Error(`fixture server did not start:\n${output}`);
 
-  // one answered card in each lane, so the read marks have something to mark
-  await post("/send?box=0", "a question on the meta card");
-  await post("/reply?box=0", "the answer on the meta card");
-  await post("/send?box=1.1", "a question in the other lane");
-  await post("/reply?box=1.1", "the answer in the other lane");
+  // one answered card in each lane, so the read marks have something to mark.
+  // the claim is taken and confirmed the way a real agent takes it, or the
+  // message stays queued and the card never turns to his turn
+  for (const [box, owner] of [["0", "facilitator"], ["1.1", "pastureland"]]) {
+    await post(`/send?box=${box}`, "a question");
+    const claim = await (await fetch(`${origin}/wait?owner=${owner}&timeout=5`)).json();
+    assert.equal(claim.box, box);
+    await post(`/ack?owner=${owner}&token=${claim.ack}`);
+    await post(`/reply?box=${box}`, "the answer on " + box);
+  }
 
   browser = await puppeteer.launch({
     executablePath: CHROME,
@@ -289,5 +327,81 @@ test("the browser's own arrangement and read marks carry over once, then never a
     assert.deepEqual(problems, []);
   } finally {
     await context.close();
+  }
+});
+
+test("the phone draws the board's tabs, in the board's order", async () => {
+  await setTabs(["pastureland", "facilitator"], []);
+  const { page, problems, context } = await openPhone();
+  try {
+    assert.deepEqual(await barOrder(page), ["pastureland", "facilitator"]);
+    // and a tab the board closes leaves the phone's bar on the next poll
+    await setTabs(["pastureland", "facilitator"], ["pastureland"]);
+    await until(async () => (await barOrder(page)).join(",") === "facilitator");
+    assert.deepEqual(problems, []);
+  } finally {
+    await context.close();
+  }
+});
+
+test("a tab carried along the phone's bar reaches the desktop board", async () => {
+  await setTabs(["facilitator", "pastureland"], []);
+  const board = await openBoard();
+  const phone = await openPhone();
+  try {
+    assert.deepEqual(await barOrder(board.page), ["facilitator", "pastureland"]);
+    await carryTab(phone.page, "facilitator", "pastureland");
+    assert.deepEqual((await tabs()).order, ["pastureland", "facilitator"]);
+    assert.deepEqual(await barOrder(phone.page), ["pastureland", "facilitator"]);
+    await until(async () => (await barOrder(board.page)).join(",") === "pastureland,facilitator");
+    assert.deepEqual(phone.problems, []);
+    assert.deepEqual(board.problems, []);
+  } finally {
+    await phone.context.close();
+    await board.context.close();
+  }
+});
+
+test("the phone's bar looks like nothing until a press is held on it", async () => {
+  await setTabs(["facilitator", "pastureland"], []);
+  const { page, problems, context } = await openPhone();
+  try {
+    const dressed = () => page.$$eval("#tabbar .ptab", tabs =>
+      tabs.map(t => t.getAttribute("style") || "").filter(Boolean));
+    assert.deepEqual(await dressed(), [], "a tab wore something at rest");
+    // a plain tap is still a tap: it switches tabs and moves nothing
+    const spot = await page.$eval('#tabbar .ptab[data-owner="pastureland"]',
+      t => { const r = t.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+    await page.touchscreen.tap(spot.x, spot.y);
+    await settle(400);
+    assert.equal(await page.evaluate(() => activeOwner), "pastureland");
+    assert.deepEqual((await tabs()).order, ["facilitator", "pastureland"], "a tap moved the bar");
+    assert.deepEqual(await dressed(), [], "a tab was left dressed after a tap");
+    assert.deepEqual(problems, []);
+  } finally {
+    await context.close();
+  }
+});
+
+test("a card opened on the phone counts as read on the desktop board", async () => {
+  await setTabs(["facilitator", "pastureland"], []);
+  await post("/seen", JSON.stringify({ "0": 0 }));
+  const board = await openBoard();
+  try {
+    const bold = () => board.page.$eval('#tabbar .ptab[data-owner="facilitator"]',
+      t => t.classList.contains("unread"));
+    assert.equal(await bold(), true, "an unread reply did not bold the tab");
+    const phone = await openPhone();
+    try {
+      // the phone opens on the lane's card, which is what reading it means
+      await until(async () => (await seenOf("0")) === 1);
+      assert.deepEqual(phone.problems, []);
+    } finally {
+      await phone.context.close();
+    }
+    await until(async () => (await bold()) === false);
+    assert.deepEqual(board.problems, []);
+  } finally {
+    await board.context.close();
   }
 });
