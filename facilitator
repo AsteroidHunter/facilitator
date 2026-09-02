@@ -11,12 +11,14 @@
       one-line board state
   facilitator bridge [--dry-run]
       publish the board on this Mac's Tailscale name over HTTPS, through
-      Tailscale Serve, and print a QR code that opens the phone page (/m).
+      Tailscale Serve, print a QR code that opens the phone page (/m), and
+      keep the terminal open: Ctrl-C, or the terminal closing, switches the
+      sharing off again, and every run first clears what an earlier one left.
       The server keeps listening on 127.0.0.1 only; Tailscale does the
       proxying, and being on the tailnet is the whole of the access control.
       Needs HTTPS certificates switched on once for the tailnet, in the
       Tailscale admin console; says so and stops when they are off.
-      --dry-run prints the serve command instead of running it
+      --dry-run prints the commands instead of running them
 
 Reads run.config.json beside this script: machine-local and gitignored, since
 lanes name real directories and tmux sessions; copy run.config.example.json
@@ -27,6 +29,7 @@ import json
 import os
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -39,6 +42,8 @@ LOG = "/tmp/facilitator-8877.log"
 RETIRED_OWNERS = frozenset({"triage"})
 # the Mac app keeps its command line inside the bundle and off PATH
 TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+# what ends the bridge: Ctrl-C, a plain kill, and the terminal closing
+STOP_SIGNALS = frozenset({signal.SIGINT, signal.SIGTERM, signal.SIGHUP})
 
 
 def load_config():
@@ -274,13 +279,36 @@ def show_qr(url):
     print("  " + url)
 
 
+def show_way_in(url):
+    """The phone page's address, its code, and what to do with it."""
+    print(f"phone page: {url}")
+    print()
+    show_qr(url)
+    print()
+    print("scan it with the phone camera; add the page to the home screen and use its Notifications button for pushes")
+
+
+def serve_reset(ts):
+    """Switch the Tailscale sharing off. Returns why it could not, or an
+    empty string when it did."""
+    try:
+        r = subprocess.run([ts, "serve", "reset"], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return str(e)
+    if r.returncode == 0:
+        return ""
+    return (r.stderr or r.stdout).strip() or f"exit code {r.returncode}"
+
+
 def cmd_bridge(args):
-    """Publish the board through Tailscale Serve and print the way in. The
-    server keeps binding 127.0.0.1; Tailscale terminates HTTPS on the Mac's
-    tailnet name and proxies to it, and nothing outside the tailnet can reach
-    either. HTTPS is what lets a phone install the page and receive pushes,
-    and Tailscale only issues certificates once HTTPS is switched on for the
-    tailnet, which is a one time change in its admin console."""
+    """Publish the board through Tailscale Serve, print the way in, and keep
+    the terminal open until Ctrl-C (or a kill, or the terminal closing)
+    switches the sharing off again. The server keeps binding 127.0.0.1;
+    Tailscale terminates HTTPS on the Mac's tailnet name and proxies to it,
+    and nothing outside the tailnet can reach either. HTTPS is what lets a
+    phone install the page and receive pushes, and Tailscale only issues
+    certificates once HTTPS is switched on for the tailnet, which is a one
+    time change in its admin console."""
     dry = "--dry-run" in args
     port = board_port()
     if state(port) is None:
@@ -298,10 +326,28 @@ def cmd_bridge(args):
         sys.exit("Tailscale HTTPS is off for this tailnet: switch on HTTPS certificates under DNS in the Tailscale admin console, then run facilitator bridge again.")
     cmd = [ts, "serve", "--bg", "--https=443", f"http://127.0.0.1:{port}"]
     shown = " ".join(shlex.quote(c) for c in cmd)
+    shown_reset = f"{shlex.quote(ts)} serve reset"
     url = f"https://{name}/m"
     if dry:
+        print(f"serve: would run {shown_reset}")
         print(f"serve: would run {shown}")
-    else:
+        show_way_in(url)
+        print(f"would then wait for Ctrl-C and run {shown_reset}")
+        return
+    # From here on Ctrl-C, a kill, and the terminal closing are held back and
+    # picked up by the wait below, so none of them can end the process with
+    # the sharing left on. The tailscale calls inherit the hold, so a second
+    # Ctrl-C cannot cut the reset short either; it is simply dropped. A signal
+    # set to be ignored is dropped instead of held, and a shell starts its
+    # background jobs with Ctrl-C ignored, so each one gets its default back.
+    signal.pthread_sigmask(signal.SIG_BLOCK, STOP_SIGNALS)
+    for s in STOP_SIGNALS:
+        signal.signal(s, signal.SIG_DFL)
+    stop = None
+    try:
+        why = serve_reset(ts)  # whatever an earlier run left on
+        if why:
+            sys.exit("tailscale serve reset failed: " + why)
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         except (OSError, subprocess.TimeoutExpired) as e:
@@ -311,12 +357,20 @@ def cmd_bridge(args):
         print(f"serve: ran {shown}")
         for line in (r.stdout or "").strip().splitlines():
             print("  " + line)
-    print(f"phone page: {url}")
-    print()
-    show_qr(url)
-    print()
-    print("scan it with the phone camera; add the page to the home screen and use its Notifications button for pushes")
-    print(f"stop sharing with: {shlex.quote(ts)} serve reset")
+        show_way_in(url)
+        print("press Ctrl-C to stop sharing")
+        sys.stdout.flush()
+        stop = signal.sigwait(STOP_SIGNALS)
+    finally:
+        why = serve_reset(ts)  # the one reset after the serve, on every way out
+    try:
+        if stop == signal.SIGINT:
+            print()  # the terminal echoed ^C on the current line
+        if why:
+            sys.exit(f"sharing may still be on: tailscale serve reset failed: {why}; run {shown_reset} yourself")
+        print("sharing off")
+    except OSError:
+        pass  # the terminal is gone (SIGHUP); nobody is reading
 
 
 def main():

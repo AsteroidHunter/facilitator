@@ -4,12 +4,13 @@
 // symbol has to carry.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
-const { execFile } = require("node:child_process");
+const { execFile, spawn } = require("node:child_process");
 const { createServer } = require("node:http");
 const { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
+const { setTimeout: wait } = require("node:timers/promises");
 
 const run = promisify(execFile);
 const ROOT = path.resolve(__dirname, "..");
@@ -39,9 +40,13 @@ before(async () => {
   await writeFile(stub, [
     "#!/bin/bash",
     "# a stand in for the tailscale command line: status answers the json named",
-    "# by TS_STATUS_JSON; serve records its arguments in TS_SERVE_LOG",
+    "# by TS_STATUS_JSON; every serve call appends its arguments to TS_SERVE_LOG",
     'if [ "$1" = "status" ]; then cat "$TS_STATUS_JSON"; exit 0; fi',
-    'if [ "$1" = "serve" ]; then printf "%s\\n" "$@" > "$TS_SERVE_LOG"; echo "Available within your tailnet:"; echo "https://mac.tail0000.ts.net/"; exit 0; fi',
+    'if [ "$1" = "serve" ]; then',
+    '  echo "$*" >> "$TS_SERVE_LOG"',
+    '  if [ "$2" != "reset" ]; then echo "Available within your tailnet:"; echo "https://mac.tail0000.ts.net/"; fi',
+    "  exit 0",
+    "fi",
     'echo "unexpected: $*" >&2; exit 2',
     "",
   ].join("\n"));
@@ -53,30 +58,61 @@ after(async () => {
   if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
 });
 
-async function bridge(status, extra = []) {
+// the stub answers this status and records every serve call, from a clean log
+async function stubbed(status) {
   const statusPath = path.join(fixtureDir, "status.json");
   const serveLog = path.join(fixtureDir, "serve.log");
   await rm(serveLog, { force: true });
   await writeFile(statusPath, JSON.stringify(status));
-  const env = { ...process.env, PATH: binDir + ":" + process.env.PATH, TS_STATUS_JSON: statusPath, TS_SERVE_LOG: serveLog };
+  return { ...process.env, PATH: binDir + ":" + process.env.PATH, TS_STATUS_JSON: statusPath, TS_SERVE_LOG: serveLog };
+}
+
+// every serve call so far, one line of arguments each; null when there was none
+function served() {
+  return readFile(path.join(fixtureDir, "serve.log"), "utf8").then(text => text.trim().split("\n"), () => null);
+}
+
+// a run that ends on its own: a dry run or a refusal
+async function bridge(status, extra = []) {
+  const env = await stubbed(status);
   try {
     const { stdout, stderr } = await run("python3", [path.join(fixtureDir, "facilitator"), "bridge", ...extra], { env, cwd: fixtureDir });
-    return { code: 0, stdout, stderr, served: await readFile(serveLog, "utf8").catch(() => null) };
+    return { code: 0, stdout, stderr, served: await served() };
   } catch (error) {
-    return { code: error.code, stdout: error.stdout, stderr: error.stderr, served: await readFile(serveLog, "utf8").catch(() => null) };
+    return { code: error.code, stdout: error.stdout, stderr: error.stderr, served: await served() };
   }
+}
+
+// a real run: it stays open, so it is started and later signalled
+async function startBridge(status) {
+  const env = await stubbed(status);
+  const child = spawn("python3", [path.join(fixtureDir, "facilitator"), "bridge"], { env, cwd: fixtureDir });
+  let stdout = "", stderr = "";
+  child.stdout.on("data", chunk => { stdout += chunk; });
+  child.stderr.on("data", chunk => { stderr += chunk; });
+  const exited = new Promise(resolve => child.on("exit", (code, signal) => resolve({ code, signal })));
+  const proc = {
+    child,
+    get stdout() { return stdout; },
+    get stderr() { return stderr; },
+    exited,
+    async printed(line) {
+      const until = Date.now() + 20000;
+      while (!stdout.split("\n").includes(line)) {
+        assert.ok(Date.now() < until, `never printed ${JSON.stringify(line)}; stdout so far:\n${stdout}\nstderr:\n${stderr}`);
+        assert.equal(child.exitCode, null, `exited early (${child.exitCode}) before printing ${JSON.stringify(line)}:\n${stdout}\n${stderr}`);
+        await wait(25);
+      }
+    },
+  };
+  return proc;
 }
 
 const ON = { BackendState: "Running", CertDomains: ["mac.tail0000.ts.net"], Self: { DNSName: "mac.tail0000.ts.net." } };
 
-test("with HTTPS on, bridge runs tailscale serve and prints the address under its QR code", async () => {
-  const result = await bridge(ON);
-  assert.equal(result.code, 0, result.stderr);
-  const port = board.address().port;
-  assert.deepEqual(result.served.trim().split("\n"), ["serve", "--bg", "--https=443", `http://127.0.0.1:${port}`]);
-  assert.match(result.stdout, new RegExp(`serve: ran \\S*tailscale serve --bg --https=443 http://127\\.0\\.0\\.1:${port}`));
-  assert.match(result.stdout, /^phone page: https:\/\/mac\.tail0000\.ts\.net\/m$/m);
-  const lines = result.stdout.split("\n");
+function checkWayIn(stdout) {
+  assert.match(stdout, /^phone page: https:\/\/mac\.tail0000\.ts\.net\/m$/m);
+  const lines = stdout.split("\n");
   const code = lines.filter(line => /^  [ ▀▄█]+/.test(line));
   assert.ok(code.length >= 15, "no QR code drawn in block characters");
   // the address sits on its own line right under the last row and never
@@ -84,8 +120,21 @@ test("with HTTPS on, bridge runs tailscale serve and prints the address under it
   assert.ok(!code.some(line => line.includes("https://")), "the address is printed beside a row of the code");
   const last = lines.findLastIndex(line => /^  [ ▀▄█]+/.test(line));
   assert.equal(lines[last + 1], "  https://mac.tail0000.ts.net/m", "the address is not printed on its own line under the code");
-  assert.match(result.stdout, /serve reset/);
-  assert.doesNotMatch(result.stdout, /\u2014/);
+  assert.match(stdout, /^scan it with the phone camera; add the page to the home screen and use its Notifications button for pushes$/m);
+  assert.doesNotMatch(stdout, /\u2014/);
+  return code;
+}
+
+test("a real run clears earlier sharing, serves, prints the way in, and stays open until Ctrl-C switches sharing off", async () => {
+  const proc = await startBridge(ON);
+  await proc.printed("press Ctrl-C to stop sharing");
+  const port = board.address().port;
+  // reset before serve, so a Mac that slept or a terminal that died cannot leave the address open
+  assert.deepEqual(await served(), ["serve reset", `serve --bg --https=443 http://127.0.0.1:${port}`]);
+  assert.match(proc.stdout, new RegExp(`^serve: ran \\S*tailscale serve --bg --https=443 http://127\\.0\\.0\\.1:${port}$`, "m"));
+  const code = checkWayIn(proc.stdout);
+  assert.doesNotMatch(proc.stdout, /stop sharing with/, "the old stop sharing instruction is still printed");
+  assert.doesNotMatch(proc.stdout, /sharing off/);
   // the drawn code is the encoder's own symbol for that address
   const matrix = await qr("https://mac.tail0000.ts.net/m");
   const quiet = 4;
@@ -98,11 +147,37 @@ test("with HTTPS on, bridge runs tailscale serve and prints the address under it
     const want = top.map((t, x) => t && bottom[x] ? "█" : t ? "▀" : bottom[x] ? "▄" : " ").join("").replace(/\s+$/, "");
     assert.equal(drawn[i], want, `line ${i} of the printed code differs from the encoder`);
   }
+  // it is waiting, not done: still alive well after everything was printed
+  await wait(500);
+  assert.equal(proc.child.exitCode, null, "the bridge exited instead of staying open");
+  assert.equal((await served()).length, 2, "a serve call ran while the bridge was waiting");
+  // Ctrl-C twice in a row: one reset, the sharing off line, a clean exit
+  proc.child.kill("SIGINT");
+  proc.child.kill("SIGINT");
+  const end = await proc.exited;
+  assert.deepEqual(end, { code: 0, signal: null }, proc.stderr);
+  assert.deepEqual(await served(), ["serve reset", `serve --bg --https=443 http://127.0.0.1:${port}`, "serve reset"]);
+  assert.match(proc.stdout, /^sharing off$/m);
+  assert.equal(proc.stderr, "");
+});
+
+test("a kill or the terminal closing switches sharing off the same way as Ctrl-C", async () => {
+  for (const signal of ["SIGTERM", "SIGHUP"]) {
+    const proc = await startBridge(ON);
+    await proc.printed("press Ctrl-C to stop sharing");
+    const port = board.address().port;
+    assert.equal((await served()).length, 2, signal);
+    proc.child.kill(signal);
+    const end = await proc.exited;
+    assert.deepEqual(end, { code: 0, signal: null }, `${signal}: ${proc.stderr}`);
+    assert.deepEqual(await served(), ["serve reset", `serve --bg --https=443 http://127.0.0.1:${port}`, "serve reset"], signal);
+    assert.match(proc.stdout, /^sharing off$/m, signal);
+  }
 });
 
 test("with HTTPS off, bridge says so in one sentence, runs no serve, and exits non-zero", async () => {
   const result = await bridge({ ...ON, CertDomains: null });
-  assert.notEqual(result.code, 0);
+  assert.equal(result.code, 1);
   assert.equal(result.served, null, "tailscale serve was run with HTTPS off");
   assert.equal(result.stderr.trim(),
     "Tailscale HTTPS is off for this tailnet: switch on HTTPS certificates under DNS in the Tailscale admin console, then run facilitator bridge again.");
@@ -119,12 +194,18 @@ test("bridge refuses a disconnected tailscale and a missing tailnet name", async
   assert.match(result.stderr, /no tailnet name/);
 });
 
-test("a dry run prints the serve command without running it", async () => {
+test("a dry run prints the commands without running them, shows the way in, and ends at once", async () => {
   const result = await bridge(ON, ["--dry-run"]);
   assert.equal(result.code, 0, result.stderr);
   assert.equal(result.served, null);
-  assert.match(result.stdout, /^serve: would run \S*tailscale serve --bg --https=443 http:\/\/127\.0\.0\.1:\d+$/m);
-  assert.match(result.stdout, /^phone page: https:\/\/mac\.tail0000\.ts\.net\/m$/m);
+  const lines = result.stdout.split("\n");
+  assert.match(lines[0], /^serve: would run \S*tailscale serve reset$/);
+  assert.match(lines[1], /^serve: would run \S*tailscale serve --bg --https=443 http:\/\/127\.0\.0\.1:\d+$/);
+  checkWayIn(result.stdout);
+  assert.match(lines.at(-2), /^would then wait for Ctrl-C and run \S*tailscale serve reset$/);
+  assert.equal(lines.at(-1), "");
+  assert.doesNotMatch(result.stdout, /^press Ctrl-C to stop sharing$/m);
+  assert.doesNotMatch(result.stdout, /sharing off/);
 });
 
 // the symbol for this address, as Apple's Vision decoder read it back
