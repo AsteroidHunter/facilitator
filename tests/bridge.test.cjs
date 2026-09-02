@@ -69,7 +69,7 @@ async function bridge(status, extra = []) {
 
 const ON = { BackendState: "Running", CertDomains: ["mac.tail0000.ts.net"], Self: { DNSName: "mac.tail0000.ts.net." } };
 
-test("with HTTPS on, bridge runs tailscale serve and prints the address beside its QR code", async () => {
+test("with HTTPS on, bridge runs tailscale serve and prints the address under its QR code", async () => {
   const result = await bridge(ON);
   assert.equal(result.code, 0, result.stderr);
   const port = board.address().port;
@@ -79,8 +79,11 @@ test("with HTTPS on, bridge runs tailscale serve and prints the address beside i
   const lines = result.stdout.split("\n");
   const code = lines.filter(line => /^  [ ▀▄█]+/.test(line));
   assert.ok(code.length >= 15, "no QR code drawn in block characters");
-  const beside = code.find(line => line.includes("https://mac.tail0000.ts.net/m"));
-  assert.ok(beside, "the address is not printed beside the code");
+  // the address sits on its own line right under the last row and never
+  // beside one, so a narrow terminal wrapping it cannot draw the tail inside the code
+  assert.ok(!code.some(line => line.includes("https://")), "the address is printed beside a row of the code");
+  const last = lines.findLastIndex(line => /^  [ ▀▄█]+/.test(line));
+  assert.equal(lines[last + 1], "  https://mac.tail0000.ts.net/m", "the address is not printed on its own line under the code");
   assert.match(result.stdout, /serve reset/);
   assert.doesNotMatch(result.stdout, /\u2014/);
   // the drawn code is the encoder's own symbol for that address
@@ -89,7 +92,7 @@ test("with HTTPS on, bridge runs tailscale serve and prints the address beside i
   const rows = [];
   for (let y = 0; y < matrix.length + 2 * quiet; y++) rows.push(Array(matrix.length + 2 * quiet).fill(false));
   matrix.forEach((row, y) => row.forEach((v, x) => { rows[y + quiet][x + quiet] = v; }));
-  const drawn = code.map(line => line.slice(2).replace(/\s+https:.*$/, "").replace(/\s+$/, ""));
+  const drawn = code.map(line => line.slice(2).replace(/\s+$/, ""));
   for (let i = 0; i < drawn.length; i++) {
     const top = rows[2 * i], bottom = rows[2 * i + 1] || rows[2 * i].map(() => false);
     const want = top.map((t, x) => t && bottom[x] ? "█" : t ? "▀" : bottom[x] ? "▄" : " ").join("").replace(/\s+$/, "");
