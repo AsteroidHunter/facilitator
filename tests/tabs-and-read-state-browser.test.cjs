@@ -405,3 +405,18 @@ test("a card opened on the phone counts as read on the desktop board", async () 
     await board.context.close();
   }
 });
+
+test("the phone offers one app name, the board's own title", async () => {
+  const board = (await state()).title;
+  const { page, problems, context } = await openPhone();
+  try {
+    assert.equal(await page.title(), board);
+    assert.equal(await page.$eval('meta[name="apple-mobile-web-app-title"]', m => m.content), board);
+    const manifest = await page.evaluate(async () => (await (await fetch("/m-manifest.json")).json()));
+    assert.equal(manifest.name, board);
+    assert.equal(manifest.short_name, board);
+    assert.deepEqual(problems, []);
+  } finally {
+    await context.close();
+  }
+});

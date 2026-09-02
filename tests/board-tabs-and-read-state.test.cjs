@@ -7,7 +7,7 @@ const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawn } = require("node:child_process");
 const { createServer } = require("node:http");
-const { mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
+const { copyFile, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 
@@ -82,6 +82,7 @@ before(async () => {
   const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
   assert.notEqual(patched, source, "test server port was not patched");
   await writeFile(path.join(fixtureDir, "server.py"), patched);
+  await copyFile(path.join(ROOT, "m-manifest.json"), path.join(fixtureDir, "m-manifest.json"));
   await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
     title: "Tabs And Read State",
     items: [
@@ -207,4 +208,21 @@ test("a card made after the records existed carries a read count of its own", as
   assert.equal(await seenOf(made.body.id), 0);
   assert.equal((await post("/seen", JSON.stringify({ [made.body.id]: 1 }))).status, 200);
   assert.equal(await seenOf(made.body.id), 1);
+});
+
+test("the phone app's name is the saved board title, and nothing else moves", async () => {
+  const written = JSON.parse(await readFile(path.join(ROOT, "m-manifest.json"), "utf8"));
+  const served = await fetch(origin + "/m-manifest.json");
+  assert.equal(served.status, 200);
+  assert.match(served.headers.get("content-type"), /manifest\+json/);
+  const body = await served.json();
+  assert.equal(body.name, "Tabs And Read State");
+  assert.equal(body.short_name, "Tabs And Read State");
+  assert.equal(body.name, (await state()).title, "the app's name and the board's title differ");
+  // one name, and the file keeps every other word it was written with
+  for (const field of Object.keys(written)) {
+    if (field === "name" || field === "short_name") continue;
+    assert.deepEqual(body[field], written[field], field);
+  }
+  assert.deepEqual(Object.keys(body).sort(), Object.keys(written).sort());
 });

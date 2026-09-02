@@ -840,6 +840,11 @@ function apply(state){
   renderTabs(state);
   renderTickets(state);
   if (state.title && document.title !== state.title) document.title = state.title;
+  // and the name an iPhone offers when the page is added to the home screen:
+  // it reads this tag rather than the manifest, so the board's title has to
+  // reach it too or the install prompt shows a second, older name
+  const appName = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+  if (state.title && appName && appName.content !== state.title) appName.content = state.title;
   if (pendingFocus && els[pendingFocus]){
     const id = pendingFocus; pendingFocus = null;
     select(id);

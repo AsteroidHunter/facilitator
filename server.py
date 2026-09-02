@@ -84,7 +84,12 @@ Endpoints:
                             -> what makes the phone page installable: its web
                                app manifest, its service worker (network
                                first, shows the push notifications) and its
-                               home screen icons, cut from the board's own mark
+                               home screen icons, cut from the board's own mark.
+                               The manifest's name and short_name are answered
+                               from the saved board title, so the install
+                               prompt offers the one name the board goes by;
+                               every other field is served as the file has it,
+                               and a blank title leaves the file's own name
   GET  /push/key            -> {"key": ...}: the VAPID public key, base64url,
                                that the phone subscribes with. The key pair
                                lives in vapid-key.pem beside state.json,
@@ -1483,6 +1488,29 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, p.read_bytes(), "application/javascript; charset=utf-8")
             else:
                 self._send(404, {"error": "not found"})
+        elif url.path == "/m-manifest.json":
+            # the install prompt reads the app's name from here and the page
+            # reads its own from the board title, so a name written into the
+            # file could only ever disagree with it. That one field is answered
+            # from the saved title; every other field is the file's own, and a
+            # board with no title leaves even that alone
+            p, ctype = PHONE_FILES[url.path]
+            if not p.is_file():
+                self._send(404, {"error": "not found"})
+                return
+            raw = p.read_bytes()
+            try:
+                manifest = json.loads(raw)
+            except ValueError:
+                manifest = None
+            if isinstance(manifest, dict):
+                with _lock:
+                    title = (_state.get("title") or "").strip()
+                if title:
+                    manifest["name"] = title
+                    manifest["short_name"] = title
+                raw = json.dumps(manifest, indent=2).encode()
+            self._send(200, raw, ctype)
         elif url.path in PHONE_FILES:
             # the phone page and the files that make it installable, each a
             # plain file beside this one (the icons under assets/). Served
