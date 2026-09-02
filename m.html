@@ -235,13 +235,29 @@
   .clipbtn:active::before{opacity:1}
   .clipfile{display:none}
   .compose{flex:1 1 auto; min-width:0; display:flex; gap:var(--sp-x); align-items:flex-end}
+  /* the row's cap is written by the script, five lines: the count the row
+     could hold above the keyboard, so the row is the same size with the
+     keyboard up or down and the line under the caret stays where it was */
   textarea{
     flex:1; min-width:0; resize:none; font:17px/1.5 var(--sans); color:var(--ink);
     background:transparent; border:none; outline:none;
     padding:var(--sp-s) 4px; margin:0 -4px;
-    min-height:var(--row-min); max-height:28vh; max-height:calc(var(--vvh, 100vh) * .28); overflow-y:auto;
+    min-height:var(--row-min); overflow-y:auto;
   }
   textarea::placeholder{color:#B4AA99}
+  /* the phone skips its caret reveal, the scroll of the whole page that
+     brings a freshly focused field into view, when the field is at opacity 0
+     on that frame: one fiftieth of a second blink on focus, a frame the eye
+     cannot catch. the script blinks the same way on every keystroke while
+     the keyboard is up, since the reveal fires on those too */
+  textarea:focus{animation:focus-blink .02s}
+  @keyframes focus-blink{from{opacity:0}}
+  /* the twin the row is measured on: the same rule as the row, the row's own
+     width, out of the flow and out of sight. the row's height is read off it,
+     so the row itself is never collapsed to be measured, which is what threw
+     its scroll and the caret off */
+  textarea.twin{position:absolute; top:0; left:0; visibility:hidden; pointer-events:none;
+    height:auto; min-height:0; max-height:none; overflow:hidden; margin:0}
   .sendbtn{
     flex:none; width:28px; height:28px; min-height:0; padding:0; border:none;
     background:var(--card); color:#000; border-radius:var(--sq);
@@ -422,21 +438,30 @@ function makeBox(b){
   const send = h("button", "sendbtn");
   send.type = "button"; send.setAttribute("aria-label", "send");
   send.innerHTML = SEND_ICON;
-  compose.append(ta, send);
+  const twin = h("textarea", "twin");
+  twin.rows = 1; twin.tabIndex = -1; twin.readOnly = true; twin.setAttribute("aria-hidden", "true");
+  compose.append(ta, send, twin);
   bottombar.append(clipfile, clip, compose);
   pendwrap.append(meta, bottombar);
   body.append(reply, pendwrap);
   box.appendChild(body);
   document.getElementById("cards").appendChild(box);
 
-  const tick = () => {
-    ta.style.height = "auto";
-    ta.style.height = ta.scrollHeight + "px";
+  // the row grows to its text, measured on the twin (fitRow), and the line
+  // under the caret is brought into view after every keystroke and on focus
+  // (revealCaret); the blink keeps the phone from scrolling the page for the
+  // caret on a keystroke while the keyboard is up, and on any grown line
+  const tick = typed => {
+    const grew = fitRow(ta, twin);
+    if (document.activeElement === ta && (grew || (typed && document.body.classList.contains("kb")))) blinkRow(ta);
+    revealCaret(ta, twin);
     seatSquare(ta, send);
     send.classList.toggle("show", ta.value.trim().length > 0);
   };
-  ta.addEventListener("input", tick);
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(tick);
+  ta.addEventListener("input", () => tick(true));
+  ta.addEventListener("focus", () => requestAnimationFrame(() => revealCaret(ta, twin)));
+  ta.addEventListener("mousedown", takeFocusTap);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => tick());
   tick();
   send.addEventListener("pointerdown", e => { if (document.activeElement === ta) e.preventDefault(); });
   send.addEventListener("click", () => doSend(b.id));
@@ -448,7 +473,7 @@ function makeBox(b){
     await attach(files, ta);
   });
 
-  els[b.id] = { box, reply, meta, ta, send, tick, titleEl, arc, x, pendwrap, bottombar,
+  els[b.id] = { box, reply, meta, ta, twin, send, tick, titleEl, arc, x, pendwrap, bottombar,
                 pend: null, pendRaw: "", histUp, histDown, histPos, clip, clipfile };
   return els[b.id];
 }
@@ -776,6 +801,92 @@ async function poll(){
 poll();
 setInterval(() => { if (!document.hidden) poll(); }, 1200);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
+
+// ---- the row he types on -----------------------------------------------------------
+// the row is measured on its twin, never by collapsing the row itself: a row
+// collapsed to be measured hands its scroll to the engine's clamp for the length
+// of one layout, and the engine's own reveal of the caret, made at the
+// keystroke, is thrown away with it. the height written is a whole count of
+// lines rounded up to a whole pixel, since a line is 25.5px tall and a scroll
+// height the engine rounds down leaves half a pixel to scroll; and the cap is
+// written in lines rather than as a share of the screen, so the row is the same
+// size with the keyboard up or down. ROW_LINES is the count the row could hold
+// above the keyboard on his phone, which is what the cap was before.
+const ROW_LINES = 5;
+function rowMetrics(ta){
+  const cs = getComputedStyle(ta);
+  return { lh: parseFloat(cs.lineHeight) || 0, pt: parseFloat(cs.paddingTop) || 0, pb: parseFloat(cs.paddingBottom) || 0 };
+}
+// how many lines the twin lays its text on, snapped to a whole line so the
+// engine's rounding of the scroll height cannot leave a fraction of one
+function twinLines(twin, m){
+  return Math.max(1, Math.round((twin.scrollHeight - m.pt - m.pb) / m.lh));
+}
+// the row's height from its text; whether it grew, for the blink. a row not on
+// screen has no width to wrap at and keeps the height it had
+function fitRow(ta, twin){
+  const m = rowMetrics(ta);
+  if (!m.lh || !ta.clientWidth) return false;
+  twin.style.width = ta.clientWidth + "px";
+  twin.value = ta.value;
+  const cap = Math.ceil(ROW_LINES * m.lh + m.pt + m.pb);
+  const want = Math.min(cap, Math.ceil(twinLines(twin, m) * m.lh + m.pt + m.pb));
+  const was = parseFloat(ta.style.height) || 0;
+  ta.style.maxHeight = cap + "px";
+  ta.style.height = want + "px";
+  return want > was;
+}
+// the caret's line, counted on the twin from the text up to the end of the word
+// the caret is in: a word the wrap carries whole to the next line is then
+// counted on the line it stands on, which the text cut at the caret would miss
+function caretLine(ta, twin, m){
+  const v = ta.value;
+  let end = ta.selectionEnd;
+  while (end < v.length && !/\s/.test(v[end])) end++;
+  twin.value = v.slice(0, end);
+  return { line: twinLines(twin, m), last: end === v.length };
+}
+// once the row holds more than its cap it scrolls inside, and the caret's line
+// is brought inside the box: the last line brings the row's foot with it, so
+// nothing is left below to scroll, and the first brings the row's head. after
+// every keystroke, since a height write throws the engine's own reveal off, on
+// focus, so the line he tapped is the line in view once the keyboard is up,
+// and when the keyboard lands
+function revealCaret(ta, twin){
+  if (ta.scrollHeight <= ta.clientHeight) return;
+  const m = rowMetrics(ta);
+  if (!m.lh) return;
+  const at = caretLine(ta, twin, m);
+  const top = at.line === 1 ? 0 : m.pt + (at.line - 1) * m.lh;
+  const bottom = at.last ? ta.scrollHeight : m.pt + at.line * m.lh;
+  let st = ta.scrollTop;
+  if (bottom > st + ta.clientHeight) st = bottom - ta.clientHeight;
+  if (top < st) st = top;
+  if (Math.abs(st - ta.scrollTop) > 0.5) ta.scrollTop = st;
+}
+// the one frame blink that keeps the phone from scrolling the page to reveal
+// the caret (the css does the same on focus): the previous blink is cancelled
+// first, so fast typing stacks nothing
+let rowBlink = null;
+function blinkRow(ta){
+  if (!ta.animate) return;
+  if (rowBlink) rowBlink.cancel();
+  rowBlink = ta.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 20 });
+}
+// the focusing tap on an empty row. the phone's own focus from a tap runs its
+// caret reveal, which scrolls the whole page under the rising keyboard, and the
+// one refusal it honours is preventScroll on a focus call, which a tap can never
+// carry. so the tap into an empty row is refused and the focus made here inside
+// the same gesture; an empty row has one caret position, so the hand made focus
+// lands the caret where the tap would have. a row holding text is left to the
+// engine: a refused tap places no caret, and the caret would land wherever a
+// scripted focus leaves it rather than under the finger
+function takeFocusTap(e){
+  const ta = e.currentTarget;
+  if (e.button !== 0 || document.activeElement === ta || ta.value.length) return;
+  e.preventDefault();
+  ta.focus({ preventScroll: true });
+}
 
 // the on screen keyboard takes the bottom of the screen: the page follows the
 // visual viewport so the row he types on stays in view above it
