@@ -261,15 +261,17 @@
   .clipbtn:active::before{opacity:1}
   .clipfile{display:none}
   .compose{flex:1 1 auto; min-width:0; display:flex; gap:var(--sp-x); align-items:flex-end}
-  /* the row's cap is written by the script, five lines: the count the row
-     could hold above the keyboard, so the row is the same size with the
-     keyboard up or down and the line under the caret stays where it was */
+  /* the row's cap: the desktop's share of the height with the keyboard down,
+     and five whole lines while it is up, the count the row could hold above
+     the keyboard. the box shrinks at the keyboard's edge, and the script
+     brings the caret's line back inside it on that same frame */
   textarea{
     flex:1; min-width:0; resize:none; font:17px/1.5 var(--sans); color:var(--ink);
     background:transparent; border:none; outline:none;
     padding:var(--sp-s) 4px; margin:0 -4px;
-    min-height:var(--row-min); overflow-y:auto;
+    min-height:var(--row-min); max-height:28vh; max-height:calc(var(--vvh, 100vh) * .28); overflow-y:auto;
   }
+  body.kb textarea{max-height:calc(5 * 1.5em + 2 * var(--sp-s))}
   textarea::placeholder{color:#B4AA99}
   /* the phone skips its caret reveal, the scroll of the whole page that
      brings a freshly focused field into view, when the field is at opacity 0
@@ -282,7 +284,7 @@
      width, out of the flow and out of sight. the row's height is read off it,
      so the row itself is never collapsed to be measured, which is what threw
      its scroll and the caret off */
-  textarea.twin{position:absolute; top:0; left:0; visibility:hidden; pointer-events:none;
+  .compose textarea.twin{position:absolute; top:0; left:0; visibility:hidden; pointer-events:none;
     height:auto; min-height:0; max-height:none; overflow:hidden; margin:0}
   .sendbtn{
     flex:none; width:28px; height:28px; min-height:0; padding:0; border:none;
@@ -834,11 +836,9 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) poll
 // of one layout, and the engine's own reveal of the caret, made at the
 // keystroke, is thrown away with it. the height written is a whole count of
 // lines rounded up to a whole pixel, since a line is 25.5px tall and a scroll
-// height the engine rounds down leaves half a pixel to scroll; and the cap is
-// written in lines rather than as a share of the screen, so the row is the same
-// size with the keyboard up or down. ROW_LINES is the count the row could hold
-// above the keyboard on his phone, which is what the cap was before.
-const ROW_LINES = 5;
+// height the engine rounds down leaves half a pixel to scroll. the css caps
+// it: the desktop's share of the height with the keyboard down, five lines
+// while it is up.
 function rowMetrics(ta){
   const cs = getComputedStyle(ta);
   return { lh: parseFloat(cs.lineHeight) || 0, pt: parseFloat(cs.paddingTop) || 0, pb: parseFloat(cs.paddingBottom) || 0 };
@@ -855,10 +855,8 @@ function fitRow(ta, twin){
   if (!m.lh || !ta.clientWidth) return false;
   twin.style.width = ta.clientWidth + "px";
   twin.value = ta.value;
-  const cap = Math.ceil(ROW_LINES * m.lh + m.pt + m.pb);
-  const want = Math.min(cap, Math.ceil(twinLines(twin, m) * m.lh + m.pt + m.pb));
+  const want = Math.ceil(twinLines(twin, m) * m.lh + m.pt + m.pb);
   const was = parseFloat(ta.style.height) || 0;
-  ta.style.maxHeight = cap + "px";
   ta.style.height = want + "px";
   return want > was;
 }
@@ -877,16 +875,24 @@ function caretLine(ta, twin, m){
 // nothing is left below to scroll, and the first brings the row's head. after
 // every keystroke, since a height write throws the engine's own reveal off, on
 // focus, so the line he tapped is the line in view once the keyboard is up,
-// and when the keyboard lands
+// at the keyboard's edge, where the cap shrinks the box, and when it lands.
+// the box is read as a rectangle rather than as clientHeight, which the engine
+// rounds while the cap is a fraction, and the end of the text is asked for as
+// the whole scroll height, which the engine clamps to the true last position
 function revealCaret(ta, twin){
   if (ta.scrollHeight <= ta.clientHeight) return;
   const m = rowMetrics(ta);
   if (!m.lh) return;
   const at = caretLine(ta, twin, m);
+  const box = ta.getBoundingClientRect().height;
+  if (at.last){
+    if (ta.scrollTop + box < ta.scrollHeight - 0.5) ta.scrollTop = ta.scrollHeight;
+    return;
+  }
   const top = at.line === 1 ? 0 : m.pt + (at.line - 1) * m.lh;
-  const bottom = at.last ? ta.scrollHeight : m.pt + at.line * m.lh;
+  const bottom = m.pt + at.line * m.lh;
   let st = ta.scrollTop;
-  if (bottom > st + ta.clientHeight) st = bottom - ta.clientHeight;
+  if (bottom > st + box) st = bottom - box;
   if (top < st) st = top;
   if (Math.abs(st - ta.scrollTop) > 0.5) ta.scrollTop = st;
 }
@@ -988,12 +994,13 @@ function reconcile(){
 function applyShell(kb, top, height, base){
   const body = document.body;
   const inset = kb ? keyboardInset(base, height) : 0;
-  if (kb !== appliedKb){ appliedKb = kb; armLift(); }
+  const edge = kb !== appliedKb;
+  if (edge){ appliedKb = kb; armLift(); }
   const lifting = performance.now() < liftUntil;
   body.classList.toggle("kb", kb);
   body.classList.toggle("lifting", lifting);
   if (inset !== appliedInset){ appliedInset = inset; body.style.setProperty("--kb-inset", inset + "px"); }
-  document.documentElement.style.setProperty("--vvh", Math.round(height) + "px");
+  document.documentElement.style.setProperty("--vvh", height + "px");
   if (kb || lifting){
     const t = Math.round(top), hgt = Math.round(base);
     if (t !== appliedTop || hgt !== appliedHeight){
@@ -1006,6 +1013,12 @@ function applyShell(kb, top, height, base){
     appliedTop = appliedHeight = appliedVvHeight = null;
     body.style.removeProperty("--shell-top");
     body.style.removeProperty("--shell-h");
+  }
+  // the row's cap changes with the keyboard (the css): the caret's line is
+  // brought back inside the box on the same frame the box changes
+  if (edge){
+    const el = selectedId && els[selectedId];
+    if (el && document.activeElement === el.ta) revealCaret(el.ta, el.twin);
   }
 }
 // a keyboard edge opens the settle window; the foot's own transitionend closes
