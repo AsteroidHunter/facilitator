@@ -542,7 +542,17 @@ function setTab(owner){
 }
 function renderTabs(st){
   const bar = document.getElementById("tabbar");
-  const owners = allRowsOf(st);
+  if (tabTouch && tabTouch.rects) return;   // a tab being carried owns the bar
+  // the bar the board draws, in the board's order and without the tabs the
+  // board has closed. this page is a bridge, so it shows exactly those tabs;
+  // a board that has closed every lane leaves the bar whole rather than empty
+  const all = allRowsOf(st);
+  const open = all.filter(ow => !tabShut(st, ow));
+  const owners = open.length ? open : all;
+  // the tab under him closed on the other device: step to the first one left,
+  // the way the board does. setTab repaints, and the paint below is the same
+  // paint either way, so this falls through rather than returning
+  if (owners.length && !owners.includes(activeOwner)) setTab(owners[0]);
   const sig = owners.map(ow => ow + ":" + labelOf(st, ow)).join(",");
   if (bar.dataset.sig !== sig){
     bar.dataset.sig = sig;
@@ -554,7 +564,7 @@ function renderTabs(st){
       const lbl = h("span", "plabel", labelOf(st, ow));
       lbl.dataset.label = lbl.textContent;
       t.appendChild(lbl);
-      t.addEventListener("click", () => setTab(ow));
+      t.addEventListener("click", () => { if (!tabCarried) setTab(ow); });
       bar.appendChild(t);
     }
   }
@@ -563,6 +573,105 @@ function renderTabs(st){
     t.classList.toggle("unread", laneUnread(st, t.dataset.owner));
   }
   bar.querySelector(".ptab.on")?.scrollIntoView({ inline: "nearest", block: "nearest" });
+}
+
+// ---- carrying a tab along the bar --------------------------------------------------
+// the board reorders its tabs by pressing a tab and sliding it sideways. with
+// no mouse the press has to be held first, or every scroll of the bar would
+// pick a tab up. nothing at all shows until the press is held: the bar at rest
+// is the bar it always was, and the order it lands on goes to the board, so
+// the desktop bar follows on its next poll
+const TAB_PRESS = 420;   // ms a finger rests on a tab before the tab lifts
+const TAB_SLIP = 10;     // px of travel that makes the touch a scroll of the bar
+let tabTouch = null;     // the finger on the bar, before and during the carry
+let tabCarried = false;  // a carry just ended: the release is not a tab switch
+function tabsInBar(){
+  return [...document.querySelectorAll("#tabbar .ptab")]
+    .filter(el => el.getBoundingClientRect().width);
+}
+function endTabPress(){
+  if (!tabTouch) return;
+  clearTimeout(tabTouch.timer);
+  for (const el of (tabTouch.tabs || [])) el.style.transform = "";
+  tabTouch = null;
+}
+// the press has been held: the resting spots are measured once, the held tab
+// lifts, and every swap reads against those fixed midpoints, as on the board
+function liftTab(){
+  const t = tabTouch;
+  if (!t) return;
+  t.tabs = tabsInBar();
+  t.idx = t.tabs.indexOf(t.el);
+  if (t.idx < 0){ tabTouch = null; return; }   // the bar rebuilt under the finger
+  t.rects = t.tabs.map(el => el.getBoundingClientRect());
+  t.gap = 4;      // the bar's own flex gap
+  t.slot = t.idx;
+  t.el.style.transform = "translate(0, -2px)";
+}
+function moveTab(x){
+  const t = tabTouch, r = t.rects, i = t.idx;
+  const raw = x - t.x;
+  // the held tab pins at the ends of the strip and never leaves the bar
+  const dx = Math.max(r[0].left - r[i].left,
+             Math.min(r[r.length - 1].right - r[i].right, raw));
+  t.el.style.transform = "translate(" + dx + "px, -2px)";
+  const center = r[i].left + r[i].width / 2 + raw;
+  let slot = 0;
+  for (let j = 0; j < r.length; j++)
+    if (j !== i && center > r[j].left + r[j].width / 2) slot++;
+  if (slot === t.slot) return;
+  t.slot = slot;
+  const shift = r[i].width + t.gap;
+  for (let j = 0; j < t.tabs.length; j++){
+    if (j === i) continue;
+    const move = j < i ? (j >= slot ? shift : 0) : (j <= slot ? -shift : 0);
+    t.tabs[j].style.transform = move ? "translateX(" + move + "px)" : "";
+  }
+}
+function dropTab(){
+  const t = tabTouch;
+  if (!t || !t.rects){ endTabPress(); return; }
+  tabCarried = true;
+  setTimeout(() => { tabCarried = false; }, 0);   // the release that ends the carry
+  if (t.slot === t.idx){ endTabPress(); return; }   // put back where it was
+  const strip = t.tabs.map(el => el.dataset.owner);
+  strip.splice(t.slot, 0, strip.splice(t.idx, 1)[0]);
+  // closed tabs sat out of the carry, so the strip is not the whole order: the
+  // held lane is lifted out of the full order and set down behind the visible
+  // lane it now follows, which leaves every closed lane exactly where it was
+  const rec = tabRecord(lastState);
+  const order = (lastState ? allRowsOf(lastState) : strip).filter(ow => ow !== t.ow);
+  const prev = strip[strip.indexOf(t.ow) - 1];
+  order.splice(prev ? order.indexOf(prev) + 1 : 0, 0, t.ow);
+  endTabPress();
+  writeTabs({ order, closed: rec.closed });
+  document.getElementById("tabbar").dataset.sig = "";
+  if (lastState) renderTabs(lastState);
+}
+{
+  const bar = document.getElementById("tabbar");
+  bar.addEventListener("touchstart", e => {
+    endTabPress();
+    const el = e.target.closest && e.target.closest(".ptab");
+    if (!el || e.touches.length !== 1) return;
+    const p = e.touches[0];
+    tabTouch = { el, ow: el.dataset.owner, x: p.clientX, y: p.clientY, rects: null };
+    tabTouch.timer = setTimeout(liftTab, TAB_PRESS);
+  }, { passive: true });
+  bar.addEventListener("touchmove", e => {
+    if (!tabTouch) return;
+    const p = e.touches[0];
+    if (!tabTouch.rects){
+      // still only a finger resting: this much travel is a scroll of the bar
+      if (Math.abs(p.clientX - tabTouch.x) > TAB_SLIP ||
+          Math.abs(p.clientY - tabTouch.y) > TAB_SLIP) endTabPress();
+      return;
+    }
+    e.preventDefault();   // the bar may not scroll under a tab being carried
+    moveTab(p.clientX);
+  }, { passive: false });
+  bar.addEventListener("touchend", () => { if (tabTouch && tabTouch.rects) dropTab(); else endTabPress(); });
+  bar.addEventListener("touchcancel", endTabPress);
 }
 function applySelection(state){
   const pool = state.boxes.filter(b => b.owner === activeOwner && b.id !== "q");
@@ -590,7 +699,7 @@ function renderTickets(state){
   const lane = state.agents?.[activeOwner];
   const sig = ticketView + "|" + (lane ? lane.name + lane.alive : "") + "|" +
               pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
-                      ((seenReplies[b.id] || 0) >= (b.agentTs || 0) ? "r" : "") +
+                      ((seenReplies[b.id] || 0) >= (b.replies || 0) ? "r" : "") +
                       (b.id === selectedId ? "!" : "") + b.title +
                       Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",");
   if (tik.dataset.sig === sig) return;
@@ -599,9 +708,9 @@ function renderTickets(state){
   for (const b of pool){
     const s = queueState(b);
     const busy = s === "working" || (s === "done" && cardState({ ...b, done: false, parked: false, state: null }) === "working");
-    const seenTs = seenReplies[b.id] || 0;
+    const read = seenReplies[b.id] || 0;
     const r = h("div", "trow" + (b.id === selectedId ? " on" : "") + (busy ? " working" : "") +
-                (s === "yours" && seenTs >= (b.agentTs || 0) ? " seen" : "") +
+                (s === "yours" && read >= (b.replies || 0) ? " seen" : "") +
                 (s === "yours" || (s === "new" && b.ball === "you") ? " yours" : "") +
                 (s === "queued" || (s === "new" && b.ball !== "you") ? " queuedc" : "") +
                 (s === "done" ? " donec" : ""));
@@ -696,6 +805,9 @@ scrim.addEventListener("click", closeDrawer);
 
 // ---- the poll ------------------------------------------------------------------------
 function apply(state){
+  // the read marks are the board's, so they arrive with the state: taken in
+  // first, ahead of the tabs and the list that draw from them
+  seenSync(state);
   for (const id of Object.keys(els)){
     if (!state.boxes.some(b => b.id === id)){
       if (hist && hist.id === id) hist = null;
