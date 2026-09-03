@@ -15,5 +15,6 @@
       "instruction": "Attach to the facilitator board: read the facilitator repo's RUNBOOK.md, then run the listen loop with owner=pastureland and answer claims per doctrine. Server is already running.",
       "prompt": "You are the second agent on the discussion board. Read the facilitator repo's RUNBOOK.md, then run the listen loop with owner=pastureland and answer box claims per the doctrine. The server is already running; never start a second one."
     }
-  ]
+  ],
+  "push_contact": "mailto:you@example.com"
 }
