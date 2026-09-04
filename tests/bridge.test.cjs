@@ -6,7 +6,7 @@ const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { execFile, spawn } = require("node:child_process");
 const { createServer } = require("node:http");
-const { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
+const { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
@@ -40,10 +40,15 @@ before(async () => {
   await writeFile(stub, [
     "#!/bin/bash",
     "# a stand in for the tailscale command line: status answers the json named",
-    "# by TS_STATUS_JSON; every serve call appends its arguments to TS_SERVE_LOG",
+    "# by TS_STATUS_JSON; every serve call appends its arguments to TS_SERVE_LOG.",
+    "# with TS_RESET_FAIL set, the reset AFTER the serve refuses, which is the one",
+    "# that can leave the sharing on",
     'if [ "$1" = "status" ]; then cat "$TS_STATUS_JSON"; exit 0; fi',
     'if [ "$1" = "serve" ]; then',
     '  echo "$*" >> "$TS_SERVE_LOG"',
+    '  if [ "$2" = "reset" ] && [ -n "$TS_RESET_FAIL" ] && [ "$(wc -l < "$TS_SERVE_LOG")" -gt 2 ]; then',
+    '    echo "the stub refused to reset" >&2; exit 1',
+    "  fi",
     '  if [ "$2" != "reset" ]; then echo "Available within your tailnet:"; echo "https://mac.tail0000.ts.net/"; fi',
     "  exit 0",
     "fi",
@@ -58,13 +63,34 @@ after(async () => {
   if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
 });
 
-// the stub answers this status and records every serve call, from a clean log
-async function stubbed(status) {
+// the stub answers this status and records every serve call, from a clean log.
+// the bridge's own file goes in the fixture, cleared with it, so one run can
+// never read the lines another one wrote
+const bridgeLogs = () => path.join(fixtureDir, "logs");
+async function stubbed(status, extra = {}) {
   const statusPath = path.join(fixtureDir, "status.json");
   const serveLog = path.join(fixtureDir, "serve.log");
   await rm(serveLog, { force: true });
+  await rm(bridgeLogs(), { recursive: true, force: true });
   await writeFile(statusPath, JSON.stringify(status));
-  return { ...process.env, PATH: binDir + ":" + process.env.PATH, TS_STATUS_JSON: statusPath, TS_SERVE_LOG: serveLog };
+  return { ...process.env, PATH: binDir + ":" + process.env.PATH, TS_STATUS_JSON: statusPath,
+           TS_SERVE_LOG: serveLog, FACILITATOR_LOG_DIR: bridgeLogs(), ...extra };
+}
+
+// every line the bridge has written today, in order; null when it wrote none
+async function bridgeLines() {
+  try {
+    const names = (await readdir(bridgeLogs())).filter(name => name.startsWith("bridge-")).sort();
+    const out = [];
+    for (const name of names) {
+      for (const line of (await readFile(path.join(bridgeLogs(), name), "utf8")).split("\n")) {
+        if (line !== "") out.push(JSON.parse(line));
+      }
+    }
+    return out.length ? out : null;
+  } catch {
+    return null;
+  }
 }
 
 // every serve call so far, one line of arguments each; null when there was none
@@ -84,8 +110,8 @@ async function bridge(status, extra = []) {
 }
 
 // a real run: it stays open, so it is started and later signalled
-async function startBridge(status) {
-  const env = await stubbed(status);
+async function startBridge(status, extra = {}) {
+  const env = await stubbed(status, extra);
   const child = spawn("python3", [path.join(fixtureDir, "facilitator"), "bridge"], { env, cwd: fixtureDir });
   let stdout = "", stderr = "";
   child.stdout.on("data", chunk => { stdout += chunk; });
@@ -309,4 +335,75 @@ test("every symbol carries valid finders, timing, format and version fields", as
   const lines = rendered.stdout.replace(/\n$/, "").split("\n");
   assert.equal(lines.length, Math.ceil((21 + 2) / 2), "render draws two module rows per line with a one module quiet zone");
   assert.ok(lines.every(line => /^[ ▀▄█]+$/.test(line) && line.length === 21 + 2));
+});
+
+// ---- Ctrl-Z, and the bridge's own file ----------------------------------------
+// Ctrl-Z used to suspend the bridge with the tailnet share still on and nothing
+// left running to switch it off. Held like the other three, it is a clean stop.
+// The file beside the server's says when the share went up and when it came
+// down, and why; it never carries the tailnet name, which is a machine's name.
+
+test("Ctrl-Z stops the bridge like Ctrl-C does, and does not suspend it", async () => {
+  const proc = await startBridge(ON);
+  await proc.printed("press Ctrl-C to stop sharing");
+  const port = board.address().port;
+  assert.equal((await served()).length, 2);
+  proc.child.kill("SIGTSTP");
+  const end = await proc.exited;
+  assert.deepEqual(end, { code: 0, signal: null }, proc.stderr);
+  assert.deepEqual(await served(),
+    ["serve reset", `serve --bg --https=443 http://127.0.0.1:${port}`, "serve reset"]);
+  assert.match(proc.stdout, /^sharing off$/m);
+  assert.equal(proc.stderr, "");
+});
+
+test("the bridge writes one on line and one off line naming the signal", async () => {
+  for (const signal of ["SIGTSTP", "SIGINT"]) {
+    const proc = await startBridge(ON);
+    await proc.printed("press Ctrl-C to stop sharing");
+    const port = board.address().port;
+    const up = await bridgeLines();
+    assert.ok(up, `${signal}: nothing was written when the share went up`);
+    assert.equal(up.length, 1, `${signal}: ${up.length} lines before it came down`);
+    assert.equal(up[0].kind, "shareon");
+    assert.equal(up[0].level, "info");
+    assert.equal(up[0].port, port);
+    assert.match(up[0].ts, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+
+    proc.child.kill(signal);
+    assert.deepEqual(await proc.exited, { code: 0, signal: null }, proc.stderr);
+    const both = await bridgeLines();
+    assert.equal(both.length, 2, `${signal}: ${both.length} lines for one run`);
+    assert.equal(both[1].kind, "shareoff");
+    assert.equal(both[1].level, "info");
+    assert.equal(both[1].reason, signal, "the off line does not say what ended it");
+    assert.equal(both[1].failed, undefined);
+    // the tailnet name is on the terminal, where it is the point, and in no line
+    for (const line of both) {
+      assert.ok(!JSON.stringify(line).includes("tail0000"), "a machine's name reached the file");
+    }
+  }
+});
+
+test("a dry run writes no bridge file at all", async () => {
+  const result = await bridge(ON, ["--dry-run"]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(await bridgeLines(), null, "a dry run wrote a line about sharing it never did");
+});
+
+test("a reset that fails is written down and still said on the terminal", async () => {
+  const proc = await startBridge(ON, { TS_RESET_FAIL: "1" });
+  await proc.printed("press Ctrl-C to stop sharing");
+  proc.child.kill("SIGINT");
+  const end = await proc.exited;
+  assert.equal(end.code, 1, proc.stdout);
+  assert.match(proc.stderr, /sharing may still be on: tailscale serve reset failed: the stub refused to reset/);
+  assert.doesNotMatch(proc.stdout, /^sharing off$/m);
+
+  const written = await bridgeLines();
+  assert.equal(written.length, 2);
+  assert.equal(written[1].kind, "shareoff");
+  assert.equal(written[1].level, "error", "a share that may still be on is not an error");
+  assert.equal(written[1].reason, "SIGINT");
+  assert.match(written[1].failed, /the stub refused to reset/);
 });
