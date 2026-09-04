@@ -53,6 +53,33 @@ async function probe(code, env = {}) {
   });
 }
 
+// the same run with a terminal on the other end of standard output, which is
+// the whole of what decides whether the human mirror is attached at all. Node
+// cannot hand a child a terminal, so the run makes its own: python forks behind
+// one, the child does the work with its output going into it, and the parent
+// reads what came out and passes it on down its own plain pipe.
+async function ttyProbe(code, env = {}) {
+  const { stdout } = await probe([
+    "import os, pty, sys",
+    "pid, fd = pty.fork()",
+    "if pid == 0:",
+    ...code.split("\n").map(line => "    " + line),
+    "    sys.exit(0)",
+    "seen = b''",
+    "while True:",
+    "    try:",
+    "        chunk = os.read(fd, 4096)",
+    "    except OSError:",
+    "        break",
+    "    if not chunk:",
+    "        break",
+    "    seen += chunk",
+    "os.waitpid(pid, 0)",
+    "sys.stdout.buffer.write(seen)",
+  ].join("\n"), env);
+  return stdout.replace(/\r/g, "");   // a terminal ends its lines with both
+}
+
 async function freshLogDir(name) {
   const dir = path.join(outer, name);
   await rm(dir, { recursive: true, force: true });
@@ -118,18 +145,35 @@ test("every line is one JSON object with a dated UTC stamp, a level and a kind",
   assert.equal(events[2].level, "error");
 });
 
-test("the same event reaches the terminal in a short human form, never as JSON", async () => {
+test("with a terminal watching, the same event reaches it in a short human form", async () => {
   const dir = await freshLogDir("mirror");
-  const { stdout } = await probe(
+  const stdout = await ttyProbe(
     "import server; server._info('refusal', 'm3', route='/reply', code=400, reason='bad box')",
     { FACILITATOR_LOG_DIR: dir });
   assert.match(stdout, /^\d{2}:\d{2}:\d{2} +refusal +\[m3\] +route=\/reply code=400 reason=bad box$/m);
   assert.doesNotMatch(stdout, /[{}]/, "the terminal was handed JSON");
   // a kind longer than the column still keeps its gap, which the padded print
   // this replaces did not: workdone[m366] went out with no separator at all
-  const { stdout: long } = await probe(
+  const long = await ttyProbe(
     "import server; server._info('workdone', 'm366')", { FACILITATOR_LOG_DIR: dir });
   assert.match(long, /workdone +\[m366\]/);
+});
+
+test("with nobody watching there is no mirror at all, and the file still has every line", async () => {
+  const dir = await freshLogDir("nomirror");
+  // a pipe is not a terminal, which is what a server started by the CLI has:
+  // its output goes nowhere and the dated file is the only place the events land
+  const { stdout, stderr } = await probe([
+    "import server",
+    "server._info('start', port=1234, boxes=2)",
+    "server._info('refusal', 'm3', route='/reply', code=400, reason='bad box')",
+    "server._error('savefail', step='write', reason='Permission denied')",
+  ].join("\n"), { FACILITATOR_LOG_DIR: dir });
+
+  assert.equal(stdout, "", `standard output was written to: ${stdout}`);
+  assert.equal(stderr, "", `standard error was written to: ${stderr}`);
+  assert.deepEqual((await eventsIn(dir)).map(event => event.kind),
+    ["start", "refusal", "savefail"], "the file lost what the terminal stopped getting");
 });
 
 test("the default level is info: debug is not written, info and error are", async () => {
