@@ -151,7 +151,9 @@ Endpoints:
   GET  /thread?box=ID&n=N   -> last N user/agent/note messages of a box from the
                                transcript (read by the reply history stepper
                                and the quick chat panel)
-  GET  /log?lines=N         -> tail of the server log file; path from $FACILITATOR_LOG
+  GET  /log?lines=N         -> tail of the day's server log file, the dated one
+                               under the sibling internal folder's logs/;
+                               $FACILITATOR_LOG names another file instead
   GET  /dirs?path=P         -> the subdirectories of P (name + absolute path)
                                for the page's folder chooser; empty P means the
                                home directory; hidden folders are excluded and
@@ -296,7 +298,6 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 HERE = Path(__file__).resolve().parent
-LOG_PATH = Path(os.environ.get("FACILITATOR_LOG", "/tmp/facilitator-8877.log"))
 RETIRED_OWNERS = frozenset({"triage"})
 
 # ---- the log ----------------------------------------------------------------
@@ -473,6 +474,13 @@ def _debug(kind: str, box: str = "", **fields) -> None:
 
 def _error(kind: str, box: str = "", **fields) -> None:
     _event(logging.ERROR, kind, box, **fields)
+
+
+def _log_file() -> Path:
+    """What GET /log tails: the day's server file, unless FACILITATOR_LOG names
+    another one, which is the override that route has always had."""
+    named = os.environ.get("FACILITATOR_LOG")
+    return Path(named) if named else LOG_DIR / f"server-{time.strftime('%Y%m%d')}.log"
 
 
 class OwnerMigrationRequired(ValueError):
@@ -1018,14 +1026,18 @@ def _save() -> None:
     os.replace(tmp, STATE_PATH)
 
 
-def _log(kind: str, box: str, text: str, **fields) -> None:
+def _log(kind: str, box: str, text: str, log_fields: dict | None = None, **fields) -> None:
+    """One board event: the transcript keeps it whole, text and all, because the
+    transcript is the discussion's durable record. The log gets the same event
+    without the text, only its length, since GET /log hands the log to any
+    caller on this machine and what was said is not its business. log_fields
+    carries what is safe to write down beside it and never reaches the
+    transcript row."""
     event = {"ts": time.time(), "kind": kind, "box": box, "text": text}
     event.update(fields)
     with TRANSCRIPT_PATH.open("a") as f:
         f.write(json.dumps(event) + "\n")
-    snippet = " ".join(str(text).split())[:80]
-    tag = f"[{box}]" if box else ""
-    print(f"{time.strftime('%H:%M:%S')}  {kind:<7}{tag:<7} {snippet}", flush=True)
+    _info(kind, box, chars=len(str(text or "")), **(log_fields or {}))
 
 
 def _box(bid: str) -> dict | None:
@@ -1534,7 +1546,7 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/log":
             n = int((parse_qs(url.query).get("lines") or ["120"])[0])
             try:
-                lines = LOG_PATH.read_text(errors="replace").splitlines()[-n:]
+                lines = _log_file().read_text(errors="replace").splitlines()[-n:]
             except OSError:
                 lines = []
             self._send(200, {"lines": lines})
@@ -2340,7 +2352,9 @@ class Handler(BaseHTTPRequestHandler):
                     "goal": "", "tasks": [], "current": None}]
                 # no card is created with the lane: a fresh folder opens onto
                 # an empty board and cards come only from the owner's hand
-                _log("project", slug, f"{name} -> {d}")
+                # the folder's own name is written down, never the path to it:
+                # a lane's directory is one line away from a home directory
+                _log("project", slug, f"{name} -> {d}", log_fields={"folder": d.name})
                 _save()
                 _lock.notify_all()
                 self._send(200, {"ok": True, "id": slug, "name": name, "dir": str(d)})
