@@ -42,8 +42,42 @@ LOG = "/tmp/facilitator-8877.log"
 RETIRED_OWNERS = frozenset({"triage"})
 # the Mac app keeps its command line inside the bundle and off PATH
 TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
-# what ends the bridge: Ctrl-C, a plain kill, and the terminal closing
-STOP_SIGNALS = frozenset({signal.SIGINT, signal.SIGTERM, signal.SIGHUP})
+# What ends the bridge: Ctrl-C, a plain kill, the terminal closing, and Ctrl-Z.
+# Ctrl-Z is here because its default is worse than useless on this command: it
+# suspends the process with the tailnet share still on, and nothing is left to
+# switch it off. Held like the rest, it becomes a clean stop.
+STOP_SIGNALS = frozenset({signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGTSTP})
+# the bridge's own dated file, beside the server's, worked out from this script's
+# place the way the server works out its own; the variable moves the folder
+LOG_DIR = Path(os.environ.get("FACILITATOR_LOG_DIR")
+               or (HERE.parent / "facilitator-internal" / "logs"))
+LOG_KEEP = 30   # dated bridge files kept, oldest deleted
+
+
+def bridge_log(kind, level="info", **fields):
+    """One line about the share going up or coming down, in the same shape the
+    server writes: a UTC stamp with the date in it, a level, a kind, then that
+    kind's own fields. Written here rather than through the server's logger
+    because the bridge is its own process and importing the server would open
+    the server's file as a side effect. It never raises: the sharing is the job
+    and the note about it is not worth failing over.
+
+    The tailnet name is deliberately not among the fields. It is on the terminal
+    and in the code the phone scans, where it is the point; in a file that
+    outlives the run it is a machine's name and nothing needs it."""
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        now = time.time()
+        line = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(now))
+                      + f".{int(now % 1 * 1000):03d}Z",
+                "level": level, "kind": kind}
+        line.update({name: value for name, value in fields.items() if value is not None})
+        with (LOG_DIR / f"bridge-{time.strftime('%Y%m%d')}.log").open("a") as f:
+            f.write(json.dumps(line) + "\n")
+        for old in sorted(LOG_DIR.glob("bridge-*.log"))[:-LOG_KEEP]:
+            old.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def load_config():
@@ -355,6 +389,7 @@ def cmd_bridge(args):
         if r.returncode != 0:
             sys.exit("tailscale serve failed: " + (r.stderr or r.stdout).strip())
         print(f"serve: ran {shown}")
+        bridge_log("shareon", port=port)
         for line in (r.stdout or "").strip().splitlines():
             print("  " + line)
         show_way_in(url)
@@ -363,6 +398,9 @@ def cmd_bridge(args):
         stop = signal.sigwait(STOP_SIGNALS)
     finally:
         why = serve_reset(ts)  # the one reset after the serve, on every way out
+        bridge_log("shareoff", level="error" if why else "info",
+                   reason=signal.Signals(stop).name if stop else "ended",
+                   failed=why or None)
     try:
         if stop == signal.SIGINT:
             print()  # the terminal echoed ^C on the current line
