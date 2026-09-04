@@ -276,11 +276,11 @@ test("a roll leaves thirty files and deletes the rest, oldest first", async () =
 const SAID = "quokka-vestibule-1198";
 const ANSWERED = "marzipan-hydrofoil-4471";
 
-async function startBoard(dir, logs) {
+async function startBoard(dir, logs, extra = {}) {
   const chosen = await freePort();
   const child = spawn("python3", [path.join(dir, "server.py")], {
     cwd: dir,
-    env: { ...process.env, FACILITATOR_TEST_PORT: String(chosen), FACILITATOR_LOG_DIR: logs },
+    env: { ...process.env, FACILITATOR_TEST_PORT: String(chosen), FACILITATOR_LOG_DIR: logs, ...extra },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";
@@ -374,6 +374,135 @@ test("no message text and no path ever reaches a log line; the transcript keeps 
     const tailed = await (await fetch(board.origin + "/log?lines=5")).json();
     assert.ok(Array.isArray(tailed.lines) && tailed.lines.length > 0);
     assert.equal(JSON.parse(tailed.lines.at(-1)).kind, "project");
+  } finally {
+    await stopBoard(board);
+  }
+});
+
+// ---- the noise you switch on while hunting -----------------------------------
+// The request line, the claim, the ack and the bounce are all DEBUG, because at
+// INFO the polls alone would be 22 MB a day of nothing going wrong. Switched
+// on, they are what says which request was slow and where a hand-off went.
+
+async function boardFolder(name, level) {
+  const wrapper = path.join(outer, name);
+  const app = path.join(wrapper, "app");
+  const logs = path.join(wrapper, "logs");
+  await rm(wrapper, { recursive: true, force: true });
+  await mkdir(app, { recursive: true });
+  // a claim nobody confirms comes back after ninety seconds, which no test can
+  // wait for: this copy gives up after one
+  const source = await readFile(path.join(appDir, "server.py"), "utf8");
+  const quick = source.replace("ACK_GRACE = 90.0", "ACK_GRACE = 1.0");
+  assert.notEqual(quick, source, "the unconfirmed claim's clock was not patched");
+  await writeFile(path.join(app, "server.py"), quick);
+  await writeFile(path.join(app, "seed.json"), JSON.stringify({
+    title: "debug fixture",
+    items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" }],
+  }));
+  return { app, logs, level };
+}
+
+async function boardEvents(logs) {
+  const out = [];
+  for (const name of (await readdir(logs)).sort()) {
+    for (const line of (await readFile(path.join(logs, name), "utf8")).split("\n")) {
+      if (line !== "") out.push(JSON.parse(line));
+    }
+  }
+  return out;
+}
+
+test("at the default level a hundred polls write no request line at all", async () => {
+  const place = await boardFolder("quiet");
+  let board;
+  try {
+    board = await startBoard(place.app, place.logs);
+    for (let n = 0; n < 100; n++) await (await fetch(board.origin + "/state")).json();
+    const written = await boardEvents(place.logs);
+    assert.equal(written.filter(event => event.kind === "request").length, 0);
+    assert.ok(written.some(event => event.kind === "start"), "the board wrote nothing at all");
+  } finally {
+    await stopBoard(board);
+  }
+});
+
+test("with debug on, every request writes one line with its status and its milliseconds", async () => {
+  const place = await boardFolder("loud");
+  let board;
+  try {
+    board = await startBoard(place.app, place.logs, { FACILITATOR_LOG_LEVEL: "debug" });
+    const before = (await boardEvents(place.logs)).filter(e => e.kind === "request").length;
+    for (let n = 0; n < 10; n++) await (await fetch(board.origin + "/state")).json();
+    await fetch(board.origin + "/send?box=0", { method: "POST", body: "a message" });
+
+    const lines = (await boardEvents(place.logs)).filter(event => event.kind === "request");
+    const polls = lines.filter(line => line.route === "/state");
+    assert.equal(polls.length, before + 10, "a poll went unlogged, or was logged twice");
+    for (const line of lines) {
+      assert.equal(line.level, "debug");
+      assert.equal(typeof line.status, "number");
+      assert.equal(typeof line.ms, "number");
+      assert.ok(line.ms >= 0 && line.ms < 60000, `a strange duration: ${line.ms}`);
+      assert.ok(["GET", "POST"].includes(line.method));
+    }
+    const sent = lines.find(line => line.route === "/send");
+    assert.equal(sent.method, "POST");
+    assert.equal(sent.status, 200);
+    assert.equal(sent.box, "0", "the request line does not name the card");
+  } finally {
+    await stopBoard(board);
+  }
+});
+
+test("a claim, its ack and a hand-off nobody confirmed each write one line, and no token", async () => {
+  const place = await boardFolder("handoff");
+  let board;
+  try {
+    board = await startBoard(place.app, place.logs, { FACILITATOR_LOG_LEVEL: "debug" });
+    const post = (route, body) => fetch(board.origin + route, { method: "POST", body })
+      .then(async response => ({ status: response.status, body: await response.json() }));
+
+    assert.equal((await post("/send?box=0", "please answer this")).status, 200);
+    const claimed = await (await fetch(board.origin + "/wait?owner=facilitator&timeout=3")).json();
+    assert.equal(claimed.box, "0");
+    assert.equal((await post(`/ack?owner=facilitator&token=${claimed.ack}`)).status, 200);
+
+    let written = await boardEvents(place.logs);
+    const claims = written.filter(event => event.kind === "claim");
+    assert.equal(claims.length, 1);
+    assert.equal(claims[0].box, "0");
+    assert.equal(claims[0].owner, "facilitator");
+    assert.equal(claims[0].token, true, "the line does not say a receipt was minted");
+    const acks = written.filter(event => event.kind === "ackok");
+    assert.equal(acks.length, 1);
+    assert.equal(acks[0].box, "0");
+    assert.equal(acks[0].owner, "facilitator");
+
+    // a second hand-off, left unconfirmed, comes back on its own clock
+    assert.equal((await post("/reply?box=0", "answered")).status, 200);
+    assert.equal((await post("/send?box=0", "and one more thing")).status, 200);
+    const dropped = await (await fetch(board.origin + "/wait?owner=facilitator&timeout=3")).json();
+    assert.equal(dropped.box, "0");
+    const deadline = Date.now() + 5000;
+    let bounces = [];
+    while (Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 200));
+      await (await fetch(board.origin + "/state")).json();   // the clock is swept here
+      bounces = (await boardEvents(place.logs)).filter(event => event.kind === "bounce");
+      if (bounces.length) break;
+    }
+    assert.equal(bounces.length, 1, "an unconfirmed hand-off came back with no line");
+    assert.equal(bounces[0].box, "0");
+    assert.equal(bounces[0].owner, "facilitator");
+
+    // and at no level, in no line, is the receipt itself written down
+    written = await boardEvents(place.logs);
+    for (const event of written) {
+      const line = JSON.stringify(event);
+      assert.ok(!line.includes(claimed.ack), `a token reached the log: ${line}`);
+      assert.ok(!line.includes(dropped.ack), `a token reached the log: ${line}`);
+    }
   } finally {
     await stopBoard(board);
   }
