@@ -287,6 +287,7 @@ import logging.handlers
 import os
 import random
 import secrets
+import signal
 import subprocess
 import sys
 import threading
@@ -457,22 +458,24 @@ if not LOGGER.handlers:
     LOGGER.addHandler(_to_terminal)
 
 
-def _event(level: int, kind: str, box: str = "", **fields) -> None:
+def _event(level: int, kind: str, box: str = "", /, **fields) -> None:
     """One structured event: kind names it, box is the card it belongs to (empty
-    when it belongs to none), and the rest are that kind's own fields."""
+    when it belongs to none), and the rest are that kind's own fields. The three
+    named parts are positional only, so an event may carry a field called level
+    or kind without colliding with the call itself."""
     if LOGGER.isEnabledFor(level):
         LOGGER.log(level, kind, extra={"box": box, "fields": fields})
 
 
-def _info(kind: str, box: str = "", **fields) -> None:
+def _info(kind: str, box: str = "", /, **fields) -> None:
     _event(logging.INFO, kind, box, **fields)
 
 
-def _debug(kind: str, box: str = "", **fields) -> None:
+def _debug(kind: str, box: str = "", /, **fields) -> None:
     _event(logging.DEBUG, kind, box, **fields)
 
 
-def _error(kind: str, box: str = "", **fields) -> None:
+def _error(kind: str, box: str = "", /, **fields) -> None:
     _event(logging.ERROR, kind, box, **fields)
 
 
@@ -2597,6 +2600,11 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+# why this process is stopping, set by the signal handler in main and read by
+# the stop line on the way out; None until something asks it to stop
+_stop_reason: str | None = None
+
+
 def main() -> None:
     class QuietServer(ThreadingHTTPServer):
         def handle_error(self, request, client_address):
@@ -2605,6 +2613,18 @@ def main() -> None:
                 return  # dropped connections are routine here, never worth a traceback
             super().handle_error(request, client_address)
 
+    def stopping(signum, frame) -> None:
+        """Ctrl-C, a kill, or the terminal closing: the reason is remembered and
+        the ordinary shutdown below runs, so the file gets a stop line to match
+        its start line. A start with no matching stop was all the file
+        remembered about a restart, which is why one could not be explained."""
+        global _stop_reason
+        _stop_reason = signal.Signals(signum).name
+        raise SystemExit(0)
+
+    for stopper in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(stopper, stopping)
+
     # Own the listening socket before touching durable board data. In
     # particular, a replacement started while the old server still owns the
     # port must not migrate state or append the transcript schema boundary: the
@@ -2612,8 +2632,8 @@ def main() -> None:
     try:
         server = QuietServer(("127.0.0.1", PORT), Handler)
     except OSError as error:
-        print(f"facilitator could not listen on 127.0.0.1:{PORT}: {error}",
-              file=sys.stderr, flush=True)
+        _error("bindfail", port=PORT,
+               reason=f"facilitator could not listen on 127.0.0.1:{PORT}: {error}")
         raise SystemExit(1) from None
 
     try:
@@ -2621,6 +2641,7 @@ def main() -> None:
         try:
             _load()
         except OwnerMigrationRequired as e:
+            _error("startuprefused", reason=str(e))
             sys.exit(f"startup refused: {e}")
         with _lock:
             _state["busy"] = {ow: None for ow in OWNERS}  # a restart never resumes mid-claim
@@ -2631,9 +2652,15 @@ def main() -> None:
                 if b["pending"] and b["id"] not in _state["inbox"]:
                     _state["inbox"].append(b["id"])
             _save()
-        print(f"facilitator on http://127.0.0.1:{PORT}, {len(_state['boxes'])} boxes", flush=True)
+        pushed = _state.get("push_last_ok") or {}
+        _info("start", port=PORT, boxes=len(_state["boxes"]), log_level=LOG_LEVEL,
+              push_ok=pushed.get("ts"), push_host=pushed.get("host"))
         server.serve_forever()
     finally:
+        # one stop line for every start line, and it says why: a named signal,
+        # the exception that ended it, or the loop simply returning
+        ended = sys.exc_info()[0]
+        _info("stop", reason=_stop_reason or (ended.__name__ if ended else "end of stream"))
         server.server_close()
 
 
