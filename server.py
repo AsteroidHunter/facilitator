@@ -307,6 +307,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -492,6 +493,35 @@ def _debug(kind: str, box: str = "", /, **fields) -> None:
 
 def _error(kind: str, box: str = "", /, **fields) -> None:
     _event(logging.ERROR, kind, box, **fields)
+
+
+CRASH_FRAMES = 12           # frames a crash line walks back through, innermost last
+CRASH_MESSAGE_CHARS = 200   # of an exception's own words, the first this many
+# What an exception's message may be made of for a line to carry it at all:
+# plain words and the punctuation a sentence needs. An interpreter phrases some
+# messages by quoting the value it choked on, and that value can be text out of
+# a request, so a message that is anything but plain words is dropped whole and
+# the line names the type alone.
+CRASH_PLAIN = frozenset("abcdefghijklmnopqrstuvwxyz"
+                        "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ,.:;()-")
+
+
+def _crash_fields(error: BaseException) -> dict:
+    """What a crash line says about an exception that got away, with nothing in
+    it that is a path or could be something a caller sent.
+
+    The type is always safe to write down and is what a line always carries.
+    The message is checked before it is kept, by the rule above. The place is
+    the innermost frame, named by the file's own name and never by where that
+    file sits, and the frames behind it are the same three parts each: enough
+    to walk back to the line without printing a machine's folders."""
+    walked = [f"{os.path.basename(frame.filename)}:{frame.name}:{frame.lineno}"
+              for frame in traceback.extract_tb(error.__traceback__)[-CRASH_FRAMES:]]
+    words = str(error)
+    return {"error": type(error).__name__,
+            "message": words[:CRASH_MESSAGE_CHARS] if words and set(words) <= CRASH_PLAIN else None,
+            "where": walked[-1] if walked else None,
+            "frames": walked or None}
 
 
 def _log_file() -> Path:
@@ -2872,10 +2902,15 @@ _stop_reason: str | None = None
 def main() -> None:
     class QuietServer(ThreadingHTTPServer):
         def handle_error(self, request, client_address):
-            et = sys.exc_info()[0]
-            if et in (BrokenPipeError, ConnectionResetError):
-                return  # dropped connections are routine here, never worth a traceback
-            super().handle_error(request, client_address)
+            """A request that threw. The default prints the traceback to
+            standard error, which nothing reads once the server is started by
+            the CLI, so the crash goes in the file instead: the type, the words
+            when they are safe words, and where it happened. The request itself
+            is dropped exactly as it was before, by the caller closing it."""
+            error = sys.exc_info()[1]
+            if isinstance(error, (BrokenPipeError, ConnectionResetError)):
+                return  # dropped connections are routine here, never worth a line
+            _error("crash", **_crash_fields(error))
 
     def stopping(signum, frame) -> None:
         """Ctrl-C, a kill, or the terminal closing: the reason is remembered and
@@ -2920,6 +2955,12 @@ def main() -> None:
         _info("start", port=PORT, boxes=len(_state["boxes"]), log_level=LOG_LEVEL,
               push_ok=pushed.get("ts"), push_host=pushed.get("host"))
         server.serve_forever()
+    except Exception as error:
+        # the last word about a start that died of something rather than being
+        # asked to stop: the stop line below says only which type ended it, and
+        # the traceback that used to explain it now goes nowhere
+        _error("crash", **_crash_fields(error))
+        raise
     finally:
         # one stop line for every start line, and it says why: a named signal,
         # the exception that ended it, or the loop simply returning

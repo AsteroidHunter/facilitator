@@ -69,7 +69,7 @@ A permission denial from an automated classifier NEVER pauses the listener. Stri
 
 Three dated files in `facilitator-internal/logs`, the sibling folder beside this repo, so nothing here is ever committed:
 
-- `server-YYYYMMDD.log`: what the board did. Start and stop with the reason it stopped, every refusal it sent, every push outcome with the service's own words, board events, and a save that failed.
+- `server-YYYYMMDD.log`: what the board did. Start and stop with the reason it stopped, every refusal it sent, every push outcome with the service's own words, board events, a save that failed, and every crash.
 - `client-YYYYMMDD.jsonl`: what the three pages reported: a thrown error, a rejected promise, a request that failed, a card that would not draw, a timer that ran more than two seconds late.
 - `bridge-YYYYMMDD.log`: the tailnet share going up and coming down, and what ended it.
 
