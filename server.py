@@ -1883,6 +1883,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, p.read_bytes(), "application/javascript; charset=utf-8")
             else:
                 self._send(404, {"error": "not found"})
+        elif url.path == "/card-report.js":
+            p = HERE / "card-report.js"
+            if p.is_file():
+                self._send(200, p.read_bytes(), "application/javascript; charset=utf-8")
+            else:
+                self._send(404, {"error": "not found"})
         elif url.path == "/m-manifest.json":
             # the install prompt reads the app's name from here and the page
             # reads its own from the board title, so a name written into the

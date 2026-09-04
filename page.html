@@ -1281,6 +1281,7 @@
 </div>
 
 <script src="/card-markdown.js"></script>
+<script src="/card-report.js"></script>
 <script>
 const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
                   ["now", "Now"], ["done", "Done"], ["later", "Later"]];
@@ -1416,6 +1417,9 @@ if (DOC) document.body.classList.add("docview");
 // with doc=1, and while it is on the page makes no request of its own and
 // writes nothing the real views read.
 const MOCK = DOC && new URLSearchParams(location.search).get("mock") === "1";
+// the same reporter the other two pages run. The sandbox below makes no
+// request of its own by design, so with the mock flag on it is never started
+if (!MOCK && typeof startReporter === "function") startReporter("page");
 if (MOCK){
   document.body.classList.add("mockview");
   activeOwner = "example";   // the sandbox lane, so a saved project never steers it

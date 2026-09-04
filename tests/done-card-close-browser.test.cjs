@@ -97,6 +97,7 @@ before(async () => {
   await copyFile(path.join(ROOT, "card-markdown.js"), path.join(fixtureDir, "card-markdown.js"));
   await copyFile(path.join(ROOT, "card-tokens.css"), path.join(fixtureDir, "card-tokens.css"));
   await copyFile(path.join(ROOT, "card-logic.js"), path.join(fixtureDir, "card-logic.js"));
+  await copyFile(path.join(ROOT, "card-report.js"), path.join(fixtureDir, "card-report.js"));
   await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
     title: "browser authoritative close test", items: [],
   }));
