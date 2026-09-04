@@ -351,12 +351,12 @@ class DatedRotatingHandler(logging.handlers.RotatingFileHandler):
     wrong. This rolls on either, and prunes by listing the folder rather than
     shuffling numbered backups, which also clears files left by earlier runs."""
 
-    def __init__(self, folder: Path, stem: str, suffix: str) -> None:
+    def __init__(self, folder: Path, stem: str, suffix: str, delay: bool = False) -> None:
         self.folder, self.stem, self.suffix = folder, stem, suffix
         self.day, self.roll = time.strftime("%Y%m%d"), 0
         folder.mkdir(parents=True, exist_ok=True)
         super().__init__(str(self._file()), maxBytes=LOG_MAX_BYTES,
-                         backupCount=0, encoding="utf-8")
+                         backupCount=0, encoding="utf-8", delay=delay)
 
     def _file(self) -> Path:
         """<stem>-<day><suffix>, and <stem>-<day>.1<suffix> for a second roll
@@ -484,6 +484,97 @@ def _log_file() -> Path:
     another one, which is the override that route has always had."""
     named = os.environ.get("FACILITATOR_LOG")
     return Path(named) if named else LOG_DIR / f"server-{time.strftime('%Y%m%d')}.log"
+
+
+# ---- what the pages report ---------------------------------------------------
+# The pages have no other way to say that something broke: 41 empty catch blocks
+# and 61 swallowing .catch tails turn a failure into silence. A report is one
+# thing a page noticed, and it goes in its own file beside the server's, never
+# into the transcript. The caps below are what bound the disk: a page's own
+# counters die on reload, so a page throwing during boot and reloading in a
+# cycle has fresh counters every time and only the server's cap is a cap.
+CLIENT_PAGES = ("board", "phone", "page")
+CLIENT_KINDS = ("error", "rejection", "fetch", "render", "slow")
+CLIENT_MAX_BODY = 16 * 1024   # bytes in one batch
+CLIENT_MAX_REPORTS = 20       # reports in one batch
+CLIENT_MAX_CHARS = 500        # characters of any one string a report carries
+CLIENT_PER_MINUTE = 10        # writes per key per minute; the rest are dropped and counted
+CLIENT_WINDOW = 60.0          # the minute that cap is measured over
+CLIENT_KEYS_KEPT = 512        # keys the cap remembers before the stale ones are swept
+# what a report may carry at all; anything else a page sends is dropped here
+CLIENT_FIELDS = ("message", "file", "line", "col", "count", "late", "doing", "route")
+
+CLIENT_LOGGER = logging.getLogger("facilitator.client")
+CLIENT_LOGGER.setLevel(logging.INFO)
+CLIENT_LOGGER.propagate = False
+if not CLIENT_LOGGER.handlers:
+    # delayed, so a board no page has ever reported from has no file at all
+    _client_file = DatedRotatingHandler(LOG_DIR, "client", ".jsonl", delay=True)
+    _client_file.setFormatter(JsonLineFormatter())
+    CLIENT_LOGGER.addHandler(_client_file)
+
+_client_lock = threading.Lock()
+_client_seen: dict = {}   # key -> [when its minute started, written, dropped]
+
+
+def _client_event(kind: str, box: str = "", /, **fields) -> None:
+    """One line in the client file. Its own logger and its own file: page
+    reports are not board events and must never be read as if they were."""
+    CLIENT_LOGGER.info(kind, extra={"box": box, "fields": fields})
+
+
+def _client_key(page: str, report: dict) -> str:
+    """A report's identity: what it says and where it happened. Two throws from
+    the same line are one key, however many times they happen."""
+    return "|".join(str(report.get(part, "")) for part in
+                    ("kind", "message", "file", "line")) + "|" + page
+
+
+def _client_fields(report: dict) -> dict:
+    """Only the fields a report is allowed to carry, each string cut to its cap.
+    A page cannot write whatever it likes into a file on this machine."""
+    out = {}
+    for name in CLIENT_FIELDS:
+        value = report.get(name)
+        if isinstance(value, str):
+            out[name] = value[:CLIENT_MAX_CHARS]
+        elif isinstance(value, (int, float)) and not isinstance(value, bool):
+            out[name] = value
+    return out
+
+
+def _client_batch(page: str, reports: list) -> tuple:
+    """One batch to the client file, under the per key per minute cap: how many
+    were written and how many were dropped. What the cap drops is counted and
+    said, so a file missing lines says how many are missing rather than quietly
+    being short."""
+    now = time.time()
+    written = 0
+    lost = {}
+    with _client_lock:
+        if len(_client_seen) > CLIENT_KEYS_KEPT:   # a page inventing keys cannot grow this forever
+            for stale in [k for k, w in _client_seen.items() if now - w[0] >= CLIENT_WINDOW]:
+                del _client_seen[stale]
+        for report in reports:
+            key = _client_key(page, report)
+            window = _client_seen.get(key)
+            if window is None or now - window[0] >= CLIENT_WINDOW:
+                window = _client_seen[key] = [now, 0, 0]
+            if window[1] >= CLIENT_PER_MINUTE:
+                window[2] += 1
+                count, _ = lost.get(key, (0, None))
+                lost[key] = (count + 1, report)
+                continue
+            window[1] += 1
+            written += 1
+            fields = _client_fields(report)
+            _client_event(report["kind"], str(report.get("box") or "")[:64], page=page, **fields)
+    for count, sample in lost.values():
+        _client_event("dropped", str(sample.get("box") or "")[:64], page=page,
+                      report=sample["kind"], message=str(sample.get("message") or "")[:CLIENT_MAX_CHARS],
+                      line=sample.get("line") if isinstance(sample.get("line"), int) else None,
+                      dropped=count)
+    return written, sum(count for count, _ in lost.values())
 
 
 class OwnerMigrationRequired(ValueError):
@@ -2093,6 +2184,36 @@ class Handler(BaseHTTPRequestHandler):
             fname = f"{int(time.time() * 1000)}-{safe}"
             (up / fname).write_bytes(raw)
             self._send(200, {"url": "/uploads/" + fname})  # URL unchanged; page needs no change
+            return
+
+        if url.path == "/clientlog":
+            # what a page noticed and has no other way to say: a thrown error, a
+            # rejected promise, a fetch or a render that failed, a timer that ran
+            # late. Answered up here, above the shared body read, because the
+            # size cap has to be applied to the body before it is read at all
+            n = int(self.headers.get("Content-Length") or 0)
+            if n > CLIENT_MAX_BODY:
+                self._send(413, {"error": "report batch too large"})
+                return
+            raw = self.rfile.read(n) if n else b""
+            try:
+                batch = json.loads(raw.decode("utf-8", "replace")) if raw else None
+            except ValueError:
+                batch = None
+            page = batch.get("page") if isinstance(batch, dict) else None
+            reports = batch.get("reports") if isinstance(batch, dict) else None
+            if (page not in CLIENT_PAGES or not isinstance(reports, list) or not reports
+                    or not all(isinstance(r, dict) and r.get("kind") in CLIENT_KINDS
+                               for r in reports)):
+                # nothing of a batch this board cannot read is stored, the way
+                # every other record-taking route on here already refuses
+                self._send(400, {"error": "bad report batch"})
+                return
+            if len(reports) > CLIENT_MAX_REPORTS:
+                self._send(400, {"error": "too many reports in one batch"})
+                return
+            written, dropped = _client_batch(page, reports)
+            self._send(200, {"ok": True, "written": written, "dropped": dropped})
             return
 
         if url.path == "/mdsave":
