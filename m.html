@@ -716,6 +716,17 @@ function makeBox(b){
   ta.addEventListener("input", () => tick(true));
   ta.addEventListener("focus", () => requestAnimationFrame(() => revealCaret(ta, twin)));
   ta.addEventListener("mousedown", takeFocusTap);
+  // enter sends and shift enter makes a new line, the desktop composer's pair,
+  // and only while the on-screen keyboard is down. a phone puts that keyboard
+  // away when a keyboard is paired with it, so a row being typed in with no
+  // keyboard on screen is a row being typed on by hand, where the desktop's
+  // habit belongs. with the on-screen keyboard up the return key still makes a
+  // new line, as it always has here, and the square is still the way to send
+  ta.addEventListener("keydown", e => {
+    if (e.key !== "Enter" || e.shiftKey || document.body.classList.contains("kb")) return;
+    e.preventDefault();
+    doSend(b.id);
+  });
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => tick());
   tick();
   send.addEventListener("pointerdown", e => { if (document.activeElement === ta) e.preventDefault(); });
