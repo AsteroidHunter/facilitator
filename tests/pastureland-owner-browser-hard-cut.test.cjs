@@ -66,6 +66,7 @@ before(async () => {
         "/card-markdown.js": "text/javascript; charset=utf-8",
         "/card-tokens.css": "text/css; charset=utf-8",
         "/card-logic.js": "text/javascript; charset=utf-8",
+        "/card-report.js": "text/javascript; charset=utf-8",
       };
       if (Object.hasOwn(shared, url.pathname)) {
         res.setHeader("content-type", shared[url.pathname]);

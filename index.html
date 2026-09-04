@@ -3187,7 +3187,11 @@
 
 <script src="/card-markdown.js"></script>
 <script src="/card-logic.js"></script>
+<script src="/card-report.js"></script>
 <script>
+// what this page throws, what it fails to fetch and what it fails to draw goes
+// to the board's own log; without it a failure leaves nothing behind at all
+if (typeof startReporter === "function") startReporter("board");
 const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
                   ["now", "Now"], ["done", "Done"], ["later", "Later"]];
 const METAS = [["toolmeta", "facilitator"], ["triagemeta", "pastureland"]];

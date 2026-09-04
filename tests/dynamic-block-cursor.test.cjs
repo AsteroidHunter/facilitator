@@ -25,6 +25,7 @@ before(async () => {
         "/card-markdown.js": "card-markdown.js",
         "/card-tokens.css": "card-tokens.css",
         "/card-logic.js": "card-logic.js",
+        "/card-report.js": "card-report.js",
       };
       const file = files[pathname];
       if (!file) {
