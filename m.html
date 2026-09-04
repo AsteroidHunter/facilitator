@@ -660,13 +660,7 @@ function makeBox(b){
   arc.addEventListener("click", e => { e.stopPropagation(); toggleFlag(b.id, "park"); });
   const x = h("button", "xbtn");
   x.type = "button"; x.title = "done (an empty card is removed instead)"; x.setAttribute("aria-label", "close");
-  x.addEventListener("click", async e => {
-    e.stopPropagation();
-    await fetch("/close?box=" + encodeURIComponent(b.id), { method: "POST" }).catch(() => {});
-    const doing = lastState ? poolOf(lastState).filter(o => !o.done && !o.parked && o.id !== b.id && o.id !== "0" && o.id !== "t0") : [];
-    if (doing.length) select(doing[0].id); else deselect();
-    poll();
-  });
+  x.addEventListener("click", e => { e.stopPropagation(); closeCard(b.id); });
   topbar.append(histctl, arc, x);
   box.appendChild(topbar);
 
@@ -768,6 +762,15 @@ function growPend(el, arrive){
 // desktop: card-logic.js
 
 // ---- sending, closing, parking, naming ------------------------------------------
+// what the cross on the card does, and what the key that stands for it does: the
+// card is closed and the next one still open takes the screen, so the screen is
+// never left holding a card that has just gone
+async function closeCard(id){
+  await fetch("/close?box=" + encodeURIComponent(id), { method: "POST" }).catch(() => {});
+  const doing = lastState ? poolOf(lastState).filter(o => !o.done && !o.parked && o.id !== id && o.id !== "0" && o.id !== "t0") : [];
+  if (doing.length) select(doing[0].id); else deselect();
+  poll();
+}
 function undone(id){
   fetch("/done?box=" + encodeURIComponent(id) + "&v=0", { method: "POST" }).then(() => poll()).catch(() => {});
 }
@@ -775,7 +778,7 @@ function undone(id){
 // own move and its own wait
 let autoNext = null;
 const AUTONEXT_MS = 0;   // the desktop's number; a quiet time after a send before moving on
-let lastLeftId = null;   // the card that move left, for the bounce back on command z
+let lastLeftId = null;   // the card the send's move left, for the bounce on command z
 // the tap is answered on the tap. the desktop waits for the server before it
 // draws the line because the server is on the same machine and answers in a
 // millisecond; the phone is a room and a radio away from it, and waiting there
@@ -1638,6 +1641,18 @@ addEventListener("keydown", e => {
     const ow = barOwners(lastState)[+e.key - 1];
     if (ow){ e.preventDefault(); setTab(ow); }
     return;
+  }
+  // from here down the keys are the card's, and a row being typed in keeps
+  // every one of them. escape is the way out of the row
+  if (typing){ if (e.key === "Escape") t.blur(); return; }
+  // backspace or delete closes the card on show, and only the cards the board's
+  // own key closes: the ones the cross appears on there
+  if ((e.key === "Backspace" || e.key === "Delete") && selectedId){
+    const b = lastState?.boxes.find(x => x.id === selectedId);
+    if (b?.bucket === "meta"){
+      e.preventDefault();
+      closeCard(selectedId);
+    }
   }
 });
 
