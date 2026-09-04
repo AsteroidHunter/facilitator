@@ -7,7 +7,7 @@ const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawn } = require("node:child_process");
 const { createServer } = require("node:http");
-const { copyFile, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
+const { copyFile, mkdtemp, readFile, readdir, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 
@@ -15,6 +15,7 @@ const ROOT = path.resolve(__dirname, "..");
 
 let child;
 let fixtureDir;
+let logs;
 let origin;
 let port;
 
@@ -46,10 +47,30 @@ async function seenOf(id) {
   return (await state()).boxes.find(box => box.id === id).seen;
 }
 
+// every line the board has written, in order
+async function events() {
+  const out = [];
+  for (const name of (await readdir(logs)).sort()) {
+    for (const line of (await readFile(path.join(logs, name), "utf8")).split("\n")) {
+      if (line !== "") out.push(JSON.parse(line));
+    }
+  }
+  return out;
+}
+
+// the overwrite notices written since the last time this was called
+let readSoFar = 0;
+async function overwritesSince() {
+  const all = await events();
+  const fresh = all.slice(readSoFar);
+  readSoFar = all.length;
+  return fresh.filter(event => event.kind === "overwrite");
+}
+
 async function startServer() {
   child = spawn("python3", [path.join(fixtureDir, "server.py")], {
     cwd: fixtureDir,
-    env: { ...process.env, FACILITATOR_TEST_PORT: String(port) },
+    env: { ...process.env, FACILITATOR_TEST_PORT: String(port), FACILITATOR_LOG_DIR: logs },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";
@@ -76,6 +97,7 @@ async function stopServer() {
 
 before(async () => {
   fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-tabs-seen-"));
+  logs = path.join(fixtureDir, "logs");
   port = await freePort();
   origin = `http://127.0.0.1:${port}`;
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
@@ -225,4 +247,65 @@ test("the phone app's name is the saved board title, and nothing else moves", as
     assert.deepEqual(body[field], written[field], field);
   }
   assert.deepEqual(Object.keys(body).sort(), Object.keys(written).sort());
+});
+
+// ---- the overwrite notice --------------------------------------------------
+// Both routes replace a record whole, and each page holds its own write on top
+// of the server's answer for three seconds, so a second write inside that
+// window throws the first one away and the losing page never learns it lost.
+// The board cannot say which device lost, since neither route carries any
+// identity; it says that it happened, what changed, and how far apart.
+
+test("two different tab orders inside the window leave one notice with the gap", async () => {
+  await overwritesSince();
+  assert.equal((await post("/tabs", JSON.stringify({
+    order: ["facilitator", "pastureland"], closed: [],
+  }))).status, 200);
+  await settle(200);
+  assert.equal((await post("/tabs", JSON.stringify({
+    order: ["pastureland", "facilitator"], closed: [],
+  }))).status, 200);
+
+  const notices = await overwritesSince();
+  assert.equal(notices.length, 1, `${notices.length} notices for one overwrite`);
+  assert.equal(notices[0].level, "info");
+  assert.equal(notices[0].record, "tabs");
+  assert.equal(notices[0].field, "order");
+  assert.ok(notices[0].ms >= 150 && notices[0].ms < 3000, `the gap reads ${notices[0].ms} ms`);
+  assert.equal(notices[0].box, undefined, "the tab bar is not one card's record");
+});
+
+test("the same tab order written twice overwrites nothing and says nothing", async () => {
+  const same = JSON.stringify({ order: ["facilitator", "pastureland"], closed: [] });
+  assert.equal((await post("/tabs", same)).status, 200);
+  await overwritesSince();
+  await settle(150);
+  assert.equal((await post("/tabs", same)).status, 200);
+  assert.deepEqual(await overwritesSince(), []);
+});
+
+test("two different read marks on one card inside the window leave a notice", async () => {
+  assert.equal((await post("/seen", JSON.stringify({ "1.1": 1 }))).status, 200);
+  await overwritesSince();
+  await settle(150);
+  assert.equal((await post("/seen", JSON.stringify({ "1.1": 2 }))).status, 200);
+
+  const notices = await overwritesSince();
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0].record, "seen");
+  assert.equal(notices[0].field, "count");
+  assert.equal(notices[0].box, "1.1", "the notice does not name the card");
+  assert.ok(notices[0].ms >= 100 && notices[0].ms < 3000);
+});
+
+test("writes far enough apart are two arrangements, not one overwriting another", async () => {
+  assert.equal((await post("/tabs", JSON.stringify({
+    order: ["facilitator", "pastureland"], closed: [],
+  }))).status, 200);
+  await overwritesSince();
+  await settle(4000);
+  assert.equal((await post("/tabs", JSON.stringify({
+    order: ["pastureland", "facilitator"], closed: ["qchat"],
+  }))).status, 200);
+  assert.deepEqual(await overwritesSince(), []);
 });
