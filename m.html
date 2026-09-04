@@ -864,6 +864,16 @@ function setTab(owner){
   if (pick) select(pick.id); else deselect();
   if (lastState) apply(lastState);
 }
+// the bar the board draws, in the board's order and without the tabs the board
+// has closed. this page is a bridge, so it shows exactly those tabs; a board
+// that has closed every lane leaves the bar whole rather than empty. the keys
+// that jump to a tab count along this same list, so a number is the tab he can
+// see in that place
+function barOwners(st){
+  const all = allRowsOf(st);
+  const open = all.filter(ow => !tabShut(st, ow));
+  return open.length ? open : all;
+}
 // the bar is scrolled by hand and must stay where his finger left it. two
 // things used to take it back to the start. the first is the rebuild below,
 // which empties the row and puts a fresh set of tabs in it: a scroller with no
@@ -877,12 +887,7 @@ function renderTabs(st){
   const bar = document.getElementById("tabbar");
   const lane = bar.parentNode;   // the bar is the row; its parent is the scroller
   if (tabTouch && tabTouch.rects) return;   // a tab being carried owns the bar
-  // the bar the board draws, in the board's order and without the tabs the
-  // board has closed. this page is a bridge, so it shows exactly those tabs;
-  // a board that has closed every lane leaves the bar whole rather than empty
-  const all = allRowsOf(st);
-  const open = all.filter(ow => !tabShut(st, ow));
-  const owners = open.length ? open : all;
+  const owners = barOwners(st);
   // the tab under him closed on the other device: step to the first one left,
   // the way the board does. setTab repaints, and the paint below is the same
   // paint either way, so this falls through rather than returning
@@ -1619,6 +1624,19 @@ addEventListener("keydown", e => {
       select(there);
       if (typing) els[there].ta.focus({ preventScroll: true });
     }
+    return;
+  }
+  // command t: a new card in the lane on show, with its name ready to be typed,
+  // which is the plus at the head of the card list
+  if (e.metaKey && (e.key === "t" || e.key === "T")){
+    e.preventDefault();
+    createCard();
+    return;
+  }
+  // command and a number jumps to that tab, counted along the bar
+  if (e.metaKey && /^[1-9]$/.test(e.key) && lastState){
+    const ow = barOwners(lastState)[+e.key - 1];
+    if (ow){ e.preventDefault(); setTab(ow); }
     return;
   }
 });
