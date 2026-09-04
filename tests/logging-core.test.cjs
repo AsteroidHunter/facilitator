@@ -1,14 +1,17 @@
 // The server's own log: where the folder lands, what one line looks like, which
-// lines the level lets through, and that a file can neither grow without a
-// bound nor pile up without one. The logger is driven directly, by importing a
-// patched copy of the server in a temporary folder, so these run in a second
-// and no socket is ever bound. The suite never touches port 8877.
+// lines the level lets through, that a file can neither grow without a bound nor
+// pile up without one, and above all that nothing anybody said ever reaches it.
+// Most of it drives the logger directly, by importing a patched copy of the
+// server in a temporary folder, so it runs in a second and binds no socket; the
+// keep-out proof runs a real fixture server on a free port. The suite never
+// touches port 8877.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
-const { execFile } = require("node:child_process");
+const { execFile, spawn } = require("node:child_process");
+const { once } = require("node:events");
 const { createServer } = require("node:http");
 const { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } = require("node:fs/promises");
-const { tmpdir } = require("node:os");
+const { homedir, tmpdir } = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
 
@@ -261,4 +264,117 @@ test("a roll leaves thirty files and deletes the rest, oldest first", async () =
   assert.ok(left.includes(`server-${today()}.log`), "the day's full file was deleted");
   const rolled = left.find(name => /\.\d+\.log$/.test(name));
   assert.equal((await eventsIn(dir, rolled))[0].marker, "after the roll");
+});
+
+// ---- the keep-out proof ------------------------------------------------------
+// A message and a reply, each carrying a phrase that could not occur by
+// accident, and a lane creation, which is the one event a folder path passes
+// through. Every line of every file in the log folder is then read: neither
+// phrase is there, no path from the fixture is there, and the transcript still
+// carries both phrases exactly as it always did, which is what says the proof
+// is proving something rather than passing on an empty folder.
+const SAID = "quokka-vestibule-1198";
+const ANSWERED = "marzipan-hydrofoil-4471";
+
+async function startBoard(dir, logs) {
+  const chosen = await freePort();
+  const child = spawn("python3", [path.join(dir, "server.py")], {
+    cwd: dir,
+    env: { ...process.env, FACILITATOR_TEST_PORT: String(chosen), FACILITATOR_LOG_DIR: logs },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  for (const stream of [child.stdout, child.stderr]) {
+    stream.setEncoding("utf8");
+    stream.on("data", chunk => { output += chunk; });
+  }
+  const origin = `http://127.0.0.1:${chosen}`;
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) throw new Error(`fixture server exited:\n${output}`);
+    try {
+      if ((await fetch(origin + "/state")).ok) return { child, origin, out: () => output };
+    } catch {}
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  throw new Error(`fixture server did not start:\n${output}`);
+}
+
+async function stopBoard(board) {
+  if (board && board.child.exitCode === null) {
+    board.child.kill("SIGTERM");
+    await once(board.child, "exit");
+  }
+}
+
+test("no message text and no path ever reaches a log line; the transcript keeps both", async () => {
+  const wrapper = path.join(outer, "keepout");
+  const app = path.join(wrapper, "app");
+  const logs = path.join(wrapper, "logs");
+  await mkdir(app, { recursive: true });
+  await writeFile(path.join(app, "server.py"), await readFile(path.join(appDir, "server.py")));
+  await writeFile(path.join(app, "seed.json"), JSON.stringify({
+    title: "keep out",
+    items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" }],
+  }));
+
+  let board;
+  try {
+    board = await startBoard(app, logs);
+    const post = (route, body) => fetch(board.origin + route, { method: "POST", body })
+      .then(async response => ({ status: response.status, body: await response.json() }));
+    const transcriptPath = path.join(app, "transcript.jsonl");
+    const before = (await readFile(transcriptPath, "utf8")).split("\n").filter(Boolean).length;
+
+    assert.equal((await post("/send?box=0", `Please look at ${SAID} before tomorrow`)).status, 200);
+    assert.equal((await post("/reply?box=0", `Looked: ${ANSWERED} is where it went`)).status, 200);
+    const lane = await post(`/project?name=${encodeURIComponent("Keep Out Lane")}`, homedir());
+    assert.equal(lane.status, 200, JSON.stringify(lane.body));
+
+    // every line of every file in the folder, whatever their names
+    const written = [];
+    for (const name of await readdir(logs)) {
+      for (const line of (await readFile(path.join(logs, name), "utf8")).split("\n")) {
+        if (line !== "") written.push(line);
+      }
+    }
+    assert.ok(written.length >= 3, "the log folder was empty, so this proves nothing");
+    for (const line of written) {
+      assert.ok(!line.includes(SAID), `a message reached the log: ${line}`);
+      assert.ok(!line.includes(ANSWERED), `a reply reached the log: ${line}`);
+      assert.ok(!line.includes(app), `a fixture path reached the log: ${line}`);
+      assert.ok(!line.includes(wrapper), `a fixture path reached the log: ${line}`);
+      assert.ok(!line.includes(homedir()), `the home directory reached the log: ${line}`);
+      JSON.parse(line);
+    }
+    // what it does carry: the kind, the card, and how long the text was
+    const events = written.map(line => JSON.parse(line));
+    const said = events.find(event => event.kind === "user");
+    assert.equal(said.box, "0");
+    assert.equal(said.chars, `Please look at ${SAID} before tomorrow`.length);
+    assert.equal(said.text, undefined, "the log line carries a text field");
+    // the lane's folder is named, and only named
+    const made = events.find(event => event.kind === "project");
+    assert.equal(made.folder, path.basename(homedir()));
+    assert.ok(!String(made.folder).includes("/"), "the folder field carries a path");
+
+    // and the transcript is exactly what it always was: both phrases in it, one
+    // row per event, and no field the log invented
+    const rows = (await readFile(transcriptPath, "utf8")).split("\n").filter(Boolean);
+    assert.equal(rows.length, before + 3, "the transcript did not get one row per event");
+    const parsed = rows.map(row => JSON.parse(row));
+    assert.ok(parsed.some(row => row.kind === "user" && row.text.includes(SAID)));
+    assert.ok(parsed.some(row => row.kind === "agent" && row.text.includes(ANSWERED)));
+    const last = parsed.at(-1);
+    assert.equal(last.kind, "project");
+    assert.deepEqual(Object.keys(last).sort(), ["box", "kind", "text", "ts"]);
+    assert.ok(last.text.includes(homedir()), "the transcript stopped recording where the lane is");
+
+    // GET /log tails the day's file, in the shape it always answered in
+    const tailed = await (await fetch(board.origin + "/log?lines=5")).json();
+    assert.ok(Array.isArray(tailed.lines) && tailed.lines.length > 0);
+    assert.equal(JSON.parse(tailed.lines.at(-1)).kind, "project");
+  } finally {
+    await stopBoard(board);
+  }
 });
