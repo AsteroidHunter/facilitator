@@ -179,9 +179,15 @@ function assertStill(values, what) {
   }
 }
 
+// the new lines are made with shift and return: with no on-screen keyboard the
+// row reads a plain return as the send, the way the desktop composer does
 async function typeLines(page, count, from = 1) {
   for (let n = from; n <= count; n++) {
-    if (n > 1) await page.keyboard.press("Enter");
+    if (n > 1) {
+      await page.keyboard.down("Shift");
+      await page.keyboard.press("Enter");
+      await page.keyboard.up("Shift");
+    }
     await page.keyboard.type(`line ${n}`);
   }
 }
