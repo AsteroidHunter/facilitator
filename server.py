@@ -1396,6 +1396,12 @@ def _push_turn(bid: str) -> None:
 
 
 class Handler(BaseHTTPRequestHandler):
+    def _where(self) -> tuple:
+        """This request's route and the card its query names: the two things
+        every line about a request carries."""
+        url = urlparse(self.path)
+        return url.path, (parse_qs(url.query).get("box") or [""])[0]
+
     def _send(self, code: int, payload: dict | bytes, ctype: str = "application/json") -> bool:
         """True when the response reached the socket, False when the client was
         already gone. Everything that just answers a page ignores the result;
@@ -1404,6 +1410,16 @@ class Handler(BaseHTTPRequestHandler):
         Swallowing the failure here silently was what made that rollback
         unreachable."""
         body = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
+        if code >= 400:
+            # Every refusal in this file leaves through this one door, so one
+            # added a year from now is written down without anybody remembering
+            # to write it down. A refusal is the server working correctly and
+            # saying no, so it is INFO and not an error, and the reason is the
+            # sentence the caller already wrote for the page: the log and the
+            # page agree by construction rather than by being kept in step.
+            route, box = self._where()
+            _info("refusal", box, route=route, code=code,
+                  reason=payload.get("error") if isinstance(payload, dict) else None)
         try:
             self.send_response(code)
             self.send_header("Content-Type", ctype)
@@ -1415,6 +1431,8 @@ class Handler(BaseHTTPRequestHandler):
             # the client hung up mid-response (a timed-out poll, a killed curl):
             # routine here and never a traceback, but the caller has to be able
             # to find out, so it is reported instead of hidden
+            route, box = self._where()
+            _debug("hungup", box, route=route)
             return False
         return True
 
