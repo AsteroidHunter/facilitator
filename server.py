@@ -490,6 +490,12 @@ class OwnerMigrationRequired(ValueError):
     """Persisted configuration or state still names a retired owner id."""
 
 
+class SaveFailed(RuntimeError):
+    """The board's state could not be written to disk. Its own exception rather
+    than a bare OSError, so the POST dispatch can answer this one and nothing
+    else, and no other failure is quietly turned into a 500."""
+
+
 def _lane_dirs() -> dict:
     """Per-owner project directory from run.config.json (machine-local, gitignored);
     served to the page for the pwd line, never part of tracked content."""
@@ -1027,9 +1033,25 @@ def _migrate() -> None:
 
 
 def _save() -> None:
+    """The board to disk: a temp file beside it, then one rename, so a reader
+    never sees half a state. A failure here used to leave the lock and the whole
+    POST dispatch with no answer ever written, so the page's fetch hung until
+    the socket closed and the composer sat disabled. Now it says which step
+    failed and raises itself, and the dispatch answers 500.
+
+    The reason is the operating system's own word for it and never the name of
+    the file it could not write: a log line is not the place for a path."""
     tmp = STATE_PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps(_state, indent=1))
-    os.replace(tmp, STATE_PATH)
+    try:
+        tmp.write_text(json.dumps(_state, indent=1))
+    except OSError as e:
+        _error("savefail", step="write", reason=e.strerror or type(e).__name__)
+        raise SaveFailed("write") from e
+    try:
+        os.replace(tmp, STATE_PATH)
+    except OSError as e:
+        _error("savefail", step="replace", reason=e.strerror or type(e).__name__)
+        raise SaveFailed("replace") from e
 
 
 def _log(kind: str, box: str, text: str, log_fields: dict | None = None, **fields) -> None:
@@ -1998,6 +2020,15 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- POST -----------------------------------------------------------------
     def do_POST(self) -> None:  # noqa: N802
+        try:
+            self._post()
+        except SaveFailed:
+            # the board's memory and its file now disagree, and this does not
+            # repair that. It answers, which is the difference between a page
+            # that can say something went wrong and one that hangs on a socket
+            self._send(500, {"error": "the board could not save its state"})
+
+    def _post(self) -> None:
         url = urlparse(self.path)
         q = parse_qs(url.query)
         bid = (q.get("box") or [""])[0]
