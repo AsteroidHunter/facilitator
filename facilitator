@@ -38,7 +38,6 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 CONFIG = HERE / "run.config.json"
-LOG = "/tmp/facilitator-8877.log"
 RETIRED_OWNERS = frozenset({"triage"})
 # the Mac app keeps its command line inside the bundle and off PATH
 TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
@@ -101,21 +100,32 @@ def state(port, timeout=2):
 
 
 def ensure_server(port, dry):
+    """Start the server, with its output going nowhere.
+
+    The server writes its own dated file and that file is the only place its
+    output lands; a copy of the same events caught here would be the same log
+    twice, in two shapes, in two places. The one thing the file cannot hold is
+    a start that dies before the logger exists, since nothing is open to write
+    it: a child that is gone this early gets one sentence saying so and how to
+    see it, which is running the server by hand where the terminal shows it."""
     if state(port):
         print(f"server: already up on {port}")
         return
     if dry:
         print(f"server: would start {HERE / 'server.py'}")
         return
-    subprocess.Popen([sys.executable, str(HERE / "server.py")],
-                     stdout=open(LOG, "ab"), stderr=subprocess.STDOUT,
-                     start_new_session=True)
+    started = subprocess.Popen([sys.executable, str(HERE / "server.py")],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               start_new_session=True)
     for _ in range(40):
         if state(port):
-            print(f"server: started on {port} (log: {LOG})")
+            print(f"server: started on {port}")
             return
+        if started.poll() is not None:
+            sys.exit(f"the server did not start; run python3 {HERE / 'server.py'} "
+                     "by hand to see why")
         time.sleep(0.25)
-    sys.exit(f"server failed to come up; see {LOG}")
+    sys.exit(f"server failed to come up on {port}; see the day's server file in {LOG_DIR}")
 
 
 def open_app(cfg, dry):
