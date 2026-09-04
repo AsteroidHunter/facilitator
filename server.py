@@ -280,6 +280,8 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
+import logging.handlers
 import os
 import random
 import secrets
@@ -296,6 +298,181 @@ from urllib.parse import parse_qs, unquote, urlparse
 HERE = Path(__file__).resolve().parent
 LOG_PATH = Path(os.environ.get("FACILITATOR_LOG", "/tmp/facilitator-8877.log"))
 RETIRED_OWNERS = frozenset({"triage"})
+
+# ---- the log ----------------------------------------------------------------
+# One event per line, as JSON, in a dated file; the same event in a short human
+# form on standard output, because the terminal is where the owner already
+# watches it. Three levels and no more: INFO is what happened and is on by
+# default, DEBUG is the noise switched on while hunting, ERROR is something that
+# failed and was not meant to.
+#
+# Five things never appear in any line: message text, keys, whole push
+# endpoints, file paths and addresses. The rule is kept HERE, where the line is
+# written, by not passing those things in. A filter over a formatted line can be
+# fooled; not passing the text cannot.
+LOG_LEVELS = {"info": logging.INFO, "debug": logging.DEBUG, "error": logging.ERROR}
+LOG_MAX_BYTES = 5 * 1024 * 1024   # one file's cap
+LOG_KEEP = 30                     # files of one kind kept; older ones are deleted
+# The folder is worked out from this file's own place, the way INTERNAL_UPLOADS
+# below is, so no machine's home directory gets into tracked source and every
+# test's copy of this file writes into its own sandbox. The variable points one
+# run somewhere else, which is what a rotation test needs.
+LOG_DIR = Path(os.environ.get("FACILITATOR_LOG_DIR")
+               or (HERE.parent / "facilitator-internal" / "logs"))
+
+
+def _configured_level() -> str:
+    """The level in force: the environment variable wins over run.config.json's
+    log_level, which wins over info. Never raises, and a value that names no
+    level falls back to info rather than stopping the board.
+
+    Its own small read rather than a field on the lane config's read, because
+    the level has to be known before the socket is bound (a refused bind is
+    itself worth writing down) and that read deliberately refuses some files."""
+    named = os.environ.get("FACILITATOR_LOG_LEVEL")
+    if not named:
+        try:
+            named = json.loads((HERE / "run.config.json").read_text()).get("log_level")
+        except Exception:
+            named = None
+    named = str(named or "").strip().lower()
+    return named if named in LOG_LEVELS else "info"
+
+
+class DatedRotatingHandler(logging.handlers.RotatingFileHandler):
+    """A file per day per kind, capped by size and pruned by count.
+
+    Neither handler in the standard library does both. RotatingFileHandler takes
+    its name once, so a process running past midnight keeps writing yesterday's
+    date forever; TimedRotatingFileHandler rolls at midnight and has no size cap
+    at all, and the thing most likely to write a lot is exactly the thing going
+    wrong. This rolls on either, and prunes by listing the folder rather than
+    shuffling numbered backups, which also clears files left by earlier runs."""
+
+    def __init__(self, folder: Path, stem: str, suffix: str) -> None:
+        self.folder, self.stem, self.suffix = folder, stem, suffix
+        self.day, self.roll = time.strftime("%Y%m%d"), 0
+        folder.mkdir(parents=True, exist_ok=True)
+        super().__init__(str(self._file()), maxBytes=LOG_MAX_BYTES,
+                         backupCount=0, encoding="utf-8")
+
+    def _file(self) -> Path:
+        """<stem>-<day><suffix>, and <stem>-<day>.1<suffix> for a second roll
+        on the same day."""
+        return self.folder / (f"{self.stem}-{self.day}"
+                              + (f".{self.roll}" if self.roll else "") + self.suffix)
+
+    def _age(self, p: Path) -> tuple:
+        """Oldest first, read out of the name rather than off a modification
+        time, so files carried over from earlier runs still sort truthfully."""
+        day, _, roll = p.name[len(self.stem) + 1:-len(self.suffix)].partition(".")
+        return (day, int(roll) if roll.isdigit() else 0)
+
+    def shouldRollover(self, record: logging.LogRecord) -> int:  # noqa: N802
+        if time.strftime("%Y%m%d") != self.day:
+            return 1
+        return super().shouldRollover(record)
+
+    def doRollover(self) -> None:  # noqa: N802
+        if self.stream:
+            self.stream.close()
+            self.stream = None
+        today = time.strftime("%Y%m%d")
+        if today != self.day:
+            self.day, self.roll = today, 0
+        else:
+            self.roll += 1
+        while self._file().exists():   # never reopen a file this run already filled
+            self.roll += 1
+        self.baseFilename = str(self._file())
+        self.stream = self._open()
+        self._prune()
+
+    def _prune(self) -> None:
+        """Thirty of this kind kept, the oldest deleted. A folder that cannot be
+        listed is left alone: pruning must never be the thing that stops a
+        line from being written."""
+        try:
+            kept = sorted(self.folder.glob(f"{self.stem}-*{self.suffix}"), key=self._age)
+        except OSError:
+            return
+        for old in kept[:-LOG_KEEP]:
+            try:
+                old.unlink()
+            except OSError:
+                pass
+
+
+class JsonLineFormatter(logging.Formatter):
+    """One event, one line: a UTC timestamp with the date in it, the level, the
+    kind, the box when the event belongs to a card, then that kind's own fields.
+    A traceback travels as an ordinary string field, whose newlines json.dumps
+    escapes, so one event never becomes several lines."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        line = {
+            "ts": (time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created))
+                   + f".{int(record.msecs):03d}Z"),
+            "level": record.levelname.lower(),
+            "kind": record.getMessage(),
+        }
+        if getattr(record, "box", ""):
+            line["box"] = record.box
+        for name, value in (getattr(record, "fields", None) or {}).items():
+            if value is not None:
+                line[name] = value
+        return json.dumps(line, default=str)
+
+
+class HumanLineFormatter(logging.Formatter):
+    """The terminal's copy of the same event, in local time and without the
+    braces. The gap after the kind is never eaten however long the kind is,
+    which the padded print this replaces could not promise. A traceback is not
+    mirrored here; the file has it whole."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        tag = f"[{record.box}]" if getattr(record, "box", "") else ""
+        fields = getattr(record, "fields", None) or {}
+        bits = " ".join(f"{name}={value}" for name, value in fields.items()
+                        if name != "trace" and value is not None and value != "")
+        return (f"{time.strftime('%H:%M:%S', time.localtime(record.created))}  "
+                f"{record.getMessage():<9} {tag:<7} {bits}").rstrip()
+
+
+LOG_LEVEL = _configured_level()
+LOGGER = logging.getLogger("facilitator")
+LOGGER.setLevel(LOG_LEVELS[LOG_LEVEL])
+LOGGER.propagate = False
+if not LOGGER.handlers:
+    _to_file = DatedRotatingHandler(LOG_DIR, "server", ".log")
+    _to_file.setFormatter(JsonLineFormatter())
+    LOGGER.addHandler(_to_file)
+    # the terminal sees INFO and above, in human form: JSON in a terminal is
+    # unreadable, and making the terminal readable by making the file
+    # unstructured would give up reading the file back with json.loads
+    _to_terminal = logging.StreamHandler(sys.stdout)
+    _to_terminal.setLevel(logging.INFO)
+    _to_terminal.setFormatter(HumanLineFormatter())
+    LOGGER.addHandler(_to_terminal)
+
+
+def _event(level: int, kind: str, box: str = "", **fields) -> None:
+    """One structured event: kind names it, box is the card it belongs to (empty
+    when it belongs to none), and the rest are that kind's own fields."""
+    if LOGGER.isEnabledFor(level):
+        LOGGER.log(level, kind, extra={"box": box, "fields": fields})
+
+
+def _info(kind: str, box: str = "", **fields) -> None:
+    _event(logging.INFO, kind, box, **fields)
+
+
+def _debug(kind: str, box: str = "", **fields) -> None:
+    _event(logging.DEBUG, kind, box, **fields)
+
+
+def _error(kind: str, box: str = "", **fields) -> None:
+    _event(logging.ERROR, kind, box, **fields)
 
 
 class OwnerMigrationRequired(ValueError):
