@@ -1275,6 +1275,7 @@ def _release_unacked() -> None:
         box = _box(bid)
         if box and box["pending"] and bid not in _state["inbox"]:
             _state["inbox"].insert(0, bid)
+        _debug("bounce", bid, owner=ow)
         _log("unacked", bid, f"{ow} hand-off unconfirmed after {ACK_GRACE:.0f}s, box re-queued")
         moved = True
     if moved:
@@ -1477,6 +1478,7 @@ class Handler(BaseHTTPRequestHandler):
         Swallowing the failure here silently was what made that rollback
         unreachable."""
         body = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
+        self._status = code   # what the request line reports, once it is done
         if code >= 400:
             # Every refusal in this file leaves through this one door, so one
             # added a year from now is written down without anybody remembering
@@ -1507,8 +1509,33 @@ class Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0)
         return self.rfile.read(n).decode("utf-8", "replace") if n else ""
 
+    def _served(self, method: str, handle) -> None:
+        """One request, timed, and answered even when saving its result failed.
+
+        The request line is DEBUG and not INFO on purpose: the two pages poll
+        about 144,000 times a day between them, and a line for each of those is
+        22 MB a day of mostly nothing. Switched on, it is the line that says
+        what the board was asked for, what it answered and how long it took."""
+        started = time.monotonic()
+        self._status = 0
+        try:
+            handle()
+        except SaveFailed:
+            # the board's memory and its file now disagree, and this does not
+            # repair that. It answers, which is the difference between a page
+            # that can say something went wrong and one that hangs on a socket
+            self._send(500, {"error": "the board could not save its state"})
+        finally:
+            if LOGGER.isEnabledFor(logging.DEBUG):
+                route, box = self._where()
+                _debug("request", box, method=method, route=route, status=self._status,
+                       ms=round((time.monotonic() - started) * 1000))
+
     # -- GET ------------------------------------------------------------------
     def do_GET(self) -> None:  # noqa: N802
+        self._served("GET", self._get)
+
+    def _get(self) -> None:
         url = urlparse(self.path)
         if url.path == "/":
             self._send(200, (HERE / "index.html").read_bytes(), "text/html; charset=utf-8")
@@ -2004,6 +2031,8 @@ class Handler(BaseHTTPRequestHandler):
                         token = secrets.token_hex(6)
                         _state["ack"][owner] = {"box": bid, "token": token,
                                                 "ts": time.time(), "confirmed": False}
+                        # that a receipt was minted, never the receipt itself
+                        _debug("claim", bid, owner=owner, token=bool(token))
                         _save()
                         payload = {
                             "box": bid, "title": box["title"],
@@ -2044,13 +2073,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- POST -----------------------------------------------------------------
     def do_POST(self) -> None:  # noqa: N802
-        try:
-            self._post()
-        except SaveFailed:
-            # the board's memory and its file now disagree, and this does not
-            # repair that. It answers, which is the difference between a page
-            # that can say something went wrong and one that hangs on a socket
-            self._send(500, {"error": "the board could not save its state"})
+        self._served("POST", self._post)
 
     def _post(self) -> None:
         url = urlparse(self.path)
@@ -2178,6 +2201,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(409, {"error": "claim no longer held"})
                     return
                 rec["confirmed"] = True
+                _debug("ackok", rec["box"], owner=ow, token=bool(token))
                 _log("ack", rec["box"], f"{ow} confirmed delivery")
                 _save()
                 self._send(200, {"ok": True, "box": rec["box"]})
