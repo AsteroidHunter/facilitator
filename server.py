@@ -1068,6 +1068,30 @@ def _log(kind: str, box: str, text: str, log_fields: dict | None = None, **field
     _info(kind, box, chars=len(str(text or "")), **(log_fields or {}))
 
 
+# the window in which a page holds its own write on top of the server's answer,
+# TAB_HOLD and SEEN_HOLD in card-logic.js. A second write landing inside it is
+# one the losing page never sees, which is the whole reason it is invisible
+OVERWRITE_HOLD = 3.0
+_last_change: dict = {}   # (record, box, field) -> when that record last changed
+
+
+def _overwrite(record: str, box: str, field: str, before, after) -> None:
+    """A write that changed a record another write had only just changed.
+
+    In memory and never in state.json, because this is diagnosis and must not
+    add a write to the write it is diagnosing. Neither route carries any device
+    identity, so the line cannot honestly say who lost: it says that a second
+    write landed inside the hold window, what it changed, and how far apart the
+    two were."""
+    if before == after:
+        return          # nothing was overwritten; the same record written twice
+    now = time.time()
+    was = _last_change.get((record, box, field))
+    if was is not None and now - was < OVERWRITE_HOLD:
+        _info("overwrite", box, record=record, field=field, ms=round((now - was) * 1000))
+    _last_change[(record, box, field)] = now
+
+
 def _box(bid: str) -> dict | None:
     return next((b for b in _state["boxes"] if b["id"] == bid), None)
 
@@ -2614,6 +2638,9 @@ class Handler(BaseHTTPRequestHandler):
                         if ow not in ids:   # a repeat is the same tab twice; keep the first
                             ids.append(ow)
                     clean[field] = ids
+                stored = _state.get("tabs") or {}
+                for field in ("order", "closed"):
+                    _overwrite("tabs", "", field, stored.get(field), clean[field])
                 _state["tabs"] = clean
                 _save()
                 _lock.notify_all()
@@ -2643,6 +2670,7 @@ class Handler(BaseHTTPRequestHandler):
                     marks.append((box, n))
                 out = {}
                 for box, n in marks:
+                    _overwrite("seen", box["id"], "count", box.get("seen", 0), n)
                     box["seen"] = n
                     out[box["id"]] = n
                 _save()
