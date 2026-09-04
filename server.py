@@ -953,6 +953,9 @@ def _migrate() -> None:
             "ball": "you", "ts": time.time(), "owner": "qchat",
         })
     _state.setdefault("ever_listened", {})
+    # the last push that actually worked (2026-09-03): null, like an absent
+    # field, means none ever has, which is the truthful reading of older state
+    _state.setdefault("push_last_ok", None)
     # workspaces (2026-08-09): each owner gets at least one, a named collection
     # of chats aimed at a goal, with a task list the human and agent both edit
     ws = _state.setdefault("workspaces", {})
@@ -1273,6 +1276,7 @@ PHONE_FILES = {
 PUSH_KEY_PATH = HERE / "vapid-key.pem"
 PUSH_CONTACT = "mailto:facilitator@localhost"   # the token's sub claim, a contact push services may use
 PUSH_TTL = 86400                                # seconds a push may wait for a phone that is off
+PUSH_REASON_CHARS = 200                         # of a refusing service's own words, the first this many
 _push_lock = threading.Lock()
 _push_public: bytes | None = None
 _push_tokens: dict = {}                         # audience -> (expiry, token), one token serves an hour
@@ -1351,9 +1355,11 @@ def _vapid_token(aud: str) -> str:
     return token
 
 
-def _push_one(sub: dict) -> int:
-    """One payload-less push to one subscription; the status the service
-    answered, 0 when it could not be reached at all."""
+def _push_one(sub: dict) -> tuple:
+    """One payload-less push to one subscription: the status the service
+    answered and whatever it said about it, or 0 and the reason it could not be
+    reached at all. The body is where a push service explains a refusal, and
+    throwing it away is why a whole day of 403s could not be explained."""
     endpoint = sub["endpoint"]
     u = urlparse(endpoint)
     aud = f"{u.scheme}://{u.netloc}"
@@ -1364,11 +1370,15 @@ def _push_one(sub: dict) -> int:
     })
     try:
         with urllib.request.urlopen(req, timeout=15) as r:
-            return r.status
+            return r.status, ""
     except urllib.error.HTTPError as e:
-        return e.code
-    except (urllib.error.URLError, OSError):
-        return 0
+        try:
+            said = e.read().decode("utf-8", "replace")
+        except OSError:
+            said = ""
+        return e.code, " ".join(said.split())   # one line, whatever it sent
+    except (urllib.error.URLError, OSError) as e:
+        return 0, " ".join(str(getattr(e, "reason", "") or e).split())
 
 
 def _push_turn(bid: str) -> None:
@@ -1379,19 +1389,30 @@ def _push_turn(bid: str) -> None:
     with _lock:
         subs = list(_state.get("push_subs", []))
     gone = []
+    worked = None
     for sub in subs:
-        try:
-            code = _push_one(sub)
-        except Exception as e:   # a signing failure: reported, never fatal
-            print(f"{time.strftime('%H:%M:%S')}  push   [{bid}] failed: {e}", flush=True)
-            continue
+        # the host, never the endpoint: the endpoint is the phone's own address
+        # and identifies the device, so it is on the keep-out list
         host = urlparse(sub.get("endpoint", "")).netloc
-        print(f"{time.strftime('%H:%M:%S')}  push   [{bid}] {code or 'unreachable'} {host}", flush=True)
+        try:
+            code, said = _push_one(sub)
+        except Exception as e:   # a signing failure: reported, never fatal
+            _error("pushfail", bid, host=host, reason=str(e))
+            continue
+        reason = said[:PUSH_REASON_CHARS] if code else ("unreachable " + said).strip()
+        _info("push", bid, host=host, status=code or None, reason=reason or None)
+        if 200 <= code < 300:
+            worked = host
         if code in (404, 410):
             gone.append(sub["endpoint"])
-    if gone:
+    if gone or worked:
         with _lock:
-            _state["push_subs"] = [s for s in _state.get("push_subs", []) if s.get("endpoint") not in gone]
+            if worked:
+                # what the next start line reads, so a board coming back up can
+                # say when a phone was last actually reached
+                _state["push_last_ok"] = {"ts": time.time(), "host": worked}
+            if gone:
+                _state["push_subs"] = [s for s in _state.get("push_subs", []) if s.get("endpoint") not in gone]
             _save()
 
 

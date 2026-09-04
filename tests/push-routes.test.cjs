@@ -8,14 +8,19 @@ const { after, before, test } = require("node:test");
 const { execFileSync, spawn } = require("node:child_process");
 const { once } = require("node:events");
 const { createServer } = require("node:http");
-const { mkdtemp, readFile, rm, stat, writeFile } = require("node:fs/promises");
+const { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 
 const ROOT = path.resolve(__dirname, "..");
+// what a refusing push service says back, longer than the log keeps of it
+const REFUSAL_BODY = "the vapid token was not accepted by this service: " + "x".repeat(400);
 
 let child;
+let outer;
 let fixtureDir;
+let logs;
+let port;
 let origin;
 let pushService;      // the stub push service the subscriptions point at
 let pushOrigin;
@@ -109,33 +114,12 @@ async function verifyVapid(header, expectedKey) {
   assert.match(verdict, /Verified OK/);
 }
 
-before(async () => {
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-push-"));
-  const port = await freePort();
-  const source = await readFile(path.join(ROOT, "server.py"), "utf8");
-  let patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
-  assert.notEqual(patched, source, "test server port was not patched");
-  const timed = patched.replace("BG_STALE = 75.0", "BG_STALE = 1.0");
-  assert.notEqual(timed, patched, "the working flag's clock was not patched");
-  await writeFile(path.join(fixtureDir, "server.py"), timed);
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({ title: "push test", items: [] }));
-
-  pushService = createServer((req, res) => {
-    let body = "";
-    req.on("data", chunk => { body += chunk; });
-    req.on("end", () => {
-      pushes.push({ path: req.url, headers: req.headers, body });
-      res.statusCode = req.url.startsWith("/gone") ? 410 : 201;
-      res.end();
-    });
-  });
-  await new Promise(resolve => pushService.listen(0, "127.0.0.1", resolve));
-  pushOrigin = `http://127.0.0.1:${pushService.address().port}`;
-
-  origin = `http://127.0.0.1:${port}`;
+// the board itself, started and stopped: one test needs the start line the next
+// boot writes, so the fixture has to be able to come back up
+async function startServer() {
   child = spawn("python3", [path.join(fixtureDir, "server.py")], {
     cwd: fixtureDir,
-    env: { ...process.env, FACILITATOR_TEST_PORT: String(port) },
+    env: { ...process.env, FACILITATOR_TEST_PORT: String(port), FACILITATOR_LOG_DIR: logs },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";
@@ -153,15 +137,76 @@ before(async () => {
     await new Promise(resolve => setTimeout(resolve, 25));
   }
   throw new Error(`fixture server did not start:\n${output}`);
-});
+}
 
-after(async () => {
+async function stopServer() {
   if (child && child.exitCode === null) {
     child.kill("SIGTERM");
     await once(child, "exit");
   }
+}
+
+// every line the board has written, in order
+async function events() {
+  const out = [];
+  for (const name of (await readdir(logs)).sort()) {
+    for (const line of (await readFile(path.join(logs, name), "utf8")).split("\n")) {
+      if (line !== "") out.push(JSON.parse(line));
+    }
+  }
+  return out;
+}
+
+// pushes go out on their own thread, so their lines arrive a moment later
+async function pushLines(count, ms = 3000) {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const lines = (await events()).filter(event => event.kind === "push" || event.kind === "pushfail");
+    if (lines.length >= count) return lines;
+    if (Date.now() > deadline) throw new Error(`expected ${count} push lines, saw ${lines.length}`);
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+}
+
+before(async () => {
+  outer = await mkdtemp(path.join(tmpdir(), "facilitator-push-"));
+  fixtureDir = path.join(outer, "app");
+  logs = path.join(outer, "logs");
+  await mkdir(fixtureDir);
+  port = await freePort();
+  const source = await readFile(path.join(ROOT, "server.py"), "utf8");
+  let patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
+  assert.notEqual(patched, source, "test server port was not patched");
+  const timed = patched.replace("BG_STALE = 75.0", "BG_STALE = 1.0");
+  assert.notEqual(timed, patched, "the working flag's clock was not patched");
+  await writeFile(path.join(fixtureDir, "server.py"), timed);
+  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({ title: "push test", items: [] }));
+
+  pushService = createServer((req, res) => {
+    let body = "";
+    req.on("data", chunk => { body += chunk; });
+    req.on("end", () => {
+      pushes.push({ path: req.url, headers: req.headers, body });
+      if (req.url.startsWith("/refused")) {
+        res.statusCode = 403;
+        res.end(REFUSAL_BODY);
+        return;
+      }
+      res.statusCode = req.url.startsWith("/gone") ? 410 : 201;
+      res.end();
+    });
+  });
+  await new Promise(resolve => pushService.listen(0, "127.0.0.1", resolve));
+  pushOrigin = `http://127.0.0.1:${pushService.address().port}`;
+
+  origin = `http://127.0.0.1:${port}`;
+  await startServer();
+});
+
+after(async () => {
+  await stopServer();
   if (pushService) await new Promise(resolve => pushService.close(resolve));
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (outer) await rm(outer, { recursive: true, force: true });
 });
 
 let publicKey;
@@ -281,4 +326,72 @@ test("a subscription the push service reports gone is dropped", async () => {
     await new Promise(resolve => setTimeout(resolve, 50));
   }
   assert.deepEqual(subs.map(s => s.endpoint), [pushOrigin + "/ok/one"], "the gone subscription was kept");
+});
+
+// ---- what the log says about a push -------------------------------------------
+// 245 of the 247 pushes in the live log read 403 and nothing else, because the
+// body the service answers with, the one place it explains itself, was read
+// and thrown away. These are about the line that replaces that one.
+
+test("a service that refuses says why in its own words, cut and never dropped", async () => {
+  const refusing = { endpoint: pushOrigin + "/refused/three", keys: { p256dh: "a", auth: "b" } };
+  assert.equal((await post("/push/subscribe", JSON.stringify(refusing))).status, 200);
+  const before = (await events()).filter(e => e.kind === "push").length;
+  const id = await create("A push the service refuses");
+  assert.equal((await post(`/reply?box=${id}`, "answered")).status, 200);
+
+  const lines = await pushLines(before + 2);
+  const refused = lines.filter(line => line.status === 403).at(-1);
+  assert.ok(refused, "the refusal was not written down");
+  assert.equal(refused.box, id);
+  assert.equal(refused.host, new URL(pushOrigin).host);
+  assert.equal(refused.level, "info");
+  assert.equal(refused.reason.length, 200, "the service's words were not cut to two hundred");
+  assert.equal(refused.reason, REFUSAL_BODY.slice(0, 200));
+  assert.ok(REFUSAL_BODY.startsWith(refused.reason), "the words were mangled rather than cut");
+});
+
+test("a service that cannot be reached at all is written down as unreachable", async () => {
+  const dead = `http://127.0.0.1:${await freePort()}/nobody/home`;
+  assert.equal((await post("/push/subscribe", JSON.stringify({
+    endpoint: dead, keys: { p256dh: "a", auth: "b" },
+  }))).status, 200);
+  const before = (await events()).filter(e => e.kind === "push").length;
+  const id = await create("A push nobody answers");
+  assert.equal((await post(`/reply?box=${id}`, "answered")).status, 200);
+
+  const lines = await pushLines(before + 3, 8000);
+  const missed = lines.filter(line => line.host === new URL(dead).host && !line.status).at(-1);
+  assert.ok(missed, "an unreachable service wrote no line");
+  assert.match(missed.reason, /^unreachable/);
+});
+
+test("a push that works is remembered, and the next start line names it", async () => {
+  const deadline = Date.now() + 3000;
+  let remembered;
+  while (Date.now() < deadline) {
+    remembered = (await stateFile()).push_last_ok;
+    if (remembered) break;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  assert.ok(remembered, "a push that worked was not remembered");
+  assert.equal(remembered.host, new URL(pushOrigin).host);
+  assert.ok(remembered.ts > Date.now() / 1000 - 600, "the moment recorded is not this run's");
+
+  await stopServer();
+  await startServer();
+  const started = (await events()).filter(event => event.kind === "start").at(-1);
+  assert.equal(started.push_host, remembered.host);
+  assert.equal(started.push_ok, remembered.ts);
+});
+
+test("no line anywhere carries a whole endpoint, only the service's host", async () => {
+  const endpoints = (await stateFile()).push_subs.map(sub => sub.endpoint);
+  assert.ok(endpoints.length > 0, "no subscription was stored, so this proves nothing");
+  for (const event of await events()) {
+    const line = JSON.stringify(event);
+    for (const endpoint of endpoints.concat([pushOrigin + "/ok/one", pushOrigin + "/refused/three"])) {
+      assert.ok(!line.includes(new URL(endpoint).pathname), `an endpoint reached the log: ${line}`);
+    }
+  }
 });
