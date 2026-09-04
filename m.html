@@ -1252,14 +1252,27 @@ function goToBox(id){
   select(id);
   apply(lastState);
 }
+// the fetch and the render each get their own try, as on the board: the
+// unreachable banner is for a server that did not answer, and a card that will
+// not draw is reported instead of being dressed up as one
 async function poll(){
+  const asked = Date.now();   // when this state was asked for, which is what says
+  // whether it can know about a message sent since
+  let state;
   try {
-    const asked = Date.now();   // when this state was asked for, which is what says
-    // whether it can know about a message sent since
-    const state = await (await fetch("/state", { cache: "no-store" })).json();
-    state.fetchedAt = asked;
-    pollFails = 0;
-    document.body.classList.remove("offline");
+    state = await (await fetch("/state", { cache: "no-store" })).json();
+  } catch (e) {
+    if (++pollFails >= 3){
+      document.body.classList.add("offline");
+      document.getElementById("offline").textContent =
+        "The facilitator server is unreachable. Nothing sent now will arrive; ask in the terminal to restart it.";
+    }
+    return;
+  }
+  state.fetchedAt = asked;
+  pollFails = 0;
+  document.body.classList.remove("offline");
+  try {
     validateOwners(state);
     lastState = state;
     if (wantBox){
@@ -1269,11 +1282,7 @@ async function poll(){
     }
     apply(state);
   } catch (e) {
-    if (++pollFails >= 3){
-      document.body.classList.add("offline");
-      document.getElementById("offline").textContent =
-        "The facilitator server is unreachable. Nothing sent now will arrive; ask in the terminal to restart it.";
-    }
+    if (typeof reportProblem === "function") reportProblem("render", e);
   }
 }
 poll();

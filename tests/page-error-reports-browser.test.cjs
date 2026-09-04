@@ -302,3 +302,97 @@ test("the page view outside the sandbox reports like the other two", async () =>
     await context.close();
   }
 });
+
+// ---- the banner and the render ------------------------------------------------
+// One try used to wrap the fetch and the render together, so three throws from
+// anywhere in the render path painted "the server is unreachable" over a server
+// that was answering perfectly, and the owner was sent to restart a healthy
+// process. The banner keeps its wording and its three strikes; what changes is
+// when it is right.
+
+const UNREACHABLE =
+  "The facilitator server is unreachable. Nothing sent now will arrive; ask in the terminal to restart it.";
+
+// the poll's fetch, refused at the browser: the same thing the page sees when
+// the server is down, without taking the server away from the other tests
+async function cutTheWire(page, off) {
+  if (!off) {
+    await page.setRequestInterception(true);
+    page.on("request", request => {
+      if (request.url().includes("/state")) request.abort("failed").catch(() => {});
+      else request.continue().catch(() => {});
+    });
+    return;
+  }
+  await page.setRequestInterception(false);
+}
+
+async function banner(page) {
+  return page.evaluate(() => ({
+    shown: document.body.classList.contains("offline"),
+    said: (document.getElementById("offline") || {}).textContent || "",
+  }));
+}
+
+async function untilBanner(page, shown, ms = 8000) {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const now = await banner(page);
+    if (now.shown === shown) return now;
+    if (Date.now() > deadline) throw new Error(`the banner never turned ${shown ? "on" : "off"}`);
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+}
+
+for (const [name, route, viewport] of [["board", "/", null], ["phone page", "/m", PHONE]]) {
+  test(`a render that throws on the ${name} leaves the banner alone and is reported`, async () => {
+    await settleReports();
+    const { page, context } = await open(route, viewport);
+    try {
+      await page.evaluate(() => {
+        // the card will not draw. The server is answering perfectly
+        window.apply = () => { throw new Error("the card would not draw"); };
+      });
+      await new Promise(resolve => setTimeout(resolve, 4200));   // three polls and a margin
+      const shown = await banner(page);
+      assert.equal(shown.shown, false, "a card that would not draw painted the unreachable banner");
+      assert.ok(!shown.said.includes("unreachable"), shown.said);
+
+      await hide(page);
+      const fresh = await newReports(1);
+      const failed = fresh.filter(report => report.kind === "render");
+      assert.equal(failed.length, 1, `${failed.length} render reports for one broken render`);
+      assert.match(failed[0].message, /the card would not draw/);
+      assert.ok(failed[0].count >= 3,
+        `three polls drew three times, and the report counted ${failed[0].count}`);
+      assert.ok(!fresh.some(report => report.kind === "fetch"),
+        "a render failure was reported as a failed request");
+    } finally {
+      await context.close();
+    }
+  });
+
+  test(`a server the ${name} cannot reach paints the banner, and it clears when it comes back`, async () => {
+    await settleReports();
+    const { page, context } = await open(route, viewport);
+    try {
+      await cutTheWire(page, false);
+      const gone = await untilBanner(page, true);
+      assert.equal(gone.said, UNREACHABLE, "the banner does not say what it always said");
+
+      await cutTheWire(page, true);
+      await untilBanner(page, false);
+
+      await hide(page);
+      const fresh = await newReports(1);
+      const failed = fresh.filter(report => report.kind === "fetch");
+      assert.ok(failed.length >= 1, `no failed request was reported: ${JSON.stringify(fresh)}`);
+      assert.equal(failed[0].route, "/state", "the report does not say which route failed");
+      assert.ok(failed[0].count >= 1);
+      assert.ok(!fresh.some(report => report.kind === "render"),
+        "a request that failed was reported as a broken render");
+    } finally {
+      await context.close();
+    }
+  });
+}
