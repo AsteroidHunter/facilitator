@@ -113,10 +113,10 @@ test("a start writes one start line with the port it bound and the level in forc
     assert.equal(starts[0].boxes, 4, "the start line does not count the board's cards");
     assert.equal(starts[0].push_ok, undefined, "a board with no push ever sent claims one");
     assert.equal(starts[0].box, undefined);
-    // and the file it wrote to is the day's own
+    // and the file it wrote to is the day's own, and is the only place it
+    // wrote at all: a pipe is not a terminal, so nothing is mirrored to one
     assert.ok((await readdir(place.logs)).includes(`server-${today()}.log`));
-    // the terminal saw it too, in the short human form
-    assert.match(run.output, new RegExp(`^\\d{2}:\\d{2}:\\d{2} +start .*port=${port}`, "m"));
+    assert.equal(run.output, "", `the start wrote to its own output: ${run.output}`);
   } finally {
     run.child.kill("SIGKILL");
     await once(run.child, "exit");
@@ -167,9 +167,9 @@ test("a second server on a taken port writes an error line and exits one", async
     assert.equal(refused[0].level, "error");
     assert.equal(refused[0].port, port);
     assert.match(refused[0].reason, /could not listen on 127\.0\.0\.1:/);
-    // the losing start says so on the terminal as it always did, and quietly
-    assert.match(loser.output, /could not listen on 127\.0\.0\.1:/);
-    assert.doesNotMatch(loser.output, /Traceback/);
+    // the losing start says so in the file and nowhere else: no terminal is
+    // watching it here, and it leaves quietly rather than on a traceback
+    assert.equal(loser.output, "", `the losing start wrote to its output: ${loser.output}`);
     // the one that owns the port is untouched by the refusal
     assert.ok((await fetch(`http://127.0.0.1:${port}/state`)).ok);
   } finally {

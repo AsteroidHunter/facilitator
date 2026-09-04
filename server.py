@@ -318,11 +318,14 @@ HERE = Path(__file__).resolve().parent
 RETIRED_OWNERS = frozenset({"triage"})
 
 # ---- the log ----------------------------------------------------------------
-# One event per line, as JSON, in a dated file; the same event in a short human
-# form on standard output, because the terminal is where the owner already
-# watches it. Three levels and no more: INFO is what happened and is on by
-# default, DEBUG is the noise switched on while hunting, ERROR is something that
-# failed and was not meant to.
+# One event per line, as JSON, in a dated file, and that file is the only place
+# the server's output lands. A terminal gets the same event in a short human
+# form as well, but only when there is a terminal on the other end of standard
+# output: a server started by hand should say what it is doing, and a server
+# started by the CLI has nobody reading and would only be writing everything
+# twice. Three levels and no more: INFO is what happened and is on by default,
+# DEBUG is the noise switched on while hunting, ERROR is something that failed
+# and was not meant to.
 #
 # Five things never appear in any line: message text, keys, whole push
 # endpoints, file paths and addresses. The rule is kept HERE, where the line is
@@ -465,13 +468,17 @@ if not LOGGER.handlers:
     _to_file = DatedRotatingHandler(LOG_DIR, "server", ".log")
     _to_file.setFormatter(JsonLineFormatter())
     LOGGER.addHandler(_to_file)
-    # the terminal sees INFO and above, in human form: JSON in a terminal is
-    # unreadable, and making the terminal readable by making the file
-    # unstructured would give up reading the file back with json.loads
-    _to_terminal = logging.StreamHandler(sys.stdout)
-    _to_terminal.setLevel(logging.INFO)
-    _to_terminal.setFormatter(HumanLineFormatter())
-    LOGGER.addHandler(_to_terminal)
+    # A watching terminal sees INFO and above, in human form: JSON in a terminal
+    # is unreadable, and making the terminal readable by making the file
+    # unstructured would give up reading the file back with json.loads. Only a
+    # terminal, though. Started any other way there is nobody on the other end
+    # of standard output, and a copy written there is the same events a second
+    # time in a second place, which is what this stopped doing.
+    if sys.stdout is not None and sys.stdout.isatty():
+        _to_terminal = logging.StreamHandler(sys.stdout)
+        _to_terminal.setLevel(logging.INFO)
+        _to_terminal.setFormatter(HumanLineFormatter())
+        LOGGER.addHandler(_to_terminal)
 
 
 def _event(level: int, kind: str, box: str = "", /, **fields) -> None:

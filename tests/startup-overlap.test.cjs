@@ -125,8 +125,10 @@ test("a startup that loses the port cannot migrate under the running legacy serv
     const losingRun = launch(correctedFile, fixture, port);
     const losingCode = await waitExit(losingRun);
     assert.equal(losingCode, 1);
-    assert.match(losingRun.output, /could not listen on 127\.0\.0\.1:/);
-    assert.doesNotMatch(losingRun.output, /Traceback/);
+    // the refusal is a line in the dated file, and a pipe is not a terminal, so
+    // the losing start leaves quietly: nothing on its own output, no traceback
+    assert.equal(losingRun.output, "",
+      `the losing startup wrote to its output: ${losingRun.output}`);
     assert.deepEqual(await snapshot(statePath), beforeState,
       "losing startup rewrote state before it owned the port");
     assert.deepEqual(await snapshot(transcriptPath), beforeTranscript,
