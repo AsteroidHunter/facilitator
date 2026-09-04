@@ -60,25 +60,32 @@ async function reports() {
 }
 
 let readSoFar = 0;
-async function newReports(wanted = 1, ms = 5000) {
+
+// the reports this case has caused, once the ones it is waiting for are there.
+// A batch is sent by a beacon and written by another process, so a case waits
+// for what it asked for rather than for a length of time
+async function newReports(match = () => true, wanted = 1, ms = 15000) {
   const deadline = Date.now() + ms;
   for (;;) {
     const all = await reports();
-    if (all.length - readSoFar >= wanted) {
-      const fresh = all.slice(readSoFar);
+    const fresh = all.slice(readSoFar);
+    if (fresh.filter(match).length >= wanted) {
       readSoFar = all.length;
       return fresh;
     }
     if (Date.now() > deadline) {
-      const fresh = all.slice(readSoFar);
       readSoFar = all.length;
-      throw new Error(`expected ${wanted} reports, saw ${fresh.length}: ${JSON.stringify(fresh)}`);
+      throw new Error(`expected ${wanted} of a kind, saw ${JSON.stringify(fresh)}`);
     }
     await new Promise(resolve => setTimeout(resolve, 50));
   }
 }
 
+// everything reported up to now belongs to the cases before this one. The wait
+// is for a batch the last page sent as it closed, which would otherwise land
+// inside this case's window and be read as its own
 async function settleReports() {
+  await new Promise(resolve => setTimeout(resolve, 500));
   readSoFar = (await reports()).length;
 }
 
@@ -90,6 +97,14 @@ async function open(route, viewport) {
   if (viewport) await page.setViewport(viewport);
   await page.goto(origin + route, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => typeof startReporter === "function", { timeout: 5000 });
+  // the tests count the same events the reporter does, so a case can wait for
+  // the page to have noticed rather than for a length of time to have passed
+  await page.evaluate(() => {
+    window.thrown = 0;
+    window.rejected = 0;
+    addEventListener("error", () => { window.thrown++; });
+    addEventListener("unhandledrejection", () => { window.rejected++; });
+  });
   return { page, context };
 }
 
@@ -103,12 +118,13 @@ async function hide(page) {
 // errors as "Script error." with no file and no line; an inline script in the
 // page throws the way a card failing to draw throws.
 async function throwInPage(page, message, times = 1) {
+  const before = await page.evaluate(() => window.thrown);
   await page.addScriptTag({
     content: "(function () { const trip = () => { throw new Error(" +
       JSON.stringify(message) + "); };\n" +
       "for (let n = 0; n < " + times + "; n++) setTimeout(trip); })();",
   });
-  await new Promise(resolve => setTimeout(resolve, 100 + times * 4));
+  await page.waitForFunction(wanted => window.thrown >= wanted, { timeout: 10000 }, before + times);
 }
 
 before(async () => {
@@ -180,7 +196,7 @@ test("an error thrown on the board reaches the file with its message, file and l
   try {
     await throwInPage(page, "the board tripped over a card");
     await hide(page);
-    const fresh = await newReports(1);
+    const fresh = await newReports(report => /the board tripped over a card/.test(report.message));
     const thrown = fresh.find(report => /the board tripped over a card/.test(report.message));
     assert.ok(thrown, `the throw was not reported: ${JSON.stringify(fresh)}`);
     assert.equal(thrown.kind, "error");
@@ -206,9 +222,9 @@ test("a promise nobody caught reaches the file as a rejection", async () => {
     await page.addScriptTag({
       content: 'Promise.reject(new Error("the reply never came back"));',
     });
-    await new Promise(resolve => setTimeout(resolve, 200));
+    await page.waitForFunction(() => window.rejected >= 1, { timeout: 10000 });
     await hide(page);
-    const fresh = await newReports(1);
+    const fresh = await newReports(report => report.kind === "rejection");
     const rejected = fresh.find(report => report.kind === "rejection");
     assert.ok(rejected, `no rejection was reported: ${JSON.stringify(fresh)}`);
     assert.match(rejected.message, /the reply never came back/);
@@ -225,7 +241,7 @@ test("the same throw fifty times is one report with a count of fifty", async () 
     // one line, thrown over and over: one thing is wrong, not fifty
     await throwInPage(page, "the same card, again", 50);
     await hide(page);
-    const fresh = await newReports(1);
+    const fresh = await newReports(report => /the same card, again/.test(report.message));
     const repeated = fresh.filter(report => /the same card, again/.test(report.message));
     assert.equal(repeated.length, 1, `${repeated.length} lines for one repeated throw`);
     assert.equal(repeated[0].count, 50);
@@ -242,7 +258,7 @@ test("a report names the card that was open at the time", async () => {
     await page.waitForFunction(box => selectedId === box, { timeout: 5000 }, id);
     await throwInPage(page, "the phone tripped with a card open");
     await hide(page);
-    const fresh = await newReports(1);
+    const fresh = await newReports(report => /the phone tripped/.test(report.message));
     const thrown = fresh.find(report => /the phone tripped/.test(report.message));
     assert.ok(thrown, `no report from the phone: ${JSON.stringify(fresh)}`);
     assert.equal(thrown.page, "phone");
@@ -263,7 +279,7 @@ test("a page becoming hidden sends the batch, without going away first", async (
       Object.defineProperty(document, "visibilityState", { get: () => "hidden", configurable: true });
       document.dispatchEvent(new Event("visibilitychange"));
     });
-    const fresh = await newReports(1);
+    const fresh = await newReports(report => /hidden, not closed/.test(report.message));
     assert.ok(fresh.some(report => /hidden, not closed/.test(report.message)));
   } finally {
     await context.close();
@@ -278,9 +294,12 @@ test("the page view's sandbox reports nothing at all", async () => {
     await page.goto(origin + "/page?mock=1", { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => typeof MOCK !== "undefined", { timeout: 5000 });
     assert.equal(await page.evaluate(() => MOCK), true, "the sandbox was not on");
-    await throwInPage(page, "the sandbox tripped");
-    await page.evaluate(() => dispatchEvent(new Event("pagehide")));
+    await page.addScriptTag({
+      content: 'setTimeout(() => { throw new Error("the sandbox tripped"); });',
+    });
     await new Promise(resolve => setTimeout(resolve, 300));
+    await page.evaluate(() => dispatchEvent(new Event("pagehide")));
+    await new Promise(resolve => setTimeout(resolve, 500));
     assert.equal((await reports()).length - readSoFar, 0,
       "the sandbox, which asks the board for nothing, sent something");
   } finally {
@@ -294,7 +313,7 @@ test("the page view outside the sandbox reports like the other two", async () =>
   try {
     await throwInPage(page, "the page view tripped");
     await hide(page);
-    const fresh = await newReports(1);
+    const fresh = await newReports(report => /the page view tripped/.test(report.message));
     const thrown = fresh.find(report => /the page view tripped/.test(report.message));
     assert.ok(thrown, `no report from the page view: ${JSON.stringify(fresh)}`);
     assert.equal(thrown.page, "page");
@@ -359,7 +378,7 @@ for (const [name, route, viewport] of [["board", "/", null], ["phone page", "/m"
       assert.ok(!shown.said.includes("unreachable"), shown.said);
 
       await hide(page);
-      const fresh = await newReports(1);
+      const fresh = await newReports(report => report.kind === "render");
       const failed = fresh.filter(report => report.kind === "render");
       assert.equal(failed.length, 1, `${failed.length} render reports for one broken render`);
       assert.match(failed[0].message, /the card would not draw/);
@@ -384,7 +403,7 @@ for (const [name, route, viewport] of [["board", "/", null], ["phone page", "/m"
       await untilBanner(page, false);
 
       await hide(page);
-      const fresh = await newReports(1);
+      const fresh = await newReports(report => report.kind === "fetch");
       const failed = fresh.filter(report => report.kind === "fetch");
       assert.ok(failed.length >= 1, `no failed request was reported: ${JSON.stringify(fresh)}`);
       assert.equal(failed[0].route, "/state", "the report does not say which route failed");
@@ -396,3 +415,81 @@ for (const [name, route, viewport] of [["board", "/", null], ["phone page", "/m"
     }
   });
 }
+
+// ---- the freeze watchdog ------------------------------------------------------
+// A one second timer that says when it ran late. It cannot say what blocked the
+// main thread, only that something did, for how long, and what the page thought
+// it was doing; on a phone that is the whole of what can be measured, since the
+// long task observer the desktop has does not exist in Safari.
+
+// a block has to run longer than a tick plus the two second bar, or whether it
+// is reported depends on where in the second it started: a tick due in a
+// moment leaves only what is left of the block to count as lateness
+async function blockFor(page, ms) {
+  await page.evaluate(howLong => {
+    const until = Date.now() + howLong;
+    while (Date.now() < until) { /* the thread is busy, which is the point */ }
+  }, ms);
+}
+
+test("a main thread blocked for three seconds is reported as a freeze", async () => {
+  await settleReports();
+  const { page, context } = await open("/");
+  try {
+    await new Promise(resolve => setTimeout(resolve, 1200));   // the watchdog is running
+    await blockFor(page, 3600);
+    await new Promise(resolve => setTimeout(resolve, 1200));   // its next tick, late
+    await hide(page);
+
+    const fresh = await newReports(report => report.kind === "slow");
+    const frozen = fresh.filter(report => report.kind === "slow");
+    assert.equal(frozen.length, 1, `${frozen.length} freeze reports for one block`);
+    assert.ok(frozen[0].late > 2000, `the lateness reads ${frozen[0].late} ms`);
+    assert.ok(frozen[0].late < 10000, `an unbelievable lateness: ${frozen[0].late} ms`);
+    assert.ok(["poll", "render", "card", "idle"].includes(frozen[0].doing),
+      `the report says the page was doing ${JSON.stringify(frozen[0].doing)}`);
+    assert.equal(frozen[0].page, "board");
+  } finally {
+    await context.close();
+  }
+});
+
+test("a page left alone for ten seconds reports nothing at all", async () => {
+  await settleReports();
+  const { page, context } = await open("/");
+  try {
+    await new Promise(resolve => setTimeout(resolve, 10000));
+    await hide(page);
+    await new Promise(resolve => setTimeout(resolve, 400));
+    const fresh = (await reports()).slice(readSoFar);
+    readSoFar = (await reports()).length;
+    assert.deepEqual(fresh.filter(report => report.kind === "slow"), [],
+      "a page doing nothing wrong reported a freeze");
+  } finally {
+    await context.close();
+  }
+});
+
+test("two blocks in a row are two reports, because a freeze is an event", async () => {
+  await settleReports();
+  const { page, context } = await open("/m", PHONE);
+  try {
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    await blockFor(page, 3600);
+    await new Promise(resolve => setTimeout(resolve, 1400));
+    await blockFor(page, 3600);
+    await new Promise(resolve => setTimeout(resolve, 1400));
+    await hide(page);
+
+    const fresh = await newReports(report => report.kind === "slow", 2);
+    const frozen = fresh.filter(report => report.kind === "slow");
+    assert.equal(frozen.length, 2, `${frozen.length} reports for two blocks`);
+    for (const report of frozen) {
+      assert.ok(report.late > 2000);
+      assert.equal(report.count, 1, "two freezes were counted as one thing happening twice");
+      assert.equal(report.page, "phone");
+    }
+  } finally {
+    await context.close();
+  }
+});
