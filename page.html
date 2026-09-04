@@ -2782,10 +2782,22 @@ function focusedCaretContext(){
 }
 let queueFatCaret = () => {};
 let pollFails = 0;
+// the fetch and the render each get their own try, as on the board and the
+// phone: the banner is for a server that did not answer, and nothing else
 async function poll(){
+  let state;
   try {
-    const state = await (await fetch("/state")).json();
-    pollFails = 0;
+    state = await (await fetch("/state")).json();
+  } catch (e) {
+    if (++pollFails >= 3){   // the server itself, distinct from listener-offline
+      document.body.classList.add("offline");
+      document.getElementById("offline").textContent =
+        "The facilitator server is unreachable. Nothing sent now will arrive; ask in the terminal to restart it.";
+    }
+    return;
+  }
+  pollFails = 0;
+  try {
     if (!validateActiveOwner(state)) return;
     const caretBefore = focusedCaretContext();
     if (!lastState) build(state);
@@ -2797,11 +2809,7 @@ async function poll(){
          caretBefore.width !== caretAfter.width || caretBefore.height !== caretAfter.height ||
          caretBefore.font !== caretAfter.font)) queueFatCaret();
   } catch (e) {
-    if (++pollFails >= 3){   // server itself unreachable, distinct from listener-offline
-      document.body.classList.add("offline");
-      document.getElementById("offline").textContent =
-        "The facilitator server is unreachable. Nothing sent now will arrive; ask in the terminal to restart it.";
-    }
+    if (typeof reportProblem === "function") reportProblem("render", e);
   }
 }
 
