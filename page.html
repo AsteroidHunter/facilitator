@@ -1420,6 +1420,8 @@ const MOCK = DOC && new URLSearchParams(location.search).get("mock") === "1";
 // the same reporter the other two pages run. The sandbox below makes no
 // request of its own by design, so with the mock flag on it is never started
 if (!MOCK && typeof startReporter === "function") startReporter("page");
+// the marker a freeze report carries; it goes nowhere if the reporter is absent
+if (typeof noteDoing !== "function") window.noteDoing = () => {};
 if (MOCK){
   document.body.classList.add("mockview");
   activeOwner = "example";   // the sandbox lane, so a saved project never steers it
@@ -1860,6 +1862,7 @@ function build(state){
 
 // one box + its outline entry, inserted at its position within its section
 function makeBox(b, i, state){
+  noteDoing("card");
     const entry = h("div", "toc-entry");
     entry.appendChild(h("span", "tage"));
     entry.appendChild(h("span", "tnum", (b.id === "0" || b.id === "t0") ? "•" : b.id));
@@ -2785,6 +2788,7 @@ let pollFails = 0;
 // the fetch and the render each get their own try, as on the board and the
 // phone: the banner is for a server that did not answer, and nothing else
 async function poll(){
+  noteDoing("poll");
   let state;
   try {
     state = await (await fetch("/state")).json();
@@ -2797,6 +2801,7 @@ async function poll(){
     return;
   }
   pollFails = 0;
+  noteDoing("render");
   try {
     if (!validateActiveOwner(state)) return;
     const caretBefore = focusedCaretContext();

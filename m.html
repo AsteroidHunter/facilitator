@@ -559,6 +559,8 @@
 // the phone is where a failure is hardest to reproduce, so it reports the same
 // way the board does: thrown errors, failed fetches, failed renders
 if (typeof startReporter === "function") startReporter("phone");
+// the marker a freeze report carries; it goes nowhere if the reporter is absent
+if (typeof noteDoing !== "function") window.noteDoing = () => {};
 // ---- what the desktop card carries, at phone size ---------------------------
 const PLUS_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>';
 const SEND_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 11.5V3.5M3.6 6.9 7 3.5l3.4 3.4" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -642,6 +644,7 @@ function watchRise(node){
 
 // ---- the card ----------------------------------------------------------------
 function makeBox(b){
+  noteDoing("card");
   const box = h("article", "box");
   box.id = "box-" + b.id;
 
@@ -1258,6 +1261,7 @@ function goToBox(id){
 async function poll(){
   const asked = Date.now();   // when this state was asked for, which is what says
   // whether it can know about a message sent since
+  noteDoing("poll");
   let state;
   try {
     state = await (await fetch("/state", { cache: "no-store" })).json();
@@ -1272,6 +1276,7 @@ async function poll(){
   state.fetchedAt = asked;
   pollFails = 0;
   document.body.classList.remove("offline");
+  noteDoing("render");
   try {
     validateOwners(state);
     lastState = state;

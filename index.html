@@ -3192,6 +3192,8 @@
 // what this page throws, what it fails to fetch and what it fails to draw goes
 // to the board's own log; without it a failure leaves nothing behind at all
 if (typeof startReporter === "function") startReporter("board");
+// the marker a freeze report carries; it goes nowhere if the reporter is absent
+if (typeof noteDoing !== "function") window.noteDoing = () => {};
 const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
                   ["now", "Now"], ["done", "Done"], ["later", "Later"]];
 const METAS = [["toolmeta", "facilitator"], ["triagemeta", "pastureland"]];
@@ -4410,6 +4412,7 @@ function build(state){
 
 // one box + its outline entry, inserted at its position within its section
 function makeBox(b, i, state){
+  noteDoing("card");
     const entry = h("div", "toc-entry");
     entry.appendChild(h("span", "tage"));
     entry.appendChild(h("span", "tnum", (b.id === "0" || b.id === "t0") ? "•" : b.id));
@@ -7557,6 +7560,7 @@ let pollFails = 0;
 // that fails is reported and the board keeps polling, because one card that
 // will not draw should not stop the rest.
 async function poll(){
+  noteDoing("poll");
   let state;
   try {
     state = await (await fetch("/state")).json();
@@ -7569,6 +7573,7 @@ async function poll(){
     return;
   }
   pollFails = 0;
+  noteDoing("render");
   try {
     if (!validateActiveOwner(state)) return;
     // the read marks and the bar's arrangement are the board's, so they ride

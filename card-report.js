@@ -15,8 +15,12 @@
 (function () {
   const BATCH = 20;    // distinct reports held at once; the server caps again
   const FIELD = 500;   // characters kept of any one string, as the route does
+  const TICK = 1000;   // how often the freeze watchdog is due
+  const LATE = 2000;   // a tick later than this means the thread was blocked
 
   let page = null;                 // "board", "phone" or "page"; null until started
+  let doing = "idle";              // the one word the page last said it was doing
+  let freezes = 0;                 // lateness is an event, not a kind: each is its own
   const queued = new Map();        // key -> the one report for that key, and its count
 
   function cut(text) {
@@ -61,7 +65,10 @@
     const message = cut(detail.message);
     const file = cut(detail.file);
     const line = Number(detail.line) || 0;
-    const key = kind + "|" + message + "|" + file + "|" + line;
+    // two throws from the same line are one thing that is wrong; two freezes in
+    // a row are two freezes, so lateness gets a key of its own every time
+    const key = kind === "slow" ? "slow|" + (++freezes)
+                                : kind + "|" + message + "|" + file + "|" + line;
     const held = queued.get(key);
     if (held) {
       held.count++;
@@ -106,12 +113,33 @@
     };
   }
 
+  // a timer that ran late is the only portable way to catch a freeze: the long
+  // task observer is the better instrument and Safari does not have it, and the
+  // phone page runs in Safari, which is the surface where a freeze is least
+  // reproducible. It cannot say what blocked the thread, only that something
+  // did, for how long, and what the page thought it was doing at the time.
+  function watchFreeze() {
+    let due = Date.now() + TICK;
+    setInterval(function () {
+      const now = Date.now();
+      const late = now - due;
+      due = now + TICK;
+      // a hidden page's timers are throttled by the browser on purpose: that is
+      // not a freeze, and reporting it would drown the ones that are
+      if (late > LATE && !document.hidden) {
+        add("slow", { message: "the main thread was blocked", late: late,
+                      doing: doing, file: "", line: 0 });
+      }
+    }, TICK);
+  }
+
   // a page says which of the three it is, once. A second call changes nothing,
   // so a page that starts the reporter twice does not report twice
   window.startReporter = function (name) {
     if (page) return;
     page = name;
     watchFetch();
+    watchFreeze();
     addEventListener("error", function (event) {
       // a picture or a script that failed to load fires this too, carrying no
       // message at all; that is not a page error and there is nothing to say
@@ -134,6 +162,13 @@
     document.addEventListener("visibilitychange", function () {
       if (document.hidden) flush();
     });
+  };
+
+  // one word for what the page is in the middle of: the poll, the render and the
+  // card draw each set it, and a freeze report carries the last one, which is
+  // the nearest a timer can come to saying what the thread was blocked on
+  window.noteDoing = function (what) {
+    doing = cut(what).slice(0, 40);
   };
 
   // what a page reports itself: a render that threw, and anything else a page
