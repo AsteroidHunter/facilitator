@@ -65,6 +65,26 @@ A permission denial from an automated classifier NEVER pauses the listener. Stri
 - A dying server's final save can race a direct `state.json` edit. Always stop the server before editing state, and verify box count and ids after every restart.
 - Kill by PID and POLL until the port is actually free before launching the replacement; a fixed sleep loses the bind race and leaves the OLD server serving while the new one dies with "Address already in use" (bitten twice). Confirm the new code answers (hit a new endpoint) before trusting the restart.
 
+## The log
+
+Three dated files in `facilitator-internal/logs`, the sibling folder beside this repo, so nothing here is ever committed:
+
+- `server-YYYYMMDD.log`: what the board did. Start and stop with the reason it stopped, every refusal it sent, every push outcome with the service's own words, board events, and a save that failed.
+- `client-YYYYMMDD.jsonl`: what the three pages reported: a thrown error, a rejected promise, a request that failed, a card that would not draw, a timer that ran more than two seconds late.
+- `bridge-YYYYMMDD.log`: the tailnet share going up and coming down, and what ended it.
+
+Each file caps at 5 MB and rolls, thirty of each kind are kept and older ones are deleted, so the folder cannot pass about 150 MB whatever goes wrong. One line is one event, as JSON:
+
+    {"ts": "2026-09-03T18:22:41.108Z", "level": "info", "kind": "refusal", "box": "m12", "route": "/reply", "code": 400, "reason": "bad box"}
+
+Three levels and no more. INFO is what happened and is on by default; ERROR is something that failed and was not meant to; DEBUG is the noise you switch on while hunting, a line per request with its milliseconds plus claims, acks and unconfirmed hand-offs. Raise it for one run and no longer:
+
+    FACILITATOR_LOG_LEVEL=debug python3 server.py
+
+`log_level` in `run.config.json` (`info`, `debug`, `error`) sets the standing level and that variable beats it; a level nobody has heard of falls back to `info` rather than stopping the board. `FACILITATOR_LOG_DIR` moves the whole folder, which is what the tests use so no test can write into the real one. INFO also goes to standard output in a short human form, so a server started by hand says what it is doing as it does it. `GET /log?lines=N` tails the day's server file.
+
+Five things never appear in any line: message text, keys and tokens, whole push endpoints (the service's host only), file paths, and email addresses. The rule is kept where the line is written, by not passing those things in: the board event line carries a message's length and never the message, and the lane-creation line carries the folder's name and never the path to it. Anyone adding a line keeps it that way. A filter over a formatted line can be fooled; not passing the text cannot.
+
 ## Real work
 
 Real work ships from boxes: builds and scans go to subagents, results land back in the ordering box. Pushes and destructive operations follow the terminal-consent rule above. Commits happen only on the owner's order, never automatically after changes; finished work sits uncommitted until he asks. Messages: short, past tense, technical, no co-author or AI signature lines. Commit messages and code comments never name private folder paths, machines, people, or other projects. Push only on the owner's explicit word, typed in the terminal.
@@ -116,6 +136,6 @@ A first-ever start (no `state.json`) reads `seed.json` beside the server: the bo
 
 `GET /m` is the board for a phone: the project tabs across the top, one card filling the screen with the app's thin margins, and the card list (doing, deferred, done) in a drawer pulled in from the left edge. The card does what the desktop card does: the full reply, the sent messages, older replies (the arrows in the card's top bar), a composer that sends, a plus that attaches a photo through `/upload`, the defer chip, the close cross, and a plus in the drawer for a new card. Nothing else is on the phone.
 
-`./facilitator bridge` publishes the board on this Mac's Tailscale name over HTTPS and prints a QR code that opens the phone page, with the address under it. The server keeps listening on 127.0.0.1 only; the command runs `tailscale serve --bg --https=443 http://127.0.0.1:8877` (the `Tailscale` binary inside the Mac app when `tailscale` is not on PATH), so Tailscale terminates HTTPS and proxies to the board, and being on the tailnet is the whole of the access control: no password, no token, no login. Tailscale only issues certificates once HTTPS certificates are switched on for the tailnet, a one time change under DNS in the Tailscale admin console; with that off the command says so in one sentence and stops. The command then keeps the terminal open and switches the sharing off the moment you press Ctrl-C or close the terminal, and every run first clears whatever an earlier one left on. `--dry-run` prints the commands instead of running them.
+`./facilitator bridge` publishes the board on this Mac's Tailscale name over HTTPS and prints a QR code that opens the phone page, with the address under it. The server keeps listening on 127.0.0.1 only; the command runs `tailscale serve --bg --https=443 http://127.0.0.1:8877` (the `Tailscale` binary inside the Mac app when `tailscale` is not on PATH), so Tailscale terminates HTTPS and proxies to the board, and being on the tailnet is the whole of the access control: no password, no token, no login. Tailscale only issues certificates once HTTPS certificates are switched on for the tailnet, a one time change under DNS in the Tailscale admin console; with that off the command says so in one sentence and stops. The command then keeps the terminal open and switches the sharing off the moment you press Ctrl-C, press Ctrl-Z, kill it or close the terminal, and every run first clears whatever an earlier one left on. Ctrl-Z ends it rather than suspending it, because a suspended bridge leaves the address published with nothing running to take it down. `--dry-run` prints the commands instead of running them.
 
 Notifications: add the page to the phone's home screen (on an iPhone push only works from there), open it, and tap Notifications at the foot of the drawer. The server then sends one push each time a card turns to your turn: a plain reply with no live working flag, or a working flag dropped or expired while a reply waited. Progress notes never push. The push carries no payload; the phone's worker reads `/state` and shows the card's title. The signing key pair is `vapid-key.pem` beside `state.json`, made by `openssl` on first need and gitignored; subscriptions live in `state.json` under `push_subs`.
