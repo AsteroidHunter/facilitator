@@ -148,6 +148,21 @@ Endpoints:
                                below zero; an unknown box or a bad count is a
                                400 with nothing stored at all. Answers the
                                stored counts for the ids it was given
+  POST /clientlog           -> body = {"page": "board"|"phone"|"page",
+                               "reports": [...]}: what a page noticed and has no
+                               other way to say. One report per thrown error,
+                               rejected promise, failed request, failed render
+                               or timer that ran late, each carrying its kind,
+                               its message, where it happened, the card that was
+                               open and how many times it repeated. Never any
+                               card text. The pages batch these and send them on
+                               page hide through sendBeacon. Written to
+                               client-DATE.jsonl beside the server's own log, at
+                               most 10 writes per key per minute with the excess
+                               dropped and counted, at most 20 reports per batch
+                               and 500 characters per string field. A batch this
+                               board cannot read is a 400 with nothing stored, a
+                               body over 16 KB a 413
   GET  /thread?box=ID&n=N   -> last N user/agent/note messages of a box from the
                                transcript (read by the reply history stepper
                                and the quick chat panel)
