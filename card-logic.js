@@ -21,6 +21,73 @@ let pendTimes = false;
 // given it back. the desktop re-snaps the answer's lines against the box
 let pendRoomChanged = null;
 
+// ---- the card pages' keyboard commands ------------------------------------------
+// Recognition is shared; listeners, state guards, cancellation and effects stay
+// with each page. The order is part of the contract because some modifier
+// predicates deliberately overlap or ignore extra modifiers.
+const CARD_SHORTCUT_DEFINITIONS = [
+  {
+    action: "navigate", mini: true,
+    match: e => e.ctrlKey && !e.metaKey && e.shiftKey &&
+      (e.key === "ArrowLeft" || e.key === "ArrowRight")
+      ? (e.key === "ArrowLeft" ? -1 : 1) : null,
+  },
+  {
+    action: "history", mini: false,
+    match: e => e.ctrlKey && !e.metaKey && e.shiftKey &&
+      (e.key === "ArrowUp" || e.key === "ArrowDown")
+      ? (e.key === "ArrowUp" ? 1 : -1) : null,
+  },
+  {
+    action: "navigate", mini: false,
+    match: e => e.metaKey && e.shiftKey && ["[", "]", "{", "}"].includes(e.key)
+      ? (e.key === "[" || e.key === "{" ? -1 : 1) : null,
+  },
+  {
+    action: "bounce", mini: false,
+    match: e => (e.metaKey || e.ctrlKey) && !e.shiftKey &&
+      (e.key === "z" || e.key === "Z") ? true : null,
+  },
+  {
+    action: "create", mini: true,
+    match: e => e.metaKey && (e.key === "t" || e.key === "T") ? true : null,
+  },
+  {
+    action: "tab", mini: false,
+    match: e => e.metaKey && /^[1-9]$/.test(e.key) ? +e.key - 1 : null,
+  },
+  {
+    action: "escape", mini: false,
+    match: e => e.key === "Escape" ? true : null,
+  },
+  {
+    action: "close", mini: false,
+    match: e => e.key === "Backspace" || e.key === "Delete" ? true : null,
+  },
+];
+
+// Pure recognition over key/modifier fields. The finite mini scope sees only
+// the two command families the existing mini capture listener owns.
+function cardShortcut(event, scope = "card"){
+  if (scope !== "card" && scope !== "mini") return null;
+  for (const definition of CARD_SHORTCUT_DEFINITIONS){
+    if (scope === "mini" && !definition.mini) continue;
+    const value = definition.match(event);
+    if (value !== null) return { action: definition.action, value };
+  }
+  return null;
+}
+
+// True means a callable page action was invoked. Dispatch does not cancel the
+// event, stop propagation, schedule work, or imply that an async action ended.
+function dispatchCardShortcut(event, actions, scope = "card"){
+  const shortcut = cardShortcut(event, scope);
+  const action = shortcut && actions && actions[shortcut.action];
+  if (typeof action !== "function") return false;
+  action(event, shortcut);
+  return true;
+}
+
 // ---- the small helpers --------------------------------------------------------
 function h(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 

@@ -1604,67 +1604,50 @@ function stepCard(dir, focus){
   if (focus) els[pick.id]?.ta.focus({ preventScroll: true });
 }
 
-addEventListener("keydown", e => {
-  const t = e.target;
-  const typing = !!t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable);
-  // control shift left and right: the previous and the next card, in and out of
-  // a text box. the desktop moved this pair off the command shift arrows, which
-  // the system reads as selecting to the ends of a line
-  if (e.ctrlKey && !e.metaKey && e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")){
+const phoneShortcutTyping = t => !!t &&
+  (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable);
+const phoneShortcutActions = {
+  navigate(e, shortcut){
     e.preventDefault();
-    stepCard(e.key === "ArrowLeft" ? -1 : 1, typing);
-    return;
-  }
-  // control shift up and down, the sibling pair: this card's older replies and
-  // back toward live, the step the two chevrons in its top bar make
-  if (e.ctrlKey && !e.metaKey && e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")){
+    stepCard(shortcut.value, phoneShortcutTyping(e.target));
+  },
+  history(e, shortcut){
     e.preventDefault();
-    histStep(selectedId, e.key === "ArrowUp" ? 1 : -1);
-    return;
-  }
-  // command shift brackets: the same walk, on the keys the desktop offers
-  // beside the arrows
-  if (e.metaKey && e.shiftKey && ["[", "]", "{", "}"].includes(e.key)){
-    e.preventDefault();
-    stepCard(e.key === "[" || e.key === "{" ? -1 : 1, typing);
-    return;
-  }
-  // command z bounces back to the card the last send's move left, and back again
-  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === "z" || e.key === "Z")){
+    histStep(selectedId, shortcut.value);
+  },
+  bounce(e){
     if (lastLeftId && els[lastLeftId]){
       e.preventDefault();
       const there = lastLeftId;
       lastLeftId = selectedId;
       select(there);
-      if (typing) els[there].ta.focus({ preventScroll: true });
+      if (phoneShortcutTyping(e.target)) els[there].ta.focus({ preventScroll: true });
     }
-    return;
-  }
-  // command t: a new card in the lane on show, with its name ready to be typed,
-  // which is the plus at the head of the card list
-  if (e.metaKey && (e.key === "t" || e.key === "T")){
+  },
+  create(e){
     e.preventDefault();
     createCard();
-    return;
-  }
-  // command and a number jumps to that tab, counted along the bar
-  if (e.metaKey && /^[1-9]$/.test(e.key) && lastState){
-    const ow = barOwners(lastState)[+e.key - 1];
+  },
+  tab(e, shortcut){
+    if (!lastState) return;
+    const ow = barOwners(lastState)[shortcut.value];
     if (ow){ e.preventDefault(); setTab(ow); }
-    return;
-  }
-  // from here down the keys are the card's, and a row being typed in keeps
-  // every one of them. escape is the way out of the row
-  if (typing){ if (e.key === "Escape") t.blur(); return; }
-  // backspace or delete closes the card on show, and only the cards the board's
-  // own key closes: the ones the cross appears on there
-  if ((e.key === "Backspace" || e.key === "Delete") && selectedId){
+  },
+  escape(e){
+    if (phoneShortcutTyping(e.target)) e.target.blur();
+  },
+  close(e){
+    if (phoneShortcutTyping(e.target) || !selectedId) return;
     const b = lastState?.boxes.find(x => x.id === selectedId);
     if (b?.bucket === "meta"){
       e.preventDefault();
       closeCard(selectedId);
     }
-  }
+  },
+};
+
+addEventListener("keydown", e => {
+  dispatchCardShortcut(e, phoneShortcutActions);
 });
 
 // ---- installing, and being told when a card turns to his turn -------------------------
