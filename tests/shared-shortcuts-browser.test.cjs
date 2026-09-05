@@ -1,6 +1,6 @@
-// The phone page's keyboard shortcuts: the board's own keys, for a keyboard
-// paired with the phone, driven headless at an iPhone size against its own
-// fixture server. What only the phone itself can show is which command
+// The card pages' shared keyboard shortcuts, driven headless against their own
+// fixture server at desktop and iPhone sizes. What only the phone itself can
+// show is which command
 // combinations the system answers before the page is shown them, so what these
 // pin is what the page does with the events it is handed. The on-screen
 // keyboard is played by a window that shrinks with it, the way the phone
@@ -19,6 +19,7 @@ const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
+const DESKTOP = { width: 1440, height: 900 };
 const KEYBOARD = 336;   // an iPhone keyboard with its accessory bar, in css px
 const SEL = "article.box.sel textarea";
 
@@ -43,8 +44,8 @@ async function api(route, body) {
   return { status: response.status, body: await response.json() };
 }
 
-async function create(title) {
-  const result = await api("/create?owner=facilitator", title);
+async function create(title, owner = "facilitator") {
+  const result = await api("/create?owner=" + encodeURIComponent(owner), title);
   assert.equal(result.status, 200);
   return result.body.id;
 }
@@ -64,6 +65,14 @@ async function clearLane() {
 }
 
 async function openPhone(route) {
+  return openCardPage(route, PHONE);
+}
+
+async function openDesktop(route = "/") {
+  return openCardPage(route, DESKTOP);
+}
+
+async function openCardPage(route, viewport) {
   const page = await browser.newPage();
   const problems = [];
   page.on("console", message => {
@@ -72,8 +81,8 @@ async function openPhone(route) {
     problems.push(message.text());
   });
   page.on("pageerror", error => problems.push("pageerror: " + error.message));
-  await page.setViewport(PHONE);
-  // each page starts where a phone that has never been opened starts: the
+  await page.setViewport(viewport);
+  // each page starts where a browser that has never been opened starts: the
   // remembered tab and card of the test before are no part of this one
   await page.evaluateOnNewDocument(() => { try { localStorage.clear(); } catch (err) {} });
   await page.goto(origin + route, { waitUntil: "domcontentloaded" });
@@ -113,6 +122,20 @@ function activeElement(page) {
   });
 }
 
+async function selectDesktop(page, id) {
+  await page.waitForFunction(cardId => !!els[cardId], { timeout: 5000 }, id);
+  await page.evaluate(cardId => select(cardId), id);
+  await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
+}
+
+function createRequests(page) {
+  const requests = [];
+  page.on("request", request => {
+    if (new URL(request.url()).pathname === "/create") requests.push(request.url());
+  });
+  return requests;
+}
+
 before(async () => {
   fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-shortcuts-"));
   const port = await freePort();
@@ -120,8 +143,13 @@ before(async () => {
   const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
   assert.notEqual(patched, source, "test server port was not patched");
   await writeFile(path.join(fixtureDir, "server.py"), patched);
-  for (const name of ["m.html", "m-sw.js", "m-manifest.json", "card-markdown.js", "card-tokens.css", "card-logic.js", "index.html", "page.html"]) {
+  for (const name of ["m.html", "m-sw.js", "m-manifest.json", "card-markdown.js", "card-tokens.css", "card-logic.js", "index.html", "page.html", "cm-markdown.js"]) {
     await copyFile(path.join(ROOT, name), path.join(fixtureDir, name));
+  }
+  try {
+    await copyFile(path.join(ROOT, "card-report.js"), path.join(fixtureDir, "card-report.js"));
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
   }
   await mkdir(path.join(fixtureDir, "assets"));
   for (const name of await readdir(path.join(ROOT, "assets"))) {
@@ -497,6 +525,312 @@ test("a plain arrow belongs to the caret, and walks no card", async () => {
     await page.keyboard.press("ArrowRight");
     await settle(120);
     assert.equal(await shownId(page), first, "a bare arrow walked the cards");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("desktop aliases walk the visible cards and preserve their focus rules", async () => {
+  await clearLane();
+  const ids = [];
+  for (const name of ["First desktop shortcut", "Second desktop shortcut", "Third desktop shortcut"]) {
+    const id = await create(name);
+    await api(`/reply?box=${id}`, "A reply to answer.");
+    ids.push(id);
+  }
+  const { page, problems } = await openDesktop();
+  try {
+    await selectDesktop(page, ids[0]);
+    const order = await listOrder(page);
+    const start = order.indexOf(ids[0]);
+
+    await page.evaluate(() => document.activeElement?.blur());
+    await chord(page, "ArrowRight", "Control", "Shift");
+    assert.equal(await shownId(page), order[(start + 1) % order.length]);
+    assert.deepEqual(await activeElement(page), {
+      tag: "TEXTAREA", box: order[(start + 1) % order.length],
+    }, "desktop card stepping did not focus the destination composer");
+
+    await chord(page, "[", "Meta", "Shift");
+    assert.equal(await shownId(page), ids[0], "the bracket alias did not step back");
+    await page.keyboard.type("abcd");
+    await page.keyboard.press("ArrowLeft");
+    assert.equal(await page.$eval(SEL, field => field.selectionStart), 3,
+      "a plain arrow did not remain native in the composer");
+    assert.equal(await shownId(page), ids[0]);
+
+    await page.evaluate(() => document.activeElement.blur());
+    await page.keyboard.press("ArrowRight");
+    assert.equal(await shownId(page), order[(start + 1) % order.length],
+      "the desktop-only plain-arrow fallback stopped walking cards");
+    assert.equal((await activeElement(page)).tag, "BODY",
+      "the desktop fallback unexpectedly focused a composer");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("desktop history works from the composer and keeps its caret", async () => {
+  await clearLane();
+  const id = await create("Desktop reply history");
+  await api(`/reply?box=${id}`, "First desktop reply.");
+  await api(`/reply?box=${id}`, "Second desktop reply.");
+  const { page, problems } = await openDesktop();
+  try {
+    await selectDesktop(page, id);
+    await page.focus(SEL);
+    await chord(page, "ArrowUp", "Control", "Shift");
+    await settle(300);
+    assert.equal(await page.$eval("article.box.sel .reply", el => el.textContent), "First desktop reply.",
+      "the first history step did not show the older reply");
+    assert.deepEqual(await page.evaluate(() => hist && ({ id: hist.id, step: hist.step })), { id, step: 1 });
+    assert.equal((await activeElement(page)).tag, "TEXTAREA");
+    await chord(page, "ArrowUp", "Control", "Shift");
+    assert.equal(await page.evaluate(() => hist.step), 1,
+      "history stepped beyond its oldest reply");
+    await chord(page, "ArrowDown", "Control", "Shift");
+    await page.waitForFunction(() => !document.querySelector("article.box.sel").classList.contains("histview"));
+    assert.equal((await activeElement(page)).tag, "TEXTAREA");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("visible and locked desktop tabs define command-number ordinals", async () => {
+  await api("/tabs", JSON.stringify({
+    order: ["pastureland", "facilitator"], closed: ["pastureland"],
+  }));
+  const { page, problems } = await openDesktop("/");
+  try {
+    await page.waitForFunction(() => activeOwner === "facilitator");
+    await page.evaluate(() => {
+      window.shortcutObserved = null;
+      addEventListener("keydown", event => {
+        window.shortcutObserved = { key: event.key, prevented: event.defaultPrevented };
+      });
+    });
+    await chord(page, "2", "Meta");
+    assert.equal(await page.evaluate(() => activeOwner), "facilitator",
+      "a closed tab still occupied a number ordinal");
+    assert.deepEqual(await page.evaluate(() => window.shortcutObserved), { key: "2", prevented: false },
+      "an unavailable tab target was claimed");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+
+  const locked = await openDesktop("/?project=pastureland");
+  try {
+    await locked.page.waitForFunction(() => activeOwner === "pastureland");
+    await chord(locked.page, "1", "Meta");
+    assert.equal(await locked.page.evaluate(() => activeOwner), "pastureland");
+    await chord(locked.page, "2", "Meta");
+    assert.equal(await locked.page.evaluate(() => activeOwner), "pastureland",
+      "a locked window accepted a tab outside its singleton ordinal list");
+    assert.deepEqual(locked.problems, []);
+  } finally {
+    await locked.page.close();
+  }
+
+  await api("/tabs", JSON.stringify({
+    order: ["pastureland", "facilitator"], closed: ["pastureland", "facilitator"],
+  }));
+  const phone = await openPhone("/m");
+  try {
+    await chord(phone.page, "2", "Meta");
+    await phone.page.waitForFunction(() => activeOwner === "facilitator");
+    assert.deepEqual(phone.problems, []);
+  } finally {
+    await phone.page.close();
+    await api("/tabs", JSON.stringify({ order: ["facilitator", "pastureland"], closed: [] }));
+  }
+});
+
+test("desktop send-return preserves drafts and missing targets leave undo native", async () => {
+  await clearLane();
+  const from = await create("Desktop send return source");
+  await api(`/reply?box=${from}`, "A reply to answer.");
+  const waiting = await create("Desktop send return destination");
+  await api(`/reply?box=${waiting}`, "Another reply to answer.");
+  const { page, problems } = await openDesktop();
+  try {
+    await selectDesktop(page, from);
+    await page.focus(SEL);
+    await page.keyboard.type("sent from desktop");
+    const sent = page.waitForResponse(response => new URL(response.url()).pathname === "/send");
+    await page.keyboard.press("Enter");
+    assert.equal((await sent).status(), 200);
+    await page.waitForFunction(id => selectedId === id, { timeout: 3000 }, waiting);
+
+    await page.keyboard.type("unsent draft stays here");
+    await chord(page, "z", "Meta");
+    assert.equal(await shownId(page), from,
+      "a valid return target did not outrank native undo while typing");
+    assert.equal(await page.$eval(`#box-${waiting} textarea`, field => field.value), "unsent draft stays here");
+    await chord(page, "z", "Control");
+    assert.equal(await shownId(page), waiting);
+    assert.equal(await page.$eval(SEL, field => field.value), "unsent draft stays here");
+
+    await page.evaluate(() => { lastLeftId = null; });
+    await page.evaluate(() => {
+      window.shortcutObserved = null;
+      addEventListener("keydown", event => {
+        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+          window.shortcutObserved = { prevented: event.defaultPrevented };
+        }
+      });
+    });
+    await page.keyboard.type(" plus native undo");
+    await chord(page, "z", "Control");
+    assert.equal(await shownId(page), waiting, "an unavailable return target moved the selection");
+    assert.deepEqual(await page.evaluate(() => window.shortcutObserved), { prevented: false },
+      "native undo was claimed without a return target");
+    await page.keyboard.type(" shifted");
+    await chord(page, "z", "Meta", "Shift");
+    assert.equal(await shownId(page), waiting, "shift-command-z triggered the board bounce");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("desktop mini capture keeps its subset ahead of typing and the board", async () => {
+  await clearLane();
+  const first = await create("First mini shortcut");
+  await api(`/reply?box=${first}`, "First mini reply.");
+  const second = await create("Second mini shortcut");
+  await api(`/reply?box=${second}`, "Second mini reply.");
+  const { page, problems } = await openDesktop();
+  const creates = createRequests(page);
+  try {
+    await page.waitForFunction(() => miniOrder.length >= 2 && selectedId !== null, { timeout: 5000 });
+    await selectDesktop(page, first);
+    await page.evaluate(id => { miniGo(id); renderMiniCards(lastState); }, first);
+    await page.click("#magic2 .mbox:not(.off) textarea");
+    const mainBefore = await shownId(page);
+    await chord(page, "ArrowRight", "Control", "Shift");
+    const miniAfter = await page.evaluate(() => miniId);
+    assert.equal(miniAfter, second, "the mini shortcut did not step exactly once");
+    assert.equal(await shownId(page), mainBefore, "mini stepping moved the main selection");
+    assert.equal(await page.evaluate(() => document.activeElement === miniEls[miniId].ta), true,
+      "mini stepping from typing did not carry its caret");
+
+    const created = page.waitForResponse(response => new URL(response.url()).pathname === "/create");
+    await chord(page, "t", "Meta");
+    assert.equal((await created).status(), 200);
+    await settle(250);
+    assert.equal(creates.length, 1, "mini command-T created more than one card");
+    assert.equal(await shownId(page), mainBefore, "mini creation moved the main selection");
+
+    await page.evaluate(() => miniEls[miniId].ta.focus());
+    const blockedAt = await shownId(page);
+    await chord(page, "]", "Meta", "Shift");
+    assert.equal(await shownId(page), blockedAt,
+      "a mini textarea let bracket navigation reach the board");
+    await page.evaluate(() => document.activeElement.blur());
+    await chord(page, "]", "Meta", "Shift");
+    assert.notEqual(await shownId(page), blockedAt,
+      "a bracket outside mini typing was redirected away from the board");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("desktop capture and component barriers retain keyboard priority", async () => {
+  await clearLane();
+  const returnTo = await create("Barrier return target");
+  await api(`/reply?box=${returnTo}`, "Return target reply.");
+  const current = await create("Barrier current card");
+  await api(`/reply?box=${current}`, "Current reply.");
+  const { page, problems } = await openDesktop();
+  const creates = createRequests(page);
+  try {
+    await selectDesktop(page, current);
+    await page.evaluate(({ from, at }) => { lastLeftId = from; select(at); editTitle(at); }, {
+      from: returnTo, at: current,
+    });
+    await chord(page, "z", "Meta");
+    assert.equal(await shownId(page), current, "the shared title let board bounce escape its barrier");
+
+    await page.evaluate(() => {
+      const host = document.createElement("span");
+      host.id = "shortcut-inline-fixture";
+      document.body.appendChild(host);
+      inlineEdit(host, "local value", () => {});
+    });
+    await chord(page, "t", "Meta");
+    await settle(120);
+    assert.equal(creates.length, 0, "the inline editor let command-T reach the board");
+
+    await page.evaluate(() => showOwnerRefusal("fixture refusal"));
+    await chord(page, "t", "Meta");
+    await settle(120);
+    assert.equal(creates.length, 0, "owner refusal did not stop the board shortcut listener");
+    await page.evaluate(() => { ownerRefused = false; document.getElementById("owner-refused")?.remove(); });
+
+    await page.focus(`#box-${current} textarea`);
+    await page.keyboard.type("picture draft");
+    await page.evaluate(async () => {
+      const host = document.getElementById("magic3");
+      host.textContent = "";
+      host.classList.add("filled");
+      const img = document.createElement("img");
+      img.className = "p3img";
+      img.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+      host.appendChild(img);
+      await img.decode();
+      host._p3 = { img };
+      p3ZoomOpen(img);
+    });
+    await page.keyboard.press("Escape");
+    assert.equal(await page.evaluate(() => !!p3Zoom?.closing), true,
+      "picture Escape did not close through its capture handler");
+    assert.equal(await page.evaluate(id => document.activeElement === els[id].ta, current), true,
+      "picture Escape leaked to the board blur action");
+    assert.equal(await page.$eval(`#box-${current} textarea`, field => field.value), "picture draft");
+    await page.waitForFunction(() => p3Zoom === null, { timeout: 1500 });
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("CodeMirror undo and a valid board return target both run", async () => {
+  const from = await create("CodeMirror return target", "pastureland");
+  await api(`/reply?box=${from}`, "Return target reply.");
+  const current = await create("CodeMirror current card", "pastureland");
+  await api(`/reply?box=${current}`, "Current editor reply.");
+  const { page, problems } = await openDesktop("/?project=pastureland");
+  try {
+    await selectDesktop(page, current);
+    await page.evaluate(async ({ fromId, currentId }) => {
+      lastLeftId = fromId;
+      select(currentId);
+      mdBoxes();
+      const host = mdBuild(MD_MOUNTS.pastureland);
+      host.style.left = "32px";
+      host.style.top = "32px";
+      host.style.width = "340px";
+      host.style.height = "520px";
+      if (!await mdBundle()) throw new Error("CodeMirror bundle did not load");
+      mdFor = "pastureland";
+      mdOpen = { lane: "pastureland", root: "fixture-internal", rel: "fixture.md", mtime: "1" };
+      mdClean = "editor text";
+      mdMount(host, "editor text", false);
+      host.classList.add("editing");
+    }, { fromId: from, currentId: current });
+    await page.click("#magic4 .cm-content");
+    await page.keyboard.type("X");
+    assert.equal(await page.evaluate(() => mdView.state.sliceDoc()), "editor textX");
+    await chord(page, "z", "Meta");
+    assert.equal(await page.evaluate(() => mdView.state.sliceDoc()), "editor text",
+      "CodeMirror did not perform its own undo");
+    assert.equal(await shownId(page), from,
+      "the same default-prevented event did not reach the board return action");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
