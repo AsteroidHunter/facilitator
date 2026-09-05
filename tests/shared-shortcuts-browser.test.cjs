@@ -138,6 +138,8 @@ function createRequests(page) {
 
 before(async () => {
   fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-shortcuts-"));
+  const logs = path.join(fixtureDir, "logs");
+  await mkdir(logs);
   const port = await freePort();
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
   const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
@@ -166,7 +168,11 @@ before(async () => {
   origin = `http://127.0.0.1:${port}`;
   child = spawn("python3", [path.join(fixtureDir, "server.py")], {
     cwd: fixtureDir,
-    env: { ...process.env, FACILITATOR_TEST_PORT: String(port) },
+    env: {
+      ...process.env,
+      FACILITATOR_TEST_PORT: String(port),
+      FACILITATOR_LOG_DIR: logs,
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";
