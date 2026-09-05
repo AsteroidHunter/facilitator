@@ -1464,7 +1464,24 @@ PHONE_FILES = {
 # state.json, and signs each token. The DER signature it prints is turned into
 # the raw r||s form the JWT wants, which is plain byte handling.
 PUSH_KEY_PATH = HERE / "vapid-key.pem"
-PUSH_CONTACT = "mailto:facilitator@localhost"   # the token's sub claim, a contact push services may use
+def _push_contact() -> str:
+    """The signed push token's contact, a mailto: or https: address the push
+    service may use to reach whoever runs this board. It is read from
+    run.config.json (machine-local, gitignored) under "push_contact", so no
+    personal address ever sits in the code; Apple's service refuses a token
+    whose contact it cannot accept. The placeholder below is what a board with
+    no configured contact sends."""
+    try:
+        cfg = json.loads((HERE / "run.config.json").read_text())
+        contact = str(cfg.get("push_contact") or "").strip()
+        if contact.startswith(("mailto:", "https:")):
+            return contact
+    except (OSError, ValueError):
+        pass
+    return "mailto:facilitator@localhost"
+
+
+PUSH_CONTACT = _push_contact()   # the token's sub claim, a contact push services may use
 PUSH_TTL = 86400                                # seconds a push may wait for a phone that is off
 PUSH_REASON_CHARS = 200                         # of a refusing service's own words, the first this many
 _push_lock = threading.Lock()
