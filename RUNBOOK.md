@@ -89,7 +89,7 @@ Five things never appear in any line: message text, keys and tokens, whole push 
 
 ## Real work
 
-Real work ships from boxes: builds and scans go to subagents, results land back in the ordering box. Pushes and destructive operations follow the terminal-consent rule above. Commits happen only on the owner's order, never automatically after changes; finished work sits uncommitted until he asks. Messages: short, past tense, technical, no co-author or AI signature lines. Commit messages and code comments never name private folder paths, machines, people, or other projects. Push only on the owner's explicit word, typed in the terminal.
+Real work ships from boxes: builds and scans go to subagents, results land back in the ordering box. Pushes and destructive operations follow the terminal-consent rule above. After work is finished and verified, stage and commit its changes automatically. Messages: short, imperative, technical, no co-author or AI signature lines. Commit messages and code comments never name private folder paths, machines, people, or other projects. Push only on the owner's explicit word, typed in the terminal.
 
 ## Delegation
 
