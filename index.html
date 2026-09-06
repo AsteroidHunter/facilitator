@@ -7253,28 +7253,28 @@ addEventListener("mousedown", e => {
   // card is holding the keys
   document.body.classList.toggle("minifocus", inside);
 }, true);
-// capture, so these never reach the board's own arrow and delete handling
-addEventListener("keydown", e => {
-  if (!miniFocused) return;
-  if (e.metaKey && (e.key === "t" || e.key === "T")){
+const miniShortcutActions = {
+  create(e){
     e.preventDefault(); e.stopPropagation();
     miniCreate();
-    return;
-  }
+  },
+  navigate(e, shortcut){
+    const t = document.activeElement;
+    const typing = t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable);
+    e.preventDefault(); e.stopPropagation();
+    miniStep(shortcut.value, { focus: typing });
+  },
+};
+
+// capture, so the mini subset never reaches the board's own handling
+addEventListener("keydown", e => {
+  if (!miniFocused) return;
+  if (dispatchCardShortcut(e, miniShortcutActions, "mini")) return;
   const t = document.activeElement;
   const typing = t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable);
-  // control+shift+left/right is the board's card switcher, and the whole point
-  // of that pair is that it still works with the cursor sitting in a text box.
-  // the small card takes the same pair while it holds the keys, or the habit
-  // falls through and quietly walks the large card behind it instead.
-  // up and down are deliberately not listed: those stay the board's
-  const switcher = e.ctrlKey && !e.metaKey && e.shiftKey;
-  if (typing && !switcher) return;   // plain arrows belong to the caret while typing
+  if (typing) return;   // plain arrows belong to the caret while typing
   if (e.key === "ArrowLeft" || e.key === "ArrowRight"){
     e.preventDefault(); e.stopPropagation();
-    // typing when the pair was pressed means the caret was in a text box, so it
-    // belongs in the next card's text box. arriving from anywhere else leaves
-    // focus where it was rather than pulling it into a composer uninvited
     miniStep(e.key === "ArrowRight" ? 1 : -1, { focus: typing });
   }
 }, true);
@@ -7598,69 +7598,59 @@ async function poll(){
 
 // the grid compass: arrow keys when not typing (Esc leaves the input), and
 // the quiet on-page arrows
-addEventListener("keydown", e => {
-  if (!FOCUS) return;
-  if (e.ctrlKey && !e.metaKey && e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")){
-    // control+shift+arrows: previous/next card, in and out of the text box
-    // (moved off command+shift+arrows, which natively selects to line ends)
+const boardShortcutTyping = t => !!t &&
+  (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable);
+const boardShortcutActions = {
+  navigate(e, shortcut){
     e.preventDefault();
-    nav(e.key === "ArrowLeft" ? -1 : 1, 0, { focus: true });
-    return;
-  }
-  if (e.ctrlKey && !e.metaKey && e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")){
-    // control+shift+up/down, the sibling pair: the selected card's older
-    // replies and back toward live, in and out of the text box
+    nav(shortcut.value, 0, { focus: true });
+  },
+  history(e, shortcut){
     e.preventDefault();
-    histStep(selectedId, e.key === "ArrowUp" ? 1 : -1);
-    return;
-  }
-  if (e.metaKey && e.shiftKey && ["[", "]", "{", "}"].includes(e.key)){
-    // command+shift+brackets: previous/next card, works while typing,
-    // cursor lands in the next card's text box
-    e.preventDefault();
-    nav(e.key === "[" || e.key === "{" ? -1 : 1, 0, { focus: true });
-    return;
-  }
-  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === "z" || e.key === "Z")){
-    // command+z bounces back to the card the last send left, and back again
+    histStep(selectedId, shortcut.value);
+  },
+  bounce(e){
     if (lastLeftId && els[lastLeftId]){
       e.preventDefault();
       const there = lastLeftId;
       lastLeftId = selectedId;
       select(there, { focus: true });
     }
-    return;
-  }
-  if (e.metaKey && (e.key === "t" || e.key === "T")){   // command+T: new card, input focused
+  },
+  create(e){
     e.preventDefault();
-    if (!ownerReady) return;
-    if (draft) return;   // a choosing tab has no lane to put a card in yet
+    if (!ownerReady || draft) return;
     fetch("/create?owner=" + activeOwner, { method: "POST" })
       .then(x => x.json())
       .then(r => { if (r?.id){ localStorage.setItem("focusbox", r.id); poll(); } })
       .catch(() => {});
-    return;
-  }
-  if (e.metaKey && /^[1-9]$/.test(e.key) && lastState){   // command+number jumps tabs
+  },
+  tab(e, shortcut){
+    if (!lastState) return;
     const owners = LOCKED ? [LOCKED] : rowsOf(lastState);
-    const ow = owners[+e.key - 1];
+    const ow = owners[shortcut.value];
     if (ow){ e.preventDefault(); setTab(ow); }
-    return;
-  }
-  const t = e.target;
-  const typing = t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable);
-  if (typing){ if (e.key === "Escape") t.blur(); return; }
-  // the arrow key resize is gone, taken out on 20260822. boxes are
-  // still resized by the small squares in edit mode and moved by dragging
-  if ((e.key === "Backspace" || e.key === "Delete") && selectedId){
+  },
+  escape(e){
+    if (boardShortcutTyping(e.target)) e.target.blur();
+  },
+  close(e){
+    if (boardShortcutTyping(e.target) || !selectedId) return;
     const b = lastState?.boxes.find(x => x.id === selectedId);
-    if (b?.bucket === "meta"){   // same cards the remove cross appears on
+    if (b?.bucket === "meta"){
       e.preventDefault();
       fetch("/close?box=" + encodeURIComponent(selectedId), { method: "POST" })
         .then(() => poll()).catch(() => {});
     }
-    return;
-  }
+  },
+};
+
+addEventListener("keydown", e => {
+  if (!FOCUS) return;
+  if (dispatchCardShortcut(e, boardShortcutActions)) return;
+  if (boardShortcutTyping(e.target)) return;
+  // the arrow key resize is gone, taken out on 20260822. boxes are
+  // still resized by the small squares in edit mode and moved by dragging
   const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[e.key];   // up/down freed; cmd+number switches projects
   if (d){ e.preventDefault(); nav(d[0], d[1]); }
 });

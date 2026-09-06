@@ -1,0 +1,121 @@
+const assert = require("node:assert/strict");
+const { readFile } = require("node:fs/promises");
+const { test } = require("node:test");
+const vm = require("node:vm");
+const path = require("node:path");
+
+const ROOT = path.resolve(__dirname, "..");
+
+async function shortcuts() {
+  const source = await readFile(path.join(ROOT, "card-logic.js"), "utf8");
+  const context = vm.createContext({
+    Date,
+    setInterval,
+    clearInterval,
+    setTimeout,
+    clearTimeout,
+  });
+  vm.runInContext(source, context, { filename: "card-logic.js" });
+  return {
+    resolve: vm.runInContext("cardShortcut", context),
+    dispatch: vm.runInContext("dispatchCardShortcut", context),
+  };
+}
+
+function event(key, modifiers = {}) {
+  return {
+    key,
+    ctrlKey: false,
+    metaKey: false,
+    shiftKey: false,
+    altKey: false,
+    defaultPrevented: false,
+    isComposing: false,
+    repeat: false,
+    ...modifiers,
+  };
+}
+
+function plain(value) {
+  return value && { action: value.action, value: value.value };
+}
+
+test("card navigation aliases resolve to one action and direction", async () => {
+  const { resolve } = await shortcuts();
+  assert.deepEqual(plain(resolve(event("ArrowLeft", { ctrlKey: true, shiftKey: true }))),
+    { action: "navigate", value: -1 });
+  assert.deepEqual(plain(resolve(event("ArrowRight", { ctrlKey: true, shiftKey: true, altKey: true }))),
+    { action: "navigate", value: 1 });
+  assert.deepEqual(plain(resolve(event("[", { metaKey: true, shiftKey: true }))),
+    { action: "navigate", value: -1 });
+  assert.deepEqual(plain(resolve(event("}", { metaKey: true, ctrlKey: true, shiftKey: true, altKey: true }))),
+    { action: "navigate", value: 1 });
+});
+
+test("history, return, creation and tabs keep their modifier rules", async () => {
+  const { resolve } = await shortcuts();
+  assert.deepEqual(plain(resolve(event("ArrowUp", { ctrlKey: true, shiftKey: true, altKey: true }))),
+    { action: "history", value: 1 });
+  assert.deepEqual(plain(resolve(event("ArrowDown", { ctrlKey: true, shiftKey: true }))),
+    { action: "history", value: -1 });
+  assert.deepEqual(plain(resolve(event("Z", { ctrlKey: true, altKey: true }))),
+    { action: "bounce", value: true });
+  assert.deepEqual(plain(resolve(event("t", { metaKey: true, ctrlKey: true, shiftKey: true, altKey: true }))),
+    { action: "create", value: true });
+  assert.deepEqual(plain(resolve(event("1", { metaKey: true }))),
+    { action: "tab", value: 0 });
+  assert.deepEqual(plain(resolve(event("9", { metaKey: true, shiftKey: true, altKey: true }))),
+    { action: "tab", value: 8 });
+});
+
+test("mini scope exposes only its established command subset", async () => {
+  const { resolve } = await shortcuts();
+  assert.deepEqual(plain(resolve(event("ArrowRight", { ctrlKey: true, shiftKey: true }), "mini")),
+    { action: "navigate", value: 1 });
+  assert.deepEqual(plain(resolve(event("T", { metaKey: true }), "mini")),
+    { action: "create", value: true });
+  assert.equal(resolve(event("]", { metaKey: true, shiftKey: true }), "mini"), null);
+  assert.equal(resolve(event("ArrowUp", { ctrlKey: true, shiftKey: true }), "mini"), null);
+  assert.equal(resolve(event("2", { metaKey: true }), "mini"), null);
+  assert.equal(resolve(event("t", { metaKey: true }), "unknown"), null);
+});
+
+test("native combinations remain outside common recognition", async () => {
+  const { resolve } = await shortcuts();
+  assert.equal(resolve(event("ArrowLeft")), null);
+  assert.equal(resolve(event("ArrowLeft", { metaKey: true, shiftKey: true })), null);
+  assert.equal(resolve(event("ArrowRight", { ctrlKey: true, metaKey: true, shiftKey: true })), null);
+  assert.equal(resolve(event("z", { metaKey: true, shiftKey: true })), null);
+  assert.equal(resolve(event("0", { metaKey: true })), null);
+  assert.equal(resolve(event("t", { ctrlKey: true })), null);
+});
+
+test("editing flags do not add exclusions to recognized commands", async () => {
+  const { resolve } = await shortcuts();
+  assert.deepEqual(plain(resolve(event("z", {
+    metaKey: true, defaultPrevented: true, isComposing: true, repeat: true,
+  }))), { action: "bounce", value: true });
+  assert.deepEqual(plain(resolve(event("Escape", {
+    metaKey: true, ctrlKey: true, shiftKey: true, altKey: true,
+  }))), { action: "escape", value: true });
+  assert.deepEqual(plain(resolve(event("Delete", {
+    metaKey: true, ctrlKey: true, shiftKey: true, altKey: true,
+  }))), { action: "close", value: true });
+  assert.deepEqual(plain(resolve(event("Backspace"))), { action: "close", value: true });
+});
+
+test("dispatch calls only a supported action and leaves policy to it", async () => {
+  const { dispatch } = await shortcuts();
+  const seen = [];
+  const key = event("ArrowLeft", { ctrlKey: true, shiftKey: true });
+  assert.equal(dispatch(key, {
+    navigate(received, shortcut) { seen.push([received, plain(shortcut)]); },
+  }), true);
+  assert.deepEqual(seen, [[key, { action: "navigate", value: -1 }]]);
+  assert.equal(key.defaultPrevented, false, "dispatch canceled the event itself");
+
+  const unsupported = event("t", { metaKey: true });
+  assert.equal(dispatch(unsupported, {}), false);
+  assert.equal(unsupported.defaultPrevented, false);
+  assert.equal(dispatch(event("ArrowLeft"), { navigate() { throw new Error("not matched"); } }), false);
+});

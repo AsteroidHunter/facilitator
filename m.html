@@ -667,13 +667,7 @@ function makeBox(b){
   arc.addEventListener("click", e => { e.stopPropagation(); toggleFlag(b.id, "park"); });
   const x = h("button", "xbtn");
   x.type = "button"; x.title = "done (an empty card is removed instead)"; x.setAttribute("aria-label", "close");
-  x.addEventListener("click", async e => {
-    e.stopPropagation();
-    await fetch("/close?box=" + encodeURIComponent(b.id), { method: "POST" }).catch(() => {});
-    const doing = lastState ? poolOf(lastState).filter(o => !o.done && !o.parked && o.id !== b.id && o.id !== "0" && o.id !== "t0") : [];
-    if (doing.length) select(doing[0].id); else deselect();
-    poll();
-  });
+  x.addEventListener("click", e => { e.stopPropagation(); closeCard(b.id); });
   topbar.append(histctl, arc, x);
   box.appendChild(topbar);
 
@@ -729,6 +723,17 @@ function makeBox(b){
   ta.addEventListener("input", () => tick(true));
   ta.addEventListener("focus", () => requestAnimationFrame(() => revealCaret(ta, twin)));
   ta.addEventListener("mousedown", takeFocusTap);
+  // enter sends and shift enter makes a new line, the desktop composer's pair,
+  // and only while the on-screen keyboard is down. a phone puts that keyboard
+  // away when a keyboard is paired with it, so a row being typed in with no
+  // keyboard on screen is a row being typed on by hand, where the desktop's
+  // habit belongs. with the on-screen keyboard up the return key still makes a
+  // new line, as it always has here, and the square is still the way to send
+  ta.addEventListener("keydown", e => {
+    if (e.key !== "Enter" || e.shiftKey || document.body.classList.contains("kb")) return;
+    e.preventDefault();
+    doSend(b.id);
+  });
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => tick());
   tick();
   send.addEventListener("pointerdown", e => { if (document.activeElement === ta) e.preventDefault(); });
@@ -775,6 +780,15 @@ function growPend(el, arrive){
 // desktop: card-logic.js
 
 // ---- sending, closing, parking, naming ------------------------------------------
+// what the cross on the card does, and what the key that stands for it does: the
+// card is closed and the next one still open takes the screen, so the screen is
+// never left holding a card that has just gone
+async function closeCard(id){
+  await fetch("/close?box=" + encodeURIComponent(id), { method: "POST" }).catch(() => {});
+  const doing = lastState ? poolOf(lastState).filter(o => !o.done && !o.parked && o.id !== id && o.id !== "0" && o.id !== "t0") : [];
+  if (doing.length) select(doing[0].id); else deselect();
+  poll();
+}
 function undone(id){
   fetch("/done?box=" + encodeURIComponent(id) + "&v=0", { method: "POST" }).then(() => poll()).catch(() => {});
 }
@@ -782,6 +796,7 @@ function undone(id){
 // own move and its own wait
 let autoNext = null;
 const AUTONEXT_MS = 0;   // the desktop's number; a quiet time after a send before moving on
+let lastLeftId = null;   // the card the send's move left, for the bounce on command z
 // the tap is answered on the tap. the desktop waits for the server before it
 // draws the line because the server is on the same machine and answers in a
 // millisecond; the phone is a room and a radio away from it, and waiting there
@@ -809,7 +824,9 @@ async function doSend(id){
   el.pendRaw = el.pendRaw ? el.pendRaw + "\n\n" + text : text;
   if (hist && hist.id === id) histExit(id);   // a send lands you back on the live reply
   clearTimeout(autoNext);
-  autoNext = setTimeout(() => { autoNext = null; jumpNextYellow(id); }, AUTONEXT_MS);
+  // the card this move leaves is written down so command z can bounce back to
+  // it, exactly as the desktop writes it down
+  autoNext = setTimeout(() => { autoNext = null; if (jumpNextYellow(id)) lastLeftId = id; }, AUTONEXT_MS);
   try {
     const r = await fetch("/send?box=" + encodeURIComponent(id), { method: "POST", body: text });
     if (!r.ok) throw new Error(r.status);
@@ -868,6 +885,16 @@ function setTab(owner){
   if (pick) select(pick.id); else deselect();
   if (lastState) apply(lastState);
 }
+// the bar the board draws, in the board's order and without the tabs the board
+// has closed. this page is a bridge, so it shows exactly those tabs; a board
+// that has closed every lane leaves the bar whole rather than empty. the keys
+// that jump to a tab count along this same list, so a number is the tab he can
+// see in that place
+function barOwners(st){
+  const all = allRowsOf(st);
+  const open = all.filter(ow => !tabShut(st, ow));
+  return open.length ? open : all;
+}
 // the bar is scrolled by hand and must stay where his finger left it. two
 // things used to take it back to the start. the first is the rebuild below,
 // which empties the row and puts a fresh set of tabs in it: a scroller with no
@@ -881,12 +908,7 @@ function renderTabs(st){
   const bar = document.getElementById("tabbar");
   const lane = bar.parentNode;   // the bar is the row; its parent is the scroller
   if (tabTouch && tabTouch.rects) return;   // a tab being carried owns the bar
-  // the bar the board draws, in the board's order and without the tabs the
-  // board has closed. this page is a bridge, so it shows exactly those tabs;
-  // a board that has closed every lane leaves the bar whole rather than empty
-  const all = allRowsOf(st);
-  const open = all.filter(ow => !tabShut(st, ow));
-  const owners = open.length ? open : all;
+  const owners = barOwners(st);
   // the tab under him closed on the other device: step to the first one left,
   // the way the board does. setTab repaints, and the paint below is the same
   // paint either way, so this falls through rather than returning
@@ -1571,6 +1593,80 @@ window.addEventListener("scroll", () => {
   if (window.scrollX !== 0 || window.scrollY !== 0) window.scrollTo(0, 0);
 }, { passive: true });
 reconcile();
+
+// ---- a keyboard plugged into the phone ------------------------------------------------
+// the board's own keys, for the keyboard a phone can be paired with. they are
+// read the way the desktop reads them, off e.key and the modifier flags, and a
+// key is only taken from the browser where it is answered here; a plain arrow
+// while he is typing is never touched, since that one belongs to the caret.
+// this page is also run as a standalone app off the home screen, where the
+// system answers some command combinations itself before the page is shown
+// them. which ones cannot be learned from a browser driven headless, so both of
+// the desktop's pairs for walking the cards are kept: the control shift arrows
+// and the command shift brackets do the same thing, and whichever pair the
+// phone lets through is the one that works.
+
+// the previous or the next card, walking the list the drawer shows in the order
+// it shows it
+function stepCard(dir, focus){
+  const pool = lastState ? viewPool(lastState) : [];
+  if (!pool.length) return;
+  const at = pool.findIndex(b => b.id === selectedId);
+  const pick = pool[(at + dir + pool.length) % pool.length];
+  if (!pick) return;
+  select(pick.id);
+  // the caret was in a text box, so it belongs in the next card's. arriving
+  // from anywhere else leaves the focus where it was: on a phone a focused row
+  // is what raises the on-screen keyboard, and a key that only moves between
+  // cards must never raise it
+  if (focus) els[pick.id]?.ta.focus({ preventScroll: true });
+}
+
+const phoneShortcutTyping = t => !!t &&
+  (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable);
+const phoneShortcutActions = {
+  navigate(e, shortcut){
+    e.preventDefault();
+    stepCard(shortcut.value, phoneShortcutTyping(e.target));
+  },
+  history(e, shortcut){
+    e.preventDefault();
+    histStep(selectedId, shortcut.value);
+  },
+  bounce(e){
+    if (lastLeftId && els[lastLeftId]){
+      e.preventDefault();
+      const there = lastLeftId;
+      lastLeftId = selectedId;
+      select(there);
+      if (phoneShortcutTyping(e.target)) els[there].ta.focus({ preventScroll: true });
+    }
+  },
+  create(e){
+    e.preventDefault();
+    createCard();
+  },
+  tab(e, shortcut){
+    if (!lastState) return;
+    const ow = barOwners(lastState)[shortcut.value];
+    if (ow){ e.preventDefault(); setTab(ow); }
+  },
+  escape(e){
+    if (phoneShortcutTyping(e.target)) e.target.blur();
+  },
+  close(e){
+    if (phoneShortcutTyping(e.target) || !selectedId) return;
+    const b = lastState?.boxes.find(x => x.id === selectedId);
+    if (b?.bucket === "meta"){
+      e.preventDefault();
+      closeCard(selectedId);
+    }
+  },
+};
+
+addEventListener("keydown", e => {
+  dispatchCardShortcut(e, phoneShortcutActions);
+});
 
 // ---- installing, and being told when a card turns to his turn -------------------------
 let swReg = null;
