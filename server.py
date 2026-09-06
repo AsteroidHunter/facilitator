@@ -100,7 +100,9 @@ Endpoints:
                                turns to the owner's turn (a plain reply with no
                                live working flag, or a working flag dropped or
                                expired while a reply waited in deferred) one
-                               payload-less push goes to every subscription,
+                               payload-less push goes to every subscription
+                               only while Tailscale is connected and its HTTPS
+                               Serve proxy targets this board. The push is
                                signed with a VAPID token openssl produces; the
                                phone's worker then reads /state for the card.
                                Progress notes never push. A subscription the
@@ -302,6 +304,7 @@ import logging.handlers
 import os
 import random
 import secrets
+import shutil
 import signal
 import subprocess
 import sys
@@ -1357,11 +1360,11 @@ def _shown(b: dict) -> str:
 def _turn_to_you(b: dict) -> None:
     """The one move that makes a card the owner's turn. The turn register
     flips, the moment is kept so the phone can tell which card turned last,
-    and one push goes to every phone subscribed. Callers hold _lock and save
-    right after; the push itself runs on its own thread, so no request waits
-    on a push service. Exactly two events lead here: a plain reply with no
-    live working flag, and a deferred turn handed over when its flag drops
-    or expires. A progress note never does."""
+    and a push attempt starts for every phone subscribed. Callers hold _lock
+    and save right after; the bridge check and push run on their own thread,
+    so no request waits on either. Exactly two events lead here: a plain reply
+    with no live working flag, and a deferred turn handed over when its flag
+    drops or expires. A progress note never does."""
     b["ball"] = "you"
     b["turn_ts"] = time.time()
     if _state.get("push_subs"):
@@ -1484,6 +1487,8 @@ def _push_contact() -> str:
 PUSH_CONTACT = _push_contact()   # the token's sub claim, a contact push services may use
 PUSH_TTL = 86400                                # seconds a push may wait for a phone that is off
 PUSH_REASON_CHARS = 200                         # of a refusing service's own words, the first this many
+PUSH_BRIDGE_TIMEOUT = 3.0                       # one local Tailscale status command
+TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 _push_lock = threading.Lock()
 _push_public: bytes | None = None
 _push_tokens: dict = {}                         # audience -> (expiry, token), one token serves an hour
@@ -1588,16 +1593,118 @@ def _push_one(sub: dict) -> tuple:
         return 0, " ".join(str(getattr(e, "reason", "") or e).split())
 
 
+def _tailscale_command() -> str | None:
+    """The same Tailscale command the bridge uses: PATH first, then the Mac
+    app. Finding it afresh means installing or removing it takes effect on the
+    next turn without restarting the board."""
+    found = shutil.which("tailscale")
+    if found:
+        return found
+    if os.access(TAILSCALE_APP, os.X_OK):
+        return TAILSCALE_APP
+    return None
+
+
+def _tailscale_json(ts: str, args: list[str]) -> dict | None:
+    """One bounded, read-only Tailscale query. No command output or exception
+    text escapes this helper because either may contain private machine data."""
+    try:
+        result = subprocess.run([ts, *args], capture_output=True, text=True,
+                                encoding="utf-8",
+                                timeout=PUSH_BRIDGE_TIMEOUT)
+    except (OSError, subprocess.TimeoutExpired, UnicodeError):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        answer = json.loads(result.stdout)
+    except (TypeError, ValueError):
+        return None
+    return answer if isinstance(answer, dict) else None
+
+
+def _proxy_targets_board(proxy) -> bool:
+    """True only for the IPv4 loopback target used by facilitator bridge."""
+    if not isinstance(proxy, str):
+        return False
+    try:
+        target = urlparse(proxy)
+        return (target.scheme == "http" and
+                target.hostname == "127.0.0.1" and
+                target.port == PORT and target.path in ("", "/") and
+                not target.params and not target.query and not target.fragment and
+                target.username is None and target.password is None)
+    except ValueError:
+        return False
+
+
+def _serve_config_targets_board(config: dict) -> bool:
+    """Whether a background or live foreground Serve config exposes this
+    board at the root of HTTPS port 443."""
+    configs = [config]
+    foreground = config.get("Foreground")
+    if isinstance(foreground, dict):
+        configs.extend(c for c in foreground.values() if isinstance(c, dict))
+    for candidate in configs:
+        tcp = candidate.get("TCP")
+        web = candidate.get("Web")
+        if not isinstance(tcp, dict) or not isinstance(web, dict):
+            continue
+        https = tcp.get("443")
+        if not isinstance(https, dict) or https.get("HTTPS") is not True:
+            continue
+        for host_port, server in web.items():
+            if not isinstance(host_port, str) or not isinstance(server, dict):
+                continue
+            try:
+                public = urlparse("//" + host_port)
+                on_https = public.hostname is not None and public.port == 443
+            except ValueError:
+                on_https = False
+            handlers = server.get("Handlers")
+            root = handlers.get("/") if isinstance(handlers, dict) else None
+            if (on_https and isinstance(root, dict) and
+                    _proxy_targets_board(root.get("Proxy"))):
+                return True
+    return False
+
+
+def _push_bridge_available() -> tuple[bool, str]:
+    """A fresh, fail-closed check that this board's phone bridge is usable."""
+    ts = _tailscale_command()
+    if ts is None:
+        return False, "tailscale unavailable"
+    status = _tailscale_json(ts, ["status", "--json"])
+    if status is None:
+        return False, "tailscale status unavailable"
+    if status.get("BackendState") != "Running":
+        return False, "tailscale disconnected"
+    serve = _tailscale_json(ts, ["serve", "status", "--json"])
+    if serve is None:
+        return False, "serve status unavailable"
+    if not _serve_config_targets_board(serve):
+        return False, "bridge not serving this board"
+    return True, ""
+
+
 def _push_turn(bid: str) -> None:
     """Every subscribed phone is told once that a card turned to his turn.
-    Runs on its own thread: it only reads the subscriptions under the lock,
-    talks to the push services with it released, and takes it again only to
-    drop subscriptions the services report gone."""
+    Runs on its own thread: it reads the subscriptions under the lock, checks
+    that Tailscale is connected and serving this board before each send, talks
+    to push services with the lock released, and takes it again only to keep
+    successes or drop subscriptions the services report gone."""
     with _lock:
         subs = list(_state.get("push_subs", []))
     gone = []
     worked = None
     for sub in subs:
+        # Probe immediately before every service call. A bridge can go down
+        # while an earlier phone's push service is answering, and that must
+        # close the gate for every subscription still waiting in this turn.
+        available, reason = _push_bridge_available()
+        if not available:
+            _info("pushskip", bid, reason=reason)
+            break
         # the host, never the endpoint: the endpoint is the phone's own address
         # and identifies the device, so it is on the keep-out list
         host = urlparse(sub.get("endpoint", "")).netloc

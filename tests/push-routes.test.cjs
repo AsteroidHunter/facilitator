@@ -1,14 +1,13 @@
 // The push side of the phone page, against a fixture server whose working
-// flag expires in one second: the public key, the subscription store, the
-// VAPID token openssl signs (verified with openssl), and the exact events
-// that send a push: a plain reply with no live working flag, and a deferred
-// turn handed over when its flag drops or expires. Notes never push.
+// flag expires in one second and a fake Tailscale CLI: the live bridge gate,
+// public key, subscription store, VAPID token openssl signs (verified with
+// openssl), and the exact events that send a push. Notes never push.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { execFileSync, spawn } = require("node:child_process");
 const { once } = require("node:events");
 const { createServer } = require("node:http");
-const { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } = require("node:fs/promises");
+const { chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 
@@ -25,6 +24,55 @@ let origin;
 let pushService;      // the stub push service the subscriptions point at
 let pushOrigin;
 const pushes = [];    // every push the stub received: {path, headers, body}
+let binDir;
+let tailscale;
+let tailscaleMode;
+let tailscaleStatus;
+let serveStatus;
+let pythonExecutable;
+let dropBridgeWhenPushed = "";
+
+const CONNECTED = { BackendState: "Running" };
+
+function servesBoard(targetPort = port, mount = "/") {
+  return {
+    TCP: { "443": { HTTPS: true } },
+    Web: {
+      "fixture.tail0000.ts.net:443": {
+        Handlers: { [mount]: { Proxy: `http://127.0.0.1:${targetPort}` } },
+      },
+    },
+  };
+}
+
+async function setTailscale(status = CONNECTED, serve = servesBoard(), mode = "") {
+  const encoded = value => typeof value === "string" ? value : JSON.stringify(value);
+  await writeFile(tailscaleStatus, encoded(status));
+  await writeFile(serveStatus, encoded(serve));
+  await writeFile(tailscaleMode, mode);
+}
+
+async function installFakeTailscale() {
+  await writeFile(tailscale, [
+    "#!/bin/bash",
+    'mode="$(/bin/cat "$TS_MODE")"',
+    'if [ "$1" = "status" ]; then',
+    '  if [ "$mode" = "status-fail" ]; then echo "CLI_PRIVATE_SENTINEL" >&2; exit 23; fi',
+    '  if [ "$mode" = "status-timeout" ]; then exec /bin/sleep 3; fi',
+    '  if [ "$mode" = "status-bytes" ]; then printf "\\377"; exit 0; fi',
+    '  /bin/cat "$TS_STATUS_JSON"; exit 0',
+    "fi",
+    'if [ "$1" = "serve" ] && [ "$2" = "status" ]; then',
+    '  if [ "$mode" = "serve-fail" ]; then echo "CLI_PRIVATE_SENTINEL" >&2; exit 24; fi',
+    '  if [ "$mode" = "serve-timeout" ]; then exec /bin/sleep 3; fi',
+    '  if [ "$mode" = "serve-bytes" ]; then printf "\\377"; exit 0; fi',
+    '  /bin/cat "$TS_SERVE_JSON"; exit 0',
+    "fi",
+    'echo "CLI_PRIVATE_SENTINEL" >&2; exit 25',
+    "",
+  ].join("\n"));
+  await chmod(tailscale, 0o755);
+}
 
 async function freePort() {
   const server = createServer();
@@ -117,9 +165,17 @@ async function verifyVapid(header, expectedKey) {
 // the board itself, started and stopped: one test needs the start line the next
 // boot writes, so the fixture has to be able to come back up
 async function startServer() {
-  child = spawn("python3", [path.join(fixtureDir, "server.py")], {
+  child = spawn(pythonExecutable, [path.join(fixtureDir, "server.py")], {
     cwd: fixtureDir,
-    env: { ...process.env, FACILITATOR_TEST_PORT: String(port), FACILITATOR_LOG_DIR: logs },
+    env: {
+      ...process.env,
+      PATH: binDir,
+      TS_MODE: tailscaleMode,
+      TS_STATUS_JSON: tailscaleStatus,
+      TS_SERVE_JSON: serveStatus,
+      FACILITATOR_TEST_PORT: String(port),
+      FACILITATOR_LOG_DIR: logs,
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";
@@ -168,25 +224,80 @@ async function pushLines(count, ms = 3000) {
   }
 }
 
+async function pushSkipsAfter(count, ms = 3000) {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const lines = (await events()).filter(event => event.kind === "pushskip");
+    if (lines.length >= count) return lines;
+    if (Date.now() > deadline) throw new Error(`expected ${count} pushskip lines, saw ${lines.length}`);
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+}
+
+async function replyWithoutPush(title, expectedReason, responseWithin = null) {
+  const beforePushes = pushes.length;
+  const beforeSkips = (await events()).filter(event => event.kind === "pushskip").length;
+  const id = await create(title);
+  const started = Date.now();
+  assert.equal((await post(`/reply?box=${id}`, "answered while unavailable")).status, 200);
+  if (responseWithin !== null) {
+    assert.ok(Date.now() - started < responseWithin, "the reply waited on the bridge check");
+  }
+  const skips = await pushSkipsAfter(beforeSkips + 1);
+  assert.equal(pushes.length, beforePushes, "a push escaped the bridge gate");
+  const skipped = skips.at(-1);
+  assert.equal(skipped.box, id);
+  assert.equal(skipped.reason, expectedReason);
+  return id;
+}
+
 before(async () => {
   outer = await mkdtemp(path.join(tmpdir(), "facilitator-push-"));
   fixtureDir = path.join(outer, "app");
   logs = path.join(outer, "logs");
   await mkdir(fixtureDir);
+  binDir = path.join(outer, "bin");
+  await mkdir(binDir);
+  pythonExecutable = execFileSync("python3", ["-c", "import sys; print(sys.executable)"], { encoding: "utf8" }).trim();
+  const openssl = execFileSync(pythonExecutable,
+    ["-c", "import shutil; print(shutil.which('openssl') or '')"], { encoding: "utf8" }).trim();
+  assert.ok(openssl, "openssl is unavailable");
+  await symlink(openssl, path.join(binDir, "openssl"));
+  tailscale = path.join(binDir, "tailscale");
+  tailscaleMode = path.join(outer, "tailscale-mode");
+  tailscaleStatus = path.join(outer, "tailscale-status.json");
+  serveStatus = path.join(outer, "serve-status.json");
   port = await freePort();
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
   let patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
   assert.notEqual(patched, source, "test server port was not patched");
-  const timed = patched.replace("BG_STALE = 75.0", "BG_STALE = 1.0");
-  assert.notEqual(timed, patched, "the working flag's clock was not patched");
-  await writeFile(path.join(fixtureDir, "server.py"), timed);
+  patched = patched.replace("BG_STALE = 75.0", "BG_STALE = 1.0");
+  assert.match(patched, /BG_STALE = 1\.0/, "the working flag's clock was not patched");
+  patched = patched.replace("PUSH_BRIDGE_TIMEOUT = 3.0", "PUSH_BRIDGE_TIMEOUT = 1.0");
+  assert.match(patched, /PUSH_BRIDGE_TIMEOUT = 1\.0/, "the bridge timeout was not patched");
+  patched = patched.replace(
+    'TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"',
+    'TAILSCALE_APP = "/facilitator-test/no-tailscale-app"',
+  );
+  assert.match(patched, /TAILSCALE_APP = "\/facilitator-test\/no-tailscale-app"/,
+    "the fixture could fall through to the real Mac app");
+  await writeFile(path.join(fixtureDir, "server.py"), patched);
   await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({ title: "push test", items: [] }));
+  await installFakeTailscale();
+  await setTailscale(CONNECTED, {});
 
   pushService = createServer((req, res) => {
     let body = "";
     req.on("data", chunk => { body += chunk; });
-    req.on("end", () => {
+    req.on("end", async () => {
       pushes.push({ path: req.url, headers: req.headers, body });
+      if (req.url === dropBridgeWhenPushed) {
+        dropBridgeWhenPushed = "";
+        await writeFile(serveStatus, "{}");
+        res.statusCode = 410;
+        res.end();
+        return;
+      }
       if (req.url.startsWith("/refused")) {
         res.statusCode = 403;
         res.end(REFUSAL_BODY);
@@ -241,6 +352,96 @@ test("subscriptions are stored one per endpoint and bad ones refused", async () 
   assert.equal(saved.length, 1);
   assert.equal(saved[0].endpoint, sub.endpoint);
   assert.deepEqual(saved[0].keys, sub.keys);
+});
+
+test("pushes follow the live bridge without replaying turns missed while it was off", async () => {
+  await setTailscale(CONNECTED, {});
+  await replyWithoutPush("Bridge starts off", "bridge not serving this board");
+  const subscribed = (await stateFile()).push_subs;
+  assert.equal(subscribed.length, 1, "the bridge being off removed a subscription");
+
+  await setTailscale(CONNECTED, servesBoard());
+  await noPushWithin(200);
+  const whileUp = await create("Bridge is up");
+  const beforeUp = pushes.length;
+  assert.equal((await post(`/reply?box=${whileUp}`, "this one should notify")).status, 200);
+  await pushesAfter(beforeUp + 1);
+  assert.equal(pushes.length, beforeUp + 1);
+
+  await setTailscale(CONNECTED, {});
+  await replyWithoutPush("Bridge switched off", "bridge not serving this board");
+  assert.deepEqual((await stateFile()).push_subs, subscribed,
+    "switching the bridge off changed the subscription");
+
+  await setTailscale(CONNECTED, servesBoard());
+  await noPushWithin(200);
+});
+
+test("an unrelated HTTPS Serve proxy does not open the push gate", async () => {
+  const wrongPort = servesBoard(port + 1);
+  const wrongMount = servesBoard(port, "/somewhere-else");
+  const plainHTTP = servesBoard();
+  plainHTTP.TCP["443"].HTTPS = false;
+  const ipv6Loopback = servesBoard();
+  ipv6Loopback.Web["fixture.tail0000.ts.net:443"].Handlers["/"].Proxy =
+    `http://[::1]:${port}`;
+  for (const [name, config] of [
+    ["A different service is shared", wrongPort],
+    ["Only a different path is shared", wrongMount],
+    ["The proxy is not HTTPS", plainHTTP],
+    ["The proxy targets an address the board does not bind", ipv6Loopback],
+  ]) {
+    await setTailscale(CONNECTED, config);
+    await replyWithoutPush(name, "bridge not serving this board");
+  }
+  await setTailscale(CONNECTED, servesBoard());
+  await noPushWithin(200);
+});
+
+test("missing, disconnected, failed, timed out, and malformed bridge status all fail closed", async () => {
+  const subscribed = (await stateFile()).push_subs;
+  const cases = [
+    ["disconnected backend", { BackendState: "Stopped" }, servesBoard(), "", "tailscale disconnected"],
+    ["status command failure", CONNECTED, servesBoard(), "status-fail", "tailscale status unavailable"],
+    ["status timeout", CONNECTED, servesBoard(), "status-timeout", "tailscale status unavailable", 600],
+    ["invalid status bytes", CONNECTED, servesBoard(), "status-bytes", "tailscale status unavailable"],
+    ["invalid status JSON", "not json", servesBoard(), "", "tailscale status unavailable"],
+    ["null status JSON", null, servesBoard(), "", "tailscale status unavailable"],
+    ["list status JSON", [], servesBoard(), "", "tailscale status unavailable"],
+    ["wrong status field type", { BackendState: [] }, servesBoard(), "", "tailscale disconnected"],
+    ["Serve command failure", CONNECTED, servesBoard(), "serve-fail", "serve status unavailable"],
+    ["Serve timeout", CONNECTED, servesBoard(), "serve-timeout", "serve status unavailable", 600],
+    ["invalid Serve bytes", CONNECTED, servesBoard(), "serve-bytes", "serve status unavailable"],
+    ["invalid Serve JSON", CONNECTED, "not json", "", "serve status unavailable"],
+    ["null Serve JSON", CONNECTED, null, "", "serve status unavailable"],
+    ["list Serve JSON", CONNECTED, [], "", "serve status unavailable"],
+    ["wrong Serve field types", CONNECTED, { TCP: [], Web: { "fixture:443": [] } }, "", "bridge not serving this board"],
+    ["malformed Serve ports", CONNECTED, {
+      TCP: { "443": { HTTPS: true } },
+      Web: { "fixture:not-a-port": { Handlers: { "/": { Proxy: "http://127.0.0.1:not-a-port" } } } },
+    }, "", "bridge not serving this board"],
+  ];
+  for (const [name, status, serve, mode, reason, responseWithin] of cases) {
+    await setTailscale(status, serve, mode);
+    await replyWithoutPush(name, reason, responseWithin);
+  }
+
+  await setTailscale(CONNECTED, servesBoard());
+  const hidden = tailscale + ".off";
+  await rename(tailscale, hidden);
+  try {
+    await replyWithoutPush("missing Tailscale command", "tailscale unavailable");
+  } finally {
+    await rename(hidden, tailscale);
+  }
+
+  const written = JSON.stringify(await events());
+  assert.ok(!written.includes("CLI_PRIVATE_SENTINEL"), "private CLI output reached the log");
+  assert.ok(!written.includes("fixture.tail0000.ts.net"), "the Serve machine name reached the log");
+  assert.deepEqual((await stateFile()).push_subs, subscribed,
+    "an unavailable or malformed bridge changed the subscriptions");
+  await setTailscale(CONNECTED, servesBoard());
+  await noPushWithin(200);
 });
 
 test("a plain reply with no live working flag sends one signed, payload-less push", async () => {
@@ -394,4 +595,42 @@ test("no line anywhere carries a whole endpoint, only the service's host", async
       assert.ok(!line.includes(new URL(endpoint).pathname), `an endpoint reached the log: ${line}`);
     }
   }
+});
+
+test("a bridge drop between subscriptions stops the batch and keeps earlier results", async () => {
+  await setTailscale(CONNECTED, servesBoard());
+  const beforeState = await stateFile();
+  assert.deepEqual(beforeState.push_subs.map(sub => new URL(sub.endpoint).pathname),
+    ["/ok/one", "/refused/three", "/nobody/home"],
+    "the fixture no longer has the order this transition test exercises");
+  const beforePushes = pushes.length;
+  const beforeSkips = (await events()).filter(event => event.kind === "pushskip").length;
+  const beforeOK = beforeState.push_last_ok.ts;
+  dropBridgeWhenPushed = "/refused/three";
+  try {
+    const id = await create("Bridge drops during a multi-phone turn");
+    assert.equal((await post(`/reply?box=${id}`, "notify only while reachable")).status, 200);
+    await pushesAfter(beforePushes + 2);
+    const skips = await pushSkipsAfter(beforeSkips + 1);
+    assert.equal(skips.at(-1).box, id);
+    assert.equal(skips.at(-1).reason, "bridge not serving this board");
+  } finally {
+    dropBridgeWhenPushed = "";
+  }
+  assert.deepEqual(pushes.slice(beforePushes).map(push => push.path),
+    ["/ok/one", "/refused/three"], "a subscription after the bridge drop was pushed");
+
+  const deadline = Date.now() + 3000;
+  let saved;
+  while (Date.now() < deadline) {
+    saved = await stateFile();
+    if (saved.push_last_ok.ts > beforeOK &&
+        !saved.push_subs.some(sub => new URL(sub.endpoint).pathname === "/refused/three")) break;
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  assert.ok(saved.push_last_ok.ts > beforeOK, "the success before the bridge drop was forgotten");
+  assert.equal(saved.push_last_ok.host, new URL(pushOrigin).host);
+  assert.deepEqual(saved.push_subs.map(sub => new URL(sub.endpoint).pathname),
+    ["/ok/one", "/nobody/home"], "the gone subscription before the bridge drop was kept");
+  await setTailscale(CONNECTED, servesBoard());
 });
