@@ -21,5 +21,8 @@
 /package.json
 /package-lock.json
 
+# the server's libraries, installed beside it from requirements.txt
+/.venv/
+
 .DS_Store
 __pycache__/

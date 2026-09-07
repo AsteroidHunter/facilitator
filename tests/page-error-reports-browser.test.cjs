@@ -363,7 +363,15 @@ async function untilBanner(page, shown, ms = 8000) {
   }
 }
 
-for (const [name, route, viewport] of [["board", "/", null], ["phone page", "/m", PHONE]]) {
+// the phone reads the board through its own short reading, and draws only
+// when the board has changed: its render runs once per change, and its note
+// for a board that stopped answering says so in its own words
+const PHONE_STALE = /^Reconnecting to the board\. Last update \d{1,2}:\d{2} (AM|PM)\.$/;
+
+for (const [name, route, viewport, readRoute, saidWhenGone] of [
+  ["board", "/", null, "/state", UNREACHABLE],
+  ["phone page", "/m", PHONE, "/m/state", PHONE_STALE],
+]) {
   test(`a render that throws on the ${name} leaves the banner alone and is reported`, async () => {
     await settleReports();
     const { page, context } = await open(route, viewport);
@@ -372,6 +380,13 @@ for (const [name, route, viewport] of [["board", "/", null], ["phone page", "/m"
         // the card will not draw. The server is answering perfectly
         window.apply = () => { throw new Error("the card would not draw"); };
       });
+      if (readRoute === "/m/state") {
+        // the phone draws on a change: three changes, each landing before the next reading
+        for (let n = 0; n < 3; n++) {
+          await fetch(origin + "/send?box=0", { method: "POST", body: `change ${n}` });
+          await new Promise(resolve => setTimeout(resolve, 1400));
+        }
+      }
       await new Promise(resolve => setTimeout(resolve, 4200));   // three polls and a margin
       const shown = await banner(page);
       assert.equal(shown.shown, false, "a card that would not draw painted the unreachable banner");
@@ -397,16 +412,18 @@ for (const [name, route, viewport] of [["board", "/", null], ["phone page", "/m"
     try {
       await cutTheWire(page, false);
       const gone = await untilBanner(page, true);
-      assert.equal(gone.said, UNREACHABLE, "the banner does not say what it always said");
+      if (typeof saidWhenGone === "string") assert.equal(gone.said, saidWhenGone, "the banner does not say what it always said");
+      else assert.match(gone.said, saidWhenGone, "the note does not say the board is being reached for again");
 
       await cutTheWire(page, true);
+      if (readRoute === "/m/state") await page.evaluate(() => resume());   // the phone reads again on a wake, not on a clock it has backed off
       await untilBanner(page, false);
 
       await hide(page);
       const fresh = await newReports(report => report.kind === "fetch");
       const failed = fresh.filter(report => report.kind === "fetch");
       assert.ok(failed.length >= 1, `no failed request was reported: ${JSON.stringify(fresh)}`);
-      assert.equal(failed[0].route, "/state", "the report does not say which route failed");
+      assert.equal(failed[0].route, readRoute, "the report does not say which route failed");
       assert.ok(failed[0].count >= 1);
       assert.ok(!fresh.some(report => report.kind === "render"),
         "a request that failed was reported as a broken render");

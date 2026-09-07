@@ -7,15 +7,46 @@ queue one box at a time via GET /wait (long-poll) and answers via POST /reply.
 Endpoints:
   GET  /                    -> index.html, the card board
   GET  /page                -> page.html, the same lanes drawn as one typed page
-  GET  /state               -> full UI state (page polls this)
-  POST /send?box=ID[&via=mini] -> body = the human's message text (plain text).
+  GET  /state               -> full UI state (page polls this), with rev, the
+                               board's revision: every saved change moves it
+  GET  /m/state[?since=R][&ops=A,B] -> what the phone reads: {rev, changed,
+                               live, ...}. With since naming the revision the
+                               phone already holds and nothing saved since,
+                               only rev, changed:false and the live section
+                               (who is listening) come back; otherwise the
+                               cards with the fields the phone draws, the
+                               title, the tabs and the lanes as well. ops
+                               names up to 32 operation ids and each is
+                               answered {status: applied|unknown, result} in
+                               the same reading
+  GET  /op?id=OP            -> one operation id's receipt: {status, kind, box,
+                               result, rev}; status unknown for an id the board
+                               holds no receipt of. A receipt is kept well past
+                               the point a phone stops retrying (never let go
+                               while younger than OP_EVICT_FLOOR, and at most
+                               OP_RETENTION), so unknown for an id a client
+                               could still be sending means it never landed; a
+                               much later query cannot tell a never-landed id
+                               from one whose receipt has since aged out
+  POST /send?box=ID[&via=mini][&op=OP] -> body = the human's message text (plain text).
                                via states where he typed it: mini is the small
                                card in the corner, no via at all is the big card
                                in the middle. Only the literal "mini" is stored
                                (as the message's via field), so any other value
                                and any older caller land exactly as before.
                                Sending to a parked card also brings it back to
-                               Doing in the same saved update
+                               Doing in the same saved update. op is an
+                               operation id the caller minted before its first
+                               try, 8 to 64 letters, digits, - or _: the result
+                               {ok, mid, box, rev} is committed beside the
+                               message itself, the same id sent again answers
+                               that result with replayed:true and stores
+                               nothing, and the same id with other words is a
+                               409. A receipt is never let go while a phone
+                               could still be sending its id, so a retry always
+                               finds it rather than landing twice. A send with
+                               no op lands as it always did and is never
+                               deduplicated
   POST /done?box=ID&v=1|0   -> mark a box done / not done
   POST /close?box=ID        -> atomically close from the authoritative card:
                                a card with a reply, reply count, or pending
@@ -33,9 +64,13 @@ Endpoints:
   POST /context?box=ID      -> body = the box's two-line context strip (agent-kept)
   POST /title?box=ID        -> body = replacement title (agent keeps titles brief;
                                auto-names are just the chopped first message)
-  POST /create?owner=O      -> body's first line titles a new meta box (empty =
+  POST /create?owner=O[&op=OP] -> body's first line titles a new meta box (empty =
                                "…", named later by its first message); ids m1, m2...;
-                               owner defaults to facilitator
+                               owner defaults to facilitator. Answers {ok, id,
+                               rev, card}, the card in the phone's shape. op
+                               is an operation id, as on /send: the same id
+                               again answers the first try's id and makes no
+                               second card
   POST /project?name=N      -> body = the chosen folder's absolute path (under
                                the home directory): creates a new project lane
                                whose owner id is a slug of N, stores {id, name,
@@ -297,7 +332,11 @@ see seed.example.json. Real discussion content never ships in this code.
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import contextlib
+import fcntl
+import hashlib
 import json
 import logging
 import logging.handlers
@@ -306,6 +345,8 @@ import random
 import secrets
 import shutil
 import signal
+import socket
+import struct
 import subprocess
 import sys
 import threading
@@ -313,9 +354,8 @@ import time
 import traceback
 import urllib.error
 import urllib.request
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, urlparse
 
 HERE = Path(__file__).resolve().parent
 RETIRED_OWNERS = frozenset({"triage"})
@@ -505,6 +545,29 @@ def _error(kind: str, box: str = "", /, **fields) -> None:
     _event(logging.ERROR, kind, box, **fields)
 
 
+# ---- the transport's libraries -------------------------------------------------
+# uvicorn speaks HTTP and Starlette routes the requests; both are installed
+# into the .venv beside this file from requirements.txt. Imported here, after
+# the logger exists, so a board started without them writes one line saying
+# so and says one sentence on the terminal, instead of dying of an import
+# nobody is there to read.
+try:
+    import anyio
+    import h11
+    import uvicorn
+    from starlette.applications import Starlette
+    from starlette.concurrency import run_in_threadpool
+    from starlette.requests import ClientDisconnect, Request
+    from starlette.responses import Response
+    from starlette.routing import Route
+    from uvicorn.protocols.http.h11_impl import H11Protocol
+except ImportError:
+    _error("startuprefused", reason="uvicorn and starlette are not installed")
+    sys.exit("facilitator needs uvicorn and starlette: beside server.py run "
+             "python3 -m venv .venv && .venv/bin/pip install -r requirements.txt, "
+             "then start the board with .venv/bin/python3 server.py or facilitator run")
+
+
 CRASH_FRAMES = 12           # frames a crash line walks back through, innermost last
 CRASH_MESSAGE_CHARS = 200   # of an exception's own words, the first this many
 # What an exception's message may be made of for a line to carry it at all:
@@ -669,6 +732,35 @@ INTERNAL_UPLOADS = HERE.parent / "facilitator-internal" / "uploads"
 IMG_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
              ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml"}
 PORT = 8877
+# ---- the transport's bounds ------------------------------------------------------
+# What the board accepts at once and how long it lets a peer sit on the line.
+# The numbers are for one Mac serving one desktop, one phone through the
+# tunnel and a few agent loops, with room for a runaway; how they protect the
+# commands is explained with the Transport class below.
+LISTEN_BACKLOG = 128
+CONNECTION_LIMIT = 200          # connections open at once before uvicorn answers 503
+WAIT_SLOTS = 8                  # agent long polls held open at once
+READ_SLOTS = 32                 # board readings in flight at once, their sending included
+THREAD_POOL_SIZE = 64           # worker threads the routes' locked work may use
+FIRST_REQUEST_TIMEOUT = 15.0    # seconds a new connection may sit before its request arrives
+KEEP_ALIVE_TIMEOUT = 5          # seconds an idle kept-alive connection is held between requests
+WRITE_STALL_TIMEOUT = 30.0      # seconds an answer may sit unread in a full socket before the connection is cut
+BODY_READ_TIMEOUT = 30.0        # seconds a request body may take to arrive
+GRACEFUL_STOP_TIMEOUT = 3       # seconds a stop waits for open requests before cutting them
+MAX_TEXT_BODY = 1024 * 1024     # bytes of a plain text body: a message, a reply, a markdown file
+MAX_UPLOAD_BODY = 32 * 1024 * 1024   # bytes of one dropped picture
+# ---- operation receipts ----------------------------------------------------------
+# A receipt lives at most OP_RETENTION and is never let go by the count cap
+# while it is younger than OP_EVICT_FLOOR. The phone stops retrying an operation
+# far sooner than the floor (see OP_GIVE_UP in m.html), so an id a phone could
+# still be sending is never dropped, and a retry never finds its receipt gone
+# and lands a second time. The cap only trims receipts already older than any
+# live retry; under one person's use the store never approaches it.
+OP_RETENTION = 7 * 86400        # seconds a receipt is kept at the very most
+OP_EVICT_FLOOR = 2 * 86400      # a receipt younger than this is kept whatever the cap
+OP_KEEP = 4000                  # the soft cap the count is trimmed toward, oldest-and-old first
+OP_ASK_MAX = 32                 # receipts one reading of the board may ask after
+OP_ID_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
 BG_STALE = 75.0   # seconds without a /ping before a registered job stops counting as green
 # seconds a claim may sit unconfirmed before it goes back to the queue. Short on
 # purpose: the whole point is that a hand-off lost on the wire comes back while
@@ -684,7 +776,8 @@ REPLY_VARIANTS_VERSION = 1
 # is the durable boundary because transcript timestamps are authored data and
 # may be missing, malformed, duplicated, or in the future.
 TRANSCRIPT_REPLY_SCHEMA = "reply_variants"
-OWNERS = ("facilitator", "pastureland", "qchat")  # qchat: the quick chat panel's lane, dormant in the current board
+BUILTIN_OWNERS = ("facilitator", "pastureland", "qchat")  # qchat: the quick chat panel's lane, dormant in the current board
+OWNERS = BUILTIN_OWNERS
 # the built-in three above are the floor; project lanes stored in state.json
 # extend OWNERS at load and at creation, via _register_owner below
 
@@ -712,6 +805,37 @@ _last_wait = {ow: 0.0 for ow in OWNERS}
 # the name each lane's agent last stated on its /wait call; None until stated
 _agent_names: dict = {ow: None for ow in OWNERS}
 
+# ---- waking the listeners --------------------------------------------------------
+# The agents' long polls wait on the event loop, not on the condition above.
+# Every change to the board comes through _notify: it moves a version number
+# and asks the loop to wake every waiter, and a waiter that reads the version
+# before sleeping and again on waking can never miss a change that landed in
+# between. _LOOP is the running loop, set by the application's lifespan; a
+# change made before it runs, or after it has gone, wakes nobody, and that is
+# right, since nobody is waiting then.
+_change_version = 0
+_LOOP = None
+_wakers: set = set()
+_STOPPING = threading.Event()   # set by the stop signal: waiters go home at once
+
+
+def _wake_all() -> None:
+    for ev in list(_wakers):
+        ev.set()
+
+
+def _notify() -> None:
+    """The board changed: whoever is waiting for that should look again.
+    Callers hold _lock."""
+    global _change_version
+    _change_version += 1
+    loop = _LOOP
+    if loop is not None:
+        try:
+            loop.call_soon_threadsafe(_wake_all)
+        except RuntimeError:
+            pass   # the loop is closed: nobody is left to wake
+
 
 def _register_owner(ow: str) -> None:
     """A stored or just-created project lane joins the runtime owner set and
@@ -725,6 +849,27 @@ def _register_owner(ow: str) -> None:
     _waiters.setdefault(ow, 0)
     _last_wait.setdefault(ow, 0.0)
     _agent_names.setdefault(ow, None)
+
+
+def _sync_owner_registries() -> None:
+    """Bring the runtime owner set and its presence maps back in step with the
+    state: the built-in owners plus the projects the state holds, in that
+    order, and nothing else. Run after the state is put back by a failed save,
+    so a lane a route registered before that save is forgotten with it, while
+    the live counts of every lane that stays are kept. Callers hold _lock."""
+    global OWNERS
+    kept = list(BUILTIN_OWNERS)
+    for p in _state.get("projects", []):
+        if isinstance(p, dict) and p.get("id") and p["id"] not in kept:
+            kept.append(p["id"])
+    OWNERS = tuple(kept)
+    for registry in (_waiters, _last_wait, _agent_names):
+        for ow in [ow for ow in registry if ow not in OWNERS]:
+            del registry[ow]
+    for ow in OWNERS:
+        _waiters.setdefault(ow, 0)
+        _last_wait.setdefault(ow, 0.0)
+        _agent_names.setdefault(ow, None)
 
 
 def _lane_pwds() -> dict:
@@ -956,12 +1101,29 @@ def _validate_persisted_owners(st: dict, source: str) -> None:
             f"{source} requires owner migration; retired owner data found at " + ", ".join(hits))
 
 
+def _backup_state() -> None:
+    """A copy of state.json beside it, taken once before the first save that
+    adds the revision and the receipts: the way back to the server this file
+    replaced is to stop the board and rename the copy over state.json. The
+    name is the only thing written down about it; the folder is not."""
+    stamp = time.strftime("%Y%m%dT%H%M%S")
+    kept = STATE_PATH.with_name(f"state.json.bak-{stamp}")
+    try:
+        shutil.copy2(STATE_PATH, kept)
+    except OSError as e:
+        _error("backupfail", reason=e.strerror or type(e).__name__)
+        return
+    _info("backup", kept=kept.name)
+
+
 def _load() -> None:
     global _state, _LANE_DIRS
     _LANE_DIRS = _lane_dirs()
     if STATE_PATH.exists():
         _state = json.loads(STATE_PATH.read_text())
         source = "state.json"
+        if isinstance(_state, dict) and "rev" not in _state:
+            _backup_state()
     else:
         _state = _seed_state()
         source = "seed.json" if SEED_PATH.exists() else "new state"
@@ -1108,6 +1270,12 @@ def _migrate() -> None:
     # the last push that actually worked (2026-09-03): null, like an absent
     # field, means none ever has, which is the truthful reading of older state
     _state.setdefault("push_last_ok", None)
+    # the revision and the receipts (2026-09-06): every saved change moves the
+    # revision, so a phone can name the reading it holds and be told whether it
+    # is current; the receipts are what a command sent again is answered from
+    _state.setdefault("rev", 0)
+    if not isinstance(_state.get("ops"), dict):
+        _state["ops"] = {}
     # workspaces (2026-08-09): each owner gets at least one, a named collection
     # of chats aimed at a goal, with a task list the human and agent both edit
     ws = _state.setdefault("workspaces", {})
@@ -1178,26 +1346,170 @@ def _migrate() -> None:
     _save()
 
 
+# the exact bytes of the last state.json this process durably wrote, kept so a
+# save that fails can put memory back to what the disk holds. None until the
+# first durable write of this run, which is the migration's own save
+_last_durable: str | None = None
+# ---- what waits for the commit ----------------------------------------------------
+# A mutation is one held stretch of _lock: change the state, note the events,
+# save. Two kinds of thing must not happen before the save has installed the
+# new file, because a save can fail and the state then goes back: the
+# transcript row and log line of each event, and the push that tells a phone
+# a card turned to its owner. Both are queued here by the routes and helpers
+# and written or started by _save once the rename has succeeded; a failed save
+# drops them. So the transcript never presents a rolled-back message as
+# history, the log never says a rolled-back event happened, and no phone is
+# woken for a reply the board does not have.
+_transcript_due: list = []   # (event row, kind, box, chars, log fields), under _lock
+_push_due: list = []         # box ids whose turn is to be pushed once the save lands, under _lock
+
+
+def _side_effect_failure(kind: str, box: str = "", **fields) -> None:
+    """Record a post-commit failure when logging itself still works. Nothing
+    after the state-file rename may raise back into the request and make an
+    installed mutation look refused."""
+    try:
+        _error(kind, box, **fields)
+    except Exception:
+        pass
+
+
+def _commit_side_effects() -> None:
+    """After a successful rename: append the queued transcript rows in one
+    open, write their log lines, and start the pushes. The state is already
+    installed, so a transcript that cannot be appended is written down as its
+    own failure and never fails the save; the state stays the source of truth
+    and the transcript is the record that follows it."""
+    global _transcript_due, _push_due
+    due, _transcript_due = _transcript_due, []
+    pushes, _push_due = _push_due, []
+    if due:
+        try:
+            # Encode the batch before opening the file. A malformed internal
+            # event then appends none of the batch instead of a prefix of it.
+            encoded = "".join(json.dumps(event) + "\n"
+                              for event, _kind, _box, _chars, _fields in due)
+            with TRANSCRIPT_PATH.open("a") as f:
+                f.write(encoded)
+        except Exception as e:
+            _side_effect_failure("transcriptfail", rows=len(due),
+                                 reason=getattr(e, "strerror", None) or type(e).__name__)
+        for _event, kind, box, chars, fields in due:
+            try:
+                _info(kind, box, chars=chars, **fields)
+            except Exception as e:
+                _side_effect_failure("logfail", box, event=kind,
+                                     reason=type(e).__name__)
+    for bid in pushes:
+        try:
+            threading.Thread(target=_push_turn, args=(bid,), daemon=True).start()
+        except Exception as e:
+            _side_effect_failure("pushfail", bid, reason=type(e).__name__)
+
+
+def _discard_side_effects() -> None:
+    """After a failed save: what was queued belongs to changes the board has
+    just taken back, so none of it is written or sent."""
+    _transcript_due.clear()
+    _push_due.clear()
+
+
+def _restore_last_durable() -> None:
+    """Put _state back to the last bytes that reached the disk, and everything
+    that lives beside the state back in step with it. Callers hold _lock.
+    After this, memory and disk agree again, so a command whose save failed
+    did not happen: its retry re-applies from scratch, its receipt is not there
+    to answer from, its transcript row and push are dropped, and a lane it
+    registered is forgotten. Before the first durable write there is nothing
+    to go back to, and the failing start is left to stop."""
+    _discard_side_effects()
+    if _last_durable is not None:
+        restored = json.loads(_last_durable)
+        _state.clear()
+        _state.update(restored)
+        _sync_owner_registries()
+
+
+def _durable_fsync(fd: int) -> None:
+    """Push a file's bytes as far toward the platter as the platform allows.
+    On macOS a plain fsync only hands the bytes to the drive, which may still
+    reorder them across a power cut; F_FULLFSYNC is the call that waits for the
+    drive to actually persist them. Where that control is missing this is an
+    ordinary fsync, which is the honest most other platforms give."""
+    full = getattr(fcntl, "F_FULLFSYNC", None)
+    if full is not None:
+        try:
+            fcntl.fcntl(fd, full)
+            return
+        except OSError:
+            pass   # not offered on this filesystem; fall back to the ordinary flush
+    os.fsync(fd)
+
+
 def _save() -> None:
     """The board to disk: a temp file beside it, then one rename, so a reader
-    never sees half a state. A failure here used to leave the lock and the whole
-    POST dispatch with no answer ever written, so the page's fetch hung until
-    the socket closed and the composer sat disabled. Now it says which step
-    failed and raises itself, and the dispatch answers 500.
+    never sees half a state, and so a save that cannot finish leaves the last
+    good file exactly as it was.
 
-    The reason is the operating system's own word for it and never the name of
-    the file it could not write: a log line is not the place for a path."""
+    A failure here used to leave the lock and the whole POST dispatch with no
+    answer ever written, so the page's fetch hung until the socket closed. Now
+    it says which step failed, puts memory back to what the disk holds, and
+    raises itself, and the dispatch answers 500. Putting memory back is what
+    keeps the board's memory from ever running ahead of its file: a command
+    whose save failed did not happen, so its retry re-applies honestly and its
+    receipt is not left behind to answer a repeat from. The reason is the
+    operating system's own word for it and never the name of the file it could
+    not write: a log line is not the place for a path.
+
+    Every save is a new revision of the board, and the effect, the receipt of
+    the command that made it and the revision number are one serialization, so
+    a reader or a restart sees all three or none. The revision only advances
+    once the rename has installed the new file; a save that fails puts it back.
+
+    What a successful save proves, exactly: the new file's bytes were flushed
+    (F_FULLFSYNC where the platform offers it, an ordinary fsync elsewhere) and
+    the rename installed it, so a crash after the rename keeps the new state, a
+    crash before it the old, and there is no half file either way. The folder
+    entry is flushed afterwards on a best effort: a folder that cannot be
+    flushed does not undo the commit, since the rename has already happened and
+    going back to old memory then would lie about the file that is installed,
+    but it is written down as a syncfail line rather than passed over. None of
+    this certifies a hardware power cut; it is as far as the calls reach."""
+    global _last_durable
+    _state["rev"] = int(_state.get("rev", 0)) + 1
+    payload = json.dumps(_state, indent=1)
     tmp = STATE_PATH.with_suffix(".tmp")
     try:
-        tmp.write_text(json.dumps(_state, indent=1))
+        with tmp.open("w") as f:
+            f.write(payload)
+            f.flush()
+            _durable_fsync(f.fileno())
     except OSError as e:
+        _restore_last_durable()   # nothing was installed; memory goes back to the file
         _error("savefail", step="write", reason=e.strerror or type(e).__name__)
         raise SaveFailed("write") from e
     try:
         os.replace(tmp, STATE_PATH)
     except OSError as e:
+        tmp.unlink(missing_ok=True)
+        _restore_last_durable()   # the rename did not happen; the old file still stands
         _error("savefail", step="replace", reason=e.strerror or type(e).__name__)
         raise SaveFailed("replace") from e
+    # the new file is installed: this is the commit point, and nothing past it
+    # may undo the save, so the folder sync that follows never fails it. It is
+    # not silent either: a folder that cannot be flushed is a durability gap
+    # worth a line, even though the commit stands
+    _last_durable = payload
+    try:
+        fd = os.open(STATE_PATH.parent, os.O_RDONLY)
+        try:
+            _durable_fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError as e:
+        _side_effect_failure("syncfail", step="folder",
+                             reason=e.strerror or type(e).__name__)
+    _commit_side_effects()
 
 
 def _log(kind: str, box: str, text: str, log_fields: dict | None = None, **fields) -> None:
@@ -1206,12 +1518,16 @@ def _log(kind: str, box: str, text: str, log_fields: dict | None = None, **field
     without the text, only its length, since GET /log hands the log to any
     caller on this machine and what was said is not its business. log_fields
     carries what is safe to write down beside it and never reaches the
-    transcript row."""
+    transcript row.
+
+    Nothing is written here. The row and the log line are held until the save
+    that follows has installed the new state file, and are dropped if it does
+    not, so neither the transcript nor the log can say that something happened
+    which the board then rolled back. Every caller holds _lock and saves in the
+    same held stretch; the save is what writes these out."""
     event = {"ts": time.time(), "kind": kind, "box": box, "text": text}
     event.update(fields)
-    with TRANSCRIPT_PATH.open("a") as f:
-        f.write(json.dumps(event) + "\n")
-    _info(kind, box, chars=len(str(text or "")), **(log_fields or {}))
+    _transcript_due.append((event, kind, box, len(str(text or "")), dict(log_fields or {})))
 
 
 # the window in which a page holds its own write on top of the server's answer,
@@ -1360,15 +1676,17 @@ def _shown(b: dict) -> str:
 def _turn_to_you(b: dict) -> None:
     """The one move that makes a card the owner's turn. The turn register
     flips, the moment is kept so the phone can tell which card turned last,
-    and a push attempt starts for every phone subscribed. Callers hold _lock
-    and save right after; the bridge check and push run on their own thread,
-    so no request waits on either. Exactly two events lead here: a plain reply
-    with no live working flag, and a deferred turn handed over when its flag
-    drops or expires. A progress note never does."""
+    and a push is queued for every phone subscribed. Callers hold _lock and
+    save right after: the push starts only once that save has installed the
+    turn, so a phone is never woken for a reply the board then rolled back. The
+    bridge check and the push run on their own thread, so no request waits on
+    either. Exactly two events lead here: a plain reply with no live working
+    flag, and a deferred turn handed over when its flag drops or expires. A
+    progress note never does."""
     b["ball"] = "you"
     b["turn_ts"] = time.time()
     if _state.get("push_subs"):
-        threading.Thread(target=_push_turn, args=(b["id"],), daemon=True).start()
+        _push_due.append(b["id"])
 
 
 def _handover(b: dict) -> None:
@@ -1426,25 +1744,28 @@ def _release_unacked() -> None:
         moved = True
     if moved:
         _save()
-        _lock.notify_all()
+        _notify()
 
 
-def _sweep() -> None:
+def _sweep(persist: bool = True) -> bool:
     """The lazy clock behind green: a card whose flag heartbeat has gone stale
     leaves the green states, deferred handing its turn over on the way out (a
     claim still held keeps showing green through _shown's mask regardless).
     Runs at /state and /wait, exactly where the ack clock is swept, and inside
     /working itself, so a drop or an expiry lands within about a second.
-    Callers hold _lock; this both saves and notifies when it moves anything."""
+    Callers hold _lock. Ordinarily it saves and notifies when it moves anything;
+    a route that is already building a larger mutation passes persist=False and
+    includes the sweep in its one final save."""
     moved = False
     for b in _state["boxes"]:
         if b["state"] in GREEN and not _hb_live(b):
             _handover(b)
             b["state"] = _rest(b)
             moved = True
-    if moved:
+    if moved and persist:
         _save()
-        _lock.notify_all()
+        _notify()
+    return moved
 
 
 # ---- the phone page and its push notifications ------------------------------
@@ -1730,1299 +2051,2124 @@ def _push_turn(bid: str) -> None:
             _save()
 
 
-class Handler(BaseHTTPRequestHandler):
-    def _where(self) -> tuple:
-        """This request's route and the card its query names: the two things
-        every line about a request carries."""
-        url = urlparse(self.path)
-        return url.path, (parse_qs(url.query).get("box") or [""])[0]
+# ---- operations: a receipt kept beside the effect ----------------------------
+# A phone a room and a radio away from this server can lose a reply after the
+# server has already done what it asked. It cannot tell a lost reply from a
+# lost request, so it sends its command again, and without a receipt the
+# board would carry the same message twice. A command may therefore name an
+# operation id, minted by the caller before the first try and reused on every
+# retry. The first try's result is written into state.json in the same rename
+# that writes the effect, so a reader can never see one without the other, and
+# a retry answers with the stored result and changes nothing. A used id with a
+# different payload is refused rather than quietly applied. Callers that send
+# no id, the desktop and the agents, land exactly as they always did.
+#
+# What is promised: a retry within OP_RETENTION of an id the board has
+# committed returns the committed result and applies nothing. What is not: an
+# id older than that is forgotten and would apply again, so a client stops
+# retrying long before the window closes; and the transcript row is written
+# only after the state is installed, so a crash between the two loses the row
+# rather than duplicating it, and a replay writes none. Every row still carries
+# the id and /thread reads each id once, as a guard for rows written by older
+# code or by hand.
 
-    def _send(self, code: int, payload: dict | bytes, ctype: str = "application/json") -> bool:
-        """True when the response reached the socket, False when the client was
-        already gone. Everything that just answers a page ignores the result;
-        the /wait hand-off reads it, because a claim written into a dead
-        connection has to be rolled back rather than counted as delivered.
-        Swallowing the failure here silently was what made that rollback
-        unreachable."""
-        body = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
-        self._status = code   # what the request line reports, once it is done
-        if code >= 400:
-            # Every refusal in this file leaves through this one door, so one
-            # added a year from now is written down without anybody remembering
-            # to write it down. A refusal is the server working correctly and
-            # saying no, so it is INFO and not an error, and the reason is the
-            # sentence the caller already wrote for the page: the log and the
-            # page agree by construction rather than by being kept in step.
-            route, box = self._where()
-            _info("refusal", box, route=route, code=code,
-                  reason=payload.get("error") if isinstance(payload, dict) else None)
-        try:
-            self.send_response(code)
-            self.send_header("Content-Type", ctype)
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(body)
-        except OSError:
-            # the client hung up mid-response (a timed-out poll, a killed curl):
-            # routine here and never a traceback, but the caller has to be able
-            # to find out, so it is reported instead of hidden
-            route, box = self._where()
-            _debug("hungup", box, route=route)
-            return False
-        return True
+def _op_id_ok(op: str) -> bool:
+    return 8 <= len(op) <= 64 and set(op) <= OP_ID_CHARS
 
-    def _read_body(self) -> str:
-        n = int(self.headers.get("Content-Length") or 0)
-        return self.rfile.read(n).decode("utf-8", "replace") if n else ""
 
-    def _served(self, method: str, handle) -> None:
-        """One request, timed, and answered even when saving its result failed.
+def _fingerprint(*parts: str) -> str:
+    """What a payload looks like to the receipt, so a reused id carrying other
+    words is caught. A digest and never the words: the receipt outlives the
+    request by days and message text has no business in it twice."""
+    return hashlib.sha256("\x1f".join(parts).encode("utf-8", "surrogatepass")).hexdigest()[:32]
 
-        The request line is DEBUG and not INFO on purpose: the two pages poll
-        about 144,000 times a day between them, and a line for each of those is
-        22 MB a day of mostly nothing. Switched on, it is the line that says
-        what the board was asked for, what it answered and how long it took."""
-        started = time.monotonic()
-        self._status = 0
-        try:
-            handle()
-        except SaveFailed:
-            # the board's memory and its file now disagree, and this does not
-            # repair that. It answers, which is the difference between a page
-            # that can say something went wrong and one that hangs on a socket
-            self._send(500, {"error": "the board could not save its state"})
-        finally:
-            if LOGGER.isEnabledFor(logging.DEBUG):
-                route, box = self._where()
-                _debug("request", box, method=method, route=route, status=self._status,
-                       ms=round((time.monotonic() - started) * 1000))
 
-    # -- GET ------------------------------------------------------------------
-    def do_GET(self) -> None:  # noqa: N802
-        self._served("GET", self._get)
+def _op_record(op: str) -> dict | None:
+    """The receipt for an id, or None once it has aged past OP_RETENTION: a
+    receipt past the window is forgotten whether or not the prune has run,
+    so the answer to a client never depends on what else the board did."""
+    rec = _state.get("ops", {}).get(op)
+    if rec is None or time.time() - rec.get("ts", 0) > OP_RETENTION:
+        return None
+    return rec
 
-    def _get(self) -> None:
-        url = urlparse(self.path)
-        if url.path == "/":
-            self._send(200, (HERE / "index.html").read_bytes(), "text/html; charset=utf-8")
-        elif url.path == "/page":
-            # the second UI: the same lanes and the same cards drawn as one typed
-            # page, in its own file so editing it can never touch the card board
-            self._send(200, (HERE / "page.html").read_bytes(), "text/html; charset=utf-8")
-        elif url.path == "/state":
-            with _lock:
-                # the board polls this about once a second, so the 90 second ack
-                # clock gets swept even when no /wait is running to sweep it,
-                # and an expired working flag drops out of green (handing over
-                # a deferred turn) within about that same second
-                _release_unacked()
-                _sweep()
-                self._send(200, self._ui_state())
-        elif url.path == "/worktrees":
-            # the names the card's top bar offers, straight out of git. no lock:
-            # nothing here reads or writes the board's state, it only asks the
-            # lane's own folder what worktrees it has
-            q = parse_qs(url.query)
-            owner = (q.get("owner") or ["facilitator"])[0]
-            if owner not in OWNERS:
-                self._send(400, {"error": "unknown owner"})
-                return
-            self._send(200, _lane_worktrees(owner))
-        elif url.path == "/unread":
-            # a lane's unread count in one line, for a Stop hook deciding
-            # whether the agent may go idle and for a human checking a lane
-            # without reading the whole board. Read only: it claims nothing,
-            # releases nothing and sweeps nothing
-            q = parse_qs(url.query)
-            owner = (q.get("owner") or ["pastureland"])[0]
-            if owner not in OWNERS:
-                self._send(400, {"error": "unknown owner"})
-                return
-            with _lock:
-                held = set(_state["claimed"].get(owner) or [])
-                # anything not already in the claim is still waiting, including
-                # messages that landed on a held card after it was claimed
-                queued = sum(1 for b in _state["boxes"]
-                             if b.get("owner", "pastureland") == owner
-                             for m in b["pending"] if m["mid"] not in held)
-                self._send(200, {"queued": queued, "claimed": len(held)})
-        elif url.path == "/wait":
-            q = parse_qs(url.query)
-            timeout = float(q.get("timeout", ["570"])[0])
-            owner = (q.get("owner") or ["pastureland"])[0]  # default: the pre-routing loop's role
-            if owner not in OWNERS:
-                self._send(400, {"error": "unknown owner"})
-                return
-            agent = (q.get("agent") or [None])[0]
-            if agent:
-                _agent_names[owner] = agent[:24]
-            # every claim is confirmed delivery, so there is no flag to read; an
-            # ack=1 riding along in the query is accepted and ignored, never
-            # refused, so a loop that carries the flag keeps working
-            self._wait(timeout, owner)
-        elif url.path == "/fresh":
-            # mid-work delivery: while an agent holds a card, hand over anything
-            # that landed on that card after the claim and fold it into the
-            # claim, so the one reply covers it and nothing arrives twice
-            q = parse_qs(url.query)
-            owner = (q.get("owner") or ["pastureland"])[0]
-            if owner not in OWNERS:
-                self._send(400, {"error": "unknown owner"})
-                return
-            with _lock:
-                fbid = _state["busy"].get(owner)
-                fbox = _box(fbid) if fbid else None
-                if fbox is None:
-                    self._send(200, {"messages": [], "message_via": []})
-                    return
-                have = set(_state["claimed"][owner])
-                fresh = [m for m in fbox["pending"] if m["mid"] not in have]
-                if fresh:
-                    _state["claimed"][owner].extend(m["mid"] for m in fresh)
-                    _log("fresh", fbid, f"{len(fresh)} mid-work message(s) handed over")
-                    _save()
-                # the same marker /wait hands over, in the same shape and order:
-                # "mini" for the small card, null for the big one. A mini
-                # message that lands mid-work becomes the newest claimed one
-                # and brings /reply's 100 word cap with it, so an agent that
-                # never sees the marker gets its reply refused out of nowhere
-                self._send(200, {"box": fbid, "messages": [m["text"] for m in fresh],
-                                 "message_via": [m.get("via") for m in fresh]})
-        elif url.path == "/thread":
-            qs = parse_qs(url.query)
-            tbid = (qs.get("box") or [""])[0]
-            n = int((qs.get("n") or ["60"])[0])
-            out = []
-            legacy_reply_rows = True
-            try:
-                with TRANSCRIPT_PATH.open() as f:
-                    for line in f:
-                        try:
-                            e = json.loads(line)
-                        except ValueError:
-                            continue
-                        if not isinstance(e, dict):
-                            continue
-                        if _is_reply_schema_boundary(e):
-                            legacy_reply_rows = False
-                            continue
-                        if e.get("box") == tbid and e.get("kind") in ("user", "agent", "note"):
-                            item = {"kind": e["kind"], "text": e.get("text", ""), "ts": e.get("ts", 0)}
-                            if e.get("kind") in ("agent", "note"):
-                                if "reply_full" in e or "reply_short" in e:
-                                    full = e.get("reply_full", e.get("text", ""))
-                                    short = e.get("reply_short", full)
-                                elif legacy_reply_rows:
-                                    # Only rows physically before the persisted
-                                    # schema marker get legacy compatibility.
-                                    # Timestamps never decide data representation.
-                                    short, full = _legacy_reply_variants(e.get("text", ""))
-                                else:
-                                    full = short = e.get("text", "")
-                                item.update({"text": full, "replyFull": full, "replyShort": short})
-                            out.append(item)
-            except FileNotFoundError:
-                pass
-            self._send(200, {"messages": out[-n:]})
-        elif url.path == "/log":
-            n = int((parse_qs(url.query).get("lines") or ["120"])[0])
-            try:
-                lines = _log_file().read_text(errors="replace").splitlines()[-n:]
-            except OSError:
-                lines = []
-            self._send(200, {"lines": lines})
-        elif url.path == "/dirs":
-            # the page's folder chooser: one folder's subdirectories, rooted at
-            # and fenced to the user's home; hidden folders stay out of sight
-            q = parse_qs(url.query)
-            home = Path.home()
-            raw = (q.get("path") or [""])[0].strip()
-            try:
-                p = (Path(raw).expanduser() if raw else home).resolve()
-            except OSError:
-                self._send(400, {"error": "bad path"})
-                return
-            if p != home and home not in p.parents:
-                self._send(400, {"error": "outside the home directory"})
-                return
-            if not p.is_dir():
-                self._send(400, {"error": "not a directory"})
-                return
-            try:
-                subs = sorted((c for c in p.iterdir()
-                               if c.is_dir() and not c.name.startswith(".")),
-                              key=lambda c: c.name.lower())
-            except OSError:
-                self._send(400, {"error": "unreadable directory"})
-                return
-            self._send(200, {"path": str(p),
-                             "parent": str(p.parent) if p != home else None,
-                             "dirs": [{"name": c.name, "path": str(c)} for c in subs]})
-        elif url.path == "/pickdir":
-            # tests must never open the dialog: FACILITATOR_PICKDIR_STUB set on
-            # the server process answers with its value instead of the chooser
-            stub = os.environ.get("FACILITATOR_PICKDIR_STUB")
-            if stub:
-                self._send(200, {"path": stub})
-                return
-            try:
-                # activate the chooser first so it opens frontmost and its
-                # sidebar and search take clicks; restore the prior front app
-                # after. (osascript dialogs open unfocused otherwise.)
-                r = subprocess.run(
-                    ["osascript",
-                     "-e", 'tell application "System Events"',
-                     "-e", 'set prior to first process whose frontmost is true',
-                     "-e", 'activate',
-                     "-e", 'set picked to POSIX path of (choose folder with prompt "Open a new folder")',
-                     "-e", 'set frontmost of prior to true',
-                     "-e", 'return picked',
-                     "-e", 'end tell'],
-                    capture_output=True, text=True, timeout=300)
-            except subprocess.TimeoutExpired:
-                # a chooser left unanswered closes with the subprocess; to the
-                # page that is the same quiet non-choice as a cancel
-                self._send(200, {"cancelled": True})
-                return
-            except OSError as e:
-                self._send(200, {"error": str(e)})
-                return
-            if r.returncode != 0:
-                # the chooser exits nonzero on cancel (-128); anything else
-                # nonzero is a real failure and says so
-                err = (r.stderr or "").strip()
-                if not err or "-128" in err:
-                    self._send(200, {"cancelled": True})
-                else:
-                    self._send(200, {"error": err})
-                return
-            self._send(200, {"path": r.stdout.strip()})
-        elif url.path.startswith("/uploads/"):
-            fn = Path(url.path).name  # .name strips any traversal on both paths below
-            p = INTERNAL_UPLOADS / fn
-            if not p.is_file():
-                p = HERE / "uploads" / fn  # fall back to images saved before the move
-            if p.is_file() and p.suffix.lower() in IMG_TYPES:
-                self._send(200, p.read_bytes(), IMG_TYPES[p.suffix.lower()])
-            else:
-                self._send(404, {"error": "not found"})
-        elif url.path.startswith("/laneimg/"):
-            # a picture out of the lane's own internal folder, so an agent
-            # working in another project writes next to its own code instead of
-            # reaching into this repo. one lane, one plain file name, images only
-            lane, _, fn = unquote(url.path[len("/laneimg/"):]).partition("/")
-            base = _lane_internal(lane) if lane else None
-            # a name with a separator in it is never a file in this folder, and
-            # refusing it here kills nested and absolute paths before pathlib
-            # gets a chance to be clever about them
-            if base is None or not fn or "/" in fn or fn in (".", ".."):
-                self._send(404, {"error": "not found"})
-                return
-            try:
-                # resolve both sides and check containment before reading a
-                # byte: .. segments and symlinks pointing out of the folder
-                # land somewhere that is not under base, and stop right here
-                base = base.resolve()
-                p = (base / fn).resolve()
-                inside = p != base and base in p.parents
-            except OSError:
-                inside = False   # unreadable or a symlink loop: same as missing
-            if inside and p.is_file() and p.suffix.lower() in IMG_TYPES:
-                self._send(200, p.read_bytes(), IMG_TYPES[p.suffix.lower()])
-            else:
-                self._send(404, {"error": "not found"})
-        elif url.path == "/cm-markdown.js":
-            # the vendored editor, one prebuilt file beside index.html. The page
-            # asks for it the first time the markdown panel is opened and never
-            # on boot, so a board nobody edits markdown on pays nothing for it
-            p = HERE / "cm-markdown.js"
-            if p.is_file():
-                self._send(200, p.read_bytes(), "application/javascript; charset=utf-8")
-            else:
-                self._send(404, {"error": "not found"})
-        elif url.path == "/card-markdown.js":
-            p = HERE / "card-markdown.js"
-            if p.is_file():
-                self._send(200, p.read_bytes(), "application/javascript; charset=utf-8")
-            else:
-                self._send(404, {"error": "not found"})
-        elif url.path == "/card-tokens.css":
-            p = HERE / "card-tokens.css"
-            if p.is_file():
-                self._send(200, p.read_bytes(), "text/css; charset=utf-8")
-            else:
-                self._send(404, {"error": "not found"})
-        elif url.path == "/card-logic.js":
-            p = HERE / "card-logic.js"
-            if p.is_file():
-                self._send(200, p.read_bytes(), "application/javascript; charset=utf-8")
-            else:
-                self._send(404, {"error": "not found"})
-        elif url.path == "/card-report.js":
-            p = HERE / "card-report.js"
-            if p.is_file():
-                self._send(200, p.read_bytes(), "application/javascript; charset=utf-8")
-            else:
-                self._send(404, {"error": "not found"})
-        elif url.path == "/m-manifest.json":
-            # the install prompt reads the app's name from here and the page
-            # reads its own from the board title, so a name written into the
-            # file could only ever disagree with it. That one field is answered
-            # from the saved title; every other field is the file's own, and a
-            # board with no title leaves even that alone
-            p, ctype = PHONE_FILES[url.path]
-            if not p.is_file():
-                self._send(404, {"error": "not found"})
-                return
-            raw = p.read_bytes()
-            try:
-                manifest = json.loads(raw)
-            except ValueError:
-                manifest = None
-            if isinstance(manifest, dict):
-                with _lock:
-                    title = (_state.get("title") or "").strip()
-                if title:
-                    manifest["name"] = title
-                    manifest["short_name"] = title
-                raw = json.dumps(manifest, indent=2).encode()
-            self._send(200, raw, ctype)
-        elif url.path in PHONE_FILES:
-            # the phone page and the files that make it installable, each a
-            # plain file beside this one (the icons under assets/). Served
-            # with the no-store every answer carries, so a changed page or
-            # worker is picked up on the next open rather than a cache later
-            p, ctype = PHONE_FILES[url.path]
-            if p.is_file():
-                self._send(200, p.read_bytes(), ctype)
-            else:
-                self._send(404, {"error": "not found"})
-        elif url.path == "/push/key":
-            try:
-                key = _b64url(_push_public_key())
-            except Exception as e:
-                self._send(500, {"error": f"push key unavailable: {e}"})
-                return
-            self._send(200, {"key": key})
-        elif url.path == "/mdfiles":
-            # what the markdown panel lists: every .md under the two folders the
-            # lane in the query owns, each one re-checked for containment rather
-            # than trusted because it came out of a walk. A folder that does not
-            # exist yet, or holds nothing, comes back present and empty, so the
-            # panel can say so instead of looking broken. The kind each folder
-            # answers to goes back with it, since that is what the page labels
-            # its two tabs with and it is the only part of the name a lane's
-            # panel can know before it has asked
-            lane = (parse_qs(url.query).get("lane") or [""])[0]
-            roots = []
-            for kind, base in _md_roots(lane):
-                files = []
-                try:
-                    for p in sorted(base.rglob("*.md")):
-                        if any(part.startswith(".") for part in p.relative_to(base).parts):
-                            continue   # hidden files and hidden folders stay out of sight
-                        real = _md_path(lane, base.name, str(p.relative_to(base)))
-                        if real is None or not real.is_file():
-                            continue   # a symlink pointing out of the folder ends here
-                        st = real.stat()
-                        files.append({"rel": str(p.relative_to(base)), "name": p.name,
-                                      "mtime": str(st.st_mtime_ns), "size": st.st_size})
-                except OSError:
-                    pass
-                roots.append({"root": base.name, "kind": kind,
-                              "exists": base.is_dir(), "files": files})
-            self._send(200, {"roots": roots})
-        elif url.path == "/mdfile":
-            # one markdown file's whole text, with the stamp the save guard will
-            # want back. Not decoded loosely: a file that is not utf-8 is
-            # reported as such rather than handed over with replacement
-            # characters that a later save would then write back over the real
-            # bytes
-            q = parse_qs(url.query)
-            p = _md_path((q.get("lane") or [""])[0], (q.get("root") or [""])[0],
-                         (q.get("rel") or [""])[0])
-            if p is None:
-                self._send(400, {"error": "outside the markdown folders"})
-                return
-            if not p.is_file():
-                self._send(404, {"error": "no such file"})
-                return
-            try:
-                text = p.read_bytes().decode("utf-8")
-            except UnicodeDecodeError:
-                self._send(400, {"error": "not utf-8 text"})
-                return
-            except OSError:
-                self._send(400, {"error": "unreadable file"})
-                return
-            # windows line endings are carried to the page rather than silently
-            # flattened: the editor is told to keep them so a save writes the
-            # file back in the endings it arrived in
-            self._send(200, {"root": (q.get("root") or [""])[0],
-                             "rel": (q.get("rel") or [""])[0],
-                             "text": text, "mtime": _md_stamp(p),
-                             "crlf": "\r\n" in text})
-        else:
-            self._send(404, {"error": "not found"})
 
-    def _ui_state(self) -> dict:
-        st = _state
-        qpos, seen = {}, {ow: 0 for ow in OWNERS}  # queue position within each owner's lane
-        for i in st["inbox"]:
+def _op_lookup(op: str, fp: str) -> tuple[str, dict | None]:
+    """"none" for an id the board has not seen, "same" with the stored record
+    for a genuine retry, "mismatch" for the same id under other words."""
+    rec = _op_record(op)
+    if rec is None:
+        return "none", None
+    return ("same" if rec.get("fp") == fp else "mismatch"), rec
+
+
+def _op_commit(op: str, fp: str, kind: str, box: str, result: dict) -> None:
+    """The receipt, written into the state the caller is about to save, and the
+    old receipts let go here rather than on a clock of their own.
+
+    Two rules, so an eviction can never turn a live retry into a fresh action.
+    A receipt past the retention window is dropped, always. If the store is
+    still over the soft cap, the oldest are dropped toward it, but only ones
+    already older than the floor: a receipt young enough that a phone could
+    still be sending its id is kept whatever the count, so a retry always finds
+    it and answers from it instead of landing twice. Under one person's use the
+    count never nears the cap, so in practice only the retention rule ever runs."""
+    ops = _state.setdefault("ops", {})
+    now = time.time()
+    ops[op] = {"kind": kind, "box": box, "fp": fp, "result": result, "ts": now}
+    for k in [k for k, r in ops.items() if now - r.get("ts", 0) > OP_RETENTION]:
+        del ops[k]
+    if len(ops) > OP_KEEP:
+        evictable = sorted((r.get("ts", 0), k) for k, r in ops.items()
+                           if now - r.get("ts", 0) > OP_EVICT_FLOOR)
+        for _ts, k in evictable[:len(ops) - OP_KEEP]:
+            del ops[k]
+
+
+def _op_status(op: str) -> dict:
+    """What a phone asks on waking: did this land. unknown means the board has
+    no receipt within the window, which within the window means it did not."""
+    rec = _op_record(op)
+    if rec is None:
+        return {"status": "unknown"}
+    return {"status": "applied", "kind": rec["kind"], "box": rec.get("box"), "result": rec["result"]}
+
+
+# ---- what the phone reads ------------------------------------------------------
+# The desktop reads the whole board every second and that is right for a page
+# on the same machine. The phone reads through a tunnel, so it names the
+# revision it has and gets a short answer when nothing has changed, and when
+# something has, the cards with the fields the phone draws and none of the
+# rest. The live section rides on every answer because it is not part of the
+# saved state and so never moves the revision.
+
+def _phone_box(b: dict) -> dict:
+    ow = b.get("owner", "pastureland")
+    return {
+        "id": b["id"], "bucket": b["bucket"], "title": b["title"],
+        "replyFull": b.get("reply_full", b.get("reply", "")),
+        "done": b["done"], "replies": b["replies"], "ball": b.get("ball", "you"),
+        "parked": b.get("parked", False), "ts": b.get("ts", 0), "owner": ow,
+        "pending": len(b["pending"]),
+        "pendingTexts": [m["text"] for m in b["pending"]],
+        "pendingStamps": [m.get("ts", 0) for m in b["pending"]],
+        # the operation id each queued message was sent under, or null for a
+        # message that came without one: the phone matches its own rows by it
+        "pendingOps": [m.get("op") for m in b["pending"]],
+        "agentTs": b.get("agent_ts", 0), "seen": b.get("seen", 0), "turnTs": b.get("turn_ts", 0),
+        "writing": _state["busy"].get(ow) == b["id"],
+        "bg": _hb_live(b), "state": _shown(b),
+    }
+
+
+def _live_section() -> dict:
+    now = time.time()
+    return {
+        "listening": {ow: _waiters.get(ow, 0) > 0 for ow in OWNERS},
+        "listenerGap": {ow: round(now - _last_wait.get(ow, 0.0), 1) for ow in OWNERS},
+        "agents": {ow: {
+            "name": _agent_names.get(ow) or "claude",
+            "alive": _waiters.get(ow, 0) > 0 or (now - _last_wait.get(ow, 0.0)) < 900 or bool(_state["busy"].get(ow)),
+        } for ow in OWNERS},
+    }
+
+
+def _phone_state(since: int | None, ops: list[str]) -> dict:
+    """Callers hold _lock and have swept the clocks."""
+    rev = _state.get("rev", 0)
+    out = {"rev": rev, "changed": since is None or since != rev, "now": time.time(),
+           "live": _live_section()}
+    if out["changed"]:
+        qpos, seen = {}, {ow: 0 for ow in OWNERS}
+        for i in _state["inbox"]:
             ow = (_box(i) or {}).get("owner", "pastureland")
             seen[ow] += 1
             qpos[i] = seen[ow]
-        return {
-            "boxes": [
-                {
-                    "id": b["id"], "bucket": b["bucket"], "title": b["title"],
-                    # reply remains the full-text compatibility field for older
-                    # clients. Current surfaces consume the explicit variants.
-                    "reply": b.get("reply_full", b.get("reply", "")),
-                    "replyFull": b.get("reply_full", b.get("reply", "")),
-                    "replyShort": b.get("reply_short", b.get("reply_full", b.get("reply", ""))),
-                    "done": b["done"], "replies": b["replies"],
-                    "ball": b.get("ball", "you"),
-                    "parked": b.get("parked", False),
-                    "ts": b.get("ts", 0),
-                    "context": b.get("context", ""),
-                    "owner": b.get("owner", "pastureland"),
-                    "pending": len(b["pending"]),
-                    "pendingTexts": [m["text"] for m in b["pending"]],
-                    # send times matching pendingTexts one to one; 0 for
-                    # entries queued before times were recorded, which the
-                    # page shows unstamped
-                    "pendingStamps": [m.get("ts", 0) for m in b["pending"]],
-                    "ws": b.get("ws"), "task": b.get("task"),
-                    # the card's own worktree, empty for a card that has never
-                    # been moved; the bar reads the lane's standing branch then
-                    "worktree": b.get("worktree", ""),
-                    "agentTs": b.get("agent_ts", 0),
-                    # replies already read, the board's record rather than one
-                    # browser's: the page bolds a card whose reply count has
-                    # passed this, on whichever device is looking
-                    "seen": b.get("seen", 0),
-                    # when the card last turned to his turn: the phone's push
-                    # handler reads /state and names the card that turned last
-                    "turnTs": b.get("turn_ts", 0),
-                    "engine": b.get("engine", "claude"),
-                    "writing": st["busy"][b.get("owner", "pastureland")] == b["id"],
-                    # green only while the job's heartbeat is fresh: a job
-                    # that stopped pinging cannot keep a card green
-                    "bg": _hb_live(b),
-                    # the single source of truth for color and sort: the
-                    # machine's state through the shelf mask, beside the raw
-                    # flags above so the page never has to reconcile them
-                    "state": _shown(b),
-                    "queuePos": qpos.get(b["id"], 0),
-                }
-                for b in st["boxes"]
-            ],
-            "pwd": str(HERE),
-            "pwds": _lane_pwds(),
-            "projects": st.get("projects", []),
-            "busy": st["busy"],
-            "queued": len(st["inbox"]),
-            "end": st["end"],
-            "paused": st.get("paused", False),
-            "title": st.get("title", "facilitator"),
-            # the one tab bar both pages draw: the lane order and the lanes he
-            # has closed. An empty order means no arrangement has been saved
-            "tabs": st.get("tabs", {"order": [], "closed": []}),
-            "listening": {ow: _waiters[ow] > 0 for ow in OWNERS},
-            "everListened": st.get("ever_listened", {}),
-            "workspaces": st.get("workspaces", {}),
-            "listenerGap": {ow: round(time.time() - _last_wait[ow], 1) for ow in OWNERS},
-            # the row tag's truth: the lane's last stated agent name, and alive
-            # meaning connected now, seen within the steal window, or holding a card
-            "agents": {ow: {
-                "name": _agent_names[ow] or "claude",
-                "alive": _waiters[ow] > 0
-                         or (time.time() - _last_wait[ow]) < 900
-                         or bool(st["busy"][ow]),
-                # alive but absent from the listening call for over a minute,
-                # holding nothing and with no live job registered: the agent is
-                # working off the record and the bar says so
-                "offrecord": _waiters[ow] == 0 and st["busy"][ow] is None
-                             and 60 < (time.time() - _last_wait[ow]) < 900
-                             and not any(
-                                 _hb_live(b)
-                                 for b in st["boxes"] if b.get("owner", "pastureland") == ow),
-            } for ow in OWNERS},
-        }
+        boxes = []
+        for b in _state["boxes"]:
+            one = _phone_box(b)
+            one["queuePos"] = qpos.get(b["id"], 0)
+            boxes.append(one)
+        out.update({
+            "title": _state.get("title", "facilitator"),
+            "tabs": _state.get("tabs", {"order": [], "closed": []}),
+            "pwds": _lane_pwds(), "projects": _state.get("projects", []),
+            "paused": _state.get("paused", False), "boxes": boxes,
+        })
+    if ops:
+        out["ops"] = {op: _op_status(op) for op in ops if _op_id_ok(op)}
+    return out
 
-    def _wait(self, timeout: float, owner: str) -> None:
-        deadline = time.monotonic() + min(timeout, 590)
-        with _lock:
-            _waiters[owner] += 1
-            ev = _state.setdefault("ever_listened", {})
-            if not ev.get(owner):
-                ev[owner] = True
-                _save()
-        try:
-            self._wait_inner(deadline, owner)
-        finally:
-            with _lock:
-                _waiters[owner] -= 1
-                _last_wait[owner] = time.time()
 
-    def _wait_inner(self, deadline: float, owner: str) -> None:
-        with _lock:
-            while True:
-                if _state.get("paused"):  # laptop-close mode: send the listener home
-                    self._send(200, {"paused": True})
-                    return
-                # the short clock first: a hand-off nobody confirmed comes back
-                # after 90 seconds, long before the steal-back below notices
-                _release_unacked()
-                # and a working flag that stopped pinging drops its card out of
-                # green, handing over a turn deferred under it
-                _sweep()
-                # a claim older than 15 min with no reply is a dead listener: steal it back
-                for ow in OWNERS:
-                    stale = _state["busy"][ow]
-                    if stale is not None and time.time() - _state["busy_ts"].get(ow, 0) > 900:
-                        _state["busy"][ow] = None
-                        _state["claimed"][ow] = []
-                        if _box(stale) and _box(stale)["pending"] and stale not in _state["inbox"]:
-                            _state["inbox"].insert(0, stale)
-                        _save()
-                if _state["busy"][owner] is None:
-                    bid = next((i for i in _state["inbox"]
-                                if (_box(i) or {}).get("owner", "pastureland") == owner), None)
-                    if bid is not None:
-                        _state["inbox"].remove(bid)
-                        box = _box(bid)
-                        _state["busy"][owner] = bid
-                        _state["claimed"][owner] = [m["mid"] for m in box["pending"]]
-                        _state["busy_ts"][owner] = time.time()
-                        # every claim is provisional: the token below is what
-                        # POST /ack has to name, and until it does this claim is
-                        # on the 90 second clock. A lane holds one claim, so one
-                        # record per lane says everything about it
-                        token = secrets.token_hex(6)
-                        _state["ack"][owner] = {"box": bid, "token": token,
-                                                "ts": time.time(), "confirmed": False}
-                        # that a receipt was minted, never the receipt itself
-                        _debug("claim", bid, owner=owner, token=bool(token))
-                        _save()
-                        payload = {
-                            "box": bid, "title": box["title"],
-                            "messages": [m["text"] for m in box["pending"]],
-                            # where each message was typed, one entry per
-                            # message in the same order: "mini" for the small
-                            # card, null for the big one. It rides beside
-                            # messages instead of inside it because agent
-                            # loops elsewhere read messages as plain strings
-                            "message_via": [m.get("via") for m in box["pending"]],
-                            "queued_after": sum(1 for i in _state["inbox"]
-                                                if (_box(i) or {}).get("owner", "pastureland") == owner),
-                            # the receipt this hand-off has to come back with
-                            "ack": token,
-                        }
-                        if not self._send(200, payload):
-                            # listener died mid-handoff: roll the claim back so
-                            # the message is never stranded on a dead connection.
-                            # It fires now that _send reports the failure
-                            _state["busy"][owner] = None
-                            _state["claimed"][owner] = []
-                            _state["ack"][owner] = None
-                            if bid not in _state["inbox"]:
-                                _state["inbox"].insert(0, bid)
-                            _log("dropped", bid, f"{owner} hand-off died on the wire, box re-queued")
-                            _save()
-                            _lock.notify_all()
-                        return
-                if _state["end"] and _state["busy"][owner] is None and not any(
-                        (_box(i) or {}).get("owner", "pastureland") == owner for i in _state["inbox"]):
-                    self._send(200, {"end": True})
-                    return
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    self._send(200, {"idle": True})
-                    return
-                _lock.wait(min(remaining, 5))
+def _ui_state() -> dict:
+    """The whole board, for the desktop pages and any older caller. Callers hold _lock."""
+    st = _state
+    qpos, seen = {}, {ow: 0 for ow in OWNERS}  # queue position within each owner's lane
+    for i in st["inbox"]:
+        ow = (_box(i) or {}).get("owner", "pastureland")
+        seen[ow] += 1
+        qpos[i] = seen[ow]
+    return {
+        "boxes": [
+            {
+                "id": b["id"], "bucket": b["bucket"], "title": b["title"],
+                # reply remains the full-text compatibility field for older
+                # clients. Current surfaces consume the explicit variants.
+                "reply": b.get("reply_full", b.get("reply", "")),
+                "replyFull": b.get("reply_full", b.get("reply", "")),
+                "replyShort": b.get("reply_short", b.get("reply_full", b.get("reply", ""))),
+                "done": b["done"], "replies": b["replies"],
+                "ball": b.get("ball", "you"),
+                "parked": b.get("parked", False),
+                "ts": b.get("ts", 0),
+                "context": b.get("context", ""),
+                "owner": b.get("owner", "pastureland"),
+                "pending": len(b["pending"]),
+                "pendingTexts": [m["text"] for m in b["pending"]],
+                # send times matching pendingTexts one to one; 0 for
+                # entries queued before times were recorded, which the
+                # page shows unstamped
+                "pendingStamps": [m.get("ts", 0) for m in b["pending"]],
+                "ws": b.get("ws"), "task": b.get("task"),
+                # the card's own worktree, empty for a card that has never
+                # been moved; the bar reads the lane's standing branch then
+                "worktree": b.get("worktree", ""),
+                "agentTs": b.get("agent_ts", 0),
+                # replies already read, the board's record rather than one
+                # browser's: the page bolds a card whose reply count has
+                # passed this, on whichever device is looking
+                "seen": b.get("seen", 0),
+                # when the card last turned to his turn: the phone's push
+                # handler reads the board and names the card that turned last
+                "turnTs": b.get("turn_ts", 0),
+                "engine": b.get("engine", "claude"),
+                "writing": st["busy"].get(b.get("owner", "pastureland")) == b["id"],
+                # green only while the job's heartbeat is fresh: a job
+                # that stopped pinging cannot keep a card green
+                "bg": _hb_live(b),
+                # the single source of truth for color and sort: the
+                # machine's state through the shelf mask, beside the raw
+                # flags above so the page never has to reconcile them
+                "state": _shown(b),
+                "queuePos": qpos.get(b["id"], 0),
+            }
+            for b in st["boxes"]
+        ],
+        # the revision this snapshot is of: every saved change moves it, so a
+        # reader holding one can tell whether a later answer is newer
+        "rev": st.get("rev", 0),
+        "pwd": str(HERE),
+        "pwds": _lane_pwds(),
+        "projects": st.get("projects", []),
+        "busy": st["busy"],
+        "queued": len(st["inbox"]),
+        "end": st["end"],
+        "paused": st.get("paused", False),
+        "title": st.get("title", "facilitator"),
+        # the one tab bar both pages draw: the lane order and the lanes he
+        # has closed. An empty order means no arrangement has been saved
+        "tabs": st.get("tabs", {"order": [], "closed": []}),
+        "listening": {ow: _waiters.get(ow, 0) > 0 for ow in OWNERS},
+        "everListened": st.get("ever_listened", {}),
+        "workspaces": st.get("workspaces", {}),
+        "listenerGap": {ow: round(time.time() - _last_wait.get(ow, 0.0), 1) for ow in OWNERS},
+        # the row tag's truth: the lane's last stated agent name, and alive
+        # meaning connected now, seen within the steal window, or holding a card
+        "agents": {ow: {
+            "name": _agent_names.get(ow) or "claude",
+            "alive": _waiters.get(ow, 0) > 0
+                     or (time.time() - _last_wait.get(ow, 0.0)) < 900
+                     or bool(st["busy"].get(ow)),
+            # alive but absent from the listening call for over a minute,
+            # holding nothing and with no live job registered: the agent is
+            # working off the record and the bar says so
+            "offrecord": _waiters.get(ow, 0) == 0 and st["busy"].get(ow) is None
+                         and 60 < (time.time() - _last_wait.get(ow, 0.0)) < 900
+                         and not any(
+                             _hb_live(b)
+                             for b in st["boxes"] if b.get("owner", "pastureland") == ow),
+        } for ow in OWNERS},
+    }
 
-    # -- POST -----------------------------------------------------------------
-    def do_POST(self) -> None:  # noqa: N802
-        self._served("POST", self._post)
 
-    def _post(self) -> None:
-        url = urlparse(self.path)
-        q = parse_qs(url.query)
-        bid = (q.get("box") or [""])[0]
+# ---- the routes' locked work --------------------------------------------------
+# Each function below is one route's whole answer: it takes the parsed query
+# and the body, does its work under _lock where the board is touched, and hands
+# back a status and a payload. A dict is answered as JSON; bytes come with
+# their content type. None of them writes a socket, so none of them can be
+# held up by one. The lines read as the old handler read, one route after
+# another, because that is the order anyone looking for a route will use.
 
-        if url.path == "/upload":  # binary body (dropped image); never decode as text
-            n = int(self.headers.get("Content-Length") or 0)
-            raw = self.rfile.read(n) if n else b""
-            if not raw:
-                self._send(400, {"error": "empty upload"})
-                return
-            name = (q.get("name") or ["file"])[0]
-            safe = "".join(c for c in name if c.isalnum() or c in "._-")[-60:] or "file"
-            up = INTERNAL_UPLOADS  # new uploads land outside the repo
-            up.mkdir(parents=True, exist_ok=True)
-            fname = f"{int(time.time() * 1000)}-{safe}"
-            (up / fname).write_bytes(raw)
-            self._send(200, {"url": "/uploads/" + fname})  # URL unchanged; page needs no change
-            return
+class Query(dict):
+    """The query string parsed the way it always was, plus the raw string for
+    the one route that has to tell a blank value from an absent one, and the
+    request path for the routes that read a name out of it."""
+    raw: str = ""
+    path: str = ""
 
-        if url.path == "/clientlog":
-            # what a page noticed and has no other way to say: a thrown error, a
-            # rejected promise, a fetch or a render that failed, a timer that ran
-            # late. Answered up here, above the shared body read, because the
-            # size cap has to be applied to the body before it is read at all
-            n = int(self.headers.get("Content-Length") or 0)
-            if n > CLIENT_MAX_BODY:
-                self._send(413, {"error": "report batch too large"})
-                return
-            raw = self.rfile.read(n) if n else b""
-            try:
-                batch = json.loads(raw.decode("utf-8", "replace")) if raw else None
-            except ValueError:
-                batch = None
-            page = batch.get("page") if isinstance(batch, dict) else None
-            reports = batch.get("reports") if isinstance(batch, dict) else None
-            if (page not in CLIENT_PAGES or not isinstance(reports, list) or not reports
-                    or not all(isinstance(r, dict) and r.get("kind") in CLIENT_KINDS
-                               for r in reports)):
-                # nothing of a batch this board cannot read is stored, the way
-                # every other record-taking route on here already refuses
-                self._send(400, {"error": "bad report batch"})
-                return
-            if len(reports) > CLIENT_MAX_REPORTS:
-                self._send(400, {"error": "too many reports in one batch"})
-                return
-            written, dropped = _client_batch(page, reports)
-            self._send(200, {"ok": True, "written": written, "dropped": dropped})
-            return
+    def one(self, name: str, default: str = "") -> str:
+        values = self.get(name)
+        return values[0] if values else default
 
-        if url.path == "/mdsave":
-            # answered up here, above the shared body read, because that read
-            # strips the text: a markdown file's trailing newline is content and
-            # losing it would break the round trip on the very first save
-            n = int(self.headers.get("Content-Length") or 0)
-            raw = self.rfile.read(n) if n else b""
-            p = _md_path((q.get("lane") or [""])[0], (q.get("root") or [""])[0],
-                         (q.get("rel") or [""])[0])
-            if p is None:
-                self._send(400, {"error": "outside the markdown folders"})
-                return
-            if not p.is_file():
-                self._send(404, {"error": "no such file"})
-                return
-            try:
-                raw.decode("utf-8")
-            except UnicodeDecodeError:
-                self._send(400, {"error": "not utf-8 text"})
-                return
-            # the stale-write guard: the stamp the page was handed on read comes
-            # back here, and a file whose stamp has moved since is one somebody
-            # else has written. Refused with the current stamp so the page can
-            # say plainly what happened; his text is never merged or dropped for
-            # him, it stays in the editor where he can still see it
-            try:
-                now = _md_stamp(p)
-            except OSError:
-                self._send(400, {"error": "unreadable file"})
-                return
-            was = (q.get("mtime") or [""])[0]
-            if was and was != now:
-                self._send(409, {"error": "changed on disk", "mtime": now})
-                return
-            # written the way state.json is written: a temp file beside it, then
-            # one rename, so a reader never sees a half-written file. The temp
-            # name appends rather than replaces the suffix, so it can never
-            # collide with a real neighbour of the same stem
-            tmp = p.with_name(p.name + ".tmp")
-            try:
-                tmp.write_bytes(raw)
-                os.replace(tmp, p)
-            except OSError as e:
-                tmp.unlink(missing_ok=True)
-                self._send(400, {"error": str(e)})
-                return
-            self._send(200, {"ok": True, "mtime": _md_stamp(p)})
-            return
 
-        text = self._read_body().strip()
+def _snapshot(payload: dict) -> tuple[bytes, str]:
+    """A dict that points into the live state, made into bytes while the lock
+    is still held, so the answer is one consistent reading of the board."""
+    return json.dumps(payload).encode(), "application/json"
 
-        with _lock:
-            if url.path == "/send":
-                box = _box(bid)
-                if box is None or not text:
-                    self._send(400, {"error": "bad box or empty text"})
-                    return
-                msg = {"mid": _state["next_mid"], "text": text, "ts": time.time()}
-                # where he typed it: via=mini means the small card in the corner.
-                # Only that literal is kept, so a caller that passes nothing (the
-                # big card, any older sender) stores exactly what it always did
-                if (q.get("via") or [""])[0] == "mini":
-                    msg["via"] = "mini"
-                box["pending"].append(msg)
-                box["parked"] = False
-                box["ball"] = "me"  # his message sent: the ball is in the agent's court
-                # his message queues the card; a beating flag keeps its green,
-                # and a deferred turn dies here, since he has read and
-                # answered: it must not resurface when the flag goes down
-                box["state"] = "working" if _hb_live(box) else "queued"
-                box["ts"] = time.time()
-                _state["next_mid"] += 1
-                # untitled user-created meta box: its first message names it
-                if box["bucket"] == "meta" and box["id"] != "0" and box["title"] == "…":
-                    first = text.splitlines()[0].strip()
-                    box["title"] = (first[:48] + "…") if len(first) > 48 else first
-                if bid not in _state["inbox"] and _state["busy"][box.get("owner", "pastureland")] != bid:
-                    _state["inbox"].append(bid)
-                _log("user", bid, text)
-                _save()
-                _lock.notify_all()
-                self._send(200, {"ok": True})
 
-            elif url.path == "/ack":
-                # the other half of the hand-off: the token /wait handed out
-                # comes back here and the provisional claim becomes a real one.
-                # Nothing else about the claim changes, so a confirmed claim is
-                # exactly what /fresh, /reply and the steal-back always saw
-                ow = (q.get("owner") or ["pastureland"])[0]
-                if ow not in OWNERS:
-                    self._send(400, {"error": "unknown owner"})
-                    return
-                token = (q.get("token") or [""])[0]
-                rec = _state.get("ack", {}).get(ow)
-                if not token or not rec or rec.get("token") != token:
-                    self._send(409, {"error": "unknown or stale token"})
-                    return
-                if rec.get("confirmed"):
-                    # idempotent: a resent ack is the same ack, never a 409
-                    self._send(200, {"ok": True, "box": rec["box"]})
-                    return
-                if _state["busy"].get(ow) != rec.get("box"):
-                    # the claim this token names is already over: released by
-                    # the 90 second clock, stolen back, replied to or dismissed
-                    self._send(409, {"error": "claim no longer held"})
-                    return
-                rec["confirmed"] = True
-                _debug("ackok", rec["box"], owner=ow, token=bool(token))
-                _log("ack", rec["box"], f"{ow} confirmed delivery")
-                _save()
-                self._send(200, {"ok": True, "box": rec["box"]})
+def _file(p: Path, ctype: str):
+    if p.is_file():
+        return 200, p.read_bytes(), ctype
+    return 404, {"error": "not found"}
 
-            elif url.path == "/reply":
-                box = _box(bid)
-                if box is None:
-                    self._send(400, {"error": "bad box"})
-                    return
-                if "quiet" in q:
-                    self._send(400, {"error": "quiet replies were removed; use /note for progress"})
-                    return
-                # the summary strip is optional as of 20260821: the owner had
-                # the summary box taken off the card, so nothing displays it and
-                # the agent no longer writes one. a ctx that is passed is still
-                # stored and still size checked, so older callers keep working
-                ctx = (q.get("ctx") or [""])[0].strip()
-                if ctx and len(ctx.split()) > 50:
-                    # refused outright, never silently chopped
-                    self._send(400, {"error": "context strip over 50 words"})
-                    return
-                ow = box.get("owner", "pastureland")
-                # The compact version is data, not punctuation inside the full
-                # prose. keep_blank_values distinguishes an intentionally empty
-                # small card from an omitted version, which mirrors the full one.
-                short_values = parse_qs(url.query, keep_blank_values=True).get("short")
-                short = short_values[0].strip() if short_values is not None else None
-                # a message typed in the small card gets a small answer back:
-                # that card is a few lines tall and a long reply is unreadable
-                # in it. The newest message the claim covers is the one being
-                # answered, so that one decides. Refused outright like the
-                # context strip above, never silently chopped
-                held = _state["claimed"][ow] if _state["busy"][ow] == bid else []
-                answering = next((m for m in box["pending"] if m["mid"] == held[-1]), None) if held else None
-                if answering is not None and answering.get("via") == "mini":
-                    words = len((text if short is None else short).split())
-                    if words > 100:
-                        self._send(400, {"error": f"small card reply over 100 words: {words} words"})
-                        return
-                _last_wait[ow] = time.time()  # a reply proves that agent is alive too
-                _set_reply_variants(box, text, short)
-                box["replies"] += 1
-                # The machine's sole answer move, taken once the claim is let
-                # go below. While a working flag beats, the final turn waits in
-                # deferred and is handed over when that work ends.
-                box["agent_ts"] = time.time()  # when the agent last replied
-                box["ts"] = time.time()
-                if ctx:
-                    box["context"] = ctx
-                _release_claim(box)
-                if _hb_live(box):
-                    box["state"] = "deferred"
-                else:
-                    _turn_to_you(box)
-                    box["state"] = _rest(box)
-                _log("agent", bid, text, reply_full=text,
-                     reply_short=box["reply_short"],
-                     reply_variants_version=REPLY_VARIANTS_VERSION)
-                _save()
-                _lock.notify_all()
-                self._send(200, {"ok": True})
 
-            elif url.path == "/note":
-                # The sole background-progress action. It releases a held claim,
-                # owns an explicit note state and keeps the turn with the agent,
-                # so it can never turn yellow when its heartbeat ends.
-                box = _box(bid)
-                if box is None:
-                    self._send(400, {"error": "bad box"})
-                    return
-                ctx = (q.get("ctx") or [""])[0].strip()
-                if ctx and len(ctx.split()) > 50:
-                    self._send(400, {"error": "context strip over 50 words"})
-                    return
-                ow = box.get("owner", "pastureland")
-                _last_wait[ow] = time.time()  # a note proves that agent is alive too
-                _set_reply_variants(box, text)
-                box["replies"] += 1
-                box["agent_ts"] = time.time()
-                box["ts"] = time.time()
-                if ctx:
-                    box["context"] = ctx
-                _release_claim(box)
-                box["ball"] = "me"
-                box["hb"] = time.time()
-                box["state"] = "note"
-                _log("note", bid, text, reply_full=text, reply_short=text,
-                     reply_variants_version=REPLY_VARIANTS_VERSION)
-                _save()
-                _lock.notify_all()
-                self._send(200, {"ok": True})
+def _get_root(q: Query, _):
+    return 200, (HERE / "index.html").read_bytes(), "text/html; charset=utf-8"
 
-            elif url.path == "/done":
-                box = _box(bid)
-                if box is None:
-                    self._send(400, {"error": "bad box"})
-                    return
-                box["done"] = (q.get("v") or ["1"])[0] == "1"
-                if box["done"]:
-                    box["parked"] = False
-                _log("done" if box["done"] else "undone", bid, "")
-                _save()
-                _lock.notify_all()
-                self._send(200, {"ok": True})
 
-            elif url.path == "/working":
-                # a job runs behind this card: green without a claim, so the
-                # lane stays free. Registration starts a heartbeat clock; the
-                # job (or agent) must /ping while it runs, or green expires.
-                box = _box(bid)
-                if box is None:
-                    self._send(400, {"error": "bad box"})
-                    return
-                box["hb"] = time.time() if (q.get("v") or ["1"])[0] == "1" else 0
-                if box["hb"]:
-                    _green(box)
-                # v=0 is one of the two ways out of green, so the sweep runs
-                # right here and a deferred turn is handed over at once. v=1
-                # re-registers and the flag beats again, so a deferred card
-                # just keeps waiting, which is what re-registering should mean
-                _sweep()
-                _log("working" if box["hb"] else "workdone", bid, "")
-                _save()
-                _lock.notify_all()
-                self._send(200, {"ok": True})
+def _get_page(q: Query, _):
+    # the second UI: the same lanes and the same cards drawn as one typed
+    # page, in its own file so editing it can never touch the card board
+    return 200, (HERE / "page.html").read_bytes(), "text/html; charset=utf-8"
 
-            elif url.path == "/ping":
-                # heartbeat for a registered job; keeps the card's green alive
-                box = _box(bid)
-                if box is None:
-                    self._send(400, {"error": "bad box"})
-                    return
-                if box.get("hb"):
-                    box["hb"] = time.time()
-                    _green(box)  # a registered job beating again takes back its green
-                self._send(200, {"ok": True, "bg": bool(box.get("hb"))})
 
-            elif url.path == "/park":
-                box = _box(bid)
-                if box is None:
-                    self._send(400, {"error": "bad box"})
-                    return
-                box["parked"] = (q.get("v") or ["1"])[0] == "1"
-                if box["parked"]:
-                    box["done"] = False
-                _log("park" if box["parked"] else "unpark", bid, "")
-                _save()
-                _lock.notify_all()
-                self._send(200, {"ok": True})
-
-            elif url.path == "/worktree":
-                # the card's own worktree, held on the card and not guessed from
-                # a text convention. empty means the lane's standing branch,
-                # which is what the bar falls back to, so a card that has never
-                # been moved carries nothing and still shows a true name
-                box = _box(bid)
-                if box is None:
-                    self._send(400, {"error": "bad box"})
-                    return
-                name = (q.get("name") or [""])[0]
-                if name and name not in _lane_worktrees(box.get("owner", "pastureland"))["names"]:
-                    self._send(400, {"error": "unknown worktree"})
-                    return
-                box["worktree"] = name
-                _log("worktree", bid, name)
-                _save()
-                _lock.notify_all()
-                self._send(200, {"ok": True})
-
-            elif url.path == "/context":
-                box = _box(bid)
-                if box is None:
-                    self._send(400, {"error": "bad box"})
-                    return
-                if len(text.split()) > 50:
-                    self._send(400, {"error": "context strip over 50 words"})
-                    return
-                box["context"] = text  # agent-maintained; refused over 50 words
-                _save()
-                _lock.notify_all()
-                self._send(200, {"ok": True})
-
-            elif url.path == "/title":
-                box = _box(bid)
-                if box is None or (not text and box["title"]):
-                    self._send(400, {"error": "bad box or empty title"})
-                    return
-                if not text:
-                    # naming was abandoned: hand out a whimsical name no live
-                    # card is already wearing
-                    used = {b["title"] for b in _state["boxes"]}
-                    free = [n for n in FAIRY_NAMES if n not in used]
-                    box["title"] = random.choice(free or FAIRY_NAMES)
-                else:
-                    box["title"] = text.splitlines()[0][:80]
-                _log("title", bid, box["title"])
-                _save()
-                _lock.notify_all()
-                self._send(200, {"ok": True, "title": box["title"]})
-
-            elif url.path == "/create":
-                owner = (q.get("owner") or ["facilitator"])[0]
-                if owner not in OWNERS:
-                    self._send(400, {"error": "unknown owner"})
-                    return
-                # born nameless; a whimsical name lands only if naming is walked
-                # away from (the empty-body /title call below)
-                title = (text or "").splitlines()[0][:80] if text else ""
-                bid_new = f"m{_state['next_bid']}"  # never reused, even after deletes
-                _state["next_bid"] += 1
-                # keep each meta section grouped: insert after its last same-owner meta box
-                idx = max([i for i, b in enumerate(_state["boxes"])
-                           if b["bucket"] == "meta" and b.get("owner") == owner] or [-1]) + 1
-                ws0 = (_state.get("workspaces", {}).get(owner) or [{}])[0].get("id")
-                _state["boxes"].insert(idx, {
-                    "id": bid_new, "bucket": "meta", "title": title, "reply": "",
-                    "reply_full": "", "reply_short": "",
-                    "pending": [], "done": False, "parked": False, "replies": 0,
-                    "state": "new", "hb": 0,
-                    "ball": "me", "ts": time.time(), "owner": owner,
-                    "ws": ws0, "task": None, "agent_ts": 0, "seen": 0,
-                })
-                _log("create", bid_new, title)
-                _save()
-                _lock.notify_all()
-                self._send(200, {"ok": True, "id": bid_new})
-
-            elif url.path == "/project":
-                # a new project lane from the page's plus tab: slug the name,
-                # store {id, name, dir} so restarts keep it, give the lane its
-                # per-owner slots; the tab appears with an empty board
-                name = (q.get("name") or [""])[0].strip()
-                slug = "".join(c if c.isalnum() else "-" for c in name.lower())
-                while "--" in slug:
-                    slug = slug.replace("--", "-")
-                slug = slug.strip("-")
-                if not name or not slug:
-                    self._send(400, {"error": "empty name"})
-                    return
-                if slug in RETIRED_OWNERS:
-                    self._send(400, {"error": "reserved owner"})
-                    return
-                # a taken id walks numbered suffixes until free; built-in owner
-                # ids (hidden internal lanes included) and stored project ids
-                # both count as taken, so no folder name is ever refused for
-                # colliding with a lane the page never shows
-                taken = set(OWNERS) | {p["id"] for p in _state.get("projects", [])}
-                if slug in taken:
-                    n = 2
-                    while f"{slug}-{n}" in taken:
-                        n += 1
-                    slug = f"{slug}-{n}"
-                home = Path.home()
-                try:
-                    d = Path(text).expanduser().resolve() if text else None
-                except OSError:
-                    d = None
-                if d is None or not d.is_dir() or (d != home and home not in d.parents):
-                    self._send(400, {"error": "body must be a folder under home"})
-                    return
-                _state.setdefault("projects", []).append({"id": slug, "name": name, "dir": str(d)})
-                _register_owner(slug)
-                _state["busy"].setdefault(slug, None)
-                _state["claimed"].setdefault(slug, [])
-                _state["busy_ts"].setdefault(slug, 0.0)
-                _state.setdefault("ack", {}).setdefault(slug, None)
-                _state.setdefault("workspaces", {})[slug] = [{
-                    "id": "w1", "name": "main", "started": time.time(),
-                    "goal": "", "tasks": [], "current": None}]
-                # no card is created with the lane: a fresh folder opens onto
-                # an empty board and cards come only from the owner's hand
-                # the folder's own name is written down, never the path to it:
-                # a lane's directory is one line away from a home directory
-                _log("project", slug, f"{name} -> {d}", log_fields={"folder": d.name})
-                _save()
-                _lock.notify_all()
-                self._send(200, {"ok": True, "id": slug, "name": name, "dir": str(d)})
-
-            elif url.path == "/close":
-                box = _box(bid)
-                if box is None:
-                    self._send(400, {"error": "bad box"})
-                    return
-                action = _close_box(box)
-                _save()
-                _lock.notify_all()
-                self._send(200, {"ok": True, "action": action})
-
-            elif url.path == "/delete":
-                box = _box(bid)
-                if box is None or box["bucket"] != "meta":
-                    self._send(400, {"error": "only meta boxes can be deleted"})
-                    return
-                # Compatibility for already-open pages and other old clients:
-                # the current persisted record decides, never their stale copy.
-                action = _close_box(box)
-                _save()
-                _lock.notify_all()
-                self._send(200, {"ok": True, "action": action})
-
-            elif url.path == "/ws/goal":
-                ow = (q.get("owner") or [""])[0]
-                if ow not in OWNERS:
-                    self._send(400, {"error": "unknown owner"})
-                    return
-                w = _ws(ow, (q.get("ws") or [""])[0])
-                if w is None:
-                    self._send(400, {"error": "unknown workspace"})
-                    return
-                w["goal"] = text
-                _log("goal", w["id"], text)
-                _save()
-                self._send(200, {"ok": True})
-
-            elif url.path == "/ws/task":
-                ow = (q.get("owner") or [""])[0]
-                if ow not in OWNERS:
-                    self._send(400, {"error": "unknown owner"})
-                    return
-                w = _ws(ow, (q.get("ws") or [""])[0])
-                if w is None:
-                    self._send(400, {"error": "unknown workspace"})
-                    return
-                tid = (q.get("id") or [""])[0]
-                status = (q.get("status") or [""])[0]
-                if not tid:  # create; body names it
-                    tid = f"t{_state['next_tid']}"
-                    _state["next_tid"] += 1
-                    w["tasks"].append({"id": tid, "text": text, "status": "pending"})
-                    _log("task+", tid, text)
-                else:
-                    t = next((t for t in w["tasks"] if t["id"] == tid), None)
-                    if t is None:
-                        self._send(400, {"error": "unknown task"})
-                        return
-                    if (q.get("del") or [""])[0] == "1":
-                        w["tasks"].remove(t)
-                        for b in _state["boxes"]:
-                            if b.get("task") == tid:
-                                b["task"] = None
-                        _log("task-", tid, t["text"])
-                    else:
-                        if status in ("pending", "ongoing", "done"):
-                            t["status"] = status
-                        if text:
-                            t["text"] = text
-                        _log("task", tid, f"{t['status']} {t['text']}")
-                _save()
-                self._send(200, {"ok": True, "id": tid})
-
-            elif url.path == "/ws/current":
-                ow = (q.get("owner") or [""])[0]
-                if ow not in OWNERS:
-                    self._send(400, {"error": "unknown owner"})
-                    return
-                w = _ws(ow, (q.get("ws") or [""])[0])
-                if w is None:
-                    self._send(400, {"error": "unknown workspace"})
-                    return
-                tid = (q.get("id") or [""])[0] or None
-                w["current"] = tid
-                _log("current", tid or "", "")
-                _save()
-                self._send(200, {"ok": True})
-
-            elif url.path == "/assign":
-                box = _box(bid)
-                if box is None:
-                    self._send(400, {"error": "unknown box"})
-                    return
-                box["task"] = (q.get("task") or [""])[0] or None
-                _log("assign", bid, box["task"] or "none")
-                _save()
-                self._send(200, {"ok": True})
-
-            elif url.path == "/progress":  # interim note during a build: keeps
-                box = _box(bid)                # the claim (card stays green) and
-                ow = box.get("owner", "pastureland") if box else None  # heartbeats
-                if box is None or _state["busy"].get(ow) != bid:
-                    self._send(400, {"error": "not holding this box"})
-                    return
-                _set_reply_variants(box, text)
-                box["ts"] = time.time()
-                _state["busy_ts"][ow] = time.time()   # resets the 15-min steal
-                _log("progress", bid, text, reply_full=text, reply_short=text,
-                     reply_variants_version=REPLY_VARIANTS_VERSION)
-                _save()
-                _lock.notify_all()
-                self._send(200, {"ok": True})
-
-            elif url.path == "/dismiss":  # drop a box's queued messages, unanswered
-                box = _box(bid)
-                if box is None:
-                    self._send(400, {"error": "unknown box"})
-                    return
-                n = len(box["pending"])
-                box["pending"] = []
-                if bid in _state["inbox"]:
-                    _state["inbox"].remove(bid)
-                ow = box.get("owner", "pastureland")
-                if _state["busy"].get(ow) == bid:
-                    _state["busy"][ow] = None
-                    _state["claimed"][ow] = []
-                # a beating flag keeps its green through a dismissal; anything
-                # else lands where the card rests, an unanswered reply beneath
-                # the dropped queue showing again
-                if not _hb_live(box):
-                    _handover(box)
-                    box["state"] = _rest(box)
-                _log("dismiss", bid, f"{n} queued dropped")
-                _save()
-                _lock.notify_all()
-                self._send(200, {"ok": True, "dropped": n})
-
-            elif url.path == "/push/subscribe":
-                # the phone's push subscription, kept whole so a push can be
-                # addressed to it; one record per endpoint, the newest wins
-                try:
-                    sub = json.loads(text) if text else None
-                except ValueError:
-                    sub = None
-                endpoint = sub.get("endpoint") if isinstance(sub, dict) else None
-                if (not isinstance(endpoint, str) or len(endpoint) > 2048
-                        or not endpoint.startswith(("https://", "http://"))):
-                    self._send(400, {"error": "bad subscription"})
-                    return
-                keys = sub.get("keys") if isinstance(sub.get("keys"), dict) else {}
-                rec = {"endpoint": endpoint,
-                       "keys": {k: str(v) for k, v in keys.items() if k in ("p256dh", "auth")},
-                       "ts": time.time()}
-                subs = [s for s in _state.get("push_subs", []) if s.get("endpoint") != endpoint]
-                subs.append(rec)
-                _state["push_subs"] = subs
-                _save()
-                self._send(200, {"ok": True, "count": len(subs)})
-
-            elif url.path == "/tabs":
-                # the tab bar's whole record in one write, so a reorder can
-                # never half land: the lane order and the lanes he has closed
-                # arrive together and replace what was stored
-                try:
-                    rec = json.loads(text) if text else None
-                except ValueError:
-                    rec = None
-                if (not isinstance(rec, dict) or not isinstance(rec.get("order"), list)
-                        or not isinstance(rec.get("closed"), list)):
-                    self._send(400, {"error": "bad tab record"})
-                    return
-                # every id is checked before anything is stored, so a record
-                # naming a lane this board does not have changes nothing
-                clean = {}
-                for field in ("order", "closed"):
-                    ids = []
-                    for ow in rec[field]:
-                        if not isinstance(ow, str) or ow not in OWNERS:
-                            self._send(400, {"error": "unknown owner"})
-                            return
-                        if ow not in ids:   # a repeat is the same tab twice; keep the first
-                            ids.append(ow)
-                    clean[field] = ids
-                stored = _state.get("tabs") or {}
-                for field in ("order", "closed"):
-                    _overwrite("tabs", "", field, stored.get(field), clean[field])
-                _state["tabs"] = clean
-                _save()
-                _lock.notify_all()
-                self._send(200, {"ok": True, "tabs": clean})
-
-            elif url.path == "/seen":
-                # the read marks: for each card named, how many of its replies
-                # he has read. One record per card on the board itself, so the
-                # phone and the board can never disagree about what is unread
-                try:
-                    rec = json.loads(text) if text else None
-                except ValueError:
-                    rec = None
-                if not isinstance(rec, dict) or not rec:
-                    self._send(400, {"error": "bad seen record"})
-                    return
-                marks = []
-                for bid_, n in rec.items():
-                    box = _box(bid_)
-                    if box is None:
-                        self._send(400, {"error": "bad box"})
-                        return
-                    # a bool is an int in this language and is not a count
-                    if isinstance(n, bool) or not isinstance(n, int) or n < 0:
-                        self._send(400, {"error": "bad count"})
-                        return
-                    marks.append((box, n))
-                out = {}
-                for box, n in marks:
-                    _overwrite("seen", box["id"], "count", box.get("seen", 0), n)
-                    box["seen"] = n
-                    out[box["id"]] = n
-                _save()
-                _lock.notify_all()
-                self._send(200, {"ok": True, "seen": out})
-
-            elif url.path == "/pause":
-                _state["paused"] = (q.get("v") or ["1"])[0] == "1"
-                _log("pause" if _state["paused"] else "unpause", "", "")
-                _save()
-                _lock.notify_all()  # in-flight waiters return {"paused":true} at once
-                self._send(200, {"ok": True, "paused": _state["paused"]})
-
-            elif url.path == "/end":
-                _state["end"] = True
-                _log("end", "", "")
-                _save()
-                _lock.notify_all()
-                self._send(200, {"ok": True})
-
-            else:
-                self._send(404, {"error": "not found"})
-
-    def log_message(self, *args) -> None:  # quiet
+def _sweep_clocks() -> None:
+    """The two lazy clocks a reading runs before it answers: the unconfirmed
+    hand-off clock and the working-flag heartbeat. Callers hold _lock. Either
+    can move a card and save; if that save fails, the state has already been
+    put back to the file and the failure written down, and the reading answers
+    that restored board rather than failing too. A reader must not be blacked
+    out by a disk the commands are already refusing; the clock runs again on
+    the next reading and lands when the disk is back."""
+    try:
+        _release_unacked()
+        _sweep()
+    except SaveFailed:
         pass
+
+
+def _get_state(q: Query, _):
+    with _lock:
+        # the board polls this about once a second, so the 90 second ack
+        # clock gets swept even when no /wait is running to sweep it,
+        # and an expired working flag drops out of green (handing over
+        # a deferred turn) within about that same second
+        _sweep_clocks()
+        return 200, *_snapshot(_ui_state())
+
+
+def _get_phone_state(q: Query, _):
+    since_raw = q.one("since")
+    try:
+        since = int(since_raw) if since_raw else None
+    except ValueError:
+        return 400, {"error": "bad revision"}
+    ops = [op for op in q.one("ops").split(",") if op][:OP_ASK_MAX]
+    with _lock:
+        _sweep_clocks()
+        return 200, *_snapshot(_phone_state(since, ops))
+
+
+def _get_op(q: Query, _):
+    op = q.one("id")
+    if not _op_id_ok(op):
+        return 400, {"error": "bad operation id"}
+    with _lock:
+        return 200, {**_op_status(op), "rev": _state.get("rev", 0)}
+
+
+def _get_worktrees(q: Query, _):
+    # the names the card's top bar offers, straight out of git. no lock:
+    # nothing here reads or writes the board's state, it only asks the
+    # lane's own folder what worktrees it has
+    owner = q.one("owner", "facilitator")
+    if owner not in OWNERS:
+        return 400, {"error": "unknown owner"}
+    return 200, _lane_worktrees(owner)
+
+
+def _get_unread(q: Query, _):
+    # a lane's unread count in one line, for a Stop hook deciding
+    # whether the agent may go idle and for a human checking a lane
+    # without reading the whole board. Read only: it claims nothing,
+    # releases nothing and sweeps nothing
+    owner = q.one("owner", "pastureland")
+    if owner not in OWNERS:
+        return 400, {"error": "unknown owner"}
+    with _lock:
+        held = set(_state["claimed"].get(owner) or [])
+        # anything not already in the claim is still waiting, including
+        # messages that landed on a held card after it was claimed
+        queued = sum(1 for b in _state["boxes"]
+                     if b.get("owner", "pastureland") == owner
+                     for m in b["pending"] if m["mid"] not in held)
+        return 200, {"queued": queued, "claimed": len(held)}
+
+
+def _get_fresh(q: Query, _):
+    # mid-work delivery: while an agent holds a card, hand over anything
+    # that landed on that card after the claim and fold it into the
+    # claim, so the one reply covers it and nothing arrives twice
+    owner = q.one("owner", "pastureland")
+    if owner not in OWNERS:
+        return 400, {"error": "unknown owner"}
+    with _lock:
+        fbid = _state["busy"].get(owner)
+        fbox = _box(fbid) if fbid else None
+        if fbox is None:
+            return 200, {"messages": [], "message_via": []}
+        have = set(_state["claimed"][owner])
+        fresh = [m for m in fbox["pending"] if m["mid"] not in have]
+        if fresh:
+            _state["claimed"][owner].extend(m["mid"] for m in fresh)
+            _log("fresh", fbid, f"{len(fresh)} mid-work message(s) handed over")
+            _save()
+        # the same marker /wait hands over, in the same shape and order:
+        # "mini" for the small card, null for the big one. A mini
+        # message that lands mid-work becomes the newest claimed one
+        # and brings /reply's 100 word cap with it, so an agent that
+        # never sees the marker gets its reply refused out of nowhere
+        return 200, *_snapshot({"box": fbid, "messages": [m["text"] for m in fresh],
+                                "message_via": [m.get("via") for m in fresh]})
+
+
+def _get_thread(q: Query, _):
+    tbid = q.one("box")
+    try:
+        n = int(q.one("n", "60"))
+    except ValueError:
+        return 400, {"error": "bad count"}
+    out = []
+    legacy_reply_rows = True
+    seen_ops: set = set()
+    try:
+        with TRANSCRIPT_PATH.open() as f:
+            for line in f:
+                try:
+                    e = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(e, dict):
+                    continue
+                if _is_reply_schema_boundary(e):
+                    legacy_reply_rows = False
+                    continue
+                if e.get("box") == tbid and e.get("kind") in ("user", "agent", "note"):
+                    # a row written twice under one operation id is one event
+                    # that a crash between the append and the save made the
+                    # retry append again; it is read once
+                    op = e.get("op")
+                    if isinstance(op, str) and op:
+                        if (e["kind"], op) in seen_ops:
+                            continue
+                        seen_ops.add((e["kind"], op))
+                    item = {"kind": e["kind"], "text": e.get("text", ""), "ts": e.get("ts", 0)}
+                    if e.get("kind") in ("agent", "note"):
+                        if "reply_full" in e or "reply_short" in e:
+                            full = e.get("reply_full", e.get("text", ""))
+                            short = e.get("reply_short", full)
+                        elif legacy_reply_rows:
+                            # Only rows physically before the persisted
+                            # schema marker get legacy compatibility.
+                            # Timestamps never decide data representation.
+                            short, full = _legacy_reply_variants(e.get("text", ""))
+                        else:
+                            full = short = e.get("text", "")
+                        item.update({"text": full, "replyFull": full, "replyShort": short})
+                    out.append(item)
+    except FileNotFoundError:
+        pass
+    return 200, {"messages": out[-n:]}
+
+
+def _get_log(q: Query, _):
+    try:
+        n = int(q.one("lines", "120"))
+    except ValueError:
+        return 400, {"error": "bad count"}
+    try:
+        lines = _log_file().read_text(errors="replace").splitlines()[-n:]
+    except OSError:
+        lines = []
+    return 200, {"lines": lines}
+
+
+def _get_dirs(q: Query, _):
+    # the page's folder chooser: one folder's subdirectories, rooted at
+    # and fenced to the user's home; hidden folders stay out of sight
+    home = Path.home()
+    raw = q.one("path").strip()
+    try:
+        p = (Path(raw).expanduser() if raw else home).resolve()
+    except OSError:
+        return 400, {"error": "bad path"}
+    if p != home and home not in p.parents:
+        return 400, {"error": "outside the home directory"}
+    if not p.is_dir():
+        return 400, {"error": "not a directory"}
+    try:
+        subs = sorted((c for c in p.iterdir()
+                       if c.is_dir() and not c.name.startswith(".")),
+                      key=lambda c: c.name.lower())
+    except OSError:
+        return 400, {"error": "unreadable directory"}
+    return 200, {"path": str(p),
+                 "parent": str(p.parent) if p != home else None,
+                 "dirs": [{"name": c.name, "path": str(c)} for c in subs]}
+
+
+def _get_pickdir(q: Query, _):
+    # tests must never open the dialog: FACILITATOR_PICKDIR_STUB set on
+    # the server process answers with its value instead of the chooser
+    stub = os.environ.get("FACILITATOR_PICKDIR_STUB")
+    if stub:
+        return 200, {"path": stub}
+    try:
+        # activate the chooser first so it opens frontmost and its
+        # sidebar and search take clicks; restore the prior front app
+        # after. (osascript dialogs open unfocused otherwise.)
+        r = subprocess.run(
+            ["osascript",
+             "-e", 'tell application "System Events"',
+             "-e", 'set prior to first process whose frontmost is true',
+             "-e", 'activate',
+             "-e", 'set picked to POSIX path of (choose folder with prompt "Open a new folder")',
+             "-e", 'set frontmost of prior to true',
+             "-e", 'return picked',
+             "-e", 'end tell'],
+            capture_output=True, text=True, timeout=300)
+    except subprocess.TimeoutExpired:
+        # a chooser left unanswered closes with the subprocess; to the
+        # page that is the same quiet non-choice as a cancel
+        return 200, {"cancelled": True}
+    except OSError as e:
+        return 200, {"error": str(e)}
+    if r.returncode != 0:
+        # the chooser exits nonzero on cancel (-128); anything else
+        # nonzero is a real failure and says so
+        err = (r.stderr or "").strip()
+        if not err or "-128" in err:
+            return 200, {"cancelled": True}
+        return 200, {"error": err}
+    return 200, {"path": r.stdout.strip()}
+
+
+def _get_upload(q: Query, _):
+    fn = Path(q.path).name  # .name strips any traversal on both paths below
+    p = INTERNAL_UPLOADS / fn
+    if not p.is_file():
+        p = HERE / "uploads" / fn  # fall back to images saved before the move
+    if p.is_file() and p.suffix.lower() in IMG_TYPES:
+        return 200, p.read_bytes(), IMG_TYPES[p.suffix.lower()]
+    return 404, {"error": "not found"}
+
+
+def _get_laneimg(q: Query, _):
+    # a picture out of the lane's own internal folder, so an agent
+    # working in another project writes next to its own code instead of
+    # reaching into this repo. one lane, one plain file name, images only
+    lane, _sep, fn = q.path[len("/laneimg/"):].partition("/")
+    base = _lane_internal(lane) if lane else None
+    # a name with a separator in it is never a file in this folder, and
+    # refusing it here kills nested and absolute paths before pathlib
+    # gets a chance to be clever about them
+    if base is None or not fn or "/" in fn or fn in (".", ".."):
+        return 404, {"error": "not found"}
+    try:
+        # resolve both sides and check containment before reading a
+        # byte: .. segments and symlinks pointing out of the folder
+        # land somewhere that is not under base, and stop right here
+        base = base.resolve()
+        p = (base / fn).resolve()
+        inside = p != base and base in p.parents
+    except OSError:
+        inside = False   # unreadable or a symlink loop: same as missing
+    if inside and p.is_file() and p.suffix.lower() in IMG_TYPES:
+        return 200, p.read_bytes(), IMG_TYPES[p.suffix.lower()]
+    return 404, {"error": "not found"}
+
+
+def _get_manifest(q: Query, _):
+    # the install prompt reads the app's name from here and the page
+    # reads its own from the board title, so a name written into the
+    # file could only ever disagree with it. That one field is answered
+    # from the saved title; every other field is the file's own, and a
+    # board with no title leaves even that alone
+    p, ctype = PHONE_FILES["/m-manifest.json"]
+    if not p.is_file():
+        return 404, {"error": "not found"}
+    raw = p.read_bytes()
+    try:
+        manifest = json.loads(raw)
+    except ValueError:
+        manifest = None
+    if isinstance(manifest, dict):
+        with _lock:
+            title = (_state.get("title") or "").strip()
+        if title:
+            manifest["name"] = title
+            manifest["short_name"] = title
+        raw = json.dumps(manifest, indent=2).encode()
+    return 200, raw, ctype
+
+
+def _get_push_key(q: Query, _):
+    try:
+        key = _b64url(_push_public_key())
+    except Exception as e:
+        return 500, {"error": f"push key unavailable: {e}"}
+    return 200, {"key": key}
+
+
+def _get_mdfiles(q: Query, _):
+    # what the markdown panel lists: every .md under the two folders the
+    # lane in the query owns, each one re-checked for containment rather
+    # than trusted because it came out of a walk. A folder that does not
+    # exist yet, or holds nothing, comes back present and empty, so the
+    # panel can say so instead of looking broken. The kind each folder
+    # answers to goes back with it, since that is what the page labels
+    # its two tabs with and it is the only part of the name a lane's
+    # panel can know before it has asked
+    lane = q.one("lane")
+    roots = []
+    for kind, base in _md_roots(lane):
+        files = []
+        try:
+            for p in sorted(base.rglob("*.md")):
+                if any(part.startswith(".") for part in p.relative_to(base).parts):
+                    continue   # hidden files and hidden folders stay out of sight
+                real = _md_path(lane, base.name, str(p.relative_to(base)))
+                if real is None or not real.is_file():
+                    continue   # a symlink pointing out of the folder ends here
+                st = real.stat()
+                files.append({"rel": str(p.relative_to(base)), "name": p.name,
+                              "mtime": str(st.st_mtime_ns), "size": st.st_size})
+        except OSError:
+            pass
+        roots.append({"root": base.name, "kind": kind,
+                      "exists": base.is_dir(), "files": files})
+    return 200, {"roots": roots}
+
+
+def _get_mdfile(q: Query, _):
+    # one markdown file's whole text, with the stamp the save guard will
+    # want back. Not decoded loosely: a file that is not utf-8 is
+    # reported as such rather than handed over with replacement
+    # characters that a later save would then write back over the real
+    # bytes
+    p = _md_path(q.one("lane"), q.one("root"), q.one("rel"))
+    if p is None:
+        return 400, {"error": "outside the markdown folders"}
+    if not p.is_file():
+        return 404, {"error": "no such file"}
+    try:
+        text = p.read_bytes().decode("utf-8")
+    except UnicodeDecodeError:
+        return 400, {"error": "not utf-8 text"}
+    except OSError:
+        return 400, {"error": "unreadable file"}
+    # windows line endings are carried to the page rather than silently
+    # flattened: the editor is told to keep them so a save writes the
+    # file back in the endings it arrived in
+    return 200, {"root": q.one("root"), "rel": q.one("rel"),
+                 "text": text, "mtime": _md_stamp(p), "crlf": "\r\n" in text}
+
+
+# -- the agent's long poll, in three locked steps ------------------------------
+# The waiting itself happens on the event loop (WaitRoute below), so a hundred
+# agents waiting would cost a hundred coroutines and no threads at all. What
+# needs the lock is short: entering, one attempt to claim, and leaving.
+
+def _wait_enter(owner: str, agent: str | None) -> None:
+    """Count one more listener on this lane. The first ever listen for an owner
+    records ever_listened and saves it, and the count is bumped only once that
+    save has gone through: a save that fails raises before the bump and rolls
+    _state back, so a lane can never be left showing a listener that a failed
+    first wait never really had. Callers reach _wait_leave only when this
+    returned, so the bump and the later decrement stay balanced."""
+    with _lock:
+        if agent:
+            _agent_names[owner] = agent[:24]
+        ev = _state.setdefault("ever_listened", {})
+        if not ev.get(owner):
+            ev[owner] = True
+            _save()   # raises SaveFailed on failure, before the count is touched
+        _waiters[owner] += 1
+
+
+def _wait_leave(owner: str) -> None:
+    with _lock:
+        _waiters[owner] -= 1
+        _last_wait[owner] = time.time()
+
+
+def _wait_poll(owner: str):
+    """One pass over the lane: the clocks, the steal-back, then a claim if a
+    box is waiting. Answers (kind, payload) with kind one of paused, end or
+    claim, or None when there is nothing to say yet."""
+    with _lock:
+        if _state.get("paused"):  # laptop-close mode: send the listener home
+            return "paused", {"paused": True}
+        # the short clock first: a hand-off nobody confirmed comes back
+        # after 90 seconds, long before the steal-back below notices
+        _release_unacked()
+        # and a working flag that stopped pinging drops its card out of
+        # green, handing over a turn deferred under it
+        _sweep()
+        # a claim older than 15 min with no reply is a dead listener: steal it back
+        for ow in OWNERS:
+            stale = _state["busy"].get(ow)
+            if stale is not None and time.time() - _state["busy_ts"].get(ow, 0) > 900:
+                _state["busy"][ow] = None
+                _state["claimed"][ow] = []
+                if _box(stale) and _box(stale)["pending"] and stale not in _state["inbox"]:
+                    _state["inbox"].insert(0, stale)
+                _save()
+        if _state["busy"][owner] is None:
+            bid = next((i for i in _state["inbox"]
+                        if (_box(i) or {}).get("owner", "pastureland") == owner), None)
+            if bid is not None:
+                _state["inbox"].remove(bid)
+                box = _box(bid)
+                _state["busy"][owner] = bid
+                _state["claimed"][owner] = [m["mid"] for m in box["pending"]]
+                _state["busy_ts"][owner] = time.time()
+                # every claim is provisional: the token below is what
+                # POST /ack has to name, and until it does this claim is
+                # on the 90 second clock. A lane holds one claim, so one
+                # record per lane says everything about it
+                token = secrets.token_hex(6)
+                _state["ack"][owner] = {"box": bid, "token": token,
+                                        "ts": time.time(), "confirmed": False}
+                # that a receipt was minted, never the receipt itself
+                _debug("claim", bid, owner=owner, token=bool(token))
+                _save()
+                payload = {
+                    "box": bid, "title": box["title"],
+                    "messages": [m["text"] for m in box["pending"]],
+                    # where each message was typed, one entry per
+                    # message in the same order: "mini" for the small
+                    # card, null for the big one. It rides beside
+                    # messages instead of inside it because agent
+                    # loops elsewhere read messages as plain strings
+                    "message_via": [m.get("via") for m in box["pending"]],
+                    "queued_after": sum(1 for i in _state["inbox"]
+                                        if (_box(i) or {}).get("owner", "pastureland") == owner),
+                    # the receipt this hand-off has to come back with
+                    "ack": token,
+                }
+                return "claim", payload
+        if _state["end"] and _state["busy"][owner] is None and not any(
+                (_box(i) or {}).get("owner", "pastureland") == owner for i in _state["inbox"]):
+            return "end", {"end": True}
+        return None
+
+
+def _rollback_claim(owner: str, bid: str, token: str) -> bool:
+    """A hand-off that never reached its listener is undone: the box goes back
+    to the FRONT of its lane's queue, exactly as a dead-socket write always
+    did. Only the claim this token was minted for is touched. If the token has
+    since been confirmed, the listener did get it and the claim stands; if the
+    lane holds another claim or another token, that claim is somebody else's
+    and stands too. True when something was rolled back."""
+    with _lock:
+        rec = _state.get("ack", {}).get(owner)
+        if (not rec or rec.get("token") != token or rec.get("confirmed")
+                or rec.get("box") != bid or _state["busy"].get(owner) != bid):
+            return False
+        _state["busy"][owner] = None
+        _state["claimed"][owner] = []
+        _state["ack"][owner] = None
+        if bid not in _state["inbox"]:
+            _state["inbox"].insert(0, bid)
+        _log("dropped", bid, f"{owner} hand-off died on the wire, box re-queued")
+        _save()
+        _notify()
+        return True
+
+
+# -- POST -----------------------------------------------------------------------
+
+def _post_upload(q: Query, raw: bytes):  # binary body (dropped image); never decode as text
+    if not raw:
+        return 400, {"error": "empty upload"}
+    name = q.one("name", "file")
+    safe = "".join(c for c in name if c.isalnum() or c in "._-")[-60:] or "file"
+    up = INTERNAL_UPLOADS  # new uploads land outside the repo
+    up.mkdir(parents=True, exist_ok=True)
+    fname = f"{int(time.time() * 1000)}-{safe}"
+    (up / fname).write_bytes(raw)
+    return 200, {"url": "/uploads/" + fname}  # URL unchanged; page needs no change
+
+
+def _post_clientlog(q: Query, raw: bytes):
+    # what a page noticed and has no other way to say: a thrown error, a
+    # rejected promise, a fetch or a render that failed, a timer that ran
+    # late. The size cap is applied to the body before it is read at all
+    try:
+        batch = json.loads(raw.decode("utf-8", "replace")) if raw else None
+    except ValueError:
+        batch = None
+    page = batch.get("page") if isinstance(batch, dict) else None
+    reports = batch.get("reports") if isinstance(batch, dict) else None
+    if (page not in CLIENT_PAGES or not isinstance(reports, list) or not reports
+            or not all(isinstance(r, dict) and r.get("kind") in CLIENT_KINDS
+                       for r in reports)):
+        # nothing of a batch this board cannot read is stored, the way
+        # every other record-taking route on here already refuses
+        return 400, {"error": "bad report batch"}
+    if len(reports) > CLIENT_MAX_REPORTS:
+        return 400, {"error": "too many reports in one batch"}
+    written, dropped = _client_batch(page, reports)
+    return 200, {"ok": True, "written": written, "dropped": dropped}
+
+
+def _post_mdsave(q: Query, raw: bytes):
+    # the body is taken raw because the shared text read strips it: a
+    # markdown file's trailing newline is content and losing it would break
+    # the round trip on the very first save
+    p = _md_path(q.one("lane"), q.one("root"), q.one("rel"))
+    if p is None:
+        return 400, {"error": "outside the markdown folders"}
+    if not p.is_file():
+        return 404, {"error": "no such file"}
+    try:
+        raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return 400, {"error": "not utf-8 text"}
+    # the stale-write guard: the stamp the page was handed on read comes
+    # back here, and a file whose stamp has moved since is one somebody
+    # else has written. Refused with the current stamp so the page can
+    # say plainly what happened; his text is never merged or dropped for
+    # him, it stays in the editor where he can still see it
+    try:
+        now = _md_stamp(p)
+    except OSError:
+        return 400, {"error": "unreadable file"}
+    was = q.one("mtime")
+    if was and was != now:
+        return 409, {"error": "changed on disk", "mtime": now}
+    # written the way state.json is written: a temp file beside it, then
+    # one rename, so a reader never sees a half-written file. The temp
+    # name appends rather than replaces the suffix, so it can never
+    # collide with a real neighbour of the same stem
+    tmp = p.with_name(p.name + ".tmp")
+    try:
+        tmp.write_bytes(raw)
+        os.replace(tmp, p)
+    except OSError as e:
+        tmp.unlink(missing_ok=True)
+        return 400, {"error": str(e)}
+    return 200, {"ok": True, "mtime": _md_stamp(p)}
+
+
+def _post_send(q: Query, text: str):
+    bid = q.one("box")
+    via = "mini" if q.one("via") == "mini" else ""
+    op = q.one("op")
+    if op and not _op_id_ok(op):
+        return 400, {"error": "bad operation id"}
+    with _lock:
+        fp = _fingerprint("send", bid, via, text) if op else ""
+        if op:
+            # the receipt is read before the box is even looked at: a message
+            # that landed on a card since closed still landed
+            found, rec = _op_lookup(op, fp)
+            if found == "mismatch":
+                return 409, {"error": "operation id reused with a different payload"}
+            if found == "same":
+                return 200, {**rec["result"], "rev": _state.get("rev", 0), "replayed": True}
+        box = _box(bid)
+        if box is None or not text:
+            return 400, {"error": "bad box or empty text"}
+        msg = {"mid": _state["next_mid"], "text": text, "ts": time.time()}
+        # where he typed it: via=mini means the small card in the corner.
+        # Only that literal is kept, so a caller that passes nothing (the
+        # big card, any older sender) stores exactly what it always did
+        if via:
+            msg["via"] = "mini"
+        if op:
+            msg["op"] = op
+        box["pending"].append(msg)
+        box["parked"] = False
+        box["ball"] = "me"  # his message sent: the ball is in the agent's court
+        # his message queues the card; a beating flag keeps its green,
+        # and a deferred turn dies here, since he has read and
+        # answered: it must not resurface when the flag goes down
+        box["state"] = "working" if _hb_live(box) else "queued"
+        box["ts"] = time.time()
+        _state["next_mid"] += 1
+        # untitled user-created meta box: its first message names it
+        if box["bucket"] == "meta" and box["id"] != "0" and box["title"] == "…":
+            first = text.splitlines()[0].strip()
+            box["title"] = (first[:48] + "…") if len(first) > 48 else first
+        if bid not in _state["inbox"] and _state["busy"][box.get("owner", "pastureland")] != bid:
+            _state["inbox"].append(bid)
+        result = {"ok": True, "mid": msg["mid"], "box": bid}
+        if op:
+            _op_commit(op, fp, "send", bid, result)
+        # the row is queued and written by the save once the new file is
+        # installed, so a save that failed and rolled the message back leaves
+        # no row for a message the board never durably had
+        _log("user", bid, text, **({"op": op} if op else {}))
+        _save()
+        _notify()
+        return 200, {**result, "rev": _state["rev"]}
+
+
+def _post_ack(q: Query, text: str):
+    # the other half of the hand-off: the token /wait handed out
+    # comes back here and the provisional claim becomes a real one.
+    # Nothing else about the claim changes, so a confirmed claim is
+    # exactly what /fresh, /reply and the steal-back always saw
+    ow = q.one("owner", "pastureland")
+    if ow not in OWNERS:
+        return 400, {"error": "unknown owner"}
+    token = q.one("token")
+    with _lock:
+        rec = _state.get("ack", {}).get(ow)
+        if not token or not rec or rec.get("token") != token:
+            return 409, {"error": "unknown or stale token"}
+        if rec.get("confirmed"):
+            # idempotent: a resent ack is the same ack, never a 409
+            return 200, {"ok": True, "box": rec["box"]}
+        if _state["busy"].get(ow) != rec.get("box"):
+            # the claim this token names is already over: released by
+            # the 90 second clock, stolen back, replied to or dismissed
+            return 409, {"error": "claim no longer held"}
+        rec["confirmed"] = True
+        _debug("ackok", rec["box"], owner=ow, token=bool(token))
+        _log("ack", rec["box"], f"{ow} confirmed delivery")
+        _save()
+        return 200, {"ok": True, "box": rec["box"]}
+
+
+def _post_reply(q: Query, text: str):
+    bid = q.one("box")
+    with _lock:
+        box = _box(bid)
+        if box is None:
+            return 400, {"error": "bad box"}
+        if "quiet" in q:
+            return 400, {"error": "quiet replies were removed; use /note for progress"}
+        # the summary strip is optional as of 20260821: the owner had
+        # the summary box taken off the card, so nothing displays it and
+        # the agent no longer writes one. a ctx that is passed is still
+        # stored and still size checked, so older callers keep working
+        ctx = q.one("ctx").strip()
+        if ctx and len(ctx.split()) > 50:
+            # refused outright, never silently chopped
+            return 400, {"error": "context strip over 50 words"}
+        ow = box.get("owner", "pastureland")
+        # The compact version is data, not punctuation inside the full
+        # prose. keep_blank_values distinguishes an intentionally empty
+        # small card from an omitted version, which mirrors the full one.
+        short_values = parse_qs(q.raw, keep_blank_values=True).get("short")
+        short = short_values[0].strip() if short_values is not None else None
+        # a message typed in the small card gets a small answer back:
+        # that card is a few lines tall and a long reply is unreadable
+        # in it. The newest message the claim covers is the one being
+        # answered, so that one decides. Refused outright like the
+        # context strip above, never silently chopped
+        held = _state["claimed"][ow] if _state["busy"][ow] == bid else []
+        answering = next((m for m in box["pending"] if m["mid"] == held[-1]), None) if held else None
+        if answering is not None and answering.get("via") == "mini":
+            words = len((text if short is None else short).split())
+            if words > 100:
+                return 400, {"error": f"small card reply over 100 words: {words} words"}
+        _last_wait[ow] = time.time()  # a reply proves that agent is alive too
+        _set_reply_variants(box, text, short)
+        box["replies"] += 1
+        # The machine's sole answer move, taken once the claim is let
+        # go below. While a working flag beats, the final turn waits in
+        # deferred and is handed over when that work ends.
+        box["agent_ts"] = time.time()  # when the agent last replied
+        box["ts"] = time.time()
+        if ctx:
+            box["context"] = ctx
+        _release_claim(box)
+        if _hb_live(box):
+            box["state"] = "deferred"
+        else:
+            _turn_to_you(box)
+            box["state"] = _rest(box)
+        _log("agent", bid, text, reply_full=text,
+             reply_short=box["reply_short"],
+             reply_variants_version=REPLY_VARIANTS_VERSION)
+        _save()
+        _notify()
+        return 200, {"ok": True}
+
+
+def _post_note(q: Query, text: str):
+    # The sole background-progress action. It releases a held claim,
+    # owns an explicit note state and keeps the turn with the agent,
+    # so it can never turn yellow when its heartbeat ends.
+    bid = q.one("box")
+    with _lock:
+        box = _box(bid)
+        if box is None:
+            return 400, {"error": "bad box"}
+        ctx = q.one("ctx").strip()
+        if ctx and len(ctx.split()) > 50:
+            return 400, {"error": "context strip over 50 words"}
+        ow = box.get("owner", "pastureland")
+        _last_wait[ow] = time.time()  # a note proves that agent is alive too
+        _set_reply_variants(box, text)
+        box["replies"] += 1
+        box["agent_ts"] = time.time()
+        box["ts"] = time.time()
+        if ctx:
+            box["context"] = ctx
+        _release_claim(box)
+        box["ball"] = "me"
+        box["hb"] = time.time()
+        box["state"] = "note"
+        _log("note", bid, text, reply_full=text, reply_short=text,
+             reply_variants_version=REPLY_VARIANTS_VERSION)
+        _save()
+        _notify()
+        return 200, {"ok": True}
+
+
+def _post_done(q: Query, text: str):
+    bid = q.one("box")
+    with _lock:
+        box = _box(bid)
+        if box is None:
+            return 400, {"error": "bad box"}
+        box["done"] = q.one("v", "1") == "1"
+        if box["done"]:
+            box["parked"] = False
+        _log("done" if box["done"] else "undone", bid, "")
+        _save()
+        _notify()
+        return 200, {"ok": True}
+
+
+def _post_working(q: Query, text: str):
+    # a job runs behind this card: green without a claim, so the
+    # lane stays free. Registration starts a heartbeat clock; the
+    # job (or agent) must /ping while it runs, or green expires.
+    bid = q.one("box")
+    with _lock:
+        box = _box(bid)
+        if box is None:
+            return 400, {"error": "bad box"}
+        box["hb"] = time.time() if q.one("v", "1") == "1" else 0
+        if box["hb"]:
+            _green(box)
+        # v=0 is one of the two ways out of green, so the sweep runs
+        # right here and a deferred turn is handed over at once. v=1
+        # re-registers and the flag beats again, so a deferred card
+        # just keeps waiting, which is what re-registering should mean. This
+        # route saves once below, including anything this sweep moves.
+        _sweep(persist=False)
+        _log("working" if box["hb"] else "workdone", bid, "")
+        _save()
+        _notify()
+        return 200, {"ok": True}
+
+
+def _post_ping(q: Query, text: str):
+    # heartbeat for a registered job; keeps the card's green alive
+    bid = q.one("box")
+    with _lock:
+        box = _box(bid)
+        if box is None:
+            return 400, {"error": "bad box"}
+        if box.get("hb"):
+            box["hb"] = time.time()
+            _green(box)  # a registered job beating again takes back its green
+        return 200, {"ok": True, "bg": bool(box.get("hb"))}
+
+
+def _post_park(q: Query, text: str):
+    bid = q.one("box")
+    with _lock:
+        box = _box(bid)
+        if box is None:
+            return 400, {"error": "bad box"}
+        box["parked"] = q.one("v", "1") == "1"
+        if box["parked"]:
+            box["done"] = False
+        _log("park" if box["parked"] else "unpark", bid, "")
+        _save()
+        _notify()
+        return 200, {"ok": True}
+
+
+def _post_worktree(q: Query, text: str):
+    # the card's own worktree, held on the card and not guessed from
+    # a text convention. empty means the lane's standing branch,
+    # which is what the bar falls back to, so a card that has never
+    # been moved carries nothing and still shows a true name
+    bid = q.one("box")
+    with _lock:
+        box = _box(bid)
+        if box is None:
+            return 400, {"error": "bad box"}
+        name = q.one("name")
+        if name and name not in _lane_worktrees(box.get("owner", "pastureland"))["names"]:
+            return 400, {"error": "unknown worktree"}
+        box["worktree"] = name
+        _log("worktree", bid, name)
+        _save()
+        _notify()
+        return 200, {"ok": True}
+
+
+def _post_context(q: Query, text: str):
+    bid = q.one("box")
+    with _lock:
+        box = _box(bid)
+        if box is None:
+            return 400, {"error": "bad box"}
+        if len(text.split()) > 50:
+            return 400, {"error": "context strip over 50 words"}
+        box["context"] = text  # agent-maintained; refused over 50 words
+        _save()
+        _notify()
+        return 200, {"ok": True}
+
+
+def _post_title(q: Query, text: str):
+    bid = q.one("box")
+    with _lock:
+        box = _box(bid)
+        if box is None or (not text and box["title"]):
+            return 400, {"error": "bad box or empty title"}
+        if not text:
+            # naming was abandoned: hand out a whimsical name no live
+            # card is already wearing
+            used = {b["title"] for b in _state["boxes"]}
+            free = [n for n in FAIRY_NAMES if n not in used]
+            box["title"] = random.choice(free or FAIRY_NAMES)
+        else:
+            box["title"] = text.splitlines()[0][:80]
+        _log("title", bid, box["title"])
+        _save()
+        _notify()
+        return 200, {"ok": True, "title": box["title"]}
+
+
+def _post_create(q: Query, text: str):
+    owner = q.one("owner", "facilitator")
+    op = q.one("op")
+    if op and not _op_id_ok(op):
+        return 400, {"error": "bad operation id"}
+    with _lock:
+        fp = _fingerprint("create", owner, text) if op else ""
+        if op:
+            found, rec = _op_lookup(op, fp)
+            if found == "mismatch":
+                return 409, {"error": "operation id reused with a different payload"}
+            if found == "same":
+                made = _box(rec["result"].get("id", ""))
+                return 200, {**rec["result"], "rev": _state.get("rev", 0), "replayed": True,
+                             "card": _phone_box(made) if made else None}
+        if owner not in OWNERS:
+            return 400, {"error": "unknown owner"}
+        # born nameless; a whimsical name lands only if naming is walked
+        # away from (the empty-body /title call below)
+        title = (text or "").splitlines()[0][:80] if text else ""
+        bid_new = f"m{_state['next_bid']}"  # never reused, even after deletes
+        _state["next_bid"] += 1
+        # keep each meta section grouped: insert after its last same-owner meta box
+        idx = max([i for i, b in enumerate(_state["boxes"])
+                   if b["bucket"] == "meta" and b.get("owner") == owner] or [-1]) + 1
+        ws0 = (_state.get("workspaces", {}).get(owner) or [{}])[0].get("id")
+        made = {
+            "id": bid_new, "bucket": "meta", "title": title, "reply": "",
+            "reply_full": "", "reply_short": "",
+            "pending": [], "done": False, "parked": False, "replies": 0,
+            "state": "new", "hb": 0,
+            "ball": "me", "ts": time.time(), "owner": owner,
+            "ws": ws0, "task": None, "agent_ts": 0, "seen": 0,
+        }
+        _state["boxes"].insert(idx, made)
+        result = {"ok": True, "id": bid_new}
+        if op:
+            _op_commit(op, fp, "create", bid_new, result)
+        # the row is queued and written by the save once the card is
+        # installed, so a rolled-back save leaves none
+        _log("create", bid_new, title, **({"op": op} if op else {}))
+        _save()
+        _notify()
+        # the card itself rides back, so a phone can draw it from this answer
+        # instead of waiting for its next reading of the board
+        return 200, {**result, "rev": _state["rev"], "card": _phone_box(made)}
+
+
+def _post_project(q: Query, text: str):
+    # a new project lane from the page's plus tab: slug the name,
+    # store {id, name, dir} so restarts keep it, give the lane its
+    # per-owner slots; the tab appears with an empty board
+    name = q.one("name").strip()
+    slug = "".join(c if c.isalnum() else "-" for c in name.lower())
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    slug = slug.strip("-")
+    if not name or not slug:
+        return 400, {"error": "empty name"}
+    if slug in RETIRED_OWNERS:
+        return 400, {"error": "reserved owner"}
+    with _lock:
+        # a taken id walks numbered suffixes until free; built-in owner
+        # ids (hidden internal lanes included) and stored project ids
+        # both count as taken, so no folder name is ever refused for
+        # colliding with a lane the page never shows
+        taken = set(OWNERS) | {p["id"] for p in _state.get("projects", [])}
+        if slug in taken:
+            n = 2
+            while f"{slug}-{n}" in taken:
+                n += 1
+            slug = f"{slug}-{n}"
+        home = Path.home()
+        try:
+            d = Path(text).expanduser().resolve() if text else None
+        except OSError:
+            d = None
+        if d is None or not d.is_dir() or (d != home and home not in d.parents):
+            return 400, {"error": "body must be a folder under home"}
+        _state.setdefault("projects", []).append({"id": slug, "name": name, "dir": str(d)})
+        _state["busy"].setdefault(slug, None)
+        _state["claimed"].setdefault(slug, [])
+        _state["busy_ts"].setdefault(slug, 0.0)
+        _state.setdefault("ack", {}).setdefault(slug, None)
+        _state.setdefault("workspaces", {})[slug] = [{
+            "id": "w1", "name": "main", "started": time.time(),
+            "goal": "", "tasks": [], "current": None}]
+        # no card is created with the lane: a fresh folder opens onto
+        # an empty board and cards come only from the owner's hand
+        # the folder's own name is written down, never the path to it:
+        # a lane's directory is one line away from a home directory
+        _log("project", slug, f"{name} -> {d}", log_fields={"folder": d.name})
+        _save()
+        # the lane joins the runtime owner set only once its save has landed:
+        # everything the lane needs in the state was saved above, and a save
+        # that failed has put the state back without it, so registering it
+        # earlier would have left a lane the reads and waits index that the
+        # state does not know, until a restart
+        _register_owner(slug)
+        _notify()
+        return 200, {"ok": True, "id": slug, "name": name, "dir": str(d)}
+
+
+def _post_close(q: Query, text: str):
+    bid = q.one("box")
+    with _lock:
+        box = _box(bid)
+        if box is None:
+            return 400, {"error": "bad box"}
+        action = _close_box(box)
+        _save()
+        _notify()
+        return 200, {"ok": True, "action": action}
+
+
+def _post_delete(q: Query, text: str):
+    bid = q.one("box")
+    with _lock:
+        box = _box(bid)
+        if box is None or box["bucket"] != "meta":
+            return 400, {"error": "only meta boxes can be deleted"}
+        # Compatibility for already-open pages and other old clients:
+        # the current persisted record decides, never their stale copy.
+        action = _close_box(box)
+        _save()
+        _notify()
+        return 200, {"ok": True, "action": action}
+
+
+def _post_ws_goal(q: Query, text: str):
+    ow = q.one("owner")
+    if ow not in OWNERS:
+        return 400, {"error": "unknown owner"}
+    with _lock:
+        w = _ws(ow, q.one("ws"))
+        if w is None:
+            return 400, {"error": "unknown workspace"}
+        w["goal"] = text
+        _log("goal", w["id"], text)
+        _save()
+        return 200, {"ok": True}
+
+
+def _post_ws_task(q: Query, text: str):
+    ow = q.one("owner")
+    if ow not in OWNERS:
+        return 400, {"error": "unknown owner"}
+    with _lock:
+        w = _ws(ow, q.one("ws"))
+        if w is None:
+            return 400, {"error": "unknown workspace"}
+        tid = q.one("id")
+        status = q.one("status")
+        if not tid:  # create; body names it
+            tid = f"t{_state['next_tid']}"
+            _state["next_tid"] += 1
+            w["tasks"].append({"id": tid, "text": text, "status": "pending"})
+            _log("task+", tid, text)
+        else:
+            t = next((t for t in w["tasks"] if t["id"] == tid), None)
+            if t is None:
+                return 400, {"error": "unknown task"}
+            if q.one("del") == "1":
+                w["tasks"].remove(t)
+                for b in _state["boxes"]:
+                    if b.get("task") == tid:
+                        b["task"] = None
+                _log("task-", tid, t["text"])
+            else:
+                if status in ("pending", "ongoing", "done"):
+                    t["status"] = status
+                if text:
+                    t["text"] = text
+                _log("task", tid, f"{t['status']} {t['text']}")
+        _save()
+        return 200, {"ok": True, "id": tid}
+
+
+def _post_ws_current(q: Query, text: str):
+    ow = q.one("owner")
+    if ow not in OWNERS:
+        return 400, {"error": "unknown owner"}
+    with _lock:
+        w = _ws(ow, q.one("ws"))
+        if w is None:
+            return 400, {"error": "unknown workspace"}
+        tid = q.one("id") or None
+        w["current"] = tid
+        _log("current", tid or "", "")
+        _save()
+        return 200, {"ok": True}
+
+
+def _post_assign(q: Query, text: str):
+    bid = q.one("box")
+    with _lock:
+        box = _box(bid)
+        if box is None:
+            return 400, {"error": "unknown box"}
+        box["task"] = q.one("task") or None
+        _log("assign", bid, box["task"] or "none")
+        _save()
+        return 200, {"ok": True}
+
+
+def _post_progress(q: Query, text: str):  # interim note during a build: keeps
+    bid = q.one("box")                     # the claim (card stays green) and
+    with _lock:                            # heartbeats
+        box = _box(bid)
+        ow = box.get("owner", "pastureland") if box else None
+        if box is None or _state["busy"].get(ow) != bid:
+            return 400, {"error": "not holding this box"}
+        _set_reply_variants(box, text)
+        box["ts"] = time.time()
+        _state["busy_ts"][ow] = time.time()   # resets the 15-min steal
+        _log("progress", bid, text, reply_full=text, reply_short=text,
+             reply_variants_version=REPLY_VARIANTS_VERSION)
+        _save()
+        _notify()
+        return 200, {"ok": True}
+
+
+def _post_dismiss(q: Query, text: str):  # drop a box's queued messages, unanswered
+    bid = q.one("box")
+    with _lock:
+        box = _box(bid)
+        if box is None:
+            return 400, {"error": "unknown box"}
+        n = len(box["pending"])
+        box["pending"] = []
+        if bid in _state["inbox"]:
+            _state["inbox"].remove(bid)
+        ow = box.get("owner", "pastureland")
+        if _state["busy"].get(ow) == bid:
+            _state["busy"][ow] = None
+            _state["claimed"][ow] = []
+        # a beating flag keeps its green through a dismissal; anything
+        # else lands where the card rests, an unanswered reply beneath
+        # the dropped queue showing again
+        if not _hb_live(box):
+            _handover(box)
+            box["state"] = _rest(box)
+        _log("dismiss", bid, f"{n} queued dropped")
+        _save()
+        _notify()
+        return 200, {"ok": True, "dropped": n}
+
+
+def _post_push_subscribe(q: Query, text: str):
+    # the phone's push subscription, kept whole so a push can be
+    # addressed to it; one record per endpoint, the newest wins
+    try:
+        sub = json.loads(text) if text else None
+    except ValueError:
+        sub = None
+    endpoint = sub.get("endpoint") if isinstance(sub, dict) else None
+    if (not isinstance(endpoint, str) or len(endpoint) > 2048
+            or not endpoint.startswith(("https://", "http://"))):
+        return 400, {"error": "bad subscription"}
+    keys = sub.get("keys") if isinstance(sub.get("keys"), dict) else {}
+    rec = {"endpoint": endpoint,
+           "keys": {k: str(v) for k, v in keys.items() if k in ("p256dh", "auth")},
+           "ts": time.time()}
+    with _lock:
+        subs = [s for s in _state.get("push_subs", []) if s.get("endpoint") != endpoint]
+        subs.append(rec)
+        _state["push_subs"] = subs
+        _save()
+        return 200, {"ok": True, "count": len(subs)}
+
+
+def _post_tabs(q: Query, text: str):
+    # the tab bar's whole record in one write, so a reorder can
+    # never half land: the lane order and the lanes he has closed
+    # arrive together and replace what was stored
+    try:
+        rec = json.loads(text) if text else None
+    except ValueError:
+        rec = None
+    if (not isinstance(rec, dict) or not isinstance(rec.get("order"), list)
+            or not isinstance(rec.get("closed"), list)):
+        return 400, {"error": "bad tab record"}
+    with _lock:
+        # every id is checked before anything is stored, so a record
+        # naming a lane this board does not have changes nothing
+        clean = {}
+        for field in ("order", "closed"):
+            ids = []
+            for ow in rec[field]:
+                if not isinstance(ow, str) or ow not in OWNERS:
+                    return 400, {"error": "unknown owner"}
+                if ow not in ids:   # a repeat is the same tab twice; keep the first
+                    ids.append(ow)
+            clean[field] = ids
+        stored = _state.get("tabs") or {}
+        for field in ("order", "closed"):
+            _overwrite("tabs", "", field, stored.get(field), clean[field])
+        _state["tabs"] = clean
+        _save()
+        _notify()
+        return 200, {"ok": True, "tabs": clean}
+
+
+def _post_seen(q: Query, text: str):
+    # the read marks: for each card named, how many of its replies
+    # he has read. One record per card on the board itself, so the
+    # phone and the board can never disagree about what is unread
+    try:
+        rec = json.loads(text) if text else None
+    except ValueError:
+        rec = None
+    if not isinstance(rec, dict) or not rec:
+        return 400, {"error": "bad seen record"}
+    with _lock:
+        marks = []
+        for bid_, n in rec.items():
+            box = _box(bid_)
+            if box is None:
+                return 400, {"error": "bad box"}
+            # a bool is an int in this language and is not a count
+            if isinstance(n, bool) or not isinstance(n, int) or n < 0:
+                return 400, {"error": "bad count"}
+            marks.append((box, n))
+        out = {}
+        for box, n in marks:
+            _overwrite("seen", box["id"], "count", box.get("seen", 0), n)
+            box["seen"] = n
+            out[box["id"]] = n
+        _save()
+        _notify()
+        return 200, {"ok": True, "seen": out}
+
+
+def _post_pause(q: Query, text: str):
+    with _lock:
+        _state["paused"] = q.one("v", "1") == "1"
+        _log("pause" if _state["paused"] else "unpause", "", "")
+        _save()
+        _notify()  # in-flight waiters return {"paused":true} at once
+        return 200, {"ok": True, "paused": _state["paused"]}
+
+
+def _post_end(q: Query, text: str):
+    with _lock:
+        _state["end"] = True
+        _log("end", "", "")
+        _save()
+        _notify()
+        return 200, {"ok": True}
+
+
+# ---- the transport --------------------------------------------------------------
+# One process, one worker, one owner of the board's state: uvicorn accepts the
+# connections and speaks HTTP, a small Starlette application routes them, and
+# every answer is made in a worker thread and sent from the event loop after
+# the lock is let go. The pieces below are the whole of the transport: how a
+# request is read and bounded, how an answer is written down and sent, how
+# long a peer may sit on the line, and what the board does when too many ask
+# at once. Nothing here decides what the board says; that is the routes above.
+
+class _TooLarge(Exception):
+    """A body past the route's cap, caught before the bytes are kept."""
+
+
+def _query(scope: dict) -> Query:
+    raw = scope.get("query_string", b"").decode("latin-1")
+    q = Query(parse_qs(raw))
+    q.raw = raw
+    q.path = scope.get("path", "")
+    return q
+
+
+def _answer(status: int, payload, ctype: str | None = None, *,
+            route: str = "", box: str = "", close: bool = False,
+            retry_after: int | None = None) -> Response:
+    """The one door every answer leaves through. A dict is JSON; bytes carry
+    the type they were handed with. A refusal is written down here, once, so
+    one added a year from now is written down without anybody remembering to
+    write it down: it is the server working correctly and saying no, so it is
+    INFO and not an error, and the reason is the sentence the caller already
+    wrote for the page."""
+    if isinstance(payload, (dict, list)):
+        body = json.dumps(payload).encode()
+        ctype = "application/json"
+    else:
+        body = payload
+    if status >= 400:
+        _info("refusal", box, route=route, code=status,
+              reason=payload.get("error") if isinstance(payload, dict) else None)
+    headers = {"Cache-Control": "no-store"}
+    if close:
+        headers["Connection"] = "close"
+    if retry_after is not None:
+        headers["Retry-After"] = str(retry_after)
+    return Response(body, status_code=status, media_type=ctype, headers=headers)
+
+
+async def _read_body(request: Request, cap: int) -> bytes:
+    """The body, whole, or nothing: a body past the cap is refused before its
+    bytes are kept, and one that stops arriving is given BODY_READ_TIMEOUT and
+    no longer, so a peer that opens a request and goes quiet holds nothing."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > cap:
+        raise _TooLarge()
+    chunks: list[bytes] = []
+    size = 0
+    async with asyncio.timeout(BODY_READ_TIMEOUT):
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > cap:
+                raise _TooLarge()
+            chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _run_state_request(fn, *args):
+    """Run one state-touching request as one held-lock transaction.
+
+    The route functions keep their own lock blocks, which are reentrant. This
+    outer hold exists for the failure edge: if an unexpected exception escapes
+    after a route changed memory or queued a transcript row but before its save,
+    restore the latest installed snapshot before another worker can enter and
+    commit the abandoned work. If a rename already succeeded, `_last_durable`
+    already names that new snapshot, so cleanup never rolls an installed commit
+    back. No response or unrelated file route passes through this hold."""
+    with _lock:
+        try:
+            return fn(*args)
+        except Exception:
+            _restore_last_durable()
+            raise
+
+
+def _endpoint(fn, body: str = "none", cap: int = MAX_TEXT_BODY,
+              too_large: str = "body too large", stateful: bool = False):
+    """One route: read the request on the loop, do its work in a thread,
+    answer from the loop. body is none for a GET, text for the plain text
+    bodies most POSTs carry (utf-8, replacement characters for anything else,
+    stripped, as always) and raw for the routes whose bytes are the content."""
+    async def endpoint(request: Request) -> Response:
+        q = _query(request.scope)
+        route, box = q.path, q.one("box")
+        payload = None
+        if body != "none":
+            try:
+                raw = await _read_body(request, cap)
+            except _TooLarge:
+                return _answer(413, {"error": too_large}, route=route, box=box, close=True)
+            except TimeoutError:
+                return _answer(408, {"error": "the request body did not arrive in time"},
+                               route=route, box=box, close=True)
+            except ClientDisconnect:
+                # the peer left mid-body: routine, never a crash, and there is
+                # nobody to answer; the empty answer below goes nowhere
+                _debug("hungup", box, route=route)
+                return Response(status_code=400)
+            payload = raw if body == "raw" else raw.decode("utf-8", "replace").strip()
+        try:
+            if stateful:
+                outcome = await run_in_threadpool(_run_state_request, fn, q, payload)
+            else:
+                outcome = await run_in_threadpool(fn, q, payload)
+        except SaveFailed:
+            # The failed save already restored the board to its installed
+            # snapshot. This answer is the difference between a page that can
+            # say something went wrong and one that hangs on a socket.
+            return _answer(500, {"error": "the board could not save its state"}, route=route, box=box)
+        return _answer(*outcome, route=route, box=box)
+    return endpoint
+
+
+def _state_endpoint(fn, body: str = "none", cap: int = MAX_TEXT_BODY,
+                    too_large: str = "body too large"):
+    """An endpoint whose route may change the board or its lazy clocks."""
+    return _endpoint(fn, body, cap, too_large, stateful=True)
+
+
+# -- the agent's long poll ----------------------------------------------------------
+# The one route that waits. It waits on the loop, woken by every change to the
+# board (_notify) and by the peer hanging up, and it sends its own answer so a
+# hand-off can be undone when the listener is known to be gone. Two cases are
+# covered for certain. A disconnect the loop has already seen sets the gone
+# event, and the claim is rolled back before any bytes are sent (the claim
+# suite proves this). A hand-off whose write itself fails is rolled back too,
+# on the rare transport that reports the failure. What this cannot see is a
+# disconnect that lands only after the bytes are handed over: with the pinned
+# uvicorn a completed send never reports back, so that case is not caught here
+# and instead rides the 90 second ack lease, which is exactly what the lease is
+# for. Bytes handed to the network are not bytes read by the agent, and the ack
+# is what finally confirms a delivery; the lease is the honest guarantee, and
+# the mid-handoff rollback is a best effort on top of it, never a replacement.
+
+async def _watch_disconnect(receive, gone: asyncio.Event) -> None:
+    """Reads the request channel until the peer goes away. Started before the
+    claim is attempted and stopped before the answer is sent, since once a
+    response is complete the channel reports a disconnect that is not one."""
+    try:
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                gone.set()
+                return
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        gone.set()
+
+
+async def _changed(seen: int, timeout: float, gone: asyncio.Event) -> None:
+    """Sleeps until the board changes, the peer leaves, or the time runs out,
+    whichever is first. A change that landed between the caller's reading of
+    the version and this call counts, so no wakeup can be lost."""
+    if _change_version != seen or gone.is_set():
+        return
+    ev = asyncio.Event()
+    _wakers.add(ev)
+    try:
+        if _change_version != seen:
+            return
+        waits = [asyncio.ensure_future(ev.wait()), asyncio.ensure_future(gone.wait())]
+        try:
+            await asyncio.wait(waits, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for w in waits:
+                w.cancel()
+    finally:
+        _wakers.discard(ev)
+
+
+async def _send_response(response: Response, scope, receive, send) -> bool:
+    """True when every byte was handed to the network without the peer having
+    gone; False when the send could not complete."""
+    try:
+        await response(scope, receive, send)
+    except Exception:
+        return False
+    return True
+
+
+class WaitRoute:
+    async def __call__(self, scope, receive, send) -> None:
+        global _waits_open
+        q = _query(scope)
+        route = q.path
+        try:
+            timeout = float(q.one("timeout", "570"))
+        except ValueError:
+            await _answer(400, {"error": "bad timeout"}, route=route)(scope, receive, send)
+            return
+        owner = q.one("owner", "pastureland")  # default: the pre-routing loop's role
+        if owner not in OWNERS:
+            await _answer(400, {"error": "unknown owner"}, route=route)(scope, receive, send)
+            return
+        # every claim is confirmed delivery, so there is no flag to read; an
+        # ack=1 riding along in the query is accepted and ignored, never
+        # refused, so a loop that carries the flag keeps working
+        agent = q.one("agent") or None
+        if _waits_open >= WAIT_SLOTS:
+            # the listeners' seats are all taken: a loop that has lost its way
+            # and opened many is told to come back, and the seats the real
+            # lanes need are never eaten by it. Commands do not sit here at all
+            _overload("waits", route)
+            await _plain(503, {"error": "too many listeners waiting"}, retry_after=5)(scope, receive, send)
+            return
+        _waits_open += 1
+        gone = asyncio.Event()
+        watcher = asyncio.ensure_future(_watch_disconnect(receive, gone))
+        try:
+            try:
+                await run_in_threadpool(_run_state_request, _wait_enter, owner, agent)
+            except SaveFailed:
+                # the first-ever listen for this owner could not record itself.
+                # _wait_enter raised before it counted the listener, so nothing
+                # leaks; this answers the same 500 the other routes give rather
+                # than letting SaveFailed become a crash line, and _wait_leave
+                # is not reached because entering never succeeded
+                await _answer(500, {"error": "the board could not save its state"},
+                              route=route)(scope, receive, send)
+                return
+            try:
+                deadline = time.monotonic() + min(timeout, 590)
+                while True:
+                    if gone.is_set():
+                        return   # nobody is listening any more: claim nothing, say nothing
+                    seen = _change_version
+                    try:
+                        outcome = await run_in_threadpool(_run_state_request, _wait_poll, owner)
+                    except SaveFailed:
+                        # a claim, a bounce or a steal-back could not be saved
+                        # and has been put back; the listener is told the same
+                        # 500 every command gets and asks again
+                        await _send_response(_answer(500, {"error": "the board could not save its state"},
+                                                     route=route), scope, receive, send)
+                        return
+                    if outcome is not None:
+                        kind, payload = outcome
+                        if kind != "claim":
+                            await _send_response(_answer(200, payload, route=route), scope, receive, send)
+                            return
+                        bid, token = payload["box"], payload["ack"]
+                        if gone.is_set():
+                            # the listener left while the claim was being made
+                            await run_in_threadpool(_run_state_request,
+                                                    _rollback_claim, owner, bid, token)
+                            return
+                        watcher.cancel()
+                        delivered = await _send_response(
+                            _answer(200, payload, route=route, box=bid), scope, receive, send)
+                        if not delivered:
+                            # the write itself failed, on a transport that says
+                            # so: roll the claim back so the message is not
+                            # stranded. The rollback checks the token, so an ack
+                            # that beat it here, or a claim made since, is left
+                            # alone. A disconnect that lands after the bytes are
+                            # handed over is not seen here and rides the ack lease
+                            await run_in_threadpool(_run_state_request,
+                                                    _rollback_claim, owner, bid, token)
+                        return
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0 or _STOPPING.is_set():
+                        await _send_response(_answer(200, {"idle": True}, route=route), scope, receive, send)
+                        return
+                    await _changed(seen, min(remaining, 5), gone)
+            finally:
+                await run_in_threadpool(_wait_leave, owner)
+        finally:
+            watcher.cancel()
+            _waits_open -= 1
+
+
+# -- what the board does when too many ask at once ---------------------------------
+# The fences, from the outside in, and what each one truly bounds.
+#
+# CONNECTION_LIMIT is uvicorn's own: past it every request, commands included,
+# gets uvicorn's plain 503, which is what stops a runaway from taking the
+# process down. It is a hard ceiling on open connections, not a reservation for
+# any one kind of request.
+#
+# READ_SLOTS bounds how many board readings are being built at once, not how
+# many peers are slowly reading. A reading holds its slot from admission until
+# its answer has been handed to the transport, which is the serialization under
+# the lock plus the handover; once the bytes are in the transport buffer the
+# slot is released, so a peer that then stops reading holds no slot. That makes
+# READ_SLOTS a bound on concurrent serialization work, the expensive part, and
+# not a bound on stalled peers. Long polls have WAIT_SLOTS of their own above.
+# Commands, the ack, the unread count and the operation lookups are counted
+# against neither, so a phone that cannot read the board can still send and an
+# agent can still answer.
+#
+# The bound on a stalled peer is therefore two other things: WRITE_STALL_TIMEOUT
+# in the protocol below, which cuts a connection whose write has been stuck that
+# long and frees its buffered answer, and CONNECTION_LIMIT, which caps how many
+# such connections can exist at all. What none of this promises is a reading
+# during a genuine flood: past the slots or the ceiling even polling is refused,
+# which the phone shows as reconnecting rather than as a board that is fine, and
+# a refused command is retried under its operation id.
+
+_reads_open = 0
+_waits_open = 0
+_last_overload: dict = {}
+# read routes, the ones that share READ_SLOTS: every GET except the small
+# answers that a command loop or a waking phone depends on
+UNCOUNTED_GETS = frozenset({"/unread", "/op", "/fresh", "/wait", "/push/key", "/worktrees",
+                            "/dirs", "/pickdir"})
+
+
+def _overload(which: str, route: str) -> None:
+    """One line per kind per few seconds: a flood is worth knowing about and
+    not worth a line per refused request."""
+    now = time.monotonic()
+    if now - _last_overload.get(which, 0) >= 5:
+        _last_overload[which] = now
+        _info("overload", slots=which, route=route)
+
+
+class Transport:
+    """The outermost layer: the request line for the debug log, the read
+    slots, the no-store every answer has always carried and the close that
+    ends each connection with its answer. A crash inside is answered and
+    written down by the application; this only makes sure the request is
+    counted out again whatever happened."""
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        global _reads_open
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        started = time.monotonic()
+        route = scope.get("path", "")
+        q = _query(scope)
+        status = 0
+        counted = scope.get("method") in ("GET", "HEAD") and route not in UNCOUNTED_GETS
+
+        async def bounded_send(message) -> None:
+            nonlocal status
+            if message["type"] == "http.response.start":
+                status = message["status"]
+                headers = list(message.get("headers") or [])
+                if not any(name.lower() == b"cache-control" for name, _ in headers):
+                    headers.append((b"cache-control", b"no-store"))
+                # one request per connection, as the server this replaced
+                # always answered. A connection kept open and then closed as
+                # idle can be closed under a request the tunnel's proxy has
+                # just reused it for, which the proxy answers with a 502 the
+                # phone then has to retry; a connection closed with its
+                # answer can never be reused at all
+                if not any(name.lower() == b"connection" for name, _ in headers):
+                    headers.append((b"connection", b"close"))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        if counted and _reads_open >= READ_SLOTS:
+            _overload("reads", route)
+            await _plain(503, {"error": "the board is busy answering other readers"},
+                         retry_after=2)(scope, receive, bounded_send)
+            return
+        if counted:
+            _reads_open += 1
+        try:
+            await self.app(scope, receive, bounded_send)
+        except Exception:
+            # answered and written down inside (_crashed); the exception is
+            # re-raised by the application so a server may log it, and this
+            # server already has
+            pass
+        finally:
+            if counted:
+                _reads_open -= 1
+            if LOGGER.isEnabledFor(logging.DEBUG):
+                # The request line is DEBUG and not INFO on purpose: the two
+                # pages poll about 144,000 times a day between them, and a line
+                # for each of those is 22 MB a day of mostly nothing. Switched
+                # on, it is the line that says what the board was asked for,
+                # what it answered and how long it took
+                _debug("request", q.one("box"), method=scope.get("method"), route=route,
+                       status=status, ms=round((time.monotonic() - started) * 1000))
+
+
+def _plain(status: int, payload: dict, retry_after: int | None = None) -> Response:
+    """An answer that is not a refusal of what was asked and so writes no
+    refusal line: a crash, which has its own line, and a full house, which
+    has its rate-limited one."""
+    headers = {"Cache-Control": "no-store"}
+    if retry_after is not None:
+        headers["Retry-After"] = str(retry_after)
+    return Response(json.dumps(payload).encode(), status_code=status,
+                    media_type="application/json", headers=headers)
+
+
+async def _crashed(request: Request, error: Exception) -> Response:
+    """A request that threw. The type, the words when they are safe words, and
+    where it happened go in the file; the page gets an answer instead of a
+    dropped connection."""
+    q = _query(request.scope)
+    _error("crash", q.one("box"), route=q.path, **_crash_fields(error))
+    return _plain(500, {"error": "the board hit an error answering this request"})
+
+
+async def _not_found(request: Request, error: Exception) -> Response:
+    q = _query(request.scope)
+    return _answer(404, {"error": "not found"}, route=q.path, box=q.one("box"))
+
+
+@contextlib.asynccontextmanager
+async def _lifespan(app):
+    global _LOOP
+    _LOOP = asyncio.get_running_loop()
+    # the routes' locked work is short, but a folder chooser or a git listing
+    # can hold a thread for a while: room for those and the rest at once
+    anyio.to_thread.current_default_thread_limiter().total_tokens = THREAD_POOL_SIZE
+    try:
+        yield
+    finally:
+        _LOOP = None
+
+
+def _static(name: str, ctype: str):
+    return _endpoint(lambda q, _: _file(HERE / name, ctype))
+
+
+ROUTES = [
+    Route("/", _endpoint(_get_root), methods=["GET"]),
+    Route("/page", _endpoint(_get_page), methods=["GET"]),
+    Route("/state", _state_endpoint(_get_state), methods=["GET"]),
+    Route("/m/state", _state_endpoint(_get_phone_state), methods=["GET"]),
+    Route("/op", _endpoint(_get_op), methods=["GET"]),
+    Route("/worktrees", _endpoint(_get_worktrees), methods=["GET"]),
+    Route("/unread", _endpoint(_get_unread), methods=["GET"]),
+    Route("/wait", WaitRoute(), methods=["GET"]),
+    Route("/fresh", _state_endpoint(_get_fresh), methods=["GET"]),
+    Route("/thread", _endpoint(_get_thread), methods=["GET"]),
+    Route("/log", _endpoint(_get_log), methods=["GET"]),
+    Route("/dirs", _endpoint(_get_dirs), methods=["GET"]),
+    Route("/pickdir", _endpoint(_get_pickdir), methods=["GET"]),
+    Route("/uploads/{rest:path}", _endpoint(_get_upload), methods=["GET"]),
+    Route("/laneimg/{rest:path}", _endpoint(_get_laneimg), methods=["GET"]),
+    # the vendored editor, one prebuilt file beside index.html. The page
+    # asks for it the first time the markdown panel is opened and never
+    # on boot, so a board nobody edits markdown on pays nothing for it
+    Route("/cm-markdown.js", _static("cm-markdown.js", "application/javascript; charset=utf-8"), methods=["GET"]),
+    Route("/card-markdown.js", _static("card-markdown.js", "application/javascript; charset=utf-8"), methods=["GET"]),
+    Route("/card-tokens.css", _static("card-tokens.css", "text/css; charset=utf-8"), methods=["GET"]),
+    Route("/card-logic.js", _static("card-logic.js", "application/javascript; charset=utf-8"), methods=["GET"]),
+    Route("/card-report.js", _static("card-report.js", "application/javascript; charset=utf-8"), methods=["GET"]),
+    Route("/m-manifest.json", _endpoint(_get_manifest), methods=["GET"]),
+    # the phone page and the files that make it installable, each a plain
+    # file beside this one (the icons under assets/). Served with the
+    # no-store every answer carries, so a changed page or worker is picked
+    # up on the next open rather than a cache later
+    *[Route(path, _endpoint(lambda q, _, p=p, c=c: _file(p, c)), methods=["GET"])
+      for path, (p, c) in PHONE_FILES.items() if path != "/m-manifest.json"],
+    Route("/push/key", _endpoint(_get_push_key), methods=["GET"]),
+    Route("/mdfiles", _endpoint(_get_mdfiles), methods=["GET"]),
+    Route("/mdfile", _endpoint(_get_mdfile), methods=["GET"]),
+    Route("/upload", _endpoint(_post_upload, "raw", MAX_UPLOAD_BODY, "upload too large"), methods=["POST"]),
+    Route("/clientlog", _endpoint(_post_clientlog, "raw", CLIENT_MAX_BODY, "report batch too large"), methods=["POST"]),
+    Route("/mdsave", _endpoint(_post_mdsave, "raw", MAX_TEXT_BODY), methods=["POST"]),
+    Route("/send", _state_endpoint(_post_send, "text"), methods=["POST"]),
+    Route("/ack", _state_endpoint(_post_ack, "text"), methods=["POST"]),
+    Route("/reply", _state_endpoint(_post_reply, "text"), methods=["POST"]),
+    Route("/note", _state_endpoint(_post_note, "text"), methods=["POST"]),
+    Route("/done", _state_endpoint(_post_done, "text"), methods=["POST"]),
+    Route("/working", _state_endpoint(_post_working, "text"), methods=["POST"]),
+    Route("/ping", _state_endpoint(_post_ping, "text"), methods=["POST"]),
+    Route("/park", _state_endpoint(_post_park, "text"), methods=["POST"]),
+    Route("/worktree", _state_endpoint(_post_worktree, "text"), methods=["POST"]),
+    Route("/context", _state_endpoint(_post_context, "text"), methods=["POST"]),
+    Route("/title", _state_endpoint(_post_title, "text"), methods=["POST"]),
+    Route("/create", _state_endpoint(_post_create, "text"), methods=["POST"]),
+    Route("/project", _state_endpoint(_post_project, "text"), methods=["POST"]),
+    Route("/close", _state_endpoint(_post_close, "text"), methods=["POST"]),
+    Route("/delete", _state_endpoint(_post_delete, "text"), methods=["POST"]),
+    Route("/ws/goal", _state_endpoint(_post_ws_goal, "text"), methods=["POST"]),
+    Route("/ws/task", _state_endpoint(_post_ws_task, "text"), methods=["POST"]),
+    Route("/ws/current", _state_endpoint(_post_ws_current, "text"), methods=["POST"]),
+    Route("/assign", _state_endpoint(_post_assign, "text"), methods=["POST"]),
+    Route("/progress", _state_endpoint(_post_progress, "text"), methods=["POST"]),
+    Route("/dismiss", _state_endpoint(_post_dismiss, "text"), methods=["POST"]),
+    Route("/push/subscribe", _state_endpoint(_post_push_subscribe, "text"), methods=["POST"]),
+    Route("/tabs", _state_endpoint(_post_tabs, "text"), methods=["POST"]),
+    Route("/seen", _state_endpoint(_post_seen, "text"), methods=["POST"]),
+    Route("/pause", _state_endpoint(_post_pause, "text"), methods=["POST"]),
+    Route("/end", _state_endpoint(_post_end, "text"), methods=["POST"]),
+]
+
+
+def build_app():
+    """The application: the routes above, a JSON 404 for a route nobody
+    serves or the wrong method on one that is served (the answer the old
+    dispatch gave both), and a JSON 500 for a crash."""
+    app = Starlette(routes=ROUTES, lifespan=_lifespan,
+                    exception_handlers={404: _not_found, 405: _not_found, Exception: _crashed})
+    app.router.redirect_slashes = False   # /state/ is not /state, as it never was
+    return Transport(app)
+
+
+# -- the wire ---------------------------------------------------------------------------
+
+class BoardProtocol(H11Protocol):
+    """uvicorn's HTTP/1.1 protocol with two clocks it does not keep itself.
+    A connection that has opened and not yet sent a request is cut after
+    FIRST_REQUEST_TIMEOUT: uvicorn's own idle clock only starts after a first
+    answer. And a connection whose peer has stopped reading is cut
+    WRITE_STALL_TIMEOUT after the write paused: the answer was serialized under
+    the lock and the lock let go long before the bytes went out, so the stall
+    costs the board one connection and one buffered answer, and this bounds how
+    long. The cut has to be forced. Every answer carries Connection: close, so
+    uvicorn asks the transport to close the moment the body is handed over; with
+    the peer silent that close never finishes, since it is waiting for the very
+    bytes the peer will not take. So the deadline does not defer to the closing
+    flag: while the write buffer still holds bytes it forces the connection
+    down, with a zero linger so the kernel sends a reset rather than queue a
+    goodbye behind the unread answer."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._first_timer = None
+        self._stall_timer = None
+        self._served_one = False
+
+    def connection_made(self, transport) -> None:
+        super().connection_made(transport)
+        self._first_timer = self.loop.call_later(FIRST_REQUEST_TIMEOUT, self._first_request_late)
+
+    def on_response_complete(self) -> None:
+        self._served_one = True
+        super().on_response_complete()
+
+    def connection_lost(self, exc) -> None:
+        for timer in (self._first_timer, self._stall_timer):
+            if timer is not None:
+                timer.cancel()
+        self._first_timer = self._stall_timer = None
+        super().connection_lost(exc)
+
+    def pause_writing(self) -> None:
+        super().pause_writing()
+        if self._stall_timer is None:
+            self._stall_timer = self.loop.call_later(WRITE_STALL_TIMEOUT, self._stalled)
+
+    def resume_writing(self) -> None:
+        super().resume_writing()
+        if self._stall_timer is not None:
+            self._stall_timer.cancel()
+            self._stall_timer = None
+
+    def _first_request_late(self) -> None:
+        self._first_timer = None
+        if not self._served_one and self.conn.their_state is h11.IDLE and not self.transport.is_closing():
+            self.transport.close()
+
+    def _stalled(self) -> None:
+        self._stall_timer = None
+        transport = self.transport
+        # the timer only survives to here while the write is paused, since
+        # resume_writing cancels it, so the buffer is what decides, not the
+        # closing flag. Nothing left to send means the close (or the write)
+        # will finish on its own; bytes still buffered mean a peer that stopped
+        # reading, and the connection is forced down.
+        try:
+            buffered = transport.get_write_buffer_size()
+        except Exception:
+            buffered = 0
+        if buffered == 0:
+            return
+        # a plain abort would leave a goodbye queued behind the unread bytes, so
+        # the socket would linger until the peer finally read it. A zero linger
+        # makes the kernel send a reset instead, freeing the connection at once
+        # and telling the peer, or the tunnel's proxy, plainly that this answer
+        # is gone. The option is standard; where a transport hides its socket or
+        # refuses it, the abort below still runs.
+        sock = transport.get_extra_info("socket")
+        if sock is not None:
+            try:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+            except OSError:
+                pass
+        # the client stopped reading its answer (a phone that went to sleep
+        # mid-page, a proxy connection left behind): routine here and never a
+        # traceback, but the caller has to be able to find out, so it is
+        # reported instead of hidden
+        cycle = getattr(self, "cycle", None)
+        scope = cycle.scope if cycle is not None else {}
+        q = _query(scope)
+        _debug("hungup", q.one("box"), route=scope.get("path", ""))
+        transport.abort()
+
+
+class BoardServer(uvicorn.Server):
+    """uvicorn's server with its signal capture switched off: this file keeps
+    its own handlers, so the stop line can say which signal it was, and so
+    SIGHUP, which uvicorn does not watch, ends the run as cleanly as the other
+    two rather than killing the process mid-write."""
+
+    @contextlib.contextmanager
+    def capture_signals(self):
+        yield
+
+
+class TransportLogHandler(logging.Handler):
+    """What uvicorn has to say, in the board's own file and its own shape.
+    Its chatter about starting and stopping is dropped, since the board's
+    start and stop lines already say that. A warning or an error is kept as
+    its type and its plain words, never its traceback, which would carry
+    paths. One message is dropped on purpose: the one about an answer that
+    was not completed, which is what a connection cut for stalling looks like
+    from inside, and which _stalled has already written down properly."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            if record.levelno < logging.WARNING:
+                return
+            words = record.getMessage()
+            if words.startswith("ASGI callable returned without completing response"):
+                return
+            error = record.exc_info[1] if record.exc_info and record.exc_info[1] else None
+            fields = {"message": words[:CRASH_MESSAGE_CHARS] if set(words) <= CRASH_PLAIN else None,
+                      "error": type(error).__name__ if error else None}
+            _event(logging.ERROR if record.levelno >= logging.ERROR else logging.INFO,
+                   "transport", **fields)
+        except Exception:
+            pass
+
+
+def _quiet_uvicorn() -> None:
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access", "uvicorn.asgi"):
+        log = logging.getLogger(name)
+        log.handlers = [TransportLogHandler()]
+        log.propagate = False
+        log.setLevel(logging.INFO)
+
+
+def _listen() -> socket.socket:
+    """The listening socket, bound the way the old server bound it: loopback
+    only, address reuse on, so a restart does not wait out a closed socket's
+    linger and a second board on the same port is refused."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("127.0.0.1", PORT))
+    sock.listen(LISTEN_BACKLOG)
+    return sock
+
+
+def _make_server() -> BoardServer:
+    config = uvicorn.Config(
+        build_app(), host="127.0.0.1", port=PORT,
+        log_config=None, access_log=False, server_header=False,
+        http=BoardProtocol, ws="none", lifespan="on", loop="asyncio",
+        limit_concurrency=CONNECTION_LIMIT, backlog=LISTEN_BACKLOG,
+        timeout_keep_alive=KEEP_ALIVE_TIMEOUT,
+        timeout_graceful_shutdown=GRACEFUL_STOP_TIMEOUT,
+    )
+    return BoardServer(config)
 
 
 # why this process is stopping, set by the signal handler in main and read by
@@ -3031,40 +4177,37 @@ _stop_reason: str | None = None
 
 
 def main() -> None:
-    class QuietServer(ThreadingHTTPServer):
-        def handle_error(self, request, client_address):
-            """A request that threw. The default prints the traceback to
-            standard error, which nothing reads once the server is started by
-            the CLI, so the crash goes in the file instead: the type, the words
-            when they are safe words, and where it happened. The request itself
-            is dropped exactly as it was before, by the caller closing it."""
-            error = sys.exc_info()[1]
-            if isinstance(error, (BrokenPipeError, ConnectionResetError)):
-                return  # dropped connections are routine here, never worth a line
-            _error("crash", **_crash_fields(error))
-
-    def stopping(signum, frame) -> None:
-        """Ctrl-C, a kill, or the terminal closing: the reason is remembered and
-        the ordinary shutdown below runs, so the file gets a stop line to match
-        its start line. A start with no matching stop was all the file
-        remembered about a restart, which is why one could not be explained."""
-        global _stop_reason
-        _stop_reason = signal.Signals(signum).name
-        raise SystemExit(0)
-
-    for stopper in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-        signal.signal(stopper, stopping)
+    _quiet_uvicorn()
 
     # Own the listening socket before touching durable board data. In
     # particular, a replacement started while the old server still owns the
     # port must not migrate state or append the transcript schema boundary: the
     # old process can still append legacy rows until it has actually stopped.
     try:
-        server = QuietServer(("127.0.0.1", PORT), Handler)
+        sock = _listen()
     except OSError as error:
         _error("bindfail", port=PORT,
                reason=f"facilitator could not listen on 127.0.0.1:{PORT}: {error}")
         raise SystemExit(1) from None
+
+    server = _make_server()
+
+    def stopping(signum, frame) -> None:
+        """Ctrl-C, a kill, or the terminal closing: the reason is remembered and
+        the ordinary shutdown runs, so the file gets a stop line to match its
+        start line. A start with no matching stop was all the file remembered
+        about a restart, which is why one could not be explained. Open
+        requests get GRACEFUL_STOP_TIMEOUT to finish; a listener waiting for a
+        card is sent home at once."""
+        global _stop_reason
+        if _stop_reason is None:
+            _stop_reason = signal.Signals(signum).name
+        _STOPPING.set()
+        server.should_exit = True
+        _notify()
+
+    for stopper in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(stopper, stopping)
 
     try:
         INTERNAL_UPLOADS.mkdir(parents=True, exist_ok=True)
@@ -3085,7 +4228,7 @@ def main() -> None:
         pushed = _state.get("push_last_ok") or {}
         _info("start", port=PORT, boxes=len(_state["boxes"]), log_level=LOG_LEVEL,
               push_ok=pushed.get("ts"), push_host=pushed.get("host"))
-        server.serve_forever()
+        server.run(sockets=[sock])
     except Exception as error:
         # the last word about a start that died of something rather than being
         # asked to stop: the stop line below says only which type ended it, and
@@ -3097,7 +4240,7 @@ def main() -> None:
         # the exception that ended it, or the loop simply returning
         ended = sys.exc_info()[0]
         _info("stop", reason=_stop_reason or (ended.__name__ if ended else "end of stream"))
-        server.server_close()
+        sock.close()
 
 
 if __name__ == "__main__":
