@@ -158,6 +158,9 @@
     background:#FAE9E2; border:1px solid #E8C4B4; border-radius:7px;
   }
   body.offline #offline{display:block}
+  /* the milder note: the board has missed a reading or two and the page is
+     asking again, which is not yet a board that is gone */
+  #offline.stale{color:#6B5A2E; background:#F6F1E4; border-color:#E4D9BC}
 
   /* ---- the card pane ------------------------------------------------------ */
   main{
@@ -353,6 +356,19 @@
   }
   .rcpt{display:block; text-align:right; font:10.5px/1.35 var(--mono); color:var(--sub); padding:2px 0 0}
   .rcpt:empty{display:none}
+  /* a message the board has not confirmed yet: drawn the moment it is sent, a
+     shade lighter, its receipt saying so, and kept on the card until the board
+     has it. one it could not be given stays too, in the ink the unreachable
+     note wears, and a tap puts the words back in the row he types on */
+  .pendlocal{display:flex; flex-direction:column}
+  .pendlocal .pendmsg{padding-top:var(--sp-s)}
+  .pendmsg.pending .pendcontent{opacity:.6}
+  .pendmsg.pending .rcpt{color:#8F7B4A}
+  .pendmsg.failed .rcpt{color:#7A2E1B}
+  /* a message the board never confirmed and the phone stopped resending: kept
+     as it was typed, its receipt saying only what is known */
+  .pendmsg.unsure .pendcontent{opacity:.72}
+  .pendmsg.unsure .rcpt{color:#6B5A2E}
 
   /* ---- the foot: the plus, the row he types on, the send square ------------ */
   .bottombar{
@@ -462,6 +478,11 @@
   .tvb.on{color:var(--ink); background:var(--card); border-color:var(--line)}
   .tikadd{flex:none; align-self:center; width:28px; height:28px; padding:0; margin-left:4px;
     font:500 15px/1 var(--mono); color:var(--ink); background:none; border:none; cursor:pointer; opacity:.75}
+  /* the plus while the card it was pressed for is still being made: it breathes
+     until the board answers, and a second press meanwhile is the same press */
+  .tikadd.pending{animation:tikpulse 1s ease-in-out infinite}
+  @keyframes tikpulse{0%,100%{opacity:.25} 50%{opacity:.85}}
+  .tiknote{font:italic 12.5px var(--sans); color:#7A2E1B; padding:8px 12px}
   #tiklist{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; display:flex; flex-direction:column;
     gap:6px; padding:10px 8px}
   .trow{
@@ -765,7 +786,7 @@ function growPend(el, arrive){
   const pend = h("div", "pendlist" + (arrive ? " rising" : ""));
   pend.innerHTML = '<div class="pendhead">' + chevSVG("chevmid") + "</div>" +
     '<div class="pendbody">' + chevSVG("chevtop") + '<div class="pendstamp"></div>' +
-    '<div class="pendscroll"><div class="pendslide"></div></div></div>';
+    '<div class="pendscroll"><div class="pendslide"></div><div class="pendlocal"></div></div></div>';
   pend.addEventListener("click", () => {
     pend.classList.toggle("open");
     if (pend.classList.contains("open")) pendBottom(pend);
@@ -797,60 +818,375 @@ function undone(id){
 let autoNext = null;
 const AUTONEXT_MS = 0;   // the desktop's number; a quiet time after a send before moving on
 let lastLeftId = null;   // the card the send's move left, for the bounce on command z
-// the tap is answered on the tap. the desktop waits for the server before it
-// draws the line because the server is on the same machine and answers in a
-// millisecond; the phone is a room and a radio away from it, and waiting there
-// is a second of nothing happening under his finger. so the line lands in the
-// box now and the poll behind it reconciles: the row carries the text the server
-// is being handed, so the pass over the box finds the row it would have added
-// and adds nothing. a send that does not land hands the words back
-async function doSend(id){
+// ---- what the phone has asked the board and not yet heard back on -----------------
+// the phone is a room and a radio away from the board. a tap has to show
+// something now, and the words have to land once, whatever the radio does to
+// the reply. so every send and every new card is an operation: an id minted
+// here before the first try, kept in this phone's storage until the board has
+// confirmed it, and sent again under the same id until it has. the board keeps
+// the result beside the effect, so a retry after a lost reply is answered from
+// the receipt and the message never lands twice. one card's sends go one at a
+// time, in the order he typed them; a card being made is one card however many
+// times the plus is pressed while it is on its way. the rows below are drawn
+// from this store, so a card shows its unsent messages whether or not it is
+// the one on screen, and a reload draws them again and sends them on.
+const OPS_KEY = "pendops";
+// operations kept at once, pending, unsure and not-sent together. past this
+// the phone refuses to mint another rather than forget one, since every kept
+// operation is words the board has not confirmed; the words of a refused send
+// stay in the row he types on and the card says why
+const OPS_MAX = 50;
+const OP_TRY_MS = 10000;                     // one try's deadline
+// how long a send is resent on its own. well under the two days the board
+// promises to keep a receipt, so every retry still finds its receipt and lands
+// at most once. past this the operation is unsure: nothing more is sent, the
+// words stay on the card, and every reading asks the board for its receipt
+const OP_GIVE_UP_MS = 12 * 3600 * 1000;
+// how long after minting the board's answer "unknown" still proves the words
+// never landed. a receipt is kept at least two days from the moment the board
+// committed it, which is never before the minting, so inside this window no
+// receipt means no commit. past it, unknown proves nothing, and the operation
+// stays unsure until the owner decides
+const OP_CERTAIN_MS = 36 * 3600 * 1000;
+const OP_ASK_MAX = 32;                       // receipts one reading may ask after, the board's own cap
+const RETRY_MIN_MS = 1500, RETRY_MAX_MS = 30000;
+// pending: being sent and resent. unsure: no more sends, the outcome unknown,
+// kept and asked about. failed: the board refused it or has no receipt inside
+// the window where that proves it never landed
+const OP_STATES = new Set(["pending", "unsure", "failed"]);
+let ops = [];                                // in the order they were asked
+const opRows = {};                           // op id -> its row on the card, while it is unconfirmed
+const opSleepers = new Set();                // the retry sleeps a wake ends early
+const opWorkers = {};                        // lane -> the loop working that lane's operations
+let opsStarted = false;                      // the loops start after the first reading, which reconciles first
+
+function loadOps(){
+  try {
+    const kept = JSON.parse(localStorage.getItem(OPS_KEY) || "[]");
+    ops = Array.isArray(kept) ? kept.filter(o => o && typeof o.id === "string" &&
+      (o.kind === "send" || o.kind === "create") && OP_STATES.has(o.state)).slice(-OPS_MAX) : [];
+  } catch (e) { ops = []; }
+  for (const op of ops){
+    op.fresh = false; op.armed = false;   // a card made before a reload is not named by this page
+    // only the board can call a send not sent. a record marked failed for any
+    // other reason, a horizon or a full store under an earlier page, is a send
+    // whose outcome is unknown, and an absent receipt does not prove it never
+    // landed: it is kept as unsure and asked about
+    if (op.state === "failed" && op.by !== "board"){ op.state = "unsure"; op.why = "not confirmed by the board"; }
+  }
+}
+function saveOps(){
+  try { localStorage.setItem(OPS_KEY, JSON.stringify(ops.map(({ fresh, armed, ...op }) => op))); } catch (e) {}
+}
+function newOpId(){
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+// null when the store is full: the caller keeps the words where they are and
+// says so. nothing kept is ever dropped to make room, because every kept
+// operation is words the board has not confirmed, and forgetting one would be
+// forgetting whether it was sent
+function mintOp(kind, fields){
+  if (ops.length >= OPS_MAX) return null;
+  const op = { id: newOpId(), kind, ts: Date.now(), tries: 0, waiting: false, asked: 0, state: "pending", ...fields };
+  ops.push(op);
+  saveOps();
+  return op;
+}
+function laneOf(op){ return op.kind === "create" ? "create" : "send:" + op.box; }
+function localSends(box){ return ops.filter(o => o.kind === "send" && o.box === box); }
+function pendingCreate(){ return ops.find(o => o.kind === "create" && o.state === "pending"); }
+// what a reading asks the board about: the pending and unsure operations least
+// recently asked, within the board's cap for one reading. the store can hold
+// more than one reading may ask after, so the turn goes round: whatever was
+// asked about last time goes to the back, and every kept operation is asked
+// about within a couple of readings, never starved by the same first batch
+function askIds(){
+  const askable = ops.filter(o => o.state === "pending" || o.state === "unsure")
+    .sort((a, b) => (a.asked || 0) - (b.asked || 0));
+  const chosen = askable.slice(0, OP_ASK_MAX);
+  const now = Date.now();
+  for (const op of chosen) op.asked = now;
+  return chosen.map(o => o.id);
+}
+function backoffMs(tries){ return Math.min(RETRY_MAX_MS, RETRY_MIN_MS * 2 ** Math.max(0, tries - 1)) * (0.8 + Math.random() * 0.4); }
+function retrySleep(ms){
+  return new Promise(resolve => {
+    const done = () => { clearTimeout(timer); opSleepers.delete(done); resolve(); };
+    const timer = setTimeout(done, ms);
+    opSleepers.add(done);
+  });
+}
+// a resume, a tap on the plus, the board answering again: every sleeping retry
+// wakes and every lane with something pending is worked
+function wakeOps(){
+  for (const done of [...opSleepers]) done();
+  for (const op of ops) if (op.state === "pending") runOps(laneOf(op));
+}
+function runOps(lane){
+  if (opWorkers[lane]) return;
+  opWorkers[lane] = (async () => {
+    try {
+      for (;;){
+        const op = ops.find(o => o.state === "pending" && laneOf(o) === lane);
+        if (!op) return;
+        if (Date.now() - op.ts > OP_GIVE_UP_MS){ markUnsure(op, "no answer from the board for half a day"); continue; }
+        if (await tryOp(op) === "retry"){
+          op.waiting = true;
+          drawOpState(op);
+          await retrySleep(backoffMs(op.tries));
+        }
+      }
+    } finally { delete opWorkers[lane]; }
+  })();
+}
+// one try. done means the operation is settled either way; retry means the
+// board could not be reached or was busy, which says nothing about whether
+// the words landed, and the same id asked again is safe either way
+async function tryOp(op){
+  if (op.state !== "pending") return "done";
+  op.tries++; op.waiting = false;
+  drawOpState(op);
+  const url = op.kind === "send"
+    ? "/send?box=" + encodeURIComponent(op.box) + "&op=" + encodeURIComponent(op.id)
+    : "/create?owner=" + encodeURIComponent(op.owner) + "&op=" + encodeURIComponent(op.id);
+  let r;
+  try {
+    r = await fetch(url, { method: "POST", body: op.kind === "send" ? op.text : "", signal: AbortSignal.timeout(OP_TRY_MS) });
+  } catch (e) { return "retry"; }
+  if (op.state !== "pending") return "done";   // a reading reconciled it while this try was out
+  if (r.ok){
+    let result = null;
+    try { result = await r.json(); } catch (e) {}
+    if (!result || !result.ok) return "retry";   // it landed and the answer was lost on the way: the retry is answered from the receipt
+    applyOp(op, result);
+    return "done";
+  }
+  if (r.status === 400 || r.status === 409 || r.status === 413){
+    let why = "";
+    try { why = (await r.json()).error || ""; } catch (e) {}
+    failOp(op, why || ("refused " + r.status), "board");
+    return "done";
+  }
+  return "retry";
+}
+// the board's receipts, asked after with every reading. a pending or unsure
+// operation the board has applied is landed here, however long ago its reply
+// was lost. an unsure operation the board has no receipt of is not sent, inside
+// the window where that proves it never landed; past that window it stays
+// unsure, since the board cannot tell a message that never came from one
+// whose receipt has aged out, and neither can the phone. a pending one the
+// board has no receipt of is left to its loop to send again
+function reconcileOps(answer){
+  for (const [id, said] of Object.entries(answer || {})){
+    const op = ops.find(o => o.id === id && (o.state === "pending" || o.state === "unsure"));
+    if (!op || !said) continue;
+    if (said.status === "applied"){ applyOp(op, { ...(said.result || {}), replayed: true }); continue; }
+    if (said.status === "unknown" && op.state === "unsure" && Date.now() - op.ts < OP_CERTAIN_MS){
+      failOp(op, "the board has no record of it", "board");
+    }
+  }
+}
+function applyOp(op, result){
+  if (op.state !== "pending" && op.state !== "unsure") return;
+  op.state = "applied";
+  ops = ops.filter(o => o !== op);
+  saveOps();
+  const row = opRows[op.id];
+  if (row){ row.remove(); delete opRows[op.id]; }
+  if (op.kind === "send") landSend(op, result); else landCreate(op, result);
+  if (result.rev != null && lastRev != null && result.rev !== lastRev) poll();   // the board moved: read it now rather than a tick later
+}
+// nothing more is sent for this operation and nothing is decided: the words
+// stay on the card, the readings keep asking the board about it, and it is
+// settled only by a receipt or by the owner's own hand
+function markUnsure(op, why){
+  if (op.state !== "pending") return;
+  op.state = "unsure"; op.why = why; op.waiting = false;
+  if (op.kind === "create"){
+    drawCreatePending();
+    drawerNote("Could not confirm the card was made; it will show here if it was");
+  } else {
+    const el = els[op.box];
+    if (el) drawLocalRows(el, localSends(op.box));
+  }
+  saveOps();
+}
+// by says who decided: "board" for a refusal the board itself gave, or for an
+// absent receipt inside the window where that proves the words never landed.
+// only those stay not-sent across a reload; anything else is an unknown outcome
+function failOp(op, why, by){
+  if (op.state !== "pending" && op.state !== "unsure") return;
+  op.state = "failed"; op.why = why; op.by = by || "phone";
+  if (op.kind === "create"){
+    ops = ops.filter(o => o !== op);
+    drawCreatePending();
+    drawerNote("The card could not be made: " + why);
+  } else {
+    const el = els[op.box];
+    if (el) drawLocalRows(el, localSends(op.box));
+  }
+  saveOps();
+}
+// a confirmed send: the row moves from the unsent rows to the delivered ones,
+// exactly the row the board's next reading would draw, so that reading finds
+// it there and adds nothing. sendGuard is the moment it landed: a reading asked
+// before it knows nothing of it and may not take it away
+function landSend(op, result){
+  const el = els[op.box];
+  if (!el) return;
+  const pend = el.pend || growPend(el, true);
+  const row = pendRow(op.text);
+  if (pend.classList.contains("open")) row.classList.add("pop");
+  pend.querySelector(".pendslide").appendChild(row);
+  stampRcpts(pend);
+  if (!pend.querySelector(".pendstamp").textContent) stampRun(pend, [op.ts / 1000]);
+  pendBottom(pend);
+  el.pendRaw = el.pendRaw ? el.pendRaw + "\n\n" + op.text : op.text;
+  el.sendGuard = Date.now();
+  if (el.meta.textContent.indexOf("send ") === 0) el.meta.textContent = "";
+  if (op.reopen) undone(op.box);   // the message is in; the flip rides behind it
+}
+// a confirmed new card: drawn from the answer, which carries the card, rather
+// than from a reading a tick later. a card this page asked for is named now;
+// one asked for before a reload or a sleep is shown and left named as it is
+function landCreate(op, result){
+  drawCreatePending();
+  if (!result.id) return;
+  if (result.card && lastState && !lastState.boxes.some(b => b.id === result.card.id)){
+    let at = -1;
+    lastState.boxes.forEach((b, i) => { if (b.bucket === "meta" && b.owner === result.card.owner) at = i; });
+    lastState.boxes.splice(at + 1, 0, result.card);
+  }
+  if (op.fresh){ pendingFocus = result.id; closeDrawer(); }
+  else { selectedId = result.id; localStorage.setItem("selbox", result.id); }
+  if (lastState && lastState.boxes.some(b => b.id === result.id)) apply(lastState);
+}
+// the words of a message the board refused, or could not be reached for, go
+// back in the row he types on; after what is already there, never over it
+function takeBack(op){
+  ops = ops.filter(o => o !== op);
+  saveOps();
+  const row = opRows[op.id];
+  if (row){ row.remove(); delete opRows[op.id]; }
+  const el = els[op.box];
+  if (!el) return;
+  el.ta.value = el.ta.value.trim() ? el.ta.value.trimEnd() + "\n\n" + op.text : op.text;
+  el.tick();
+  drawLocalRows(el, localSends(op.box));
+  // taking one back makes room: a send held for want of it may go now
+  if (el.meta.textContent.indexOf("send held") === 0 && ops.length < OPS_MAX) el.meta.textContent = "";
+}
+// the unsent rows of one card, after the delivered ones: one row per
+// operation, its receipt saying where it stands
+function drawLocalRows(el, local){
+  if (!local.length){
+    if (el.pend){
+      el.pend.querySelector(".pendlocal").textContent = "";
+      if (!el.pend.querySelector(".pendslide").children.length) dropPend(el);
+    }
+    return;
+  }
+  const pend = el.pend || growPend(el, true);
+  const holder = pend.querySelector(".pendlocal");
+  const want = new Set(local.map(o => o.id));
+  for (const row of [...holder.children]){
+    if (!want.has(row.dataset.op)){ row.remove(); delete opRows[row.dataset.op]; }
+  }
+  for (const op of local){
+    let row = opRows[op.id];
+    if (!row || row.parentNode !== holder){
+      row = pendRow(op.text);
+      row.dataset.op = op.id;
+      // a not-sent row gives the words back on a tap. an unsure row is his to
+      // decide: the first tap arms it and says the message may already have
+      // gone, and only a second tap within a few seconds takes the words back;
+      // nothing is ever resent for it on its own
+      row.addEventListener("click", e => {
+        if (op.state === "failed"){ e.stopPropagation(); takeBack(op); return; }
+        if (op.state !== "unsure") return;
+        e.stopPropagation();
+        if (op.armed){ takeBack(op); return; }
+        op.armed = true;
+        drawOpState(op);
+        setTimeout(() => { if (op.armed){ op.armed = false; drawOpState(op); } }, 5000);
+      });
+      holder.appendChild(row);
+      opRows[op.id] = row;
+    }
+    drawOpState(op);
+  }
+  if (!pend.querySelector(".pendstamp").textContent) stampRun(pend, [local[0].ts / 1000]);
+}
+function drawOpState(op){
+  if (op.kind === "create"){ drawCreatePending(); return; }
+  const row = opRows[op.id];
+  if (!row) return;
+  row.classList.toggle("pending", op.state === "pending");
+  row.classList.toggle("unsure", op.state === "unsure");
+  row.classList.toggle("failed", op.state === "failed");
+  row.querySelector(".rcpt").textContent =
+    op.state === "failed" ? "Not sent, tap to take the words back"
+    : op.state === "unsure" ? (op.armed ? "Tap again to take the words back; it may already have gone" : "Could not confirm it was sent")
+    : op.waiting ? "Not sent yet, retrying" : "Sending";
+}
+function drawCreatePending(){
+  const plus = document.getElementById("tikadd");
+  const making = !!pendingCreate();
+  plus.classList.toggle("pending", making);
+  plus.setAttribute("aria-busy", making ? "true" : "false");
+  plus.title = making ? "making the card" : "new card";
+}
+function drawerNote(text){
+  const tik = document.getElementById("tiklist");
+  const note = h("div", "tiknote", text);
+  tik.prepend(note);
+  setTimeout(() => note.remove(), 6000);
+}
+
+// ---- sending and making ------------------------------------------------------------
+// the tap is answered on the tap: the row lands in the box now, marked as on
+// its way, and the operation loop behind it sees it home. the desktop waits
+// for the server before it draws the line because the server is on the same
+// machine and answers in a millisecond; here that wait is a second of nothing
+// happening under his finger
+function doSend(id){
   const el = els[id];
   const text = el.ta.value.trim();
   if (!text) return;
   const reopen = boxDone(id);
-  // no poll may take a line off this box until every send on it has landed
-  el.sending = (el.sending || 0) + 1;
-  el.sendGuard = Infinity;
+  const op = mintOp("send", { box: id, text, reopen });
+  if (!op){
+    // the store is full: the words stay in the row, and the card says why.
+    // this clears on its own once a reading finds room again
+    el.meta.textContent = "send held: fifty messages are still unconfirmed on this phone; wait for the board, or take some back";
+    return;
+  }
   el.ta.value = "";
   el.tick();          // the square goes with the words, and the row falls back to one line
   const pend = el.pend || growPend(el, true);
-  const row = pendRow(text);
-  if (pend.classList.contains("open")) row.classList.add("pop");
-  pend.querySelector(".pendslide").appendChild(row);
-  stampRcpts(pend);
-  if (!pend.querySelector(".pendstamp").textContent) stampRun(pend, [Date.now() / 1000]);
+  drawLocalRows(el, localSends(id));
+  if (pend.classList.contains("open")) opRows[op.id]?.classList.add("pop");
   pendBottom(pend);
-  el.pendRaw = el.pendRaw ? el.pendRaw + "\n\n" + text : text;
   if (hist && hist.id === id) histExit(id);   // a send lands you back on the live reply
   clearTimeout(autoNext);
   // the card this move leaves is written down so command z can bounce back to
   // it, exactly as the desktop writes it down
   autoNext = setTimeout(() => { autoNext = null; if (jumpNextYellow(id)) lastLeftId = id; }, AUTONEXT_MS);
-  try {
-    const r = await fetch("/send?box=" + encodeURIComponent(id), { method: "POST", body: text });
-    if (!r.ok) throw new Error(r.status);
-    if (reopen) undone(id);   // the message is in; the flip rides behind it
-    poll();
-  } catch (err) {
-    el.meta.textContent = "send failed, text kept, try again";
-    row.remove();
-    const left = [...pend.querySelector(".pendslide").children];
-    el.pendRaw = left.map(one => one.dataset.text).join("\n\n");
-    if (left.length) stampRcpts(pend); else dropPend(el);
-    // the words go back in the row he types on, unless he has started writing
-    // something else there, in which case the note above is all that is said
-    if (!el.ta.value.trim()){ el.ta.value = text; el.tick(); }
-  } finally {
-    if (--el.sending === 0) el.sendGuard = Date.now();
-  }
+  runOps(laneOf(op));
 }
-async function createCard(){
+// one press, one card. a press while the card is still being made is the same
+// press: it wakes the try rather than minting another card, and the plus
+// breathes until the board answers. once the card is there the next press is
+// a deliberate second card
+function createCard(){
   if (!validOwners.has(activeOwner)) return;
-  const r = await fetch("/create?owner=" + encodeURIComponent(activeOwner), { method: "POST" })
-    .then(x => x.json()).catch(() => null);
-  if (r?.id){ pendingFocus = r.id; closeDrawer(); }
-  await poll();
+  if (pendingCreate()){ wakeOps(); return; }
+  const op = mintOp("create", { owner: activeOwner });
+  if (!op){ drawerNote("No card can be made while fifty messages are still unconfirmed on this phone"); return; }
+  op.fresh = true;
+  drawCreatePending();
+  runOps("create");
 }
 
 // older replies: histList, histExit and histStep are shared with the desktop in
@@ -1236,12 +1572,16 @@ function apply(state){
     // clear the box he is looking at. el.sendGuard is the moment the send landed,
     // and stands at the end of time while one is still in flight
     const stale = (state.fetchedAt || 0) < (el.sendGuard || 0);
-    if (el.pendRaw !== pt && !stale) syncPend(el, b.pendingTexts, b.pendingStamps);
+    if (!stale) syncPendPhone(el, b, pt);
     const cs = cardState(b);
     el.box.classList.toggle("done", cs === "done");
     el.box.classList.toggle("parked", cs === "parked");
     el.box.classList.toggle("hashist", (b.replies || 0) > 1);
-    if (el.meta.textContent && el.meta.textContent.indexOf("send failed") !== 0) el.meta.textContent = "";
+    // a note about a send that failed or was held stays until the card can
+    // take another; any other note is the poll's to clear. a held send clears
+    // as soon as there is room again
+    if (el.meta.textContent && el.meta.textContent.indexOf("send ") !== 0) el.meta.textContent = "";
+    if (el.meta.textContent.indexOf("send held") === 0 && ops.length < OPS_MAX) el.meta.textContent = "";
   }
   if (selectedId && !state.boxes.some(b => b.id === selectedId && b.owner === activeOwner)) deselect();
   applySelection(state);
@@ -1277,44 +1617,146 @@ function goToBox(id){
   select(id);
   apply(lastState);
 }
-// the fetch and the render each get their own try, as on the board: the
-// unreachable banner is for a server that did not answer, and a card that will
-// not draw is reported instead of being dressed up as one
-async function poll(){
+// the poll's pass over one card's sent box: the delivered rows are the
+// board's and the shared pass draws them; the unsent rows are this phone's
+// and are drawn after them, so a box with nothing delivered yet still stands
+// for what is on its way
+function syncPendPhone(el, b, pt){
+  const texts = b.pendingTexts || [], stamps = b.pendingStamps || [];
+  const local = localSends(b.id);
+  if (el.pendRaw !== pt){
+    if (texts.length) syncPend(el, texts, stamps);
+    else if (!local.length) dropPend(el);
+    else {
+      const pend = el.pend || growPend(el, false);
+      pend.querySelector(".pendslide").textContent = "";
+      stampRun(pend, []);
+      el.pendRaw = "";
+    }
+  }
+  drawLocalRows(el, local);
+}
+
+// ---- reading the board -------------------------------------------------------------
+// one reading at a time, each with a deadline, spaced POLL_MS apart while the
+// page is on screen and further apart while the board is not answering. the
+// reading names the revision this page holds, so a board that has not changed
+// answers in a few hundred bytes, and it asks after every operation still
+// pending, so on waking what landed while the phone slept is drawn from the
+// board's receipts and what did not is sent again. the note under the tabs
+// says plainly when the board has stopped answering, and since when; what is
+// on screen then is the last reading, not the board
+const POLL_MS = 1200, POLL_DEADLINE_MS = 8000, POLL_BACKOFF_MAX_MS = 15000;
+const STALE_AFTER = 2;                // missed readings before the note shows
+const OFFLINE_AFTER_MS = 30000;       // this long without an answer and the note says the board is gone
+let lastRev = null;                   // the revision lastState is of; null before the first reading
+let lastGood = 0;                     // when the board last answered
+let pollAgain = false, pollTimer = null, pollGap = POLL_MS;
+function schedulePoll(ms){
+  clearTimeout(pollTimer); pollTimer = null;
+  if (document.hidden) return;   // a hidden page reads nothing; the resume reads at once
+  pollTimer = setTimeout(() => { pollTimer = null; poll(); }, ms);
+}
+function linkStatus(){
+  const bar = document.getElementById("offline");
+  if (pollFails < STALE_AFTER){
+    document.body.classList.remove("offline");
+    bar.classList.remove("stale");
+    return;
+  }
+  const since = lastGood ? " Last update " + stampText(lastGood / 1000) + "." : "";
+  const gone = !lastGood || Date.now() - lastGood > OFFLINE_AFTER_MS;
+  bar.textContent = gone
+    ? "The facilitator server is not answering. Messages you send are kept on this phone and delivered when it is back." + since
+    : "Reconnecting to the board." + since;
+  bar.classList.toggle("stale", !gone);
+  document.body.classList.add("offline");
+}
+// one reading at a time. asked while one is out, poll answers with the reading
+// that follows it, so whoever waits on it gets a reading asked for after their
+// change landed, never the one that was already on its way
+let pollRun = null;
+function poll(){
+  if (pollRun){
+    pollAgain = true;
+    return pollRun.then(() => pollRun || null);
+  }
+  pollRun = readBoard().finally(() => {
+    pollRun = null;
+    if (pollAgain){ pollAgain = false; poll(); }
+    else schedulePoll(pollGap);
+  });
+  return pollRun;
+}
+// the fetch and the render each get their own try, as on the board: the note
+// is for a server that did not answer, and a card that will not draw is
+// reported instead of being dressed up as one
+async function readBoard(){
+  clearTimeout(pollTimer); pollTimer = null;
   const asked = Date.now();   // when this state was asked for, which is what says
   // whether it can know about a message sent since
   noteDoing("poll");
-  let state;
+  let data = null;
   try {
-    state = await (await fetch("/state", { cache: "no-store" })).json();
+    const query = ["since=" + (lastRev == null ? "" : lastRev)];
+    const waiting = askIds();
+    if (waiting.length) query.push("ops=" + waiting.map(encodeURIComponent).join(","));
+    const r = await fetch("/m/state?" + query.join("&"), { cache: "no-store", signal: AbortSignal.timeout(POLL_DEADLINE_MS) });
+    if (!r.ok) throw new Error("status " + r.status);
+    data = await r.json();
   } catch (e) {
-    if (++pollFails >= 3){
-      document.body.classList.add("offline");
-      document.getElementById("offline").textContent =
-        "The facilitator server is unreachable. Nothing sent now will arrive; ask in the terminal to restart it.";
-    }
-    return;
+    pollFails++;
+    pollGap = Math.min(POLL_BACKOFF_MAX_MS, pollGap * 2);
+    linkStatus();
   }
-  state.fetchedAt = asked;
-  pollFails = 0;
-  document.body.classList.remove("offline");
-  noteDoing("render");
-  try {
-    validateOwners(state);
-    lastState = state;
-    if (wantBox){
-      const want = wantBox; wantBox = null;
-      const b = state.boxes.find(x => x.id === want);
-      if (b && validOwners.has(b.owner)){ activeOwner = b.owner; localStorage.setItem("activeproj", b.owner); selectedId = want; }
+  if (data){
+    pollFails = 0; pollGap = POLL_MS; lastGood = Date.now();
+    linkStatus();
+    noteDoing("render");
+    try {
+      if (data.ops) reconcileOps(data.ops);
+      if (data.changed){
+        const state = { ...data, ...(data.live || {}), fetchedAt: asked };
+        delete state.live; delete state.ops;
+        validateOwners(state);
+        lastState = state;
+        lastRev = data.rev;
+        if (wantBox){
+          const want = wantBox; wantBox = null;
+          const b = state.boxes.find(x => x.id === want);
+          if (b && validOwners.has(b.owner)){ activeOwner = b.owner; localStorage.setItem("activeproj", b.owner); selectedId = want; }
+        }
+        apply(state);
+      } else if (lastState){
+        Object.assign(lastState, data.live || {});
+        lastState.fetchedAt = asked;
+        renderTickets(lastState);   // who is listening moves without the revision moving
+      } else {
+        lastRev = null;   // nothing held to be unchanged from: the next reading takes the whole board
+      }
+    } catch (e) {
+      if (typeof reportProblem === "function") reportProblem("render", e);
     }
-    apply(state);
-  } catch (e) {
-    if (typeof reportProblem === "function") reportProblem("render", e);
   }
+  if (!opsStarted){ opsStarted = true; wakeOps(); }
 }
+// waking up: the phone was locked, the app was put away, the page was shown
+// again, the network came back. one reading at once, which reconciles every
+// pending operation, and every sleeping retry is woken
+function resume(){
+  pollGap = POLL_MS;
+  poll();
+  wakeOps();
+}
+loadOps();
+drawCreatePending();
 poll();
-setInterval(() => { if (!document.hidden) poll(); }, 1200);
-document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden){ clearTimeout(pollTimer); pollTimer = null; }
+  else resume();
+});
+window.addEventListener("pageshow", resume);
+window.addEventListener("online", resume);
 
 // ---- the row he types on -----------------------------------------------------------
 // the row is measured on its twin, never by collapsing the row itself: a row

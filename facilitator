@@ -22,7 +22,13 @@
 
 Reads run.config.json beside this script: machine-local and gitignored, since
 lanes name real directories and tmux sessions; copy run.config.example.json
-and fill it in. Python stdlib only, like the server.
+and fill it in. This script is Python stdlib only. The server needs uvicorn
+and starlette, installed once into a .venv beside it:
+
+    python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+
+run starts the server with that .venv's python when the folder is there, and
+with its own interpreter otherwise.
 """
 
 import json
@@ -99,6 +105,15 @@ def state(port, timeout=2):
         return None
 
 
+def server_python():
+    """The interpreter the server runs under: the .venv beside this script,
+    which is where requirements.txt is installed, or this process's own when
+    there is no such folder (a machine whose interpreter already has the
+    server's libraries)."""
+    venv = HERE / ".venv" / "bin" / "python3"
+    return str(venv) if os.access(venv, os.X_OK) else sys.executable
+
+
 def ensure_server(port, dry):
     """Start the server, with its output going nowhere.
 
@@ -114,7 +129,7 @@ def ensure_server(port, dry):
     if dry:
         print(f"server: would start {HERE / 'server.py'}")
         return
-    started = subprocess.Popen([sys.executable, str(HERE / "server.py")],
+    started = subprocess.Popen([server_python(), str(HERE / "server.py")],
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                start_new_session=True)
     for _ in range(40):
