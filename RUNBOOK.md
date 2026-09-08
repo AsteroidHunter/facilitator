@@ -71,8 +71,8 @@ A permission denial from an automated classifier NEVER pauses the listener. Stri
 
 Three dated files in `facilitator-internal/logs`, the sibling folder beside this repo, so nothing here is ever committed:
 
-- `server-YYYYMMDD.log`: what the board did. Start and stop with the reason it stopped, every refusal it sent, every push outcome with the service's own words, board events, a save that failed, and every crash.
-- `client-YYYYMMDD.jsonl`: what the three pages reported: a thrown error, a rejected promise, a request that failed, a card that would not draw, a timer that ran more than two seconds late.
+- `server-YYYYMMDD.log`: what the board did. Start and stop with the reason it stopped, every refusal it sent, every push outcome with the service's own words, board events, unusually slow phone command/state requests, a save that failed, and every crash.
+- `client-YYYYMMDD.jsonl`: what the three pages reported: a thrown error, a rejected promise, a request that failed, a card that would not draw, a timer that ran more than two seconds late, and a saved phone incident history.
 - `bridge-YYYYMMDD.log`: the tailnet share going up and coming down, and what ended it.
 
 Each file caps at 5 MB and rolls, thirty of each kind are kept and older ones are deleted, so the folder cannot pass about 150 MB whatever goes wrong. One line is one event, as JSON:
@@ -85,9 +85,13 @@ Three levels and no more. INFO is what happened and is on by default; ERROR is s
 
 `log_level` in `run.config.json` (`info`, `debug`, `error`) sets the standing level and that variable beats it; a level nobody has heard of falls back to `info` rather than stopping the board. `FACILITATOR_LOG_DIR` moves the whole folder, which is what the tests use so no test can write into the real one. `GET /log?lines=N` tails the day's server file.
 
+The phone keeps at most 40 recent interaction events and 60 seconds of lead-up in page memory. It sends none of that routine history. A visible, uninterrupted UI span of at least 150 ms, phone request of at least two seconds, failed operation/request, recorded page problem, visible freeze, or broken render invariant may save it automatically, with a 30 second automatic cooldown. The Settings marker, or Control + Shift + M, saves the same bounded history when a glitch is noticed. A save batch is capped at 12 KB on the phone and the route still refuses any body over 16 KB. The phone makes at most four save attempts per minute and the server permits four incident writes per minute across all pages and reasons. Failed and offline manual saves retain their original marker in that open page for an explicit retry. Closing the page loses any history that was never sent.
+
+`/send`, `/create`, and `/m/state` responses carry a numeric server-duration header for the phone history. A request on one of those routes that takes at least one second also writes one rate-limited `slowrequest` INFO line. These timings cover server handling, not the phone's network transit.
+
 The dated file is the only stream. Started by the CLI the server's output goes nowhere else, so no event is written twice; started by hand in a terminal, INFO is mirrored there as well in a short human form, so it says what it is doing as it does it. A crash lands in the file like anything else: a request that throws, and a start that dies of something rather than being asked to stop, each write one `crash` line naming the exception's type, its own words when those words are plain enough to keep, and where it happened as `file:function:line` with no path in it. A fatal one is followed by the stop line that says which type ended the run. The one failure no file can hold is a server that dies before its logger exists, which is an import going wrong; `facilitator run` notices the child is already gone and says so in one sentence, and running `python3 server.py` by hand shows it.
 
-Five things never appear in any line: message text, keys and tokens, whole push endpoints (the service's host only), file paths, and email addresses. The rule is kept where the line is written, by not passing those things in: the board event line carries a message's length and never the message, and the lane-creation line carries the folder's name and never the path to it. Anyone adding a line keeps it that way. A filter over a formatted line can be fooled; not passing the text cannot.
+Five things never appear in any line: message or title text, keys and authentication tokens, whole push endpoints (the service's host only), file paths, and email addresses. The rule is kept where the line is written, by not passing those things in: the board event line carries a message's length and never the message, and the lane-creation line carries the folder's name and never the path to it. Phone incident entries accept only fixed event/state names, bounded numbers, existing card IDs, and canonical operation receipt IDs. Anyone adding a line keeps it that way. A filter over a formatted line can be fooled; not passing the text cannot.
 
 ## Real work
 

@@ -21,6 +21,7 @@
   let page = null;                 // "board", "phone" or "page"; null until started
   let doing = "idle";              // the one word the page last said it was doing
   let freezes = 0;                 // lateness is an event, not a kind: each is its own
+  let incidents = null;            // the phone's recent history, only in memory
   const queued = new Map();        // key -> the one report for that key, and its count
 
   function cut(text) {
@@ -63,6 +64,7 @@
   function add(kind, detail) {
     if (!page) return;
     const message = cut(detail.message);
+    if (incidents) incidents.problem(kind, message);
     const file = cut(detail.file);
     const line = Number(detail.line) || 0;
     // two throws from the same line are one thing that is wrong; two freezes in
@@ -84,6 +86,7 @@
   }
 
   function flush() {
+    if (incidents) incidents.hide();
     if (!page || !queued.size || !navigator.sendBeacon) return;
     const reports = [];
     for (const report of queued.values()) reports.push(report);
@@ -129,6 +132,7 @@
       if (late > LATE && !document.hidden) {
         add("slow", { message: "the main thread was blocked", late: late,
                       doing: doing, file: "", line: 0 });
+        if (incidents) incidents.freeze(late);
       }
     }, TICK);
   }
@@ -138,6 +142,12 @@
   window.startReporter = function (name) {
     if (page) return;
     page = name;
+    if (name === "phone") {
+      try {
+        incidents = phoneHistory(window.fetch);
+        window.phoneHistory = incidents;
+      } catch (_) { incidents = null; }
+    }
     watchFetch();
     watchFreeze();
     addEventListener("error", function (event) {
@@ -182,4 +192,213 @@
     for (const name in (extra || {})) detail[name] = extra[name];
     add(kind, detail);
   };
+
+  // A short lead-up to an incident, not an activity stream. All normal events
+  // stay in RAM. Each saved history has its own bounded /clientlog batch, so
+  // neither an incident nor a failed upload can crowd out existing errors.
+  function phoneHistory(realFetch) {
+    const ENTRIES = 40, AGE = 60000, BYTES = 12 * 1024;
+    const COALESCE = 250, UI_SLOW = 150, REQUEST_SLOW = 2000;
+    const COOLDOWN = 30000, SAVES_PER_MINUTE = 4, SAVE_TIMEOUT = 4000;
+    const events = new Set(["create", "select", "focus", "send", "operation", "request",
+      "render", "drawer", "viewport", "lifecycle", "problem", "freeze", "mark"]);
+    const reasons = new Set(["manual", "slow-ui", "slow-request", "invariant", "problem", "freeze"]);
+    const numbers = { ms: 600000, seq: 1000000000, status: 599, serverMs: 600000,
+      rev: 1000000000000, boxes: 10000, vh: 10000, vt: 10000, late: 600000 };
+    const flags = new Set(["present", "shown", "title", "titled", "emptyTitle", "editing", "known", "kb", "lifting"]);
+    const choices = { phase: ["start", "end"], route: ["/send", "/create", "/m/state"],
+      side: ["left", "right"], source: ["settings", "shortcut"],
+      outcome: ["minted", "applied", "retry", "unsure", "failed"],
+      lifecycle: ["start", "hidden", "visible", "pageshow", "online", "offline"],
+      problem: ["error", "rejection", "render", "fetch"], reason: [...reasons] };
+    const routineProblems = new Set(["ResizeObserver loop limit exceeded",
+      "ResizeObserver loop completed with undelivered notifications."]);
+    const boxPattern = /^(?:[mt]?\d+(?:\.\d+)*|q)$/;
+    const opPattern = /^(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/;
+    let ring = [], lost = 0, suppressed = 0, seq = 0, generation = 0;
+    let lastResume = -Infinity, lastAuto = -Infinity, attempts = [];
+    let viewport = null, viewportTimer = null, viewportAt = -Infinity, viewportKey = "";
+    let held = null, pendingManual = null, beaconed = null, busy = false;
+    const cap = (n, max) => Math.min(max, Math.max(0, Math.round(n)));
+    // Even a broken getter, unavailable clock, or disabled reporter must never
+    // escape into a send, focus, navigation or keyboard reconciliation.
+    const safe = (fn, fallback) => (...args) => {
+      try { return fn(...args); } catch (_) { return fallback; }
+    };
+    function clean(detail) {
+      const out = {};
+      for (const [key, value] of Object.entries(detail || {})) {
+        if ((key === "box" || key === "selected") && typeof value === "string" && value.length <= 32 && boxPattern.test(value)) out[key] = value;
+        else if (key === "op" && typeof value === "string" && opPattern.test(value)) out.op = value;
+        else if (flags.has(key) && typeof value === "boolean") out[key] = value;
+        else if (Object.hasOwn(numbers, key) && typeof value === "number" && Number.isFinite(value)) out[key] = cap(value, numbers[key]);
+        else if (Object.hasOwn(choices, key) && choices[key].includes(value)) out[key] = value;
+      }
+      return out;
+    }
+    function evict(now) {
+      while (ring.length && (ring.length >= ENTRIES || now - ring[0].time > AGE)) {
+        ring.shift(); lost = cap(lost + 1, 1000000000);
+      }
+    }
+    function append(event, detail, time = performance.now()) {
+      evict(time);
+      ring.push({ ...detail, event, time, visible: !document.hidden,
+        online: navigator.onLine !== false, resume: generation });
+    }
+    function drainViewport() {
+      if (viewportTimer !== null) clearTimeout(viewportTimer);
+      viewportTimer = null;
+      if (!viewport) return;
+      const sample = viewport; viewport = null;
+      viewportAt = sample.time;
+      append("viewport", sample.detail, sample.time);
+    }
+    function note(event, detail) {
+      if (!events.has(event)) return;
+      const fields = clean(detail), now = performance.now();
+      if (event === "viewport") {
+        const key = [fields.kb, fields.lifting, fields.vh, fields.vt].join("|");
+        if (key === viewportKey) return;
+        viewportKey = key;
+        viewport = { detail: fields, time: now };
+        if (now - viewportAt >= COALESCE) drainViewport();
+        else if (viewportTimer === null) {
+          const wait = Math.max(0, COALESCE - (now - viewportAt));
+          viewportTimer = setTimeout(safe(drainViewport), wait);
+        }
+        return;
+      }
+      drainViewport();
+      append(event, fields, now);
+      if (event === "operation" && fields.outcome === "failed") automatic("problem");
+    }
+    function begin(event, detail) {
+      const token = { event, time: performance.now(), seq: seq = (seq + 1) % 1000000000,
+        generation, visible: !document.hidden };
+      note(event, { ...detail, phase: "start", seq: token.seq });
+      return token;
+    }
+    function end(token, detail, response) {
+      if (!token) return;
+      const ms = performance.now() - token.time;
+      let serverMs;
+      try {
+        const value = response?.headers?.get("X-Facilitator-Duration-Ms");
+        if (value && /^\d{1,6}$/.test(value)) serverMs = Number(value);
+      } catch (_) {}
+      note(token.event, { ...detail, phase: "end", seq: token.seq, ms, serverMs });
+      const stable = token.visible && !document.hidden && token.generation === generation;
+      if (stable && ms >= (token.event === "request" ? REQUEST_SLOW : UI_SLOW)) {
+        automatic(token.event === "request" ? "slow-request" : "slow-ui");
+      }
+      if (stable && token.event === "request" && (detail?.status >= 400 || detail?.outcome === "retry")) automatic("problem");
+      if (stable && detail?.known && (!detail.present || !detail.shown || !detail.title ||
+          (detail.titled && !detail.editing && detail.emptyTitle))) automatic("invariant");
+    }
+    function capture(reason, detail) {
+      note("mark", { ...detail, reason });
+      const now = performance.now();
+      const recent = ring.filter(e => now - e.time <= AGE);
+      return { kind: "incident", v: 1, reason, marked: Date.now(),
+        box: [...recent].reverse().find(e => e.box)?.box || "",
+        lost, suppressed, events: recent.map(({ time, ...e }) => ({ ...e, at: -cap(now - time, AGE) })) };
+    }
+    function bodyOf(report) {
+      let body;
+      // All strings are ASCII enums or validated ids. Byte length equals
+      // length here, and trimming oldest entries always keeps the marker.
+      for (;;) {
+        body = JSON.stringify({ page: "phone", reports: [report] });
+        if (body.length <= BYTES || report.events.length <= 1) return body;
+        report.events.shift(); report.lost = cap(report.lost + 1, 1000000000);
+      }
+    }
+    function permit() {
+      const now = performance.now();
+      attempts = attempts.filter(t => now - t < AGE);
+      if (attempts.length >= SAVES_PER_MINUTE) return false;
+      attempts.push(now);
+      return true;
+    }
+    function upload() {
+      if (busy) return Promise.resolve({ status: "busy" });
+      if (!held) return Promise.resolve({ status: "failed" });
+      if (navigator.onLine === false) return Promise.resolve({ status: "offline" });
+      if (!permit()) return Promise.resolve({ status: "limited" });
+      busy = true;
+      // JSON and transport start on a later task, after the triggering work.
+      return new Promise(resolve => setTimeout(async () => {
+        let timer = null;
+        try {
+          const controller = new AbortController();
+          timer = setTimeout(() => controller.abort(), SAVE_TIMEOUT);
+          const response = await realFetch.call(window, "/clientlog", { method: "POST",
+            headers: { "content-type": "application/json" }, body: bodyOf(held),
+            signal: controller.signal, keepalive: true });
+          const answer = response.ok ? await response.json() : null;
+          if (answer?.ok === true && answer.written === 1 && answer.dropped === 0) {
+            held = null; resolve({ status: "saved" });
+          } else resolve({ status: "failed" });
+        } catch (_) { resolve({ status: "failed" }); }
+        finally { if (timer !== null) clearTimeout(timer); busy = false; }
+      }, 0));
+    }
+    function automatic(reason) {
+      const now = performance.now();
+      if (!reasons.has(reason) || document.hidden || busy || pendingManual ||
+          (held && held.reason === "manual") || now - lastAuto < COOLDOWN) {
+        suppressed = cap(suppressed + 1, 1000000000); return;
+      }
+      lastAuto = now;
+      held = capture(reason);
+      upload();
+    }
+    function mark(source, detail, retry = false) {
+      if (busy) {
+        if (!pendingManual) pendingManual = capture("manual", { ...detail, source });
+        return Promise.resolve({ status: "busy" });
+      }
+      if (retry && pendingManual) {
+        held = pendingManual; pendingManual = null;
+      } else if (!retry || !held) {
+        pendingManual = null;
+        held = capture("manual", { ...detail, source });
+      }
+      return upload();
+    }
+    function lifecycle(value) {
+      if (value === "visible" || value === "pageshow") beaconed = null;
+      generation = cap(generation + 1, 1000000000);
+      lastResume = performance.now();
+      note("lifecycle", { lifecycle: value });
+    }
+    document.addEventListener("visibilitychange", safe(() => lifecycle(document.hidden ? "hidden" : "visible")));
+    for (const event of ["pageshow", "online", "offline"]) addEventListener(event, safe(() => lifecycle(event)));
+    note("lifecycle", { lifecycle: "start" });
+    return {
+      begin: safe(begin), end: safe(end), note: safe(note),
+      mark: safe(mark, Promise.resolve({ status: "failed" })),
+      problem: safe((kind, message) => {
+        if (!choices.problem.includes(kind)) return;
+        // Browsers may emit these while settling a normal responsive layout.
+        // Keep the existing error report, but do not turn every page load into
+        // an immediate incident upload.
+        if (kind === "error" && routineProblems.has(message)) return;
+        note("problem", { problem: kind }); automatic("problem");
+      }),
+      freeze: safe(late => {
+        note("freeze", { late });
+        if (performance.now() - lastResume > late + TICK) automatic("freeze");
+      }),
+      hide: safe(() => {
+        drainViewport();
+        const report = pendingManual || (!busy ? held : null);
+        if (report && report !== beaconed && navigator.sendBeacon && permit()) {
+          if (navigator.sendBeacon("/clientlog", new Blob([bodyOf(report)], { type: "application/json" })))
+            beaconed = report;
+        }
+      }),
+    };
+  }
 })();
