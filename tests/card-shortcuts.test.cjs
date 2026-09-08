@@ -90,6 +90,18 @@ test("native combinations remain outside common recognition", async () => {
   assert.equal(resolve(event("t", { ctrlKey: true })), null);
 });
 
+test("the phone diagnostic marker has one exact chord and leaves other scopes and editing keys alone", async () => {
+  const { resolve, dispatch } = await shortcuts();
+  const chord = event("M", { ctrlKey: true, shiftKey: true });
+  assert.deepEqual(plain(resolve(chord)), { action: "diagnostic", value: true });
+  for (const over of [{ ctrlKey: false }, { shiftKey: false }, { metaKey: true }, { altKey: true },
+                      { repeat: true }, { isComposing: true }, { defaultPrevented: true }]) {
+    assert.equal(resolve({ ...chord, ...over }), null);
+  }
+  assert.equal(resolve(chord, "mini"), null);
+  assert.equal(dispatch(chord, {}), false, "a desktop without the action took the key");
+});
+
 test("editing flags do not add exclusions to recognized commands", async () => {
   const { resolve } = await shortcuts();
   assert.deepEqual(plain(resolve(event("z", {
