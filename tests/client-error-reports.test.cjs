@@ -257,3 +257,89 @@ test("a report is stored whatever it says, and the board's own file still says n
     assert.ok(!written.includes(phrase), `a page's words reached the board's log: ${written}`);
   }
 });
+
+function incident() {
+  return { kind: "incident", v: 1, reason: "manual", marked: 1800000000000,
+    box: "m12", lost: 0, suppressed: 0, events: [
+      { event: "request", phase: "start", route: "/send", op: "12345678-1234-4234-8234-123456789abc",
+        seq: 1, box: "m12", at: -300, visible: true, online: true, resume: 0 },
+      { event: "request", phase: "end", ms: 250, serverMs: 15, status: 200, seq: 1, at: -50,
+        visible: true, online: true, resume: 0 },
+      { event: "mark", reason: "manual", source: "settings", box: "m12", selected: "m12", at: 0,
+        known: true, present: true, shown: true, title: true, titled: true, emptyTitle: false,
+        visible: true, online: true, resume: 0 },
+    ] };
+}
+
+test("incident validation rejects content, unbounded nesting, bad types and unknown versions atomically", async () => {
+  const before = (await reports()).length;
+  const mutations = [
+    r => { r.message = "private text"; }, r => { r.v = 2; }, r => { r.v = true; },
+    r => { r.box = "person@example.invalid"; }, r => { r.marked = "yesterday"; },
+    r => { r.reason = { text: "private" }; }, r => { r.events = Array(41).fill(r.events[2]); },
+    r => { r.events = []; }, r => { r.events[0].at = -60001; }, r => { r.events[1].at = -301; },
+    r => { r.events[0].url = "https://private.invalid/?key=secret"; },
+    r => { r.events[0].route = "/send?box=m12&op=private"; }, r => { r.events[0].op = "private-token-value"; },
+    r => { r.events[0].visible = 1; }, r => { r.events[0].event = ["request"]; },
+    r => { r.events[0].ms = 600001; }, r => { r.events[0].ms = 0.5; },
+    r => { r.events[0].status = null; }, r => { r.events[0].data = { title: "private" }; },
+    r => { delete r.events[0].resume; }, r => { r.events[2].reason = "invariant"; },
+    r => { r.events[2].selected = "/private/path"; },
+  ];
+  for (const mutate of mutations) {
+    const r = incident(); mutate(r);
+    const response = await send({ page: "phone", reports: [report({ line: 9988 }), r] });
+    assert.equal(response.status, 400, JSON.stringify(r));
+    assert.equal(response.body.error, "bad incident history");
+  }
+  assert.equal((await send({ page: "board", reports: [incident()] })).status, 400);
+  assert.equal((await reports()).length, before, "an invalid incident wrote part of its batch");
+});
+
+test("a confirmed incident shares the dated client stream and leaves existing report fields intact", async () => {
+  await reportsSince();
+  const result = await send({ page: "phone", reports: [incident(), report({ line: 5950, message: "fixture failure" })] });
+  assert.deepEqual(result, { status: 200, body: { ok: true, written: 2, dropped: 0 } });
+  const lines = await reportsSince();
+  assert.equal(lines.length, 2);
+  assert.deepEqual(lines[0].events, incident().events);
+  assert.equal(lines[0].marked, 1800000000000);
+  assert.equal(lines[0].box, "m12");
+  assert.equal(lines[0].page, "phone");
+  assert.equal(lines[1].message, "fixture failure");
+  assert.ok((await readdir(logs)).some(n => /^client-\d{8}\.jsonl$/.test(n)));
+  const transcript = await readFile(path.join(fixtureDir, "transcript.jsonl"), "utf8").catch(() => "");
+  assert.doesNotMatch(transcript, /incident|fixture failure/);
+});
+
+test("different incident reasons, cards and operation ids share the four-write minute cap", async () => {
+  await reportsSince();
+  const reportsToSend = Array.from({ length: 10 }, (_, i) => {
+    const r = incident();
+    r.reason = i % 2 ? "invariant" : "slow-ui";
+    r.events.at(-1).reason = r.reason;
+    r.box = "m" + (100 + i);
+    r.marked += i;
+    return r;
+  });
+  const response = await send({ page: "phone", reports: reportsToSend });
+  assert.deepEqual(response.body, { ok: true, written: 3, dropped: 7 });
+  const fresh = await reportsSince();
+  assert.equal(fresh.filter(r => r.kind === "incident").length, 3);
+  assert.equal(fresh.filter(r => r.kind === "dropped").reduce((sum, r) => sum + r.dropped, 0), 7);
+});
+
+test("only the three phone operation routes expose a numeric server duration", async () => {
+  const state = await fetch(origin + "/m/state");
+  assert.match(state.headers.get("x-facilitator-duration-ms"), /^\d+$/);
+  await state.arrayBuffer();
+  const ordinary = await fetch(origin + "/state");
+  assert.equal(ordinary.headers.get("x-facilitator-duration-ms"), null);
+  await ordinary.arrayBuffer();
+  for (const route of ["/create?owner=facilitator", "/send?box=0"]) {
+    const response = await fetch(origin + route, { method: "POST", body: "invented timing fixture" });
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("x-facilitator-duration-ms"), /^\d+$/);
+    await response.arrayBuffer();
+  }
+});

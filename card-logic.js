@@ -27,6 +27,12 @@ let pendRoomChanged = null;
 // predicates deliberately overlap or ignore extra modifiers.
 const CARD_SHORTCUT_DEFINITIONS = [
   {
+    action: "diagnostic", mini: false,
+    match: e => e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey &&
+      !e.repeat && !e.isComposing && !e.defaultPrevented &&
+      (e.key === "m" || e.key === "M") ? true : null,
+  },
+  {
     action: "navigate", mini: true,
     match: e => e.ctrlKey && !e.metaKey && e.shiftKey &&
       (e.key === "ArrowLeft" || e.key === "ArrowRight")
