@@ -9,11 +9,11 @@
       for lanes with no reachable one. --force ignores the lane-covered guard.
   facilitator status
       one-line board state
-  facilitator bridge [--dry-run]
-      publish the board on this Mac's Tailscale name over HTTPS, through
-      Tailscale Serve, print a QR code that opens the phone page (/m), and
-      keep the terminal open: Ctrl-C, or the terminal closing, switches the
-      sharing off again, and every run first clears what an earlier one left.
+  facilitator bridge [on|off] [--dry-run]
+      switch the persistent phone bridge on or off. With no on/off word it
+      toggles the current Tailscale Serve state. Turning it on prints a QR
+      code that opens the phone page (/m); turning it off removes only this
+      board's root handler and leaves unrelated Serve configuration alone.
       The server keeps listening on 127.0.0.1 only; Tailscale does the
       proxying, and being on the tailnet is the whole of the access control.
       Needs HTTPS certificates switched on once for the tailnet, in the
@@ -35,41 +35,43 @@ import json
 import os
 import shlex
 import shutil
-import signal
 import subprocess
 import sys
 import time
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 
 HERE = Path(__file__).resolve().parent
 CONFIG = HERE / "run.config.json"
 RETIRED_OWNERS = frozenset({"triage"})
 # the Mac app keeps its command line inside the bundle and off PATH
 TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
-# What ends the bridge: Ctrl-C, a plain kill, the terminal closing, and Ctrl-Z.
-# Ctrl-Z is here because its default is worse than useless on this command: it
-# suspends the process with the tailnet share still on, and nothing is left to
-# switch it off. Held like the rest, it becomes a clean stop.
-STOP_SIGNALS = frozenset({signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGTSTP})
 # the bridge's own dated file, beside the server's, worked out from this script's
 # place the way the server works out its own; the variable moves the folder
 LOG_DIR = Path(os.environ.get("FACILITATOR_LOG_DIR")
                or (HERE.parent / "facilitator-internal" / "logs"))
 LOG_KEEP = 30   # dated bridge files kept, oldest deleted
+TAILSCALE_STATUS_TIMEOUT = 30
+TAILSCALE_CHANGE_TIMEOUT = 120
+BRIDGE_HELP = """usage: facilitator bridge [on|off] [--dry-run]
+
+With no on/off word, toggle the phone bridge. `on` and `off` are idempotent.
+The bridge persists after this command exits; use `facilitator bridge off` to
+sever the phone session. `--dry-run` inspects current state without changing it."""
 
 
 def bridge_log(kind, level="info", **fields):
     """One line about the share going up or coming down, in the same shape the
     server writes: a UTC stamp with the date in it, a level, a kind, then that
     kind's own fields. Written here rather than through the server's logger
-    because the bridge is its own process and importing the server would open
-    the server's file as a side effect. It never raises: the sharing is the job
-    and the note about it is not worth failing over.
+    because the bridge command is its own process and importing the server
+    would open the server's file as a side effect. It never raises: changing
+    the sharing is the job and the note about it is not worth failing over.
 
-    The tailnet name is deliberately not among the fields. It is on the terminal
-    and in the code the phone scans, where it is the point; in a file that
-    outlives the run it is a machine's name and nothing needs it."""
+    The tailnet name is deliberately not among the fields. It is encoded in the
+    code the phone scans, where it is needed; in a file that outlives the run it
+    is a machine's name and nothing needs it."""
     try:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         now = time.time()
@@ -306,28 +308,221 @@ def find_tailscale():
     return None
 
 
-def tailscale_status(ts):
-    """tailscale status as a dict, read only; exits with one line on any
-    failure to get it."""
+def tailscale_json(ts, args, label):
+    """One bounded, read-only Tailscale query. Its output stays private even
+    on failure because status can contain real machine and tailnet names."""
     try:
-        r = subprocess.run([ts, "status", "--json"], capture_output=True, text=True, timeout=30)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        sys.exit(f"tailscale: could not run status ({e})")
+        r = subprocess.run([ts, *args], capture_output=True, text=True,
+                           encoding="utf-8", timeout=TAILSCALE_STATUS_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        sys.exit(f"tailscale: {label} did not answer; no changes made")
+    except (OSError, UnicodeError):
+        sys.exit(f"tailscale: could not read {label}; no changes made")
     if r.returncode != 0:
-        sys.exit("tailscale: status failed: " + (r.stderr or r.stdout).strip())
+        sys.exit(f"tailscale: {label} failed; no changes made")
     try:
-        return json.loads(r.stdout)
+        answer = json.loads(r.stdout)
+    except (TypeError, ValueError):
+        sys.exit(f"tailscale: {label} returned malformed JSON; no changes made")
+    if not isinstance(answer, dict):
+        sys.exit(f"tailscale: {label} returned malformed JSON; no changes made")
+    return answer
+
+
+def tailscale_status(ts):
+    return tailscale_json(ts, ["status", "--json"], "status")
+
+
+def tailscale_serve_status(ts):
+    return tailscale_json(ts, ["serve", "status", "--json"], "serve status")
+
+
+def tailnet_name(status):
+    """The stable DNS name used both by the Serve config and the QR."""
+    own = status.get("Self")
+    raw = own.get("DNSName") if isinstance(own, dict) else None
+    if not isinstance(raw, str) or not raw.rstrip("."):
+        sys.exit("tailscale: this Mac has no tailnet name yet; switch on MagicDNS in the Tailscale admin console")
+    return raw.rstrip(".").lower()
+
+
+def host_port(value):
+    """A Serve config HostPort as a normalized (host, port) pair."""
+    if not isinstance(value, str):
+        raise ValueError("host-port is not text")
+    parsed = urlparse("//" + value)
+    if (parsed.hostname is None or parsed.username is not None or
+            parsed.password is not None or parsed.path or parsed.query or
+            parsed.fragment):
+        raise ValueError("invalid host-port")
+    port = parsed.port
+    if port is None:
+        raise ValueError("host-port has no port")
+    return parsed.hostname.rstrip(".").lower(), port
+
+
+def proxy_targets_board(proxy, port):
+    """True only for the IPv4 loopback target facilitator itself creates."""
+    if not isinstance(proxy, str):
+        return False
+    try:
+        target = urlparse(proxy)
+        return (target.scheme == "http" and target.hostname == "127.0.0.1" and
+                target.port == port and target.path in ("", "/") and
+                not target.params and not target.query and not target.fragment and
+                target.username is None and target.password is None)
     except ValueError:
-        sys.exit("tailscale: status did not answer with json")
+        return False
+
+
+def bridge_config(config, name, port):
+    """Interpret actual Serve state without a PID or a facilitator-owned flag.
+
+    The one configuration this command owns is the background root handler on
+    this node's HTTPS port 443, pointed at the board's IPv4 loopback port. Other
+    paths and named Services are compatible and are left alone. A board proxy
+    elsewhere, a foreground session, Funnel, or another root owner makes an
+    enable unsafe; malformed data stops every mutation."""
+    if not isinstance(config, dict):
+        raise ValueError("config is not an object")
+    foreground = config.get("Foreground", {})
+    if not isinstance(foreground, dict):
+        raise ValueError("foreground is not an object")
+    candidates = [("background", config)]
+    for candidate in foreground.values():
+        if not isinstance(candidate, dict):
+            raise ValueError("foreground config is not an object")
+        if "Foreground" in candidate:
+            raise ValueError("nested foreground config")
+        candidates.append(("foreground", candidate))
+
+    exact = 0
+    board_elsewhere = False
+    foreign_root = False
+    port_conflict = False
+    foreground_443 = False
+    funnel_443 = False
+    root_entries = 0
+    for source, candidate in candidates:
+        tcp = candidate.get("TCP", {})
+        web = candidate.get("Web", {})
+        funnel = candidate.get("AllowFunnel", {})
+        if not isinstance(tcp, dict) or not isinstance(web, dict) or not isinstance(funnel, dict):
+            raise ValueError("Serve maps are malformed")
+        for raw_port, handler in tcp.items():
+            if not isinstance(raw_port, str) or not raw_port.isdigit() or not isinstance(handler, dict):
+                raise ValueError("TCP entry is malformed")
+        tcp_443 = tcp.get("443")
+        # This is the exact listener shape made by a plain HTTPS Serve. Extra
+        # fields may carry behavior another command owns, so they are a
+        # conflict even when HTTPS is also true.
+        https_443 = tcp_443 == {"HTTPS": True}
+        if tcp_443 is not None:
+            modes = sum((https_443, tcp_443.get("HTTP") is True,
+                         bool(tcp_443.get("TCPForward"))))
+            if modes > 1:
+                raise ValueError("TCP mode is ambiguous")
+            incompatible = not https_443
+            if source == "foreground":
+                foreground_443 = True
+            elif incompatible:
+                port_conflict = True
+
+        for raw_host_port, server in web.items():
+            host, public_port = host_port(raw_host_port)
+            if not isinstance(server, dict):
+                raise ValueError("Web entry is malformed")
+            if not isinstance(tcp.get(str(public_port)), dict):
+                raise ValueError("Web entry has no TCP listener")
+            handlers = server.get("Handlers", {})
+            if not isinstance(handlers, dict):
+                raise ValueError("handler map is malformed")
+            on_our_root = host == name and public_port == 443
+            if source == "foreground" and on_our_root:
+                foreground_443 = True
+            for mount, handler in handlers.items():
+                if not isinstance(mount, str) or not isinstance(handler, dict):
+                    raise ValueError("handler is malformed")
+                proxy = handler.get("Proxy")
+                if proxy is not None and not isinstance(proxy, str):
+                    raise ValueError("proxy is malformed")
+                is_board = proxy_targets_board(proxy, port)
+                # Accept only what our command writes. A matching Proxy plus
+                # another field, such as AcceptAppCaps, belongs to somebody
+                # else and must survive both `on` and `off`.
+                is_ours = is_board and set(handler) == {"Proxy"}
+                if source == "background" and on_our_root and mount == "/" and https_443 and is_ours:
+                    exact += 1
+                elif is_board:
+                    board_elsewhere = True
+                if source == "background" and on_our_root and mount == "/":
+                    root_entries += 1
+                    if not is_ours:
+                        foreign_root = True
+
+        for raw_host_port, allowed in funnel.items():
+            host, public_port = host_port(raw_host_port)
+            if not isinstance(allowed, bool):
+                raise ValueError("Funnel entry is malformed")
+            if allowed and host == name and public_port == 443:
+                funnel_443 = True
+
+    if exact > 1 or root_entries > 1:
+        raise ValueError("duplicate root handlers")
+    active = exact == 1 or board_elsewhere
+    # Tailscale's narrow handler removal also clears same-endpoint Funnel when
+    # the last web handler goes away, so that state is not safe to remove.
+    removable = exact == 1 and not board_elsewhere and not funnel_443
+    if board_elsewhere:
+        why = "this board is served by a configuration facilitator does not own"
+    elif foreground_443:
+        why = "a foreground Serve session is using HTTPS port 443"
+    elif funnel_443:
+        why = "Funnel is using HTTPS port 443"
+    elif foreign_root:
+        why = "another service owns the HTTPS root on port 443"
+    elif port_conflict:
+        why = "another service owns port 443"
+    else:
+        why = ""
+    on = removable and not why
+    return {"active": active, "removable": removable, "on": on,
+            "enable_blocked": bool(why), "why": why}
+
+
+def analyze_bridge(ts, name, port):
+    raw = tailscale_serve_status(ts)
+    try:
+        return raw, bridge_config(raw, name, port)
+    except (TypeError, ValueError):
+        sys.exit("tailscale: serve status is malformed; no changes made")
+
+
+def bridge_action(args):
+    """Return (on/off/toggle, dry-run), or print bridge help and return None."""
+    words = list(args[1:])
+    if any(word in ("-h", "--help") for word in words):
+        print(BRIDGE_HELP)
+        return None
+    dry = False
+    actions = []
+    for word in words:
+        if word == "--dry-run":
+            dry = True
+        elif word in ("on", "off"):
+            actions.append(word)
+        else:
+            sys.exit(f"unknown bridge option: {word}\n{BRIDGE_HELP}")
+    if len(actions) > 1:
+        sys.exit("choose one bridge action: on or off\n" + BRIDGE_HELP)
+    return (actions[0] if actions else "toggle"), dry
 
 
 def show_qr(url):
     """The address as a code the phone camera reads, block characters two
-    module rows per line, with the address itself printed on its own line
-    under it: beside a row it ran past a narrow terminal's width, and the
-    wrapped tail was drawn inside the code as an extra row. On a terminal
-    the modules are painted black on white whatever the theme, so the code
-    is never inverted; piped, the bare characters are printed."""
+    module rows per line. On a terminal the modules are painted black on white
+    whatever the theme, so the code is never inverted; piped, the bare
+    characters are printed. The encoded private address is never printed."""
     sys.path.insert(0, str(HERE))
     import qr
     lines = qr.render(qr.encode(url))
@@ -335,105 +530,114 @@ def show_qr(url):
     for line in lines:
         body = ("\x1b[30;107m" + line + "\x1b[0m") if tty else line
         print("  " + body)
-    print("  " + url)
 
 
 def show_way_in(url):
-    """The phone page's address, its code, and what to do with it."""
-    print(f"phone page: {url}")
-    print()
+    """Only the requested code and the two instructions for the phone."""
     show_qr(url)
     print()
-    print("scan it with the phone camera; add the page to the home screen and use its Notifications button for pushes")
+    print("Scan the QR code to access facilitator on your phone 🦑")
+    print()
+    print("Run `facilitator bridge off` to sever the phone session.")
 
 
-def serve_reset(ts):
-    """Switch the Tailscale sharing off. Returns why it could not, or an
-    empty string when it did."""
+def change_bridge(ts, command, action):
+    """Run one bounded Serve mutation without exposing Tailscale's output."""
     try:
-        r = subprocess.run([ts, "serve", "reset"], capture_output=True, text=True, timeout=60)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        return str(e)
-    if r.returncode == 0:
-        return ""
-    return (r.stderr or r.stdout).strip() or f"exit code {r.returncode}"
+        r = subprocess.run(command, capture_output=True, text=True, encoding="utf-8",
+                           timeout=TAILSCALE_CHANGE_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        sys.exit(f"tailscale: timed out trying to turn the bridge {action}; inspect `tailscale serve status`")
+    except (OSError, UnicodeError):
+        sys.exit(f"tailscale: could not turn the bridge {action}; inspect `tailscale serve status`")
+    if r.returncode != 0:
+        sys.exit(f"tailscale: could not turn the bridge {action}; inspect `tailscale serve status`")
+
+
+def require_bridge_ready(status, name, port):
+    """The conditions needed for an enabled bridge to be usable right now."""
+    if status.get("BackendState") != "Running":
+        sys.exit("tailscale: not connected; no changes made")
+    certs = status.get("CertDomains")
+    if (not isinstance(certs, list) or
+            name not in {domain.rstrip(".").lower() for domain in certs if isinstance(domain, str)}):
+        sys.exit("Tailscale HTTPS is off for this tailnet: switch on HTTPS certificates under DNS in the Tailscale admin console, then run facilitator bridge again.")
+    if state(port) is None:
+        sys.exit(f"server: DOWN (port {port}); run facilitator run first")
+
+
+def bridge_conflict(analysis):
+    sys.exit(f"tailscale: {analysis['why']}; no changes made")
 
 
 def cmd_bridge(args):
-    """Publish the board through Tailscale Serve, print the way in, and keep
-    the terminal open until Ctrl-C (or a kill, or the terminal closing)
-    switches the sharing off again. The server keeps binding 127.0.0.1;
-    Tailscale terminates HTTPS on the Mac's tailnet name and proxies to it,
-    and nothing outside the tailnet can reach either. HTTPS is what lets a
-    phone install the page and receive pushes, and Tailscale only issues
-    certificates once HTTPS is switched on for the tailnet, which is a one
-    time change in its admin console."""
-    dry = "--dry-run" in args
+    """Toggle, enable, or disable the persistent Tailscale Serve mapping.
+
+    Every decision comes from fresh Tailscale status. Enabling owns one root
+    handler; disabling removes only that handler. Both mutations are checked
+    against an unchanged precondition and verified from status afterward."""
+    parsed = bridge_action(args)
+    if parsed is None:
+        return
+    requested, dry = parsed
     port = board_port()
-    if state(port) is None:
-        sys.exit(f"server: DOWN (port {port}); run facilitator run first")
     ts = find_tailscale()
     if ts is None:
         sys.exit("tailscale: not found on PATH or at " + TAILSCALE_APP)
-    st = tailscale_status(ts)
-    if st.get("BackendState") != "Running":
-        sys.exit(f"tailscale: not connected (state {st.get('BackendState')})")
-    name = ((st.get("Self") or {}).get("DNSName") or "").rstrip(".")
-    if not name:
-        sys.exit("tailscale: this Mac has no tailnet name yet; switch on MagicDNS in the Tailscale admin console")
-    if not st.get("CertDomains"):
-        sys.exit("Tailscale HTTPS is off for this tailnet: switch on HTTPS certificates under DNS in the Tailscale admin console, then run facilitator bridge again.")
-    cmd = [ts, "serve", "--bg", "--https=443", f"http://127.0.0.1:{port}"]
-    shown = " ".join(shlex.quote(c) for c in cmd)
-    shown_reset = f"{shlex.quote(ts)} serve reset"
+    status = tailscale_status(ts)
+    name = tailnet_name(status)
+    raw, analysis = analyze_bridge(ts, name, port)
+    desired = ("off" if analysis["active"] else "on") if requested == "toggle" else requested
     url = f"https://{name}/m"
-    if dry:
-        print(f"serve: would run {shown_reset}")
-        print(f"serve: would run {shown}")
-        show_way_in(url)
-        print(f"would then wait for Ctrl-C and run {shown_reset}")
+
+    if desired == "off":
+        if not analysis["active"]:
+            print("bridge: already off; no changes would be made" if dry else "Bridge is off.")
+            return
+        if not analysis["removable"]:
+            bridge_conflict(analysis)
+        command = [ts, "serve", "--https=443", "--set-path=/", "off"]
+        if dry:
+            print("bridge: would run " + " ".join(shlex.quote(word) for word in command))
+            return
+        latest, latest_analysis = analyze_bridge(ts, name, port)
+        if latest != raw or not latest_analysis["removable"]:
+            sys.exit("tailscale: serve configuration changed; no changes made, try again")
+        change_bridge(ts, command, "off")
+        _, after = analyze_bridge(ts, name, port)
+        if after["active"]:
+            sys.exit("tailscale: the bridge is still on after Tailscale reported success; inspect `tailscale serve status`")
+        bridge_log("shareoff", port=port)
+        print("Bridge is off.")
         return
-    # From here on Ctrl-C, a kill, and the terminal closing are held back and
-    # picked up by the wait below, so none of them can end the process with
-    # the sharing left on. The tailscale calls inherit the hold, so a second
-    # Ctrl-C cannot cut the reset short either; it is simply dropped. A signal
-    # set to be ignored is dropped instead of held, and a shell starts its
-    # background jobs with Ctrl-C ignored, so each one gets its default back.
-    signal.pthread_sigmask(signal.SIG_BLOCK, STOP_SIGNALS)
-    for s in STOP_SIGNALS:
-        signal.signal(s, signal.SIG_DFL)
-    stop = None
-    try:
-        why = serve_reset(ts)  # whatever an earlier run left on
-        if why:
-            sys.exit("tailscale serve reset failed: " + why)
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        except (OSError, subprocess.TimeoutExpired) as e:
-            sys.exit(f"tailscale serve failed to run ({e})")
-        if r.returncode != 0:
-            sys.exit("tailscale serve failed: " + (r.stderr or r.stdout).strip())
-        print(f"serve: ran {shown}")
-        bridge_log("shareon", port=port)
-        for line in (r.stdout or "").strip().splitlines():
-            print("  " + line)
-        show_way_in(url)
-        print("press Ctrl-C to stop sharing")
-        sys.stdout.flush()
-        stop = signal.sigwait(STOP_SIGNALS)
-    finally:
-        why = serve_reset(ts)  # the one reset after the serve, on every way out
-        bridge_log("shareoff", level="error" if why else "info",
-                   reason=signal.Signals(stop).name if stop else "ended",
-                   failed=why or None)
-    try:
-        if stop == signal.SIGINT:
-            print()  # the terminal echoed ^C on the current line
-        if why:
-            sys.exit(f"sharing may still be on: tailscale serve reset failed: {why}; run {shown_reset} yourself")
-        print("sharing off")
-    except OSError:
-        pass  # the terminal is gone (SIGHUP); nobody is reading
+
+    require_bridge_ready(status, name, port)
+    if analysis["on"]:
+        if dry:
+            print("bridge: already on; no changes would be made")
+        else:
+            show_way_in(url)
+        return
+    if analysis["active"] or analysis["enable_blocked"]:
+        bridge_conflict(analysis)
+    command = [ts, "serve", "--bg", "--https=443", "--set-path=/",
+               f"http://127.0.0.1:{port}"]
+    if dry:
+        print("bridge: would run " + " ".join(shlex.quote(word) for word in command))
+        return
+    latest, latest_analysis = analyze_bridge(ts, name, port)
+    if latest != raw or latest_analysis["active"] or latest_analysis["enable_blocked"]:
+        sys.exit("tailscale: serve configuration changed; no changes made, try again")
+    change_bridge(ts, command, "on")
+    fresh_status = tailscale_status(ts)
+    if tailnet_name(fresh_status) != name:
+        sys.exit("tailscale: tailnet identity changed while enabling the bridge; inspect `tailscale serve status`")
+    require_bridge_ready(fresh_status, name, port)
+    _, after = analyze_bridge(ts, name, port)
+    if not after["on"]:
+        sys.exit("tailscale: the bridge is not safely on after Tailscale reported success; inspect `tailscale serve status`")
+    bridge_log("shareon", port=port)
+    show_way_in(url)
 
 
 def main():
