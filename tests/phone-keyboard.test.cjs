@@ -21,7 +21,10 @@ const CHROME = process.env.CHROME_PATH ||
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const SHOTS = "/tmp/m362-keyboard-shots";
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
+const LANDSCAPE = { ...PHONE, width: 844, height: 390, isLandscape: true };
 const KEYBOARD = 336;          // an iPhone keyboard with its accessory bar, in css px
+const ACCESSORY = 54;          // a small reported obstruction, such as a hardware-keyboard accessory strip
+const FOCUS_PAN = 32;          // a visual-viewport offset while the focused row is being revealed
 const INSET = 6;               // --app-inset, the card's thin margin from an edge
 const OPEN_LINES = 5;          // the row's cap under the keyboard, in lines
 const CLOSED_SHARE = 0.28;     // the row's cap with the keyboard down: this share of the viewport's height
@@ -68,16 +71,17 @@ function fakeViewport() {
   for (const key of ["offsetTop", "offsetLeft", "pageTop", "pageLeft", "scale"]) Object.defineProperty(vv, key, { get: () => geom[key] });
   Object.defineProperty(window, "visualViewport", { value: vv, configurable: true });
   window.__keyboard = {
-    set(height, offsetTop = 0) {
+    set(height, offsetTop = 0, scale = 1) {
       geom.height = height;
       geom.offsetTop = offsetTop;
+      geom.scale = scale;
       vv.dispatchEvent(new Event("resize"));
       vv.dispatchEvent(new Event("scroll"));
     },
   };
 }
 
-async function openPhone(route, { fake = false } = {}) {
+async function openPhone(route, { fake = false, viewport = PHONE, reducedMotion = false } = {}) {
   const page = await browser.newPage();
   const problems = [];
   page.on("console", message => {
@@ -86,7 +90,10 @@ async function openPhone(route, { fake = false } = {}) {
     problems.push(message.text());
   });
   page.on("pageerror", error => problems.push("pageerror: " + error.message));
-  await page.setViewport(PHONE);
+  await page.setViewport(viewport);
+  if (reducedMotion) {
+    await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
+  }
   if (fake) await page.evaluateOnNewDocument(fakeViewport);
   await page.goto(origin + route, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => lastState !== null, { timeout: 5000 });
@@ -141,7 +148,8 @@ function shellShape() {
     foot: pane.bottom - vvTop, tab: bar.top - vvTop, title: title.top - vvTop,
     row: ta.height, rowBottom: ta.bottom - vvTop,
     bodyTop: body.getBoundingClientRect().top, bodyHeight: body.getBoundingClientRect().height,
-    kb: body.classList.contains("kb"), lifting: body.classList.contains("lifting"),
+    kb: body.classList.contains("kb"), obstructed: body.classList.contains("obstructed"),
+    lifting: body.classList.contains("lifting"),
     inset: document.getElementById("page").style.getPropertyValue("--kb-inset"),   // the clearance is the page's own
     shellTop: body.style.getPropertyValue("--shell-top"), shellH: body.style.getPropertyValue("--shell-h"),
     vvh: document.documentElement.style.getPropertyValue("--vvh"),
@@ -372,6 +380,103 @@ test("the card's foot follows the keyboard's inset on its own curve, with no gap
   }
 });
 
+test("an accessory-sized viewport obstruction lifts only the card foot by the measured amount", async () => {
+  const id = await create("Keyboard accessory on the phone");
+  const paragraphs = Array.from({ length: 24 }, (_, n) =>
+    `Paragraph ${n + 1} gives the reading pane enough room to hold a stable scroll position.`).join("\n\n");
+  await api(`/reply?box=${id}`, paragraphs);
+  const { page, problems } = await openPhone(`/m?box=${id}`, { fake: true });
+  try {
+    await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
+    const replyAt = await page.evaluate(() => {
+      const reply = document.querySelector("article.box.sel .reply");
+      reply.scrollTop = 180;
+      return reply.scrollTop;
+    });
+    assert.ok(replyAt > 100, "the reading fixture did not take a scroll position");
+    await page.focus(SEL);
+    await typeLines(page, 3);
+    await page.evaluate(() => {
+      const ta = document.querySelector("article.box.sel textarea");
+      ta.setSelectionRange(2, 8);
+    });
+    await settle(100);
+    const rest = await page.evaluate(shellShape);
+    const held = await page.evaluate(() => {
+      const ta = document.querySelector("article.box.sel textarea");
+      return { draft: ta.value, start: ta.selectionStart, end: ta.selectionEnd };
+    });
+
+    await startSampling(page);
+    await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height - ACCESSORY);
+    await settle(600);
+    await page.evaluate(() => { window.__sampling = false; });
+    const frames = await page.evaluate(() => window.__samples);
+    const up = await page.evaluate(shellShape);
+    await page.screenshot({
+      path: path.join(SHOTS, "keyboard-accessory-up.png"),
+      clip: { x: 0, y: 0, width: PHONE.width, height: PHONE.height - ACCESSORY },
+    });
+    assert.equal(up.obstructed, true, "the focused accessory-sized viewport loss was ignored");
+    assert.equal(up.kb, false, "the accessory strip was mistaken for a full soft keyboard");
+    assert.equal(up.inset, `${ACCESSORY}px`, "the card did not use the measured obstruction");
+    assert.equal(up.foot, PHONE.height - ACCESSORY - INSET, "the card foot did not clear the accessory strip");
+    assert.equal(up.tab, rest.tab, "the project tabs moved while the card foot rose");
+    assert.equal(up.title, rest.title, "the card title moved while the card foot rose");
+    assert.equal(up.row, rest.row, "the hardware-keyboard composer took the soft-keyboard cap");
+    assert.ok(frames.length >= 8, `too few accessory frames sampled (${frames.length})`);
+    assertOneWay(frames.map(s => s.foot), "up", "the accessory card foot");
+    assertStill(frames.map(s => s.tab), "the accessory tab bar");
+    assertStill(frames.map(s => s.title), "the accessory card title");
+    const between = frames.filter(s => s.foot < rest.foot - 1 && s.foot > up.foot + 1).length;
+    assert.ok(between >= 3, `the accessory adjustment jumped instead of gliding: ${between} frames`);
+
+    await page.evaluate(v => window.__keyboard.set(v.height, v.top), {
+      height: PHONE.height - ACCESSORY, top: FOCUS_PAN,
+    });
+    await settle(80);
+    const panned = await page.evaluate(shellShape);
+    assert.equal(panned.bodyTop, FOCUS_PAN, "the shell did not follow the focused viewport pan");
+    assert.equal(panned.tab, rest.tab, "the focused viewport pan clipped the project tabs");
+    assert.equal(panned.title, rest.title, "the focused viewport pan moved the card title");
+    assert.equal(panned.foot, up.foot, "the focused viewport pan changed the measured bottom clearance");
+
+    await page.evaluate(() => openDrawer());
+    await settle(750);
+    assert.equal(await page.evaluate(() => drawerOpen()), true, "the card drawer did not open over the adjusted page");
+    assert.equal((await page.evaluate(shellShape)).foot, up.foot, "opening the drawer moved the adjusted card foot");
+    await page.evaluate(() => closeDrawer());
+    await settle(750);
+    assert.equal((await page.evaluate(shellShape)).foot, up.foot, "closing the drawer moved the adjusted card foot");
+
+    await page.evaluate(() => document.activeElement.blur());
+    await settle(80);
+    await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height);
+    await settle(700);
+    const down = await page.evaluate(shellShape);
+    const preserved = await page.evaluate(() => {
+      const ta = document.querySelector("article.box.sel textarea");
+      const reply = document.querySelector("article.box.sel .reply");
+      return {
+        draft: ta.value, start: ta.selectionStart, end: ta.selectionEnd,
+        replyAt: reply.scrollTop,
+      };
+    });
+    assert.equal(down.obstructed, false);
+    assert.equal(down.kb, false);
+    assert.equal(down.foot, PHONE.height - INSET, "the card foot did not return after accessory dismissal");
+    assert.equal(down.tab, rest.tab);
+    assert.equal(down.title, rest.title);
+    assert.deepEqual({ draft: preserved.draft, start: preserved.start, end: preserved.end }, held,
+      "the accessory adjustment changed the draft or its selection");
+    assert.ok(Math.abs(preserved.replyAt - replyAt) <= 0.5,
+      `the reading position moved from ${replyAt} to ${preserved.replyAt}`);
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
 test("a viewport the phone slides under the keyboard: the box follows its top, the tabs stay at the visible top, and the box stands until the slide is undone", async () => {
   const id = await create("Keyboard slide on the phone");
   await api(`/reply?box=${id}`, "A reply to answer.");
@@ -407,7 +512,7 @@ test("a viewport the phone slides under the keyboard: the box follows its top, t
   }
 });
 
-test("a small shortfall is the phone's stale report and not a keyboard, and a shrink with nothing focused is never trusted", async () => {
+test("a measured focused shortfall adjusts the foot, while an unfocused shrink is never trusted", async () => {
   const id = await create("Keyboard lies on the phone");
   await api(`/reply?box=${id}`, "A reply to answer.");
   const { page, problems } = await openPhone(`/m?box=${id}`, { fake: true });
@@ -416,23 +521,146 @@ test("a small shortfall is the phone's stale report and not a keyboard, and a sh
     await page.focus(SEL);
     await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height - 24);
     await settle(300);
-    const lie = await page.evaluate(shellShape);
-    assert.equal(lie.kb, false, "a 24px shortfall was read as a keyboard");
-    assert.equal(lie.foot, PHONE.height - INSET);
+    const small = await page.evaluate(shellShape);
+    assert.equal(small.obstructed, true, "a focused 24px viewport loss was ignored");
+    assert.equal(small.kb, false, "a focused 24px loss was mistaken for a full soft keyboard");
+    assert.equal(small.inset, "24px");
+    assert.equal(small.foot, PHONE.height - 24 - INSET);
     await page.evaluate(() => document.activeElement.blur());
     await settle(50);
     await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height - KEYBOARD);
     await settle(300);
     const unfocused = await page.evaluate(shellShape);
+    assert.equal(unfocused.obstructed, false, "a shrink with nothing focused adjusted the card");
     assert.equal(unfocused.kb, false, "a shrink with nothing focused was read as a keyboard");
     assert.equal(unfocused.foot, PHONE.height - INSET);
     // the shrunken viewport with nothing focused does not become the baseline
     await page.focus(SEL);
     await settle(50);
-    assert.equal((await page.evaluate(shellShape)).kb, true, "the full-screen height was forgotten under the stale shrink");
+    const focused = await page.evaluate(shellShape);
+    assert.equal(focused.obstructed, true, "the full-screen height was forgotten under the stale shrink");
+    assert.equal(focused.kb, true, "the full viewport loss was not classified as the soft keyboard");
     await page.evaluate(() => document.activeElement.blur());
     await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height);
     await settle(600);
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("landscape relearns its clear height and reduced motion applies the measured accessory clearance directly", async () => {
+  const id = await create("Reduced landscape keyboard on the phone");
+  await api(`/reply?box=${id}`, "A reply to answer in either orientation.");
+  const { page, problems } = await openPhone(`/m?box=${id}`, { fake: true, reducedMotion: true });
+  try {
+    await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
+    assert.equal((await page.evaluate(shellShape)).foot, PHONE.height - INSET);
+
+    await page.setViewport(LANDSCAPE);
+    await settle(80);
+    const rest = await page.evaluate(shellShape);
+    assert.equal(rest.foot, LANDSCAPE.height - INSET, "the card did not relearn the landscape height");
+
+    await page.focus(SEL);
+    await page.keyboard.type("landscape draft");
+    await page.evaluate(h => window.__keyboard.set(h, 0), LANDSCAPE.height - ACCESSORY);
+    await settle(40);
+    const up = {
+      ...await page.evaluate(shellShape),
+      ...await page.evaluate(() => ({
+        transition: getComputedStyle(document.getElementById("page")).transitionDuration,
+        draft: document.querySelector("article.box.sel textarea").value,
+      })),
+    };
+    await page.screenshot({
+      path: path.join(SHOTS, "keyboard-accessory-landscape-reduced.png"),
+      clip: { x: 0, y: 0, width: LANDSCAPE.width, height: LANDSCAPE.height - ACCESSORY },
+    });
+    assert.equal(up.obstructed, true);
+    assert.equal(up.kb, false);
+    assert.equal(up.inset, `${ACCESSORY}px`);
+    assert.equal(up.foot, LANDSCAPE.height - ACCESSORY - INSET);
+    assert.equal(up.tab, rest.tab, "the landscape tabs moved under the accessory strip");
+    assert.equal(up.title, rest.title, "the landscape card header moved under the accessory strip");
+    assert.equal(up.bodyHeight, LANDSCAPE.height);
+    assert.equal(up.transition, "0s", "reduced motion left the lower-edge transition running");
+    assert.equal(up.draft, "landscape draft");
+
+    await page.evaluate(h => window.__keyboard.set(h, 0), LANDSCAPE.height);
+    await settle(40);
+    const restored = {
+      ...await page.evaluate(shellShape),
+      draft: await page.$eval(SEL, ta => ta.value),
+    };
+    assert.equal(restored.obstructed, false);
+    assert.equal(restored.foot, LANDSCAPE.height - INSET);
+    assert.equal(restored.tab, rest.tab);
+    assert.equal(restored.title, rest.title);
+    assert.equal(restored.draft, "landscape draft");
+    await page.evaluate(() => document.activeElement.blur());
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("page zoom is not classified as an obstruction and does not pollute the clear-height baseline", async () => {
+  const id = await create("Page zoom on the phone");
+  await api(`/reply?box=${id}`, "A reply to read while zoomed.");
+  const { page, problems } = await openPhone(`/m?box=${id}`, { fake: true });
+  try {
+    await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
+
+    // A zoomed-out visual viewport can be taller than the layout viewport. It
+    // must not inflate the learned clear height and leave a false obstruction
+    // after scale 1 returns.
+    await page.evaluate(v => window.__keyboard.set(v.height, 0, v.scale), {
+      height: PHONE.height / 0.8, scale: 0.8,
+    });
+    await settle(80);
+    await page.evaluate(h => window.__keyboard.set(h, 0, 1), PHONE.height);
+    await settle(80);
+    await page.focus(SEL);
+    const portraitRest = await page.evaluate(shellShape);
+    assert.equal(portraitRest.obstructed, false, "a prior zoom-out inflated the clear-height baseline");
+    assert.equal(portraitRest.kb, false);
+    assert.equal(portraitRest.inset, "");
+    assert.equal(portraitRest.foot, PHONE.height - INSET);
+    await page.evaluate(() => document.activeElement.blur());
+
+    // Rotation clears the baseline. If it happens while page zoom is active,
+    // the zoomed visual height still must not become the new clear height.
+    await page.evaluate(v => window.__keyboard.set(v.height, 0, v.scale), {
+      height: LANDSCAPE.height / 0.8, scale: 0.8,
+    });
+    await page.setViewport(LANDSCAPE);
+    await settle(80);
+    await page.evaluate(h => window.__keyboard.set(h, 0, 1), LANDSCAPE.height);
+    await settle(80);
+    await page.focus(SEL);
+    const rest = await page.evaluate(shellShape);
+    assert.equal(rest.obstructed, false, "zoom during rotation became the landscape baseline");
+    assert.equal(rest.kb, false);
+    assert.equal(rest.inset, "");
+    assert.equal(rest.foot, LANDSCAPE.height - INSET);
+
+    await page.evaluate(v => window.__keyboard.set(v.height, v.top, v.scale), {
+      height: LANDSCAPE.height / 1.2, top: 20, scale: 1.2,
+    });
+    await settle(80);
+    const zoomed = await page.evaluate(shellShape);
+    assert.equal(zoomed.obstructed, false, "page zoom was mistaken for a bottom obstruction");
+    assert.equal(zoomed.kb, false, "page zoom was mistaken for a soft keyboard");
+    assert.equal(zoomed.inset, "", "page zoom changed the card's bottom clearance");
+    assert.equal(zoomed.shellTop, "", "page zoom made the app take over viewport panning");
+
+    await page.evaluate(h => window.__keyboard.set(h, 0, 1), LANDSCAPE.height);
+    await settle(80);
+    const restored = await page.evaluate(shellShape);
+    assert.equal(restored.foot, rest.foot);
+    assert.equal(restored.tab, rest.tab);
+    assert.equal(restored.title, rest.title);
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
