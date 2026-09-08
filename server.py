@@ -135,11 +135,12 @@ Endpoints:
                                turns to the owner's turn (a plain reply with no
                                live working flag, or a working flag dropped or
                                expired while a reply waited in deferred) one
-                               payload-less push goes to every subscription
+                               push with that event's encrypted card id and
+                               title goes to every subscription
                                only while Tailscale is connected and its HTTPS
                                Serve proxy targets this board. The push is
                                signed with a VAPID token openssl produces; the
-                               phone's worker then reads /state for the card.
+                               phone's worker uses that event identity directly.
                                Progress notes never push. A subscription the
                                push service reports gone (404, 410) is dropped
   GET  /mdfiles?lane=L      -> every .md file under the two folders lane L's own
@@ -554,7 +555,9 @@ def _error(kind: str, box: str = "", /, **fields) -> None:
 try:
     import anyio
     import h11
+    import http_ece
     import uvicorn
+    from cryptography.hazmat.primitives.asymmetric import ec
     from starlette.applications import Starlette
     from starlette.concurrency import run_in_threadpool
     from starlette.requests import ClientDisconnect, Request
@@ -562,9 +565,11 @@ try:
     from starlette.routing import Route
     from uvicorn.protocols.http.h11_impl import H11Protocol
 except ImportError:
-    _error("startuprefused", reason="uvicorn and starlette are not installed")
-    sys.exit("facilitator needs uvicorn and starlette: beside server.py run "
-             "python3 -m venv .venv && .venv/bin/pip install -r requirements.txt, "
+    _error("startuprefused", reason="requirements are not installed")
+    setup = ("uv pip sync --python .venv/bin/python requirements.txt"
+             if (HERE / ".venv").is_dir()
+             else "uv venv .venv, then uv pip sync --python .venv/bin/python requirements.txt")
+    sys.exit("facilitator needs the packages in requirements.txt: beside server.py run " + setup + ", "
              "then start the board with .venv/bin/python3 server.py or facilitator run")
 
 
@@ -1888,18 +1893,28 @@ def _vapid_token(aud: str) -> str:
     return token
 
 
-def _push_one(sub: dict) -> tuple:
-    """One payload-less push to one subscription: the status the service
+def _push_one(sub: dict, payload: bytes) -> tuple:
+    """One encrypted push to one subscription: the status the service
     answered and whatever it said about it, or 0 and the reason it could not be
     reached at all. The body is where a push service explains a refusal, and
     throwing it away is why a whole day of 403s could not be explained."""
     endpoint = sub["endpoint"]
     u = urlparse(endpoint)
     aud = f"{u.scheme}://{u.netloc}"
-    req = urllib.request.Request(endpoint, data=b"", method="POST", headers={
+    keys = sub["keys"]
+    body = http_ece.encrypt(
+        payload,
+        private_key=ec.generate_private_key(ec.SECP256R1()),
+        dh=base64.urlsafe_b64decode(keys["p256dh"] + "=" * (-len(keys["p256dh"]) % 4)),
+        auth_secret=base64.urlsafe_b64decode(keys["auth"] + "=" * (-len(keys["auth"]) % 4)),
+        version="aes128gcm",
+    )
+    req = urllib.request.Request(endpoint, data=body, method="POST", headers={
         "TTL": str(PUSH_TTL),
         "Authorization": f"vapid t={_vapid_token(aud)}, k={_b64url(_push_public_key())}",
-        "Content-Length": "0",
+        "Content-Encoding": "aes128gcm",
+        "Content-Type": "application/octet-stream",
+        "Content-Length": str(len(body)),
     })
     try:
         with urllib.request.urlopen(req, timeout=15) as r:
@@ -2016,6 +2031,9 @@ def _push_turn(bid: str) -> None:
     successes or drop subscriptions the services report gone."""
     with _lock:
         subs = list(_state.get("push_subs", []))
+        box = _box(bid)
+        payload = json.dumps({"box": bid, "title": (box or {}).get("title") or "facilitator"},
+                             separators=(",", ":")).encode()
     gone = []
     worked = None
     for sub in subs:
@@ -2030,7 +2048,7 @@ def _push_turn(bid: str) -> None:
         # and identifies the device, so it is on the keep-out list
         host = urlparse(sub.get("endpoint", "")).netloc
         try:
-            code, said = _push_one(sub)
+            code, said = _push_one(sub, payload)
         except Exception as e:   # a signing failure: reported, never fatal
             _error("pushfail", bid, host=host, reason=str(e))
             continue

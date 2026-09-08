@@ -98,7 +98,7 @@ before(async () => {
   }));
 
   origin = `http://127.0.0.1:${port}`;
-  child = spawn("python3", [path.join(fixtureDir, "server.py")], {
+  child = spawn(process.env.FACILITATOR_TEST_PYTHON || "python3", [path.join(fixtureDir, "server.py")], {
     cwd: fixtureDir,
     env: { ...process.env, FACILITATOR_TEST_PORT: String(port) },
     stdio: ["ignore", "pipe", "pipe"],
@@ -227,6 +227,58 @@ test("the card fills the phone with thin margins, tabs on top, prose through the
     await page.screenshot({ path: path.join(SHOTS, "test-phone-card-sent-open.png") });
     assert.deepEqual(problems, []);
   } finally {
+    await page.close();
+  }
+});
+
+test("a warm notification target survives stale state and switches projects when it arrives", async () => {
+  const { page, problems } = await openPhone("/m");
+  const stale = await (await fetch(origin + "/m/state")).json();
+  let heldRequest = null;
+  try {
+    await page.setRequestInterception(true);
+    let armed = true;
+    page.on("request", request => {
+      if (armed && new URL(request.url()).pathname === "/m/state") {
+        armed = false;
+        heldRequest = request;
+      } else {
+        request.continue();
+      }
+    });
+    const deadline = Date.now() + 3000;
+    while (!heldRequest && Date.now() < deadline) await settle(20);
+    assert.ok(heldRequest, "no in-flight reading was captured");
+
+    const made = await api("/create?owner=pastureland", "Notification target made during a reading");
+    assert.equal(made.status, 200);
+    const target = made.body.id;
+    const before = await page.evaluate(() => selectedId);
+    await page.evaluate(id => {
+      navigator.serviceWorker.dispatchEvent(new MessageEvent("message", { data: { box: id } }));
+    }, target);
+    assert.deepEqual(await page.evaluate(() => ({ wantBox, lastRev, selectedId })),
+      { wantBox: target, lastRev: null, selectedId: before });
+
+    await heldRequest.respond({ status: 200, contentType: "application/json", body: JSON.stringify(stale) });
+    heldRequest = null;
+    await page.waitForFunction(id => selectedId === id && activeOwner === "pastureland" && wantBox === null,
+      { timeout: 5000 }, target);
+    const result = await page.evaluate(id => {
+      wantBox = "older-pending-target";
+      goToBox(id);
+      return { selectedId, activeOwner, storedOwner: localStorage.getItem("activeproj"), wantBox };
+    }, target);
+    assert.deepEqual(result, {
+      selectedId: target, activeOwner: "pastureland", storedOwner: "pastureland", wantBox: null,
+    });
+    await page.evaluate(() => {
+      activeOwner = "facilitator";
+      localStorage.setItem("activeproj", activeOwner);
+    });
+    assert.deepEqual(problems, []);
+  } finally {
+    if (heldRequest) await heldRequest.continue();
     await page.close();
   }
 });
