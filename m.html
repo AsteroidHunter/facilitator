@@ -775,7 +775,7 @@ function makeBox(b){
     seatSquare(ta, send);
     send.classList.toggle("show", ta.value.trim().length > 0);
   };
-  ta.addEventListener("input", () => tick(true));
+  ta.addEventListener("input", () => { clearPhoneEnterAgain(); tick(true); });
   ta.addEventListener("focus", () => {
     const trace = tracePhone("begin", "focus", { box: b.id });
     requestAnimationFrame(() => {
@@ -791,9 +791,15 @@ function makeBox(b){
   // habit belongs. with the on-screen keyboard up the return key still makes a
   // new line, as it always has here, and the square is still the way to send
   ta.addEventListener("keydown", e => {
-    if (e.key !== "Enter" || e.shiftKey || document.body.classList.contains("kb")) return;
+    if (e.key !== "Enter" || e.shiftKey || e.isComposing || document.body.classList.contains("kb")) return;
     e.preventDefault();
-    doSend(b.id);
+    if (e.repeat) return;
+    if (!ta.value.trim()){
+      if (!askPhoneEnterAdvance(b.id)) cancelAutoNext();
+      return;
+    }
+    const op = doSend(b.id, { advance: false });
+    if (op) armPhoneEnterAgain(b.id, op);
   });
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => tick());
   tick();
@@ -856,11 +862,66 @@ async function closeCard(id){
 function undone(id){
   fetch("/done?box=" + encodeURIComponent(id) + "&v=0", { method: "POST" }).then(() => poll()).catch(() => {});
 }
-// after a send the card moves on to the next one waiting on him, the desktop's
-// own move and its own wait
+// The send button keeps the existing confirmed-send move. Enter has its own
+// explicit gesture: the first press sends and stays, and a separate second
+// press inside this window asks to move after the send is confirmed.
 let autoNext = null;
 const AUTONEXT_MS = 0;   // the desktop's number; a quiet time after a send before moving on
+const ENTER_AGAIN_MS = 700;
 let lastLeftId = null;   // the card the send's move left, for the bounce on command z
+let phoneEnterAgain = null;   // transient by design; a reload never revives a move
+function phoneEnterViewKey(id){
+  const anchor = lastState && lastState.boxes.find(b => b.id === id);
+  return [id, activeOwner, ticketView, anchor && anchor.ws ? anchor.ws : ""].join("|");
+}
+function clearPhoneEnterAgain(intent = phoneEnterAgain){
+  if (!intent) return;
+  clearTimeout(intent.timer);
+  intent.active = false;
+  intent.op.advance = false;
+  if (phoneEnterAgain === intent) phoneEnterAgain = null;
+}
+function cancelAutoNext(){
+  clearTimeout(autoNext); autoNext = null;
+  clearPhoneEnterAgain();
+  for (const op of ops) if (op.kind === "send") op.advance = false;
+}
+function schedulePhoneAdvance(op, intent = null){
+  clearTimeout(autoNext);
+  autoNext = setTimeout(() => {
+    autoNext = null;
+    if (intent){
+      const valid = intent.active && phoneEnterAgain === intent && intent.advance &&
+        phoneEnterViewKey(op.box) === intent.view;
+      clearPhoneEnterAgain(intent);
+      if (!valid) return;
+    }
+    if (selectedId === op.box && jumpNextYellow(op.box, null, navigationPool(lastState, op.box)))
+      lastLeftId = op.box;
+  }, AUTONEXT_MS);
+}
+function armPhoneEnterAgain(id, op){
+  cancelAutoNext();
+  const intent = {
+    id, op, view: phoneEnterViewKey(id), deadline: Date.now() + ENTER_AGAIN_MS,
+    delivered: false, advance: false, active: true, timer: null,
+  };
+  intent.timer = setTimeout(() => {
+    if (phoneEnterAgain === intent && !intent.advance) clearPhoneEnterAgain(intent);
+  }, ENTER_AGAIN_MS);
+  phoneEnterAgain = intent;
+}
+function askPhoneEnterAdvance(id){
+  const intent = phoneEnterAgain;
+  if (!intent || !intent.active || intent.id !== id || phoneEnterViewKey(id) !== intent.view) return false;
+  if (intent.advance) return true;
+  if (Date.now() > intent.deadline) return false;
+  intent.advance = true;
+  intent.op.advance = true;
+  clearTimeout(intent.timer);
+  if (intent.delivered) schedulePhoneAdvance(intent.op, intent);
+  return true;
+}
 // ---- what the phone has asked the board and not yet heard back on -----------------
 // the phone is a room and a radio away from the board. a tap has to show
 // something now, and the words have to land once, whatever the radio does to
@@ -910,7 +971,7 @@ function loadOps(){
       (o.kind === "send" || o.kind === "create") && OP_STATES.has(o.state)).slice(-OPS_MAX) : [];
   } catch (e) { ops = []; }
   for (const op of ops){
-    op.fresh = false; op.armed = false;   // a card made before a reload is not named by this page
+    op.fresh = false; op.armed = false; op.advance = false;   // a reload never steals the card after an old receipt arrives
     // only the board can call a send not sent. a record marked failed for any
     // other reason, a horizon or a full store under an earlier page, is a send
     // whose outcome is unknown, and an absent receipt does not prove it never
@@ -919,7 +980,7 @@ function loadOps(){
   }
 }
 function saveOps(){
-  try { localStorage.setItem(OPS_KEY, JSON.stringify(ops.map(({ fresh, armed, ...op }) => op))); } catch (e) {}
+  try { localStorage.setItem(OPS_KEY, JSON.stringify(ops.map(({ fresh, armed, advance, ...op }) => op))); } catch (e) {}
 }
 function newOpId(){
   if (crypto.randomUUID) return crypto.randomUUID();
@@ -1060,6 +1121,8 @@ function applyOp(op, result){
 function markUnsure(op, why){
   if (op.state !== "pending") return;
   tracePhone("note", "operation", { op: op.id, box: op.box, outcome: "unsure" });
+  if (phoneEnterAgain && phoneEnterAgain.op === op) clearPhoneEnterAgain(phoneEnterAgain);
+  op.advance = false;
   op.state = "unsure"; op.why = why; op.waiting = false;
   if (op.kind === "create"){
     drawCreatePending();
@@ -1076,6 +1139,8 @@ function markUnsure(op, why){
 function failOp(op, why, by){
   if (op.state !== "pending" && op.state !== "unsure") return;
   tracePhone("note", "operation", { op: op.id, box: op.box, outcome: "failed" });
+  if (phoneEnterAgain && phoneEnterAgain.op === op) clearPhoneEnterAgain(phoneEnterAgain);
+  op.advance = false;
   op.state = "failed"; op.why = why; op.by = by || "phone";
   if (op.kind === "create"){
     ops = ops.filter(o => o !== op);
@@ -1105,6 +1170,11 @@ function landSend(op, result){
   el.sendGuard = Date.now();
   if (el.meta.textContent.indexOf("send ") === 0) el.meta.textContent = "";
   if (op.reopen) undone(op.box);   // the message is in; the flip rides behind it
+  const enterIntent = phoneEnterAgain && phoneEnterAgain.op === op ? phoneEnterAgain : null;
+  if (enterIntent) enterIntent.delivered = true;
+  if (op.advance && selectedId === op.box){
+    schedulePhoneAdvance(op, enterIntent);
+  }
 }
 // a confirmed new card: drawn from the answer, which carries the card, rather
 // than from a reading a tick later. a card this page asked for is named now;
@@ -1209,7 +1279,8 @@ function drawerNote(text){
 // for the server before it draws the line because the server is on the same
 // machine and answers in a millisecond; here that wait is a second of nothing
 // happening under his finger
-function doSend(id){
+function doSend(id, opts){
+  opts = opts || {};
   const trace = tracePhone("begin", "send", { box: id });
   const el = els[id];
   const text = el.ta.value.trim();
@@ -1224,6 +1295,7 @@ function doSend(id){
     return;
   }
   tracePhone("note", "operation", { op: op.id, box: id, outcome: "minted" });
+  op.advance = opts.advance !== false;
   el.ta.value = "";
   el.tick();          // the square goes with the words, and the row falls back to one line
   const pend = el.pend || growPend(el, true);
@@ -1231,12 +1303,9 @@ function doSend(id){
   if (pend.classList.contains("open")) opRows[op.id]?.classList.add("pop");
   pendBottom(pend);
   if (hist && hist.id === id) histExit(id);   // a send lands you back on the live reply
-  clearTimeout(autoNext);
-  // the card this move leaves is written down so command z can bounce back to
-  // it, exactly as the desktop writes it down
-  autoNext = setTimeout(() => { autoNext = null; if (jumpNextYellow(id)) lastLeftId = id; }, AUTONEXT_MS);
   runOps(laneOf(op));
   endPhoneTrace(trace, { op: op.id, box: id }, null, true);
+  return op;
 }
 // one press, one card. a press while the card is still being made is the same
 // press: it wakes the try rather than minting another card, and the plus
@@ -1262,6 +1331,7 @@ function createCard(){
 function select(id){
   const trace = tracePhone("begin", "select", { box: id });
   if (!els[id]){ endPhoneTrace(trace, { box: id }); return; }
+  cancelAutoNext();
   if (hist && hist.id !== id) histExit(hist.id);
   selectedId = id; localStorage.setItem("selbox", id);
   markSeen(id);
@@ -1277,6 +1347,7 @@ function select(id){
   endPhoneTrace(trace, { box: id }, null, true);
 }
 function deselect(){
+  cancelAutoNext();
   selectedId = null; localStorage.removeItem("selbox");
   for (const k of Object.keys(els)) els[k].box.classList.remove("sel");
   document.getElementById("pane").classList.add("blank");
@@ -1501,6 +1572,7 @@ function renderTickets(state){
   syncSpinner();
 }
 function setView(v){
+  cancelAutoNext();
   ticketView = v;
   document.getElementById("tv-todo").classList.toggle("on", v === "todo");
   document.getElementById("tv-deferred").classList.toggle("on", v === "deferred");
@@ -2141,10 +2213,19 @@ reconcile();
 // and the command shift brackets do the same thing, and whichever pair the
 // phone lets through is the one that works.
 
-// the previous or the next card, walking the list the drawer shows in the order
-// it shows it
+// The laptop walks its chosen workspace. The phone has no workspace chooser,
+// so the selected card names that local context; the drawer still shows the
+// whole lane and selecting one of its other cards changes the context.
+function navigationPool(state, anchorId = selectedId){
+  const pool = viewPool(state);
+  const anchor = state.boxes.find(b => b.id === anchorId);
+  return anchor && anchor.ws ? pool.filter(b => b.ws === anchor.ws) : pool;
+}
+
+// the previous or the next card, walking the selected card's workspace in the
+// same order the desktop walks its chosen workspace
 function stepCard(dir, focus){
-  const pool = lastState ? viewPool(lastState) : [];
+  const pool = lastState ? navigationPool(lastState) : [];
   if (!pool.length) return;
   const at = pool.findIndex(b => b.id === selectedId);
   const pick = pool[(at + dir + pool.length) % pool.length];
@@ -2157,8 +2238,7 @@ function stepCard(dir, focus){
   if (focus) els[pick.id]?.ta.focus({ preventScroll: true });
 }
 
-const phoneShortcutTyping = t => !!t &&
-  (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable);
+const phoneShortcutTyping = cardShortcutEditing;
 const phoneShortcutActions = {
   diagnostic(e){
     e.preventDefault();
@@ -2167,6 +2247,11 @@ const phoneShortcutActions = {
   navigate(e, shortcut){
     e.preventDefault();
     stepCard(shortcut.value, phoneShortcutTyping(e.target));
+  },
+  plainNavigate(e, shortcut){
+    if (phoneShortcutTyping(e.target)) return;
+    e.preventDefault();
+    stepCard(shortcut.value, false);
   },
   history(e, shortcut){
     e.preventDefault();
