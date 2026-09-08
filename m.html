@@ -1182,6 +1182,9 @@ function landSend(op, result){
 function landCreate(op, result){
   drawCreatePending();
   if (!result.id) return;
+  if (Number.isSafeInteger(result.rev)){
+    createRevFloor = createRevFloor == null ? result.rev : Math.max(createRevFloor, result.rev);
+  }
   if (result.card && lastState && !lastState.boxes.some(b => b.id === result.card.id)){
     let at = -1;
     lastState.boxes.forEach((b, i) => { if (b.bucket === "meta" && b.owner === result.card.owner) at = i; });
@@ -1800,6 +1803,10 @@ const POLL_MS = 1200, POLL_DEADLINE_MS = 8000, POLL_BACKOFF_MAX_MS = 15000;
 const STALE_AFTER = 2;                // missed readings before the note shows
 const OFFLINE_AFTER_MS = 30000;       // this long without an answer and the note says the board is gone
 let lastRev = null;                   // the revision lastState is of; null before the first reading
+// A create answer can race a reading that was already in flight. Until a
+// reading reaches the create's revision, an older snapshot may not erase the
+// card and the title editor that the confirmed answer has just drawn.
+let createRevFloor = null;
 let lastGood = 0;                     // when the board last answered
 let pollAgain = false, pollTimer = null, pollGap = POLL_MS;
 function schedulePoll(ms){
@@ -1867,6 +1874,14 @@ async function readBoard(){
   if (data){
     pollFails = 0; pollGap = POLL_MS; lastGood = Date.now();
     linkStatus();
+    if (createRevFloor != null && Number.isSafeInteger(data.rev) && data.rev < createRevFloor){
+      pollAgain = true;
+      if (!opsStarted){ opsStarted = true; wakeOps(); }
+      return;
+    }
+    if (createRevFloor != null && Number.isSafeInteger(data.rev) && data.rev >= createRevFloor){
+      createRevFloor = null;
+    }
     noteDoing("render");
     try {
       if (data.ops) reconcileOps(data.ops);
