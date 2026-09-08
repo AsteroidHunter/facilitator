@@ -22,6 +22,7 @@ const PHONE = { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, h
 const DESKTOP = { width: 1440, height: 900 };
 const KEYBOARD = 336;   // an iPhone keyboard with its accessory bar, in css px
 const SEL = "article.box.sel textarea";
+const HISTORY_SHOTS = process.env.DESKTOP_HISTORY_SHOTS || "";
 
 let browser;
 let child;
@@ -92,6 +93,12 @@ async function openCardPage(route, viewport) {
 
 async function settle(ms = 250) {
   await new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function historyShot(page, name) {
+  if (!HISTORY_SHOTS) return;
+  await mkdir(HISTORY_SHOTS, { recursive: true });
+  await page.screenshot({ path: path.join(HISTORY_SHOTS, name + ".png") });
 }
 
 // one chord: the modifiers held, the key pressed, the modifiers let go
@@ -812,14 +819,133 @@ test("desktop aliases walk the visible cards and preserve their focus rules", as
   }
 });
 
-test("desktop history works from the composer and keeps its caret", async () => {
+test("desktop history controls appear for a prior reply and share keyboard history", async () => {
   await clearLane();
   const id = await create("Desktop reply history");
-  await api(`/reply?box=${id}`, "First desktop reply.");
-  await api(`/reply?box=${id}`, "Second desktop reply.");
   const { page, problems } = await openDesktop();
   try {
     await selectDesktop(page, id);
+    const hidden = await page.evaluate(cardId => {
+      const el = els[cardId], bar = el.topbar.getBoundingClientRect();
+      el.histUp.focus();
+      const style = getComputedStyle(el.histctl);
+      return {
+        replies: lastState.boxes.find(box => box.id === cardId).replies,
+        branchNodes: el.topbar.querySelectorAll(".branch, .wtpick, .wtmenu").length,
+        hasHistory: el.box.classList.contains("hashist"),
+        opacity: style.opacity, visibility: style.visibility, pointerEvents: style.pointerEvents,
+        upDisabled: el.histUp.disabled, downDisabled: el.histDown.disabled,
+        upTab: el.histUp.tabIndex, downTab: el.histDown.tabIndex,
+        focused: document.activeElement === el.histUp,
+        geometry: { top: bar.top, height: bar.height,
+          arcLeft: el.arc.getBoundingClientRect().left, closeLeft: el.x.getBoundingClientRect().left,
+          titleTop: el.titleEl.getBoundingClientRect().top },
+      };
+    }, id);
+    assert.equal(hidden.replies, 0);
+    assert.equal(hidden.branchNodes, 0, "the dormant branch selector still rendered");
+    assert.deepEqual({ hasHistory: hidden.hasHistory, opacity: hidden.opacity,
+      visibility: hidden.visibility, pointerEvents: hidden.pointerEvents,
+      upDisabled: hidden.upDisabled, downDisabled: hidden.downDisabled,
+      upTab: hidden.upTab, downTab: hidden.downTab, focused: hidden.focused }, {
+      hasHistory: false, opacity: "0", visibility: "hidden", pointerEvents: "none",
+      upDisabled: true, downDisabled: true, upTab: -1, downTab: -1, focused: false,
+    });
+    await historyShot(page, "after-new-card");
+
+    // One reply is the live reply, with no older version behind it.
+    assert.equal((await api(`/reply?box=${id}`, "First desktop reply.")).status, 200);
+    await page.evaluate(() => poll());
+    await page.waitForFunction(cardId =>
+      lastState.boxes.find(box => box.id === cardId)?.replies === 1, { timeout: 5000 }, id);
+    assert.equal(await page.evaluate(cardId => els[cardId].box.classList.contains("hashist"), id), false,
+      "the live reply alone exposed an empty history control");
+
+    // A user follow-up and its answer create the first actual prior reply.
+    assert.equal((await api(`/send?box=${id}`, "Owner follow-up.")).status, 200);
+    assert.equal((await api(`/reply?box=${id}`, "Second desktop reply.")).status, 200);
+    await page.evaluate(() => poll());
+    await page.waitForFunction(cardId =>
+      lastState.boxes.find(box => box.id === cardId)?.replies === 2 &&
+      els[cardId].box.classList.contains("hashist"), { timeout: 5000 }, id);
+    await settle(80);
+    const shown = await page.evaluate(cardId => {
+      const el = els[cardId], style = getComputedStyle(el.histctl);
+      const bar = el.topbar.getBoundingClientRect();
+      const arrowMatrix = button => {
+        const transform = getComputedStyle(button.querySelector("svg")).transform;
+        const matrix = new DOMMatrix(transform === "none" ? undefined : transform);
+        return [matrix.a, matrix.b, matrix.c, matrix.d].map(n => Math.round(n));
+      };
+      return {
+        opacity: style.opacity, visibility: style.visibility, pointerEvents: style.pointerEvents,
+        transitions: {
+          properties: style.transitionProperty.split(", "),
+          durations: style.transitionDuration.split(", "),
+          sameTimingAsSend: style.transitionTimingFunction.startsWith(
+            getComputedStyle(el.send).transitionTimingFunction),
+        },
+        upDisabled: el.histUp.disabled, downDisabled: el.histDown.disabled,
+        upTab: el.histUp.tabIndex, downTab: el.histDown.tabIndex,
+        labels: [el.histUp.getAttribute("aria-label"), el.histDown.getAttribute("aria-label")],
+        arrowTransforms: [arrowMatrix(el.histUp), arrowMatrix(el.histDown)],
+        geometry: { top: bar.top, height: bar.height,
+          arcLeft: el.arc.getBoundingClientRect().left, closeLeft: el.x.getBoundingClientRect().left,
+          titleTop: el.titleEl.getBoundingClientRect().top },
+      };
+    }, id);
+    assert.equal(shown.visibility, "visible");
+    assert.equal(shown.pointerEvents, "auto");
+    assert.ok(Number(shown.opacity) > 0 && Number(shown.opacity) <= 1);
+    assert.deepEqual(shown.transitions.properties, ["opacity", "transform", "visibility"]);
+    assert.deepEqual(shown.transitions.durations.slice(0, 2), ["0.26s", "0.26s"]);
+    assert.equal(shown.transitions.sameTimingAsSend, true,
+      "the history controls did not use the composer arrow's fade curve");
+    assert.deepEqual({ upDisabled: shown.upDisabled, downDisabled: shown.downDisabled,
+      upTab: shown.upTab, downTab: shown.downTab },
+    { upDisabled: false, downDisabled: true, upTab: 0, downTab: 0 });
+    assert.deepEqual(shown.labels, ["older reply", "newer reply"]);
+    assert.deepEqual(shown.arrowTransforms, [[1, 0, 0, 1], [-1, 0, 0, -1]],
+      "the older and newer arrows did not point up and down");
+    for (const key of ["top", "height", "arcLeft", "closeLeft"])
+      assert.ok(Math.abs(hidden.geometry[key] - shown.geometry[key]) < 0.5,
+        `${key} moved when reply history appeared`);
+    const layout = await page.evaluate(cardId => {
+      const el = els[cardId];
+      const read = () => {
+        const bar = el.topbar.getBoundingClientRect();
+        return { top: bar.top, height: bar.height,
+          arcLeft: el.arc.getBoundingClientRect().left, closeLeft: el.x.getBoundingClientRect().left,
+          titleTop: el.titleEl.getBoundingClientRect().top };
+      };
+      el.box.classList.remove("hashist");
+      getComputedStyle(el.histctl).opacity;
+      const withoutMarks = read();
+      el.box.classList.add("hashist");
+      getComputedStyle(el.histctl).opacity;
+      return { withoutMarks, withMarks: read() };
+    }, id);
+    for (const key of Object.keys(layout.withoutMarks))
+      assert.ok(Math.abs(layout.withoutMarks[key] - layout.withMarks[key]) < 0.5,
+        `${key} moved when only the history marks changed`);
+    await settle(300);
+    await historyShot(page, "after-history-available");
+
+    await page.click(`#box-${id} .histbtn.older`);
+    await page.waitForFunction(cardId => hist?.id === cardId && hist.step === 1, { timeout: 5000 }, id);
+    assert.equal(await page.$eval("article.box.sel .reply", el => el.textContent), "First desktop reply.");
+    assert.deepEqual(await page.evaluate(cardId => ({
+      position: els[cardId].histPos.textContent,
+      upDisabled: els[cardId].histUp.disabled,
+      downDisabled: els[cardId].histDown.disabled,
+    }), id), { position: "1 of 2", upDisabled: true, downDisabled: false });
+    await historyShot(page, "after-older-reply");
+
+    await page.click(`#box-${id} .histbtn.newer`);
+    await page.waitForFunction(() => !document.querySelector("article.box.sel").classList.contains("histview"));
+    assert.equal(await page.$eval("article.box.sel .reply", el => el.textContent), "Second desktop reply.");
+
+    // The established keyboard path remains the same and keeps the composer caret.
     await page.focus(SEL);
     await chord(page, "ArrowUp", "Control", "Shift");
     await settle(300);
