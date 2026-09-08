@@ -86,6 +86,9 @@
   /* the clearance is the page's own, so the keyboard's value is set on the
      page as well: a property an element declares is not the one it inherits */
   body.obstructed #page{--pad-b:calc(var(--kb-inset) + var(--app-inset))}
+  /* a small obstruction uses the reported edge directly, without the app's
+     extra margin. the full keyboard and resting safe area keep that margin */
+  body.obstructed:not(.kb) #page{--pad-b:var(--kb-inset)}
   /* the box while the viewport is obstructed, and through the close's settle window.
      the top follows the visual viewport, for the phone that slides the layout
      viewport under the keyboard; the height is the learned full-screen height
@@ -1824,9 +1827,9 @@ function takeFocusTap(e){
 // A one-pixel tolerance removes viewport rounding noise. Page zoom also makes
 // the visual viewport smaller or larger, but changes its scale, so it is not
 // classified as an obstruction or allowed to teach the clear-height baseline.
-// The older 100px line remains only to select the full soft-keyboard composer
-// cap and Enter behavior; it never supplies the clearance. The body's box keeps
-// its full-screen height and follows the visual viewport's top, which cancels a
+// The older 100px line selects the full soft-keyboard composer cap, Enter
+// behavior, and app margin; the measured loss still supplies the inset. The body
+// keeps its full-screen height and follows the visual viewport's top, which cancels a
 // focus pan and anchors the tabs and card header. The box is held through the
 // close's settle window until the viewport is whole.
 const VIEWPORT_EPSILON_PX = 1;

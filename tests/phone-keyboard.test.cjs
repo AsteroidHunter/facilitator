@@ -380,7 +380,7 @@ test("the card's foot follows the keyboard's inset on its own curve, with no gap
   }
 });
 
-test("an accessory-sized viewport obstruction lifts only the card foot by the measured amount", async () => {
+test("an accessory-sized viewport obstruction seats the card foot at its measured edge", async () => {
   const id = await create("Keyboard accessory on the phone");
   const paragraphs = Array.from({ length: 24 }, (_, n) =>
     `Paragraph ${n + 1} gives the reading pane enough room to hold a stable scroll position.`).join("\n\n");
@@ -420,7 +420,7 @@ test("an accessory-sized viewport obstruction lifts only the card foot by the me
     assert.equal(up.obstructed, true, "the focused accessory-sized viewport loss was ignored");
     assert.equal(up.kb, false, "the accessory strip was mistaken for a full soft keyboard");
     assert.equal(up.inset, `${ACCESSORY}px`, "the card did not use the measured obstruction");
-    assert.equal(up.foot, PHONE.height - ACCESSORY - INSET, "the card foot did not clear the accessory strip");
+    assert.equal(up.foot, PHONE.height - ACCESSORY, "the card foot did not meet the measured accessory edge");
     assert.equal(up.tab, rest.tab, "the project tabs moved while the card foot rose");
     assert.equal(up.title, rest.title, "the card title moved while the card foot rose");
     assert.equal(up.row, rest.row, "the hardware-keyboard composer took the soft-keyboard cap");
@@ -525,7 +525,7 @@ test("a measured focused shortfall adjusts the foot, while an unfocused shrink i
     assert.equal(small.obstructed, true, "a focused 24px viewport loss was ignored");
     assert.equal(small.kb, false, "a focused 24px loss was mistaken for a full soft keyboard");
     assert.equal(small.inset, "24px");
-    assert.equal(small.foot, PHONE.height - 24 - INSET);
+    assert.equal(small.foot, PHONE.height - 24);
     await page.evaluate(() => document.activeElement.blur());
     await settle(50);
     await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height - KEYBOARD);
@@ -580,7 +580,7 @@ test("landscape relearns its clear height and reduced motion applies the measure
     assert.equal(up.obstructed, true);
     assert.equal(up.kb, false);
     assert.equal(up.inset, `${ACCESSORY}px`);
-    assert.equal(up.foot, LANDSCAPE.height - ACCESSORY - INSET);
+    assert.equal(up.foot, LANDSCAPE.height - ACCESSORY);
     assert.equal(up.tab, rest.tab, "the landscape tabs moved under the accessory strip");
     assert.equal(up.title, rest.title, "the landscape card header moved under the accessory strip");
     assert.equal(up.bodyHeight, LANDSCAPE.height);
