@@ -166,7 +166,7 @@ before(async () => {
   }));
 
   origin = `http://127.0.0.1:${port}`;
-  child = spawn("python3", [path.join(fixtureDir, "server.py")], {
+  child = spawn(process.env.FACILITATOR_TEST_PYTHON || "python3", [path.join(fixtureDir, "server.py")], {
     cwd: fixtureDir,
     env: {
       ...process.env,
@@ -442,6 +442,7 @@ test("command z bounces back to the card the send's own move left, and back agai
     await page.keyboard.type("A message typed on a keyboard");
     const sent = page.waitForResponse(response => new URL(response.url()).pathname === "/send");
     await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
     assert.equal((await sent).status(), 200);
     await page.waitForFunction(id => document.querySelector("article.box.sel")?.id === "box-" + id, { timeout: 3000 }, waiting);
 
@@ -465,12 +466,23 @@ test("enter sends and shift enter makes a line, and the return key still makes a
   await clearLane();
   const id = await create("The composer on a keyboard");
   await api(`/reply?box=${id}`, "A reply to answer.");
+  const waiting = await create("Waiting after one Enter");
+  await api(`/reply?box=${waiting}`, "A second reply to leave waiting.");
   const { page, problems } = await openPhone(`/m?box=${id}`);
   const sends = [];
   page.on("response", response => { if (new URL(response.url()).pathname === "/send") sends.push(response.status()); });
   try {
     await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
     await page.focus(SEL);
+    const composing = await page.$eval(SEL, field => {
+      const event = new KeyboardEvent("keydown", {
+        key: "Enter", isComposing: true, bubbles: true, cancelable: true,
+      });
+      field.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+    assert.equal(composing, false, "an IME composition Enter was claimed by send");
+    assert.deepEqual(sends, []);
     await page.keyboard.type("first line");
     await chord(page, "Enter", "Shift");
     await page.keyboard.type("second line");
@@ -482,10 +494,11 @@ test("enter sends and shift enter makes a line, and the return key still makes a
     const sent = page.waitForResponse(response => new URL(response.url()).pathname === "/send");
     await page.keyboard.press("Enter");
     assert.equal((await sent).status(), 200);
-    await settle(400);
+    await settle(800);
     assert.deepEqual((await savedBox(id)).pendingTexts, ["first line\nsecond line"], "the return key did not send both lines");
     assert.equal(await page.evaluate(() => document.querySelector("article.box.sel textarea").value), "",
       "the send did not empty the row");
+    assert.equal(await shownId(page), id, "one Enter moved away from the sent card");
 
     // the on-screen keyboard up, played by the window shrinking with it: the
     // return key is a finger's return again, and sends nothing
@@ -505,7 +518,188 @@ test("enter sends and shift enter makes a line, and the return key still makes a
   }
 });
 
-test("a plain arrow belongs to the caret, and walks no card", async () => {
+test("phone double Enter waits for delivery, rejects held repeats, and cancels on typing or refusal", async () => {
+  await clearLane();
+  const from = await create("Phone double Enter source");
+  await api(`/reply?box=${from}`, "A reply to answer.");
+  const waiting = await create("Phone double Enter destination");
+  await api(`/reply?box=${waiting}`, "Another reply waiting.");
+  const { page, problems } = await openPhone(`/m?box=${from}`);
+  try {
+    await page.waitForSelector(`#box-${from}.sel`, { timeout: 5000 });
+    await page.evaluate(() => {
+      clearTimeout(pollTimer); pollTimer = null;
+      window.__nativeFetch = window.fetch;
+      window.__sendReplies = [];
+      window.__enterRepeats = [];
+      document.querySelector("article.box.sel textarea").addEventListener("keydown", event => {
+        if (event.key === "Enter") window.__enterRepeats.push(event.repeat);
+      });
+      window.fetch = (...args) => {
+        if (!new URL(String(args[0]), location.href).pathname.endsWith("/send")) return window.__nativeFetch(...args);
+        return new Promise(resolve => window.__sendReplies.push((status = 200) => resolve(new Response(
+          JSON.stringify(status === 200 ? { ok: true, rev: lastRev } : { error: "fabricated refusal" }),
+          { status, headers: { "Content-Type": "application/json" } }))));
+      };
+    });
+
+    await page.focus(SEL);
+    await page.keyboard.type("held Enter sends once");
+    await page.keyboard.down("Enter");
+    await page.keyboard.down("Enter");
+    await page.keyboard.up("Enter");
+    await page.waitForFunction(() => window.__sendReplies.length === 1);
+    assert.deepEqual(await page.evaluate(() => __enterRepeats.slice(-2)), [false, true],
+      "the browser did not deliver the held key as a repeated keydown");
+    assert.equal(await page.evaluate(() => localSends(selectedId)[0].advance), false,
+      "a held Enter requested a card move");
+    await page.evaluate(() => window.__sendReplies.shift()());
+    await page.waitForFunction(() => ops.filter(op => op.kind === "send").length === 0);
+    await settle(800);
+    assert.equal(await shownId(page), from, "a held Enter moved after delivery");
+
+    await page.focus(SEL);
+    await page.keyboard.type("double Enter moves later");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => window.__sendReplies.length === 1 && localSends(selectedId)[0]?.advance);
+    assert.equal(await shownId(page), from, "the second Enter moved before delivery confirmation");
+    await page.evaluate(() => window.__sendReplies.shift()());
+    await page.waitForFunction(id => selectedId === id, { timeout: 3000 }, waiting);
+
+    await page.evaluate(id => select(id), from);
+    await page.focus(SEL);
+    await page.keyboard.type("typing cancels the move");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("draft after the request");
+    await page.waitForFunction(() => window.__sendReplies.length === 1);
+    assert.equal(await page.evaluate(() => localSends(selectedId)[0].advance), false,
+      "typing did not cancel the pending move");
+    await page.evaluate(() => window.__sendReplies.shift()());
+    await page.waitForFunction(() => ops.filter(op => op.kind === "send").length === 0);
+    await settle(80);
+    assert.equal(await shownId(page), from);
+    assert.equal(await page.$eval(SEL, field => field.value), "draft after the request");
+
+    await page.$eval(SEL, field => { field.value = ""; field.dispatchEvent(new Event("input", { bubbles: true })); });
+    await page.keyboard.type("view change cancels the move");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => window.__sendReplies.length === 1 && localSends(selectedId)[0]?.advance);
+    await page.evaluate(() => setView("deferred"));
+    assert.equal(await page.evaluate(id => localSends(id)[0].advance, from), false,
+      "changing the phone view did not cancel the pending move");
+    await page.evaluate(() => window.__sendReplies.shift()());
+    await page.waitForFunction(() => ops.filter(op => op.kind === "send").length === 0);
+    await settle(80);
+    assert.equal(await shownId(page), from);
+    await page.evaluate(() => setView("todo"));
+
+    await page.keyboard.type("refused double Enter");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => window.__sendReplies.length === 1 && localSends(selectedId)[0]?.advance);
+    await page.evaluate(() => window.__sendReplies.shift()(400));
+    await page.waitForFunction(id => localSends(id).some(op => op.state === "failed"), { timeout: 3000 }, from);
+    assert.equal(await shownId(page), from, "a refused send moved away from its failure");
+    assert.match(await page.evaluate(id => els[id].pend.textContent, from), /not sent/i);
+    assert.deepEqual(problems.filter(problem => !/status of 400 \(Bad Request\)/.test(problem)), []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("desktop double Enter waits for delivery and failed sends restore their text", async () => {
+  await clearLane();
+  const from = await create("Desktop double Enter source");
+  await api(`/reply?box=${from}`, "A reply to answer.");
+  const waiting = await create("Desktop double Enter destination");
+  await api(`/reply?box=${waiting}`, "Another reply waiting.");
+  const { page, problems } = await openDesktop();
+  try {
+    await selectDesktop(page, from);
+    await page.evaluate(() => {
+      window.__nativeFetch = window.fetch;
+      window.__sendReplies = [];
+      window.fetch = (...args) => {
+        if (!new URL(String(args[0]), location.href).pathname.endsWith("/send")) return window.__nativeFetch(...args);
+        return new Promise(resolve => window.__sendReplies.push((status = 200) => resolve(new Response("", { status }))));
+      };
+    });
+    await page.focus(SEL);
+    const composing = await page.$eval(SEL, field => {
+      const event = new KeyboardEvent("keydown", {
+        key: "Enter", isComposing: true, bubbles: true, cancelable: true,
+      });
+      field.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+    assert.equal(composing, false, "desktop claimed an IME composition Enter");
+    assert.equal(await page.evaluate(() => window.__sendReplies.length), 0);
+    await page.keyboard.type("single Enter stays");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => window.__sendReplies.length === 1);
+    assert.equal(await page.$eval(SEL, field => field.value), "",
+      "the pending desktop send did not leave an empty row for the second Enter");
+    await page.evaluate(() => window.__sendReplies.shift()());
+    await settle(800);
+    assert.equal(await shownId(page), from, "one desktop Enter moved after delivery");
+
+    await page.focus(SEL);
+    await page.keyboard.type("double Enter moves later");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => window.__sendReplies.length === 1);
+    assert.equal(await shownId(page), from, "desktop moved before the held response arrived");
+    await page.evaluate(() => window.__sendReplies.shift()());
+    await page.waitForFunction(id => selectedId === id, { timeout: 3000 }, waiting);
+
+    await selectDesktop(page, from);
+    await page.focus(SEL);
+    await page.keyboard.type("manual selection cancels the move");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => window.__sendReplies.length === 1);
+    await selectDesktop(page, waiting);
+    await page.evaluate(() => window.__sendReplies.shift()());
+    await settle(80);
+    assert.equal(await shownId(page), waiting,
+      "a delayed desktop confirmation stole a manual selection");
+
+    await selectDesktop(page, from);
+    await page.focus(SEL);
+    await page.keyboard.type("desktop failure remains visible");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => window.__sendReplies.length === 1);
+    await page.$eval(SEL, field => {
+      field.value = "newer draft\n";
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await page.evaluate(() => window.__sendReplies.shift()(500));
+    await page.waitForFunction(id => els[id].metaNote.textContent.includes("send failed"), { timeout: 3000 }, from);
+    assert.equal(await shownId(page), from);
+    assert.equal(await page.$eval(SEL, field => field.value),
+      "newer draft\n\ndesktop failure remains visible",
+      "restoring a failed send changed or replaced text typed while it was pending");
+
+    await page.$eval(SEL, field => {
+      field.value = "the send button still moves";
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await page.evaluate(() => document.querySelector("article.box.sel .sendbtn").click());
+    await page.waitForFunction(() => window.__sendReplies.length === 1);
+    assert.equal(await shownId(page), from, "the send button moved before delivery");
+    await page.evaluate(() => window.__sendReplies.shift()());
+    await page.waitForFunction(id => selectedId === id, { timeout: 3000 }, waiting);
+    assert.deepEqual(problems.filter(problem => !/status of 500/.test(problem)), []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("phone plain arrows keep editor cursors and walk cards only without modifiers", async () => {
   await clearLane();
   const first = await create("Arrows on the phone");
   await api(`/reply?box=${first}`, "A reply to answer.");
@@ -525,12 +719,33 @@ test("a plain arrow belongs to the caret, and walks no card", async () => {
     assert.equal(typed.caret, 3, "the arrow did not move the caret in the row");
     assert.equal(typed.id, `box-${first}`, "a plain arrow walked the cards while he was typing");
 
-    // and with the row let go of, a bare arrow still walks nothing: the cards
-    // are walked by the pairs above and by the list, never by an arrow alone
+    const order = await page.evaluate(() => navigationPool(lastState).map(box => box.id));
+    const start = order.indexOf(first);
     await page.evaluate(() => document.activeElement.blur());
     await page.keyboard.press("ArrowRight");
     await settle(120);
-    assert.equal(await shownId(page), first, "a bare arrow walked the cards");
+    const next = order[(start + 1) % order.length];
+    assert.equal(await shownId(page), next, "a bare arrow did not walk the cards");
+
+    for (const modifier of ["Alt", "Control", "Meta", "Shift"]){
+      await chord(page, "ArrowLeft", modifier);
+      assert.equal(await shownId(page), next, `${modifier} and arrow was mistaken for a plain arrow`);
+    }
+
+    const descendant = await page.evaluate(() => {
+      const title = document.querySelector("article.box.sel .title");
+      title.setAttribute("contenteditable", "true");
+      const child = document.createElement("span");
+      child.textContent = "nested editor target";
+      title.textContent = "";
+      title.appendChild(child);
+      const event = new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true });
+      child.dispatchEvent(event);
+      title.removeAttribute("contenteditable");
+      return { prevented: event.defaultPrevented, selectedId };
+    });
+    assert.deepEqual(descendant, { prevented: false, selectedId: next },
+      "an editor descendant lost its native plain arrow");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
@@ -568,10 +783,29 @@ test("desktop aliases walk the visible cards and preserve their focus rules", as
 
     await page.evaluate(() => document.activeElement.blur());
     await page.keyboard.press("ArrowRight");
-    assert.equal(await shownId(page), order[(start + 1) % order.length],
+    const plainDestination = order[(start + 1) % order.length];
+    assert.equal(await shownId(page), plainDestination,
       "the desktop-only plain-arrow fallback stopped walking cards");
     assert.equal((await activeElement(page)).tag, "BODY",
       "the desktop fallback unexpectedly focused a composer");
+    for (const modifier of ["Alt", "Control", "Meta", "Shift"]){
+      await chord(page, "ArrowLeft", modifier);
+      assert.equal(await shownId(page), plainDestination,
+        `${modifier} and arrow was mistaken for a desktop plain arrow`);
+    }
+    const descendant = await page.evaluate(() => {
+      const host = document.createElement("div");
+      host.setAttribute("contenteditable", "true");
+      const child = document.createElement("span");
+      host.appendChild(child);
+      document.body.appendChild(host);
+      const event = new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true });
+      child.dispatchEvent(event);
+      host.remove();
+      return { prevented: event.defaultPrevented, selectedId };
+    });
+    assert.deepEqual(descendant, { prevented: false, selectedId: plainDestination },
+      "a desktop editor descendant lost its native plain arrow");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
@@ -667,6 +901,7 @@ test("desktop send-return preserves drafts and missing targets leave undo native
     await page.focus(SEL);
     await page.keyboard.type("sent from desktop");
     const sent = page.waitForResponse(response => new URL(response.url()).pathname === "/send");
+    await page.keyboard.press("Enter");
     await page.keyboard.press("Enter");
     assert.equal((await sent).status(), 200);
     await page.waitForFunction(id => selectedId === id, { timeout: 3000 }, waiting);

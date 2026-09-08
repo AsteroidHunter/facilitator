@@ -3419,6 +3419,7 @@ function setTab(owner){
 // clear the selection entirely: without this, a lane with no cards kept
 // rendering the previously selected card from another lane
 function deselect(){
+  cancelAutoNext();
   selectedId = null; shownId = null; localStorage.removeItem("selbox");
   for (const k of Object.keys(els)){
     els[k].box.classList.remove("sel");
@@ -4578,7 +4579,7 @@ function makeBox(b, i, state){
       e.preventDefault(); ta.classList.remove("dropping");
       await attach([...(e.dataTransfer?.files || [])], ta);
     });
-    ta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); doSend(b.id); } });
+    ta.addEventListener("keydown", e => composerEnter(e, b.id));
     // both controls swallow the press while the box has the focus, the way the
     // chat bar does it, so the caret never leaves the words
     send.addEventListener("pointerdown", e => { if (document.activeElement === ta) e.preventDefault(); });
@@ -4702,12 +4703,76 @@ function landFocus(){
 // focus back to the composer, is switched on here
 keyboardTitle = true;
 
-// after a send, three quiet seconds moves you on; any typing or a manual
-// card switch cancels the jump
+// The send button keeps the existing confirmed-send move. Enter has its own
+// explicit gesture: the first press sends and stays, and a separate second
+// press inside this window asks to move after the send is confirmed.
 let autoNext = null;
 const AUTONEXT_MS = 0;   // future user setting: quiet time after a send before moving on
+const ENTER_AGAIN_MS = 700;
 let lastLeftId = null;   // the card the last auto-jump left, for command+z bounce
-function cancelAutoNext(){ clearTimeout(autoNext); autoNext = null; }
+let enterAgain = null;   // transient by design; a reload never revives a move
+function enterViewKey(id){
+  const ws = lastState && curWs(lastState);
+  return [id, activeOwner, ticketView, ws ? ws.id : ""].join("|");
+}
+function clearEnterAgain(intent = enterAgain){
+  if (!intent) return;
+  clearTimeout(intent.timer);
+  intent.active = false;
+  if (enterAgain === intent) enterAgain = null;
+}
+function cancelAutoNext(){
+  clearTimeout(autoNext); autoNext = null;
+  clearEnterAgain();
+}
+function scheduleDesktopAdvance(id, intent = null){
+  clearTimeout(autoNext);
+  autoNext = setTimeout(() => {
+    autoNext = null;
+    if (intent){
+      const valid = intent.active && enterAgain === intent && intent.advance &&
+        enterViewKey(id) === intent.view;
+      clearEnterAgain(intent);
+      if (!valid) return;
+    }
+    if (FOCUS && selectedId === id && jumpNextYellow(id, { focus: true })) lastLeftId = id;
+  }, AUTONEXT_MS);
+}
+function armEnterAgain(id){
+  cancelAutoNext();
+  const intent = {
+    id, view: enterViewKey(id), deadline: Date.now() + ENTER_AGAIN_MS,
+    delivered: false, advance: false, active: true, timer: null,
+  };
+  intent.timer = setTimeout(() => {
+    if (enterAgain === intent && !intent.advance) clearEnterAgain(intent);
+  }, ENTER_AGAIN_MS);
+  enterAgain = intent;
+  return intent;
+}
+function askEnterAdvance(id){
+  const intent = enterAgain;
+  if (!intent || !intent.active || intent.id !== id || enterViewKey(id) !== intent.view) return false;
+  if (intent.advance) return true;
+  if (Date.now() > intent.deadline) return false;
+  intent.advance = true;
+  clearTimeout(intent.timer);
+  if (intent.delivered) scheduleDesktopAdvance(id, intent);
+  return true;
+}
+function composerEnter(e, id){
+  if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
+  e.preventDefault();
+  if (e.repeat) return;
+  const el = els[id];
+  if (!el) return;
+  if (!el.ta.value.trim()){
+    if (!askEnterAdvance(id)) cancelAutoNext();
+    return;
+  }
+  const intent = armEnterAgain(id);
+  doSend(id, { advance: false, clearNow: true, enterIntent: intent });
+}
 
 // jumpNextYellow and stampText live in card-logic.js, shared with the phone page
 
@@ -4724,17 +4789,24 @@ function undone(id){
     .then(() => poll()).catch(() => {});
 }
 
-async function doSend(id){
+async function doSend(id, opts){
+  opts = opts || {};
   const el = els[id];
   const text = el.ta.value.trim();
   if (!text) return;
   const reopen = boxDone(id);   // before the send; the poll below clears the flag
+  if (opts.clearNow){
+    el.ta.value = "";
+    el.tick();
+  }
   el.send.disabled = true;
   try {
     const r = await fetch("/send?box=" + encodeURIComponent(id), { method: "POST", body: text });
     if (!r.ok) throw new Error(r.status);
-    el.ta.value = "";   // clear only after the server has it
-    el.tick();          // the square goes with the words, and the row falls back to one line
+    if (!opts.clearNow){
+      el.ta.value = "";   // the send button clears only after the server has it
+      el.tick();           // the square goes with the words, and the row falls back to one line
+    }
     // the line lands in the box now and not a poll later. the first send builds
     // the box, folded, and every send after it drops a line into the box that
     // already stands, folded or open as he last left it: a send never touches
@@ -4753,12 +4825,22 @@ async function doSend(id){
     if (hist && hist.id === id) histExit(id);   // a send lands you back on the live reply
     if (reopen) undone(id);   // the message is in; the flip rides behind it
     poll();
-    cancelAutoNext();
-    autoNext = setTimeout(() => {
-      autoNext = null;
-      if (FOCUS && jumpNextYellow(id, { focus: true })) lastLeftId = id;
-    }, AUTONEXT_MS);
+    if (opts.enterIntent){
+      opts.enterIntent.delivered = true;
+      if (opts.enterIntent.active && opts.enterIntent.advance)
+        scheduleDesktopAdvance(id, opts.enterIntent);
+    } else if (opts.advance !== false){
+      cancelAutoNext();
+      scheduleDesktopAdvance(id);
+    }
   } catch (err) {
+    if (opts.enterIntent) clearEnterAgain(opts.enterIntent);
+    if (opts.clearNow){
+      const newerDraft = el.ta.value;
+      el.ta.value = newerDraft
+        ? newerDraft + (newerDraft.endsWith("\n") ? "\n" : "\n\n") + text : text;
+      el.tick();
+    }
     el.metaNote.textContent = "send failed, text kept — try again";
   } finally {
     el.send.disabled = false;
@@ -4973,7 +5055,10 @@ function renderWorkspaces(state){
   el.textContent = "";
   for (const w of list){
     const r = h("div", "wsrow" + (cur && w.id === cur.id ? " on" : ""), w.name);
-    r.addEventListener("click", () => { selectedWs = w.id; selectedTask = taskFilter = null; apply(lastState); });
+    r.addEventListener("click", () => {
+      cancelAutoNext();
+      selectedWs = w.id; selectedTask = taskFilter = null; apply(lastState);
+    });
     el.appendChild(r);
   }
 }
@@ -7268,23 +7353,21 @@ const miniShortcutActions = {
   },
   navigate(e, shortcut){
     const t = document.activeElement;
-    const typing = t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable);
+    const typing = cardShortcutEditing(t);
     e.preventDefault(); e.stopPropagation();
     miniStep(shortcut.value, { focus: typing });
+  },
+  plainNavigate(e, shortcut){
+    if (cardShortcutEditing(e.target)) return;
+    e.preventDefault(); e.stopPropagation();
+    miniStep(shortcut.value);
   },
 };
 
 // capture, so the mini subset never reaches the board's own handling
 addEventListener("keydown", e => {
   if (!miniFocused) return;
-  if (dispatchCardShortcut(e, miniShortcutActions, "mini")) return;
-  const t = document.activeElement;
-  const typing = t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable);
-  if (typing) return;   // plain arrows belong to the caret while typing
-  if (e.key === "ArrowLeft" || e.key === "ArrowRight"){
-    e.preventDefault(); e.stopPropagation();
-    miniStep(e.key === "ArrowRight" ? 1 : -1, { focus: typing });
-  }
+  dispatchCardShortcut(e, miniShortcutActions, "mini");
 }, true);
 
 function renderMiniCards(state){
@@ -7606,12 +7689,16 @@ async function poll(){
 
 // the grid compass: arrow keys when not typing (Esc leaves the input), and
 // the quiet on-page arrows
-const boardShortcutTyping = t => !!t &&
-  (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable);
+const boardShortcutTyping = cardShortcutEditing;
 const boardShortcutActions = {
   navigate(e, shortcut){
     e.preventDefault();
     nav(shortcut.value, 0, { focus: true });
+  },
+  plainNavigate(e, shortcut){
+    if (boardShortcutTyping(e.target)) return;
+    e.preventDefault();
+    nav(shortcut.value, 0);
   },
   history(e, shortcut){
     e.preventDefault();
@@ -7655,15 +7742,11 @@ const boardShortcutActions = {
 
 addEventListener("keydown", e => {
   if (!FOCUS) return;
-  if (dispatchCardShortcut(e, boardShortcutActions)) return;
-  if (boardShortcutTyping(e.target)) return;
-  // the arrow key resize is gone, taken out on 20260822. boxes are
-  // still resized by the small squares in edit mode and moved by dragging
-  const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[e.key];   // up/down freed; cmd+number switches projects
-  if (d){ e.preventDefault(); nav(d[0], d[1]); }
+  dispatchCardShortcut(e, boardShortcutActions);
 });
 {
   const setView = v => {
+    cancelAutoNext();
     ticketView = v;
     document.getElementById("tv-todo").classList.toggle("on", v === "todo");
     document.getElementById("tv-deferred").classList.toggle("on", v === "deferred");

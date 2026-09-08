@@ -50,6 +50,10 @@ test("card navigation aliases resolve to one action and direction", async () => 
     { action: "navigate", value: -1 });
   assert.deepEqual(plain(resolve(event("}", { metaKey: true, ctrlKey: true, shiftKey: true, altKey: true }))),
     { action: "navigate", value: 1 });
+  assert.deepEqual(plain(resolve(event("ArrowLeft"))),
+    { action: "plainNavigate", value: -1 });
+  assert.deepEqual(plain(resolve(event("ArrowRight"))),
+    { action: "plainNavigate", value: 1 });
 });
 
 test("history, return, creation and tabs keep their modifier rules", async () => {
@@ -74,15 +78,19 @@ test("mini scope exposes only its established command subset", async () => {
     { action: "navigate", value: 1 });
   assert.deepEqual(plain(resolve(event("T", { metaKey: true }), "mini")),
     { action: "create", value: true });
+  assert.deepEqual(plain(resolve(event("ArrowLeft"), "mini")),
+    { action: "plainNavigate", value: -1 });
   assert.equal(resolve(event("]", { metaKey: true, shiftKey: true }), "mini"), null);
   assert.equal(resolve(event("ArrowUp", { ctrlKey: true, shiftKey: true }), "mini"), null);
   assert.equal(resolve(event("2", { metaKey: true }), "mini"), null);
   assert.equal(resolve(event("t", { metaKey: true }), "unknown"), null);
 });
 
-test("native combinations remain outside common recognition", async () => {
+test("modified native combinations remain outside common recognition", async () => {
   const { resolve } = await shortcuts();
-  assert.equal(resolve(event("ArrowLeft")), null);
+  assert.equal(resolve(event("ArrowLeft", { altKey: true })), null);
+  assert.equal(resolve(event("ArrowRight", { ctrlKey: true })), null);
+  assert.equal(resolve(event("ArrowRight", { shiftKey: true })), null);
   assert.equal(resolve(event("ArrowLeft", { metaKey: true, shiftKey: true })), null);
   assert.equal(resolve(event("ArrowRight", { ctrlKey: true, metaKey: true, shiftKey: true })), null);
   assert.equal(resolve(event("z", { metaKey: true, shiftKey: true })), null);
