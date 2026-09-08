@@ -7,6 +7,7 @@ const { after, before, test } = require("node:test");
 const { execFileSync, spawn } = require("node:child_process");
 const { once } = require("node:events");
 const { createServer } = require("node:http");
+const { createECDH, randomBytes } = require("node:crypto");
 const { chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
@@ -33,6 +34,12 @@ let pythonExecutable;
 let dropBridgeWhenPushed = "";
 
 const CONNECTED = { BackendState: "Running" };
+const receiver = createECDH("prime256v1");
+receiver.generateKeys();
+const receiverKeys = {
+  p256dh: b64url(receiver.getPublicKey()),
+  auth: b64url(randomBytes(16)),
+};
 
 function servesBoard(targetPort = port, mount = "/") {
   return {
@@ -162,6 +169,20 @@ async function verifyVapid(header, expectedKey) {
   assert.match(verdict, /Verified OK/);
 }
 
+function decryptPush(push) {
+  const script = [
+    "import base64,json,sys,http_ece",
+    "from cryptography.hazmat.primitives.asymmetric import ec",
+    "dec=lambda s: base64.urlsafe_b64decode(s + '=' * (-len(s) % 4))",
+    "private=ec.derive_private_key(int.from_bytes(dec(sys.argv[1])), ec.SECP256R1())",
+    "plain=http_ece.decrypt(dec(sys.argv[3]), private_key=private, auth_secret=dec(sys.argv[2]), version='aes128gcm')",
+    "print(plain.decode())",
+  ].join(";");
+  const plain = execFileSync(pythonExecutable, ["-c", script,
+    b64url(receiver.getPrivateKey()), receiverKeys.auth, b64url(push.body)], { encoding: "utf8" });
+  return JSON.parse(plain);
+}
+
 // the board itself, started and stopped: one test needs the start line the next
 // boot writes, so the fixture has to be able to come back up
 async function startServer() {
@@ -258,7 +279,8 @@ before(async () => {
   await mkdir(fixtureDir);
   binDir = path.join(outer, "bin");
   await mkdir(binDir);
-  pythonExecutable = execFileSync("python3", ["-c", "import sys; print(sys.executable)"], { encoding: "utf8" }).trim();
+  pythonExecutable = process.env.FACILITATOR_TEST_PYTHON ||
+    execFileSync("python3", ["-c", "import sys; print(sys.executable)"], { encoding: "utf8" }).trim();
   const openssl = execFileSync(pythonExecutable,
     ["-c", "import shutil; print(shutil.which('openssl') or '')"], { encoding: "utf8" }).trim();
   assert.ok(openssl, "openssl is unavailable");
@@ -287,9 +309,10 @@ before(async () => {
   await setTailscale(CONNECTED, {});
 
   pushService = createServer((req, res) => {
-    let body = "";
-    req.on("data", chunk => { body += chunk; });
+    const chunks = [];
+    req.on("data", chunk => { chunks.push(chunk); });
     req.on("end", async () => {
+      const body = Buffer.concat(chunks);
       pushes.push({ path: req.url, headers: req.headers, body });
       if (req.url === dropBridgeWhenPushed) {
         dropBridgeWhenPushed = "";
@@ -343,7 +366,7 @@ test("subscriptions are stored one per endpoint and bad ones refused", async () 
   assert.equal((await post("/push/subscribe", "not json")).status, 400);
   assert.equal((await post("/push/subscribe", JSON.stringify({ endpoint: "ftp://x" }))).status, 400);
   assert.equal((await post("/push/subscribe", JSON.stringify({ keys: {} }))).status, 400);
-  const sub = { endpoint: pushOrigin + "/ok/one", expirationTime: null, keys: { p256dh: "abc", auth: "def" } };
+  const sub = { endpoint: pushOrigin + "/ok/one", expirationTime: null, keys: receiverKeys };
   let result = await post("/push/subscribe", JSON.stringify(sub));
   assert.deepEqual(result, { status: 200, body: { ok: true, count: 1 } });
   result = await post("/push/subscribe", JSON.stringify(sub));
@@ -444,7 +467,7 @@ test("missing, disconnected, failed, timed out, and malformed bridge status all 
   await noPushWithin(200);
 });
 
-test("a plain reply with no live working flag sends one signed, payload-less push", async () => {
+test("a plain reply sends one signed, encrypted push containing its card identity", async () => {
   const id = await create("Push on reply");
   const before = pushes.length;
   assert.equal((await post(`/reply?box=${id}`, "Here is the answer")).status, 200);
@@ -452,14 +475,30 @@ test("a plain reply with no live working flag sends one signed, payload-less pus
   assert.equal(pushes.length, before + 1, "more than one push for one hand-over");
   const push = pushes[before];
   assert.equal(push.path, "/ok/one");
-  assert.equal(push.body, "", "a payload was sent");
-  assert.equal(push.headers["content-length"], "0");
+  assert.ok(push.body.length > 0, "the card payload was not sent");
+  assert.equal(Number(push.headers["content-length"]), push.body.length);
+  assert.equal(push.headers["content-encoding"], "aes128gcm");
+  assert.deepEqual(decryptPush(push), { box: id, title: "Push on reply" });
   assert.ok(Number(push.headers.ttl) > 0, "no TTL header");
   await verifyVapid(push.headers.authorization, publicKey);
   const state = (await api("/state")).body;
   const card = state.boxes.find(b => b.id === id);
   assert.ok(card.turnTs > 0, "turnTs was not stamped");
   assert.equal(card.ball, "you");
+});
+
+test("two quick turns carry independent card ids and titles", async () => {
+  const first = await create("First distinct notification");
+  const second = await create("Second distinct notification");
+  const before = pushes.length;
+  assert.equal((await post(`/reply?box=${first}`, "first answer")).status, 200);
+  assert.equal((await post(`/reply?box=${second}`, "second answer")).status, 200);
+  await pushesAfter(before + 2);
+  const payloads = pushes.slice(before, before + 2).map(decryptPush);
+  assert.deepEqual(payloads.sort((a, b) => a.box.localeCompare(b.box)), [
+    { box: first, title: "First distinct notification" },
+    { box: second, title: "Second distinct notification" },
+  ].sort((a, b) => a.box.localeCompare(b.box)));
 });
 
 test("a note and a progress note never push", async () => {
@@ -512,7 +551,7 @@ test("a working flag expiring while a reply waits hands the turn over with one p
 });
 
 test("a subscription the push service reports gone is dropped", async () => {
-  const gone = { endpoint: pushOrigin + "/gone/two", keys: { p256dh: "x", auth: "y" } };
+  const gone = { endpoint: pushOrigin + "/gone/two", keys: receiverKeys };
   assert.equal((await post("/push/subscribe", JSON.stringify(gone))).body.count, 2);
   const id = await create("Push to a gone phone");
   const before = pushes.length;
@@ -535,7 +574,7 @@ test("a subscription the push service reports gone is dropped", async () => {
 // and thrown away. These are about the line that replaces that one.
 
 test("a service that refuses says why in its own words, cut and never dropped", async () => {
-  const refusing = { endpoint: pushOrigin + "/refused/three", keys: { p256dh: "a", auth: "b" } };
+  const refusing = { endpoint: pushOrigin + "/refused/three", keys: receiverKeys };
   assert.equal((await post("/push/subscribe", JSON.stringify(refusing))).status, 200);
   const before = (await events()).filter(e => e.kind === "push").length;
   const id = await create("A push the service refuses");
@@ -555,7 +594,7 @@ test("a service that refuses says why in its own words, cut and never dropped", 
 test("a service that cannot be reached at all is written down as unreachable", async () => {
   const dead = `http://127.0.0.1:${await freePort()}/nobody/home`;
   assert.equal((await post("/push/subscribe", JSON.stringify({
-    endpoint: dead, keys: { p256dh: "a", auth: "b" },
+    endpoint: dead, keys: receiverKeys,
   }))).status, 200);
   const before = (await events()).filter(e => e.kind === "push").length;
   const id = await create("A push nobody answers");
@@ -580,6 +619,7 @@ test("a push that works is remembered, and the next start line names it", async 
   assert.ok(remembered.ts > Date.now() / 1000 - 600, "the moment recorded is not this run's");
 
   await stopServer();
+  remembered = (await stateFile()).push_last_ok;
   await startServer();
   const started = (await events()).filter(event => event.kind === "start").at(-1);
   assert.equal(started.push_host, remembered.host);

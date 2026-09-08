@@ -54,24 +54,19 @@ self.addEventListener("fetch", event => {
   })());
 });
 
-// A push carries no payload. The worker reads the board itself, through the
-// phone's own short reading of it, and names the card that most recently
-// turned to the owner's turn: the server stamps turnTs on a card each time it
-// hands the turn over, so the newest stamp is the card the push was about.
-// Something is always shown, because a push that shows nothing is treated as
-// a fault by the browser, and the reading is given a deadline so a board that
-// is not answering cannot hold the worker open.
+// Each push carries the card that caused it. Keeping that identity in the
+// event means two delayed pushes cannot both turn into whichever card happens
+// to be newest when the worker wakes. Old or malformed pushes still show a
+// generic notification so the browser sees the event was handled.
 self.addEventListener("push", event => {
   event.waitUntil((async () => {
     let title = "facilitator";
     let box = "";
     try {
-      const state = await (await bounded("/m/state", PUSH_DEADLINE_MS)).json();
-      const yours = (state.boxes || []).filter(b => b.ball === "you" && b.turnTs > 0);
-      yours.sort((a, b) => b.turnTs - a.turnTs);
-      if (yours.length) {
-        title = yours[0].title || title;
-        box = yours[0].id;
+      const data = event.data?.json();
+      if (data && typeof data.box === "string" && typeof data.title === "string") {
+        title = data.title || title;
+        box = data.box;
       }
     } catch (error) {}
     await self.registration.showNotification(title, {
@@ -89,9 +84,8 @@ self.addEventListener("notificationclick", event => {
     const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     for (const client of windows) {
       if (new URL(client.url).pathname !== "/m") continue;
-      await client.focus();
-      client.postMessage({ box });
-      return;
+      try { await client.focus(); } catch (error) {}
+      try { client.postMessage({ box }); return; } catch (error) {}
     }
     await self.clients.openWindow(target);
   })());

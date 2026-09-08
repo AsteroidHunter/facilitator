@@ -1,10 +1,9 @@
-# The server's libraries: uvicorn speaks HTTP and starlette routes the
-# requests. Everything else the board uses is the Python standard library.
-# Install once, beside server.py:
+# The server's libraries: uvicorn speaks HTTP, starlette routes requests, and
+# http-ece encrypts each Web Push payload. Install once, beside server.py:
 #
-#     python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+#     uv venv .venv && uv pip sync --python .venv/bin/python requirements.txt
 #
-# Every version is pinned, the two libraries and what they pull in, so two
+# Every version is pinned, the direct libraries and what they pull in, so two
 # installs are the same install.
 uvicorn==0.52.4
 starlette==1.6.0
@@ -13,3 +12,7 @@ h11==0.16.0
 click==8.5.0
 idna==3.19
 typing_extensions==4.16.0
+http-ece==1.2.1
+cryptography==50.0.1
+cffi==2.1.1
+pycparser==3.0

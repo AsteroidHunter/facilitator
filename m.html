@@ -1610,10 +1610,11 @@ function validateOwners(state){
 function goToBox(id){
   if (!lastState) { wantBox = id; return; }
   const b = lastState.boxes.find(x => x.id === id);
-  if (!b) return;
+  if (!b) { wantBox = id; lastRev = null; return; }
   if (b.owner !== activeOwner && validOwners.has(b.owner)){
     activeOwner = b.owner; localStorage.setItem("activeproj", b.owner);
   }
+  wantBox = null;
   select(id);
   apply(lastState);
 }
@@ -1722,9 +1723,9 @@ async function readBoard(){
         lastState = state;
         lastRev = data.rev;
         if (wantBox){
-          const want = wantBox; wantBox = null;
+          const want = wantBox;
           const b = state.boxes.find(x => x.id === want);
-          if (b && validOwners.has(b.owner)){ activeOwner = b.owner; localStorage.setItem("activeproj", b.owner); selectedId = want; }
+          if (b && validOwners.has(b.owner)){ wantBox = null; activeOwner = b.owner; localStorage.setItem("activeproj", b.owner); selectedId = want; }
         }
         apply(state);
       } else if (lastState){
