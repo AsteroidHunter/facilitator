@@ -47,8 +47,6 @@
     --drawer-tap:cubic-bezier(.445,.05,.55,.95);
     --drawer-drag:cubic-bezier(.215,.61,.355,1);
     --drawer-curve:var(--drawer-tap);
-    /* how far a menu rises into place while it crosses the page */
-    --panel-rise:20px;
   }
   *{box-sizing:border-box}
   html{height:100%; -webkit-text-size-adjust:100%}
@@ -423,9 +421,12 @@
     opacity:var(--scrimv, 0); pointer-events:none; z-index:19;
     transition:opacity var(--drawer-ms) var(--drawer-curve)}
   body.menuout #scrim{pointer-events:auto}
-  /* both menus cross over the page from their own edge. the existing depth
-     motion stays with them: each rises the last 20px into place, comes up from
-     four tenths of its strength, and casts its edge shade onto the page */
+  /* both menus cross over the page from their own edge along one straight
+     sideways line, at full strength for every frame of it: nothing about them
+     rises, sinks or fades. the depth is carried by the shade alone, which grows
+     from nothing to its full weight as the menu comes out and back to nothing as
+     it leaves, so the menu reads as lifting off the page and settling back onto
+     it while its own picture holds its line */
   /* the one being shown is the only one visible. it is taken away for as long
      as the run that puts it back: no wait on the way in, and the whole run on
      the way out, so it disappears only once it has finished leaving */
@@ -434,22 +435,41 @@
     background:#fff;
     display:flex; flex-direction:column;
     padding-top:env(safe-area-inset-top, 0px); padding-bottom:env(safe-area-inset-bottom, 0px);
-    transform:translate(var(--shift), var(--rise, var(--panel-rise)));
-    opacity:var(--panelv, .4);
+    transform:translateX(var(--shift));
+    opacity:1;
     visibility:hidden; --menuwait:var(--drawer-ms);
     transition:transform var(--drawer-ms) var(--drawer-curve),
-               opacity var(--drawer-ms) var(--drawer-curve),
                visibility 0s linear var(--menuwait);
   }
+  /* the shade lies on a layer of its own, over the page and past the menu's
+     outer edge, so its weight can change without the menu being drawn again.
+     it is the pair a raised card casts: a close one under the edge and a wide
+     soft one beyond it. --panel-depth is how far out the menu is, written by
+     the script, and it is the whole of the depth */
+  #drawer::after, #settings::after{
+    content:""; position:absolute; top:0; bottom:0; pointer-events:none;
+    border-radius:inherit; opacity:var(--panel-depth, 0);
+    transition:opacity var(--drawer-ms) var(--drawer-curve);
+  }
+  /* while a menu is on show its shade gets its own layer, so a finger changing
+     the shade frame by frame never asks for the menu to be drawn again */
+  #drawer.live::after, #settings.live::after{will-change:opacity}
   #drawer.live, #settings.live{visibility:visible; --menuwait:0s}
   /* the two exposed corners are a little rounder than the board's small inset
-     panels. the two at the screen edge stay square */
+     panels. the two at the screen edge stay square. each shade layer is pulled
+     the 1px out that the menu's own edge line takes, so the shade starts exactly
+     where the menu ends */
   #drawer{--shift:-100%; left:0; border-right:1px solid var(--line);
-    border-radius:0 12px 12px 0; box-shadow:4px 0 12px rgba(0,0,0,.15)}
+    border-radius:0 12px 12px 0}
+  #drawer::after{left:0; right:-1px;
+    box-shadow:2px 0 6px rgba(0,0,0,.10), 10px 0 26px rgba(0,0,0,.20)}
   #settings{--shift:100%; right:0; border-left:1px solid var(--line);
-    border-radius:12px 0 0 12px; box-shadow:-4px 0 12px rgba(0,0,0,.15)}
+    border-radius:12px 0 0 12px}
+  #settings::after{left:-1px; right:0;
+    box-shadow:-2px 0 6px rgba(0,0,0,.10), -10px 0 26px rgba(0,0,0,.20)}
   /* a finger is followed frame by frame, so the moving layers are not timed */
-  body.menudrag #scrim, body.menudrag #drawer, body.menudrag #settings{transition:none}
+  body.menudrag #scrim, body.menudrag #drawer, body.menudrag #settings,
+  body.menudrag #drawer::after, body.menudrag #settings::after{transition:none}
   #tikhead{flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 8px 0; border-bottom:1px solid var(--line)}
   .tvb{flex:1; font:500 13px/16px var(--sans); color:var(--sub); background:transparent;
     border:1px solid transparent; border-bottom:none; border-radius:0;
@@ -518,7 +538,11 @@
   #notifynote:empty{display:none}
 
   /* card prose, the .cardmd rules, is shared with the desktop: card-tokens.css */
-  @media (prefers-reduced-motion: reduce){ *{animation:none !important; transition:none !important} }
+  /* the star on its own does not reach a ::before or a ::after, and layers like
+     the menus' shade live on those, so they are named here too */
+  @media (prefers-reduced-motion: reduce){
+    *, *::before, *::after{animation:none !important; transition:none !important}
+  }
 </style>
 <link rel="stylesheet" href="/card-tokens.css">
 </head>
@@ -1426,9 +1450,11 @@ document.getElementById("tikadd").addEventListener("click", createCard);
 // ---- the two menus, and the one motion they share --------------------------------
 // the card list is pulled over the page from the left edge and settings from the
 // right. the page stays fixed. one number, the fraction the menu is out by,
-// drives its horizontal travel, its existing lift and strength, and the shade
-// over the page. the run is 550ms, on an ease in and out when begun by a tap and
-// an ease out when a drag lets go part way. a release past halfway opens
+// drives its sideways travel, the weight of the shade it casts, and the shade
+// over the page. the menu holds one line and full strength throughout; the only
+// thing that grows is the depth under it. the run is 550ms, on an ease in and
+// out when begun by a tap and an ease out when a drag lets go part way. a
+// release past halfway opens
 const page = document.getElementById("page");
 const drawer = document.getElementById("drawer");
 const settings = document.getElementById("settings");
@@ -1437,13 +1463,16 @@ const menus = [drawer, settings];   // the left one first: the drag reads the si
 function menuWidth(panel){ return panel.getBoundingClientRect().width; }
 function menuSign(panel){ return panel.dataset.side === "right" ? -1 : 1; }   // direction the panel enters
 function menuOut(){ return menus.find(p => p.classList.contains("open")) || null; }
-// the one number, painted onto the shade and the menu
+// the one number, painted onto the shade and the menu. the travel is written as
+// a share of the menu's own width, which is the same shape as the resting value
+// in the sheet: every one of the three is then a plain function of the fraction,
+// so a run turned back partway turns all three back together and on one clock,
+// and a turn of the phone can leave no stale offset behind
 function paintMenu(panel, v){
-  const w = menuWidth(panel), dir = menuSign(panel);
-  panel.style.setProperty("--shift", (dir * (v - 1) * w).toFixed(2) + "px");
+  const dir = menuSign(panel);
+  panel.style.setProperty("--shift", (dir * (v - 1) * 100).toFixed(3) + "%");
   page.style.setProperty("--scrimv", v ? v.toFixed(4) : "0");
-  panel.style.setProperty("--rise", "calc(var(--panel-rise) * " + (1 - v).toFixed(4) + ")");
-  panel.style.setProperty("--panelv", (0.4 + 0.6 * v).toFixed(4));
+  panel.style.setProperty("--panel-depth", v.toFixed(4));   // how far off the page it stands
   panel.classList.toggle("live", v > 0);   // and the other one is not on show at all
   document.body.classList.toggle("menuout", v > 0);
 }
