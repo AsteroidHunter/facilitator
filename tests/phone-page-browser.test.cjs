@@ -283,6 +283,132 @@ test("a warm notification target survives stale state and switches projects when
   }
 });
 
+test("phone navigation waits for send confirmation, respects manual moves, and stays in the selected workspace", async () => {
+  const { page, problems } = await openPhone("/m");
+  try {
+    const initial = await page.evaluate(() => {
+      clearTimeout(pollTimer); pollTimer = null;
+      const sample = lastState.boxes.find(box => box.owner === "facilitator");
+      const card = (id, title, ws, state, ball, agentTs, ts) => ({
+        ...sample, id, title, ws, state, ball, agentTs, ts,
+        done: false, parked: false, writing: false, bg: false, pending: 0,
+        pendingTexts: [], pendingStamps: [], replies: 1, reply: title, replyFull: title,
+      });
+      lastState.boxes = lastState.boxes.filter(box => box.owner !== "facilitator").concat([
+        card("nav-a", "Selected newest", "ws-a", "yours", "you", 300, 300),
+        card("nav-b", "Oldest awaiting", "ws-a", "yours", "you", 100, 100),
+        card("nav-c", "Other workspace", "ws-b", "yours", "you", 200, 200),
+        card("nav-d", "Queued", "ws-a", "queued", "me", 50, 250),
+        card("nav-e", "Equal tie", "ws-a", "yours", "you", 100, 90),
+      ]);
+      activeOwner = "facilitator"; ticketView = "todo"; apply(lastState); select("nav-a");
+      return { drawer: viewPool(lastState).map(box => box.id), navigation: navigationPool(lastState).map(box => box.id) };
+    });
+    assert.deepEqual(initial.navigation, ["nav-a", "nav-b", "nav-e", "nav-d"],
+      "the selected workspace, comparator, and stable tie were not the laptop sequence");
+    assert.deepEqual(initial.drawer, ["nav-a", "nav-c", "nav-b", "nav-e", "nav-d"],
+      "workspace navigation hid the rest of the lane from the drawer");
+
+    await page.keyboard.down("Control"); await page.keyboard.down("Shift");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.up("Shift"); await page.keyboard.up("Control");
+    assert.equal(await page.evaluate(() => selectedId), "nav-b",
+      "keyboard traversal entered another workspace or skipped list order");
+    await page.evaluate(() => select("nav-d"));
+    await page.keyboard.down("Control"); await page.keyboard.down("Shift");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.up("Shift"); await page.keyboard.up("Control");
+    assert.equal(await page.evaluate(() => selectedId), "nav-a", "workspace traversal did not wrap");
+
+    // A held response proves that local durable drawing no longer moves first.
+    await page.evaluate(() => {
+      select("nav-a");
+      window.__nativeFetch = window.fetch;
+      window.__sendReplies = [];
+      window.fetch = (...args) => {
+        if (!new URL(String(args[0]), location.href).pathname.endsWith("/send")) return window.__nativeFetch(...args);
+        return new Promise(resolve => window.__sendReplies.push((status = 200) => resolve(new Response(
+          JSON.stringify(status === 200 ? { ok: true, rev: lastRev } : { error: "fabricated refusal" }),
+          { status, headers: { "Content-Type": "application/json" } }))));
+      };
+      els["nav-a"].ta.value = "fabricated slow send";
+      doSend("nav-a");
+    });
+    await page.waitForFunction(() => window.__sendReplies.length === 1);
+    assert.deepEqual(await page.evaluate(() => ({ selectedId, local: localSends("nav-a").length })),
+      { selectedId: "nav-a", local: 1 });
+
+    // A deliberate move while confirmation is outstanding owns selection.
+    await page.evaluate(() => stepCard(1, false));
+    assert.equal(await page.evaluate(() => selectedId), "nav-b");
+    await page.evaluate(() => window.__sendReplies.shift()());
+    await page.waitForFunction(() => localSends("nav-a").length === 0);
+    await settle(50);
+    assert.equal(await page.evaluate(() => selectedId), "nav-b",
+      "a delayed successful receipt stole a later manual selection");
+
+    // With no intervening move, success advances to the oldest eligible card.
+    await page.evaluate(() => {
+      select("nav-a"); els["nav-a"].ta.value = "fabricated successful send"; doSend("nav-a");
+    });
+    await page.waitForFunction(() => window.__sendReplies.length === 1);
+    assert.equal(await page.evaluate(() => selectedId), "nav-a");
+    await page.evaluate(() => window.__sendReplies.shift()());
+    await page.waitForFunction(() => selectedId === "nav-b");
+
+    // Changing the visible status filter is also deliberate navigation and a
+    // late confirmation may not choose a card from the newly selected view.
+    await page.evaluate(() => {
+      lastState.boxes.push({ ...lastState.boxes.find(box => box.id === "nav-a"),
+        id: "nav-f", title: "Deferred destination", state: "parked", parked: true });
+      apply(lastState); select("nav-a");
+      els["nav-a"].ta.value = "fabricated send before filter change"; doSend("nav-a");
+    });
+    await page.waitForFunction(() => window.__sendReplies.length === 1);
+    await page.evaluate(() => setView("deferred"));
+    await page.evaluate(() => window.__sendReplies.shift()());
+    await page.waitForFunction(() => localSends("nav-a").length === 0);
+    await settle(50);
+    assert.equal(await page.evaluate(() => selectedId), "nav-a",
+      "a delayed confirmation stole selection after a filter change");
+    await page.evaluate(() => setView("todo"));
+
+    // A board refusal never advances and leaves the take-back safeguard intact.
+    await page.evaluate(() => {
+      select("nav-a"); els["nav-a"].ta.value = "fabricated refused send"; doSend("nav-a");
+    });
+    await page.waitForFunction(() => window.__sendReplies.length === 1);
+    await page.evaluate(() => window.__sendReplies.shift()(400));
+    await page.waitForFunction(() => localSends("nav-a").some(op => op.state === "failed"));
+    assert.equal(await page.evaluate(() => selectedId), "nav-a");
+    assert.match(await page.evaluate(() => els["nav-a"].pend.textContent), /not sent/i);
+
+    // A lost first response retries under the same operation id and advances only on recovery.
+    await page.evaluate(() => {
+      for (const op of [...localSends("nav-a")]) if (op.state === "failed") takeBack(op);
+      window.fetch = (...args) => {
+        if (!new URL(String(args[0]), location.href).pathname.endsWith("/send")) return window.__nativeFetch(...args);
+        window.__retryUrls = (window.__retryUrls || []).concat(String(args[0]));
+        window.__retryCount = (window.__retryCount || 0) + 1;
+        if (window.__retryCount === 1) return Promise.reject(new Error("fabricated offline"));
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, rev: lastRev }),
+          { status: 200, headers: { "Content-Type": "application/json" } }));
+      };
+      backoffMs = () => 0;
+      select("nav-a"); els["nav-a"].ta.value = "fabricated recovered send"; doSend("nav-a");
+    });
+    await page.waitForFunction(() => window.__retryCount >= 2 && selectedId === "nav-b");
+    assert.equal(await page.evaluate(() => localSends("nav-a").length), 0);
+    assert.equal(await page.evaluate(() => new URL(__retryUrls[0], location.href).searchParams.get("op")),
+      await page.evaluate(() => new URL(__retryUrls[1], location.href).searchParams.get("op")),
+      "the offline retry changed the durable operation id");
+
+    assert.deepEqual(problems.filter(problem => !/status of 400 \(Bad Request\)/.test(problem)), []);
+  } finally {
+    await page.close();
+  }
+});
+
 test("a pull from the left edge brings in the card list with the desktop's three groups", async () => {
   const parked = await create("Parked on the phone");
   await api(`/reply?box=${parked}`, "Parked reply");
@@ -502,6 +628,42 @@ test("the manifest, icons and service worker are served and the worker registers
     assert.equal(new URL(registration.scope).pathname, "/m");
     assert.equal(new URL(registration.script).pathname, "/m-sw.js");
     assert.equal(await page.evaluate(() => document.getElementById("notify").textContent), "Notifications");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("a replayed receipt after reload settles the durable send without moving cards", async () => {
+  const source = await create("Receipt source");
+  const destination = await create("Receipt destination");
+  assert.equal((await api(`/reply?box=${source}`, "Source answer")).status, 200);
+  assert.equal((await api(`/reply?box=${destination}`, "Destination answer")).status, 200);
+  const { page, problems } = await openPhone("/m");
+  try {
+    const kept = await page.evaluate(sourceId => {
+      select(sourceId);
+      const nativeFetch = window.fetch;
+      window.fetch = (...args) => new URL(String(args[0]), location.href).pathname.endsWith("/send")
+        ? Promise.reject(new Error("fabricated lost response")) : nativeFetch(...args);
+      backoffMs = () => 60000;
+      const field = els[sourceId].ta;
+      field.value = "fabricated receipt recovery";
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      const op = localSends(sourceId)[0];
+      return { id: op.id, text: op.text, advance: op.advance,
+        stored: JSON.parse(localStorage.getItem(OPS_KEY))[0] };
+    }, source);
+    assert.equal(kept.advance, true, "the second Enter did not request a move before reload");
+    assert.equal(kept.stored.advance, undefined, "transient navigation intent reached durable storage");
+    assert.equal((await api(`/send?box=${source}&op=${encodeURIComponent(kept.id)}`, kept.text)).status, 200);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(id => lastState !== null && localSends(id).length === 0, { timeout: 5000 }, source);
+    assert.equal(await page.evaluate(() => selectedId), source,
+      "the replayed receipt moved selection after reload");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
