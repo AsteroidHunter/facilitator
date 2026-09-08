@@ -33,6 +33,12 @@ const CARD_SHORTCUT_DEFINITIONS = [
       ? (e.key === "ArrowLeft" ? -1 : 1) : null,
   },
   {
+    action: "plainNavigate", mini: true,
+    match: e => !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey &&
+      (e.key === "ArrowLeft" || e.key === "ArrowRight")
+      ? (e.key === "ArrowLeft" ? -1 : 1) : null,
+  },
+  {
     action: "history", mini: false,
     match: e => e.ctrlKey && !e.metaKey && e.shiftKey &&
       (e.key === "ArrowUp" || e.key === "ArrowDown")
@@ -86,6 +92,13 @@ function dispatchCardShortcut(event, actions, scope = "card"){
   if (typeof action !== "function") return false;
   action(event, shortcut);
   return true;
+}
+
+// Plain arrows belong to the caret anywhere inside an editor, including a
+// decorated contenteditable whose key target is one of its descendants.
+function cardShortcutEditing(target){
+  return !!target && typeof target.closest === "function" &&
+    !!target.closest("textarea, input, [contenteditable], [role='textbox'], .cm-editor");
 }
 
 // ---- the small helpers --------------------------------------------------------
@@ -570,11 +583,11 @@ function editTitle(id, opts){
 // green working card or a grey queued one. opts go to select as they are; the
 // desktop asks for focus. answers with the card it landed on, or nothing when
 // there was none to land on
-function jumpNextYellow(fromId, opts){
+function jumpNextYellow(fromId, opts, source){
   if (!lastState) return;
   // stay inside the tab being looked at: sending from doing must never land on
   // a deferred or done card
-  const p = viewPool(lastState).filter(b =>
+  const p = (source || viewPool(lastState)).filter(b =>
     !b.done && !(b.writing || b.bg) && b.ball === "you" && b.id !== fromId);
   if (!p.length) return;
   // the send should land on the card that has waited on him

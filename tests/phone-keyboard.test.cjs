@@ -223,9 +223,10 @@ before(async () => {
   }));
 
   origin = `http://127.0.0.1:${port}`;
-  child = spawn("python3", [path.join(fixtureDir, "server.py")], {
+  child = spawn(process.env.FACILITATOR_TEST_PYTHON || "python3", [path.join(fixtureDir, "server.py")], {
     cwd: fixtureDir,
-    env: { ...process.env, FACILITATOR_TEST_PORT: String(port) },
+    env: { ...process.env, FACILITATOR_TEST_PORT: String(port),
+      FACILITATOR_LOG_DIR: process.env.FACILITATOR_LOG_DIR || path.join(fixtureDir, "logs") },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";
