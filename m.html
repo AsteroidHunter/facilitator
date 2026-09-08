@@ -504,15 +504,22 @@
      notifications, since a phone only asks on a tap. it is the card's own kind
      of control, no border and the paper for a fill, and it takes the board's
      one press shade mixed into that fill */
-  #notify{
+  #notify, #savediagnostic{
     align-self:flex-start; font:500 14px/1.2 var(--sans); color:var(--ink);
     background:var(--paper); border:none; border-radius:var(--sq);
     padding:9px 14px; cursor:pointer;
   }
-  #notify:active{background:color-mix(in srgb, #000 var(--press), var(--paper))}
-  #notify:disabled{opacity:.6}
+  #notify:active, #savediagnostic:active{background:color-mix(in srgb, #000 var(--press), var(--paper))}
+  #notify:disabled, #savediagnostic:disabled{opacity:.6}
   #notifynote{font:11.5px/1.4 var(--mono); color:var(--sub)}
   #notifynote:empty{display:none}
+  #diagnostics{margin-top:16px; border-top:1px solid var(--line); padding-top:16px}
+  #diagnostichelp, #diagnosticstatus{font:12px/1.5 var(--sans); color:var(--sub); margin:8px 0 0}
+  #diagnosticstatus:empty{display:none}
+  #diagnostictoast{position:fixed; z-index:30; top:48px; left:12px; right:12px;
+    padding:10px 12px; background:var(--paper); border:1px solid var(--line);
+    border-radius:var(--sq); font:13px/1.4 var(--sans); color:var(--ink); pointer-events:none}
+  #diagnostictoast:empty{display:none}
 
   /* card prose, the .cardmd rules, is shared with the desktop: card-tokens.css */
   @media (prefers-reduced-motion: reduce){ *{animation:none !important; transition:none !important} }
@@ -546,8 +553,14 @@
   <div id="setgroup">
     <button id="notify" type="button">Notifications</button>
     <div id="notifynote"></div>
+    <div id="diagnostics">
+      <button id="savediagnostic" type="button" aria-describedby="diagnostichelp" aria-keyshortcuts="Control+Shift+M">Save diagnostic history</button>
+      <p id="diagnostichelp">Mark a glitch and save recent timing and screen state to the Mac’s diagnostic log. Messages and titles are excluded. Unsaved history stays only in this open page.<br>Keyboard: Control + Shift + M.</p>
+      <p id="diagnosticstatus" role="status"></p>
+    </div>
   </div>
 </aside>
+<div id="diagnostictoast" role="status"></div>
 
 <script src="/card-markdown.js"></script>
 <script src="/card-logic.js"></script>
@@ -558,6 +571,24 @@
 if (typeof startReporter === "function") startReporter("phone");
 // the marker a freeze report carries; it goes nowhere if the reporter is absent
 if (typeof noteDoing !== "function") window.noteDoing = () => {};
+// The recorder is optional and every call is isolated from the phone's work.
+function tracePhone(action, ...args){
+  try { return window.phoneHistory?.[action](...args); } catch (_) {}
+}
+function phoneTraceState(){
+  try {
+    const el = selectedId && els[selectedId];
+    const b = lastState?.boxes.find(box => box.id === selectedId);
+    return { box: selectedId, selected: selectedId, known: !!b, present: !!el?.box.isConnected,
+      shown: !!el?.box.classList.contains("sel") && !document.getElementById("pane").classList.contains("blank"),
+      title: !!el?.titleEl.isConnected, titled: !!b?.title, emptyTitle: !el?.titleEl.textContent,
+      editing: !!el?.titleEl.isContentEditable, boxes: document.getElementById("cards").childElementCount,
+      kb: document.body.classList.contains("kb"), lifting: document.body.classList.contains("lifting") };
+  } catch (_) { return {}; }
+}
+function endPhoneTrace(token, detail, response, inspect = false){
+  try { tracePhone("end", token, inspect ? { ...phoneTraceState(), ...detail } : detail, response); } catch (_) {}
+}
 // ---- what the desktop card carries, at phone size ---------------------------
 const PLUS_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>';
 const SEND_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 11.5V3.5M3.6 6.9 7 3.5l3.4 3.4" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -718,7 +749,13 @@ function makeBox(b){
     send.classList.toggle("show", ta.value.trim().length > 0);
   };
   ta.addEventListener("input", () => tick(true));
-  ta.addEventListener("focus", () => requestAnimationFrame(() => revealCaret(ta, twin)));
+  ta.addEventListener("focus", () => {
+    const trace = tracePhone("begin", "focus", { box: b.id });
+    requestAnimationFrame(() => {
+      revealCaret(ta, twin);
+      endPhoneTrace(trace, { box: b.id }, null, true);
+    });
+  });
   ta.addEventListener("mousedown", takeFocusTap);
   // enter sends and shift enter makes a new line, the desktop composer's pair,
   // and only while the on-screen keyboard is down. a phone puts that keyboard
@@ -733,7 +770,10 @@ function makeBox(b){
   });
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => tick());
   tick();
-  send.addEventListener("pointerdown", e => { if (document.activeElement === ta) e.preventDefault(); });
+  send.addEventListener("pointerdown", e => {
+    tracePhone("note", "send", { box: b.id });
+    if (document.activeElement === ta) e.preventDefault();
+  });
   send.addEventListener("click", () => doSend(b.id));
   clip.addEventListener("pointerdown", e => { if (document.activeElement === ta) e.preventDefault(); });
   clip.addEventListener("click", () => clipfile.click());
@@ -927,23 +967,36 @@ async function tryOp(op){
     ? "/send?box=" + encodeURIComponent(op.box) + "&op=" + encodeURIComponent(op.id)
     : "/create?owner=" + encodeURIComponent(op.owner) + "&op=" + encodeURIComponent(op.id);
   let r;
+  const trace = tracePhone("begin", "request", { route: op.kind === "send" ? "/send" : "/create", box: op.box, op: op.id });
   try {
     r = await fetch(url, { method: "POST", body: op.kind === "send" ? op.text : "", signal: AbortSignal.timeout(OP_TRY_MS) });
-  } catch (e) { return "retry"; }
-  if (op.state !== "pending") return "done";   // a reading reconciled it while this try was out
+  } catch (e) {
+    endPhoneTrace(trace, { op: op.id, outcome: "retry" });
+    return "retry";
+  }
+  if (op.state !== "pending"){
+    endPhoneTrace(trace, { op: op.id, status: r.status }, r);
+    return "done";   // a reading reconciled it while this try was out
+  }
   if (r.ok){
     let result = null;
     try { result = await r.json(); } catch (e) {}
-    if (!result || !result.ok) return "retry";   // it landed and the answer was lost on the way: the retry is answered from the receipt
+    if (!result || !result.ok){
+      endPhoneTrace(trace, { op: op.id, status: r.status, outcome: "retry" }, r);
+      return "retry";   // it landed and the answer was lost on the way: the retry is answered from the receipt
+    }
+    endPhoneTrace(trace, { op: op.id, status: r.status }, r);
     applyOp(op, result);
     return "done";
   }
   if (r.status === 400 || r.status === 409 || r.status === 413){
     let why = "";
     try { why = (await r.json()).error || ""; } catch (e) {}
+    endPhoneTrace(trace, { op: op.id, status: r.status }, r);
     failOp(op, why || ("refused " + r.status), "board");
     return "done";
   }
+  endPhoneTrace(trace, { op: op.id, status: r.status, outcome: "retry" }, r);
   return "retry";
 }
 // the board's receipts, asked after with every reading. a pending or unsure
@@ -965,6 +1018,7 @@ function reconcileOps(answer){
 }
 function applyOp(op, result){
   if (op.state !== "pending" && op.state !== "unsure") return;
+  tracePhone("note", "operation", { op: op.id, box: op.box || result.id, outcome: "applied" });
   op.state = "applied";
   ops = ops.filter(o => o !== op);
   saveOps();
@@ -978,6 +1032,7 @@ function applyOp(op, result){
 // settled only by a receipt or by the owner's own hand
 function markUnsure(op, why){
   if (op.state !== "pending") return;
+  tracePhone("note", "operation", { op: op.id, box: op.box, outcome: "unsure" });
   op.state = "unsure"; op.why = why; op.waiting = false;
   if (op.kind === "create"){
     drawCreatePending();
@@ -993,6 +1048,7 @@ function markUnsure(op, why){
 // only those stay not-sent across a reload; anything else is an unknown outcome
 function failOp(op, why, by){
   if (op.state !== "pending" && op.state !== "unsure") return;
+  tracePhone("note", "operation", { op: op.id, box: op.box, outcome: "failed" });
   op.state = "failed"; op.why = why; op.by = by || "phone";
   if (op.kind === "create"){
     ops = ops.filter(o => o !== op);
@@ -1127,17 +1183,20 @@ function drawerNote(text){
 // machine and answers in a millisecond; here that wait is a second of nothing
 // happening under his finger
 function doSend(id){
+  const trace = tracePhone("begin", "send", { box: id });
   const el = els[id];
   const text = el.ta.value.trim();
-  if (!text) return;
+  if (!text){ endPhoneTrace(trace); return; }
   const reopen = boxDone(id);
   const op = mintOp("send", { box: id, text, reopen });
   if (!op){
     // the store is full: the words stay in the row, and the card says why.
     // this clears on its own once a reading finds room again
     el.meta.textContent = "send held: fifty messages are still unconfirmed on this phone; wait for the board, or take some back";
+    endPhoneTrace(trace, { outcome: "failed" });
     return;
   }
+  tracePhone("note", "operation", { op: op.id, box: id, outcome: "minted" });
   el.ta.value = "";
   el.tick();          // the square goes with the words, and the row falls back to one line
   const pend = el.pend || growPend(el, true);
@@ -1150,19 +1209,23 @@ function doSend(id){
   // it, exactly as the desktop writes it down
   autoNext = setTimeout(() => { autoNext = null; if (jumpNextYellow(id)) lastLeftId = id; }, AUTONEXT_MS);
   runOps(laneOf(op));
+  endPhoneTrace(trace, { op: op.id, box: id }, null, true);
 }
 // one press, one card. a press while the card is still being made is the same
 // press: it wakes the try rather than minting another card, and the plus
 // breathes until the board answers. once the card is there the next press is
 // a deliberate second card
 function createCard(){
-  if (!validOwners.has(activeOwner)) return;
-  if (pendingCreate()){ wakeOps(); return; }
+  const trace = tracePhone("begin", "create");
+  if (!validOwners.has(activeOwner)){ endPhoneTrace(trace); return; }
+  if (pendingCreate()){ wakeOps(); endPhoneTrace(trace); return; }
   const op = mintOp("create", { owner: activeOwner });
-  if (!op){ drawerNote("No card can be made while fifty messages are still unconfirmed on this phone"); return; }
+  if (!op){ drawerNote("No card can be made while fifty messages are still unconfirmed on this phone"); endPhoneTrace(trace, { outcome: "failed" }); return; }
+  tracePhone("note", "operation", { op: op.id, outcome: "minted" });
   op.fresh = true;
   drawCreatePending();
   runOps("create");
+  endPhoneTrace(trace, { op: op.id });
 }
 
 // older replies: histList, histExit and histStep are shared with the desktop in
@@ -1170,7 +1233,8 @@ function createCard(){
 
 // ---- selection and tabs ----------------------------------------------------------
 function select(id){
-  if (!els[id]) return;
+  const trace = tracePhone("begin", "select", { box: id });
+  if (!els[id]){ endPhoneTrace(trace, { box: id }); return; }
   if (hist && hist.id !== id) histExit(hist.id);
   selectedId = id; localStorage.setItem("selbox", id);
   markSeen(id);
@@ -1183,6 +1247,7 @@ function select(id){
     if (r.dataset.id === id && r.classList.contains("yours")) r.classList.add("seen");
   }
   if (lastState) renderTabs(lastState);
+  endPhoneTrace(trace, { box: id }, null, true);
 }
 function deselect(){
   selectedId = null; localStorage.removeItem("selbox");
@@ -1431,6 +1496,10 @@ const drawer = document.getElementById("drawer");
 const settings = document.getElementById("settings");
 const scrim = document.getElementById("scrim");
 const menus = [drawer, settings];   // the left one first: the drag reads the side off each
+for (const panel of menus) panel.addEventListener("transitionend", e => {
+  if (e.target === panel && e.propertyName === "transform")
+    tracePhone("note", "drawer", { side: panel.dataset.side, phase: "end", shown: panel.classList.contains("open") });
+});
 function menuWidth(panel){ return panel.getBoundingClientRect().width; }
 function menuSign(panel){ return panel.dataset.side === "right" ? -1 : 1; }   // direction the panel enters
 function menuOut(){ return menus.find(p => p.classList.contains("open")) || null; }
@@ -1457,11 +1526,17 @@ function runMenu(panel, v, curve){
   paintMenu(panel, v);
 }
 function showMenu(panel, curve){
+  const trace = tracePhone("begin", "drawer", { side: panel.dataset.side });
   if (lastState) renderTickets(lastState);
   runMenu(panel, 1, curve || "var(--drawer-tap)");
   panel.querySelector(".trow.on")?.scrollIntoView({ block: "nearest" });
+  endPhoneTrace(trace, { side: panel.dataset.side, shown: true });
 }
-function hideMenu(panel, curve){ runMenu(panel, 0, curve || "var(--drawer-tap)"); }
+function hideMenu(panel, curve){
+  const trace = tracePhone("begin", "drawer", { side: panel.dataset.side });
+  runMenu(panel, 0, curve || "var(--drawer-tap)");
+  endPhoneTrace(trace, { side: panel.dataset.side, shown: false });
+}
 function openDrawer(){ showMenu(drawer); }
 function closeDrawer(){ hideMenu(drawer); }
 function drawerOpen(){ return drawer.classList.contains("open"); }
@@ -1484,6 +1559,7 @@ scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu
       if (Math.abs(dx) < 6 && Math.abs(y - y0) < 6) return;
       if (Math.abs(y - y0) > Math.abs(dx)){ live = false; return; }   // a scroll, not a pull
       decided = true;
+      tracePhone("note", "drawer", { side: panel.dataset.side, phase: "start" });
       document.body.classList.add("menudrag");
     }
     if (e && e.cancelable) e.preventDefault();
@@ -1510,6 +1586,7 @@ scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu
 
 // ---- the poll ------------------------------------------------------------------------
 function apply(state){
+  const trace = tracePhone("begin", "render", { rev: state.rev });
   // the read marks are the board's, so they arrive with the state: taken in
   // first, ahead of the tabs and the list that draw from them
   seenSync(state);
@@ -1565,6 +1642,7 @@ function apply(state){
     select(id);
     editTitle(id);
   }
+  endPhoneTrace(trace, { rev: state.rev }, null, true);
 }
 function validateOwners(state){
   validOwners = new Set(Object.keys(state.pwds || {}).filter(ow => ow !== "qchat"));
@@ -1665,11 +1743,14 @@ async function readBoard(){
   // whether it can know about a message sent since
   noteDoing("poll");
   let data = null;
+  const trace = tracePhone("begin", "request", { route: "/m/state" });
+  let response = null;
   try {
     const query = ["since=" + (lastRev == null ? "" : lastRev)];
     const waiting = askIds();
     if (waiting.length) query.push("ops=" + waiting.map(encodeURIComponent).join(","));
     const r = await fetch("/m/state?" + query.join("&"), { cache: "no-store", signal: AbortSignal.timeout(POLL_DEADLINE_MS) });
+    response = r;
     if (!r.ok) throw new Error("status " + r.status);
     data = await r.json();
   } catch (e) {
@@ -1677,6 +1758,8 @@ async function readBoard(){
     pollGap = Math.min(POLL_BACKOFF_MAX_MS, pollGap * 2);
     linkStatus();
   }
+  endPhoneTrace(trace, { status: response?.status || 0, rev: data?.rev,
+    ...(data ? {} : { outcome: "retry" }) }, response);
   if (data){
     pollFails = 0; pollGap = POLL_MS; lastGood = Date.now();
     linkStatus();
@@ -1696,9 +1779,11 @@ async function readBoard(){
         }
         apply(state);
       } else if (lastState){
+        const rendering = tracePhone("begin", "render", { rev: lastRev });
         Object.assign(lastState, data.live || {});
         lastState.fetchedAt = asked;
         renderTickets(lastState);   // who is listening moves without the revision moving
+        endPhoneTrace(rendering, { rev: lastRev }, null, true);
       } else {
         lastRev = null;   // nothing held to be unchanged from: the next reading takes the whole board
       }
@@ -1886,6 +1971,8 @@ function reconcile(){
     top = appliedTop === null ? 0 : appliedTop;
   }
   applyShell(obstructed, top, height, w.baseline);
+  tracePhone("note", "viewport", { kb: appliedSoftKeyboard, lifting: performance.now() < liftUntil,
+    vh: Math.round(w.vvHeight / 4) * 4, vt: Math.round(w.vvTop / 4) * 4 });
   if (wasUp && !obstructed) keyboardClosed();
 }
 // the one writer: the two classes, the inset, the box
@@ -2041,6 +2128,10 @@ function stepCard(dir, focus){
 const phoneShortcutTyping = t => !!t &&
   (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable);
 const phoneShortcutActions = {
+  diagnostic(e){
+    e.preventDefault();
+    saveDiagnostic("shortcut");
+  },
   navigate(e, shortcut){
     e.preventDefault();
     stepCard(shortcut.value, phoneShortcutTyping(e.target));
@@ -2098,6 +2189,41 @@ function keyBytes(b64url){
   return Uint8Array.from(raw, ch => ch.charCodeAt(0));
 }
 document.getElementById("setmark").innerHTML = GEAR_ICON;
+const diagnosticButton = document.getElementById("savediagnostic");
+let diagnosticRetry = false, diagnosticToastTimer = null;
+async function saveDiagnostic(source = "settings"){
+  if (diagnosticButton.disabled) return;
+  diagnosticButton.disabled = true;
+  const status = document.getElementById("diagnosticstatus");
+  const toast = document.getElementById("diagnostictoast");
+  const tell = text => {
+    status.textContent = text;
+    if (source === "shortcut") toast.textContent = text;
+  };
+  clearTimeout(diagnosticToastTimer);
+  tell("Saving diagnostic history…");
+  try {
+    const answer = await tracePhone("mark", source, phoneTraceState(), diagnosticRetry);
+    const outcome = answer?.status || "failed";
+    diagnosticRetry = outcome !== "saved";
+    const messages = {
+      saved: "Diagnostic history saved on the Mac.",
+      offline: "Offline. History is held in this page. Reconnect and retry.",
+      limited: "Too many saves this minute. History is held in this page. Retry shortly.",
+      busy: "A diagnostic save is already running. Try again shortly.",
+      failed: "Could not confirm a save. Keep this page open and retry.",
+    };
+    tell(messages[outcome] || messages.failed);
+  } catch (_) {
+    diagnosticRetry = true;
+    tell("Could not confirm a save. Keep this page open and retry.");
+  } finally {
+    diagnosticButton.disabled = false;
+    diagnosticButton.textContent = diagnosticRetry ? "Retry diagnostic save" : "Save diagnostic history";
+    diagnosticToastTimer = setTimeout(() => { toast.textContent = ""; }, 6000);
+  }
+}
+diagnosticButton.addEventListener("click", () => saveDiagnostic());
 const notifyBtn = document.getElementById("notify");
 const notifyNote = document.getElementById("notifynote");
 function notifyState(on, note){

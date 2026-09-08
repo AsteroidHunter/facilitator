@@ -200,7 +200,11 @@ Endpoints:
                                dropped and counted, at most 20 reports per batch
                                and 500 characters per string field. A batch this
                                board cannot read is a 400 with nothing stored, a
-                               body over 16 KB a 413
+                               body over 16 KB a 413. Phone incident histories
+                               use a strict versioned schema, 40 events from
+                               at most 60 seconds, and four writes per minute
+                               across all incident reasons. Their confirmed
+                               response follows a successful log write/flush
   GET  /thread?box=ID&n=N   -> last N user/agent/note messages of a box from the
                                transcript (read by the reply history stepper
                                and the quick chat panel)
@@ -342,6 +346,7 @@ import json
 import logging
 import logging.handlers
 import os
+import re
 import random
 import secrets
 import shutil
@@ -426,6 +431,21 @@ class DatedRotatingHandler(logging.handlers.RotatingFileHandler):
         on the same day."""
         return self.folder / (f"{self.stem}-{self.day}"
                               + (f".{self.roll}" if self.roll else "") + self.suffix)
+
+    def emit_confirmed(self, record: logging.LogRecord) -> None:
+        """The manual phone marker needs to know whether its file was written.
+        Standard logging swallows write errors; this path uses the same file,
+        formatter and rotation but lets its caller answer failure honestly."""
+        self.acquire()
+        try:
+            if self.shouldRollover(record):
+                self.doRollover()
+            if self.stream is None:
+                self.stream = self._open()
+            self.stream.write(self.format(record) + self.terminator)
+            self.flush()
+        finally:
+            self.release()
 
     def _age(self, p: Path) -> tuple:
         """Oldest first, read out of the name rather than off a modification
@@ -617,7 +637,7 @@ def _log_file() -> Path:
 # counters die on reload, so a page throwing during boot and reloading in a
 # cycle has fresh counters every time and only the server's cap is a cap.
 CLIENT_PAGES = ("board", "phone", "page")
-CLIENT_KINDS = ("error", "rejection", "fetch", "render", "slow")
+CLIENT_KINDS = ("error", "rejection", "fetch", "render", "slow", "incident")
 CLIENT_MAX_BODY = 16 * 1024   # bytes in one batch
 CLIENT_MAX_REPORTS = 20       # reports in one batch
 CLIENT_MAX_CHARS = 500        # characters of any one string a report carries
@@ -626,6 +646,73 @@ CLIENT_WINDOW = 60.0          # the minute that cap is measured over
 CLIENT_KEYS_KEPT = 512        # keys the cap remembers before the stale ones are swept
 # what a report may carry at all; anything else a page sends is dropped here
 CLIENT_FIELDS = ("message", "file", "line", "col", "count", "late", "doing", "route")
+INCIDENT_PER_MINUTE = 4      # one key, regardless of reason, card or operation
+INCIDENT_EVENTS = frozenset(("create", "select", "focus", "send", "operation", "request",
+                            "render", "drawer", "viewport", "lifecycle", "problem", "freeze", "mark"))
+INCIDENT_REASONS = ("manual", "slow-ui", "slow-request", "invariant", "problem", "freeze")
+INCIDENT_NUMBERS = {"ms": 600000, "seq": 1000000000, "status": 599, "serverMs": 600000,
+                    "rev": 1000000000000, "boxes": 10000, "vh": 10000, "vt": 10000,
+                    "late": 600000, "resume": 1000000000}
+INCIDENT_FLAGS = frozenset(("present", "shown", "title", "titled", "emptyTitle", "editing", "known",
+                            "kb", "lifting", "visible", "online"))
+INCIDENT_CHOICES = {"phase": ("start", "end"), "route": ("/send", "/create", "/m/state"),
+                    "side": ("left", "right"), "source": ("settings", "shortcut"),
+                    "outcome": ("minted", "applied", "retry", "unsure", "failed"),
+                    "lifecycle": ("start", "hidden", "visible", "pageshow", "online", "offline"),
+                    "problem": ("error", "rejection", "render", "fetch"), "reason": INCIDENT_REASONS}
+INCIDENT_BOX = re.compile(r"(?:[mt]?\d+(?:\.\d+)*|q)", re.ASCII)
+INCIDENT_OP = re.compile(r"(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})")
+
+
+def _incident_integer(value, low: int, high: int) -> bool:
+    return type(value) is int and low <= value <= high
+
+
+def _incident_box(value) -> bool:
+    return isinstance(value, str) and len(value) <= 32 and (not value or bool(INCIDENT_BOX.fullmatch(value)))
+
+
+def _incident_valid(page: str, report: dict) -> bool:
+    """No free text and no nested data except the bounded event list. Reject
+    unknown fields and bad types before any part of a batch reaches a log."""
+    if (page != "phone" or set(report) != {"kind", "v", "reason", "marked", "box", "lost", "suppressed", "events"}
+            or type(report["v"]) is not int or report["v"] != 1
+            or report["reason"] not in INCIDENT_REASONS or not _incident_box(report["box"])
+            or not _incident_integer(report["marked"], 0, 10000000000000)
+            or not _incident_integer(report["lost"], 0, 1000000000)
+            or not _incident_integer(report["suppressed"], 0, 1000000000)):
+        return False
+    entries = report["events"]
+    if not isinstance(entries, list) or not 1 <= len(entries) <= 40:
+        return False
+    previous = -60000
+    for entry in entries:
+        if (not isinstance(entry, dict) or not {"event", "at", "visible", "online", "resume"} <= entry.keys()
+                or not isinstance(entry["event"], str) or entry["event"] not in INCIDENT_EVENTS
+                or not _incident_integer(entry["at"], previous, 0)):
+            return False
+        previous = entry["at"]
+        for name, value in entry.items():
+            if name in ("event", "at"):
+                continue
+            if name in INCIDENT_FLAGS:
+                if type(value) is not bool:
+                    return False
+            elif name in INCIDENT_NUMBERS:
+                if not _incident_integer(value, 0, INCIDENT_NUMBERS[name]):
+                    return False
+            elif name in INCIDENT_CHOICES:
+                if value not in INCIDENT_CHOICES[name]:
+                    return False
+            elif name in ("box", "selected"):
+                if not _incident_box(value):
+                    return False
+            elif name == "op":
+                if not isinstance(value, str) or not INCIDENT_OP.fullmatch(value):
+                    return False
+            else:
+                return False
+    return entries[-1]["event"] == "mark" and entries[-1].get("reason") == report["reason"]
 
 CLIENT_LOGGER = logging.getLogger("facilitator.client")
 CLIENT_LOGGER.setLevel(logging.INFO)
@@ -649,6 +736,8 @@ def _client_event(kind: str, box: str = "", /, **fields) -> None:
 def _client_key(page: str, report: dict) -> str:
     """A report's identity: what it says and where it happened. Two throws from
     the same line are one key, however many times they happen."""
+    if report["kind"] == "incident":
+        return "incident|phone"
     return "|".join(str(report.get(part, "")) for part in
                     ("kind", "message", "file", "line")) + "|" + page
 
@@ -656,6 +745,8 @@ def _client_key(page: str, report: dict) -> str:
 def _client_fields(report: dict) -> dict:
     """Only the fields a report is allowed to carry, each string cut to its cap.
     A page cannot write whatever it likes into a file on this machine."""
+    if report["kind"] == "incident":
+        return {k: report[k] for k in ("v", "reason", "marked", "lost", "suppressed", "events")}
     out = {}
     for name in CLIENT_FIELDS:
         value = report.get(name)
@@ -683,15 +774,21 @@ def _client_batch(page: str, reports: list) -> tuple:
             window = _client_seen.get(key)
             if window is None or now - window[0] >= CLIENT_WINDOW:
                 window = _client_seen[key] = [now, 0, 0]
-            if window[1] >= CLIENT_PER_MINUTE:
+            limit = INCIDENT_PER_MINUTE if report["kind"] == "incident" else CLIENT_PER_MINUTE
+            if window[1] >= limit:
                 window[2] += 1
                 count, _ = lost.get(key, (0, None))
                 lost[key] = (count + 1, report)
                 continue
+            fields = _client_fields(report)
+            if report["kind"] == "incident":
+                record = CLIENT_LOGGER.makeRecord(CLIENT_LOGGER.name, logging.INFO, "", 0, "incident", (), None,
+                                                  extra={"box": report["box"], "fields": {"page": page, **fields}})
+                _client_file.emit_confirmed(record)
+            else:
+                _client_event(report["kind"], str(report.get("box") or "")[:64], page=page, **fields)
             window[1] += 1
             written += 1
-            fields = _client_fields(report)
-            _client_event(report["kind"], str(report.get("box") or "")[:64], page=page, **fields)
     for count, sample in lost.values():
         _client_event("dropped", str(sample.get("box") or "")[:64], page=page,
                       report=sample["kind"], message=str(sample.get("message") or "")[:CLIENT_MAX_CHARS],
@@ -2838,7 +2935,12 @@ def _post_clientlog(q: Query, raw: bytes):
         return 400, {"error": "bad report batch"}
     if len(reports) > CLIENT_MAX_REPORTS:
         return 400, {"error": "too many reports in one batch"}
-    written, dropped = _client_batch(page, reports)
+    if any(r["kind"] == "incident" and not _incident_valid(page, r) for r in reports):
+        return 400, {"error": "bad incident history"}
+    try:
+        written, dropped = _client_batch(page, reports)
+    except OSError:
+        return 503, {"error": "the diagnostic log could not be written"}
     return 200, {"ok": True, "written": written, "dropped": dropped}
 
 
@@ -2929,7 +3031,8 @@ def _post_send(q: Query, text: str):
         # the row is queued and written by the save once the new file is
         # installed, so a save that failed and rolled the message back leaves
         # no row for a message the board never durably had
-        _log("user", bid, text, **({"op": op} if op else {}))
+        _log("user", bid, text, log_fields={"op": op} if INCIDENT_OP.fullmatch(op) else None,
+             **({"op": op} if op else {}))
         _save()
         _notify()
         return 200, {**result, "rev": _state["rev"]}
@@ -3211,7 +3314,8 @@ def _post_create(q: Query, text: str):
             _op_commit(op, fp, "create", bid_new, result)
         # the row is queued and written by the save once the card is
         # installed, so a rolled-back save leaves none
-        _log("create", bid_new, title, **({"op": op} if op else {}))
+        _log("create", bid_new, title, log_fields={"op": op} if INCIDENT_OP.fullmatch(op) else None,
+             **({"op": op} if op else {}))
         _save()
         _notify()
         # the card itself rides back, so a phone can draw it from this answer
@@ -3846,6 +3950,33 @@ def _overload(which: str, route: str) -> None:
         _info("overload", slots=which, route=route)
 
 
+DIAGNOSTIC_ROUTES = frozenset(("/send", "/create", "/m/state"))
+SLOW_REQUEST_MS = 1000
+_slow_requests: dict = {}   # three route keys, never a key from request text
+
+
+def _slow_request(route: str, q: Query, status: int, ms: int) -> None:
+    """Only unusually slow requests reach INFO. Operation ids already used by
+    phone sends/creates join these lines to their client history and receipt.
+    No arbitrary operation strings or query values are copied to the log."""
+    if route not in DIAGNOSTIC_ROUTES or ms < SLOW_REQUEST_MS:
+        return
+    now = time.monotonic()
+    window = _slow_requests.get(route)
+    dropped = 0
+    if window is None or now - window[0] >= CLIENT_WINDOW:
+        dropped = window[2] if window else 0
+        window = _slow_requests[route] = [now, 0, 0]
+    if window[1] >= CLIENT_PER_MINUTE:
+        window[2] += 1
+        return
+    window[1] += 1
+    op = q.one("op")
+    box = q.one("box")
+    _info("slowrequest", box if _incident_box(box) else "", route=route, status=status, ms=ms,
+          op=op if INCIDENT_OP.fullmatch(op) else None, dropped=dropped or None)
+
+
 class Transport:
     """The outermost layer: the request line for the debug log, the read
     slots, the no-store every answer has always carried and the close that
@@ -3872,6 +4003,11 @@ class Transport:
             if message["type"] == "http.response.start":
                 status = message["status"]
                 headers = list(message.get("headers") or [])
+                if route in DIAGNOSTIC_ROUTES:
+                    # Time to response headers includes the server's queue and
+                    # handler, not network transit or streaming the body.
+                    ms = min(600000, max(0, round((time.monotonic() - started) * 1000)))
+                    headers.append((b"x-facilitator-duration-ms", str(ms).encode("ascii")))
                 if not any(name.lower() == b"cache-control" for name, _ in headers):
                     headers.append((b"cache-control", b"no-store"))
                 # one request per connection, as the server this replaced
@@ -3902,6 +4038,11 @@ class Transport:
         finally:
             if counted:
                 _reads_open -= 1
+            if route in DIAGNOSTIC_ROUTES:
+                try:
+                    _slow_request(route, q, status, round((time.monotonic() - started) * 1000))
+                except Exception:
+                    pass   # diagnostics cannot turn a completed command into a failure
             if LOGGER.isEnabledFor(logging.DEBUG):
                 # The request line is DEBUG and not INFO on purpose: the two
                 # pages poll about 144,000 times a day between them, and a line
