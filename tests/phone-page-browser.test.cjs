@@ -283,6 +283,101 @@ test("a warm notification target survives stale state and switches projects when
   }
 });
 
+test("a full reading requested before create cannot erase the card being named", async () => {
+  const { page, problems } = await openPhone("/m");
+  const stale = await (await fetch(origin + "/m/state")).json();
+  const standingTitle = stale.boxes.find(box => box.id === "0").title;
+  const held = [];
+  const stateQueries = [];
+  let stateRequests = 0;
+  let intercepting = false;
+  const onRequest = request => {
+    const url = new URL(request.url());
+    if (url.pathname === "/m/state") stateQueries.push(url.searchParams.get("since"));
+    if (url.pathname === "/m/state" && ++stateRequests <= 2) held.push(request);
+    else request.continue();
+  };
+  try {
+    await page.waitForFunction(() => pollRun === null, { timeout: 3000 });
+    await page.evaluate(() => { clearTimeout(pollTimer); pollTimer = null; });
+    const priorRev = await page.evaluate(() => lastRev);
+    assert.equal(stale.rev, priorRev);
+    await page.setRequestInterception(true);
+    intercepting = true;
+    page.on("request", onRequest);
+    await page.evaluate(() => { poll(); });
+    const deadline = Date.now() + 3000;
+    while (held.length < 1 && Date.now() < deadline) await settle(20);
+    assert.equal(held.length, 1, "no pre-create reading was captured");
+    assert.equal(stateQueries[0], String(priorRev));
+
+    assert.equal((await api("/title?box=0", "Changed while the old reading was held")).status, 200);
+    const created = page.waitForResponse(response => new URL(response.url()).pathname === "/create");
+    await page.evaluate(() => createCard());
+    const result = await (await created).json();
+    await page.waitForFunction(id => document.querySelector(`#box-${id}.sel .title`)?.isContentEditable,
+      { timeout: 3000 }, result.id);
+    await page.keyboard.type("Naming during delayed reading");
+    await held.shift().respond({ status: 200, contentType: "application/json", body: JSON.stringify(stale) });
+    const freshDeadline = Date.now() + 3000;
+    while (held.length < 1 && Date.now() < freshDeadline) await settle(20);
+    assert.equal(held.length, 1, "no fresh reading followed the stale one");
+    assert.deepEqual(await page.evaluate(id => ({
+      present: !!document.getElementById(`box-${id}`),
+      selected: selectedId === id,
+      editing: !!els[id]?.titleEl.isContentEditable,
+      focused: document.activeElement === els[id]?.titleEl,
+      title: els[id]?.titleEl.textContent || "",
+      createOps: ops.filter(op => op.kind === "create").length,
+      drawerOpen: document.getElementById("drawer").classList.contains("open"),
+    }), result.id), {
+      present: true, selected: true, editing: true, focused: true,
+      title: "Naming during delayed reading", createOps: 0, drawerOpen: false,
+    });
+    assert.equal(stateQueries[1], String(priorRev), "the create receipt was substituted for the last full-state revision");
+
+    await held.shift().continue();
+    await page.waitForFunction(({ id, rev }) => createRevFloor === null && lastRev >= rev &&
+      lastState?.boxes.some(box => box.id === id) &&
+      lastState?.boxes.find(box => box.id === "0")?.title === "Changed while the old reading was held",
+      { timeout: 3000 }, { id: result.id, rev: result.rev });
+    assert.deepEqual(await page.evaluate(id => ({
+      selected: selectedId === id,
+      editing: els[id]?.titleEl.isContentEditable,
+      focused: document.activeElement === els[id]?.titleEl,
+      title: els[id]?.titleEl.textContent,
+    }), result.id), {
+      selected: true, editing: true, focused: true, title: "Naming during delayed reading",
+    });
+    await page.evaluate(() => { clearTimeout(pollTimer); pollTimer = null; });
+    page.off("request", onRequest);
+    await page.setRequestInterception(false);
+    intercepting = false;
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(id => lastState?.boxes.find(box => box.id === id)?.title === "Naming during delayed reading",
+      { timeout: 3000 }, result.id);
+    assert.equal((await savedBox(result.id)).title, "Naming during delayed reading");
+
+    const later = await api("/create?owner=facilitator", "");
+    assert.equal(later.status, 200);
+    await page.evaluate(() => { poll(); });
+    await page.waitForFunction(id => !!els[id] && createRevFloor === null, { timeout: 3000 }, later.body.id);
+    assert.equal((await api(`/close?box=${later.body.id}`)).status, 200);
+    await page.evaluate(() => { poll(); });
+    await page.waitForFunction(id => !els[id] && !lastState?.boxes.some(box => box.id === id),
+      { timeout: 3000 }, later.body.id);
+    assert.deepEqual(problems, []);
+  } finally {
+    if (intercepting){
+      for (const request of held) if (!request.isInterceptResolutionHandled()) await request.continue();
+      page.off("request", onRequest);
+      await page.setRequestInterception(false);
+    }
+    await page.close();
+    await api("/title?box=0", standingTitle);
+  }
+});
+
 test("phone navigation waits for send confirmation, respects manual moves, and stays in the selected workspace", async () => {
   const { page, problems } = await openPhone("/m");
   try {
