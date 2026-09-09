@@ -623,15 +623,25 @@ let hist = null;        // {id, step} while an older reply shows; step 1 = one b
 
 function histList(id){
   if (!histCache[id]){
-    histCache[id] = fetch("/thread?box=" + encodeURIComponent(id) + "&n=200")
-      .then(x => x.json())
+    let request;
+    request = fetch("/thread?box=" + encodeURIComponent(id) + "&n=200")
+      .then(x => {
+        if (!x.ok) throw new Error("history request failed");
+        return x.json();
+      })
       .then(r => {
         const list = (r.messages || []).filter(m => m.kind === "agent").map(m => m.replyFull ?? m.text);
         // the newest transcript entry is normally the live reply itself
         if (list.length && els[id] && list[list.length - 1] === els[id].reply.dataset.raw) list.pop();
         return list;
       })
-      .catch(() => { delete histCache[id]; return []; });
+      .catch(() => {
+        // A newer card version may already own this slot. An older rejection
+        // must clear only its own failed request, then a later sync can retry.
+        if (histCache[id] === request) delete histCache[id];
+        return [];
+      });
+    histCache[id] = request;
   }
   return histCache[id];
 }
