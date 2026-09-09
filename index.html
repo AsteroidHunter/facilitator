@@ -426,8 +426,8 @@
   body.focus .box.sel{position:static; animation:none}
 
   /* ---- the card's own top bar -------------------------------------------- */
-  /* a thin band across the head of the card, carrying the worktree name, the
-     defer chip and the close cross. it replaces the path line that used to
+  /* a thin band across the head of the card, carrying reply history, the defer
+     chip and the close cross. it replaces the path line that used to
      stand here: no filepath is printed on a card any more.
      the card's own tokens, --cardbar-h, --sq, --press, --gentle and
      --sunk-deep, are shared with the phone page and live in card-tokens.css
@@ -452,6 +452,40 @@
        bar over a white card needs the line most of all */
     box-shadow:inset 0 -1px 0 var(--line);
   }
+  /* the reply-history control takes the bar's flexible left-hand room whether
+     its marks are showing or not. the fixed room means the defer and close
+     controls, the divider, and everything below the bar keep their exact place
+     when an older reply first becomes available. its two marks are the phone
+     page's 11 by 7 chevrons on the same 28px seats. they arrive with the
+     composer's send arrow's opacity-and-scale fade and are inert before then */
+  body.focus .box.sel .histctl{
+    flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:0;
+    font:11.5px var(--mono); color:var(--sub); white-space:nowrap;
+    visibility:hidden; opacity:0; transform:scale(.5); transform-origin:left center;
+    pointer-events:none;
+    transition:opacity .26s var(--gentle), transform .26s var(--gentle),
+               visibility 0s linear .26s;
+  }
+  body.focus .box.sel.hashist .histctl{
+    visibility:visible; opacity:1; transform:scale(1); pointer-events:auto;
+    transition:opacity .26s var(--gentle), transform .26s var(--gentle), visibility 0s;
+  }
+  body.focus .box.sel .histbtn{
+    flex:none; width:28px; height:28px; padding:0; border:none; border-radius:var(--sq);
+    background:var(--card); color:var(--ink); display:grid; place-items:center; cursor:pointer;
+  }
+  body.focus .box.sel .histbtn:hover,
+  body.focus .box.sel .histbtn:active{background:color-mix(in srgb, #000 var(--press), var(--card))}
+  body.focus .box.sel .histbtn:disabled{opacity:.28; cursor:default}
+  body.focus .box.sel .histbtn.older .histchev{transform:rotate(0deg)}
+  body.focus .box.sel .histbtn.newer .histchev{transform:rotate(180deg)}
+  body.focus .box.sel .histchev{display:block; flex:none}
+  body.focus .box.sel .histpos{margin-left:4px}
+  body.focus .box.sel .histpos:empty{display:none}
+
+  /* Dormant styles for the commented worktree selector remain beside its old
+     construction code, so restoring that UI is a local edit rather than a
+     reconstruction. They match no active top-bar nodes now. */
   /* the worktree name, in the face and size the path line used and the bar's
      muted ink. a name too long for the room is cut at the buttons rather than
      ended in dots, since the board writes none */
@@ -3207,10 +3241,10 @@ const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
 const METAS = [["toolmeta", "facilitator"], ["triagemeta", "pastureland"]];
 const NAME = { facilitator: "facilitator agent", pastureland: "pastureland agent", journal: "journal agent" };
 const laneName = ow => NAME[ow] || (ow + " agent");   // project lanes name themselves
-// the worktree mark that stands before the name in the card's top bar: a branch
-// fork drawn in stroke only, so it takes the name's own muted ink through
-// currentColor and no second colour enters
+/* the dormant worktree selector's mark: a branch fork drawn in stroke only,
+   so it takes the name's own muted ink through currentColor
 const WT_ICON = '<svg class="wt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>';
+*/
 // the attach button's mark: two runs crossing at the middle of a 24 box, drawn
 // at the same 17px, the same 1.9 stroke, the same round caps and the same
 // currentColor the rest of the card's stroke work uses, so no new size and no
@@ -3999,6 +4033,13 @@ function chevSVG(seat){
   return '<svg class="chev ' + seat + '" width="11" height="7" viewBox="0 0 11 7"' +
          ' fill="none" aria-hidden="true">' + CHEV_PATH + "</svg>";
 }
+// The top-bar history buttons use the phone page's same path and dimensions.
+// Their own class keeps the sent-box chevrons' absolute seats and fold fade
+// separate from these fixed controls.
+function historyChevronSVG(){
+  return '<svg class="histchev" width="11" height="7" viewBox="0 0 11 7"' +
+         ' fill="none" aria-hidden="true">' + CHEV_PATH + "</svg>";
+}
 
 // the box, built on the first send and never before it, and built folded: the
 // slim bar is all that arrives. the corner arrow is built inside the body and
@@ -4436,12 +4477,13 @@ function makeBox(b, i, state){
     box.style.animationDelay = (i * 22) + "ms";
     box.id = "box-" + b.id;
 
-    // the card's own top bar. it stands above the head and carries the three
-    // things that used to be scattered over the card's corners and its path
-    // line: the worktree name with its fork, the defer chip and the close
-    // cross. it is built here and not once for the page because the bar belongs
-    // to the card, so a card switch cannot leave the last card's name standing
+    // The card's own top bar stands above the head. Its flexible left-hand item
+    // is the phone page's reply-history control; defer and close stay on the
+    // right. It belongs to the card, so each card keeps its own history state.
     const topbar = h("div", "topbar");
+    /* Worktree selector UI, intentionally dormant. The card and server retain
+       their worktree data and endpoints; this block is kept intact so the old
+       selector can be restored without reconstructing its behavior.
     const branch = h("span", "branch");
     // the fork starts hidden and the redraw below uncovers it once the lane's
     // names have landed. this way round on purpose: a lane with no repository
@@ -4460,6 +4502,33 @@ function makeBox(b, i, state){
     const wtmenu = h("div", "wtmenu");
     wtmenu.setAttribute("role", "listbox");
     topbar.append(branch, wtmenu);
+    */
+    const branch = null, bname = null, wtpick = null, wtmenu = null;
+    const histctl = h("div", "histctl");
+    histctl.setAttribute("role", "group");
+    histctl.setAttribute("aria-label", "reply history");
+    const histUp = h("button", "histbtn older");
+    histUp.type = "button";
+    histUp.title = "older reply";
+    histUp.setAttribute("aria-label", "older reply");
+    histUp.innerHTML = historyChevronSVG();
+    const histDown = h("button", "histbtn newer");
+    histDown.type = "button";
+    histDown.title = "newer reply";
+    histDown.setAttribute("aria-label", "newer reply");
+    histDown.innerHTML = historyChevronSVG();
+    const histPos = h("span", "histpos");
+    const hasHistory = (b.replies || 0) > 1;   // the phone page's history-availability rule
+    box.classList.toggle("hashist", hasHistory);
+    histctl.setAttribute("aria-hidden", hasHistory ? "false" : "true");
+    histUp.disabled = !hasHistory;
+    histDown.disabled = true;
+    histUp.tabIndex = hasHistory ? 0 : -1;
+    histDown.tabIndex = hasHistory ? 0 : -1;
+    histctl.append(histUp, histDown, histPos);
+    histUp.addEventListener("click", () => histStep(b.id, 1));
+    histDown.addEventListener("click", () => histStep(b.id, -1));
+    topbar.appendChild(histctl);
     box.appendChild(topbar);
 
     const head = h("div", "head");
@@ -4504,12 +4573,6 @@ function makeBox(b, i, state){
     const meta = h("div", "meta");
     // transient notes (send failures) get their own span
     const metaNote = h("span");
-    // the visible reply-history stepper (arrows + position marker) was removed;
-    // these off-screen nodes stay only so histStep/histExit keep writing their
-    // state harmlessly. control+shift+up/down drives the history now.
-    const histUp = h("button");
-    const histPos = h("span");
-    const histDown = h("button");
     meta.append(metaNote);
     // the foot of the card: one wrapper laid over the answer, holding the send
     // failure note, the sent box once there is one, and the bar. the sent box
@@ -4599,6 +4662,7 @@ function makeBox(b, i, state){
         box.classList.toggle("peek");
     });
 
+    /* Worktree selector event wiring, intentionally dormant with its UI above.
     // the worktree list, one per card and reaching only into its own bar, so
     // opening one card's list can never write another card's name. the names
     // are the lane's own, fetched from git through /worktrees and never typed:
@@ -4634,13 +4698,14 @@ function makeBox(b, i, state){
                   { method: "POST" }).catch(() => {});
       poll();
     });
+    */
 
     // pend is null until the first send builds the box, and null again the
     // moment the reply lands and empties the pending list
-    els[b.id] = { box, reply, meta, metaNote, histPos, histUp, histDown,
+    els[b.id] = { box, reply, meta, metaNote, histctl, histPos, histUp, histDown,
                   pend: null, pendRaw: "", foldRun: 0, ta, send, wstat, toc: entry, sec,
                   titleEl, tocTitle: entry.querySelector(".ttitle"), arc, x,
-                  topbar, branch, bname, wtpick, wtmenu, hasWt: false,
+                  topbar, branch, bname, wtpick, wtmenu, hasWt: false, hasHistory,
                   pendwrap, bottombar, clip, clipfile, tick };
     // the ramp's top edge follows the wrapper from the card's first frame, box
     // or no box, so it is armed here and not when a box is built
@@ -4904,6 +4969,7 @@ function apply(state){
       el.titleEl.textContent = b.title;
       el.tocTitle.textContent = b.title;
     }
+    /* Worktree selector redraw, intentionally dormant with its UI and wiring.
     // the bar's worktree name, written only when it has actually changed: this
     // runs on every poll and rewriting a text node under a pointer is enough to
     // drop a hover
@@ -4918,6 +4984,22 @@ function apply(state){
       el.hasWt = hasWt;
       el.branch.classList.toggle("norepo", !hasWt);
       if (!hasWt) shutWtMenu(el.wtpick, el.wtmenu);
+    }
+    */
+    // Match the phone page's history-availability rule. The live reply is the
+    // newest entry, so a count above one is the first point at which there is an
+    // older reply to show. The flexible control keeps its room while hidden;
+    // only its marks and interaction change here.
+    const hasHistory = (b.replies || 0) > 1;
+    if (el.hasHistory !== hasHistory){
+      if (!hasHistory && hist && hist.id === b.id) histExit(b.id);
+      el.hasHistory = hasHistory;
+      el.box.classList.toggle("hashist", hasHistory);
+      el.histctl.setAttribute("aria-hidden", hasHistory ? "false" : "true");
+      el.histUp.tabIndex = hasHistory ? 0 : -1;
+      el.histDown.tabIndex = hasHistory ? 0 : -1;
+      el.histUp.disabled = !hasHistory;
+      el.histDown.disabled = true;
     }
     // the sent box, reconciled rather than redrawn: see syncPend. the guard is
     // the joined text, so a poll that brings nothing new touches no dom at all
