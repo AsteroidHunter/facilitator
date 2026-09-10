@@ -3271,7 +3271,7 @@ const RETIRED_OWNERS = new Set(["triage"]);
 function retiredOwnerStorageKey(key){
   for (const owner of RETIRED_OWNERS){
     if (key === "tabhide." + owner || key === "minibox." + owner ||
-        key === "doc.tasks." + owner ||
+        key === "doc.tasks." + owner || key === "tikview." + owner ||
         key.startsWith("pos." + owner + ".") ||
         key.startsWith("size." + owner + ".") ||
         key.startsWith("hide." + owner + ".") ||
@@ -4778,7 +4778,7 @@ let lastLeftId = null;   // the card the last auto-jump left, for command+z boun
 let enterAgain = null;   // transient by design; a reload never revives a move
 function enterViewKey(id){
   const ws = lastState && curWs(lastState);
-  return [id, activeOwner, ticketView, ws ? ws.id : ""].join("|");
+  return [id, activeOwner, curView(), ws ? ws.id : ""].join("|");
 }
 function clearEnterAgain(intent = enterAgain){
   if (!intent) return;
@@ -5114,8 +5114,9 @@ function tickClock(){
 // post to the same endpoints the agent uses.
 let selectedWs = null;    // workspace within the active project
 let selectedTask = null;  // task picked by clicking its dot
-let ticketView = "todo";  // left panel tab: to-do | done
 let taskFilter = null;    // when set, the carousel shows that task's chats
+// the left panel's tab (doing, deferred, done) is one choice per project and
+// lives in card-logic.js; curView() answers with the open project's own
 
 function curWs(state){
   const list = (state.workspaces || {})[activeOwner] || [];
@@ -7605,10 +7606,14 @@ function renderCarousel(state){
   const chips = document.getElementById("chips");
   const w = curWs(state);
   const all = poolOf(state);    // every chat of the workspace, grouped and sorted
+  // this project's own tab, never the last project's: the buttons and the rows
+  // below are drawn from the one read
+  const view = curView();
+  paintViewTabs();
   // panel tab from the one state: done -> done, parked -> deferred, else doing
   const pool = all.filter(viewFilter);
   const lane = state.agents?.[activeOwner];
-  const sig = ticketView + "|" + (lane ? lane.name + lane.alive : "") + "|" +
+  const sig = view + "|" + (lane ? lane.name + lane.alive : "") + "|" +
               pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
                       ((seenReplies[b.id] || 0) >= (b.replies || 0) ? "r" : "") +
                       (b.id === selectedId ? "!" : "") + (b.task || "") + b.title +
@@ -7650,7 +7655,7 @@ function renderCarousel(state){
       r.addEventListener("click", () => select(b.id));
       tik.appendChild(r);
     }
-    if (!pool.length) tik.appendChild(h("div", "tempty", ticketView === "done" ? "no done chats yet" : ticketView === "deferred" ? "no deferred chats yet" : "no open chats here"));
+    if (!pool.length) tik.appendChild(h("div", "tempty", view === "done" ? "no done chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here"));
     // surviving rows glide to their new spots, the 220ms rise of the sister
     // board, instead of teleporting on every re-sort
     for (const row of tik.children){
@@ -7827,12 +7832,13 @@ addEventListener("keydown", e => {
   dispatchCardShortcut(e, boardShortcutActions);
 });
 {
+  // each button writes the view of the project being looked at, and nothing
+  // else: another project keeps whatever view was chosen for it, and one that
+  // has never been given a view opens on doing
   const setView = v => {
+    if (!setTicketViewOf(activeOwner, v)) return;
     cancelAutoNext();
-    ticketView = v;
-    document.getElementById("tv-todo").classList.toggle("on", v === "todo");
-    document.getElementById("tv-deferred").classList.toggle("on", v === "deferred");
-    document.getElementById("tv-done").classList.toggle("on", v === "done");
+    paintViewTabs();
     if (lastState) apply(lastState);
   };
   document.getElementById("tv-todo").addEventListener("click", () => setView("todo"));

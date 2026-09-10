@@ -2,8 +2,10 @@
 // page (m.html) do to a card in common, kept once, as plain global functions.
 // Each page loads it after card-markdown.js and before its own script. The
 // functions here read the names each page declares itself: els (box id to the
-// card's parts), lastState, selectedId, activeOwner, ticketView, lastSel, and
-// the page's own poll, select and growPend. Nothing here runs on load.
+// card's parts), lastState, selectedId, activeOwner, lastSel, and the page's own
+// poll, select and growPend. The chosen list view is the other way round: it is
+// held here, one per project, and each page reads it through curView(). Nothing
+// here runs on load.
 
 // ---- what a page may set ----------------------------------------------------
 // poolScope: a page that narrows the lane's pool further hands back the test to
@@ -152,13 +154,63 @@ function awaitsYou(b){
   // strict await either way
   return (s === "yours" || (s === "new" && b.ball === "you")) && !(b.pending > 0);
 }
+// ---- the chosen view, one per project ----------------------------------------
+// doing, deferred and done choose a view of one project's cards, so the choice
+// belongs to that project and not to the page. it used to be a single variable
+// the whole page shared, which is why picking done in one project opened every
+// other project on done as well. it is kept per lane now, written the moment a
+// button is pressed and read again wherever the list is drawn or walked, so a
+// project nobody has chosen a view for opens on doing.
+//
+// the record is this browser's own, kept the way the open tab ("activeproj") and
+// the small card ("minibox.<lane>") already are, so a reload puts each project
+// back on the view it was left on rather than on another project's view. only
+// the three names below are ever written or believed: anything else found in
+// storage counts as no choice at all, and so does anything a lane id borrowed
+// from the record's own object (a lane may legitimately be called "constructor"):
+// every answer is checked against the three before it is given.
+const TICKET_VIEWS = ["todo", "deferred", "done"];
+const TICKET_VIEW_KEY = "tikview.";   // + the lane's own id, which is never parsed back out
+const ticketViews = {};               // lane id -> the view chosen for it
+function ticketViewOf(owner){
+  if (!owner) return TICKET_VIEWS[0];
+  let view = ticketViews[owner];
+  if (!TICKET_VIEWS.includes(view)){
+    try { view = localStorage.getItem(TICKET_VIEW_KEY + owner); } catch (err) { view = null; }
+    view = TICKET_VIEWS.includes(view) ? view : TICKET_VIEWS[0];
+    ticketViews[owner] = view;
+  }
+  return view;
+}
+// one lane's choice, refused unless it is one of the three views
+function setTicketViewOf(owner, view){
+  if (!owner || !TICKET_VIEWS.includes(view)) return false;
+  ticketViews[owner] = view;
+  try { localStorage.setItem(TICKET_VIEW_KEY + owner, view); } catch (err) {}
+  return true;
+}
+// the view of the project being looked at. everything that draws or walks the
+// list reads it here, so a tab switch needs nothing carried across: the answer
+// changes with the lane on its own
+function curView(){ return ticketViewOf(activeOwner); }
+// the three buttons say which view is showing, painted from the same read the
+// list is drawn from and on every pass, so a button can never sit on one view
+// while the list shows another
+function paintViewTabs(){
+  const view = curView();
+  for (const name of TICKET_VIEWS){
+    const b = document.getElementById("tv-" + name);
+    if (b) b.classList.toggle("on", name === view);
+  }
+}
 // the doing, deferred and done tabs are a filter over the lane's pool. the left
 // list and the arrow keys have to walk the same set, or the arrows cycle into
 // cards the list is not showing
 function viewFilter(b){
   const s = cardState(b);
-  return ticketView === "done" ? s === "done"
-       : ticketView === "deferred" ? s === "parked"
+  const view = curView();
+  return view === "done" ? s === "done"
+       : view === "deferred" ? s === "parked"
        : (s !== "done" && s !== "parked");
 }
 function viewPool(state){ return poolOf(state).filter(viewFilter); }

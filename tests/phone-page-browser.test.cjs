@@ -396,7 +396,9 @@ test("phone navigation waits for send confirmation, respects manual moves, and s
         card("nav-d", "Queued", "ws-a", "queued", "me", 50, 250),
         card("nav-e", "Equal tie", "ws-a", "yours", "you", 100, 90),
       ]);
-      activeOwner = "facilitator"; ticketView = "todo"; apply(lastState); select("nav-a");
+      // the view is one choice per project, so this lane is put on doing by name
+      activeOwner = "facilitator"; setTicketViewOf(activeOwner, "todo");
+      apply(lastState); select("nav-a");
       return { drawer: viewPool(lastState).map(box => box.id), navigation: navigationPool(lastState).map(box => box.id) };
     });
     assert.deepEqual(initial.navigation, ["nav-a", "nav-b", "nav-e", "nav-d"],
