@@ -853,21 +853,83 @@ test("desktop history controls appear for a prior reply and share keyboard histo
     });
     await historyShot(page, "after-new-card");
 
-    // One reply is the live reply, with no older version behind it.
+    // A user's message, several progress notes, and one final reply still have
+    // only one agent reply. Notes raise the aggregate replies count but are not
+    // entries the history stepper can navigate.
+    assert.equal((await api(`/send?box=${id}`, "Initial owner message.")).status, 200);
+    assert.equal((await api(`/note?box=${id}`, "First progress note.")).status, 200);
+    assert.equal((await api(`/note?box=${id}`, "Second progress note.")).status, 200);
     assert.equal((await api(`/reply?box=${id}`, "First desktop reply.")).status, 200);
     await page.evaluate(() => poll());
     await page.waitForFunction(cardId =>
-      lastState.boxes.find(box => box.id === cardId)?.replies === 1, { timeout: 5000 }, id);
+      lastState.boxes.find(box => box.id === cardId)?.replies === 3, { timeout: 5000 }, id);
+    const firstThread = await (await fetch(origin + `/thread?box=${id}&n=200`)).json();
+    assert.deepEqual(firstThread.messages.map(message => message.kind), ["user", "note", "note", "agent"]);
+    assert.deepEqual(await page.evaluate(cardId => histList(cardId), id), [],
+      "the note-heavy card unexpectedly had an older agent reply");
     assert.equal(await page.evaluate(cardId => els[cardId].box.classList.contains("hashist"), id), false,
-      "the live reply alone exposed an empty history control");
+      "progress notes plus the live reply exposed an empty history control");
 
-    // A user follow-up and its answer create the first actual prior reply.
+    // The same card must stay correct when it already has those aggregate
+    // counts at page load, not only when the entries arrive during a poll.
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => lastState !== null, { timeout: 5000 });
+    await selectDesktop(page, id);
+    assert.deepEqual(await page.evaluate(cardId => histList(cardId), id), []);
+    assert.equal(await page.evaluate(cardId => els[cardId].box.classList.contains("hashist"), id), false,
+      "an existing note-heavy card exposed an empty history control after reload");
+
+    // A user follow-up and its answer create the first actual prior reply. The
+    // first attempt to learn that history fails with a JSON service error. It
+    // must stay hidden while unavailable, then recover through an ordinary
+    // poll without another reply, selection change, cache edit, or reload.
+    let historyRequests = 0;
+    const historyProblemStart = problems.length;
+    const interceptHistory = request => {
+      const url = new URL(request.url());
+      if (url.pathname === "/thread" && url.searchParams.get("box") === id){
+        historyRequests += 1;
+        if (historyRequests === 1){
+          request.respond({
+            status: 503,
+            contentType: "application/json",
+            body: JSON.stringify({ error: "temporary overload" }),
+          }).catch(() => {});
+          return;
+        }
+      }
+      request.continue().catch(() => {});
+    };
+    page.on("request", interceptHistory);
+    await page.setRequestInterception(true);
     assert.equal((await api(`/send?box=${id}`, "Owner follow-up.")).status, 200);
     assert.equal((await api(`/reply?box=${id}`, "Second desktop reply.")).status, 200);
     await page.evaluate(() => poll());
     await page.waitForFunction(cardId =>
-      lastState.boxes.find(box => box.id === cardId)?.replies === 2 &&
-      els[cardId].box.classList.contains("hashist"), { timeout: 5000 }, id);
+      lastState.boxes.find(box => box.id === cardId)?.replies === 4, { timeout: 5000 }, id);
+    const firstRequestDeadline = Date.now() + 2000;
+    while (historyRequests < 1 && Date.now() < firstRequestDeadline) await settle(25);
+    assert.equal(historyRequests, 1, "the selected card did not request its changed history");
+    await settle(80);
+    assert.deepEqual(await page.evaluate(cardId => ({
+      hasHistory: els[cardId].box.classList.contains("hashist"),
+      olderDisabled: els[cardId].histUp.disabled,
+      cached: Object.prototype.hasOwnProperty.call(histCache, cardId),
+    }), id), { hasHistory: false, olderDisabled: true, cached: false },
+    "a failed history request became a reusable empty result");
+
+    const retryDeadline = Date.now() + 3500;
+    while (historyRequests < 2 && Date.now() < retryDeadline) await settle(25);
+    assert.equal(historyRequests, 2, "ordinary polling did not retry the failed history request");
+    await page.waitForFunction(cardId =>
+      els[cardId].box.classList.contains("hashist") && !els[cardId].histUp.disabled,
+      { timeout: 3000 }, id);
+    const injectedProblems = problems.splice(historyProblemStart);
+    assert.equal(injectedProblems.length, 1,
+      "the injected history failure produced unexpected console output");
+    assert.match(injectedProblems[0], /503 \(Service Unavailable\)/);
+    page.off("request", interceptHistory);
+    await page.setRequestInterception(false);
     await settle(80);
     const shown = await page.evaluate(cardId => {
       const el = els[cardId], style = getComputedStyle(el.histctl);
