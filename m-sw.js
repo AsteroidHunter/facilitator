@@ -4,14 +4,27 @@
    It caches almost nothing on purpose. The board is live data, so every
    reading of it and every command go straight to the server, untouched. Only
    the page's own shell (the page, the renderer, the shared sheet and logic,
-   the manifest) is kept, and network first at that: the copy is used only
-   when the server cannot be reached, so an installed page still opens and can
-   say the server is unreachable. Every fetch the worker makes itself has a
-   deadline: a worker woken by a push, or answering a page open, must never
-   sit on a connection the server is not answering. */
+   the manifest, and the squid the startup screen is painted from) is kept, and
+   network first at that: the copy is used only when the server cannot be
+   reached, so an installed page still opens and can say the server is
+   unreachable. Every fetch the worker makes itself has a deadline: a worker
+   woken by a push, or answering a page open, must never sit on a connection the
+   server is not answering.
 
-const CACHE = "facilitator-m-2";
+   No board data is kept anywhere here. The page's startup screen waits for a
+   live reading before it shows the board, so a stored copy could not shorten a
+   start; it could only make one look connected when it was not. */
+
+const CACHE = "facilitator-m-3";
 const SHELL = ["/m", "/card-markdown.js", "/card-tokens.css", "/card-logic.js", "/m-manifest.json"];
+/* The squid the page paints the phone's own launch image from. It is kept for
+   the same reason the shell is: an installed open that cannot reach the server
+   should still be able to paint the picture the NEXT open starts with, and the
+   page draws that picture from this one file. It is asked for on its own rather
+   than added to the list above, because addAll is all-or-nothing and a build
+   whose image had not landed yet would lose the whole shell with it. */
+const SPLASH = "/m-splash-squid.png";
+const KEPT = [...SHELL, SPLASH];
 const SHELL_DEADLINE_MS = 8000;   // a page open waits this long for the server before the kept copy
 const PUSH_DEADLINE_MS = 6000;    // a push reads the board this long, then shows what it has
 
@@ -21,7 +34,13 @@ function bounded(request, ms) {
 
 self.addEventListener("install", event => {
   self.skipWaiting();
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).catch(() => {}));
+  event.waitUntil((async () => {
+    try {
+      const cache = await caches.open(CACHE);
+      await cache.addAll(SHELL).catch(() => {});
+      await cache.add(SPLASH).catch(() => {});
+    } catch (error) {}
+  })());
 });
 
 self.addEventListener("activate", event => {
@@ -37,7 +56,7 @@ self.addEventListener("fetch", event => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
   const isPage = request.mode === "navigate";
-  if (!isPage && !SHELL.includes(url.pathname)) return;   // live data: never intercepted
+  if (!isPage && !KEPT.includes(url.pathname)) return;   // live data: never intercepted
   event.respondWith((async () => {
     try {
       const fresh = await bounded(request, SHELL_DEADLINE_MS);
