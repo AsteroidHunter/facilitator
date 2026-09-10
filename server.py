@@ -115,11 +115,14 @@ Endpoints:
   GET  /m                   -> m.html, the phone page: the project tabs, one
                                card filling the screen, the card list in a
                                drawer off the left edge, nothing else
-  GET  /m-manifest.json, /m-sw.js, /m-icon-<size>.png
+  GET  /m-manifest.json, /m-sw.js, /m-icon-<size>.png, /m-splash-squid.png
                             -> what makes the phone page installable: its web
                                app manifest, its service worker (network
-                               first, shows the push notifications) and its
-                               home screen icons, cut from the board's own mark.
+                               first, shows the push notifications), its
+                               home screen icons, cut from the board's own mark,
+                               and the mark on its own with no background, which
+                               the page paints this phone's home screen launch
+                               image from.
                                The manifest's name and short_name are answered
                                from the saved board title, so the install
                                prompt offers the one name the board goes by;
@@ -1881,6 +1884,9 @@ PHONE_FILES = {
     "/m-icon-180.png": (HERE / "assets" / "m-icon-180.png", "image/png"),
     "/m-icon-192.png": (HERE / "assets" / "m-icon-192.png", "image/png"),
     "/m-icon-512.png": (HERE / "assets" / "m-icon-512.png", "image/png"),
+    # the squid on its own, no background: the phone paints its own home-screen
+    # launch image from it, sized to whichever iPhone is asking
+    "/m-splash-squid.png": (HERE / "assets" / "m-splash-squid.png", "image/png"),
 }
 # Web push without a payload: the push service only has to be told "wake the
 # phone's worker", and the worker reads /state itself, so nothing here is
