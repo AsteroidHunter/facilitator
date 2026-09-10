@@ -139,13 +139,18 @@ function caretInside(s) {
 // viewport's own coordinates, plus the page's keyboard state
 function shellShape() {
   const vvTop = window.visualViewport.offsetTop;
-  const pane = document.getElementById("pane").getBoundingClientRect();
+  const paneEl = document.getElementById("pane");
+  const pane = paneEl.getBoundingClientRect();
   const bar = document.querySelector(".bar").getBoundingClientRect();
   const title = document.querySelector("article.box.sel .title").getBoundingClientRect();
   const ta = document.querySelector("article.box.sel textarea").getBoundingClientRect();
   const body = document.body;
   return {
     foot: pane.bottom - vvTop, tab: bar.top - vvTop, title: title.top - vvTop,
+    // the clearance as it is laid out, which a menu's depth cannot touch: the
+    // measured foot above is the picture, and the page's picture draws back
+    // towards the middle of the screen while a menu is out
+    footLaidOut: paneEl.offsetTop + paneEl.offsetHeight,
     row: ta.height, rowBottom: ta.bottom - vvTop,
     bodyTop: body.getBoundingClientRect().top, bodyHeight: body.getBoundingClientRect().height,
     kb: body.classList.contains("kb"), obstructed: body.classList.contains("obstructed"),
@@ -445,10 +450,18 @@ test("an accessory-sized viewport obstruction seats the card foot at its measure
     await page.evaluate(() => openDrawer());
     await settle(750);
     assert.equal(await page.evaluate(() => drawerOpen()), true, "the card drawer did not open over the adjusted page");
-    assert.equal((await page.evaluate(shellShape)).foot, up.foot, "opening the drawer moved the adjusted card foot");
+    // the open drawer draws the page's picture back towards the middle of the
+    // screen, so the foot on show steps up by that much and no more. what the
+    // keyboard settled on, the laid-out clearance, is untouched by it
+    const behind = await page.evaluate(shellShape);
+    assert.equal(behind.footLaidOut, up.footLaidOut, "opening the drawer moved the adjusted card foot");
+    const size = await page.evaluate(() => new DOMMatrix(getComputedStyle(document.getElementById("page")).transform).a);
+    assert.equal(size, 0.985, "the open drawer did not draw the adjusted page back");
+    assert.ok(behind.foot < up.foot && up.foot - behind.foot < 10,
+      `the picture of the adjusted card foot did not step in with the page (${behind.foot} for ${up.foot})`);
     await page.evaluate(() => closeDrawer());
     await settle(750);
-    assert.equal((await page.evaluate(shellShape)).foot, up.foot, "closing the drawer moved the adjusted card foot");
+    assert.equal((await page.evaluate(shellShape)).foot, up.foot, "closing the drawer left the adjusted card foot short");
 
     await page.evaluate(() => document.activeElement.blur());
     await settle(80);
