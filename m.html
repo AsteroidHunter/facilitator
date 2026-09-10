@@ -888,7 +888,6 @@ function undone(id){
 let autoNext = null;
 const AUTONEXT_MS = 0;   // the desktop's number; a quiet time after a send before moving on
 const ENTER_AGAIN_MS = 700;
-let lastLeftId = null;   // the card the send's move left, for the bounce on command z
 let phoneEnterAgain = null;   // transient by design; a reload never revives a move
 function phoneEnterViewKey(id){
   const anchor = lastState && lastState.boxes.find(b => b.id === id);
@@ -916,8 +915,7 @@ function schedulePhoneAdvance(op, intent = null){
       clearPhoneEnterAgain(intent);
       if (!valid) return;
     }
-    if (selectedId === op.box && jumpNextYellow(op.box, null, navigationPool(lastState, op.box)))
-      lastLeftId = op.box;
+    if (selectedId === op.box) jumpNextYellow(op.box, null, navigationPool(lastState, op.box));
   }, AUTONEXT_MS);
 }
 function armPhoneEnterAgain(id, op){
@@ -2299,15 +2297,6 @@ const phoneShortcutActions = {
   history(e, shortcut){
     e.preventDefault();
     histStep(selectedId, shortcut.value);
-  },
-  bounce(e){
-    if (lastLeftId && els[lastLeftId]){
-      e.preventDefault();
-      const there = lastLeftId;
-      lastLeftId = selectedId;
-      select(there);
-      if (phoneShortcutTyping(e.target)) els[there].ta.focus({ preventScroll: true });
-    }
   },
   create(e){
     e.preventDefault();

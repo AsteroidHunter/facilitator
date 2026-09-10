@@ -56,20 +56,43 @@ test("card navigation aliases resolve to one action and direction", async () => 
     { action: "plainNavigate", value: 1 });
 });
 
-test("history, return, creation and tabs keep their modifier rules", async () => {
+test("history, creation and tabs keep their modifier rules", async () => {
   const { resolve } = await shortcuts();
   assert.deepEqual(plain(resolve(event("ArrowUp", { ctrlKey: true, shiftKey: true, altKey: true }))),
     { action: "history", value: 1 });
   assert.deepEqual(plain(resolve(event("ArrowDown", { ctrlKey: true, shiftKey: true }))),
     { action: "history", value: -1 });
-  assert.deepEqual(plain(resolve(event("Z", { ctrlKey: true, altKey: true }))),
-    { action: "bounce", value: true });
   assert.deepEqual(plain(resolve(event("t", { metaKey: true, ctrlKey: true, shiftKey: true, altKey: true }))),
     { action: "create", value: true });
   assert.deepEqual(plain(resolve(event("1", { metaKey: true }))),
     { action: "tab", value: 0 });
   assert.deepEqual(plain(resolve(event("9", { metaKey: true, shiftKey: true, altKey: true }))),
     { action: "tab", value: 8 });
+});
+
+// the chord used to be a card command, a return to the card the send's own move
+// left. It is the editor's undo again, and recognition must not know it at all:
+// a page that still carried a handler for it can then never be handed the key.
+test("command z and control z are no command of the card pages", async () => {
+  const { resolve, dispatch } = await shortcuts();
+  const held = [
+    { metaKey: true }, { ctrlKey: true }, { metaKey: true, ctrlKey: true },
+    { metaKey: true, shiftKey: true }, { ctrlKey: true, shiftKey: true },
+    { metaKey: true, altKey: true }, { ctrlKey: true, altKey: true },
+    { metaKey: true, ctrlKey: true, shiftKey: true, altKey: true },
+    {},
+  ];
+  for (const key of ["z", "Z"]) {
+    for (const modifiers of held) {
+      const combination = key + " with " + (Object.keys(modifiers).join(", ") || "nothing");
+      assert.equal(resolve(event(key, modifiers)), null, combination + " is still recognized");
+      assert.equal(resolve(event(key, modifiers), "mini"), null, combination + " is still a mini command");
+      const called = [];
+      const actions = new Proxy({}, { get: (_, name) => (() => called.push(name)) });
+      assert.equal(dispatch(event(key, modifiers), actions), false, combination + " reached a page action");
+      assert.deepEqual(called, []);
+    }
+  }
 });
 
 test("mini scope exposes only its established command subset", async () => {
@@ -112,9 +135,9 @@ test("the phone diagnostic marker has one exact chord and leaves other scopes an
 
 test("editing flags do not add exclusions to recognized commands", async () => {
   const { resolve } = await shortcuts();
-  assert.deepEqual(plain(resolve(event("z", {
+  assert.deepEqual(plain(resolve(event("t", {
     metaKey: true, defaultPrevented: true, isComposing: true, repeat: true,
-  }))), { action: "bounce", value: true });
+  }))), { action: "create", value: true });
   assert.deepEqual(plain(resolve(event("Escape", {
     metaKey: true, ctrlKey: true, shiftKey: true, altKey: true,
   }))), { action: "escape", value: true });
