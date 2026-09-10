@@ -2774,38 +2774,60 @@
      foot it sits, and that number is what keeps it off the rail. */
   #pagepill{display:none}
   body.focus #pagepill{
-    display:flex; align-items:center; gap:9px;
+    /* --mark is the one size every item in the pill draws itself at, so the
+       plus and the page marks cannot drift apart; --pillgap is named because
+       a dot growing in has to cancel it, and a flex gap cannot be animated */
+    --mark:7px; --pillgap:6px;
+    display:flex; align-items:center; gap:var(--pillgap);
     position:fixed; left:50%; transform:translateX(-50%); bottom:8px; z-index:12;
-    padding:5px 11px; border-radius:99px;
+    padding:3px 7px;
+    /* the workspace's own corner, the 7px #appframe turns: a small rounded
+       rectangle standing on the paper rather than a capsule */
+    border-radius:7px;
     background:color-mix(in srgb, var(--paper) 92%, #fff 8%);
     border:1px solid var(--line);
     box-shadow:0 1px 3px rgba(60,45,20,.07);
   }
   body.focus #pagepill.off{display:none}
+  /* the plus is drawn, not typed. A glyph sits on its font's baseline and its
+     ink lands wherever the face puts it, which is not the middle of the button;
+     two bars painted at the background's own centre put the cross's ink exactly
+     on the box centre, which is the line the page marks sit on */
   #pagepill .pageadd{
-    flex:none; width:17px; height:17px; padding:0; border:none; background:none;
-    color:var(--sub); cursor:pointer; font:15px/1 var(--mono);
-    display:flex; align-items:center; justify-content:center; border-radius:50%;
-    transition:color .18s, background .18s;
+    flex:none; width:13px; height:13px; padding:0; border:none; cursor:pointer;
+    position:relative; border-radius:3px; color:var(--sub);
+    background-color:transparent;
+    background-image:linear-gradient(currentColor, currentColor),
+                     linear-gradient(currentColor, currentColor);
+    background-size:var(--mark) 1.5px, 1.5px var(--mark);
+    background-position:center, center;
+    background-repeat:no-repeat;
+    transition:color .18s, background-color .18s;
   }
-  #pagepill .pageadd:hover{color:var(--ink); background:color-mix(in srgb, #000 5%, transparent)}
-  /* the dots. the page being looked at is one solid black disc; every other
-     page is the same disc drawn as a ring around a small core, so a glance
-     says which of them is the one on screen without reading anything */
+  /* the mark is small on purpose; the thing a pointer has to hit is not */
+  #pagepill .pageadd::after, #pagepill .pdot::after{
+    content:""; position:absolute; inset:-3px}
+  #pagepill .pageadd:hover{color:var(--ink); background-color:color-mix(in srgb, #000 5%, transparent)}
+  /* the page marks, both the size of the plus's own cross. The page being
+     looked at is one small solid black bullet; every other page is the same
+     bullet as an outline with nothing inside it */
   #pagepill .pdot{
-    flex:none; width:11px; height:11px; padding:0; border-radius:50%;
-    background:none; border:1.5px solid var(--line-strong); cursor:pointer;
-    position:relative; transition:border-color .18s, background .18s;
-  }
-  #pagepill .pdot::after{
-    content:""; position:absolute; inset:0; margin:auto;
-    width:3.5px; height:3.5px; border-radius:50%; background:var(--line-strong);
-    transition:background .18s;
+    flex:none; width:var(--mark); height:var(--mark); padding:0; border-radius:50%;
+    background:none; border:1px solid var(--line-strong); cursor:pointer;
+    position:relative; opacity:1; margin-left:0;
+    transition:border-color .18s, background-color .18s,
+               width .24s cubic-bezier(0.25, 1, 0.5, 1),
+               margin-left .24s cubic-bezier(0.25, 1, 0.5, 1),
+               opacity .22s ease;
   }
   #pagepill .pdot:hover{border-color:var(--sub)}
-  #pagepill .pdot:hover::after{background:var(--sub)}
   #pagepill .pdot.on{background:#000; border-color:#000}
-  #pagepill .pdot.on::after{display:none}
+  /* a page that has just joined the row starts with no width and no ink, and
+     cancels its own share of the gap, so the pill is seen to widen as the new
+     mark fades up rather than arriving at its finished size */
+  #pagepill .pdot.fresh{
+    width:0; opacity:0; margin-left:calc(0px - var(--pillgap));
+  }
   #pagepill .pageadd:focus-visible, #pagepill .pdot:focus-visible{
     outline:2px solid var(--accent); outline-offset:2px}
 
@@ -2853,7 +2875,8 @@
   /* nothing here has to move to be understood */
   @media (prefers-reduced-motion: reduce){
     body.pagewarn #pagewarn{animation:none}
-    #pagepill .pageadd, #pagepill .pdot, #pagepill .pdot::after{transition:none}
+    #pagepill .pageadd, #pagepill .pdot{transition:none}
+    body.focus #stage{transition:none}
   }
 
   /* a blank page: the project is still the project, but its board is not on
@@ -2862,8 +2885,14 @@
      back exactly as it left; a region hidden this way takes no click and no
      tab stop, so nothing behind the blank canvas can be reached or typed
      into. The bar, its tabs and the pill stay: the page is blank, the project
-     shell around it is not */
-  body.focus.pageblank #stage{visibility:hidden; pointer-events:none}
+     shell around it is not.
+     It fades rather than cuts. visibility carries the same duration so it
+     holds visible for the whole fade and flips at the end, which is what keeps
+     the board on screen while it is still being seen. Only these two
+     properties are named: the stage's transform is what fitStage writes on
+     every resize, and transitioning that would set the whole app sliding */
+  body.focus #stage{transition:opacity .18s ease, visibility .18s ease}
+  body.focus.pageblank #stage{visibility:hidden; opacity:0; pointer-events:none}
   body.focus.pageblank #editbtn{visibility:hidden}   /* the board's own arranging goes with the board */
   /* in-app project tabs: the board filtered to one project per tab; labels
      come from the lane directories at runtime, never from this file. Real tab
@@ -4251,12 +4280,39 @@ addEventListener("resize", () => shutPageMenu());
 addEventListener("blur", () => shutPageMenu());
 
 // ---- drawing the pill ------------------------------------------------------
+// what the row held on the last draw, so a page that has just joined it can be
+// told from one that was already there. Keyed by project: switching projects
+// swaps the whole row at once and that is not something arriving
+let pageDrawn = { owner: null, ids: [] };
+const gentleMotion = () => !matchMedia("(prefers-reduced-motion: reduce)").matches;
+// a mark that grows in: it is put on the page with no width and no ink, and
+// handed back its own size on the next frame, so the pill widens under it
+// instead of arriving already wide. Two frames, because the collapsed state has
+// to be painted before the transition to the open one can start
+function growDot(dot){
+  if (!gentleMotion()) return;   // no width to interpolate and nothing to fade
+  dot.classList.add("fresh");
+  requestAnimationFrame(() => requestAnimationFrame(() => dot.classList.remove("fresh")));
+}
+
+// what a mark says it is: its kind, and where it stands in the row. The place
+// moves when a page before it goes, so it is written from the row every time
+// rather than baked in when the mark is made
+function pageLabel(p, i, total){
+  return (p.kind === "blank" ? "Blank page " : "Board page ") + (i + 1) + " of " + total;
+}
+function labelDot(dot, p, i, total){
+  const said = pageLabel(p, i, total);
+  if (dot.title === said) return;
+  dot.title = said;
+  dot.setAttribute("aria-label", said);
+}
+
 function pageDot(p, i, total){
   const dot = h("button", "pdot");
   dot.type = "button";
   dot.dataset.page = p.id;
-  dot.title = (p.kind === "blank" ? "Blank page " : "Board page ") + (i + 1) + " of " + total;
-  dot.setAttribute("aria-label", dot.title);
+  labelDot(dot, p, i, total);
   dot.addEventListener("click", () => setPage(p.id));
   dot.addEventListener("contextmenu", e => {
     e.preventDefault(); e.stopPropagation();
@@ -4301,7 +4357,9 @@ function renderPages(state){
   // the second press would land on a button that had already been replaced
   let add = pill.querySelector(".pageadd");
   if (!add){
-    add = h("button", "pageadd", "+");
+    // no text in it: the cross is painted by the stylesheet, centred on the
+    // button's own box rather than sitting on a font's baseline
+    add = h("button", "pageadd");
     add.type = "button";
     add.title = "New page in this project";
     add.setAttribute("aria-label", add.title);
@@ -4311,8 +4369,35 @@ function renderPages(state){
   const sig = activeOwner + "|" + row.map(p => p.id + ":" + (p.kind || "")).join(",");
   if (pill.dataset.sig !== sig){
     pill.dataset.sig = sig;
-    for (const old of pill.querySelectorAll(".pdot")) old.remove();
-    row.forEach((p, i) => pill.appendChild(pageDot(p, i, row.length)));
+    // only a row this project was already showing can have gained a page; a
+    // first draw and a project switch both put their marks down as they are
+    const had = pageDrawn.owner === activeOwner ? pageDrawn.ids : null;
+    // the row is reconciled by page, not rebuilt. A mark whose page is still
+    // there is the same element afterwards: it keeps the keys if it had them,
+    // and it is never taken out and put back, because a focused element that
+    // is re-inserted is a focused element no longer. Only a page that has gone
+    // takes its mark with it, and only a page that has arrived is made and
+    // grown in. This matters on a poll: a page added or deleted in another
+    // window arrives here as a row change like any other
+    const alive = new Map([...pill.querySelectorAll(".pdot")].map(d => [d.dataset.page, d]));
+    for (const [id, node] of alive){
+      if (row.some(p => p.id === id)) continue;
+      node.remove();
+      alive.delete(id);
+    }
+    let mark = null;   // the mark the next one goes after; the plus for the first
+    row.forEach((p, i) => {
+      let dot = alive.get(p.id);
+      if (dot) labelDot(dot, p, i, row.length);
+      else {
+        dot = pageDot(p, i, row.length);
+        if (had && !had.includes(p.id)) growDot(dot);
+      }
+      const want = mark ? mark.nextSibling : add.nextSibling;
+      if (want !== dot) pill.insertBefore(dot, want);   // never moves one already in place
+      mark = dot;
+    });
+    pageDrawn = { owner: activeOwner, ids: row.map(p => p.id) };
   }
   // the mark of the page being looked at is written on its own, so switching
   // pages never rebuilds the row under the dot that was just pressed
@@ -4336,21 +4421,53 @@ function seatPagePill(){
   if (!pill || pill.classList.contains("off")) return;
   const stage = document.getElementById("stage");
   const gap = 8;
-  const foot = stage ? Math.min(stage.getBoundingClientRect().bottom, innerHeight) : innerHeight;
-  let bottom = Math.max(gap, innerHeight - foot + gap);
   const own = pill.getBoundingClientRect();
-  const high = innerHeight - bottom - own.height;
-  let lift = 0;
-  for (const el of [document.querySelector("main"), document.getElementById("rail")]){
-    if (!el) continue;
-    const r = el.getBoundingClientRect();
-    if (r.bottom > high && r.top < high + own.height && r.right > own.left && r.left < own.right)
-      lift = Math.max(lift, innerHeight - r.top + gap);
+  // the foot of the app the window is actually showing: the stage's own foot
+  // while the window is tall enough to hold all of it, and the window's foot
+  // when it is not
+  const foot = stage ? Math.min(stage.getBoundingClientRect().bottom, innerHeight) : innerHeight;
+  const seat = Math.max(gap, innerHeight - foot + gap);
+  let bottom = seat;
+  const topAt = b => innerHeight - b - own.height;
+  const rest = topAt(seat);
+  // The one thing the switcher steps over is the rail, the thin track under the
+  // card. It is a strip, so stepping over it costs a few pixels and leaves it
+  // whole. Nothing large is ever stepped over: a region the size of the card is
+  // held out of the switcher's way instead, below, because hopping the height
+  // of a card is how the switcher used to end up at the top of the screen.
+  const rail = document.getElementById("rail");
+  if (rail){
+    const r = rail.getBoundingClientRect();
+    if (r.height <= 2 * own.height &&        // a footer strip, not a region
+        r.bottom > rest && r.top < rest + own.height &&
+        r.right > own.left && r.left < own.right)
+      bottom = Math.max(bottom, innerHeight - r.top + gap);
   }
-  // stepping up is only worth it while the pill still has room to stand in
-  if (lift > bottom && innerHeight - lift - own.height > 60) bottom = lift;
+  // the invariant behind all of it, kept whatever the measurements say: the
+  // foot of a workspace is never near its top, so the switcher never leaves the
+  // lower half of the window
+  if (topAt(bottom) < innerHeight / 2) bottom = seat;
   if (pill.style.bottom !== bottom + "px") pill.style.bottom = bottom + "px";
+  reserveFootRoom(topAt(bottom) - gap);
 }
+
+// The room the switcher keeps for itself. The card is the one region that can
+// reach the foot of a short window, so the card is what gives the room back: it
+// is held to a height that ends above the switcher, and its reply pane scrolls
+// inside whatever height that leaves. In any window tall enough to hold the
+// whole board this asks for more height than the card has and nothing moves at
+// all, so the board only ever gives up room it does not have.
+function reserveFootRoom(floor){
+  const card = document.querySelector("main");
+  if (!card) return;
+  const room = Math.max(MIN_CARD_H, Math.round(floor - card.getBoundingClientRect().top));
+  if (card.style.maxHeight !== room + "px") card.style.maxHeight = room + "px";
+}
+const MIN_CARD_H = 160;   // a card is never squeezed past being a card
+// leaving or entering fullscreen resizes the window, but the event that says so
+// first is this one, and on some paths it is the only one: the switcher is
+// re-seated on both so the foot is never a frame behind the window
+addEventListener("fullscreenchange", () => { fitStage(); seatPagePill(); });
 
 function select(id, opts){
   if (!els[id]) return;
