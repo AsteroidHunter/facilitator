@@ -2074,7 +2074,6 @@ function editTitle(id, opts){
 // card switch cancels the jump
 let autoNext = null;
 const AUTONEXT_MS = 0;   // future user setting: quiet time after a send before moving on
-let lastLeftId = null;   // the card the last auto-jump left, for command+z bounce
 function cancelAutoNext(){ clearTimeout(autoNext); autoNext = null; }
 
 // after a send, move to the next YELLOW card: one awaiting his read, never a
@@ -2084,7 +2083,6 @@ function jumpNextYellow(fromId){
   const p = poolOf(lastState).filter(b =>
     !b.done && !(b.writing || b.bg) && b.ball === "you" && b.id !== fromId);
   if (!p.length) return;
-  lastLeftId = fromId;
   select(p[0].id, { focus: true });
 }
 
@@ -2899,16 +2897,8 @@ addEventListener("keydown", e => {
     nav(e.key === "[" || e.key === "{" ? -1 : 1, 0, { focus: true });
     return;
   }
-  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === "z" || e.key === "Z")){
-    // command+z bounces back to the card the last send left, and back again
-    if (lastLeftId && els[lastLeftId]){
-      e.preventDefault();
-      const there = lastLeftId;
-      lastLeftId = selectedId;
-      select(there, { focus: true });
-    }
-    return;
-  }
+  // command+z and control+z are left to the text box: undo is the editor's, and
+  // this page has no key of its own on that chord
   if (e.metaKey && (e.key === "t" || e.key === "T")){   // command+T: new card, input focused
     e.preventDefault();
     if (MOCK) return;   // the sandbox never creates a real card
