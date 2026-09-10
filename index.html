@@ -2764,6 +2764,107 @@
   body.focus #carousel{display:none !important}
   #navpad > div{display:flex; gap:14px}
   @media (max-width:989px){ body.focus #navpad{display:none} }
+
+  /* ---- the project's pages ---------------------------------------------- */
+  /* one pill at the foot of the workspace, centred on the window: the plus on
+     the left, then one dot per page of the project in the board's own order.
+     It is fixed to the window rather than placed on the stage, so it keeps its
+     seat while the board is stepped back and while the stage slides under a
+     resize; seatPagePill writes the one number it needs, how far up from the
+     foot it sits, and that number is what keeps it off the rail. */
+  #pagepill{display:none}
+  body.focus #pagepill{
+    display:flex; align-items:center; gap:9px;
+    position:fixed; left:50%; transform:translateX(-50%); bottom:8px; z-index:12;
+    padding:5px 11px; border-radius:99px;
+    background:color-mix(in srgb, var(--paper) 92%, #fff 8%);
+    border:1px solid var(--line);
+    box-shadow:0 1px 3px rgba(60,45,20,.07);
+  }
+  body.focus #pagepill.off{display:none}
+  #pagepill .pageadd{
+    flex:none; width:17px; height:17px; padding:0; border:none; background:none;
+    color:var(--sub); cursor:pointer; font:15px/1 var(--mono);
+    display:flex; align-items:center; justify-content:center; border-radius:50%;
+    transition:color .18s, background .18s;
+  }
+  #pagepill .pageadd:hover{color:var(--ink); background:color-mix(in srgb, #000 5%, transparent)}
+  /* the dots. the page being looked at is one solid black disc; every other
+     page is the same disc drawn as a ring around a small core, so a glance
+     says which of them is the one on screen without reading anything */
+  #pagepill .pdot{
+    flex:none; width:11px; height:11px; padding:0; border-radius:50%;
+    background:none; border:1.5px solid var(--line-strong); cursor:pointer;
+    position:relative; transition:border-color .18s, background .18s;
+  }
+  #pagepill .pdot::after{
+    content:""; position:absolute; inset:0; margin:auto;
+    width:3.5px; height:3.5px; border-radius:50%; background:var(--line-strong);
+    transition:background .18s;
+  }
+  #pagepill .pdot:hover{border-color:var(--sub)}
+  #pagepill .pdot:hover::after{background:var(--sub)}
+  #pagepill .pdot.on{background:#000; border-color:#000}
+  #pagepill .pdot.on::after{display:none}
+  #pagepill .pageadd:focus-visible, #pagepill .pdot:focus-visible{
+    outline:2px solid var(--accent); outline-offset:2px}
+
+  /* the right-click menu on a dot: one item, seated at the pointer */
+  #pagemenu{display:none}
+  body.focus #pagemenu.on{
+    display:block; position:fixed; z-index:45; min-width:126px;
+    background:var(--card); border:1px solid var(--line-strong); border-radius:7px;
+    box-shadow:0 4px 16px rgba(60,45,20,.16); padding:4px; overflow:hidden;
+  }
+  #pagemenu .pagemenuitem{
+    display:block; width:100%; text-align:left; border:none; background:none;
+    font:13px var(--sans); color:var(--ink); padding:6px 10px; border-radius:5px;
+    cursor:pointer;
+  }
+  #pagemenu .pagemenuitem:hover, #pagemenu .pagemenuitem:focus-visible{
+    background:var(--accent-soft); outline:none}
+
+  /* the confirmation, centred over the whole workspace. it takes the pointer
+     and the keys for as long as it is up, so nothing behind it can be reached
+     by either while the question is unanswered */
+  #pagewarn{display:none}
+  body.pagewarn #pagewarn{
+    display:grid; place-items:center; position:fixed; inset:0; z-index:50000;
+    background:color-mix(in srgb, var(--ink) 26%, transparent);
+    animation:pagewarnin .14s ease-out;
+  }
+  @keyframes pagewarnin{from{opacity:0}}
+  #pagewarnbox{
+    background:var(--card); border:1px solid var(--line-strong); border-radius:7px;
+    box-shadow:0 8px 40px rgba(60,45,20,.24);
+    padding:22px 24px 18px; width:min(420px, calc(100vw - 48px));
+  }
+  #pagewarnq{margin:0; font:500 16px/1.4 var(--sans); color:var(--ink)}
+  #pagewarnkept{margin:9px 0 0; font:13px/1.5 var(--sans); color:var(--sub)}
+  #pagewarnrow{display:flex; justify-content:flex-end; gap:8px; margin-top:20px}
+  #pagewarnrow button{
+    font:13px var(--sans); border-radius:5px; padding:6px 14px; cursor:pointer;
+    border:1px solid var(--line-strong); background:var(--card); color:var(--ink);
+  }
+  #pagewarnrow button:hover{background:#FAF7F1}
+  #pagewarnyes{border-color:var(--must); background:var(--must); color:#fff}
+  #pagewarnyes:hover{background:#93381F}
+  #pagewarnrow button:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+  /* nothing here has to move to be understood */
+  @media (prefers-reduced-motion: reduce){
+    body.pagewarn #pagewarn{animation:none}
+    #pagepill .pageadd, #pagepill .pdot, #pagepill .pdot::after{transition:none}
+  }
+
+  /* a blank page: the project is still the project, but its board is not on
+     this page. The whole stage steps back at once, by visibility rather than
+     display, so every region keeps the place it was measured into and comes
+     back exactly as it left; a region hidden this way takes no click and no
+     tab stop, so nothing behind the blank canvas can be reached or typed
+     into. The bar, its tabs and the pill stay: the page is blank, the project
+     shell around it is not */
+  body.focus.pageblank #stage{visibility:hidden; pointer-events:none}
+  body.focus.pageblank #editbtn{visibility:hidden}   /* the board's own arranging goes with the board */
   /* in-app project tabs: the board filtered to one project per tab; labels
      come from the lane directories at runtime, never from this file. Real tab
      shapes seated on the bar's bottom edge; the active one opens into the page.
@@ -3223,6 +3324,25 @@
       <div id="nprows"></div>
     </div>
     <button id="npstart">Open a new folder</button>
+  </div>
+</div>
+
+<!-- the project's pages: the switcher at the foot of the workspace, the menu a
+     right-click on one of its dots opens, and the window a deletion has to go
+     through. All three stand outside the stage, so the stage's transform never
+     drags them off their seat and they stay reachable while a blank page has
+     the board itself stepped back. -->
+<div id="pagepill" class="off" role="group" aria-label="Pages in this project"></div>
+<div id="pagemenu" role="menu" aria-label="Page actions"></div>
+<div id="pagewarn">
+  <div id="pagewarnbox" role="alertdialog" aria-modal="true"
+       aria-labelledby="pagewarnq" aria-describedby="pagewarnkept">
+    <p id="pagewarnq">Are you sure you want to delete the page?</p>
+    <p id="pagewarnkept">This project keeps its cards and every conversation in them. Only the page goes.</p>
+    <div id="pagewarnrow">
+      <button id="pagewarnno" type="button">Cancel</button>
+      <button id="pagewarnyes" type="button">Delete page</button>
+    </div>
   </div>
 </div>
 
@@ -3903,6 +4023,334 @@ document.getElementById("npstart").addEventListener("click", async () => {
     if (draft) draft.picking = false;
   }
 });
+
+// ---- the project's pages ---------------------------------------------------
+// A project is looked at through one of its pages. Every project starts with
+// the board page, which is this board and its own workspace filter; a page
+// added since is blank, an empty canvas in the same project. Which pages a
+// project has and in what order is the board's record (state.pages), so two
+// windows of one project always show the same row of dots. Which page this
+// browser is on is this browser's own, one remembered page per project, the
+// way the open tab is: choosing a page here never moves another project's.
+// A page holds nothing. Deleting one takes the view record and only that: the
+// project's cards, their conversations, its internal workspaces and their
+// tasks are all somewhere else and are not touched by any of this.
+const pageKey = ow => "activepage." + ow;
+let pageMenu = null;     // {pid, dot} while the right-click menu is open
+let pageWarn = null;     // {pid, owner, from} while the confirmation is up
+let pageBusy = false;    // one create or one delete at a time
+// a page this browser has just made, held until a reading of the board is new
+// enough to speak for it. Without a hold, a reading already in flight when the
+// page was made comes back without it, the row falls back to the first page,
+// and the new blank one flashes back to the board.
+// The hold ends on the board's revision rather than on seeing the page,
+// because those two are not the same thing. Every saved change moves the
+// revision, the answer that made the page names the revision it landed at, and
+// any reading at or past that revision knows whether the page is still there.
+// A reading below it is older than the page and says nothing about it, so the
+// hold stands. A reading at or above it is the whole truth: the page is in it,
+// or the page has been deleted, and either way the hold is done. Ending the
+// hold on sight alone left a page deleted in another window before this one
+// had read the board even once drawn as a dot until the window was reloaded,
+// since the reading that should have retired it is exactly the one that no
+// longer names it.
+let pageHold = null;     // {owner, id, rev}
+
+function pagesOf(state, owner){
+  const list = (state && state.pages && state.pages[owner]) || [];
+  return Array.isArray(list) ? list.filter(p => p && typeof p.id === "string") : [];
+}
+// the row the pill draws: the board's own list, plus a just-made page no
+// reading old enough to matter has answered with yet. This is where the hold
+// ends, so every reader of the row gets the same answer from it
+function pageRow(state, owner){
+  const ow = owner || activeOwner;
+  const list = pagesOf(state, ow);
+  if (!pageHold || pageHold.owner !== ow) return list;
+  if (list.some(p => p.id === pageHold.id)){
+    pageHold = null;        // the reading carries it; the hold has nothing left to do
+    return list;
+  }
+  // a board with no revision at all cannot be told stale from current, so the
+  // hold ends at the first reading rather than standing on nothing
+  const rev = state && Number.isFinite(state.rev) ? state.rev : Infinity;
+  if (rev >= pageHold.rev){
+    pageHold = null;        // new enough to know, and it does not have the page
+    return list;
+  }
+  return [...list, { id: pageHold.id, kind: "blank" }];
+}
+function readPageId(ow){
+  try { return localStorage.getItem(pageKey(ow)); } catch (err){ return null; }
+}
+function writePageId(ow, pid){
+  try {
+    if (pid) localStorage.setItem(pageKey(ow), pid);
+    else localStorage.removeItem(pageKey(ow));
+  } catch (err){}
+}
+// the page this project is showing: the remembered one while it is still in
+// the row, and otherwise the first page of it. A project whose pages have all
+// been deleted shows none, and that is an answer rather than a gap
+function curPage(state, owner){
+  const ow = owner || activeOwner;
+  const row = pageRow(state, ow);   // and the hold ends in there when it is done
+  if (!row.length) return null;
+  const want = readPageId(ow);
+  return row.find(p => p.id === want) || row[0];
+}
+// only a page that says it is blank hides the board: an unknown kind from a
+// newer board still shows what this one knows how to show
+function onBoardPage(state){
+  const st = state || lastState;
+  if (!st || !st.pages) return true;   // an older board has no pages; this is the board
+  const p = curPage(st, activeOwner);
+  return !!p && p.kind !== "blank";
+}
+// whether the board's own keys are live: a blank page has no cards to walk,
+// and the confirmation window owns the keyboard while it is up
+function boardKeysLive(){ return !pageWarn && !pageMenu && onBoardPage(); }
+
+async function addPage(){
+  if (!ownerReady || draft || activeOwner === DRAFT || pageBusy) return;
+  pageBusy = true;
+  const ow = activeOwner;
+  try {
+    const r = await fetch("/pages/new?owner=" + encodeURIComponent(ow), { method: "POST" })
+      .then(x => x.json()).catch(() => null);
+    if (!r || !r.id) return;
+    // the revision the page landed at: readings below it are older than the
+    // page, readings at or above it settle whether it is still there. A board
+    // that names no revision leaves -1, which the first reading clears
+    pageHold = { owner: ow, id: r.id, rev: Number.isFinite(r.rev) ? r.rev : -1 };
+    writePageId(ow, r.id);      // the new page is the one being looked at at once
+    if (lastState) apply(lastState);
+    await poll();
+  } finally {
+    pageBusy = false;
+  }
+}
+
+// the page goes; what to look at afterwards is decided here rather than left
+// to the fallback, so removing the page you are on lands you on its neighbour
+// instead of always on the first one
+async function dropPage(pid){
+  if (pageBusy) return false;
+  pageBusy = true;
+  const ow = activeOwner;
+  try {
+    const row = pageRow(lastState, ow);
+    const at = row.findIndex(p => p.id === pid);
+    const wasOn = curPage(lastState, ow)?.id === pid;
+    const r = await fetch("/pages/del?owner=" + encodeURIComponent(ow) +
+        "&id=" + encodeURIComponent(pid), { method: "POST" })
+      .then(x => x.json()).catch(() => null);
+    if (!r || !r.ok) return false;
+    if (pageHold && pageHold.owner === ow && pageHold.id === pid) pageHold = null;
+    if (wasOn){
+      // the one after it takes over; the one before it when it was last in the
+      // row; nothing at all when it was the only one
+      const left = row.filter(p => p.id !== pid);
+      const next = left[Math.min(Math.max(at, 0), left.length - 1)];
+      writePageId(ow, next ? next.id : null);
+    }
+    if (lastState) apply(lastState);
+    await poll();
+    return true;
+  } finally {
+    pageBusy = false;
+  }
+}
+
+function setPage(pid){
+  if (!ownerReady || draft || activeOwner === DRAFT) return;
+  if (!pageRow(lastState, activeOwner).some(p => p.id === pid)) return;
+  shutPageMenu();
+  writePageId(activeOwner, pid);
+  if (lastState) apply(lastState);
+}
+
+// ---- the menu one dot opens ------------------------------------------------
+function shutPageMenu(){
+  if (!pageMenu) return;
+  const back = pageMenu.dot;
+  pageMenu = null;
+  document.getElementById("pagemenu").classList.remove("on");
+  if (back && back.isConnected && document.activeElement &&
+      document.activeElement.closest && document.activeElement.closest("#pagemenu")) back.focus();
+}
+function openPageMenu(pid, x, y, dot){
+  shutPageMenu();
+  const menu = document.getElementById("pagemenu");
+  menu.textContent = "";
+  const item = h("button", "pagemenuitem", "Delete page");
+  item.type = "button";
+  item.setAttribute("role", "menuitem");
+  item.addEventListener("click", () => {
+    const from = pageMenu && pageMenu.dot;
+    shutPageMenu();
+    openPageWarn(pid, from);
+  });
+  menu.appendChild(item);
+  menu.classList.add("on");
+  pageMenu = { pid, dot: dot || null };
+  const r = menu.getBoundingClientRect();
+  menu.style.left = Math.max(6, Math.min(x, innerWidth - r.width - 6)) + "px";
+  menu.style.top = Math.max(6, Math.min(y, innerHeight - r.height - 6)) + "px";
+  item.focus();
+}
+
+// ---- the window a deletion goes through ------------------------------------
+function openPageWarn(pid, from){
+  if (!pageRow(lastState, activeOwner).some(p => p.id === pid)) return;
+  pageWarn = { pid, owner: activeOwner,
+               from: from || (document.activeElement !== document.body ? document.activeElement : null) };
+  document.body.classList.add("pagewarn");
+  document.getElementById("pagewarnno").focus();
+}
+// cancelling and confirming both end here; nothing is changed on the way out
+function shutPageWarn(){
+  if (!pageWarn) return;
+  const back = pageWarn.from;
+  pageWarn = null;
+  document.body.classList.remove("pagewarn");
+  if (back && back.isConnected && typeof back.focus === "function") back.focus();
+  else document.querySelector("#pagepill .pageadd")?.focus();
+}
+document.getElementById("pagewarnno").addEventListener("click", () => shutPageWarn());
+document.getElementById("pagewarnyes").addEventListener("click", async () => {
+  const pid = pageWarn && pageWarn.pid;
+  shutPageWarn();
+  if (pid) await dropPage(pid);
+});
+// the keys while it is up: Escape is cancel, and Tab cannot leave the two
+// buttons, so the keyboard cannot wander into a board nobody can see
+document.getElementById("pagewarn").addEventListener("keydown", e => {
+  if (e.key === "Escape"){ e.preventDefault(); e.stopPropagation(); shutPageWarn(); return; }
+  if (e.key !== "Tab") return;
+  const stops = [document.getElementById("pagewarnno"), document.getElementById("pagewarnyes")];
+  const at = stops.indexOf(document.activeElement);
+  e.preventDefault();
+  stops[(at + (e.shiftKey ? -1 : 1) + stops.length) % stops.length].focus();
+});
+
+// Escape shuts the menu wherever the keys happen to be; capture, so nothing
+// else on the board answers it first
+addEventListener("keydown", e => {
+  if (e.key !== "Escape" || !pageMenu) return;
+  e.preventDefault(); e.stopPropagation();
+  shutPageMenu();
+}, true);
+// a press anywhere else shuts it, and so does the window moving under it
+addEventListener("pointerdown", e => {
+  if (!pageMenu) return;
+  if (e.target.closest && e.target.closest("#pagemenu")) return;
+  shutPageMenu();
+}, true);
+addEventListener("resize", () => shutPageMenu());
+addEventListener("blur", () => shutPageMenu());
+
+// ---- drawing the pill ------------------------------------------------------
+function pageDot(p, i, total){
+  const dot = h("button", "pdot");
+  dot.type = "button";
+  dot.dataset.page = p.id;
+  dot.title = (p.kind === "blank" ? "Blank page " : "Board page ") + (i + 1) + " of " + total;
+  dot.setAttribute("aria-label", dot.title);
+  dot.addEventListener("click", () => setPage(p.id));
+  dot.addEventListener("contextmenu", e => {
+    e.preventDefault(); e.stopPropagation();
+    openPageMenu(p.id, e.clientX, e.clientY, dot);
+  });
+  // the keyboard's way to the same menu: the menu key, and the shift F10 every
+  // desktop browser maps to it
+  dot.addEventListener("keydown", e => {
+    if (e.key !== "ContextMenu" && !(e.key === "F10" && e.shiftKey)) return;
+    e.preventDefault();
+    const r = dot.getBoundingClientRect();
+    openPageMenu(p.id, r.left, r.top, dot);
+  });
+  return dot;
+}
+
+function renderPages(state){
+  if (!FOCUS) return;
+  const pill = document.getElementById("pagepill");
+  if (!pill) return;
+  // no pill on the new-project landing, and none before the board has said
+  // which projects there are
+  const away = !ownerReady || !!draft || activeOwner === DRAFT;
+  pill.classList.toggle("off", away);
+  if (away){
+    shutPageMenu(); shutPageWarn();
+    document.body.classList.remove("pageblank");
+    return;
+  }
+  const row = pageRow(state, activeOwner);
+  const cur = curPage(state, activeOwner);
+  // a page removed in another window takes its menu and its question with it
+  if (pageMenu && !row.some(p => p.id === pageMenu.pid)) shutPageMenu();
+  if (pageWarn && (pageWarn.owner !== activeOwner || !row.some(p => p.id === pageWarn.pid)))
+    shutPageWarn();
+  const blank = !onBoardPage(state);
+  if (blank && editMode) setEditMode(false);   // there is no board here to arrange
+  document.body.classList.toggle("pageblank", blank);
+  // the plus is made once and never again. It is the leftmost thing in the
+  // pill and the only one that is always there, so rebuilding it with the row
+  // would take the keys off it every time a page is added: press it twice and
+  // the second press would land on a button that had already been replaced
+  let add = pill.querySelector(".pageadd");
+  if (!add){
+    add = h("button", "pageadd", "+");
+    add.type = "button";
+    add.title = "New page in this project";
+    add.setAttribute("aria-label", add.title);
+    add.addEventListener("click", addPage);
+    pill.appendChild(add);
+  }
+  const sig = activeOwner + "|" + row.map(p => p.id + ":" + (p.kind || "")).join(",");
+  if (pill.dataset.sig !== sig){
+    pill.dataset.sig = sig;
+    for (const old of pill.querySelectorAll(".pdot")) old.remove();
+    row.forEach((p, i) => pill.appendChild(pageDot(p, i, row.length)));
+  }
+  // the mark of the page being looked at is written on its own, so switching
+  // pages never rebuilds the row under the dot that was just pressed
+  for (const dot of pill.querySelectorAll(".pdot")){
+    const on = !!cur && dot.dataset.page === cur.id;
+    dot.classList.toggle("on", on);
+    if (on) dot.setAttribute("aria-current", "page");
+    else dot.removeAttribute("aria-current");
+  }
+  seatPagePill();
+}
+
+// Where the pill sits. Its seat is 8px inside the foot of the app the window is
+// actually showing: the stage's own foot when the window is tall enough to hold
+// the whole of it, the window's foot when it is not. If that seat would land on
+// the card or on the rail under it, the pill steps up to sit clear above
+// whichever of them reaches lowest, so it never covers either.
+function seatPagePill(){
+  if (!FOCUS) return;
+  const pill = document.getElementById("pagepill");
+  if (!pill || pill.classList.contains("off")) return;
+  const stage = document.getElementById("stage");
+  const gap = 8;
+  const foot = stage ? Math.min(stage.getBoundingClientRect().bottom, innerHeight) : innerHeight;
+  let bottom = Math.max(gap, innerHeight - foot + gap);
+  const own = pill.getBoundingClientRect();
+  const high = innerHeight - bottom - own.height;
+  let lift = 0;
+  for (const el of [document.querySelector("main"), document.getElementById("rail")]){
+    if (!el) continue;
+    const r = el.getBoundingClientRect();
+    if (r.bottom > high && r.top < high + own.height && r.right > own.left && r.left < own.right)
+      lift = Math.max(lift, innerHeight - r.top + gap);
+  }
+  // stepping up is only worth it while the pill still has room to stand in
+  if (lift > bottom && innerHeight - lift - own.height > 60) bottom = lift;
+  if (pill.style.bottom !== bottom + "px") pill.style.bottom = bottom + "px";
+}
 
 function select(id, opts){
   if (!els[id]) return;
@@ -5067,6 +5515,7 @@ function apply(state){
     tocGroups[key].style.display = visible ? "" : "none";
   }
   renderTabs(state);
+  renderPages(state);   // the foot of the workspace, and whether the board is on this page at all
   if (draft && draft.screen === "home") renderHome(state);   // new lanes join the landing card live
   if (FOCUS){
     renderWorkspaces(state);
@@ -7446,9 +7895,11 @@ const miniShortcutActions = {
   },
 };
 
-// capture, so the mini subset never reaches the board's own handling
+// capture, so the mini subset never reaches the board's own handling. the small
+// card is part of the board, so its keys go quiet on a blank page too, even
+// though a hidden box cannot be clicked into in the first place
 addEventListener("keydown", e => {
-  if (!miniFocused) return;
+  if (!miniFocused || !boardKeysLive()) return;
   dispatchCardShortcut(e, miniShortcutActions, "mini");
 }, true);
 
@@ -7824,6 +8275,10 @@ const boardShortcutActions = {
 
 addEventListener("keydown", e => {
   if (!FOCUS) return;
+  // the board's commands belong to the board: a blank page has no cards for
+  // them to walk, close or create on, and while the confirmation window is up
+  // the keys are its own
+  if (!boardKeysLive()) return;
   dispatchCardShortcut(e, boardShortcutActions);
 });
 {
@@ -7942,6 +8397,7 @@ function fitStage(){
   stage.style.transform = `translate(${tx}px, ${ty}px)`;
   // slide the window-wide star field so its phase matches the stage's origin
   document.body.style.backgroundPosition = tx + "px " + (bar + ty) + "px";
+  seatPagePill();   // the stage's foot has moved, and the pill sits against it
 }
 addEventListener("resize", fitStage);
 
@@ -8100,6 +8556,7 @@ function applySavedLayout(){
       el.style.height = "";
     }
   }
+  seatPagePill();   // the card and the rail may have just moved under the pill
 }
 let dragging = null;
 let dragEnabled = true;    // hold Option and drag a box to move it; snaps to the grid
@@ -8159,6 +8616,7 @@ const HANDLE_CURSOR = { nw: "nwse-resize", se: "nwse-resize", ne: "nesw-resize",
   sw: "nesw-resize", n: "ns-resize", s: "ns-resize", e: "ew-resize", w: "ew-resize" };
 function setEditMode(on){
   if (!FOCUS) return;
+  if (on && !onBoardPage()) return;   // no board on this page, nothing to arrange
   editMode = on;
   document.body.classList.toggle("editmode", on);
   if (on){
