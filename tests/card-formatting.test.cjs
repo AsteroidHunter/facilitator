@@ -413,8 +413,18 @@ for (const pageName of ["index.html", "page.html"]) {
         ].join("\n");
         const nativeFetch = globalThis.fetch;
         globalThis.fetch = async (input, options) => {
-          if (String(input).startsWith("/thread?box=" + id)) {
-            return { json: async () => ({ messages: [
+          const asked = String(input);
+          // both answers are successful ones, ok and status included: the
+          // board's history stepper rejects an unsuccessful response outright,
+          // and this case is about what it renders from one it did receive.
+          // The board asks the history route, which hands it final replies
+          // with the live one already left out; the page view still reads the
+          // whole thread and picks the replies out of it itself
+          if (board && asked.startsWith("/history?box=" + id)) {
+            return { ok: true, status: 200, json: async () => ({ replies: [rich] }) };
+          }
+          if (!board && asked.startsWith("/thread?box=" + id)) {
+            return { ok: true, status: 200, json: async () => ({ messages: [
               { kind: "agent", ts: 10, text: "legacy fallback", replyFull: rich },
               { kind: "agent", ts: 11, text: "Live reply", replyFull: "Live reply" },
             ] }) };
@@ -592,10 +602,18 @@ test("browser coverage inventory includes every thread fetch call site", async (
   const page = await readFile(path.join(ROOT, "page.html"), "utf8");
   assert.equal((index.match(/fetch\("\/thread\?box=/g) || []).length, 2,
     "index gained an unreviewed thread renderer");
-  assert.equal((logic.match(/fetch\("\/thread\?box=/g) || []).length, 1,
+  assert.equal((logic.match(/fetch\("\/thread\?box=/g) || []).length, 0,
     "the shared card logic gained an unreviewed thread renderer");
   assert.equal((page.match(/fetch\("\/thread\?box=/g) || []).length, 2,
     "page gained an unreviewed thread renderer");
+  // the shared reply history reads the board's history route instead, which
+  // hands it the pages themselves rather than a window to pick them out of
+  assert.equal((logic.match(/fetch\("\/history\?box=/g) || []).length, 1,
+    "the shared card logic gained an unreviewed history renderer");
+  assert.equal((index.match(/fetch\("\/history\?box=/g) || []).length, 0,
+    "index gained a history renderer of its own");
+  assert.equal((page.match(/fetch\("\/history\?box=/g) || []).length, 0,
+    "page gained a history renderer of its own");
   assert.match(logic, /el\.reply\.innerHTML = fmt\(list\[list\.length - step\]\)/);
   assert.match(page, /el\.reply\.innerHTML = fmt\(list\[list\.length - step\]\)/);
   assert.match(index, /bubble\.innerHTML = fmt\(m\.kind === "user"/);

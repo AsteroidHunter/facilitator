@@ -206,8 +206,20 @@ Endpoints:
                                across all incident reasons. Their confirmed
                                response follows a successful log write/flush
   GET  /thread?box=ID&n=N   -> last N user/agent/note messages of a box from the
-                               transcript (read by the reply history stepper
-                               and the quick chat panel)
+                               transcript (read by the quick chat panel and the
+                               page view's own stepper)
+  GET  /history?box=ID      -> {"replies": [...]}: one card's older final
+                               replies, oldest first, without the one the card
+                               is showing and without its progress notes, at
+                               most HISTORY_MAX of them. What the reply-history
+                               arrows walk, and the same rule that decides the
+                               olderReplies count sent with the card, so the
+                               marks a page draws before it asks and the list
+                               it gets when it does agree. The filter runs
+                               before the cap, so a long run of notes since the
+                               last answer cannot push the answers out of the
+                               window, and the live page is left out by the
+                               card's own record rather than by matching text
   GET  /log?lines=N         -> tail of the day's server log file, the dated one
                                under the sibling internal folder's logs/;
                                $FACILITATOR_LOG names another file instead
@@ -878,6 +890,18 @@ REPLY_VARIANTS_VERSION = 1
 # is the durable boundary because transcript timestamps are authored data and
 # may be missing, malformed, duplicated, or in the future.
 TRANSCRIPT_REPLY_SCHEMA = "reply_variants"
+# Version 1 gives every card its own count of final replies, which is what the
+# reply-history arrows walk. The aggregate "replies" count includes progress
+# notes and so cannot answer whether a card has an older page. Cards written
+# before this are counted once from the transcript, since only the transcript
+# holds what a card was answered with before now.
+HISTORY_COUNTS_VERSION = 1
+# How many older replies one card's history offers, on both sides of the same
+# answer: the count sent with the card and the list GET /history hands out are
+# capped here together, so neither can promise a page the other cannot reach.
+# This is a cap on final replies only, unlike /thread's n, which counts every
+# row of the conversation.
+HISTORY_MAX = 200
 BUILTIN_OWNERS = ("facilitator", "pastureland", "qchat")  # qchat: the quick chat panel's lane, dormant in the current board
 OWNERS = BUILTIN_OWNERS
 # the built-in three above are the floor; project lanes stored in state.json
@@ -1269,6 +1293,37 @@ def _set_reply_variants(box: dict, full: str, short: str | None = None) -> None:
     box["reply"] = full
 
 
+def _row_reply_full(event: dict, legacy: bool) -> str:
+    """The full-text variant of one transcript reply row.
+
+    legacy says the row stands before the durable schema marker, which is the
+    only thing that may revive the retired --- delimiter. Every reader of a
+    reply row goes through here, so /thread and the history count can never
+    read the same row two different ways."""
+    if "reply_full" in event or "reply_short" in event:
+        return event.get("reply_full", event.get("text", ""))
+    if legacy:
+        return _legacy_reply_variants(event.get("text", ""))[1]
+    return event.get("text", "")
+
+
+def _older_replies(box: dict) -> int:
+    """How many older pages this card's reply history holds: every final reply
+    except the one the card is showing, and never more than the history route
+    hands out. A progress note is not a page of the history and never hides the
+    reply it was written over.
+
+    This is the count /state sends and GET /history is the list of the same
+    thing. One rule decides both: which rows count (final replies only) and
+    which one is the page you are on (the card's reply_kind, never a guess made
+    by comparing text). So the marks a page draws before it asks and the list
+    it walks when it does cannot say different things."""
+    count = box.get("full_replies", 0)
+    if box.get("reply_kind") == "agent":
+        count -= 1     # the newest final reply is the one on the card
+    return max(min(count, HISTORY_MAX), 0)
+
+
 def _is_reply_schema_boundary(event: dict) -> bool:
     """True only for our durable transcript schema marker."""
     try:
@@ -1278,6 +1333,50 @@ def _is_reply_schema_boundary(event: dict) -> bool:
     return (event.get("kind") == "schema" and
             event.get("schema") == TRANSCRIPT_REPLY_SCHEMA and
             version >= REPLY_VARIANTS_VERSION)
+
+
+def _scan_transcript_replies() -> dict:
+    """Per card: how many final replies the transcript holds, and what wrote
+    the words the card is showing. One pass over the whole file, for the
+    one-time count of cards answered before the board kept this itself.
+
+    What wrote the card is the kind of the last row that writes one, in file
+    order. Never by matching that row's text against the card, because a
+    progress note that repeats the answer under it word for word would then
+    read as the answer itself and hide a page that is really there.
+
+    Rows are read the way /thread reads them, so the count a page is told and
+    the list it walks are made of the same rows: rows written twice under one
+    operation id are one event."""
+    found: dict = {}   # box id -> [final replies, kind of the last row that wrote the card]
+    seen_ops: set = set()
+    try:
+        with TRANSCRIPT_PATH.open(errors="replace") as transcript:
+            for line in transcript:
+                try:
+                    event = json.loads(line)
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                kind = event.get("kind")
+                if kind not in ("agent", "note", "progress"):
+                    continue
+                bid = event.get("box")
+                if not isinstance(bid, str):
+                    continue
+                op = event.get("op")
+                if isinstance(op, str) and op:
+                    if (kind, op) in seen_ops:
+                        continue
+                    seen_ops.add((kind, op))
+                record = found.setdefault(bid, [0, ""])
+                if kind == "agent":
+                    record[0] += 1
+                record[1] = kind
+    except FileNotFoundError:
+        pass
+    return found
 
 
 def _ensure_reply_schema_boundary() -> None:
@@ -1445,6 +1544,27 @@ def _migrate() -> None:
     # Drop it and append a file-order marker after every pre-v1 transcript row.
     _state.pop("reply_variants_migrated_at", None)
     _ensure_reply_schema_boundary()
+    # Older replies (2026-09-10): the card carries its own count of final
+    # replies, so a page can draw the history arrows in the frame the card
+    # appears in rather than after reading the transcript. reply_kind says what
+    # wrote the text the card is showing, which is what decides whether the
+    # newest final reply is the page you are on or a page behind you.
+    # Cards answered before this are counted once, from the transcript, and
+    # their reply_kind is the kind of the last row that wrote them, in file
+    # order, which is the same thing the routes record from here on.
+    if _state.get("history_counts_version", 0) < HISTORY_COUNTS_VERSION:
+        counted = _scan_transcript_replies()
+        for b in _state["boxes"]:
+            count, kind = counted.get(b["id"], (0, ""))
+            b["full_replies"] = count
+            b["reply_kind"] = kind
+        _state["history_counts_version"] = HISTORY_COUNTS_VERSION
+    else:
+        # a box added by an older helper or by hand carries neither field, and
+        # no older page can be walked on a card the board knows no replies of
+        for b in _state["boxes"]:
+            b.setdefault("full_replies", 0)
+            b.setdefault("reply_kind", "")
     _save()
 
 
@@ -2333,6 +2453,13 @@ def _ui_state() -> dict:
                 "replyFull": b.get("reply_full", b.get("reply", "")),
                 "replyShort": b.get("reply_short", b.get("reply_full", b.get("reply", ""))),
                 "done": b["done"], "replies": b["replies"],
+                # how many older pages the card's reply history holds, the
+                # live one excluded: exactly what the arrows in the card's top
+                # bar walk. It rides in with the card so the marks are right in
+                # the frame the card first draws in, rather than a thread
+                # request later. replies above counts progress notes too and
+                # is no answer to this
+                "olderReplies": _older_replies(b),
                 "ball": b.get("ball", "you"),
                 "parked": b.get("parked", False),
                 "ts": b.get("ts", 0),
@@ -2580,21 +2707,80 @@ def _get_thread(q: Query, _):
                         seen_ops.add((e["kind"], op))
                     item = {"kind": e["kind"], "text": e.get("text", ""), "ts": e.get("ts", 0)}
                     if e.get("kind") in ("agent", "note"):
+                        # Only rows physically before the persisted schema
+                        # marker get legacy compatibility. Timestamps never
+                        # decide data representation.
+                        full = _row_reply_full(e, legacy_reply_rows)
                         if "reply_full" in e or "reply_short" in e:
-                            full = e.get("reply_full", e.get("text", ""))
                             short = e.get("reply_short", full)
                         elif legacy_reply_rows:
-                            # Only rows physically before the persisted
-                            # schema marker get legacy compatibility.
-                            # Timestamps never decide data representation.
-                            short, full = _legacy_reply_variants(e.get("text", ""))
+                            short = _legacy_reply_variants(e.get("text", ""))[0]
                         else:
-                            full = short = e.get("text", "")
+                            short = full
                         item.update({"text": full, "replyFull": full, "replyShort": short})
                     out.append(item)
     except FileNotFoundError:
         pass
     return 200, {"messages": out[-n:]}
+
+
+def _get_history(q: Query, _):
+    """One card's older replies, oldest first: what the history arrows walk.
+
+    Only final replies are pages of a card's history, and the one the card is
+    showing is left out here rather than guessed at by the page. Both of those
+    decisions are the ones _older_replies counts with, so the number sent with
+    the card and the length of this list are the same fact stated twice.
+
+    The two things a page cannot do for itself are exactly why this exists
+    beside /thread. /thread answers the last n rows of the whole conversation,
+    so a card with a long run of progress notes since its last answer can hand
+    a page a window with no reply in it at all; the filter here runs before the
+    cap, so the cap counts replies. And a page can only tell which reply is the
+    live one by comparing text, which gets it wrong when a progress note
+    repeats the answer under it word for word; the card's own reply_kind says
+    it outright."""
+    hbid = q.one("box")
+    with _lock:
+        box = _box(hbid)
+        if box is None:
+            return 400, {"error": "bad box"}
+        # read under the lock, scan the file outside it: the transcript is the
+        # one thing here big enough that reading it must not hold the board
+        live_is_reply = box.get("reply_kind") == "agent"
+    replies: list = []
+    legacy_reply_rows = True
+    seen_ops: set = set()
+    try:
+        with TRANSCRIPT_PATH.open(errors="replace") as transcript:
+            for line in transcript:
+                try:
+                    e = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(e, dict):
+                    continue
+                if _is_reply_schema_boundary(e):
+                    legacy_reply_rows = False
+                    continue
+                if e.get("box") != hbid or e.get("kind") != "agent":
+                    continue
+                # a row written twice under one operation id is one event that
+                # a crash between the append and the save made the retry append
+                # again; it is read once, the way /thread reads it
+                op = e.get("op")
+                if isinstance(op, str) and op:
+                    if op in seen_ops:
+                        continue
+                    seen_ops.add(op)
+                replies.append(_row_reply_full(e, legacy_reply_rows))
+                if len(replies) > HISTORY_MAX + 1:
+                    del replies[0]
+    except FileNotFoundError:
+        pass
+    if live_is_reply and replies:
+        replies.pop()   # the newest final reply is the page the card is on
+    return 200, {"replies": replies[-HISTORY_MAX:] if replies else []}
 
 
 def _get_log(q: Query, _):
@@ -3101,6 +3287,11 @@ def _post_reply(q: Query, text: str):
         _last_wait[ow] = time.time()  # a reply proves that agent is alive too
         _set_reply_variants(box, text, short)
         box["replies"] += 1
+        # and the count the history arrows walk, which the aggregate above
+        # cannot be: it counts progress notes too. The card is showing this
+        # reply now, so it is the page you are on rather than one behind you
+        box["full_replies"] = box.get("full_replies", 0) + 1
+        box["reply_kind"] = "agent"
         # The machine's sole answer move, taken once the claim is let
         # go below. While a working flag beats, the final turn waits in
         # deferred and is handed over when that work ends.
@@ -3138,6 +3329,9 @@ def _post_note(q: Query, text: str):
         _last_wait[ow] = time.time()  # a note proves that agent is alive too
         _set_reply_variants(box, text)
         box["replies"] += 1
+        # a note is not a page of the reply history: it adds none and hides
+        # none, so the final reply it was written over becomes an older page
+        box["reply_kind"] = "note"
         box["agent_ts"] = time.time()
         box["ts"] = time.time()
         if ctx:
@@ -3304,6 +3498,7 @@ def _post_create(q: Query, text: str):
             "id": bid_new, "bucket": "meta", "title": title, "reply": "",
             "reply_full": "", "reply_short": "",
             "pending": [], "done": False, "parked": False, "replies": 0,
+            "full_replies": 0, "reply_kind": "",
             "state": "new", "hb": 0,
             "ball": "me", "ts": time.time(), "owner": owner,
             "ws": ws0, "task": None, "agent_ts": 0, "seen": 0,
@@ -3488,6 +3683,7 @@ def _post_progress(q: Query, text: str):  # interim note during a build: keeps
         if box is None or _state["busy"].get(ow) != bid:
             return 400, {"error": "not holding this box"}
         _set_reply_variants(box, text)
+        box["reply_kind"] = "progress"   # interim words, not a page of the history
         box["ts"] = time.time()
         _state["busy_ts"][ow] = time.time()   # resets the 15-min steal
         _log("progress", bid, text, reply_full=text, reply_short=text,
@@ -4106,6 +4302,7 @@ ROUTES = [
     Route("/wait", WaitRoute(), methods=["GET"]),
     Route("/fresh", _state_endpoint(_get_fresh), methods=["GET"]),
     Route("/thread", _endpoint(_get_thread), methods=["GET"]),
+    Route("/history", _endpoint(_get_history), methods=["GET"]),
     Route("/log", _endpoint(_get_log), methods=["GET"]),
     Route("/dirs", _endpoint(_get_dirs), methods=["GET"]),
     Route("/pickdir", _endpoint(_get_pickdir), methods=["GET"]),
