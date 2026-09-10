@@ -57,8 +57,9 @@
     overflow:hidden;
     -webkit-tap-highlight-color:transparent;
   }
-  /* the page: the tabs, the note and the card, on the paper, as one stationary
-     surface. both menus cross over it, with the scrim between them and it */
+  /* the page: the tabs, the note and the card, on the paper, as one surface.
+     both menus cross over it, with the shade between them and it, and the
+     surface itself draws back a little while either one is out */
   #page{
     position:absolute; inset:0; z-index:10;
     display:flex; flex-direction:column; overflow:hidden;
@@ -79,7 +80,19 @@
     --kb-anim:.25s cubic-bezier(.38,.7,.125,1);
     background:var(--paper);
     background-image:radial-gradient(circle at 18% -4%, #FCFCFB 0%, rgba(252,252,251,0) 52%);
-    transition:padding-bottom var(--kb-anim);
+    /* the depth a menu opens onto. as one comes out the whole page draws back
+       towards the middle of the screen, by the same fraction the menu's travel
+       and its shade are worth, so the card reads as a stage set back rather
+       than as something pushed aside. it goes nowhere sideways and nothing is
+       laid out again: the page keeps the screen's width and height and only
+       its picture is drawn smaller, from its own middle, so every edge steps
+       in by the same amount. --page-scale is written by the script and is
+       exactly 1 with both menus shut */
+    --page-scale:1;
+    transform:scale(var(--page-scale));
+    transform-origin:50% 50%;
+    transition:padding-bottom var(--kb-anim),
+               transform var(--drawer-ms) var(--drawer-curve);
   }
   /* the clearance is the page's own, so the keyboard's value is set on the
      page as well: a property an element declares is not the one it inherits */
@@ -416,17 +429,24 @@
 
   /* ---- the card list off the left edge, the settings off the right --------- */
   /* the shade over the page while a menu is out, and the tap that shuts it. it
-     lies between the stationary page and either menu, so the menu stays clear */
+     lies between the page and either menu, so the menu stays clear. it is the
+     page's sister and not its child, so it keeps the whole screen while the
+     page draws back: the thin strip the page leaves along each edge takes the
+     same shade as the rest and shuts the menu on a tap like the rest */
   #scrim{position:absolute; inset:0; background:rgba(33,29,23,.18);
     opacity:var(--scrimv, 0); pointer-events:none; z-index:19;
     transition:opacity var(--drawer-ms) var(--drawer-curve)}
   body.menuout #scrim{pointer-events:auto}
+  /* the page's own picture changes frame by frame while a menu is out, so it is
+     given a layer of its own for the run */
+  body.menuout #page{will-change:transform}
   /* both menus cross over the page from their own edge along one straight
      sideways line, at full strength for every frame of it: nothing about them
-     rises, sinks or fades. the depth is carried by the shade alone, which grows
-     from nothing to its full weight as the menu comes out and back to nothing as
-     it leaves, so the menu reads as lifting off the page and settling back onto
-     it while its own picture holds its line */
+     rises, sinks or fades. the depth is carried under them, by the shade that
+     grows from nothing to its full weight as the menu comes out and back to
+     nothing as it leaves, and by the page drawing back from all four edges on
+     that same fraction, so the menu reads as lifting off the page and settling
+     back onto it while its own picture holds its line */
   /* the one being shown is the only one visible. it is taken away for as long
      as the run that puts it back: no wait on the way in, and the whole run on
      the way out, so it disappears only once it has finished leaving */
@@ -468,7 +488,7 @@
   #settings::after{left:-1px; right:0;
     box-shadow:-2px 0 6px rgba(0,0,0,.10), -10px 0 26px rgba(0,0,0,.20)}
   /* a finger is followed frame by frame, so the moving layers are not timed */
-  body.menudrag #scrim, body.menudrag #drawer, body.menudrag #settings,
+  body.menudrag #scrim, body.menudrag #page, body.menudrag #drawer, body.menudrag #settings,
   body.menudrag #drawer::after, body.menudrag #settings::after{transition:none}
   #tikhead{flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 8px 0; border-bottom:1px solid var(--line)}
   .tvb{flex:1; font:500 13px/16px var(--sans); color:var(--sub); background:transparent;
@@ -562,8 +582,8 @@
     <div id="empty">no cards on this tab yet</div>
     <div id="cards"></div>
   </main>
-  <div id="scrim"></div>
 </div>
+<div id="scrim"></div>
 
 <aside id="drawer" aria-label="cards" data-side="left">
   <div id="tikhead">
@@ -1589,12 +1609,12 @@ document.getElementById("tikadd").addEventListener("click", createCard);
 
 // ---- the two menus, and the one motion they share --------------------------------
 // the card list is pulled over the page from the left edge and settings from the
-// right. the page stays fixed. one number, the fraction the menu is out by,
-// drives its sideways travel, the weight of the shade it casts, and the shade
-// over the page. the menu holds one line and full strength throughout; the only
-// thing that grows is the depth under it. the run is 550ms, on an ease in and
-// out when begun by a tap and an ease out when a drag lets go part way. a
-// release past halfway opens
+// right. one number, the fraction the menu is out by, drives its sideways
+// travel, the weight of the shade it casts, the shade over the page, and how
+// far the page itself draws back towards the middle of the screen. the menu
+// holds one line and full strength throughout; what grows is the depth under
+// it. the run is 550ms, on an ease in and out when begun by a tap and an ease
+// out when a drag lets go part way. a release past halfway opens
 const page = document.getElementById("page");
 const drawer = document.getElementById("drawer");
 const settings = document.getElementById("settings");
@@ -1607,15 +1627,23 @@ for (const panel of menus) panel.addEventListener("transitionend", e => {
 function menuWidth(panel){ return panel.getBoundingClientRect().width; }
 function menuSign(panel){ return panel.dataset.side === "right" ? -1 : 1; }   // direction the panel enters
 function menuOut(){ return menus.find(p => p.classList.contains("open")) || null; }
-// the one number, painted onto the shade and the menu. the travel is written as
-// a share of the menu's own width, which is the same shape as the resting value
-// in the sheet: every one of the three is then a plain function of the fraction,
-// so a run turned back partway turns all three back together and on one clock,
-// and a turn of the phone can leave no stale offset behind
+// how far in the page draws with a menu the whole way out: 1.5% of its size,
+// which at phone width is about three pixels off each side and six off the top
+// and the foot. enough to read as a step back, and little enough that the words
+// on it are not noticeably smaller
+const PAGE_SINK = 0.015;
+// the one number, painted onto the shade, the menu and the page. the travel is
+// written as a share of the menu's own width, which is the same shape as the
+// resting value in the sheet, and the page's size as a plain scale: every one of
+// the four is then a function of the fraction alone, so a run turned back
+// partway turns all four back together and on one clock, a shut menu leaves the
+// page at exactly 1, and a turn of the phone can leave no stale offset or size
+// behind
 function paintMenu(panel, v){
   const dir = menuSign(panel);
   panel.style.setProperty("--shift", (dir * (v - 1) * 100).toFixed(3) + "%");
-  page.style.setProperty("--scrimv", v ? v.toFixed(4) : "0");
+  scrim.style.setProperty("--scrimv", v ? v.toFixed(4) : "0");
+  page.style.setProperty("--page-scale", (1 - PAGE_SINK * v).toFixed(5));
   panel.style.setProperty("--panel-depth", v.toFixed(4));   // how far off the page it stands
   panel.classList.toggle("live", v > 0);   // and the other one is not on show at all
   document.body.classList.toggle("menuout", v > 0);
