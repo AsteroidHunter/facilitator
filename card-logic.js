@@ -667,30 +667,37 @@ function jumpNextYellow(fromId, opts, source){
 // the desktop on control shift up and down, the phone on the two arrows in the
 // card's top bar. While an older reply shows, dataset.raw keeps holding the
 // live text, so apply()'s rewrite guard leaves the view alone across polls; an
-// actual new reply changes the raw, which drops the cached thread and snaps the
-// card back to live.
+// actual new reply changes the raw, which drops the cached history and snaps
+// the card back to live.
 const histCache = {};   // box id -> promise of past agent replies, oldest first, live excluded
 let hist = null;        // {id, step} while an older reply shows; step 1 = one back from live
+// what a history request that failed answers with. Every caller that only
+// walks the list sees the empty list it always saw, and a caller that has to
+// tell "nothing older" apart from "could not find out" compares against this
+// exact list: a request that failed says nothing about the card, so it must
+// not be read as the card having no older replies
+const HIST_UNKNOWN = Object.freeze([]);
 
+// the pages this card's arrows can step back to, oldest first. The board
+// answers it whole: only final replies, the live page already left out, and
+// its length is the olderReplies count the card was sent with. Which rows are
+// pages of a history, and which one the card is on, are decided in the one
+// place that can be right about both, so a page never has to filter a window
+// of mixed rows or guess the live page by matching its text
 function histList(id){
   if (!histCache[id]){
     let request;
-    request = fetch("/thread?box=" + encodeURIComponent(id) + "&n=200")
+    request = fetch("/history?box=" + encodeURIComponent(id))
       .then(x => {
         if (!x.ok) throw new Error("history request failed");
         return x.json();
       })
-      .then(r => {
-        const list = (r.messages || []).filter(m => m.kind === "agent").map(m => m.replyFull ?? m.text);
-        // the newest transcript entry is normally the live reply itself
-        if (list.length && els[id] && list[list.length - 1] === els[id].reply.dataset.raw) list.pop();
-        return list;
-      })
+      .then(r => r.replies || [])
       .catch(() => {
         // A newer card version may already own this slot. An older rejection
         // must clear only its own failed request, then a later sync can retry.
         if (histCache[id] === request) delete histCache[id];
-        return [];
+        return HIST_UNKNOWN;
       });
     histCache[id] = request;
   }
