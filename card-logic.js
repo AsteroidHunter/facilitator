@@ -57,11 +57,10 @@ const CARD_SHORTCUT_DEFINITIONS = [
     match: e => e.metaKey && e.shiftKey && ["[", "]", "{", "}"].includes(e.key)
       ? (e.key === "[" || e.key === "{" ? -1 : 1) : null,
   },
-  {
-    action: "bounce", mini: false,
-    match: e => (e.metaKey || e.ctrlKey) && !e.shiftKey &&
-      (e.key === "z" || e.key === "Z") ? true : null,
-  },
+  // command+z and control+z are the editor's undo and nothing of ours. The card
+  // pages had a return-to-the-previous-card on that chord until 20260910; it
+  // took the key away from the text being typed, so it is gone with no
+  // replacement chord.
   {
     action: "create", mini: true,
     match: e => e.metaKey && (e.key === "t" || e.key === "T") ? true : null,

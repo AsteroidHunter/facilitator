@@ -226,6 +226,20 @@ Endpoints:
   POST /ws/task?owner&ws[&id][&status][&del=1] -> body = task text; no id creates,
                                status one of pending|ongoing|done, del removes
   POST /ws/current?owner&ws&id -> set the workspace's current task
+  POST /pages/new?owner=O   -> add a blank view page to O's page list and answer
+                               {ok, id, pages}. A view page is one of the
+                               environments a project can be looked at in: the
+                               board page every project starts with, and blank
+                               pages added since. It holds no cards and no
+                               conversations of its own, so adding or removing
+                               one moves no card, no workspace and no task. At
+                               most PAGE_LIMIT per project; past that a 400
+  POST /pages/del?owner=O&id=P -> remove one view page and answer {ok, pages}.
+                               The project's cards, its conversations and its
+                               internal workspaces are untouched; any page may
+                               go, the board page included, and a project whose
+                               pages have all been removed keeps an empty list
+                               rather than being given a new one
   POST /assign?box=ID&task=T -> file a chat under a task (empty task unfiles)
   POST /dismiss?box=ID      -> drop the box's queued messages unanswered (they
                                stay in the transcript)
@@ -864,6 +878,10 @@ OP_KEEP = 4000                  # the soft cap the count is trimmed toward, olde
 OP_ASK_MAX = 32                 # receipts one reading of the board may ask after
 OP_ID_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
 BG_STALE = 75.0   # seconds without a /ping before a registered job stops counting as green
+# view pages a project may hold at once. A page is four short fields, so the cap
+# is not about disk: it is what keeps the switcher at the foot of the workspace a
+# row of dots a hand can hit rather than a strip nobody can aim at
+PAGE_LIMIT = 24
 # seconds a claim may sit unconfirmed before it goes back to the queue. Short on
 # purpose: the whole point is that a hand-off lost on the wire comes back while
 # the message still matters, not fifteen minutes later
@@ -1171,7 +1189,7 @@ def _seed_state() -> dict:
     }
 
 
-OWNER_KEYED_STATE = ("busy", "claimed", "busy_ts", "ack", "workspaces", "ever_listened")
+OWNER_KEYED_STATE = ("busy", "claimed", "busy_ts", "ack", "workspaces", "pages", "ever_listened")
 
 
 def _validate_persisted_owners(st: dict, source: str) -> None:
@@ -1388,6 +1406,24 @@ def _migrate() -> None:
             ws[ow] = [{"id": "w1", "name": "main", "started": started,
                        "goal": "", "tasks": [], "current": None}]
     _state.setdefault("next_tid", 1)
+    # view pages (2026-09-10): each project's own ordered list of the
+    # environments it can be looked at in. This is a view record and nothing
+    # more: it holds no cards, no chats and no tasks, and it is deliberately
+    # separate from the workspaces above, which carry a goal and a task list
+    # and are what the cards are filed under.
+    # Only a project with no key at all is given its opening board page. An
+    # empty list is a project whose pages were all removed by hand, and it is
+    # left empty, so a deleted page cannot come back on the next reading
+    pages = _state.setdefault("pages", {})
+    for ow in OWNERS:
+        if ow not in pages:
+            pages[ow] = [_page_record("pg1", "board")]
+    # never reused, like the box counter: a page id that has been deleted does
+    # not come back on a later page and take a stale selection with it
+    _state.setdefault("next_pgid", 1 + max(
+        [int(p["id"][2:]) for lst in pages.values() if isinstance(lst, list) for p in lst
+         if isinstance(p, dict) and str(p.get("id", "")).startswith("pg")
+         and str(p["id"])[2:].isdigit()] or [0]))
     # the project tab bar (2026-09-02): which tabs are shown and in what order
     # is one board-wide record, not one browser's own. An empty order is a
     # board that has never had one written, and every page then falls back to
@@ -1698,6 +1734,21 @@ def _close_box(box: dict) -> str:
 def _ws(owner: str, wid: str) -> dict | None:
     return next((w for w in _state.get("workspaces", {}).get(owner, [])
                  if w["id"] == wid), None)
+
+
+# ---- a project's view pages -------------------------------------------------
+# The environments one project can be looked at in, in the order the switcher at
+# the foot of the workspace draws them. kind is "board" for the page that shows
+# the project's own board, the one every project opens with, and "blank" for a
+# page added since, which shows an empty canvas in the same project. Nothing a
+# project owns hangs off a page, so removing one never takes a card, a chat, a
+# workspace or a task with it.
+def _page_record(pid: str, kind: str) -> dict:
+    return {"id": pid, "kind": kind, "created": time.time()}
+
+
+def _pages(owner: str) -> list:
+    return _state.setdefault("pages", {}).setdefault(owner, [])
 
 
 # ---- the card's state machine ---------------------------------------------
@@ -2386,6 +2437,10 @@ def _ui_state() -> dict:
         "listening": {ow: _waiters.get(ow, 0) > 0 for ow in OWNERS},
         "everListened": st.get("ever_listened", {}),
         "workspaces": st.get("workspaces", {}),
+        # each project's view pages, in the order the foot of the workspace
+        # draws them. A lane with an empty list has had all of its pages
+        # removed; a lane absent from the map has never been migrated
+        "pages": st.get("pages", {}),
         "listenerGap": {ow: round(time.time() - _last_wait.get(ow, 0.0), 1) for ow in OWNERS},
         # the row tag's truth: the lane's last stated agent name, and alive
         # meaning connected now, seen within the steal window, or holding a card
@@ -3362,6 +3417,9 @@ def _post_project(q: Query, text: str):
         _state.setdefault("workspaces", {})[slug] = [{
             "id": "w1", "name": "main", "started": time.time(),
             "goal": "", "tasks": [], "current": None}]
+        # the lane opens on its board page, the same one migration gives every
+        # project that predates the switcher
+        _state.setdefault("pages", {})[slug] = [_page_record("pg1", "board")]
         # no card is created with the lane: a fresh folder opens onto
         # an empty board and cards come only from the owner's hand
         # the folder's own name is written down, never the path to it:
@@ -3466,6 +3524,50 @@ def _post_ws_current(q: Query, text: str):
         _log("current", tid or "", "")
         _save()
         return 200, {"ok": True}
+
+
+def _post_pages_new(q: Query, text: str):
+    # one more environment for this project, blank: the switcher at the foot of
+    # the workspace shows it as a new dot and opens it. No card, no chat and no
+    # workspace is touched, here or anywhere this route leads
+    ow = q.one("owner")
+    if ow not in OWNERS:
+        return 400, {"error": "unknown owner"}
+    with _lock:
+        pages = _pages(ow)
+        if len(pages) >= PAGE_LIMIT:
+            return 400, {"error": "too many pages"}
+        pid = f"pg{_state['next_pgid']}"
+        _state["next_pgid"] += 1
+        pages.append(_page_record(pid, "blank"))
+        # the page has no words of its own, so the id and the lane are the whole
+        # event and there is nothing in it to keep out of the file
+        _log("page+", pid, "", log_fields={"owner": ow}, owner=ow)
+        _save()
+        _notify()
+        return 200, {"ok": True, "id": pid, "pages": pages, "rev": _state["rev"]}
+
+
+def _post_pages_del(q: Query, text: str):
+    # any page may go, the board page included. What goes is the view record and
+    # only that: the project's cards, their conversations, its internal
+    # workspaces and their tasks are all somewhere else and stay exactly as they
+    # were. A project left with no pages keeps an empty list, so nothing here
+    # hands it a new page on the next reading
+    ow = q.one("owner")
+    if ow not in OWNERS:
+        return 400, {"error": "unknown owner"}
+    with _lock:
+        pages = _pages(ow)
+        pid = q.one("id")
+        page = next((p for p in pages if isinstance(p, dict) and p.get("id") == pid), None)
+        if page is None:
+            return 400, {"error": "unknown page"}
+        pages.remove(page)
+        _log("page-", pid, "", log_fields={"owner": ow}, owner=ow)
+        _save()
+        _notify()
+        return 200, {"ok": True, "pages": pages, "rev": _state["rev"]}
 
 
 def _post_assign(q: Query, text: str):
@@ -4150,6 +4252,8 @@ ROUTES = [
     Route("/ws/goal", _state_endpoint(_post_ws_goal, "text"), methods=["POST"]),
     Route("/ws/task", _state_endpoint(_post_ws_task, "text"), methods=["POST"]),
     Route("/ws/current", _state_endpoint(_post_ws_current, "text"), methods=["POST"]),
+    Route("/pages/new", _state_endpoint(_post_pages_new, "text"), methods=["POST"]),
+    Route("/pages/del", _state_endpoint(_post_pages_del, "text"), methods=["POST"]),
     Route("/assign", _state_endpoint(_post_assign, "text"), methods=["POST"]),
     Route("/progress", _state_endpoint(_post_progress, "text"), methods=["POST"]),
     Route("/dismiss", _state_endpoint(_post_dismiss, "text"), methods=["POST"]),
