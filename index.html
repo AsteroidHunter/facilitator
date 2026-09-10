@@ -3919,6 +3919,7 @@ function select(id, opts){
     els[k].box.classList.toggle("sel", k === id);
     els[k].toc.classList.toggle("t-sel", k === id);
   }
+  syncDesktopHistoryAvailability(id);
   // the ticket rows re-render on the poll, up to a second later; the selection
   // shadow must move the instant of the click, so flip the class directly,
   // and bring the chosen row into the panel's view in the same breath
@@ -3994,6 +3995,7 @@ function applySelection(state){
   if (hist && hist.id !== selectedId) histExit(hist.id);   // selection moved without select()
   const moved = shownId !== selectedId;
   for (const k of Object.keys(els)) els[k].box.classList.toggle("sel", k === selectedId);
+  syncDesktopHistoryAvailability(selectedId);
   updatePwd(state);
   // a selection that arrived without going through select(), which is the first
   // load and any fallback pick, still lands on a card that was display:none a
@@ -4518,7 +4520,9 @@ function makeBox(b, i, state){
     histDown.setAttribute("aria-label", "newer reply");
     histDown.innerHTML = historyChevronSVG();
     const histPos = h("span", "histpos");
-    const hasHistory = (b.replies || 0) > 1;   // the phone page's history-availability rule
+    // The aggregate reply count also includes progress notes. Start hidden and
+    // let the actual navigable agent history decide whether these marks exist.
+    const hasHistory = false;
     box.classList.toggle("hashist", hasHistory);
     histctl.setAttribute("aria-hidden", hasHistory ? "false" : "true");
     histUp.disabled = !hasHistory;
@@ -4706,6 +4710,7 @@ function makeBox(b, i, state){
                   pend: null, pendRaw: "", foldRun: 0, ta, send, wstat, toc: entry, sec,
                   titleEl, tocTitle: entry.querySelector(".ttitle"), arc, x,
                   topbar, branch, bname, wtpick, wtmenu, hasWt: false, hasHistory,
+                  historyVersion: null,
                   pendwrap, bottombar, clip, clipfile, tick };
     // the ramp's top edge follows the wrapper from the card's first frame, box
     // or no box, so it is armed here and not when a box is built
@@ -4917,6 +4922,31 @@ async function doSend(id, opts){
 // replies, control shift down returns toward live: histStep, histExit and
 // histList are shared with the phone page in card-logic.js
 
+function setDesktopHistoryAvailability(id, hasHistory){
+  const el = els[id];
+  if (!el || el.hasHistory === hasHistory) return;
+  if (!hasHistory && hist && hist.id === id) histExit(id);
+  el.hasHistory = hasHistory;
+  el.box.classList.toggle("hashist", hasHistory);
+  el.histctl.setAttribute("aria-hidden", hasHistory ? "false" : "true");
+  el.histUp.tabIndex = hasHistory ? 0 : -1;
+  el.histDown.tabIndex = hasHistory ? 0 : -1;
+  el.histUp.disabled = !hasHistory;
+  el.histDown.disabled = true;
+}
+
+async function syncDesktopHistoryAvailability(id){
+  const el = els[id];
+  if (!el) return;
+  const raw = el.reply.dataset.raw;
+  const version = el.historyVersion;
+  const list = await histList(id);
+  // A reply or note can land while /thread is in flight. Only the result for
+  // the still-current card version may change its controls.
+  if (els[id] !== el || el.reply.dataset.raw !== raw || el.historyVersion !== version) return;
+  setDesktopHistoryAvailability(id, list.length > 0);
+}
+
 function apply(state){
   for (const id of Object.keys(els)){    // deleted boxes leave the page
     if (!state.boxes.some(b => b.id === id)){
@@ -4965,6 +4995,15 @@ function apply(state){
       // a new answer is a new line count in the same room, so the phase goes
       if (b.id === selectedId) requestAnimationFrame(snapCard);
     }
+    // Notes and final replies both change the aggregate count, including when
+    // their visible text happens to match. Invalidate the thread-derived
+    // answer in either case and hide stale controls until the new list lands.
+    const historyVersion = b.replies || 0;
+    if (el.historyVersion !== historyVersion){
+      el.historyVersion = historyVersion;
+      delete histCache[b.id];
+      setDesktopHistoryAvailability(b.id, false);
+    }
     if (!el.titleEl.isContentEditable && el.titleEl.textContent !== b.title){   // first message just named a new box
       el.titleEl.textContent = b.title;
       el.tocTitle.textContent = b.title;
@@ -4986,21 +5025,6 @@ function apply(state){
       if (!hasWt) shutWtMenu(el.wtpick, el.wtmenu);
     }
     */
-    // Match the phone page's history-availability rule. The live reply is the
-    // newest entry, so a count above one is the first point at which there is an
-    // older reply to show. The flexible control keeps its room while hidden;
-    // only its marks and interaction change here.
-    const hasHistory = (b.replies || 0) > 1;
-    if (el.hasHistory !== hasHistory){
-      if (!hasHistory && hist && hist.id === b.id) histExit(b.id);
-      el.hasHistory = hasHistory;
-      el.box.classList.toggle("hashist", hasHistory);
-      el.histctl.setAttribute("aria-hidden", hasHistory ? "false" : "true");
-      el.histUp.tabIndex = hasHistory ? 0 : -1;
-      el.histDown.tabIndex = hasHistory ? 0 : -1;
-      el.histUp.disabled = !hasHistory;
-      el.histDown.disabled = true;
-    }
     // the sent box, reconciled rather than redrawn: see syncPend. the guard is
     // the joined text, so a poll that brings nothing new touches no dom at all
     const pt = (b.pendingTexts || []).join("\n\n");
