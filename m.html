@@ -167,6 +167,12 @@
   #empty{display:none; flex:1; align-items:center; justify-content:center;
     font:italic 400 17px var(--serif); color:var(--sub); padding:20px; text-align:center}
   main.blank #empty{display:flex}
+  /* the line is a reading of the board, so it waits for one. before the first
+     reading lands the tab is unknown rather than empty, and a page that says
+     "no cards" while it is still asking is stating something it does not know.
+     the script adds .stated to the body on the first state it draws, so a tab
+     that really is empty says so and a tab nobody has read yet says nothing */
+  body:not(.stated) #empty{display:none}
   #cards{display:flex; flex-direction:column; flex:1 1 auto; min-height:0}
   main.blank #cards{display:none}
   .box{display:none; flex:1 1 auto; min-height:0; flex-direction:column}
@@ -564,16 +570,119 @@
     border-radius:var(--sq); font:13px/1.4 var(--sans); color:var(--ink); pointer-events:none}
   #diagnostictoast:empty{display:none}
 
+  /* ---- the startup curtain ------------------------------------------------ */
+  /* What an installed open shows over its own first frames. The picture, the
+     lengths, the 620ms arrival, the 5200ms turn and the 260ms fade are the
+     pastureland phone app's loading page, copied from its pwa/index.html; the
+     coastline in the body below is that file's shape, unchanged.
+
+     It lives in this document rather than being built by the script, for the
+     reason that file gives: markup in the page is on screen from the page's
+     first paint, while anything the script draws can only appear once the
+     script has run. Nothing here is fetched. The circle and the strip are empty
+     boxes, the coastline is written out in full, and the motion is CSS, so the
+     curtain needs no second file and no service worker lookup to be right.
+
+     What it does NOT do is time itself out. The globe is this board's
+     connection step, not a stopwatch: it turns while the phone is still trying
+     to read the board, it stops and turns red when a reading fails, and it is
+     taken down only by a live reading that has been drawn and has stopped
+     moving. The script below owns that rule; this sheet owns the picture. */
+  #loading{
+    position:fixed; inset:0; z-index:40;
+    background:#ffffff;
+    opacity:1;
+    transition:opacity 260ms ease;
+  }
+  /* the scene arrives rather than being there, which is what makes any settle
+     of the safe-area insets on the first frames a non-event */
+  #loading .scene{position:absolute; inset:0; animation:ld-appear 620ms ease-out 80ms both}
+  /* centred across the panel and down the screen. every length is vmin, the
+     viewport's shorter edge, which on a phone is its width and does not move
+     while the insets settle; lvh is the large viewport, which the settle does
+     not touch either, with the percentage under it for an engine that does not
+     know the unit */
+  #loading .globe{
+    position:absolute; left:50%; top:50%; top:50lvh;
+    box-sizing:border-box;
+    width:14vmin; height:14vmin; margin:-7vmin 0 0 -7vmin;
+    border:0.4vmin solid #000000; border-radius:50%; overflow:hidden;
+  }
+  /* the strip the circle looks at: the world twice over, four circles wide, so
+     the circle shows half a world and sliding by half the strip puts the second
+     copy exactly where the first stood and the loop has no seam */
+  #loading .earth{
+    position:absolute; left:0; top:0; width:400%; height:100%;
+    animation:ld-spin 5200ms linear infinite;
+    will-change:transform;
+  }
+  /* the stroke is held on the SCREEN rather than in the map's coordinates, and
+     that effect is set on the shape itself in the markup, since it is not
+     inherited and a rule written here would not reach the copies drawn from it */
+  #loading .coast{display:block; width:100%; height:100%; fill:none; stroke:#000000; stroke-width:0.2vmin}
+  @keyframes ld-appear{from{opacity:0} to{opacity:1}}
+  @keyframes ld-spin{from{transform:translateX(-50%)} to{transform:translateX(0)}}
+  /* the board could not be reached: the globe stops where it stands and turns
+     red, and stays that way until a reading gets through. paused rather than
+     removed, so it holds the face of the world it had rather than snapping back
+     to the strip's start. the red is the board's own (--must in card-tokens.css)
+     written out here, because the curtain is painted before any other sheet is
+     needed and must not depend on one */
+  #loading.down .globe{border-color:#A8442A}
+  #loading.down .coast{stroke:#A8442A}
+  #loading.down .earth{animation-play-state:paused}
+  /* a browser tab had no launch image to hand over from, so there is no handover
+     to hold and the curtain would only be a flash of its own. the script takes
+     it out of the document there; this is the half of the pair that acts before
+     any script runs, and it is written as "hide it in a tab" so a browser that
+     does not know the query errs towards showing the page */
+  @media (display-mode: browser){
+    #loading{display:none}
+  }
+
   /* card prose, the .cardmd rules, is shared with the desktop: card-tokens.css */
   /* the star on its own does not reach a ::before or a ::after, and layers like
      the menus' shade live on those, so they are named here too */
   @media (prefers-reduced-motion: reduce){
     *, *::before, *::after{animation:none !important; transition:none !important}
+    /* the curtain is the exception, and only while it is up. its globe is the
+       one thing on screen saying the phone is still trying to reach the board,
+       and an indicator holding perfectly still is one saying the app has died.
+       Stopping is what this globe says FAILED with, so it cannot also be what
+       it says "working" with. The turn is already the slow pace the guidance
+       asks for in place of taking motion away: one revolution every 5200ms,
+       which is the pace everybody gets. */
+    #loading .scene{animation:ld-appear 620ms ease-out 80ms both !important}
+    #loading .earth{animation:ld-spin 5200ms linear infinite !important}
+    #loading.down .earth{animation-play-state:paused !important}
+    #loading{transition:opacity 260ms ease !important}
   }
 </style>
 <link rel="stylesheet" href="/card-tokens.css">
 </head>
 <body>
+
+<!-- the startup curtain, first in the body so the parser reaches it first, and a
+     child of the body rather than of the page: the page is scaled while a menu
+     is out, and a fixed layer inside a scaled element is measured against that
+     element instead of against the screen. nothing in here is a picture, text or
+     a request. the coastline below is the pastureland phone app's own shape,
+     copied unchanged from its pwa/index.html, written once and used twice
+     because a second copy of it would cost another 19,457 bytes to place the
+     same picture beside itself and referring to the first costs 67 -->
+<div id="loading" aria-hidden="true">
+  <div class="scene">
+    <div class="globe">
+      <div class="earth">
+        <svg class="coast" viewBox="0 0 1600 400">
+          <defs><path id="land" vector-effect="non-scaling-stroke" d="m268 378-1 1-1 1-4 0-5 0-3-1-1-1 5 0 4 1 2-1 1-1Zm-222-1-4 0-3-1-1-1-2 0 2-1 4 0 2 1 2 1Zm254-4 2 1 1 2 1 1 0 1-4 1-3 0-5 1-4 0-5 0-3-1 0-1 5 0 2-1 1-1 1-1 1-1 2-1 1 0 3 0Zm-169-10 3 1 2-1-1 1-2 1-3-1-2 0 0-1Zm-10 0 3 1-1 0-3 0-3-1 2 0Zm59-3 2 0 3 0 1 1-2 0-2 0-3 0-3 0-2 0-1-1 1-1 3 1Zm68-2 0 1 0 1-1 0-2 1-3 0-3 0 1-1-2 1-3 0-2-1 0-1 3-1 1 0 3 0 0-1 1-1 0-2 1-1 2 0 1 1 1 1 1 1 0 1Zm-248 30 2-1 4 1 1-1 1 0 1 0 3 1 3-1 1 0 6-1 2 1 1 0 4 1 6 1 5 0 9 1 6-1 10 1 5 0 6 0 6-1 0-1-8 0-7-1-2-1-6 0 0-1 1-1 1-1-1-1-3 0-2-1-4-1 6 0 5 0 3 1 4-1 4-1 2 0-1-1-3-1-3-1-5 0-4 0-4 0-2-1-2-1-2-1-1-2 1 0 2 1 4 0 3-1 2 1 4 0 3 0 2-1 3-1 3 0 0-1-1-1 1 0 3-1 1 1 4-1 2 0 3 0 3 0 3-1 3 0 3-1 1 0 2 0 3 0 3 1 3-1 3 0 3 0 3 1 3 0 4 0 3 0 3 0 2-1 3 0 3 0 2 0 3-1 1 1 1 0 1 1 3-1 2 1 3 0 3 1 3 0 3 0 3 0 3 0 3 0 2-1-2 0-1-1-3 0-1-1-1-1 0-2 1 1 3 0 3 0 3 0 2 1 1 0 3 1 3-1 3 0 3 0 2 0 3 0 2-2 2 1 2 1 3-1 2 1 3 0 2 1 3 0 2-1 1 0 2 0 3 0 2 1 2 0 3 0 2 0 2-1 3 0 3 0 3-1 2 0 1-1 1-1 0-1-1-1-1-1-1 0 0-1 0-1 0-1 1-1 1-1 0-1 0-1-1 0 2-1 1-1 1-1 2-1 2 0 0-1 2-1 1 0 2 0 2-1 1-1 2 0 2 0 1-1 2 0 1 0-1 1-2 1-1 0-2 0-2 0-1 0-2 1-1 1 0 1 1 1-2 1-2 0-1 1-1 0-2 1 0 1 1 1 1 1 2 0 2 1 0 1 1 1 1 0 1 1 0 1 1 2 0 1 0 1 1 1 0 1-1 1-2 0-3 1-1 1-1 0-3 1-3 0-3 1-3 0-2 1-3 0-4 0-4 0-4 0 1 1 3 1 3 0 1 1-2 1-4 0-3 0 0 1 0 1 2 1 1 1 3 0 4 1 4 0 3 1 4 1 6 0 5 1 4 0 4 1 3 1 1 1 2-1 4-1 4 0 4-1 4 0 6 0 5 0 5 0 1-1 3 0 6 0 4-1 5 0 4-1 5 0 4 0-2-1-1-1 0-1-4 0-5 1-4 0-1-1 0-2 1 0 4-1 3 0 3-1 3-1 2-1 3 0 3 0 1 0 4-1 3 0 3 0 3-1 2 0 3-1 2-1 2 0 1-1-3-1 1-1 2 0 2-1 2 0 3-1 1-1 2-1 1-1 3 0 1 1 3 0 0-1 1 0 2 0 1 1 2 0 3-1 3 0 3 0 0 1 3-1 2 0 3 0 2-1 2 0 3 0 2-1 1-1 2 1 2 0 2 1 1 0 3 0 1-1 2-1 3 1 1 0 1 0 3-1 2 0 3 0 2 1 3 0 1 0 1 1 3 0 2 0 3 0 2 0 2-1 3 0 2-1 2 0 2 0 2-1 1-1 1-1 3 1 2 1 3 0 1 0 2 1 2 0 1-1 2-1 2-1 2 0 3 0 2-1 2 0 1-1 2 0 2 0 2-1 2 0 2 0 0-1 2-1 2 0 2-1 2 0 2 0 2 1 2 0 0 1 2 1 2 1 2 0 2 0 2 1 2 0 1 0 2-1 2 0 3 1 2 0 2 0 2 0 2 2 0 1 0 1-3 0-1 1 0 1 2 0 0 1-1 1-1 1 2 0 2 1 3-1 1-1 1-1 1 0 1-1 1-1 1-1 2 0 2 0 2 0 3-1 1-1 2-1 2-1 2 0 1-1 1 0 2-1 2 1 2-1 2 0 3 0 1 0 2-2 0 1 1 1 2 0 2 0 3 0 2 0 2 0 1 0 2 0 2 1 2-1 2 0 2 0 3 0 1 0 1-1 2-1 3-1 1 0 2 1 1 0 3 2 2 0 2 0 3 0 2-1 2 0 1-1 3 0 1-1 2 1 1 1 2 0 2 0 2 1 3 0 2 0 3 0 1 0 2-1 2 0 2 0 2 0 2 0 2 0 2 0 2 0 2 0 3 0 2 0 2 0 2-1 2 0 1-1 0-1 2 1 0 1 1 1 1 0 1 1 3 0 3 0 2-1 3 0 2 0 3 1 2 0 2 0-1 1 2 1 2 0 3 1 3 0 3 1 2 0 2 0 2-1 2 1 2 1 1 0 3 0 3 1 1 1 2 0 2 1 3 0 2 0 2 0 3 0 3 0 2 1 3 0 2 1 1 0 0 1-1 1-1 1-1 1-1 1-3 0-1 1-3 0-1 1-1 1-2 1-1 1-1 0 0 1 0 1 2 1 0 1 1 1 4 0 1 1-4 0-3 1-5 0-1 1-1 1-1 1-1 1 3 1 1 1 2 0 3 1 3 1 3 0 5 1 1 1 7 1 2 1 6-1 5 1m-547-68 3 1 3 1-1 1-2 0-1-1-1 1-1 1-3-1-1 0-3-1-3-1-2-1-3-3 2 1 3 1 3 1 1-1 1-1 2-1 1 0 1 1Zm21-6 2 1-1 0-3 1-1-1-2 1-1-1 3-1 2 0Zm286-4-3 1 0-2 0-1 2 1 2 0Zm167-19 2 0 1 0 2 0 2 0 0 2-1 1 0 2-1-1-2 2-1 0-2-2 0-2-1-2 0-1Zm61 0 1 1 2-1 0 1 0 1-1 1-1 1-1 1 1 1-2 0-2 1-1 2-1 2-2 1-1 1-2 0-1-1-3 0 0-1 1-2 3-2 1 0 2-1 2-1 1-2 1-1 1-1 0-1 2-1Zm4-11 2 3 0-2 1 1 0 1 2 1 1 0 2 0 1 0-1 2-1 1-1 0-1 1 0 1-1 1-1 2-2 1 0-1-1 0 1-2 0-1-3-1 0-1 2-1 0-1 0-2-1-1 0-1-1-1-1-2-1-1 2 1 1 0Zm-17-31 0 1-2-1-1-1-2-1-1-2 2 0 1 1 0 1 2 1Zm25-10 1 0 0 1-2 1-1-1 0-1 1 0Zm3-2-2 1 0-1 1 0 1-1m-799 0 0 1m773 0-1 0 0-1 0-1Zm-2-4 1 2-1 0-1-1 0-1Zm-260-3 1 3 0 1 0 1 0 1-1-2-1 1 1 2-1 1 0 2-1 2-1 4-1 4-1 3-1 2-2 1-2 1-1-1-2 0-1-2 0-2-1-1 0-2 1-2 1 0 0-1 1-1 0-2-1-1 0-1 0-2 0-2 1-1 1 0 1-1 1 0 1 0 1-1 2-2 1-1-1-1 1 1 2-2 0-1 0-1 1 1 1 1Zm208 1 1 1 1-1 1 1 1 1 0 1 0 2 1 1 0 1 1 1 0 2 0 1 3 1 1 1 2 1-1 1 2 1 1 3 1-1 0 1 1 0 0 2 2 2 1 0 2 2 0 2 0 1 0 2 1 1 0 2 0 1-1 2 0 2 0 1-1 2-2 1-1 2 0 1-1 2-1 1 0 2-1 1 0 1-1 1-2 0-2 1-2 1-1 1-2-1-1-1 0-1-1 1-2 1-2 0-1-1-1 0-2-1-2-1 0-2-1-1-1-1-2 0 1-1-1-2-1 2-2 0 1-1 1-1 0-1 0-2-2 2-1 1-1 2-2-1 1-2-2-1-1-1 0-1-2-1-2 0-2-1-4 0-3 1-3 1-2 0-2 1-2 0 0 1-1 1-2 0-1 1-2-1-2 0-2 1-1 1-1 0-1 0-1 1-1 0-2 0-2-2-1 0 0-1 1-1 0-1 0-1 0-2-1-2 0-1 0-2-1-1 0-1-1-1-1-1-1-2 0-1 1 1-1-2 1 1 1 0 0-1-1-1 0-1-1-1 0-1 1-1 0-1 0-1 1-2 0 2 1-1 2-1 1-1 1-1 1 0 1 0 2-1 1 0 1-1 1 0 3 0 1-1 0-1 2-2 0-2 1-2 1 2 1 0-1-1 1-1 1 0 0-1 2-1 0-1 1-1 1 0 0-1 1 0 1 0 2 1 1 1 2 0 1 0 0-1 1-2 1 0-1-1 1-1 2-1 1 0 2 0 0-1-2-1 1 0 2 0 1 1 2 1 2 0 1 0 1 0 0-1 1 1 0 2-1 1-1 0 0 2-1 1 2 2 2 0 1 1 1 1 1 0 1 1 0 1 3 0 1 0 0-2 1-1 0-1 1-2 0-1-1-2 1-1 0-1 0-2 1-1 1-1 0 1 0 1 1 0 0 1 1 2 0 1Zm41-8 1 1-2 0-1-1Zm-92 0-1 0-3-2 2 0 2 0 0 1Zm89-1-2 0 0-1 1 0 1 0Zm2-1 0 1-2-2 0-2 1 0 0 2Zm-82 2-2 0-1 0 1-1 1-1 2-1 0-1 2 0 1 0 1-1 1 1-1 0-2 1-2 1Zm-15-5 1 1 1-1 1 1-3 1-1 0-2 0 1-1 1 0Zm11 0 0 1-4 1-3 0 0-1 2-1 2 1 1 0Zm82 1-1-1-2-1 0-1 1 1 2 1Zm-5-3-1 0-1-1 1 1Zm-109-1 5 0 0-1 4 1 1 2 3 0 3 2-2 0-3 0-2 0-2-1-2 0-3-1-1 0-1 0-4-1-1-1-2 0 2-2 2 0 2 1 1 0Zm58-1-1 1 0-1 0-1 1-1 0 1Zm47 1-1 0-1-2-1-2 1 0 0 1 1 0 1 2 1 1Zm-8-3-1 0-1 1-1 1-1 0-1 0-2-1-1 0 0-1 2 0 1 0 0-1 1 0 0 1 1 0 1-1 1 0 0-2 1 0 1 1-1 1Zm-55-4-1 0-2 0 0-1 2 0Zm7-1 1 2-2-1-2-1-1 1-2 0 1-2 2 0Zm50 3 0 1-1-2 0-1-1 0-2-1-1-1 2 0 0 1 1 0 1 1 1 1Zm-42-7 1 3 2 1 2-2 2-1 2 0 2 1 2 0 2 1 4 1 4 2 2 1 1 1 0 1 4 2 1 1-2 0 0 1 2 2 2 2 1 0 0 1 1 1 2 1 0 1-2 0 0-1-2 0-2 0-2-2-1-1-1-2-3-1-2 1-2 0 1 2-2 1-1-1-3 0-2-2-2 0 0 1-3 0 1-2 1-1 0-2-1-2-5-2-2 0-3-2-1 1-1-1 0-1-2-1 3-1 1 1 0-1-3 0-1-1-2-1-1-1 3 0 1-1 4 1Zm-20-6-1 2-2 0-2 0-4 0-2 0 0 2 2 2 1-1 4-1 0 1-1 0-1 1-2 1 2 3 0 1 2 2 0 2-1 1-1-1 1-2-2 1-1-1 0-1-1-1 0-2-2 1 1 2 0 3-2 1-1-1 1-2 0-2-1 0-1-2 1-1 0-2 1-3 1-1 2-2 1 1 3 0 3 0 2-2Zm8 0 0 2-1 0-1 2 1 1-1-1-1-3 1-2 0-1 0 1Zm-51 16-2 0-2-2-3-2-1-1-2-2-1-1-1-4-2-1-1-2-1-2-2-1-1-2-2-2-2-2 0-1 1 0 4 0 2 3 1 1 2 1 2 2 2 0 2 2 1 2 2 1-1 2 1 0 1 0 0 2 1 1 2 0 1 2-1 3Zm27-17 2 2-2 0-1 2 0 2-2 1 0 3-1 3 0-1-3 1-1-1-1 0-1-1-3 1-1-1-1 0-2 0 0-3-2-1-1-2 0-2 0-2 2-1 1 0 2 0 0-2 1 0 3-1 2-2 1-1 1-1 2-1 1-2 1-1 1 0 1 1 1 1 1 0 2 1 0 1-2 0 1 1-2 1-1 2 1 2Zm19-15 0 2 0 1-1 2 0-2-1 1 0 2 0 1-3-2-1-1 1-1-1-1-1 1-1-1-2 2 0-1 1-2 1 0 1-1 1 1 2-1 0-1 2 0 0-2 1 1 1 1Zm-101 5-1 1-2-2 0-3 1-4 2 1 1 2 1 2-1 3Zm-315-8-2 0-1 0 1-1 0-1 1 0 1 0Zm411-1-1 1-1 1-1 1-1-2 1-1 0-1 1 0 0 1 2-2Zm-13 2-3 2 1-1 2-2 1-1 2-2 0 2-1 1Zm8-5 1 0 2 0 0 1-1 1-2 1 0-1 0-1Zm8-1 1 2-2 0 0 1 0 1-1 0 0-1-1-2 2 1 0-1-2-2 2 0Zm-9-2-1 2 0-1-2-2 2 0Zm0-12 1 1 1-1 0 1-1 0 1 2 0 2-2 1 0 1 1 2 1 0 1 0 2 1 0 2 1 0 0 1-2-1-1-1 0 1-2-2-2 1-1-1 0-1 1 0-1-1 0 1-1-1-1-1 0-2 1 0 1-3 0-2Zm-416 0 0 1-2 0-1 0 0-1 2 0Zm-25 1-1 1-1-1-1-1 1 0 1 0 1 0 1 1 1 0Zm10-4 2 0 2 0 1 0 1 0 0 1 1 0 0 1 1 0 1 1-1 1-1-1-1 0-1 0-1 1 0-1-1 0-1 2 0-1-2 0-1 0-1 0-1 0-1-1 2 0 1 0 1 0-1-1 0-1-1-1Zm406 2-2 2-2-1 0-2 1-1 3-1 1 0 1 1-1 1Zm-591 0-1 0 1-1-1-1 1 0 0-1 1 0 0 1 1 1-1 0Zm-1-4-1 0 0-1Zm-1-1-2 0 1 0Zm-2 0-1 0-1-1 1 0Zm173-4 1 1 2 0 1 0 2 2 1 1 1 0 1 0 0 1 1 0 2 1-2 1-1 0-2 0-3 0 2-1-1-1-2 0 0-1-1-1-1 0-2-1-1 0-3 0-1-1 1 0-2 0-2 1-1 0-1 1-1-1 1 0 1-1 1-1 1 0 2 0 0-1 2 1 2 0Zm5-2-1 0 0-1-1-1 0-1 1 0 1 2Zm441 2-1 2-1-2 0-1 1-3 2-1 1 0 0 2Zm-442-8-2 0-1-1 2 0 1 0Zm2 0 0 1-1 0 0-1-1-1Zm470-17 0 1-1 1-1 0-1 0 0 1-2 0 0-1 1-2 2 1 1-1Zm-222-3-2 1 1 0-3 1-1 0 0-1 1 0 0-1 2 0Zm-24 0 1 0 2 0 1 0 0 1 1 0-3 0-3 0Zm-19-6 0 2 0 2-2-1-1 0-3-2 0-1 3 0 2 0Zm-14-7 2 2-1 3-1 0 0 1-1-1 0-3-1-1 1 0Zm293 9-1 2 1 1-1 2-3 1-4 0-3 3-2-1 0-2-4 1-2 1-3 0 2 1-1 4-2 1-1-1 1-2-2 0 0-2 2-1 1-1 2-1 2-2 4 0 3 0 2-4 1 1 4-2 1-1 1-3 0-2 1-2 2 0 1 3 0 2-2 2Zm-292-11 0 2-1 0-1-2 0-1 2-1Zm299-4 1 0 2-1 0 3-3 0-2 3-3-2-2 3-2 0 0-3 1-1 2 0 1-3 0-2 3 2Zm-461-5 1 0 2 0-1 1-1 0-3-1 0-1 1-1Zm4-6-1 0-3-1-2-1 3 1 3 0Zm-137 1-2 1-3-2-1 0-2-1 0-1-3 0 0-1 0-1 2 1 1 0 3 0 0 1 1 1 3 1Zm149-5-1 2 1 0 2 0-1 1 2 0 1 0 2 1-1 1 2 0 0 1 1 1-1 2-1 0-1 0 0-2-1 0-2 2-1 0 1-1-2-1-2 0-5 0 1-1-1-1 2-1 3-4 1-1 2-1 1 0-1 1Zm-170-7 2 0 0 2 1 2-2-1-1-1-1-1 0-1Zm614 7 2 4-3-1-1 4 2 2 0 1-2-1-1 2-1-2 1-2-1-3 1-1 0-3-1-2 0-3 2-1-1-2 1 0 1 2 0 2 0 2Zm-334-3-4 1-3 0 2-2-2-3 3-1 2-2 2 0 2 2-1 1 1 2Zm43-8-1 2-2-1-1-1 3-1Zm-368-3-2 1-1-1-1-1 2 0 1-1 2 0 1 1Zm333-3-2 2 2 0 3 0-1 2-2 2 2 0 3 3 1 0 1 3 1 0 3 1-1 1-1 1 1 1-2 1-3 0-4 1-1-1-1 1-2 0-2 1-1 0 3-3 2 0-3-1-1-1 3 0-2-1 1-2 3 0 0-1-1-1-3-1 1-1-1-1-1 1-1-2-1-1 1-2 2-2 2 0Zm-361-3-1 0-2 0-1-1 2 0 2 0Zm192-5-1 1-1 0-1-1 1 0 0-1 1 0Zm-6-1-3 1-1 0-1-1 2-1 3 0Zm-200-3 2 1 1-1 2 1 2 0 0 1-2 0-1 0-1-1-2 0-1 0Zm193-4 0 1 1 0 2 0 2 1 3 1 0 1 1 0 2 0-2 1-3 0-2-1-2 1-3 1-1-1-3 0 2-1 0-2 1-2Zm157-2-1 2 3 1-3 2-7 1-1 1-3 0-7-1 3-1-5-1 4-1-5-1 1-1 4-1 3 2 4-1 2 0 4-1Zm-137-1-2 0-1-1 1-1 2-1 2 1 0 1Zm569 5-3 1-3-1 2 2 2 1 1 1 0 1-1 1-4-1-6 2-2 0-3 2-4 1 0 1-4-2-5 2-1-1-3 1-3 0 0 1-3 3 3 1-1 3-2 0-1 2 1 1-4 1 0 3-4 0 0 3-4 2 0-2-1-3-2-5 1-3 2-1 0-2 4 0 4-3 4-2 4-2 1-3-2 0-2 2-5 2-2-2-6 0-5 4 2 2-5 0-4 0 0-1-3-1-3 2-7-1-7 1-7 4-9 5 4 1 1 1 2 1 1-2 3 1 3 2 0 2-2 2 0 3-1 3-3 4-1 1-3 3-3 2-1 2-3 1-2 0-1-1-3 1 0 1-1 0-1 1-1 1 0 1-1 1-1 1-2 0-1 1 0 1 1 0 1 1 2 3 1 1 0 3-1 1-2 0-2 1-2 1 0-2 0-1-1-3 2 0-2-2-1 0-1 0-1-1 1-1 1-2-1 0-1 0-1-1-3 1-2 1-2 1 1-1 0-1 1-2-1-1-2 1-2 1-2 2-2 0-1 1 1 1 2 1 0 1 2 0 2-1 2 1 2 0 0 1-3 1-1 1-2 1-1 1 2 2 1 2 1 2 2 2 0 1-2 1 1 1 1 1 0 2-1 1-1 0-1 3-2 3-2 2-3 2-3 2-3 1-1 1-1-1-1 1-3 1-3 0-1 3-1 0 0-2 0-1-3 0-1 0-3 2-2 2 0 2 2 2 2 3 2 1 1 2 1 4 0 4-2 2-3 1-2 2-2 2-1-2 1-1-2-1-2-1-1-1-1-2-2-1-2 0 0-2-2 0 0 3-1 3-1 2 0 1 2 1 1 2 0 1 1 2 2 0 1 1 2 2 1 1 0 2 0 1 0 2 1 0 1 2 0 1-2 0-2-1-3-2 0-1-1-2-1-2 0-1 0-1-1-1 0-1-1-1-1-2-1-1 0 2-1-2 0-1 1-2 0-2 0-1 0-2 0-2-1-1-1-3 0-3-1-2-2 1-2 2-1 0-2-1 1-2 0-2-2-3 0-1-1 0-2-2 0-1 0-1-1-1-1-2-2 0 0 1 0 1-1 0-1 0-1 0 0 1-2 0-3 0 0 2-1 1-3 2-2 2-2 2-2 1 0 1-1 1-2 1-1 0-1 1 0 3 0 2-1 2 0 4-1 0-1 2 1 1-2 0-1 2-1 0-2-2-1-3-1-2 0-1-2-2 0-3-1-1-2-4-1-4 0-3 0-2-1-2-3 1-1 0-3-3 1-1-1-1-2-2-2 0-1-2-2-1-4 0-3 0-3 0-5 0-2-1-2 0-1-3-1 0-2 0-2 1-3-1-2-1-3-1-1-2-2-3-1 0-1 0-1 0-1 0 0 1 0 1 1 2 0 1 2 1 0 1 1 1 1 1-1 0 1 1 0 1 1 0 0 1 0-2 0-1 1 0 1 1 0 1-1 1 1 1 0 1 2-1 2 0 1 0 2-1 1-2 2-1 0-1 1 1-1 0 0 1 0 2 1 1 2 1 1 0 2 1 1 1 0 1 1 0-1 2-1 1-1 2-1-1 0 1-1 1 0 2-1 0-1 1 0 1-1 0-1 0-1 1 0 1-1 0-1 0-2 1-1 0-2 1 0 1-2 1-4 1-2 2-1 0-2 1-1 0-2 0-1 0 0 1-1 0 0 1-1 0-1 0-1 0-1-1 0-2-1-2 0-1 0-1 0-1 0-1-1-1 0-1-1-1-1-1-1-2-2-2-1 0-1-2 0-2 0-1-1-3-1-1-2 0 0-1 0-1-1-1-1 0 0-2-2-2-1-1-1 0 0-2 1-1 0-1-1 1 0 2-1 1-1 1 0-1-1-1-2-3 1 2 1 2 2 4 1 1 0 1 2 3 0 2 3 2 1 2-1 1 0 2 1 3 1 0 1 1 2 3 0 2 1 1 4 2 1 1 1 1 1 1 1 1 0 1-1 1 1 1 1 0 0 1 1 1 1 0 2-1 3 0 2-1 1 0 1 0 1 0 2-1 1 0 1-1 1 0 0 1-1 1 0 1 0 1-1 3-1 2-1 3-2 3-2 3-3 3-2 1-3 3-2 1-3 3 0 1-1 1-1 1-1 1-1 0 0 1-1 1 0 2-1 0-1 3 0 1 2 1 0 1-1 1 0 1 0 1 1 1 1 2 1 1 0 1 0 2 0 2 0 4 1 1-1 1-1 2-1 1-2 1-3 1-2 2-1 1-2 1-1 1 0 2 1 1 1 2 0 2 0 1 0 1 0 1-1 0-2 1-3 1-1 1 1 1 0 1-1 2 0 2 0 1-2 1-1 1-1 2-1 1-3 2-1 2-2 1-2 1-1 0-1 0-1 0-1 1-3-1-1 0-1 0-2 1-2 0-1 1-1 0-1 0-1 0-1-1 0-1 0-1-1-2 1 0-1-2-1-2-1-2-2-2-1-2-1-2-1-2 0-2-1-3 0-3 0-1-1-1-1-2-1-2-1-2-2-2 0-2 0-1 0-2 1-2 0-1 1-2 0-1 2-1 0-1 1-2-1-1 0-1-1-1 0-2 0-1 0-2-1-2-1-1 0-1-1-2-1-2-3-2-1-2-1-3 0-1 1-2 0-1 0-1 0-2 1-2-1-1-1-1-1-1 0-1-2 1-1 0-1 1-2 0-1-2-1-1-1-2-2 0-2 0-2 0-2 1-3 1-1 1-2 1-2-1-1 0-2-1-1 1-3 0-2 1-2 0-1 0-2-1-2-1-2-2-1-1-1 0-2-1-1-1 0-1 0-2-1-1-1-1-1 0 0-1-1-1-1-1-1 0-1-1 0-1-1 0 0-1 0-1 0-1-1-2-1-1 1 0 1-2 0-1 0-1 1-1 0-2 0-2 0-2 0-1-1-1-1-1 0-1 0-1 1 0 1-1 0-1 0-2 2-1 1-2 0-1 1-1 1-1 2-2 1-1 2-1 2-1 1-1 2-2-1-2 1-2 0-1 2-2 2-1 2-1 1-2 1-1 1 0 2 0 2 0 2 1 1 0 2-1 3-1 1-1 2 0 4-1 4 0 1 0 2 0 2 0 1 0 2 0 2-1 2 0 0 1 2 0-1 1 0 1 0 1 0 2-1 1 0 1 1 0 1 1 1 0 2 1 1 0 2 0 3 1 1 2 2 1 3 1 2 1 2-1 1-1-1-2 1-1 1-1 2 0 3 0 1 1 1 1 2 0 1 1 3 0 2 0 2 1 1 0 2 0 1-1 2 0 1 0 1 1 1 0 1 0 2 0 1 0 1-1 0-1 1-2 0-1 1-1 1-2 0-2 0-1 0-1-1 0-2-1-1 2-4 0-2-1-2-1 0 1-2 1-2-2-3 1-1-3-2-1 2-2-2-1 3-2 3 0 1-2 4 1 3-2 2 0 4 0 4 1 3 1 3 0 2 0 2-1 1-1-1-2-1-1-1 0-1-1-3-1-3-1-1-2 1 0 2-2-1-1 3-1-2 0-2 1-1 0-2 0-2 1 0 2 1 0 2 0 0 1-3 0-3 1-1 0 1-1-3-1 1 0 2-1-1 0-3-1-1-1-2 0 0 2-2 1 0 1-1 0-1 0-1 3-1 1 0 1 0 2 0 1 2 0 0 1-3 0-1 1-1 1-1-1 0-1-1 0-2 0-2 1 1 1-1 0-1 0-1-1-1 1 1 1 1 1-1 0 1 1 1 1 0 1-2 0 1 1-1 0 0 2-1 0-2-1-1-2 0-1-1-1-1-1 0-1-1 0 0-1-1 0 0-2 0-1 0-1-1-1-1 0-2-1-1-1-2-1-2-1-1-1 0-1-1-1-1 1-1 0 0-1 1 0-2-1-2 1 1 1-1 1 1 1 2 1 1 2 3 2 1 0 1 0-1 1 2 0 2 1 2 1 0 1 0 1-2-2-2 0 0 2 1 0 0 2-1 0-1 2-1 0 0-1 0-1 1-1-1-1-1-1-1 0 0-1-2-1-1-1-1 0-2-1-2-1-2-1 0-3-1 0-2-1-1 1-2 1-2 1-5 0-3 0 0 2 0 1-2 1-3 1 0 1-2 1-1 2 1 1-1 1-1 1-1 1-2 2-3 0-2-1-1 1-1 1-1 0-1-1 0-1-3 0-2 0-1 0 1-2-1-1-1 0 0-1 0-2 1 0 0-1 1-2-1-1 0-1 0-2-1-1 3-1 3 0 3 0 2 1 2-1 4 1 1-2 0-4-2-3-2-1-3-1 0-1 3-1 3 1 0-3 2 1 5-1 1-2 2-1 1 0 2-1 1-3 4-1 1 0 1 0 2 0 2-1-1-1 0-1-1-1 0-3 1-1 2 0 1-1 2 0-1 1 0 1 1 1-1 0-2 2 1 1 0 1 2 0 0 1 3 0 1-1 2 1 1 1 2-1 3-1 3-1 2 0 1 1 2 0 0-1 3-1 0-2 0-1 1-2 2 0 2 1 2 0 0-1 0-2-1 1-1-1 0-2 3 0 2 0 3 0 2 0 3-1-3-1-4 0-4 1-3 0-1-1-3-1 1-2-1-2 1-1 2-2 5-2 1-1 0-1-3-1-4 1-2 1 0 2-3 2-4 2-2 3 2 1 2 1-2 3-3 1 0 3-2 2-2 0-2 2-2 0-1-2-2-3-1-3-2-1-4 2-3 1-3-1-1-3-1-5 2-1 6-2 4-2 4-3 6-5 4-1 6-3 5-1 3 0 4-2 4 0 4 0 7 1-3 1 2 1 2 0 4 1 6 1 9 2 1 1 0 2-2 1-4 0-10-1-1 0 3 2 1 3 3 1 1 0 1-1-2-1 2-1 5 2 2-1-2-2 6-2 2 0 2 1 1-1-2-2 1-1-1-1 6 0 1 2-3 0 0 1 2 1 3-1 1-1 5-1 7-2 2 0-2 1 3 1 1-1 4 0 4-1 2 1 3-1-3-1 2-1 6 0 3 1 8 3 2-1-3-2-2 0 0-1-1-2 0-1 4-2 2-2 1 0 6 0 1 2-2 1 1 1 1 2-1 3 3 1-1 1-5 4 3 0 1-1 2 0 1-2 2-1-2-1 2-1-3 0 0-2 1-2-3-2 4-1 0-2 1 0 1 1-1 2 3 1-1-2 3-1 5 0 4 2-2-2 0-3 4 0 5 0 5 0-2-1 3-2 2 0 5-1 5 0 1-1 6 0 2 0 5-1 4 0 1-1 2-1 5-1 4 1-3 1 5 0 0 1 2 0 7 0 5 1 2 0-1 2-2 0-6 1-2 1 3 0 3 1 2 0 1 1 1-1 4 0 7 0 0 2 10 0 0-2 5 1 3 0 4 1 1 1-2 1 3 2 4 1 2-3 3 1 4 0 5 0 1 0 4 0-2-2 3-1 20 2 2 1 6 2 9-1 4 1 2 0 0 2 3 1 3-1 4 0 4 1 4-1 4 2 3 0-2-2 1-1 7 1 4 0 7 1m-797 1 5 1 6 3 0 1 2 1-1-2 6 0 4 2-2 1-3 1 0 2-1 0-2 0-2-1-3 0-1-1-2-1-2 1-2-1 1-1-3 1 1 1-1 1m509 52 1 2 1 0 1 1-2 0 0 1-1 1 0 1 0 1 0 1 2 1 2 1 3 0 4 0 0-1-1-1 1-3-2 0 1-2-2 0 1-2 2 1 2-1-2-1-1-2-1 1-1 2 0-2 0-1 0-1-3-1-1-2-1 0 0-1 2 0 0-2 2 0 2 0 0-2 0-1-2 0-2-1-3 1-2 1-1 1-2 1-2 2 2 2 0 1 2 3Zm-322-62-1 1-3 0-2 0-3-1 2-1 2-1 2 1 1 0 1 1Zm613-3-2 0-1-1m-797-1 2 0 3 1-2 0-3 1Zm199 5 0 2 3-2 2 2 0 1 2 2 2-2 2-2 0-2 3 0 3 0 3 1 1 1-2 2 1 1 0 1-4 1-3 1-3-1 0 1-2 2-1 1-3 2-3 0-2 1 0 1-2 0-3 2-2 3-1 1 0 3 3 0 1 2 1 2 3 0 4 1 2 1 2 1 3 0 2 1 4 0 2 0 0 2 0 3 2 2 3 2 2-1 1-2-1-3-1-1 3-2 3-1 1-2 0-1-2-2-2-2 2-2-1-2-1-3 2-1 4 1 2 0 2-1 2 1 3 1 0 1 4 0 0 2 1 3 2 0 2 2 3-2 2-2 1-1 2 2 3 3 3 2-1 2 3 1 2 1 3 1 2 1 0 1 2 1 1 1 0 2-1 1-2 1-4 1-2 1-4 1-5-1-3 0-3 0-1 2-3 1-3 3-3 2 2 0 3-3 5-2 3 0 2 1-2 1 1 3 1 1 3 1 3 0 3-2 0 1 1 1-3 1-5 2-2 1-2 1-2 0 0-2 4-2-4 0-2 1-2 1-2 1-3 1-1 1 0 1 0 1 0 1 1 0 0-1 1 1-2 1-1 0-2 0-1 0-1 0-2 1 3 0 1 0-3 1-1 0 0-1-1 1 1 0-1 2-1 1-1 0-1-1 1 1 0 1 0 1-1 1-1 1 1-1-1-1-1-2 0 1 0 1-1 0 1 1 1 2 0 1 1 2-2 2-2 0-1 2-2 0-1 1-2 2-2 1-1 1 0 2 0 1 1 2 1 2 0 1 1 2 0 2 0 1-1 1-1 0-1-1-1 0-1-2-1-2 0-1 0-1 0-2-2-2-1 0-2 1-1 0-1-1-1-1-3 1-1-1-2 1-1 0 0 1 1 1-1 0-1 0-2 0-2-1-2 0-1 0-2 0-1 0-2 2-3 1-1 1 0 1 0 2 0 1 0 1-1 1 0 2 0 3 0 1 0 1 1 1 0 2 1 2 1 1 1 1 2 1 1 1 2-1 2 0 1-1 2 0 1-1 1-1 0-2 0-1 2 0 2-1 2 0 2 0 0 1 0 1-1 1-1 1 1 1-1 1 0 1-1 0 0 1 0 1 0 1 0 1-1 1-1 1 1 0 1 0 1 0 1 0 1 0 1 0 1 0 0-1 1 1 1 0 0-1 1 1 1 0 1 1 1 0 0 1 0 1 0 1-1 1 0 1 1 1-1 1 0 1 0 1 0 1 1 1 1 1 1 1 0 1 1 0 1 0 1 0 1 0 1-1 1 0 1 0 2 0 1 0 0 1 1 1 1 0 2-2 1 0 0-1 0-2 2-1 1 0 2 0 2-1 0-1 2-1 1 1-1 1-1 1 1 1 0 1-1 1 1 2 1 0 0-2-1-1 0-1 3-1 0-1 1-1 0 2 2 0 1 1 0 1 2 0 3-1 1 1 2 1 1-1 0-1 3 0 2 0-1 1 0 1 2 0 2 1 0 2 1 0 1 0 2 1 1 2 0 1 1 0 1 1 1 1 3 0 2 0 2 0 1 0 1 1 3 2 0 1 1 0 1 1 1 4 1 0 0 2-2 2 1 0 4 1 0 2 2-2 3 1 3 1 1 2 0 1 3-1 4 1 3 0 3 2 3 3 2 0 2 0 1 1 0 3 1 1-1 4-1 1-3 4-2 2-1 2-1 0-1 2 1 4-1 3 0 2-1 1 0 3-3 2 0 3-2 1 0 1-3 0-3 1-2 1-2 1-3 1-2 3 0 1 0 1 0 3-1 1-1 1-3 4-2 2-1 1-1 2-2 1-1 1-2 2-2-1-1 0-2 0-1 0-2-2 0 2 3 1 0 2 1 1 0 1-2 3-4 1-4 1-3-1 1 2-1 1 1 1-1 1-3 0-2 0-1 0 1 2 1 1 1-1 1 2-2 0-2 2 0 2-1 1-2 0-2 1 0 2 2 2 2 0-1 2-2 1-2 3-2 1-1 1 1 2 2 1-1 0-2 0-1 1-2 1-1 2-1 0-2-1-3-2-3-1 0-1 0-2-1-1 0-4 1-2 2-2-3 0 2-2 1-4 2 1 1-5-1 0-1 2-1 0 1-3 0-4 1-2 0-2-1-2 1-1 2-3 1-4 1-3 0-3 0-2 0-3 1-3 1-4 1-4 0-5 0-4 0-3-3-2-4-3-4-2-2-1-1-2 1-1-2-3-3-4-2-4-1-1 0-2-2-1-2-1 1-1-1-2 1-2 2-1 1-2-1-1-1 1-1-1 1-1-1-2 1 0 0-1 1-2 0-1 1 0 2-1-1-1 1 0 0-1 1-1 1 0 1-1 1-2-1 0 0-1 0-2 0-1 0-2-1-1-1-1 0-1 0-1-1 0-1-1-1 0 0 1-1 0-1 1 1 1 0 1-1 0-1 0 0-1-1 0-1-1-1 0-1 0-2-1 0-1 0-1-1 0-1 0 0-1-1 0 0 1-1-1-1-1 1-1-1 0 1-1-1 0-1-1-1-1-1-1-1-1 1 0 0-1-1 0 0 1-2 0-1-1-2 0 0-1-1 0-2 0-1 0-1-1-2-3-2 0-1-1-2 0-1 1-2 0-1 0-2-1-2-1-2 0-2-1-2-1 0-1-2 0-2-1-1-1-2-1-1-1-1-1 1-1 0-1 0-1-1-1-1-2-2-2-2-2-1-1-2-1 0-2-1 0-1-1-1-2-1 0-1-1-1-1 0-1-2-2 0-1 0-1-2-1-1 0-1-1 0 1 0 1 0 2 1 1 2 1 0 1 1 1 0 1 1 1 1 1 1 1 1 2 0 1 1 1 0 1 1 0 1 1 1 1-1 1-1 0 0-1-2-1-1-1-1-1 0-2-1-1-1 0-1-1-1-1-1 0-2-2 1 0 1 0 0-1-1-2-2-1-1-1 0-2-1-1-1-2-1-1-1-2-1 0 0-1-2 0-2-1-1 0 0-1-2-2-2-3 0-1-1-1-2-2 0-1-1-2 0-1 0-2-1-2 1-2 1-4-1-3 0-2-1-1 0-1 3 1 2 2 0-2-1-2-5-2-1-1-4-1-1-2 0-1-3-1 0-2-3-2 0-1-1-1-2 0-1-2-3-2-1-2-2 0-4 0-2-1-5-2-2-1-4-1-3 1-4-1-3-1-2 0 0 2-1 0-3 0-2 1-2 1 0-2 1-2 2-1-1 0-3 1-1 2-3 1 1 1-2 2-2 1-2 0-1 1-3 2-1 1-3 1-1-1-2 1-3 1-1 0-4 1-1 0 3-1 2-1 2-1 3 0 1-1 3-2 1 0 2-1 0-2 1-1-3 1 0-1-1 1-2-1-1 1 0-1-3 1-1 0 0-2 0-1-1 0-3 0-2-1-1 0 0-2-2-1 1-1 2-1 0-1 2 0 2 0 1-1 2 0 2-1-1-1-1 0 2-1-2 0-2 1-1 0-1 0-4 0-3-1-1-1-3-1 4-1 5-1 1 0 0 1 5 0-2-1-3-1-1-1-3-1-3-1 2-1 4 0 2-1 1-1 2-1 2-1 5-1 2 1 3-2 3 1 2 1 1-1 4 1 3 0 2 0 5 1 4 0 2 0 3 0 3 1 3 0 4 1 3 1 3 0 2-1 2-1 4 1 3-1 4-1 1 1 2-1 0-1 2 1 4 2 2-2 1 2 3-1 3 0 3 1 6 1 3 0 2 0 3 1-3 1 4 1 6-1 2 0 2 1 2-1-2-1 2-1 2 0 2 0 2 1 2 1 3 0 4 1 3-1 3 0 0-1 2 0 3 0 0 2 2-1 2 0 1-2-3-2-2-1 0-2 2-2 3 1 3 1 3 2-2 1Zm-53-8-1 1 5-1 3 1 3-1 2 1 2 2 1-1-2-2 2-1 2 1 3 1 1 2 1 1 4 1 4 1-1 1-3 1 1 0-1 1-4 0-3-1-3 0-4 1-7 1-3 0-1-1-3-1-2 0-3-1 2-1 3 0 3 0 3 0-4-1-5 0-3 0-1-1 5 0-3 0-4-1 2-2 1-1 6-1Zm22-1-2 1-4-1 1-1 3 0Zm62 1 1 0-3 0-2 0-3 0-3-1 0-1 1 0 6 0Zm-22-1 1 2 2-2 6-1 4 2 0 2 4-1 2-1 5 1 3 2 4 0 3 1 5 1 2 1 2 2-4 1 5 2 4 0 3 2 4 0-1 2-4 3-3-1-3-3-3 1 0 1 2 1 3 1 1 1 1 2 0 2-3-1-6-2 3 2 3 2-6-1-5-1-3-1 1-1-3-1-3-1 0 1-7 0-2 0 2-2 4 0 5 0-1-1 1-1 3-3-1-1-1 0-3-1-5-1 2-1-3-1-2 0-1-1-2 1-4 0-8 0-4-1-4 0-2-1 2-1-3 0 0-3 1-2 3 0 5-1Zm-31-1 3 0 4 0 0 1-2 1 3 1 0 2-4 1-2-1-1 0-6-2 0-1 5 0-3-1Zm542 1-3 0-5 0 2-1 3 0Zm-526 1-2 2-3 0-1-2 0-1 1-1 2-1 5 0 4 1-3 2Zm-61 3-6 1-1-1-5-1 1 0 2-2 2-2-3-1 8 0 3 0 6 0 2 1 2 1-2 0-6 2-3 1Zm603-8-3 1-3 0-4-1 0-1 4 1Zm-543 0-1 1-3 0-3-1 1-1 3 0 2 1Zm530-1-1 2-9 0-3 0-5-1 2-2 3 0 5 0Zm-541-2 2 1 0 1-1 1-4 1-2-1 0-1-4 0 0-2 2 0 4 0Zm-21 1 2 0 3 0 0 1-1 1-8 1-5 1-4 0 0-1 5-1-10 0-4 0 3-2 3-1 6 1 4 1 4 0-4-2 2-1 3 1Zm368 12-1 0-8 0 0-1-4-1-1-1 3-1 0-1 4-2-2 0 5-2 0-1 5-1 7-1 7-1 4-1 4 0 2 1-1 1-8 1-7 1-7 2-3 2-4 2 1 2Zm-338-14 2 0 4 0 2 1 0 1 2 0 2 1 3 0 3 0 4 0 4 0 4 0 2 1 1 1-2 0-3 1-3-1-6 1-5 0-3-1-6 0-1-2 0-1-3-1-4 0-3-1 1 0Zm-48-2-1 2-1 1-2 0-4 1-4 0-3 0 4-2 4-1 4 0Zm49 1-1 0-4 0 0-1 4 0 2 0Zm-36-1-4 1-3-1 1 0 4-1 3 1Zm300 0-5 1-4-1 2 0-2-1 5 0 1 0Zm-299-2-2 1-4 0 0-1 2 0 1 0Zm31 2-3 0-2-1-1 0 0-1 3 0 1 0 3 1Zm-9-1 1 1-4 0-4-1-5 0 2-1-2 0 0-1 4 0 6 1Zm456 0-13 1 4-3 2 0 2 0 5 1Zm-193-3 7 2-6 0-1 2-2 0-1 2-3 0-4-1 2-1-4 0-4-2-2-2 6-1 1 1 4 0 0-1 4 0Zm16-2 4 1-3 1-7 1-6-1-1 0-3 0-2-1 6-1 4 0 2 0Zm57 0-3 0-2 0-1 1-2 0-3 0 2-1-5 0 4 0 3-1 1 1 1 0 2-1Zm108 4-5 0-6-1-4-1-1-1-3-1 5-1 5-1 5 2 5 2Zm-415-2 2 1-3 0-4 2-4 0-4 0-3-1 0-1 2 0-4 0-3-1-1-1 2-1 1-1 2 0-1 0 6-1 2 2 4 0 4 1Zm41-8 6 0 4 1 5 0-1 1-5 1-5 0-2 1 4 0-5 1-3 1-4 2-5 0-1 0-7 1 3 0-1 0 1 1-2 1-3 1-1 1-3 0 0 1 4 0-6 2-6-1-6 0-4 0-4 0 0-1 4-1-1-1 1 0 6 1-3-2-3 0 1-1 4-1 1 0-3-1-1-1 6 0 2 0 3-1-5 0-8 0-4-1-1-1-3 0-1-1 4 0 2 0 5-1 3-1 3 0 2 1 2-1 3 0 4-1 7 0 1 0 6 0 5 0Zm92-1 14 2-4 1-9 0-12 0 1 1 8-1 7 1 4 0 2 0-2 2 5-1 11-1 7 0 1 1-9 2-1 0-8 1 6 0-3 2-2 1 0 2 3 2-4 0-3 1 4 1 0 2-2 0 3 2-5 0 3 1-1 1-3 0-3 0 2 2 0 1-4-1-1 0 3 1 3 1 1 2-4 0-2 0-3-2 1 2-3 1 6 0 3 0-6 2-6 2-6 1-3 0-2 0-3 3-5 1-1 0-3 1-3 1-2 1 0 1-2 2-3 2 1 1-1 2-1 2-4 1-3-2-4 0-2-1-2-3-4-2-1-2 0-2-3-2 1-2-2 0 2-3 4-1 0-1 1-1-3 0-1 1-2 0-3-1 0-1 1-1 2 0 5 0-4-1-2-1-2 0-2 0 2-2-1-1-2-2-2-2-3-1 0-1-6-1-5 0-6 0-5 0-3-1-4-1 6-1 5 0-10-1-5 0 0-1 9-1 8-1 1-1-6-1 2-1 7-1 4-1-1-1 5 0 7-1 7 0 2 1 6-1 5 1 3 0 5 1-5-2 0-1 8-1 7 0 3-1 8 0Z" /></defs>
+          <use href="#land" />
+          <use href="#land" x="800" />
+        </svg>
+      </div>
+    </div>
+  </div>
+</div>
 
 <div id="page">
   <div class="bar"><span id="tabbar"></span></div>
@@ -1725,9 +1834,358 @@ scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu
   document.addEventListener("mouseup", end);
 }
 
+// ---- the startup curtain, and the launch image the phone keeps -----------------------
+// An installed open shows two pictures before the board. The first is the
+// phone's OWN launch image, which iOS shows the instant the app is tapped and
+// holds until it hands the web view this page; the second is the curtain in
+// this document, which stands over the app's first frames from this page's
+// first paint until the board is really on screen. Both are the pastureland
+// phone app's, copied from its pwa/src/splash.ts and pwa/index.html: the same
+// white, the same handle in the same grey, the same globe, the same 1000ms
+// minimum hold and the same 260ms fade. Two things are this board's own.
+//
+// The logo in the middle is the facilitator squid.
+//
+// And the globe is the connection step rather than a stopwatch. The app it was
+// taken from lifts its page after two seconds however the boot went, because it
+// has a copy of the conversation to fall back on. This board has no such copy
+// and would be lifting onto an empty frame, so there is no cap here at all:
+//
+//   the globe turns while the phone is still trying to read the board;
+//   it stops and turns red the moment a reading fails, and stays that way
+//     until one gets through, retried on the poll's own backoff;
+//   it comes down only after a reading has been drawn AND the page it drew
+//     has stopped moving.
+//
+// Nothing else takes it down. No elapsed time, no stored copy and no guess
+// counts as a connection. A board that is genuinely empty is a different thing
+// from one nobody has read yet, and it only says so once a reading proves it
+// (the .stated rule in the sheet above).
+//
+// After the curtain has gone it never comes back. A connection lost later is
+// the reconnecting note's business, which is what that note is for.
+
+// --- the phone's own launch image (iOS) ---
+// An installed web app on iOS shows a launch image only through
+// <link rel="apple-touch-startup-image">, and each tag's media query has to
+// match the device's exact pixel size, so there is no fixed set of files that
+// covers every iPhone and the picture is painted for THIS device at runtime.
+// Android builds its splash from the manifest and every other browser ignores
+// these tags, so the work only happens where it does something.
+const SPLASH_LOGO = "/m-splash-squid.png";
+const SPLASH_BG = "#ffffff";
+// the logo's longer side spans this fraction of the screen's SHORTER edge; its
+// other side and its centred position follow from the file's own aspect ratio
+const SPLASH_LOGO_FRACTION = 0.32;
+// the credit line under it. both numbers are fractions of that same shorter
+// edge, so the line grows and shrinks with the screen exactly as the logo does
+const SPLASH_HANDLE = "@theonetrueakash";
+const SPLASH_HANDLE_FRACTION = 0.035;        // font size / shorter edge
+const SPLASH_HANDLE_BOTTOM_FRACTION = 0.12;  // bottom edge -> the text's middle
+// a quiet credit, not a label: apple's systemGray2
+const SPLASH_HANDLE_COLOR = "#aeaeb2";
+// Tried in order against a real 2D context, best first. A context runs the font
+// shorthand through the CSS parser and drops the WHOLE declaration if any part
+// of it fails to parse, leaving the context on its previous font, so a stack a
+// browser dislikes does not degrade: it silently paints the line in the canvas
+// default at the wrong size. Every name is a system face, so there is nothing
+// to load and the canvas can draw the moment it is asked to.
+const SPLASH_FONT_LADDER = [
+  '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif',
+  "system-ui",
+  "sans-serif",
+];
+
+// pure: screen + dpr + logo aspect -> the exact device-pixel canvas, the centred
+// logo rect, the credit line's size and anchor, and the device-matching media
+// query. no DOM and no canvas, so it can be checked on its own
+function splashLayout(inp){
+  const canvasW = Math.round(inp.screenW * inp.dpr);
+  const canvasH = Math.round(inp.screenH * inp.dpr);
+  const shortEdge = Math.min(canvasW, canvasH);
+  const box = shortEdge * SPLASH_LOGO_FRACTION;    // the logo's bounding square
+  // contain-fit the ratio inside that square: the longer side lands on the box
+  const logoW = inp.logoAspect >= 1 ? box : box * inp.logoAspect;
+  const logoH = inp.logoAspect >= 1 ? box / inp.logoAspect : box;
+  const orientation = inp.screenW <= inp.screenH ? "portrait" : "landscape";
+  return {
+    canvasW, canvasH,
+    screenW: inp.screenW, screenH: inp.screenH,
+    logoX: (canvasW - logoW) / 2, logoY: (canvasH - logoH) / 2, logoW, logoH,
+    // whole device pixels for the type size, unlike the logo's rect: this canvas
+    // is rasterized once at exactly these pixels and never resampled
+    handleFont: Math.round(shortEdge * SPLASH_HANDLE_FRACTION),
+    handleCenterX: canvasW / 2,
+    handleCenterY: canvasH - shortEdge * SPLASH_HANDLE_BOTTOM_FRACTION,
+    media: "(device-width: " + inp.screenW + "px) and (device-height: " + inp.screenH + "px) " +
+           "and (-webkit-device-pixel-ratio: " + inp.dpr + ") and (orientation: " + orientation + ")",
+  };
+}
+
+// the launch image's credit line restated in the SCREEN's own CSS pixels. only
+// the vertical axis converts: the canvas centres the text on canvasW/2, so the
+// horizontal answer is "the middle" and needs no number. the ratio is the
+// canvas-to-screen one rather than a bare 1/dpr, since the canvas is rounded to
+// whole device pixels and that can leave the two axes a hair apart
+function splashHandleBox(g, screenH){
+  const sy = (screenH === undefined ? g.screenH : screenH) / g.canvasH;
+  const fontPx = g.handleFont * sy;
+  return { top: g.handleCenterY * sy - fontPx / 2, height: fontPx, fontPx };
+}
+
+// put the credit line's font on a 2D context and hand back what the context
+// actually holds afterwards. each rung is assigned and then read back, and the
+// size coming back is the proof the shorthand parsed at all. the size is read as
+// a NUMBER rather than looked for as a piece of the string, because the size
+// asked for is a repeating fraction on most screens and comes back rounded
+function applySplashFont(ctx, px){
+  for (const family of SPLASH_FONT_LADDER){
+    ctx.font = px + "px " + family;
+    const back = /(\d+(?:\.\d+)?)px/.exec(ctx.font);
+    if (back && Math.abs(Number(back[1]) - px) < 0.05) break;
+  }
+  return ctx.font;
+}
+
+// THE CREDIT LINE IS ASKED FOR IN SCREEN PIXELS, NOT THE CANVAS'S.
+// Everything else on this canvas is a rectangle, and a rectangle drawn at three
+// times the size and shown at a third of it is the same picture. Type is not:
+// the system face carries a tracking table, so the same string at the same
+// proportion of the screen is measurably wider per em at a small size than at a
+// large one. The line is therefore asked for at the size it occupies on the
+// SCREEN and the canvas is scaled to put it on the device pixels the launch
+// image needs. "middle" is the point CSS puts at the middle of a line box.
+function drawSplashHandle(ctx, text, fontPx, sx, sy, deviceX, deviceY){
+  ctx.save();
+  ctx.scale(1 / sx, 1 / sy);
+  applySplashFont(ctx, fontPx);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = SPLASH_HANDLE_COLOR;
+  ctx.fillText(text, deviceX * sx, deviceY * sy);
+  ctx.restore();
+}
+
+// paint solid white, then the logo centred, then the credit line near the bottom
+function paintSplash(ctx, logo, g){
+  ctx.fillStyle = SPLASH_BG;
+  ctx.fillRect(0, 0, g.canvasW, g.canvasH);
+  ctx.drawImage(logo, g.logoX, g.logoY, g.logoW, g.logoH);
+  drawSplashHandle(ctx, SPLASH_HANDLE, splashHandleBox(g).fontPx,
+                   g.screenW / g.canvasW, g.screenH / g.canvasH,
+                   g.handleCenterX, g.handleCenterY);
+}
+
+// iOS (including iPadOS, which reports as a Mac but has a touch screen) or an
+// already-installed window: the only places these tags do anything
+function isAppleHomeScreenTarget(nav){
+  const ua = nav.userAgent;
+  const iOS = /iP(hone|od|ad)/.test(ua) || (/Macintosh/.test(ua) && nav.maxTouchPoints > 1);
+  return iOS || isInstalledWindow();
+}
+let splashStarted = false;
+// Paint this device's launch image once per load and inject its link. Safe to
+// call at boot: it does nothing off iOS and nothing after the first call, and it
+// swallows its own errors, since a launch image is cosmetic and must never break
+// a start. A missing or unreadable file simply leaves the phone with whatever it
+// had before, which is its plain white default.
+function installStartupImage(src){
+  if (splashStarted) return;
+  splashStarted = true;
+  try {
+    if (!document.head || !isAppleHomeScreenTarget(navigator)) return;
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const layout = splashLayout({
+          screenW: screen.width, screenH: screen.height,
+          dpr: window.devicePixelRatio || 1,
+          logoAspect: img.naturalWidth / img.naturalHeight || 1,
+        });
+        const canvas = document.createElement("canvas");
+        canvas.width = layout.canvasW; canvas.height = layout.canvasH;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        paintSplash(ctx, img, layout);
+        const link = document.createElement("link");
+        link.rel = "apple-touch-startup-image";
+        link.media = layout.media;
+        link.href = canvas.toDataURL("image/png");
+        document.head.appendChild(link);
+      } catch (e) {}
+    };
+    img.src = src;
+  } catch (e) {}
+}
+
+// --- the curtain's rule ---
+const LOAD_MIN_HOLD_MS = 1000;   // held at least this long, however fast the read
+const LOAD_FADE_MS = 260;        // short and smooth, not a cut
+const QUIET_FRAMES = 3;          // unchanged frames in a row before the page counts as still
+// NO CLOCK RUNS IN THIS GATE. There is no longest wait on a picture and no
+// longest watch for stillness, because either one would let time alone answer a
+// question about the page, and the answer would be wrong exactly when it
+// matters: a card whose picture has not arrived, or one still growing under the
+// reader, is a card the reader was promised they would not be shown. So the
+// waiting ends when the thing being waited for has actually happened, and a page
+// that never stops moving keeps the curtain, which is the honest picture of a
+// page that is not ready.
+//
+// a launch image preceded this load only in an installed window; a browser tab
+// has no handover to hold, so the curtain stays out of one
+function isInstalledWindow(){
+  return navigator.standalone === true ||
+         (typeof matchMedia === "function" && matchMedia("(display-mode: standalone)").matches);
+}
+const curtain = document.getElementById("loading");
+let startupLifted = false;    // the curtain has gone, and never comes back
+let startupHeld = false;      // the minimum hold has passed
+let startupStill = false;     // a drawn board has stopped moving
+let startupDrew = false;      // a live reading has been drawn at least once
+// how many frames the stillness watch read before it answered. kept in the page
+// rather than reported: the incident history takes a fixed set of event names,
+// and a start that went normally is not an incident
+let startupFrames = 0;
+// the pictures the gate has finished with, and the ones it has already asked
+// about. finished means decoded or failed, which are both endings; asked about
+// means the wait is already running and must not be started twice. weak, so a
+// card redrawn between readings takes its old nodes out with it
+const startupArtDone = new WeakSet();
+const startupArtAsked = new WeakSet();
+// the page is on screen from its first paint, so this is when the script took it
+// over rather than when it appeared
+if (curtain && !isInstalledWindow()){
+  // it is a fixed, full-screen panel, so it comes out of the document rather
+  // than merely being hidden. the sheet's display-mode rule already hid it
+  // before any of this ran; this is the half that also catches a browser which
+  // does not know that query
+  curtain.remove();
+  startupLifted = true;
+} else if (!curtain){
+  startupLifted = true;   // an older page out of the worker's cache has none
+} else {
+  setTimeout(() => { startupHeld = true; liftCurtain(); }, LOAD_MIN_HOLD_MS);
+}
+function liftCurtain(){
+  if (startupLifted || !startupHeld || !startupStill) return;
+  startupLifted = true;
+  curtain.style.pointerEvents = "none";   // the fade must not eat the first tap
+  curtain.style.opacity = "0";            // the sheet above states the transition this rides
+  setTimeout(() => curtain.remove(), LOAD_FADE_MS);
+}
+// a reading failed. only the readings BEFORE the first drawn board are the
+// curtain's business: once a board is on screen the connection was made, and a
+// loss after that is the reconnecting note's to report
+function startupTrouble(){
+  if (startupLifted || startupDrew || !curtain) return;
+  curtain.classList.add("down");
+}
+// a reading got through: the globe turns again
+function startupAnswered(){
+  if (startupLifted || !curtain) return;
+  curtain.classList.remove("down");
+}
+// pure: the frame-to-frame comparison, with no clock and no DOM in it. a frame
+// counts as still only if nothing moved AND nothing on it is still coming, and
+// either one starting again puts the count back to nothing
+function createQuietWatch(need){
+  let prev = null, still = 0, seen = 0;
+  return {
+    frame(f){
+      seen += 1;
+      const same = prev !== null && f.ph === prev.ph && f.pw === prev.pw &&
+                   f.sh === prev.sh && f.st === prev.st && f.ch === prev.ch && f.vh === prev.vh;
+      still = same && f.art === 0 ? still + 1 : 0;
+      prev = f;
+      return still >= need;
+    },
+    seen: () => seen,
+  };
+}
+// THE PICTURES THE READER CAN ACTUALLY SEE, and only those.
+//
+// Every card the board sent is built into #cards, but all except the one on show
+// are display:none, so a picture on a card behind this one is a picture nobody is
+// waiting for and it must not hold the start up. The card on show is asked for
+// its own, and the card itself is checked for a box on the screen, which also
+// covers the frame before any card is shown at all.
+function startupArt(){
+  const card = document.querySelector("#cards .box.sel");
+  if (!card || !card.getClientRects().length) return [];
+  return Array.from(card.querySelectorAll("img"));
+}
+// how many of those are still coming. A PICTURE THAT FAILED IS NOT ONE OF THEM:
+// decode() rejects when the file will never arrive, and a rejection is an answer,
+// so that node is finished with and the card around it is as done as it is going
+// to get. A picture still on its way has no answer yet, and no amount of waiting
+// turns into one, which is the whole reason nothing here is on a timer.
+function startupPendingArt(){
+  let pending = 0;
+  for (const img of startupArt()){
+    if (startupArtDone.has(img)) continue;
+    pending += 1;
+    if (startupArtAsked.has(img)) continue;
+    startupArtAsked.add(img);
+    const finished = () => startupArtDone.add(img);
+    try {
+      if (img.decode) img.decode().then(finished, finished);
+      else if (img.complete) finished();
+      else { img.addEventListener("load", finished, { once: true });
+             img.addEventListener("error", finished, { once: true }); }
+    } catch (e) { finished(); }
+  }
+  return pending;
+}
+// one frame's reading of everything the eye could catch moving: the card frame's
+// box, the shown card's answer and where it stands, the viewport, and how many of
+// the shown card's pictures are still coming. every one of them is READ and never
+// written, because a write from the thing that is supposed to be proving the page
+// is still would be the page moving again
+function startupFrame(){
+  const pane = document.getElementById("pane");
+  const reply = document.querySelector("#cards .box.sel .reply");
+  return {
+    ph: pane ? pane.clientHeight : 0,
+    pw: pane ? pane.clientWidth : 0,
+    sh: reply ? reply.scrollHeight : 0,
+    st: reply ? Math.round(reply.scrollTop) : 0,
+    ch: reply ? reply.clientHeight : 0,
+    vh: Math.round(window.visualViewport ? window.visualViewport.height : window.innerHeight),
+    art: startupPendingArt(),
+  };
+}
+// Watch until the page has been still for QUIET_FRAMES frames in a row with
+// nothing left to come. There is no way out of this loop other than that
+// happening, on purpose: a page that keeps moving is a page that is not ready to
+// be shown, and the curtain saying so is the truth rather than a hang.
+function watchStartupQuiet(done){
+  if (typeof requestAnimationFrame !== "function"){ done(0); return; }
+  const watch = createQuietWatch(QUIET_FRAMES);
+  const step = () => {
+    if (watch.frame(startupFrame())){ done(watch.seen()); return; }
+    requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+// A live reading has been drawn. Wait for it to be finished arriving, then for
+// it to be finished MOVING, which are not the same instant: a card laid out is
+// still growing while its pictures decode and while the safe-area insets settle.
+// Runs once per load; later readings change the board, not the startup.
+async function startupRendered(){
+  if (startupLifted || startupDrew || !curtain) return;
+  startupDrew = true;
+  await new Promise(r => requestAnimationFrame(() => r()));   // laid out and painted
+  await new Promise(resolve => watchStartupQuiet(frames => { startupFrames = frames; resolve(); }));
+  startupStill = true;
+  liftCurtain();
+}
+
 // ---- the poll ------------------------------------------------------------------------
 function apply(state){
   const trace = tracePhone("begin", "render", { rev: state.rev });
+  // a reading of the board has been drawn at least once, which is what lets the
+  // page say a tab is empty instead of only unknown
+  document.body.classList.add("stated");
   // the read marks are the board's, so they arrive with the state: taken in
   // first, ahead of the tabs and the list that draw from them
   seenSync(state);
@@ -1837,6 +2295,11 @@ const POLL_MS = 1200, POLL_DEADLINE_MS = 8000, POLL_BACKOFF_MAX_MS = 15000;
 const STALE_AFTER = 2;                // missed readings before the note shows
 const OFFLINE_AFTER_MS = 30000;       // this long without an answer and the note says the board is gone
 let lastRev = null;                   // the revision lastState is of; null before the first reading
+// a whole reading has been through the pass over the cards without throwing.
+// held apart from lastState, because a reading can be held and still never have
+// reached the screen, and the startup curtain answers to the drawing rather than
+// to the holding
+let drewBoard = false;
 // A create answer can race a reading that was already in flight. Until a
 // reading reaches the create's revision, an older snapshot may not erase the
 // card and the title editor that the confirmed answer has just drawn.
@@ -1902,12 +2365,14 @@ async function readBoard(){
     pollFails++;
     pollGap = Math.min(POLL_BACKOFF_MAX_MS, pollGap * 2);
     linkStatus();
+    startupTrouble();   // the board could not be reached: the startup globe stops, and reddens
   }
   endPhoneTrace(trace, { status: response?.status || 0, rev: data?.rev,
     ...(data ? {} : { outcome: "retry" }) }, response);
   if (data){
     pollFails = 0; pollGap = POLL_MS; lastGood = Date.now();
     linkStatus();
+    startupAnswered();   // a reading got through: the startup globe turns again
     if (createRevFloor != null && Number.isSafeInteger(data.rev) && data.rev < createRevFloor){
       pollAgain = true;
       if (!opsStarted){ opsStarted = true; wakeOps(); }
@@ -1923,6 +2388,20 @@ async function readBoard(){
         const state = { ...data, ...(data.live || {}), fetchedAt: asked };
         delete state.live; delete state.ops;
         validateOwners(state);
+        // A REVISION IS ONLY HELD ONCE IT HAS BEEN DRAWN.
+        //
+        // The reading is put in place before the pass over the cards, because
+        // that pass reads it back through lastState. But a pass that throws has
+        // drawn a part of a board and left the rest, and holding its revision
+        // afterwards is the page telling the server it has that reading: the
+        // next reading answers "nothing new", the pass is never tried again,
+        // and a card that would not draw stays not drawn for as long as the
+        // board sits still. So a throw puts the held reading back to the last
+        // one that did draw and drops the revision, which is this file's own
+        // way of saying take the whole board again (the else below writes the
+        // same thing for the same reason). The next ordinary poll then asks for
+        // everything and draws it, with nothing to reset by hand.
+        const heldState = lastState;
         lastState = state;
         lastRev = data.rev;
         if (wantBox){
@@ -1930,7 +2409,14 @@ async function readBoard(){
           const b = state.boxes.find(x => x.id === want);
           if (b && validOwners.has(b.owner)){ wantBox = null; activeOwner = b.owner; localStorage.setItem("activeproj", b.owner); selectedId = want; }
         }
-        apply(state);
+        try {
+          apply(state);
+          drewBoard = true;   // a whole reading reached the screen
+        } catch (e) {
+          lastState = heldState;
+          lastRev = null;
+          throw e;            // reported by the one handler below, as before
+        }
       } else if (lastState){
         const rendering = tracePhone("begin", "render", { rev: lastRev });
         Object.assign(lastState, data.live || {});
@@ -1943,6 +2429,13 @@ async function readBoard(){
     } catch (e) {
       if (typeof reportProblem === "function") reportProblem("render", e);
     }
+    // a live board is on the page: the curtain waits for it to stop moving and
+    // then goes. holding a reading is not the same as having drawn one, so this
+    // asks the flag the pass itself sets rather than asking whether a reading
+    // exists. a pass that threw leaves it false and the curtain stays, with the
+    // globe still turning and still black: the board answered, so this is not a
+    // connection to report, it is a page that has not finished
+    if (drewBoard) void startupRendered();
   }
   if (!opsStarted){ opsStarted = true; wakeOps(); }
 }
@@ -1957,6 +2450,9 @@ function resume(){
 loadOps();
 drawCreatePending();
 poll();
+// the board is asked for first; the phone's launch image is painted for the NEXT
+// open and has nothing to do with this one
+installStartupImage(SPLASH_LOGO);
 document.addEventListener("visibilitychange", () => {
   if (document.hidden){ clearTimeout(pollTimer); pollTimer = null; }
   else resume();
