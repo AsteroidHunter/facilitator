@@ -4779,7 +4779,6 @@ keyboardTitle = true;
 let autoNext = null;
 const AUTONEXT_MS = 0;   // future user setting: quiet time after a send before moving on
 const ENTER_AGAIN_MS = 700;
-let lastLeftId = null;   // the card the last auto-jump left, for command+z bounce
 let enterAgain = null;   // transient by design; a reload never revives a move
 function enterViewKey(id){
   const ws = lastState && curWs(lastState);
@@ -4805,7 +4804,7 @@ function scheduleDesktopAdvance(id, intent = null){
       clearEnterAgain(intent);
       if (!valid) return;
     }
-    if (FOCUS && selectedId === id && jumpNextYellow(id, { focus: true })) lastLeftId = id;
+    if (FOCUS && selectedId === id) jumpNextYellow(id, { focus: true });
   }, AUTONEXT_MS);
 }
 function armEnterAgain(id){
@@ -7809,14 +7808,6 @@ const boardShortcutActions = {
   history(e, shortcut){
     e.preventDefault();
     histStep(selectedId, shortcut.value);
-  },
-  bounce(e){
-    if (lastLeftId && els[lastLeftId]){
-      e.preventDefault();
-      const there = lastLeftId;
-      lastLeftId = selectedId;
-      select(there, { focus: true });
-    }
   },
   create(e){
     e.preventDefault();
