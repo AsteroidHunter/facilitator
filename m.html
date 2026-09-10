@@ -634,7 +634,8 @@ let pollFails = 0;
 let selectedId = localStorage.getItem("selbox") || null;
 let activeOwner = localStorage.getItem("activeproj") || "facilitator";
 let validOwners = new Set();
-let ticketView = "todo";        // the drawer's tab: doing, deferred, done
+// the drawer's tab (doing, deferred, done) is one choice per project and lives
+// in card-logic.js; curView() answers with the open project's own
 const lastSel = {};             // owner -> the card he was on when he left that tab
 let pendingFocus = null;        // a card just made: name it as soon as it is drawn
 let wantBox = new URLSearchParams(location.search).get("box");   // a notification opened the page on this card
@@ -872,7 +873,7 @@ let lastLeftId = null;   // the card the send's move left, for the bounce on com
 let phoneEnterAgain = null;   // transient by design; a reload never revives a move
 function phoneEnterViewKey(id){
   const anchor = lastState && lastState.boxes.find(b => b.id === id);
-  return [id, activeOwner, ticketView, anchor && anchor.ws ? anchor.ws : ""].join("|");
+  return [id, activeOwner, curView(), anchor && anchor.ws ? anchor.ws : ""].join("|");
 }
 function clearPhoneEnterAgain(intent = phoneEnterAgain){
   if (!intent) return;
@@ -1538,9 +1539,13 @@ function applySelection(state){
 // ---- the drawer's list, the desktop's ticket panel ----------------------------------
 function renderTickets(state){
   const tik = document.getElementById("tiklist");
+  // this project's own tab, never the last project's: the buttons and the rows
+  // below are drawn from the one read
+  const view = curView();
+  paintViewTabs();
   const pool = viewPool(state);
   const lane = state.agents?.[activeOwner];
-  const sig = ticketView + "|" + (lane ? lane.name + lane.alive : "") + "|" +
+  const sig = view + "|" + (lane ? lane.name + lane.alive : "") + "|" +
               pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
                       ((seenReplies[b.id] || 0) >= (b.replies || 0) ? "r" : "") +
                       (b.id === selectedId ? "!" : "") + b.title +
@@ -1571,15 +1576,16 @@ function renderTickets(state){
     r.addEventListener("click", () => { select(b.id); closeDrawer(); });
     tik.appendChild(r);
   }
-  if (!pool.length) tik.appendChild(h("div", "tempty", ticketView === "done" ? "no done chats yet" : ticketView === "deferred" ? "no deferred chats yet" : "no open chats here"));
+  if (!pool.length) tik.appendChild(h("div", "tempty", view === "done" ? "no done chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here"));
   syncSpinner();
 }
+// each button writes the view of the project being looked at, and nothing else:
+// another project keeps whatever view was chosen for it, and one that has never
+// been given a view opens on doing
 function setView(v){
+  if (!setTicketViewOf(activeOwner, v)) return;
   cancelAutoNext();
-  ticketView = v;
-  document.getElementById("tv-todo").classList.toggle("on", v === "todo");
-  document.getElementById("tv-deferred").classList.toggle("on", v === "deferred");
-  document.getElementById("tv-done").classList.toggle("on", v === "done");
+  paintViewTabs();
   if (lastState) renderTickets(lastState);
 }
 document.getElementById("tv-todo").addEventListener("click", () => setView("todo"));

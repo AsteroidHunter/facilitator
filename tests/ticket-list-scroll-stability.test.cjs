@@ -79,15 +79,19 @@ function rendererFrom(html, clock) {
   const h = (tag, className, text) => new FakeElement(tag, className, text);
   const DateStub = { now: () => clock.now };
   const source = functionSource(html, "renderCarousel", "ord");
+  // the chosen view is one per project now: the renderer asks curView() for the
+  // open project's own, and paints the three buttons from the same answer. this
+  // test is about the list's scroll position, so the paint is a stub
   const renderCarousel = new Function(
     "document", "Date", "curWs", "poolOf", "viewFilter", "queueState",
     "cardState", "h", "seenReplies", "shortAge", "syncSpinner",
-    "SPIN_FRAMES", "spinFrame", "activeOwner", "ticketView", "selectedId",
-    "selectedTask", `${source}; return renderCarousel;`,
+    "SPIN_FRAMES", "spinFrame", "activeOwner", "curView", "paintViewTabs",
+    "selectedId", "selectedTask", `${source}; return renderCarousel;`,
   )(
     document, DateStub, () => null, state => state.boxes, () => true,
     () => "queued", () => "queued", h, {}, () => "1m", () => {},
-    ["|", "/", "-", "\\"], 0, "facilitator", "todo", "m1", null,
+    ["|", "/", "-", "\\"], 0, "facilitator", () => "todo", () => {},
+    "m1", null,
   );
   return { renderCarousel, tiklist };
 }

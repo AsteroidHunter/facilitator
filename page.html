@@ -1305,7 +1305,7 @@ const RETIRED_OWNERS = new Set(["triage"]);
 function retiredOwnerStorageKey(key){
   for (const owner of RETIRED_OWNERS){
     if (key === "tabhide." + owner || key === "minibox." + owner ||
-        key === "doc.tasks." + owner ||
+        key === "doc.tasks." + owner || key === "tikview." + owner ||
         key.startsWith("pos." + owner + ".") ||
         key.startsWith("size." + owner + ".") ||
         key.startsWith("hide." + owner + ".") ||
@@ -2427,8 +2427,60 @@ function tickClock(){
 // post to the same endpoints the agent uses.
 let selectedWs = null;    // workspace within the active project
 let selectedTask = null;  // task picked by clicking its dot
-let ticketView = "todo";  // left panel tab: to-do | done
 let taskFilter = null;    // when set, the carousel shows that task's chats
+
+// ---- the chosen view, one per project ----------------------------------------
+// doing, deferred and done choose a view of one project's cards, so the choice
+// belongs to that project and not to the page. it used to be a single variable
+// the whole page shared, which is why picking done in one project opened every
+// other project on done as well. it is kept per lane now, written the moment a
+// button is pressed and read again wherever the list, the document or the
+// outline is drawn, so a project nobody has chosen a view for opens on doing.
+//
+// the record is this browser's own, kept the way the open tab ("activeproj") and
+// the small card ("minibox.<lane>") already are, so a reload puts each project
+// back on the view it was left on rather than on another project's view. only
+// the three names below are ever written or believed: anything else found in
+// storage counts as no choice at all, and so does anything a lane id borrowed
+// from the record's own object (a lane may legitimately be called "constructor"):
+// every answer is checked against the three before it is given. the board page
+// keeps the same record under the same keys, in card-logic.js.
+const TICKET_VIEWS = ["todo", "deferred", "done"];
+const TICKET_VIEW_KEY = "tikview.";   // + the lane's own id, which is never parsed back out
+const ticketViews = {};               // lane id -> the view chosen for it
+function ticketViewOf(owner){
+  if (!owner) return TICKET_VIEWS[0];
+  let view = ticketViews[owner];
+  if (!TICKET_VIEWS.includes(view)){
+    // the sandbox lane holds its view in memory only, the way it holds its tasks
+    try { view = MOCK ? null : localStorage.getItem(TICKET_VIEW_KEY + owner); } catch (err) { view = null; }
+    view = TICKET_VIEWS.includes(view) ? view : TICKET_VIEWS[0];
+    ticketViews[owner] = view;
+  }
+  return view;
+}
+// one lane's choice, refused unless it is one of the three views
+function setTicketViewOf(owner, view){
+  if (!owner || !TICKET_VIEWS.includes(view)) return false;
+  ticketViews[owner] = view;
+  try { if (!MOCK) localStorage.setItem(TICKET_VIEW_KEY + owner, view); } catch (err) {}
+  return true;
+}
+// the view of the project being looked at. everything that draws or walks the
+// lane reads it here, so a tab switch needs nothing carried across: the answer
+// changes with the lane on its own
+function curView(){ return ticketViewOf(activeOwner); }
+// the three buttons say which view is showing, painted from the same read the
+// list is drawn from and on every pass, so a button can never sit on one view
+// while the list shows another. the document view's own three buttons are
+// painted the same way, in renderDoc
+function paintViewTabs(){
+  const view = curView();
+  for (const name of TICKET_VIEWS){
+    const b = document.getElementById("tv-" + name);
+    if (b) b.classList.toggle("on", name === view);
+  }
+}
 
 function curWs(state){
   const list = (state.workspaces || {})[activeOwner] || [];
@@ -2664,11 +2716,15 @@ function renderCarousel(state){
   const chips = document.getElementById("chips");
   const w = curWs(state);
   const all = poolOf(state);    // every chat of the workspace, grouped and sorted
+  // this project's own tab, never the last project's: the buttons and the rows
+  // below are drawn from the one read
+  const view = curView();
+  paintViewTabs();
   // panel tab from the one state: done -> done, parked -> deferred, else doing
   const pool = all.filter(b => { const s = cardState(b);
-    return ticketView === "done" ? s === "done" : ticketView === "deferred" ? s === "parked" : (s !== "done" && s !== "parked"); });
+    return view === "done" ? s === "done" : view === "deferred" ? s === "parked" : (s !== "done" && s !== "parked"); });
   const lane = state.agents?.[activeOwner];
-  const sig = ticketView + "|" + (lane ? lane.name + lane.alive : "") + "|" +
+  const sig = view + "|" + (lane ? lane.name + lane.alive : "") + "|" +
               pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
                       ((seenReplies[b.id] || 0) >= (b.agentTs || 0) ? "r" : "") +
                       (b.id === selectedId ? "!" : "") + (b.task || "") + b.title +
@@ -2710,7 +2766,7 @@ function renderCarousel(state){
       r.addEventListener("click", () => select(b.id));
       tik.appendChild(r);
     }
-    if (!pool.length) tik.appendChild(h("div", "tempty", ticketView === "done" ? "no done chats yet" : ticketView === "deferred" ? "no deferred chats yet" : "no open chats here"));
+    if (!pool.length) tik.appendChild(h("div", "tempty", view === "done" ? "no done chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here"));
     // surviving rows glide to their new spots, the 220ms rise of the sister
     // board, instead of teleporting on every re-sort
     for (const row of tik.children){
@@ -2904,11 +2960,12 @@ addEventListener("keydown", e => {
   if (d && !DOC){ e.preventDefault(); nav(d[0], d[1]); }   // left and right do nothing in the document view
 });
 {
+  // each button writes the view of the project being looked at, and nothing
+  // else: another project keeps whatever view was chosen for it, and one that
+  // has never been given a view opens on doing
   const setView = v => {
-    ticketView = v;
-    document.getElementById("tv-todo").classList.toggle("on", v === "todo");
-    document.getElementById("tv-deferred").classList.toggle("on", v === "deferred");
-    document.getElementById("tv-done").classList.toggle("on", v === "done");
+    if (!setTicketViewOf(activeOwner, v)) return;
+    paintViewTabs();
     if (lastState) apply(lastState);
   };
   document.getElementById("tv-todo").addEventListener("click", () => setView("todo"));
@@ -3745,12 +3802,14 @@ function docPool(state){
   const w = curWs(state);
   return state.boxes.filter(b => b.owner === activeOwner && b.id !== "q" && (!w || b.ws === w.id));
 }
-// the three pages read the one card state, same as the board's tabs
+// the three pages read the one card state, same as the board's tabs, and the
+// same per-project choice the board's list is drawn from
 function docPage(state){
+  const view = curView();
   return docPool(state).filter(b => {
     const s = cardState(b);
-    return ticketView === "done" ? s === "done"
-         : ticketView === "deferred" ? s === "parked"
+    return view === "done" ? s === "done"
+         : view === "deferred" ? s === "parked"
          : (s !== "done" && s !== "parked");
   });
 }
@@ -3945,7 +4004,7 @@ function docOutline(state, st){
   const rows = loose.concat(...groups.map(g => g.rows));
   // the filing belongs in the signature too: moving a chat under a task
   // changes nothing else, and the outline has to repaint for it
-  const sig = ticketView + "|" +
+  const sig = curView() + "|" +
     groups.map(g => g.title + ":" + g.boxes.join("+")).join(">") + "|" +
     rows.map(b => b.id + cardState(b) + b.title + shortAge(b.agentTs || b.ts) +
                   (b.id === docSel ? "!" : "")).join(",");
@@ -4048,8 +4107,11 @@ function renderDoc(state){
   const date = MONTHS3[n.getMonth()] + " " + ord(n.getDate());
   const dd = document.getElementById("docdate");
   if (dd.textContent !== date) dd.textContent = date;
+  // the document's own three buttons, painted from the same read its sections
+  // were drawn from, so a tab switch never leaves them on another project's view
+  const view = curView();
   for (const t of document.querySelectorAll("#doctabs button"))
-    t.classList.toggle("on", t.dataset.page === ticketView);
+    t.classList.toggle("on", t.dataset.page === view);
 }
 
 // the bottom line: a task heading, or a whole new chat
@@ -4207,8 +4269,9 @@ if (DOC){
   });
   for (const t of document.querySelectorAll("#doctabs button")){
     t.addEventListener("click", () => {
-      ticketView = t.dataset.page;
+      if (!setTicketViewOf(activeOwner, t.dataset.page)) return;
       docSel = null;
+      paintViewTabs();                   // the list panel's buttons follow the same choice
       if (MOCK) docMockPaint();          // the sandbox repaints itself; the board apply stays out of it
       else if (lastState) apply(lastState);
     });
