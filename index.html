@@ -4872,6 +4872,16 @@ function tiltTitleAir(el, first){
 // reply variant is the desktop's own
 function replyShort(b){ return b.replyShort == null ? replyFull(b) : b.replyShort; }
 
+// how many older replies the card holds, the live one excluded: the board's
+// own count, and the length of the list GET /history hands the stepper, since
+// one rule on the board decides both. It rides in with the card, so the marks
+// are right in the frame the card first draws in instead of a history request
+// later, and the list that arrives says the same thing rather than taking them
+// away again. b.replies counts progress notes as well and is no answer to
+// this. A board too old to send the count answers none here, and the history
+// request the open card makes still fills the marks in as it used to
+function olderReplies(b){ return Math.max(b.olderReplies || 0, 0); }
+
 function build(state){
   const sections = document.getElementById("sections");
   const toc = document.getElementById("toc");
@@ -4968,9 +4978,13 @@ function makeBox(b, i, state){
     histDown.setAttribute("aria-label", "newer reply");
     histDown.innerHTML = historyChevronSVG();
     const histPos = h("span", "histpos");
-    // The aggregate reply count also includes progress notes. Start hidden and
-    // let the actual navigable agent history decide whether these marks exist.
-    const hasHistory = false;
+    // The marks are set here, before this card has ever been shown, so a card
+    // that already holds older replies draws them in its first frame rather
+    // than fading them in once a history request has answered. The card is
+    // display:none until it is the selected one, and a class written while it
+    // is starts no transition, so the fade is left for history that genuinely
+    // arrives on a card already on screen.
+    const hasHistory = olderReplies(b) > 0;
     box.classList.toggle("hashist", hasHistory);
     histctl.setAttribute("aria-hidden", hasHistory ? "false" : "true");
     histUp.disabled = !hasHistory;
@@ -5388,9 +5402,13 @@ async function syncDesktopHistoryAvailability(id){
   const raw = el.reply.dataset.raw;
   const version = el.historyVersion;
   const list = await histList(id);
-  // A reply or note can land while /thread is in flight. Only the result for
-  // the still-current card version may change its controls.
+  // A reply or note can land while the history request is in flight. Only the
+  // result for the still-current card version may change its controls.
   if (els[id] !== el || el.reply.dataset.raw !== raw || el.historyVersion !== version) return;
+  // A request that failed knows nothing about this card and must not take the
+  // marks off a card the board itself said has older replies; the poll after
+  // it asks again. Only an answer the board gave may change them.
+  if (list === HIST_UNKNOWN) return;
   setDesktopHistoryAvailability(id, list.length > 0);
 }
 
@@ -5436,20 +5454,23 @@ function apply(state){
     const rawReply = replyFull(b);
     if (el.reply.dataset.raw !== rawReply){
       el.reply.dataset.raw = rawReply;
-      delete histCache[b.id];   // a fresh reply outdates the cached thread
+      delete histCache[b.id];   // a fresh reply outdates the cached history
       if (hist && hist.id === b.id) histExit(b.id);   // and snaps a history view back to live
       else el.reply.innerHTML = fmt(rawReply);
       // a new answer is a new line count in the same room, so the phase goes
       if (b.id === selectedId) requestAnimationFrame(snapCard);
     }
     // Notes and final replies both change the aggregate count, including when
-    // their visible text happens to match. Invalidate the thread-derived
-    // answer in either case and hide stale controls until the new list lands.
+    // their visible text happens to match, and both change what the stepper
+    // can walk. Drop the cached list in either case and take the marks from
+    // the count the board sent until the new list lands: a note over the one
+    // reply makes that reply an older page, a second reply on the open card
+    // makes one too and fades its marks in.
     const historyVersion = b.replies || 0;
     if (el.historyVersion !== historyVersion){
       el.historyVersion = historyVersion;
       delete histCache[b.id];
-      setDesktopHistoryAvailability(b.id, false);
+      setDesktopHistoryAvailability(b.id, olderReplies(b) > 0);
     }
     if (!el.titleEl.isContentEditable && el.titleEl.textContent !== b.title){   // first message just named a new box
       el.titleEl.textContent = b.title;

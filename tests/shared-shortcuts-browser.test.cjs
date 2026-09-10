@@ -958,14 +958,16 @@ test("desktop history controls appear for a prior reply and share keyboard histo
       "an existing note-heavy card exposed an empty history control after reload");
 
     // A user follow-up and its answer create the first actual prior reply. The
-    // first attempt to learn that history fails with a JSON service error. It
-    // must stay hidden while unavailable, then recover through an ordinary
-    // poll without another reply, selection change, cache edit, or reload.
+    // first attempt to read that history fails with a JSON service error. The
+    // marks stand on the count the board sent with the card, so a request that
+    // failed neither takes them away nor is kept as an answer about the card,
+    // and the list itself recovers through an ordinary poll without another
+    // reply, selection change, cache edit, or reload.
     let historyRequests = 0;
     const historyProblemStart = problems.length;
     const interceptHistory = request => {
       const url = new URL(request.url());
-      if (url.pathname === "/thread" && url.searchParams.get("box") === id){
+      if (url.pathname === "/history" && url.searchParams.get("box") === id){
         historyRequests += 1;
         if (historyRequests === 1){
           request.respond({
@@ -990,11 +992,12 @@ test("desktop history controls appear for a prior reply and share keyboard histo
     assert.equal(historyRequests, 1, "the selected card did not request its changed history");
     await settle(80);
     assert.deepEqual(await page.evaluate(cardId => ({
+      boardOlder: lastState.boxes.find(box => box.id === cardId).olderReplies,
       hasHistory: els[cardId].box.classList.contains("hashist"),
       olderDisabled: els[cardId].histUp.disabled,
       cached: Object.prototype.hasOwnProperty.call(histCache, cardId),
-    }), id), { hasHistory: false, olderDisabled: true, cached: false },
-    "a failed history request became a reusable empty result");
+    }), id), { boardOlder: 1, hasHistory: true, olderDisabled: false, cached: false },
+    "a failed history request either erased the board's own count or became a reusable empty result");
 
     const retryDeadline = Date.now() + 3500;
     while (historyRequests < 2 && Date.now() < retryDeadline) await settle(25);
@@ -1002,6 +1005,8 @@ test("desktop history controls appear for a prior reply and share keyboard histo
     await page.waitForFunction(cardId =>
       els[cardId].box.classList.contains("hashist") && !els[cardId].histUp.disabled,
       { timeout: 3000 }, id);
+    assert.deepEqual(await page.evaluate(cardId => histList(cardId), id), ["First desktop reply."],
+      "the retried request did not restore the reply the stepper walks back to");
     const injectedProblems = problems.splice(historyProblemStart);
     assert.equal(injectedProblems.length, 1,
       "the injected history failure produced unexpected console output");
