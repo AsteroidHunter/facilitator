@@ -81,11 +81,11 @@ Endpoints:
   POST /delete?box=ID       -> legacy empty-meta removal route. A stale caller
                                that sends a nonempty meta card here closes it to
                                done instead, so old tabs cannot erase a thread
-  POST /upload?name=F       -> body = raw image bytes; saves to the sibling internal
+  POST /upload?name=F       -> body = raw attachment bytes; saves to the sibling internal
                                folder ../facilitator-internal/uploads/ (outside the
                                repo, never pushed), returns {"url": "/uploads/..."}
                                unchanged; GET /uploads/<file> serves it back
-  GET  /uploads/<file>      -> a previously uploaded image: served from the internal
+  GET  /uploads/<file>      -> a previously uploaded attachment: served from the internal
                                uploads folder, falling back to the old in-repo
                                uploads/ for images saved before the move
   GET  /laneimg/<lane>/<file> -> a picture out of that lane's OWN internal folder,
@@ -96,7 +96,7 @@ Endpoints:
                                path has to sit inside that folder, so .. segments,
                                nested paths, absolute names and symlinks pointing
                                out of it are all refused. Only the image content
-                               types /uploads/ serves are served; anything else,
+                               types in IMG_TYPES are served; anything else,
                                an unknown lane, a missing folder or a missing file
                                is a 404. Lets an agent working in another project
                                show a picture on the board without writing a file
@@ -393,7 +393,7 @@ import traceback
 import urllib.error
 import urllib.request
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, quote
 
 HERE = Path(__file__).resolve().parent
 RETIRED_OWNERS = frozenset({"triage"})
@@ -613,7 +613,7 @@ try:
     from starlette.applications import Starlette
     from starlette.concurrency import run_in_threadpool
     from starlette.requests import ClientDisconnect, Request
-    from starlette.responses import Response
+    from starlette.responses import Response, FileResponse
     from starlette.routing import Route
     from uvicorn.protocols.http.h11_impl import H11Protocol
 except ImportError:
@@ -861,10 +861,17 @@ TRANSCRIPT_PATH = HERE / "transcript.jsonl"
 # (not a git repo, never pushed); reads still fall back to the old in-repo
 # uploads/ so the images saved there before this change keep resolving
 INTERNAL_UPLOADS = HERE.parent / "facilitator-internal" / "uploads"
-# everything an image route will hand back, written down once so /uploads/ and
-# /laneimg/ can never drift apart on what counts as a picture
+# Lane panels remain image-only. Uploads also accept media and documents.
 IMG_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
              ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml"}
+UPLOAD_TYPES = {**IMG_TYPES,
+                ".mp4": "video/mp4", ".m4v": "video/x-m4v", ".mov": "video/quicktime",
+                ".webm": "video/webm", ".ogv": "video/ogg",
+                ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac",
+                ".wav": "audio/wav", ".ogg": "audio/ogg", ".oga": "audio/ogg",
+                ".opus": "audio/ogg", ".weba": "audio/webm",
+                ".pdf": "application/pdf", ".doc": "application/msword",
+                ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
 PORT = 8877
 # ---- the transport's bounds ------------------------------------------------------
 # What the board accepts at once and how long it lets a peer sit on the line.
@@ -882,7 +889,7 @@ WRITE_STALL_TIMEOUT = 30.0      # seconds an answer may sit unread in a full soc
 BODY_READ_TIMEOUT = 30.0        # seconds a request body may take to arrive
 GRACEFUL_STOP_TIMEOUT = 3       # seconds a stop waits for open requests before cutting them
 MAX_TEXT_BODY = 1024 * 1024     # bytes of a plain text body: a message, a reply, a markdown file
-MAX_UPLOAD_BODY = 32 * 1024 * 1024   # bytes of one dropped picture
+MAX_UPLOAD_BODY = 32 * 1024 * 1024   # bytes of one attachment
 # ---- operation receipts ----------------------------------------------------------
 # A receipt lives at most OP_RETENTION and is never let go by the count cap
 # while it is younger than OP_EVICT_FLOOR. The phone stops retrying an operation
@@ -2921,12 +2928,17 @@ def _get_pickdir(q: Query, _):
 
 
 def _get_upload(q: Query, _):
-    fn = Path(q.path).name  # .name strips any traversal on both paths below
-    p = INTERNAL_UPLOADS / fn
-    if not p.is_file():
-        p = HERE / "uploads" / fn  # fall back to images saved before the move
-    if p.is_file() and p.suffix.lower() in IMG_TYPES:
-        return 200, p.read_bytes(), IMG_TYPES[p.suffix.lower()]
+    fn = q.path[len("/uploads/"):]
+    if not fn or "/" in fn or "\\" in fn or fn in (".", ".."):
+        return 404, {"error": "not found"}
+    for base in (INTERNAL_UPLOADS, HERE / "uploads"):
+        p = base / fn
+        if p.is_file() and p.resolve().parent == base.resolve() and p.suffix.lower() in UPLOAD_TYPES:
+            disposition = "attachment" if q.one("download") == "1" or p.suffix.lower() in (".doc", ".docx") else "inline"
+            return FileResponse(p, media_type=UPLOAD_TYPES[p.suffix.lower()], filename=re.sub(r"^\d{13,19}-", "", fn),
+                                content_disposition_type=disposition,
+                                headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+                                         "Content-Security-Policy": "sandbox"})
     return 404, {"error": "not found"}
 
 
@@ -3156,16 +3168,21 @@ def _rollback_claim(owner: str, bid: str, token: str) -> bool:
 
 # -- POST -----------------------------------------------------------------------
 
-def _post_upload(q: Query, raw: bytes):  # binary body (dropped image); never decode as text
+def _post_upload(q: Query, raw: bytes):
     if not raw:
         return 400, {"error": "empty upload"}
     name = q.one("name", "file")
-    safe = "".join(c for c in name if c.isalnum() or c in "._-")[-60:] or "file"
-    up = INTERNAL_UPLOADS  # new uploads land outside the repo
+    safe = "".join(c for c in name if c.isalnum() or c in "._- ").strip()[-100:] or "file"
+    if Path(safe).suffix.lower() not in UPLOAD_TYPES:
+        return 415, {"error": "unsupported file type; choose an image, video, audio, PDF or Word file"}
+    up = INTERNAL_UPLOADS
     up.mkdir(parents=True, exist_ok=True)
-    fname = f"{int(time.time() * 1000)}-{safe}"
-    (up / fname).write_bytes(raw)
-    return 200, {"url": "/uploads/" + fname}  # URL unchanged; page needs no change
+    # Exclusive creation keeps simultaneous uploads with the same name distinct.
+    stamp = time.time_ns()
+    fname = f"{stamp}-{safe}"
+    with (up / fname).open("xb") as target:
+        target.write(raw)
+    return 200, {"url": "/uploads/" + quote(fname)}
 
 
 def _post_clientlog(q: Query, raw: bytes):
@@ -4050,6 +4067,8 @@ def _endpoint(fn, body: str = "none", cap: int = MAX_TEXT_BODY,
             # snapshot. This answer is the difference between a page that can
             # say something went wrong and one that hangs on a socket.
             return _answer(500, {"error": "the board could not save its state"}, route=route, box=box)
+        if isinstance(outcome, Response):
+            return outcome
         return _answer(*outcome, route=route, box=box)
     return endpoint
 

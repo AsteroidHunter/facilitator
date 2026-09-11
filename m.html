@@ -896,12 +896,12 @@ function makeBox(b){
   const bottombar = h("div", "bottombar");
   const clipfile = h("input", "clipfile");
   clipfile.type = "file";
-  clipfile.accept = "image/*";
+  clipfile.accept = CardMarkdown.ATTACHMENT_ACCEPT;
   clipfile.multiple = true;
   clipfile.tabIndex = -1;
   clipfile.setAttribute("aria-hidden", "true");
   const clip = h("button", "clipbtn");
-  clip.type = "button"; clip.title = "attach a picture"; clip.setAttribute("aria-label", "attach a picture");
+  clip.type = "button"; clip.title = "attach a file"; clip.setAttribute("aria-label", "attach a file");
   clip.innerHTML = PLUS_ICON;
   const compose = h("div", "compose");
   const ta = h("textarea");
@@ -973,6 +973,7 @@ function makeBox(b){
   });
   send.addEventListener("click", () => doSend(b.id));
   clip.addEventListener("pointerdown", e => { if (ComposeFormat.focused(ta)) e.preventDefault(); });
+  wireAttachmentTransfer(ta);
   clip.addEventListener("click", () => clipfile.click());
   clipfile.addEventListener("change", async () => {
     const files = [...(clipfile.files || [])];
