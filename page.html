@@ -1185,6 +1185,12 @@
     body.docview #docwrap{grid-template-columns:minmax(0, 529.92px) minmax(0, 1fr)}
     body.docview #docside{display:block}
   }
+.cardmd .attachment{display:block; max-width:100%; margin:8px 0; overflow-wrap:anywhere}
+.cardmd .attachment audio, .cardmd .attachment video{display:block; width:100%; max-width:100%; max-height:420px; border-radius:6px}
+.cardmd .attachment-name{display:block; overflow-wrap:anywhere}
+.cardmd .attachment-links{display:flex; gap:12px; font-size:.9em}
+.attachment-status{font-size:12px; line-height:1.4; color:var(--must, #b73a3a); white-space:pre-wrap; overflow-wrap:anywhere}
+.attachment-status:empty{display:none}
 </style>
 </head>
 <body class="focus">
@@ -2008,17 +2014,23 @@ function makeBox(b, i, state){
     // (doSend reads its value) but is never on screen. the page's own composer
     // is the reply line in each document section, wired further down
     ta.addEventListener("input", () => { cancelAutoNext(); ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; });   // CSS max-height caps it
-    // dropped images upload immediately; their /uploads/ address joins the text
+    // Dropped files upload immediately; their address joins the text.
     ta.addEventListener("dragover", e => { e.preventDefault(); ta.classList.add("dropping"); });
     ta.addEventListener("dragleave", () => ta.classList.remove("dropping"));
     ta.addEventListener("drop", async e => {
       e.preventDefault(); ta.classList.remove("dropping");
-      const files = [...(e.dataTransfer?.files || [])].filter(f => f.type.startsWith("image/"));
-      for (const f of files){
-        const r = await fetch("/upload?name=" + encodeURIComponent(f.name), { method: "POST", body: f })
-          .then(x => x.json()).catch(() => null);
-        if (r?.url) ta.value = (ta.value ? ta.value.trimEnd() + "\n" : "") + r.url + "\n";
+      const errors = [];
+      for (const f of e.dataTransfer?.files || []){
+        const info = CardMarkdown.attachmentFile(f);
+        try {
+          if (info.error) throw new Error(info.error);
+          const response = await fetch("/upload?name=" + encodeURIComponent(info.name), { method: "POST", body: f });
+          const result = await response.json();
+          if (!response.ok || !result?.url) throw new Error(result?.error || "Upload failed. Please try again.");
+          ta.value += (ta.value && !ta.value.endsWith("\n") ? "\n" : "") + result.url + "\n";
+        } catch (error){ errors.push(f.name + ": " + error.message); }
       }
+      metaNote.textContent = errors.join("\n");
       ta.dispatchEvent(new Event("input"));
     });
     ta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); doSend(b.id); } });

@@ -1871,6 +1871,9 @@
     padding:.4rem .75rem 0}
   #magic3 .c3pending.on{display:flex}
   #magic3 .c3thumb{position:relative}
+  #magic3 .c3filename{display:block; max-width:160px; padding:10px; overflow-wrap:anywhere; font-size:12px}
+  #magic3 .c3bar>.attachment-status{position:absolute; bottom:100%; left:0; right:0; background:var(--c3-recv)}
+  #magic3 .c3msg audio, #magic3 .c3msg video{display:block; max-width:100%; width:100%}
   #magic3 .c3thumb img{width:64px; height:64px; object-fit:cover;
     border-radius:12px; display:block; background:var(--c3-recv)}
   #magic3 .c3thumb-x{position:absolute; top:-6px; right:-6px; width:20px;
@@ -5236,6 +5239,8 @@ function makeBox(b, i, state){
     const bottombar = h("div", "bottombar");
     const clipfile = h("input", "clipfile");
     clipfile.type = "file";
+    clipfile.accept = CardMarkdown.ATTACHMENT_ACCEPT;
+    clipfile.multiple = true;
     clipfile.tabIndex = -1;
     clipfile.setAttribute("aria-hidden", "true");
     const clip = h("button", "clipbtn");
@@ -5296,13 +5301,7 @@ function makeBox(b, i, state){
     ta.addEventListener("input", () => { cancelAutoNext(); tick(); });
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(tick);
     tick();
-    // dropped images upload immediately; their /uploads/ address joins the text
-    ta.addEventListener("dragover", e => { e.preventDefault(); ta.classList.add("dropping"); });
-    ta.addEventListener("dragleave", () => ta.classList.remove("dropping"));
-    ta.addEventListener("drop", async e => {
-      e.preventDefault(); ta.classList.remove("dropping");
-      await attach([...(e.dataTransfer?.files || [])], ta);
-    });
+    wireAttachmentTransfer(ta);
     ta.addEventListener("keydown", e => composerEnter(e, b.id));
     // both controls swallow the press while the box has the focus, the way the
     // chat bar does it, so the caret never leaves the words
@@ -6538,7 +6537,7 @@ if (!Array.isArray(c3Out)) c3Out = [];
 // here rather than at every place that goes on to read it
 c3Out = c3Out.filter(o => o && typeof o.text === "string").map(o => ({
   id: o.id || c3Id(), at: o.at || Date.now(), text: o.text, failed: !!o.failed,
-  urls: Array.isArray(o.urls) ? o.urls : [], files: [], shots: [],
+  urls: Array.isArray(o.urls) ? o.urls : [], files: [], shots: [], missingFiles: o.missingFiles || 0,
 }));
 // only the lines that certainly did not reach the board are kept across a
 // reload. one that was still in the air might have landed, and it would come
@@ -6548,7 +6547,8 @@ c3Out = c3Out.filter(o => o && typeof o.text === "string").map(o => ({
 function c3Save(){
   try {
     localStorage.setItem(C3_OUT_KEY, JSON.stringify(c3Out.filter(o => o.failed)
-      .map(o => ({ id: o.id, at: o.at, text: o.text, failed: true, urls: o.urls }))));
+      .map(o => ({ id: o.id, at: o.at, text: o.text, failed: true, urls: o.urls,
+        missingFiles: o.missingFiles || Math.max(0, o.files.length - o.urls.length) }))));
   } catch (e) {}
 }
 // the hold brighten's release can land anywhere, so it is heard on the document
@@ -6575,9 +6575,10 @@ function chatBuild(){
   const pend = h("div", "c3pending");
   const bar = h("div", "c3bar");
   const attach = h("button", "c3attach", "＋");
-  attach.title = "add a picture";
+  attach.title = "attach a file";
+  attach.setAttribute("aria-label", "attach a file");
   const file = h("input", "c3file");
-  file.type = "file"; file.accept = "image/*"; file.multiple = true;
+  file.type = "file"; file.accept = CardMarkdown.ATTACHMENT_ACCEPT; file.multiple = true;
   const field = h("div", "c3field");
   const ta = document.createElement("textarea");
   ta.rows = 1;
@@ -6614,6 +6615,7 @@ function chatBuild(){
   // hold brighten: the whole pill face comes up evenly while a pointer rests on
   // the words. the release is heard on the document, up at the top of this block
   ta.addEventListener("pointerdown", () => field.classList.add("glow"));
+  wireAttachmentTransfer(ta, c3Pick);
   attach.addEventListener("click", () => file.click());
   file.addEventListener("change", () => {
     c3Pick(file.files);
@@ -6700,8 +6702,10 @@ function c3Events(){
                at: Math.round(m.ts * 1000), blocks: c3Blocks(prose) });
   }
   for (const o of c3Out){
-    const shots = (o.urls.length ? o.urls : o.shots.map(s => s.url))
-      .map(src => ({ shot: true, src }));
+    const shots = o.shots.length ? o.shots.map((s, i) => ({
+      shot: s.kind === "image" || !s.kind, src: s.url, attachment: s.kind !== "image" && !!s.kind,
+      kind: s.kind, name: s.name, uploaded: o.urls[i] || "",
+    })) : o.urls.map(src => ({ shot: false, text: src }));
     const blocks = shots.concat(o.text ? [{ shot: false, text: o.text }] : []);
     out.push({ key: "out|" + o.id, role: "user", at: o.at, out: o,
                blocks: blocks.length ? blocks : [{ shot: false, text: o.text }] });
@@ -6749,6 +6753,17 @@ function c3Fill(w, ev, anim){
       else {
         msg.classList.remove("shot");
         msg.innerHTML = fmt(String(b.src || ""));
+      }
+    } else if (b.attachment){
+      if (b.uploaded) msg.innerHTML = CardMarkdown.renderAttachment(b.uploaded);
+      else {
+        if (b.kind === "audio" || b.kind === "video"){
+          const media = document.createElement(b.kind);
+          media.controls = true; media.preload = "metadata";
+          if (b.kind === "video") media.playsInline = true;
+          media.src = b.src; msg.appendChild(media);
+        }
+        msg.appendChild(h("span", "attachment-name", b.name));
       }
     } else msg.innerHTML = fmt(b.text);
     row.appendChild(msg);
@@ -6948,33 +6963,33 @@ function c3Autosize(){
   host.style.setProperty("--c3-field-h", el.field.offsetHeight + "px");
   if (c3Follow && performance.now() >= c3Air) c3Pin(true);
 }
-// a picked picture is staged once and kept. the tray used to be rebuilt on
-// every change, which handed a photo it had already drawn a fresh blank
-// element; its size is read off the blob here, before the send, so the bubble's
-// box can be reserved
+// Pending images keep their preview; other files show their name in the tray.
 function c3Pick(files){
+  const errors = [];
   for (const f of files || []){
-    if (c3Picks.has(f) || !/^image\//.test(f.type)) continue;
+    if (c3Picks.has(f)) continue;
+    const info = CardMarkdown.attachmentFile(f);
+    if (info.error){ errors.push((f.name || "Attachment") + ": " + info.error); continue; }
     const url = URL.createObjectURL(f);
     const wrap = h("div", "c3thumb");
-    const img = document.createElement("img");
     const x = h("button", "c3thumb-x", "✕");
     x.title = "take it back out";
     x.addEventListener("click", () => {
       c3Files = c3Files.filter(g => g !== f);
       c3Tray(); c3Refresh();
     });
-    wrap.append(img, x);
-    const pick = { url, w: 0, h: 0, wrap, taken: false };
-    const probe = new Image();
-    probe.addEventListener("load", () => {
-      pick.w = probe.naturalWidth; pick.h = probe.naturalHeight;
-    });
-    probe.src = url;
-    img.src = url;
+    const pick = { url, name: info.name, kind: info.kind, w: 0, h: 0, wrap, taken: false };
+    if (info.kind === "image"){
+      const img = document.createElement("img");
+      img.alt = info.name;
+      img.addEventListener("load", () => { pick.w = img.naturalWidth; pick.h = img.naturalHeight; });
+      img.src = url; wrap.appendChild(img);
+    } else wrap.appendChild(h("span", "c3filename", info.name));
+    wrap.appendChild(x);
     c3Picks.set(f, pick);
     c3Files.push(f);
   }
+  attachmentNotice(document.getElementById("magic3")._c3.ta, errors.join("\n"));
   c3Tray(); c3Refresh();
 }
 function c3Tray(){
@@ -7071,27 +7086,15 @@ async function chatFetch(){
     if (Array.isArray(j.messages)) c3Msgs = j.messages;
   } catch (e) {}
 }
-// the pictures go up first, one at a time, and each address the server hands
-// back goes into the message on a line of its own. the words follow them, so
-// the thread draws the pictures above the line they were sent with. nothing new
-// was needed on the server for this: /upload has been there for dropped images
+// Keep each completed upload so a retry does not upload that file twice.
 async function c3Upload(out){
-  if (out.urls.length || !out.files.length) return true;
-  const urls = [];
-  for (let i = 0; i < out.files.length; i++){
-    const f = out.files[i];
-    const r = await fetch("/upload?name=" + encodeURIComponent(f.name || "picture"),
-                          { method: "POST", body: f });
-    if (!r.ok) return false;
-    const j = await r.json();
-    if (!j || !j.url) return false;
-    urls.push(j.url);
-    // the pixels are already in the page at the blob address the tray drew them
-    // at, so the bubble goes on reading from there and never blinks
-    const s = out.shots[i];
-    if (s) c3Shots.set(j.url, { src: s.url, w: s.w, h: s.h });
+  if (out.missingFiles) throw new Error("Some files did not upload before this page reloaded. Attach them again in a new message.");
+  for (let i = out.urls.length; i < out.files.length; i++){
+    const url = await uploadAttachment(out.files[i]);
+    out.urls.push(url);
+    const shot = out.shots[i];
+    if (shot && shot.kind === "image") c3Shots.set(url, { src: shot.url, w: shot.w, h: shot.h });
   }
-  out.urls = urls;
   return true;
 }
 async function chatPost(out){
@@ -7101,8 +7104,14 @@ async function chatPost(out){
       const body = out.urls.concat(out.text ? [out.text] : []).join("\n");
       ok = (await fetch("/send?box=" + C3_BOX, { method: "POST", body })).ok;
     }
-  } catch (e) { ok = false; }
+  } catch (e) {
+    ok = false;
+    const ta = document.getElementById("magic3")?._c3?.ta;
+    if (ta) attachmentNotice(ta, e.message || "Upload failed. Please try again.");
+  }
   if (ok){
+    const ta = document.getElementById("magic3")?._c3?.ta;
+    if (ta) attachmentNotice(ta, "");
     // /send writes the line to the transcript before it answers, so the very
     // next read of the thread already holds it and the stand-in can go
     await chatFetch();
@@ -7136,7 +7145,7 @@ async function chatSend(){
   // until the thread comes back holding it: there is no moment where his words
   // are nowhere
   const out = { id: c3Id(), at: Date.now(), text, failed: false, files,
-                shots: shots.map(p => ({ url: p.url, w: p.w, h: p.h })), urls: [] };
+                shots: shots.map(p => ({ url: p.url, w: p.w, h: p.h, kind: p.kind, name: p.name })), urls: [] };
   const list = el.msgs;
   const shift = c3ShiftBegin(list);
   c3Out.push(out);

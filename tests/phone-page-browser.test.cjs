@@ -610,7 +610,8 @@ test("the composer sends through /send, the plus attaches a picture, the cross c
 
     const clip = await page.$("article.box.sel .clipfile");
     const accept = await page.evaluate(() => document.querySelector("article.box.sel .clipfile").getAttribute("accept"));
-    assert.equal(accept, "image/*");
+    for (const ext of [".png", ".gif", ".mp4", ".mp3", ".pdf", ".doc", ".docx"])
+      assert.ok(accept.split(",").includes(ext), `picker is missing ${ext}`);
     const picture = path.join(fixtureDir, "phone-shot.png");
     await writeFile(picture, PIXEL_PNG);
     const upload = page.waitForResponse(r => new URL(r.url()).pathname === "/upload");

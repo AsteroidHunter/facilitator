@@ -15,6 +15,42 @@
   const ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
   const MAX_BLOCK_DEPTH = 32;
 
+  const ATTACHMENT_TYPES = Object.freeze({
+    png: ["image", "image/png"], jpg: ["image", "image/jpeg"], jpeg: ["image", "image/jpeg"],
+    gif: ["image", "image/gif"], webp: ["image", "image/webp"], svg: ["image", "image/svg+xml"],
+    mp4: ["video", "video/mp4"], m4v: ["video", "video/x-m4v"], mov: ["video", "video/quicktime"],
+    webm: ["video", "video/webm"], ogv: ["video", "video/ogg"],
+    mp3: ["audio", "audio/mpeg"], m4a: ["audio", "audio/mp4"], aac: ["audio", "audio/aac"],
+    wav: ["audio", "audio/wav"], ogg: ["audio", "audio/ogg"], oga: ["audio", "audio/ogg"],
+    opus: ["audio", "audio/ogg"], weba: ["audio", "audio/webm"],
+    pdf: ["document", "application/pdf"], doc: ["document", "application/msword"],
+    docx: ["document", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+  });
+  const ATTACHMENT_ACCEPT = Object.keys(ATTACHMENT_TYPES).map(ext => "." + ext).join(",") +
+    "," + [...new Set(Object.values(ATTACHMENT_TYPES).map(info => info[1]))].join(",");
+  const MAX_ATTACHMENT_SIZE = 32 * 1024 * 1024;
+
+  function attachmentInfo(name) {
+    const ext = /\.([a-z0-9]+)$/i.exec(String(name))?.[1].toLowerCase();
+    const info = Object.hasOwn(ATTACHMENT_TYPES, ext) ? ATTACHMENT_TYPES[ext] : null;
+    return info ? { ext, kind: info[0], type: info[1] } : null;
+  }
+
+  function attachmentFile(file) {
+    let name = file.name || "attachment";
+    let info = attachmentInfo(name);
+    // Clipboard files sometimes have a MIME type but no extension.
+    if (!info && !/\.[^.]+$/.test(name)) {
+      const type = ({ "audio/x-wav": "audio/wav", "audio/x-m4a": "audio/mp4" })[file.type] || file.type;
+      const ext = Object.keys(ATTACHMENT_TYPES).find(ext => ATTACHMENT_TYPES[ext][1] === type);
+      if (ext) { name += "." + ext; info = attachmentInfo(name); }
+    }
+    const error = !info ? "Unsupported file type. Choose an image, video, audio, PDF or Word file." :
+      file.size > MAX_ATTACHMENT_SIZE ? "File is too large. The limit is 32 MiB per file." :
+      file.size === 0 ? "The file is empty." : "";
+    return { ...info, name, error };
+  }
+
   function escapeHTML(value) {
     return String(value == null ? "" : value).replace(/[&<>"']/g, ch => ESCAPES[ch]);
   }
@@ -64,6 +100,28 @@
     } catch (_) {
       return null;
     }
+  }
+
+  function renderAttachment(raw, alt = "", imageSyntax = false) {
+    const target = safeImageTarget(raw);
+    if (!target) return escapeHTML(raw);
+    let name;
+    try { name = decodeURIComponent(target.split(/[?#]/)[0].split("/").pop()); }
+    catch (_) { name = target.split(/[?#]/)[0].split("/").pop(); }
+    const info = attachmentInfo(name);
+    const href = escapeAttribute(target);
+    if (info?.kind === "image" || (!info && imageSyntax)) return '<img class="shot" src="' + href + '" alt="' + escapeAttribute(alt) + '">';
+    const label = escapeHTML(name.replace(/^\d{13,19}-/, ""));
+    if (!info) return '<a href="' + href + '" target="_blank" rel="noopener">' + label + '</a>';
+    const download = new URL(target, "http://facilitator.invalid");
+    download.searchParams.set("download", "1");
+    const links = '<span class="attachment-links"><a href="' + href + '" target="_blank" rel="noopener">Open</a> ' +
+      '<a href="' + escapeAttribute(download.pathname + download.search) + '" download>Download</a></span>';
+    const media = info.kind === "audio" || info.kind === "video"
+      ? '<' + info.kind + ' controls preload="metadata"' + (info.kind === "video" ? ' playsinline' : '') +
+        ' src="' + href + '"></' + info.kind + '>' : '';
+    return '<span class="attachment attachment-' + info.kind + '">' + media +
+      '<span class="attachment-name">' + label + '</span>' + links + '</span>';
   }
 
   // Build all bracket and parenthesis relationships once per inline run. A
@@ -187,9 +245,7 @@
       const image = text.startsWith("![", i) ? bracketTarget(text, i, true, structure) : null;
       if (image) {
         const target = safeImageTarget(image.target);
-        html += target
-          ? '<img class="shot" src="' + escapeAttribute(target) + '" alt="' + escapeAttribute(plainAlt(image.label)) + '">'
-          : escapeHTML(image.raw);
+        html += target ? renderAttachment(target, plainAlt(image.label), true) : escapeHTML(image.raw);
         i = image.end;
         continue;
       }
@@ -220,7 +276,7 @@
         const token = bareToken(text, i);
         const target = safeImageTarget(token.value);
         if (target) {
-          html += '<img class="shot" src="' + escapeAttribute(target) + '" alt="">';
+          html += renderAttachment(target);
           i = token.end;
           continue;
         }
@@ -533,5 +589,6 @@
     return renderBlocks(String(source == null ? "" : source).replace(/\r\n?/g, "\n").split("\n"), 0);
   }
 
-  return { render, renderInline, escapeHTML, escapeAttribute, safeLinkTarget, safeImageTarget };
+  return { render, renderInline, escapeHTML, escapeAttribute, safeLinkTarget, safeImageTarget,
+    renderAttachment, attachmentInfo, attachmentFile, ATTACHMENT_TYPES, ATTACHMENT_ACCEPT, MAX_ATTACHMENT_SIZE };
 });

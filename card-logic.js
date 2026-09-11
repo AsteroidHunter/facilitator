@@ -379,15 +379,60 @@ function shortAge(ts){
 }
 
 // ---- the card's row ---------------------------------------------------------------
-// a picked or dropped file goes up the board's own upload road and its address
-// joins the text, which is what the card has always done with a dropped image
-async function attach(files, ta){
-  for (const f of files.filter(x => x.type.startsWith("image/"))){
-    const r = await fetch("/upload?name=" + encodeURIComponent(f.name || "picture"), { method: "POST", body: f })
-      .then(x => x.json()).catch(() => null);
-    if (r?.url) ta.value = (ta.value ? ta.value.trimEnd() + "\n" : "") + r.url + "\n";
+function attachmentNotice(ta, text){
+  const parent = ta.closest(".pendwrap") || ta.closest(".c3bar") || ta.parentElement;
+  let note = parent.querySelector(".attachment-status");
+  if (!note){
+    note = document.createElement("div");
+    note.className = "attachment-status";
+    note.setAttribute("role", "status");
+    parent.appendChild(note);
   }
-  ta.dispatchEvent(new Event("input"));
+  note.textContent = text;
+}
+
+async function uploadAttachment(file){
+  const info = CardMarkdown.attachmentFile(file);
+  if (info.error) throw new Error(info.error);
+  const response = await fetch("/upload?name=" + encodeURIComponent(info.name), { method: "POST", body: file });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || !result?.url) throw new Error(result?.error || "Upload failed. Please try again.");
+  return result.url;
+}
+
+async function attach(files, ta){
+  const errors = [];
+  for (const file of files){
+    try {
+      const url = await uploadAttachment(file);
+      const start = ta.selectionStart, end = ta.selectionEnd, direction = ta.selectionDirection;
+      ta.value += (ta.value && !ta.value.endsWith("\n") ? "\n" : "") + url + "\n";
+      ta.setSelectionRange(start, end, direction);
+      const field = globalThis.ComposeFormat?.fieldOf(ta);
+      if (field) field.changed();
+      else ta.dispatchEvent(new Event("input"));
+    } catch (error){
+      errors.push((file.name || "Attachment") + ": " + (error.message || "Upload failed. Please try again."));
+    }
+  }
+  attachmentNotice(ta, errors.join("\n"));
+}
+
+function wireAttachmentTransfer(ta, pick = files => attach(files, ta)){
+  ta.addEventListener("dragover", event => {
+    if (![...(event.dataTransfer?.types || [])].includes("Files")) return;
+    event.preventDefault(); ta.classList.add("dropping");
+  });
+  ta.addEventListener("dragleave", () => ta.classList.remove("dropping"));
+  for (const type of ["drop", "paste"]){
+    ta.addEventListener(type, event => {
+      const data = type === "drop" ? event.dataTransfer : event.clipboardData;
+      const files = [...(data?.files || [])];
+      if (!files.length) return;
+      event.preventDefault(); ta.classList.remove("dropping");
+      pick(files);
+    }, true);
+  }
 }
 
 // the send square's seat. it is bottom aligned in the row, the way the chat
