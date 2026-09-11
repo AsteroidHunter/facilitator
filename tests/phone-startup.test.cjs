@@ -33,7 +33,15 @@ const CHROME = process.env.CHROME_PATH ||
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const SHOTS = process.env.M627_SHOTS || "/tmp/m627-startup-shots";
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
-const PAGE_FILES = ["card-markdown.js", "card-logic.js", "card-report.js", "card-tokens.css"];
+const PAGE_FILES = ["card-markdown.js", "card-logic.js", "card-report.js", "card-tokens.css",
+                    "compose-format.js"];
+// the vendored editor the composer's typed formatting is drawn with. it is
+// served on a route of its own rather than out of the map above, because the
+// startup gate has to be asked what it does while this one file is still on
+// its way: the row starts as the plain field and swaps in the editor when this
+// lands, and a curtain lifted before that swap hands over a card whose typing
+// row then changes height under the reader
+const EDITOR_FILE = "cm-markdown.js";
 
 let profiles = [];
 let fixture = null;
@@ -146,13 +154,17 @@ async function startFixture() {
     splash: fixtureSquid(),
     picture: fixtureSquid(120, 80),
     holdImage: false,
+    holdEditor: false,
+    editor: "ok",        // "ok" or "gone": the editor asset arrives, or never can
     reads: 0,
     waitingDocs: [],
     waitingImages: [],
+    waitingEditors: [],
     hung: [],
   };
   const files = new Map();
   for (const name of PAGE_FILES) files.set("/" + name, await readFile(path.join(ROOT, name)));
+  const editorSource = await readFile(path.join(ROOT, EDITOR_FILE));
   const manifest = await readFile(path.join(ROOT, "m-manifest.json"));
 
   const server = createServer(async (req, res) => {
@@ -186,6 +198,15 @@ async function startFixture() {
       return;
     }
     if (url.pathname === "/uploads/broken.png") return send(404, "{}", "application/json");
+    // The editor, held back or refused on the test's word. A refusal is an
+    // ending and the row stays the plain field; a hold has no ending yet.
+    if (url.pathname === "/" + EDITOR_FILE) {
+      if (control.editor === "gone") return send(404, "{}", "application/json");
+      const write = () => send(200, editorSource, "application/javascript; charset=utf-8");
+      if (control.holdEditor) control.waitingEditors.push(write);
+      else write();
+      return;
+    }
     // A worker that does nothing: it registers, so the page's own registration
     // is not a failed fetch, and it has no fetch handler, so nothing here is
     // served from a cache and every mode this fixture is put in is the mode the
@@ -225,14 +246,21 @@ async function startFixture() {
     control.holdImage = false;
     for (const write of control.waitingImages.splice(0)) write();
   };
+  control.releaseEditor = () => {
+    control.holdEditor = false;
+    for (const write of control.waitingEditors.splice(0)) write();
+  };
   control.reset = () => {
     control.mode = "ok";
     control.rev = 7;
     control.boxes = FIXTURE_BOXES;
     control.holdImage = false;
+    control.holdEditor = false;
+    control.editor = "ok";
     control.splash = fixtureSquid();
     for (const res of control.hung.splice(0)) res.destroy();
     control.waitingImages.length = 0;
+    control.waitingEditors.length = 0;
   };
   control.close = () => {
     for (const res of control.hung.splice(0)) res.destroy();
@@ -777,6 +805,15 @@ test("reduced motion keeps the globe turning, and a failed reading still stops i
     for (const res of fixture.hung.splice(0)) res.destroy();
     await page.waitForFunction(() => document.getElementById("loading")?.classList.contains("down"),
       { timeout: 20000 });
+    // the class is the page's word and the paused animation is the browser's;
+    // reading the globe's clock between the two would time a globe that had not
+    // been stopped yet, which says nothing about whether it stays stopped
+    await page.waitForFunction(() => {
+      const earth = document.querySelector("#loading .earth");
+      if (!earth) return false;
+      const running = earth.getAnimations();
+      return running.length > 0 && running.every(a => a.playState === "paused");
+    }, { timeout: 20000 });
     const down = await readCurtain(page);
     assert.deepEqual(down.play, ["paused"], "a failed reading did not stop the globe under reduced motion");
     assert.equal(down.border, "rgb(168, 68, 42)");
@@ -1056,6 +1093,104 @@ test("a picture whose loading ended in failure is finished, and holds nothing up
     assert.equal(art.shown.length, 1, "the failing picture was not drawn at all");
     assert.equal(art.shown[0].complete, true, "a failed picture was left looking unfinished");
     assert.equal(art.shown[0].natural, 0, "the fixture served the picture after all");
+  } finally {
+    await browser.close();
+    fixture.reset();
+  }
+});
+
+// ---- readiness: the typing row's own two faces ---------------------------------------
+// The composer's typed formatting is on by default, and the row wears it only
+// once the vendored editor has landed. That file is fetched on its own, so a
+// board can be drawn and still while the row is the plain field it started as,
+// and the swap that follows changes the row's height. A curtain lifted in
+// between hands the reader a card that then moves, which is the one thing this
+// gate exists to prevent.
+
+// what the shown card's typing row is made of right now, and how tall it is
+async function readRow(page) {
+  return page.evaluate(() => {
+    const card = document.querySelector("#cards .box.sel");
+    if (!card) return { card: false };
+    const compose = card.querySelector(".compose");
+    const editor = card.querySelector(".cffield");
+    const plain = card.querySelector("textarea:not(.cfmirror)");
+    return {
+      card: true,
+      formatted: !!editor,
+      plain: !!plain,
+      height: compose ? Math.round(compose.getBoundingClientRect().height) : 0,
+    };
+  });
+}
+
+test("the curtain waits for the typing row's editor, and the row is the one it hands over", async () => {
+  fixture.holdEditor = true;
+  const { browser, page, problems } = await openInstalled(fixture);
+  try {
+    // the board is read and drawn, and the layout has had every chance to settle
+    await page.waitForFunction(() => lastState !== null, { timeout: 20000 });
+    await new Promise(resolve => setTimeout(resolve, 3500));
+    const waiting = await readRow(page);
+    assert.equal(waiting.card, true, "no card was on show to have a row at all");
+    assert.equal(waiting.formatted, false, "the fixture let the editor through");
+    assert.equal(waiting.plain, true, "the row was neither the plain field nor the editor");
+    const curtain = await readCurtain(page);
+    assert.equal(curtain.present, true,
+      "the curtain came down while the row was still going to change under it");
+    assert.equal(curtain.opacity, 1, "the curtain began fading over a row that had not settled");
+    assert.equal(curtain.down, false, "the globe reddened over a connection that was fine");
+    assert.deepEqual(curtain.play, ["running"], "the globe stopped while the row was still arriving");
+    assert.equal(await page.evaluate(() => startupStill), false,
+      "the page called itself still while the row was still to change");
+    await shot(page, "startup-editor-held");
+
+    // the editor lands: the row takes its final face, and only then is it shown
+    fixture.releaseEditor();
+    await page.waitForFunction(() => !document.getElementById("loading"), { timeout: 30000 });
+    const shown = await readRow(page);
+    assert.equal(shown.formatted, true, "the curtain went without the editor the setting asks for");
+    assert.ok(shown.height >= waiting.height,
+      `the row shrank under the reader: ${waiting.height} then ${shown.height}`);
+    // and the row that was handed over is the row that stays: nothing moves after
+    const settled = await page.evaluate(() => ({
+      still: startupStill, drew: startupDrew,
+      rowH: Math.round(document.querySelector("#cards .box.sel .compose").getBoundingClientRect().height),
+    }));
+    await new Promise(resolve => setTimeout(resolve, 700));
+    const after = await page.evaluate(() =>
+      Math.round(document.querySelector("#cards .box.sel .compose").getBoundingClientRect().height));
+    await shot(page, "startup-editor-landed");
+    assert.deepEqual({ still: settled.still, drew: settled.drew }, { still: true, drew: true });
+    assert.equal(after, settled.rowH, "the row moved after the curtain had gone");
+    assert.deepEqual(problems, []);
+  } finally {
+    await browser.close();
+    fixture.reset();
+  }
+});
+
+test("an editor that can never arrive is an ending, and the plain row is handed over", async () => {
+  // the honest fallback. a refusal is an answer, so the wait ends, the row stays
+  // the field it already was and the reader gets a working board rather than a
+  // curtain held for a file that is never coming
+  fixture.editor = "gone";
+  const { browser, page } = await openInstalled(fixture);
+  try {
+    await page.waitForFunction(() => !document.getElementById("loading"), { timeout: 25000 });
+    const row = await readRow(page);
+    assert.equal(row.card, true);
+    assert.equal(row.formatted, false, "the fixture served the editor after all");
+    assert.equal(row.plain, true, "the row was left with nothing to type in");
+    const typed = await page.evaluate(async () => {
+      const ta = document.querySelector("#cards .box.sel textarea:not(.cfmirror)");
+      ta.focus();
+      ta.value = "typed with no editor at all";
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+      return { value: ta.value, available: ComposeFormat.available() };
+    });
+    assert.equal(typed.value, "typed with no editor at all", "the plain row would not take words");
+    assert.equal(typed.available, false, "the page did not know the editor could not be had");
   } finally {
     await browser.close();
     fixture.reset();

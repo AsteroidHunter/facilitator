@@ -165,7 +165,8 @@ before(async () => {
   assert.notEqual(patched, source, "test server port was not patched");
   await writeFile(path.join(fixtureDir, "server.py"), patched);
   for (const name of ["index.html", "page.html", "m.html", "m-manifest.json", "m-sw.js",
-                      "card-markdown.js", "card-logic.js", "card-report.js", "card-tokens.css"]) {
+                      "card-markdown.js", "card-logic.js", "card-report.js", "card-tokens.css",
+                      "compose-format.js", "cm-markdown.js"]) {
     await copyFile(path.join(ROOT, name), path.join(fixtureDir, name));
   }
   await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({

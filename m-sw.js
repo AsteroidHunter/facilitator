@@ -15,8 +15,15 @@
    live reading before it shows the board, so a stored copy could not shorten a
    start; it could only make one look connected when it was not. */
 
-const CACHE = "facilitator-m-3";
-const SHELL = ["/m", "/card-markdown.js", "/card-tokens.css", "/card-logic.js", "/m-manifest.json"];
+/* The version is past every earlier one on purpose. Two changes reached this
+   file for the same release, the startup screen's and the composer's, and each
+   of them on its own had raised the name to m-3. A worker already installed
+   under either of those names holds a shell that is missing the other's files,
+   so the combined worker takes a name neither of them ever used and the install
+   fills the whole set again from the server. */
+const CACHE = "facilitator-m-4";
+const SHELL = ["/m", "/card-markdown.js", "/card-tokens.css", "/card-logic.js",
+               "/compose-format.js", "/m-manifest.json"];
 /* The squid the page paints the phone's own launch image from. It is kept for
    the same reason the shell is: an installed open that cannot reach the server
    should still be able to paint the picture the NEXT open starts with, and the
@@ -24,7 +31,15 @@ const SHELL = ["/m", "/card-markdown.js", "/card-tokens.css", "/card-logic.js", 
    than added to the list above, because addAll is all-or-nothing and a build
    whose image had not landed yet would lose the whole shell with it. */
 const SPLASH = "/m-splash-squid.png";
-const KEPT = [...SHELL, SPLASH];
+/* The vendored editor the composer's typed formatting is drawn with, kept on
+   the same terms as the squid and for the same two reasons. It is one prebuilt
+   file of about 1.6 MB that never changes between rebuilds, so asking the board
+   for it on every open would spend that much of the phone's connection each
+   time for a file that is always the same; and it is asked for on its own so a
+   build where it is missing cannot take the whole shell down with it. A rebuilt
+   bundle arrives with the cache name above. */
+const VENDORED = "/cm-markdown.js";
+const KEPT = [...SHELL, SPLASH, VENDORED];
 const SHELL_DEADLINE_MS = 8000;   // a page open waits this long for the server before the kept copy
 const PUSH_DEADLINE_MS = 6000;    // a push reads the board this long, then shows what it has
 
@@ -39,6 +54,7 @@ self.addEventListener("install", event => {
       const cache = await caches.open(CACHE);
       await cache.addAll(SHELL).catch(() => {});
       await cache.add(SPLASH).catch(() => {});
+      await cache.add(VENDORED).catch(() => {});
     } catch (error) {}
   })());
 });
@@ -56,6 +72,25 @@ self.addEventListener("fetch", event => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
   const isPage = request.mode === "navigate";
+  /* The one thing read from the copy before the server is asked. Everything
+     else here is network first, because everything else can change under an
+     installed app and a stale copy of it would be wrong. This file cannot: it
+     is a vendored build that arrives with a new cache name or not at all, and
+     reading it from the copy is what keeps the composer's formatting from
+     costing 1.6 MB of the phone's connection on every open. */
+  if (url.pathname === VENDORED) {
+    event.respondWith((async () => {
+      const kept = await caches.match(request);
+      if (kept) return kept;
+      const fresh = await bounded(request, SHELL_DEADLINE_MS);
+      if (fresh.ok) {
+        const cache = await caches.open(CACHE);
+        cache.put(request, fresh.clone()).catch(() => {});
+      }
+      return fresh;
+    })());
+    return;
+  }
   if (!isPage && !KEPT.includes(url.pathname)) return;   // live data: never intercepted
   event.respondWith((async () => {
     try {

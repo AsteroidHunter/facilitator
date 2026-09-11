@@ -29,7 +29,8 @@ const PYTHON = path.join(ROOT, ".venv", "bin", "python3");
 const SHOTS = process.env.M627_SHOTS || "/tmp/m627-startup-shots";
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true };
 const COPIED = ["m.html", "m-sw.js", "m-manifest.json", "card-markdown.js", "card-tokens.css",
-                "card-logic.js", "card-report.js", "index.html", "page.html"];
+                "card-logic.js", "card-report.js", "compose-format.js", "cm-markdown.js",
+                "index.html", "page.html"];
 const ASSETS = ["m-icon-180.png", "m-icon-192.png", "m-icon-512.png", "m-splash-squid.png"];
 
 let child = null;
@@ -202,10 +203,14 @@ test("the worker keeps the shell and the squid, and keeps no reading of the boar
     await new Promise(resolve => setTimeout(resolve, 3000));
     const kept = await keptPaths(page);
     const names = Object.keys(kept);
-    assert.deepEqual(names, ["facilitator-m-3"], "the worker kept more than one cache: " + names);
-    const paths = kept["facilitator-m-3"];
+    assert.deepEqual(names, ["facilitator-m-4"], "the worker kept more than one cache: " + names);
+    const paths = kept["facilitator-m-4"];
     for (const want of ["/m", "/card-logic.js", "/card-markdown.js", "/card-tokens.css",
-                        "/m-manifest.json", "/m-splash-squid.png"]) {
+                        "/m-manifest.json", "/m-splash-squid.png",
+                        // the composer's typed formatting and the editor it is drawn
+                        // with: an installed open that cannot reach the board must get
+                        // the same row it had, not a shell with the setting missing
+                        "/compose-format.js", "/cm-markdown.js"]) {
       assert.ok(paths.includes(want), "the worker did not keep " + want + ": " + paths);
     }
     // THE BOARD IS NEVER KEPT. Not the reading, not the page's own commands.
@@ -288,23 +293,25 @@ test("a changed page is served over the kept one, and a new cache version replac
     await writeFile(path.join(fixtureDir, "m.html"),
       pageSource.replace("<body>", "<body>\n<!-- m627-stale-check -->"));
     const workerSource = await readFile(path.join(fixtureDir, "m-sw.js"), "utf8");
-    assert.ok(workerSource.includes('const CACHE = "facilitator-m-3"'), "the cache name moved");
+    assert.ok(workerSource.includes('const CACHE = "facilitator-m-4"'), "the cache name moved");
     await writeFile(path.join(fixtureDir, "m-sw.js"),
-      workerSource.replace('const CACHE = "facilitator-m-3"', 'const CACHE = "facilitator-m-4"'));
+      workerSource.replace('const CACHE = "facilitator-m-4"', 'const CACHE = "facilitator-m-5"'));
 
     await page.reload({ waitUntil: "domcontentloaded" });
     // network first: the page that comes back is the server's, not the kept one
     const second = await page.evaluate(() => document.documentElement.outerHTML.includes("m627-stale-check"));
     assert.equal(second, true, "the kept page was served over the changed one");
     // and the new worker drops the cache the old one filled
-    await page.waitForFunction(async () => (await caches.keys()).includes("facilitator-m-4"),
+    await page.waitForFunction(async () => (await caches.keys()).includes("facilitator-m-5"),
       { timeout: 25000 });
-    await page.waitForFunction(async () => !(await caches.keys()).includes("facilitator-m-3"),
+    await page.waitForFunction(async () => !(await caches.keys()).includes("facilitator-m-4"),
       { timeout: 25000 });
     const kept = await keptPaths(page);
-    assert.deepEqual(Object.keys(kept), ["facilitator-m-4"]);
-    assert.ok(kept["facilitator-m-4"].includes("/m-splash-squid.png"),
+    assert.deepEqual(Object.keys(kept), ["facilitator-m-5"]);
+    assert.ok(kept["facilitator-m-5"].includes("/m-splash-squid.png"),
       "the new cache did not take the squid with it");
+    assert.ok(kept["facilitator-m-5"].includes("/cm-markdown.js"),
+      "the new cache did not take the composer's editor with it");
     // the kept copy is the changed page too, so a later offline open is not stale
     const keptPage = await page.evaluate(async () => {
       const answer = await caches.match("/m");

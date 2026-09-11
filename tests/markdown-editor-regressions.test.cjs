@@ -49,6 +49,11 @@ before(async () => {
         res.end(await readFile(path.join(ROOT, "card-report.js")));
         return;
       }
+      if (pathname === "/compose-format.js") {
+        res.setHeader("content-type", "text/javascript; charset=utf-8");
+        res.end(await readFile(path.join(ROOT, "compose-format.js")));
+        return;
+      }
       res.statusCode = 404;
       res.end("not found");
     } catch (error) {

@@ -409,6 +409,18 @@
     min-height:var(--row-min); max-height:28vh; max-height:calc(var(--vvh, 100vh) * .28); overflow-y:auto;
   }
   body.kb textarea{max-height:calc(5 * 1.5em + 2 * var(--sp-s))}
+  /* the same row with its typed formatting on. the editor is the vendored
+     codemirror bundle and its scroller stands in for the field, so every rule
+     the row had is written on that one element and its box, its scroll and its
+     computed face read exactly as the field's did. the outer element is only
+     the seat the row keeps in the bar */
+  .cffield{flex:1; min-width:0; font:17px/1.5 var(--sans); color:var(--ink)}
+  .compose .cffield .cm-scroller{
+    background:transparent; border:none; padding:var(--sp-s) 4px; margin:0 -4px;
+    min-height:var(--row-min); max-height:28vh;
+    max-height:calc(var(--vvh, 100vh) * .28); overflow-y:auto;
+  }
+  body.kb .compose .cffield .cm-scroller{max-height:calc(5 * 1.5em + 2 * var(--sp-s))}
   textarea::placeholder{color:#B4AA99}
   /* the phone skips its caret reveal, the scroll of the whole page that
      brings a freshly focused field into view, when the field is at opacity 0
@@ -562,6 +574,13 @@
   #notify:disabled, #savediagnostic:disabled{opacity:.6}
   #notifynote{font:11.5px/1.4 var(--mono); color:var(--sub)}
   #notifynote:empty{display:none}
+  /* a plain row of choice, drawn in the panel's own type: the mark, the words
+     beside it, and one line under it saying what the choice does */
+  #setgroup .setrow{display:flex; gap:8px; align-items:flex-start;
+    font:14px/1.35 var(--sans); color:var(--ink); cursor:pointer}
+  #setgroup .setrow input{margin:2px 0 0; flex:none; width:16px; height:16px;
+    accent-color:var(--accent)}
+  #setgroup .sethelp{margin:8px 0 16px 24px; font:12px/1.5 var(--sans); color:var(--sub)}
   #diagnostics{margin-top:16px; border-top:1px solid var(--line); padding-top:16px}
   #diagnostichelp, #diagnosticstatus{font:12px/1.5 var(--sans); color:var(--sub); margin:8px 0 0}
   #diagnosticstatus:empty{display:none}
@@ -707,6 +726,8 @@
 <aside id="settings" aria-label="settings" data-side="right">
   <div id="sethead"><span id="setmark"></span>Settings</div>
   <div id="setgroup">
+    <label class="setrow"><input type="checkbox" id="setformat"><span>Format text while typing</span></label>
+    <p class="sethelp">Bold, italic, strikethrough, quotes and bullets are drawn in the composer as you type. The message is still sent as Markdown.</p>
     <button id="notify" type="button">Notifications</button>
     <div id="notifynote"></div>
     <div id="diagnostics">
@@ -721,6 +742,7 @@
 <script src="/card-markdown.js"></script>
 <script src="/card-logic.js"></script>
 <script src="/card-report.js"></script>
+<script src="/compose-format.js"></script>
 <script>
 // the phone is where a failure is hardest to reproduce, so it reports the same
 // way the board does: thrown errors, failed fetches, failed renders
@@ -894,13 +916,23 @@ function makeBox(b){
   box.appendChild(body);
   document.getElementById("cards").appendChild(box);
 
+  // the row's typed formatting, on unless the setting says otherwise. it is
+  // wired before anything is hung on the field, because the field keeps one
+  // public face whichever of the two it is wearing and the handle is what
+  // carries a listener across a change of face. what counts as a new line here
+  // is the row's own pair: shift enter, and the return key while the on-screen
+  // keyboard is up, which is where return has always made a line
+  const field = ComposeFormat.attach(ta, {
+    newline: e => e.shiftKey || document.body.classList.contains("kb"),
+  });
+
   // the row grows to its text, measured on the twin (fitRow), and the line
   // under the caret is brought into view after every keystroke and on focus
   // (revealCaret); the blink keeps the phone from scrolling the page for the
   // caret on a keystroke while the keyboard is up, and on any grown line
   const tick = typed => {
     const grew = fitRow(ta, twin);
-    if (document.activeElement === ta && (grew || (typed && document.body.classList.contains("obstructed")))) blinkRow(ta);
+    if (ComposeFormat.focused(ta) && (grew || (typed && document.body.classList.contains("obstructed")))) blinkRow(ta);
     revealCaret(ta, twin);
     seatSquare(ta, send);
     send.classList.toggle("show", ta.value.trim().length > 0);
@@ -913,7 +945,7 @@ function makeBox(b){
       endPhoneTrace(trace, { box: b.id }, null, true);
     });
   });
-  ta.addEventListener("mousedown", takeFocusTap);
+  ta.addEventListener("mousedown", e => takeFocusTap(e, ta));
   // enter sends and shift enter makes a new line, the desktop composer's pair,
   // and only while the on-screen keyboard is down. a phone puts that keyboard
   // away when a keyboard is paired with it, so a row being typed in with no
@@ -935,10 +967,10 @@ function makeBox(b){
   tick();
   send.addEventListener("pointerdown", e => {
     tracePhone("note", "send", { box: b.id });
-    if (document.activeElement === ta) e.preventDefault();
+    if (ComposeFormat.focused(ta)) e.preventDefault();
   });
   send.addEventListener("click", () => doSend(b.id));
-  clip.addEventListener("pointerdown", e => { if (document.activeElement === ta) e.preventDefault(); });
+  clip.addEventListener("pointerdown", e => { if (ComposeFormat.focused(ta)) e.preventDefault(); });
   clip.addEventListener("click", () => clipfile.click());
   clipfile.addEventListener("change", async () => {
     const files = [...(clipfile.files || [])];
@@ -947,7 +979,7 @@ function makeBox(b){
   });
 
   els[b.id] = { box, reply, meta, ta, twin, send, tick, titleEl, arc, x, pendwrap, bottombar,
-                pend: null, pendRaw: "", histUp, histDown, histPos, clip, clipfile };
+                pend: null, pendRaw: "", histUp, histDown, histPos, clip, clipfile, field };
   // the two fades: the band the box and the bar stand in, and the band the
   // answer has scrolled away under the title
   watchBand(els[b.id]);
@@ -2092,7 +2124,8 @@ function createQuietWatch(need){
     frame(f){
       seen += 1;
       const same = prev !== null && f.ph === prev.ph && f.pw === prev.pw &&
-                   f.sh === prev.sh && f.st === prev.st && f.ch === prev.ch && f.vh === prev.vh;
+                   f.sh === prev.sh && f.st === prev.st && f.ch === prev.ch &&
+                   f.vh === prev.vh && f.rh === prev.rh;
       still = same && f.art === 0 ? still + 1 : 0;
       prev = f;
       return still >= need;
@@ -2142,9 +2175,15 @@ function startupPendingArt(){
 function startupFrame(){
   const pane = document.getElementById("pane");
   const reply = document.querySelector("#cards .box.sel .reply");
+  // the typing row, read as well as the answer above it. the row can change
+  // height on its own after the board is drawn, when the composer swaps its
+  // plain field for the typed-formatting editor, and the answer gives up its
+  // own room for it; watching both means neither can move unseen
+  const row = document.querySelector("#cards .box.sel .compose");
   return {
     ph: pane ? pane.clientHeight : 0,
     pw: pane ? pane.clientWidth : 0,
+    rh: row ? row.clientHeight : 0,
     sh: reply ? reply.scrollHeight : 0,
     st: reply ? Math.round(reply.scrollTop) : 0,
     ch: reply ? reply.clientHeight : 0,
@@ -2172,6 +2211,20 @@ function watchStartupQuiet(done){
 async function startupRendered(){
   if (startupLifted || startupDrew || !curtain) return;
   startupDrew = true;
+  // THE ROW THE READER WILL TYPE IN HAS TWO FACES. With the typed-formatting
+  // setting on, which is its standing state, the composer starts as the plain
+  // field and puts the editor on when the vendored bundle lands, which is a
+  // file of its own and can land after this board has been drawn. A curtain
+  // lifted before that swap would hand over a card whose row then changes
+  // height under the reader, which is the one thing this gate exists to
+  // prevent. So the swap is waited for by name, on the same terms as
+  // everything else here: settled() answers when the row has taken its final
+  // face, which is the editor mounted, the setting off, or the editor not
+  // available at all. It carries no clock, so a bundle still on its way keeps
+  // the curtain and a bundle that cannot be had lets it go.
+  if (typeof ComposeFormat === "object" && ComposeFormat) {
+    try { await ComposeFormat.settled(); } catch (e) {}
+  }
   await new Promise(r => requestAnimationFrame(() => r()));   // laid out and painted
   await new Promise(resolve => watchStartupQuiet(frames => { startupFrames = frames; resolve(); }));
   startupStill = true;
@@ -2191,6 +2244,10 @@ function apply(state){
     if (!state.boxes.some(b => b.id === id)){
       if (hist && hist.id === id) hist = null;
       delete histCache[id];
+      // the row's typed formatting is held by the formatter as well as by this
+      // card, so the card takes it with it: without this the editor and the
+      // removed card stay reachable for the rest of the page's life
+      els[id].field?.detach();
       els[id].box.remove(); delete els[id];
     }
   }
@@ -2481,9 +2538,18 @@ function twinLines(twin, m){
 function fitRow(ta, twin){
   const m = rowMetrics(ta);
   if (!m.lh || !ta.clientWidth) return false;
-  twin.style.width = ta.clientWidth + "px";
-  twin.value = ta.value;
-  const want = Math.ceil(twinLines(twin, m) * m.lh + m.pt + m.pb);
+  // the twin lays plain characters out, and a row wearing its typed formatting
+  // draws some of them in another weight or another face, so the row it would
+  // measure is not the row on screen. the editor is asked for its own height
+  const field = ComposeFormat.fieldOf(ta);
+  let want;
+  if (field && field.formatted()){
+    want = field.contentHeight();
+  } else {
+    twin.style.width = ta.clientWidth + "px";
+    twin.value = ta.value;
+    want = Math.ceil(twinLines(twin, m) * m.lh + m.pt + m.pb);
+  }
   const was = parseFloat(ta.style.height) || 0;
   ta.style.height = want + "px";
   return want > was;
@@ -2511,14 +2577,20 @@ function revealCaret(ta, twin){
   if (ta.scrollHeight <= ta.clientHeight) return;
   const m = rowMetrics(ta);
   if (!m.lh) return;
-  const at = caretLine(ta, twin, m);
+  // the caret's line is counted on the twin, which lays the words out plainly.
+  // a row wearing its typed formatting draws some of them in another weight, so
+  // that count is not the row on screen and the editor is asked where its own
+  // caret stands instead. the rule the numbers feed is the same one either way
+  const field = ComposeFormat.fieldOf(ta);
+  const band = field && field.caretBand();
+  const at = band || caretLine(ta, twin, m);
   const box = ta.getBoundingClientRect().height;
   if (at.last){
     if (ta.scrollTop + box < ta.scrollHeight - 0.5) ta.scrollTop = ta.scrollHeight;
     return;
   }
-  const top = at.line === 1 ? 0 : m.pt + (at.line - 1) * m.lh;
-  const bottom = m.pt + at.line * m.lh;
+  const top = band ? band.top : (at.line === 1 ? 0 : m.pt + (at.line - 1) * m.lh);
+  const bottom = band ? band.bottom : m.pt + at.line * m.lh;
   let st = ta.scrollTop;
   if (bottom > st + box) st = bottom - box;
   if (top < st) st = top;
@@ -2541,9 +2613,8 @@ function blinkRow(ta){
 // lands the caret where the tap would have. a row holding text is left to the
 // engine: a refused tap places no caret, and the caret would land wherever a
 // scripted focus leaves it rather than under the finger
-function takeFocusTap(e){
-  const ta = e.currentTarget;
-  if (e.button !== 0 || document.activeElement === ta || ta.value.length) return;
+function takeFocusTap(e, ta){
+  if (e.button !== 0 || ComposeFormat.focused(ta) || ta.value.length) return;
   e.preventDefault();
   ta.focus({ preventScroll: true });
 }
@@ -2654,7 +2725,7 @@ function applyShell(obstructed, top, height, base){
   // brought back inside the box on the same frame the box changes
   if (edge || softEdge){
     const el = selectedId && els[selectedId];
-    if (el && document.activeElement === el.ta) revealCaret(el.ta, el.twin);
+    if (el && ComposeFormat.focused(el.ta)) revealCaret(el.ta, el.twin);
   }
 }
 // a keyboard edge opens the settle window; the foot's own transitionend closes
@@ -2676,7 +2747,7 @@ function liftLanded(byClock){
   reconcile();
   const el = selectedId && els[selectedId];
   if (!el) return;
-  if (appliedObstruction){ if (document.activeElement === el.ta) revealCaret(el.ta, el.twin); }
+  if (appliedObstruction){ if (ComposeFormat.focused(el.ta)) revealCaret(el.ta, el.twin); }
   else snapBack(el);
 }
 document.getElementById("page").addEventListener("transitionend", e => {
@@ -2840,6 +2911,17 @@ function keyBytes(b64url){
   return Uint8Array.from(raw, ch => ch.charCodeAt(0));
 }
 document.getElementById("setmark").innerHTML = GEAR_ICON;
+// the composer's typed formatting, the one choice this panel holds that the
+// board's own settings hold too. the mark writes straight through to it
+{
+  const format = document.getElementById("setformat");
+  format.checked = ComposeFormat.enabled();
+  format.addEventListener("change", () => ComposeFormat.setEnabled(format.checked));
+  ComposeFormat.onChange(on => { format.checked = on; });
+}
+// the editor it is drawn with is fetched once, early, so the row is already
+// wearing it by the time anybody types in it
+ComposeFormat.preload();
 const diagnosticButton = document.getElementById("savediagnostic");
 let diagnosticRetry = false, diagnosticToastTimer = null;
 async function saveDiagnostic(source = "settings"){

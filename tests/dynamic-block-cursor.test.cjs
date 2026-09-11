@@ -26,6 +26,7 @@ before(async () => {
         "/card-tokens.css": "card-tokens.css",
         "/card-logic.js": "card-logic.js",
         "/card-report.js": "card-report.js",
+        "/compose-format.js": "compose-format.js",
       };
       const file = files[pathname];
       if (!file) {
@@ -537,8 +538,17 @@ test("a new card's empty title matches the placeholder's first letter", async ()
   }
 });
 
+// The plain composer, which is what this measures: the drawn block is placed
+// from a mirror of the field's own text layout, and the mirror has to keep the
+// field's fractional width or the wrap it lays out is not the wrap on screen.
+// The typed-formatting setting is turned off for it, because with the setting
+// on the row is an editor and the block is placed from the editor's own
+// coordinates instead, which the case below this one measures.
 test("focus composer keeps fractional wrap geometry", async () => {
   const page = await browser.newPage();
+  await page.evaluateOnNewDocument(() => {
+    try { localStorage.setItem("composeformat", "0"); } catch (error) {}
+  });
   await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 2 });
   await page.goto(`${origin}/index.html`, { waitUntil: "domcontentloaded" });
   try {
@@ -623,6 +633,70 @@ test("focus composer keeps fractional wrap geometry", async () => {
     assert.ok(wrapEdge.caret.top >= wrapEdge.field.top - 1 &&
       wrapEdge.caret.bottom <= wrapEdge.field.bottom + 1,
       "the drawn cursor escaped the unscrolled composer viewport");
+  } finally {
+    await page.close();
+  }
+});
+
+// The same row with the setting on, which is how it stands by default. The
+// block is no longer placed from a mirror of a textarea, so what is asked here
+// is the thing the mirror existed to get right: the block sits on the caret,
+// stays inside the row, and follows the caret when the words wrap.
+test("the formatted composer keeps the block cursor on its caret", async () => {
+  const page = await browser.newPage();
+  // the setting is written out rather than left to the default, because the
+  // case above this one turns it off in the same browser's storage
+  await page.evaluateOnNewDocument(() => {
+    try { localStorage.setItem("composeformat", "1"); } catch (error) {}
+  });
+  await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 2 });
+  await page.goto(`${origin}/index.html`, { waitUntil: "domcontentloaded" });
+  try {
+    await page.evaluate(async state => {
+      await document.fonts.ready;
+      build(state); apply(state); lastState = state; select("m1");
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    }, boardState([boardCard("m1", "fixture")]));
+    await page.waitForFunction(() => !!document.querySelector("#box-m1 .cffield"), { timeout: 25000 });
+
+    const read = value => page.evaluate(async value => {
+      const ta = els.m1.ta;
+      ta.value = value;
+      els.m1.tick();
+      ta.focus();
+      ta.setSelectionRange(value.length, value.length);
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const view = ComposeFormat.fieldOf(ta).view;
+      const at = view.coordsAtPos(view.state.selection.main.head, -1);
+      const box = view.scrollDOM.getBoundingClientRect();
+      const caret = document.getElementById("fatcaret").getBoundingClientRect();
+      return {
+        formatted: !!ComposeFormat.fieldOf(ta).formatted(),
+        expectedLeft: at ? at.left : null, expectedTop: at ? at.top : null,
+        caret: { left: caret.left, top: caret.top, bottom: caret.bottom, width: caret.width },
+        field: { top: box.top, bottom: box.bottom, left: box.left, right: box.right },
+        lines: view.state.doc.lines, text: view.state.doc.toString(),
+      };
+    }, value);
+
+    const long = await read("hi that is a fairly long set of notes, maybe keep ones " +
+      "that seem worth keeping (I think a few of these notes make the same point??)");
+    assert.equal(long.formatted, true, "the row never put its editor on");
+    assert.ok(Math.abs(long.caret.left - long.expectedLeft) < 1.2,
+      `the block sat ${long.caret.left - long.expectedLeft}px off the caret`);
+    assert.ok(Math.abs(long.caret.top - long.expectedTop) < 2.5,
+      `the block sat ${long.caret.top - long.expectedTop}px off the caret's row`);
+    assert.ok(long.caret.top >= long.field.top - 1 && long.caret.bottom <= long.field.bottom + 1,
+      "the drawn cursor escaped the row it belongs to");
+    assert.ok(long.caret.left >= long.field.left - 1 && long.caret.left <= long.field.right + 1,
+      "the drawn cursor left the row sideways");
+
+    // the same words one character shorter, which is where the wrap turns over
+    const edge = await read("hi that is a fairly long set of notes, maybe keep one s");
+    assert.ok(Math.abs(edge.caret.left - edge.expectedLeft) < 1.2,
+      "the block left the caret at the wrap edge");
+    assert.ok(edge.caret.top >= edge.field.top - 1 && edge.caret.bottom <= edge.field.bottom + 1,
+      "the drawn cursor escaped the unscrolled row");
   } finally {
     await page.close();
   }
