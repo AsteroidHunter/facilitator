@@ -154,6 +154,27 @@
     return strikeExtension;
   }
 
+  // ---- a list's own column --------------------------------------------------
+  // Give marker text the same width as its hanging indent. Proportional-font
+  // character advances differ from ch units; document positions stay intact.
+  // Keep one ch after the marker, half of it as right padding.
+  const MARK_STEP = 1;
+  const MARK_AIR = 0.5;
+
+  // the angles a quoted line opens with. markup, so they take no room while
+  // they are hidden, and the line's own prefix begins after them
+  const QUOTE_ANGLES = /^[ \t]*(?:>[ \t]?)+/;
+  function quoteWidth(text) {
+    const angles = QUOTE_ANGLES.exec(text);
+    return angles ? angles[0].length : 0;
+  }
+
+  // a run of the document's own characters given an exact width. the width is
+  // written on the span because it is different on every line
+  function box(D, cls, width) {
+    return D.mark({ class: cls, attributes: { style: "--cf-w:" + width + "ch" } });
+  }
+
   // The one walk over the tree, collecting what to draw. Written as a state
   // field and not a view plugin for the reason the board's markdown layer is:
   // the state is what the editor measures its own height from.
@@ -165,7 +186,6 @@
     const emphasis = D.mark({ class: "cf-em" });
     const strong = D.mark({ class: "cf-strong" });
     const strike = D.mark({ class: "cf-strike" });
-    const bullet = D.mark({ class: "cf-bullet" });
     const INLINE = { Emphasis: emphasis, StrongEmphasis: strong, Strikethrough: strike };
     const INLINE_MARK = { EmphasisMark: true, StrikethroughMark: true };
 
@@ -179,6 +199,18 @@
         state.selection.ranges.some(range => range.to >= from && range.from <= to);
       const quote = new Map();   // line number -> how deep the quote is
       const hang = new Map();    // line number -> the column its text hangs on
+      const pull = new Map();    // line number -> how far its first line is pulled back
+      const marker = new Set();  // the lines a marker is actually written on
+      const itemHang = new Map();   // list item -> the column its own text hangs on
+      const listMark = new Map();   // list -> the widest marker written in it
+      // a run given a column's width, counted into what stands in front of the
+      // line's words. the first line is pulled back by exactly that sum, so a
+      // line with nothing standing there is not pulled back at all
+      const headBox = (line, cls, width, from, to) => {
+        if (to <= from) return;
+        out.push(box(D, cls, width).range(from, to));
+        pull.set(line.number, (pull.get(line.number) || 0) + width);
+      };
       C.syntaxTree(state).iterate({
         enter: node => {
           if (INLINE[node.name]) {
@@ -197,15 +229,43 @@
           }
           if (node.name === "ListItem") {
             const line = doc.lineAt(node.from), mark = node.node.firstChild;
-            if (!mark || mark.name !== "ListMark") return;
+            const list = node.node.parent;
+            if (!mark || mark.name !== "ListMark" || !list) return;
             const source = line.text.slice(mark.from - line.from, mark.to - line.from);
-            // a dash, a star or a plus is a bullet and wears a round marker; a
-            // number is the list's own and keeps standing as it is
-            if (/^[-*+]$/.test(source)) out.push(bullet.range(mark.from, mark.to));
+            // one marker column per list, off its widest marker, so 9. and 10.
+            // put their words on one column instead of two
+            let widest = listMark.get(list.from);
+            if (widest === undefined) {
+              widest = 1;
+              for (const item of list.getChildren("ListItem")) {
+                const own = item.firstChild;
+                if (own && own.name === "ListMark") widest = Math.max(widest, own.to - own.from);
+              }
+              listMark.set(list.from, widest);
+            }
+            // a nested item's marker stands where its parent's words start, so
+            // a level is the level above it and one column more, and the two
+            // can never cross whatever the indent was typed as
+            const owner = list.parent;
+            const base = owner && owner.name === "ListItem" ? (itemHang.get(owner.from) || 0) : 0;
+            const column = base + widest + MARK_STEP;
+            itemHang.set(node.from, column);
             let text = mark.to;
             while (text < line.to && /[ \t]/.test(line.text[text - line.from])) text++;
-            const column = text - line.from;
+            // the marker and the air after it, given the column they stand for.
+            // a dash, a star or a plus is a bullet and wears a round marker; a
+            // number is the list's own and keeps standing as it is
+            const dot = /^[-*+]$/.test(source);
+            headBox(line, dot ? "cf-col cf-mark cf-bullet" : "cf-col cf-mark",
+                    widest + MARK_STEP, mark.from, text);
+            // and the line's own indent, which is spaces, and spaces are
+            // narrower than the level they are written for. it starts past any
+            // angles, which belong to the quote and not to the item
+            const head = line.from + (quote.has(line.number) ? quoteWidth(line.text) : 0);
+            const lead = line.text.slice(head - line.from, mark.from - line.from);
+            if (!/\S/.test(lead)) headBox(line, "cf-col", base, head, mark.from);
             const last = doc.lineAt(node.to).number;
+            marker.add(line.number);
             for (let n = line.number; n <= last; n++)
               hang.set(n, Math.max(hang.get(n) || 0, column));
             return;
@@ -219,14 +279,23 @@
         const line = doc.line(n), classes = [], attributes = {};
         if (hang.has(n)) {
           classes.push("cf-li");
-          attributes.style = "--cf-hang:" + hang.get(n) + "ch";
+          // a line further down an item starts on the item's column as well,
+          // and its own indent is a handful of spaces that do not reach it. a
+          // line carrying nothing there is left unpulled instead
+          if (!marker.has(n)) {
+            const at = quote.has(n) ? quoteWidth(line.text) : 0;
+            const lead = /^[ \t]+/.exec(line.text.slice(at));
+            if (lead) headBox(line, "cf-col", hang.get(n),
+                              line.from + at, line.from + at + lead[0].length);
+          }
+          attributes.style = "--cf-hang:" + hang.get(n) + "ch;" +
+            "--cf-pull:" + (pull.get(n) || 0) + "ch";
         }
         if (quote.has(n)) {
           classes.push("cf-quote");
           if (!hot(line.from, line.to)) {
-            const angles = /^[ \t]*(?:>[ \t]?)+/.exec(line.text);
-            if (angles && angles[0].length)
-              out.push(hide.range(line.from, line.from + angles[0].length));
+            const angles = quoteWidth(line.text);
+            if (angles) out.push(hide.range(line.from, line.from + angles));
           }
         }
         out.push(D.line({ class: classes.join(" "), attributes }).range(line.from));
@@ -249,6 +318,8 @@
     });
     return layerExtension;
   }
+
+  const QUOTE_PAD = "9px";   // the room the quote bar keeps to the left of its words
 
   // The editor wears the row it stands in and not CodeMirror: every face,
   // colour and measure is inherited from the element each page styles, so a
@@ -274,26 +345,40 @@
       ".cf-em": { fontStyle: "italic" },
       ".cf-strong": { fontWeight: "650" },
       ".cf-strike": { textDecoration: "line-through" },
-      // the source dash keeps its own advance and a round marker is painted
-      // over it, so the caret and a selection stay exactly on the characters
+      // a run of the line's own characters given the width of the column it
+      // stands for: the indent, and the marker with its air. text-indent is put
+      // back because an inline block inherits the line's negative one
+      ".cf-col": {
+        display: "inline-block", boxSizing: "border-box", width: "var(--cf-w, 0)",
+        textIndent: "0", whiteSpace: "pre",
+      },
+      // the air belongs to the marker's column, so a short marker ends on the
+      // same edge as a long one in the same list
+      ".cf-mark": { textAlign: "right", paddingRight: MARK_AIR + "ch" },
+      // the source dash keeps its place in the document and a round marker is
+      // painted over its column, so the caret and a selection stay exactly on
+      // the characters
       ".cf-bullet": { color: "transparent", position: "relative" },
-      // the marker is a block of its own, so the item's hanging indent is
-      // inherited by it and has to be undone or the round marker is carried
-      // off the head of the line with it
       ".cf-bullet::before": {
         content: '"\\2022"', position: "absolute", left: "0", right: "0",
         textAlign: "center", textIndent: "0", color: "var(--sub, #75695A)",
       },
-      // the item's own text column, so a line long enough to wrap hangs under
-      // its first word instead of falling back under its marker
+      // the item's own text column. the pull is what stands in front of the
+      // first line's words, which is the column on a line that carries a marker
+      // or an indent and nothing at all on a line that carries neither
       ".cf-li": {
         paddingLeft: "var(--cf-hang, 2ch)",
-        textIndent: "calc(-1 * var(--cf-hang, 2ch))",
+        textIndent: "calc(-1 * var(--cf-pull, 0px))",
       },
       // the same bar the card's own quoted prose is drawn with
       ".cf-quote": {
         borderLeft: "3px solid var(--line-strong, #D8CFBE)",
-        paddingLeft: "9px", color: "var(--sub, #75695A)",
+        paddingLeft: QUOTE_PAD, color: "var(--sub, #75695A)",
+      },
+      // a quoted list is both, and one padding cannot be two: the bar's own
+      // room and the item's column are one sum
+      ".cf-quote.cf-li": {
+        paddingLeft: "calc(" + QUOTE_PAD + " + var(--cf-hang, 2ch))",
       },
     });
     return themeExtension;
@@ -344,9 +429,18 @@
     return true;
   }
 
+  // ---- the four chords the page owns and the editor must not ---------------
+  // Reserve these page shortcuts before the editor's Mac/iOS selection
+  // bindings. Returning true prevents editor handling while the event still
+  // bubbles to card/history listeners. Command keeps its editor selection.
+  const PAGE_CHORDS = ["Shift-Ctrl-ArrowUp", "Shift-Ctrl-ArrowDown",
+                       "Shift-Ctrl-ArrowLeft", "Shift-Ctrl-ArrowRight"]
+    .map(key => ({ key, run: () => true }));
+
   // ---- the editor a field puts on ------------------------------------------
   function extensions(C, field) {
     const keys = [
+      ...PAGE_CHORDS,
       ...C.historyKeymap,
       // Enter belongs to the row and not to the editor: what it does is the
       // page's own command, and what is left of it is handled below
