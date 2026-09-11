@@ -157,6 +157,21 @@ async function pressUndoChords(page) {
   return undoKeysSeen(page);
 }
 
+// The same question asked of a row wearing its typed-formatting editor. That
+// editor claims the chords it acts on, exactly as the markdown panel's does in
+// the last test in this file, so what is asked here is that every chord still
+// reached the end of the page's own handling and that nothing took one the
+// editor does not bind. The card assertion beside each call is what proves the
+// board itself stayed where it was.
+function assertLeftToTheField(seen, where) {
+  assert.equal(seen.length, 8, `${where}: an undo chord never reached the end of the page's own handling`);
+  assert.deepEqual([...new Set(seen.map(entry => entry.key))].sort(), ["Z", "z"], `${where}: both cases were not pressed`);
+  assert.equal(seen.filter(entry => entry.meta && !entry.ctrl).length, 4, `${where}: command z did not arrive four times`);
+  assert.equal(seen.filter(entry => entry.ctrl && !entry.meta).length, 4, `${where}: control z did not arrive four times`);
+  assert.deepEqual(seen.filter(entry => entry.ctrl && entry.prevented), [],
+    `${where}: something canceled a chord no editor on this keyboard binds`);
+}
+
 function assertLeftToTheEditor(seen, where) {
   assert.equal(seen.length, 8, `${where}: an undo chord never reached the end of the page's own handling`);
   assert.deepEqual(seen.filter(entry => entry.prevented), [], `${where}: the page canceled an undo chord`);
@@ -168,17 +183,32 @@ function assertLeftToTheEditor(seen, where) {
 // the field's own undo, run the way a browser menu runs it, since a driven
 // browser is handed the chord without the system edit command behind it. A page
 // that broke editing undo cannot pass this by merely ignoring the keys.
-function editorUndoRedo(page, selector) {
-  return page.evaluate(sel => {
-    const field = document.querySelector(sel);
-    const read = () => (field.value === undefined ? field.textContent : field.value);
-    field.focus();
-    const before = read();
-    document.execCommand("undo");
-    const undone = read();
-    document.execCommand("redo");
-    return { before, undone, redone: read() };
-  }, selector);
+async function editorUndoRedo(page, selector) {
+  const read = () => page.$eval(selector, el => (el.value === undefined ? el.textContent : el.value));
+  await page.focus(selector);
+  const before = await read();
+  // a row wearing its editor answers the chord itself; a plain field is handed
+  // the chord without the system edit command behind it, so its own undo is
+  // run the way a browser menu runs it
+  await chord(page, "z", "Meta");
+  let undone = await read();
+  if (undone === before) {
+    await page.evaluate(() => document.execCommand("undo"));
+    undone = await read();
+  }
+  await chord(page, "z", "Meta", "Shift");
+  let redone = await read();
+  if (redone === undone) {
+    await page.evaluate(() => document.execCommand("redo"));
+    redone = await read();
+  }
+  // the two chords above are this helper's own and are no part of the record
+  // the chord assertions read
+  await page.evaluate(() => {
+    if (window.__undoKeys) window.__undoKeys.splice(0);
+    if (window.__undoKeysBeyond) window.__undoKeysBeyond.splice(0);
+  });
+  return { before, undone, redone };
 }
 
 function assertUndoStackIntact(stack, where) {
@@ -199,6 +229,21 @@ function activeElement(page) {
     const el = document.activeElement;
     const box = el && el.closest ? el.closest("article.box") : null;
     return { tag: el ? el.tagName : null, box: box ? box.id.replace(/^box-/, "") : null };
+  });
+}
+
+// The card's typing row answers to two shapes: the plain textarea, and the
+// editor the typed-formatting setting puts in its place. Both are the row, so
+// what the walking keys are asked is whether the caret is in a row and which
+// card's row it is, not which element the row happens to be made of.
+function activeRow(page) {
+  return page.evaluate(() => {
+    const el = document.activeElement;
+    const box = el && el.closest ? el.closest("article.box") : null;
+    const row = !!el && (el.tagName === "TEXTAREA"
+      ? !el.classList.contains("cfmirror")
+      : !!(el.closest && el.closest(".cffield")));
+    return { row, box: box ? box.id.replace(/^box-/, "") : null };
   });
 }
 
@@ -225,7 +270,7 @@ before(async () => {
   const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
   assert.notEqual(patched, source, "test server port was not patched");
   await writeFile(path.join(fixtureDir, "server.py"), patched);
-  for (const name of ["m.html", "m-sw.js", "m-manifest.json", "card-markdown.js", "card-tokens.css", "card-logic.js", "index.html", "page.html", "cm-markdown.js"]) {
+  for (const name of ["m.html", "m-sw.js", "m-manifest.json", "card-markdown.js", "card-tokens.css", "card-logic.js", "compose-format.js", "index.html", "page.html", "cm-markdown.js"]) {
     await copyFile(path.join(ROOT, name), path.join(fixtureDir, name));
   }
   try {
@@ -316,10 +361,10 @@ test("control shift left and right walk the cards the list shows, and the caret 
     // the caret in a row goes with the selection, so a message can be carried
     // on in the next card without reaching for the screen
     await page.focus(SEL);
-    assert.equal((await activeElement(page)).tag, "TEXTAREA");
+    assert.equal((await activeRow(page)).row, true);
     await chord(page, "ArrowRight", "Control", "Shift");
     const landed = await shownId(page);
-    assert.deepEqual(await activeElement(page), { tag: "TEXTAREA", box: landed },
+    assert.deepEqual(await activeRow(page), { row: true, box: landed },
       "the caret did not land in the row of the card walked to");
 
     // and from anywhere else the selection moves alone: a key that only walks
@@ -352,7 +397,7 @@ test("command shift brackets walk the same cards, in and out of a row", async ()
     assert.equal(await shownId(page), ids[0], "the left bracket did not step back");
     await page.focus(SEL);
     await chord(page, "]", "Meta", "Shift");
-    assert.deepEqual(await activeElement(page), { tag: "TEXTAREA", box: await shownId(page) },
+    assert.deepEqual(await activeRow(page), { row: true, box: await shownId(page) },
       "the caret did not go with the bracket");
     assert.deepEqual(problems, []);
   } finally {
@@ -385,7 +430,7 @@ test("control shift up and down step the card's older replies and come back to l
     await page.focus(SEL);
     await chord(page, "ArrowUp", "Control", "Shift");
     await page.waitForFunction(() => document.querySelector("article.box.sel .histpos").textContent === "1 of 2", { timeout: 3000 });
-    assert.equal((await activeElement(page)).tag, "TEXTAREA", "the step took the caret out of the row");
+    assert.equal((await activeRow(page)).row, true, "the step took the caret out of the row");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
@@ -428,7 +473,7 @@ test("command t makes a card in the lane on show, with its name ready to be type
     await page.waitForFunction(id => lastState?.boxes.find(box => box.id === id)?.title === "Named from the keyboard", { timeout: 3000 }, madeId);
     assert.equal((await savedBox(madeId)).title, "Named from the keyboard");
     // naming ends in the row, which is where the message goes
-    assert.deepEqual(await activeElement(page), { tag: "TEXTAREA", box: madeId },
+    assert.deepEqual(await activeRow(page), { row: true, box: madeId },
       "naming the new card did not end with the caret in its row");
     assert.deepEqual(problems, []);
   } finally {
@@ -531,11 +576,16 @@ test("after the phone send's move, command z and control z move no card and stay
     await watchUndoKeys(page);
     await page.focus(SEL);
     await page.keyboard.type("half a thought, unsent");
-    assertLeftToTheEditor(await pressUndoChords(page), "the phone row");
+    assertLeftToTheField(await pressUndoChords(page), "the phone row");
     assert.equal(await shownId(page), waiting, "an undo chord walked back to the card the send's move left");
-    assert.equal(await page.$eval(SEL, field => field.value), "half a thought, unsent",
-      "an undo chord changed the words waiting in the row");
+    // the row's own undo and redo, on words typed after the chords above, since
+    // a row that answers them has already taken those words back and forth
+    await page.$eval(SEL, field => { field.value = ""; field.dispatchEvent(new Event("input", { bubbles: true })); });
+    await page.focus(SEL);
+    await page.keyboard.type("half a thought, unsent");
     assertUndoStackIntact(await editorUndoRedo(page, SEL), "the phone row");
+    assert.equal(await page.$eval(SEL, field => field.value), "half a thought, unsent",
+      "the row's redo did not leave the words it started with");
 
     // with the caret out of the row it is still nobody's card command
     await page.evaluate(() => document.activeElement.blur());
@@ -854,8 +904,8 @@ test("desktop aliases walk the visible cards and preserve their focus rules", as
     await page.evaluate(() => document.activeElement?.blur());
     await chord(page, "ArrowRight", "Control", "Shift");
     assert.equal(await shownId(page), order[(start + 1) % order.length]);
-    assert.deepEqual(await activeElement(page), {
-      tag: "TEXTAREA", box: order[(start + 1) % order.length],
+    assert.deepEqual(await activeRow(page), {
+      row: true, box: order[(start + 1) % order.length],
     }, "desktop card stepping did not focus the destination composer");
 
     await chord(page, "[", "Meta", "Shift");
@@ -1097,13 +1147,13 @@ test("desktop history controls appear for a prior reply and share keyboard histo
     assert.equal(await page.$eval("article.box.sel .reply", el => el.textContent), "First desktop reply.",
       "the first history step did not show the older reply");
     assert.deepEqual(await page.evaluate(() => hist && ({ id: hist.id, step: hist.step })), { id, step: 1 });
-    assert.equal((await activeElement(page)).tag, "TEXTAREA");
+    assert.equal((await activeRow(page)).row, true);
     await chord(page, "ArrowUp", "Control", "Shift");
     assert.equal(await page.evaluate(() => hist.step), 1,
       "history stepped beyond its oldest reply");
     await chord(page, "ArrowDown", "Control", "Shift");
     await page.waitForFunction(() => !document.querySelector("article.box.sel").classList.contains("histview"));
-    assert.equal((await activeElement(page)).tag, "TEXTAREA");
+    assert.equal((await activeRow(page)).row, true);
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
@@ -1182,13 +1232,16 @@ test("after the desktop send's move, command z and control z move no card and st
     await watchUndoKeys(page);
     await page.focus(SEL);
     await page.keyboard.type("unsent draft stays here");
-    assertLeftToTheEditor(await pressUndoChords(page), "the desktop composer");
+    assertLeftToTheField(await pressUndoChords(page), "the desktop composer");
     assert.equal(await shownId(page), waiting, "an undo chord walked back to the card the send's move left");
-    assert.equal(await page.$eval(SEL, field => field.value), "unsent draft stays here",
-      "an undo chord changed the draft in the composer");
     assert.equal(await page.$eval(`#box-${from} textarea`, field => field.value), "",
       "an undo chord put the sent words back into the card they left");
+    await page.$eval(SEL, field => { field.value = ""; field.dispatchEvent(new Event("input", { bubbles: true })); });
+    await page.focus(SEL);
+    await page.keyboard.type("unsent draft stays here");
     assertUndoStackIntact(await editorUndoRedo(page, SEL), "the desktop composer");
+    assert.equal(await page.$eval(SEL, field => field.value), "unsent draft stays here",
+      "the composer's redo did not leave the draft it started with");
 
     // out of the composer the board hears the chord and still does nothing
     await page.evaluate(() => document.activeElement.blur());
@@ -1218,11 +1271,14 @@ test("the typed page leaves command z and control z to the line, before and afte
     await page.waitForSelector(line, { timeout: 5000 });
     await page.focus(line);
     await page.keyboard.type("half a thought, unsent");
-    assertLeftToTheEditor(await pressUndoChords(page), "the typed page line");
+    assertLeftToTheField(await pressUndoChords(page), "the typed page line");
     assert.equal(await shownId(page), from, "an undo chord walked the cards from the line");
-    assert.equal(await page.$eval(line, el => el.textContent), "half a thought, unsent",
-      "an undo chord changed the words in the line");
+    await page.$eval(line, el => { el.textContent = ""; });
+    await page.focus(line);
+    await page.keyboard.type("half a thought, unsent");
     assertUndoStackIntact(await editorUndoRedo(page, line), "the typed page line");
+    assert.equal(await page.$eval(line, el => el.textContent), "half a thought, unsent",
+      "the line's redo did not leave the words it started with");
     await page.$eval(line, el => { el.textContent = ""; el.blur(); });
 
     // the card's own send is the one that moves this page on, and the move is
@@ -1257,7 +1313,7 @@ test("desktop mini capture keeps its subset ahead of typing and the board", asyn
     const miniAfter = await page.evaluate(() => miniId);
     assert.equal(miniAfter, second, "the mini shortcut did not step exactly once");
     assert.equal(await shownId(page), mainBefore, "mini stepping moved the main selection");
-    assert.equal(await page.evaluate(() => document.activeElement === miniEls[miniId].ta), true,
+    assert.equal(await page.evaluate(() => ComposeFormat.focused(miniEls[miniId].ta)), true,
       "mini stepping from typing did not carry its caret");
 
     const created = page.waitForResponse(response => new URL(response.url()).pathname === "/create");
@@ -1274,7 +1330,7 @@ test("desktop mini capture keeps its subset ahead of typing and the board", asyn
     await watchUndoKeys(page, miniComposer);
     await page.focus(miniComposer);
     const miniBefore = await page.evaluate(() => miniId);
-    assertLeftToTheEditor(await pressUndoChords(page), "the mini composer");
+    assertLeftToTheField(await pressUndoChords(page), "the mini composer");
     assert.deepEqual(await undoKeysBeyond(page), [],
       "the mini composer let the undo chords past its own stop");
     assert.equal(await page.evaluate(() => miniId), miniBefore, "an undo chord stepped the small card");
@@ -1349,7 +1405,7 @@ test("desktop capture and component barriers retain keyboard priority", async ()
     await page.keyboard.press("Escape");
     assert.equal(await page.evaluate(() => !!p3Zoom?.closing), true,
       "picture Escape did not close through its capture handler");
-    assert.equal(await page.evaluate(id => document.activeElement === els[id].ta, current), true,
+    assert.equal(await page.evaluate(id => ComposeFormat.focused(els[id].ta), current), true,
       "picture Escape leaked to the board blur action");
     assert.equal(await page.$eval(`#box-${current} textarea`, field => field.value), "picture draft");
     await page.waitForFunction(() => p3Zoom === null, { timeout: 1500 });

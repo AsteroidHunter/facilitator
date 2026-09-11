@@ -53,7 +53,8 @@ async function fixture(t) {
   const origin = `http://127.0.0.1:${port}`;
   const source = await fs.readFile(path.join(ROOT, "server.py"), "utf8");
   await fs.writeFile(path.join(dir, "server.py"), source.replace("PORT = 8877", `PORT = ${port}`));
-  for (const name of ["m.html", "card-logic.js", "card-report.js", "card-markdown.js", "card-tokens.css", "m-sw.js", "m-manifest.json"])
+  for (const name of ["m.html", "card-logic.js", "card-report.js", "card-markdown.js", "card-tokens.css",
+                      "compose-format.js", "cm-markdown.js", "m-sw.js", "m-manifest.json"])
     await fs.copyFile(path.join(ROOT, name), path.join(dir, name));
   await fs.cp(path.join(ROOT, "assets"), path.join(dir, "assets"), { recursive: true });
   await fs.writeFile(path.join(dir, "seed.json"), JSON.stringify({ title: "Diagnostic fixture", items: [
@@ -250,7 +251,10 @@ test("the shortcut preserves draft and focus; broken instrumentation cannot stop
     key: "M", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true,
   })));
   await page.waitForFunction(() => document.getElementById("diagnostictoast").textContent === "Diagnostic history saved on the Mac.", { polling: 25 });
-  assert.deepEqual(await page.evaluate(() => ({ id: selectedId, draft: els.m2.ta.value, focus: document.activeElement === els.m2.ta, menu: !!menuOut() })),
+  // the row answers to two shapes, the plain field and the editor the
+  // typed-formatting setting puts in its place; the caret being in this card's
+  // row is the thing asked about, not which element the row is made of
+  assert.deepEqual(await page.evaluate(() => ({ id: selectedId, draft: els.m2.ta.value, focus: ComposeFormat.focused(els.m2.ta), menu: !!menuOut() })),
     { id: "m2", draft: "An invented unsent draft", focus: true, menu: false });
   assert.equal((await f.readLog()).find(r => r.kind === "incident" && r.reason === "manual").events.at(-1).source, "shortcut");
   await page.evaluate(() => {
