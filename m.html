@@ -1492,6 +1492,36 @@ function createCard(){
 // older replies: histList, histExit and histStep are shared with the desktop in
 // card-logic.js
 
+// Older servers omit olderReplies from the phone state. Ask for the selected
+// card's actual history once per revision of its replies, including notes.
+function syncPhoneHistory(b){
+  const el = b && els[b.id];
+  if (!el) return;
+  if (el.historyVersion !== b.replies){
+    el.historyVersion = b.replies;
+    el.historyRequest = null;
+    el.historyCount = null;
+    delete histCache[b.id];
+    if (hist && hist.id === b.id) histExit(b.id);
+  }
+  if (Number.isFinite(b.olderReplies)) el.historyCount = b.olderReplies;
+  el.box.classList.toggle("hashist", (el.historyCount || 0) > 0);
+  if (el.historyCount !== null || el.historyRequest || b.id !== selectedId) return;
+  const request = histList(b.id);
+  el.historyRequest = request;
+  request.then(list => {
+    if (els[b.id] !== el || el.historyRequest !== request) return;
+    el.historyRequest = null;
+    if (list === HIST_UNKNOWN) return; // An unchanged successful poll can retry.
+    el.historyCount = list.length;
+    el.box.classList.toggle("hashist", list.length > 0);
+  });
+}
+
+function syncSelectedHistory(){
+  syncPhoneHistory(lastState?.boxes.find(b => b.id === selectedId));
+}
+
 // ---- selection and tabs ----------------------------------------------------------
 function select(id){
   const trace = tracePhone("begin", "select", { box: id });
@@ -1502,6 +1532,7 @@ function select(id){
   markSeen(id);
   const b = lastState?.boxes.find(x => x.id === id);
   if (b) lastSel[b.owner] = id;
+  syncPhoneHistory(b);
   for (const k of Object.keys(els)) els[k].box.classList.toggle("sel", k === id);
   document.getElementById("pane").classList.remove("blank");
   for (const r of document.querySelectorAll("#tiklist .trow")){
@@ -2287,7 +2318,7 @@ function apply(state){
     const cs = cardState(b);
     el.box.classList.toggle("done", cs === "done");
     el.box.classList.toggle("parked", cs === "parked");
-    el.box.classList.toggle("hashist", (b.replies || 0) > 1);
+    syncPhoneHistory(b);
     // a note about a send that failed or was held stays until the card can
     // take another; any other note is the poll's to clear. a held send clears
     // as soon as there is room again
@@ -2296,6 +2327,7 @@ function apply(state){
   }
   if (selectedId && !state.boxes.some(b => b.id === selectedId && b.owner === activeOwner)) deselect();
   applySelection(state);
+  syncSelectedHistory();
   renderTabs(state);
   renderTickets(state);
   if (state.title && document.title !== state.title) document.title = state.title;
@@ -2490,6 +2522,7 @@ async function readBoard(){
         Object.assign(lastState, data.live || {});
         lastState.fetchedAt = asked;
         renderTickets(lastState);   // who is listening moves without the revision moving
+        syncSelectedHistory();
         endPhoneTrace(rendering, { rev: lastRev }, null, true);
       } else {
         lastRev = null;   // nothing held to be unchanged from: the next reading takes the whole board

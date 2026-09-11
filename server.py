@@ -2442,7 +2442,8 @@ def _phone_box(b: dict) -> dict:
     return {
         "id": b["id"], "bucket": b["bucket"], "title": b["title"],
         "replyFull": b.get("reply_full", b.get("reply", "")),
-        "done": b["done"], "replies": b["replies"], "ball": b.get("ball", "you"),
+        "done": b["done"], "replies": b["replies"], "olderReplies": _older_replies(b),
+        "ball": b.get("ball", "you"),
         "parked": b.get("parked", False), "ts": b.get("ts", 0), "owner": ow,
         "pending": len(b["pending"]),
         "pendingTexts": [m["text"] for m in b["pending"]],
