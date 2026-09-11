@@ -6,9 +6,9 @@
  * per-browser choice on the board does. Off, the composer is the plain
  * textarea it has always been and not one line of this file runs on it.
  *
- * What it draws, and nothing else: one star is italic, two are bold, tildes on
- * either side are a strike, a leading angle is a quote bar, and a dash or star
- * and a space is a bullet. Inserting a new line inside a list carries the
+ * What it draws, and nothing else: one star is italic, two are bold, two tildes
+ * on either side are a strike, a leading angle is a quote bar, and a dash or
+ * star and a space is a bullet. Inserting a new line inside a list carries the
  * marker down; doing it on a bullet with nothing typed after it ends the list.
  * Headings, tables, links, code fences and the rest of Markdown are left as
  * plain characters here: this is a message row, not a document editor.
@@ -122,44 +122,12 @@
   let layerExtension = null;
   let awakeEffect = null;
   let themeExtension = null;
-  let strikeExtension = null;
-
-  // A single tilde on either side is a strike, which is what was asked for and
-  // is one character short of what the bundle's own GitHub strikethrough reads.
-  // The pair is left to that parser: this only claims a lone tilde, and only
-  // with a non-space character on the inside of it, so a stray tilde in prose
-  // and a home directory path are both left standing.
-  function singleTilde() {
-    if (strikeExtension) return strikeExtension;
-    const delimiter = { resolve: "Strikethrough", mark: "StrikethroughMark" };
-    const TILDE = 126;
-    const isSpace = code => code === -1 || code === 32 || code === 9 ||
-      code === 10 || code === 13;
-    strikeExtension = {
-      parseInline: [{
-        name: "ComposeSingleStrike",
-        before: "Strikethrough",
-        parse(cx, next, pos) {
-          if (next !== TILDE) return -1;
-          if (cx.char(pos + 1) === TILDE || cx.char(pos - 1) === TILDE) return -1;
-          const before = pos > cx.offset ? cx.char(pos - 1) : -1;
-          const after = cx.char(pos + 1);
-          const open = !isSpace(after) && after !== TILDE;
-          const close = !isSpace(before);
-          if (!open && !close) return -1;
-          return cx.addDelimiter(delimiter, pos, pos + 1, open, close);
-        },
-      }],
-    };
-    return strikeExtension;
-  }
 
   // ---- a list's own column --------------------------------------------------
-  // Give marker text the same width as its hanging indent. Proportional-font
-  // character advances differ from ch units; document positions stay intact.
-  // Keep one ch after the marker, half of it as right padding.
+  // Give the marker and its separator the same width as the hanging indent.
+  // Proportional-font character advances differ from ch units; document
+  // positions stay intact. The column is the marker plus one ch.
   const MARK_STEP = 1;
-  const MARK_AIR = 0.5;
 
   // the angles a quoted line opens with. markup, so they take no room while
   // they are hidden, and the line's own prefix begins after them
@@ -250,9 +218,12 @@
             const base = owner && owner.name === "ListItem" ? (itemHang.get(owner.from) || 0) : 0;
             const column = base + widest + MARK_STEP;
             itemHang.set(node.from, column);
-            let text = mark.to;
-            while (text < line.to && /[ \t]/.test(line.text[text - line.from])) text++;
-            // the marker and the air after it, given the column they stand for.
+            // A marker is only a marker once its separator is typed: a bare
+            // dash is still a dash. Only that first separator joins the column;
+            // any space after it is the reader's own and keeps its own width.
+            if (!/[ \t]/.test(line.text[mark.to - line.from] || "")) return;
+            const text = mark.to + 1;
+            // the marker and its separator, given the column they stand for.
             // a dash, a star or a plus is a bullet and wears a round marker; a
             // number is the list's own and keeps standing as it is
             const dot = /^[-*+]$/.test(source);
@@ -352,9 +323,12 @@
         display: "inline-block", boxSizing: "border-box", width: "var(--cf-w, 0)",
         textIndent: "0", whiteSpace: "pre",
       },
-      // the air belongs to the marker's column, so a short marker ends on the
-      // same edge as a long one in the same list
-      ".cf-mark": { textAlign: "right", paddingRight: MARK_AIR + "ch" },
+      // the marker is seated against the words, with its own separator as the
+      // air, so a short marker ends on the same edge as a long one in its list.
+      // the empty anchor keeps that separator from hanging past the column, so
+      // the caret after it lands exactly where the words begin
+      ".cf-mark": { textAlign: "right" },
+      ".cf-mark::after": { content: '""', display: "inline-block", width: "0" },
       // the source dash keeps its place in the document and a round marker is
       // painted over its column, so the caret and a selection stay exactly on
       // the characters
@@ -447,7 +421,10 @@
       ...C.defaultKeymap.filter(binding => !/Enter/.test(binding.key || "")),
     ];
     return [
-      C.markdown({ base: C.markdownLanguage, extensions: [singleTilde()] }),
+      // the strike is the bundle's own GitHub one, two tildes on either side,
+      // which is the form the sent card reads. Nothing is put on top of it, so
+      // a lone pair stays the characters it was typed as
+      C.markdown({ base: C.markdownLanguage }),
       C.history(),
       // the editor writes its own class attribute on every update, so the name
       // the page styles the row by is handed to it rather than set on the node

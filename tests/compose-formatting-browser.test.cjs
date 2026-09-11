@@ -258,16 +258,20 @@ test("the desktop row draws the five forms and sends the markdown itself", async
     await pickDesktopCard(page, id);
     await editorOn(page);
     await page.focus(ROW);
-    await page.keyboard.type("a *word*, **two words**, ~a cut~ and plain");
+    // the strike is the two tilde form the sent card reads, and one pair is
+    // words with two tildes in them and nothing more
+    await page.keyboard.type("a *word*, **two words**, ~~a cut~~, ~not cut~ and plain");
     await settle();
     const typed = await drawn(page);
-    assert.equal(typed.payload, "a *word*, **two words**, ~a cut~ and plain",
+    assert.equal(typed.payload, "a *word*, **two words**, ~~a cut~~, ~not cut~ and plain",
       "the row did not keep the markdown that was typed");
     assert.deepEqual(typed.italic, ["word"], "one star did not italicise its word");
     assert.deepEqual(typed.bold, ["two words"], "two stars did not embolden their words");
-    assert.deepEqual(typed.struck, ["a cut"], "one tilde on either side did not strike its words");
-    assert.equal(typed.shown, "a word, two words, a cut and plain",
-      "the markers were left standing in the drawn line: " + typed.shown);
+    assert.deepEqual(typed.struck, ["a cut"],
+      "two tildes on either side did not strike their words, or one pair struck words of its own");
+    assert.equal(typed.shown, "a word, two words, a cut, ~not cut~ and plain",
+      "the markers were left standing in the drawn line, or the lone pair of tildes was taken " +
+      "away from words nobody asked to strike: " + typed.shown);
     // and they are really drawn, not merely marked
     const faces = await page.evaluate(() => {
       const content = document.querySelector("article.box.sel .cm-content");
@@ -289,7 +293,8 @@ test("the desktop row draws the five forms and sends the markdown itself", async
     await page.keyboard.press("Enter");
     assert.equal((await sent).status(), 200);
     await settle(300);
-    assert.equal((await sentTexts(id)).slice(-1)[0], "a *word*, **two words**, ~a cut~ and plain",
+    assert.equal((await sentTexts(id)).slice(-1)[0],
+      "a *word*, **two words**, ~~a cut~~, ~not cut~ and plain",
       "the board was sent something other than the markdown in the row");
     assert.equal(await page.$eval(ROW, row => row.value), "", "the row kept the words it sent");
     assert.deepEqual(problems, []);
@@ -972,17 +977,21 @@ test("the phone row makes a line under its keyboard and sends without it", async
       "the empty bullet did not end the list under the keyboard");
     assert.deepEqual(sends, [], "the return key sent while the keyboard was up");
 
-    // the drawn line, and the markdown under it
+    // the drawn line, and the markdown under it. the phone reads a strike the
+    // way the card it sends to does: two tildes, and one pair left standing
     await page.evaluate(() => {
       const row = document.querySelector("article.box.sel textarea");
-      row.value = "a *word* and **two words** and ~a cut~";
+      row.value = "a *word* and **two words** and ~~a cut~~ and ~not cut~";
     });
     await settle(250);
     const phone = await drawn(page);
-    assert.equal(phone.payload, "a *word* and **two words** and ~a cut~");
+    assert.equal(phone.payload, "a *word* and **two words** and ~~a cut~~ and ~not cut~");
     assert.deepEqual(phone.italic, ["word"]);
     assert.deepEqual(phone.bold, ["two words"]);
-    assert.deepEqual(phone.struck, ["a cut"]);
+    assert.deepEqual(phone.struck, ["a cut"],
+      "the phone struck one pair of tildes, or left two pairs unstruck");
+    assert.match(phone.shown, /a cut and ~not cut~/,
+      "the lone pair of tildes was taken off words the phone was not asked to strike: " + phone.shown);
     await shot(page, "phone-inline");
 
     // the keyboard goes down and the return key is the send again
@@ -993,7 +1002,8 @@ test("the phone row makes a line under its keyboard and sends without it", async
     await page.keyboard.press("Enter");
     assert.equal((await sent).status(), 200);
     await settle(400);
-    assert.equal((await sentTexts(id)).slice(-1)[0], "a *word* and **two words** and ~a cut~",
+    assert.equal((await sentTexts(id)).slice(-1)[0],
+      "a *word* and **two words** and ~~a cut~~ and ~not cut~",
       "the phone sent something other than the markdown in the row");
     assert.equal(await page.$eval(ROW, row => row.value), "");
     assert.deepEqual(problems, []);
@@ -1111,7 +1121,7 @@ test("the row draws the five forms and leaves the rest of markdown as characters
     await page.evaluate(() => {
       const row = document.querySelector("article.box.sel textarea");
       row.value = "# heading\n`code *stars* here`\n[a link](https://example.invalid)\n" +
-        "about ~5 minutes, see ~/notes\n~~two tildes~~";
+        "about ~5 minutes, see ~/notes\n~one pair~ stays and ~~two pairs~~ cut";
     });
     await settle(250);
     const out = await page.evaluate(() => {
@@ -1126,8 +1136,12 @@ test("the row draws the five forms and leaves the rest of markdown as characters
     assert.deepEqual(out.italic, [], "stars inside a code span were drawn as italic");
     assert.match(out.shown, /about ~5 minutes, see ~\/notes/,
       "a stray tilde in prose was read as a strike");
-    assert.deepEqual(out.struck, ["two tildes"],
-      "the two tilde form the card renderer already reads stopped working");
+    // the one form of strike there is, which is the one the sent card reads:
+    // a lone pair is left standing, characters and all, and two pairs cut
+    assert.match(out.shown, /~one pair~ stays/,
+      "one pair of tildes was read as a strike: " + out.shown);
+    assert.deepEqual(out.struck, ["two pairs"],
+      "the two tilde form the card renderer reads is not the composer's own");
     assert.equal(out.payload.split("\n").length, 5, "the row changed the words it holds");
     assert.deepEqual(problems, []);
   } finally {
