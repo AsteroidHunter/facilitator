@@ -55,7 +55,7 @@ async function savedBox(id) {
   return state.boxes.find(box => box.id === id);
 }
 
-async function openPhone(route) {
+async function openPhone(route, prepare) {
   const page = await browser.newPage();
   const problems = [];
   page.on("console", message => {
@@ -65,6 +65,7 @@ async function openPhone(route) {
   });
   page.on("pageerror", error => problems.push("pageerror: " + error.message));
   await page.setViewport(PHONE);
+  if (prepare) await prepare(page);
   await page.goto(origin + route, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => lastState !== null, { timeout: 5000 });
   return { page, problems };
@@ -634,6 +635,101 @@ test("the composer sends through /send, the plus attaches a picture, the cross c
   } finally {
     await page.close();
     await api("/park?box=0&v=0");
+  }
+});
+
+test("history arrows ignore progress notes and appear when an older final reply exists", async () => {
+  const id = await create("Only final replies belong in history");
+  for (const note of ["Preparing the change", "Checking the change", "Finishing the change"])
+    assert.equal((await api(`/note?box=${id}`, note)).status, 200);
+  assert.equal((await api(`/reply?box=${id}`, "First final reply")).status, 200);
+  const saved = await savedBox(id);
+  assert.ok(saved.replies > 1, "the fixture must include the progress-note counter");
+  assert.equal(saved.olderReplies, 0);
+  assert.deepEqual((await (await fetch(origin + `/history?box=${id}`)).json()).replies, []);
+
+  const { page, problems } = await openPhone(`/m?box=${id}`);
+  try {
+    await page.waitForSelector(`#box-${id}.sel`);
+    await page.waitForSelector("#loading", { hidden: true, timeout: 10000 });
+    const visibility = () => page.evaluate(id => {
+      const box = document.getElementById("box-" + id);
+      const controls = box.querySelector(".histctl");
+      const style = getComputedStyle(controls);
+      return { marked: box.classList.contains("hashist"), visibility: style.visibility };
+    }, id);
+    const shots = process.env.PHONE_HISTORY_SHOTS;
+    if (shots) {
+      await mkdir(shots, { recursive: true });
+      await page.screenshot({ path: path.join(shots, "one-final-reply.png") });
+    }
+    assert.deepEqual(await visibility(), { marked: false, visibility: "hidden" },
+      "progress notes exposed history controls with no older final reply");
+
+    assert.equal((await api(`/reply?box=${id}`, "Second final reply")).status, 200);
+    assert.equal((await savedBox(id)).olderReplies, 1);
+    await page.waitForFunction(id => {
+      const box = document.getElementById("box-" + id);
+      return box?.classList.contains("hashist") &&
+        document.querySelector(`#box-${id} .reply`)?.dataset.raw === "Second final reply";
+    }, { timeout: 6000 }, id);
+    assert.deepEqual(await visibility(), { marked: true, visibility: "visible" },
+      "the first genuine older reply did not expose the controls");
+    await page.evaluate(id => document.querySelector(`#box-${id} .histbtn.older`).click(), id);
+    await page.waitForFunction(id =>
+      document.querySelector(`#box-${id} .reply`)?.textContent.trim() === "First final reply",
+      { timeout: 5000 }, id);
+    assert.equal(await page.$eval(`#box-${id} .histpos`, el => el.textContent), "1 of 2");
+    if (shots) await page.screenshot({ path: path.join(shots, "older-final-reply.png") });
+    await page.evaluate(id => document.querySelector(`#box-${id} .histbtn.newer`).click(), id);
+    await page.waitForFunction(id =>
+      document.querySelector(`#box-${id} .reply`)?.textContent.trim() === "Second final reply",
+      { timeout: 5000 }, id);
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("legacy phone history retries a failed read and refreshes for identical final text", async () => {
+  const id = await create("Identical final replies still have history");
+  await api(`/note?box=${id}`, "Checking the change");
+  await api(`/reply?box=${id}`, "Same final reply");
+  const { page, problems } = await openPhone(`/m?box=${id}`, page =>
+    page.evaluateOnNewDocument(() => {
+      const realFetch = window.fetch;
+      window.historyReads = [];
+      window.fetch = async (...args) => {
+        const url = new URL(args[0], location.href);
+        if (url.pathname === "/history") {
+          historyReads.push(url.searchParams.get("box"));
+          if (historyReads.length === 1) return new Response("{}", { status: 503 });
+        }
+        const response = await realFetch(...args);
+        if (url.pathname !== "/m/state") return response;
+        const state = await response.json();
+        for (const box of state.boxes || []) delete box.olderReplies;
+        return new Response(JSON.stringify(state), { status: response.status });
+      };
+    }));
+  try {
+    await page.waitForFunction(id => historyReads.length === 2 && els[id]?.historyCount === 0,
+      { timeout: 6000 }, id);
+    assert.equal(await page.$eval(`#box-${id}`, el => el.classList.contains("hashist")), false);
+    assert.equal(await page.evaluate(id => lastState.boxes.find(b => b.id === id).olderReplies, id), undefined);
+    await api(`/reply?box=${id}`, "Same final reply");
+    await page.waitForSelector(`#box-${id}.hashist`, { timeout: 6000 });
+    await page.evaluate(id => document.querySelector(`#box-${id} .histbtn.older`).click(), id);
+    await page.waitForFunction(id => document.querySelector(`#box-${id} .histpos`).textContent === "1 of 2",
+      { timeout: 5000 }, id);
+    assert.equal(await page.$eval(`#box-${id} .reply`, el => el.textContent.trim()), "Same final reply");
+    const reads = await page.evaluate(() => historyReads.slice());
+    assert.deepEqual(reads, [id, id, id], "only the selected card should need a history read");
+    await settle(2600);
+    assert.deepEqual(await page.evaluate(() => historyReads), reads, "unchanged polls should reuse known history");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
   }
 });
 
