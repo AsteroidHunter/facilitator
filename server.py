@@ -112,6 +112,9 @@ Endpoints:
   GET  /card-logic.js       -> the card's shared logic: the card state rules,
                                the lanes, the sent box's rows and the helpers
                                the board and the phone page carry in common
+  GET  /compose-format.js   -> the composer's typed formatting: the setting,
+                               and the editor layer the card pages put over a
+                               composer while it is on
   GET  /m                   -> m.html, the phone page: the project tabs, one
                                card filling the screen, the card list in a
                                drawer off the left edge, nothing else
@@ -4423,6 +4426,7 @@ ROUTES = [
     Route("/card-markdown.js", _static("card-markdown.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/card-tokens.css", _static("card-tokens.css", "text/css; charset=utf-8"), methods=["GET"]),
     Route("/card-logic.js", _static("card-logic.js", "application/javascript; charset=utf-8"), methods=["GET"]),
+    Route("/compose-format.js", _static("compose-format.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/card-report.js", _static("card-report.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/m-manifest.json", _endpoint(_get_manifest), methods=["GET"]),
     # the phone page and the files that make it installable, each a plain
