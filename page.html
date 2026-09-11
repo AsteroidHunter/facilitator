@@ -58,6 +58,21 @@
     border-radius:4px; background:none; cursor:pointer; flex:none}
   #bgpick::-webkit-color-swatch-wrapper{padding:2px}
   #bgpick::-webkit-color-swatch{border:none; border-radius:2px}
+  /* ---- settings: the page's own choices for this browser, off the bar ----- */
+  #setwrap{position:relative; flex:none; display:flex; align-items:center}
+  #setbtn{display:flex; align-items:center; padding:2px; border:none;
+    background:none; color:var(--sub); cursor:pointer; transition:color .2s}
+  #setbtn:hover, #setwrap.open #setbtn{color:var(--accent)}
+  /* seated under the mark by the script, and drawn above the board rather than
+     inside the bar's own layer */
+  #setpanel{display:none; position:fixed; z-index:40; width:264px; padding:11px 13px;
+    background:#fff; border:1px solid var(--line); border-radius:7px;
+    box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
+  body.setopen #setpanel{display:block}
+  #setpanel .setrow{display:flex; gap:8px; align-items:flex-start;
+    font:13px/1.4 var(--sans); color:var(--ink); cursor:pointer}
+  #setpanel .setrow input{margin:2px 0 0; flex:none; accent-color:var(--accent)}
+  #setpanel .sethelp{margin:5px 0 0 22px; font:11.5px/1.45 var(--mono); color:var(--sub)}
   .pausebtn{font:12px var(--mono); color:var(--accent); background:var(--accent-soft);
     border:none; border-radius:4px; padding:4px 12px; cursor:pointer; transition:.2s}
   .pausebtn:hover{background:#E2DCFC}
@@ -1139,6 +1154,25 @@
      one must go, so this rule outranks the two above */
   body.docview .docsec.on .docreply:focus:empty::before,
   body.docview #docnew:focus:empty::before{content:none}
+  /* ---- the same lines with their typed formatting on ----------------------
+     the editor is the vendored codemirror bundle and its scroller stands in
+     for the line, so the line's own type and floor are written on that one
+     element. the outer element keeps the seat and the air under it */
+  body.docview .cfline, body.docview .cfnew{
+    font:400 17px/1.55 var(--sans); color:var(--ink)}
+  body.docview .cfline{margin:2px 0 26px}
+  body.docview :is(.cfline, .cfnew) .cm-scroller{min-height:22px; overflow:visible}
+  body.docview :is(.cfline, .cfnew) .cm-content{caret-color:transparent}
+  body.docview :is(.cfline, .cfnew) .cm-content ::selection,
+  body.docview :is(.cfline, .cfnew) .cm-content::selection{background:var(--accent-soft)}
+  /* the resting block, the same cell the plain line drew for itself. it stands
+     on the selected section's line and on the new-card line, and goes the
+     moment the caret is in one, where the app's own #fatcaret takes over */
+  body.docview .docblock{display:none; width:8.5px; height:18.7px;
+    background:var(--ink); vertical-align:-.24em}
+  body.docview .docsec.on .cfline:not(.cm-focused) .docblock,
+  body.docview .cfnew:not(.cm-focused) .docblock{display:inline-block}
+  body.docview :is(.cfline, .cfnew) .cm-placeholder{color:inherit}
 
   /* the right rail: the empty side of the page, kept as the place the timer
      panel goes later. the two placeholder boxes that used to stand here were
@@ -1168,6 +1202,18 @@
   <input type="color" id="bgpick" title="background color (temporary)" value="#F5F4F1">
   <button class="pausebtn" id="pausebtn">pause listeners</button>
   <button class="endbtn" id="endbtn">End session</button>
+  <span id="setwrap">
+    <button id="setbtn" type="button" title="settings" aria-label="settings" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-1 1.47V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.6 1.6 0 0 0 4.6 15a1.6 1.6 0 0 0-1.47-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 8.9a1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.6 1.6 0 0 0 8.88 4.6H9a1.6 1.6 0 0 0 1-1.47V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77V9a1.6 1.6 0 0 0 1.47 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.47 1z"/></svg></button>
+  </span>
+</div>
+
+<!-- the settings panel hangs from the mark in the bar but stands outside it:
+     the bar paints on a layer of its own and anything inside it is bound to that
+     layer, so a panel kept in there is drawn under the board it opens over. it
+     is seated under the mark by the script that opens it. -->
+<div id="setpanel" role="group" aria-label="settings">
+  <label class="setrow"><input type="checkbox" id="setformat"><span>Format text while typing</span></label>
+  <p class="sethelp">Bold, italic, strikethrough, quotes and bullets are drawn in the composer as you type. The message is still sent as Markdown.</p>
 </div>
 
 <div id="offline"></div>
@@ -1282,6 +1328,7 @@
 
 <script src="/card-markdown.js"></script>
 <script src="/card-report.js"></script>
+<script src="/compose-format.js"></script>
 <script>
 const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
                   ["now", "Now"], ["done", "Done"], ["later", "Later"]];
@@ -1956,6 +2003,10 @@ function makeBox(b, i, state){
       tocGroups[sec].appendChild(entry);
     }
 
+    // no typed formatting on this row: this page is the document view and
+    // never draws the board of cards, so the row below is built and written to
+    // (doSend reads its value) but is never on screen. the page's own composer
+    // is the reply line in each document section, wired further down
     ta.addEventListener("input", () => { cancelAutoNext(); ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; });   // CSS max-height caps it
     // dropped images upload immediately; their /uploads/ address joins the text
     ta.addEventListener("dragover", e => { e.preventDefault(); ta.classList.add("dropping"); });
@@ -2242,7 +2293,11 @@ function apply(state){
   // Focus mode shows one box, so there is nothing to anchor against.
   let anchorEl = null, anchorTop = 0;
   if (!FOCUS){
-    const focusEl = document.activeElement && document.activeElement.tagName === "TEXTAREA" ? document.activeElement : null;
+    // whatever is being typed in, which is the plain field or the editor the
+    // typed formatting puts in its place
+    const typing = document.activeElement;
+    const focusEl = typing && (typing.tagName === "TEXTAREA" ||
+      (typing.closest && typing.closest(".cffield"))) ? typing : null;
     anchorEl = focusEl ? focusEl.closest(".box") : null;
     if (!anchorEl) anchorEl = document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.closest(".box") || null;
     if (!anchorEl) anchorEl = [...document.querySelectorAll(".box")].find(x => x.getBoundingClientRect().bottom > 60);
@@ -3225,6 +3280,51 @@ function setEditMode(on){
   }
 }
 document.getElementById("editbtn").addEventListener("click", () => setEditMode(!editMode));
+
+// ---- settings --------------------------------------------------------------
+// the page's own choices for this browser, one panel off the bar. it opens on
+// the mark, closes on the next click outside it or on escape, and every row in
+// it writes straight through to the thing it names
+{
+  const wrap = document.getElementById("setwrap");
+  const btn = document.getElementById("setbtn");
+  const panel = document.getElementById("setpanel");
+  const format = document.getElementById("setformat");
+  const isOpen = () => document.body.classList.contains("setopen");
+  // the panel stands outside the bar, so it is seated under the mark rather
+  // than hung off it: the mark's own box is where it belongs, and reading that
+  // box means no number here has to know what else is in the bar
+  const seat = () => {
+    const at = btn.getBoundingClientRect();
+    const room = document.documentElement.clientWidth;
+    panel.style.top = Math.round(at.bottom + 9) + "px";
+    panel.style.right = Math.max(6, Math.round(room - at.right)) + "px";
+  };
+  const shut = () => {
+    document.body.classList.remove("setopen");
+    wrap.classList.remove("open");
+    btn.setAttribute("aria-expanded", "false");
+  };
+  format.checked = ComposeFormat.enabled();
+  format.addEventListener("change", () => ComposeFormat.setEnabled(format.checked));
+  ComposeFormat.onChange(on => { format.checked = on; });
+  btn.addEventListener("click", e => {
+    e.stopPropagation();
+    const open = !isOpen();
+    document.body.classList.toggle("setopen", open);
+    wrap.classList.toggle("open", open);
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open){ format.checked = ComposeFormat.enabled(); seat(); }
+  });
+  document.addEventListener("click", e => {
+    if (isOpen() && !wrap.contains(e.target) && !panel.contains(e.target)) shut();
+  });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") shut(); });
+  addEventListener("resize", () => { if (isOpen()) seat(); });
+}
+// the editor the typed formatting is drawn with is fetched once, early, so the
+// row is already wearing it by the time anybody types in it
+ComposeFormat.preload();
 function buildHandles(){
   handleLayer.textContent = "";
   handleItems = [];
@@ -3931,6 +4031,13 @@ function docHeadEl(g){
   return el;
 }
 
+// the block an empty line rests under, the same cell the plain line drew for
+// itself out of a pseudo element. one per editor, since a node can stand in
+// only one place
+function restingBlock(){
+  return h("span", "docblock");
+}
+
 function docSection(b){
   const sec = h("div", "docsec");
   sec.dataset.id = b.id;
@@ -3943,6 +4050,14 @@ function docSection(b){
   const sep = h("div", "docsep");
   const line = h("div", "docreply");
   line.setAttribute("contenteditable", "plaintext-only");
+  // the line's typed formatting, on unless the setting says otherwise. it is
+  // wired before anything is hung on the line, because the line keeps one
+  // public face whichever of the two it is wearing and the handle is what
+  // carries a listener across a change of face
+  ComposeFormat.attach(line, {
+    className: "cffield cfline", textValue: true,
+    newline: e => e.shiftKey, placeholder: restingBlock,
+  });
   line.addEventListener("focus", () => docSelect(b.id, { quiet: true }));
   line.addEventListener("keydown", e => {
     if (e.key === "Enter" && !e.shiftKey){
@@ -4042,7 +4157,10 @@ function renderDoc(state){
   if (wrap.dataset.sig !== sig){
     wrap.dataset.sig = sig;
     for (const id of Object.keys(docEls)){
-      if (!list.some(b => b.id === id)){ docEls[id].sec.remove(); delete docEls[id]; }
+      if (!list.some(b => b.id === id)){
+        ComposeFormat.fieldOf(docEls[id].line)?.detach();
+        docEls[id].sec.remove(); delete docEls[id];
+      }
     }
     for (const k of Object.keys(docHeads)){
       if (!st.groups.some(g => g.key === k)){ docHeads[k].remove(); delete docHeads[k]; }
@@ -4248,6 +4366,10 @@ function docMockBoot(){
 
 if (DOC){
   const nl = document.getElementById("docnew");
+  ComposeFormat.attach(nl, {
+    className: "cffield cfnew", textValue: true,
+    newline: e => e.shiftKey, placeholder: restingBlock,
+  });
   nl.addEventListener("keydown", e => {
     if (e.key === "Enter" && !e.shiftKey){
       e.preventDefault();

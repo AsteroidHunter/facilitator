@@ -53,6 +53,24 @@
     margin-left:auto}   /* holds the right edge now the status row is gone */
   #editbtn:hover{background:#E2DCFC}
   body.editmode #editbtn{background:var(--accent); color:#fff}
+  /* ---- settings ----------------------------------------------------------
+     the board's own choices, opened off the bar. it holds what the phone's
+     settings panel holds for this browser and is drawn in the bar's own
+     scale: one mark, and one panel of plain rows under it */
+  #setwrap{position:relative; flex:none; display:flex; align-items:center}
+  #setbtn{display:flex; align-items:center; padding:2px; border:none;
+    background:none; color:var(--sub); cursor:pointer; transition:color .2s}
+  #setbtn:hover, #setwrap.open #setbtn{color:var(--accent)}
+  /* seated under the mark by the script, and drawn above the board rather than
+     inside the bar's own layer */
+  #setpanel{display:none; position:fixed; z-index:40; width:264px; padding:11px 13px;
+    background:var(--card); border:1px solid var(--line); border-radius:7px;
+    box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
+  body.setopen #setpanel{display:block}
+  #setpanel .setrow{display:flex; gap:8px; align-items:flex-start;
+    font:13px/1.4 var(--sans); color:var(--ink); cursor:pointer}
+  #setpanel .setrow input{margin:2px 0 0; flex:none; accent-color:var(--accent)}
+  #setpanel .sethelp{margin:5px 0 0 22px; font:11.5px/1.45 var(--mono); color:var(--sub)}
 
   /* ---- the app's enclosure ----------------------------------------------- */
   /* every outer edge of the app carries the cards' own 7px curve, so the shell
@@ -229,6 +247,27 @@
     padding:8px 11px; min-height:38px; max-height:170px; outline:none; transition:border-color .2s;
   }
   textarea:focus{border-color:var(--accent)}
+  /* ---- the row wearing its typed formatting ------------------------------
+     the setting draws the composer's own markdown as it is written. the editor
+     is the vendored codemirror bundle and its scroller stands in for the
+     textarea, so every rule the row had is written on that one element: its
+     box, its scroll and its computed face then read exactly as the field's
+     did, and the card's own seat, band and autosize go on reading them. the
+     outer element is only the seat the row keeps in the bar. the mirror
+     textarea is still there, holding the value and the face, put out of sight
+     by the script that puts the editor on */
+  .cffield{flex:1; min-width:0; font:14.5px/1.45 var(--sans); color:var(--ink)}
+  :is(.compose, .mcompose) .cffield .cm-scroller{
+    background:var(--paper); border:1px solid var(--line); border-radius:9px;
+    padding:8px 11px; min-height:38px; max-height:170px; overflow-y:auto;
+    transition:border-color .2s;
+  }
+  :is(.compose, .mcompose) .cffield.cm-focused .cm-scroller{border-color:var(--accent)}
+  /* the block caret is the board's own, drawn over every field it tracks, and
+     the vendored theme sets a caret colour of its own on this element */
+  :is(.compose, .mcompose) .cffield .cm-content{caret-color:transparent}
+  :is(.compose, .mcompose) .cffield .cm-content ::selection,
+  :is(.compose, .mcompose) .cffield .cm-content::selection{background:var(--accent-soft)}
   /* the app draws its own caret: a terminal style block over every typing
      spot. its height follows the focused field's font; when there is a visible
      character under it, its width follows that rendered character's advance.
@@ -1297,6 +1336,17 @@
     font-size:17px; line-height:1.5;
     max-height:calc(var(--ch)*0.28); overflow-y:auto; min-height:var(--row-min);
   }
+  /* the same row with its typed formatting on. the type and the step out of
+     the column are the seat's, and everything the plain field carried on its
+     own box is carried by the editor's scroller */
+  body.focus .box.sel .cffield{
+    font-size:17px; line-height:1.5; margin:0 calc(-4px - var(--sbar)) 0 -4px;
+  }
+  body.focus .box.sel .cffield .cm-scroller{
+    background:transparent; border:none; box-shadow:none;
+    padding:var(--sp-s) 4px; scrollbar-gutter:stable;
+    max-height:calc(var(--ch)*0.28); min-height:var(--row-min);
+  }
   /* the typing row's own head, and the card's fourth fade. the fade
      lives on the top side of the line above this row only, and a long thing he
      is typing is cut square by that line on the way past it. so the same ramp
@@ -1345,7 +1395,7 @@
      outside this mask, and a line the ramp has taken nearly all the way out is
      still marked at full strength. the native caret is already put out by that
      same trick, so there is no second one left for the ramp to dim */
-  body.focus .box.sel textarea.upfade{
+  body.focus .box.sel :is(textarea, .cffield .cm-scroller).upfade{
     --upair:clamp(0px, calc(var(--upband, 0px) - var(--replyfade)), var(--replyair));
     --upramp:min(var(--upband, 0px), var(--replyfade));
     -webkit-mask-image:linear-gradient(to bottom,
@@ -1531,17 +1581,17 @@
   :is(#magic3, #magic4) .mdlist::-webkit-scrollbar,
   :is(#magic3, #magic4) .cm-scroller::-webkit-scrollbar,
   .box .reply::-webkit-scrollbar,
-  body.focus .box.sel textarea::-webkit-scrollbar{width:var(--sbar)}
+  body.focus .box.sel :is(textarea, .cffield .cm-scroller)::-webkit-scrollbar{width:var(--sbar)}
   #tiklist::-webkit-scrollbar-track, #tickets::-webkit-scrollbar-track,
   :is(#magic3, #magic4) .mdlist::-webkit-scrollbar-track,
   :is(#magic3, #magic4) .cm-scroller::-webkit-scrollbar-track,
   .box .reply::-webkit-scrollbar-track,
-  body.focus .box.sel textarea::-webkit-scrollbar-track{background:transparent}
+  body.focus .box.sel :is(textarea, .cffield .cm-scroller)::-webkit-scrollbar-track{background:transparent}
   #tiklist::-webkit-scrollbar-thumb, #tickets::-webkit-scrollbar-thumb,
   :is(#magic3, #magic4) .mdlist::-webkit-scrollbar-thumb,
   :is(#magic3, #magic4) .cm-scroller::-webkit-scrollbar-thumb,
   .box .reply::-webkit-scrollbar-thumb,
-  body.focus .box.sel textarea::-webkit-scrollbar-thumb{
+  body.focus .box.sel :is(textarea, .cffield .cm-scroller)::-webkit-scrollbar-thumb{
     background:transparent; border:3px solid transparent;
     background-clip:padding-box; border-radius:99px}
   #tiklist.scrolling::-webkit-scrollbar-thumb, #tiklist:hover::-webkit-scrollbar-thumb,
@@ -1552,8 +1602,8 @@
   :is(#magic3, #magic4) .cm-scroller:hover::-webkit-scrollbar-thumb,
   .box .reply.scrolling::-webkit-scrollbar-thumb,
   .box .reply:hover::-webkit-scrollbar-thumb,
-  body.focus .box.sel textarea.scrolling::-webkit-scrollbar-thumb,
-  body.focus .box.sel textarea:hover::-webkit-scrollbar-thumb{
+  body.focus .box.sel :is(textarea, .cffield .cm-scroller).scrolling::-webkit-scrollbar-thumb,
+  body.focus .box.sel :is(textarea, .cffield .cm-scroller):hover::-webkit-scrollbar-thumb{
     background-color:var(--line-strong)}
   .trow{
     position:relative; flex:none; height:calc(var(--ch)*0.072);
@@ -2577,6 +2627,11 @@
     border:none; box-shadow:none; outline:none; color:var(--ink);
     font:12px/1.5 var(--sans); padding:var(--sp-s) 4px; margin:0 -4px;
     min-height:30px; max-height:110px; overflow-y:auto}
+  /* the same line with its typed formatting on */
+  #magic2 .mcompose .cffield{font:12px/1.5 var(--sans); color:var(--ink); margin:0 -4px}
+  #magic2 .mcompose .cffield .cm-scroller{
+    background:transparent; border:none; box-shadow:none;
+    padding:var(--sp-s) 4px; min-height:30px; max-height:110px; overflow-y:auto}
   #magic2 .msend{background:none; border:none; cursor:pointer;
     color:var(--sub); font:500 12px var(--sans);
     /* the field's own bottom padding, so the two sit on one line */
@@ -3235,8 +3290,11 @@
   }
   .reply blockquote:last-child{margin-bottom:0}
   /* card prose, the .cardmd rules, is shared with the phone page: card-tokens.css */
-  textarea.dropping{border-color:var(--accent) !important}
-  body.focus .box.sel textarea.dropping{background:var(--accent-soft)}
+  /* the drop mark: the formatted row wears it on the same element the plain
+     one does, since the field's class list is the editor's scroller while the
+     editor is on */
+  textarea.dropping, .cffield .cm-scroller.dropping{border-color:var(--accent) !important}
+  body.focus .box.sel :is(textarea, .cffield .cm-scroller).dropping{background:var(--accent-soft)}
   /* home, greyed out until it does something */
   #homeico{display:none}
   body.focus #homeico{display:flex; align-items:center; color:#C9BFAE}
@@ -3275,6 +3333,18 @@
   <span class="name" id="boardname">facilitator</span>
   <button id="editbtn" title="edit layout">✎</button>
   <input type="color" id="bgpick" title="background color (temporary)" value="#F5F4F1">
+  <span id="setwrap">
+    <button id="setbtn" type="button" title="settings" aria-label="settings" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-1 1.47V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.6 1.6 0 0 0 4.6 15a1.6 1.6 0 0 0-1.47-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 8.9a1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.6 1.6 0 0 0 8.88 4.6H9a1.6 1.6 0 0 0 1-1.47V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77V9a1.6 1.6 0 0 0 1.47 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.47 1z"/></svg></button>
+  </span>
+</div>
+
+<!-- the settings panel hangs from the mark in the bar but stands outside it:
+     the bar paints on a layer of its own and anything inside it is bound to that
+     layer, so a panel kept in there is drawn under the board it opens over. it
+     is seated under the mark by the script that opens it. -->
+<div id="setpanel" role="group" aria-label="settings">
+  <label class="setrow"><input type="checkbox" id="setformat"><span>Format text while typing</span></label>
+  <p class="sethelp">Bold, italic, strikethrough, quotes and bullets are drawn in the composer as you type. The message is still sent as Markdown.</p>
 </div>
 
 <div id="appframe" aria-hidden="true"></div>
@@ -3379,6 +3449,7 @@
 <script src="/card-markdown.js"></script>
 <script src="/card-logic.js"></script>
 <script src="/card-report.js"></script>
+<script src="/compose-format.js"></script>
 <script>
 // what this page throws, what it fails to fetch and what it fails to draw goes
 // to the board's own log; without it a failure leaves nothing behind at all
@@ -5201,6 +5272,13 @@ function makeBox(b, i, state){
       tocGroups[sec].appendChild(entry);
     }
 
+    // the row's typed formatting, on unless the setting says otherwise. it is
+    // wired before anything is hung on the field, because the field keeps one
+    // public face whichever of the two it is wearing and the handle is what
+    // carries a listener across a change of face. enter is the card's own
+    // command here, so only shift enter is a new line for the list to carry
+    const field = ComposeFormat.attach(ta, { newline: e => e.shiftKey });
+
     // the row's own autosize: back to auto, then up to the content, and the css
     // max-height caps it. the square's seat, its coming and going, and the ramp
     // at the row's head are read off the same keystroke, so the four can never
@@ -5228,12 +5306,12 @@ function makeBox(b, i, state){
     ta.addEventListener("keydown", e => composerEnter(e, b.id));
     // both controls swallow the press while the box has the focus, the way the
     // chat bar does it, so the caret never leaves the words
-    send.addEventListener("pointerdown", e => { if (document.activeElement === ta) e.preventDefault(); });
+    send.addEventListener("pointerdown", e => { if (ComposeFormat.focused(ta)) e.preventDefault(); });
     send.addEventListener("click", () => doSend(b.id));
     // the plus hands the press straight to the hidden picker, and what comes
     // back goes up the board's own /upload road, the same one a dropped image
     // takes, so a picked file and a dropped one land in exactly one place
-    clip.addEventListener("pointerdown", e => { if (document.activeElement === ta) e.preventDefault(); });
+    clip.addEventListener("pointerdown", e => { if (ComposeFormat.focused(ta)) e.preventDefault(); });
     clip.addEventListener("click", () => clipfile.click());
     clipfile.addEventListener("change", async () => {
       const files = [...(clipfile.files || [])];
@@ -5290,7 +5368,7 @@ function makeBox(b, i, state){
                   titleEl, tocTitle: entry.querySelector(".ttitle"), arc, x,
                   topbar, branch, bname, wtpick, wtmenu, hasWt: false, hasHistory,
                   historyVersion: null,
-                  pendwrap, bottombar, clip, clipfile, tick };
+                  pendwrap, bottombar, clip, clipfile, tick, field };
     // the ramp's top edge follows the wrapper from the card's first frame, box
     // or no box, so it is armed here and not when a box is built
     watchBand(els[b.id]);
@@ -5534,6 +5612,10 @@ function apply(state){
     if (!state.boxes.some(b => b.id === id)){
       if (hist && hist.id === id) hist = null;
       delete histCache[id];
+      // the row's typed formatting is held by the formatter as well as by this
+      // card, so the card takes it with it: without this the editor and the
+      // removed card stay reachable for the rest of the page's life
+      els[id].field?.detach();
       els[id].box.remove(); els[id].toc.remove(); delete els[id];
     }
   }
@@ -5549,7 +5631,11 @@ function apply(state){
   // Focus mode shows one box, so there is nothing to anchor against.
   let anchorEl = null, anchorTop = 0;
   if (!FOCUS){
-    const focusEl = document.activeElement && document.activeElement.tagName === "TEXTAREA" ? document.activeElement : null;
+    // whatever is being typed in, which is the plain field or the editor the
+    // typed formatting puts in its place
+    const typing = document.activeElement;
+    const focusEl = typing && (typing.tagName === "TEXTAREA" ||
+      (typing.closest && typing.closest(".cffield"))) ? typing : null;
     anchorEl = focusEl ? focusEl.closest(".box") : null;
     if (!anchorEl) anchorEl = document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.closest(".box") || null;
     if (!anchorEl) anchorEl = [...document.querySelectorAll(".box")].find(x => x.getBoundingClientRect().bottom > 60);
@@ -8113,6 +8199,9 @@ function renderMiniCards(state){
       ta.rows = 1;
       const send = h("button", "msend", "Send");
       compose.append(ta, send);
+      // the small card's row carries the same typed formatting the big one
+      // does, with the same two keys: enter sends and shift enter breaks
+      ComposeFormat.attach(ta, { newline: e => e.shiftKey });
       const fire = async () => {
         const text = ta.value.trim();
         if (!text) return;
@@ -8163,7 +8252,12 @@ function renderMiniCards(state){
     el.box.classList.toggle("mwait", !!b.pending);
   }
   for (const id of Object.keys(miniEls)){
-    if (!live.has(id)){ miniEls[id].box.remove(); delete miniEls[id]; }
+    if (!live.has(id)){
+      // the small card's row is held by the formatter too, and this card's
+      // handle is the one the formatter keeps for its field
+      ComposeFormat.fieldOf(miniEls[id].ta)?.detach();
+      miniEls[id].box.remove(); delete miniEls[id];
+    }
   }
   // reorder only when the order really changed; moving nodes every poll would
   // fight a composer that is being typed into
@@ -8791,6 +8885,51 @@ function setEditMode(on){
   }
 }
 document.getElementById("editbtn").addEventListener("click", () => setEditMode(!editMode));
+
+// ---- settings --------------------------------------------------------------
+// the board's own choices for this browser, one panel off the bar. it opens on
+// the mark, closes on the next click outside it or on escape, and every row in
+// it writes straight through to the thing it names
+{
+  const wrap = document.getElementById("setwrap");
+  const btn = document.getElementById("setbtn");
+  const panel = document.getElementById("setpanel");
+  const format = document.getElementById("setformat");
+  const isOpen = () => document.body.classList.contains("setopen");
+  // the panel stands outside the bar, so it is seated under the mark rather
+  // than hung off it: the mark's own box is where it belongs, and reading that
+  // box means no number here has to know what else is in the bar
+  const seat = () => {
+    const at = btn.getBoundingClientRect();
+    const room = document.documentElement.clientWidth;
+    panel.style.top = Math.round(at.bottom + 9) + "px";
+    panel.style.right = Math.max(6, Math.round(room - at.right)) + "px";
+  };
+  const shut = () => {
+    document.body.classList.remove("setopen");
+    wrap.classList.remove("open");
+    btn.setAttribute("aria-expanded", "false");
+  };
+  format.checked = ComposeFormat.enabled();
+  format.addEventListener("change", () => ComposeFormat.setEnabled(format.checked));
+  ComposeFormat.onChange(on => { format.checked = on; });
+  btn.addEventListener("click", e => {
+    e.stopPropagation();
+    const open = !isOpen();
+    document.body.classList.toggle("setopen", open);
+    wrap.classList.toggle("open", open);
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open){ format.checked = ComposeFormat.enabled(); seat(); }
+  });
+  document.addEventListener("click", e => {
+    if (isOpen() && !wrap.contains(e.target) && !panel.contains(e.target)) shut();
+  });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") shut(); });
+  addEventListener("resize", () => { if (isOpen()) seat(); });
+}
+// the editor the typed formatting is drawn with is fetched once, early, so the
+// row is already wearing it by the time anybody types in it
+ComposeFormat.preload();
 function buildHandles(){
   handleLayer.textContent = "";
   handleItems = [];
