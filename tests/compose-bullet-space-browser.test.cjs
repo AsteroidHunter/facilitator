@@ -288,6 +288,95 @@ test('phone: an extra ordered-item space advances the caret', () => {
     'An extra ordered-item space did not advance by a normal space width');
 });
 
+// ---- the row a marker shares with its first text ----------------------------
+// Invented input: one item, no newline, whose first token is far longer than any
+// row it can be drawn on, and a spaced control of ordinary words.
+const LONG_TOKEN = 'abcdefghijklmnopqrstuvwxyz'.repeat(6);
+const SPACED_WORDS = 'alpha bravo charlie delta echo foxtrot golf hotel india juliet ' +
+  'kilo lima mike november oscar papa quebec romeo sierra tango';
+
+// Rows read off document positions and the drawn line, so the same reading is
+// taken on a build that draws the marker differently. Position 0 is inside the
+// marker; textStart is the item's first text character.
+async function rowGeometry(page, textStart) {
+  await settle();
+  return page.evaluate(start => {
+    const row = document.querySelector('article.box.sel textarea');
+    const view = ComposeFormat.fieldOf(row).view;
+    const line = view.contentDOM.querySelector('.cm-line');
+    const at = pos => {
+      const c = view.coordsAtPos(pos, 1);
+      return c && { left: c.left, top: c.top, bottom: c.bottom };
+    };
+    const rows = new Map();
+    for (let pos = start; pos <= view.state.doc.length; pos++) {
+      const c = at(pos);
+      if (!c) continue;
+      const key = Math.round(c.top);
+      const held = rows.get(key);
+      if (!held || c.left < held.left) rows.set(key, { top: c.top, left: c.left, pos });
+    }
+    const box = line.getBoundingClientRect();
+    return {
+      raw: row.value, marker: at(0), firstGlyph: at(start),
+      rows: [...rows.entries()].sort((a, b) => a[0] - b[0]).map(entry => entry[1]),
+      column: box.left + parseFloat(getComputedStyle(line).paddingLeft),
+    };
+  }, textStart);
+}
+
+for (const platform of PLATFORMS) {
+  test(`${platform.name}: a long first token shares the marker's row`, async () => {
+    const { page, problems } = await open(platform);
+    try {
+      await page.keyboard.type('- ' + LONG_TOKEN);
+      const shot = await rowGeometry(page, 2);
+      await screenshot(page, platform.name + '-long-token');
+      traces[platform.name + '-long-token'] = [shot];
+      assert.equal(shot.raw, '- ' + LONG_TOKEN, 'the row did not keep what was typed');
+      assert.equal(shot.raw.length, 158);
+      assert.ok(!shot.raw.includes('\n'), 'the item was split into more than one source line');
+      assert.ok(shot.rows.length >= 2,
+        'the token did not wrap, so nothing was asked of the wrap: ' + shot.rows.length);
+      assert.ok(Math.abs(shot.firstGlyph.top - shot.marker.top) < 1,
+        `the marker is drawn on y=${shot.marker.top} and its first glyph on ` +
+        `y=${shot.firstGlyph.top}, so the marker holds a row of its own`);
+      for (const row of shot.rows)
+        assert.ok(Math.abs(row.left - shot.column) < 0.75,
+          `a row of the item starts at ${row.left} and its column is ${shot.column}`);
+      // the token is broken to fill the rows rather than moved down whole
+      for (const row of shot.rows.slice(1))
+        assert.ok(!/[ \t]/.test(shot.raw[row.pos - 1]),
+          'a row of the long token began after a space, so the token was moved rather than broken');
+      assert.deepEqual(problems, []);
+    } finally { await page.close(); }
+  });
+
+  test(`${platform.name}: ordinary spaced words still wrap whole`, async () => {
+    const { page, problems } = await open(platform);
+    try {
+      await page.keyboard.type('- ' + SPACED_WORDS);
+      const shot = await rowGeometry(page, 2);
+      await screenshot(page, platform.name + '-spaced-words');
+      traces[platform.name + '-spaced-words'] = [shot];
+      assert.equal(shot.raw, '- ' + SPACED_WORDS, 'the row did not keep what was typed');
+      assert.ok(shot.rows.length >= 2,
+        'the words did not wrap, so nothing was asked of the wrap: ' + shot.rows.length);
+      assert.ok(Math.abs(shot.firstGlyph.top - shot.marker.top) < 1,
+        'the first word left the marker alone on its row');
+      for (const row of shot.rows)
+        assert.ok(Math.abs(row.left - shot.column) < 0.75,
+          `a row of the item starts at ${row.left} and its column is ${shot.column}`);
+      // no ordinary word is cut in half: every later row begins on a word
+      // boundary, whichever side of the wrap the separating space landed on
+      for (const row of shot.rows.slice(1))
+        assert.ok(/[ \t]/.test(shot.raw[row.pos - 1]) || /[ \t]/.test(shot.raw[row.pos] || ''),
+          `a row began inside a word at ${row.pos}, so ordinary words stopped wrapping whole`);
+      assert.deepEqual(problems, []);
+    } finally { await page.close(); }
+  });
+}
+
 // The caret after the first separator must land on the column the item's words
 // begin on. Any room held back inside the marker is room a later space has to
 // cross before it can show, which is how a typed space becomes invisible.

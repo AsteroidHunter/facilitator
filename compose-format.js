@@ -154,6 +154,7 @@
     const emphasis = D.mark({ class: "cf-em" });
     const strong = D.mark({ class: "cf-strong" });
     const strike = D.mark({ class: "cf-strike" });
+    const breakable = D.mark({ class: "cf-first" });
     const INLINE = { Emphasis: emphasis, StrongEmphasis: strong, Strikethrough: strike };
     const INLINE_MARK = { EmphasisMark: true, StrikethroughMark: true };
 
@@ -174,10 +175,12 @@
       // a run given a column's width, counted into what stands in front of the
       // line's words. the first line is pulled back by exactly that sum, so a
       // line with nothing standing there is not pulled back at all
+      const headEnd = new Map();    // line number -> where its head boxes end
       const headBox = (line, cls, width, from, to) => {
         if (to <= from) return;
         out.push(box(D, cls, width).range(from, to));
         pull.set(line.number, (pull.get(line.number) || 0) + width);
+        headEnd.set(line.number, Math.max(headEnd.get(line.number) || 0, to));
       };
       C.syntaxTree(state).iterate({
         enter: node => {
@@ -261,6 +264,17 @@
           }
           attributes.style = "--cf-hang:" + hang.get(n) + "ch;" +
             "--cf-pull:" + (pull.get(n) || 0) + "ch";
+          // A head box is an inline block, and a box is a break opportunity. A
+          // first word with no room left beside it would take that break and
+          // move down whole, leaving the marker alone on its row. Only that one
+          // word is allowed to break inside itself; the rest wrap as ever.
+          if (headEnd.has(n)) {
+            let start = headEnd.get(n);
+            while (start < line.to && /[ \t]/.test(line.text[start - line.from])) start++;
+            let stop = start;
+            while (stop < line.to && !/[ \t]/.test(line.text[stop - line.from])) stop++;
+            if (stop > start) out.push(breakable.range(start, stop));
+          }
         }
         if (quote.has(n)) {
           classes.push("cf-quote");
@@ -329,6 +343,9 @@
       // the caret after it lands exactly where the words begin
       ".cf-mark": { textAlign: "right" },
       ".cf-mark::after": { content: '""', display: "inline-block", width: "0" },
+      // the one word that may break inside itself, so it can share the row its
+      // marker is on instead of moving down and stranding it
+      ".cf-first": { wordBreak: "break-all" },
       // the source dash keeps its place in the document and a round marker is
       // painted over its column, so the caret and a selection stay exactly on
       // the characters
