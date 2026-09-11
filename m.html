@@ -49,17 +49,14 @@
     --drawer-curve:var(--drawer-tap);
   }
   *{box-sizing:border-box}
-  /* 100vh, NOT 100%, so the root and the body are the viewport's own size and
-     the startup curtain is centred on the same box the reference app centres on.
-     The reference's sheet keeps this rule because it found 100% could let an
-     installed window stop covering the screen; that is its recorded reason, not
-     a measurement taken here. A standalone open has no browser toolbar, so 100vh
-     is exact once the viewport settles. The shell fallback below matches. */
-  html{height:100vh; -webkit-text-size-adjust:100%}
+  /* Height follows the containing block, not a viewport unit. The two are not
+     always the same box, and a column taken from the longer one overhangs the
+     shorter. The shell fallback below matches. */
+  html{height:100%; -webkit-text-size-adjust:100%}
   body{
     margin:0; background:var(--paper); color:var(--ink);
     font:15px/1.55 var(--sans);
-    position:fixed; left:0; top:0; width:100%; height:100vh;
+    position:fixed; left:0; top:0; width:100%; height:100%;
     overflow:hidden;
     -webkit-tap-highlight-color:transparent;
   }
@@ -112,7 +109,7 @@
      and never the viewport's own, so the box never changes size at a keyboard
      edge. the script drops both once the keyboard is really gone, and lands
      on the geometry the box already had */
-  body.obstructed, body.lifting{top:var(--shell-top, 0px); height:var(--shell-h, 100vh)}
+  body.obstructed, body.lifting{top:var(--shell-top, 0px); height:var(--shell-h, 100%)}
   button{font-family:inherit; -webkit-appearance:none; appearance:none}
 
   /* ---- the project tabs, seated the way the desktop bar seats them --------- */
@@ -622,13 +619,12 @@
   /* the scene arrives rather than being there, which is what makes any settle
      of the safe-area insets on the first frames a non-event */
   #loading .scene{position:absolute; inset:0; animation:ld-appear 620ms ease-out 80ms both}
-  /* centred across the panel and down the screen. every length is vmin, the
-     viewport's shorter edge, which on a phone is its width and does not move
-     while the insets settle; lvh is the large viewport, which the settle does
-     not touch either, with the percentage under it for an engine that does not
-     know the unit */
+  /* Centred on the panel, as a percentage of the panel itself, so the offset and
+     the box it is measured against are the same box. A viewport-height unit is a
+     different quantity and need not match the panel. Sizes stay in vmin, which
+     is the width in portrait. */
   #loading .globe{
-    position:absolute; left:50%; top:50%; top:50lvh;
+    position:absolute; left:50%; top:50%;
     box-sizing:border-box;
     width:14vmin; height:14vmin; margin:-7vmin 0 0 -7vmin;
     border:0.4vmin solid #000000; border-radius:50%; overflow:hidden;

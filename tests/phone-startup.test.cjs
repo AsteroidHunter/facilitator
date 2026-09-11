@@ -388,6 +388,8 @@ async function readCurtain(page) {
       stroke: getComputedStyle(coast).stroke,
       transform: getComputedStyle(earth).transform,
       play: earth.getAnimations().map(a => a.playState),
+      // A pending play or pause has not yet been applied.
+      pending: earth.getAnimations().map(a => a.pending),
       clock: earth.getAnimations().map(a => Number(a.currentTime)),
       names: earth.getAnimations().map(a => a.animationName),
       sceneNames: el.querySelector(".scene").getAnimations().map(a => a.animationName),
@@ -403,6 +405,31 @@ async function movedSince(page, before, ms = 400) {
   const ticked = now.clock[0] !== undefined && before.clock[0] !== undefined &&
                  now.clock[0] > before.clock[0];
   return { moved: ticked || now.transform !== before.transform, now };
+}
+
+// Wait for pending pause tasks and rendered frames before sampling motion.
+async function pausedAndSettled(page, selector, timeout = 20000) {
+  await page.waitForFunction(sel => {
+    const el = document.querySelector(sel);
+    if (!el) return false;
+    const list = el.getAnimations();
+    return list.length > 0 && list.every(a => a.playState === "paused");
+  }, { timeout, polling: "raf" }, selector);
+  await page.evaluate(async sel => {
+    const list = document.querySelector(sel).getAnimations();
+    await Promise.all(list.map(a => a.ready));
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  }, selector);
+  const state = await page.evaluate(sel => {
+    const list = document.querySelector(sel).getAnimations();
+    return { pending: list.map(a => a.pending), play: list.map(a => a.playState) };
+  }, selector);
+  assert.deepEqual(state.pending.filter(Boolean), [],
+    "a pause was still pending when the stopped sample was taken: " +
+    JSON.stringify(state));
+  assert.deepEqual(state.play.filter(p => p !== "paused"), [],
+    "an animation left the paused state before the stopped sample: " +
+    JSON.stringify(state));
 }
 
 async function shot(page, name) {
@@ -621,6 +648,7 @@ test("a reading that fails stops the globe where it stands and turns it red", as
   try {
     await page.waitForFunction(() => document.getElementById("loading")?.classList.contains("down"),
       { timeout: 10000 });
+    await pausedAndSettled(page, "#loading .earth");
     const curtain = await readCurtain(page);
     assert.equal(curtain.present, true, "the curtain went when the board could not be reached");
     assert.equal(curtain.opacity, 1);
@@ -786,7 +814,7 @@ test("a connection lost after the start never brings the curtain back", async ()
   }
 });
 
-test("reduced motion keeps the globe turning, and a failed reading still stops it", async () => {
+test("reduced motion keeps the globe turning, and a failed reading still stops it", async t => {
   fixture.mode = "hang";
   const { browser, page } = await openInstalled(fixture, { reducedMotion: true });
   try {
@@ -805,20 +833,22 @@ test("reduced motion keeps the globe turning, and a failed reading still stops i
     for (const res of fixture.hung.splice(0)) res.destroy();
     await page.waitForFunction(() => document.getElementById("loading")?.classList.contains("down"),
       { timeout: 20000 });
-    // the class is the page's word and the paused animation is the browser's;
-    // reading the globe's clock between the two would time a globe that had not
-    // been stopped yet, which says nothing about whether it stays stopped
-    await page.waitForFunction(() => {
-      const earth = document.querySelector("#loading .earth");
-      if (!earth) return false;
-      const running = earth.getAnimations();
-      return running.length > 0 && running.every(a => a.playState === "paused");
-    }, { timeout: 20000 });
+    // A paused playState can precede the applied pause.
+    await pausedAndSettled(page, "#loading .earth");
     const down = await readCurtain(page);
     assert.deepEqual(down.play, ["paused"], "a failed reading did not stop the globe under reduced motion");
+    assert.deepEqual(down.pending, [false], "the globe's pause was still pending when it was sampled");
     assert.equal(down.border, "rgb(168, 68, 42)");
     const after = await movedSince(page, down, 600);
-    assert.equal(after.moved, false);
+    const sample = value => ({ clock: value.clock, transform: value.transform, pending: value.pending });
+    t.diagnostic(JSON.stringify({ stoppedBefore: sample(down), stoppedAfter: sample(after.now) }));
+    // both halves of stopped, named separately so a failure says which moved
+    assert.equal(after.now.clock[0], down.clock[0],
+      "the stopped globe's clock moved on: " + down.clock[0] + " to " + after.now.clock[0]);
+    assert.equal(after.now.transform, down.transform,
+      "the stopped globe's transform moved on: " + down.transform +
+      " to " + after.now.transform);
+    assert.equal(after.moved, false, "the stopped globe moved");
   } finally {
     await browser.close();
     fixture.mode = "ok";
@@ -1336,17 +1366,27 @@ test("a pass that throws after the start never brings the curtain back", async (
   }
 });
 
-// ---- where the globe sits ------------------------------------------------------------
-// The owner's report is that the globe is not in the middle of the SCREEN on an
-// installed iPhone. What a driven browser can settle is the half of that which
-// lives in the document: that the curtain is exactly the viewport and the globe
-// is exactly its middle, on every shape of phone, and that nothing the app does
-// to its own layout moves either.
+// ---- where the globe sits, and where the card's foot lands ---------------------------
+// These cover one conditional relationship: when a fixed containing block is
+// shorter than a viewport-height unit reads, a box sized from the block stays
+// inside it and a box sized from the unit does not.
 //
-// What it cannot settle is the other half. iOS decides how much of the screen
-// the web view gets, and a web view that is not the whole screen puts a centred
-// globe off the screen's middle without any of the numbers below changing. This
-// engine does not model that, so a pass here is not a pass on a phone.
+// The cases fall into two kinds.
+//
+//   The plain ones run in an ordinary window, where the two numbers are equal.
+//   They cannot separate a page sized one way from a page sized the other, so
+//   they are a floor and not a proof. The earlier pair passed on both sources,
+//   which is that limit.
+//
+//   The divergent ones create the inequality with a mechanism this engine
+//   implements: a transform on the root makes the root the containing block for
+//   fixed children, so a fixed child sized in per cent follows the root while
+//   the same child sized in vh keeps reading the window. This is a deliberately
+//   introduced condition. It shows what the page does when a block is shorter
+//   than the unit. It does not show that any device produces that condition, and
+//   a pass here is not a pass on a phone. Each case asserts the condition took
+//   hold first, so an engine that declines it fails loudly rather than passing
+//   on a condition it never created.
 
 // the curtain's box and the globe's centre, against the viewport
 async function readGlobeBox(page) {
@@ -1437,6 +1477,259 @@ test("nothing the app does to its own layout moves the globe", async () => {
     // and the curtain is still a child of the body rather than of the scaled page
     const parent = await page.evaluate(() => document.getElementById("loading").parentElement.tagName);
     assert.equal(parent, "BODY");
+  } finally {
+    await browser.close();
+    fixture.reset();
+  }
+});
+
+// Resolve CSS lengths by measuring them, one probe per length.
+//
+// innerHeight and innerWidth are NOT usable as stand-ins for these here. Under
+// the synthetic root below the mobile layout viewport can be reported as
+// something else entirely, and a run showed innerHeight at 1446 while a real
+// 100vh measured 844. So every length a case needs is read off a probe carrying
+// that exact length.
+//
+// The probe is absolutely positioned inside the body, which is fixed and clips
+// its overflow, so it adds nothing scrollable. Its height is a non-percentage
+// length, which resolves against the unit rather than against any containing
+// block, so it reads the unit itself.
+async function cssLength(page, lengths) {
+  return page.evaluate(list => {
+    const out = {};
+    for (const [name, css] of Object.entries(list)) {
+      const probe = document.createElement("div");
+      probe.style.cssText =
+        "position:absolute;left:0;top:0;width:1px;visibility:hidden;" +
+        "pointer-events:none;height:" + css;
+      document.body.appendChild(probe);
+      out[name] = probe.getBoundingClientRect().height;
+      probe.remove();
+    }
+    return out;
+  }, lengths);
+}
+
+// Make the fixed containing block shorter than the viewport units, and prove the
+// condition took before anything is measured against it.
+//
+// The synthetic root is also pinned to the viewport's width and clipped. Without
+// that, the drawers parked off both edges push the mobile layout viewport out
+// and the numbers stop meaning anything. None of the rules under test is
+// touched: the root gets a height, a width, a clip and a transform, and the root
+// is not one of them.
+const SHORT_BLOCK_PX = 700;
+async function shortenFixedBlock(page, blockPx = SHORT_BLOCK_PX) {
+  await page.evaluate(px => {
+    const style = document.createElement("style");
+    style.id = "divergent-block";
+    style.textContent =
+      "html{height:" + px + "px !important; width:100% !important;" +
+      "max-width:100% !important; overflow:hidden !important;" +
+      "transform:translateZ(0) !important}";
+    document.head.appendChild(style);
+  }, blockPx);
+  await page.evaluate(() => new Promise(r => requestAnimationFrame(() => r())));
+
+  const units = await cssLength(page, { vh: "100vh", lvh: "100lvh", vmin14: "14vmin" });
+  const block = await page.evaluate(() => {
+    const probe = document.createElement("div");
+    probe.style.cssText =
+      "position:fixed;left:0;top:0;width:1px;visibility:hidden;" +
+      "pointer-events:none;height:100%";
+    document.body.appendChild(probe);
+    const h = probe.getBoundingClientRect().height;
+    probe.remove();
+    return h;
+  });
+
+  assert.ok(Math.abs(block - blockPx) < 1,
+    "the condition did not take: a fixed child sized in per cent measured " +
+    block + " rather than the root's " + blockPx +
+    ". This engine did not make the transformed root the containing block, so " +
+    "nothing below would be testing what it says it tests.");
+  assert.ok(units.vh - block > 50,
+    "the fixed block is not shorter than a resolved 100vh by enough to tell " +
+    "anything: block " + block + " against vh " + units.vh);
+  assert.ok(units.lvh - block > 50,
+    "the fixed block is not shorter than a resolved 100lvh by enough to tell " +
+    "anything: block " + block + " against lvh " + units.lvh);
+  return { block, ...units };
+}
+
+// Wait for a transitioned length to stop moving. #page transitions its bottom
+// padding on the keyboard's own clock, so a value read in the same task as the
+// change is the value before the change. Product code keeps that transition.
+async function settledPaddingBottom(page, atLeast) {
+  await page.waitForFunction(floor => {
+    const el = document.getElementById("page");
+    const now = parseFloat(getComputedStyle(el).paddingBottom);
+    const was = window.__lastFoot;
+    window.__lastFoot = now;
+    return now >= floor - 0.5 && was !== undefined && Math.abs(now - was) < 0.05;
+  }, { timeout: 8000, polling: "raf" }, atLeast);
+  await page.evaluate(() => { delete window.__lastFoot; });
+  return page.evaluate(() =>
+    parseFloat(getComputedStyle(document.getElementById("page")).paddingBottom));
+}
+
+test("a window shorter than its own vh keeps the card's foot inside it", async () => {
+  // the board drawn and the curtain gone, so the card is at its full height
+  const { browser, page, problems } = await openInstalled(fixture);
+  try {
+    await page.waitForFunction(() => !document.getElementById("loading"), { timeout: 25000 });
+    const took = await shortenFixedBlock(page);
+    const box = await page.evaluate(() => {
+      const body = document.body.getBoundingClientRect();
+      const pane = document.getElementById("pane").getBoundingClientRect();
+      const page_ = document.getElementById("page");
+      const composer = document.querySelector("#cards .box.sel .compose");
+      return {
+        body: body.height,
+        paneBottom: pane.bottom,
+        foot: parseFloat(getComputedStyle(page_).paddingBottom),
+        hasComposer: !!composer,
+        composerBottom: composer ? composer.getBoundingClientRect().bottom : null,
+      };
+    });
+    // the page's column is the box it was given, not the number a unit reads
+    assert.ok(Math.abs(box.body - took.block) < 1,
+      "the page's column is not the box it was given: " + box.body +
+      " against " + took.block + ", with a resolved 100vh of " + took.vh +
+      ". A column sized from a viewport-height unit lands here.");
+    // and the card's foot, plus the clearance under it, is inside that box
+    assert.ok(box.paneBottom <= took.block + 0.5,
+      "the card's foot is below the box it was given: " + box.paneBottom +
+      " against " + took.block);
+    assert.ok(box.paneBottom + box.foot <= took.block + 0.5,
+      "the card's foot clearance runs past the box: " +
+      (box.paneBottom + box.foot) + " against " + took.block);
+    // the composer has to be there for its position to mean anything
+    assert.ok(box.hasComposer,
+      "no composer on the shown card, so this case would prove nothing about it");
+    assert.ok(box.composerBottom <= took.block + 0.5,
+      "the composer is below the box it was given: " + box.composerBottom +
+      " against " + took.block);
+    assert.deepEqual(problems, []);
+  } finally {
+    await browser.close();
+    fixture.reset();
+  }
+});
+
+test("a window shorter than its own vh still centres the globe on the window", async () => {
+  fixture.mode = "hang";   // the curtain stays up while it is measured
+  const { browser, page, problems } = await openInstalled(fixture);
+  try {
+    // the globe's size before the condition is introduced, to compare against
+    const before = await readGlobeBox(page);
+    const took = await shortenFixedBlock(page);
+    const box = await readGlobeBox(page);
+    // everything below is taken from the panel's own rectangle and from measured
+    // lengths, never from innerHeight or innerWidth
+    const panelTop = box.panel[1], panelLeft = box.panel[0];
+    const panelH = box.panel[3], panelW = box.panel[2];
+    // the curtain is the box it was given
+    assert.ok(Math.abs(panelH - took.block) < 1,
+      "the curtain is not the box it was given: " + panelH +
+      " against " + took.block);
+    // and the globe's middle is the panel's middle, not half of what a unit reads
+    const wanted = panelTop + panelH / 2;
+    const lvhWould = panelTop + took.lvh / 2;
+    assert.ok(Math.abs(box.centre[1] - wanted) < 0.5,
+      "the globe is off centre down by " + (box.centre[1] - wanted).toFixed(1) +
+      "px: it sits at " + box.centre[1] + ", the panel's middle is " + wanted +
+      ", and half of a resolved 100lvh below the panel's top would be " + lvhWould);
+    // across, against the panel's own width
+    assert.ok(Math.abs(box.centre[0] - (panelLeft + panelW / 2)) < 0.5,
+      "the globe moved sideways: " + box.centre[0] +
+      " against the panel's middle at " + (panelLeft + panelW / 2));
+    // the size follows a length, not the block: it must read the same as the
+    // measured 14vmin and as the size it had before the condition
+    assert.ok(Math.abs(box.size[0] - took.vmin14) < 0.5,
+      "the globe is not the size a measured 14vmin resolves to: " + box.size[0] +
+      " against " + took.vmin14);
+    assert.ok(Math.abs(box.size[0] - before.size[0]) < 0.5,
+      "the globe changed size when the block shortened: " + before.size[0] +
+      " became " + box.size[0]);
+    assert.deepEqual(problems, []);
+  } finally {
+    await browser.close();
+    fixture.reset();
+  }
+});
+
+const FOOT_INSET_PX = 40;
+
+test("the card's foot clears the bottom inset it is given, before and after the curtain", async () => {
+  // No synthetic condition here. This is the clearance arithmetic on its own:
+  // whatever --pad-b resolves to has to stay between the card's foot and the
+  // bottom of the page's box, with the curtain up and again once it has gone.
+  //
+  // #page transitions its bottom padding, so every reading below waits for that
+  // transition to finish first. The transition is product behaviour and stays.
+  fixture.mode = "hang";
+  const { browser, page, problems } = await openInstalled(fixture);
+  try {
+    const read = () => page.evaluate(() => {
+      const page_ = document.getElementById("page");
+      const box = page_.getBoundingClientRect();
+      const pane = document.getElementById("pane").getBoundingClientRect();
+      return {
+        pageBottom: box.bottom,
+        paneBottom: pane.bottom,
+        foot: parseFloat(getComputedStyle(page_).paddingBottom),
+        body: document.body.getBoundingClientRect().height,
+      };
+    });
+    const setInset = () => page.evaluate(px => {
+      document.getElementById("page").style.setProperty("--app-inset", px + "px");
+    }, FOOT_INSET_PX);
+
+    // a generous bottom inset, written where the safe area is added, so the same
+    // calc is exercised without claiming to be a notch
+    await setInset();
+    const coveredFoot = await settledPaddingBottom(page, FOOT_INSET_PX);
+    const covered = await read();
+    const units = await cssLength(page, { vh: "100vh" });
+    assert.ok(coveredFoot >= FOOT_INSET_PX - 0.5,
+      "the bottom inset never settled at its target: " + coveredFoot);
+    assert.ok(Math.abs(covered.foot - coveredFoot) < 0.5,
+      "the bottom padding moved again after it settled: " + coveredFoot +
+      " then " + covered.foot);
+    assert.ok(covered.paneBottom + covered.foot <= covered.pageBottom + 0.5,
+      "with the curtain up the card's foot ate its clearance: foot at " +
+      covered.paneBottom + " plus " + covered.foot + " against " + covered.pageBottom);
+    assert.ok(covered.body <= units.vh + 0.5,
+      "the page's column is taller than a resolved 100vh: " + covered.body +
+      " against " + units.vh);
+
+    // now let the board arrive and the curtain go, and check the same thing
+    fixture.mode = "ok";
+    for (const res of fixture.hung.splice(0)) res.destroy();
+    await page.waitForFunction(() => !document.getElementById("loading"), { timeout: 25000 });
+    await setInset();
+    const loadedFoot = await settledPaddingBottom(page, FOOT_INSET_PX);
+    const loaded = await read();
+    assert.ok(loadedFoot >= FOOT_INSET_PX - 0.5,
+      "the bottom inset never settled at its target once the board was drawn: " + loadedFoot);
+    assert.ok(loaded.paneBottom + loaded.foot <= loaded.pageBottom + 0.5,
+      "with the board drawn the card's foot ate its clearance: foot at " +
+      loaded.paneBottom + " plus " + loaded.foot + " against " + loaded.pageBottom);
+    assert.ok(loaded.body <= units.vh + 0.5,
+      "the page's column is taller than a resolved 100vh once the board is drawn: " +
+      loaded.body + " against " + units.vh);
+    const composer = await page.evaluate(() => {
+      const el = document.querySelector("#cards .box.sel .compose");
+      return el ? el.getBoundingClientRect().bottom : null;
+    });
+    assert.ok(composer !== null,
+      "no composer on the shown card, so this case would prove nothing about it");
+    assert.ok(composer <= loaded.pageBottom + 0.5,
+      "the composer is past the foot of the page: " + composer +
+      " against " + loaded.pageBottom);
+    assert.deepEqual(problems, []);
   } finally {
     await browser.close();
     fixture.reset();
