@@ -2809,7 +2809,7 @@
     content:""; position:absolute; inset:-3px}
   #pagepill .pageadd:hover{color:var(--ink); background-color:color-mix(in srgb, #000 5%, transparent)}
   /* the page marks, both the size of the plus's own cross. The page being
-     looked at is one small solid black bullet; every other page is the same
+     looked at is one small solid muted bullet; every other page is the same
      bullet as an outline with nothing inside it */
   #pagepill .pdot{
     flex:none; width:var(--mark); height:var(--mark); padding:0; border-radius:50%;
@@ -2821,7 +2821,7 @@
                opacity .22s ease;
   }
   #pagepill .pdot:hover{border-color:var(--sub)}
-  #pagepill .pdot.on{background:#000; border-color:#000}
+  #pagepill .pdot.on{background:var(--sub); border-color:var(--sub)}
   /* a page that has just joined the row starts with no width and no ink, and
      cancels its own share of the gap, so the pill is seen to widen as the new
      mark fades up rather than arriving at its finished size */
