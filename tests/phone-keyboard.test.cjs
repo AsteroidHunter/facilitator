@@ -451,26 +451,28 @@ test("an accessory-sized viewport obstruction seats the card foot at its measure
     assert.equal(panned.title, rest.title, "the focused viewport pan moved the card title");
     assert.equal(panned.foot, up.foot, "the focused viewport pan changed the measured bottom clearance");
 
+    // the card list is pulled over the page. a menu coming out lets go of
+    // whatever is being typed in, which is what puts a keyboard away, so the
+    // strip measured off a focused row is no longer something to keep clear of:
+    // the page hands that room back and says so. the menu's own picture still
+    // steps the page in behind it
     await page.evaluate(() => openDrawer());
     await settle(750);
     assert.equal(await page.evaluate(() => drawerOpen()), true, "the card drawer did not open over the adjusted page");
-    // the open drawer draws the page's picture back towards the middle of the
-    // screen, so the foot on show steps up by that much and no more. what the
-    // keyboard settled on, the laid-out clearance, is untouched by it
+    assert.equal(await page.evaluate(() => editing()), false,
+      "the open drawer left the row holding the caret, so a keyboard would still stand under it");
     const behind = await page.evaluate(shellShape);
-    assert.equal(behind.footLaidOut, up.footLaidOut, "opening the drawer moved the adjusted card foot");
+    assert.equal(behind.obstructed, false, "the page kept clear of a strip nothing holds up any more");
+    assert.equal(behind.inset, "0px", "the accessory inset stayed on with nothing focused");
     const size = await page.evaluate(() => new DOMMatrix(getComputedStyle(document.getElementById("page")).transform).a);
     assert.equal(size, 0.985, "the open drawer did not draw the adjusted page back");
-    assert.ok(behind.foot < up.foot && up.foot - behind.foot < 10,
-      `the picture of the adjusted card foot did not step in with the page (${behind.foot} for ${up.foot})`);
-    await page.evaluate(() => closeDrawer());
-    await settle(750);
-    assert.equal((await page.evaluate(shellShape)).foot, up.foot, "closing the drawer left the adjusted card foot short");
 
-    await page.evaluate(() => document.activeElement.blur());
-    await settle(80);
+    // the strip goes with the focus on a phone, so the viewport reports itself
+    // whole again, and the card keeps the room whether the menu is out or not
     await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height);
     await settle(700);
+    await page.evaluate(() => closeDrawer());
+    await settle(750);
     const down = await page.evaluate(shellShape);
     const preserved = await page.evaluate(() => {
       const ta = document.querySelector("article.box.sel textarea");

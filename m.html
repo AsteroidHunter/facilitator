@@ -1799,10 +1799,19 @@ function paintMenu(panel, v){
   panel.classList.toggle("live", v > 0);   // and the other one is not on show at all
   document.body.classList.toggle("menuout", v > 0);
 }
+// Release editor focus so the phone can dismiss its keyboard before a drawer
+// opens. The same editing test also controls keyboard viewport clearance.
+function dismissEditor(){
+  const at = document.activeElement;
+  if (!editing() || !at || typeof at.blur !== "function") return;
+  at.blur();
+}
 // a run, on whichever of the two curves the thing that began it hands in. the
 // drag's dress comes off first and the page is measured while it is off, so what
 // follows is a run from where the finger left it and not a jump
 function runMenu(panel, v, curve){
+  // Closing a drawer leaves focus alone.
+  if (v > 0) dismissEditor();
   document.documentElement.style.setProperty("--drawer-curve", curve);
   if (document.body.classList.contains("menudrag")){
     document.body.classList.remove("menudrag");
@@ -1845,6 +1854,8 @@ scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu
       if (Math.abs(dx) < 6 && Math.abs(y - y0) < 6) return;
       if (Math.abs(y - y0) > Math.abs(dx)){ live = false; return; }   // a scroll, not a pull
       decided = true;
+      // Dismiss during a recognized opening pull, before the panel travels.
+      if (opening) dismissEditor();
       tracePhone("note", "drawer", { side: panel.dataset.side, phase: "start" });
       document.body.classList.add("menudrag");
     }
