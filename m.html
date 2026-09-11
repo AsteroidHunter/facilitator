@@ -49,11 +49,17 @@
     --drawer-curve:var(--drawer-tap);
   }
   *{box-sizing:border-box}
-  html{height:100%; -webkit-text-size-adjust:100%}
+  /* 100vh, NOT 100%, so the root and the body are the viewport's own size and
+     the startup curtain is centred on the same box the reference app centres on.
+     The reference's sheet keeps this rule because it found 100% could let an
+     installed window stop covering the screen; that is its recorded reason, not
+     a measurement taken here. A standalone open has no browser toolbar, so 100vh
+     is exact once the viewport settles. The shell fallback below matches. */
+  html{height:100vh; -webkit-text-size-adjust:100%}
   body{
     margin:0; background:var(--paper); color:var(--ink);
     font:15px/1.55 var(--sans);
-    position:fixed; left:0; top:0; width:100%; height:100%;
+    position:fixed; left:0; top:0; width:100%; height:100vh;
     overflow:hidden;
     -webkit-tap-highlight-color:transparent;
   }
@@ -106,7 +112,7 @@
      and never the viewport's own, so the box never changes size at a keyboard
      edge. the script drops both once the keyboard is really gone, and lands
      on the geometry the box already had */
-  body.obstructed, body.lifting{top:var(--shell-top, 0px); height:var(--shell-h, 100%)}
+  body.obstructed, body.lifting{top:var(--shell-top, 0px); height:var(--shell-h, 100vh)}
   button{font-family:inherit; -webkit-appearance:none; appearance:none}
 
   /* ---- the project tabs, seated the way the desktop bar seats them --------- */

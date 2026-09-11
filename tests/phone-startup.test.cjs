@@ -1200,3 +1200,110 @@ test("a pass that throws after the start never brings the curtain back", async (
     fixture.reset();
   }
 });
+
+// ---- where the globe sits ------------------------------------------------------------
+// The owner's report is that the globe is not in the middle of the SCREEN on an
+// installed iPhone. What a driven browser can settle is the half of that which
+// lives in the document: that the curtain is exactly the viewport and the globe
+// is exactly its middle, on every shape of phone, and that nothing the app does
+// to its own layout moves either.
+//
+// What it cannot settle is the other half. iOS decides how much of the screen
+// the web view gets, and a web view that is not the whole screen puts a centred
+// globe off the screen's middle without any of the numbers below changing. This
+// engine does not model that, so a pass here is not a pass on a phone.
+
+// the curtain's box and the globe's centre, against the viewport
+async function readGlobeBox(page) {
+  return page.evaluate(() => {
+    const el = document.getElementById("loading");
+    const globe = el.querySelector(".globe");
+    const panel = el.getBoundingClientRect();
+    const ball = globe.getBoundingClientRect();
+    return {
+      viewport: [innerWidth, innerHeight],
+      // the document's own box: a root shorter than the viewport is the shape of
+      // the iOS letterbox, and the curtain would inherit it
+      root: [document.documentElement.clientWidth, document.documentElement.clientHeight],
+      body: [Math.round(document.body.getBoundingClientRect().width),
+             Math.round(document.body.getBoundingClientRect().height)],
+      panel: [panel.left, panel.top, panel.width, panel.height],
+      centre: [ball.left + ball.width / 2, ball.top + ball.height / 2],
+      size: [ball.width, ball.height],
+    };
+  });
+}
+
+test("the curtain is the whole viewport and the globe is its exact middle", async () => {
+  fixture.mode = "hang";   // the curtain stays up while it is measured
+  const { browser, page, problems } = await openInstalled(fixture);
+  try {
+    // a tall phone, a small one, and a large one. the globe is centred on every
+    // one of them, and its size follows the shorter edge the way it is written
+    for (const shape of [
+      { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true },
+      { width: 320, height: 568, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
+      { width: 430, height: 932, deviceScaleFactor: 3, isMobile: true, hasTouch: true },
+    ]) {
+      await phoneScreen(page, shape);
+      await page.evaluate(() => new Promise(r => requestAnimationFrame(() => r())));
+      const box = await readGlobeBox(page);
+      const where = shape.width + "x" + shape.height;
+      // the document is the viewport, not something shorter standing in it
+      assert.deepEqual(box.root, box.viewport, "the document's box is not the viewport at " + where);
+      assert.deepEqual(box.body, box.viewport, "the body's box is not the viewport at " + where);
+      // the curtain is the whole of it, from the very corner
+      const wanted = [0, 0, box.viewport[0], box.viewport[1]];
+      for (const [i, name] of ["left", "top", "width", "height"].entries()) {
+        assert.ok(Math.abs(box.panel[i] - wanted[i]) < 0.5,
+          "the curtain's " + name + " is not the viewport's at " + where +
+          ": " + box.panel[i] + " against " + wanted[i]);
+      }
+      // and the globe's middle is the viewport's middle
+      assert.ok(Math.abs(box.centre[0] - box.viewport[0] / 2) < 0.5,
+        "the globe is off centre across at " + where + ": " + box.centre[0]);
+      assert.ok(Math.abs(box.centre[1] - box.viewport[1] / 2) < 0.5,
+        "the globe is off centre down at " + where + ": " + box.centre[1]);
+      // 14vmin of the shorter edge, border included
+      const vmin = Math.min(box.viewport[0], box.viewport[1]) / 100;
+      assert.ok(Math.abs(box.size[0] - vmin * 14) < 0.5,
+        "the globe is the wrong size at " + where + ": " + box.size[0]);
+      assert.ok(Math.abs(box.size[0] - box.size[1]) < 0.5, "the globe is not round at " + where);
+    }
+    assert.deepEqual(problems, []);
+  } finally {
+    await browser.close();
+    fixture.reset();
+  }
+});
+
+test("nothing the app does to its own layout moves the globe", async () => {
+  fixture.mode = "hang";
+  const { browser, page } = await openInstalled(fixture);
+  try {
+    const before = await readGlobeBox(page);
+    // the page's safe-area padding, the drawer's scale on the page, and the
+    // keyboard's shell box are the three things that change the app's own
+    // geometry. none of them is an ancestor of the curtain, so none may move it
+    await page.evaluate(() => {
+      const page_ = document.getElementById("page");
+      page_.style.setProperty("--app-inset", "24px");
+      page_.style.setProperty("--page-scale", "0.85");
+      document.body.classList.add("obstructed");
+      document.body.style.setProperty("--shell-top", "40px");
+      document.body.style.setProperty("--shell-h", "500px");
+    });
+    await page.evaluate(() => new Promise(r => requestAnimationFrame(() => r())));
+    const after = await readGlobeBox(page);
+    assert.deepEqual(after.centre, before.centre,
+      "the app's own layout moved the startup globe");
+    assert.deepEqual(after.panel, before.panel,
+      "the app's own layout resized the startup curtain");
+    // and the curtain is still a child of the body rather than of the scaled page
+    const parent = await page.evaluate(() => document.getElementById("loading").parentElement.tagName);
+    assert.equal(parent, "BODY");
+  } finally {
+    await browser.close();
+    fixture.reset();
+  }
+});
