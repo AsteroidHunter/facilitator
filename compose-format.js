@@ -349,10 +349,10 @@
       // the source dash keeps its place in the document and a round marker is
       // painted over its column, so the caret and a selection stay exactly on
       // the characters
-      ".cf-bullet": { color: "transparent", position: "relative" },
+      ".cf-bullet": { WebkitTextFillColor: "transparent", position: "relative" },
       ".cf-bullet::before": {
         content: '"\\2022"', position: "absolute", left: "0", right: "0",
-        textAlign: "center", textIndent: "0", color: "var(--sub, #75695A)",
+        textAlign: "center", textIndent: "0", WebkitTextFillColor: "currentColor",
       },
       // the item's own text column. the pull is what stands in front of the
       // first line's words, which is the column on a line that carries a marker
