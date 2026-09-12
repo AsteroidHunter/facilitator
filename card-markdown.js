@@ -282,6 +282,22 @@
         }
       }
 
+      // Emphasis and strong together. The closing run has to be read whole:
+      // taking its first two markers as the strong close leaves the third
+      // standing in the middle of the words, which is what "***alpha***" used
+      // to render as. Nothing new is accepted here that was not accepted
+      // before; the run is only cut in the right place. A triple with no
+      // closing triple falls through to the pair below exactly as it did.
+      const both = text.startsWith("***", i) ? "***" : text.startsWith("___", i) ? "___" : null;
+      if (both) {
+        const close = closingDelimiter(text, both, i + 3, structure);
+        if (close >= 0) {
+          html += "<em><b>" + renderInline(text.slice(i + 3, close), (depth || 0) + 1) + "</b></em>";
+          i = close + 3;
+          continue;
+        }
+      }
+
       const strong = text.startsWith("**", i) ? "**" : text.startsWith("__", i) ? "__" : null;
       if (strong) {
         const close = closingDelimiter(text, strong, i + 2, structure);

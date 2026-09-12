@@ -25,9 +25,16 @@
  * line's raw markers back whenever the cursor is anywhere on that line. In a
  * row that is usually one line long that would mean the words never format
  * while they are being typed, so here the raw markers come back for the one
- * span the cursor is actually in or beside. Block markers, the quote angles,
- * still come back by the line, because a caret at the head of a line has to
- * have somewhere to stand.
+ * span the cursor is actually in or beside. The quote angles are the one thing
+ * that never comes back: the bar is the whole of a quote here, and a line
+ * drawing the bar and the angles together would be one quote written twice
+ * under the typist, with the words stepping sideways every time the caret
+ * arrived. That holds wherever the quote starts, at the head of the line or
+ * after a list marker, and however deep it is. The angles keep their places in
+ * the document, so the caret, a picked out passage and the markdown the row
+ * sends all go on counting them. An angle the parser did not call a marker,
+ * inside a code span or in the middle of a sentence, is one of the reader's
+ * own characters and is drawn.
  *
  * The textarea does not leave the page while the editor stands in for it. It
  * keeps the field's one public face: its value, its selection, its focus, its
@@ -129,8 +136,10 @@
   // positions stay intact. The column is the marker plus one ch.
   const MARK_STEP = 1;
 
-  // the angles a quoted line opens with. markup, so they take no room while
-  // they are hidden, and the line's own prefix begins after them
+  // How much of a line the angles of a top level quote take, for the arithmetic
+  // an item's column is worked out with: the item's own indent begins after
+  // them. Where the angles are DRAWN is a different question, and the parse
+  // answers that one, by its own QuoteMark nodes; see the walk below.
   const QUOTE_ANGLES = /^[ \t]*(?:>[ \t]?)+/;
   function quoteWidth(text) {
     const angles = QUOTE_ANGLES.exec(text);
@@ -167,6 +176,7 @@
       const hot = (from, to) => awake &&
         state.selection.ranges.some(range => range.to >= from && range.from <= to);
       const quote = new Map();   // line number -> how deep the quote is
+      const angles = new Map();  // line number -> the run its quote markers take
       const hang = new Map();    // line number -> the column its text hangs on
       const pull = new Map();    // line number -> how far its first line is pulled back
       const marker = new Set();  // the lines a marker is actually written on
@@ -197,6 +207,29 @@
             const first = doc.lineAt(node.from).number, last = doc.lineAt(node.to).number;
             for (let n = first; n <= last; n++) quote.set(n, (quote.get(n) || 0) + 1);
             return;   // the walk carries on inside it, so quoted words still format
+          }
+          if (node.name === "QuoteMark") {
+            // Where a line's quote markers actually stand, taken from the parse
+            // and never from the look of the line: an angle in the middle of a
+            // sentence, or inside a code span, is one of the reader's own
+            // characters and is not one of these. They are the markup the bar
+            // is drawn from, so the drawing leaves them out, on the line being
+            // typed as much as on any other. Whatever their depth, and whether
+            // the line begins with them or carries a list marker first, one run
+            // per line is written down here and taken off the line below.
+            const line = doc.lineAt(node.from);
+            let from = node.from, to = node.to;
+            // the one space the marker owns, the way the sent card reads it
+            if (/[ \t]/.test(line.text[to - line.from] || "")) to++;
+            // and the indent it stands on, when that indent is the line's own
+            // and not room another marker has already been given
+            while (from > line.from && /[ \t]/.test(line.text[from - 1 - line.from])) from--;
+            if (from > line.from) from = node.from;
+            const held = angles.get(line.number);
+            angles.set(line.number, held
+              ? { from: Math.min(held.from, from), to: Math.max(held.to, to) }
+              : { from, to });
+            return;
           }
           if (node.name === "ListItem") {
             const line = doc.lineAt(node.from), mark = node.node.firstChild;
@@ -248,7 +281,7 @@
       });
 
       // one line decoration per line the walk marked, and the quote angles
-      // taken off any quoted line the cursor is not on
+      // taken off every quoted line there is
       for (const n of new Set([...quote.keys(), ...hang.keys()])) {
         const line = doc.line(n), classes = [], attributes = {};
         if (hang.has(n)) {
@@ -270,6 +303,10 @@
           // word is allowed to break inside itself; the rest wrap as ever.
           if (headEnd.has(n)) {
             let start = headEnd.get(n);
+            // an item's own quote angles are not its first word: they are not
+            // drawn, so they can neither share the marker's row nor strand it
+            const mark = angles.get(n);
+            if (mark && start >= mark.from && start < mark.to) start = mark.to;
             while (start < line.to && /[ \t]/.test(line.text[start - line.from])) start++;
             let stop = start;
             while (stop < line.to && !/[ \t]/.test(line.text[stop - line.from])) stop++;
@@ -278,10 +315,14 @@
         }
         if (quote.has(n)) {
           classes.push("cf-quote");
-          if (!hot(line.from, line.to)) {
-            const angles = quoteWidth(line.text);
-            if (angles) out.push(hide.range(line.from, line.from + angles));
-          }
+          // The bar is the quote, on the line being typed as much as on any
+          // other. Drawing the bar and the angles together would be one quote
+          // written twice, and it would move the line's words sideways under a
+          // caret that only arrived to read them. The characters stay in the
+          // document, so the caret walks them one at a time, a pick still
+          // carries them and the markdown the row sends still has them.
+          const mark = angles.get(n);
+          if (mark) out.push(hide.range(mark.from, mark.to));
         }
         out.push(D.line({ class: classes.join(" "), attributes }).range(line.from));
       }
@@ -813,9 +854,19 @@
     // in holds the document's one selection, and focusing it afterwards would
     // put a caret of its own where the pick was
     if (hadFocus) field.ta.focus({ preventScroll: true });
-    try {
-      restoreHostSelection(field, pick.from, pick.to, pick.anchor > pick.head);
-    } catch (error) {}
+    // A textarea keeps a selection of its own and can put one back whenever it
+    // likes. A line the page writes in has no such thing: what it would put
+    // back is the document's ONE selection, which belongs to whichever field
+    // the reader is actually in. With several of these lines on a page, every
+    // one of them writing that selection meant the last one to be taken down
+    // won, and the words a reader had picked out in the line they were typing
+    // in were dropped by a line nobody had touched. A line without the caret
+    // leaves the document's selection where it is.
+    if (hadFocus || !field.textValue) {
+      try {
+        restoreHostSelection(field, pick.from, pick.to, pick.anchor > pick.head);
+      } catch (error) {}
+    }
     field.changed();
   }
 
