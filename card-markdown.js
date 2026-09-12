@@ -28,7 +28,7 @@
   });
   const ATTACHMENT_ACCEPT = Object.keys(ATTACHMENT_TYPES).map(ext => "." + ext).join(",") +
     "," + [...new Set(Object.values(ATTACHMENT_TYPES).map(info => info[1]))].join(",");
-  const MAX_ATTACHMENT_SIZE = 32 * 1024 * 1024;
+  const MAX_ATTACHMENT_SIZE = 100 * 1024 * 1024;
 
   function attachmentInfo(name) {
     const ext = /\.([a-z0-9]+)$/i.exec(String(name))?.[1].toLowerCase();
@@ -46,7 +46,7 @@
       if (ext) { name += "." + ext; info = attachmentInfo(name); }
     }
     const error = !info ? "Unsupported file type. Choose an image, video, audio, PDF or Word file." :
-      file.size > MAX_ATTACHMENT_SIZE ? "File is too large. The limit is 32 MiB per file." :
+      file.size > MAX_ATTACHMENT_SIZE ? "File is too large. The limit is 100 MiB per file." :
       file.size === 0 ? "The file is empty." : "";
     return { ...info, name, error };
   }
