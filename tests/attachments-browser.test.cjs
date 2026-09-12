@@ -122,7 +122,7 @@ after(async () => {
   if (outer) await rm(outer, { recursive: true, force: true });
 });
 
-test("type policy uses extensions, MIME fallback and the existing size limit", () => {
+test("type policy uses extensions, MIME fallback and the 100 MiB size limit", () => {
   for (const ext of Object.keys(markdown.ATTACHMENT_TYPES)) {
     const info = markdown.attachmentFile({ name: "file." + ext.toUpperCase(), type: "", size: 5 });
     assert.equal(info.error, "", ext);
@@ -131,8 +131,10 @@ test("type policy uses extensions, MIME fallback and the existing size limit", (
   assert.equal(markdown.attachmentFile({ name: "clipboard", type: "audio/x-wav", size: 5 }).name, "clipboard.wav");
   assert.match(markdown.attachmentFile({ name: "file.html", type: "application/pdf", size: 5 }).error, /Unsupported/);
   assert.match(markdown.attachmentFile({ name: "file.constructor", size: 5 }).error, /Unsupported/);
-  assert.equal(markdown.attachmentFile({ name: "file.pdf", size: 32 * 1024 * 1024 }).error, "");
-  assert.match(markdown.attachmentFile({ name: "file.pdf", size: 32 * 1024 * 1024 + 1 }).error, /32 MiB/);
+  assert.match(markdown.attachmentFile({ name: "file.pdf", size: 0 }).error, /empty/);
+  assert.equal(markdown.attachmentFile({ name: "file.pdf", size: 33 * 1024 * 1024 }).error, "");
+  assert.equal(markdown.attachmentFile({ name: "file.pdf", size: 100 * 1024 * 1024 }).error, "");
+  assert.match(markdown.attachmentFile({ name: "file.pdf", size: 100 * 1024 * 1024 + 1 }).error, /100 MiB/);
 });
 
 test("every allowed type uploads and retrieves exact bytes with its declared content type", async () => {
@@ -159,11 +161,11 @@ test("media byte ranges support seeking, and download links request attachment d
   assert.match(download.headers.get("content-disposition"), /^attachment; filename="voice.wav"/);
 });
 
-test("server keeps the 32 MiB boundary and refuses unsupported, empty and escaped paths", async () => {
+test("server keeps the 100 MiB boundary and refuses unsupported, empty and escaped paths", async t => {
   assert.equal((await post("/upload?name=empty.pdf", Buffer.alloc(0))).status, 400);
   assert.equal((await post("/upload?name=unsafe.html", PDF)).status, 415);
   assert.equal((await post("/upload?name=unsafe.docm", PDF)).status, 415);
-  const cap = 32 * 1024 * 1024;
+  const cap = 100 * 1024 * 1024;
   const refused = await new Promise((resolve, reject) => {
     const req = request(origin + "/upload?name=large.pdf", { method: "POST", headers: { "Content-Length": String(cap + 1) } }, response => {
       response.resume(); response.on("end", () => resolve(response.statusCode));
@@ -172,10 +174,24 @@ test("server keeps the 32 MiB boundary and refuses unsupported, empty and escape
     req.flushHeaders();
   });
   assert.equal(refused, 413);
-  const url = await upload("boundary.pdf", Buffer.alloc(cap, 13));
-  const response = await fetch(origin + url, { headers: { Range: `bytes=${cap - 1}-` } });
-  assert.equal(response.status, 206);
-  assert.deepEqual(Buffer.from(await response.arrayBuffer()), Buffer.from([13]));
+  const streamed = await new Promise((resolve, reject) => {
+    const req = request(origin + "/upload?name=streamed-large.pdf", { method: "POST" }, response => {
+      response.resume(); response.on("end", () => resolve(response.statusCode));
+    });
+    req.on("error", reject);
+    req.write(Buffer.alloc(cap, 13));
+    req.end(Buffer.from([13]));
+  });
+  assert.equal(streamed, 413);
+  t.diagnostic(`${cap + 1} bytes refused with HTTP 413, both declared and chunked`);
+  for (const size of [33 * 1024 * 1024, cap]) {
+    const url = await upload(`boundary-${size}.pdf`, Buffer.alloc(size, 13));
+    const response = await fetch(origin + url, { headers: { Range: `bytes=${size - 1}-` } });
+    assert.equal(response.status, 206);
+    assert.equal(response.headers.get("content-range"), `bytes ${size - 1}-${size - 1}/${size}`);
+    assert.deepEqual(Buffer.from(await response.arrayBuffer()), Buffer.from([13]));
+    t.diagnostic(`${size} bytes uploaded with HTTP 200; last byte and total length verified with HTTP 206`);
+  }
   const uploads = path.join(outer, "facilitator-internal", "uploads");
   await writeFile(path.join(outer, "outside.pdf"), PDF);
   await symlink(path.join(outer, "outside.pdf"), path.join(uploads, "escape.pdf"));
@@ -226,15 +242,45 @@ for (const phone of [false, true]) {
     } finally { await closePage(page); }
   });
 
-  test(`${phone ? "phone" : "desktop"} shows unsupported and oversized errors without changing the draft`, async () => {
+  test(`${phone ? "phone" : "desktop"} accepts 33 MiB and exactly 100 MiB without replacing the draft`, async t => {
     const { page, id } = await openCard(phone);
     try {
+      for (const size of [33 * 1024 * 1024, 100 * 1024 * 1024]) {
+        const result = await page.evaluate(async ({ id, size }) => {
+          const ta = els[id].ta;
+          ta.value = "Keep this larger draft"; ta.setSelectionRange(2, 6);
+          // Printable bytes keep intercepted request data within the debugger's message limit.
+          const bytes = new Uint8Array(size).fill(65); bytes[size - 1] = 13;
+          await attach([new File([bytes], `accepted-${size}.pdf`, { type: "application/pdf" })], ta);
+          return { text: ta.value, start: ta.selectionStart, end: ta.selectionEnd,
+            notice: els[id].box.querySelector(".attachment-status").textContent };
+        }, { id, size });
+        assert.equal(result.notice, "");
+        assert.match(result.text, new RegExp(`^Keep this larger draft\\n/uploads/.*accepted-${size}\\.pdf\\n$`));
+        assert.deepEqual([result.start, result.end], [2, 6]);
+        const response = await fetch(origin + result.text.split("\n")[1], { headers: { Range: `bytes=${size - 1}-` } });
+        assert.equal(response.status, 206);
+        assert.equal(response.headers.get("content-range"), `bytes ${size - 1}-${size - 1}/${size}`);
+        assert.deepEqual(Buffer.from(await response.arrayBuffer()), Buffer.from([13]));
+        t.diagnostic(`${size} bytes uploaded through the composer; draft, selection and stored byte length preserved`);
+      }
+    } finally { await closePage(page); }
+  });
+
+  test(`${phone ? "phone" : "desktop"} shows unsupported, empty and oversized errors without changing the draft`, async () => {
+    const { page, id } = await openCard(phone);
+    try {
+      let uploads = 0;
+      page.on("request", request => { if (new URL(request.url()).pathname === "/upload") uploads++; });
       await page.evaluate(id => { els[id].ta.value = "Still here"; }, id);
       await transfer(page, id, "drop", "unsupported.html", "text/html");
       await page.waitForFunction(id => els[id].box.querySelector(".attachment-status")?.textContent.includes("Unsupported"), {}, id);
-      await page.evaluate(id => attach([new File([new Uint8Array(32 * 1024 * 1024 + 1)], "huge.pdf", { type: "application/pdf" })], els[id].ta), id);
-      assert.match(await page.$eval(`#box-${id} .attachment-status`, el => el.textContent), /32 MiB/);
+      await transfer(page, id, "drop", "empty.pdf", "application/pdf", []);
+      await page.waitForFunction(id => els[id].box.querySelector(".attachment-status")?.textContent.includes("empty"), {}, id);
+      await page.evaluate(id => attach([new File([new Uint8Array(100 * 1024 * 1024 + 1)], "huge.pdf", { type: "application/pdf" })], els[id].ta), id);
+      assert.match(await page.$eval(`#box-${id} .attachment-status`, el => el.textContent), /100 MiB/);
       assert.equal(await page.evaluate(id => els[id].ta.value, id), "Still here");
+      assert.equal(uploads, 0, "invalid files must be refused before upload");
     } finally { await closePage(page); }
   });
 }

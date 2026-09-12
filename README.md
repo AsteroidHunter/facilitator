@@ -4,7 +4,7 @@ This project is released under the [Facilitator License 1.0.0](LICENSE.md). Cont
 
 ## Attachments
 
-Card and chat composers accept files from the attach button, drag and drop, or a clipboard that provides files. The document page's existing drop path accepts the same types. Each file can be at most 32 MiB. Unsupported, empty and oversized files show a message. Uploads keep their original bytes and add a local `/uploads/...` address to the message.
+Card and chat composers accept files from the attach button, drag and drop, or a clipboard that provides files. The document page's existing drop path accepts the same types. Each file can be at most 100 MiB. Unsupported, empty and oversized files show a message. Uploads keep their original bytes and add a local `/uploads/...` address to the message.
 
 | Files | Extensions | Content types |
 | --- | --- | --- |

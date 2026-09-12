@@ -889,7 +889,7 @@ WRITE_STALL_TIMEOUT = 30.0      # seconds an answer may sit unread in a full soc
 BODY_READ_TIMEOUT = 30.0        # seconds a request body may take to arrive
 GRACEFUL_STOP_TIMEOUT = 3       # seconds a stop waits for open requests before cutting them
 MAX_TEXT_BODY = 1024 * 1024     # bytes of a plain text body: a message, a reply, a markdown file
-MAX_UPLOAD_BODY = 32 * 1024 * 1024   # bytes of one attachment
+MAX_UPLOAD_BODY = 100 * 1024 * 1024   # bytes of one attachment
 # ---- operation receipts ----------------------------------------------------------
 # A receipt lives at most OP_RETENTION and is never let go by the count cap
 # while it is younger than OP_EVICT_FLOOR. The phone stops retrying an operation
