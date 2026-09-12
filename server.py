@@ -2567,6 +2567,10 @@ def _ui_state() -> dict:
         # the revision this snapshot is of: every saved change moves it, so a
         # reader holding one can tell whether a later answer is newer
         "rev": st.get("rev", 0),
+        # the board's own clock when this reading was made, the way the phone's
+        # readings already carry it: a page names the moment of a click by it,
+        # so the times it sends back are the board's and not the browser's
+        "now": time.time(),
         "pwd": str(HERE),
         "pwds": _lane_pwds(),
         "projects": st.get("projects", []),
@@ -3481,19 +3485,138 @@ def _post_ping(q: Query, text: str):
         return 200, {"ok": True, "bg": bool(box.get("hb"))}
 
 
+# ---- the order of each page's own park commands -------------------------------
+# A page can stop waiting for an answer; it cannot recall the request. An abort
+# there drops the answer, not the bytes already on their way here. So a snooze
+# the phone gave up on can still arrive after the unsnooze that replaced it,
+# and absolute values applied in arrival order would leave the board holding
+# the value he undid. Only this side sees the arrivals, so only this side can
+# refuse them.
+#
+# The contract. A page names its own command stream (sid) and numbers every
+# attempt in it (seq), rising and never reused. This remembers, for a card and
+# a stream TOGETHER, the highest place already judged from that stream, and
+# refuses anything from that same stream at or below it: a command the page
+# that sent it has already replaced.
+#
+# One fact per stream, not one per card, and that distinction is the whole of
+# it. A single fact per card fails this sequence: page A place 2 unsnoozes;
+# page B place 1 unsnoozes, which is B's first command and so is applied; then
+# A's abandoned place 1 snooze arrives. It is obsolete inside A's own stream,
+# but B had taken the card's only slot, so it was applied and the card snoozed
+# itself again behind him. Keeping A's fact beside B's answers that with no
+# comparison of clocks or of tap times between devices: both newer commands
+# agree, and the last one is simply behind A's own high water mark.
+#
+# Identity: sid names one page load. It is not a person, a device or a card, it
+# is never logged and never saved, and nothing else reads it.
+# Lifetime: this process only, and a finite time within it. A restart begins
+# with no facts at all, so a command that crosses a restart is ordered against
+# nothing. What becomes of requests already in transit across a restart is not
+# something this code establishes, and nothing here relies on it.
+# Limits: a name is at most _PARK_ID_MAX characters of letters, digits, dash
+# and underscore; a place is a whole number in range. Accepting a newer ordered
+# command prunes pairs older than _PARK_ORDER_TTL seconds and removes the oldest
+# pairs once more than _PARK_ORDER_MAX are held. A pair that has been
+# forgotten orders nothing, which is exactly where this route began.
+# The record is read and written only under _lock, with the board it belongs to.
+#
+# What it is not. It is not a receipt: it answers "is this obsolete", not "has
+# this been done before", and it keeps no results to replay. It orders nothing
+# BETWEEN pages: a command that is not obsolete within its own stream is
+# applied, so two devices stay last writer wins, exactly as they were.
+_PARK_ORDER: dict[tuple[str, str], dict] = {}   # (card, stream) -> place, when
+_PARK_ORDER_TTL = 900.0
+_PARK_ORDER_MAX = 1024
+_PARK_ID_MAX = 64
+_PARK_ID_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+
+
+def _park_order_read(q: Query):
+    """The stream and place a park names itself by, or None from a caller that
+    names none. A pair half given or malformed raises instead: that is a broken
+    caller rather than an older one, and saying so is better than guessing."""
+    sid, seq = q.one("sid", ""), q.one("seq", "")
+    if not sid and not seq:
+        return None
+    if not sid or not seq:
+        raise ValueError("half an order")
+    if len(sid) > _PARK_ID_MAX or not set(sid) <= _PARK_ID_CHARS:
+        raise ValueError("stream name")
+    place = int(seq)   # anything that is not a whole number raises here
+    if not 0 <= place <= 2 ** 53:
+        raise ValueError("place out of range")
+    return sid, place
+
+
+def _park_order_keep(bid: str, sid: str, place: int, now: float) -> None:
+    """This stream's place for this card, kept beside whatever other streams
+    hold for the same card, and the record kept small: pairs go on age first,
+    then the oldest go when there are more of them than the limit."""
+    _PARK_ORDER[(bid, sid)] = {"seq": place, "at": now}
+    for old in [k for k, v in _PARK_ORDER.items() if now - v["at"] > _PARK_ORDER_TTL]:
+        del _PARK_ORDER[old]
+    while len(_PARK_ORDER) > _PARK_ORDER_MAX:
+        del _PARK_ORDER[min(_PARK_ORDER, key=lambda k: _PARK_ORDER[k]["at"])]
+
+
 def _post_park(q: Query, text: str):
     bid = q.one("box")
+    want = q.one("v", "1") == "1"
+    try:
+        order = _park_order_read(q)
+    except ValueError:
+        return 400, {"error": "bad park order"}
+    # What a snooze was decided on: the board's own clock at the moment the moon
+    # was tapped, which the page can name because every reading carries the
+    # board's time. A snooze that crossed one of his messages on the way here
+    # was decided before that message existed, and a card he has just written to
+    # is not a card he is snoozing, so the board keeps what it has and says so
+    # rather than burying the message under a defer.
+    #
+    # The guard is deliberately the narrowest one that answers that: only a
+    # park, only against his own queued messages, and only when a basis is
+    # given. An unpark, an older page that sends no basis, an agent's progress
+    # note and a park of a done card all behave exactly as they always did, and
+    # a basis that will not read as a number is no basis at all.
+    try:
+        basis = float(q.one("after", "") or 0)
+    except ValueError:
+        basis = 0.0
     with _lock:
         box = _box(bid)
         if box is None:
             return 400, {"error": "bad box"}
-        box["parked"] = q.one("v", "1") == "1"
+        # the card as it stands, for any answer that keeps it that way
+        kept = {"parked": box.get("parked", False), "done": box["done"],
+                "rev": _state.get("rev", 0)}
+        if order is not None:
+            sid, place = order
+            prior = _PARK_ORDER.get((bid, sid))
+            if prior is not None and place <= prior["seq"]:
+                # this same page has already sent a later command for this card
+                # and that one has been judged: this is its own undone value
+                # arriving late, and applying it would undo the undoing. Another
+                # page's commands are not consulted and cannot rescue it
+                return 200, {"ok": False, "stale": "superseded", **kept}
+            # this stream has reached here, so everything it sent before this is
+            # old, whether or not this one goes on to be applied
+            _park_order_keep(bid, sid, place, time.time())
+        if want and basis:
+            newest = max((m.get("ts", 0) for m in box["pending"]), default=0)
+            if newest > basis:
+                # nothing was written and nothing is being retried: the page is
+                # told plainly which state the card is actually in
+                return 200, {"ok": False, "stale": "message", **kept}
+        box["parked"] = want
         if box["parked"]:
             box["done"] = False
         _log("park" if box["parked"] else "unpark", bid, "")
         _save()
         _notify()
-        return 200, {"ok": True}
+        return 200, {"ok": True, "parked": box["parked"], "done": box["done"],
+                     "rev": _state["rev"]}
 
 
 def _post_worktree(q: Query, text: str):
