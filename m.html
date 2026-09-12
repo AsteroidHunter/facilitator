@@ -215,6 +215,10 @@
     display:inline-flex; align-items:center; justify-content:center;
   }
   .arcbtn:active, .xbtn:active{background:color-mix(in srgb, #000 var(--press), var(--card))}
+  /* the board has not answered the last tap on this chip: the mark is lighter
+     until it has. the seat, the press and the tap are all untouched, because a
+     tap still on its way has to stay reversible by another tap */
+  .box.flagwait .arcbtn{opacity:.5}
   .xbtn::before, .xbtn::after{
     content:""; position:absolute; left:50%; top:50%;
     width:9px; height:1.2px; background:#1e1e1e; border-radius:1px;
@@ -2323,7 +2327,11 @@ function apply(state){
     // a note about a send that failed or was held stays until the card can
     // take another; any other note is the poll's to clear. a held send clears
     // as soon as there is room again
-    if (el.meta.textContent && el.meta.textContent.indexOf("send ") !== 0) el.meta.textContent = "";
+    // a tap on the moon the board refused or never answered leaves its own
+    // note, which says what the card is NOT: no reading may take that away,
+    // only the next tap on the same chip
+    if (el.meta.textContent && el.meta.textContent.indexOf("send ") !== 0 &&
+        el.meta.dataset.flagnote !== "1") el.meta.textContent = "";
     if (el.meta.textContent.indexOf("send held") === 0 && ops.length < OPS_MAX) el.meta.textContent = "";
   }
   if (selectedId && !state.boxes.some(b => b.id === selectedId && b.owner === activeOwner)) deselect();
@@ -2502,6 +2510,9 @@ async function readBoard(){
         // way of saying take the whole board again (the else below writes the
         // same thing for the same reason). The next ordinary poll then asks for
         // everything and draws it, with nothing to reset by hand.
+        // a card this page is holding a tap for is shown the way it was left,
+        // and this reading's own word for it is kept aside to go back to
+        holdFlags(state);
         const heldState = lastState;
         lastState = state;
         lastRev = data.rev;
@@ -2522,6 +2533,9 @@ async function readBoard(){
         const rendering = tracePhone("begin", "render", { rev: lastRev });
         Object.assign(lastState, data.live || {});
         lastState.fetchedAt = asked;
+        // the board's own clock comes on every answer, changed or not, and a tap
+        // names the moment it happened by it
+        if (typeof data.now === "number") lastState.now = data.now;
         renderTickets(lastState);   // who is listening moves without the revision moving
         syncSelectedHistory();
         endPhoneTrace(rendering, { rev: lastRev }, null, true);

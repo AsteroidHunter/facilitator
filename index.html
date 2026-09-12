@@ -200,6 +200,9 @@
   /* orange archive/defer button, sits in the card head's right cluster */
   .arcbtn{flex:none; display:inline-flex; align-items:center; justify-content:center;
     color:#000; background:none; border:none; cursor:pointer; padding:0}
+  /* the board has not answered the last click on this chip yet; the click
+     itself stays live, since it is what reverses it */
+  .box.flagwait .arcbtn{opacity:.5}
   /* in focus the chip is no longer pinned to the card's corner and no longer
      pastel: it is an item of the card's own top bar, and its seat, its shape and
      its fill are written there with the cross it stands beside */
@@ -5719,7 +5722,10 @@ function apply(state){
     if (el.wstat.innerHTML !== ws) el.wstat.innerHTML = ws;  // rewriting every poll restarts the dots and re-wraps the title row
     // the queue chatter (sent, nth in line, messages since) is gone on the
     // owner's order; the element still carries transient send-failure notes
-    if (el.metaNote.textContent && el.metaNote.textContent.indexOf("send failed") !== 0) el.metaNote.textContent = "";
+    // a click on the moon the board refused or never answered leaves its own
+    // note; it says what the card is NOT, so a poll may not take it away
+    if (el.metaNote.textContent && el.metaNote.textContent.indexOf("send failed") !== 0 &&
+        el.metaNote.dataset.flagnote !== "1") el.metaNote.textContent = "";
     if (el.toc){
       // quirk kept: pending queues the entry even when the ball sits with you;
       // otherwise yours (or a new card whose ball is with you) paints t-you,
@@ -8455,8 +8461,13 @@ let pollFails = 0;
 async function poll(){
   noteDoing("poll");
   let state;
+  // when this reading was asked for: a reading older than the board's answer to
+  // a click made on this page knows nothing about that card and may not repaint
+  // it. The phone's readings carry the same stamp for the same reason
+  const asked = Date.now();
   try {
     state = await (await fetch("/state")).json();
+    state.fetchedAt = asked;
   } catch (e) {
     if (++pollFails >= 3){   // the server itself, distinct from listener-offline
       document.body.classList.add("offline");
@@ -8476,6 +8487,9 @@ async function poll(){
     seedTabsOnce(state);
     seedSeenOnce(state);
     const caretBefore = focusedCaretContext();
+    // a card this page is holding a click for is shown the way it was left, and
+    // this reading's own word for it is kept aside to go back to
+    holdFlags(state);
     if (!lastState) build(state);
     apply(state);
     lastState = state;

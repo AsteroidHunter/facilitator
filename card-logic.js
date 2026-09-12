@@ -628,12 +628,390 @@ function boxDone(id){
   return !!(b && b.done);
 }
 
-async function toggleFlag(id, kind){
-  const cls = kind === "done" ? "done" : "parked";
-  const on = els[id].box.classList.contains(cls);
-  els[id].box.classList.remove("peek");   // the desktop's peek; nothing on the phone wears it
-  await fetch("/" + kind + "?box=" + encodeURIComponent(id) + "&v=" + (on ? 0 : 1), { method: "POST" }).catch(() => {});
+// ---- the moon: the tap is the state, the board is the witness -----------------
+// A tap on the moon changes the card on screen at once and the board is told
+// after, because the board's answer can be a second or more away while the card
+// being tapped is the card being looked at. What stands on screen until the
+// board answers is this page's own held tap, kept card by card the way the tab
+// bar's record and the read marks are kept here: the newest tap wins, a reading
+// asked for before the board answered that tap may not repaint the card, and an
+// answer to a tap that has since been reversed changes nothing.
+//
+// Reversing is what the second tap is for, not an accident of it: a tap while
+// the first request is still out flips the card back at once and the board is
+// told the latest requested value. The chip is never disabled, every tap is
+// drawn immediately, and pending taps keep the latest value to send next.
+//
+// One request per card at a time. A newer tap while one is out is drawn at once
+// and sent the moment that one answers, because two requests for one card carry
+// two absolute values and can land in the other order, and then the board would
+// keep the value that was undone.
+//
+// That is not enough on its own, and this is the part worth stating plainly:
+// GIVING UP ON AN ANSWER DOES NOT STOP THE REQUEST. A deadline here abandons
+// the answer; the bytes are already travelling and the board will still act on
+// them. So a snooze that timed out can arrive after the unsnooze that replaced
+// it and overwrite it, and no amount of care on this side can prevent that.
+// Every attempt therefore names this page's own command stream and its place in
+// it, and the board refuses a place it has already passed. Ordering is the
+// board's to enforce because only the board sees the arrivals.
+//
+// Nothing here says the board has it until the board has said so, and a 2xx
+// alone is not the board saying so: an answer that cannot be read, an empty
+// one, or one that never says it did the thing leaves this page not knowing,
+// which is held as not knowing rather than called a success. A tap still
+// travelling wears flagwait, a tap the board refused goes back to the board's
+// word with the reason left on the card, and a tap nobody can confirm is held,
+// plainly unconfirmed, until a reading settles it or the window ends it.
+//
+// And a tap is never quietly dropped for looking unnecessary. A tap whose value
+// happens to match the last reading is still sent, because a reading is not a
+// promise about what an older command still in transit will do when it lands.
+// Until the board has answered the value on screen, the hold belongs to the tap
+// and no reading may retire it.
+const FLAG_KINDS = {
+  park: { kind: "park", field: "parked", cls: "parked", word: "snooze" },
+  done: { kind: "done", field: "done", cls: "done", word: "done" },
+};
+const FLAG_DEADLINE_MS = 8000;   // the phone's own reading carries the same one
+const FLAG_HOLD_MS = 20000;      // the longest an unanswered tap may stand on screen
+const flagHolds = {};            // id + "/" + kind -> the tap this page is standing behind
+let flagTaps = 0;                // every attempt is numbered: its place in this page's stream
+let flagStream = "";             // this page load's own name for that stream
+
+function flagKey(id, kind){ return id + "/" + kind; }
+function flagSpec(kind){ return FLAG_KINDS[kind] || FLAG_KINDS.park; }
+// what a note calls the tap it is about, which is the direction it asked for.
+// Neither "tap" nor "click": one line serves the phone and the desktop
+function flagWord(spec, want){
+  return spec.kind === "park" ? (want ? "snooze" : "unsnooze") : want ? spec.word : "un" + spec.word;
+}
+// why the board says it kept what it had, in the words of the tap it is about
+function flagStaleWord(spec, sent, why){
+  const word = flagWord(spec, sent);
+  if (why === "message") return spec.kind === "park"
+    ? "snooze skipped: a new message arrived" : word + " skipped: a new message arrived";
+  if (why === "superseded") return word + " skipped: a newer tap replaced it";
+  return word + " skipped: the card changed";
+}
+function flagDeadline(){
+  try { return AbortSignal.timeout(FLAG_DEADLINE_MS); } catch (err) { return undefined; }
+}
+// this page load's name for its own command stream, made on the first tap, so
+// nothing in this file still runs on load. Letters and digits only, short, and
+// this page load's alone: it names who is asking, never what is being asked
+// for. A reload is a new stream, and a command left over from before a reload
+// is therefore not ordered against the new page's commands
+function flagStreamOf(){
+  if (!flagStream) flagStream = "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  return flagStream;
+}
+
+// what the card is showing this moment: this page's held tap where there is
+// one, the class the last reading painted otherwise. The tap is read from here
+// rather than from the class alone, so two taps inside one request's time ask
+// for two different things instead of the same thing twice
+function flagShown(id, kind){
+  const hold = flagHolds[flagKey(id, kind)];
+  if (hold) return hold.want;
+  const spec = flagSpec(kind);
+  const el = els[id];
+  if (el && el.box) return el.box.classList.contains(spec.cls);
+  const b = lastState && lastState.boxes.find(x => x.id === id);
+  return !!(b && b[spec.field]);
+}
+
+function toggleFlag(id, kind){ return setFlag(id, kind, !flagShown(id, kind)); }
+
+// one card's wanted state, true on screen at once and asked of the board after.
+//
+// The order of the steps below is load bearing. The intent is written down and
+// sent BEFORE anything is redrawn, because redrawing runs the pass that
+// reconciles holds, and a hold reconciled away in the middle of this function
+// is an intent that is never sent at all. That is not hypothetical: a reversal
+// whose value happens to agree with the last reading looks like nothing to do
+// to that pass, exactly when it matters most, since the older command it is
+// there to overtake may still be on its way to the board.
+function setFlag(id, kind, want){
+  const spec = flagSpec(kind);
+  const key = flagKey(id, kind);
+  const hold = flagHolds[key] || (flagHolds[key] = { id, kind, truth: null, boxRef: null, sending: 0 });
+  hold.want = want;
+  hold.owed = true;           // said on screen, not yet said to the board
+  hold.until = Date.now() + FLAG_HOLD_MS;
+  hold.basis = serverNow();   // the board's own clock at this tap, for the board to judge it by
+  hold.settled = false;
+  clearTimeout(hold.timer); hold.timer = null;
+  flagNote(id, "");           // the last failure is answered by this tap
+  paintFlag(id, spec, want, true);                                  // the card, in this same turn
+  const going = hold.sending ? Promise.resolve() : sendFlag(key);   // the board, before any redraw
+  flagRepaint();                                                    // the list, the tabs, the place
+  return going;
+}
+
+// a hold with a command owed or a command out is nobody else's to retire: the
+// board has not answered the value this page is holding, and an older command
+// of this page's own may still be travelling towards it
+function flagBusy(hold){ return !!hold.sending || !!hold.owed; }
+
+async function sendFlag(key){
+  const hold = flagHolds[key];
+  if (!hold || hold.sending) return;
+  const want = hold.want, tap = ++flagTaps;
+  hold.sending = tap;
+  hold.guard = Infinity;   // while this is out, no reading knows enough to repaint the card
+  const url = "/" + hold.kind + "?box=" + encodeURIComponent(hold.id) + "&v=" + (want ? 1 : 0) +
+    // this page's own command stream and this attempt's place in it. Abandoning
+    // an answer does not recall a request, so an attempt this page has already
+    // replaced can still arrive last; the board refuses a place it has passed
+    "&sid=" + encodeURIComponent(flagStreamOf()) + "&seq=" + tap +
+    // the moment of the tap, on the board's clock: a snooze that crossed a
+    // message on the way is a snooze decided before that message existed
+    (want && hold.basis ? "&after=" + encodeURIComponent(hold.basis.toFixed(3)) : "");
+  let status = 0, body = null, lost = "";
+  try {
+    const r = await fetch(url, { method: "POST", signal: flagDeadline() });
+    status = r.status;
+    body = await r.json().catch(() => null);
+  } catch (err){
+    lost = err && err.name === "TimeoutError" ? "timeout" : "network";
+  }
+  flagAnswered(key, tap, want, status, body, lost);
+}
+
+// What an answer is worth, in one place. The four outcomes are kept apart on
+// purpose, because they call for four different things: an acknowledgment, a
+// refusal, a reason for keeping the old value, and not knowing.
+function flagAnswered(key, tap, sent, status, body, lost){
+  const hold = flagHolds[key];
+  if (!hold || hold.sending !== tap) return;   // a newer tap owns this card; this answer is history
+  hold.sending = 0;
+  const spec = flagSpec(hold.kind);
+  const ok = status >= 200 && status < 300;
+  // only an object can be read as an answer. A body that is null (unreadable
+  // JSON), a string, or anything else is no answer at all, whatever the status
+  const answer = body && typeof body === "object" ? body : null;
+  const said = answer && typeof answer[spec.field] === "boolean" ? answer[spec.field] : null;
+  const why = answer && answer.ok === false && typeof answer.stale === "string" ? answer.stale : "";
+  if (hold.want !== sent){ sendFlag(key); return; }   // the card was tapped again; that is what goes
+  // from here the value on screen is the value the board has been told, so the
+  // hold stops being this page's to protect and becomes the board's to answer
+  hold.owed = false;
+  if (lost){ flagUnsure(key, spec); return; }         // the request may well have landed
+  if (!ok){
+    // a definite refusal: the board answered and did not do it. The card goes
+    // back to the board's word with the reason in plain sight, and the chip is
+    // live, so one more tap asks again for exactly the same thing
+    flagTell(hold.id, spec, said,
+      flagWord(spec, sent) + " failed (" + (status || "no answer") + "): try again");
+    poll();
+    return;
+  }
+  if (why === "superseded" && said != null && said === hold.want){
+    // an attempt this page itself replaced, arriving after the one that
+    // replaced it. The board is already on the value the card is showing, so
+    // there is nothing to undo and nothing worth saying
+    hold.guard = Date.now();
+    hold.settled = true;
+    paintFlag(hold.id, spec, hold.want, false);
+    poll();
+    return;
+  }
+  if (why){
+    // the board kept what it had and said why: a message reached the card
+    // first, or a newer tap of this page's own got there first. Nothing was
+    // applied, and this is not a failure to retry
+    flagTell(hold.id, spec, said, flagStaleWord(spec, sent, why));
+    poll();
+    return;
+  }
+  if (answer && answer.ok === false){
+    // an explicit no with no reason given. Nothing was applied, so the card
+    // goes back to the board's word and the chip asks again
+    flagTell(hold.id, spec, said,
+      flagWord(spec, sent) + " refused by the board: try again");
+    poll();
+    return;
+  }
+  if (!answer || answer.ok !== true){
+    // 2xx and nothing else. An answer that cannot be read, an empty one, or one
+    // that never says it did the thing is not an acknowledgment, and calling it
+    // one would leave a snooze on screen that the board may never have made.
+    // The request may still have landed, so nothing is taken back either
+    flagUnsure(key, spec);
+    return;
+  }
+  // ok:true, which is the acknowledgment, and all an older board ever sent. The
+  // moment it answered is the guard: a reading asked for before now knows
+  // nothing of this card and may not repaint it
+  hold.guard = Date.now();
+  hold.settled = true;
+  paintFlag(hold.id, spec, hold.want, false);
   poll();
+}
+
+// the board has not said yes and has not said no. Nothing is taken back, since
+// the request may have landed, and nothing is called confirmed, since it may
+// not have: the card keeps the tap, keeps saying it is unconfirmed, and the
+// readings that follow settle it. If none ever does, the window ends it with a
+// plain word rather than leaving a snooze standing on an unchanged board
+function flagUnsure(key, spec){
+  const hold = flagHolds[key];
+  if (!hold) return;
+  hold.guard = Date.now();
+  hold.settled = false;
+  paintFlag(hold.id, spec, hold.want, true);
+  flagWindow(key);
+  poll();
+}
+
+// an answer that never came cannot hold a card for ever
+function flagWindow(key){
+  const hold = flagHolds[key];
+  if (!hold) return;
+  clearTimeout(hold.timer);
+  hold.timer = setTimeout(() => flagExpire(key), Math.max(0, hold.until - Date.now()));
+}
+function flagExpire(key){
+  const hold = flagHolds[key];
+  if (!hold || flagBusy(hold) || hold.settled) return;
+  const spec = flagSpec(hold.kind);
+  flagTell(hold.id, spec, null, flagWord(spec, hold.want) + " not confirmed: try again");
+}
+
+// the board's word wins and the reason stays on the card: the hold ends, the
+// card goes back to what the board last said (or to what this very answer
+// said, which is newer), and the note stands until the next tap. No reading
+// clears it, which is the whole of its worth
+function flagTell(id, spec, said, text){
+  const key = flagKey(id, spec.kind);
+  const hold = flagHolds[key];
+  if (hold && hold.truth && said != null && hold.truth[spec.field] !== said){
+    hold.truth[spec.field] = said;
+    hold.truth.state = null;   // the flag this answer named is newer than the state beside it
+  }
+  // the board's word for this card: the answer's own, else the last reading's,
+  // else the state the card stood in before the tap that has just been refused
+  const back = said != null ? said
+             : hold && hold.truth ? !!hold.truth[spec.field]
+             : hold ? !hold.want : flagShown(id, spec.kind);
+  dropFlag(key);
+  paintFlag(id, spec, back, false);
+  flagNote(id, text);
+  flagRepaint();
+}
+
+// the card's own note line, under whichever of the two names the page gives it.
+// A note written here is this page's record of a tap the board refused or never
+// answered, so the pass over the cards is told to leave it where it is.
+//
+// The order of the two names matters and is not a preference. metaNote is the
+// note element itself, which is the node the desktop's own pass reads and
+// writes; meta is the phone's note element under its own name, but on the
+// desktop that name belongs to the box the note element lives in. Writing text
+// to a box throws away the children it has, so choosing it first would delete
+// the very note element the page holds a reference to: the page would keep a
+// detached node, its guard would sit on the wrong node, and nothing written
+// through that reference afterwards would ever be seen again. The note element
+// is chosen where the page has one, its wrapper is left alone, and the text,
+// the guard and the clearing all land on that one connected node.
+function flagNote(id, text){
+  const el = els[id];
+  const note = el && (el.metaNote || el.meta);
+  if (!note) return;
+  note.textContent = text || "";
+  if (text) note.dataset.flagnote = "1";
+  else delete note.dataset.flagnote;
+}
+
+function paintFlag(id, spec, want, waiting){
+  const el = els[id];
+  if (!el || !el.box) return;
+  el.box.classList.remove("peek");   // the desktop's peek; nothing on the phone wears it
+  el.box.classList.toggle(spec.cls, want);
+  if (spec.cls === "parked" && want) el.box.classList.remove("done");   // the board's own rule
+  el.box.classList.toggle("flagwait", !!waiting);
+}
+
+// the hold is over: what the board said goes back into the card it was taken
+// from, so the pass that draws next draws the board and not this page's tap
+function dropFlag(key){
+  const hold = flagHolds[key];
+  if (!hold) return;
+  clearTimeout(hold.timer);
+  if (hold.boxRef && hold.truth){
+    hold.boxRef.parked = hold.truth.parked;
+    hold.boxRef.done = hold.truth.done;
+    hold.boxRef.state = hold.truth.state;
+  }
+  delete flagHolds[key];
+  const el = els[hold.id];
+  if (el && el.box) el.box.classList.remove("flagwait");
+}
+
+// the pass a reading goes through before anything is drawn from it. A card this
+// page is holding a tap for is shown the way it was left, with the reading's own
+// word for it kept aside to go back to; a reading new enough to judge the tap
+// either agrees with it, which ends the hold, or carries something newer, which
+// ends it too. Every colour, list, sort and tab reads the boxes, so holding the
+// tap here is the whole board following the tap rather than the chip alone
+let flagDrawing = false;   // a pass is running; a repaint asked for inside it is that pass's own
+function holdFlags(state){
+  if (!state || !Array.isArray(state.boxes)) return state;
+  const asked = state.fetchedAt || 0;
+  flagDrawing = true;
+  try { holdFlagsPass(state, asked); } finally { flagDrawing = false; }
+  return state;
+}
+function holdFlagsPass(state, asked){
+  for (const key of Object.keys(flagHolds)){
+    const hold = flagHolds[key];
+    if (!hold) continue;   // an end reached inside this same pass
+    const spec = flagSpec(hold.kind);
+    const b = state.boxes.find(x => x.id === hold.id);
+    if (!b){ dropFlag(key); continue; }   // the card is gone and so is the tap
+    // a box this page has not already written into is the reading's own word
+    // for the card. A pass over cards this page has already held (a redraw, or
+    // the phone's unchanged answer, which moves the clock and brings no cards)
+    // carries no word about this card at all, and a hold may never be judged
+    // by a word its reading did not bring
+    const fresh = hold.boxRef !== b;
+    if (fresh) hold.truth = { parked: b.parked, done: b.done, state: b.state };
+    if (fresh && !flagBusy(hold) && asked >= hold.guard){
+      if (hold.truth[spec.field] === hold.want){ dropFlag(key); continue; }   // the board agrees
+      // the board had this tap and something newer has changed the card since:
+      // a message sent to it, a close, another device. That is the board's to
+      // say, and a held tap must not put it back
+      if (hold.settled){ dropFlag(key); continue; }
+      if (Date.now() >= hold.until){ flagExpire(key); continue; }
+    }
+    b[spec.field] = hold.want;
+    if (spec.cls === "parked" && hold.want) b.done = false;
+    b.state = hold.want ? spec.cls : cardState({ ...b, [spec.field]: false, state: null });
+    hold.boxRef = b;
+  }
+}
+
+// what the page draws from, drawn again now. The tapped card has already
+// changed; this is the list, the tabs and the card's place following it
+function flagRepaint(){
+  if (flagDrawing) return;   // the pass that is running draws it
+  if (typeof apply !== "function") return;
+  const state = typeof lastState === "undefined" ? null : lastState;
+  if (!state) return;
+  try { apply(holdFlags(state)); }
+  catch (err){ if (typeof reportProblem === "function") reportProblem("render", err); }
+}
+
+// the board's clock, now, as this page can best tell it: the last reading
+// carried the board's own time and the moment it was asked for. It is the
+// board's clock and not this device's, which is what makes it safe to compare
+// against times the board itself wrote. Zero when no reading has carried one,
+// and a request with no basis simply sends none and is judged as it always was
+function serverNow(){
+  const state = typeof lastState === "undefined" ? null : lastState;
+  if (!state || typeof state.now !== "number" || !state.fetchedAt) return 0;
+  return state.now + (Date.now() - state.fetchedAt) / 1000;
 }
 
 // a just-created card: the cursor starts in the title; Enter saves the name
