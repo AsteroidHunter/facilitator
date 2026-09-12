@@ -933,6 +933,22 @@ HISTORY_COUNTS_VERSION = 1
 # This is a cap on final replies only, unlike /thread's n, which counts every
 # row of the conversation.
 HISTORY_MAX = 200
+# Answered batches (2026-09-11): which of the owner's messages one completed
+# reply was actually given. Only the board can state that, so it is recorded
+# where a delivery happens (a claim, or a mid-work hand-over) and written down
+# beside the reply that answers it. Version 1 is the boundary: a reply recorded
+# before it carries no batch and never has one reconstructed for it, because
+# nothing durable says what a reply of that age was handed. Unknown stays
+# unknown, and is a different fact from a reply that was handed nothing.
+ANSWERED_BATCH_VERSION = 1
+# There is deliberately no cap on a batch, and no count, text or payload cap
+# standing in for one. Every message a completed reply was handed belongs to
+# it, with its own identity, its own words and its own send time, however many
+# there are: the batch states an exact association, and a trimmed association
+# is a false one. Nothing between the hand-over and the card, the history or
+# the transcript row shortens it.
+# HISTORY_MAX above is a different thing entirely: it caps how many PAGES of
+# reply history one card offers, never what any one of those pages answered.
 BUILTIN_OWNERS = ("facilitator", "pastureland", "qchat")  # qchat: the quick chat panel's lane, dormant in the current board
 OWNERS = BUILTIN_OWNERS
 # the built-in three above are the floor; project lanes stored in state.json
@@ -1338,6 +1354,47 @@ def _row_reply_full(event: dict, legacy: bool) -> str:
     return event.get("text", "")
 
 
+def _answered_out(value) -> list | None:
+    """One answered batch as a client reads it: the words and the send time of
+    each message that reply was given, in the order they were sent.
+
+    None is the honest answer for a reply the board recorded nothing for, and an
+    empty list is a reply that was handed nothing. Those are different facts and
+    a caller may act on either, so they are never folded together. A stored
+    entry that is not a message record is dropped rather than guessed at."""
+    if not isinstance(value, list):
+        return None
+    out = []
+    for rec in value:
+        if not isinstance(rec, dict):
+            continue
+        ts = rec.get("ts", 0)
+        out.append({"text": rec.get("text", ""),
+                    "ts": ts if isinstance(ts, (int, float)) else 0})
+    return out
+
+
+def _row_reply_meta(event: dict) -> dict:
+    """One history page's own identity, completion time and answered batch.
+
+    The identity is the board's name for that reply, so two replies with the
+    same words, or two completed in the same second, are still two pages a
+    client can tell apart and hold its own state for. The time is when that
+    reply was completed, read off the row itself and never off a later note.
+
+    A row written before this feature carries none of it. Its identity and its
+    batch are then null, which says the association is unknown, and nothing is
+    rebuilt from the rows around it: the transcript records what was said, not
+    which messages any one reply was handed."""
+    rid = event.get("reply_id")
+    ts = event.get("reply_ts", event.get("ts", 0))
+    return {
+        "id": rid if isinstance(rid, str) and rid else None,
+        "ts": ts if isinstance(ts, (int, float)) else 0,
+        "answered": _answered_out(event.get("answered")),
+    }
+
+
 def _older_replies(box: dict) -> int:
     """How many older pages this card's reply history holds: every final reply
     except the one the card is showing, and never more than the history route
@@ -1614,6 +1671,55 @@ def _migrate() -> None:
         for b in _state["boxes"]:
             b.setdefault("full_replies", 0)
             b.setdefault("reply_kind", "")
+    # Answered batches (2026-09-11): the messages one completed reply was given,
+    # kept beside the reply itself. None of it can be worked out after the fact,
+    # so every card answered before now starts with the association unknown and
+    # keeps it until that card is answered again. The box a card draws over its
+    # answer is only ever filled from a batch the board itself recorded.
+    #   handed     the messages the claim in force handed over, written whole by
+    #              each claim and emptied when that claim is let go
+    #   batch      what the progress notes on the way have already consumed
+    #              toward the completed reply still to come
+    #   batch_gap  a hand-over reached the agent that this board has no record
+    #              of, so the batch cannot be stated and the reply that follows
+    #              says unknown rather than offering a part of itself as the
+    #              whole. It is cleared by that reply, and the card records
+    #              exactly from there on
+    #   answered   what the last completed reply was given: a list, or None for
+    #              unknown. An empty list is a reply that was handed nothing,
+    #              which is a different fact and stays one. It is never capped
+    #              or trimmed, however many messages one answer covers
+    #   reply_id   that reply's own name, unique for the life of the board, so
+    #              repeated words and one second holding two replies still name
+    #              two pages
+    #   reply_ts   when it was completed. agent_ts moves on progress notes too,
+    #              so it cannot mean this and is left alone
+    if _state.get("answered_batches_version", 0) < ANSWERED_BATCH_VERSION:
+        for b in _state["boxes"]:
+            b["handed"] = []
+            b["batch"] = []
+            # a claim, or a note's worth of messages, may already stand behind
+            # the answer this card is about to be given, and nothing durable
+            # says which messages those were: the first completed reply from
+            # here says unknown, and every one after it is exact
+            b["batch_gap"] = True
+            b["answered"] = None
+            b["reply_id"] = ""
+            b["reply_ts"] = 0
+        _state["answered_batches_version"] = ANSWERED_BATCH_VERSION
+    else:
+        # a box added by an older helper or by hand starts recorded and empty:
+        # nothing has ever been handed over on it, and no claim of its own can
+        # have stood across the upgrade
+        for b in _state["boxes"]:
+            b.setdefault("handed", [])
+            b.setdefault("batch", [])
+            b.setdefault("batch_gap", False)
+            if not isinstance(b.get("answered"), list):
+                b["answered"] = None
+            b.setdefault("reply_id", "")
+            b.setdefault("reply_ts", 0)
+    _state.setdefault("next_reply_id", 1)
     _save()
 
 
@@ -1983,13 +2089,27 @@ def _handover(b: dict) -> None:
         _log("handover", b["id"], "working flag down, deferred turn handed over")
 
 
-def _release_claim(b: dict) -> str:
+def _release_claim(b: dict, for_answer: bool = False) -> str:
     """Consume this box's handed-over messages and free its lane. Messages sent
     while the agent was composing were not in the claim, so they stay pending
-    and return to the queue exactly once. Callers hold _lock."""
+    and return to the queue exactly once. Callers hold _lock.
+
+    for_answer says what becomes of the messages that claim handed over. The
+    agent writing about them passes it: a progress note keeps them for the
+    completed reply still to come, and that reply takes them. Every other way of
+    letting a claim go is discarding them unanswered, which is exactly what
+    dismissing a card does -- drop what is queued and clear the claim -- so the
+    default drops them from the answer as well as from the queue, and no later
+    reply can inherit them.
+
+    Nothing else here changes with it. The queue, the lane and the inbox are
+    handled exactly as they always were either way, so a caller that knows
+    nothing about answered batches keeps the behaviour it has always had and
+    gets the safe reading of its own intent."""
     ow = b.get("owner", "pastureland")
     claimed = set(_state["claimed"][ow]) if _state["busy"][ow] == b["id"] else set()
     b["pending"] = [m for m in b["pending"] if m["mid"] not in claimed]
+    _consume_claim(b, claimed, for_answer)
     if _state["busy"][ow] == b["id"]:
         _state["busy"][ow] = None
         _state["claimed"][ow] = []
@@ -1998,6 +2118,130 @@ def _release_claim(b: dict) -> str:
     if not b["pending"] and b["id"] in _state["inbox"]:
         _state["inbox"].remove(b["id"])
     return ow
+
+
+def _handed_record(m: dict) -> dict:
+    """One handed-over message, in the shape the answered box draws it."""
+    rec = {"mid": m.get("mid"), "text": m.get("text", ""), "ts": m.get("ts", 0)}
+    if m.get("via"):
+        rec["via"] = m["via"]
+    return rec
+
+
+def _hand_over(b: dict, messages: list) -> None:
+    """A claim: these messages, and only these, are what the agent is holding on
+    this card now. Callers hold _lock and save in the same held stretch.
+
+    A claim is minted whole, so this is written whole. Whatever an earlier claim
+    left here goes with that claim, which is what keeps a claim cleared by any
+    other path -- a card dismissed, a hand-off nobody confirmed, a steal-back --
+    from leaving anything behind for a later reply to inherit.
+
+    A hand-over is the only thing that writes here: the claim /wait makes, and
+    the mid-work delivery /fresh makes. A message that merely landed on the card
+    while the agent was composing was handed over by neither, so no reply covers
+    it and it stays in the pending box until something actually delivers it."""
+    b["handed"] = [_handed_record(m) for m in messages]
+
+
+def _hand_over_more(b: dict, messages: list) -> None:
+    """A mid-work delivery, folded into the claim in force. Callers hold _lock.
+
+    A mid already handed over is never written twice, so a second delivery, a
+    retry or a re-claim cannot put one message in a batch twice."""
+    held = b.get("handed")
+    if not isinstance(held, list):
+        held = b["handed"] = []
+    seen = {rec.get("mid") for rec in held}
+    for m in messages:
+        mid = m.get("mid")
+        if mid in seen:
+            continue
+        seen.add(mid)
+        held.append(_handed_record(m))
+
+
+def _consume_claim(b: dict, claimed: set, for_answer: bool) -> None:
+    """What becomes of the messages a claim handed over, at the moment that
+    claim is let go. This is _release_claim's own step; callers hold _lock.
+
+    Only the lane's actual claim identities are folded in, and only when the
+    agent is writing about them. A progress note consumes a claim without
+    finishing the answer, so what it consumed waits here for the completed reply
+    still to come, and several notes may each consume their own claim toward
+    that one reply. Anything else letting a claim go -- a card dismissed above
+    all -- discards those messages unanswered, and they are dropped here so no
+    later reply can inherit them.
+
+    A record left behind by a claim that was cleared some other way cannot reach
+    an answer either: nothing is folded in unless the lane still names the mid.
+    So the batch is made of claim identities and never of an inference drawn
+    from a message no longer being in the queue, which is a thing a progress
+    note and a dismissal do alike and which therefore says nothing.
+
+    A claim naming a mid this board has no record of is a hand-over it never
+    saw, which is what a claim standing across the upgrade looks like. The batch
+    cannot be stated then and says so, rather than offering a part of itself as
+    the whole. What it can state it states entire: nothing here trims, caps or
+    summarises a batch, however many messages one answer covers."""
+    held = b.get("handed")
+    b["handed"] = []
+    if not for_answer or not claimed:
+        return
+    records = [rec for rec in held if rec.get("mid") in claimed] if isinstance(held, list) else []
+    if len(records) != len(claimed):
+        b["batch_gap"] = True     # handed over, and this board has no record of it
+        return
+    if b.get("batch_gap"):
+        return                    # already unknown; a part of a batch is not the batch
+    batch = b.get("batch")
+    if not isinstance(batch, list):
+        batch = b["batch"] = []
+    seen = {rec.get("mid") for rec in batch}
+    for rec in records:
+        if rec.get("mid") in seen:
+            continue
+        seen.add(rec.get("mid"))
+        batch.append(rec)
+
+
+def _take_answered(b: dict) -> list | None:
+    """The exact messages the reply being recorded answers, and the end of that
+    association. Callers hold _lock and have let the claim go for_answer first,
+    so the claim in force at the moment of the reply is already folded in.
+
+    Every member is kept. Each message that was handed over stands here with its
+    own identity, its own words and its own send time, however many there are,
+    and nothing on the way to the card, to the history or to the transcript row
+    trims, caps or summarises the list.
+
+    None says the association is unknown: a hand-over reached the agent that
+    this board has no record of, which is what a card carried across the upgrade
+    looks like for its first answer. It is never the same fact as the empty
+    list, which says this reply was handed nothing at all.
+
+    The card starts from nothing again, so the next completed answer opens an
+    association of its own and one message is answered exactly once."""
+    batch = b.get("batch")
+    gap = bool(b.get("batch_gap"))
+    b["batch"] = []
+    b["batch_gap"] = False
+    if gap:
+        return None
+    return batch if isinstance(batch, list) else []
+
+
+def _next_reply_id(bid: str) -> str:
+    """A completed reply's own name. Callers hold _lock and save.
+
+    Two replies with the same words, and two completed inside one second, are
+    two pages of a card's history and every client has to be able to hold them
+    apart: a page it is showing, a batch it is drawing and a fold he has chosen
+    all hang off this name. The counter says what the words and the clock
+    cannot."""
+    n = int(_state.get("next_reply_id", 1))
+    _state["next_reply_id"] = n + 1
+    return f"{bid}:{n}"
 
 
 def _release_unacked() -> None:
@@ -2459,6 +2703,16 @@ def _phone_box(b: dict) -> dict:
         # message that came without one: the phone matches its own rows by it
         "pendingOps": [m.get("op") for m in b["pending"]],
         "agentTs": b.get("agent_ts", 0), "seen": b.get("seen", 0), "turnTs": b.get("turn_ts", 0),
+        # the card's last COMPLETED reply: its own name, when it was completed,
+        # and the messages it was given, which is what the box above the answer
+        # is drawn from. replyKind says what wrote the words the card is
+        # showing, so a page knows whether that reply is the text on the card or
+        # a page standing behind a progress note. answered is null when the
+        # board recorded no association, which is never a batch of none
+        "replyKind": b.get("reply_kind", ""),
+        "replyId": b.get("reply_id", ""),
+        "replyTs": b.get("reply_ts", 0),
+        "answered": _answered_out(b.get("answered")),
         "writing": _state["busy"].get(ow) == b["id"],
         "bg": _hb_live(b), "state": _shown(b),
     }
@@ -2544,6 +2798,19 @@ def _ui_state() -> dict:
                 # been moved; the bar reads the lane's standing branch then
                 "worktree": b.get("worktree", ""),
                 "agentTs": b.get("agent_ts", 0),
+                # the card's last COMPLETED reply, which is what the box over
+                # the answer is drawn from: the board's own name for it, when
+                # it was completed, and the exact messages it was given. the
+                # agent stamp above moves on a progress note as well and so
+                # cannot mean any of this. replyKind says what wrote the words
+                # the card is showing, so a page can tell a reply standing on
+                # the card from one standing behind a note, and answered is
+                # null when the board recorded no association at all, which is
+                # never the same fact as a reply that was handed nothing
+                "replyKind": b.get("reply_kind", ""),
+                "replyId": b.get("reply_id", ""),
+                "replyTs": b.get("reply_ts", 0),
+                "answered": _answered_out(b.get("answered")),
                 # replies already read, the board's record rather than one
                 # browser's: the page bolds a card whose reply count has
                 # passed this, on whichever device is looking
@@ -2740,6 +3007,10 @@ def _get_fresh(q: Query, _):
         fresh = [m for m in fbox["pending"] if m["mid"] not in have]
         if fresh:
             _state["claimed"][owner].extend(m["mid"] for m in fresh)
+            # handed over, so the reply that follows covers them: folded into
+            # the claim's own note in the same held stretch the claim itself is
+            # extended in, and written durably by the save below
+            _hand_over_more(fbox, fresh)
             _log("fresh", fbid, f"{len(fresh)} mid-work message(s) handed over")
             _save()
         # the same marker /wait hands over, in the same shape and order:
@@ -2815,7 +3086,16 @@ def _get_history(q: Query, _):
     cap, so the cap counts replies. And a page can only tell which reply is the
     live one by comparing text, which gets it wrong when a progress note
     repeats the answer under it word for word; the card's own reply_kind says
-    it outright."""
+    it outright.
+
+    Beside the replies, in the same order and at the same length, replyMeta
+    names each page: its own reply id, when it was completed, and the exact
+    messages it was given. replies stays a plain list of strings, so a caller
+    that only walks the words is untouched by it, and the two lists are trimmed
+    and capped together so neither can promise a page the other cannot reach. A
+    page written before the board kept batches carries a null id and a null
+    batch, which says unknown; nothing is rebuilt for it out of the rows that
+    happen to stand near it in the file."""
     hbid = q.one("box")
     with _lock:
         box = _box(hbid)
@@ -2825,6 +3105,9 @@ def _get_history(q: Query, _):
         # one thing here big enough that reading it must not hold the board
         live_is_reply = box.get("reply_kind") == "agent"
     replies: list = []
+    # one entry per reply above, written in the same step so the two lists can
+    # never fall out of step with each other
+    meta: list = []
     legacy_reply_rows = True
     seen_ops: set = set()
     try:
@@ -2850,13 +3133,17 @@ def _get_history(q: Query, _):
                         continue
                     seen_ops.add(op)
                 replies.append(_row_reply_full(e, legacy_reply_rows))
+                meta.append(_row_reply_meta(e))
                 if len(replies) > HISTORY_MAX + 1:
                     del replies[0]
+                    del meta[0]
     except FileNotFoundError:
         pass
     if live_is_reply and replies:
         replies.pop()   # the newest final reply is the page the card is on
-    return 200, {"replies": replies[-HISTORY_MAX:] if replies else []}
+        meta.pop()      # and its entry goes with it, or the two would be a page apart
+    return 200, {"replies": replies[-HISTORY_MAX:] if replies else [],
+                 "replyMeta": meta[-HISTORY_MAX:] if meta else []}
 
 
 def _get_log(q: Query, _):
@@ -3115,6 +3402,15 @@ def _wait_poll(owner: str):
                 box = _box(bid)
                 _state["busy"][owner] = bid
                 _state["claimed"][owner] = [m["mid"] for m in box["pending"]]
+                # the hand-over itself, which is the one moment that can say
+                # what a reply was given: this claim's own messages are noted
+                # right here where the delivery happens. the claim is minted
+                # whole and the note is written whole with it, so nothing an
+                # earlier claim left behind can reach a later answer. a message
+                # landing on this card after this line was handed over by
+                # nothing, and nothing covers it until /fresh or a later claim
+                # delivers it
+                _hand_over(box, box["pending"])
                 _state["busy_ts"][owner] = time.time()
                 # every claim is provisional: the token below is what
                 # POST /ack has to name, and until it does this claim is
@@ -3381,19 +3677,46 @@ def _post_reply(q: Query, text: str):
         # The machine's sole answer move, taken once the claim is let
         # go below. While a working flag beats, the final turn waits in
         # deferred and is handed over when that work ends.
-        box["agent_ts"] = time.time()  # when the agent last replied
-        box["ts"] = time.time()
+        now = time.time()
+        box["agent_ts"] = now  # when the agent last replied
+        box["ts"] = now
         if ctx:
             box["context"] = ctx
-        _release_claim(box)
+        _release_claim(box, for_answer=True)
+        # What this reply answers, recorded with the reply itself. It is made of
+        # the board's own claim identities and of nothing else: what the
+        # progress notes on the way consumed, and what the claim in force at
+        # this moment handed over, which the release above has just folded in.
+        # A claim that was dismissed unanswered is in neither, so this reply
+        # cannot inherit it; a message that arrived after the claim was handed
+        # over by nothing and waits in the queue for a reply that is given it.
+        # Every member is kept, however many there are.
+        # The card starts from nothing again, so the next completed answer opens
+        # its own association and no message is ever answered twice. A hand-over
+        # this board has no record of records null here, which says unknown and
+        # is not the same as a reply that was handed nothing.
+        box["answered"] = _take_answered(box)
+        box["reply_id"] = _next_reply_id(bid)
+        # when this reply was completed. agent_ts above cannot mean that: a
+        # progress note moves that stamp and leaves this one standing, which is
+        # what lets a card opened later age the box over its answer by the
+        # answer's own clock
+        box["reply_ts"] = now
         if _hb_live(box):
             box["state"] = "deferred"
         else:
             _turn_to_you(box)
             box["state"] = _rest(box)
+        # the row carries the same three facts, so an older page of the history
+        # states what it answered and when it was completed exactly as the card
+        # states them for the live one. they ride on the transcript row and not
+        # on the log line, like the words themselves, since what was said is not
+        # the log's business
         _log("agent", bid, text, reply_full=text,
              reply_short=box["reply_short"],
-             reply_variants_version=REPLY_VARIANTS_VERSION)
+             reply_variants_version=REPLY_VARIANTS_VERSION,
+             reply_id=box["reply_id"], reply_ts=now,
+             answered=box["answered"])
         _save()
         _notify()
         return 200, {"ok": True}
@@ -3422,7 +3745,15 @@ def _post_note(q: Query, text: str):
         box["ts"] = time.time()
         if ctx:
             box["context"] = ctx
-        _release_claim(box)
+        # the claim goes, and the messages it covered leave the pending list
+        # with it. but a note is not an answer, so the claim is let go FOR the
+        # answer: what it consumed is kept for the completed reply still to
+        # come, and several notes may each consume their own claim toward that
+        # one reply. nothing here writes answered, reply_id or reply_ts either,
+        # so the last completed reply keeps its own name, its own completion
+        # time and its own batch while this note stands over it, and no page can
+        # present this note as an answer to anything
+        _release_claim(box, for_answer=True)
         box["ball"] = "me"
         box["hb"] = time.time()
         box["state"] = "note"

@@ -3,7 +3,7 @@
 // Each page loads it after card-markdown.js and before its own script. The
 // functions here read the names each page declares itself: els (box id to the
 // card's parts), lastState, selectedId, activeOwner, lastSel, and the page's own
-// poll, select and growPend. The chosen list view is the other way round: it is
+// poll, select, growPend, growAnswered and foldAnswered. The chosen list view is the other way round: it is
 // held here, one per project, and each page reads it through curView(). Nothing
 // here runs on load.
 
@@ -22,6 +22,15 @@ let pendTimes = false;
 // pendRoomChanged: what a page does once the sent box has taken its room or
 // given it back. the desktop re-snaps the answer's lines against the box
 let pendRoomChanged = null;
+// answeredRoomChanged: the same, for the box that stands ABOVE the answer
+// holding the messages that answer was given. that box is a standing part of
+// the card's column rather than a strip laid over the answer, so the room it
+// takes is room the answer does not have, and the desktop re-snaps its lines
+// against it exactly as it does for the box below.
+// the box itself is each page's own to build (growAnswered) and to fold
+// (foldAnswered), the way the sent box below it is (growPend): the desktop
+// runs the card's staged fold over it, the phone its plain tap
+let answeredRoomChanged = null;
 
 // ---- the card pages' keyboard commands ------------------------------------------
 // Recognition is shared; listeners, state guards, cancellation and effects stay
@@ -619,6 +628,236 @@ function syncPend(el, texts, stamps){
   el.pendRaw = texts.join("\n\n");
 }
 
+// ---- the answered box -------------------------------------------------------------
+// the raised box between the card's title and the completed answer under it.
+// it holds exactly the messages THAT answer was given, which is a fact only the
+// board can state: the board notes them at the moment it hands them over, keeps
+// the note across the progress notes written on the way, and writes it down
+// beside the answer when the answer is recorded. nothing here works it out from
+// what happens to stand nearby, so a reply the board recorded nothing for shows
+// no box at all rather than a guess.
+//
+// what stands below is what the two pages share: which reply is on show, what
+// that reply was given, the minute the box stays shut for, his own word about
+// it, and the one pass that mounts, fills and takes the strip away. the strip
+// itself is each page's own to build (growAnswered) and to fold (foldAnswered),
+// exactly as the sent box below it is, so each surface keeps its own gesture,
+// its own motion and its own compact shape.
+
+// the box stays shut for the first minute after the reply it belongs to was
+// completed, and then opens itself, once. there is no setting for it: the
+// number is written here, in seconds, and read nowhere else
+const ANSWERED_OPEN_AFTER_SEC = 60;
+// his own word about one reply's box, kept under that reply's own name. it
+// outlives the poll, the card being put away and opened again, the walk through
+// the history and the page being loaded again: a box he shut stays shut for
+// that reply, and the only thing that changes it is his own hand on that same
+// reply's box. there is no clock on the record and nothing evicts it, so
+// waiting cannot reopen a box he shut and neither can shutting or opening the
+// box on any other reply: each reply's word stands on its own.
+// only the two words below are ever written or believed, which is how the view
+// record on this page already reads storage: anything else found there counts
+// as nothing said at all
+const ANSWERED_CHOICE_KEY = "answbox.";   // + the reply's own name
+const ANSWERED_SAID = ["open", "closed"];
+// this page's own copy of what he said, read before the record: a private
+// window refuses the write, and his word must still hold for as long as the
+// page is open. the map is made without a prototype, so a reply id can never
+// borrow an answer from the object it is a key of
+const answeredChoices = Object.create(null);
+// one clock per surface and card, and never one per reply: a newer reply
+// landing on a card cancels the clock the older one armed, so a minute running
+// out can never open a box that is showing another batch by then
+const answeredClocks = Object.create(null);
+
+// "open", "closed", or nothing at all when he has not said anything about this
+// reply
+function answeredChoice(replyId){
+  if (!replyId) return null;
+  if (ANSWERED_SAID.includes(answeredChoices[replyId])) return answeredChoices[replyId];
+  let said = null;
+  try { said = localStorage.getItem(ANSWERED_CHOICE_KEY + replyId); } catch (err) { said = null; }
+  if (!ANSWERED_SAID.includes(said)) return null;
+  answeredChoices[replyId] = said;
+  return said;
+}
+// he opened or shut the box himself: that is this reply's state from now on,
+// and the minute's own clock has nothing left to say about it. a storage that
+// refuses the write changes nothing else, since the page's own copy above is
+// read first and holds his word for as long as the page is open
+function setAnsweredChoice(replyId, open){
+  if (!replyId) return;
+  const said = open ? "open" : "closed";
+  answeredChoices[replyId] = said;
+  try { localStorage.setItem(ANSWERED_CHOICE_KEY + replyId, said); } catch (err) {}
+}
+
+// what the board recorded one reply was given, or nothing when it recorded
+// none. an empty list is an answer and not a silence: it says that reply was
+// handed nothing, and nothing is then what the card shows. a reply with no
+// record at all (one answered before the board kept this) is unknown, and
+// unknown is never drawn as a batch of none
+function answeredBatch(meta){
+  return meta && meta.id && Array.isArray(meta.answered) ? meta.answered : null;
+}
+// how old the reply on show is, in seconds, off the board's own completion time
+// for THAT reply. never off the card's agent stamp, which a progress note
+// written over the reply moves, and never off a message's own send time
+function answeredAge(meta){
+  const ts = meta && meta.ts;
+  return ts ? Date.now() / 1000 - ts : Infinity;
+}
+function answeredOpensNow(meta){
+  const said = answeredChoice(meta && meta.id);
+  if (said) return said === "open";
+  return answeredAge(meta) >= ANSWERED_OPEN_AFTER_SEC;
+}
+// what is left of that reply's own minute, in ms; nothing once it is served
+function answeredWaitMs(meta){
+  const left = (ANSWERED_OPEN_AFTER_SEC - answeredAge(meta)) * 1000;
+  return left > 0 ? Math.ceil(left) : 0;
+}
+function clearAnsweredClock(key){
+  if (!key || answeredClocks[key] == null) return;
+  clearTimeout(answeredClocks[key]);
+  delete answeredClocks[key];
+}
+// the one clock, armed on the reply's own completion time. a card opened long
+// after its answer landed has nothing left to wait for and is drawn open in the
+// frame it appears in; a reply that landed a moment ago waits out what is left
+// of its own minute. what the clock fires is asked again when it fires, since
+// by then the box may be showing another reply, or he may have said himself
+function armAnsweredClock(key, meta, open){
+  clearAnsweredClock(key);
+  if (!key || !meta || !meta.id || answeredChoice(meta.id)) return;
+  const wait = answeredWaitMs(meta);
+  if (!wait) return;
+  answeredClocks[key] = setTimeout(() => {
+    delete answeredClocks[key];
+    if (answeredChoice(meta.id)) return;
+    open();
+  }, wait);
+}
+
+// one card out of the state the page is holding
+function stateBoxOf(id){
+  return (lastState && lastState.boxes && lastState.boxes.find(b => b.id === id)) || null;
+}
+// the reply a card is showing right now, as the answered box reads it. the
+// board names the card's last COMPLETED reply, when it was completed and what
+// it was given; replyKind says whether that reply is the text standing on the
+// card, so a progress note written over it is never presented as an answer of
+// its own and never borrows the answer's batch
+function liveAnswered(b){
+  if (!b || b.replyKind !== "agent" || !b.replyId) return null;
+  return { id: b.replyId, ts: b.replyTs || 0,
+           answered: Array.isArray(b.answered) ? b.answered : null };
+}
+// and the same three facts for one page of the history. they ride beside the
+// replies, one entry per reply and in the same order, so an older page carries
+// its own batch and its own completion time rather than the live card's. a
+// reply written before the board kept any of this has no entry, and stays
+// exactly as readable as it always was with no batch invented for it
+function histAnswered(list, step){
+  const meta = list && list.meta;
+  const one = meta && meta[list.length - step];
+  if (!one || !one.id) return null;
+  return { id: one.id, ts: one.ts || 0,
+           answered: Array.isArray(one.answered) ? one.answered : null };
+}
+
+// one row of this box is the sent box's own row, so the words, the markdown,
+// the attachment markup, the wrapping and the time a drag reveals are one thing
+// drawn twice rather than two things drawn alike. the run stamp is the same
+// stamp too: the first message of the run this answer covers, which is when the
+// run began, exactly as the box below states the run it is waiting on.
+// the delivery words are the one part deliberately left off. Read and Delivered
+// say where a message that is still waiting has got to; every message in this
+// box has been answered, and the sheet's own rule gives an empty receipt its
+// room back, so the rows stand as they would with nothing to say
+function fillAnswered(pend, batch){
+  const slide = pend.querySelector(".pendslide");
+  slide.textContent = "";
+  for (const m of batch) slide.appendChild(pendRow((m && m.text) || "", (m && m.ts) || 0));
+  stampRun(pend, batch.map(m => (m && m.ts) || 0));
+}
+
+function dropAnswered(el){
+  if (!el || !el.answ) return;
+  clearAnsweredClock(el.answKey || (el.box && el.box.id));
+  el.answ.remove();
+  el.answ = null;
+  el.answId = null;
+  el.box.classList.remove("hasansw");
+  if (answeredRoomChanged) answeredRoomChanged();
+}
+
+// the poll's and the stepper's one pass over the box. the reply's own name is
+// what it is drawn from, so a poll carrying the same reply again touches no dom
+// at all: no fold in flight is cut short, no lane is scrolled back to its foot,
+// no row is rewritten under a selection, and nothing near the composer moves,
+// which is why a draft and a caret are never disturbed by one of these passes.
+// a different reply, whether it landed live or was stepped back to, takes the
+// rows, the stamp, its own minute and his own word about it
+function syncAnswered(el, meta, opts){
+  if (!el || !el.answwrap) return;
+  const batch = answeredBatch(meta);
+  if (!batch || !batch.length){ dropAnswered(el); return; }
+  if (el.answ && el.answId === meta.id) return;
+  const open = answeredOpensNow(meta);
+  // the arrival is the page's own two beats, and only for a box that arrives
+  // shut on the card he is looking at: a box that is already past its minute is
+  // mounted open, and growing an open box out of nothing is a run nobody asked
+  // for. a box already standing keeps its node across a history step, so the
+  // strip does not blink out and back in between two pages
+  const pend = el.answ || growAnswered(el, !!(opts && opts.arrive) && !open);
+  el.answ = pend;
+  el.answId = meta.id;
+  el.answKey = el.answKey || (el.box && el.box.id);
+  fillAnswered(pend, batch);
+  pend.classList.toggle("open", open);
+  pend.classList.toggle("foldopen", open);
+  if (open) pendBottom(pend);
+  el.box.classList.add("hasansw");
+  armAnsweredClock(el.answKey, meta, () => {
+    if (!el.answ || el.answId !== meta.id || el.answ.classList.contains("open")) return;
+    foldAnswered(el, true);   // the card's own fold, not a class flipped behind it
+  });
+  if (answeredRoomChanged) answeredRoomChanged();
+}
+
+// he opened or shut the box himself. the page's fold calls this and nothing
+// else does, so the clock is only ever put out by his own hand
+function answeredChose(el, open){
+  if (!el) return;
+  clearAnsweredClock(el.answKey || (el.box && el.box.id));
+  setAnsweredChoice(el.answId, open);
+}
+
+// the box's two arrows, and the one thing about them that is its own: they
+// point the other way. shut, the bar's arrow points DOWN, at the answer the box
+// opens toward; open, the corner arrow is this same glyph turned over by the
+// sheet, so it points UP at the title, which is the way the box shuts. the path
+// is the sent box's own chevron drawn upside down rather than a second mark
+const ANSWERED_CHEV_PATH = '<path d="M1 1.35 5.5 5.65 10 1.35" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>';
+function answeredChevSVG(seat){
+  return '<svg class="chev ' + seat + '" width="11" height="7" viewBox="0 0 11 7"' +
+         ' fill="none" aria-hidden="true">' + ANSWERED_CHEV_PATH + "</svg>";
+}
+// the strip's own markup, the sent box's to the element: the two pages build it
+// here so neither can drift from the other, and each wires its own gesture over
+// what comes back
+function answeredStrip(){
+  const pend = h("div", "pendlist");
+  pend.innerHTML = '<div class="pendhead">' + answeredChevSVG("chevmid") + "</div>" +
+    '<div class="pendbody">' + answeredChevSVG("chevtop") +
+    '<div class="pendstamp"></div>' +
+    '<div class="pendscroll"><div class="pendslide"></div></div></div>';
+  pend.setAttribute("role", "group");
+  pend.setAttribute("aria-label", "your messages that the reply below answers");
+  return pend;
+}
+
 // ---- sending, parking, naming ---------------------------------------------------------
 // writing to a done or parked card takes it back to doing: the done flag is
 // read before the send and flipped after the message is in, so a flip that
@@ -1115,7 +1354,20 @@ function histList(id){
         if (!x.ok) throw new Error("history request failed");
         return x.json();
       })
-      .then(r => r.replies || [])
+      .then(r => {
+        const replies = r.replies || [];
+        // what each of those replies was given, and when each was completed,
+        // one entry per reply and in the same order. it is carried ON the list
+        // rather than in a cache beside it, so it cannot outlive the list: every
+        // place that drops this card's cached history drops the batches in the
+        // same breath. every caller that only walks the replies still gets
+        // exactly the array of strings it always got, and a board too old to
+        // send the entries leaves the list bare, which reads as unknown
+        // everywhere rather than as a batch of none
+        const meta = r.replyMeta;
+        if (Array.isArray(meta) && meta.length === replies.length) replies.meta = meta;
+        return replies;
+      })
       .catch(() => {
         // A newer card version may already own this slot. An older rejection
         // must clear only its own failed request, then a later sync can retry.
@@ -1139,6 +1391,11 @@ function histExit(id){
   if (was){
     el.reply.innerHTML = fmt(el.reply.dataset.raw);
     el.reply.scrollTop = 0;
+    // back on the live reply, so the box over it is the live reply's own batch
+    // again. the card is read out of the state the page is holding rather than
+    // remembered from the step away, so a reply that landed while an older page
+    // was being read is the one that comes back
+    syncAnswered(el, liveAnswered(stateBoxOf(id)));
   }
 }
 
@@ -1154,6 +1411,10 @@ async function histStep(id, dir){   // +1 steps older, -1 steps back toward live
   const el = els[id];
   el.reply.innerHTML = fmt(list[list.length - step]);
   el.reply.scrollTop = 0;
+  // this page's own batch and its own completion time, so an older answer is
+  // read with the messages it was actually given and its own minute, and never
+  // with the live card's
+  syncAnswered(el, histAnswered(list, step));
   el.box.classList.add("histview");
   el.histPos.textContent = (list.length - step + 1) + " of " + (list.length + 1);
   el.histUp.disabled = step >= list.length;

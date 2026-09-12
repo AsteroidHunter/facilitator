@@ -1258,6 +1258,171 @@
     position:absolute; left:0; right:0; bottom:0;
     display:flex; flex-direction:column; pointer-events:auto;
   }
+
+  /* ---- the answered box: what the answer on the card was given ------------ */
+  /* the raised box between the title and the answer, holding the messages that
+     answer was handed. it is the sent box drawn again, rule for rule: the same
+     strip, the same shut bar, the same lane, the same rows, the same pull that
+     reveals a time and the same staged fold. three things about it are its own,
+     and each of the three is what standing ABOVE the answer means rather than a
+     second design of anything.
+     it is raised out of the card instead of let into it, so its shade falls
+     below it rather than hanging off its top inside edge. the pair is the
+     board's own --raised-soft, shared with the phone and the small card, and it
+     is the one thing the accepted mock states outright.
+     its arrows point the other way. shut, the bar's arrow points down at the
+     answer the box opens toward; open, the corner arrow is that same glyph
+     turned over by the rule the box below already carries, so it points up at
+     the title, which is the way this box shuts.
+     and its content column travels the other way. the sheet's rise is written
+     as multiples of one property, so handing that property the same distance
+     with its sign flipped runs the same physics, on the same curve and over the
+     same length, DOWN onto the seat while the box grows downward and back up
+     while it falls. nothing new is drawn for it, no second set of keyframes is
+     kept in step with the first, and nothing about the box below is touched.
+     the wrapper is a standing part of the card's column and not a strip laid
+     over the answer, so the room it takes is room the answer does not have,
+     which is what the snap at the foot of this file re-measures against. it is
+     also the one item in that column allowed to give way: it may shrink under
+     its own content, and what it cannot show then goes to its own lane to be
+     scrolled rather than being pushed onto anything else */
+  /* the two measures the card's column is shared out by. both are written here
+     because two rules read each of them, and both are written as the sheet's
+     own numbers rather than as pixels, so a pane drawn at another size shares
+     itself out by its own.
+     --answ-open is what the box must have to be worth opening at all: its own
+     step under it, the open dress's padding over and under, the run stamp's
+     line with the corner arrow standing on it, and one sent row under that.
+     below this there is a lane with no room to scroll in.
+     --answ-keep is what the answer keeps whatever the box does: two of its own
+     lines and the ramp its foot dissolves into. two lines and not one, because
+     the snap spends its remainder as air at the head of the answer and that
+     remainder can be anything up to a whole line; with two reserved, the first
+     line stands clear of the ramp at full ink for every remainder there is. */
+  body.focus .box.sel{
+    --answ-open:calc(var(--sp-s) + 16px + 10px + 12px*1.4 + var(--sp-s) + 16px*1.5);
+    --answ-keep:calc(18px*1.55*2 + var(--replyfade));
+  }
+  /* the box's room in the card's column, and the whole of how the card is
+     shared out. it is the one item in that column that gives way, and it gives
+     way between two ends it may never pass.
+     it never goes below the shut bar and the step under it. that floor is the
+     point: the bar is the box's only control once it is folded, and a bar
+     squeezed to a sliver is a control that cannot be seen or hit. it holds on
+     the shortest phone and the shortest card, with the box below open or shut.
+     and it never takes more than the answer can spare, which is everything
+     standing over the sent box and the row he types in, less the answer's own
+     two lines. --boxband is what the sent box and that row take, measured by
+     the script at the foot of this file and written on the card so that this
+     rule and the answer's own can both read it; until it lands the fallback is
+     nothing, which reserves the most rather than the least.
+     what the box cannot show at either end, its own lane scrolls. */
+  body.focus .box.sel .pendwrap-answered{
+    display:flex; flex-direction:column;
+    flex:0 1 auto;
+    min-height:calc(var(--pend-bar) + var(--sp-s));
+    max-height:calc(var(--cardroom, 100%) - var(--boxband, 0px) - var(--answ-keep));
+  }
+  /* OPEN, the floor is what an open box IS: the stamp's line with the corner
+     arrow standing on it, and one whole sent line under it, after the open
+     dress's padding and the step below the strip.
+     it is a min-height, and that is the point of it. naming the same number
+     inside a maximum does not make it a minimum: a maximum is a cap, the used
+     height still comes from the column, and the column shrinks what it is
+     allowed to shrink -- so the wrapper went on shrinking toward the shut bar's
+     floor and left an open class over a lane with nothing in it. this stops the
+     column at the number instead of merely refusing to pass it.
+     it is held off while a fold is running, so an opening or shutting box can
+     be animated between its two heights without the floor holding it open. the
+     destination of an opening run is measured with the fold's own class off and
+     the open class on, which is exactly when this rule applies, so the run
+     lands on the floor rather than jumping to it afterwards */
+  body.focus .box.sel .pendwrap-answered:has(.pendlist.open:not(.motion)){
+    min-height:var(--answ-open);
+  }
+  /* a card the board has recorded nothing for carries no box at all, and the
+     empty wrapper it is mounted into takes no room either */
+  body.focus .box.sel .pendwrap-answered:empty{display:none}
+  /* while the box is arriving it holds no room of its own yet. the arrival is
+     two beats, the answer giving the room up and then the bar coming up in the
+     cleared room, and a floor held from the first frame would spend the first
+     beat in one step and leave the second beat rising inside room that was
+     already standing empty */
+  body.focus .box.sel .pendwrap-answered:has(.pendlist.rising){min-height:0}
+  /* and the other half of the share-out. the sent box is laid OVER the answer
+     and takes no room in the column, so nothing in the column can hold it back:
+     on a card carrying both boxes it has to leave the rest of the card what the
+     rest of the card needs, or the box above it would be shrunk under its own
+     floor and the answer would lose its lines to a strip nobody can read.
+     so on those cards it may have everything except three things it may not
+     touch: the row he types on with its step and the answer's clear air
+     (--footband, measured, so a composer grown to several lines is in it), the
+     answer's own reserved lines, and the box above at its own floor -- the shut
+     bar when that box is folded, its open floor when it is not.
+     it never grows past the cap it already had, since this is a min() with that
+     cap inside it: on an ordinary card the accepted half-card cap is still the
+     one that binds and nothing about this box changes. only a card with no room
+     to spare is shared out, and only a card carrying the box above: a card with
+     the sent box alone is not matched by either rule and keeps exactly the
+     behaviour it has always had.
+     what this leaves it, its own lane scrolls, and its whole strip is still its
+     own click target.
+     the fallback beside --cardroom is a length no card can reach rather than a
+     percentage, since a percentage would be measured against this box's own
+     wrapper, which has no height of its own to measure against: a card the
+     script has not read yet keeps its own cap and gives up nothing */
+  body.focus .box.sel.hasansw .pendwrap .pendlist.open{
+    max-height:min(
+      calc(var(--pend-cap) - var(--under-bar)),
+      calc(var(--cardroom, 9999px) - var(--footband, 0px) - var(--answ-keep)
+           - var(--pend-bar) - var(--sp-s))
+    );
+  }
+  body.focus .box.sel.hasansw:has(.pendwrap-answered .pendlist.open) .pendwrap .pendlist.open{
+    max-height:min(
+      calc(var(--pend-cap) - var(--under-bar)),
+      calc(var(--cardroom, 9999px) - var(--footband, 0px) - var(--answ-keep) - var(--answ-open))
+    );
+  }
+  /* the strip is exactly the room its wrapper holds, shut and open both, and
+     that one rule is the whole of what makes the answer start under the BOX
+     rather than under part of it.
+     the wrapper is the one item in the card's column that gives way when the
+     card runs short. the strip inside it is flex:none in the rules above, which
+     does not give way, so a wrapper that had shrunk would have left the strip
+     standing at its own height: the answer laid out against the shorter wrapper
+     and the sent words printed over the top of it. growing and shrinking with
+     the wrapper is what keeps the two edges one edge.
+     the strip clips its own content for the same reason. the shut bar is a
+     fixed height of its own and the rows are a column of their own, so a strip
+     squeezed below either would push it out through its own foot. clipping what
+     is INSIDE a box does not touch the shade the box casts, so the raised pair
+     is drawn whole either way, and what the strip cannot show its own lane
+     scrolls, with the stamp and the arrow holding the top line above it */
+  body.focus .box.sel .pendwrap-answered .pendlist{
+    flex:1 1 auto; min-height:0; overflow:hidden;
+    --pend-rise:calc((16px*1.5 + var(--sp-s)) * -1);
+  }
+  body.focus .box.sel .pendwrap-answered .pendlist.open,
+  body.focus .box.sel .pendwrap-answered .pendlist:not(.open) .pendhead{
+    box-shadow:var(--raised-soft);
+  }
+  /* the shut bar's arrow is seated off the strip's TOP edge here and not off
+     its bottom. under the box below, the bottom edge is the one that holds
+     still, since that box grows upward; this one grows downward, so the edge
+     that holds still is the top one and the arrow has to be measured from it or
+     it would travel through the tail of a shutting run. the hairline is handed
+     back exactly the way the other seat hands it back: an absolute seat is
+     measured inside the border, and the strip wears that border only while it
+     is open */
+  body.focus .box.sel .pendwrap-answered .chevmid{
+    top:calc((var(--pend-bar) - 7px)/2 - var(--strip-line)); bottom:auto;
+  }
+  /* the answer needs no floor of its own. it is the item that takes whatever
+     the column has left, and what the column has left is settled above: the box
+     over it may not take the answer's own two lines and the ramp under them.
+     one rule decides the share, so the two cannot argue over it and neither can
+     push the column past the card */
   /* the bar: the button, one step, and the row. the step is the strip's own
      small one, the same air the sent box leaves under itself, so the gap beside
      the button and the gap above it are one measure.
@@ -2647,6 +2812,42 @@
      back out. shown by lifting the box on the app's own raised shadow, the same
      pair the other lifted surfaces use, rather than by recolouring anything */
   #magic2.mfocus .mbox{box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
+  /* the messages the small card's reply was given, in the same compact bar the
+     small card already draws its sent messages in and standing over the reply
+     instead of under it. everything it is comes off .mpend above, so the small
+     card keeps its own compact behaviour rather than being handed the large
+     card's staged one. three things are its own, and they are the three the
+     large card's box has: the arrow points down while it is shut and up while
+     it is open, the fill's band lies on the edge nearest the answer, and it is
+     raised out of the card on the board's own pair rather than reading as part
+     of the ground the card is printed on */
+  /* the small card's column, shared out. .mpend above is flex:none and grows to
+     whatever it holds, which is right while it is the only box on the card and
+     wrong the moment a second one stands over the reply: the two together would
+     push the reply and the row he types on out through the foot of the card.
+     so on a card that carries both, each box gives way above its own bar, the
+     reply keeps a whole first line, and what a box cannot show it scrolls. a
+     card with no box over its reply is not touched by any of this and keeps
+     exactly the behaviour it had.
+     the shut bar is 20px, the small card's own; open, the dress adds 8 over and
+     10 under, and the page is drawn border-box, so 38 is that bar with its own
+     dress on. neither box may go under it */
+  #magic2 .manswered{flex:0 1 auto; min-height:20px; overflow:hidden; margin-bottom:6px}
+  #magic2 .mbox:has(.manswered:not(:empty)) .mpend.open,
+  #magic2 .manswered.open{flex:0 1 auto; min-height:38px}
+  #magic2 .mbox:has(.manswered:not(:empty)) .mpend.open{max-height:40%; overflow-y:auto}
+  /* and the reply keeps its first line whole: its own step over it and one line
+     of its own type under that, which border-box counts together */
+  #magic2 .mbox:has(.manswered:not(:empty)) .mreply{min-height:calc(var(--sp-m) + 12px*1.55)}
+  #magic2 .manswered::before{content:"\2193 " attr(data-label)}
+  #magic2 .manswered.open::before{content:"\2191 " attr(data-label)}
+  #magic2 .manswered.open{
+    background:linear-gradient(to top, rgba(230,223,210,0), var(--line) 20px);
+    box-shadow:var(--raised-soft);
+    /* several long messages are this box's own lane to scroll and never the
+       reply's room to take */
+    max-height:40%; overflow-y:auto;
+  }
   /* workspaces: a sharp panel at x 4.2%, y 28.4..46.7%, rows flush right,
      the active row's right border open into the canvas */
   body.focus #wsl{
@@ -4713,18 +4914,53 @@ function growPend(el, arrive){
   return pend;
 }
 
+// the box that stands ABOVE the answer, holding the messages that answer was
+// given. it is built on the same beat: the shared pass calls this when the card
+// has a batch to show and nothing built for it yet, exactly as it calls
+// growPend for the box below. the strip is mounted into a wrapper that has
+// stood empty in the card's column since the card was made, so nothing is
+// inserted between the title and the answer on the frame it arrives.
+// arrive tells a reply that has just landed on the card he is looking at from a
+// card being drawn or a page being stepped back to: the first rises into the
+// room the answer gives up, the rest are simply standing there
+function growAnswered(el, arrive){
+  const pend = answeredStrip();
+  // the dress the arrival's first beat is worn in, the sent box's own: mounted
+  // at no height, invisible, clipped and untouchable while the answer gives up
+  // the room, and the floor the sheet holds for the shut bar is held off for
+  // exactly as long as the strip wears it. growPend puts it on the same way
+  if (arrive) pend.classList.add("rising");
+  el.answwrap.appendChild(pend);
+  el.answ = pend;
+  // the same gesture the box below carries, and the same code carrying it: a
+  // pull to the left brings up each line's own time, and a press that did not
+  // move folds the box. the fold it is handed is this box's own, which writes
+  // down that the choice was his
+  wirePend(el, pend, open => foldAnswered(el, open, true));
+  if (arrive) risePend(el, pend); else snapCard();
+  return pend;
+}
+
 // the first arrival's two beats (risePend), the rows, the delivery words, the
 // run stamp and the poll's own pass over the box (syncPend) are shared with the
-// phone page in card-logic.js. what the desktop tells it: the rows carry the
-// time a drag reveals, and the box taking or giving back its room re-snaps the
-// answer's lines against it
+// phone page in card-logic.js, and so is everything the box above the answer
+// knows about which reply it belongs to. what the desktop tells it: the rows
+// carry the time a drag reveals, and either box taking or giving back its room
+// re-snaps the answer's lines against it
 pendTimes = true;
 pendRoomChanged = snapCard;
+answeredRoomChanged = snapCard;
 
 // the strip's fold and the leftward pull, the phone gesture the chat panel
 // names but does not carry. a pull that moved is not a click, so the fold is
-// skipped for it and the box stays open
-function wirePend(el, strip){
+// skipped for it and the box stays open.
+// both boxes on the card are wired by this and by nothing else, so the pull,
+// the times it reveals, the three pixels that make a press a drag and the
+// verdict that ends it are one piece of code on both. what they do not share is
+// which fold a press runs, so the caller hands that in: the box below folds
+// itself, the box above folds itself and writes down that the choice was his
+function wirePend(el, strip, fold){
+  fold = fold || (open => foldPend(el, open));
   const area = strip.querySelector(".pendbody");
   const REVEAL = 64;   // how far left the column can be pulled
   const LEAD = 24;     // room freed before a time starts to come up
@@ -4763,7 +4999,7 @@ function wirePend(el, strip){
 
   strip.addEventListener("click", () => {
     if (moved) return;
-    foldPend(el, !strip.classList.contains("open"));
+    fold(!strip.classList.contains("open"));
   });
 }
 
@@ -4783,10 +5019,25 @@ function wirePend(el, strip){
 // already stands. only a click on the bar opens it
 const PEND_MOTION = 420;   // the fallback timer behind the height transition
 const PEND_SPRING = 620;   // the cluster's spring, which outlives the box's own growth
-function foldPend(el, open){
-  const pend = el.pend;
+function foldPend(el, open){ foldBox(el, el.pend, "foldRun", open); }
+// the box above the answer runs the very same fold. what makes it read as a box
+// above rather than a box below is one property in the sheet, the distance its
+// content column travels, handed over with its sign flipped; not a second run
+// written here to be kept in step with this one.
+// manual is the press of his own hand as against the minute's own clock: only
+// his hand is written down, and what is written down outlasts the clock, the
+// poll, the card being put away and the page being loaded again.
+// and the room: the box below is laid over the answer and takes none, so a fold
+// of it re-snaps nothing; this one stands in the column, so the answer's lines
+// are snapped against it again once the run has actually stopped
+function foldAnswered(el, open, manual){
+  if (!el || !el.answ) return;
+  if (manual) answeredChose(el, open);
+  foldBox(el, el.answ, "answFoldRun", open, snapCard);
+}
+function foldBox(el, pend, runKey, open, landed){
   if (!pend) return;
-  const mine = ++el.foldRun;
+  const mine = ++el[runKey];
   const from = pend.getBoundingClientRect().height;
   const padFrom = padPair(pend);
   // a run caught mid flight is frozen where it stands and re-aimed from there,
@@ -4820,17 +5071,20 @@ function foldPend(el, open){
     if (e && (e.target !== pend || e.propertyName !== "height")) return;
     pend.removeEventListener("transitionend", done);
     clearTimeout(timer);
-    if (mine !== el.foldRun) return;   // a newer fold owns the box now
+    if (mine !== el[runKey]) return;   // a newer fold owns the box now
     pend.classList.remove("motion");
     pend.style.height = "";
     pend.style.paddingTop = "";
     pend.style.paddingBottom = "";
     pend.classList.toggle("open", open);
     if (open) pendBottom(pend);
+    // the room this box holds has changed and has stopped changing, so whoever
+    // wanted to know is told once, here, and never on a frame of the run
+    if (landed) landed();
     // the box has landed; the weight may still be settling on its spring, so
     // its class is let go only when that motion is actually over
     setTimeout(() => {
-      if (mine !== el.foldRun) return;
+      if (mine !== el[runKey]) return;
       pend.classList.remove("opening", "closing");
     }, Math.max(0, PEND_SPRING - PEND_MOTION) + 40);
   };
@@ -4883,11 +5137,47 @@ function boxBand(reply, wrap){
 // behind it. writing the property cannot start a loop: it feeds a mask, and a
 // mask changes what is painted, never what is measured
 function watchBand(el){
-  const write = () => el.reply.style.setProperty("--boxband", boxBand(el.reply, el.pendwrap) + "px");
+  // three numbers, read in one pass because they are one reading of the card:
+  // any two of them out of step would share the card's room out wrongly.
+  // all three are written on the CARD and no longer on the answer, because the
+  // box standing over the answer has to read them too and a property written on
+  // a sibling cannot be read. the answer inherits them and every rule that read
+  // --boxband reads the number it always read.
+  //
+  // --boxband  what the sent box and the row he types on cover at the foot of
+  //            the answer: the depth the answer's own ramp is cut to, and what
+  //            the box above has to take off the room it may have.
+  // --cardroom the room the card's body actually holds, which is what the two
+  //            boxes and the answer are shared out of. measured rather than
+  //            written as a percentage: a percentage says this only where the
+  //            body's height is definite, and a measured number says it always,
+  //            including while a keyboard has the card at half its height.
+  // --footband what stands UNDER the sent box: the row he types on, the step
+  //            over it and the answer's clear air. it is the band less the sent
+  //            box itself, so a composer grown to several lines is inside it,
+  //            and it does not move when that box folds -- which is what lets
+  //            the sent box's own share be worked out from it without the two
+  //            chasing each other.
+  const write = () => {
+    const body = el.reply.parentElement;
+    const band = boxBand(el.reply, el.pendwrap);
+    const own = el.pend ? el.pend.getBoundingClientRect().height : 0;
+    let room = 0;
+    if (body){
+      const cs = getComputedStyle(body);
+      room = body.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
+    }
+    el.box.style.setProperty("--boxband", band + "px");
+    el.box.style.setProperty("--cardroom", Math.max(0, Math.round(room)) + "px");
+    el.box.style.setProperty("--footband", Math.max(0, Math.round(band - own)) + "px");
+  };
   if (window.ResizeObserver){
     const ro = new ResizeObserver(write);
     ro.observe(el.pendwrap);
     ro.observe(el.reply);
+    // the card's own room changes with the window and with the card's furniture
+    // above the body, neither of which has to touch the two above
+    if (el.reply.parentElement) ro.observe(el.reply.parentElement);
   }
   write();
 }
@@ -4977,6 +5267,14 @@ function snapCard(){
   const pend = el.pend;
   if (pend && (pend.classList.contains("open") || pend.classList.contains("motion") ||
                pend.classList.contains("rising"))) return;
+  // and the box above the answer. its OPEN state is a resting height like any
+  // other, since it stands in the column and may hold that height for as long
+  // as he leaves it open, so the snap runs in it exactly as it runs with the
+  // box shut. what the snap must not run in is a RUN: re-snapping mid fold
+  // would slide the answer's lines under him while he is watching the box move,
+  // which is the same reason a fold of the box below does not call this
+  const answ = el.answ;
+  if (answ && (answ.classList.contains("motion") || answ.classList.contains("rising"))) return;
   const r = el.reply;
   const head = el.box.querySelector(".head");
   // the title's slide is undone before a single measurement is taken, so every
@@ -5000,7 +5298,17 @@ function snapCard(){
   // and push the whole answer off the line grid by that much
   const room = rect.height - boxBand(r, el.pendwrap) - parseFloat(cs.paddingTop || 0);
   const rem = room % line;
-  const s = rem > line / 2 ? rem - line : rem;
+  // the remainder is spent as air at the head of the answer, and on a card with
+  // nothing standing over the answer it goes to the NEARER whole line, so the
+  // air under the title is disturbed by at most half a line either way.
+  // with the answered box standing there the remainder may only be GIVEN. the
+  // nearer line is a negative margin half the time, and a negative margin here
+  // pulls the answer's first line up past the bottom edge of a box whose own
+  // room is fixed and does not move with it: the sent words and the answer
+  // would print over one another. so on those cards the air is added rather
+  // than taken, the answer always starts under the whole box, and the room is
+  // still the whole number of lines the ramp needs it to be
+  const s = (rem > line / 2 && !answ) ? rem - line : rem;
   if (Math.abs(s) > 0.5) r.style.marginTop = s.toFixed(2) + "px";
   // the answer has moved, so the title's two gaps are no longer a pair. this
   // runs from inside the snap and not beside it, so the two can never be a
@@ -5036,16 +5344,29 @@ function tiltTitleAir(el, first){
   const rg = document.createRange();
   rg.selectNodeContents(title);
   const t = rg.getBoundingClientRect();
-  rg.selectNodeContents(first);
-  const lines = rg.getClientRects();
-  let a = null;
-  for (let i = 0; i < lines.length && !a; i++) if (lines[i].height > 2) a = lines[i];
-  if (!a || !t.height) return;
+  if (!t.height) return;
   const over = t.top - bar.getBoundingClientRect().bottom;
-  // the answer's scrollTop is added back because the first line's rect says
-  // where that line is now, and what this needs is where it is with the answer
-  // at its own top, which is the state every moment below is read in
-  const under = a.top + reply.scrollTop - t.bottom;
+  // what stands under the title. on a card carrying a box over its answer it is
+  // that box, and a box is not type: its own top edge is where the white under
+  // the title ends, so the edge is what the gap is measured to. measuring past
+  // it to the answer's first line would count the whole box as air under the
+  // title and slide the title down by half of it.
+  // with no box it is the answer's own first line, measured off the type's box
+  // and not the element's exactly as it always was, and its scrollTop is added
+  // back because the rect says where that line is now while what this needs is
+  // where it is with the answer at its own top, which is the state every moment
+  // below is read in
+  let under;
+  if (el.answ && el.answwrap){
+    under = el.answwrap.getBoundingClientRect().top - t.bottom;
+  } else {
+    rg.selectNodeContents(first);
+    const lines = rg.getClientRects();
+    let a = null;
+    for (let i = 0; i < lines.length && !a; i++) if (lines[i].height > 2) a = lines[i];
+    if (!a) return;
+    under = a.top + reply.scrollTop - t.bottom;
+  }
   const tilt = (under - over) / 2;
   if (!isFinite(tilt) || Math.abs(tilt) < 0.02) return;
   // both halves are written on the sixty fourth of a pixel the engine lays out
@@ -5230,6 +5551,12 @@ function makeBox(b, i, state){
     const reply = h("div", "reply cardmd");
     reply.dataset.raw = replyFull(b);
     reply.innerHTML = fmt(reply.dataset.raw);
+    // the seat the box holding what this answer was given is mounted into. it
+    // is built with the card and stands empty until the board has a batch to
+    // show for the reply the card is showing, so the strip is never inserted
+    // between the title and the answer on the frame it arrives, and an empty
+    // wrapper takes no room of its own
+    const answwrap = h("div", "pendwrap-answered");
     const meta = h("div", "meta");
     // transient notes (send failures) get their own span
     const metaNote = h("span");
@@ -5261,7 +5588,9 @@ function makeBox(b, i, state){
     compose.append(ta, send);
     bottombar.append(clipfile, clip, compose);
     pendwrap.append(meta, bottombar);
-    body.append(reply, pendwrap);
+    // the column: what the answer was given, the answer, and laid over the
+    // answer at the card's floor the sent box and the row he types in
+    body.append(answwrap, reply, pendwrap);
     box.appendChild(body);
 
     const sec = statusOf(b);
@@ -5370,6 +5699,13 @@ function makeBox(b, i, state){
                   titleEl, tocTitle: entry.querySelector(".ttitle"), arc, x,
                   topbar, branch, bname, wtpick, wtmenu, hasWt: false, hasHistory,
                   historyVersion: null,
+                  // answ is null until the card shows a reply the board recorded
+                  // a batch for, and null again the moment it shows one it did
+                  // not. answId is the name of the reply the box is drawn for,
+                  // which is what a poll compares against and what a fold he
+                  // chooses is written down under
+                  answwrap, answ: null, answId: null, answKey: "answ:" + b.id,
+                  answFoldRun: 0,
                   pendwrap, bottombar, clip, clipfile, tick, field };
     // the ramp's top edge follows the wrapper from the card's first frame, box
     // or no box, so it is armed here and not when a box is built
@@ -5618,6 +5954,8 @@ function apply(state){
       // card, so the card takes it with it: without this the editor and the
       // removed card stay reachable for the rest of the page's life
       els[id].field?.detach();
+      // and a minute still to run on a card that is going belongs to nothing
+      clearAnsweredClock(els[id].answKey);
       els[id].box.remove(); els[id].toc.remove(); delete els[id];
     }
   }
@@ -5702,6 +6040,14 @@ function apply(state){
     // the joined text, so a poll that brings nothing new touches no dom at all
     const pt = (b.pendingTexts || []).join("\n\n");
     if (el.pendRaw !== pt) syncPend(el, b.pendingTexts, b.pendingStamps);
+    // and the box over the answer: the reply the card is showing, and the
+    // messages the board recorded that reply was given. while an older page is
+    // on show the stepper owns that box, so the poll leaves it alone and
+    // histExit is what hands it back to the live reply. the pass compares the
+    // reply's own name, so a poll carrying the same reply again touches no dom
+    // at all and nothing near the composer moves
+    if (!(hist && hist.id === b.id))
+      syncAnswered(el, liveAnswered(b), { arrive: !!lastState && b.id === selectedId });
     const cs = cardState(b);   // one state: box color, left tab, and toc all read it
     el.box.classList.toggle("done", cs === "done");
     el.box.classList.toggle("parked", cs === "parked");
@@ -8166,6 +8512,38 @@ addEventListener("keydown", e => {
   dispatchCardShortcut(e, miniShortcutActions, "mini");
 }, true);
 
+// the small card's own pass over its answered box. it is the large card's pass
+// cut down to what the small card is: no stepper, so the reply is always the
+// live one; no staged fold, so the class is flipped the way this card flips its
+// own sent box. what it does not cut down is the reply's own name, the minute
+// measured off that reply's own completion time, and his own word about it,
+// since all three are facts about the reply and not about the surface drawing
+// it: a box he shuts here is shut on the large card and on the phone as well
+function syncMiniAnswered(el, b){
+  const meta = liveAnswered(b);
+  const batch = answeredBatch(meta);
+  if (!batch || !batch.length){
+    if (el.answId === null) return;
+    clearAnsweredClock(el.answKey);
+    el.answId = null;
+    el.answ.innerHTML = "";
+    el.answ.removeAttribute("data-label");
+    el.answ.classList.remove("open");
+    return;
+  }
+  if (el.answId === meta.id) return;   // the same reply: nothing to draw again
+  el.answId = meta.id;
+  el.answ.innerHTML = batch
+    .map(m => '<div class="mpending-message cardmd">' + stampHTML((m && m.ts) || 0) +
+              fmt((m && m.text) || "") + "</div>").join("");
+  el.answ.dataset.label = "Answered messages (" + batch.length + ")";
+  el.answ.classList.toggle("open", answeredOpensNow(meta));
+  armAnsweredClock(el.answKey, meta, () => {
+    if (el.answId !== meta.id) return;
+    el.answ.classList.add("open");
+  });
+}
+
 function renderMiniCards(state){
   const host = document.getElementById("magic2");
   if (!host) return;
@@ -8207,6 +8585,20 @@ function renderMiniCards(state){
         poll();
       });
       const reply = h("div", "mreply cardmd");
+      // what the reply under it was given, in the small card's own compact bar
+      // and standing over the reply instead of under it. the small card shows
+      // the live reply alone and carries no stepper, so this is always the live
+      // reply's own batch
+      const answ = h("div", "mpend manswered");
+      answ.addEventListener("click", () => {
+        const mel = miniEls[b.id];
+        if (!mel || !mel.answId) return;
+        const open = !answ.classList.contains("open");
+        answ.classList.toggle("open", open);
+        // his own hand: this reply's box is his from now on, and the minute's
+        // clock has nothing left to say about it on any surface
+        answeredChose(mel, open);
+      });
       const pend = h("div", "mpend");
       pend.addEventListener("click", () => pend.classList.toggle("open"));
       const compose = h("div", "mcompose");
@@ -8239,8 +8631,9 @@ function renderMiniCards(state){
       ta.addEventListener("input", () => {
         ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px";
       });
-      box.append(arc, x, title, reply, pend, compose);
-      el = miniEls[b.id] = { box, title, reply, pend, ta };
+      box.append(arc, x, title, answ, reply, pend, compose);
+      el = miniEls[b.id] = { box, title, reply, pend, ta,
+                             answ, answId: null, answKey: "mini:" + b.id };
       list.appendChild(box);
     }
     // one card at a time; the rest stay built so their half-typed messages
@@ -8255,6 +8648,7 @@ function renderMiniCards(state){
       el.reply.dataset.raw = shortReply;
       el.reply.innerHTML = fmt(shortReply);
     }
+    syncMiniAnswered(el, b);
     const pt = (b.pendingTexts || []).join("\n\n");
     if (el.pend.dataset.raw !== pt){
       el.pend.dataset.raw = pt;
@@ -8271,6 +8665,8 @@ function renderMiniCards(state){
       // the small card's row is held by the formatter too, and this card's
       // handle is the one the formatter keeps for its field
       ComposeFormat.fieldOf(miniEls[id].ta)?.detach();
+      // and a minute still to run on a card that is going belongs to nothing
+      clearAnsweredClock(miniEls[id].answKey);
       miniEls[id].box.remove(); delete miniEls[id];
     }
   }
