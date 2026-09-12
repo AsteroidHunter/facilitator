@@ -154,6 +154,29 @@ test("a quote being typed is drawn once, and the angle is not drawn beside it", 
       "the angle was drawn beside the bar on the line the caret is on: " + typed.lines[0].text);
     await shot(page, "desktop-quote-typed");
 
+    // back to the bare prefix, one key at a time. Eight presses take the words
+    // off one character each and leave the marker standing
+    for (let press = 0; press < 8; press++) await page.keyboard.press("Backspace");
+    await settle(200);
+    const bare = await rowRead(page);
+    assert.equal(bare.payload, "> ", "the words were not taken off one character at a time");
+    assert.equal(bare.from, 2, "the caret is not where the words were");
+    assert.equal(bare.lines.filter(line => line.quote).length, 1,
+      "a bare prefix stopped drawing a quote");
+    assert.equal(bare.lines[0].text, "",
+      "a bare prefix drew a bar and its angle: " + JSON.stringify(bare.lines[0].text));
+    assert.ok(bare.lines[0].height > 0,
+      "the line the bare prefix is on has no height for a caret to stand on");
+    await shot(page, "desktop-quote-bare");
+
+    // and the ninth takes the prefix off whole, which is what a backspace on a
+    // marker has always done here, and the bar goes with it
+    await page.keyboard.press("Backspace");
+    await settle(200);
+    const empty = await rowRead(page);
+    assert.equal(empty.payload, "", "the prefix could not be deleted");
+    assert.equal(empty.lines.filter(line => line.quote).length, 0,
+      "the bar outlived the angle it was drawn from");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
@@ -249,6 +272,54 @@ test("a quoted item's words keep one edge with the caret on the line", async () 
   }
 });
 
+// ---- the source underneath the drawing --------------------------------------
+
+test("the caret and a picked out passage still count the angles the drawing left out", async () => {
+  const { page, problems } = await openCard(SURFACES[0], "Quote source positions");
+  try {
+    await lay(page, "> text here");
+
+    // a pick that reaches over the hidden angles is a pick that carries them
+    await caretTo(page, 0, 11);
+    await settle(150);
+    const picked = await rowRead(page);
+    assert.deepEqual({ from: picked.from, to: picked.to, picked: picked.picked },
+      { from: 0, to: 11, picked: "> text here" },
+      "the row's own selection stopped counting the characters it is drawing without");
+
+    // and the caret walks them one at a time: nothing is skipped and nothing is
+    // doubled, whatever the drawing does with the room
+    await caretTo(page, 2);
+    await settle(150);
+    const walk = [(await rowRead(page)).from];
+    for (let press = 0; press < 2; press++) {
+      await page.keyboard.press("ArrowLeft");
+      await settle(120);
+      walk.push((await rowRead(page)).from);
+    }
+    assert.deepEqual(walk, [2, 1, 0], "the caret did not walk the source one character at a time");
+
+    // Deleting the prefix from the head of the words takes the whole marker,
+    // which is what a backspace on a marker has always done in this row and
+    // what the native keyboard does. The words are left exactly as they were
+    // and the bar goes with the characters it was drawn from.
+    await caretTo(page, 2);
+    await settle(150);
+    await page.keyboard.press("Backspace");
+    await settle(200);
+    const plain = await rowRead(page);
+    assert.equal(plain.payload, "text here",
+      "a backspace at the head of the words did not take the whole prefix");
+    assert.equal(plain.from, 0, "the caret is not where the prefix was");
+    assert.equal(plain.lines.filter(line => line.quote).length, 0,
+      "the bar outlived the angle it was drawn from");
+    assert.equal(plain.lines[0].text, "text here", "the words were not left alone");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
 test("an angle that is not a quote keeps every character it was typed with", async () => {
   const { page, problems } = await openCard(SURFACES[0], "Angles that are not quotes");
   try {
@@ -262,6 +333,65 @@ test("an angle that is not a quote keeps every character it was typed with", asy
       JSON.stringify(read.lines.filter(line => line.quote).map(line => line.text)));
     assert.deepEqual(read.lines.map(line => line.text), LITERAL.split("\n"),
       "a character was taken out of a line nobody asked to format");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("a pasted quote lands whole and is drawn once on every line of it", async () => {
+  const { page, problems } = await openCard(SURFACES[0], "Pasted quote");
+  const pasted = "> pasted quote\n> second *line*";
+  try {
+    // A synthetic paste cannot give a background document keyboard focus.
+    // Establish that prerequisite with a real key on the empty row first.
+    await page.evaluate(where => document.querySelector(where).focus(), ROW);
+    await page.keyboard.press("ArrowRight");
+    await fixture.until(page, where => document.hasFocus() &&
+      ComposeFormat.focused(document.querySelector(where)),
+      "the empty paste target to have keyboard focus", 10000, ROW);
+    assert.equal((await rowRead(page)).payload, "", "paste setup changed the empty row");
+    await page.evaluate(text => {
+      const data = new DataTransfer();
+      data.setData("text/plain", text);
+      document.querySelector("article.box.sel .cm-content").dispatchEvent(
+        new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    }, pasted);
+    await settle(250);
+    const read = await rowRead(page);
+    assert.equal(read.payload, pasted, "the pasted quote did not land whole");
+    assert.equal(read.lines.filter(line => line.quote).length, 2,
+      "the pasted quote did not draw both its lines");
+    // the caret is at the end of the paste, so the second line is the awake one
+    assert.match(read.lines[1].text, /\*line\*/,
+      "the row was not awake after the paste: " + read.lines[1].text);
+    assert.equal(read.lines[0].text, "pasted quote",
+      "a pasted angle was drawn on the line the caret is away from: " + read.lines[0].text);
+    assert.equal(read.lines[1].text, "second *line*",
+      "a pasted angle was drawn on the line the caret is on: " + read.lines[1].text);
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("the row sends the angles it never drew", async () => {
+  const { page, problems, id } = await openCard(SURFACES[0], "Quote that is sent");
+  try {
+    await page.focus(ROW);
+    await page.keyboard.type("> quoted *words*");
+    await settle(200);
+    const before = await rowRead(page);
+    assert.equal(before.lines[0].text, "quoted *words*",
+      "the angle was drawn beside the bar: " + before.lines[0].text);
+
+    const sent = page.waitForResponse(response => new URL(response.url()).pathname === "/send");
+    await page.keyboard.press("Enter");
+    assert.equal((await sent).status(), 200);
+    await settle(400);
+    assert.equal((await sentTexts(id)).slice(-1)[0], "> quoted *words*",
+      "the board was sent something other than the markdown in the row");
+    assert.equal(await page.$eval(ROW, row => row.value), "", "the row kept the words it sent");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();

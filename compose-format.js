@@ -9,7 +9,8 @@
  * What it draws, and nothing else: one star is italic, two are bold, two tildes
  * on either side are a strike, a leading angle is a quote bar, and a dash or
  * star and a space is a bullet. Inserting a new line inside a list carries the
- * marker down; doing it on a bullet with nothing typed after it ends the list.
+ * marker down, and the editor's own continuation carries a quote's angle down
+ * the same way; doing it on a marker with nothing typed after it ends the list.
  * Headings, tables, links, code fences and the rest of Markdown are left as
  * plain characters here: this is a message row, not a document editor.
  *
@@ -433,24 +434,39 @@
     };
   }
 
+  // The line the caret is on when it is a marker with nothing typed after it,
+  // and null otherwise. That is the one line a new line ends the list on
+  // instead of laying another marker out, and it is the one case the editor's
+  // own markdown continuation is not allowed to answer: on a second item it
+  // keeps the marker and pushes a blank line above it, which leaves the reader
+  // with a list they asked to be finished with.
+  function emptyItem(view) {
+    const range = view.state.selection.main;
+    const line = view.state.doc.lineAt(range.from);
+    const list = listContinuation(line.text);
+    if (!list || !list.empty) return null;
+    if (range.from < line.from + list.markerEnd || range.to > line.to) return null;
+    return line;
+  }
+
   // Inserting a new line: a list carries its marker down, and a marker with
   // nothing typed after it ends the list instead of laying another one out.
   function insertNewline(C, view) {
     const state = view.state, range = state.selection.main;
-    const line = state.doc.lineAt(range.from);
-    const list = listContinuation(line.text);
-    if (list && list.empty && range.from >= line.from + list.markerEnd &&
-        range.to <= line.to) {
+    const over = emptyItem(view);
+    if (over) {
       // the empty bullet goes, the caret stays on the line it was on, and the
       // list is over
       view.dispatch(state.update({
-        changes: { from: line.from, to: line.to, insert: "" },
-        selection: { anchor: line.from },
+        changes: { from: over.from, to: over.to, insert: "" },
+        selection: { anchor: over.from },
         scrollIntoView: true,
         userEvent: "input",
       }));
       return true;
     }
+    const line = state.doc.lineAt(range.from);
+    const list = listContinuation(line.text);
     const head = list && range.from >= line.from + list.markerEnd ? list.head : "";
     view.dispatch(state.update({
       changes: { from: range.from, to: range.to, insert: "\n" + head },
@@ -459,6 +475,59 @@
       userEvent: "input",
     }));
     return true;
+  }
+
+  // ---- who answers the return key -------------------------------------------
+  // Three things can answer a return in this row and only one of them may, so
+  // the choice is made here, once, before any of them has seen the key.
+  //
+  //   the page's send        the row keeps nothing back and writes nothing
+  //   the row's own line     a shifted return, and a marker being finished with
+  //   the editor's own       a quoted or a listed line carries its marker down
+  //
+  // The page's send is the one that was going wrong. The vendored markdown pack
+  // binds the return key to a continuation of its own at a precedence above
+  // anything this file can install, so a return meant for the send wrote a
+  // marker into the row on its way out and the card was sent a line the reader
+  // never typed: "> alpha" arrived as "> alpha\n>". The continuation itself is
+  // wanted, though, and on the phone it is what a reader gets for pressing
+  // return on a quoted line, so it is not taken away. It is simply asked last.
+  //
+  // This runs in the CAPTURE phase on the editor's outer element, which stands
+  // above the content every editor binding is hung on, so it is answered first
+  // whatever precedence those bindings were given. Preventing the default is
+  // how the editor is told to keep its hands off: it skips an event that has
+  // already been prevented, both before its handlers and between them. The key
+  // still travels on to the listener the page hung on this same element, which
+  // is what sends, and what it sends is the source exactly as it was typed.
+  function enterKey(C, field, view, event) {
+    if (event.key !== "Enter" || event.isComposing || event.keyCode === 229) return;
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    // the page's own send: nothing writes in the row on the way out, neither
+    // the editor's continuation nor the browser's own line break
+    if (!field.newline(event)) { event.preventDefault(); return; }
+    // A marker with nothing typed after it ends the list. That rule is this
+    // row's own and older than the editor in it. Everything the pack's binding
+    // does not answer is the row's own as well: it is bound to a bare return,
+    // so a shifted one has always been made here.
+    const ending = !event.shiftKey && !!emptyItem(view);
+    if (event.shiftKey || ending) {
+      event.preventDefault();
+      // A held return makes one line and not a run of them, which is what it
+      // has always done on the lines the row answers itself. It is not made to
+      // do that anywhere else: a return held down on a quoted or a listed line
+      // goes on carrying the marker down, because that is the editor's own
+      // continuation and this pass is not here to take it away. Ending a list
+      // is the one place a held return does something, and it is the whole of
+      // the correction rather than an exception to it: the list ends once and
+      // the run stops there, instead of a marker and a blank line per repeat.
+      if (event.repeat && !ending) return;
+      insertNewline(C, view);
+      return;
+    }
+    // and what is left is the editor's own continuation, which carries a "> "
+    // or a "- " down a line on every press, held or not, and declines every
+    // line that has neither
   }
 
   // ---- the four chords the page owns and the editor must not ---------------
@@ -474,27 +543,34 @@
     const keys = [
       ...PAGE_CHORDS,
       ...C.historyKeymap,
-      // Enter belongs to the row and not to the editor: what it does is the
-      // page's own command, and what is left of it is handled below
+      // The editor's stock return bindings are not among the three things that
+      // may answer a return in this row, so they are left out. Which of the
+      // three does answer it is decided in enterKey.
       ...C.defaultKeymap.filter(binding => !/Enter/.test(binding.key || "")),
     ];
     return [
-      // the strike is the bundle's own GitHub one, two tildes on either side,
+      // The strike is the bundle's own GitHub one, two tildes on either side,
       // which is the form the sent card reads. Nothing is put on top of it, so
-      // a lone pair stays the characters it was typed as
+      // a lone pair stays the characters it was typed as. The pack's own keymap
+      // comes with it and is wanted: a return carrying a quote's angle down,
+      // and a backspace taking a whole marker off at once, are both what a
+      // reader of this row already has. Which of them answers the return key,
+      // and when, is decided in enterKey above.
       C.markdown({ base: C.markdownLanguage }),
       C.history(),
       // the editor writes its own class attribute on every update, so the name
       // the page styles the row by is handed to it rather than set on the node
       C.EditorView.editorAttributes.of({ class: field.shellClass }),
-      // this runs on the content, before the key ever reaches a listener the
-      // page put on the row, so the two can never both answer one press
+      // What is left of the return key once enterKey and the pack have had it.
+      // The pack's continuation answers a quoted or a listed line and declines
+      // everything else, so this is where a plain line gets the line it asked
+      // for. Anything enterKey already decided has been prevented and never
+      // arrives here at all.
       C.EditorView.domEventHandlers({
         keydown: (event, view) => {
           if (event.key !== "Enter" || event.isComposing || event.keyCode === 229) return false;
           if (event.altKey || event.ctrlKey || event.metaKey) return false;
-          if (!field.newline(event)) return false;   // the page's own send
-          if (event.repeat) return true;
+          if (!field.newline(event) || event.repeat) return true;
           return insertNewline(C, view);
         },
       }),
@@ -815,6 +891,15 @@
       setTimeout(restore, 0);
     };
     Element.prototype.addEventListener.call(ta, "focus", field.bridge);
+    // The return key, asked here before any of the editor's own bindings and
+    // before any listener the page hangs on this same element: this is the
+    // capture pass on the element they all sit under. See enterKey. The caret
+    // being in the editor is the same condition those bindings are answered
+    // under, so this pass is exactly as wide as they are and no wider.
+    field.enter = event => {
+      if (field.view === view && hasCaret(view)) enterKey(C, field, view, event);
+    };
+    view.dom.addEventListener("keydown", field.enter, true);
     // the two the layer cannot read off the state on its own, put on the
     // element so the dispatch lands outside the editor's own update
     for (const event of ["focus", "blur"])
@@ -843,6 +928,7 @@
     view.destroy();
     Element.prototype.removeEventListener.call(field.ta, "focus", field.bridge);
     field.bridge = null;
+    field.enter = null;   // it was hung on the editor's own element, which goes
     if (field.heldStyle) field.ta.setAttribute("style", field.heldStyle);
     else field.ta.removeAttribute("style");
     if (field.heldEditable == null) field.ta.removeAttribute("contenteditable");
@@ -904,6 +990,7 @@
       dropped: false,
       listeners: [],
       bridge: null,
+      enter: null,
       heldStyle: "",
       heldEditable: null,
       seat: null,

@@ -322,7 +322,9 @@ async function lay(page, text, selector = ROW) {
     row.dispatchEvent(new Event("input", { bubbles: true }));
     row.blur();
   }, [selector, text]);
-  await page.focus(selector);
+  await page.evaluate(where => document.querySelector(where).focus(), selector);
+  await until(page, where => ComposeFormat.focused(document.querySelector(where)),
+    "the prepared row to hold the caret", 10000, selector);
   await settle(180);
 }
 
