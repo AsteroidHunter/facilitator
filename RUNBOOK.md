@@ -23,50 +23,13 @@ Answer a claim with:
 
 `ctx=` is REQUIRED: every reply carries a fresh two-line summary strip (220 chars max, urlencoded), stored as the card's grey summary box in the same move. The server refuses a reply without one. Write the summary first, from the reader's seat, then the reply.
 
-- `/wait?owner=...` claims the oldest queued box in your owner lane and marks it busy. This is an **auto** lane; a lane in select mode reads a queue and chooses instead, and `/wait` there claims nothing (see Select lanes below). Never leave a claim unanswered; an open claim blocks your whole lane (each owner has its own busy slot, see Owner routing below).
+- `/wait?owner=...` claims the oldest queued box in your owner lane and marks it busy. Never leave a claim unanswered; an open claim blocks your whole lane (each owner has its own busy slot, see Owner routing below).
 - Three nets sit under a claim, in order: a hand-off written into a dead socket rolls back at once, an unconfirmed claim returns after 90 seconds, and a claim older than 15 minutes is stolen back. Do not lean on any of them; confirm what you claim and answer what you confirm.
 - Before going idle, check whether anything is waiting on your lane: `GET /unread?owner=YOURLANE` answers `{"queued": N, "claimed": M}`, messages still waiting plus messages in the claim you hold. It reads only, so it is safe from a hook. Paste this as a Stop hook command and go back to the loop instead of idling whenever `queued` is above zero:
 
       curl -s "http://127.0.0.1:8877/unread?owner=facilitator"
 
 - `{"paused": true}` means the owner hit the pause button (laptop-close mode). Stop polling `/wait`; idle locally and re-check about once a minute (`curl -s http://127.0.0.1:8877/state`, read `paused`) until it goes false, then resume the loop. Messages still queue while paused; finish any open claim before going quiet.
-
-## Select lanes: the queue you read and choose from
-
-A lane is served one of two ways. **Auto** is everything above: `/wait` hands you the oldest card with all its messages, and you confirm. **Select** hands you nothing. You read a table, pick a card on purpose, and only then open it. One flag moves a lane either way, and nothing else about the board changes:
-
-    curl -s -X POST "http://127.0.0.1:8877/mode?owner=YOURLANE&mode=select"
-
-Beside the conversation runs one connection per project, `facilitator-connect connect`. It holds the poll, reconnects, renews the lane's holder record, retries anything whose answer was lost, runs the notification adapter and owns the work indicators. You never write a pinger, never start a listen loop, and never spend a turn on an empty poll. It tells you when something is waiting; the queue is the source of truth, so a repeated line costs one redundant look.
-
-Inside your own turn, four commands do the work:
-
-    facilitator-connect queue                       # rows: card, wait, count, state, title, flags. No request text
-    facilitator-connect select ID                   # reserve it; the card turns green through the usual claim
-    facilitator-connect open ID                     # the messages, and the receipt that says they arrived
-    facilitator-connect reply ID "..." --ctx "..."  # the answer, exactly as on an auto lane
-
-`release ID --reason "..."` gives a card back to the front of the queue. `open ID --fresh` collects messages that landed after you reserved it; they are their own delivery with their own receipt, and they are never also in the first one. `--ctx` is required on a reply here even though the server has accepted its absence since 20260821. `attachment ID FILE` fetches an image or document over the protocol rather than off the disk, which is what lets the connection run on a different machine from the board.
-
-A row is metadata and never a message: seeing one is not reading a card. `starved` means the oldest message has waited longer than the 15 minute steal window; passing one over is allowed and is written down. `seen before` means a delivery of those messages was acknowledged once already, so an answer may repeat one you have given. `mini` means a reply over 100 words will be refused.
-
-Three facts the board records, and what each one means. A notice outcome says what one adapter could observe, never that the conversation displayed anything. A receipt says your client received a complete body and names the route that carried it; it is not evidence that anyone read it. A live work registration says a registered job is running. Nothing claims more than that.
-
-Exit codes: 0 done, 3 refused, 4 card not in this lane, 5 conflict with the current row printed, 6 board unreachable, 7 lane already held, 8 an unresolved receipt that needs a person. On 5 for a selection or an open, look at the queue again and choose again. On 8, stop and say so: do not send the same words again under a new id.
-
-## What project routing does and does not protect
-
-The board routes by project. A request naming a card that is not in the lane it names is refused, a lane's listing shows only that lane's cards, and the holder record stops two connections serving one project by accident. These are correctness checks. They keep ordinary operation right.
-
-They are not a boundary. They do not stop an agent with arbitrary local access that names another lane on purpose, calls the board directly, or reads the board's files off the disk. The first version relies on each agent following its own project's instructions. Enforced isolation is card m298, and nothing here should be read as doing its job.
-
-## Where the board is
-
-The connection takes one board address from `board` in `run.config.json`, per lane or for all of them, and `--board` overrides it. Everything works the same whether that address is on this machine or another: the same routes, the same semantics, the same receipts.
-
-What changes when a connection runs on another machine: nothing it needs comes off a shared disk, so message text arrives from `open` and attachments from `attachment` rather than from the uploads folder. Every age and expiry is the board's own number, never two clocks compared. A reconnect carries its cursor, so it asks only about what it missed. The connection's own files live under `~/.facilitator-connect/<lane>`, or wherever `FACILITATOR_CONNECT_HOME` says, and its config under `FACILITATOR_CONNECT_CONFIG` where there is no `run.config.json` beside the board.
-
-What does not change: the server still binds 127.0.0.1, exactly as before. Reaching it from anywhere else is the bridge's business and a deployment question, not something the connection settles.
 
 ## Replies
 
@@ -142,16 +105,11 @@ Every worker brief carries six parts: the goal as one checkable sentence; full c
 
 Any work belonging to a card carries that card's green flag for exactly as long as it is happening: worker runs, but also verifying a worker's result, post-build checks, and committing that card's code after the claim is released. `POST /working?box=ID&v=1` before starting, `v=0` the moment the card's work truly ends. Green means exactly the machine's two green states: working (claimed right now, or that card's work happening anywhere) and deferred (the same, with a reply already waiting to become the owner's turn when the work ends).
 
-Green is verified, not trusted: registration starts a heartbeat clock, and without a beat at least every 75 seconds the green expires on its own, so a dead job can never leave a card stuck green. On a select lane the beating is not your business at all. Register the job and the connection owns the rest:
+Green is verified, not trusted: registration starts a heartbeat clock, and without `POST /ping?box=ID` at least every 75 seconds the green expires on its own, so a dead job can never leave a card stuck green. Keep a pinger beside any long job:
 
-    facilitator-connect work start ID --job j-build --pid $!
-    facilitator-connect work end ID --job j-build
+    ( while curl -s -o /dev/null -X POST "http://127.0.0.1:8877/ping?box=ID"; do sleep 30; done ) &
 
-With `--pid` the connection watches that process, identified by its number and its start time together so a reused number cannot keep an unrelated card green, and ends the job itself the moment it exits. Without a process to watch, pass `--for SECONDS` (900 by default): the registration is bounded and the connection ends it when the time is up, because a card green on nothing anybody can observe is the failure this replaces. An indicator means a registered job is alive. It does not mean the job is getting anywhere.
-
-On an auto lane the old arrangement still stands: `POST /working?box=ID&v=1`, your own `POST /ping?box=ID` every 30 seconds, `v=0` when the work ends.
-
-The server also watches the other direction: an agent alive but absent from the listening call for over a minute, holding no claim and no live job, makes the bar read "working, card not marked". Do not let that be true of you.
+and kill it when the work ends. The server also watches the other direction: an agent alive but absent from the listening call for over a minute, holding no claim and no live job, makes the bar read "working, card not marked". Do not let that be true of you.
 
 ## Headless testing
 

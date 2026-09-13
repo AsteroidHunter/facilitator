@@ -7,35 +7,15 @@
       "tmux": "my-facilitator-session",
       "dir": "~/projects/myproject/facilitator",
       "instruction": "Attach your board listener: run the RUNBOOK listen loop with owner=facilitator and answer claims per doctrine. Server is already running.",
-      "prompt": "You are the facilitator agent. Read RUNBOOK.md in this directory, then run the listen loop with owner=facilitator and answer box claims per the doctrine. The server is already running; never start a second one.",
-      "adapter": {
-        "name": "monitor",
-        "_note": "documented: a conversation starts a monitor on its connection's stream and receives each line as it arrives. Writing the line is what this can observe; nothing here proved a session reading it, or what it does while idle"
-      }
+      "prompt": "You are the facilitator agent. Read RUNBOOK.md in this directory, then run the listen loop with owner=facilitator and answer box claims per the doctrine. The server is already running; never start a second one."
     },
     {
       "owner": "pastureland",
       "tmux": "my-project-session",
       "dir": "~/projects/myproject",
       "instruction": "Attach to the facilitator board: read the facilitator repo's RUNBOOK.md, then run the listen loop with owner=pastureland and answer claims per doctrine. Server is already running.",
-      "prompt": "You are the second agent on the discussion board. Read the facilitator repo's RUNBOOK.md, then run the listen loop with owner=pastureland and answer box claims per the doctrine. The server is already running; never start a second one.",
-      "adapter": {
-        "name": "codex-queue",
-        "thread": "my-invented-session-name",
-        "_note": "the command takes a session id or exact name. The one delivery anybody has seen went through an explicitly named endpoint, which is what remote is for; leave remote out and it goes to whatever daemon is running by default, and that route has not been exercised. remote is the provider's address and has nothing to do with board",
-        "remote": "unix:///path/to/an/invented/app-server.sock"
-      },
-      "board": "http://192.0.2.7:8877"
+      "prompt": "You are the second agent on the discussion board. Read the facilitator repo's RUNBOOK.md, then run the listen loop with owner=pastureland and answer box claims per the doctrine. The server is already running; never start a second one."
     }
   ],
-  "push_contact": "mailto:you@example.com",
-  "board": "http://127.0.0.1:8877",
-  "_adapters": {
-    "_note": "one line in, one line out, exit zero on acceptance. The line carries counts and never card text, and no adapter here uses MCP",
-    "monitor": "write the line to the connection's own stream",
-    "codex-queue": "codex queue --thread <thread>, needs thread; optional remote names a provider endpoint explicitly, which is the only arrangement seen to deliver",
-    "terminal": "type the line into a named terminal session, needs tmux; works today, fragile, fallback only",
-    "owner-alert": "say the lane cannot be reached and leave the card waiting on the board; for a surface with no supported route",
-    "none": "no adapter for this lane"
-  }
+  "push_contact": "mailto:you@example.com"
 }
