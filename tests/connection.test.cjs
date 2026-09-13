@@ -32,8 +32,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 // One running link, with its output drained as it arrives. stop() waits for an
 // exit only when the process has not already exited: awaiting a second exit
 // event for a process that is already gone never resolves.
-function startLink(extraEnv = {}) {
-  const child = spawn("python3", [CONNECT, "--owner", LANE, "--board", origin, "connect"], {
+function startLink(extraEnv = {}, extraArgs = []) {
+  const child = spawn("python3", [CONNECT, "--owner", LANE, "--board", origin, "connect", ...extraArgs], {
     env: { ...process.env, FACILITATOR_CONNECT_HOME: connectHome,
            FACILITATOR_CONNECT_CONFIG: configPath, ...extraEnv },
     stdio: ["ignore", "pipe", "pipe"],
@@ -301,7 +301,12 @@ test("the link ends a watched job when its process goes, with no beat from the m
     assert.ok(!started.stderr.includes("degraded"), "the link was running but the command said otherwise");
     const watched = JSON.parse((await connect(["status", "--json"])).stdout);
     assert.ok(Object.keys(watched.jobs).includes("j-watched"), "the link is not watching the job");
-    assert.equal((await api("/state")).body.boxes.find(b => b.id === "m6").state, "working");
+    // the board has the registration, and the card is green. The colour alone
+    // proves nothing here, because a reserved card is green through the claim
+    // mask anyway, so the registration itself is what this checks
+    const registered = (await api("/state")).body.boxes.find(b => b.id === "m6");
+    assert.deepEqual(registered.work, ["j-watched"], "the board did not record the job");
+    assert.equal(registered.state, "working");
     // the process goes, and the connection ends the job itself. Nothing asked
     // the model for a beat at any point
     sleeper.kill("SIGKILL");
@@ -579,4 +584,82 @@ print(module["alive"](os.getpid(), module["started_at"](os.getpid())))
   assert.equal(answered.code, 0, answered.stderr);
   assert.deepEqual(answered.stdout.trim().split("\n"), ["False", "True"],
                    "a record with no start identity was read as alive");
+});
+
+test("an intent that never reached the board is not applied after the lane changed hands", async () => {
+  // The case the receipt checks cannot see. An intent is written down locally
+  // and never sent, so the board holds no receipt for it. Another connection
+  // takes the lane; later the first session takes it back under a new
+  // generation. Without the generation riding on the intent, its stale words
+  // land as though nothing had happened.
+  await post("/end?v=0");
+  assert.equal((await post(`/send?box=m6`, "what should go on the shed roof")).status, 200);
+  const mine = JSON.parse((await connect(["whoami", "--json"])).stdout).session;
+  assert.equal((await connect(["select", "m6"])).code, 0);
+  const listed = (await api(`/queue?owner=${LANE}&session=${mine}`)).body;
+  const wasGeneration = listed.generation;
+
+  const outbox = path.join(connectHome, LANE, "outbox.jsonl");
+  await writeFile(outbox, JSON.stringify({
+    op: "reply-staleaaaaaa", kind: "reply", route: "/reply",
+    query: { session: mine, box: "m6", ctx: "the shed roof" },
+    body: "Felt, two layers, lapped uphill.", ts: Date.now() / 1000, gen: wasGeneration,
+  }) + "\n");
+
+  // another connection takes the lane, then goes away again
+  assert.equal((await post(`/hold?owner=${LANE}&session=s-somebody-else&agent=codex&machine=other&override=1`)).status, 200);
+  const answered = (await api(`/queue?owner=${LANE}&session=s-somebody-else`)).body;
+  assert.ok(answered.generation > wasGeneration, "the takeover did not raise the generation");
+
+  const before = (await api("/state")).body.boxes.find(b => b.id === "m6").replies;
+  // and the original connection is deliberately brought back, which takes the
+  // lane again under a generation of its own
+  const link = startLink({}, ["--override"]);
+  try {
+    await link.ready();
+    const until = Date.now() + 15000;
+    while (!link.out.includes("unresolved receipt") && Date.now() < until) await sleep(200);
+    assert.match(link.out, /unresolved receipt reply-staleaaaaaa/);
+    assert.match(link.out, /changed hands before this was sent, so it was not applied/);
+    const after = (await api("/state")).body.boxes.find(b => b.id === "m6");
+    assert.equal(after.replies, before, "a stale reply was applied after the lane changed hands");
+    assert.notEqual(after.replyFull, "Felt, two layers, lapped uphill.");
+    // the words are kept and reported, not thrown away and not applied
+    const told = JSON.parse((await connect(["status", "--json"])).stdout);
+    assert.equal(told.blocked["reply-staleaaaaaa"], "the lane changed hands before this was sent");
+    const kept = JSON.parse((await readFile(outbox, "utf8")).trim());
+    assert.equal(kept.body, "Felt, two layers, lapped uphill.");
+  } finally {
+    await link.stop();
+    await writeFile(outbox, "");
+  }
+});
+
+test("an intent formed under the current generation still lands", async () => {
+  // the same path, with nothing having changed hands: the guard must not turn
+  // ordinary recovery into a refusal
+  const mine = JSON.parse((await connect(["whoami", "--json"])).stdout).session;
+  // prepare() renews this session's hold, so the generation it reports is the
+  // one the link will be running under
+  assert.equal((await connect(["status"])).code, 0);
+  const held = (await api(`/queue?owner=${LANE}&session=${mine}`)).body;
+  const outbox = path.join(connectHome, LANE, "outbox.jsonl");
+  await writeFile(outbox, JSON.stringify({
+    op: "note-freshaaaaaa", kind: "note", route: "/note",
+    query: { session: mine, box: "m6" },
+    body: "Priced the felt.", ts: Date.now() / 1000, gen: held.generation,
+  }) + "\n");
+  const link = startLink();
+  try {
+    await link.ready();
+    const until = Date.now() + 15000;
+    while ((await readFile(outbox, "utf8").catch(() => "")).trim() !== "" && Date.now() < until) {
+      await sleep(200);
+    }
+    assert.equal((await readFile(outbox, "utf8").catch(() => "")).trim(), "",
+                 `an intent under the current generation was not sent:\n${link.out}`);
+    assert.equal((await api("/state")).body.boxes.find(b => b.id === "m6").replyFull, "Priced the felt.");
+  } finally {
+    await link.stop();
+  }
 });
