@@ -4995,23 +4995,34 @@ def _post_open(q: Query, text: str):
         res = _reservation(lane)
         if res is None or res.get("box") != bid or _state["busy"].get(lane) != bid:
             return 409, {"error": "reservation gone", "row": _row_of(bid)}
+        have = set(_state["claimed"][lane])
         if fresh_only:
             # mid-work messages: whatever landed after the reservation, folded
             # into the claim the way the legacy route folds them, so the one
             # reply covers them and nothing arrives twice
-            have = set(_state["claimed"][lane])
             messages = [m for m in box["pending"] if m["mid"] not in have]
             if messages:
                 _state["claimed"][lane].extend(m["mid"] for m in messages)
                 _hand_over_more(box, messages)
         else:
-            messages = list(box["pending"])
+            # exactly what the reservation handed over, and never whatever has
+            # landed since. Taking the whole pending list here would deliver a
+            # later message in this batch and again in the next fresh one, which
+            # is the same words twice under two deliveries and two receipts.
+            # A message that arrived after the reservation was handed over by
+            # nothing, and it waits for the fresh open that hands it over
+            messages = [m for m in box["pending"] if m["mid"] in have]
         did = _new_id("d")
         now = time.time()
         _state.setdefault("deliveries", {})[did] = {
             "box": bid, "lane": lane, "session": session, "generation": _generation(lane),
             "epoch": _state.get("epoch", 0), "reservation": res.get("id"),
             "mids": [m["mid"] for m in messages], "prepared_ts": now,
+            # what each message looked like when this body was prepared. The
+            # receipt that follows sets first_acked_ts on the card, so reading
+            # it live would make a replay of this very operation describe the
+            # messages differently from the answer it is replaying
+            "seen": {str(m["mid"]): m.get("first_acked_ts") or 0 for m in messages},
             "acked_ts": 0, "route": "", "state": "prepared",
         }
         _prune_deliveries(lane)
@@ -5024,18 +5035,22 @@ def _post_open(q: Query, text: str):
         return 200, *_snapshot(_delivery_body(did))
 
 
-def _open_message(bid: str, m: dict) -> dict:
+def _open_message(bid: str, m: dict, first_acked: float = 0) -> dict:
     """One message of a delivery. role says who authored it on the board, which
     is what the page already knows and what the native-input proposal would
     need; it is not a claim about what role the text ends up carrying inside any
     conversation. Attachments are named by a card-scoped URL rather than the
     global one, because an agent on another machine cannot read the board's
-    uploads folder."""
+    uploads folder.
+
+    first_acked comes from the delivery record rather than from the card,
+    because the receipt for this very body sets it: reading it live would make a
+    replay describe the messages differently from the answer it replays."""
     return {
         "mid": m.get("mid"), "text": m.get("text", ""), "ts": m.get("ts", 0),
         "via": m.get("via"), "role": "human",
-        "read_before": bool(m.get("first_acked_ts")),
-        "first_acked_ts": m.get("first_acked_ts") or None,
+        "read_before": bool(first_acked),
+        "first_acked_ts": first_acked or None,
         "attachments": [
             {"file": name,
              "url": f"/attachment?owner={quote((_box(bid) or {}).get('owner', 'pastureland'))}"
@@ -5061,11 +5076,19 @@ def _delivery_body(did: str) -> dict | None:
     if rec is None or box is None:
         return None
     by_mid = {m.get("mid"): m for m in box["pending"]}
+    carried = list(rec.get("mids") or [])
+    if any(mid not in by_mid for mid in carried):
+        # one of the messages this delivery carried is no longer on the card, so
+        # the body cannot be rebuilt whole. A short body is not the same answer
+        # and must never quietly stand in for it: the caller is told the
+        # delivery is gone and selects again
+        return None
+    seen = rec.get("seen") or {}
     return {
         "box": rec["box"], "delivery": did, "reservation": rec.get("reservation"),
         "epoch": rec.get("epoch"), "prepared_ts": rec.get("prepared_ts"),
-        "messages": [_open_message(rec["box"], by_mid[mid])
-                     for mid in (rec.get("mids") or []) if mid in by_mid],
+        "messages": [_open_message(rec["box"], by_mid[mid], seen.get(str(mid), 0))
+                     for mid in carried],
     }
 
 
@@ -5227,9 +5250,11 @@ def _notice_for(lane: str, cards: int, queued: int, cursor: str) -> tuple:
     last = notices[-1] if notices else None
     now = time.time()
     seen = int(cursor[2:]) if cursor.startswith("c-") and cursor[2:].isdigit() else 0
-    if last and last.get("seq", 0) > seen:
-        # minted while this connection was away. It gets the same notice back
-        # rather than a second one for the same work
+    if last and last.get("state") == "pending" and last.get("seq", 0) > seen:
+        # minted while this connection was away and never closed. It gets the
+        # same notice back rather than a second one for the same work. A notice
+        # whose outcome is already recorded is not handed out again: that
+        # outcome was observed once and a second one would write over it
         return last, False
     if last and last.get("queued") == queued and now - last.get("ts", 0) < NOTIFY_REPEAT:
         return None, False

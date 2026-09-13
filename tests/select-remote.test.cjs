@@ -194,17 +194,21 @@ test("an attachment for a card in another lane is not served", async () => {
 });
 
 test("a reconnect carrying a cursor is not told again about what it has seen", async () => {
-  const first = await api(`/notify?owner=${LANE}&session=s-far&timeout=3`);
+  const idle = await api(`/notify?owner=${LANE}&session=s-far&timeout=3`);
   // the lane holds m9, so nothing else is waiting and the poll runs out idle
-  assert.equal(first.status, 200);
-  assert.equal(first.body.idle, true);
+  assert.equal(idle.status, 200);
+  assert.equal(idle.body.idle, true);
   assert.equal((await post(`/release?owner=${LANE}&session=s-far&box=m9&op=${op()}`)).status, 200);
+  // new work is what raises a notice: a fresh message changes what is waiting
+  assert.equal((await post(`/send?box=m9`, "and the flashing has lifted too")).status, 200);
   const told = await api(`/notify?owner=${LANE}&session=s-far&timeout=10`);
-  assert.equal(told.body.cards, 1);
-  // asking again with the cursor it just got does not mint a second notice for
-  // the same work; asking with an older cursor gets that same notice back
+  assert.equal(told.body.cards, 1, JSON.stringify(told.body));
+  assert.equal(typeof told.body.notice, "string");
+  // that notice is still pending, so a connection arriving behind it is handed
+  // the same one rather than a second notice for the same work
   const behind = await api(`/notify?owner=${LANE}&session=s-far&timeout=3&cursor=c-0`);
   assert.equal(behind.body.notice, told.body.notice, "a second notice was minted for the same work");
+  // and a connection that is up to date is not told again inside the window
   const current = await api(`/notify?owner=${LANE}&session=s-far&timeout=3&cursor=${told.body.cursor}`);
   assert.equal(current.body.idle, true, "the lane was told again about work it had already been told about");
 });

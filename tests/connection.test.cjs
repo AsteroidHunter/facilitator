@@ -400,8 +400,126 @@ test("no adapter, client or fallback reaches for MCP", async () => {
     for (const [index, line] of text.split("\n").entries()) {
       if (!/\bmcp\b/i.test(line)) continue;
       // the constraint may be stated; it may not be used
-      assert.match(line, /permanent|constraint|never|without|no MCP|excluded|not require/i,
+      assert.match(line, /permanent|constraint|never|without|none of|no MCP|excluded|not require/i,
                    `${path.basename(file)}:${index + 1} reaches for MCP: ${line.trim()}`);
     }
+  }
+});
+
+// ---- what the root review found ---------------------------------------------
+
+test("a second link from the same home is refused without disturbing the first", async () => {
+  const link = startLink();
+  try {
+    await link.ready();
+    const endpointBefore = JSON.parse((await connect(["status", "--json"])).stdout);
+    assert.equal(endpointBefore.link, true);
+    // the same home means the same persisted session, so the board sees a
+    // renewal rather than a second connection. The local lock is what catches it
+    const second = await connect(["connect"]);
+    assert.equal(second.code, 7, second.stdout + second.stderr);
+    assert.match(second.stderr, /already running from this connection home/);
+    assert.match(second.stderr, /nothing was changed/);
+    assert.equal(link.child.exitCode, null, "the first link did not survive the second launch");
+    // and the first link still owns its endpoint
+    const after = JSON.parse((await connect(["status", "--json"])).stdout);
+    assert.equal(after.link, true, "the second launch took the first link's endpoint");
+    assert.equal(after.session, endpointBefore.session);
+  } finally {
+    await link.stop();
+  }
+});
+
+test("a link may be started again once the previous one has stopped", async () => {
+  const first = startLink();
+  await first.ready();
+  await first.stop();
+  const second = startLink();
+  try {
+    await second.ready();     // the lock went with the process that held it
+  } finally {
+    await second.stop();
+  }
+});
+
+test("two mints at once both survive", async () => {
+  // the commands, the poll and the work sweep all write this file, from
+  // separate processes as well as separate threads. A read, a change and a
+  // write that are not one thing lose an intent when two interleave
+  const outbox = path.join(connectHome, LANE, "outbox.jsonl");
+  await writeFile(outbox, "");
+  const script = `
+import os, sys, threading
+sys.argv = ["facilitator-connect"]
+source = open(${JSON.stringify(CONNECT)}).read()
+module = {"__name__": "probe", "__file__": ${JSON.stringify(CONNECT)}}
+exec(compile(source, ${JSON.stringify(CONNECT)}, "exec"), module)
+local = module["Local"](${JSON.stringify(LANE)})
+ready = threading.Barrier(8)
+def one(n):
+    ready.wait()
+    local.mint("note", "/note", {"box": "m5", "n": str(n)}, "words %d" % n)
+threads = [threading.Thread(target=one, args=(i,)) for i in range(8)]
+for t in threads: t.start()
+for t in threads: t.join()
+print(len(local.entries()))
+`;
+  const counted = await new Promise(resolve => {
+    execFile("python3", ["-c", script], {
+      env: { ...process.env, FACILITATOR_CONNECT_HOME: connectHome,
+             FACILITATOR_CONNECT_CONFIG: configPath },
+      timeout: 30000,
+    }, (error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr }));
+  });
+  assert.equal(counted.code, 0, counted.stderr);
+  assert.equal(Number(counted.stdout.trim()), 8, "an intent was lost between two concurrent mints");
+  const kept = (await readFile(outbox, "utf8")).trim().split("\n").map(JSON.parse);
+  assert.equal(new Set(kept.map(e => e.op)).size, 8, "two entries share one operation id");
+  await writeFile(outbox, "");
+});
+
+test("a job with no process to watch is registered for a stated time and then ends", async () => {
+  const link = startLink();
+  try {
+    await link.ready();
+    const held = (await api(`/queue?owner=${LANE}`)).body.held;
+    if (held) await connect(["release", held.box]);
+    await connect(["select", "m5"]);
+    await connect(["open", "m5"]);
+    const started = await connect(["work", "start", "m5", "--job", "j-bounded", "--for", "3"]);
+    assert.equal(started.code, 0, started.stderr);
+    assert.match(started.stderr, /registered for 3s/);
+    // the card may already be in a green state of its own, so the registration
+    // is what this checks rather than the colour it happens to be wearing
+    assert.deepEqual((await api("/state")).body.boxes.find(b => b.id === "m5").work, ["j-bounded"]);
+    // the bound is the whole of what keeps this honest: nothing can see the
+    // work, so the card goes grey when the stated time is up
+    const gone = Date.now() + 60000;
+    for (;;) {
+      const card = (await api("/state")).body.boxes.find(b => b.id === "m5");
+      if ((card.work || []).length === 0) break;
+      assert.ok(Date.now() < gone, `a bounded job stayed green past its bound:\n${link.out}`);
+      await sleep(500);
+    }
+    assert.match(link.out, /job j-bounded on m5 ended, its registered time is up/);
+  } finally {
+    await link.stop();
+  }
+});
+
+test("a process that cannot be read is not accepted as something to watch", async () => {
+  const link = startLink();
+  try {
+    await link.ready();
+    // pid 999999 does not exist here, so its start time cannot be read, and a
+    // number with no readable identity must not be treated as watchable: a
+    // later process reusing it would keep this card green
+    const started = await connect(["work", "start", "m5", "--job", "j-unreadable", "--pid", "999999"]);
+    assert.equal(started.code, 0, started.stderr);
+    assert.match(started.stderr, /registered but not watched/);
+    assert.match(started.stderr, /cannot be read/);
+    await connect(["work", "end", "m5", "--job", "j-unreadable"]);
+  } finally {
+    await link.stop();
   }
 });

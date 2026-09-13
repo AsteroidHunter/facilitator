@@ -132,6 +132,7 @@ before(async () => {
       { id: "m1", bucket: "work", title: "Kettle descaling schedule", owner: LANE },
       { id: "m2", bucket: "work", title: "Repaint the garden gate", owner: LANE },
       { id: "m3", bucket: "work", title: "Sort the seed packets", owner: LANE },
+      { id: "m4", bucket: "work", title: "Shed shelf brackets", owner: LANE },
       { id: "p1", bucket: "work", title: "Another lane's card", owner: AUTO_LANE },
     ],
   }));
@@ -281,6 +282,69 @@ test("an open whose answer was lost replays the same body, and the receipt holds
   assert.equal((await post(`/opened?owner=${LANE}&session=s-one&delivery=${first.body.delivery}&op=${op()}&route=tool`)).status, 200);
 });
 
+// These three work on a card of their own and hand the lane back holding what
+// it held before, so the rest of the suite reads as one story.
+test("a message landing between selection and opening is delivered once, not twice", async () => {
+  // the race the plan cares about: the reservation handed over what was waiting
+  // then, and anything later belongs to a fresh delivery with a receipt of its
+  // own. Delivering it in both is the same words twice under two receipts
+  const wasHeld = (await queue()).body.held?.box;
+  if (wasHeld) assert.equal((await post(`/release?owner=${LANE}&session=s-one&box=${wasHeld}&op=${op()}`)).status, 200);
+  assert.equal((await post(`/send?box=m4`, "first: two brackets are missing")).status, 200);
+  assert.equal((await select("m4")).status, 200);
+  assert.equal((await post(`/send?box=m4`, "second: and one is bent")).status, 200);
+  const first = await post(`/open?owner=${LANE}&session=s-one&box=m4&op=${op()}`);
+  assert.equal(first.status, 200);
+  assert.deepEqual(first.body.messages.map(m => m.text), ["first: two brackets are missing"],
+                   "the initial delivery carried a message that arrived after the reservation");
+  assert.equal((await post(`/opened?owner=${LANE}&session=s-one&delivery=${first.body.delivery}&op=${op()}&route=tool`)).status, 200);
+  const later = await post(`/open?owner=${LANE}&session=s-one&box=m4&op=${op()}&fresh=1`);
+  assert.equal(later.status, 200);
+  assert.deepEqual(later.body.messages.map(m => m.text), ["second: and one is bent"]);
+  // the two deliveries share no message at all
+  const both = [...first.body.messages, ...later.body.messages].map(m => m.mid);
+  assert.equal(new Set(both).size, both.length, "one message was carried by two deliveries");
+  assert.equal((await post(`/opened?owner=${LANE}&session=s-one&delivery=${later.body.delivery}&op=${op()}&route=tool`)).status, 200);
+});
+
+test("a replay of an open describes its messages exactly as the first answer did", async () => {
+  assert.equal((await post(`/release?owner=${LANE}&session=s-one&box=m4&op=${op()}`)).status, 200);
+  assert.equal((await post(`/dismiss?box=m4`)).status, 200);
+  assert.equal((await post(`/send?box=m4`, "the bent one needs replacing too")).status, 200);
+  assert.equal((await select("m4")).status, 200);
+  const operation = op();
+  const route = `/open?owner=${LANE}&session=s-one&box=m4&op=${operation}`;
+  const first = await post(route);
+  assert.equal(first.status, 200);
+  assert.equal(first.body.messages[0].read_before, false, "this message had been acknowledged before");
+  assert.equal(first.body.messages[0].first_acked_ts, null);
+  // the receipt sets the access time on the card. A replay of this operation
+  // must still answer the body it prepared, not a description of the card now
+  assert.equal((await post(`/opened?owner=${LANE}&session=s-one&delivery=${first.body.delivery}&op=${op()}&route=tool`)).status, 200);
+  const again = await post(route);
+  assert.equal(again.status, 200);
+  assert.equal(again.body.replayed, true);
+  assert.deepEqual(again.body.messages, first.body.messages,
+                   "the replay described the messages differently from the answer it replays");
+});
+
+test("a delivery that can no longer be rebuilt whole is a conflict, never a short body", async () => {
+  const operation = op();
+  const opened = await post(`/open?owner=${LANE}&session=s-one&box=m4&op=${operation}`);
+  assert.equal(opened.status, 200);
+  assert.ok(opened.body.messages.length >= 1);
+  // dismissing drops the queued messages, so the body behind that operation can
+  // no longer be assembled from the card
+  assert.equal((await post(`/dismiss?box=m4`)).status, 200);
+  const replay = await post(`/open?owner=${LANE}&session=s-one&box=m4&op=${operation}`);
+  assert.equal(replay.status, 409, JSON.stringify(replay.body));
+  assert.equal(replay.body.error, "delivery gone");
+  // and the lane is handed back holding what it held before these three
+  assert.equal((await select("m1")).status, 200);
+  const opened1 = await post(`/open?owner=${LANE}&session=s-one&box=m1&op=${op()}`);
+  assert.equal((await post(`/opened?owner=${LANE}&session=s-one&delivery=${opened1.body.delivery}&op=${op()}&route=tool`)).status, 200);
+});
+
 test("mid-work messages arrive as their own delivery", async () => {
   assert.equal((await post(`/send?box=m1`, "one more thing about the kettle")).status, 200);
   const fresh = await post(`/open?owner=${LANE}&session=s-one&box=m1&op=${op()}&fresh=1`);
@@ -293,6 +357,10 @@ test("mid-work messages arrive as their own delivery", async () => {
 // ---- giving the card back ---------------------------------------------------
 
 test("a release returns the card and replays its own success", async () => {
+  // read from the saved board rather than the listing: the reserved card is
+  // deliberately not a row, it is reported once under held
+  const saved = JSON.parse(await readFile(path.join(app, "state.json"), "utf8"));
+  const passedBefore = saved.boxes.find(b => b.id === "m1").passed_over ?? 0;
   const operation = op();
   const first = await post(`/release?owner=${LANE}&session=s-one&box=m1&op=${operation}&reason=not+now`);
   assert.equal(first.status, 200);
@@ -302,7 +370,8 @@ test("a release returns the card and replays its own success", async () => {
   const replay = await post(`/release?owner=${LANE}&session=s-one&box=m1&op=${operation}&reason=not+now`);
   assert.equal(replay.status, 200);
   assert.equal(replay.body.replayed, true);
-  assert.equal((await rowOf("m1")).passed_over, 1);
+  // one release, one more pass over, and the replay adds none of its own
+  assert.equal((await rowOf("m1")).passed_over, passedBefore + 1);
 });
 
 // ---- the row tag ------------------------------------------------------------
