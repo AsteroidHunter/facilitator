@@ -1052,11 +1052,11 @@
   /* ---- the box's motion --------------------------------------------------- */
   /* the box's arrival, the pendfade keyframes and the appear dress, is shared
      with the phone page and lives in card-tokens.css with its reasons */
-  /* the one length the whole cluster moves in, both ways, and the spring, which
-     runs a touch longer than the box so the settle is still happening as the box
-     finishes and the two do not stop on one frame */
+  /* the one length a fold moves in: the box's height and padding and the column
+     inside it run this long, on this curve, both ways and on both boxes, so the
+     two are one event with one progress and neither can finish first */
   body.focus .box.sel{
-    --pend-move:.42s; --pend-spring:.62s;
+    --pend-move:.62s;
     /* the distance: far enough that the travel cannot be missed. it
        is one sent line and the step under it, written as the sent type's own
        line box plus that step rather than as a number, so what the eye reads is
@@ -1195,10 +1195,11 @@
      strength is the quicker of the two on purpose, 240ms against the 620. a
      column that faded for the whole run would reach full ink on the same frame
      it stopped moving, and the eye would be handed the arriving and the settling
-     at once; landed early, the last stretch of the rise is carried at full
-     strength, so what ends the run is plainly a seat being taken */
+     at once; landed early, the last stretch of the travel is carried at full
+     strength, so what ends the run is plainly a seat being taken. only the
+     strength is an animation of its own now: the travel is the run above */
   body.focus .box.sel .pendlist.opening .pendbody{
-    animation:pendrise var(--pend-spring) linear, pendfade .24s var(--gentle);
+    animation:pendfade .24s var(--gentle);
   }
   /* the shutting is the opening run backwards: the column goes back down the
      same distance on the same curve, so the stamp travels with the edge that is
@@ -1209,11 +1210,9 @@
      both are held at their far end. without that the column would flash back to
      full ink and its own seat on the frame the animation ran out, which is a
      frame or two before the class comes off */
-  @keyframes pendsink{to{transform:translate3d(0, var(--pend-rise), 0)}}
   @keyframes penddim{to{opacity:0}}
   body.focus .box.sel .pendlist.closing .pendbody{
-    animation:pendsink var(--pend-move) var(--gentle) forwards,
-              penddim .3s var(--gentle) forwards;
+    animation:penddim .3s var(--gentle) forwards;
   }
   /* the open and the shut: gentle both ways rather than sudden.
      the box's own height carries the change, from the folded bar up to whatever
@@ -1230,9 +1229,18 @@
      sliding under the border twice */
   body.focus .box.sel .pendlist.motion{
     overflow:hidden;
-    transition:height .32s var(--gentle),
-               padding-top .32s var(--gentle),
-               padding-bottom .32s var(--gentle);
+    transition:height var(--pend-move) var(--gentle),
+               padding-top var(--pend-move) var(--gentle),
+               padding-bottom var(--pend-move) var(--gentle);
+  }
+  /* and the column travels on that same run: one length, one curve, and a
+     transition rather than an animation, so a second click carries the column
+     on from where it stands instead of starting it over from its far end */
+  body.focus .box.sel .pendlist.motion .pendbody{
+    transition:transform var(--pend-move) var(--gentle);
+  }
+  body.focus .box.sel .pendlist.offseat .pendbody{
+    transform:translate3d(0, var(--pend-rise), 0);
   }
   /* a line arriving in a box that already stands: it came into being
      where it stood, and it is to rise into that place instead. nothing new is
@@ -1407,16 +1415,6 @@
   body.focus .box.sel .pendwrap-answered .pendlist{
     flex:1 1 auto; min-height:0;
     --pend-rise:calc((16px*1.5 + var(--sp-s)) * -1);
-  }
-  /* the box below moves only itself; this one carries the answer down the card
-     with it, so the same curve over the same distance reads faster and harder.
-     its height takes the length that box's own column takes to settle instead,
-     .62s on the same curve, so a click stops moving the card at the same moment
-     either box would. the rise, the sink and the fades are left alone */
-  body.focus .box.sel .pendwrap-answered .pendlist.motion{
-    transition:height .62s var(--gentle),
-               padding-top .62s var(--gentle),
-               padding-bottom .62s var(--gentle);
   }
   body.focus .box.sel .pendwrap-answered .pendlist.open,
   body.focus .box.sel .pendwrap-answered .pendlist:not(.open) .pendhead{
@@ -5032,9 +5030,7 @@ function wirePend(el, strip, fold){
 // a send never touches any of this: the first send builds the box and the slim
 // bar alone comes up, and every send after it drops a line into the box that
 // already stands. only a click on the bar opens it
-const PEND_MOTION = 420;   // the fallback timer behind the height transition
-const ANSW_MOTION = 720;   // the same, behind the longer run the box above takes
-const PEND_SPRING = 620;   // the cluster's spring, which outlives the box's own growth
+const PEND_MOTION = 720;   // the fallback timer behind the fold's one run
 function foldPend(el, open){ foldBox(el, el.pend, "foldRun", open); }
 // the box above the answer runs the very same fold. what makes it read as a box
 // above rather than a box below is one property in the sheet, the distance its
@@ -5055,18 +5051,21 @@ function foldBox(el, pend, runKey, open, landed){
   if (!pend) return;
   const mine = ++el[runKey];
   // the box below opens on its newest line; the box above opens where he left
-  // this batch, or at its beginning the first time, and runs the longer fold
-  const upper = pend === el.answ;
-  const place = upper ? answeredPlace : pendBottom;
-  const span = upper ? ANSW_MOTION : PEND_MOTION;
+  // this batch, or at its beginning the first time
+  const place = pend === el.answ ? answeredPlace : pendBottom;
   const from = pend.getBoundingClientRect().height;
   const padFrom = padPair(pend);
+  // the column is frozen and re-aimed exactly as the height is, so a run caught
+  // mid flight carries on from where the words stand
+  const body = pend.querySelector(".pendbody");
+  const held = getComputedStyle(body).transform;
   // a run caught mid flight is frozen where it stands and re-aimed from there,
   // so a fast second click turns the box around rather than teleporting it
-  pend.classList.remove("motion", "opening", "closing");
+  pend.classList.remove("motion", "opening", "closing", "offseat");
   pend.style.height = "";
   pend.style.paddingTop = "";
   pend.style.paddingBottom = "";
+  body.style.transform = "";
   pend.classList.toggle("open", open);
   if (open) place(pend);
   const to = pend.getBoundingClientRect().height;
@@ -5075,6 +5074,8 @@ function foldBox(el, pend, runKey, open, landed){
   pend.style.height = from + "px";
   pend.style.paddingTop = padFrom[0];
   pend.style.paddingBottom = padFrom[1];
+  if (held && held !== "none") body.style.transform = held;
+  else pend.classList.toggle("offseat", open);
   void pend.offsetWidth;   // the start values land before the run begins
   pend.classList.add("motion");
   // the arrows' exchange and the content column's own travel, both turned on in
@@ -5087,6 +5088,8 @@ function foldBox(el, pend, runKey, open, landed){
   pend.style.height = to + "px";
   pend.style.paddingTop = padTo[0];
   pend.style.paddingBottom = padTo[1];
+  body.style.transform = "";   // the class below is the column's own far end
+  pend.classList.toggle("offseat", !open);
 
   const done = e => {
     if (e && (e.target !== pend || e.propertyName !== "height")) return;
@@ -5097,6 +5100,8 @@ function foldBox(el, pend, runKey, open, landed){
     pend.style.height = "";
     pend.style.paddingTop = "";
     pend.style.paddingBottom = "";
+    pend.classList.remove("offseat");   // untimed now: the column is at its seat
+    body.style.transform = "";
     pend.classList.toggle("open", open);
     if (open) place(pend);
     // the room this box holds has changed and has stopped changing, so whoever
@@ -5107,13 +5112,13 @@ function foldBox(el, pend, runKey, open, landed){
     setTimeout(() => {
       if (mine !== el[runKey]) return;
       pend.classList.remove("opening", "closing");
-    }, Math.max(0, PEND_SPRING - span) + 40);
+    }, 40);
   };
   // two ends can finish a run: the transition itself, and a timer for the case
   // where the two ends are already the same height and the browser has nothing
   // to transition, which fires no event at all
   pend.addEventListener("transitionend", done);
-  const timer = setTimeout(done, span + 40);
+  const timer = setTimeout(done, PEND_MOTION + 40);
 }
 // both paddings, read as a pair. the open dress is not symmetric, 16 over and 10
 // under, so a run driven from the top value alone would hold the bottom 6px too
