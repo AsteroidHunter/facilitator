@@ -1,0 +1,1091 @@
+#!/usr/bin/env python3
+"""facilitator-connect: one connection per project.
+
+Ordinary code that owns the waiting, the reconnection, the holder record, the
+retry of anything whose answer was lost, and the board's work indicators. The
+model never writes a pinger, never starts or stops a heartbeat, and never spends
+a turn on an empty poll.
+
+  facilitator-connect connect
+      link mode. Holds the notification long poll, renews the holder record,
+      runs the delivery adapter, owns work tracking, keeps the local outbox and
+      reconnects with backoff. Exits at once, saying who holds it, when the lane
+      is already served by another connection.
+  facilitator-connect queue [--all] [--limit N] [--json]
+      the rows this lane may choose from. No request text is in them.
+  facilitator-connect select <card> [--json]
+      reserve a card, using the row tag from the last listing
+  facilitator-connect open <card> [--fresh] [--json]
+      fetch the reserved card's messages and acknowledge the delivery
+  facilitator-connect attachment <card> <file> [--out PATH]
+      save an attachment of an acknowledged message, over the protocol
+  facilitator-connect reply <card> <text> --ctx <text> [--short <text>]
+      the final answer. --ctx is required here even though the board has
+      accepted its absence since 20260821.
+  facilitator-connect note <card> <text>
+  facilitator-connect progress <card> <text>
+  facilitator-connect work start <card> --job <id> [--task <id>] [--pid N]
+  facilitator-connect work end <card> --job <id>
+      register or end a job behind a card. With --pid the link watches that
+      process and ends the job itself when it exits. No heartbeat is the
+      model's business.
+  facilitator-connect release <card> [--reason <text>]
+  facilitator-connect title <card> <text>
+  facilitator-connect status [--json]
+  facilitator-connect whoami [--json]
+
+The board address is configuration, so the same commands work whether the board
+is on this machine or another one. Nothing the agent needs comes from a shared
+disk: message text comes from open, attachments come from the attachment route,
+and every age is the board's own rather than two clocks compared.
+
+Commands talk to the running link over a local endpoint when there is one, which
+is how they share the session, the outbox and the work tracker. With no link
+running they talk to the board directly and say plainly that work tracking is
+degraded. That endpoint is a convenience between two processes of one user on
+one machine. It is not a boundary between projects: this version relies on each
+agent following its own project's instructions, and enforced isolation is a
+separate piece of work.
+
+Standard library only. Exit codes: 0 done, 3 refused with the reason printed,
+4 card not in this lane, 5 conflict with the current row printed, 6 board
+unreachable after retries, 7 lane already held by another connection, 8
+unresolved receipt that needs a person.
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import random
+import secrets
+import socket
+import socketserver
+import sys
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+# beside the script by default, which is the ordinary arrangement, and named by
+# the environment where it is not: a connection serving a lane from another
+# machine has no run.config.json beside the board's own script
+CONFIG = Path(os.environ["FACILITATOR_CONNECT_CONFIG"]).expanduser() \
+    if os.environ.get("FACILITATOR_CONNECT_CONFIG") else HERE / "run.config.json"
+
+OK, REFUSED, NOT_IN_LANE, CONFLICT, UNREACHABLE, HELD, UNRESOLVED = 0, 3, 4, 5, 6, 7, 8
+
+# Where a lost answer would otherwise repeat or lose an effect. Reads carry no
+# id, and the heartbeat is naturally idempotent.
+RECEIPTED = frozenset({"select", "open", "opened", "release", "reply", "note",
+                       "progress", "notified", "work-start", "work-end"})
+# A position receipt describes a place in the queue that a restart legitimately
+# destroys, so a conflict on one is answered with a fresh id for a fresh
+# attempt. Everything else is an effect, and an effect keeps its id forever.
+POSITION = frozenset({"select", "open"})
+
+HEARTBEAT = 25.0          # seconds between beats for a card with a live job
+BACKOFF_MAX = 60.0
+NOTIFY_BACKOFF_MAX = 300.0   # how long an adapter that keeps refusing is left alone
+POLL_TIMEOUT = 570
+
+
+def home() -> Path:
+    """Machine-local runtime state for connections on this machine. Not beside
+    the board, because a connection may well be running on a different machine
+    from it."""
+    named = os.environ.get("FACILITATOR_CONNECT_HOME")
+    return Path(named).expanduser() if named else Path.home() / ".facilitator-connect"
+
+
+def settings(lane: str) -> dict:
+    """The board address and this lane's adapter. A missing config file is not
+    an error: the defaults point at a board on this machine, which is the
+    ordinary arrangement."""
+    cfg = {}
+    if CONFIG.exists():
+        try:
+            cfg = json.loads(CONFIG.read_text())
+        except ValueError:
+            sys.exit(f"{CONFIG.name} is not valid JSON")
+    board = cfg.get("board") or f"http://127.0.0.1:{cfg.get('port') or 8877}"
+    for entry in cfg.get("lanes", []):
+        if entry.get("owner") == lane:
+            return {"board": entry.get("board") or board, "adapter": entry.get("adapter") or {},
+                    "agent": entry.get("agent", ""), "tmux": entry.get("tmux", "")}
+    return {"board": board, "adapter": {}, "agent": "", "tmux": ""}
+
+
+# ---- what this connection keeps for itself ---------------------------------------
+# The board owns the queue, the reservations, the deliveries and the receipts.
+# Nothing here ever answers a question about any of them on its own.
+
+class Local:
+    """This connection's own small store: the session id it mints once, the
+    operation ids it minted before sending, and the jobs it is watching."""
+
+    def __init__(self, lane: str) -> None:
+        self.dir = home() / lane
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self.lane = lane
+        self.outbox_path = self.dir / "outbox.jsonl"
+        self.session = self._session()
+
+    def _session(self) -> str:
+        path = self.dir / "session"
+        if path.exists():
+            kept = path.read_text().strip()
+            if kept:
+                return kept
+        minted = "s-" + secrets.token_hex(5)
+        path.write_text(minted + "\n")
+        return minted
+
+    # ---- the outbox --------------------------------------------------------
+    # A retry buffer and nothing more. An entry is written before the first send
+    # and removed once the outcome is known; an uncertain or lost answer leaves
+    # its entry there to be retried under its own id at the next start.
+
+    def entries(self) -> list:
+        if not self.outbox_path.exists():
+            return []
+        out = []
+        for line in self.outbox_path.read_text().splitlines():
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(entry, dict):
+                out.append(entry)
+        return out
+
+    def _write(self, entries: list) -> None:
+        tmp = self.outbox_path.with_suffix(".tmp")
+        tmp.write_text("".join(json.dumps(e) + "\n" for e in entries))
+        tmp.replace(self.outbox_path)
+
+    def mint(self, kind: str, route: str, query: dict, body: str = "") -> dict:
+        """An operation id, written down before the first send. A retry of the
+        same intent reuses the entry rather than minting a second id, which is
+        the whole point: a new id for the same words is how a reply lands
+        twice."""
+        entries = self.entries()
+        entry = {"op": kind[:12] + "-" + secrets.token_hex(6), "kind": kind, "route": route,
+                 "query": query, "body": body, "ts": time.time()}
+        entries.append(entry)
+        self._write(entries)
+        return entry
+
+    def settle(self, op: str) -> None:
+        self._write([e for e in self.entries() if e.get("op") != op])
+
+    def reissue(self, op: str) -> dict | None:
+        """Replace a position receipt's id with a fresh one, for the one case
+        where that is correct: the place it described is gone and the caller is
+        making a fresh choice. Never done for an effect."""
+        entries = self.entries()
+        for entry in entries:
+            if entry.get("op") == op:
+                if entry.get("kind") not in POSITION:
+                    return None
+                entry["op"] = entry["kind"][:12] + "-" + secrets.token_hex(6)
+                entry["ts"] = time.time()
+                self._write(entries)
+                return entry
+        return None
+
+
+# ---- the board -------------------------------------------------------------------
+
+class Board:
+    """Every request this connection makes, in one place. The address is
+    configuration and the routes are identical whether the board is here or on
+    another machine."""
+
+    def __init__(self, base: str, lane: str, session: str) -> None:
+        self.base = base.rstrip("/")
+        self.lane = lane
+        self.session = session
+
+    def call(self, route: str, query: dict, body: str | None = None, timeout: float = 30.0,
+             tries: int = 4) -> tuple:
+        """(status, payload). Retries only what is safe to retry: a request
+        carrying an operation id may be sent again under that same id, and a
+        read may always be sent again. Answers (0, ...) when the board could not
+        be reached at all."""
+        params = {"owner": self.lane, **{k: v for k, v in query.items() if v not in (None, "")}}
+        url = f"{self.base}{route}?{urllib.parse.urlencode(params)}"
+        last = ""
+        for attempt in range(tries):
+            request = urllib.request.Request(
+                url, method="POST" if body is not None else "GET",
+                data=body.encode("utf-8") if body is not None else None)
+            try:
+                with urllib.request.urlopen(request, timeout=timeout) as answer:
+                    raw = answer.read()
+                    return answer.status, _payload(raw, answer.headers.get("content-type", ""))
+            except urllib.error.HTTPError as error:
+                raw = error.read()
+                return error.code, _payload(raw, error.headers.get("content-type", ""))
+            except (urllib.error.URLError, TimeoutError, OSError) as error:
+                last = str(error)
+                if attempt + 1 < tries:
+                    time.sleep(min(BACKOFF_MAX, (2 ** attempt) + random.random()))
+        return 0, {"error": f"the board could not be reached: {last}"}
+
+
+def _payload(raw: bytes, ctype: str):
+    if "json" in ctype:
+        try:
+            return json.loads(raw.decode("utf-8", "replace"))
+        except ValueError:
+            return {"error": "the board sent something that is not JSON"}
+    return raw
+
+
+# ---- the local endpoint between a command and the link ---------------------------
+# A convenience between two processes of one user on one machine, so a command
+# shares the link's session, outbox and work tracker. It is not a project
+# boundary and nothing here treats it as one.
+
+def endpoint(lane: str) -> Path:
+    """The socket a command uses to reach its link.
+
+    Not inside the connection's home, although that is where everything else
+    about the lane lives. A unix socket path has a hard kernel limit of about a
+    hundred bytes and the home may sit anywhere, so a home a few folders deep
+    would make the endpoint unbindable. The name is a digest of the home and the
+    lane instead, under a folder this user owns, which keeps the path short
+    whatever the home is and still gives one endpoint per home per lane."""
+    stem = hashlib.sha256(f"{home()}\x1f{lane}".encode("utf-8")).hexdigest()[:16]
+    base = Path("/tmp") / f"facilitator-connect-{os.getuid()}"
+    base.mkdir(mode=0o700, exist_ok=True)
+    return base / f"link-{stem}.sock"
+
+
+def ask_link(lane: str, message: dict, timeout: float = 20.0) -> dict | None:
+    """Ask the running link to do something, or None when there is no link."""
+    path = endpoint(lane)
+    if not path.exists():
+        return None
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    client.settimeout(timeout)
+    try:
+        client.connect(str(path))
+        client.sendall((json.dumps(message) + "\n").encode("utf-8"))
+        chunks = []
+        while True:
+            chunk = client.recv(65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        return json.loads(b"".join(chunks).decode("utf-8", "replace"))
+    except (OSError, ValueError):
+        return None
+    finally:
+        client.close()
+
+
+# ---- work tracking ---------------------------------------------------------------
+# The board's green means a registered job is alive. It does not mean the job is
+# making useful progress, and nothing here says it does. The connection owns the
+# heartbeat from the job's own lifetime; the model's only part is the semantic
+# one, naming the card and the task when a job starts.
+#
+# Phase 1 found that both installed hosts publish subagent and task lifecycle
+# events to a local process without MCP, through their own hook systems. Neither
+# is enabled here, because turning a hook on means writing host configuration.
+# So the shipped source is the bounded registration below, and a host hook can
+# be pointed at `work start` and `work end` later without the board's records
+# changing at all.
+
+def alive(pid: int, started: str) -> bool:
+    """Whether that process is still the one that was registered. A pid on its
+    own is not an identity: the number is released when a process ends and can
+    already belong to something else, so the start time read at registration has
+    to match too, or a reused number would keep unrelated work green."""
+    if not pid:
+        return False
+    try:
+        with os.popen(f"ps -o lstart= -p {int(pid)} 2>/dev/null") as reader:
+            now = reader.read().strip()
+    except (OSError, ValueError):
+        return False
+    return bool(now) and (not started or now == started)
+
+
+def started_at(pid: int) -> str:
+    try:
+        with os.popen(f"ps -o lstart= -p {int(pid)} 2>/dev/null") as reader:
+            return reader.read().strip()
+    except (OSError, ValueError):
+        return ""
+
+
+class Work:
+    """The jobs this connection registered and is watching. Kept on disk so a
+    connection restart can reconcile: a record that names this session and whose
+    job it can no longer see is ended, and the board's own 75 second expiry
+    remains the backstop for anything never got to."""
+
+    def __init__(self, local: Local, board: Board) -> None:
+        self.local = local
+        self.board = board
+        self.path = local.dir / "work.json"
+        self.lock = threading.Lock()
+
+    def read(self) -> dict:
+        if not self.path.exists():
+            return {}
+        try:
+            return json.loads(self.path.read_text())
+        except ValueError:
+            return {}
+
+    def write(self, jobs: dict) -> None:
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(jobs, indent=1))
+        tmp.replace(self.path)
+
+    def add(self, box: str, job: str, pid: int = 0, task: str = "") -> None:
+        with self.lock:
+            jobs = self.read()
+            jobs[job] = {"box": box, "pid": pid, "started": started_at(pid) if pid else "",
+                         "task": task, "session": self.local.session}
+            self.write(jobs)
+
+    def drop(self, job: str) -> None:
+        with self.lock:
+            jobs = self.read()
+            jobs.pop(job, None)
+            self.write(jobs)
+
+    def sweep(self) -> None:
+        """One pass: beat for every card that still has a live registration, and
+        end the ones whose job has gone. Called by the link on its own clock, so
+        no path asks the model to send a heartbeat."""
+        with self.lock:
+            jobs = self.read()
+        beating, gone = set(), []
+        for job, rec in jobs.items():
+            if rec.get("pid") and not alive(rec["pid"], rec.get("started", "")):
+                gone.append((job, rec))
+            else:
+                beating.add(rec.get("box", ""))
+        for box in sorted(b for b in beating if b):
+            self.board.call("/ping", {"box": box}, body="")
+        for job, rec in gone:
+            entry = self.local.mint("work-end", "/work/end",
+                                    {"session": self.local.session, "box": rec.get("box", ""), "job": job})
+            status, payload = self.board.call("/work/end", {**entry["query"], "op": entry["op"]}, body="")
+            if status == 200:
+                self.local.settle(entry["op"])
+                self.drop(job)
+                print(f"job {job} on {rec.get('box', '')} ended, its process is gone", flush=True)
+            elif status == 404:
+                # the card is gone from this lane; the registration cannot mean
+                # anything any more and the board's expiry covers the colour
+                self.local.settle(entry["op"])
+                self.drop(job)
+
+    def reconcile(self) -> None:
+        """At start: end anything this session registered whose job it can no
+        longer see. Records naming another session are left alone, because this
+        connection cannot see that one's processes and guessing would clear
+        somebody else's green."""
+        with self.lock:
+            jobs = self.read()
+        for job, rec in list(jobs.items()):
+            if rec.get("session") != self.local.session:
+                continue
+            if rec.get("pid") and not alive(rec["pid"], rec.get("started", "")):
+                print(f"reconciling: job {job} did not survive the restart", flush=True)
+        self.sweep()
+
+
+# ---- adapters --------------------------------------------------------------------
+# One line in, one line out, exit zero on acceptance. The line carries counts and
+# never card text. No adapter, client or fallback here uses MCP, which is a
+# permanent constraint on this work rather than a deferred option.
+
+def adapter_line(lane: str, told: dict) -> str:
+    waited = told.get("oldest_wait_s") or 0
+    oldest = f"{int(waited // 3600)}h" if waited >= 3600 else f"{int(waited // 60)}m" if waited >= 60 else f"{int(waited)}s"
+    cards = told.get("cards", 0)
+    return (f"facilitator: {cards} card{'' if cards == 1 else 's'} waiting on {lane}, "
+            f"oldest {oldest}. Run the queue command.")
+
+
+def run_adapter(spec: dict, line: str, lane: str, conf: dict) -> tuple:
+    """(name, outcome, detail). The outcome records only what this adapter could
+    actually observe, and the detail says what that was.
+
+    Two things are never claimed here. A command that exited zero reported
+    success; it is not evidence that the conversation displayed anything, and
+    still less that the model read it. And nothing is exactly once: a repeated
+    notice may produce a repeated line, the notice id lets the agent see that it
+    is a repeat, and the queue stays the source of truth, so a duplicate costs
+    one redundant look.
+
+    Which adapters exist at all came out of the focused checks. Only the monitor
+    line was observed working. The Codex command line has a real command whose
+    end to end behaviour nobody here observed, so it ships configurable and
+    labelled. The two desktop surfaces have no supported local route that does
+    not drive the interface, so they have no adapter and keep their present
+    delivery path. None of these uses MCP, which is a permanent constraint on
+    this work rather than a deferred option."""
+    name = spec.get("name") or "none"
+    if name == "none":
+        return name, "refused", "no adapter is configured for this lane"
+
+    if name == "monitor":
+        # The one proved route. The conversation itself starts a monitor on this
+        # connection's stream and receives each line as it arrives; this writes
+        # the line to that stream. What it can observe is that the line was
+        # written, and nothing beyond it.
+        try:
+            sys.stdout.write(line + "\n")
+            sys.stdout.flush()
+        except OSError as error:
+            return name, "error", str(error)[:100]
+        return name, "accepted", "written to this connection's stream"
+
+    if name == "codex-queue":
+        # Unproved. The local help describes `codex queue` as queueing a message
+        # for an existing session named by id or exact name, and that much is
+        # real. Whether the named session then begins a turn was not observed,
+        # so the detail says so rather than letting a zero exit stand in for it.
+        thread = spec.get("thread")
+        if not thread:
+            return name, "error", "no thread is named for this lane"
+        done, detail = _command(["codex", "queue", "--thread", thread, "--message", line],
+                                spec.get("timeout", 20))
+        return name, ("accepted" if done else "refused"), (
+            "the command reported success; reaching the session was not observed"
+            if done else detail)
+
+    if name == "terminal":
+        # The fallback that works today and is fragile. It types the line into
+        # the lane's terminal session, which is why it is last and why it is
+        # never chosen where a supported route exists.
+        session = spec.get("tmux") or conf.get("tmux")
+        if not session:
+            return name, "error", "no terminal session is named for this lane"
+        done, detail = _command(["tmux", "send-keys", "-t", session, line], spec.get("timeout", 10))
+        if not done:
+            return name, "refused", detail
+        # the newline goes separately, so a line that never landed is not
+        # submitted as half a command
+        done, detail = _command(["tmux", "send-keys", "-t", session, "Enter"], spec.get("timeout", 10))
+        return name, ("accepted" if done else "refused"), (
+            "typed into the named terminal session" if done else detail)
+
+    if name == "owner-alert":
+        # The bounded fallback for a surface with no supported route. It does
+        # not pretend the conversation was reached: it says the lane cannot be
+        # reached, which is the true thing, and leaves the card waiting on the
+        # board where the owner will find it.
+        print(f"lane {lane} cannot be reached: {line}", file=sys.stderr, flush=True)
+        return name, "refused", "no supported route for this surface; the lane is unreachable"
+
+    command = spec.get("command")
+    if not command:
+        return name, "error", "the adapter names no command"
+    done, detail = _command(command if isinstance(command, list) else [command],
+                            spec.get("timeout", 20),
+                            json.dumps({"lane": lane, "line": line}) + "\n")
+    return name, ("accepted" if done else "refused"), (
+        "the command reported success" if done else detail)
+
+
+def _command(argv: list, timeout: float, feed: str = "") -> tuple:
+    """(exited zero, what went wrong). One subprocess, bounded, never a shell."""
+    import subprocess
+    try:
+        run = subprocess.run(argv, input=feed, capture_output=True, text=True, timeout=timeout)
+    except FileNotFoundError:
+        return False, f"{argv[0]} is not installed on this machine"
+    except (OSError, subprocess.SubprocessError) as error:
+        return False, str(error)[:100]
+    if run.returncode != 0:
+        return False, (run.stderr or run.stdout or f"exit {run.returncode}").strip()[:100]
+    return True, ""
+
+
+# ---- link mode -------------------------------------------------------------------
+
+class Link:
+    """Holds the notification poll, renews the holder record, runs the adapter,
+    owns work tracking and keeps the outbox reconciled. The model spends no turn
+    here at all."""
+
+    def __init__(self, lane: str, opts) -> None:
+        self.lane = lane
+        self.opts = opts
+        self.conf = settings(lane)
+        self.local = Local(lane)
+        self.board = Board(opts.board or self.conf["board"], lane, self.local.session)
+        self.work = Work(self.local, self.board)
+        self.cursor = ""
+        self.stop = threading.Event()
+        # a surface that keeps refusing is backed off and the lane is marked
+        # unreachable once, rather than a line per notice for ever. The poll and
+        # the notice records carry on either way, so nothing is lost by it
+        self.refusals = 0
+        self.quiet_until = 0.0
+        self.unreachable = False
+        self.machine = socket.gethostname()[:48]
+        self.agent = opts.agent or self.conf["agent"] or "claude"
+
+    # ---- the local endpoint ------------------------------------------------
+    def serve(self) -> None:
+        path = endpoint(self.lane)
+        if path.exists():
+            path.unlink()
+        link = self
+
+        class Handler(socketserver.StreamRequestHandler):
+            def handle(self) -> None:
+                try:
+                    asked = json.loads(self.rfile.readline().decode("utf-8", "replace"))
+                except ValueError:
+                    self.wfile.write(b'{"error": "bad request"}')
+                    return
+                self.wfile.write(json.dumps(link.serve_one(asked)).encode("utf-8"))
+
+        class Server(socketserver.ThreadingUnixStreamServer):
+            daemon_threads = True
+            allow_reuse_address = True
+
+        try:
+            self.endpoint_server = Server(str(path), Handler)
+        except OSError as error:
+            # the link's real work is the poll, the holder record and the work
+            # tracking, and none of it needs this socket. Commands fall back to
+            # the board directly and say that work tracking is degraded
+            print(f"no local endpoint ({error}); commands will talk to the board directly",
+                  file=sys.stderr)
+            return
+        threading.Thread(target=self.endpoint_server.serve_forever, daemon=True).start()
+
+    def serve_one(self, asked: dict) -> dict:
+        """One command from a command-mode process, run with this link's session
+        so the two share the outbox and the work tracker."""
+        kind = asked.get("kind", "")
+        if kind == "status":
+            return {"lane": self.lane, "board": self.board.base, "session": self.local.session,
+                    "link": True, "pending": len(self.local.entries()),
+                    "jobs": self.work.read(), "cursor": self.cursor,
+                    "adapter": self.conf["adapter"].get("name") or "none",
+                    "unreachable": self.unreachable}
+        if kind == "work-start":
+            self.work.add(asked.get("box", ""), asked.get("job", ""),
+                          int(asked.get("pid") or 0), asked.get("task", ""))
+            return {"watched": True}
+        if kind == "work-end":
+            self.work.drop(asked.get("job", ""))
+            return {"watched": False}
+        return {"error": f"the link does not serve {kind}"}
+
+    # ---- the loop ----------------------------------------------------------
+    def run(self) -> int:
+        held = self.board.call("/hold", {"session": self.local.session, "agent": self.agent,
+                                         "machine": self.machine,
+                                         "override": "1" if self.opts.override else ""}, body="")
+        status, payload = held
+        if status == 409:
+            print(f"lane {self.lane} is already held by {payload.get('agent', 'another connection')} "
+                  f"on {payload.get('machine', 'another machine')}, last seen "
+                  f"{payload.get('idle_s', '?')}s ago; nothing was changed", file=sys.stderr)
+            return HELD
+        if status != 200:
+            print(f"could not take the lane: {_reason(payload)}", file=sys.stderr)
+            return UNREACHABLE if status == 0 else REFUSED
+        # the endpoint first, then the line that says so: the line is what
+        # anything waiting on this link reads as ready, and a command that
+        # arrives on the strength of it must find the endpoint already there
+        self.serve()
+        print(f"{self.lane} on {self.board.base}, session {self.local.session}, "
+              f"generation {payload.get('generation')}, mode {payload.get('mode')}", flush=True)
+        self.retry_outbox()
+        self.work.reconcile()
+        threading.Thread(target=self._beat, daemon=True).start()
+        backoff = 1.0
+        while not self.stop.is_set():
+            status, payload = self.board.call(
+                "/notify", {"session": self.local.session, "agent": self.agent,
+                            "machine": self.machine, "timeout": POLL_TIMEOUT, "cursor": self.cursor},
+                timeout=POLL_TIMEOUT + 30, tries=1)
+            if status == 0:
+                # nothing here depends on a single answer arriving: back off and
+                # ask again, and every mutation is retried under its own id
+                time.sleep(backoff)
+                backoff = min(BACKOFF_MAX, backoff * 2)
+                continue
+            backoff = 1.0
+            if status == 409:
+                print(f"the lane changed hands: {_reason(payload)}", file=sys.stderr)
+                return HELD
+            if status != 200:
+                print(f"the board refused the poll: {_reason(payload)}", file=sys.stderr)
+                time.sleep(5)
+                continue
+            if payload.get("paused"):
+                time.sleep(60)      # laptop-close mode, re-checked about once a minute
+                continue
+            if payload.get("end") or payload.get("idle"):
+                continue
+            self.cursor = payload.get("cursor") or self.cursor
+            self.told(payload)
+        return OK
+
+    def _beat(self) -> None:
+        while not self.stop.wait(HEARTBEAT):
+            try:
+                self.work.sweep()
+            except Exception as error:          # a beat must never take the link down
+                print(f"work sweep: {error}", file=sys.stderr)
+
+    def told(self, payload: dict) -> None:
+        """One notification: the notice is already pending on the board, the
+        adapter runs, and the outcome is recorded afterwards with what that
+        adapter could observe."""
+        notice = payload.get("notice")
+        if not notice:
+            return
+        if time.time() < self.quiet_until:
+            name, outcome, detail = (self.conf["adapter"].get("name") or "none", "refused",
+                                     "backed off after repeated refusals")
+        else:
+            name, outcome, detail = run_adapter(self.conf["adapter"],
+                                                adapter_line(self.lane, payload), self.lane, self.conf)
+        entry = self.local.mint("notified", "/notified",
+                                {"session": self.local.session, "notice": notice,
+                                 "adapter": name, "outcome": outcome, "detail": detail[:120]})
+        status, answer = self.board.call("/notified", {**entry["query"], "op": entry["op"]}, body="")
+        if status in (200, 404):
+            self.local.settle(entry["op"])
+        if outcome == "accepted":
+            self.refusals = 0
+            self.quiet_until = 0.0
+            if self.unreachable:
+                self.unreachable = False
+                print(f"lane {self.lane} is reachable again", file=sys.stderr, flush=True)
+            return
+        # a surface with no supported route is not pretended to have one. The
+        # card stays on the board where the owner will find it, and the notice
+        # outcome says what the adapter could observe and no more
+        self.refusals += 1
+        self.quiet_until = time.time() + min(NOTIFY_BACKOFF_MAX, 30.0 * (2 ** (self.refusals - 1)))
+        print(f"notice {notice}: adapter {name} {outcome} ({detail})", file=sys.stderr, flush=True)
+        if self.refusals >= 3 and not self.unreachable:
+            self.unreachable = True
+            print(f"lane {self.lane} is marked unreachable after {self.refusals} refusals; "
+                  f"its cards are still waiting on the board", file=sys.stderr, flush=True)
+
+    def retry_outbox(self) -> None:
+        """At start, send every unsettled entry again under its own id. This is
+        a retry buffer and nothing else: it never answers a question about the
+        queue, a reservation, a delivery or a receipt, because the board owns
+        all four."""
+        for entry in self.local.entries():
+            if entry.get("kind") in POSITION:
+                # a place in the queue that a restart destroyed. Sending it
+                # again would only be told so, and the honest move is to drop
+                # the id and choose again when somebody chooses
+                self.local.settle(entry["op"])
+                continue
+            status, payload = self.board.call(entry["route"], {**entry["query"], "op": entry["op"]},
+                                              body=entry.get("body", ""))
+            if status == 200 or status == 404:
+                self.local.settle(entry["op"])
+            elif status == 409 and payload.get("error") == "generation changed":
+                print(f"unresolved receipt {entry['op']} ({entry['kind']}): the lane changed hands "
+                      f"while this was in flight. It is kept and not resent under another id.",
+                      file=sys.stderr)
+
+
+# ---- command mode ----------------------------------------------------------------
+
+def _reason(payload) -> str:
+    if isinstance(payload, dict):
+        return payload.get("error") or json.dumps(payload)
+    return str(payload)[:200]
+
+
+def _exit_for(status: int, payload) -> int:
+    if status == 0:
+        return UNREACHABLE
+    if status == 404:
+        return NOT_IN_LANE
+    if status == 409:
+        return HELD if _reason(payload) == "lane already held" else CONFLICT
+    return REFUSED if status >= 400 else OK
+
+
+class Command:
+    """One command run inside the agent's own turn. It shares the link's session
+    when there is a link, and says plainly that work tracking is degraded when
+    there is not."""
+
+    def __init__(self, lane: str, opts) -> None:
+        self.lane = lane
+        self.opts = opts
+        self.conf = settings(lane)
+        self.local = Local(lane)
+        self.board = Board(opts.board or self.conf["board"], lane, self.local.session)
+        self.linked = endpoint(lane).exists()
+
+    def prepare(self) -> int:
+        """Take or renew this lane's holder record before the first call that
+        names a session.
+
+        With a link running this is a renewal, because the command and the link
+        share one session: that is what the per-lane home directory is for.
+        With no link running it is an acquisition, so a command used on its own
+        still works, which is the arrangement the direct fallback describes. If
+        another connection is serving this lane, this is where that is found
+        out, and the command stops rather than working alongside it."""
+        status, payload = self.board.call(
+            "/hold", {"session": self.local.session, "agent": self.conf["agent"] or "claude",
+                      "machine": socket.gethostname()[:48]}, body="")
+        if status == 200:
+            return OK
+        if status == 409:
+            print(f"lane {self.lane} is held by {payload.get('agent', 'another connection')} on "
+                  f"{payload.get('machine', 'another machine')}, last seen "
+                  f"{payload.get('idle_s', '?')}s ago; nothing was changed", file=sys.stderr)
+            return HELD
+        print(_reason(payload), file=sys.stderr)
+        return _exit_for(status, payload)
+
+    def send(self, kind: str, route: str, query: dict, body: str = "") -> tuple:
+        """A mutation that must land exactly once. The id is minted and written
+        down before the first send and reused on every retry.
+
+        Recovery differs by class, and the difference is the whole of it. A
+        conflict on a position receipt means the place it described is gone, so
+        the id is dropped and the caller chooses again with a fresh one, which
+        is why a replay cannot loop. A conflict on an effect is never answered
+        that way: minting a new id for the same words is how a reply gets
+        written twice, so the id is kept, and a receipt that cannot be resolved
+        is reported and left for a person."""
+        if kind not in RECEIPTED:
+            return self.board.call(route, query, body=body or None)
+        entry = self.local.mint(kind, route, query, body)
+        status, payload = self.board.call(route, {**query, "op": entry["op"]}, body=body)
+        if status == 200:
+            self.local.settle(entry["op"])
+            return status, payload
+        if status == 409 and _reason(payload) == "generation changed":
+            print(f"the lane changed hands while this was in flight. Receipt {entry['op']} is "
+                  f"unresolved; it is kept and will not be resent under another id.", file=sys.stderr)
+            return status, payload
+        if status == 409 and kind in POSITION:
+            self.local.settle(entry["op"])
+            return status, payload
+        if status in (400, 404, 410):
+            self.local.settle(entry["op"])      # nothing landed, so nothing is owed
+        return status, payload
+
+    # ---- the commands -------------------------------------------------------
+    def queue(self) -> int:
+        include = "green,parked,done" if self.opts.all else ""
+        status, payload = self.board.call("/queue", {"session": self.local.session,
+                                                     "include": include, "limit": self.opts.limit})
+        if status != 200:
+            return self._refuse(status, payload)
+        if self.opts.json:
+            print(json.dumps(payload, indent=1))
+            return OK
+        self._print_rows(payload)
+        return OK
+
+    def _print_rows(self, payload: dict) -> None:
+        rows, now = payload.get("cards", []), payload.get("now", time.time())
+        held = payload.get("held")
+        print(f"lane {payload.get('lane')}   {sum(r['waiting'] for r in rows)} waiting   "
+              f"{1 if held else 0} held   board {self.board.base}")
+        print()
+        if rows:
+            print(f"{'CARD':<7}{'WAIT':<7}{'MSGS':<6}{'STATE':<8}{'TITLE':<36}FLAGS")
+        for row in rows:
+            flags = []
+            if row.get("starved"):
+                flags.append("starved")
+            if "mini" in (row.get("via") or []):
+                flags.append("mini")
+            if row.get("attachments"):
+                flags.append(f"{row['attachments']} attached")
+            if row.get("read_before"):
+                flags.append("seen before")
+            if row.get("working"):
+                flags.append("job live")
+            print(f"{row['box']:<7}{_age(row.get('wait_s', 0)):<7}{row.get('waiting', 0):<6}"
+                  f"{row.get('state', ''):<8}{row.get('title', '')[:34]:<36}{' '.join(flags)}")
+        if held:
+            print(f"\nheld: {held['box']}, "
+                  f"{'acknowledged' if held.get('acknowledged') else 'not yet acknowledged'}")
+        green = [g["box"] for g in payload.get("green", []) if g["box"] != (held or {}).get("box")]
+        if green:
+            print("green elsewhere: " + ", ".join(green))
+        if not rows and not held:
+            print("nothing waiting")
+
+    def select(self, box: str) -> int:
+        status, listing = self.board.call("/queue", {"session": self.local.session,
+                                                     "include": "green,parked,done", "limit": 200})
+        if status != 200:
+            return self._refuse(status, listing)
+        row = next((r for r in listing.get("cards", []) if r["box"] == box), None)
+        if row is None:
+            print(f"{box} is not a card this lane may choose right now", file=sys.stderr)
+            return NOT_IN_LANE
+        status, payload = self.send("select", "/select", {"session": self.local.session,
+                                                          "box": box, "row": row["row"]})
+        if status != 200:
+            return self._refuse(status, payload)
+        print(json.dumps(payload, indent=1) if self.opts.json
+              else f"reserved {payload['box']}: {payload['title']} "
+                   f"({payload['waiting']} waiting, {payload['queued_after']} still queued)")
+        return OK
+
+    def open(self, box: str) -> int:
+        status, payload = self.send("open", "/open", {"session": self.local.session, "box": box,
+                                                      "fresh": "1" if self.opts.fresh else ""})
+        if status != 200:
+            return self._refuse(status, payload)
+        # the receipt says a complete body reached this client, and names the
+        # route that carried it. It is not evidence that the model read it, and
+        # the board records no such thing
+        got, answer = self.send("opened", "/opened", {"session": self.local.session,
+                                                      "delivery": payload["delivery"], "route": "tool"})
+        if got != 200:
+            print(f"the messages arrived but the receipt was refused: {_reason(answer)}", file=sys.stderr)
+        if self.opts.json:
+            print(json.dumps(payload, indent=1))
+            return OK if got == 200 else UNRESOLVED
+        for message in payload.get("messages", []):
+            stamp = time.strftime("%H:%M", time.localtime(message.get("ts", 0)))
+            mark = " (mini)" if message.get("via") == "mini" else ""
+            print(f"[{stamp}{mark}] {message.get('text', '')}")
+            for attached in message.get("attachments", []):
+                print(f"    attached: {attached['file']}")
+        if not payload.get("messages"):
+            print("nothing new on this card")
+        return OK if got == 200 else UNRESOLVED
+
+    def attachment(self, box: str, name: str) -> int:
+        status, payload = self.board.call("/attachment", {"box": box, "file": name})
+        if status != 200:
+            return self._refuse(status, payload)
+        out = Path(self.opts.out) if self.opts.out else Path(name)
+        out.write_bytes(payload if isinstance(payload, bytes) else json.dumps(payload).encode())
+        print(f"saved {out}")
+        return OK
+
+    def words(self, kind: str, box: str, text: str) -> int:
+        query = {"session": self.local.session, "box": box}
+        if kind == "reply":
+            query["ctx"] = self.opts.ctx
+            if self.opts.short is not None:
+                query["short"] = self.opts.short
+        status, payload = self.send(kind, "/" + kind, query, body=text)
+        if status != 200:
+            return self._refuse(status, payload)
+        print(f"{kind} recorded on {box}" + (" (replayed)" if payload.get("replayed") else ""))
+        return OK
+
+    def work(self, ending: bool, box: str) -> int:
+        kind = "work-end" if ending else "work-start"
+        query = {"session": self.local.session, "box": box, "job": self.opts.job}
+        if not ending and self.opts.task:
+            query["task"] = self.opts.task
+        status, payload = self.send(kind, "/work/" + ("end" if ending else "start"), query)
+        if status != 200:
+            return self._refuse(status, payload)
+        told = ask_link(self.lane, {"kind": kind, "box": box, "job": self.opts.job,
+                                    "pid": self.opts.pid, "task": self.opts.task or ""})
+        if told is None:
+            print("no link is running for this lane, so work tracking is degraded: "
+                  "nothing is watching this job and the board's green will expire "
+                  "75 seconds after the last beat", file=sys.stderr)
+        elif not ending and not self.opts.pid:
+            print("no --pid was given, so the job is registered with a bounded lifetime "
+                  "rather than watched; it stays green until work end or the board's expiry",
+                  file=sys.stderr)
+        print(f"job {self.opts.job} {'ended on' if ending else 'registered against'} {box}")
+        return OK
+
+    def release(self, box: str) -> int:
+        status, payload = self.send("release", "/release", {"session": self.local.session, "box": box,
+                                                            "reason": self.opts.reason or ""})
+        if status != 200:
+            return self._refuse(status, payload)
+        print(f"released {box}")
+        return OK
+
+    def title(self, box: str, text: str) -> int:
+        # no operation id: renaming a card twice under one name is the same card
+        # with that name, so a retry costs nothing and owes nothing
+        status, payload = self.board.call("/title", {"box": box}, body=text)
+        if status != 200:
+            return self._refuse(status, payload)
+        print(f"renamed {box}")
+        return OK
+
+    def status_(self) -> int:
+        told = ask_link(self.lane, {"kind": "status"}) or {}
+        status, payload = self.board.call("/queue", {"session": self.local.session, "limit": 200})
+        pending = [e["op"] for e in self.local.entries()]
+        out = {"lane": self.lane, "board": self.board.base, "session": self.local.session,
+               "link": bool(told.get("link")), "unresolved": pending,
+               "jobs": told.get("jobs", {}), "unreachable": bool(told.get("unreachable")),
+               "adapter": told.get("adapter") or self.conf["adapter"].get("name") or "none",
+               "mode": payload.get("mode") if status == 200 else "unknown",
+               "waiting": sum(r["waiting"] for r in payload.get("cards", [])) if status == 200 else None,
+               "held": (payload.get("held") or {}).get("box") if status == 200 else None}
+        if self.opts.json:
+            print(json.dumps(out, indent=1))
+            return OK
+        print(f"lane {out['lane']} on {out['board']}, mode {out['mode']}, "
+              f"{'link running' if out['link'] else 'no link running'}")
+        print(f"waiting {out['waiting']}, held {out['held'] or 'nothing'}, "
+              f"jobs {len(out['jobs'])}")
+        if pending:
+            print(f"unresolved receipts: {', '.join(pending)}")
+        return OK
+
+    def whoami(self) -> int:
+        out = {"lane": self.lane, "board": self.board.base, "session": self.local.session,
+               "machine": socket.gethostname(), "link": self.linked,
+               "adapter": self.conf["adapter"].get("name", "none")}
+        print(json.dumps(out, indent=1) if self.opts.json
+              else f"lane {out['lane']}, board {out['board']}, session {out['session']}, "
+                   f"machine {out['machine']}, adapter {out['adapter']}")
+        return OK
+
+    def _refuse(self, status: int, payload) -> int:
+        print(_reason(payload), file=sys.stderr)
+        if isinstance(payload, dict) and payload.get("row"):
+            print("current row: " + json.dumps(payload["row"]), file=sys.stderr)
+        return _exit_for(status, payload)
+
+
+def _age(seconds: float) -> str:
+    if seconds >= 3600:
+        return f"{int(seconds // 3600)}h"
+    if seconds >= 60:
+        return f"{int(seconds // 60)}m"
+    return f"{int(seconds)}s"
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="facilitator-connect", description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--owner", "--lane", dest="lane", default=os.environ.get("FACILITATOR_LANE", "pastureland"))
+    parser.add_argument("--board", default=os.environ.get("FACILITATOR_BOARD", ""))
+    parser.add_argument("--json", action="store_true")
+    # --json again on every command that prints a machine-readable form, so it
+    # may be written where it reads naturally, after the command rather than
+    # only before it
+    shared = argparse.ArgumentParser(add_help=False)
+    shared.add_argument("--json", action="store_true")
+    subs = parser.add_subparsers(dest="command", required=True)
+
+    link = subs.add_parser("connect", help="hold the poll for this lane")
+    link.add_argument("--agent", default="")
+    link.add_argument("--override", action="store_true",
+                      help="take a lane another connection holds. Always logged by the board")
+
+    listing = subs.add_parser("queue", parents=[shared])
+    listing.add_argument("--all", action="store_true")
+    listing.add_argument("--limit", type=int, default=50)
+
+    subs.add_parser("select", parents=[shared]).add_argument("box")
+    opening = subs.add_parser("open", parents=[shared])
+    opening.add_argument("box")
+    opening.add_argument("--fresh", action="store_true")
+
+    attach = subs.add_parser("attachment")
+    attach.add_argument("box")
+    attach.add_argument("file")
+    attach.add_argument("--out", default="")
+
+    answer = subs.add_parser("reply")
+    answer.add_argument("box")
+    answer.add_argument("text")
+    # required here although the board has accepted its absence since 20260821
+    answer.add_argument("--ctx", required=True, help="the card's standing context strip, 50 words at most")
+    answer.add_argument("--short", default=None)
+
+    for kind in ("note", "progress"):
+        words = subs.add_parser(kind)
+        words.add_argument("box")
+        words.add_argument("text")
+
+    work = subs.add_parser("work")
+    work.add_argument("phase", choices=["start", "end"])
+    work.add_argument("box")
+    work.add_argument("--job", required=True)
+    work.add_argument("--task", default="")
+    work.add_argument("--pid", type=int, default=0,
+                      help="a process the link watches, so the job ends itself when it exits")
+
+    letting = subs.add_parser("release")
+    letting.add_argument("box")
+    letting.add_argument("--reason", default="")
+
+    renaming = subs.add_parser("title")
+    renaming.add_argument("box")
+    renaming.add_argument("text")
+
+    subs.add_parser("status", parents=[shared])
+    subs.add_parser("whoami", parents=[shared])
+    return parser
+
+
+def main(argv: list) -> int:
+    opts = build_parser().parse_args(argv)
+    for name, default in (("all", False), ("limit", 50), ("fresh", False), ("out", ""),
+                          ("ctx", ""), ("short", None), ("job", ""), ("task", ""),
+                          ("pid", 0), ("reason", ""), ("override", False), ("agent", "")):
+        if not hasattr(opts, name):
+            setattr(opts, name, default)
+    if opts.command == "connect":
+        link = Link(opts.lane, opts)
+        try:
+            return link.run()
+        except KeyboardInterrupt:
+            link.stop.set()
+            return OK
+    command = Command(opts.lane, opts)
+    if opts.command == "whoami":
+        return command.whoami()       # answers from configuration alone, so it asks the board nothing
+    taken = command.prepare()
+    if taken != OK:
+        return taken
+    if opts.command == "queue":
+        return command.queue()
+    if opts.command == "select":
+        return command.select(opts.box)
+    if opts.command == "open":
+        return command.open(opts.box)
+    if opts.command == "attachment":
+        return command.attachment(opts.box, opts.file)
+    if opts.command in ("reply", "note", "progress"):
+        return command.words(opts.command, opts.box, opts.text)
+    if opts.command == "work":
+        return command.work(opts.phase == "end", opts.box)
+    if opts.command == "release":
+        return command.release(opts.box)
+    if opts.command == "title":
+        return command.title(opts.box, opts.text)
+    return command.status_()
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
