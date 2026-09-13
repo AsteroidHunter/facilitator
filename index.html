@@ -1056,7 +1056,7 @@
      inside it run this long, on this curve, both ways and on both boxes, so the
      two are one event with one progress and neither can finish first */
   body.focus .box.sel{
-    --pend-move:.42s;
+    --pend-move:.33s;
     /* the distance: far enough that the travel cannot be missed. it
        is one sent line and the step under it, written as the sent type's own
        line box plus that step rather than as a number, so what the eye reads is
@@ -1192,7 +1192,7 @@
      arrow standing on the stamp's line, and the lane of rows under both. they
      are moved together because they are one thing, and moving the column itself
      is the only way they cannot drift apart by a frame or a pixel.
-     strength is the quicker of the two on purpose, 240ms against the 420. a
+     strength is the quicker of the two on purpose, 240ms against the 330. a
      column that faded for the whole run would reach full ink on the same frame
      it stopped moving, and the eye would be handed the arriving and the settling
      at once; landed early, the last stretch of the travel is carried at full
@@ -5030,7 +5030,7 @@ function wirePend(el, strip, fold){
 // a send never touches any of this: the first send builds the box and the slim
 // bar alone comes up, and every send after it drops a line into the box that
 // already stands. only a click on the bar opens it
-const PEND_MOTION = 520;   // the fallback timer behind the fold's one run
+const PEND_MOTION = 430;   // the fallback timer behind the fold's one run
 function foldPend(el, open){ foldBox(el, el.pend, "foldRun", open); }
 // the box above the answer runs the very same fold. what makes it read as a box
 // above rather than a box below is one property in the sheet, the distance its
