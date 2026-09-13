@@ -140,14 +140,22 @@ class Local:
         self.session = self._session()
 
     def _session(self) -> str:
+        """The id this connection is known by, minted once and kept.
+
+        Read and mint under the same lock the outbox uses. Two first-ever
+        processes racing here would each mint an id and each write it, and the
+        loser would carry an id the board never saw a hold for. The link's own
+        lock cannot cover this, because it is taken later and because commands
+        never take it at all."""
         path = self.dir / "session"
-        if path.exists():
-            kept = path.read_text().strip()
-            if kept:
-                return kept
-        minted = "s-" + secrets.token_hex(5)
-        path.write_text(minted + "\n")
-        return minted
+        with self.held():
+            if path.exists():
+                kept = path.read_text().strip()
+                if kept:
+                    return kept
+            minted = "s-" + secrets.token_hex(5)
+            path.write_text(minted + "\n")
+            return minted
 
     # ---- the outbox --------------------------------------------------------
     # A retry buffer and nothing more. An entry is written before the first send
@@ -320,18 +328,23 @@ def ask_link(lane: str, message: dict, timeout: float = 20.0) -> dict | None:
 # changing at all.
 
 def alive(pid: int, started: str) -> bool:
-    """Whether that process is still the one that was registered. A pid on its
-    own is not an identity: the number is released when a process ends and can
-    already belong to something else, so the start time read at registration has
-    to match too, or a reused number would keep unrelated work green."""
-    if not pid:
+    """Whether that process is still the one that was registered.
+
+    A number on its own is not an identity: it is released when a process ends
+    and can already belong to something else, so the start time read at
+    registration has to match too. A record that carries no start time at all
+    identifies nothing, and is answered no rather than yes: registration refuses
+    to create one now, but a record written before that rule existed can still
+    be reconciled, and treating it as alive is exactly how a reused number would
+    keep an unrelated card green."""
+    if not pid or not started:
         return False
     try:
         with os.popen(f"ps -o lstart= -p {int(pid)} 2>/dev/null") as reader:
             now = reader.read().strip()
     except (OSError, ValueError):
         return False
-    return bool(now) and (not started or now == started)
+    return bool(now) and now == started
 
 
 def started_at(pid: int) -> str:
@@ -473,10 +486,11 @@ def run_adapter(spec: dict, line: str, lane: str, conf: dict) -> tuple:
     session picks that stream up, and what it does while idle, was not observed.
     The Codex command line has a real command that has been seen to deliver into
     an already running session through an explicitly named endpoint, which is
-    not the same as the ordinary one. The two desktop surfaces have no supported
-    local route that does not drive the interface, so they have no adapter and
-    keep their present delivery path. None of these uses MCP, which is a
-    permanent constraint on this work rather than a deferred option."""
+    not the same as the ordinary one. Desktop delivery was not proved in the
+    interfaces that were checked, which is not the same as establishing that no
+    route exists, so neither desktop surface has an adapter here and both keep
+    their present delivery path. None of these uses MCP, which is a permanent
+    constraint on this work rather than a deferred option."""
     name = spec.get("name") or "none"
     if name == "none":
         return name, "refused", "no adapter is configured for this lane"
@@ -505,11 +519,19 @@ def run_adapter(spec: dict, line: str, lane: str, conf: dict) -> tuple:
         thread = spec.get("thread")
         if not thread:
             return name, "error", "no thread is named for this lane"
-        done, detail = _command(["codex", "queue", "--thread", thread, "--message", line],
-                                spec.get("timeout", 20))
-        return name, ("accepted" if done else "refused"), (
-            "the command reported success; reaching the session was not observed"
-            if done else detail)
+        argv = ["codex", "queue", "--thread", thread, "--message", line]
+        # an explicitly named provider endpoint, which is the arrangement the
+        # one delivery anybody has actually seen went through. Left out, the
+        # command goes to whatever daemon is running by default, and that route
+        # has not been exercised. This is the provider's address and has nothing
+        # to do with the board's
+        if spec.get("remote"):
+            argv += ["--remote", spec["remote"]]
+        done, detail = _command(argv, spec.get("timeout", 20))
+        seen = ("the command reported success against the named endpoint"
+                if spec.get("remote") else
+                "the command reported success; reaching the session was not observed")
+        return name, ("accepted" if done else "refused"), (seen if done else detail)
 
     if name == "terminal":
         # The fallback that works today and is fragile. It types the line into
@@ -581,6 +603,10 @@ class Link:
         self.refusals = 0
         self.quiet_until = 0.0
         self.unreachable = False
+        # only a process that actually opened the endpoint may take it away
+        # again. A launch refused before it opened anything must leave the
+        # running link's socket exactly where it found it
+        self.owns_endpoint = False
         self.machine = socket.gethostname()[:48]
         self.agent = opts.agent or self.conf["agent"] or "claude"
 
@@ -634,6 +660,7 @@ class Link:
             print(f"no local endpoint ({error}); commands will talk to the board directly",
                   file=sys.stderr)
             return
+        self.owns_endpoint = True
         threading.Thread(target=self.endpoint_server.serve_forever, daemon=True).start()
 
     def serve_one(self, asked: dict) -> dict:
@@ -659,7 +686,27 @@ class Link:
         return {"error": f"the link does not serve {kind}"}
 
     # ---- the loop ----------------------------------------------------------
+    def close(self) -> None:
+        """Put down everything this link picked up: the beat, the endpoint and
+        its socket file. The lock goes when the process does, which is the whole
+        reason it is a lock on an open file."""
+        self.stop.set()
+        server = getattr(self, "endpoint_server", None)
+        if server is not None:
+            server.shutdown()
+            server.server_close()
+            self.endpoint_server = None
+        if self.owns_endpoint:
+            endpoint(self.lane).unlink(missing_ok=True)
+            self.owns_endpoint = False
+
     def run(self) -> int:
+        try:
+            return self._run()
+        finally:
+            self.close()
+
+    def _run(self) -> int:
         if not self.only_one():
             # said before anything is taken, replaced or unlinked, so a second
             # launch changes nothing at all about the one that is running
@@ -710,7 +757,14 @@ class Link:
             if payload.get("paused"):
                 time.sleep(60)      # laptop-close mode, re-checked about once a minute
                 continue
-            if payload.get("end") or payload.get("idle"):
+            if payload.get("end"):
+                # the board says this lane is finished and drained, and it says
+                # so at once rather than waiting. Polling again on that answer
+                # is a loop with nothing between its turns, so the link stops
+                # here, which is what the lane being over means
+                print(f"{self.lane} has ended; the link is stopping", flush=True)
+                return OK
+            if payload.get("idle"):
                 continue
             self.cursor = payload.get("cursor") or self.cursor
             self.told(payload)
@@ -1063,6 +1117,21 @@ def _age(seconds: float) -> str:
     return f"{int(seconds)}s"
 
 
+def _duration(value: str) -> float:
+    """A length of time, checked before anything acts on it. float() takes nan
+    and inf, and either would be written into a registration as a deadline that
+    never arrives, which is the very thing a bound exists to prevent."""
+    try:
+        seconds = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a number of seconds") from None
+    if seconds != seconds or seconds in (float("inf"), float("-inf")):
+        raise argparse.ArgumentTypeError("a duration must be a finite number of seconds")
+    if seconds <= 0:
+        raise argparse.ArgumentTypeError("a duration must be greater than zero")
+    return seconds
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="facilitator-connect", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1114,7 +1183,7 @@ def build_parser() -> argparse.ArgumentParser:
     work.add_argument("--task", default="")
     work.add_argument("--pid", type=int, default=0,
                       help="a process the link watches, so the job ends itself when it exits")
-    work.add_argument("--for", dest="hold_for", type=float, default=0,
+    work.add_argument("--for", dest="hold_for", type=_duration, default=0,
                       help=f"seconds a job with no process stays registered (default {int(WORK_BOUND)})")
 
     letting = subs.add_parser("release")
@@ -1143,7 +1212,6 @@ def main(argv: list) -> int:
         try:
             return link.run()
         except KeyboardInterrupt:
-            link.stop.set()
             return OK
     command = Command(opts.lane, opts)
     if opts.command == "whoami":
