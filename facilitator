@@ -7,6 +7,16 @@
       for pasting. --attach types that instruction into the lane's existing
       tmux claude (send-keys); --spawn additionally creates a fresh session
       for lanes with no reachable one. --force ignores the lane-covered guard.
+  facilitator restart [--dry-run]
+      stop this board's server and start it again on the same port. One
+      process is stopped: the one holding the listening socket, read back as
+      this folder's server.py first, by SIGTERM and never by SIGKILL, and the
+      port is polled until it is really free before the replacement starts.
+      The browser is read, never driven: a window or tab already showing the
+      board is left exactly as it is and named for reloading, and a new
+      chromeless app window is opened only when nothing is showing the board.
+      Touches no lane, no tmux session and no bridge. --dry-run says what it
+      would do and does nothing.
   facilitator status
       one-line board state
   facilitator bridge [on|off] [--dry-run]
@@ -31,10 +41,13 @@ run starts the server with that .venv's python when the folder is there, and
 with its own interpreter otherwise.
 """
 
+import ctypes
 import json
 import os
 import shlex
 import shutil
+import signal
+import socket
 import subprocess
 import sys
 import time
@@ -103,7 +116,7 @@ def state(port, timeout=2):
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/state", timeout=timeout) as f:
             return json.load(f)
-    except OSError:
+    except (OSError, ValueError):    # no answer, or an answer that is not JSON
         return None
 
 
@@ -114,6 +127,17 @@ def server_python():
     server's libraries)."""
     venv = HERE / ".venv" / "bin" / "python3"
     return str(venv) if os.access(venv, os.X_OK) else sys.executable
+
+
+def start_server():
+    """The launch itself, in one place so run and restart cannot drift apart:
+    the .venv's interpreter when there is one, a session of its own so the
+    server outlives the terminal that started it, and output going nowhere
+    because the server writes its own dated file and that file is the only
+    place its output belongs."""
+    return subprocess.Popen([server_python(), str(HERE / "server.py")],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            start_new_session=True)
 
 
 def ensure_server(port, dry):
@@ -131,9 +155,7 @@ def ensure_server(port, dry):
     if dry:
         print(f"server: would start {HERE / 'server.py'}")
         return
-    started = subprocess.Popen([server_python(), str(HERE / "server.py")],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                               start_new_session=True)
+    started = start_server()
     for _ in range(40):
         if state(port):
             print(f"server: started on {port}")
@@ -145,8 +167,15 @@ def ensure_server(port, dry):
     sys.exit(f"server failed to come up on {port}; see the day's server file in {LOG_DIR}")
 
 
+def window_url(cfg):
+    """The page the app window shows: the configured one, or this board's own
+    root on loopback. One place, so the window that is opened and the window
+    that is looked for can never be two different pages."""
+    return cfg.get("app_url") or f"http://127.0.0.1:{cfg['port']}"
+
+
 def open_app(cfg, dry):
-    url = cfg.get("app_url") or f"http://127.0.0.1:{cfg['port']}"
+    url = window_url(cfg)
     if dry:
         print(f"window: would open {url} as a chromeless app window")
         return
@@ -162,6 +191,667 @@ def lane_covered(st, owner):
     if st["listening"].get(owner) or st["busy"].get(owner):
         return True
     return st["listenerGap"].get(owner, 9e9) < 1800
+
+
+# --- restart: finding, stopping and starting this board's own server -------
+#
+# The rule the whole command hangs on: exactly one process is ever signalled,
+# the one holding the LISTENING socket on the configured port, and only after
+# it has been read back as this folder's server.py twice, the second time in
+# the moment before the signal, start time and all. A browser showing the
+# board holds a connection to that port, not the listening socket, so it can
+# never appear in the answer and can never be signalled; the same goes for any
+# agent mid-poll. Anything unclear (no listing, more than one listener, a
+# process that is not ours, a port nothing can read) is a refusal that changes
+# nothing, never a guess.
+STOP_WAIT = 10.0        # seconds the old server gets to let go of the port
+START_WAIT = 20.0       # seconds the replacement gets to answer on it
+POLL_EVERY = 0.1        # how often both waits look again
+LOOPBACK_NAMES = frozenset({"localhost", "::1", "ip6-localhost"})
+DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def listener_pids(port):
+    """The pids holding a listening socket on this port: a set, empty when
+    nobody is there, or None when the question could not be answered at all.
+    Only listeners are asked for (-sTCP:LISTEN), which is what keeps a browser
+    or an agent with an open connection out of the answer."""
+    lsof = shutil.which("lsof")
+    if not lsof:
+        return None
+    try:
+        seen = subprocess.run([lsof, "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+                              capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    # lsof says 1 both for "nothing matched" and for "could not look"; the
+    # difference is whether it complained, and a complaint is an unknown
+    if seen.returncode not in (0, 1):
+        return None
+    if seen.returncode == 1 and seen.stderr.strip():
+        return None
+    pids = set()
+    for word in seen.stdout.split():
+        if not word.isdigit():
+            return None
+        pids.add(int(word))
+    return pids
+
+
+# The kernel's own answers about one process, asked through libc. These are
+# the numbers sysctl(3) takes. It is the only way on this machine to get an
+# argument vector back whole: a line of text from ps has already thrown away
+# where each argument began and ended, so a script called "my server.py" and
+# two arguments "my" and "server.py" read the same in it, and so does a path
+# that merely appears inside some other argument. The vector has no such
+# ambiguity, and recognising our own server is exactly a question that cannot
+# be answered with a maybe.
+CTL_KERN = 1
+KERN_PROC = 14
+KERN_PROC_PID = 1
+KERN_ARGMAX = 8
+KERN_PROCARGS2 = 49
+KINFO_PROC_SIZE = 1024      # comfortably over sizeof(struct kinfo_proc)
+ARGMAX_FALLBACK = 262144
+
+
+def _libc():
+    """libc with sysctl declared, or None where there is no such thing. Every
+    identity here rests on this, so anywhere it is None nothing can be
+    recognised and nothing will be signalled."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        libc.sysctl.restype = ctypes.c_int
+        libc.sysctl.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_uint,
+                                ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t),
+                                ctypes.c_void_p, ctypes.c_size_t]
+        return libc
+    except (OSError, AttributeError):
+        return None
+
+
+def _sysctl(names, size):
+    """One sysctl read: the bytes it wrote, or None when it would not answer."""
+    libc = _libc()
+    if libc is None:
+        return None
+    try:
+        mib = (ctypes.c_int * len(names))(*names)
+        buf = ctypes.create_string_buffer(size)
+        got = ctypes.c_size_t(size)
+        if libc.sysctl(mib, len(names), buf, ctypes.byref(got), None, 0) != 0:
+            return None
+        return buf.raw[:got.value]
+    except (OSError, ValueError, ctypes.ArgumentError):
+        return None
+
+
+def _argmax():
+    raw = _sysctl((CTL_KERN, KERN_ARGMAX), ctypes.sizeof(ctypes.c_int))
+    if raw is None or len(raw) < 4:
+        return ARGMAX_FALLBACK
+    return int.from_bytes(raw[:4], sys.byteorder) or ARGMAX_FALLBACK
+
+
+def process_started(pid):
+    """When the kernel says that pid started, as (seconds, microseconds), or
+    None when it will not say. This is the first field of struct kinfo_proc,
+    and it is what tells a number that has been reused from the process that
+    used to have it."""
+    raw = _sysctl((CTL_KERN, KERN_PROC, KERN_PROC_PID, int(pid)), KINFO_PROC_SIZE)
+    if raw is None or len(raw) < 16:
+        return None     # no such process, or an answer too short to be one
+    return (int.from_bytes(raw[0:8], sys.byteorder, signed=True),
+            int.from_bytes(raw[8:12], sys.byteorder, signed=True))
+
+
+def process_argv(pid):
+    """(executable, argv) for one pid, from the kernel: the path it is really
+    running and the argument vector as it was handed over, every argument
+    whole, spaces and all. None when it cannot be read."""
+    raw = _sysctl((CTL_KERN, KERN_PROCARGS2, int(pid)), _argmax())
+    if raw is None or len(raw) < 4:
+        return None
+    argc = int.from_bytes(raw[:4], sys.byteorder)
+    if argc < 1:
+        return None
+    parts = raw[4:].split(b"\0")
+    if not parts:
+        return None
+    executable = parts[0]
+    rest = parts[1:]
+    while rest and rest[0] == b"":      # the kernel pads for alignment here
+        rest.pop(0)
+    if len(rest) < argc:
+        return None
+    return os.fsdecode(executable), [os.fsdecode(arg) for arg in rest[:argc]]
+
+
+PROBE_TRIES = 20        # how many looks a runtime probe gets before giving up
+PROBE_WAIT = 5          # seconds it gets to finish once its input is closed
+_runtime_probed = {}    # trusted interpreter -> what the kernel calls it, once
+
+
+def file_identity(path):
+    """(device, inode) for a path, or None. This is what a file is; a name is
+    only where it was found."""
+    try:
+        seen = os.stat(path)
+    except (OSError, TypeError, ValueError):
+        return None
+    return (seen.st_dev, seen.st_ino)
+
+
+def same_file_as(path, candidates):
+    """Whether that path is the same file as one of these, followed through
+    every symlink."""
+    want = file_identity(path)
+    return want is not None and any(file_identity(other) == want for other in candidates)
+
+
+def server_interpreters():
+    """The interpreters this board's server can be started with: the one this
+    script would launch it with, this process's own, and the .venv beside the
+    script. These are the only paths this file will ever run."""
+    return [server_python(), sys.executable, str(HERE / ".venv" / "bin" / "python3")]
+
+
+def framework_runtime(path):
+    """The runtime binary a framework interpreter hands over to, worked out
+    from the layout alone, or None.
+
+    An ordinary macOS Python.framework holds two different files:
+
+        <name>.framework/Versions/<v>/bin/python<v>
+        <name>.framework/Versions/<v>/Resources/Python.app/Contents/MacOS/Python
+
+    The first execs the second, so everything a person configures names the
+    first while the kernel names the second. They are not links to each other
+    and comparing them as files says, correctly, that they are different
+    files; what is needed is the relationship between them. It is derived here
+    by position only: the configured path, once followed through its symlinks,
+    must really sit at .../<name>.framework/Versions/<v>/bin/<something>, and
+    the file derived from it must exist. Nothing is run, nothing is guessed
+    from a name, and nothing outside that exact shape is accepted."""
+    if not path:
+        return None
+    parts = os.path.realpath(path).split(os.sep)
+    if len(parts) < 5 or parts[-2] != "bin" or parts[-4] != "Versions":
+        return None
+    if not parts[-5].endswith(".framework"):
+        return None
+    runtime = os.sep.join(parts[:-2] + ["Resources", "Python.app", "Contents",
+                                        "MacOS", "Python"])
+    return runtime if os.path.exists(runtime) else None
+
+
+def probed_runtime(interpreter):
+    """What the kernel calls a process started from one of our own
+    interpreters, found by starting it once and reading it back. None when it
+    cannot be found out.
+
+    This is the fallback for a layout the rule above does not know. It runs
+    only a path this script already trusts and would launch the server with
+    anyway, never anything a listener named: the question being asked is what
+    our own launcher turns into, and asking an untrusted path would be running
+    whatever a stranger put on the port. The child is given nothing to do and
+    ends as soon as its input closes, and the answer is remembered, so a
+    restart pays for this at most once per interpreter."""
+    if interpreter in _runtime_probed:
+        return _runtime_probed[interpreter]
+    _runtime_probed[interpreter] = None
+    if not os.access(interpreter, os.X_OK):
+        return None
+    read = None
+    child = None
+    try:
+        child = subprocess.Popen([interpreter, "-c", "import sys; sys.stdin.read()"],
+                                 stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+        for _ in range(PROBE_TRIES):
+            read = process_argv(child.pid)
+            if read:
+                break
+            time.sleep(POLL_EVERY)
+    except (OSError, ValueError, AttributeError, subprocess.SubprocessError):
+        read = None
+    finally:
+        try:
+            if child is not None:
+                child.stdin.close()      # it is waiting on that and nothing else
+                child.wait(timeout=PROBE_WAIT)
+        except (OSError, ValueError, AttributeError, subprocess.SubprocessError):
+            pass
+    _runtime_probed[interpreter] = read[0] if read else None
+    return _runtime_probed[interpreter]
+
+
+def trusted_executables():
+    """Every file a process of ours may honestly be running: our interpreters
+    themselves, and the framework runtime each one hands over to."""
+    found = set()
+    for interpreter in server_interpreters():
+        for candidate in (interpreter, framework_runtime(interpreter)):
+            ident = file_identity(candidate)
+            if ident is not None:
+                found.add(ident)
+    return found
+
+
+def is_trusted_executable(path):
+    """Whether that executable is one of this board's own interpreters, or the
+    runtime one of them turns into. Compared as files throughout: a name that
+    begins with "python" proves nothing about what a file is."""
+    ident = file_identity(path)
+    if ident is None:
+        return False
+    if ident in trusted_executables():
+        return True
+    for interpreter in server_interpreters():
+        if file_identity(probed_runtime(interpreter)) == ident:
+            return True
+    return False
+
+
+def is_server_argv(executable, argv):
+    """Whether that executable and argument vector are this folder's server and
+    nothing else: exactly two arguments, the second one exactly our server.py,
+    and an executable this board can account for.
+
+    Both halves matter. A foreign script carrying our path as an argument has
+    three arguments, not two, and no amount of looking at the end of a line
+    will tell you which. An executable that cannot be accounted for is not
+    accepted, which means a server started by hand under some other python is
+    refused rather than signalled."""
+    if len(argv) != 2 or argv[1] != str(HERE / "server.py"):
+        return False
+    return is_trusted_executable(executable)
+
+
+def process_identity(pid):
+    """Everything that says which process a number is at this moment:
+    (started, executable, argv). None when any part of it cannot be read.
+
+    Compared whole, this is an identity. The start time separates a reused
+    number from the process that had it; the executable and the vector
+    separate a process that has become something else from one that has not."""
+    started = process_started(pid)
+    if started is None:
+        return None
+    read = process_argv(pid)
+    if read is None:
+        return None
+    return started, read[0], tuple(read[1])
+
+
+def is_our_server(pid):
+    """True when that pid is this folder's server, False when it is plainly
+    something else, None when it could not be read."""
+    ident = process_identity(pid)
+    if ident is None:
+        return None
+    return is_server_argv(ident[1], list(ident[2]))
+
+
+def server_identity(pid):
+    """(pid, identity) when that pid is this folder's server right now, None
+    when it is not, or cannot be read. What is carried is the whole identity,
+    start time and executable and vector together, so two reads that come back
+    equal are the same process still running the same thing."""
+    ident = process_identity(pid)
+    if ident is None or not is_server_argv(ident[1], list(ident[2])):
+        return None
+    return pid, ident
+
+
+def server_process(port):
+    """((pid, started), refusal) for this board's server on this port.
+
+    (None, None) is the one harmless empty answer: nothing is listening, so
+    there is nothing to stop. Every other missing identity comes with a
+    sentence saying why nothing was touched."""
+    pids = listener_pids(port)
+    if pids is None:
+        return None, f"cannot read what is listening on {port}; nothing was stopped"
+    if not pids:
+        return None, None
+    if len(pids) > 1:
+        named = ", ".join(str(p) for p in sorted(pids))
+        return None, (f"{len(pids)} processes are listening on {port} ({named}); "
+                      "refusing to guess which one is the board")
+    pid = pids.pop()
+    if pid <= 0:
+        return None, f"refusing to signal pid {pid}: that is a process group, not a process"
+    ident = process_identity(pid)
+    if ident is None:
+        return None, (f"cannot read what process {pid} is; refusing to signal it")
+    if not is_server_argv(ident[1], list(ident[2])):
+        return None, (f"pid {pid} is listening on {port} and it is not "
+                      f"{HERE / 'server.py'}; refusing to signal it")
+    return (pid, ident), None
+
+
+def pid_alive(pid):
+    """Whether that one process still exists. Signal 0 asks without sending."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True     # it is there, this user just may not signal it
+    return True
+
+
+def port_free(port):
+    """True when the listening socket is really gone, False when something
+    still holds it, None when the listing could not be read.
+
+    Free means two things at once: nobody listed as a listener, and a bind of
+    exactly the server's shape succeeding. That is the same question the
+    replacement is about to ask, asked the same way, which is why a fixed
+    sleep cannot stand in for it: a sleep that guesses short loses the bind
+    race and leaves the old server serving while the new one dies.
+
+    Unknown is never free. A bind that happens to succeed while nothing can be
+    read about the port says only that this one moment was quiet; it says
+    nothing about a listener the listing could not show."""
+    pids = listener_pids(port)
+    if pids is None:
+        return None
+    if pids:
+        return False
+    return port_binds(port)
+
+
+def port_binds(port):
+    """Whether a bind of exactly the server's shape succeeds right now: the
+    same question the replacement is about to ask, asked the same way."""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        probe.bind(("127.0.0.1", port))
+    except OSError:
+        return False
+    finally:
+        probe.close()
+    return True
+
+
+def stop_timeout_reason(owner, port, wait):
+    """Why the restart stopped here, in terms of what was actually established
+    in this moment: whether the process that was signalled is still that same
+    process, whether it is still alive, and what if anything is listening now.
+
+    Nothing here names a number to send a signal to. A pid is not a thing to
+    hand out: by now it may belong to something else entirely, and a printed
+    'kill 4242' is a reader's invitation to make exactly the mistake this
+    command exists to avoid.
+
+    Nothing is claimed that was not read, and that includes the three
+    different things 'not our server any more' can mean. The process still
+    there and still ours, a different process wearing the same number, and a
+    number that could not be read at all are three states, not two, and the
+    one thing they must never be called is 'the server'."""
+    pid = owner[0]
+    read = process_identity(pid)
+    same = None if read is None else ((pid, read) == owner)
+    alive = pid_alive(pid)
+    pids = listener_pids(port)
+    if pids is None:
+        return (f"port {port} could not be read {wait:.0f}s after the server was "
+                "asked to stop; nothing was started")
+    if pids == {pid}:
+        if same is True:
+            return (f"the server on {port} had not let go {wait:.0f}s after "
+                    "SIGTERM and is still the same process; it was left alone "
+                    "and nothing was started")
+        if same is False:
+            return (f"port {port} is still held under the same number by a "
+                    "different process from the one that was signalled; nothing "
+                    "was started and nothing else was signalled")
+        return (f"port {port} is still held under the same number and what that "
+                "process is now could not be read; nothing was started and "
+                "nothing else was signalled")
+    if pids:
+        named = ", ".join(str(p) for p in sorted(pids))
+        return (f"port {port} is listened on by {named} now, which is not the "
+                "process that was signalled; nothing was started and nothing "
+                "else was signalled")
+    binds = port_binds(port)
+    if not alive:
+        if binds:
+            return (f"port {port} came free as the wait ran out; nothing was "
+                    "started")
+        return (f"nothing is listening on {port} and the process that was "
+                "signalled is no longer there, but the port still could not be "
+                f"bound {wait:.0f}s after SIGTERM; nothing was started")
+    # something with that number is still running; say honestly what it is
+    who = ("the server" if same is True else
+           "a different process with the same number" if same is False else
+           "something with the same number, which could not be read")
+    if binds:
+        return (f"{who} let go of port {port} but was still running {wait:.0f}s "
+                "after SIGTERM; nothing was started, because a restart waits "
+                "for the old server to finish leaving")
+    return (f"{who} was still running {wait:.0f}s after SIGTERM and port {port} "
+            "still could not be bound; nothing was started")
+
+
+def stop_server(owner, port, wait=STOP_WAIT):
+    """One SIGTERM to one process, then poll until the socket is free. None
+    when it is free, a sentence when it is not.
+
+    The identity read when the listener was found is read again here, in the
+    moment before the signal: that pid must still be the only listener on the
+    port, and must still be the same process, same start time, same command.
+    A pid on its own is not an identity, because the number is released the
+    moment a process ends and can already belong to something else by the time
+    anything is sent to it.
+
+    That narrows the window; it does not close it. This platform offers no way
+    to attach a signal to a process identity rather than to a number, so
+    between the last read and os.kill there remains a gap in which a pid could
+    in principle be reused. It is small and it is real, and nothing here
+    pretends otherwise.
+
+    Never a process group, never SIGKILL: the server stops gracefully on
+    SIGTERM, and a process that will not go is reported and left exactly as it
+    is, because killing something harder without being asked is how the wrong
+    thing gets killed quietly."""
+    pid = owner[0]
+    pids = listener_pids(port)
+    if pids is None:
+        return (f"cannot read what is listening on {port} any more; "
+                "nothing was signalled")
+    if pids != {pid}:
+        named = ", ".join(str(p) for p in sorted(pids)) or "nothing"
+        return (f"pid {pid} is no longer the one listener on {port} ({named} is); "
+                "nothing was signalled")
+    if server_identity(pid) != owner:
+        return (f"pid {pid} is not the process that was read a moment ago, or can "
+                "no longer be read at all; nothing was signalled")
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass        # gone between the last read and the signal; still wait for the socket
+    except PermissionError:
+        return f"not allowed to stop pid {pid}; nothing was changed"
+    deadline = time.monotonic() + wait
+    while True:
+        if not pid_alive(pid) and port_free(port) is True:
+            return None
+        if time.monotonic() >= deadline:
+            return stop_timeout_reason(owner, port, wait)
+        time.sleep(POLL_EVERY)
+
+
+def board_state(port):
+    """The board's state when what answered is really a board: a JSON object
+    with the parts this CLI reads, in the shapes it reads them in. None for no
+    answer, an answer that is not JSON, and an answer of the wrong shape
+    alike. All three mean the same thing to a restart, which is not ready yet,
+    and none of them is a reason to fall over: something else can be on a port
+    and answer anything at all."""
+    st = state(port)
+    if not isinstance(st, dict) or not isinstance(st.get("boxes"), list):
+        return None
+    for key in ("listening", "busy", "listenerGap"):
+        if not isinstance(st.get(key), dict):
+            return None
+    return st
+
+
+def confirm_listener(pid, port, ended):
+    """Who is actually answering on the port: the child just started, or
+    somebody else. ((pid, started), None) only when the one listener is that
+    exact child and it still reads back as this folder's server.
+
+    A foreign process found here is refused and never signalled. It is not
+    ours to stop, whatever it is doing on the port."""
+    pids = listener_pids(port)
+    if pids is None:
+        return None, (f"something is answering on {port} but what is listening "
+                      "could not be read; the restart stopped here and nothing "
+                      "was signalled")
+    if pids != {pid}:
+        named = ", ".join(str(p) for p in sorted(pids)) or "nothing"
+        return None, (f"{port} is answered by {named}, not by the replacement "
+                      f"(pid {pid}); the restart stopped here and nothing was "
+                      "signalled")
+    ident = server_identity(pid)
+    if ident is None:
+        return None, (f"pid {pid} holds {port} but does not read back as "
+                      f"{HERE / 'server.py'}; the restart stopped here and "
+                      "nothing was signalled")
+    if ended:
+        return None, (f"the replacement (pid {pid}) has exited even though {port} "
+                      "still answers; the restart stopped here")
+    return ident, None
+
+
+def start_and_confirm(port, wait=START_WAIT):
+    """Start the replacement and wait until the board is up and it is the
+    replacement that is up. ((pid, started), None) when it is, (None,
+    sentence) when it is not: a child that died early, a port answered by
+    something else, or a start that never answered.
+
+    An answer on the port is not enough on its own, and neither is any old
+    answer. Between the stop and now the port was free for anyone, so what
+    comes back could be another board, an older copy, or something that serves
+    something else entirely on the same number. It has to be a board state
+    this CLI can read, and the one listener has to be this exact child, and
+    that child has to still read back as this folder's server. Nothing
+    downstream, the window above all, happens on a sentence."""
+    child = start_server()
+    deadline = time.monotonic() + wait
+    while True:
+        ended = child.poll() is not None
+        if board_state(port) is not None:
+            return confirm_listener(child.pid, port, ended)
+        if ended:
+            return None, (f"the replacement did not start; run {server_python()} "
+                          f"{HERE / 'server.py'} by hand to see why")
+        if time.monotonic() >= deadline:
+            return None, (f"the replacement (pid {child.pid}) did not answer on "
+                          f"{port} with a board state within {wait:.0f}s; it was "
+                          f"left alone, see the day's server file in {LOG_DIR}")
+        time.sleep(POLL_EVERY)
+
+
+def chrome_page_urls():
+    """Every URL Chrome is showing right now, ordinary tabs and chromeless app
+    windows alike, or None when that could not be established.
+
+    This only reads. Nothing is activated, navigated, reloaded or closed, and
+    Chrome is not started either: System Events is asked whether it is running
+    first, and when it is not the answer is an empty list, which is a real
+    absence. A refusal (no automation permission) comes back as None, which is
+    an unknown and not an absence."""
+    osascript = shutil.which("osascript")
+    if not osascript:
+        return None
+    script = "\n".join([
+        'tell application "System Events"',
+        '  if not (exists process "Google Chrome") then return "NOTRUNNING"',
+        'end tell',
+        'set found to {}',
+        'tell application "Google Chrome"',
+        '  repeat with w in every window',
+        '    repeat with t in every tab of w',
+        '      set end of found to (URL of t as text)',
+        '    end repeat',
+        '  end repeat',
+        'end tell',
+        "set AppleScript's text item delimiters to linefeed",
+        'return found as text',
+    ])
+    try:
+        seen = subprocess.run([osascript, "-e", script],
+                              capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if seen.returncode != 0:
+        return None
+    out = seen.stdout.strip()
+    if out == "NOTRUNNING":
+        return []
+    return [line.strip() for line in out.splitlines() if line.strip()]
+
+
+def loopback_host(host):
+    """Whether that host name is a spelling of this machine's own loopback."""
+    host = host.strip("[]").lower()
+    if host in LOOPBACK_NAMES:
+        return True
+    parts = host.split(".")
+    return (len(parts) == 4 and parts[0] == "127"
+            and all(p.isdigit() and int(p) < 256 for p in parts))
+
+
+def page_identity(url):
+    """A page reduced to what decides whether it is this board: the scheme,
+    the host with every loopback spelling read as one host, the port with a
+    missing one read as the scheme's default, and the path with a bare host
+    and a trailing slash both read as "/". Query and fragment are dropped on
+    purpose: that is where the selected card lives, and the board showing
+    another card is still the board. None for anything that is not an http or
+    https page, so a file:// or chrome:// page can never match."""
+    try:
+        bits = urlparse((url or "").strip())
+        host = (bits.hostname or "").lower()
+        port = bits.port
+    except ValueError:
+        return None
+    if bits.scheme not in DEFAULT_PORTS or not host:
+        return None
+    path = bits.path or "/"
+    if not path.startswith("/"):
+        path = "/" + path
+    path = path.rstrip("/") or "/"
+    return (bits.scheme, "loopback" if loopback_host(host) else host,
+            port or DEFAULT_PORTS[bits.scheme], path)
+
+
+def same_board_page(url, board):
+    """True when that URL is this board's page under the rule above. Another
+    port on the same loopback is a different board and does not match."""
+    here = page_identity(board)
+    there = page_identity(url)
+    return here is not None and here == there
+
+
+def board_page_open(cfg):
+    """True when Chrome is already showing this board, False when it is
+    certainly showing it nowhere, None when Chrome could not be asked. A
+    refusal is never read as absence: reading it that way is exactly how a
+    second window gets opened on top of the first."""
+    urls = chrome_page_urls()
+    if urls is None:
+        return None
+    board = window_url(cfg)
+    return any(same_board_page(url, board) for url in urls)
 
 
 def claude_pane(name):
@@ -271,6 +961,77 @@ def cmd_run(args):
             print(f"listener {ow}: no reachable session. Paste this into the right claude yourself,\n"
                   f"  or rerun with --spawn to create a fresh session:\n"
                   f"  {lane['instruction']}")
+
+
+def cmd_restart(args):
+    """Stop this board's server, start it again, and leave the browser as it
+    is. Nothing here touches a lane, a tmux session or the bridge: restart is
+    about the server and, at most, one new window. Unknown words are refused
+    rather than ignored, so a run flag typed here cannot quietly turn into
+    attaching, spawning or forcing anything."""
+    extra = [a for a in args[1:] if a != "--dry-run"]
+    if extra:
+        sys.exit("restart takes --dry-run and nothing else; got " + " ".join(extra))
+    cfg = load_config()
+    port = cfg["port"]
+    dry = "--dry-run" in args
+    url = window_url(cfg)
+
+    owner, refusal = server_process(port)
+    if refusal:
+        sys.exit(f"restart: {refusal}")
+
+    if dry:
+        if owner is None:
+            print(f"restart: nothing is listening on {port}; "
+                  f"would start {HERE / 'server.py'}")
+        else:
+            print(f"restart: would SIGTERM pid {owner[0]} on {port}, wait up to "
+                  f"{STOP_WAIT:.0f}s for the port to be free, then start "
+                  f"{HERE / 'server.py'} again")
+        showing = board_page_open(cfg)
+        if showing is None:
+            print("window: cannot read Chrome's pages, so a real run would open "
+                  f"nothing and say to open or reload {url} by hand")
+        elif showing:
+            print(f"window: {url} is already open; would leave it alone")
+        else:
+            print(f"window: nothing is showing {url}; would open one app window")
+        return
+
+    if owner is None:
+        print(f"restart: nothing was listening on {port}")
+    else:
+        print(f"restart: stopping pid {owner[0]} on {port}")
+        refusal = stop_server(owner, port)
+        if refusal:
+            sys.exit(f"restart: {refusal}")
+        print(f"restart: port {port} is free")
+
+    # the last look before starting a second child: whatever the stop thought,
+    # the port has to read as free right now, and unknown is not free
+    free = port_free(port)
+    if free is None:
+        sys.exit(f"restart: cannot read what is listening on {port}; "
+                 "nothing new was started")
+    if not free:
+        sys.exit(f"restart: port {port} is still held by something; "
+                 "nothing new was started")
+
+    new_owner, refusal = start_and_confirm(port)
+    if refusal:
+        sys.exit(f"restart: {refusal}")
+    print(f"restart: server up on {port} (pid {new_owner[0]})")
+
+    showing = board_page_open(cfg)
+    if showing is None:
+        print("window: could not read Chrome's pages, so no window was opened in "
+              f"case one is already there; open or reload {url} yourself")
+    elif showing:
+        print(f"window: {url} is already open and was left alone; "
+              "reload that page to see the new server")
+    else:
+        open_app(cfg, False)
 
 
 def cmd_status():
@@ -645,6 +1406,8 @@ def main():
     cmd = args[0] if args and not args[0].startswith("-") else "run"
     if cmd == "run":
         cmd_run(args)
+    elif cmd == "restart":
+        cmd_restart(args)
     elif cmd == "status":
         cmd_status()
     elif cmd == "bridge":
