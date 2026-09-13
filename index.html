@@ -10109,6 +10109,24 @@ document.getElementById("taskstatus").addEventListener("click", () => {
           rr = q.getBoundingClientRect();
         }
       }
+      // An empty formatted quote hides its entire source prefix, so the
+      // browser range has no rectangle. The composer still knows that line's
+      // insertion point, including the space beside its quote bar. Use it
+      // before the generic fallback centers the block in the whole field.
+      if (!rr.height){
+        const mirror = el.closest(".cffield")?.querySelector(".cfmirror");
+        const view = window.ComposeFormat?.fieldOf(mirror)?.view;
+        if (view && el === view.contentDOM && view.state.selection.main.empty){
+          const main = view.state.selection.main;
+          let point = null;
+          try { point = view.coordsAtPos(main.head, main.assoc || 1); } catch (e) {}
+          if (point && point.bottom > point.top){
+            return { x: point.left, base: point.top + m.asc, fs,
+                     fbA: m.fbA, fbD: m.fbD, capH: m.capH,
+                     width: null, scaleX, clip };
+          }
+        }
+      }
       if (rr.height) return { x: rr.left, base: rr.top + m.asc, fs, fbA: m.fbA, fbD: m.fbD,
                               capH: m.capH, width: editableAdvance(el, rg, rr), scaleX, clip };
     }

@@ -7,10 +7,13 @@
  * textarea it has always been and not one line of this file runs on it.
  *
  * What it draws, and nothing else: one star is italic, two are bold, two tildes
- * on either side are a strike, a leading angle is a quote bar, and a dash or
- * star and a space is a bullet. Inserting a new line inside a list carries the
- * marker down, and the editor's own continuation carries a quote's angle down
- * the same way; doing it on a marker with nothing typed after it ends the list.
+ * on either side are a strike, a leading angle AND THE SPACE AFTER IT are a
+ * quote bar, and a dash or star and a space is a bullet. A marker is a marker
+ * once it is finished being typed and not before: a lone angle, like a lone
+ * dash, is the character it was typed as until its space arrives. Inserting a
+ * new line inside a list carries the marker down, and the editor's own
+ * continuation carries a quote's angle and its space down the same way; doing
+ * it on a marker with nothing typed after it ends the list.
  * Headings, tables, links, code fences and the rest of Markdown are left as
  * plain characters here: this is a message row, not a document editor.
  *
@@ -27,15 +30,15 @@
  * row that is usually one line long that would mean the words never format
  * while they are being typed, so here the raw markers come back for the one
  * span the cursor is actually in or beside. The quote angles are the one thing
- * that never comes back: the bar is the whole of a quote here, and a line
- * drawing the bar and the angles together would be one quote written twice
- * under the typist, with the words stepping sideways every time the caret
- * arrived. That holds wherever the quote starts, at the head of the line or
- * after a list marker, and however deep it is. The angles keep their places in
- * the document, so the caret, a picked out passage and the markdown the row
- * sends all go on counting them. An angle the parser did not call a marker,
- * inside a code span or in the middle of a sentence, is one of the reader's
- * own characters and is drawn.
+ * that never comes back once they are drawn at all: the bar is the whole of a
+ * quote here, and a line drawing the bar and the angles together would be one
+ * quote written twice under the typist, with the words stepping sideways every
+ * time the caret arrived. That holds wherever the quote starts, at the head of
+ * the line or after a list marker, and however deep it is. The angles keep
+ * their places in the document, so the caret, a picked out passage and the
+ * markdown the row sends all go on counting them. Two kinds of angle are never
+ * drawn away: one the parser did not call a marker, inside a code span or in
+ * the middle of a sentence, and one whose space has not been typed yet.
  *
  * The textarea does not leave the page while the editor stands in for it. It
  * keeps the field's one public face: its value, its selection, its focus, its
@@ -220,16 +223,24 @@
             // per line is written down here and taken off the line below.
             const line = doc.lineAt(node.from);
             let from = node.from, to = node.to;
-            // the one space the marker owns, the way the sent card reads it
-            if (/[ \t]/.test(line.text[to - line.from] || "")) to++;
+            // The one space the marker owns, and the whole of what makes it a
+            // marker to look at. An angle with an ordinary space after it is
+            // finished being typed and is markup; an angle with anything else
+            // after it, or with nothing at all, is a character the reader has
+            // put there and is still being written. An unfinished nested
+            // angle stays visible inside any already completed outer quote.
+            const live = line.text[to - line.from] === " ";
+            if (live) to++;
             // and the indent it stands on, when that indent is the line's own
             // and not room another marker has already been given
             while (from > line.from && /[ \t]/.test(line.text[from - 1 - line.from])) from--;
             if (from > line.from) from = node.from;
             const held = angles.get(line.number);
             angles.set(line.number, held
-              ? { from: Math.min(held.from, from), to: Math.max(held.to, to) }
-              : { from, to });
+              ? { from: Math.min(held.from, from),
+                  to: live || !held.live ? Math.max(held.to, to) : held.to,
+                  live: held.live || live }
+              : { from, to, live });
             return;
           }
           if (node.name === "ListItem") {
@@ -269,7 +280,8 @@
             // and the line's own indent, which is spaces, and spaces are
             // narrower than the level they are written for. it starts past any
             // angles, which belong to the quote and not to the item
-            const head = line.from + (quote.has(line.number) ? quoteWidth(line.text) : 0);
+            const angle = angles.get(line.number);
+            const head = angle && angle.live ? angle.to : line.from;
             const lead = line.text.slice(head - line.from, mark.from - line.from);
             if (!/\S/.test(lead)) headBox(line, "cf-col", base, head, mark.from);
             const last = doc.lineAt(node.to).number;
@@ -281,8 +293,19 @@
         },
       });
 
+      // Which quoted lines are drawn as quotes. A quote begins at the space and
+      // not at the angle: until an ordinary space completes a quote prefix,
+      // the angle stays visible and the line keeps its ordinary layout. A line
+      // the parser puts inside a quote but which carries no angle of its own,
+      // which is a lazily continued one, is drawn the way the line above it is.
+      const barred = new Set();
+      for (const n of [...quote.keys()].sort((a, b) => a - b)) {
+        const angle = angles.get(n);
+        if (angle ? angle.live : barred.has(n - 1)) barred.add(n);
+      }
+
       // one line decoration per line the walk marked, and the quote angles
-      // taken off every quoted line there is
+      // taken off every line that is drawn as a quote
       for (const n of new Set([...quote.keys(), ...hang.keys()])) {
         const line = doc.line(n), classes = [], attributes = {};
         if (hang.has(n)) {
@@ -291,7 +314,8 @@
           // and its own indent is a handful of spaces that do not reach it. a
           // line carrying nothing there is left unpulled instead
           if (!marker.has(n)) {
-            const at = quote.has(n) ? quoteWidth(line.text) : 0;
+            const angle = angles.get(n);
+            const at = barred.has(n) && angle ? angle.to - line.from : 0;
             const lead = /^[ \t]+/.exec(line.text.slice(at));
             if (lead) headBox(line, "cf-col", hang.get(n),
                               line.from + at, line.from + at + lead[0].length);
@@ -304,9 +328,10 @@
           // word is allowed to break inside itself; the rest wrap as ever.
           if (headEnd.has(n)) {
             let start = headEnd.get(n);
-            // an item's own quote angles are not its first word: they are not
-            // drawn, so they can neither share the marker's row nor strand it
-            const mark = angles.get(n);
+            // an item's own quote angles are not its first word when they are
+            // not drawn, so they neither share the marker's row nor strand it.
+            // An angle still waiting for its space is a word like any other
+            const mark = barred.has(n) ? angles.get(n) : null;
             if (mark && start >= mark.from && start < mark.to) start = mark.to;
             while (start < line.to && /[ \t]/.test(line.text[start - line.from])) start++;
             let stop = start;
@@ -314,7 +339,7 @@
             if (stop > start) out.push(breakable.range(start, stop));
           }
         }
-        if (quote.has(n)) {
+        if (barred.has(n)) {
           classes.push("cf-quote");
           // The bar is the quote, on the line being typed as much as on any
           // other. Drawing the bar and the angles together would be one quote
@@ -325,7 +350,10 @@
           const mark = angles.get(n);
           if (mark) out.push(hide.range(mark.from, mark.to));
         }
-        out.push(D.line({ class: classes.join(" "), attributes }).range(line.from));
+        // a quoted line that is not drawn as one is an ordinary line, and is
+        // left the ordinary line it already is
+        if (classes.length || attributes.style)
+          out.push(D.line({ class: classes.join(" "), attributes }).range(line.from));
       }
       return D.set(out, true);
     }
