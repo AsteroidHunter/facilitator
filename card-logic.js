@@ -559,7 +559,7 @@ function foldWants(pend){
 // re-aims from there rather than starting it over. the page hands in its run
 // counter and the rule its lane opens on; the sheet holds the length, the curve
 // and the travel. motion he has asked not to see is a plain flip.
-const FOLD_TIMER_MS = 720;   // behind the sheet's run, for a fold with nothing to transition
+const FOLD_TIMER_MS = 520;   // behind the sheet's run, for a fold with nothing to transition
 function foldStrip(el, pend, runKey, open, place){
   if (!pend) return;
   const mine = ++el[runKey];
