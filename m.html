@@ -483,11 +483,11 @@
      is what makes the answer start under the BOX and not under part of it: the
      wrapper gives way when the card runs short, and the strip is flex:none in
      the rule above, so without this it would stand at its own height and print
-     its words over the top of the answer. it clips its own content for the same
-     reason, the shut bar being a fixed height of its own; clipping what is
-     inside a box does not touch the shade it casts, so the raised pair is drawn
-     whole, and what the strip cannot show its own lane scrolls */
-  .pendwrap-answered .pendlist{flex:1 1 auto; min-height:0; overflow:hidden}
+     its words over the top of the answer. no overflow is set here: shut, the raised shade
+     belongs to the head inside this strip, and a parent clip cuts a child's
+     shade square across the rounded corners it is drawn to. open, mid-fold and
+     arriving each clip by their own rule */
+  .pendwrap-answered .pendlist{flex:1 1 auto; min-height:0}
   .pendwrap-answered .pendlist.open,
   .pendwrap-answered .pendlist:not(.open) .pendhead{box-shadow:var(--raised-soft)}
   /* the answer needs no floor of its own: it takes whatever the column has

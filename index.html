@@ -1399,15 +1399,24 @@
      standing at its own height: the answer laid out against the shorter wrapper
      and the sent words printed over the top of it. growing and shrinking with
      the wrapper is what keeps the two edges one edge.
-     the strip clips its own content for the same reason. the shut bar is a
-     fixed height of its own and the rows are a column of their own, so a strip
-     squeezed below either would push it out through its own foot. clipping what
-     is INSIDE a box does not touch the shade the box casts, so the raised pair
-     is drawn whole either way, and what the strip cannot show its own lane
-     scrolls, with the stamp and the arrow holding the top line above it */
+     no overflow is set here. shut, the raised shade belongs to the head
+     inside this strip, and a parent clip cuts a child's shade square across the
+     rounded corners it is drawn to. the states that must clip already do: open,
+     mid-fold and arriving, each by its own rule, and the wrapper's floor is
+     what keeps the shut bar whole */
   body.focus .box.sel .pendwrap-answered .pendlist{
-    flex:1 1 auto; min-height:0; overflow:hidden;
+    flex:1 1 auto; min-height:0;
     --pend-rise:calc((16px*1.5 + var(--sp-s)) * -1);
+  }
+  /* the box below moves only itself; this one carries the answer down the card
+     with it, so the same curve over the same distance reads faster and harder.
+     its height takes the length that box's own column takes to settle instead,
+     .62s on the same curve, so a click stops moving the card at the same moment
+     either box would. the rise, the sink and the fades are left alone */
+  body.focus .box.sel .pendwrap-answered .pendlist.motion{
+    transition:height .62s var(--gentle),
+               padding-top .62s var(--gentle),
+               padding-bottom .62s var(--gentle);
   }
   body.focus .box.sel .pendwrap-answered .pendlist.open,
   body.focus .box.sel .pendwrap-answered .pendlist:not(.open) .pendhead{
@@ -5024,6 +5033,7 @@ function wirePend(el, strip, fold){
 // bar alone comes up, and every send after it drops a line into the box that
 // already stands. only a click on the bar opens it
 const PEND_MOTION = 420;   // the fallback timer behind the height transition
+const ANSW_MOTION = 720;   // the same, behind the longer run the box above takes
 const PEND_SPRING = 620;   // the cluster's spring, which outlives the box's own growth
 function foldPend(el, open){ foldBox(el, el.pend, "foldRun", open); }
 // the box above the answer runs the very same fold. what makes it read as a box
@@ -5045,8 +5055,10 @@ function foldBox(el, pend, runKey, open, landed){
   if (!pend) return;
   const mine = ++el[runKey];
   // the box below opens on its newest line; the box above opens where he left
-  // this batch, or at its beginning the first time
-  const place = pend === el.answ ? answeredPlace : pendBottom;
+  // this batch, or at its beginning the first time, and runs the longer fold
+  const upper = pend === el.answ;
+  const place = upper ? answeredPlace : pendBottom;
+  const span = upper ? ANSW_MOTION : PEND_MOTION;
   const from = pend.getBoundingClientRect().height;
   const padFrom = padPair(pend);
   // a run caught mid flight is frozen where it stands and re-aimed from there,
@@ -5095,13 +5107,13 @@ function foldBox(el, pend, runKey, open, landed){
     setTimeout(() => {
       if (mine !== el[runKey]) return;
       pend.classList.remove("opening", "closing");
-    }, Math.max(0, PEND_SPRING - PEND_MOTION) + 40);
+    }, Math.max(0, PEND_SPRING - span) + 40);
   };
   // two ends can finish a run: the transition itself, and a timer for the case
   // where the two ends are already the same height and the browser has nothing
   // to transition, which fires no event at all
   pend.addEventListener("transitionend", done);
-  const timer = setTimeout(done, PEND_MOTION + 40);
+  const timer = setTimeout(done, span + 40);
 }
 // both paddings, read as a pair. the open dress is not symmetric, 16 over and 10
 // under, so a run driven from the top value alone would hold the bottom 6px too
