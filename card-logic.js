@@ -28,8 +28,8 @@ let pendRoomChanged = null;
 // takes is room the answer does not have, and the desktop re-snaps its lines
 // against it exactly as it does for the box below.
 // the box itself is each page's own to build (growAnswered) and to fold
-// (foldAnswered), the way the sent box below it is (growPend): the desktop
-// runs the card's staged fold over it, the phone its plain tap
+// (foldAnswered), the way the sent box below it is (growPend); the phone uses
+// foldStrip below, while the desktop keeps its page-local foldBox
 let answeredRoomChanged = null;
 
 // ---- the card pages' keyboard commands ------------------------------------------
@@ -542,6 +542,89 @@ function dropPend(el){
   el.pend = null;
   el.pendRaw = "";
   if (pendRoomChanged) pendRoomChanged();   // the room the box held is the answer's again
+}
+
+// what a press means now. a run wears the open class through a shutting as well,
+// so the class on its own reads a box that is shutting as one to shut again; the
+// direction the run is going is the answer for as long as it is going
+function foldWants(pend){
+  if (pend.classList.contains("closing")) return true;
+  if (pend.classList.contains("opening")) return false;
+  return !pend.classList.contains("open");
+}
+
+// the fold's one run, the card's own: the box's height and padding and the
+// column inside it move over one length on one curve, so they start and settle
+// together, and a press that catches a run freezes it where it stands and
+// re-aims from there rather than starting it over. the page hands in its run
+// counter and the rule its lane opens on; the sheet holds the length, the curve
+// and the travel. motion he has asked not to see is a plain flip.
+const FOLD_TIMER_MS = 720;   // behind the sheet's run, for a fold with nothing to transition
+function foldStrip(el, pend, runKey, open, place){
+  if (!pend) return;
+  const mine = ++el[runKey];
+  const body = pend.querySelector(".pendbody");
+  const settle = () => {
+    pend.classList.remove("motion", "opening", "closing", "offseat");
+    pend.style.height = "";
+    pend.style.paddingTop = "";
+    pend.style.paddingBottom = "";
+    body.style.transform = "";
+    body.style.opacity = "";
+  };
+  if (window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches){
+    settle();
+    pend.classList.toggle("open", open);
+    if (open) place(pend);
+    return;
+  }
+  const was = getComputedStyle(body);
+  const held = was.transform, heldFade = was.opacity;
+  const from = pend.getBoundingClientRect().height;
+  const csFrom = getComputedStyle(pend);
+  const padFrom = [csFrom.paddingTop, csFrom.paddingBottom];
+  settle();
+  pend.classList.toggle("open", open);
+  if (open) place(pend);
+  const to = pend.getBoundingClientRect().height;
+  const csTo = getComputedStyle(pend);
+  const padTo = [csTo.paddingTop, csTo.paddingBottom];
+  if (!open) pend.classList.add("open");   // it shuts with its rows still in it
+  pend.style.height = from + "px";
+  pend.style.paddingTop = padFrom[0];
+  pend.style.paddingBottom = padFrom[1];
+  if (held && held !== "none"){ body.style.transform = held; body.style.opacity = heldFade; }
+  else pend.classList.toggle("offseat", open);
+  void pend.offsetWidth;   // the start values land untimed
+  pend.classList.add("motion");
+  pend.classList.add(open ? "opening" : "closing");
+  pend.style.height = to + "px";
+  pend.style.paddingTop = padTo[0];
+  pend.style.paddingBottom = padTo[1];
+  body.style.transform = "";
+  body.style.opacity = "";   // the class below is the column's own far end
+  pend.classList.toggle("offseat", !open);
+  const done = e => {
+    if (e && (e.target !== pend || e.propertyName !== "height")) return;
+    pend.removeEventListener("transitionend", done);
+    clearTimeout(timer);
+    if (mine !== el[runKey]) return;   // a newer fold owns the box now
+    pend.classList.remove("motion");
+    pend.style.height = "";
+    pend.style.paddingTop = "";
+    pend.style.paddingBottom = "";
+    pend.classList.remove("offseat");
+    body.style.transform = "";
+    body.style.opacity = "";
+    pend.classList.toggle("open", open);
+    if (open) place(pend);
+    setTimeout(() => {
+      if (mine !== el[runKey]) return;
+      pend.classList.remove("opening", "closing");
+    }, 40);
+  };
+  pend.addEventListener("transitionend", done);
+  const timer = setTimeout(done, FOLD_TIMER_MS);
 }
 
 // one row: the words, the time that comes up on a drag where the page keeps

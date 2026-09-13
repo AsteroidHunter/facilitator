@@ -352,9 +352,28 @@
   .pendlist.open .pendhead{display:none}
   .pendlist.open .pendbody{
     display:flex; flex-direction:column; flex:1 1 auto; min-height:0; position:relative;
-    animation:pendfade .22s ease-out;
   }
   .pendlist.open .chevtop{position:absolute; left:0; top:3px; transform:rotate(180deg)}
+  /* the fold's one run, the card page's own: the box's height and padding and
+     the column inside it move over one length on one curve, so they start and
+     settle together and neither can finish first. the column's two ends are the
+     class below, and the sign of the distance says which way a box's words
+     travel -- up out of the box below, down into the box above */
+  .box.sel{--pend-move:.62s; --pend-rise:calc(15px*1.5 + var(--sp-s))}
+  .pendlist.motion{
+    overflow:hidden;
+    transition:height var(--pend-move) var(--gentle),
+               padding-top var(--pend-move) var(--gentle),
+               padding-bottom var(--pend-move) var(--gentle);
+  }
+  /* strength travels with the column and is the quicker of the two, so it is
+     spent before the box lands. it is part of the run rather than an animation
+     of its own: a press that turns a run around carries the words on from the
+     strength they have, where an animation would begin them again at nothing */
+  .pendlist.motion .pendbody{
+    transition:transform var(--pend-move) var(--gentle), opacity .22s ease-out;
+  }
+  .pendlist.offseat .pendbody{transform:translate3d(0, var(--pend-rise), 0); opacity:0}
   .pendstamp{flex:none; text-align:right; font:12px var(--mono); color:var(--sub); padding:0 0 var(--sp-s); min-height:1.2em}
   .pendscroll{flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain}
   .pendmsg + .pendmsg{padding-top:var(--sp-s)}
@@ -380,9 +399,8 @@
 
   /* ---- the answered box: what the answer on the card was given ------------- */
   /* the sent box drawn again over the answer instead of under it: the same
-     strip, the same shut bar, the same lane, the same rows and the same tap to
-     fold, so this page keeps its own simpler behaviour rather than being handed
-     the desktop's staged one. two things about it are its own. it is raised out
+     strip, the same shut bar, the same lane, the same rows, the same tap to
+     fold and the same run under that tap. two things about it are its own. it is raised out
      of the card on the board's own pair instead of being let into it, and its
      arrows point the other way: shut, down at the answer it opens toward; open,
      the corner arrow turned over by the rule the box below already carries, up
@@ -437,9 +455,8 @@
      allowed to shrink -- so the wrapper went on shrinking toward the shut bar's
      floor and left an open class over a lane with nothing in it. this stops the
      column at the number instead of merely refusing to pass it.
-     the fold on this page is a class and not a run, so there is nothing to hold
-     it off for; the :not(.motion) is kept so the two pages read alike and so a
-     staged fold here later would land rather than jump */
+     this page runs the same fold as the card page now, so the floor stands
+     aside while a run is going and takes hold again where the run lands */
   .pendwrap-answered:has(.pendlist.open:not(.motion)){min-height:var(--answ-open)}
   .pendwrap-answered:empty{display:none}
   /* while the box is arriving it holds no room of its own yet: the arrival is
@@ -487,7 +504,10 @@
      belongs to the head inside this strip, and a parent clip cuts a child's
      shade square across the rounded corners it is drawn to. open, mid-fold and
      arriving each clip by their own rule */
-  .pendwrap-answered .pendlist{flex:1 1 auto; min-height:0}
+  .pendwrap-answered .pendlist{
+    flex:1 1 auto; min-height:0;
+    --pend-rise:calc((15px*1.5 + var(--sp-s)) * -1);   /* its words travel down */
+  }
   .pendwrap-answered .pendlist.open,
   .pendwrap-answered .pendlist:not(.open) .pendhead{box-shadow:var(--raised-soft)}
   /* the answer needs no floor of its own: it takes whatever the column has
@@ -1144,6 +1164,7 @@ function makeBox(b){
 
   els[b.id] = { box, reply, meta, ta, twin, send, tick, titleEl, arc, x, pendwrap, bottombar,
                 pend: null, pendRaw: "", histUp, histDown, histPos, clip, clipfile, field,
+                foldRun: 0, answFoldRun: 0,   // one run number per box, for a second press
                 // answ is null until the card shows a reply the board recorded a
                 // batch for, and null again the moment it shows one it did not.
                 // answId is the name of the reply the box is drawn for, which is
@@ -1168,10 +1189,8 @@ function growPend(el, arrive){
   pend.innerHTML = '<div class="pendhead">' + chevSVG("chevmid") + "</div>" +
     '<div class="pendbody">' + chevSVG("chevtop") + '<div class="pendstamp"></div>' +
     '<div class="pendscroll"><div class="pendslide"></div><div class="pendlocal"></div></div></div>';
-  pend.addEventListener("click", () => {
-    pend.classList.toggle("open");
-    if (pend.classList.contains("open")) pendBottom(pend);
-  });
+  pend.addEventListener("click", () =>
+    foldStrip(el, pend, "foldRun", foldWants(pend), pendBottom));
   el.pendwrap.insertBefore(pend, el.bottombar);
   el.pend = pend;
   if (arrive) risePend(el, pend);
@@ -1181,9 +1200,8 @@ function growPend(el, arrive){
 // the box that stands ABOVE the answer, holding the messages that answer was
 // given. it is built on the same beat as the box below, mounted into a wrapper
 // that has stood empty in the card's column since the card was made, and folded
-// the way this page folds its own sent box: a tap on the strip, the class
-// flipped, the body fading in where it stands. no staged run, because this page
-// has never had one and this box is not the place to introduce one.
+// the way this page folds its own sent box: a tap on the strip, and the card's
+// one run under it, the box and the words it holds moving together.
 // arrive tells a reply that has just landed on the card he is looking at from a
 // card being drawn or a page being stepped back to
 function growAnswered(el, arrive){
@@ -1193,7 +1211,7 @@ function growAnswered(el, arrive){
   // the floor the sheet holds for the shut bar is held off for exactly as long
   // as the strip wears it. growPend puts it on the same way
   if (arrive) pend.classList.add("rising");
-  pend.addEventListener("click", () => foldAnswered(el, !pend.classList.contains("open"), true));
+  pend.addEventListener("click", () => foldAnswered(el, foldWants(pend), true));
   el.answwrap.appendChild(pend);
   el.answ = pend;
   if (arrive) risePend(el, pend);
@@ -1203,11 +1221,10 @@ function growAnswered(el, arrive){
 // hand is written down, and what is written down outlasts the clock, the poll,
 // the card being left and the page being loaded again
 function foldAnswered(el, open, manual){
-  const pend = el && el.answ;
-  if (!pend) return;
+  if (!el || !el.answ) return;
   if (manual) answeredChose(el, open);
-  pend.classList.toggle("open", open);
-  if (open) answeredPlace(pend);   // the batch's beginning, or where he left it
+  // the batch's beginning, or where he left it, on the card's one fold run
+  foldStrip(el, el.answ, "answFoldRun", open, answeredPlace);
 }
 // the arrival's two beats (risePend), the rows, the delivery words, the run
 // stamp and the poll's own pass over the box (syncPend) are shared with the
