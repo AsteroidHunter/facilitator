@@ -393,7 +393,7 @@ import traceback
 import urllib.error
 import urllib.request
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse, quote
+from urllib.parse import parse_qs, urlparse, quote, unquote
 
 HERE = Path(__file__).resolve().parent
 RETIRED_OWNERS = frozenset({"triage"})
@@ -911,6 +911,23 @@ PAGE_LIMIT = 24
 # purpose: the whole point is that a hand-off lost on the wire comes back while
 # the message still matters, not fifteen minutes later
 ACK_GRACE = 90.0
+# ---- the queue a lane reads and chooses from -------------------------------------
+# A lane in select mode is not handed a card. It reads rows, picks one, and the
+# selection reserves that card through the very same claim the auto path mints,
+# so the colour machine, the 90 second lease and the 15 minute steal-back are
+# untouched. The numbers below are the only new clocks, and each is tied to one
+# that already exists rather than invented beside it.
+HOLDER_IDLE = 180.0             # seconds without a call before a lane's holder record may be taken
+STARVED_AFTER = 900.0           # the same window the steal-back uses, so a starved row and a steal agree
+NOTIFY_REPEAT = 300.0           # a lane that still has work is told again at most this often
+NOTICE_KEEP = 20                # notices kept per lane
+DELIVERY_KEEP = 40              # deliveries kept per lane, prepared and finished together
+QUEUE_LIMIT = 50                # rows one listing answers by default
+QUEUE_LIMIT_MAX = 200
+# One upgrade pass associates uploads referenced by older cards with those
+# cards, in the same shape the reply-count scan uses: a version key in state
+# says the pass ran, and the transcript is read once.
+UPLOADS_INDEX_VERSION = 1
 # Version 1 removes the old convention that treated a line containing only ---
 # as a hidden short/full delimiter. Existing state is split once in _migrate;
 # every new reply has explicit fields and the Markdown renderer is never asked
@@ -1720,6 +1737,22 @@ def _migrate() -> None:
             b.setdefault("reply_id", "")
             b.setdefault("reply_ts", 0)
     _state.setdefault("next_reply_id", 1)
+    # ---- the queue a lane reads and chooses from -------------------------------
+    # Every key here defaults, so a state file written before any of this loads
+    # unchanged and a server rolled back to the previous version ignores them,
+    # exactly as the revision and receipt keys were ignored before it.
+    _state.setdefault("epoch", 0)
+    _state.setdefault("lane_mode", {})          # lane -> "auto" or "select"; absent means auto
+    _state.setdefault("holders", {})            # lane -> which connection is serving it
+    _state.setdefault("reservations", {})       # lane -> the live reservation, beside the claim itself
+    _state.setdefault("deliveries", {})         # delivery id -> one prepared body and what became of it
+    _state.setdefault("notices", {})            # lane -> the last few notifications and their outcomes
+    _state.setdefault("uploads", {})            # stored file name -> the card it belongs to
+    for b in _state["boxes"]:
+        b.setdefault("work", {})                # job id -> the registration behind this card's green
+        b.setdefault("passed_over", 0)
+        b.setdefault("delivery_attempts", 0)
+    _scan_uploads_once()
     _save()
 
 
@@ -1959,6 +1992,7 @@ def _remove_empty_meta_box(box: dict) -> str:
     if _state["busy"][ow] == bid:
         _state["busy"][ow] = None
         _state["claimed"][ow] = []
+        _drop_reservation(ow, "card deleted")
     _log("delete", bid, box["title"])
     return "deleted"
 
@@ -2113,6 +2147,9 @@ def _release_claim(b: dict, for_answer: bool = False) -> str:
     if _state["busy"][ow] == b["id"]:
         _state["busy"][ow] = None
         _state["claimed"][ow] = []
+        # a select lane's reservation is the same claim seen from the other
+        # side, so it goes wherever the claim goes and never outlives it
+        _drop_reservation(ow, "claim released")
     if b["pending"] and b["id"] not in _state["inbox"]:
         _state["inbox"].append(b["id"])
     if not b["pending"] and b["id"] in _state["inbox"]:
@@ -2266,6 +2303,7 @@ def _release_unacked() -> None:
         _state["busy"][ow] = None
         _state["claimed"][ow] = []
         _state["ack"][ow] = None
+        _drop_reservation(ow, "hand-off unconfirmed")
         box = _box(bid)
         if box and box["pending"] and bid not in _state["inbox"]:
             _state["inbox"].insert(0, bid)
@@ -2648,7 +2686,8 @@ def _op_lookup(op: str, fp: str) -> tuple[str, dict | None]:
     return ("same" if rec.get("fp") == fp else "mismatch"), rec
 
 
-def _op_commit(op: str, fp: str, kind: str, box: str, result: dict) -> None:
+def _op_commit(op: str, fp: str, kind: str, box: str, result: dict,
+               extra: dict | None = None) -> None:
     """The receipt, written into the state the caller is about to save, and the
     old receipts let go here rather than on a clock of their own.
 
@@ -2662,6 +2701,12 @@ def _op_commit(op: str, fp: str, kind: str, box: str, result: dict) -> None:
     ops = _state.setdefault("ops", {})
     now = time.time()
     ops[op] = {"kind": kind, "box": box, "fp": fp, "result": result, "ts": now}
+    # what a connection's receipt is revalidated against on replay: its lane,
+    # its session, the generation and epoch it was committed under, and the
+    # object the route minted. Absent for every caller that sends no session,
+    # so an older receipt replays exactly as it always did
+    if extra:
+        ops[op].update(extra)
     for k in [k for k, r in ops.items() if now - r.get("ts", 0) > OP_RETENTION]:
         del ops[k]
     if len(ops) > OP_KEEP:
@@ -2678,6 +2723,358 @@ def _op_status(op: str) -> dict:
     if rec is None:
         return {"status": "unknown"}
     return {"status": "applied", "kind": rec["kind"], "box": rec.get("box"), "result": rec["result"]}
+
+
+# ---- the queue a lane reads and chooses from -------------------------------------
+# An auto lane is handed whichever card has waited longest, with every
+# unanswered message on it. A select lane is handed nothing: it reads rows that
+# carry no request text, picks a card, and that selection reserves the card
+# through the very same claim the auto path mints, so the colour mask, the 90
+# second lease and the 15 minute steal-back are untouched. Opening the
+# reservation prepares a delivery and confirms nothing. The board records that
+# the text reached the agent's client only once the client says the whole body
+# arrived.
+#
+# Three facts are kept apart on purpose, because only three can be stated
+# honestly. A notice outcome says what one adapter could observe. An access
+# receipt says a client received a complete body, and names the route that
+# carried it. A live work registration says a job registered against a card is
+# still running. None of them says the model read or attended to anything, and
+# no field below claims it did.
+#
+# What none of this is: a boundary between projects. The board routes by lane
+# and refuses a card that is not in the lane a request names, and the holder
+# record stops two connections serving one lane by accident. Those are
+# correctness checks and they keep ordinary operation right. They do not stop an
+# agent with arbitrary local access that names another lane on purpose, and
+# nothing here should be read as saying they do.
+
+UPLOAD_REF = re.compile(r"/uploads/([A-Za-z0-9._%+-]+)")
+
+
+def _lane_mode(lane: str) -> str:
+    """Auto unless the lane was explicitly moved, so state written before any of
+    this reads as every lane behaving exactly as it always did."""
+    return "select" if _state.get("lane_mode", {}).get(lane) == "select" else "auto"
+
+
+def _new_id(prefix: str) -> str:
+    return f"{prefix}-{secrets.token_hex(4)}"
+
+
+def _generation(lane: str) -> int:
+    return (_state.get("holders", {}).get(lane) or {}).get("generation", 0)
+
+
+# ---- who is serving a lane ------------------------------------------------------
+# One connection per lane, named by a session id it mints once. This is
+# coordination and nothing more: the id is not a credential, the board does not
+# authenticate it, and any caller can present another. What it buys is the one
+# operational failure worth catching, two connections listening for one project
+# by accident, and a generation number that voids a previous holder's
+# reservations, deliveries and cached results when the lane genuinely changes
+# hands.
+
+def _holder(lane: str) -> dict | None:
+    return _state.setdefault("holders", {}).get(lane)
+
+
+def _holder_out(lane: str) -> dict | None:
+    """The holder as a page or a connection sees it. Idle is a server-supplied
+    age, never two clocks compared across machines."""
+    rec = _holder(lane)
+    if rec is None:
+        return None
+    return {"session": rec.get("session", ""), "agent": rec.get("agent", ""),
+            "machine": rec.get("machine", ""), "generation": rec.get("generation", 0),
+            "idle_s": round(max(0.0, time.time() - rec.get("last_seen", 0)), 1)}
+
+
+def _holder_touch(lane: str, session: str, agent: str = "", machine: str = "",
+                  override: bool = False) -> tuple:
+    """Take or renew this lane's holder record. Answers (record, None) when the
+    caller holds the lane after this call, and (None, refusal) when another
+    connection does and the caller did not ask to override.
+
+    A lane with no holder, or one whose holder has not called in HOLDER_IDLE
+    seconds, is free. Taking it raises the generation, which is what voids the
+    previous holder's reservation and prepared deliveries: the card goes back to
+    the front of the queue exactly as the unconfirmed lease would have put it.
+    Callers hold _lock and save."""
+    holders = _state.setdefault("holders", {})
+    rec, now = holders.get(lane), time.time()
+    if rec and rec.get("session") == session:
+        rec["last_seen"] = now
+        if agent:
+            rec["agent"] = agent[:24]
+        if machine:
+            rec["machine"] = machine[:48]
+        return rec, None
+    idle = now - rec.get("last_seen", 0) if rec else 0.0
+    if rec and idle <= HOLDER_IDLE and not override:
+        return None, {"error": "lane already held", "agent": rec.get("agent", ""),
+                      "machine": rec.get("machine", ""), "idle_s": round(idle, 1)}
+    fresh = {"session": session, "agent": agent[:24], "machine": machine[:48],
+             "generation": (rec.get("generation", 0) if rec else 0) + 1,
+             "since": now, "last_seen": now}
+    holders[lane] = fresh
+    _release_lane_claim(lane, "holder changed")
+    if rec and idle <= HOLDER_IDLE:
+        # a deliberate override, which is allowed and is always written down:
+        # somebody decided a live holder was wrong, and that is worth a line
+        _info("holdertaken", lane=lane, generation=fresh["generation"],
+              previous=rec.get("agent", ""), idle_s=round(idle, 1))
+    else:
+        _info("holder", lane=lane, generation=fresh["generation"], agent=fresh["agent"])
+    return fresh, None
+
+
+def _holder_check(lane: str, session: str) -> dict | None:
+    """None when this session is the lane's holder, and the record is renewed on
+    the way past, which is how a busy connection stays current without a
+    heartbeat of its own. A typed refusal otherwise."""
+    rec = _holder(lane)
+    if rec is None or rec.get("session") != session:
+        return {"error": "generation changed", "generation": _generation(lane)}
+    rec["last_seen"] = time.time()
+    return None
+
+
+# ---- reservations and deliveries ------------------------------------------------
+
+def _reservation(lane: str) -> dict | None:
+    return _state.setdefault("reservations", {}).get(lane)
+
+
+def _abandon_deliveries(lane: str, why: str, reservation: str | None = None) -> None:
+    """A prepared delivery nobody acknowledged is abandoned rather than
+    forgotten. The difference matters at the receipt: a body that was prepared
+    and then thrown away is refused and said so, while an id the board never
+    prepared is simply unknown, and the caller needs to tell those apart."""
+    for rec in _state.setdefault("deliveries", {}).values():
+        if rec.get("lane") != lane or rec.get("state") != "prepared":
+            continue
+        if reservation is not None and rec.get("reservation") != reservation:
+            continue
+        rec["state"] = "abandoned"
+        rec["why"] = why
+
+
+def _drop_reservation(lane: str, why: str) -> None:
+    """Let the lane's reservation record go, and abandon whatever it had
+    prepared. The claim itself is the caller's business: every path that clears
+    the busy slot calls this beside it, so the two never disagree about which
+    card a lane is holding."""
+    res = _state.setdefault("reservations", {}).pop(lane, None)
+    if res is not None:
+        _abandon_deliveries(lane, why, res.get("id"))
+
+
+def _release_lane_claim(lane: str, why: str) -> str | None:
+    """Give a lane's held card back to the FRONT of its queue and clear the
+    reservation with it, which is the move the unconfirmed lease already makes.
+    Answers the card id when there was one. Callers hold _lock and save."""
+    _drop_reservation(lane, why)
+    bid = _state["busy"].get(lane)
+    if bid is None:
+        return None
+    _state["busy"][lane] = None
+    _state["claimed"][lane] = []
+    _state["ack"][lane] = None
+    box = _box(bid)
+    if box and box["pending"] and bid not in _state["inbox"]:
+        _state["inbox"].insert(0, bid)
+    return bid
+
+
+def _prune_deliveries(lane: str) -> None:
+    """Keep the last DELIVERY_KEEP per lane, prepared and finished together, so
+    one lane's history cannot crowd out another's."""
+    deliveries = _state.setdefault("deliveries", {})
+    mine = sorted((r.get("prepared_ts", 0), k)
+                  for k, r in deliveries.items() if r.get("lane") == lane)
+    for _ts, key in mine[:max(0, len(mine) - DELIVERY_KEEP)]:
+        del deliveries[key]
+
+
+# ---- rows, and the tag a selection is checked against ---------------------------
+
+def _card_files(b: dict) -> set:
+    """Attachment names this card's own text refers to. The upload route answers
+    a global URL, so the text a file was written into is the only place that says
+    which card it belongs to."""
+    parts = [m.get("text", "") for m in b["pending"]]
+    parts += [b.get("reply_full", ""), b.get("reply_short", ""),
+              b.get("reply", ""), b.get("context", "")]
+    return {unquote(hit) for part in parts for hit in UPLOAD_REF.findall(part or "")}
+
+
+def _row_tag(b: dict) -> str:
+    """A digest over the values a selection is actually about, and over nothing
+    else: the card id, its title, the ordered ids of the messages waiting on it,
+    its stored state, the done and parked flags, whether a job registration is
+    live, and how many of those waiting messages this lane has already been
+    given. The current time is not in it, nor the wait, the starvation flag, the
+    queue position, the board revision or any other card. So a choice is refused
+    only when that card itself moved, and never because a minute passed or
+    because another lane was busy."""
+    waiting = b["pending"]
+    return _fingerprint(
+        b["id"], b["title"], ",".join(str(m.get("mid")) for m in waiting),
+        str(b.get("state", "")), str(bool(b["done"])), str(bool(b.get("parked", False))),
+        str(bool(_hb_live(b))), str(sum(1 for m in waiting if m.get("first_acked_ts"))),
+    )[:12]
+
+
+def _queue_row(b: dict, qpos: int, reserved: str | None, now: float) -> dict:
+    """One line of the listing. It carries what changes what a good answer looks
+    like and it carries no request text: seeing a row is not opening a card."""
+    stamps = [m.get("ts", 0) for m in b["pending"]]
+    oldest, newest = (min(stamps), max(stamps)) if stamps else (0, 0)
+    return {
+        "box": b["id"], "title": b["title"], "row": _row_tag(b),
+        "waiting": len(b["pending"]), "oldest_ts": oldest, "newest_ts": newest,
+        "wait_s": round(now - oldest, 1) if oldest else 0,
+        "queue_pos": qpos, "state": b.get("state", ""), "colour": _shown(b),
+        "reserved": b["id"] == reserved, "working": _hb_live(b),
+        # a previous delivery of these messages was acknowledged, which happens
+        # after a restart or a steal-back: an answer may repeat one already given
+        "read_before": any(m.get("first_acked_ts") for m in b["pending"]),
+        "delivery_attempts": b.get("delivery_attempts", 0),
+        "passed_over": b.get("passed_over", 0),
+        # where the waiting messages were typed. A message from the small card
+        # caps the reply at 100 words, so a row that hides this would let an
+        # agent write an answer the board then refuses
+        "via": sorted({"mini" if m.get("via") == "mini" else "big" for m in b["pending"]}),
+        "attachments": len(_card_files(b)), "task": b.get("task"),
+        "worktree": b.get("worktree", ""),
+        # advisory only, audited at selection, never refused: the same 15 minutes
+        # the steal window already uses
+        "starved": bool(oldest) and (now - oldest) > STARVED_AFTER,
+    }
+
+
+def _row_of(bid: str) -> dict | None:
+    """The card's current row, for the conflict payloads that carry one."""
+    box = _box(bid)
+    return None if box is None else _queue_row(box, 0, None, time.time())
+
+
+def _lane_rows(lane: str, include: set, now: float) -> list:
+    """Every card of this lane the listing covers, oldest waiting first. The
+    reserved card is not among them: it is reported once, under held."""
+    reserved = _state["busy"].get(lane)
+    qpos, seen = {}, 0
+    for i in _state["inbox"]:
+        if (_box(i) or {}).get("owner", "pastureland") != lane:
+            continue
+        seen += 1
+        qpos[i] = seen
+    rows = []
+    for b in _state["boxes"]:
+        if b.get("owner", "pastureland") != lane or b["id"] == reserved:
+            continue
+        if b["done"] and "done" not in include:
+            continue
+        if b.get("parked", False) and "parked" not in include:
+            continue
+        if not b["pending"] and not ("green" in include and _hb_live(b)):
+            continue
+        rows.append(_queue_row(b, qpos.get(b["id"], 0), reserved, now))
+    rows.sort(key=lambda r: (r["oldest_ts"] or now, r["box"]))
+    return rows
+
+
+# ---- the one-time upload association --------------------------------------------
+
+def _scan_uploads_once() -> None:
+    """Associate uploads referenced by older cards with those cards, once.
+
+    The upload route answers a global URL with no card association, so the only
+    durable record of which card a file belongs to is the text it was written
+    into. One pass over the transcript, guarded by a version key in state, in
+    the same shape the reply-count scan already uses. An agent on another
+    machine cannot read the board's uploads folder, and this is what lets the
+    card-scoped attachment route answer it instead."""
+    if _state.get("uploads_index_version", 0) >= UPLOADS_INDEX_VERSION:
+        return
+    index = _state.setdefault("uploads", {})
+    lanes = {b["id"]: b.get("owner", "pastureland") for b in _state["boxes"]}
+    for b in _state["boxes"]:
+        for name in _card_files(b):
+            index.setdefault(name, {"box": b["id"], "lane": lanes[b["id"]], "ts": b.get("ts", 0)})
+    try:
+        with TRANSCRIPT_PATH.open(errors="replace") as transcript:
+            for line in transcript:
+                try:
+                    event = json.loads(line)
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                bid = event.get("box")
+                if not isinstance(bid, str) or bid not in lanes:
+                    continue
+                for field in ("text", "reply_full", "reply_short"):
+                    for hit in UPLOAD_REF.findall(str(event.get(field) or "")):
+                        index.setdefault(unquote(hit), {"box": bid, "lane": lanes[bid],
+                                                        "ts": event.get("ts", 0)})
+    except FileNotFoundError:
+        pass
+    _state["uploads_index_version"] = UPLOADS_INDEX_VERSION
+
+
+def _upload_card(lane: str, bid: str, fname: str) -> bool:
+    """Whether this file belongs to this card, in this lane. Either the index
+    says so, or the card's own current text refers to it."""
+    rec = _state.get("uploads", {}).get(fname)
+    if rec is not None and rec.get("box") == bid and rec.get("lane", lane) == lane:
+        return True
+    box = _box(bid)
+    return box is not None and box.get("owner", "pastureland") == lane and fname in _card_files(box)
+
+
+# ---- replaying a receipt --------------------------------------------------------
+# Two classes, and the difference is what a restart is allowed to destroy.
+#
+# A position receipt, selection and opening, describes a place in the queue. A
+# restart legitimately destroys that place, so it is replayed only while the
+# epoch still matches and the route's live object is still the lane's own.
+# Anything else is a typed conflict carrying the card's current row, which the
+# caller answers with a fresh id for a fresh selection. That is why a replay
+# cannot loop.
+#
+# An effect receipt, the access receipt, release, reply, note, progress, the
+# notice outcome and the work calls, describes something the board already did.
+# It returns its recorded outcome whatever the epoch and whatever transition the
+# operation itself caused, and the effect never runs twice. A release replays its
+# own success although the reservation it removed is gone, which is the point of
+# the receipt rather than an exception to it. What is never answered that way is
+# a retry after the lane changed hands: minting a new id for the same words is
+# how a reply gets written twice, so the caller keeps its id, is told the
+# generation moved, and leaves an unresolved receipt for a person.
+
+def _op_extra(lane: str, session: str, obj: str = "") -> dict:
+    """What a receipt from a connection is revalidated against later. Omitted
+    entirely for the callers that send no session, so the desktop and the phone
+    keep exactly the receipt they have always had."""
+    return {"lane": lane, "session": session, "object": obj,
+            "generation": _generation(lane), "epoch": _state.get("epoch", 0)}
+
+
+def _replay_check(rec: dict, lane: str, session: str, bid: str) -> dict | None:
+    """The checks every replay passes before a stored answer is handed back: the
+    same connection, the same lane, the named card in that lane, and the caller
+    still holding the generation the receipt was committed under."""
+    if rec.get("session") and rec["session"] != session:
+        return {"error": "generation changed", "generation": _generation(lane)}
+    if rec.get("lane") and rec["lane"] != lane:
+        return {"error": "not in this lane"}
+    if bid and rec.get("box") and rec["box"] != bid:
+        return {"error": "not in this lane"}
+    if rec.get("generation") is not None and rec["generation"] != _generation(lane):
+        return {"error": "generation changed", "generation": _generation(lane)}
+    return None
 
 
 # ---- what the phone reads ------------------------------------------------------
@@ -2794,6 +3191,10 @@ def _ui_state() -> dict:
                 # page shows unstamped
                 "pendingStamps": [m.get("ts", 0) for m in b["pending"]],
                 "ws": b.get("ws"), "task": b.get("task"),
+                # which jobs are behind this card's green, so the board can say
+                # what the colour stands for rather than only that it is on.
+                # Additive: a page that has not been updated ignores it
+                "work": sorted(b.get("work", {})),
                 # the card's own worktree, empty for a card that has never
                 # been moved; the bar reads the lane's standing branch then
                 "worktree": b.get("worktree", ""),
@@ -2873,6 +3274,11 @@ def _ui_state() -> dict:
                              _hb_live(b)
                              for b in st["boxes"] if b.get("owner", "pastureland") == ow),
         } for ow in OWNERS},
+        # which connection is serving each lane, and how each lane is served.
+        # Both additive, both ignorable, and neither is a claim about who may
+        # call: the holder record is coordination between connections
+        "holders": {ow: _holder_out(ow) for ow in OWNERS if _holder_out(ow)},
+        "laneModes": {ow: _lane_mode(ow) for ow in OWNERS if _lane_mode(ow) != "auto"},
     }
 
 
@@ -2999,6 +3405,11 @@ def _get_fresh(q: Query, _):
     if owner not in OWNERS:
         return 400, {"error": "unknown owner"}
     with _lock:
+        if _lane_mode(owner) == "select":
+            # same reason: mid-work messages on a select lane arrive as their
+            # own delivery, with their own receipt, rather than folded into the
+            # claim by a route that accounts for nothing
+            return 409, {"error": "use open with fresh=1"}
         fbid = _state["busy"].get(owner)
         fbox = _box(fbid) if fbid else None
         if fbox is None:
@@ -3391,10 +3802,22 @@ def _wait_poll(owner: str):
             if stale is not None and time.time() - _state["busy_ts"].get(ow, 0) > 900:
                 _state["busy"][ow] = None
                 _state["claimed"][ow] = []
+                _drop_reservation(ow, "claim stolen back")
                 if _box(stale) and _box(stale)["pending"] and stale not in _state["inbox"]:
                     _state["inbox"].insert(0, stale)
                 _save()
-        if _state["busy"][owner] is None:
+        if _lane_mode(owner) == "select":
+            # a select lane is never handed a card here. The wait still blocks
+            # and still registers the listener, and when work is waiting it
+            # answers the same counts the notification route answers, so a loop
+            # pointed at the old route learns there is something to look at
+            # without being given anything it did not choose
+            cards, queued, oldest = _notify_queued(owner)
+            if cards:
+                return "queued", {"queued": queued, "cards": cards,
+                                  "oldest_wait_s": round(time.time() - oldest, 1) if oldest else 0,
+                                  "select": True, "use": "GET /queue"}
+        elif _state["busy"][owner] is None:
             bid = next((i for i in _state["inbox"]
                         if (_box(i) or {}).get("owner", "pastureland") == owner), None)
             if bid is not None:
@@ -3458,6 +3881,7 @@ def _rollback_claim(owner: str, bid: str, token: str) -> bool:
         _state["busy"][owner] = None
         _state["claimed"][owner] = []
         _state["ack"][owner] = None
+        _drop_reservation(owner, "hand-off died on the wire")
         if bid not in _state["inbox"]:
             _state["inbox"].insert(0, bid)
         _log("dropped", bid, f"{owner} hand-off died on the wire, box re-queued")
@@ -3482,6 +3906,18 @@ def _post_upload(q: Query, raw: bytes):
     fname = f"{stamp}-{safe}"
     with (up / fname).open("xb") as target:
         target.write(raw)
+    bid = q.one("box")
+    if bid:
+        # which card this file belongs to, recorded where the association is
+        # actually known. A caller that names no card changes nothing, which is
+        # every caller that exists today, and those files are associated by the
+        # text they are written into instead
+        with _lock:
+            box = _box(bid)
+            if box is not None:
+                _state.setdefault("uploads", {})[fname] = {
+                    "box": bid, "lane": box.get("owner", "pastureland"), "ts": time.time()}
+                _save()
     return 200, {"url": "/uploads/" + quote(fname)}
 
 
@@ -3600,7 +4036,7 @@ def _post_send(q: Query, text: str):
         # installed, so a save that failed and rolled the message back leaves
         # no row for a message the board never durably had
         _log("user", bid, text, log_fields={"op": op} if INCIDENT_OP.fullmatch(op) else None,
-             **({"op": op} if op else {}))
+             mid=msg["mid"], **({"op": op} if op else {}))
         _save()
         _notify()
         return 200, {**result, "rev": _state["rev"]}
@@ -3616,6 +4052,10 @@ def _post_ack(q: Query, text: str):
         return 400, {"error": "unknown owner"}
     token = q.one("token")
     with _lock:
+        if _lane_mode(ow) == "select":
+            # a select lane has one accounting path, and it is the one that
+            # names the delivery it is acknowledging
+            return 409, {"error": "use opened"}
         rec = _state.get("ack", {}).get(ow)
         if not token or not rec or rec.get("token") != token:
             return 409, {"error": "unknown or stale token"}
@@ -3631,6 +4071,54 @@ def _post_ack(q: Query, text: str):
         _log("ack", rec["box"], f"{ow} confirmed delivery")
         _save()
         return 200, {"ok": True, "box": rec["box"]}
+
+
+
+def _card_receipt(q: Query, kind: str, lane: str, bid: str, *parts: str):
+    """The lookup half of a durable receipt on a route that answers a card, and
+    the holder check that goes with it.
+
+    Answers (outcome, fingerprint). An outcome that is not None is what the
+    route must return instead of doing its work: a refusal, or the outcome this
+    very operation already had. A caller that names no operation id gets
+    (None, "") and behaves in every respect as it always did, which is what
+    keeps the desktop, the phone and the existing agent loop unchanged.
+
+    These are effect receipts. They describe something the board already did, so
+    a retry returns the recorded outcome whatever the epoch, and the words are
+    stored once. The one thing never answered from a receipt is a retry after
+    the lane changed hands: minting a fresh id for the same words is how a reply
+    gets written twice, so the caller keeps its id and is told the generation
+    moved. Callers hold _lock."""
+    session = q.one("session")
+    if session:
+        refusal = _holder_check(lane, session)
+        if refusal:
+            return (409, refusal), ""
+    op = q.one("op")
+    if not op:
+        return None, ""
+    if not _op_id_ok(op):
+        return (400, {"error": "bad operation id"}), ""
+    fp = _fingerprint(kind, bid, *parts)
+    found, rec = _op_lookup(op, fp)
+    if found == "mismatch":
+        return (409, {"error": "operation id reused with a different payload"}), fp
+    if found == "same":
+        bad = _replay_check(rec, lane, session, bid)
+        if bad:
+            return (409, bad), fp
+        return (200, {**rec["result"], "replayed": True}), fp
+    return None, fp
+
+
+def _card_commit(q: Query, fp: str, kind: str, lane: str, bid: str, result: dict) -> None:
+    """The commit half, written into the state the caller is about to save."""
+    if not fp:
+        return
+    session = q.one("session")
+    _op_commit(q.one("op"), fp, kind, bid, result,
+               _op_extra(lane, session) if session else None)
 
 
 def _post_reply(q: Query, text: str):
@@ -3660,6 +4148,9 @@ def _post_reply(q: Query, text: str):
         # in it. The newest message the claim covers is the one being
         # answered, so that one decides. Refused outright like the
         # context strip above, never silently chopped
+        outcome, fp = _card_receipt(q, "reply", ow, bid, ctx, "" if short is None else short, text)
+        if outcome is not None:
+            return outcome
         held = _state["claimed"][ow] if _state["busy"][ow] == bid else []
         answering = next((m for m in box["pending"] if m["mid"] == held[-1]), None) if held else None
         if answering is not None and answering.get("via") == "mini":
@@ -3717,6 +4208,7 @@ def _post_reply(q: Query, text: str):
              reply_variants_version=REPLY_VARIANTS_VERSION,
              reply_id=box["reply_id"], reply_ts=now,
              answered=box["answered"])
+        _card_commit(q, fp, "reply", ow, bid, {"ok": True, "box": bid})
         _save()
         _notify()
         return 200, {"ok": True}
@@ -3735,6 +4227,9 @@ def _post_note(q: Query, text: str):
         if ctx and len(ctx.split()) > 50:
             return 400, {"error": "context strip over 50 words"}
         ow = box.get("owner", "pastureland")
+        outcome, fp = _card_receipt(q, "note", ow, bid, ctx, text)
+        if outcome is not None:
+            return outcome
         _last_wait[ow] = time.time()  # a note proves that agent is alive too
         _set_reply_variants(box, text)
         box["replies"] += 1
@@ -3759,6 +4254,7 @@ def _post_note(q: Query, text: str):
         box["state"] = "note"
         _log("note", bid, text, reply_full=text, reply_short=text,
              reply_variants_version=REPLY_VARIANTS_VERSION)
+        _card_commit(q, fp, "note", ow, bid, {"ok": True, "box": bid})
         _save()
         _notify()
         return 200, {"ok": True}
@@ -4265,15 +4761,652 @@ def _post_progress(q: Query, text: str):  # interim note during a build: keeps
         ow = box.get("owner", "pastureland") if box else None
         if box is None or _state["busy"].get(ow) != bid:
             return 400, {"error": "not holding this box"}
+        outcome, fp = _card_receipt(q, "progress", ow, bid, text)
+        if outcome is not None:
+            return outcome
         _set_reply_variants(box, text)
         box["reply_kind"] = "progress"   # interim words, not a page of the history
         box["ts"] = time.time()
         _state["busy_ts"][ow] = time.time()   # resets the 15-min steal
         _log("progress", bid, text, reply_full=text, reply_short=text,
              reply_variants_version=REPLY_VARIANTS_VERSION)
+        _card_commit(q, fp, "progress", ow, bid, {"ok": True, "box": bid})
         _save()
         _notify()
         return 200, {"ok": True}
+
+
+
+# ---- the select-lane routes -----------------------------------------------------
+
+def _post_mode(q: Query, text: str):
+    # which way a lane is served. auto is today's behaviour, where the board
+    # picks the oldest card and hands it over; select is the queue the agent
+    # reads and chooses from. One flag, so a lane migrates on its own and a
+    # rollback is the same flag the other way
+    lane = q.one("owner", "pastureland")
+    if lane not in OWNERS:
+        return 400, {"error": "unknown owner"}
+    mode = q.one("mode", "auto")
+    if mode not in ("auto", "select"):
+        return 400, {"error": "mode is auto or select"}
+    with _lock:
+        before = _lane_mode(lane)
+        modes = _state.setdefault("lane_mode", {})
+        if mode == "auto":
+            modes.pop(lane, None)
+        else:
+            modes[lane] = "select"
+        if before != mode:
+            # whatever was half-done under the old mode is let go, and the card
+            # goes back to the front of its queue untouched
+            _release_lane_claim(lane, f"lane moved to {mode}")
+            _info("lanemode", lane=lane, mode=mode, was=before)
+            _save()
+            _notify()
+        return 200, {"ok": True, "lane": lane, "mode": mode}
+
+
+def _get_queue(q: Query, _):
+    # the listing the agent chooses from. Rows and counts, and no request text
+    # on any path through here: seeing a row is not opening a card
+    lane = q.one("owner", "pastureland")
+    if lane not in OWNERS:
+        return 400, {"error": "unknown owner"}
+    session = q.one("session")
+    include = {part for value in q.get("include", []) for part in value.split(",") if part}
+    try:
+        limit = int(q.one("limit", str(QUEUE_LIMIT)))
+    except ValueError:
+        return 400, {"error": "bad limit"}
+    limit = max(1, min(limit, QUEUE_LIMIT_MAX))
+    with _lock:
+        if session:
+            refusal = _holder_check(lane, session)
+            if refusal:
+                return 409, refusal
+        # the same two lazy clocks the board reading sweeps, so a listing never
+        # shows a card as held by a hand-off that has already come back
+        _release_unacked()
+        _sweep()
+        now = time.time()
+        rows = _lane_rows(lane, include, now)[:limit]
+        held = None
+        reserved = _state["busy"].get(lane)
+        if reserved:
+            res = _reservation(lane) or {}
+            ack = (_state.get("ack") or {}).get(lane) or {}
+            held = {"box": reserved, "reservation": res.get("id", ""),
+                    "since_s": round(now - _state["busy_ts"].get(lane, now), 1),
+                    "acknowledged": bool(ack.get("confirmed"))}
+        green = [{"box": b["id"], "state": b.get("state", ""),
+                  "job": next(iter(b.get("work", {})), ""), "task": b.get("task"),
+                  "hb_age_s": round(now - b.get("hb", 0), 1)}
+                 for b in _state["boxes"]
+                 if b.get("owner", "pastureland") == lane and _hb_live(b)]
+        return 200, *_snapshot({
+            "lane": lane, "mode": _lane_mode(lane), "epoch": _state.get("epoch", 0),
+            "generation": _generation(lane), "now": now,
+            "paused": bool(_state.get("paused")), "end": bool(_state.get("end")),
+            "holder": _holder_out(lane), "held": held, "cards": rows, "green": green,
+        })
+
+
+def _post_hold(q: Query, text: str):
+    # a connection saying which lane it is serving. Coordination and not
+    # protection: it catches two connections listening for one project by
+    # accident, and it is not a credential and is not authenticated
+    lane = q.one("owner", "pastureland")
+    if lane not in OWNERS:
+        return 400, {"error": "unknown owner"}
+    session = q.one("session")
+    if not session:
+        return 400, {"error": "session required"}
+    with _lock:
+        rec, refusal = _holder_touch(lane, session, q.one("agent"), q.one("machine"),
+                                     q.one("override") == "1")
+        if refusal:
+            return 409, refusal
+        _save()
+        return 200, {"ok": True, "lane": lane, "generation": rec["generation"],
+                     "epoch": _state.get("epoch", 0), "mode": _lane_mode(lane)}
+
+
+def _post_select(q: Query, text: str):
+    # the choice itself. The card is reserved through the very same claim the
+    # auto path mints, so the colour mask, the 90 second lease and the 15
+    # minute steal-back all apply to it unchanged. No message text comes back
+    lane = q.one("owner", "pastureland")
+    if lane not in OWNERS:
+        return 400, {"error": "unknown owner"}
+    session, bid, op, row = q.one("session"), q.one("box"), q.one("op"), q.one("row")
+    if not _op_id_ok(op):
+        return 400, {"error": "operation id required"}
+    if not row:
+        return 400, {"error": "row tag required"}
+    with _lock:
+        refusal = _holder_check(lane, session)
+        if refusal:
+            return 409, refusal
+        fp = _fingerprint("select", lane, bid, row)
+        found, rec = _op_lookup(op, fp)
+        if found == "mismatch":
+            return 409, {"error": "operation id reused with a different payload"}
+        if found == "same":
+            bad = _replay_check(rec, lane, session, bid)
+            if bad:
+                return 409, bad
+            live = _reservation(lane)
+            if (rec.get("epoch") == _state.get("epoch", 0) and live
+                    and live.get("id") == rec.get("object") and live.get("box") == bid):
+                return 200, {**rec["result"], "replayed": True}
+            # the place this receipt describes is gone. A fresh id for a fresh
+            # selection is the answer, which is why a replay cannot loop here
+            return 409, {"error": "reservation gone", "row": _row_of(bid)}
+        _release_unacked()
+        _sweep(persist=False)
+        box = _box(bid)
+        if box is None or box.get("owner", "pastureland") != lane:
+            # a card in another lane and a card that does not exist answer the
+            # same thing. This is routing validation, not protection
+            return 404, {"error": "not in this lane"}
+        if _state["busy"].get(lane) is not None:
+            return 409, {"error": "already reserved", "box": _state["busy"][lane]}
+        if not box["pending"]:
+            return 410, {"error": "nothing waiting"}
+        if row != _row_tag(box):
+            return 409, {"error": "row moved", "row": _queue_row(box, 0, None, time.time())}
+        now = time.time()
+        # fairness is advisory and audited: a selection that steps over a card
+        # which has waited longer than the steal window is written down, and
+        # nothing is refused on account of it
+        passed = [r["box"] for r in _lane_rows(lane, set(), now)
+                  if r["starved"] and r["box"] != bid]
+        if passed:
+            _info("passedover", bid, lane=lane, over=len(passed))
+            for other in passed:
+                skipped = _box(other)
+                if skipped is not None:
+                    skipped["passed_over"] = skipped.get("passed_over", 0) + 1
+        if bid in _state["inbox"]:
+            _state["inbox"].remove(bid)
+        _state["busy"][lane] = bid
+        _state["claimed"][lane] = [m["mid"] for m in box["pending"]]
+        # the hand-over is noted here, where the delivery is decided, exactly as
+        # the claim path notes it: the claim is minted whole and the note is
+        # written whole with it
+        _hand_over(box, box["pending"])
+        _state["busy_ts"][lane] = now
+        # every reservation is provisional, like every claim: this token is what
+        # the receipt has to name, and until it does the 90 second clock runs
+        token = secrets.token_hex(6)
+        _state["ack"][lane] = {"box": bid, "token": token, "ts": now, "confirmed": False}
+        res_id = _new_id("r")
+        _state.setdefault("reservations", {})[lane] = {
+            "id": res_id, "box": bid, "hold": token, "epoch": _state.get("epoch", 0),
+            "ts": now, "confirmed": False}
+        result = {"box": bid, "title": box["title"], "waiting": len(box["pending"]),
+                  "hold": token, "reservation": res_id, "epoch": _state.get("epoch", 0),
+                  "generation": _generation(lane),
+                  "queued_after": sum(1 for i in _state["inbox"]
+                                      if (_box(i) or {}).get("owner", "pastureland") == lane)}
+        _op_commit(op, fp, "select", bid, result, _op_extra(lane, session, res_id))
+        _debug("select", bid, owner=lane, token=bool(token))
+        _save()
+        _notify()
+        return 200, result
+
+
+def _post_open(q: Query, text: str):
+    # the messages, prepared as a delivery and recorded before they are sent.
+    # This confirms nothing: the reservation stays provisional and the 90
+    # second lease keeps running until the client says the body arrived
+    lane = q.one("owner", "pastureland")
+    if lane not in OWNERS:
+        return 400, {"error": "unknown owner"}
+    session, bid, op = q.one("session"), q.one("box"), q.one("op")
+    fresh_only = q.one("fresh") == "1"
+    if not _op_id_ok(op):
+        return 400, {"error": "operation id required"}
+    with _lock:
+        refusal = _holder_check(lane, session)
+        if refusal:
+            return 409, refusal
+        fp = _fingerprint("open", lane, bid, "1" if fresh_only else "0")
+        found, rec = _op_lookup(op, fp)
+        if found == "mismatch":
+            return 409, {"error": "operation id reused with a different payload"}
+        if found == "same":
+            bad = _replay_check(rec, lane, session, bid)
+            if bad:
+                return 409, bad
+            prepared = _state.get("deliveries", {}).get(rec.get("object") or "")
+            live = _reservation(lane)
+            body = _delivery_body(rec.get("object") or "")
+            if (rec.get("epoch") == _state.get("epoch", 0) and prepared and body
+                    and prepared.get("state") in ("prepared", "acked")
+                    and live and prepared.get("reservation") == live.get("id")):
+                return 200, *_snapshot({**body, "replayed": True})
+            # no abandoned body is ever handed back
+            return 409, {"error": "delivery gone", "row": _row_of(bid)}
+        box = _box(bid)
+        if box is None or box.get("owner", "pastureland") != lane:
+            return 404, {"error": "not in this lane"}
+        res = _reservation(lane)
+        if res is None or res.get("box") != bid or _state["busy"].get(lane) != bid:
+            return 409, {"error": "reservation gone", "row": _row_of(bid)}
+        if fresh_only:
+            # mid-work messages: whatever landed after the reservation, folded
+            # into the claim the way the legacy route folds them, so the one
+            # reply covers them and nothing arrives twice
+            have = set(_state["claimed"][lane])
+            messages = [m for m in box["pending"] if m["mid"] not in have]
+            if messages:
+                _state["claimed"][lane].extend(m["mid"] for m in messages)
+                _hand_over_more(box, messages)
+        else:
+            messages = list(box["pending"])
+        did = _new_id("d")
+        now = time.time()
+        _state.setdefault("deliveries", {})[did] = {
+            "box": bid, "lane": lane, "session": session, "generation": _generation(lane),
+            "epoch": _state.get("epoch", 0), "reservation": res.get("id"),
+            "mids": [m["mid"] for m in messages], "prepared_ts": now,
+            "acked_ts": 0, "route": "", "state": "prepared",
+        }
+        _prune_deliveries(lane)
+        box["delivery_attempts"] = box.get("delivery_attempts", 0) + 1
+        # the receipt names the delivery and the body is rebuilt from it, so the
+        # words are not written into a record that outlives the request by days
+        _op_commit(op, fp, "open", bid, {"box": bid, "delivery": did}, _op_extra(lane, session, did))
+        _debug("open", bid, owner=lane, messages=len(messages), fresh=fresh_only)
+        _save()
+        return 200, *_snapshot(_delivery_body(did))
+
+
+def _open_message(bid: str, m: dict) -> dict:
+    """One message of a delivery. role says who authored it on the board, which
+    is what the page already knows and what the native-input proposal would
+    need; it is not a claim about what role the text ends up carrying inside any
+    conversation. Attachments are named by a card-scoped URL rather than the
+    global one, because an agent on another machine cannot read the board's
+    uploads folder."""
+    return {
+        "mid": m.get("mid"), "text": m.get("text", ""), "ts": m.get("ts", 0),
+        "via": m.get("via"), "role": "human",
+        "read_before": bool(m.get("first_acked_ts")),
+        "first_acked_ts": m.get("first_acked_ts") or None,
+        "attachments": [
+            {"file": name,
+             "url": f"/attachment?owner={quote((_box(bid) or {}).get('owner', 'pastureland'))}"
+                    f"&box={quote(bid)}&file={quote(name)}"}
+            for name in sorted(unquote(hit) for hit in UPLOAD_REF.findall(m.get("text", "") or ""))
+        ],
+    }
+
+
+
+def _delivery_body(did: str) -> dict | None:
+    """One prepared delivery, rebuilt from its record and the card it names.
+
+    The body is assembled here rather than stored, so a replay of a lost open
+    answers the same words without the operation receipt holding a second copy
+    of them. That matters because a receipt outlives the request by days, the
+    board already keeps what was said in the card and the transcript, and the
+    module's own rule is that a receipt carries a digest and never the words.
+    None when the delivery or its card is gone, which the caller reads as a
+    conflict rather than as an empty delivery."""
+    rec = _state.get("deliveries", {}).get(did)
+    box = _box((rec or {}).get("box", "")) if rec else None
+    if rec is None or box is None:
+        return None
+    by_mid = {m.get("mid"): m for m in box["pending"]}
+    return {
+        "box": rec["box"], "delivery": did, "reservation": rec.get("reservation"),
+        "epoch": rec.get("epoch"), "prepared_ts": rec.get("prepared_ts"),
+        "messages": [_open_message(rec["box"], by_mid[mid])
+                     for mid in (rec.get("mids") or []) if mid in by_mid],
+    }
+
+
+def _post_opened(q: Query, text: str):
+    # the one honest record of access: the client says a complete body arrived,
+    # and names the route that carried it. tool means it came back as the result
+    # of the agent's own command. user-input means a provider interface accepted
+    # a submission into the conversation. Neither is evidence that the model
+    # attended to it, and no field here says otherwise
+    lane = q.one("owner", "pastureland")
+    if lane not in OWNERS:
+        return 400, {"error": "unknown owner"}
+    session, did, op = q.one("session"), q.one("delivery"), q.one("op")
+    route = q.one("route", "tool")
+    if not _op_id_ok(op):
+        return 400, {"error": "operation id required"}
+    if route not in ("tool", "user-input"):
+        return 400, {"error": "route is tool or user-input"}
+    with _lock:
+        refusal = _holder_check(lane, session)
+        if refusal:
+            return 409, refusal
+        rec_d = _state.get("deliveries", {}).get(did)
+        bid = (rec_d or {}).get("box", "")
+        fp = _fingerprint("opened", lane, did, route)
+        found, rec = _op_lookup(op, fp)
+        if found == "mismatch":
+            return 409, {"error": "operation id reused with a different payload"}
+        if found == "same":
+            bad = _replay_check(rec, lane, session, bid)
+            if bad:
+                return 409, bad
+            return 200, {**rec["result"], "replayed": True}
+        if rec_d is None or rec_d.get("lane") != lane:
+            return 404, {"error": "not in this lane"}
+        if rec_d.get("state") == "acked":
+            # a repeat for a body already acknowledged answers the recorded
+            # fact and creates no claim. The epoch is reported when it has
+            # moved, because a card acknowledged before a restart is a
+            # different situation from one acknowledged just now
+            return 200, {"ok": True, "delivery": did, "acked_ts": rec_d.get("acked_ts", 0),
+                         "route": rec_d.get("route", ""), "already": True,
+                         "stale_epoch": rec_d.get("epoch") != _state.get("epoch", 0)}
+        if rec_d.get("state") != "prepared":
+            # prepared and then thrown away. The attempt is recorded and no
+            # access fact is written, because none happened
+            rec_d["late_receipts"] = rec_d.get("late_receipts", 0) + 1
+            _save()
+            return 409, {"error": "delivery is stale", "row": _row_of(bid)}
+        live = _reservation(lane)
+        if (live is None or live.get("id") != rec_d.get("reservation")
+                or _state["busy"].get(lane) != bid):
+            rec_d["state"] = "abandoned"
+            rec_d["why"] = "reservation moved on"
+            _save()
+            return 409, {"error": "delivery is stale", "row": _row_of(bid)}
+        now = time.time()
+        rec_d["state"] = "acked"
+        rec_d["acked_ts"] = now
+        rec_d["route"] = route
+        if q.one("evidence"):
+            # whatever the provider said about accepting the submission, kept
+            # short and kept as the client's word rather than as the board's
+            rec_d["evidence"] = q.one("evidence")[:200]
+        # the claim becomes real, exactly as the legacy receipt makes it real
+        ack = (_state.get("ack") or {}).get(lane)
+        if ack and ack.get("box") == bid:
+            ack["confirmed"] = True
+        live["confirmed"] = True
+        box = _box(bid)
+        carried = set(rec_d.get("mids") or [])
+        for m in (box or {}).get("pending", []):
+            if m.get("mid") in carried:
+                m.setdefault("first_acked_ts", now)
+                m["last_acked_ts"] = now
+        result = {"ok": True, "delivery": did, "acked_ts": now, "route": route}
+        _op_commit(op, fp, "opened", bid, result, _op_extra(lane, session, did))
+        _info("opened", bid, lane=lane, route=route, messages=len(carried))
+        _save()
+        return 200, result
+
+
+def _post_release(q: Query, text: str):
+    # giving the card back. It returns to the FRONT of its lane's queue, which
+    # is the move the unconfirmed lease already makes, and anything prepared
+    # under it is abandoned
+    lane = q.one("owner", "pastureland")
+    if lane not in OWNERS:
+        return 400, {"error": "unknown owner"}
+    session, bid, op = q.one("session"), q.one("box"), q.one("op")
+    if not _op_id_ok(op):
+        return 400, {"error": "operation id required"}
+    with _lock:
+        refusal = _holder_check(lane, session)
+        if refusal:
+            return 409, refusal
+        fp = _fingerprint("release", lane, bid, q.one("reason"))
+        found, rec = _op_lookup(op, fp)
+        if found == "mismatch":
+            return 409, {"error": "operation id reused with a different payload"}
+        if found == "same":
+            bad = _replay_check(rec, lane, session, bid)
+            if bad:
+                return 409, bad
+            # an effect receipt replays its own success although the
+            # reservation it removed is gone. That is the point of the receipt,
+            # not an exception to it
+            return 200, {**rec["result"], "replayed": True}
+        box = _box(bid)
+        if box is None or box.get("owner", "pastureland") != lane:
+            return 404, {"error": "not in this lane"}
+        if _state["busy"].get(lane) != bid:
+            return 409, {"error": "reservation gone", "row": _row_of(bid)}
+        box["passed_over"] = box.get("passed_over", 0) + 1
+        _release_lane_claim(lane, "released by the agent")
+        result = {"ok": True, "box": bid}
+        _op_commit(op, fp, "release", bid, result, _op_extra(lane, session, ""))
+        _info("release", bid, lane=lane, reason=q.one("reason")[:64])
+        _save()
+        _notify()
+        return 200, result
+
+
+
+# ---- telling a lane that work is waiting ----------------------------------------
+# One line with counts and no card text, handed to an adapter by the connection.
+# The notice is created pending before any hand-off, the adapter runs, and only
+# then is the outcome written down with the adapter's name and what that adapter
+# could actually observe. No exactly-once claim is made about any provider path:
+# a repeated notice may produce a repeated line, the id lets the agent see that
+# it is a repeat, and the queue stays the source of truth, so a duplicate costs
+# one redundant look.
+
+def _notify_queued(lane: str) -> tuple:
+    """What is waiting for this lane, not counting the card it already holds.
+    Messages landing on a held card raise no notice: they are reachable by
+    opening with fresh=1, and a notice for them would say work is waiting when
+    the agent is already holding it."""
+    held = _state["busy"].get(lane)
+    cards = queued = 0
+    oldest = 0.0
+    for b in _state["boxes"]:
+        if b.get("owner", "pastureland") != lane or b["id"] == held:
+            continue
+        if b["done"] or b.get("parked", False) or not b["pending"]:
+            continue
+        cards += 1
+        queued += len(b["pending"])
+        for m in b["pending"]:
+            if not oldest or m.get("ts", 0) < oldest:
+                oldest = m.get("ts", 0)
+    return cards, queued, oldest
+
+
+def _notice_for(lane: str, cards: int, queued: int, cursor: str) -> tuple:
+    """The notice to answer with, or (None, False) when this lane has already
+    been told and it is not yet time to tell it again. Callers hold _lock."""
+    notices = _state.setdefault("notices", {}).setdefault(lane, [])
+    last = notices[-1] if notices else None
+    now = time.time()
+    seen = int(cursor[2:]) if cursor.startswith("c-") and cursor[2:].isdigit() else 0
+    if last and last.get("seq", 0) > seen:
+        # minted while this connection was away. It gets the same notice back
+        # rather than a second one for the same work
+        return last, False
+    if last and last.get("queued") == queued and now - last.get("ts", 0) < NOTIFY_REPEAT:
+        return None, False
+    seq = _state.get("notice_seq", 0) + 1
+    _state["notice_seq"] = seq
+    notice = {"id": _new_id("n"), "seq": seq, "ts": now, "queued": queued, "cards": cards,
+              "state": "pending", "adapter": "", "outcome": "", "outcome_ts": 0}
+    notices.append(notice)
+    del notices[:-NOTICE_KEEP]
+    return notice, bool(last and last.get("queued") == queued)
+
+
+def _notify_poll(lane: str, session: str, cursor: str):
+    """One pass for a waiting connection: the clocks, then the counts. Answers
+    (kind, payload) or None when there is nothing to say yet. It claims nothing
+    and returns no text."""
+    with _lock:
+        if _state.get("paused"):
+            return "paused", {"paused": True}
+        _release_unacked()
+        _sweep()
+        if session:
+            rec = _holder(lane)
+            if rec is None or rec.get("session") != session:
+                return "held", {"error": "lane already held",
+                                "agent": (rec or {}).get("agent", ""),
+                                "machine": (rec or {}).get("machine", ""),
+                                "idle_s": round(max(0.0, time.time() - (rec or {}).get("last_seen", 0)), 1)}
+            rec["last_seen"] = time.time()
+        cards, queued, oldest = _notify_queued(lane)
+        if cards:
+            notice, repeat = _notice_for(lane, cards, queued, cursor)
+            if notice is not None:
+                _save()
+                return "work", {"queued": queued, "cards": cards,
+                                "oldest_wait_s": round(time.time() - oldest, 1) if oldest else 0,
+                                "notice": notice["id"], "repeat": repeat,
+                                "cursor": f"c-{notice['seq']}"}
+        if _state["end"] and not cards and _state["busy"].get(lane) is None:
+            return "end", {"end": True}
+        return None
+
+
+def _post_notified(q: Query, text: str):
+    # what the adapter could observe, recorded after it returned. Never before,
+    # and never as a claim that the conversation displayed anything
+    lane = q.one("owner", "pastureland")
+    if lane not in OWNERS:
+        return 400, {"error": "unknown owner"}
+    session, nid, op = q.one("session"), q.one("notice"), q.one("op")
+    adapter, outcome = q.one("adapter")[:40], q.one("outcome")
+    if not _op_id_ok(op):
+        return 400, {"error": "operation id required"}
+    if outcome not in ("accepted", "refused", "error"):
+        return 400, {"error": "outcome is accepted, refused or error"}
+    with _lock:
+        refusal = _holder_check(lane, session)
+        if refusal:
+            return 409, refusal
+        fp = _fingerprint("notified", lane, nid, adapter, outcome)
+        found, rec = _op_lookup(op, fp)
+        if found == "mismatch":
+            return 409, {"error": "operation id reused with a different payload"}
+        if found == "same":
+            bad = _replay_check(rec, lane, session, "")
+            if bad:
+                return 409, bad
+            return 200, {**rec["result"], "replayed": True}
+        notice = next((n for n in _state.get("notices", {}).get(lane, []) if n.get("id") == nid), None)
+        if notice is None:
+            return 404, {"error": "unknown notice"}
+        notice["state"] = "closed"
+        notice["adapter"] = adapter
+        notice["outcome"] = outcome
+        notice["outcome_ts"] = time.time()
+        if q.one("detail"):
+            notice["detail"] = q.one("detail")[:120]
+        result = {"ok": True, "notice": nid, "outcome": outcome}
+        _op_commit(op, fp, "notified", "", result, _op_extra(lane, session, nid))
+        _info("notified", lane=lane, adapter=adapter, outcome=outcome)
+        _save()
+        return 200, result
+
+
+# ---- work registered against a card ---------------------------------------------
+# The board already has the heartbeat and already expires green after 75
+# seconds. This is a thin record over it rather than a new mechanism: which jobs
+# are behind a card's green, so the connection can say which one it is watching
+# and so ending one job cannot take another one's green away. The connection
+# owns the heartbeat from the job's own lifetime; no path here asks the model to
+# send one. An indicator means a registered job is alive. It is not evidence
+# that the job is making useful progress, and nothing here says it is.
+
+def _work_call(q: Query, ending: bool):
+    lane = q.one("owner", "pastureland")
+    if lane not in OWNERS:
+        return 400, {"error": "unknown owner"}
+    session, bid, op, job = q.one("session"), q.one("box"), q.one("op"), q.one("job")
+    if not _op_id_ok(op):
+        return 400, {"error": "operation id required"}
+    if not job:
+        return 400, {"error": "job required"}
+    with _lock:
+        refusal = _holder_check(lane, session)
+        if refusal:
+            return 409, refusal
+        fp = _fingerprint("work-end" if ending else "work-start", lane, bid, job, q.one("task"))
+        found, rec = _op_lookup(op, fp)
+        if found == "mismatch":
+            return 409, {"error": "operation id reused with a different payload"}
+        if found == "same":
+            bad = _replay_check(rec, lane, session, bid)
+            if bad:
+                return 409, bad
+            return 200, {**rec["result"], "replayed": True}
+        box = _box(bid)
+        if box is None or box.get("owner", "pastureland") != lane:
+            return 404, {"error": "not in this lane"}
+        work = box.setdefault("work", {})
+        if ending:
+            work.pop(job, None)
+            if not work:
+                # the last job behind this card is over, so the flag goes down
+                # and a turn deferred under it is handed over at once. The sweep
+                # rides on this route's own save
+                box["hb"] = 0
+                _sweep(persist=False)
+            _info("workend", bid, lane=lane, job=job, left=len(work))
+        else:
+            # a repeat start for the same job changes nothing about the record
+            work.setdefault(job, {"task": q.one("task") or box.get("task"),
+                                  "session": session, "started": time.time()})
+            box["hb"] = time.time()
+            _green(box)
+            _info("workstart", bid, lane=lane, job=job, jobs=len(work))
+        result = {"ok": True, "box": bid, "job": job, "jobs": sorted(work)}
+        _op_commit(op, fp, "work-end" if ending else "work-start", bid, result,
+                   _op_extra(lane, session, job))
+        _save()
+        _notify()
+        return 200, result
+
+
+def _post_work_start(q: Query, text: str):
+    return _work_call(q, ending=False)
+
+
+def _post_work_end(q: Query, text: str):
+    return _work_call(q, ending=True)
+
+
+def _get_attachment(q: Query, _):
+    # an attachment named by the card it belongs to, under the current upload
+    # type and size rules. An agent on another machine cannot read the board's
+    # uploads folder, and the global uploads route has no card association at
+    # all, so this is how a delivery's images and documents are actually fetched
+    lane = q.one("owner", "pastureland")
+    if lane not in OWNERS:
+        return 400, {"error": "unknown owner"}
+    bid, fname = q.one("box"), q.one("file")
+    if not fname or "/" in fname or "\\" in fname or fname in (".", ".."):
+        return 404, {"error": "not found"}
+    with _lock:
+        # a file that maps to no card, or to a card in another lane, is a 404,
+        # the same answer a card that does not exist gets
+        if not _upload_card(lane, bid, fname):
+            return 404, {"error": "not found"}
+    for base in (INTERNAL_UPLOADS, HERE / "uploads"):
+        p = base / fname
+        if p.is_file() and p.resolve().parent == base.resolve() and p.suffix.lower() in UPLOAD_TYPES:
+            disposition = "attachment" if q.one("download") == "1" or p.suffix.lower() in (".doc", ".docx") else "inline"
+            return FileResponse(p, media_type=UPLOAD_TYPES[p.suffix.lower()],
+                                filename=re.sub(r"^\d{13,19}-", "", fname),
+                                content_disposition_type=disposition,
+                                headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+                                         "Content-Security-Policy": "sandbox"})
+    return 404, {"error": "not found"}
 
 
 def _post_dismiss(q: Query, text: str):  # drop a box's queued messages, unanswered
@@ -4290,6 +5423,7 @@ def _post_dismiss(q: Query, text: str):  # drop a box's queued messages, unanswe
         if _state["busy"].get(ow) == bid:
             _state["busy"][ow] = None
             _state["claimed"][ow] = []
+            _drop_reservation(ow, "card dismissed")
         # a beating flag keeps its green through a dismissal; anything
         # else lands where the card rests, an unanswered reply beneath
         # the dropped queue showing again
@@ -4686,6 +5820,100 @@ class WaitRoute:
             _waits_open -= 1
 
 
+def _notify_hold(lane: str, session: str, agent: str, machine: str, override: bool):
+    """Take or renew this lane's holder record for a connection about to wait.
+    None when the caller holds the lane afterwards, the refusal otherwise."""
+    with _lock:
+        _rec, refusal = _holder_touch(lane, session, agent, machine, override)
+        if refusal:
+            return refusal
+        _save()
+        return None
+
+
+class NotifyRoute:
+    """The connection's long poll. It waits the way the claim poll waits, on the
+    loop, woken by every change to the board and by the peer hanging up, and it
+    answers counts rather than a card. Nothing is claimed here and no card text
+    is returned, so there is no hand-off to undo and none of the rollback the
+    claim poll needs. It registers listener presence exactly as the claim poll
+    does, which is what keeps the board rows and the status command telling the
+    truth about which lanes have somebody listening."""
+
+    async def __call__(self, scope, receive, send) -> None:
+        global _waits_open
+        q = _query(scope)
+        route = q.path
+        try:
+            timeout = float(q.one("timeout", "570"))
+        except ValueError:
+            await _answer(400, {"error": "bad timeout"}, route=route)(scope, receive, send)
+            return
+        lane = q.one("owner", "pastureland")
+        if lane not in OWNERS:
+            await _answer(400, {"error": "unknown owner"}, route=route)(scope, receive, send)
+            return
+        session, cursor = q.one("session"), q.one("cursor")
+        agent = q.one("agent") or None
+        if _waits_open >= WAIT_SLOTS:
+            _overload("waits", route)
+            await _plain(503, {"error": "too many listeners waiting"}, retry_after=5)(scope, receive, send)
+            return
+        _waits_open += 1
+        gone = asyncio.Event()
+        watcher = asyncio.ensure_future(_watch_disconnect(receive, gone))
+        try:
+            if session:
+                try:
+                    held = await run_in_threadpool(_run_state_request, _notify_hold, lane, session,
+                                                   agent or "", q.one("machine"),
+                                                   q.one("override") == "1")
+                except SaveFailed:
+                    await _answer(500, {"error": "the board could not save its state"},
+                                  route=route)(scope, receive, send)
+                    return
+                if held is not None:
+                    # a second connection for one lane is told who holds it and
+                    # how long since that one was heard from, and exits
+                    await _answer(409, held, route=route)(scope, receive, send)
+                    return
+            try:
+                await run_in_threadpool(_run_state_request, _wait_enter, lane, agent)
+            except SaveFailed:
+                await _answer(500, {"error": "the board could not save its state"},
+                              route=route)(scope, receive, send)
+                return
+            try:
+                deadline = time.monotonic() + min(timeout, 590)
+                while True:
+                    if gone.is_set():
+                        return   # nobody is listening any more
+                    seen = _change_version
+                    try:
+                        outcome = await run_in_threadpool(_run_state_request, _notify_poll,
+                                                          lane, session, cursor)
+                    except SaveFailed:
+                        await _send_response(_answer(500, {"error": "the board could not save its state"},
+                                                     route=route), scope, receive, send)
+                        return
+                    if outcome is not None:
+                        kind, payload = outcome
+                        await _send_response(
+                            _answer(409 if kind == "held" else 200, payload, route=route),
+                            scope, receive, send)
+                        return
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0 or _STOPPING.is_set():
+                        await _send_response(_answer(200, {"idle": True}, route=route), scope, receive, send)
+                        return
+                    await _changed(seen, min(remaining, 5), gone)
+            finally:
+                await run_in_threadpool(_wait_leave, lane)
+        finally:
+            watcher.cancel()
+            _waits_open -= 1
+
+
 # -- what the board does when too many ask at once ---------------------------------
 # The fences, from the outside in, and what each one truly bounds.
 #
@@ -4719,7 +5947,7 @@ _last_overload: dict = {}
 # read routes, the ones that share READ_SLOTS: every GET except the small
 # answers that a command loop or a waking phone depends on
 UNCOUNTED_GETS = frozenset({"/unread", "/op", "/fresh", "/wait", "/push/key", "/worktrees",
-                            "/dirs", "/pickdir"})
+                            "/dirs", "/pickdir", "/notify", "/queue"})
 
 
 def _overload(which: str, route: str) -> None:
@@ -4885,6 +6113,11 @@ ROUTES = [
     Route("/worktrees", _endpoint(_get_worktrees), methods=["GET"]),
     Route("/unread", _endpoint(_get_unread), methods=["GET"]),
     Route("/wait", WaitRoute(), methods=["GET"]),
+    # the queue a lane reads and chooses from. Additive throughout: an auto lane
+    # never reaches any of them and behaves exactly as it always has
+    Route("/notify", NotifyRoute(), methods=["GET"]),
+    Route("/queue", _state_endpoint(_get_queue), methods=["GET"]),
+    Route("/attachment", _endpoint(_get_attachment), methods=["GET"]),
     Route("/fresh", _state_endpoint(_get_fresh), methods=["GET"]),
     Route("/thread", _endpoint(_get_thread), methods=["GET"]),
     Route("/history", _endpoint(_get_history), methods=["GET"]),
@@ -4941,6 +6174,15 @@ ROUTES = [
     Route("/push/subscribe", _state_endpoint(_post_push_subscribe, "text"), methods=["POST"]),
     Route("/tabs", _state_endpoint(_post_tabs, "text"), methods=["POST"]),
     Route("/seen", _state_endpoint(_post_seen, "text"), methods=["POST"]),
+    Route("/mode", _state_endpoint(_post_mode, "text"), methods=["POST"]),
+    Route("/hold", _state_endpoint(_post_hold, "text"), methods=["POST"]),
+    Route("/select", _state_endpoint(_post_select, "text"), methods=["POST"]),
+    Route("/open", _state_endpoint(_post_open, "text"), methods=["POST"]),
+    Route("/opened", _state_endpoint(_post_opened, "text"), methods=["POST"]),
+    Route("/release", _state_endpoint(_post_release, "text"), methods=["POST"]),
+    Route("/notified", _state_endpoint(_post_notified, "text"), methods=["POST"]),
+    Route("/work/start", _state_endpoint(_post_work_start, "text"), methods=["POST"]),
+    Route("/work/end", _state_endpoint(_post_work_end, "text"), methods=["POST"]),
     Route("/pause", _state_endpoint(_post_pause, "text"), methods=["POST"]),
     Route("/end", _state_endpoint(_post_end, "text"), methods=["POST"]),
 ]
@@ -5164,6 +6406,19 @@ def main() -> None:
             _state["busy"] = {ow: None for ow in OWNERS}  # a restart never resumes mid-claim
             _state["claimed"] = {ow: [] for ow in OWNERS}
             _state["ack"] = {ow: None for ow in OWNERS}   # and no token outlives it
+            # the epoch rises at every start, and it is what separates the
+            # things a restart legitimately destroys from the things it does
+            # not. Reservations go with the claims they are the other half of,
+            # and prepared deliveries are abandoned rather than forgotten, so a
+            # receipt arriving for one afterwards is refused and told why. The
+            # holder record is deliberately kept: who was serving a lane
+            # survives a restart, and only the queue positions do not
+            _state["epoch"] = _state.get("epoch", 0) + 1
+            _state["reservations"] = {}
+            for record in _state.setdefault("deliveries", {}).values():
+                if record.get("state") == "prepared":
+                    record["state"] = "abandoned"
+                    record["why"] = "board restarted"
             # re-queue any box that still has unanswered messages
             for b in _state["boxes"]:
                 if b["pending"] and b["id"] not in _state["inbox"]:
