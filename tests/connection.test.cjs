@@ -11,6 +11,7 @@ const { spawn, execFile } = require("node:child_process");
 const { once } = require("node:events");
 const { createServer } = require("node:http");
 const { mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("node:fs/promises");
+const { existsSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 
@@ -522,4 +523,60 @@ test("a process that cannot be read is not accepted as something to watch", asyn
   } finally {
     await link.stop();
   }
+});
+
+test("a duration that is not a finite positive number is refused before anything is registered", async () => {
+  for (const bad of ["nan", "inf", "-inf", "0", "-5", "soon"]) {
+    // --for=VALUE rather than --for VALUE, so a negative number reaches the
+    // parser's own check instead of being read as another option
+    const tried = await connect(["work", "start", "m5", "--job", `j-${bad}`, `--for=${bad}`]);
+    assert.notEqual(tried.code, 0, `--for ${bad} was accepted`);
+    assert.match(tried.stderr, /duration|number of seconds/);
+  }
+  // and none of them left a registration behind
+  const card = (await api("/state")).body.boxes.find(b => b.id === "m5");
+  assert.deepEqual((card.work || []).filter(j => j.startsWith("j-")), [],
+                   "a refused duration still registered a job");
+});
+
+test("an ended lane stops the link instead of polling on an answer that returns at once", async () => {
+  const held = (await api(`/queue?owner=${LANE}`)).body.held;
+  if (held) await connect(["release", held.box]);
+  // drain the lane, then end the board: the ended answer comes back with no
+  // wait at all, so a link that treated it as idle would spin
+  for (const id of ["m5", "m6"]) await post(`/dismiss?box=${id}`);
+  assert.equal((await post("/end?v=1")).status, 200);
+  const link = startLink();
+  try {
+    const until = Date.now() + 20000;
+    while (link.child.exitCode === null && Date.now() < until) await sleep(100);
+    assert.equal(link.child.exitCode, 0, `the link did not stop on an ended lane:\n${link.out}`);
+    assert.match(link.out, /has ended; the link is stopping/);
+    // and it put down what it picked up, so the next link starts clean
+    assert.equal(existsSync(path.join("/tmp", `facilitator-connect-${process.getuid()}`)) , true);
+  } finally {
+    await link.stop();
+    await post("/end?v=0");
+  }
+});
+
+test("a work record carrying no start identity is not treated as alive", async () => {
+  // registration refuses to write one now, but a record from before that rule
+  // can still be reconciled, and reading it as alive is how a reused number
+  // would keep an unrelated card green
+  const probe = `
+source = open(${JSON.stringify(CONNECT)}).read()
+module = {"__name__": "probe", "__file__": ${JSON.stringify(CONNECT)}}
+exec(compile(source, ${JSON.stringify(CONNECT)}, "exec"), module)
+import os
+print(module["alive"](os.getpid(), ""))
+print(module["alive"](os.getpid(), module["started_at"](os.getpid())))
+`;
+  const answered = await new Promise(resolve => {
+    execFile("python3", ["-c", probe], { timeout: 20000 },
+             (error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr }));
+  });
+  assert.equal(answered.code, 0, answered.stderr);
+  assert.deepEqual(answered.stdout.trim().split("\n"), ["False", "True"],
+                   "a record with no start identity was read as alive");
 });

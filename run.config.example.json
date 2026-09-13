@@ -22,7 +22,8 @@
       "adapter": {
         "name": "codex-queue",
         "thread": "my-invented-session-name",
-        "_note": "the command takes a session id or exact name and has been seen to deliver into a running session through an explicitly named endpoint; the ordinary assigned-session route and the desktop were not exercised, so a success here means the command reported success and no more"
+        "_note": "the command takes a session id or exact name. The one delivery anybody has seen went through an explicitly named endpoint, which is what remote is for; leave remote out and it goes to whatever daemon is running by default, and that route has not been exercised. remote is the provider's address and has nothing to do with board",
+        "remote": "unix:///path/to/an/invented/app-server.sock"
       },
       "board": "http://192.0.2.7:8877"
     }
@@ -32,7 +33,7 @@
   "_adapters": {
     "_note": "one line in, one line out, exit zero on acceptance. The line carries counts and never card text, and no adapter here uses MCP",
     "monitor": "write the line to the connection's own stream",
-    "codex-queue": "codex queue --thread <thread>, needs thread",
+    "codex-queue": "codex queue --thread <thread>, needs thread; optional remote names a provider endpoint explicitly, which is the only arrangement seen to deliver",
     "terminal": "type the line into a named terminal session, needs tmux; works today, fragile, fallback only",
     "owner-alert": "say the lane cannot be reached and leave the card waiting on the board; for a surface with no supported route",
     "none": "no adapter for this lane"
