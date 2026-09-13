@@ -10,7 +10,7 @@
       "prompt": "You are the facilitator agent. Read RUNBOOK.md in this directory, then run the listen loop with owner=facilitator and answer box claims per the doctrine. The server is already running; never start a second one.",
       "adapter": {
         "name": "monitor",
-        "_note": "the one route that was observed working: the conversation starts a monitor on its connection's stream and receives each line as it arrives"
+        "_note": "documented: a conversation starts a monitor on its connection's stream and receives each line as it arrives. Writing the line is what this can observe; nothing here proved a session reading it, or what it does while idle"
       }
     },
     {
@@ -22,7 +22,7 @@
       "adapter": {
         "name": "codex-queue",
         "thread": "my-invented-session-name",
-        "_note": "the command exists and takes a session id or exact name; whether the named session then begins a turn was not observed here, so a success from it means the command reported success and no more"
+        "_note": "the command takes a session id or exact name and has been seen to deliver into a running session through an explicitly named endpoint; the ordinary assigned-session route and the desktop were not exercised, so a success here means the command reported success and no more"
       },
       "board": "http://192.0.2.7:8877"
     }

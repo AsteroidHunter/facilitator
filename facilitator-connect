@@ -54,6 +54,8 @@ unresolved receipt that needs a person.
 """
 
 import argparse
+import contextlib
+import fcntl
 import hashlib
 import json
 import os
@@ -88,6 +90,7 @@ RECEIPTED = frozenset({"select", "open", "opened", "release", "reply", "note",
 POSITION = frozenset({"select", "open"})
 
 HEARTBEAT = 25.0          # seconds between beats for a card with a live job
+WORK_BOUND = 900.0        # how long a job with no watchable process stays registered
 BACKOFF_MAX = 60.0
 NOTIFY_BACKOFF_MAX = 300.0   # how long an adapter that keeps refusing is left alone
 POLL_TIMEOUT = 570
@@ -132,6 +135,8 @@ class Local:
         self.dir.mkdir(parents=True, exist_ok=True)
         self.lane = lane
         self.outbox_path = self.dir / "outbox.jsonl"
+        self.guard = self.dir / "outbox.lock"
+        self.thread_lock = threading.Lock()
         self.session = self._session()
 
     def _session(self) -> str:
@@ -163,39 +168,51 @@ class Local:
         return out
 
     def _write(self, entries: list) -> None:
-        tmp = self.outbox_path.with_suffix(".tmp")
-        tmp.write_text("".join(json.dumps(e) + "\n" for e in entries))
-        tmp.replace(self.outbox_path)
+        # a temp name of its own, so two writers cannot land on one another's
+        # half-written file, and a rename so a reader never sees a partial one
+        tmp = self.outbox_path.with_suffix(f".tmp-{os.getpid()}-{secrets.token_hex(3)}")
+        try:
+            tmp.write_text("".join(json.dumps(e) + "\n" for e in entries))
+            tmp.replace(self.outbox_path)
+        finally:
+            if tmp.exists():
+                tmp.unlink()
+
+    @contextlib.contextmanager
+    def held(self):
+        """The outbox under an exclusive lock for the whole of a read, a change
+        and a write.
+
+        An atomic rename makes each write whole; it does not make a read, a
+        change and a write one thing. Two of those interleaving is how an intent
+        gets lost: both read the same list, both write their own, and the second
+        rename throws the first entry away. The commands, the link's poll and
+        its work sweep all touch this, from separate processes as well as
+        separate threads, so the lock is a file lock rather than a thread one."""
+        self.guard.parent.mkdir(parents=True, exist_ok=True)
+        with self.thread_lock, open(self.guard, "a+") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     def mint(self, kind: str, route: str, query: dict, body: str = "") -> dict:
         """An operation id, written down before the first send. A retry of the
         same intent reuses the entry rather than minting a second id, which is
         the whole point: a new id for the same words is how a reply lands
         twice."""
-        entries = self.entries()
         entry = {"op": kind[:12] + "-" + secrets.token_hex(6), "kind": kind, "route": route,
                  "query": query, "body": body, "ts": time.time()}
-        entries.append(entry)
-        self._write(entries)
+        with self.held():
+            entries = self.entries()
+            entries.append(entry)
+            self._write(entries)
         return entry
 
     def settle(self, op: str) -> None:
-        self._write([e for e in self.entries() if e.get("op") != op])
-
-    def reissue(self, op: str) -> dict | None:
-        """Replace a position receipt's id with a fresh one, for the one case
-        where that is correct: the place it described is gone and the caller is
-        making a fresh choice. Never done for an effect."""
-        entries = self.entries()
-        for entry in entries:
-            if entry.get("op") == op:
-                if entry.get("kind") not in POSITION:
-                    return None
-                entry["op"] = entry["kind"][:12] + "-" + secrets.token_hex(6)
-                entry["ts"] = time.time()
-                self._write(entries)
-                return entry
-        return None
+        with self.held():
+            self._write([e for e in self.entries() if e.get("op") != op])
 
 
 # ---- the board -------------------------------------------------------------------
@@ -350,12 +367,28 @@ class Work:
         tmp.write_text(json.dumps(jobs, indent=1))
         tmp.replace(self.path)
 
-    def add(self, box: str, job: str, pid: int = 0, task: str = "") -> None:
+    def add(self, box: str, job: str, pid: int = 0, task: str = "", bound: float = 0) -> str:
+        """Register a job. Answers "" when it took, or why it did not.
+
+        Every registration has a lifetime this connection can actually observe.
+        With a process it is that process, identified by its number and its
+        start time together. Without one it is an explicit bound, after which
+        the job ends whether or not anybody said so. What is refused is a
+        registration with neither, because a card green on nothing observable is
+        the failure the shell pinger already had."""
+        started = started_at(pid) if pid else ""
+        if pid and not started:
+            # a number whose process cannot be read is not an identity, and
+            # treating a blank start time as matching anything would let a
+            # later process with the same number keep this card green
+            return f"process {pid} cannot be read, so it cannot be watched"
         with self.lock:
             jobs = self.read()
-            jobs[job] = {"box": box, "pid": pid, "started": started_at(pid) if pid else "",
-                         "task": task, "session": self.local.session}
+            jobs[job] = {"box": box, "pid": pid, "started": started, "task": task,
+                         "session": self.local.session,
+                         "until": 0 if pid else time.time() + (bound or WORK_BOUND)}
             self.write(jobs)
+        return ""
 
     def drop(self, job: str) -> None:
         with self.lock:
@@ -369,12 +402,16 @@ class Work:
         no path asks the model to send a heartbeat."""
         with self.lock:
             jobs = self.read()
-        beating, gone = set(), []
+        beating, gone, now = set(), [], time.time()
         for job, rec in jobs.items():
-            if rec.get("pid") and not alive(rec["pid"], rec.get("started", "")):
-                gone.append((job, rec))
+            if rec.get("pid"):
+                ended = not alive(rec["pid"], rec.get("started", ""))
             else:
-                beating.add(rec.get("box", ""))
+                # a bounded registration, and the bound is the whole of what
+                # keeps it honest: nothing here can see the work, so the card
+                # goes grey when the time the caller asked for is up
+                ended = now >= rec.get("until", 0)
+            (gone.append((job, rec)) if ended else beating.add(rec.get("box", "")))
         for box in sorted(b for b in beating if b):
             self.board.call("/ping", {"box": box}, body="")
         for job, rec in gone:
@@ -384,7 +421,8 @@ class Work:
             if status == 200:
                 self.local.settle(entry["op"])
                 self.drop(job)
-                print(f"job {job} on {rec.get('box', '')} ended, its process is gone", flush=True)
+                why = "its process is gone" if rec.get("pid") else "its registered time is up"
+                print(f"job {job} on {rec.get('box', '')} ended, {why}", flush=True)
             elif status == 404:
                 # the card is gone from this lane; the registration cannot mean
                 # anything any more and the board's expiry covers the colour
@@ -430,34 +468,40 @@ def run_adapter(spec: dict, line: str, lane: str, conf: dict) -> tuple:
     is a repeat, and the queue stays the source of truth, so a duplicate costs
     one redundant look.
 
-    Which adapters exist at all came out of the focused checks. Only the monitor
-    line was observed working. The Codex command line has a real command whose
-    end to end behaviour nobody here observed, so it ships configurable and
-    labelled. The two desktop surfaces have no supported local route that does
-    not drive the interface, so they have no adapter and keep their present
-    delivery path. None of these uses MCP, which is a permanent constraint on
-    this work rather than a deferred option."""
+    No adapter here has been proved to reach a conversation. The monitor line is
+    a documented mechanism and this writes to the stream it describes; whether a
+    session picks that stream up, and what it does while idle, was not observed.
+    The Codex command line has a real command that has been seen to deliver into
+    an already running session through an explicitly named endpoint, which is
+    not the same as the ordinary one. The two desktop surfaces have no supported
+    local route that does not drive the interface, so they have no adapter and
+    keep their present delivery path. None of these uses MCP, which is a
+    permanent constraint on this work rather than a deferred option."""
     name = spec.get("name") or "none"
     if name == "none":
         return name, "refused", "no adapter is configured for this lane"
 
     if name == "monitor":
-        # The one proved route. The conversation itself starts a monitor on this
-        # connection's stream and receives each line as it arrives; this writes
-        # the line to that stream. What it can observe is that the line was
-        # written, and nothing beyond it.
+        # The documented route: a conversation starts a monitor on this
+        # connection's stream and receives each line as it arrives. This writes
+        # the line to that stream, and what it can observe is that the line was
+        # written. Whether anything is reading that stream, and what happens
+        # when the conversation is idle, is not something this can see and not
+        # something the outcome claims.
         try:
             sys.stdout.write(line + "\n")
             sys.stdout.flush()
         except OSError as error:
             return name, "error", str(error)[:100]
-        return name, "accepted", "written to this connection's stream"
+        return name, "accepted", "written to this connection's stream; nothing observed reading it"
 
     if name == "codex-queue":
-        # Unproved. The local help describes `codex queue` as queueing a message
-        # for an existing session named by id or exact name, and that much is
-        # real. Whether the named session then begins a turn was not observed,
-        # so the detail says so rather than letting a zero exit stand in for it.
+        # `codex queue` queues a message for an existing session named by id or
+        # exact name. It has been seen to deliver into an already running
+        # session addressed through an explicitly named endpoint; the ordinary
+        # assigned-session route was not exercised, and neither was the desktop.
+        # So a zero exit is recorded as the command reporting success, and the
+        # detail says plainly that reaching the session was not observed here.
         thread = spec.get("thread")
         if not thread:
             return name, "error", "no thread is named for this lane"
@@ -540,10 +584,31 @@ class Link:
         self.machine = socket.gethostname()[:48]
         self.agent = opts.agent or self.conf["agent"] or "claude"
 
+    def only_one(self) -> bool:
+        """True when this process is the one live link for this home and lane.
+
+        The holder record cannot answer this. Two links started from the same
+        home share one persisted session, so the second is a renewal to the
+        board and not a second connection at all, and both would carry on while
+        the second quietly replaced the first's endpoint. This is a local
+        question and it wants a local answer: an exclusive lock on a file in the
+        home, held for as long as the process lives. The kernel drops it when
+        the process ends however it ends, so a link that crashed leaves nothing
+        to clean up and an intended restart takes the lock straight away."""
+        self.guard = open(self.local.dir / "link.lock", "a+")
+        try:
+            fcntl.flock(self.guard.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            self.guard.close()
+            return False
+        return True
+
     # ---- the local endpoint ------------------------------------------------
     def serve(self) -> None:
         path = endpoint(self.lane)
         if path.exists():
+            # only ever this process's own leftover, because the lock above is
+            # what decides who may be here at all
             path.unlink()
         link = self
 
@@ -582,9 +647,12 @@ class Link:
                     "adapter": self.conf["adapter"].get("name") or "none",
                     "unreachable": self.unreachable}
         if kind == "work-start":
-            self.work.add(asked.get("box", ""), asked.get("job", ""),
-                          int(asked.get("pid") or 0), asked.get("task", ""))
-            return {"watched": True}
+            refused = self.work.add(asked.get("box", ""), asked.get("job", ""),
+                                    int(asked.get("pid") or 0), asked.get("task", ""),
+                                    float(asked.get("bound") or 0))
+            if refused:
+                return {"watched": False, "error": refused}
+            return {"watched": True, "bound": not asked.get("pid")}
         if kind == "work-end":
             self.work.drop(asked.get("job", ""))
             return {"watched": False}
@@ -592,6 +660,12 @@ class Link:
 
     # ---- the loop ----------------------------------------------------------
     def run(self) -> int:
+        if not self.only_one():
+            # said before anything is taken, replaced or unlinked, so a second
+            # launch changes nothing at all about the one that is running
+            print(f"a link for {self.lane} is already running from this connection home "
+                  f"({self.local.dir}); nothing was changed", file=sys.stderr)
+            return HELD
         held = self.board.call("/hold", {"session": self.local.session, "agent": self.agent,
                                          "machine": self.machine,
                                          "override": "1" if self.opts.override else ""}, body="")
@@ -908,14 +982,20 @@ class Command:
         if status != 200:
             return self._refuse(status, payload)
         told = ask_link(self.lane, {"kind": kind, "box": box, "job": self.opts.job,
-                                    "pid": self.opts.pid, "task": self.opts.task or ""})
+                                    "pid": self.opts.pid, "task": self.opts.task or "",
+                                    "bound": self.opts.hold_for})
         if told is None:
             print("no link is running for this lane, so work tracking is degraded: "
-                  "nothing is watching this job and the board's green will expire "
+                  "nothing is watching this job, and the board's green will expire "
                   "75 seconds after the last beat", file=sys.stderr)
-        elif not ending and not self.opts.pid:
-            print("no --pid was given, so the job is registered with a bounded lifetime "
-                  "rather than watched; it stays green until work end or the board's expiry",
+        elif told.get("error"):
+            # the board has the registration; this connection cannot watch it,
+            # and saying so is better than leaving a card green on nothing
+            print(f"the job is registered but not watched: {told['error']}", file=sys.stderr)
+        elif told.get("bound"):
+            bound = int(self.opts.hold_for or WORK_BOUND)
+            print(f"no --pid was given, so this job is registered for {bound}s and the "
+                  f"connection ends it then; pass --pid to have it watched instead",
                   file=sys.stderr)
         print(f"job {self.opts.job} {'ended on' if ending else 'registered against'} {box}")
         return OK
@@ -1034,6 +1114,8 @@ def build_parser() -> argparse.ArgumentParser:
     work.add_argument("--task", default="")
     work.add_argument("--pid", type=int, default=0,
                       help="a process the link watches, so the job ends itself when it exits")
+    work.add_argument("--for", dest="hold_for", type=float, default=0,
+                      help=f"seconds a job with no process stays registered (default {int(WORK_BOUND)})")
 
     letting = subs.add_parser("release")
     letting.add_argument("box")
@@ -1052,7 +1134,8 @@ def main(argv: list) -> int:
     opts = build_parser().parse_args(argv)
     for name, default in (("all", False), ("limit", 50), ("fresh", False), ("out", ""),
                           ("ctx", ""), ("short", None), ("job", ""), ("task", ""),
-                          ("pid", 0), ("reason", ""), ("override", False), ("agent", "")):
+                          ("pid", 0), ("hold_for", 0), ("reason", ""), ("override", False),
+                          ("agent", "")):
         if not hasattr(opts, name):
             setattr(opts, name, default)
     if opts.command == "connect":
