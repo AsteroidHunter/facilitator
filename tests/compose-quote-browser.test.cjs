@@ -31,15 +31,21 @@ const { DESKTOP, PHONE, ROW, EDGE, settle, card, clearLane, sentTexts,
 // Every quote shape the audit walks, and the one drawing each of them gets.
 // `drawn` is what is left in each line of the row once the markup is off it.
 const SHAPES = [
-  { id: "quote-bare", raw: ">", drawn: [""], quotes: 1 },
+  // the angle alone is not a quote yet: it is the character it was typed as
+  { id: "quote-bare", raw: ">", drawn: [">"], quotes: 0, angles: 1 },
   { id: "quote-space", raw: "> ", drawn: [""], quotes: 1 },
   { id: "quote-text", raw: "> alpha", drawn: ["alpha"], quotes: 1 },
-  { id: "quote-no-space", raw: ">alpha", drawn: ["alpha"], quotes: 1 },
+  { id: "quote-no-space", raw: ">alpha", drawn: [">alpha"], quotes: 0, angles: 1 },
   { id: "quote-leading-spaces", raw: "  > alpha", drawn: ["alpha"], quotes: 1 },
   { id: "quote-nested-tight", raw: ">> alpha", drawn: ["alpha"], quotes: 1 },
   { id: "quote-nested-spaced", raw: "> > alpha", drawn: ["alpha"], quotes: 1 },
+  // an unfinished nested angle stays visible inside the completed outer quote
+  { id: "quote-nested-half", raw: "> >alpha", drawn: [">alpha"], quotes: 1, angles: 1 },
+  { id: "quote-nested-typing", raw: "> >", drawn: [">"], quotes: 1, angles: 1 },
   { id: "quote-multiline", raw: "> alpha\n> beta", drawn: ["alpha", "beta"], quotes: 2 },
-  { id: "quote-blank-line", raw: "> alpha\n>\n> beta", drawn: ["alpha", "", "beta"], quotes: 3 },
+  // and a line of the quote whose angle has no space is that angle again
+  { id: "quote-blank-line", raw: "> alpha\n>\n> beta",
+    drawn: ["alpha", ">", "beta"], quotes: 2, angles: 1 },
   { id: "quote-inline", raw: "> *alpha* and **beta** tail",
     drawn: ["alpha and beta tail"], quotes: 1, em: 1, strong: 1 },
   { id: "quote-bullet", raw: "> - alpha", drawn: ["- alpha"], quotes: 1, bullets: 1 },
@@ -76,6 +82,7 @@ async function openCard(surface, title) {
   const opened = await open(surface.route(id), surface.viewport);
   await surface.pick(opened.page, id);
   await editorOn(opened.page);
+  await opened.page.evaluate(() => document.fonts.ready);
   return { ...opened, id };
 }
 
@@ -126,6 +133,180 @@ for (const surface of SURFACES) {
     }
   });
 }
+
+// ---- the trigger, one character at a time -----------------------------------
+// A quote begins at the space and not at the angle. These are the drafts the
+// change was asked for: an empty one, one on the line under a paragraph, and
+// one on the line under a blank line. Each is typed with real keys and read
+// after every keystroke, and what is asked of each keystroke is the same. The
+// source is exactly what was typed. The angle is ordinary text until its space
+// arrives and a quote from the space onward. And the caret is on the line being
+// edited, at the offset after the character that was just typed, never on the
+// line above it and never on top of the bar.
+
+const TRIGGER = [
+  { id: "an empty draft", lead: "", line: 0 },
+  { id: "a line under a paragraph", lead: "Alpha\n", line: 1 },
+  { id: "a line under a blank line", lead: "Alpha\n\n", line: 2 },
+];
+
+// where the caret is, asked of the editor and of the browser separately, and
+// which drawn line each of them puts it on
+function caretRead(page) {
+  return page.evaluate(() => {
+    const row = document.querySelector("article.box.sel textarea");
+    const shell = row.closest(".cffield");
+    const content = shell.querySelector(".cm-content");
+    const view = ComposeFormat.fieldOf(row).view;
+    const head = view.state.selection.main.head;
+    let at = null;
+    try { at = view.coordsAtPos(head); } catch (error) { at = null; }
+    let dom = null;
+    const picked = getSelection();
+    if (picked && picked.rangeCount) {
+      const box = picked.getRangeAt(0).getBoundingClientRect();
+      if (box.height > 0) dom = { left: box.left, top: box.top, bottom: box.bottom };
+    }
+    const lines = [...content.querySelectorAll(".cm-line")].map(line => {
+      const style = getComputedStyle(line);
+      const box = line.getBoundingClientRect();
+      return {
+        text: line.textContent,
+        quote: line.classList.contains("cf-quote"),
+        bar: parseFloat(style.borderLeftWidth) || 0,
+        left: box.left, top: box.top, bottom: box.bottom,
+        column: box.left + (parseFloat(style.borderLeftWidth) || 0) +
+          (parseFloat(style.paddingLeft) || 0),
+      };
+    });
+    const on = spot => {
+      if (!spot) return -1;
+      const middle = (spot.top + spot.bottom) / 2;
+      return lines.findIndex(line => middle >= line.top - 0.5 && middle < line.bottom + 0.5);
+    };
+    const fat = document.querySelector("#fatcaret");
+    const fatBox = fat && fat.classList.contains("on") ? fat.getBoundingClientRect() : null;
+    return {
+      payload: row.value, from: row.selectionStart, to: row.selectionEnd,
+      caret: at && { left: at.left, top: at.top, bottom: at.bottom },
+      domCaret: dom, caretLine: on(at), domCaretLine: on(dom), lines,
+      fatCaret: fatBox && { left: fatBox.left, top: fatBox.top, bottom: fatBox.bottom },
+      fatCaretLine: on(fatBox),
+    };
+  });
+}
+
+test("a quote begins at the space and not at the angle", async t => {
+  const { page, problems } = await openCard(SURFACES[0], "The quote trigger");
+  try {
+    for (const draft of TRIGGER) {
+      await lay(page, draft.lead);
+      await caretTo(page, draft.lead.length);
+      await page.keyboard.press("ArrowRight");
+      await fixture.until(page, () => document.hasFocus(),
+        "the typing target to have keyboard focus", 10000);
+      await settle(180);
+      for (const step of [
+        { typed: ">", payload: draft.lead + ">", quoted: false, drawn: ">" },
+        { typed: " ", payload: draft.lead + "> ", quoted: true, drawn: "" },
+        { typed: "text", payload: draft.lead + "> text", quoted: true, drawn: "text" },
+      ]) {
+        await page.keyboard.type(step.typed);
+        await settle(200);
+        const read = await caretRead(page);
+        const say = `${draft.id}, after typing ${JSON.stringify(step.typed)}`;
+        t.diagnostic(JSON.stringify({ draft: draft.id, typed: step.typed,
+          payload: read.payload, from: read.from, caretLine: read.caretLine,
+          domCaretLine: read.domCaretLine,
+          fatCaret: read.fatCaret, fatCaretLine: read.fatCaretLine,
+          lines: read.lines.map(line => ({ text: line.text, quote: line.quote })) }));
+
+        // the source, and the caret's place in it
+        assert.equal(read.payload, step.payload, `${say}: the row changed the source`);
+        assert.equal(read.from, step.payload.length,
+          `${say}: the caret is at ${read.from} and the character it just took is at ` +
+          step.payload.length);
+        assert.equal(read.to, read.from, `${say}: the caret picked something out`);
+
+        // what is drawn on the line being edited
+        const line = read.lines[draft.line];
+        assert.ok(line, `${say}: the line being edited was not drawn at all`);
+        assert.equal(line.text, step.drawn,
+          `${say}: the line is drawn as ${JSON.stringify(line.text)}`);
+        assert.equal(line.quote, step.quoted,
+          `${say}: the line ${line.quote ? "is" : "is not"} drawn as a quote`);
+        assert.equal(line.bar >= 2, step.quoted, `${say}: the bar is ${line.bar}px wide`);
+        if (draft.line > 0) assert.equal(read.lines[0].quote, false,
+          `${say}: the paragraph above it was drawn as a quote`);
+
+        // and where the caret actually is, by the editor's reckoning and by the
+        // browser's. A null from the editor is worth knowing on its own: it is
+        // the number the row's own scroll into view is worked out from
+        assert.ok(read.caret,
+          `${say}: the editor cannot say where the caret is on this line`);
+        assert.equal(read.caretLine, draft.line,
+          `${say}: the editor puts the caret on drawn line ${read.caretLine}, and the line ` +
+          `being edited is ${draft.line}`);
+        if (read.domCaret) assert.equal(read.domCaretLine, draft.line,
+          `${say}: the browser puts the caret on drawn line ${read.domCaretLine}, and the ` +
+          `line being edited is ${draft.line}`);
+        assert.ok(read.caret.left >= line.column - EDGE,
+          `${say}: the caret is at ${read.caret.left.toFixed(2)} and this line's words begin ` +
+          `at ${line.column.toFixed(2)}, so it is standing on the bar`);
+        // The desktop shows its own block cursor. CodeMirror's position alone
+        // cannot verify the cursor the user actually sees.
+        await shot(page, `quote-trigger-${draft.line}-${step.payload.length}`);
+        assert.ok(read.fatCaret, `${say}: the visible block cursor disappeared`);
+        assert.equal(read.fatCaretLine, draft.line,
+          `${say}: the visible block cursor jumped to another line`);
+        assert.ok(read.fatCaret.left >= line.column - EDGE,
+          `${say}: the visible block cursor overlaps the quote bar`);
+      }
+    }
+    await shot(page, "desktop-quote-trigger");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+// on the way back down: the source stays what it was and the drawing follows it
+test("deleting the space gives the angle back as an ordinary character", async () => {
+  const { page, problems } = await openCard(SURFACES[0], "The quote trigger in reverse");
+  try {
+    await lay(page, "> alpha");
+    await caretTo(page, 7);
+    await settle(180);
+    const quoted = await caretRead(page);
+    assert.equal(quoted.lines[0].quote, true, "the draft did not start as a quote");
+    assert.equal(quoted.lines[0].text, "alpha", "the draft did not start drawn as a quote");
+
+    // the space alone is taken, which leaves the angle standing in the source
+    await caretTo(page, 1, 2);
+    await settle(150);
+    await page.keyboard.press("Backspace");
+    await settle(200);
+    const bare = await caretRead(page);
+    assert.equal(bare.payload, ">alpha", "the row changed something other than the space");
+    assert.equal(bare.from, 1, "the caret is not where the space was");
+    assert.equal(bare.to, 1, "the caret kept a selection");
+    assert.equal(bare.lines[0].quote, false, "the angle went on being drawn as a quote");
+    assert.equal(bare.lines[0].text, ">alpha", "the angle did not come back as a character");
+    assert.equal(bare.caretLine, 0, "the caret left the line being edited");
+
+    // and putting it back puts the quote back
+    await page.keyboard.type(" ");
+    await settle(200);
+    const again = await caretRead(page);
+    assert.equal(again.payload, "> alpha", "the row did not take the space back");
+    assert.equal(again.from, 2, "the caret is not after the space");
+    assert.equal(again.lines[0].quote, true, "the space did not begin the quote again");
+    assert.equal(again.lines[0].text, "alpha", "the angle was left standing beside the bar");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
 
 // ---- typed, one key at a time, and taken apart again ------------------------
 
