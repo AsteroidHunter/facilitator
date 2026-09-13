@@ -88,6 +88,11 @@ RECEIPTED = frozenset({"select", "open", "opened", "release", "reply", "note",
 # destroys, so a conflict on one is answered with a fresh id for a fresh
 # attempt. Everything else is an effect, and an effect keeps its id forever.
 POSITION = frozenset({"select", "open"})
+# effects that carry the agent's own words. A stale one of these applied after
+# the lane changed hands is an answer to a situation that has ended, so it is
+# kept and reported rather than sent or thrown away. The rest cannot be applied
+# under a generation that has moved on and are owed to nobody, so they go.
+WORDED = frozenset({"reply", "note", "progress"})
 
 HEARTBEAT = 25.0          # seconds between beats for a card with a live job
 WORK_BOUND = 900.0        # how long a job with no watchable process stays registered
@@ -205,13 +210,17 @@ class Local:
             finally:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
-    def mint(self, kind: str, route: str, query: dict, body: str = "") -> dict:
+    def mint(self, kind: str, route: str, query: dict, body: str = "", gen: int = 0) -> dict:
         """An operation id, written down before the first send. A retry of the
         same intent reuses the entry rather than minting a second id, which is
-        the whole point: a new id for the same words is how a reply lands
-        twice."""
+        the whole point: a new id for the same words is how a reply lands twice.
+
+        The generation goes down with it. An intent that never reached the board
+        leaves no receipt there, so the board has nothing to check it against
+        later; carrying the generation is what lets a retry after a takeover be
+        recognised as belonging to a situation that has since ended."""
         entry = {"op": kind[:12] + "-" + secrets.token_hex(6), "kind": kind, "route": route,
-                 "query": query, "body": body, "ts": time.time()}
+                 "query": query, "body": body, "ts": time.time(), "gen": gen}
         with self.held():
             entries = self.entries()
             entries.append(entry)
@@ -221,6 +230,17 @@ class Local:
     def settle(self, op: str) -> None:
         with self.held():
             self._write([e for e in self.entries() if e.get("op") != op])
+
+    def block(self, op: str, why: str) -> None:
+        """Keep an intent, stop sending it, and say why. This is what an
+        unresolved receipt looks like: the words are neither thrown away nor
+        applied behind somebody's back."""
+        with self.held():
+            entries = self.entries()
+            for entry in entries:
+                if entry.get("op") == op:
+                    entry["blocked"] = why
+            self._write(entries)
 
 
 # ---- the board -------------------------------------------------------------------
@@ -361,9 +381,12 @@ class Work:
     job it can no longer see is ended, and the board's own 75 second expiry
     remains the backstop for anything never got to."""
 
-    def __init__(self, local: Local, board: Board) -> None:
+    def __init__(self, local: Local, board: Board, generation=lambda: 0) -> None:
         self.local = local
         self.board = board
+        # read when it is needed rather than captured: the link learns its
+        # generation after this is built, and may take the lane again later
+        self.generation = generation
         self.path = local.dir / "work.json"
         self.lock = threading.Lock()
 
@@ -429,18 +452,25 @@ class Work:
             self.board.call("/ping", {"box": box}, body="")
         for job, rec in gone:
             entry = self.local.mint("work-end", "/work/end",
-                                    {"session": self.local.session, "box": rec.get("box", ""), "job": job})
-            status, payload = self.board.call("/work/end", {**entry["query"], "op": entry["op"]}, body="")
+                                    {"session": self.local.session, "box": rec.get("box", ""),
+                                     "job": job}, gen=self.generation())
+            status, payload = self.board.call("/work/end", {**entry["query"], "op": entry["op"],
+                                                            "gen": entry.get("gen") or ""}, body="")
             if status == 200:
                 self.local.settle(entry["op"])
                 self.drop(job)
                 why = "its process is gone" if rec.get("pid") else "its registered time is up"
                 print(f"job {job} on {rec.get('box', '')} ended, {why}", flush=True)
-            elif status == 404:
-                # the card is gone from this lane; the registration cannot mean
-                # anything any more and the board's expiry covers the colour
+            elif status in (404, 409):
+                # the card has left this lane, or the lane has changed hands.
+                # Either way this registration cannot mean anything now, and the
+                # board's own expiry covers the colour. Said out loud, because a
+                # registration disappearing without a word is the sort of thing
+                # nobody notices until a card is stuck green for the wrong reason
                 self.local.settle(entry["op"])
                 self.drop(job)
+                print(f"job {job} on {rec.get('box', '')} let go without ending on the board: "
+                      f"{_reason(payload)}", file=sys.stderr, flush=True)
 
     def reconcile(self) -> None:
         """At start: end anything this session registered whose job it can no
@@ -594,7 +624,7 @@ class Link:
         self.conf = settings(lane)
         self.local = Local(lane)
         self.board = Board(opts.board or self.conf["board"], lane, self.local.session)
-        self.work = Work(self.local, self.board)
+        self.work = Work(self.local, self.board, lambda: self.generation)
         self.cursor = ""
         self.stop = threading.Event()
         # a surface that keeps refusing is backed off and the lane is marked
@@ -603,6 +633,7 @@ class Link:
         self.refusals = 0
         self.quiet_until = 0.0
         self.unreachable = False
+        self.generation = 0
         # only a process that actually opened the endpoint may take it away
         # again. A launch refused before it opened anything must leave the
         # running link's socket exactly where it found it
@@ -725,6 +756,7 @@ class Link:
         if status != 200:
             print(f"could not take the lane: {_reason(payload)}", file=sys.stderr)
             return UNREACHABLE if status == 0 else REFUSED
+        self.generation = int(payload.get("generation") or 0)
         # the endpoint first, then the line that says so: the line is what
         # anything waiting on this link reads as ready, and a command that
         # arrives on the strength of it must find the endpoint already there
@@ -792,8 +824,10 @@ class Link:
                                                 adapter_line(self.lane, payload), self.lane, self.conf)
         entry = self.local.mint("notified", "/notified",
                                 {"session": self.local.session, "notice": notice,
-                                 "adapter": name, "outcome": outcome, "detail": detail[:120]})
-        status, answer = self.board.call("/notified", {**entry["query"], "op": entry["op"]}, body="")
+                                 "adapter": name, "outcome": outcome, "detail": detail[:120]},
+                                gen=self.generation)
+        status, answer = self.board.call("/notified", {**entry["query"], "op": entry["op"],
+                                                       "gen": self.generation or ""}, body="")
         if status in (200, 404):
             self.local.settle(entry["op"])
         if outcome == "accepted":
@@ -820,20 +854,28 @@ class Link:
         queue, a reservation, a delivery or a receipt, because the board owns
         all four."""
         for entry in self.local.entries():
+            if entry.get("blocked"):
+                continue        # already reported, and waiting for a person
             if entry.get("kind") in POSITION:
                 # a place in the queue that a restart destroyed. Sending it
                 # again would only be told so, and the honest move is to drop
                 # the id and choose again when somebody chooses
                 self.local.settle(entry["op"])
                 continue
-            status, payload = self.board.call(entry["route"], {**entry["query"], "op": entry["op"]},
-                                              body=entry.get("body", ""))
-            if status == 200 or status == 404:
+            status, payload = self.board.call(
+                entry["route"], {**entry["query"], "op": entry["op"], "gen": entry.get("gen") or ""},
+                body=entry.get("body", ""))
+            if status in (200, 404):
                 self.local.settle(entry["op"])
             elif status == 409 and payload.get("error") == "generation changed":
-                print(f"unresolved receipt {entry['op']} ({entry['kind']}): the lane changed hands "
-                      f"while this was in flight. It is kept and not resent under another id.",
-                      file=sys.stderr)
+                if entry.get("kind") in WORDED:
+                    self.local.block(entry["op"], "the lane changed hands before this was sent")
+                    print(f"unresolved receipt {entry['op']} ({entry['kind']}): the lane changed "
+                          f"hands before this was sent, so it was not applied. It is kept, it will "
+                          f"not be sent again, and it will not be resent under another id.",
+                          file=sys.stderr, flush=True)
+                else:
+                    self.local.settle(entry["op"])
 
 
 # ---- command mode ----------------------------------------------------------------
@@ -866,6 +908,7 @@ class Command:
         self.local = Local(lane)
         self.board = Board(opts.board or self.conf["board"], lane, self.local.session)
         self.linked = endpoint(lane).exists()
+        self.generation = 0
 
     def prepare(self) -> int:
         """Take or renew this lane's holder record before the first call that
@@ -881,6 +924,7 @@ class Command:
             "/hold", {"session": self.local.session, "agent": self.conf["agent"] or "claude",
                       "machine": socket.gethostname()[:48]}, body="")
         if status == 200:
+            self.generation = int(payload.get("generation") or 0)
             return OK
         if status == 409:
             print(f"lane {self.lane} is held by {payload.get('agent', 'another connection')} on "
@@ -903,8 +947,9 @@ class Command:
         is reported and left for a person."""
         if kind not in RECEIPTED:
             return self.board.call(route, query, body=body or None)
-        entry = self.local.mint(kind, route, query, body)
-        status, payload = self.board.call(route, {**query, "op": entry["op"]}, body=body)
+        entry = self.local.mint(kind, route, query, body, gen=self.generation)
+        status, payload = self.board.call(route, {**query, "op": entry["op"],
+                                                  "gen": self.generation or ""}, body=body)
         if status == 200:
             self.local.settle(entry["op"])
             return status, payload
@@ -1074,10 +1119,13 @@ class Command:
     def status_(self) -> int:
         told = ask_link(self.lane, {"kind": "status"}) or {}
         status, payload = self.board.call("/queue", {"session": self.local.session, "limit": 200})
-        pending = [e["op"] for e in self.local.entries()]
+        entries = self.local.entries()
+        pending = [e["op"] for e in entries]
+        blocked = {e["op"]: e["blocked"] for e in entries if e.get("blocked")}
         out = {"lane": self.lane, "board": self.board.base, "session": self.local.session,
                "link": bool(told.get("link")), "unresolved": pending,
                "jobs": told.get("jobs", {}), "unreachable": bool(told.get("unreachable")),
+               "blocked": blocked,
                "adapter": told.get("adapter") or self.conf["adapter"].get("name") or "none",
                "mode": payload.get("mode") if status == 200 else "unknown",
                "waiting": sum(r["waiting"] for r in payload.get("cards", [])) if status == 200 else None,
@@ -1091,6 +1139,8 @@ class Command:
               f"jobs {len(out['jobs'])}")
         if pending:
             print(f"unresolved receipts: {', '.join(pending)}")
+        for op, why in blocked.items():
+            print(f"  {op}: {why}. It needs a person; it will not be sent again.")
         return OK
 
     def whoami(self) -> int:

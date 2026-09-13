@@ -3062,6 +3062,29 @@ def _op_extra(lane: str, session: str, obj: str = "") -> dict:
             "generation": _generation(lane), "epoch": _state.get("epoch", 0)}
 
 
+def _generation_named(q: Query, lane: str) -> dict | None:
+    """A caller may say which generation its intent was formed under, and this
+    refuses the intent when the lane has changed hands since.
+
+    The receipt checks cannot cover this on their own. They run only once the
+    board holds a receipt for the id, and the case that matters here is the one
+    where it never got there: an intent written down locally, never sent, and
+    retried after another connection held the lane in between. Without this the
+    old session regains the lane under a new generation and its stale words land
+    as though nothing had happened, which is the very thing the generation rule
+    exists to stop. A caller that names no generation is unaffected, so the
+    desktop, the phone and the existing loop keep exactly what they had."""
+    named = q.one("gen")
+    if not named:
+        return None
+    try:
+        want = int(named)
+    except ValueError:
+        return {"error": "bad generation"}
+    return None if want == _generation(lane) else {
+        "error": "generation changed", "generation": _generation(lane)}
+
+
 def _replay_check(rec: dict, lane: str, session: str, bid: str) -> dict | None:
     """The checks every replay passes before a stored answer is handed back: the
     same connection, the same lane, the named card in that lane, and the caller
@@ -4092,7 +4115,7 @@ def _card_receipt(q: Query, kind: str, lane: str, bid: str, *parts: str):
     moved. Callers hold _lock."""
     session = q.one("session")
     if session:
-        refusal = _holder_check(lane, session)
+        refusal = _holder_check(lane, session) or _generation_named(q, lane)
         if refusal:
             return (409, refusal), ""
     op = q.one("op")
@@ -4885,7 +4908,7 @@ def _post_select(q: Query, text: str):
     if not row:
         return 400, {"error": "row tag required"}
     with _lock:
-        refusal = _holder_check(lane, session)
+        refusal = _holder_check(lane, session) or _generation_named(q, lane)
         if refusal:
             return 409, refusal
         fp = _fingerprint("select", lane, bid, row)
@@ -4969,7 +4992,7 @@ def _post_open(q: Query, text: str):
     if not _op_id_ok(op):
         return 400, {"error": "operation id required"}
     with _lock:
-        refusal = _holder_check(lane, session)
+        refusal = _holder_check(lane, session) or _generation_named(q, lane)
         if refusal:
             return 409, refusal
         fp = _fingerprint("open", lane, bid, "1" if fresh_only else "0")
@@ -5108,7 +5131,7 @@ def _post_opened(q: Query, text: str):
     if route not in ("tool", "user-input"):
         return 400, {"error": "route is tool or user-input"}
     with _lock:
-        refusal = _holder_check(lane, session)
+        refusal = _holder_check(lane, session) or _generation_named(q, lane)
         if refusal:
             return 409, refusal
         rec_d = _state.get("deliveries", {}).get(did)
@@ -5182,7 +5205,7 @@ def _post_release(q: Query, text: str):
     if not _op_id_ok(op):
         return 400, {"error": "operation id required"}
     with _lock:
-        refusal = _holder_check(lane, session)
+        refusal = _holder_check(lane, session) or _generation_named(q, lane)
         if refusal:
             return 409, refusal
         fp = _fingerprint("release", lane, bid, q.one("reason"))
@@ -5311,7 +5334,7 @@ def _post_notified(q: Query, text: str):
     if outcome not in ("accepted", "refused", "error"):
         return 400, {"error": "outcome is accepted, refused or error"}
     with _lock:
-        refusal = _holder_check(lane, session)
+        refusal = _holder_check(lane, session) or _generation_named(q, lane)
         if refusal:
             return 409, refusal
         fp = _fingerprint("notified", lane, nid, adapter, outcome)
@@ -5358,7 +5381,7 @@ def _work_call(q: Query, ending: bool):
     if not job:
         return 400, {"error": "job required"}
     with _lock:
-        refusal = _holder_check(lane, session)
+        refusal = _holder_check(lane, session) or _generation_named(q, lane)
         if refusal:
             return 409, refusal
         fp = _fingerprint("work-end" if ending else "work-start", lane, bid, job, q.one("task"))
