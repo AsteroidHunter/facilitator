@@ -1319,7 +1319,13 @@
      what the box cannot show at either end, its own lane scrolls. */
   body.focus .box.sel .pendwrap-answered{
     display:flex; flex-direction:column;
-    flex:0 1 auto;
+    /* it does not shrink. the answer beside it is basis:auto over the whole of
+       a long text, and a flex column shares its shortfall out in proportion to
+       basis, so a shrinkable wrapper is pulled off its own height however tall
+       its strip is -- worst while a run has the open floor suspended, where it
+       sat at the shut bar for the whole fold and jumped at the end. the cap
+       below is what yields room to the answer, and it yields exactly */
+    flex:0 0 auto;
     min-height:calc(var(--pend-bar) + var(--sp-s));
     max-height:calc(var(--cardroom, 100%) - var(--boxband, 0px) - var(--answ-keep));
   }
@@ -5038,6 +5044,9 @@ function foldAnswered(el, open, manual){
 function foldBox(el, pend, runKey, open, landed){
   if (!pend) return;
   const mine = ++el[runKey];
+  // the box below opens on its newest line; the box above opens where he left
+  // this batch, or at its beginning the first time
+  const place = pend === el.answ ? answeredPlace : pendBottom;
   const from = pend.getBoundingClientRect().height;
   const padFrom = padPair(pend);
   // a run caught mid flight is frozen where it stands and re-aimed from there,
@@ -5047,7 +5056,7 @@ function foldBox(el, pend, runKey, open, landed){
   pend.style.paddingTop = "";
   pend.style.paddingBottom = "";
   pend.classList.toggle("open", open);
-  if (open) pendBottom(pend);
+  if (open) place(pend);
   const to = pend.getBoundingClientRect().height;
   const padTo = padPair(pend);
   if (!open) pend.classList.add("open");
@@ -5077,7 +5086,7 @@ function foldBox(el, pend, runKey, open, landed){
     pend.style.paddingTop = "";
     pend.style.paddingBottom = "";
     pend.classList.toggle("open", open);
-    if (open) pendBottom(pend);
+    if (open) place(pend);
     // the room this box holds has changed and has stopped changing, so whoever
     // wanted to know is told once, here, and never on a frame of the run
     if (landed) landed();
@@ -5267,14 +5276,15 @@ function snapCard(){
   const pend = el.pend;
   if (pend && (pend.classList.contains("open") || pend.classList.contains("motion") ||
                pend.classList.contains("rising"))) return;
-  // and the box above the answer. its OPEN state is a resting height like any
-  // other, since it stands in the column and may hold that height for as long
-  // as he leaves it open, so the snap runs in it exactly as it runs with the
-  // box shut. what the snap must not run in is a RUN: re-snapping mid fold
-  // would slide the answer's lines under him while he is watching the box move,
-  // which is the same reason a fold of the box below does not call this
+  // and the box above the answer, on the same rule the box below is read by:
+  // while it stands open, or moves, the answer keeps the phase it was snapped
+  // to shut. so a fold moves the answer once, on the box's own curve, and the
+  // same shut state always brings the answer back to the same line; snapping at
+  // the end of a run would be a second jump of up to a line after the motion
+  // has landed
   const answ = el.answ;
-  if (answ && (answ.classList.contains("motion") || answ.classList.contains("rising"))) return;
+  if (answ && (answ.classList.contains("open") || answ.classList.contains("motion") ||
+               answ.classList.contains("rising"))) return;
   const r = el.reply;
   const head = el.box.querySelector(".head");
   // the title's slide is undone before a single measurement is taken, so every

@@ -780,6 +780,16 @@ function fillAnswered(pend, batch){
   slide.textContent = "";
   for (const m of batch) slide.appendChild(pendRow((m && m.text) || "", (m && m.ts) || 0));
   stampRun(pend, batch.map(m => (m && m.ts) || 0));
+  pend.answAt = 0;   // another batch is read from its own beginning
+}
+
+// where this box's lane stands when it is opened: the beginning of the batch
+// the first time, and where he left it every time after that. the box below
+// keeps its own rule, newest at the foot, because a line arrives there and no
+// line ever arrives here
+function answeredPlace(pend){
+  const lane = pend.querySelector(".pendscroll");
+  if (lane) lane.scrollTop = pend.answAt || 0;
 }
 
 function dropAnswered(el){
@@ -817,7 +827,7 @@ function syncAnswered(el, meta, opts){
   fillAnswered(pend, batch);
   pend.classList.toggle("open", open);
   pend.classList.toggle("foldopen", open);
-  if (open) pendBottom(pend);
+  if (open) answeredPlace(pend);
   el.box.classList.add("hasansw");
   armAnsweredClock(el.answKey, meta, () => {
     if (!el.answ || el.answId !== meta.id || el.answ.classList.contains("open")) return;
@@ -855,6 +865,12 @@ function answeredStrip(){
     '<div class="pendscroll"><div class="pendslide"></div></div></div>';
   pend.setAttribute("role", "group");
   pend.setAttribute("aria-label", "your messages that the reply below answers");
+  // only his own scrolling is remembered: a run's own clamping, while the box
+  // is changing height, is the layout moving the lane and not him
+  const lane = pend.querySelector(".pendscroll");
+  lane.addEventListener("scroll", () => {
+    if (!pend.classList.contains("motion")) pend.answAt = lane.scrollTop;
+  }, { passive: true });
   return pend;
 }
 
