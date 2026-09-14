@@ -5352,16 +5352,44 @@ function snapCard(){
       // back to exactly s, so the answer keeps the same snapped line count;
       // boxBand also stays fixed because the lifted bottom edge and its extra
       // clear margin cancel in that measurement.
-      // The first glyph does not start on the reply element's top edge, while
-      // the lower clear edge is the element's own margin. Read that built-in
-      // type inset too, so it is the visible white on each side that matches,
-      // across fonts and stage scales, rather than merely the CSS margins.
-      const rg = document.createRange();
-      rg.selectNodeContents(first);
-      const firstLine = [...rg.getClientRects()].find(x => x.height > 2);
-      const inkInset = firstLine ? firstLine.top - rect.top : 0;
-      const upper = Math.max(0, Math.min(s,
-        (parseFloat(cs.marginBottom) + s - inkInset) / 2));
+      // Balance the white the eye sees, from the raised box's painted edge to
+      // the first glyph and from the last unobscured glyph to the waiting box.
+      // A Range describes the font box, not its ink, and the answered wrapper
+      // includes the responsive step under the painted box; neither abstract
+      // edge is the visible gap. Canvas supplies this face's actual ink bounds.
+      // Read the answer's laid-out text rectangles once while both correction
+      // margins are reset, then choose how much of s belongs above. Moving one
+      // pixel from the lower share to the upper moves every glyph down one, so
+      // half the measured difference is the exact balanced share.
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+      context.font = cs.font;
+      const metrics = context.measureText(r.textContent || "M");
+      const inkTop = q => q.top + metrics.fontBoundingBoxAscent - metrics.actualBoundingBoxAscent;
+      const inkBottom = q => q.top + metrics.fontBoundingBoxAscent + metrics.actualBoundingBoxDescent;
+      const firstRange = document.createRange();
+      firstRange.selectNodeContents(first);
+      const firstLine = [...firstRange.getClientRects()].find(x => x.height > 2);
+      const pendingTop = el.pendwrap.getBoundingClientRect().top;
+      const lines = [];
+      const walker = document.createTreeWalker(r, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()){
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        lines.push(...range.getClientRects());
+      }
+      const lastLine = lines.filter(q => q.height > 2 && q.bottom > rect.top &&
+        q.top < rect.bottom && inkBottom(q) <= pendingTop)
+        .sort((a, b) => inkBottom(b) - inkBottom(a))[0];
+      const top0 = firstLine ? inkTop(firstLine) - el.answ.getBoundingClientRect().bottom : 0;
+      const bottom0 = lastLine ? pendingTop - inkBottom(lastLine) : top0;
+      // When the answer is short, the large body region below its only line is
+      // content room rather than a boundary gap; it cannot be made equal by
+      // moving the line. In that case keep the line at the smallest top gap and
+      // put the snap remainder below it. Two line heights distinguish that
+      // shape using the answer's own responsive measure.
+      const balanced = bottom0 > line * 2 ? 0 : (bottom0 - top0) / 2;
+      const upper = Math.max(0, Math.min(s, balanced));
       const lower = s - upper;
       r.style.marginTop = upper.toFixed(2) + "px";
       r.style.marginBottom = (parseFloat(cs.marginBottom) + lower).toFixed(2) + "px";
