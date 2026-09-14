@@ -135,7 +135,11 @@ self.addEventListener("notificationclick", event => {
   const box = event.notification.data && event.notification.data.box;
   const target = "/m" + (box ? "?box=" + encodeURIComponent(box) : "");
   event.waitUntil((async () => {
-    const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    // Only a page controlled by this worker is known to have the matching
+    // message listener. postMessage has no delivery acknowledgement, so a
+    // loading or stale uncontrolled /m window could otherwise consume the
+    // target silently and prevent the URL fallback below.
+    const windows = await self.clients.matchAll({ type: "window" });
     for (const client of windows) {
       if (new URL(client.url).pathname !== "/m") continue;
       try { await client.focus(); } catch (error) {}

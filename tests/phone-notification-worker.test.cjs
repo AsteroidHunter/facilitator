@@ -6,7 +6,7 @@ const vm = require("node:vm");
 
 const SOURCE = path.resolve(__dirname, "..", "m-sw.js");
 
-async function worker({ clients = [] } = {}) {
+async function worker({ clients = [], uncontrolled = [] } = {}) {
   const handlers = {};
   const shown = [];
   const opened = [];
@@ -21,7 +21,7 @@ async function worker({ clients = [] } = {}) {
       registration: { showNotification: async (title, options) => { shown.push({ title, options }); } },
       clients: {
         claim: async () => {},
-        matchAll: async () => clients,
+        matchAll: async options => options.includeUncontrolled ? clients.concat(uncontrolled) : clients,
         openWindow: async target => { opened.push(target); },
       },
     },
@@ -85,4 +85,20 @@ test("a cold app opens the exact target and a failed warm delivery falls back to
     });
     assert.deepEqual(harness.opened, ["/m?box=m%207"]);
   }
+});
+
+test("an uncontrolled loading page cannot silently consume the notification target", async () => {
+  const lost = [];
+  const harness = await worker({ uncontrolled: [{
+    url: "https://board.test/m",
+    focus: async () => {},
+    // WindowClient.postMessage returning normally does not acknowledge that
+    // the page installed or ran a matching message listener.
+    postMessage: message => lost.push(message),
+  }] });
+  await harness.dispatch("notificationclick", {
+    notification: { data: { box: "m303" }, close() {} },
+  });
+  assert.deepEqual(lost, []);
+  assert.deepEqual(harness.opened, ["/m?box=m303"]);
 });
