@@ -1120,7 +1120,11 @@ function makeBox(b){
     seatSquare(ta, send);
     send.classList.toggle("show", ta.value.trim().length > 0);
   };
-  ta.addEventListener("input", () => { clearPhoneEnterAgain(); tick(true); });
+  ta.addEventListener("input", () => {
+    clearPhoneEnterAgain();
+    if (b.id === selectedId) protectAnsweredVisit(els[b.id]);
+    tick(true);
+  });
   ta.addEventListener("focus", () => {
     const trace = tracePhone("begin", "focus", { box: b.id });
     requestAnimationFrame(() => {
@@ -1745,6 +1749,7 @@ function syncSelectedHistory(){
 function select(id){
   const trace = tracePhone("begin", "select", { box: id });
   if (!els[id]){ endPhoneTrace(trace, { box: id }); return; }
+  const leaving = selectedId && selectedId !== id ? els[selectedId] : null;
   cancelAutoNext();
   if (hist && hist.id !== id) histExit(hist.id);
   selectedId = id; localStorage.setItem("selbox", id);
@@ -1753,6 +1758,7 @@ function select(id){
   if (b) lastSel[b.owner] = id;
   syncPhoneHistory(b);
   for (const k of Object.keys(els)) els[k].box.classList.toggle("sel", k === id);
+  releaseAnsweredVisit(leaving);
   document.getElementById("pane").classList.remove("blank");
   for (const r of document.querySelectorAll("#tiklist .trow")){
     r.classList.toggle("on", r.dataset.id === id);
@@ -1763,8 +1769,10 @@ function select(id){
 }
 function deselect(){
   cancelAutoNext();
+  const leaving = selectedId && els[selectedId];
   selectedId = null; localStorage.removeItem("selbox");
   for (const k of Object.keys(els)) els[k].box.classList.remove("sel");
+  releaseAnsweredVisit(leaving);
   document.getElementById("pane").classList.add("blank");
   for (const r of document.querySelectorAll("#tiklist .trow")) r.classList.remove("on");
 }

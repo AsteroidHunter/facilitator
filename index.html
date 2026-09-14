@@ -3894,11 +3894,13 @@ function setTab(owner){
 // rendering the previously selected card from another lane
 function deselect(){
   cancelAutoNext();
+  const leaving = selectedId && els[selectedId];
   selectedId = null; shownId = null; localStorage.removeItem("selbox");
   for (const k of Object.keys(els)){
     els[k].box.classList.remove("sel");
     els[k].toc.classList.remove("t-sel");
   }
+  releaseAnsweredVisit(leaving);
   for (const r of document.querySelectorAll("#tiklist .trow")) r.classList.remove("on");
 }
 
@@ -4762,6 +4764,7 @@ addEventListener("fullscreenchange", () => { fitStage(); seatPagePill(); });
 
 function select(id, opts){
   if (!els[id]) return;
+  const leaving = selectedId && selectedId !== id ? els[selectedId] : null;
   cancelAutoNext();
   if (hist && hist.id !== id) histExit(hist.id);   // every card opens on its live reply
   selectedId = id; shownId = id; localStorage.setItem("selbox", id);
@@ -4775,6 +4778,7 @@ function select(id, opts){
     els[k].box.classList.toggle("sel", k === id);
     els[k].toc.classList.toggle("t-sel", k === id);
   }
+  releaseAnsweredVisit(leaving);
   syncDesktopHistoryAvailability(id);
   // the ticket rows re-render on the poll, up to a second later; the selection
   // shadow must move the instant of the click, so flip the class directly,
@@ -4833,6 +4837,7 @@ function nav(dx, dy, opts){
 // selected box is gone, unset, or belongs to another tab
 function applySelection(state){
   if (!FOCUS || !state.boxes.length || draft) return;   // a choosing tab holds no card
+  const previous = selectedId;
   const pool = state.boxes.filter(b => b.owner === activeOwner);
   if (!pool.length){ deselect(); updatePwd(state); return; }   // an empty lane shows plain paper, never another lane's card
   if (!selectedId || !pool.some(b => b.id === selectedId)){
@@ -4851,6 +4856,7 @@ function applySelection(state){
   if (hist && hist.id !== selectedId) histExit(hist.id);   // selection moved without select()
   const moved = shownId !== selectedId;
   for (const k of Object.keys(els)) els[k].box.classList.toggle("sel", k === selectedId);
+  if (previous && previous !== selectedId) releaseAnsweredVisit(els[previous]);
   syncDesktopHistoryAvailability(selectedId);
   updatePwd(state);
   // a selection that arrived without going through select(), which is the first
@@ -5683,7 +5689,11 @@ function makeBox(b, i, state){
       send.classList.toggle("show", ta.value.trim().length > 0);
       riseBand(ta);
     };
-    ta.addEventListener("input", () => { cancelAutoNext(); tick(); });
+    ta.addEventListener("input", () => {
+      cancelAutoNext();
+      if (b.id === selectedId) protectAnsweredVisit(els[b.id]);
+      tick();
+    });
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(tick);
     tick();
     wireAttachmentTransfer(ta);
