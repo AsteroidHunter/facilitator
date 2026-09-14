@@ -163,7 +163,6 @@ test("poll redraw preserves the selected row and scroll position", async () => {
     await page.evaluate(() => {
       const list = document.querySelector("#magic4 .mdlist");
       list.scrollTop = 100;
-      mdRememberList();
       mdData.roots[0].files[0].mtime = "new";
       mdDrawList();
     });
@@ -181,5 +180,52 @@ test("poll redraw preserves the selected row and scroll position", async () => {
     assert.equal(state.selected, "document-12.md");
     assert.equal(state.scroll, 100);
     assert.equal(state.nameOverflow, false);
+  } finally { await page.close(); }
+});
+
+test("opening and closing a file restores the live list scroll", async () => {
+  const page = await navigator("pastureland", 250);
+  try {
+    await page.evaluate(() => {
+      const root = mdData.roots[0];
+      for (let i = 0; i < 30; i++) root.files.push({
+        rel: `document-${String(i).padStart(2, "0")}.md`,
+        name: `document-${String(i).padStart(2, "0")}.md`, mtime: "1",
+      });
+      document.querySelector("#magic4").style.height = "180px";
+      mdSig = ""; mdDrawList();
+      document.querySelector("#magic4 .mdlist").scrollTop = 100;
+      document.querySelector("#magic4 .mdrow.file:last-child")
+        .dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+    await page.waitForSelector("#magic4.editing");
+    await page.click(".mdback");
+    assert.equal(await page.$eval("#magic4 .mdlist", list => list.scrollTop), 100);
+  } finally { await page.close(); }
+});
+
+test("deep breadcrumbs keep the current folder and Up control visible", async () => {
+  const page = await navigator("pastureland", 250);
+  try {
+    await page.evaluate(() => {
+      mdData.roots[0].files.push({
+        rel: "long-ancestor/another-long-ancestor/current-folder/page.md",
+        name: "page.md", mtime: "7",
+      });
+      mdBrowseState().dir = "long-ancestor/another-long-ancestor/current-folder";
+      mdSig = ""; mdDrawList();
+    });
+    const state = await page.evaluate(() => {
+      const crumbs = document.querySelector("#magic4 .mdcrumbs");
+      const current = crumbs.querySelector(".mdcrumb:last-child");
+      const bounds = crumbs.getBoundingClientRect();
+      const box = current.getBoundingClientRect();
+      return {
+        label: current.textContent,
+        visible: box.left >= bounds.left && box.right <= bounds.right,
+        upDisabled: document.querySelector("#magic4 .mdup").disabled,
+      };
+    });
+    assert.deepEqual(state, { label: "current-folder", visible: true, upDisabled: false });
   } finally { await page.close(); }
 });
