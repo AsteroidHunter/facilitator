@@ -1403,7 +1403,14 @@ function editTitle(id, opts){
       const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
     }
   }
-  const end = () => { t.removeAttribute("contenteditable"); t.onkeydown = null; t.onblur = null; };
+  let inputSeen = false;
+  t.oninput = () => {
+    if (inputSeen) return;
+    inputSeen = true;
+    try { window.phoneHistory?.note("stage", { stage: "title-input", box: id,
+      inputReady: t.isConnected && t.isContentEditable, active: document.activeElement === t }); } catch (_) {}
+  };
+  const end = () => { t.removeAttribute("contenteditable"); t.onkeydown = null; t.onblur = null; t.oninput = null; };
   const commit = () => {
     const name = t.textContent.trim();
     end();

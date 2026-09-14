@@ -680,20 +680,24 @@ CLIENT_KEYS_KEPT = 512        # keys the cap remembers before the stale ones are
 CLIENT_FIELDS = ("message", "file", "line", "col", "count", "late", "doing", "route")
 INCIDENT_PER_MINUTE = 4      # one key, regardless of reason, card or operation
 INCIDENT_EVENTS = frozenset(("create", "select", "focus", "send", "operation", "request",
-                            "render", "drawer", "viewport", "lifecycle", "problem", "freeze", "mark"))
+                            "render", "stage", "observer", "drawer", "viewport", "lifecycle", "problem", "freeze", "mark"))
 INCIDENT_REASONS = ("manual", "slow-ui", "slow-request", "invariant", "problem", "freeze")
 INCIDENT_NUMBERS = {"ms": 600000, "seq": 1000000000, "status": 599, "serverMs": 600000,
                     "rev": 1000000000000, "boxes": 10000, "vh": 10000, "vt": 10000,
                     "late": 600000, "resume": 1000000000}
 INCIDENT_FLAGS = frozenset(("present", "shown", "title", "titled", "emptyTitle", "editing", "known",
-                            "kb", "lifting", "visible", "online"))
+                            "kb", "lifting", "visible", "online", "editor", "editorReady", "inputReady",
+                            "selectedDom", "paneBlank", "loading", "connected", "formatted", "active"))
 INCIDENT_CHOICES = {"phase": ("start", "end"), "route": ("/send", "/create", "/m/state"),
                     "side": ("left", "right"), "source": ("settings", "shortcut"),
                     "outcome": ("minted", "applied", "retry", "unsure", "failed"),
                     "lifecycle": ("start", "hidden", "visible", "pageshow", "online", "offline"),
-                    "problem": ("error", "rejection", "render", "fetch"), "reason": INCIDENT_REASONS}
+                    "problem": ("error", "rejection", "render", "fetch"),
+                    "stage": ("create-response", "card-insertion", "editor-init", "selected-ready", "title-input"),
+                    "observer": ("loop-limit", "undelivered"), "reason": INCIDENT_REASONS}
 INCIDENT_BOX = re.compile(r"(?:[mt]?\d+(?:\.\d+)*|q)", re.ASCII)
 INCIDENT_OP = re.compile(r"(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})")
+INCIDENT_BUILD = re.compile(r"[a-z0-9._-]{1,64}", re.ASCII)
 
 
 def _incident_integer(value, low: int, high: int) -> bool:
@@ -707,8 +711,12 @@ def _incident_box(value) -> bool:
 def _incident_valid(page: str, report: dict) -> bool:
     """No free text and no nested data except the bounded event list. Reject
     unknown fields and bad types before any part of a batch reaches a log."""
-    if (page != "phone" or set(report) != {"kind", "v", "reason", "marked", "box", "lost", "suppressed", "events"}
-            or type(report["v"]) is not int or report["v"] != 1
+    version = report.get("v")
+    fields = {"kind", "v", "reason", "marked", "box", "lost", "suppressed", "events"}
+    if version == 2: fields.add("build")
+    if (page != "phone" or set(report) != fields
+            or type(version) is not int or version not in (1, 2)
+            or (version == 2 and (not isinstance(report["build"], str) or not INCIDENT_BUILD.fullmatch(report["build"])))
             or report["reason"] not in INCIDENT_REASONS or not _incident_box(report["box"])
             or not _incident_integer(report["marked"], 0, 10000000000000)
             or not _incident_integer(report["lost"], 0, 1000000000)
@@ -778,7 +786,8 @@ def _client_fields(report: dict) -> dict:
     """Only the fields a report is allowed to carry, each string cut to its cap.
     A page cannot write whatever it likes into a file on this machine."""
     if report["kind"] == "incident":
-        return {k: report[k] for k in ("v", "reason", "marked", "lost", "suppressed", "events")}
+        names = ("v", "reason", "marked", "lost", "suppressed", "events")
+        return {**{k: report[k] for k in names}, **({"build": report["build"]} if "build" in report else {})}
     out = {}
     for name in CLIENT_FIELDS:
         value = report.get(name)
@@ -2733,7 +2742,7 @@ def _live_section() -> dict:
 def _phone_state(since: int | None, ops: list[str]) -> dict:
     """Callers hold _lock and have swept the clocks."""
     rev = _state.get("rev", 0)
-    out = {"rev": rev, "changed": since is None or since != rev, "now": time.time(),
+    out = {"rev": rev, "changed": since is None or since != rev, "now": time.time(), "incidentSchema": 2,
            "live": _live_section()}
     if out["changed"]:
         qpos, seen = {}, {ow: 0 for ow in OWNERS}

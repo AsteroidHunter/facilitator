@@ -56,6 +56,30 @@ function fixture(name = "phone") {
 const latest = f => f.calls.at(-1).reports[0];
 const plain = v => JSON.parse(JSON.stringify(v));
 
+test("incident capability follows v1 to v2 to v1 server responses", async () => {
+  const f = fixture();
+  f.history.identity("phone-diag-test-1");
+  f.history.note("stage", { stage: "selected-ready", editorReady: true, paneBlank: false });
+  await f.mark();
+  assert.equal(latest(f).v, 1);
+  assert.equal("build" in latest(f), false);
+  assert.equal(latest(f).events.some(e => e.event === "stage" || "editorReady" in e), false);
+
+  f.history.capability(2);
+  f.history.note("stage", { stage: "selected-ready", editorReady: true, paneBlank: false });
+  await f.mark();
+  assert.equal(latest(f).v, 2);
+  assert.equal(latest(f).build, "phone-diag-test-1");
+  assert.ok(latest(f).events.some(e => e.event === "stage" && e.editorReady === true));
+
+  f.history.capability(undefined);
+  f.history.note("observer", { observer: "undelivered" });
+  await f.mark();
+  assert.equal(latest(f).v, 1);
+  assert.equal("build" in latest(f), false);
+  assert.equal(latest(f).events.some(e => e.event === "stage" || e.event === "observer"), false);
+});
+
 test("normal history stays in RAM, with entry and age eviction and a bounded marker batch", async () => {
   const f = fixture();
   for (let i = 0; i < 100; i++) {
@@ -103,6 +127,18 @@ test("routine ResizeObserver warnings stay in the legacy batch without causing i
   const batch = JSON.parse(await f.beacons[0].body.text());
   assert.equal(batch.reports[0].kind, "error");
   assert.match(batch.reports[0].message, /ResizeObserver/);
+});
+
+test("v2 histories timestamp routine ResizeObserver warnings without copying their message", async () => {
+  const f = fixture();
+  f.history.capability(2);
+  f.fire("error", { message: "ResizeObserver loop completed with undelivered notifications.",
+    filename: "https://fixture.invalid/m", lineno: 1, colno: 2 });
+  await f.mark();
+  const event = latest(f).events.find(e => e.event === "observer");
+  assert.equal(event.observer, "undelivered");
+  assert.equal(typeof event.at, "number");
+  assert.doesNotMatch(JSON.stringify(latest(f)), /ResizeObserver|notifications/);
 });
 
 test("other page errors still save an automatic history without copying their message", async () => {

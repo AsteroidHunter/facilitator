@@ -201,24 +201,33 @@
     const COALESCE = 250, UI_SLOW = 150, REQUEST_SLOW = 2000;
     const COOLDOWN = 30000, SAVES_PER_MINUTE = 4, SAVE_TIMEOUT = 4000;
     const events = new Set(["create", "select", "focus", "send", "operation", "request",
-      "render", "drawer", "viewport", "lifecycle", "problem", "freeze", "mark"]);
+      "render", "stage", "observer", "drawer", "viewport", "lifecycle", "problem", "freeze", "mark"]);
     const reasons = new Set(["manual", "slow-ui", "slow-request", "invariant", "problem", "freeze"]);
     const numbers = { ms: 600000, seq: 1000000000, status: 599, serverMs: 600000,
       rev: 1000000000000, boxes: 10000, vh: 10000, vt: 10000, late: 600000 };
-    const flags = new Set(["present", "shown", "title", "titled", "emptyTitle", "editing", "known", "kb", "lifting"]);
+    const flags = new Set(["present", "shown", "title", "titled", "emptyTitle", "editing", "known", "kb", "lifting",
+      "editor", "editorReady", "inputReady", "selectedDom", "paneBlank", "loading", "connected", "formatted", "active"]);
     const choices = { phase: ["start", "end"], route: ["/send", "/create", "/m/state"],
       side: ["left", "right"], source: ["settings", "shortcut"],
       outcome: ["minted", "applied", "retry", "unsure", "failed"],
       lifecycle: ["start", "hidden", "visible", "pageshow", "online", "offline"],
-      problem: ["error", "rejection", "render", "fetch"], reason: [...reasons] };
+      problem: ["error", "rejection", "render", "fetch"],
+      stage: ["create-response", "card-insertion", "editor-init", "selected-ready", "title-input"],
+      observer: ["loop-limit", "undelivered"], reason: [...reasons] };
     const routineProblems = new Set(["ResizeObserver loop limit exceeded",
       "ResizeObserver loop completed with undelivered notifications."]);
+    const legacyEvents = new Set(["create", "select", "focus", "send", "operation", "request",
+      "render", "drawer", "viewport", "lifecycle", "problem", "freeze", "mark"]);
+    const legacyFields = new Set(["event", "time", "visible", "online", "resume", "box", "selected", "op",
+      "phase", "route", "side", "source", "outcome", "lifecycle", "problem", "reason",
+      "ms", "seq", "status", "serverMs", "rev", "boxes", "vh", "vt", "late",
+      "present", "shown", "title", "titled", "emptyTitle", "editing", "known", "kb", "lifting"]);
     const boxPattern = /^(?:[mt]?\d+(?:\.\d+)*|q)$/;
     const opPattern = /^(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/;
     let ring = [], lost = 0, suppressed = 0, seq = 0, generation = 0;
     let lastResume = -Infinity, lastAuto = -Infinity, attempts = [];
     let viewport = null, viewportTimer = null, viewportAt = -Infinity, viewportKey = "";
-    let held = null, pendingManual = null, beaconed = null, busy = false;
+    let held = null, pendingManual = null, beaconed = null, busy = false, build = "phone-diag-unidentified", schema = 1;
     const cap = (n, max) => Math.min(max, Math.max(0, Math.round(n)));
     // Even a broken getter, unavailable clock, or disabled reporter must never
     // escape into a send, focus, navigation or keyboard reconciliation.
@@ -299,10 +308,14 @@
     function capture(reason, detail) {
       note("mark", { ...detail, reason });
       const now = performance.now();
-      const recent = ring.filter(e => now - e.time <= AGE);
-      return { kind: "incident", v: 1, reason, marked: Date.now(),
+      let recent = ring.filter(e => now - e.time <= AGE);
+      if (schema < 2) recent = recent.filter(e => legacyEvents.has(e.event)).map(e =>
+        Object.fromEntries(Object.entries(e).filter(([key]) => legacyFields.has(key))));
+      const report = { kind: "incident", v: schema, reason, marked: Date.now(),
         box: [...recent].reverse().find(e => e.box)?.box || "",
         lost, suppressed, events: recent.map(({ time, ...e }) => ({ ...e, at: -cap(now - time, AGE) })) };
+      if (schema >= 2) report.build = build;
+      return report;
     }
     function bodyOf(report) {
       let body;
@@ -378,13 +391,20 @@
     note("lifecycle", { lifecycle: "start" });
     return {
       begin: safe(begin), end: safe(end), note: safe(note),
+      identity: safe(value => { if (/^[a-z0-9._-]{1,64}$/.test(String(value))) build = String(value); }),
+      // Follow every successful reading. A server rolled back under an open
+      // page omits the capability, so that page must return to strict v1 too.
+      capability: safe(value => { schema = Number(value) >= 2 ? 2 : 1; }),
       mark: safe(mark, Promise.resolve({ status: "failed" })),
       problem: safe((kind, message) => {
         if (!choices.problem.includes(kind)) return;
         // Browsers may emit these while settling a normal responsive layout.
         // Keep the existing error report, but do not turn every page load into
         // an immediate incident upload.
-        if (kind === "error" && routineProblems.has(message)) return;
+        if (kind === "error" && routineProblems.has(message)) {
+          note("observer", { observer: message.indexOf("undelivered") >= 0 ? "undelivered" : "loop-limit" });
+          return;
+        }
         note("problem", { problem: kind }); automatic("problem");
       }),
       freeze: safe(late => {

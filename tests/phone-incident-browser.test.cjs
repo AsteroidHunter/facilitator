@@ -13,11 +13,17 @@ const ROOT = path.resolve(__dirname, "..");
 const EVIDENCE = process.env.FACILITATOR_INCIDENT_EVIDENCE || path.join(os.tmpdir(), "facilitator-incident-browser");
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
 let browser;
+let ownedBrowser = false;
 before(async () => {
   await fs.mkdir(EVIDENCE, { recursive: true });
-  browser = await puppeteer.connect({ browserURL: "http://localhost:9222" });
+  const executablePath = process.env.FACILITATOR_BROWSER_EXECUTABLE;
+  if (executablePath) {
+    ownedBrowser = true;
+    browser = await puppeteer.launch({ executablePath, headless: true,
+      args: ["--no-first-run", "--no-default-browser-check"] });
+  } else browser = await puppeteer.connect({ browserURL: "http://localhost:9222" });
 });
-after(async () => { if (browser) await browser.disconnect(); });
+after(async () => { if (browser) await (ownedBrowser ? browser.close() : browser.disconnect()); });
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function wait(fn, timeout = 6000) {
   const end = Date.now() + timeout;
@@ -54,8 +60,14 @@ async function fixture(t) {
   const source = await fs.readFile(path.join(ROOT, "server.py"), "utf8");
   await fs.writeFile(path.join(dir, "server.py"), source.replace("PORT = 8877", `PORT = ${port}`));
   for (const name of ["m.html", "card-logic.js", "card-report.js", "card-markdown.js", "card-tokens.css",
-                      "compose-format.js", "cm-markdown.js", "m-sw.js", "m-manifest.json"])
-    await fs.copyFile(path.join(ROOT, name), path.join(dir, name));
+                      "compose-format.js", "cm-markdown.js", "m-sw.js", "m-manifest.json"]) {
+    if (name !== "m.html") { await fs.copyFile(path.join(ROOT, name), path.join(dir, name)); continue; }
+    const phone = await fs.readFile(path.join(ROOT, name), "utf8");
+    const marker = "const createDiagnostics = new Map();         // transient timing tokens; never persisted";
+    assert.equal(phone.split(marker).length, 2, "create diagnostic test marker changed");
+    await fs.writeFile(path.join(dir, name), phone.replace(marker,
+      marker + "\nwindow.__fixtureCreateDiagnosticCount = () => createDiagnostics.size;"));
+  }
   await fs.cp(path.join(ROOT, "assets"), path.join(dir, "assets"), { recursive: true });
   await fs.writeFile(path.join(dir, "seed.json"), JSON.stringify({ title: "Diagnostic fixture", items: [
     { id: "0", bucket: "meta", title: "Invented standing card", owner: "facilitator" },
@@ -270,4 +282,47 @@ test("the shortcut preserves draft and focus; broken instrumentation cannot stop
   assert.ok(state.boxes.find(b => b.id === "m3").pendingTexts.includes("Invented send despite diagnostics"));
   assert.ok(state.boxes.length > 21);
   assert.deepEqual(f.errors, []);
+});
+
+test("new-card diagnostics separate insertion from selection readiness", async t => {
+  const f = await fixture(t), { page } = f;
+  const before = await page.evaluate(() => {
+    // The fixture's standing m1 would collide with the server's first minted
+    // meta id. Remove only that invented client card so the create path must
+    // attach a fresh DOM/editor for the returned m1.
+    select("m2"); els.m1.field?.detach(); els.m1.box.remove(); delete els.m1;
+    lastState.boxes = lastState.boxes.filter(box => box.id !== "m1");
+    return { count:document.querySelectorAll("article.box").length, selected:selectedId };
+  });
+  await page.evaluate(() => createCard());
+  await wait(() => page.evaluate(() => !pendingCreate()), 10000);
+  const created = await page.evaluate(() => ({ count:document.querySelectorAll("article.box").length,
+    editing:!!document.querySelector("article.box.sel .title")?.isContentEditable }));
+  assert.equal(created.editing, true);
+  assert.notEqual(await page.evaluate(() => selectedId), before.selected);
+  await page.locator("article.box.sel .title").fill("Invented title excluded from diagnostics");
+  assert.equal((await page.evaluate(() => phoneHistory.mark("shortcut", phoneTraceState()))).status, "saved");
+  await wait(async () => f.requests.some(batch => batch.reports.some(report => report.kind === "incident")));
+  const saved = f.requests.flatMap(batch => batch.reports).find(report => report.kind === "incident" && report.reason === "manual");
+  const insertionEnd = saved.events.findIndex(e => e.event === "stage" && e.stage === "card-insertion" && e.phase === "end");
+  const selectedStart = saved.events.findIndex(e => e.event === "stage" && e.stage === "selected-ready" && e.phase === "start");
+  const selectedEnd = saved.events.find(e => e.event === "stage" && e.stage === "selected-ready" && e.phase === "end");
+  assert.ok(insertionEnd >= 0 && selectedStart > insertionEnd);
+  assert.equal(saved.events.some(e => e.event === "stage" && e.stage === "editor-init" && e.phase === "end" && e.editorReady), true);
+  assert.deepEqual({ shown:selectedEnd.shown, editing:selectedEnd.editing, inputReady:selectedEnd.inputReady, paneBlank:selectedEnd.paneBlank },
+    { shown:true, editing:true, inputReady:true, paneBlank:false });
+  assert.equal(saved.events.some(e => e.event === "stage" && e.stage === "title-input"), true);
+  assert.doesNotMatch(JSON.stringify(saved), /Invented title|excluded from diagnostics/);
+});
+
+test("a thrown create landing releases its bounded diagnostic record", async t => {
+  const f = await fixture(t), { page } = f;
+  await page.evaluate(() => {
+    window.__fixtureOriginalLandCreate = landCreate;
+    window.landCreate = () => { throw new Error("invented landing failure"); };
+    createCard();
+  });
+  await page.waitForFunction(() => !ops.some(op => op.kind === "create") && !opWorkers.create, { polling: 25 });
+  assert.deepEqual(await page.evaluate(() => ({ traces:__fixtureCreateDiagnosticCount(), pending:!!pendingCreate(), worker:!!opWorkers.create })),
+    { traces:0, pending:false, worker:false });
 });
