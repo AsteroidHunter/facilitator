@@ -2197,6 +2197,7 @@
   :is(#magic3, #magic4) .mdnav{flex:none; display:flex; align-items:center; gap:3px;
     min-width:0; padding:5px 7px 4px; border-bottom:1px solid var(--line);
     font:11px var(--mono); color:var(--sub)}
+  :is(#magic3, #magic4) .mdnav[hidden]{display:none}
   :is(#magic3, #magic4) .mdup, :is(#magic3, #magic4) .mdcrumb{
     flex:none; min-width:0; border:none; background:none; border-radius:4px; cursor:pointer;
     padding:2px 4px; font:inherit; color:inherit}
@@ -2220,9 +2221,8 @@
     overflow:hidden; white-space:nowrap}
   :is(#magic3, #magic4) .mdrow:hover, :is(#magic3, #magic4) .mdrow.selected{background:#FFF8EF}
   :is(#magic3, #magic4) .mdrow.selected{color:var(--ink); outline:1px solid #EADCC9}
-  :is(#magic3, #magic4) .mdrowicon{flex:none; width:14px; color:#B4AA99; text-align:center}
-  :is(#magic3, #magic4) .mdrow.folder .mdrowicon{color:#C69455}
   :is(#magic3, #magic4) .mdrowname{min-width:0; overflow:hidden; text-overflow:ellipsis}
+  :is(#magic3, #magic4) .mdrow.folder .mdrowname{color:#C69455}
   /* the open file's bar, the head row's other face. 33px is the folder tabs'
      own height added up: their head's 6px of top air, the tab's 6 and 5 of
      padding and its 16px line. written down so the two states are exactly as
@@ -7948,17 +7948,15 @@ function mdDrawList(){
   el.crumbs.textContent = "";
   el.crumbs.title = state.dir ? mdKind + "/" + state.dir : mdKind;
   el.up.disabled = !state.dir;
+  el.nav.hidden = !state.dir;
   const parts = state.dir ? state.dir.split("/") : [];
-  const crumb = (label, dir) => {
-    const b = h("button", "mdcrumb", label);
-    b.title = dir || mdKind;
+  parts.forEach((part, i) => {
+    if (i) el.crumbs.append(h("span", "mdcrumbsep", "/"));
+    const dir = parts.slice(0, i + 1).join("/");
+    const b = h("button", "mdcrumb", part);
+    b.title = mdKind + "/" + dir;
     b.onclick = () => mdGo(dir);
     el.crumbs.append(b);
-  };
-  crumb(mdKind, "");
-  parts.forEach((part, i) => {
-    el.crumbs.append(h("span", "mdcrumbsep", "/"));
-    crumb(part, parts.slice(0, i + 1).join("/"));
   });
   if (!files.length){
     // an empty folder is a fact and not a failure. the same italic line the
@@ -7975,9 +7973,9 @@ function mdDrawList(){
   ];
   for (const entry of entries){
     const b = h("button", "mdrow " + entry.kind);
-    b.append(h("span", "mdrowicon", entry.kind === "folder" ? "▸" : "·"),
-      h("span", "mdrowname", entry.name));
-    b.title = entry.name;
+    const label = entry.kind === "folder" ? entry.name + "/" : entry.name;
+    b.append(h("span", "mdrowname", label));
+    b.title = label;
     b.classList.toggle("selected", entry.key === state.selected);
     const activate = () => entry.kind === "folder"
       ? mdGo(prefix + entry.name)
