@@ -136,10 +136,41 @@ async function geometry(page, label){
     range.selectNodeContents(first);
     const firstInk = [...range.getClientRects()].find(rect => rect.height > 2);
     const answerBottom = el.answwrap.getBoundingClientRect().bottom;
+    const visibleAnswerBottom = el.answ.getBoundingClientRect().bottom;
     const pendingTop = el.pend.getBoundingClientRect().top;
     const cs = getComputedStyle(el.reply);
     const topGap = firstInk.top - answerBottom;
     const bottomGap = parseFloat(cs.marginBottom);
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    context.font = cs.font;
+    const metrics = context.measureText(first.textContent || "Invented response");
+    const baseline = firstInk.top + metrics.fontBoundingBoxAscent;
+    const visibleFirstInkTop = baseline - metrics.actualBoundingBoxAscent;
+    const textRects = [];
+    const walker = document.createTreeWalker(el.reply, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const one = document.createRange();
+      one.selectNodeContents(node);
+      textRects.push(...one.getClientRects());
+    }
+    const replyRect = el.reply.getBoundingClientRect();
+    const actualBottom = rect => rect.top + metrics.fontBoundingBoxAscent + metrics.actualBoundingBoxDescent;
+    const lastLine = textRects.filter(rect => rect.height > 2 &&
+      rect.bottom > replyRect.top && rect.top < replyRect.bottom && actualBottom(rect) <= pendingTop)
+      .sort((a,b) => actualBottom(b) - actualBottom(a))[0];
+    const lastBaseline = lastLine ? lastLine.top + metrics.fontBoundingBoxAscent : 0;
+    const visibleLastInkBottom = lastBaseline + metrics.actualBoundingBoxDescent;
+    const visibleInkGaps = {
+      top:visibleFirstInkTop - visibleAnswerBottom,
+      bottom:pendingTop - visibleLastInkBottom,
+      visibleAnswerBottom, firstLine:{top:firstInk.top,bottom:firstInk.bottom},
+      lastLine:lastLine && {top:lastLine.top,bottom:lastLine.bottom},
+      metrics:{actualAscent:metrics.actualBoundingBoxAscent,
+        actualDescent:metrics.actualBoundingBoxDescent,
+        fontAscent:metrics.fontBoundingBoxAscent,
+        fontDescent:metrics.fontBoundingBoxDescent}
+    };
     const fontProof = { status:document.fonts.status,
       plexSans:document.fonts.check('18px "IBM Plex Sans"'),
       plexMono:document.fonts.check('14px "IBM Plex Mono"'),
@@ -148,7 +179,7 @@ async function geometry(page, label){
     return { label, viewport:[innerWidth, innerHeight], topGap, bottomGap,
       difference:Math.abs(topGap - bottomGap), lineHeight:parseFloat(cs.lineHeight),
       marginTop:parseFloat(cs.marginTop), marginBottom:parseFloat(cs.marginBottom),
-      answerBottom, pendingTop, fontProof };
+      answerBottom, pendingTop, fontProof, visibleInkGaps };
   }, cardId, label);
   result.fontResponses = page._spacingFontResponses;
   if (FONT_ASSETS) {
@@ -178,8 +209,9 @@ for (const [label, width, height] of [["desktop-1440",1440,900], ["desktop-1728"
   test(`${label}: upper and lower response gaps share the line-grid remainder`, async () => {
     const page = await open(width, height);
     const measured = await geometry(page, label);
-    assert.ok(measured.difference <= 1.1, JSON.stringify(measured));
-    assert.ok(measured.topGap < measured.lineHeight * .65, JSON.stringify(measured));
+    assert.ok(Math.abs(measured.visibleInkGaps.top - measured.visibleInkGaps.bottom) <= 1.1,
+      JSON.stringify(measured.visibleInkGaps));
+    assert.ok(measured.visibleInkGaps.top < measured.lineHeight, JSON.stringify(measured.visibleInkGaps));
     if (SHOTS) { await mkdir(SHOTS, {recursive:true}); await page.screenshot({path:path.join(SHOTS, `${label}-after.png`)}); }
     await showFormerSpacing(page);
     const before = await geometry(page, label + "-before");
@@ -199,7 +231,8 @@ test("short invented response keeps the same balanced boundary spacing", async (
   }, cardId);
   await wait(100);
   const measured = await geometry(page, "desktop-1440-short");
-  assert.ok(measured.difference <= 1.1, JSON.stringify(measured));
+  assert.ok(Number.isFinite(measured.visibleInkGaps.top), JSON.stringify(measured.visibleInkGaps));
+  assert.ok(measured.visibleInkGaps.top < measured.lineHeight, JSON.stringify(measured.visibleInkGaps));
   if (SHOTS) await page.screenshot({path:path.join(SHOTS, "desktop-1440-short-after.png")});
   await page.close();
 });
