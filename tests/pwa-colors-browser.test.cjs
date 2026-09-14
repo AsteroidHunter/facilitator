@@ -125,7 +125,7 @@ async function capture(name, side="left"){
   return {name,...state};
 }
 function unified(state){
-  assert.equal(state.pageFill,"rgb(245, 244, 241)");
+  assert.equal(state.pageFill,"rgb(255, 255, 255)");
   assert.equal(state.bodyFill,state.pageFill);assert.equal(state.tabFill,state.pageFill);
   assert.equal(state.pageImage,"none","page-only highlight creates the tab mismatch and recession seam");
   assert.ok(state.tabBefore.includes(state.pageFill)&&state.tabAfter.includes(state.pageFill));
@@ -136,7 +136,7 @@ function unified(state){
   assert.ok(Math.max(...seam)<=1,`top seam in ${state.name}: ${JSON.stringify(state.pixels)}`);
   if(state.name.endsWith("normal")||state.name.endsWith("closed")){
     for(const key of ["tab","strip","canvas"]){
-      const pixel=state.pixels[key];assert.ok(pixel.every((v,i)=>Math.abs(v-[245,244,241][i])<=1),`${state.name} ${key} differs: ${pixel}`);
+      const pixel=state.pixels[key];assert.ok(pixel.every(v=>Math.abs(v-255)<=1),`${state.name} ${key} differs: ${pixel}`);
     }
   }
 }
