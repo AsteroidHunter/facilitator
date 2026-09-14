@@ -5309,6 +5309,7 @@ function snapCard(){
   head.style.paddingTop = "";
   el.titleEl.style.marginBottom = "";
   r.style.marginTop = "";
+  r.style.marginBottom = "";
   const cs = getComputedStyle(r);
   const line = parseFloat(cs.lineHeight);
   const rect = r.getBoundingClientRect();
@@ -5336,7 +5337,32 @@ function snapCard(){
   // than taken, the answer always starts under the whole box, and the room is
   // still the whole number of lines the ramp needs it to be
   const s = (rem > line / 2 && !answ) ? rem - line : rem;
-  if (Math.abs(s) > 0.5) r.style.marginTop = s.toFixed(2) + "px";
+  if (Math.abs(s) > 0.5){
+    if (answ){
+      // The raised sent box and the waiting box frame the answer as a pair.
+      // Keep the line-grid correction responsive to the answer's own line
+      // height, but share its spare room between those two edges instead of
+      // leaving the whole remainder under the raised box. The two margins add
+      // back to exactly s, so the answer keeps the same snapped line count;
+      // boxBand also stays fixed because the lifted bottom edge and its extra
+      // clear margin cancel in that measurement.
+      // The first glyph does not start on the reply element's top edge, while
+      // the lower clear edge is the element's own margin. Read that built-in
+      // type inset too, so it is the visible white on each side that matches,
+      // across fonts and stage scales, rather than merely the CSS margins.
+      const rg = document.createRange();
+      rg.selectNodeContents(first);
+      const firstLine = [...rg.getClientRects()].find(x => x.height > 2);
+      const inkInset = firstLine ? firstLine.top - rect.top : 0;
+      const upper = Math.max(0, Math.min(s,
+        (parseFloat(cs.marginBottom) + s - inkInset) / 2));
+      const lower = s - upper;
+      r.style.marginTop = upper.toFixed(2) + "px";
+      r.style.marginBottom = (parseFloat(cs.marginBottom) + lower).toFixed(2) + "px";
+    } else {
+      r.style.marginTop = s.toFixed(2) + "px";
+    }
+  }
   // the answer has moved, so the title's two gaps are no longer a pair. this
   // runs from inside the snap and not beside it, so the two can never be a
   // frame apart
