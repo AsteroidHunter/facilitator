@@ -81,8 +81,9 @@
     --pad-b:calc(env(safe-area-inset-bottom, 0px) + var(--app-inset));
     --kb-inset:0px;
     --kb-anim:.25s cubic-bezier(.38,.7,.125,1);
+    /* The tab strip, its seated tab and the exposed canvas share one paper.
+       A page-only highlight would reveal a seam when the page draws back. */
     background:var(--paper);
-    background-image:radial-gradient(circle at 18% -4%, #FCFCFB 0%, rgba(252,252,251,0) 52%);
     /* the depth a menu opens onto. as one comes out the whole page draws back
        towards the middle of the screen, by the same fraction the menu's travel
        and its shade are worth, so the card reads as a stage set back rather
