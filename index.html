@@ -2205,7 +2205,7 @@
   :is(#magic3, #magic4) .mdup:not(:disabled):hover,
   :is(#magic3, #magic4) .mdcrumb:hover{background:#FFF8EF; color:var(--accent)}
   :is(#magic3, #magic4) .mdcrumbs{display:flex; align-items:center; min-width:0;
-    overflow:hidden; white-space:nowrap}
+    justify-content:flex-end; overflow:hidden; white-space:nowrap}
   :is(#magic3, #magic4) .mdcrumb{overflow:hidden; text-overflow:ellipsis}
   :is(#magic3, #magic4) .mdcrumbsep{flex:none; color:#C9BFAE}
   /* the file list. the rows are the worktree menu's rows: a folder of file
@@ -7940,9 +7940,13 @@ function mdDrawList(){
   const sig = mdFor + "|" + mdKind + "|" + state.dir + "|" +
     files.map(f => f.rel + ":" + f.mtime).join(",");
   if (sig === mdSig) return;
+  const navKey = mdFor + "|" + mdKind + "|" + state.dir;
+  if (el.list.dataset.navKey === navKey) state.scroll = el.list.scrollTop;
   mdSig = sig;
   el.list.textContent = "";
+  el.list.dataset.navKey = navKey;
   el.crumbs.textContent = "";
+  el.crumbs.title = state.dir ? mdKind + "/" + state.dir : mdKind;
   el.up.disabled = !state.dir;
   const parts = state.dir ? state.dir.split("/") : [];
   const crumb = (label, dir) => {
@@ -7989,6 +7993,7 @@ async function mdOpenFile(root, rel){
   const host = mdHost();
   if (!host || !host._md) return;
   const lane = activeOwner;   // the panel is only ever live on the tab it is drawn for
+  mdRememberList();
   mdNote(host, "opening");
   const ready = await mdBundle();
   if (!host._md || mdHost() !== host || mdFor !== lane || activeOwner !== lane) return;
