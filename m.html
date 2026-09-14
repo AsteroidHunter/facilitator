@@ -907,6 +907,10 @@
 // the phone is where a failure is hardest to reproduce, so it reports the same
 // way the board does: thrown errors, failed fetches, failed renders
 if (typeof startReporter === "function") startReporter("phone");
+// A diagnostic token, not a release claim: it distinguishes this instrumented
+// page from an older installed shell without exposing a URL or local path.
+const PHONE_DIAGNOSTIC_BUILD = "phone-diag-20260913-1";
+tracePhone("identity", PHONE_DIAGNOSTIC_BUILD);
 // the marker a freeze report carries; it goes nowhere if the reporter is absent
 if (typeof noteDoing !== "function") window.noteDoing = () => {};
 // The recorder is optional and every call is isolated from the phone's work.
@@ -917,11 +921,19 @@ function phoneTraceState(){
   try {
     const el = selectedId && els[selectedId];
     const b = lastState?.boxes.find(box => box.id === selectedId);
+    const paneBlank = document.getElementById("pane").classList.contains("blank");
+    const editor = !!el?.field;
+    const editorReady = !!el?.field && (!el.field.formatted() || !!el.field.view);
+    const shown = !!el?.box.classList.contains("sel") && !paneBlank;
+    const inputReady = shown && !!el?.titleEl.isConnected && el.titleEl.isContentEditable;
     return { box: selectedId, selected: selectedId, known: !!b, present: !!el?.box.isConnected,
-      shown: !!el?.box.classList.contains("sel") && !document.getElementById("pane").classList.contains("blank"),
+      shown,
       title: !!el?.titleEl.isConnected, titled: !!b?.title, emptyTitle: !el?.titleEl.textContent,
       editing: !!el?.titleEl.isContentEditable, boxes: document.getElementById("cards").childElementCount,
-      kb: document.body.classList.contains("kb"), lifting: document.body.classList.contains("lifting") };
+      kb: document.body.classList.contains("kb"), lifting: document.body.classList.contains("lifting"),
+      editor, editorReady, inputReady, selectedDom: !!el?.box.classList.contains("sel"), paneBlank,
+      loading: !!document.getElementById("loading"), connected: !!el?.box.isConnected,
+      formatted: !!el?.field?.formatted(), active: document.activeElement === el?.titleEl || !!(el && ComposeFormat.focused(el.ta)) };
   } catch (_) { return {}; }
 }
 function endPhoneTrace(token, detail, response, inspect = false){
@@ -1122,9 +1134,22 @@ function makeBox(b){
   // carries a listener across a change of face. what counts as a new line here
   // is the row's own pair: shift enter, and the return key while the on-screen
   // keyboard is up, which is where return has always made a line
+  const createDiagnostic = [...createDiagnostics.values()].find(diagnostic => diagnostic.box === b.id);
+  const editorTrace = createDiagnostic
+    ? tracePhone("begin", "stage", { stage: "editor-init", box: b.id }) : null;
   const field = ComposeFormat.attach(ta, {
     newline: e => e.shiftKey || document.body.classList.contains("kb"),
   });
+  if (editorTrace) endPhoneTrace(editorTrace, { stage: "editor-init", box: b.id,
+    editor: true, editorReady: !field.formatted() || !!field.view, formatted: field.formatted() });
+  // DOM/editor insertion is complete here. Selection and title focus happen
+  // later, after apply has finished drawing this card's remaining state.
+  if (createDiagnostic?.insertion){
+    endPhoneTrace(createDiagnostic.insertion, { stage: "card-insertion", box: b.id,
+      present: box.isConnected, editor: true, editorReady: !field.formatted() || !!field.view });
+    createDiagnostic.insertion = null;
+    createDiagnostic.selected = tracePhone("begin", "stage", { stage: "selected-ready", box: b.id });
+  }
 
   // the row grows to its text, measured on the twin (fitRow), and the line
   // under the caret is brought into view after every keystroke and on focus
@@ -1361,6 +1386,7 @@ const RETRY_MIN_MS = 1500, RETRY_MAX_MS = 30000;
 // the window where that proves it never landed
 const OP_STATES = new Set(["pending", "unsure", "failed"]);
 let ops = [];                                // in the order they were asked
+const createDiagnostics = new Map();         // transient timing tokens; never persisted
 const opRows = {};                           // op id -> its row on the card, while it is unconfirmed
 const opSleepers = new Set();                // the retry sleeps a wake ends early
 const opWorkers = {};                        // lane -> the loop working that lane's operations
@@ -1507,14 +1533,52 @@ function reconcileOps(answer){
   }
 }
 function applyOp(op, result){
-  if (op.state !== "pending" && op.state !== "unsure") return;
+  if (op.state !== "pending" && op.state !== "unsure") {
+    if (op.kind === "create") createDiagnostics.delete(op.id);
+    return;
+  }
+  const diagnostic = op.kind === "create" ? createDiagnostics.get(op.id) : null;
+  if (diagnostic) diagnostic.box = result.id;
+  if (diagnostic?.response){
+    endPhoneTrace(diagnostic.response, { stage: "create-response", op: op.id,
+      box: result.id, outcome: "applied" });
+    diagnostic.response = null;
+  }
+  if (diagnostic) diagnostic.insertion = tracePhone("begin", "stage",
+    { stage: "card-insertion", op: op.id, box: result.id });
   tracePhone("note", "operation", { op: op.id, box: op.box || result.id, outcome: "applied" });
   op.state = "applied";
   ops = ops.filter(o => o !== op);
   saveOps();
   const row = opRows[op.id];
   if (row){ row.remove(); delete opRows[op.id]; }
-  if (op.kind === "send") landSend(op, result); else landCreate(op, result);
+  try {
+    if (op.kind === "send") landSend(op, result); else landCreate(op, result);
+    // A concurrent poll can have inserted the card before this response lands.
+    // In that case makeBox did not see the transient record; close insertion
+    // honestly at the already-present card, then begin readiness at this point.
+    if (diagnostic?.insertion){
+      endPhoneTrace(diagnostic.insertion, { stage: "card-insertion", op: op.id,
+        box: result.id, present: !!els[result.id]?.box.isConnected,
+        editor: !!els[result.id]?.field, editorReady: !!els[result.id]?.field &&
+          (!els[result.id].field.formatted() || !!els[result.id].field.view) });
+      diagnostic.insertion = null;
+      diagnostic.selected = tracePhone("begin", "stage", { stage: "selected-ready", op: op.id, box: result.id });
+    }
+    if (diagnostic?.selected){
+      endPhoneTrace(diagnostic.selected, { stage: "selected-ready",
+        op: op.id, box: result.id, ...phoneTraceState() });
+      diagnostic.selected = null;
+    }
+  } finally {
+    // The server operation is already removed above. Rendering may still throw;
+    // its diagnostic record must never outlive that dead operation.
+    if (diagnostic?.insertion) endPhoneTrace(diagnostic.insertion,
+      { stage: "card-insertion", op: op.id, box: result.id, ...phoneTraceState() });
+    if (diagnostic?.selected) endPhoneTrace(diagnostic.selected,
+      { stage: "selected-ready", op: op.id, box: result.id, ...phoneTraceState() });
+    if (diagnostic) createDiagnostics.delete(op.id);
+  }
   if (result.rev != null && lastRev != null && result.rev !== lastRev) poll();   // the board moved: read it now rather than a tick later
 }
 // nothing more is sent for this operation and nothing is decided: the words
@@ -1522,6 +1586,9 @@ function applyOp(op, result){
 // settled only by a receipt or by the owner's own hand
 function markUnsure(op, why){
   if (op.state !== "pending") return;
+  const diagnostic = op.kind === "create" ? createDiagnostics.get(op.id) : null;
+  if (diagnostic?.response) endPhoneTrace(diagnostic.response, { stage: "create-response", op: op.id, outcome: "unsure" });
+  if (diagnostic) createDiagnostics.delete(op.id);
   tracePhone("note", "operation", { op: op.id, box: op.box, outcome: "unsure" });
   if (phoneEnterAgain && phoneEnterAgain.op === op) clearPhoneEnterAgain(phoneEnterAgain);
   op.advance = false;
@@ -1540,6 +1607,9 @@ function markUnsure(op, why){
 // only those stay not-sent across a reload; anything else is an unknown outcome
 function failOp(op, why, by){
   if (op.state !== "pending" && op.state !== "unsure") return;
+  const diagnostic = op.kind === "create" ? createDiagnostics.get(op.id) : null;
+  if (diagnostic?.response) endPhoneTrace(diagnostic.response, { stage: "create-response", op: op.id, outcome: "failed" });
+  if (diagnostic) createDiagnostics.delete(op.id);
   tracePhone("note", "operation", { op: op.id, box: op.box, outcome: "failed" });
   if (phoneEnterAgain && phoneEnterAgain.op === op) clearPhoneEnterAgain(phoneEnterAgain);
   op.advance = false;
@@ -1723,6 +1793,12 @@ function createCard(){
   const op = mintOp("create", { owner: activeOwner });
   if (!op){ drawerNote("No card can be made while fifty messages are still unconfirmed on this phone"); endPhoneTrace(trace, { outcome: "failed" }); return; }
   tracePhone("note", "operation", { op: op.id, outcome: "minted" });
+  // pendingCreate above proves only one create can be live. Clear any record
+  // left by an already-dead exceptional path before installing that one.
+  createDiagnostics.clear();
+  createDiagnostics.set(op.id, {
+    response: tracePhone("begin", "stage", { stage: "create-response", op: op.id })
+  });
   op.fresh = true;
   drawCreatePending();
   runOps("create");
@@ -2719,6 +2795,7 @@ async function readBoard(){
     response = r;
     if (!r.ok) throw new Error("status " + r.status);
     data = await r.json();
+    try { window.phoneHistory?.capability(data.incidentSchema); } catch (_) {}
   } catch (e) {
     pollFails++;
     pollGap = Math.min(POLL_BACKOFF_MAX_MS, pollGap * 2);

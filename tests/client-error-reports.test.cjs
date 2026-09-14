@@ -274,7 +274,7 @@ function incident() {
 test("incident validation rejects content, unbounded nesting, bad types and unknown versions atomically", async () => {
   const before = (await reports()).length;
   const mutations = [
-    r => { r.message = "private text"; }, r => { r.v = 2; }, r => { r.v = true; },
+    r => { r.message = "private text"; }, r => { r.v = 3; }, r => { r.v = true; },
     r => { r.box = "person@example.invalid"; }, r => { r.marked = "yesterday"; },
     r => { r.reason = { text: "private" }; }, r => { r.events = Array(41).fill(r.events[2]); },
     r => { r.events = []; }, r => { r.events[0].at = -60001; }, r => { r.events[1].at = -301; },
@@ -294,6 +294,27 @@ test("incident validation rejects content, unbounded nesting, bad types and unkn
   }
   assert.equal((await send({ page: "board", reports: [incident()] })).status, 400);
   assert.equal((await reports()).length, before, "an invalid incident wrote part of its batch");
+});
+
+test("v2 incident metadata is strict and persisted without content", async () => {
+  await reportsSince();
+  const revised = incident();
+  revised.v = 2;
+  revised.build = "phone-diag-test-1";
+  revised.events.splice(-1, 0,
+    { event:"stage", stage:"editor-init", phase:"end", ms:3, editor:true, editorReady:true,
+      formatted:true, box:"m12", at:-25, visible:true, online:true, resume:0 },
+    { event:"observer", observer:"undelivered", at:-20, visible:true, online:true, resume:0 });
+  assert.deepEqual(await send({ page:"phone", reports:[revised] }),
+    { status:200, body:{ ok:true, written:1, dropped:0 } });
+  const [written] = await reportsSince();
+  assert.equal(written.v, 2);
+  assert.equal(written.build, "phone-diag-test-1");
+  assert.ok(written.events.some(e => e.stage === "editor-init" && e.editorReady));
+  for (const mutate of [r => { delete r.build; }, r => { r.build = "private words"; }, r => { r.events[2].sourceText = "private"; }]) {
+    const bad = structuredClone(revised); mutate(bad);
+    assert.equal((await send({ page:"phone", reports:[bad] })).status, 400);
+  }
 });
 
 test("a confirmed incident shares the dated client stream and leaves existing report fields intact", async () => {
@@ -323,16 +344,18 @@ test("different incident reasons, cards and operation ids share the four-write m
     return r;
   });
   const response = await send({ page: "phone", reports: reportsToSend });
-  assert.deepEqual(response.body, { ok: true, written: 3, dropped: 7 });
+  // The confirmed v1 and v2 cases above already used two of this server's
+  // shared four incident writes in the current minute.
+  assert.deepEqual(response.body, { ok: true, written: 2, dropped: 8 });
   const fresh = await reportsSince();
-  assert.equal(fresh.filter(r => r.kind === "incident").length, 3);
-  assert.equal(fresh.filter(r => r.kind === "dropped").reduce((sum, r) => sum + r.dropped, 0), 7);
+  assert.equal(fresh.filter(r => r.kind === "incident").length, 2);
+  assert.equal(fresh.filter(r => r.kind === "dropped").reduce((sum, r) => sum + r.dropped, 0), 8);
 });
 
 test("only the three phone operation routes expose a numeric server duration", async () => {
   const state = await fetch(origin + "/m/state");
   assert.match(state.headers.get("x-facilitator-duration-ms"), /^\d+$/);
-  await state.arrayBuffer();
+  assert.equal((await state.json()).incidentSchema, 2);
   const ordinary = await fetch(origin + "/state");
   assert.equal(ordinary.headers.get("x-facilitator-duration-ms"), null);
   await ordinary.arrayBuffer();
