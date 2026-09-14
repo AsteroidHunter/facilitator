@@ -2194,27 +2194,43 @@
      that padding, which is the 6 and 5 the segments in here used to carry, so
      the head is exactly as tall as it was and the editor under it never moved */
   :is(#magic3, #magic4) .mdtab{--seat:var(--card); height:auto; padding:6px 13px 5px}
+  :is(#magic3, #magic4) .mdnav{flex:none; display:flex; align-items:center; gap:3px;
+    min-width:0; padding:5px 7px 4px; border-bottom:1px solid var(--line);
+    font:11px var(--mono); color:var(--sub)}
+  :is(#magic3, #magic4) .mdup, :is(#magic3, #magic4) .mdcrumb{
+    flex:none; min-width:0; border:none; background:none; border-radius:4px; cursor:pointer;
+    padding:2px 4px; font:inherit; color:inherit}
+  :is(#magic3, #magic4) .mdup{font-size:15px; line-height:1}
+  :is(#magic3, #magic4) .mdup:disabled{opacity:.3; cursor:default}
+  :is(#magic3, #magic4) .mdup:not(:disabled):hover,
+  :is(#magic3, #magic4) .mdcrumb:hover{background:#FFF8EF; color:var(--accent)}
+  :is(#magic3, #magic4) .mdcrumbs{display:flex; align-items:center; min-width:0;
+    overflow:hidden; white-space:nowrap}
+  :is(#magic3, #magic4) .mdcrumb{overflow:hidden; text-overflow:ellipsis}
+  :is(#magic3, #magic4) .mdcrumbsep{flex:none; color:#C9BFAE}
   /* the file list. the rows are the worktree menu's rows: a folder of file
      names is the same thing a menu of branch names is, so it is the same
      11.5px mono row at the same 5px radius with the same warm hover */
   :is(#magic3, #magic4) .mdlist{flex:1; min-height:0; overflow-y:auto; overscroll-behavior:none;
     display:flex; flex-direction:column; gap:2px; padding:4px}
-  :is(#magic3, #magic4) .mdrow{display:block; flex:none; width:100%; text-align:left; border:none;
+  :is(#magic3, #magic4) .mdrow{display:flex; align-items:center; gap:7px; flex:none; width:100%;
+    text-align:left; border:none;
     background:none; border-radius:5px; padding:6px 9px; cursor:pointer;
     font:11.5px var(--mono); color:var(--sub);
-    overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-  :is(#magic3, #magic4) .mdrow:hover{background:#FFF8EF}
-  /* the folder a file sits in, in front of its name and in the fainter ink, so
-     one glance reads the file and a second one reads where it lives. one line
-     either way, so every row in the list is the same height */
-  :is(#magic3, #magic4) .mdrowdir{color:#B4AA99}
+    overflow:hidden; white-space:nowrap}
+  :is(#magic3, #magic4) .mdrow:hover, :is(#magic3, #magic4) .mdrow.selected{background:#FFF8EF}
+  :is(#magic3, #magic4) .mdrow.selected{color:var(--ink); outline:1px solid #EADCC9}
+  :is(#magic3, #magic4) .mdrowicon{flex:none; width:14px; color:#B4AA99; text-align:center}
+  :is(#magic3, #magic4) .mdrow.folder .mdrowicon{color:#C69455}
+  :is(#magic3, #magic4) .mdrowname{min-width:0; overflow:hidden; text-overflow:ellipsis}
   /* the open file's bar, the head row's other face. 33px is the folder tabs'
      own height added up: their head's 6px of top air, the tab's 6 and 5 of
      padding and its 16px line. written down so the two states are exactly as
      tall as each other and the editor never shifts under the switch */
   :is(#magic3, #magic4) .mdbar{display:none; flex:none; align-items:center; gap:6px;
     height:33px; padding:0 8px; border-bottom:1px solid var(--line)}
-  :is(#magic3, #magic4).editing .mdhead, :is(#magic3, #magic4).editing .mdlist{display:none}
+  :is(#magic3, #magic4).editing .mdhead, :is(#magic3, #magic4).editing .mdnav,
+  :is(#magic3, #magic4).editing .mdlist{display:none}
   :is(#magic3, #magic4).editing .mdbar{display:flex}
   :is(#magic3, #magic4).editing .mdedit{display:block}
   /* the chevron back to the list: the navigation pad's own control, the same
@@ -7649,6 +7665,7 @@ let mdHome = null;            // the mount it is built into, so a tab switch can
 let mdKind = MD_KINDS[0];     // which folder's files the list is showing
 let mdSig = "";               // the drawn list's signature; an unchanged list is left alone
 let mdData = null;            // the last answer /mdfiles gave
+let mdBrowse = {};             // directory, selection and scroll, separate for every lane/root
 let mdOpen = null;            // {lane, root, rel, mtime} of the file in the editor, null in the list
 let mdView = null;            // the codemirror view, made when the first file is opened
 let mdClean = "";             // the text as it stands on disk, which is what dirty measures against
@@ -7667,6 +7684,10 @@ let mdKeep = {};
 let mdNoteT = null;
 // the box the panel is in at this moment, or null when it is in none of them
 function mdHost(){ return mdHome ? document.getElementById(mdHome.box) : null; }
+function mdBrowseState(lane = mdFor, kind = mdKind){
+  const key = lane + "|" + kind;
+  return mdBrowse[key] || (mdBrowse[key] = { dir: "", selected: "", scroll: 0 });
+}
 // a box that belongs to this panel alone is on the page only while the open tab
 // mounts the panel in it, and is taken off the page everywhere else rather than
 // hidden. absent is the point: the region code walks the document, so a box
@@ -7748,10 +7769,20 @@ function mdBuild(mount){
     b.classList.toggle("on", kind === mdKind);
     // the folder's real name goes on the hover once the server has said it
     b.title = kind;
-    b.onclick = () => { if (mdKind === kind) return; mdKind = kind; mdSig = ""; mdDrawList(); };
+    b.onclick = () => {
+      if (mdKind === kind) return;
+      mdRememberList(); mdKind = kind; mdBrowse[mdFor + "|kind"] = kind;
+      mdSig = ""; mdDrawList();
+    };
     head.append(b);
     return b;
   });
+  const nav = h("div", "mdnav");
+  const up = h("button", "mdup", "‹");
+  up.title = "up one folder";
+  up.onclick = () => mdUp();
+  const crumbs = h("div", "mdcrumbs");
+  nav.append(up, crumbs);
   const list = h("div", "mdlist");
   mdFade(list);
   const bar = h("div", "mdbar");
@@ -7765,8 +7796,8 @@ function mdBuild(mount){
   bar.append(back, name, save);
   const edit = h("div", "mdedit");
   const note = h("div", "mdnote");
-  host.append(head, list, bar, edit, note);
-  host._md = { head, tabs, list, bar, name, save, edit, note };
+  host.append(head, nav, list, bar, edit, note);
+  host._md = { head, tabs, nav, up, crumbs, list, bar, name, save, edit, note };
   return host;
 }
 // back to the plain dashed box, with the editor taken down and every scrap of
@@ -7774,6 +7805,7 @@ function mdBuild(mount){
 // as it did before the panel existed
 function mdOff(){
   const host = mdHost(), mount = mdHome;
+  mdRememberList();
   mdHome = null;
   if (!host || host.dataset.md !== "1") return;
   mdTearDown(true);
@@ -7851,6 +7883,31 @@ function mdDirty(){
   if (!dirty) mdLeave = false;
   return dirty;
 }
+function mdRememberList(){
+  const host = mdHost();
+  if (!host || !host._md || !mdFor || mdOpen) return;
+  mdBrowseState().scroll = host._md.list.scrollTop;
+}
+function mdGo(dir){
+  const state = mdBrowseState();
+  mdRememberList();
+  state.dir = dir; state.selected = ""; state.scroll = 0;
+  mdSig = ""; mdDrawList();
+}
+function mdUp(){
+  const dir = mdBrowseState().dir;
+  if (!dir) return;
+  const bits = dir.split("/");
+  bits.pop();
+  mdGo(bits.join("/"));
+}
+function mdSelect(row, key){
+  const host = mdHost();
+  if (!host || !host._md) return;
+  mdBrowseState().selected = key;
+  for (const other of host._md.list.querySelectorAll(".mdrow"))
+    other.classList.toggle("selected", other === row);
+}
 function mdDrawList(){
   const host = mdHost();
   if (!host || !host._md) return;
@@ -7863,12 +7920,42 @@ function mdDrawList(){
   });
   const seat = roots.find(r => r.kind === mdKind);
   const files = (seat && seat.files) || [];
+  const state = mdBrowseState();
+  const prefix = state.dir ? state.dir + "/" : "";
+  if (state.dir && !files.some(f => f.rel.startsWith(prefix))){
+    state.dir = ""; state.selected = ""; state.scroll = 0;
+    return mdDrawList();
+  }
+  const folders = new Set();
+  const visible = [];
+  for (const f of files){
+    if (!f.rel.startsWith(prefix)) continue;
+    const tail = f.rel.slice(prefix.length);
+    const slash = tail.indexOf("/");
+    if (slash < 0) visible.push(f);
+    else folders.add(tail.slice(0, slash));
+  }
   // the drawn list carries its own signature: rebuilding it on every poll would
   // take the row out from under the pointer four times a minute for nothing
-  const sig = mdKind + "|" + files.map(f => f.rel + ":" + f.mtime).join(",");
+  const sig = mdFor + "|" + mdKind + "|" + state.dir + "|" +
+    files.map(f => f.rel + ":" + f.mtime).join(",");
   if (sig === mdSig) return;
   mdSig = sig;
   el.list.textContent = "";
+  el.crumbs.textContent = "";
+  el.up.disabled = !state.dir;
+  const parts = state.dir ? state.dir.split("/") : [];
+  const crumb = (label, dir) => {
+    const b = h("button", "mdcrumb", label);
+    b.title = dir || mdKind;
+    b.onclick = () => mdGo(dir);
+    el.crumbs.append(b);
+  };
+  crumb(mdKind, "");
+  parts.forEach((part, i) => {
+    el.crumbs.append(h("span", "mdcrumbsep", "/"));
+    crumb(part, parts.slice(0, i + 1).join("/"));
+  });
   if (!files.length){
     // an empty folder is a fact and not a failure. the same italic line the
     // ticket list puts up when a lane holds no cards in the open view
@@ -7876,15 +7963,27 @@ function mdDrawList(){
       seat ? "no markdown in this folder yet" : "folder not found"));
     return;
   }
-  for (const f of files){
-    const b = h("button", "mdrow");
-    const dir = f.rel.slice(0, f.rel.length - f.name.length);
-    if (dir) b.append(h("span", "mdrowdir", dir));
-    b.append(document.createTextNode(f.name));
-    b.title = f.rel;
-    b.onclick = () => mdOpenFile(seat.root, f.rel);
+  const entries = [
+    ...[...folders].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }))
+      .map(name => ({ kind: "folder", name, key: "d:" + prefix + name })),
+    ...visible.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+      .map(file => ({ kind: "file", name: file.name, key: "f:" + file.rel, file })),
+  ];
+  for (const entry of entries){
+    const b = h("button", "mdrow " + entry.kind);
+    b.append(h("span", "mdrowicon", entry.kind === "folder" ? "▸" : "·"),
+      h("span", "mdrowname", entry.name));
+    b.title = entry.name;
+    b.classList.toggle("selected", entry.key === state.selected);
+    const activate = () => entry.kind === "folder"
+      ? mdGo(prefix + entry.name)
+      : mdOpenFile(seat.root, entry.file.rel);
+    b.onclick = () => mdSelect(b, entry.key);
+    b.ondblclick = activate;
+    b.onkeydown = e => { if (e.key === "Enter"){ e.preventDefault(); activate(); } };
     el.list.append(b);
   }
+  el.list.scrollTop = state.scroll;
 }
 async function mdOpenFile(root, rel){
   const host = mdHost();
@@ -7892,13 +7991,14 @@ async function mdOpenFile(root, rel){
   const lane = activeOwner;   // the panel is only ever live on the tab it is drawn for
   mdNote(host, "opening");
   const ready = await mdBundle();
-  if (!host._md) return;   // a tab switch took the panel apart while that loaded
+  if (!host._md || mdHost() !== host || mdFor !== lane || activeOwner !== lane) return;
   if (!ready){ mdNote(host, "the editor did not load: restart the board's server", true); return; }
   const r = await fetch("/mdfile?lane=" + encodeURIComponent(lane) +
                         "&root=" + encodeURIComponent(root) +
                         "&rel=" + encodeURIComponent(rel), { cache: "no-store" }).catch(() => null);
-  if (!host._md) return;
+  if (!host._md || mdHost() !== host || mdFor !== lane || activeOwner !== lane) return;
   const d = r && r.ok ? await r.json().catch(() => null) : null;
+  if (!host._md || mdHost() !== host || mdFor !== lane || activeOwner !== lane) return;
   if (!d){ mdNote(host, "could not open " + rel, true); return; }
   mdTearDown(false);
   mdOpen = { lane, root, rel, mtime: d.mtime };
@@ -8289,12 +8389,18 @@ async function mdPoll(){
   if (!mount) return;
   const host = mdBuild(mount);
   if (!host || !host._md) return;
-  if (mdFor !== activeOwner){ mdFor = activeOwner; mdSig = ""; mdData = null; }
+  if (mdFor !== activeOwner){
+    mdRememberList(); mdFor = activeOwner;
+    mdKind = mdBrowse[activeOwner + "|kind"] || MD_KINDS[0];
+    mdSig = ""; mdData = null;
+  }
+  const lane = activeOwner;
   mdRestore(host);   // a file open when he left this tab is open again before anything is drawn
-  const r = await fetch("/mdfiles?lane=" + encodeURIComponent(activeOwner),
+  const r = await fetch("/mdfiles?lane=" + encodeURIComponent(lane),
                         { cache: "no-store" }).catch(() => null);
-  if (!host._md) return;   // a tab switch took the panel apart while that was in the air
+  if (!host._md || mdHost() !== host || mdFor !== lane || activeOwner !== lane) return;
   const d = r && r.ok ? await r.json().catch(() => null) : null;
+  if (!host._md || mdHost() !== host || mdFor !== lane || activeOwner !== lane) return;
   if (!d){
     // a server started before these routes existed. saying which one thing to
     // do beats an empty box that looks broken
