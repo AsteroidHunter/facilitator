@@ -99,13 +99,14 @@ test("shows only immediate children with folders first", async () => {
   const page = await navigator();
   try {
     assert.deepEqual(await rows(page), [
-      { name: "guides", kind: "folder", selected: false },
-      { name: "notes", kind: "folder", selected: false },
+      { name: "guides/", kind: "folder", selected: false },
+      { name: "notes/", kind: "folder", selected: false },
       { name: "README.md", kind: "file", selected: false },
     ]);
     await page.click(".mdrow.folder");
     assert.equal((await rows(page))[0].selected, true);
-    assert.equal(await page.$eval(".mdcrumbs", el => el.textContent), "internal");
+    assert.equal(await page.$eval(".mdnav", el => el.hidden), true);
+    assert.equal(await page.$eval(".mdrow", el => el.querySelector(".mdrowicon")), null);
   } finally { await page.close(); }
 });
 
@@ -114,16 +115,16 @@ test("double click and Enter navigate folders, breadcrumbs, and files", async ()
   try {
     await page.$eval(".mdrow.folder", row =>
       row.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
-    assert.deepEqual((await rows(page)).map(row => row.name), ["deep", "intro.md"]);
-    assert.equal(await page.$eval(".mdcrumbs", el => el.textContent), "internal/guides");
+    assert.deepEqual((await rows(page)).map(row => row.name), ["deep/", "intro.md"]);
+    assert.equal(await page.$eval(".mdcrumbs", el => el.textContent), "guides");
     await page.focus(".mdrow.file");
     await page.keyboard.press("Enter");
     await page.waitForSelector("#magic4.editing");
     assert.equal(await page.$eval(".mdname", el => el.textContent), "guides/intro.md");
     await page.click(".mdback");
-    assert.deepEqual((await rows(page)).map(row => row.name), ["deep", "intro.md"]);
+    assert.deepEqual((await rows(page)).map(row => row.name), ["deep/", "intro.md"]);
     await page.click(".mdup");
-    assert.deepEqual((await rows(page)).map(row => row.name), ["guides", "notes", "README.md"]);
+    assert.deepEqual((await rows(page)).map(row => row.name), ["guides/", "notes/", "README.md"]);
   } finally { await page.close(); }
 });
 
@@ -133,17 +134,17 @@ test("keeps directory state separate across lanes and roots", async () => {
     await page.$eval(".mdrow.folder", row =>
       row.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
     await page.click(".mdtab:nth-child(2)");
-    assert.deepEqual((await rows(page)).map(row => row.name), ["reference", "home.md"]);
+    assert.deepEqual((await rows(page)).map(row => row.name), ["reference/", "home.md"]);
     await page.$eval(".mdrow.folder", row =>
       row.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
     await page.click(".mdtab:first-child");
-    assert.equal(await page.$eval(".mdcrumbs", el => el.textContent), "internal/guides");
+    assert.equal(await page.$eval(".mdcrumbs", el => el.textContent), "guides");
     await page.evaluate(roots => {
       mdOff(); activeOwner = "website"; mdBoxes();
       const host = mdBuild(MD_MOUNTS.website);
       mdFor = "website"; mdKind = "internal"; mdData = { roots }; mdSig = ""; mdDrawList();
     }, ROOTS);
-    assert.equal(await page.$eval("#magic3 .mdcrumbs", el => el.textContent), "internal");
+    assert.equal(await page.$eval("#magic3 .mdnav", el => el.hidden), true);
   } finally { await page.close(); }
 });
 
