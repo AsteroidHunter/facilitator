@@ -185,11 +185,16 @@
      on the shown card alone, the way the desktop writes them, so the mask rules
      below can only ever apply to a card that is laid out */
   .box.sel{display:flex; --replyfade:22px; --replyair:3.5px; --boxleft:calc(var(--pad-x)*2/3)}
-  /* A card swipe is a face-on carousel: both faces occupy the same laid-out
-     frame and move only sideways. Uniform scale supplies the depth, so neither
-     face can rise or fall as it approaches or recedes. */
+  /* While swiping, the complete card surfaces move. The stationary pane keeps
+     its layout but gives up its fill and outline, exposing paper between the
+     two independently clipped cards. Their borders replace the pane's border
+     without changing the content's resting dimensions. */
+  main.cardswiping{background:transparent; border-color:transparent; box-shadow:none; overflow:visible}
   .box.cardswipe{
-    display:flex; position:absolute; inset:0; z-index:2;
+    display:flex; position:absolute; inset:-1px; z-index:2;
+    background:var(--card); border:1px solid var(--line-strong); border-radius:7px;
+    box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
+    overflow:hidden; --replyfade:22px; --replyair:3.5px; --boxleft:calc(var(--pad-x)*2/3);
     transform:translate3d(var(--card-swipe-x, 0px), 0, 0) scale(var(--card-swipe-z, 1));
     transform-origin:50% 50%; transition:transform .24s cubic-bezier(.22,.72,.2,1);
     will-change:transform; pointer-events:none;
@@ -283,7 +288,7 @@
      third keeps it off the rest of the answer; the two are added and the first is
      multiplied into the pair, so above the box the answer is whole at its full
      width and below it the ramp is the only thing left */
-  .box.sel .reply{
+  .box.sel .reply, .box.cardswipe .reply{
     -webkit-mask-image:
       linear-gradient(to bottom,
         rgba(0,0,0,0) 0,
@@ -3163,16 +3168,17 @@ function stepCard(dir, focus){
 // A drag across the card walks the same pool as the keyboard. It waits until
 // horizontal intent is unambiguous, leaving vertical scrolling alone, and it
 // never starts at an edge, on a control, or in an editor where the same motion
-// selects text. The two cards share one fixed frame; x and uniform scale are
-// the only animated values.
+// selects text. Each complete card moves across the fixed stage; x and uniform
+// scale are the only animated values.
 {
-  const EDGE = 28, START = 10, COMMIT = 0.22, DEPTH = 0.035, RUN_MS = 240;
+  const EDGE = 28, START = 10, COMMIT = 0.22, DEPTH = 0.035, GAP = 16, RUN_MS = 240;
   const blocked = "button,input,textarea,a,[contenteditable],[role='textbox'],.cm-editor,.pendscroll";
   let drag = null, finishTimer = null;
   const reduced = () => !!(matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
   const clear = () => {
     clearTimeout(finishTimer); finishTimer = null;
     document.body.classList.remove("carddrag");
+    document.getElementById("pane").classList.remove("cardswiping");
     for (const el of document.querySelectorAll(".box.cardswipe")){
       el.classList.remove("cardswipe", "cardswipe-in");
       el.style.removeProperty("--card-swipe-x");
@@ -3182,7 +3188,7 @@ function stepCard(dir, focus){
   };
   const paint = dx => {
     if (!drag || reduced()) return;
-    const w = drag.width, p = Math.min(1, Math.abs(dx) / w);
+    const w = drag.width + GAP, p = Math.min(1, Math.abs(dx) / w);
     drag.out.style.setProperty("--card-swipe-x", dx + "px");
     drag.out.style.setProperty("--card-swipe-z", String(1 - DEPTH * p));
     drag.into.style.setProperty("--card-swipe-x", (dx + drag.dir * w) + "px");
@@ -3196,6 +3202,7 @@ function stepCard(dir, focus){
     drag.dir = dir; drag.pick = pick; drag.out = out; drag.into = into;
     out.classList.add("cardswipe");
     into.classList.add("cardswipe", "cardswipe-in");
+    document.getElementById("pane").classList.add("cardswiping");
     document.body.classList.add("carddrag");
     paint(dx);
     return true;
@@ -3208,7 +3215,7 @@ function stepCard(dir, focus){
       if (commit) select(run.pick.id);
       clear(); return;
     }
-    const endX = commit ? -run.dir * run.width : 0;
+    const endX = commit ? -run.dir * (run.width + GAP) : 0;
     paint(endX);
     if (commit){
       run.out.style.setProperty("--card-swipe-z", String(1 - DEPTH));
