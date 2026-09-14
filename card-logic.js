@@ -753,6 +753,37 @@ const answeredChoices = Object.create(null);
 // out can never open a box that is showing another batch by then
 const answeredClocks = Object.create(null);
 
+// Editing protects one visit to one reply. It is kept on the card element,
+// rather than inferred from focus or the current field value: clearing the
+// field and pausing between keystrokes are still the same visit, while a new
+// reply on that card is a different box with its own original deadline.
+function protectAnsweredVisit(el){
+  if (el && el.answ && el.answId) el.answProtected = el.answId;
+}
+
+function autoOpenAnswered(el, meta){
+  if (!el || !meta || !el.answ || el.answId !== meta.id ||
+      el.answ.classList.contains("open") || answeredChoice(meta.id)) return;
+  if (el.answProtected === meta.id) return;
+  foldAnswered(el, true);
+}
+
+// Called after the surface has hidden the card being left. A deadline that
+// passed during protected editing is applied now, offscreen; one still in the
+// future keeps only its remaining time because it is always derived from the
+// reply's completion timestamp.
+function releaseAnsweredVisit(el){
+  if (!el || !el.answProtected) return;
+  const protectedId = el.answProtected;
+  el.answProtected = null;
+  const meta = el.answMeta;
+  if (!meta || meta.id !== protectedId || !el.answ || el.answId !== meta.id) return;
+  clearAnsweredClock(el.answKey || (el.box && el.box.id));
+  if (answeredOpensNow(meta)) autoOpenAnswered(el, meta);
+  else armAnsweredClock(el.answKey || (el.box && el.box.id), meta,
+                        () => autoOpenAnswered(el, meta));
+}
+
 // "open", "closed", or nothing at all when he has not said anything about this
 // reply
 function answeredChoice(replyId){
@@ -881,6 +912,8 @@ function dropAnswered(el){
   el.answ.remove();
   el.answ = null;
   el.answId = null;
+  el.answMeta = null;
+  el.answProtected = null;
   el.box.classList.remove("hasansw");
   if (answeredRoomChanged) answeredRoomChanged();
 }
@@ -896,7 +929,10 @@ function syncAnswered(el, meta, opts){
   if (!el || !el.answwrap) return;
   const batch = answeredBatch(meta);
   if (!batch || !batch.length){ dropAnswered(el); return; }
-  if (el.answ && el.answId === meta.id) return;
+  if (el.answ && el.answId === meta.id){ el.answMeta = meta; return; }
+  // Protection belongs to the reply that was on screen when editing began.
+  // A newly completed reply is a new box and must keep its own minute.
+  el.answProtected = null;
   const open = answeredOpensNow(meta);
   // the arrival is the page's own two beats, and only for a box that arrives
   // shut on the card he is looking at: a box that is already past its minute is
@@ -906,16 +942,14 @@ function syncAnswered(el, meta, opts){
   const pend = el.answ || growAnswered(el, !!(opts && opts.arrive) && !open);
   el.answ = pend;
   el.answId = meta.id;
+  el.answMeta = meta;
   el.answKey = el.answKey || (el.box && el.box.id);
   fillAnswered(pend, batch);
   pend.classList.toggle("open", open);
   pend.classList.toggle("foldopen", open);
   if (open) answeredPlace(pend);
   el.box.classList.add("hasansw");
-  armAnsweredClock(el.answKey, meta, () => {
-    if (!el.answ || el.answId !== meta.id || el.answ.classList.contains("open")) return;
-    foldAnswered(el, true);   // the card's own fold, not a class flipped behind it
-  });
+  armAnsweredClock(el.answKey, meta, () => autoOpenAnswered(el, meta));
   if (answeredRoomChanged) answeredRoomChanged();
 }
 
