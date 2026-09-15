@@ -1693,14 +1693,18 @@
      the markdown panel used to share this one rule with it; 20260828 it stopped,
      because the two heads no longer want the same air on their sides, and its
      own row is written out beside its own tabs further down */
-  #tikhead{flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 8px 0; border-bottom:1px solid var(--line)}
-  /* three equal segments on a square corner, each opening into the list under
-     it. this is the ticket panel's shape and only its shape now */
-  .tvb{flex:1; font:500 13px/16px var(--sans); color:var(--sub); background:transparent;
-    border:1px solid transparent; border-bottom:none; border-radius:0;
-    padding:6px 0 5px; cursor:pointer; user-select:none; position:relative; top:1px}
-  .tvb:hover{color:var(--ink)}
-  .tvb.on{color:var(--ink); background:var(--card); border-color:var(--line)}
+  /* 12px of side air, not 8: a seated tab flares 7px past its own edge, and at
+     8px the outer notch would land on the panel's own border with nothing
+     between them. the folder head keeps the same 12 for the same reason */
+  #tikhead{flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 12px 0; border-bottom:1px solid var(--line)}
+  /* the ticket tabs ARE the project tabs, the same reuse the folder tabs make:
+     every .ptab rule up top applies here, the 7px top corners and the browser
+     style bottom notches with them, and only what this row keeps is said again.
+     the seat, because the surface under this head is the panel's own white and
+     not the board's paper; three equal segments across the width; height auto
+     over the bar's fixed 38; and the 6 and 5 of padding the segments carried, so
+     the head stays exactly as tall as it was */
+  #tikhead .tvb{flex:1; --seat:var(--card); height:auto; padding:6px 0 5px}
   #tiklist{flex:1; overflow-y:auto; display:flex; flex-direction:column;
     gap:calc(var(--ch)*0.007);
     padding:calc(var(--ch)*0.012) 0.6vw calc(var(--ch)*0.012) 0.7vw}
@@ -3536,7 +3540,7 @@
 </div>
 
 <div id="chips"></div>
-<div id="tickets"><div id="tikhead"><button id="tv-todo" class="tvb on">doing</button><button id="tv-deferred" class="tvb">deferred</button><button id="tv-done" class="tvb">done</button></div><div id="tiklist"></div></div>
+<div id="tickets"><div id="tikhead"><button id="tv-todo" class="ptab tvb on">doing</button><button id="tv-deferred" class="ptab tvb">deferred</button><button id="tv-done" class="ptab tvb">done</button></div><div id="tiklist"></div></div>
 <div id="magic1">magic box 1</div>
 <div id="magic2">magic box 2</div>
 <div id="magic3">magic box 3</div>
