@@ -24,6 +24,12 @@
     --inter:"Inter", -apple-system, sans-serif;   /* the new-project landing only */
   }
   *{box-sizing:border-box}
+  /* Every scroller hides its bar and keeps its scroll: wheel, trackpad and touch
+     still move the content, and no lane or gutter is drawn for a bar. Written once
+     page-wide so a scroller added later is covered without a rule of its own; an
+     element that does not scroll has no bar for this to reach. */
+  *{scrollbar-width:none}
+  *::-webkit-scrollbar{display:none}
   html{scroll-behavior:smooth}
   body{
     margin:0; background:var(--paper); color:var(--ink);
