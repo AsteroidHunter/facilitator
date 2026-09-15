@@ -451,6 +451,19 @@ def _image_panel_lane() -> str:
     return str(cfg.get("image_panel_lane") or "").strip()
 
 
+def _markdown_lanes() -> tuple:
+    """The lanes the markdown panel is mounted on, read from run.config.json
+    (machine-local, gitignored). Empty when unset, which leaves the panel off on
+    every tab. A lane not listed here has no markdown folders and every markdown
+    route refuses it."""
+    try:
+        cfg = json.loads((HERE / "run.config.json").read_text())
+    except Exception:
+        return ()
+    lanes = cfg.get("markdown_lanes") or []
+    return tuple(x.strip() for x in lanes if isinstance(x, str) and x.strip())
+
+
 class DatedRotatingHandler(logging.handlers.RotatingFileHandler):
     """A file per day per kind, capped by size and pruned by count.
 
@@ -1087,7 +1100,7 @@ def _lane_internal(lane: str) -> Path | None:
 # gets into tracked source and a lane moved on disk carries its folders with it.
 # The lane list is what makes this a fence: a lane not on it has no folders at
 # all here, and every route below then refuses it.
-MD_LANES = ("website", "pastureland")
+MD_LANES = _markdown_lanes()
 MD_KINDS = ("internal", "wiki")
 
 
@@ -2822,6 +2835,9 @@ def _ui_state() -> dict:
         # the lane whose own internal folder feeds the image panel, read
         # from run.config.json; empty leaves the panel off on every tab
         "imagePanelLane": IMAGE_PANEL_LANE,
+        # the lanes the markdown panel mounts on, read from run.config.json;
+        # empty leaves the panel off on every tab
+        "markdownLanes": list(MD_LANES),
         # the one tab bar both pages draw: the lane order and the lanes that
         # are closed. An empty order means no arrangement has been saved
         "tabs": st.get("tabs", {"order": [], "closed": []}),
