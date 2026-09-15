@@ -64,7 +64,7 @@ function fakeViewport() {
   };
 }
 
-async function openPhone(route, { fake = false } = {}) {
+async function openPhone(route, { fake = false, roWatch = false } = {}) {
   const page = await browser.newPage();
   const problems = [];
   page.on("console", message => {
@@ -75,6 +75,15 @@ async function openPhone(route, { fake = false } = {}) {
   page.on("pageerror", error => problems.push("pageerror: " + error.message));
   await page.setViewport(PHONE);
   if (fake) await page.evaluateOnNewDocument(fakeViewport);
+  if (roWatch) await page.evaluateOnNewDocument(() => {
+    // the browser reports a size watcher that keeps resizing what it watches as
+    // a window error with this exact message; count them and keep them off the
+    // console so the count is the only reading
+    window.__roErrors = 0;
+    window.addEventListener("error", e => {
+      if (/ResizeObserver loop/.test(e.message || "")) { window.__roErrors++; e.preventDefault(); }
+    });
+  });
   await page.goto(origin + route, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => lastState !== null, { timeout: 5000 });
   return { page, problems };
@@ -412,6 +421,47 @@ test("a keystroke while the keyboard is up re-arms the blink on the focused edit
       return c.getAnimations().length > before;
     });
     assert.equal(blinked, true, "the blink did not re-arm on the focused editor content");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+// ---- unit 5: no resize loop ----------------------------------------------------------
+
+test("a keyboard cycle over an open sent box drives no resize-observer loop", async () => {
+  const id = await create("Resize loop on the phone");
+  const paras = [];
+  for (let n = 1; n <= 24; n++) paras.push(`Paragraph ${n} of a long answer that scrolls on a phone.`);
+  await api(`/reply?box=${id}`, paras.join("\n\n"));
+  for (let n = 1; n <= 15; n++) await api(`/send?box=${id}`, `Sent line ${n} in the box that keys its height off the viewport.`);
+  const { page, problems } = await openPhone(`/m?box=${id}`, { fake: true, roWatch: true });
+  try {
+    await page.waitForSelector(`#box-${id}.sel .pendlist`, { timeout: 5000 });
+    // open the sent box so its capped height reads off the viewport height, then
+    // start the count clean
+    await page.evaluate(() => {
+      const pend = document.querySelector("article.box.sel .pendlist");
+      if (!pend.classList.contains("open")) pend.click();
+    });
+    await settle(450);
+    await page.focus(SEL);
+    await settle(120);
+    await page.evaluate(() => { window.__roErrors = 0; });
+    // drive the reported height down and back up frame by frame, the way the
+    // keyboard's own animation moves it, while the open box's cap and the answer's
+    // run-out both read the viewport
+    await page.evaluate(async () => {
+      const full = window.innerHeight, drop = Math.round(full * 0.42);
+      const step = () => new Promise(r => requestAnimationFrame(r));
+      for (let f = 1; f <= 14; f++) { window.__keyboard.set(full - Math.round(drop * f / 14), 0); await step(); }
+      for (let f = 0; f < 6; f++) await step();
+      for (let f = 14; f >= 0; f--) { window.__keyboard.set(full - Math.round(drop * f / 14), 0); await step(); }
+      for (let f = 0; f < 6; f++) await step();
+    });
+    await settle(300);
+    const roErrors = await page.evaluate(() => window.__roErrors);
+    assert.equal(roErrors, 0, `the keyboard cycle drove ${roErrors} resize-observer loop errors`);
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
