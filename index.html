@@ -5061,7 +5061,7 @@ function foldPend(el, open){ foldBox(el, el.pend, "foldRun", open); }
 function foldAnswered(el, open, manual){
   if (!el || !el.answ) return;
   if (manual) answeredChose(el, open);
-  holdAnswerScroll(el);   // the box rides in the scroller: hold his line while it folds
+  holdAnswerScroll(el);   // the box rides in the scroller: hold the visible line while it folds
   foldBox(el, el.answ, "answFoldRun", open, snapCard);
 }
 function foldBox(el, pend, runKey, open, landed){
@@ -5323,7 +5323,7 @@ function snapCard(){
   // a card scrolled down is left as it stands: the line grid it was snapped to at
   // the top rides with the scroll, and a fold while he is scrolled is held still
   // by holdAnswerScroll, so re-snapping against the scrolled lines would only
-  // slide his line by the difference between two viewport measurements
+  // slide the visible line by the difference between two viewport measurements
   if (el.replyview && el.replyview.scrollTop > 1) return;
   const r = el.reply;            // the answer prose, a block inside the scroller
   const view = el.replyview;     // the scroller that owns the scroll and the fades

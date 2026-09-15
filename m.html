@@ -1273,7 +1273,7 @@ function growAnswered(el, arrive){
 function foldAnswered(el, open, manual){
   if (!el || !el.answ) return;
   if (manual) answeredChose(el, open);
-  holdAnswerScroll(el);   // the box rides in the scroller: hold his line while it folds
+  holdAnswerScroll(el);   // the box rides in the scroller: hold the visible line while it folds
   // the batch's beginning, or where he left it, on the card's one fold run
   foldStrip(el, el.answ, "answFoldRun", open, answeredPlace);
 }
