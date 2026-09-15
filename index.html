@@ -1785,7 +1785,7 @@
   /* both rules above set display, which beats the hidden attribute on their own.
      without this the stub and the picture are on screen at the same time */
   #magic3 [hidden]{display:none}
-  /* on the pastureland tab the same box holds a chat instead of a picture, so an
+  /* on the chat lane's tab the same box holds a chat instead of a picture, so an
      agent can be talked to from the board. the look is a faithful copy of the
      reference app's thread, restated here in full rather than borrowed: the
      quick chat panel further down this sheet is an older, looser copy of the
@@ -2087,10 +2087,10 @@
   /* ---- the markdown, in magic box 3 or magic box 4 ---------------------- */
   /* the third tenant of magic box 3, beside the picture panel and the chat
      above, and it takes their rule exactly: one tab owns a box and every other
-     tab gets the plain dashed stub back. one panel with two homes, since the
-     pastureland tab's magic box 3 is already the chat's: it is the website
-     tab's magic box 3 and the pastureland tab's magic box 4, and every rule
-     under here names both boxes because only one of them is ever the panel at
+     tab gets the plain dashed stub back. one panel with two homes, since a
+     markdown lane's magic box 3 may already be the chat's: the panel is the
+     first markdown lane's magic box 3 and the second's magic box 4, and every
+     rule under here names both boxes because only one of them is ever the panel at
      a time. two states on the one surface, the list of files and an open file,
      and both wear a head row of the same height, so nothing under it moves
      when one becomes the other */
@@ -2410,7 +2410,7 @@
   #magic2 .mbox.off{display:none}
   /* magic box 1: the Spotify player. same shapes as the rest of the app, the
      app's own greys, nothing new brought in */
-  /* magic box 1: the Spotify player, on the same liquid glass the pastureland
+  /* magic box 1: the Spotify player, on the same liquid glass the board's
      typing bar uses. light face, real backdrop blur, the hairline ring and
      the white top catch. text stays in the board's own ink and grey */
   /* the official embed takes its colour from the album art. same idea here,
@@ -3614,8 +3614,14 @@ if (typeof startReporter === "function") startReporter("board");
 if (typeof noteDoing !== "function") window.noteDoing = () => {};
 const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
                   ["now", "Now"], ["done", "Done"], ["later", "Later"]];
-const METAS = [["toolmeta", "facilitator"], ["triagemeta", "pastureland"]];
-const NAME = { facilitator: "facilitator agent", pastureland: "pastureland agent" };
+// the two meta sections: the tool's own lane on top, the active project lane
+// below. the project section's owner is whichever tab is open, so no project id
+// is written here and a fresh board with only the tool lane shows just it
+const METAS = ["toolmeta", "triagemeta"];
+function metaOwnerOf(key){
+  return key === "toolmeta" ? "facilitator" : (activeOwner !== "facilitator" ? activeOwner : null);
+}
+const NAME = { facilitator: "facilitator agent" };
 const laneName = ow => NAME[ow] || (ow + " agent");   // project lanes name themselves
 /* the dormant worktree selector's mark: a branch fork drawn in stroke only,
    so it takes the name's own muted ink through currentColor
@@ -3643,40 +3649,6 @@ const lastSel = {};   // owner -> the card you were on when you left its row
 
 // project tabs: one owner shown at a time; ?project=owner locks a pulled-out
 // window to that project alone
-const RETIRED_OWNERS = new Set(["triage"]);
-function retiredOwnerStorageKey(key){
-  for (const owner of RETIRED_OWNERS){
-    if (key === "tabhide." + owner || key === "minibox." + owner ||
-        key === "doc.tasks." + owner || key === "tikview." + owner ||
-        key.startsWith("pos." + owner + ".") ||
-        key.startsWith("size." + owner + ".") ||
-        key.startsWith("hide." + owner + ".") ||
-        key.startsWith("layoutbak.pos." + owner + ".") ||
-        key.startsWith("layoutbak.size." + owner + ".")) return true;
-  }
-  return false;
-}
-function purgeRetiredOwnerStorage(){
-  try {
-    if (RETIRED_OWNERS.has(localStorage.getItem("activeproj")))
-      localStorage.removeItem("activeproj");
-  } catch (err) {}
-  let order = [];
-  try { order = JSON.parse(localStorage.getItem("taborder") || "[]"); } catch (err) {}
-  try {
-    if (Array.isArray(order)){
-      const kept = order.filter(owner => !RETIRED_OWNERS.has(owner));
-      if (kept.length !== order.length) localStorage.setItem("taborder", JSON.stringify(kept));
-    }
-    const remove = [];
-    for (let i = 0; i < localStorage.length; i++){
-      const key = localStorage.key(i);
-      if (key && retiredOwnerStorageKey(key)) remove.push(key);
-    }
-    for (const key of remove) localStorage.removeItem(key);
-  } catch (err) {}
-}
-purgeRetiredOwnerStorage();
 const LOCKED = new URLSearchParams(location.search).get("project");
 let activeOwner = LOCKED || localStorage.getItem("activeproj") || "facilitator";
 let ownerReady = false;
@@ -3702,17 +3674,7 @@ function clearOwnerRefusal(){
   ownerRefused = false;
   document.getElementById("owner-refused")?.remove();
 }
-function stateCarriesRetiredOwner(state){
-  if ((state.boxes || []).some(box => RETIRED_OWNERS.has(box.owner))) return true;
-  if ((state.projects || []).some(project => RETIRED_OWNERS.has(project.id))) return true;
-  return ["pwds", "busy", "listening", "everListened", "workspaces", "listenerGap", "agents"]
-    .some(field => Object.keys(state[field] || {}).some(owner => RETIRED_OWNERS.has(owner)));
-}
 function validateActiveOwner(state){
-  if (stateCarriesRetiredOwner(state)){
-    showOwnerRefusal("Board state contains a retired owner and must be migrated before use.");
-    return false;
-  }
   knownOwnerIds = new Set(Object.keys(state.pwds || {}));
   validActiveOwnerIds = new Set([...knownOwnerIds].filter(owner => owner !== "qchat"));
   if (LOCKED){
@@ -3738,8 +3700,6 @@ function validateActiveOwner(state){
   if (first) applySavedLayout();
   return true;
 }
-if (LOCKED && RETIRED_OWNERS.has(LOCKED))
-  showOwnerRefusal('Project "' + LOCKED + '" is not available.');
 for (const type of ["click", "pointerdown", "keydown", "submit"]){
   addEventListener(type, event => {
     if (!ownerRefused) return;
@@ -5429,11 +5389,12 @@ function build(state){
     const group = h("div", "toc-group");
     const bucketRow = h("div", "toc-bucket");
     bucketRow.appendChild(h("span", null, label));
-    const metaOwner = METAS.find(([k]) => k === key)?.[1];
-    if (metaOwner){   // the plus lives in the left bar: the page shows one box at a time
+    if (METAS.includes(key)){   // the plus lives in the left bar: the page shows one box at a time
       const plus = h("button", "tocadd", "＋");
       plus.title = "new box";
       plus.addEventListener("click", async () => {
+        const metaOwner = metaOwnerOf(key);
+        if (!metaOwner) return;
         const r = await fetch("/create?owner=" + metaOwner, { method: "POST" }).then(x => x.json()).catch(() => null);
         if (r?.id) localStorage.setItem("focusbox", r.id);
         poll();
@@ -5768,10 +5729,12 @@ function makeBox(b, i, state){
 // "+" row under each meta section: one click = new box owned by that section,
 // its first message names it
 function addRows(){
-  for (const [key, owner] of METAS){
+  for (const key of METAS){
     const addRow = h("div", "addrow");
     const addBtn = h("button", "addbtn", "＋ new box");
     addBtn.addEventListener("click", async () => {
+      const owner = metaOwnerOf(key);
+      if (!owner) return;
       const r = await fetch("/create?owner=" + owner, { method: "POST" }).then(x => x.json()).catch(() => null);
       if (r?.id) localStorage.setItem("focusbox", r.id);  // survive the rebuild reload
       poll();  // unknown id triggers the rebuild
@@ -6296,7 +6259,7 @@ function inlineEdit(spanEl, initial, onSave){
 // one name per card: done, parked, working, new, yours, queued. consumers
 // map the name to their own classes, group numbers, and colors; the two
 // helpers under it keep old per-site quirks exactly as they were.
-// magic box 1: a Spotify player on the same liquid glass the pastureland down
+// magic box 1: a Spotify player on the same liquid glass the board's down
 // button uses. signs in with the flow Spotify calls PKCE, which needs no
 // secret, so the id below is public by design and the token never leaves this
 // browser.
@@ -6863,23 +6826,13 @@ async function panelPoll(){
 // gets it, so loading straight onto another tab never flashes the marks
 panelPoll(); setInterval(panelPoll, 4000);
 
-// magic box 3 on the pastureland tab: a chat, the picture panel's counterpart.
-// the tab bar reads "pastureland" because a tab is named after its folder, but
-// the lane id underneath is pastureland, and the lane id is what activeOwner holds,
-// so pastureland is the name that goes here. like P3_LANE above this is the only
-// place it is written down, so moving the chat is a one word change.
-//
-// nothing new was invented for it to talk to, and no server change was needed.
-// the thread is the card called q, "quick chat", owned by the qchat lane: the
-// card the dormant quick chat panel in the left column was built for. GET
-// /thread?box=q reads it and POST /send?box=q posts to it, both live today. an
-// agent answers it the way every agent on this board does, by long polling
-// /wait?owner=qchat and posting /reply?box=q. qchat is a registered owner in
-// the server and rowsOf keeps it out of the tab bar, so a conversation held
-// here can never turn up as a card among the pastureland cards.
-const C3_LANE = "pastureland";     // the one tab the chat belongs to
-const C3_BOX = "q";           // the card its thread lives on
-const C3_OWNER = "qchat";     // the lane an agent has to listen on to answer it
+// the dormant quick-chat panel, bound to one lane, one card and one listener.
+// Those bindings named a project's own lane, so they are cleared here: with no
+// lane the panel never mounts, exactly as it already sat under focus mode. A
+// board that wants it back fills in the three ids below
+const C3_LANE = "";
+const C3_BOX = "";
+const C3_OWNER = "";
 const C3_POLL = 2000;         // ms between reads of the thread
 const C3_RUN_GAP = 60000;     // the same side inside a minute is one run
 const C3_STAMP_GAP = 3600000; // an hour without a stamp brings the next one
@@ -8309,7 +8262,7 @@ async function mdPoll(){
   // the tabs that own a box, the same rule the picture panel and the chat
   // follow, with two tabs rather than one. the panel comes out of the box it
   // was in whenever this tab is not that box's tab, which is what frees magic
-  // box 3 for the chat on the way to the pastureland tab
+  // box 3 for the chat on the way to the chat lane's tab
   const mount = MD_MOUNTS[activeOwner];
   // the panel's own box arrives before the build asks for it and leaves after
   // the teardown below has let go of it
