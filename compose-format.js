@@ -607,14 +607,6 @@
       theme(C),
       ...(field.placeholder ? [C.placeholder(field.placeholder())] : []),
       C.EditorView.lineWrapping,
-      // While the page is lifting the composer for a rising keyboard, a scroll
-      // into view rides the browser's own caret reveal, so it is refused for
-      // that window and allowed again once the keyboard has settled and typing
-      // should follow the caret as usual. Only a page that takes the focusing
-      // tap over asks for this, and only where the build carries the facet.
-      ...(field.tapTakeover && C.EditorView.scrollHandler
-        ? [C.EditorView.scrollHandler.of(() => document.body.classList.contains("lifting"))]
-        : []),
       C.EditorView.updateListener.of(update => {
         if (!update.docChanged) return;
         // the page is told inside the editor's own update, so anything it does
@@ -921,10 +913,7 @@
       const restore = () => {
         if (field.view !== view || !hasCaret(view)) return;
         if (view.state.doc !== words) return;
-        // no scroll into view: this runs at the focus edge, where a scroll
-        // rides the browser's caret reveal. The page brings the caret's own
-        // line into view after focus by itself.
-        if (!view.state.selection.eq(keep)) view.dispatch({ selection: keep });
+        if (!view.state.selection.eq(keep)) view.dispatch({ selection: keep, scrollIntoView: true });
       };
       Promise.resolve().then(restore);
       setTimeout(restore, 0);
@@ -949,23 +938,6 @@
     // inside the editor and the page is told once, whether the change came
     // from a keystroke, a paste, a command or a line inserted above
     view.contentDOM.addEventListener("input", event => event.stopPropagation());
-    // The focusing tap, taken over on the content itself when the page asks for
-    // it. The browser's own focus from a tap runs a caret reveal that scrolls
-    // the page, and the one refusal it honours is preventScroll on a focus call,
-    // which a tap cannot carry. So the tap into an unfocused editor is refused
-    // here and the focus made by hand with preventScroll, in the same gesture,
-    // with the caret placed where the finger landed and no scroll into view. A
-    // tap that already holds the caret is left to the editor. Capture, so this
-    // runs before the editor's own pointer handling.
-    if (field.tapTakeover) {
-      view.contentDOM.addEventListener("mousedown", event => {
-        if (event.button !== 0 || hasCaret(view)) return;
-        event.preventDefault();
-        view.focus();
-        const at = view.posAtCoords({ x: event.clientX, y: event.clientY }, false);
-        if (at != null) view.dispatch({ selection: { anchor: at } });
-      }, true);
-    }
     wearFace(field);
     moveListeners(field, true);
     if (hadFocus) view.focus();
@@ -1055,10 +1027,6 @@
       shellClass: opts.className || "cffield",
       // a line the page writes in keeps its words in textContent, not in value
       textValue: !!opts.textValue,
-      // the page takes the focusing tap over itself, so the browser's own caret
-      // reveal, the scroll that brings a freshly focused field into view, never
-      // runs on the content element
-      tapTakeover: !!opts.tapTakeover,
       // what an empty row shows, built fresh for each editor that asks
       placeholder: typeof opts.placeholder === "function" ? opts.placeholder : null,
       newline: typeof opts.newline === "function" ? opts.newline : event => event.shiftKey,
@@ -1072,10 +1040,6 @@
       focused() {
         return this.view ? hasCaret(this.view) : document.activeElement === this.ta;
       },
-      // the element that actually holds the caret and the tap, the content when
-      // the editor is on and the field itself when it is not, so a page keying a
-      // blink or a rule to the focused control finds it whichever face is worn
-      caretTarget() { return this.view ? this.view.contentDOM : this.ta; },
       // the row's own height from its words, which is the two lines every
       // composer wrote by hand before there was a second face to write them on
       // the row's own height from its words, which is the two lines every

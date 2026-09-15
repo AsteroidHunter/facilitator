@@ -572,12 +572,8 @@
   .compose .cffield .cm-scroller{
     background:transparent; border:none; padding:var(--sp-s) 4px; margin:0 -4px;
     min-height:var(--row-min); max-height:28vh;
-    max-height:calc(var(--vvh, 100vh) * .28); overflow:clip;
+    max-height:calc(var(--vvh, 100vh) * .28); overflow-y:auto;
   }
-  /* while the words fit the cap the scroller clips rather than scrolls, so it
-     is no scroll container for the phone's caret reveal to seize; once they
-     pass the cap the script marks it and it scrolls, the way the field does */
-  .compose .cffield .cm-scroller.cfscroll{overflow-y:auto}
   body.kb .compose .cffield .cm-scroller{max-height:calc(5 * 1.5em + 2 * var(--sp-s))}
   textarea::placeholder{color:#B4AA99}
   /* the phone skips its caret reveal, the scroll of the whole page that
@@ -586,10 +582,6 @@
      cannot catch. the script blinks the same way on every keystroke while
      the keyboard is up, since the reveal fires on those too */
   textarea:focus{animation:focus-blink .02s}
-  /* the same one-frame blink on the editor's own content, since with the
-     typed formatting on the element the phone focuses and would reveal is the
-     content and not the hidden field behind it */
-  .compose .cffield .cm-content:focus{animation:focus-blink .02s}
   @keyframes focus-blink{from{opacity:0}}
   /* the twin the row is measured on: the same rule as the row, the row's own
      width, out of the flow and out of sight. the row's height is read off it,
@@ -1148,7 +1140,6 @@ function makeBox(b){
     ? tracePhone("begin", "stage", { stage: "editor-init", box: b.id }) : null;
   const field = ComposeFormat.attach(ta, {
     newline: e => e.shiftKey || document.body.classList.contains("kb"),
-    tapTakeover: true,
   });
   if (editorTrace) endPhoneTrace(editorTrace, { stage: "editor-init", box: b.id,
     editor: true, editorReady: !field.formatted() || !!field.view, formatted: field.formatted() });
@@ -2950,10 +2941,6 @@ function fitRow(ta, twin){
   }
   const was = parseFloat(ta.style.height) || 0;
   ta.style.height = want + "px";
-  // the editor's scroller scrolls only once its words pass the cap; while they
-  // fit it clips and is no scroll container for the reveal. ta.classList is the
-  // scroller's own while the editor stands in for the field
-  if (field && field.formatted()) ta.classList.toggle("cfscroll", want - ta.clientHeight > 0.5);
   return want > was;
 }
 // the caret's line, counted on the twin from the text up to the end of the word
@@ -3003,13 +2990,9 @@ function revealCaret(ta, twin){
 // first, so fast typing stacks nothing
 let rowBlink = null;
 function blinkRow(ta){
-  // the blink lands on the element the phone actually focuses: the editor's
-  // content when the typed formatting is on, the field itself when it is not
-  const field = ComposeFormat.fieldOf(ta);
-  const el = field ? field.caretTarget() : ta;
-  if (!el.animate) return;
+  if (!ta.animate) return;
   if (rowBlink) rowBlink.cancel();
-  rowBlink = el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 20 });
+  rowBlink = ta.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 20 });
 }
 // the focusing tap on an empty row. the phone's own focus from a tap runs its
 // caret reveal, which scrolls the whole page under the rising keyboard, and the
