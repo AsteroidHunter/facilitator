@@ -1061,10 +1061,6 @@
       focused() {
         return this.view ? hasCaret(this.view) : document.activeElement === this.ta;
       },
-      // the element that actually holds the caret and the tap, the content when
-      // the editor is on and the field itself when it is not, so a page keying a
-      // blink or a rule to the focused control finds it whichever face is worn
-      caretTarget() { return this.view ? this.view.contentDOM : this.ta; },
       // the row's own height from its words, which is the two lines every
       // composer wrote by hand before there was a second face to write them on
       // the row's own height from its words, which is the two lines every
