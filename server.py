@@ -396,7 +396,6 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse, quote
 
 HERE = Path(__file__).resolve().parent
-RETIRED_OWNERS = frozenset({"triage"})
 
 # ---- the log ----------------------------------------------------------------
 # One event per line, as JSON, in a dated file, and that file is the only place
@@ -850,10 +849,6 @@ def _client_batch(page: str, reports: list) -> tuple:
     return written, sum(count for count, _ in lost.values())
 
 
-class OwnerMigrationRequired(ValueError):
-    """Persisted configuration or state still names a retired owner id."""
-
-
 class SaveFailed(RuntimeError):
     """The board's state could not be written to disk. Its own exception rather
     than a bare OSError, so the POST dispatch can answer this one and nothing
@@ -868,12 +863,6 @@ def _lane_dirs() -> dict:
     except Exception:
         return {}
     lanes = cfg.get("lanes", [])
-    retired = sorted({ln.get("owner") for ln in lanes
-                      if isinstance(ln, dict) and ln.get("owner") in RETIRED_OWNERS})
-    if retired:
-        names = ", ".join(repr(ow) for ow in retired)
-        raise OwnerMigrationRequired(
-            f"run.config.json requires owner migration: retired owner {names} is not allowed")
     return {ln["owner"]: str(Path(ln["dir"]).expanduser())
             for ln in lanes if ln.get("owner") and ln.get("dir")}
 STATE_PATH = HERE / "state.json"
@@ -1035,9 +1024,6 @@ def _register_owner(ow: str) -> None:
     """A stored or just-created project lane joins the runtime owner set and
     the listener-presence structures; idempotent, so _migrate can re-run it."""
     global OWNERS
-    if ow in RETIRED_OWNERS:
-        raise OwnerMigrationRequired(
-            f"owner registration refused retired owner {ow!r}; persisted data requires migration")
     if ow not in OWNERS:
         OWNERS = OWNERS + (ow,)
     _waiters.setdefault(ow, 0)
@@ -1261,38 +1247,6 @@ def _seed_state() -> dict:
     }
 
 
-OWNER_KEYED_STATE = ("busy", "claimed", "busy_ts", "ack", "workspaces", "pages", "ever_listened")
-
-
-def _validate_persisted_owners(st: dict, source: str) -> None:
-    """Refuse retired ids before migration can register, default, or save them.
-
-    This is deliberately a validator, not a converter. The one-time live state
-    rewrite is an external cutover step, and a process must not decide how two
-    old and new values should be merged.
-    """
-    hits = []
-    boxes = st.get("boxes", []) if isinstance(st, dict) else []
-    if isinstance(boxes, list):
-        for i, box in enumerate(boxes):
-            if isinstance(box, dict) and box.get("owner") in RETIRED_OWNERS:
-                hits.append(f"boxes[{i}].owner={box['owner']!r}")
-    projects = st.get("projects", []) if isinstance(st, dict) else []
-    if isinstance(projects, list):
-        for i, project in enumerate(projects):
-            if isinstance(project, dict) and project.get("id") in RETIRED_OWNERS:
-                hits.append(f"projects[{i}].id={project['id']!r}")
-    if isinstance(st, dict):
-        for field in OWNER_KEYED_STATE:
-            value = st.get(field)
-            if isinstance(value, dict):
-                for owner in sorted(RETIRED_OWNERS.intersection(value)):
-                    hits.append(f"{field}[{owner!r}]")
-    if hits:
-        raise OwnerMigrationRequired(
-            f"{source} requires owner migration; retired owner data found at " + ", ".join(hits))
-
-
 def _backup_state() -> None:
     """A copy of state.json beside it, taken once before the first save that
     adds the revision and the receipts: the way back to the server this file
@@ -1313,13 +1267,10 @@ def _load() -> None:
     _LANE_DIRS = _lane_dirs()
     if STATE_PATH.exists():
         _state = json.loads(STATE_PATH.read_text())
-        source = "state.json"
         if isinstance(_state, dict) and "rev" not in _state:
             _backup_state()
     else:
         _state = _seed_state()
-        source = "seed.json" if SEED_PATH.exists() else "new state"
-    _validate_persisted_owners(_state, source)
     for b in _state["boxes"]:  # ages start counting from first sight
         b.setdefault("ts", time.time())
     _migrate()
@@ -1562,12 +1513,6 @@ def _migrate() -> None:
         if isinstance(_state.get(slot), dict):
             for ow in OWNERS:
                 _state[slot].setdefault(ow, [] if slot == "claimed" else (0.0 if slot == "busy_ts" else None))
-    if _box("q") is None:  # the quick-chat thread, served by the qchat lane
-        _state["boxes"].append({
-            "id": "q", "bucket": "meta", "title": "quick chat",
-            "reply": "", "pending": [], "done": False, "parked": False, "replies": 0,
-            "ball": "you", "ts": time.time(), "owner": "qchat",
-        })
     _state.setdefault("ever_listened", {})
     # the last push that actually worked (2026-09-03): null, like an absent
     # field, means none ever has, which is the truthful reading of older state
@@ -4081,8 +4026,6 @@ def _post_project(q: Query, text: str):
     slug = slug.strip("-")
     if not name or not slug:
         return 400, {"error": "empty name"}
-    if slug in RETIRED_OWNERS:
-        return 400, {"error": "reserved owner"}
     with _lock:
         # a taken id walks numbered suffixes until free; built-in owner
         # ids (hidden internal lanes included) and stored project ids
@@ -5171,11 +5114,7 @@ def main() -> None:
 
     try:
         INTERNAL_UPLOADS.mkdir(parents=True, exist_ok=True)
-        try:
-            _load()
-        except OwnerMigrationRequired as e:
-            _error("startuprefused", reason=str(e))
-            sys.exit(f"startup refused: {e}")
+        _load()
         with _lock:
             _state["busy"] = {ow: None for ow in OWNERS}  # a restart never resumes mid-claim
             _state["claimed"] = {ow: [] for ow in OWNERS}
