@@ -282,8 +282,8 @@ Endpoints:
                                {"messages": [], "message_via": []} when nothing
                                new or no card held
   GET  /wait?owner=O&timeout=S[&agent=NAME] -> agent long-poll; claims the oldest
-                               queued box owned by O (facilitator|pastureland; defaults
-                               to pastureland, the pre-routing loop's role) + its pending
+                               queued box owned by O (facilitator or a project
+                               lane; defaults to facilitator) + its pending
                                messages. agent= states the caller's name; the card
                                rows' little tag shows the lane's live name or
                                offline, never a stored guess. A claim answers
@@ -1242,7 +1242,7 @@ def _seed_state() -> dict:
                 "reply_full": it.get("context", ""),
                 "reply_short": it.get("context", ""),
                 "pending": [], "done": False, "replies": 0,
-                "owner": it.get("owner", "pastureland"),
+                "owner": it.get("owner", "facilitator"),
             }
             for it in seed.get("items", [])
         ],
@@ -1549,7 +1549,7 @@ def _migrate() -> None:
         [int(b["id"][1:]) for b in _state["boxes"]
          if b["id"].startswith("m") and b["id"][1:].isdigit()] or [0]))
     for b in _state["boxes"]:
-        b.setdefault("owner", "facilitator" if b["id"] == "0" or b["id"].startswith("m") else "pastureland")
+        b.setdefault("owner", "facilitator")
     if not isinstance(_state.get("busy"), dict):  # scalar claim slots -> per-owner maps
         _state["busy"] = {ow: None for ow in OWNERS}
         _state["claimed"] = {ow: [] for ow in OWNERS}
@@ -1622,7 +1622,7 @@ def _migrate() -> None:
         if not isinstance(_state["tabs"].get(field), list):
             _state["tabs"][field] = []
     for b in _state["boxes"]:
-        b.setdefault("ws", ws[b.get("owner", "pastureland")][0]["id"])
+        b.setdefault("ws", ws[b.get("owner", "facilitator")][0]["id"])
         b.setdefault("task", None)
         b.setdefault("agent_ts", 0)
         # how many of this card's replies have been read (2026-09-02): a board
@@ -1974,7 +1974,7 @@ def _remove_empty_meta_box(box: dict) -> str:
     _state["boxes"].remove(box)
     if bid in _state["inbox"]:
         _state["inbox"].remove(bid)
-    ow = box.get("owner", "pastureland")
+    ow = box.get("owner", "facilitator")
     if _state["busy"][ow] == bid:
         _state["busy"][ow] = None
         _state["claimed"][ow] = []
@@ -2079,7 +2079,7 @@ def _shown(b: dict) -> str:
     wears working's green, rest wears queued grey, and note stays explicit for
     the page to paint with working's green."""
     s = ("done" if b["done"] else "parked" if b.get("parked", False)
-         else "working" if _state["busy"].get(b.get("owner", "pastureland")) == b["id"]
+         else "working" if _state["busy"].get(b.get("owner", "facilitator")) == b["id"]
          else b["state"])
     return {"deferred": "working", "rest": "queued"}.get(s, s)
 
@@ -2125,7 +2125,7 @@ def _release_claim(b: dict, for_answer: bool = False) -> str:
     handled exactly as they always were either way, so a caller that knows
     nothing about answered batches keeps the behaviour it has always had and
     gets the safe reading of its own intent."""
-    ow = b.get("owner", "pastureland")
+    ow = b.get("owner", "facilitator")
     claimed = set(_state["claimed"][ow]) if _state["busy"][ow] == b["id"] else set()
     b["pending"] = [m for m in b["pending"] if m["mid"] not in claimed]
     _consume_claim(b, claimed, for_answer)
@@ -2708,7 +2708,7 @@ def _op_status(op: str) -> dict:
 # saved state and so never moves the revision.
 
 def _phone_box(b: dict) -> dict:
-    ow = b.get("owner", "pastureland")
+    ow = b.get("owner", "facilitator")
     return {
         "id": b["id"], "bucket": b["bucket"], "title": b["title"],
         "replyFull": b.get("reply_full", b.get("reply", "")),
@@ -2757,7 +2757,7 @@ def _phone_state(since: int | None, ops: list[str]) -> dict:
     if out["changed"]:
         qpos, seen = {}, {ow: 0 for ow in OWNERS}
         for i in _state["inbox"]:
-            ow = (_box(i) or {}).get("owner", "pastureland")
+            ow = (_box(i) or {}).get("owner", "facilitator")
             seen[ow] += 1
             qpos[i] = seen[ow]
         boxes = []
@@ -2781,7 +2781,7 @@ def _ui_state() -> dict:
     st = _state
     qpos, seen = {}, {ow: 0 for ow in OWNERS}  # queue position within each owner's lane
     for i in st["inbox"]:
-        ow = (_box(i) or {}).get("owner", "pastureland")
+        ow = (_box(i) or {}).get("owner", "facilitator")
         seen[ow] += 1
         qpos[i] = seen[ow]
     return {
@@ -2805,7 +2805,7 @@ def _ui_state() -> dict:
                 "parked": b.get("parked", False),
                 "ts": b.get("ts", 0),
                 "context": b.get("context", ""),
-                "owner": b.get("owner", "pastureland"),
+                "owner": b.get("owner", "facilitator"),
                 "pending": len(b["pending"]),
                 "pendingTexts": [m["text"] for m in b["pending"]],
                 # send times matching pendingTexts one to one; 0 for
@@ -2838,7 +2838,7 @@ def _ui_state() -> dict:
                 # handler reads the board and names the card that turned last
                 "turnTs": b.get("turn_ts", 0),
                 "engine": b.get("engine", "claude"),
-                "writing": st["busy"].get(b.get("owner", "pastureland")) == b["id"],
+                "writing": st["busy"].get(b.get("owner", "facilitator")) == b["id"],
                 # green only while the job's heartbeat is fresh: a job
                 # that stopped pinging cannot keep a card green
                 "bg": _hb_live(b),
@@ -2893,7 +2893,7 @@ def _ui_state() -> dict:
                          and 60 < (time.time() - _last_wait.get(ow, 0.0)) < 900
                          and not any(
                              _hb_live(b)
-                             for b in st["boxes"] if b.get("owner", "pastureland") == ow),
+                             for b in st["boxes"] if b.get("owner", "facilitator") == ow),
         } for ow in OWNERS},
     }
 
@@ -3000,7 +3000,7 @@ def _get_unread(q: Query, _):
     # whether the agent may go idle and for a human checking a lane
     # without reading the whole board. Read only: it claims nothing,
     # releases nothing and sweeps nothing
-    owner = q.one("owner", "pastureland")
+    owner = q.one("owner", "facilitator")
     if owner not in OWNERS:
         return 400, {"error": "unknown owner"}
     with _lock:
@@ -3008,7 +3008,7 @@ def _get_unread(q: Query, _):
         # anything not already in the claim is still waiting, including
         # messages that landed on a held card after it was claimed
         queued = sum(1 for b in _state["boxes"]
-                     if b.get("owner", "pastureland") == owner
+                     if b.get("owner", "facilitator") == owner
                      for m in b["pending"] if m["mid"] not in held)
         return 200, {"queued": queued, "claimed": len(held)}
 
@@ -3017,7 +3017,7 @@ def _get_fresh(q: Query, _):
     # mid-work delivery: while an agent holds a card, hand over anything
     # that landed on that card after the claim and fold it into the
     # claim, so the one reply covers it and nothing arrives twice
-    owner = q.one("owner", "pastureland")
+    owner = q.one("owner", "facilitator")
     if owner not in OWNERS:
         return 400, {"error": "unknown owner"}
     with _lock:
@@ -3418,7 +3418,7 @@ def _wait_poll(owner: str):
                 _save()
         if _state["busy"][owner] is None:
             bid = next((i for i in _state["inbox"]
-                        if (_box(i) or {}).get("owner", "pastureland") == owner), None)
+                        if (_box(i) or {}).get("owner", "facilitator") == owner), None)
             if bid is not None:
                 _state["inbox"].remove(bid)
                 box = _box(bid)
@@ -3454,13 +3454,13 @@ def _wait_poll(owner: str):
                     # loops elsewhere read messages as plain strings
                     "message_via": [m.get("via") for m in box["pending"]],
                     "queued_after": sum(1 for i in _state["inbox"]
-                                        if (_box(i) or {}).get("owner", "pastureland") == owner),
+                                        if (_box(i) or {}).get("owner", "facilitator") == owner),
                     # the receipt this hand-off has to come back with
                     "ack": token,
                 }
                 return "claim", payload
         if _state["end"] and _state["busy"][owner] is None and not any(
-                (_box(i) or {}).get("owner", "pastureland") == owner for i in _state["inbox"]):
+                (_box(i) or {}).get("owner", "facilitator") == owner for i in _state["inbox"]):
             return "end", {"end": True}
         return None
 
@@ -3613,7 +3613,7 @@ def _post_send(q: Query, text: str):
         if box["bucket"] == "meta" and box["id"] != "0" and box["title"] == "…":
             first = text.splitlines()[0].strip()
             box["title"] = (first[:48] + "…") if len(first) > 48 else first
-        if bid not in _state["inbox"] and _state["busy"][box.get("owner", "pastureland")] != bid:
+        if bid not in _state["inbox"] and _state["busy"][box.get("owner", "facilitator")] != bid:
             _state["inbox"].append(bid)
         result = {"ok": True, "mid": msg["mid"], "box": bid}
         if op:
@@ -3633,7 +3633,7 @@ def _post_ack(q: Query, text: str):
     # comes back here and the provisional claim becomes a real one.
     # Nothing else about the claim changes, so a confirmed claim is
     # exactly what /fresh, /reply and the steal-back always saw
-    ow = q.one("owner", "pastureland")
+    ow = q.one("owner", "facilitator")
     if ow not in OWNERS:
         return 400, {"error": "unknown owner"}
     token = q.one("token")
@@ -3671,7 +3671,7 @@ def _post_reply(q: Query, text: str):
         if ctx and len(ctx.split()) > 50:
             # refused outright, never silently chopped
             return 400, {"error": "context strip over 50 words"}
-        ow = box.get("owner", "pastureland")
+        ow = box.get("owner", "facilitator")
         # The compact version is data, not punctuation inside the full
         # prose. keep_blank_values distinguishes an intentionally empty
         # small card from an omitted version, which mirrors the full one.
@@ -3756,7 +3756,7 @@ def _post_note(q: Query, text: str):
         ctx = q.one("ctx").strip()
         if ctx and len(ctx.split()) > 50:
             return 400, {"error": "context strip over 50 words"}
-        ow = box.get("owner", "pastureland")
+        ow = box.get("owner", "facilitator")
         _last_wait[ow] = time.time()  # a note proves that agent is alive too
         _set_reply_variants(box, text)
         box["replies"] += 1
@@ -3983,7 +3983,7 @@ def _post_worktree(q: Query, text: str):
         if box is None:
             return 400, {"error": "bad box"}
         name = q.one("name")
-        if name and name not in _lane_worktrees(box.get("owner", "pastureland"))["names"]:
+        if name and name not in _lane_worktrees(box.get("owner", "facilitator"))["names"]:
             return 400, {"error": "unknown worktree"}
         box["worktree"] = name
         _log("worktree", bid, name)
@@ -4284,7 +4284,7 @@ def _post_progress(q: Query, text: str):  # interim note during a build: keeps
     bid = q.one("box")                     # the claim (card stays green) and
     with _lock:                            # heartbeats
         box = _box(bid)
-        ow = box.get("owner", "pastureland") if box else None
+        ow = box.get("owner", "facilitator") if box else None
         if box is None or _state["busy"].get(ow) != bid:
             return 400, {"error": "not holding this box"}
         _set_reply_variants(box, text)
@@ -4308,7 +4308,7 @@ def _post_dismiss(q: Query, text: str):  # drop a box's queued messages, unanswe
         box["pending"] = []
         if bid in _state["inbox"]:
             _state["inbox"].remove(bid)
-        ow = box.get("owner", "pastureland")
+        ow = box.get("owner", "facilitator")
         if _state["busy"].get(ow) == bid:
             _state["busy"][ow] = None
             _state["claimed"][ow] = []
@@ -4627,7 +4627,7 @@ class WaitRoute:
         except ValueError:
             await _answer(400, {"error": "bad timeout"}, route=route)(scope, receive, send)
             return
-        owner = q.one("owner", "pastureland")  # default: the pre-routing loop's role
+        owner = q.one("owner", "facilitator")  # default: the tool's own lane
         if owner not in OWNERS:
             await _answer(400, {"error": "unknown owner"}, route=route)(scope, receive, send)
             return
