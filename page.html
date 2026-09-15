@@ -530,19 +530,8 @@
   #tiklist{flex:1; overflow-y:auto; display:flex; flex-direction:column;
     gap:calc(var(--ch)*0.007);
     padding:calc(var(--ch)*0.012) 0.6vw calc(var(--ch)*0.012) 0.7vw}
-  /* the list's scrollbar, slimmed: a 7px lane, bare track, a rounded thumb
-     in the line-strong ink, a shade deeper under the pointer. scoped to the
-     ticket panel only; the rest of the page keeps its stock bars */
-  /* the thumb floats off the right edge (transparent border trick) and only
-     shows while the list actually scrolls or the pointer hovers it */
-  #tiklist::-webkit-scrollbar, #tickets::-webkit-scrollbar{width:9px}
-  #tiklist::-webkit-scrollbar-track, #tickets::-webkit-scrollbar-track{background:transparent}
-  #tiklist::-webkit-scrollbar-thumb, #tickets::-webkit-scrollbar-thumb{
-    background:transparent; border:3px solid transparent;
-    background-clip:padding-box; border-radius:99px}
-  #tiklist.scrolling::-webkit-scrollbar-thumb, #tiklist:hover::-webkit-scrollbar-thumb,
-  #tickets.scrolling::-webkit-scrollbar-thumb, #tickets:hover::-webkit-scrollbar-thumb{
-    background-color:var(--line-strong)}
+  /* the list and the other card views scroll with no bar and no lane reserved
+     for one: the page-wide rule above hides every bar, so none is styled here. */
   .trow{
     position:relative; flex:none; height:calc(var(--ch)*0.072);
     border:1px solid var(--line); border-radius:5px; background:#fff;
@@ -878,11 +867,6 @@
   #nphead{display:none}   /* the whole Active Folders bar removed */
   #nprows{display:flex; flex-direction:column; gap:2px; padding:0 0 4px;
     max-height:56vh; overflow-y:auto}
-  /* the well's scrollbar: the thumb is the landing's other orange */
-  #nprows::-webkit-scrollbar{width:9px}
-  #nprows::-webkit-scrollbar-track{background:transparent}
-  #nprows::-webkit-scrollbar-thumb{background:#F0B27E; border:3px solid transparent;
-    background-clip:padding-box; border-radius:99px}
   /* rows are plain information, never controls: no hover, no pointer, no
      fill; their text stays selectable */
   .nprow{display:flex; flex-direction:column; gap:1px; width:100%;
@@ -3155,20 +3139,6 @@ function fitStage(){
   document.body.style.backgroundPosition = tx + "px " + (bar + ty) + "px";
 }
 addEventListener("resize", fitStage);
-
-// the ticket list's scrollbar thumb shows only while scrolling (or hover):
-// a short-lived class carries the visibility, fading out after the wheel rests
-{
-  const lists = ["tiklist", "tickets"].map(id => document.getElementById(id)).filter(Boolean);
-  for (const el of lists){
-    let t = null;
-    el.addEventListener("scroll", () => {
-      el.classList.add("scrolling");
-      clearTimeout(t);
-      t = setTimeout(() => el.classList.remove("scrolling"), 700);
-    }, { passive: true });
-  }
-}
 
 // the copy button on fenced blocks: one click puts the block's text on the
 // clipboard; the icon is the standard two-sheets copy glyph, drawn inline
