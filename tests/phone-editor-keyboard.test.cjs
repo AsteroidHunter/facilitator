@@ -265,3 +265,51 @@ test("a tap on the formatted editor is refused its own focus and the caret is pl
     await page.close();
   }
 });
+
+// ---- unit 2: the one-frame blink keyed to the focused content ------------------------
+test("the focus blink is on the focused editor content and re-arms on each keystroke", async () => {
+  const id = await create("Editor focus blink");
+  await api(`/reply?box=${id}`, "A reply to answer.");
+  const { page, problems } = await openEditor(id, { fake: true });
+  try {
+    // the focusing tap lands the caret in the content, and the declarative
+    // blink is on that content while it holds the focus
+    await watchTap(page);
+    await tapContent(page, 20, { px: 8 });
+    const focusBlink = await page.evaluate(() => {
+      const content = document.querySelector("article.box.sel .cm-content");
+      const cs = getComputedStyle(content);
+      return { active: document.activeElement === content, name: cs.animationName, dur: cs.animationDuration };
+    });
+    assert.equal(focusBlink.active, true, "the tap did not focus the content");
+    assert.equal(focusBlink.name, "focus-blink", "the focused content carries no one-frame blink");
+    assert.equal(focusBlink.dur, "0.02s", "the content's blink is not the one-frame blink");
+
+    // the keyboard up, a keystroke re-arms the blink on the content, since the
+    // reveal fires on later keystrokes too
+    await page.evaluate(k => window.__keyboard.set(k.height, 0), { height: PHONE.height - KEYBOARD });
+    await settle(120);
+    assert.equal(await page.evaluate(() => document.body.classList.contains("obstructed")), true, "the keyboard did not read as up");
+    await page.evaluate(() => {
+      const content = document.querySelector("article.box.sel .cm-content");
+      window.__anim = { count: 0, frames: null };
+      const native = content.animate.bind(content);
+      content.animate = function (frames, opts) {
+        window.__anim.count++;
+        window.__anim.frames = frames;
+        window.__anim.duration = opts && opts.duration;
+        return native(frames, opts);
+      };
+    });
+    await page.keyboard.type("z");
+    await settle(80);
+    const rearm = await page.evaluate(() => window.__anim);
+    assert.ok(rearm.count >= 1, "the keystroke did not re-arm the blink on the content");
+    assert.equal(rearm.duration, 20, "the re-armed blink is not the one-frame blink");
+    assert.deepEqual(rearm.frames, [{ opacity: 0 }, { opacity: 1 }], "the re-armed blink is not the opacity blink");
+
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
