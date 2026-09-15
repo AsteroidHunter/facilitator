@@ -671,10 +671,14 @@
   body.menudrag #scrim, body.menudrag #page, body.menudrag #drawer, body.menudrag #settings,
   body.menudrag #drawer::after, body.menudrag #settings::after{transition:none}
   #tikhead{flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 8px 0; border-bottom:1px solid var(--line)}
-  .tvb{flex:1; font:500 13px/16px var(--sans); color:var(--sub); background:transparent;
-    border:1px solid transparent; border-bottom:none; border-radius:0;
-    padding:6px 0 5px; cursor:pointer; user-select:none; -webkit-user-select:none; position:relative; top:1px}
-  .tvb.on{color:var(--ink); background:var(--card); border-color:var(--line)}
+  /* the drawer tabs ARE the project tabs, the same reuse the bar makes: every
+     .ptab rule above applies here, the 7px top corners and the bottom notch with
+     them, and only what this row keeps is said again. the seat, because the list
+     under this head is the panel's own white and not the bar's paper; three equal
+     segments across the width; height auto over the bar's fixed 39; the 6 and 5
+     of padding the segments carried; and the 1px drop the head's own seat line
+     needs, which the bar's tabs do not since they seat on the bar's foot */
+  #tikhead .tvb{flex:1; --seat:var(--card); height:auto; padding:6px 0 5px; top:1px}
   .tikadd{flex:none; align-self:center; width:28px; height:28px; padding:0; margin-left:4px;
     font:500 15px/1 var(--mono); color:var(--ink); background:none; border:none; cursor:pointer; opacity:.75}
   /* the plus while the card it was pressed for is still being made: it breathes
@@ -876,9 +880,9 @@
 
 <aside id="drawer" aria-label="cards" data-side="left">
   <div id="tikhead">
-    <button id="tv-todo" class="tvb on" type="button">doing</button>
-    <button id="tv-deferred" class="tvb" type="button">deferred</button>
-    <button id="tv-done" class="tvb" type="button">done</button>
+    <button id="tv-todo" class="ptab tvb on" type="button">doing</button>
+    <button id="tv-deferred" class="ptab tvb" type="button">deferred</button>
+    <button id="tv-done" class="ptab tvb" type="button">done</button>
     <button id="tikadd" class="tikadd" type="button" title="new card" aria-label="new card">+</button>
   </div>
   <div id="tiklist"></div>
