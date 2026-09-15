@@ -1870,6 +1870,10 @@ function select(id){
   const trace = tracePhone("begin", "select", { box: id });
   if (!els[id]){ endPhoneTrace(trace, { box: id }); return; }
   const leaving = selectedId && selectedId !== id ? els[selectedId] : null;
+  // a card left while the keyboard is still up (a hardware-keyboard hotkey move)
+  // never runs its own close, so its reachability padding is cleared here rather
+  // than left on the answer to show as a gap when the card is seen again
+  if (leaving) setLiftPad(leaving, 0);
   cancelAutoNext();
   if (hist && hist.id !== id) histExit(hist.id);
   selectedId = id; localStorage.setItem("selbox", id);
