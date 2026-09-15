@@ -9,11 +9,143 @@
 // the status bar's inset on the reported height, is proven on the simulator.
 // Here the source and the headless geometry are pinned.
 const assert = require("node:assert/strict");
-const { test } = require("node:test");
-const { readFile } = require("node:fs/promises");
+const { after, before, test } = require("node:test");
+const { spawn } = require("node:child_process");
+const { once } = require("node:events");
+const { createServer } = require("node:http");
+const { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("node:fs/promises");
+const { tmpdir } = require("node:os");
 const path = require("node:path");
+const puppeteer = require("puppeteer-core");
 
 const ROOT = path.resolve(__dirname, "..");
+const CHROME = process.env.CHROME_PATH ||
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const PHONE = { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
+const KEYBOARD = 336;          // an iPhone keyboard with its accessory bar, in css px
+const ACCESSORY = 54;          // a small reported obstruction, such as a hardware-keyboard accessory strip
+const INSET = 6;               // --app-inset, the card's thin margin from an edge
+const SEL = "article.box.sel textarea";
+
+let browser, child, fixtureDir, origin;
+
+async function freePort() {
+  const server = createServer();
+  await new Promise((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
+  const port = server.address().port;
+  await new Promise(resolve => server.close(resolve));
+  return port;
+}
+async function api(route, body) {
+  const response = await fetch(origin + route, { method: "POST", body });
+  return { status: response.status, body: await response.json() };
+}
+async function create(title) {
+  const result = await api("/create?owner=facilitator", title);
+  assert.equal(result.status, 200);
+  return result.body.id;
+}
+async function settle(ms = 250) { await new Promise(resolve => setTimeout(resolve, ms)); }
+
+// the stand-in visual viewport the tests move, since headless chrome cannot raise
+// a keyboard; set(height, offsetTop) is one keyboard report, a resize and a scroll
+function fakeViewport() {
+  const vv = new EventTarget();
+  const geom = { height: null, width: null, offsetTop: 0, offsetLeft: 0, pageTop: 0, pageLeft: 0, scale: 1 };
+  Object.defineProperty(vv, "height", { get: () => geom.height ?? window.innerHeight });
+  Object.defineProperty(vv, "width", { get: () => geom.width ?? window.innerWidth });
+  for (const key of ["offsetTop", "offsetLeft", "pageTop", "pageLeft", "scale"]) Object.defineProperty(vv, key, { get: () => geom[key] });
+  Object.defineProperty(window, "visualViewport", { value: vv, configurable: true });
+  window.__keyboard = {
+    set(height, offsetTop = 0, scale = 1) {
+      geom.height = height; geom.offsetTop = offsetTop; geom.scale = scale;
+      vv.dispatchEvent(new Event("resize")); vv.dispatchEvent(new Event("scroll"));
+    },
+  };
+}
+
+async function openPhone(route, { fake = false } = {}) {
+  const page = await browser.newPage();
+  const problems = [];
+  page.on("console", message => {
+    if (message.type() !== "error") return;
+    if (/fonts\.g(oogleapis|static)\.com/.test(message.text())) return;
+    problems.push(message.text());
+  });
+  page.on("pageerror", error => problems.push("pageerror: " + error.message));
+  await page.setViewport(PHONE);
+  if (fake) await page.evaluateOnNewDocument(fakeViewport);
+  await page.goto(origin + route, { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => lastState !== null, { timeout: 5000 });
+  return { page, problems };
+}
+
+// the card's foot, the composer's foot, and the close's own leftovers, read in
+// the visual viewport's coordinates
+function shellShape() {
+  const vvTop = window.visualViewport.offsetTop;
+  const pane = document.getElementById("pane").getBoundingClientRect();
+  const ta = document.querySelector("article.box.sel textarea").getBoundingClientRect();
+  const view = document.querySelector("article.box.sel .replyview");
+  const page = document.getElementById("page");
+  const body = document.body;
+  return {
+    foot: pane.bottom - vvTop, rowBottom: ta.bottom - vvTop,
+    kb: body.classList.contains("kb"), obstructed: body.classList.contains("obstructed"),
+    lifting: body.classList.contains("lifting"),
+    kbInset: page.style.getPropertyValue("--kb-inset"),
+    kbLift: getComputedStyle(page).getPropertyValue("--kb-lift").trim(),
+    liftPad: getComputedStyle(view).getPropertyValue("--lift-pad").trim(),
+    replyScroll: view.scrollTop, winX: window.scrollX, winY: window.scrollY,
+    shellH: body.style.getPropertyValue("--shell-h"),
+  };
+}
+
+before(async () => {
+  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-phone-shell-"));
+  const port = await freePort();
+  const source = await readFile(path.join(ROOT, "server.py"), "utf8");
+  const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
+  assert.notEqual(patched, source, "test server port was not patched");
+  await writeFile(path.join(fixtureDir, "server.py"), patched);
+  for (const name of ["m.html", "m-sw.js", "m-manifest.json", "card-markdown.js", "card-tokens.css",
+                      "card-logic.js", "card-report.js", "compose-format.js", "cm-markdown.js",
+                      "index.html", "page.html"]) {
+    await copyFile(path.join(ROOT, name), path.join(fixtureDir, name));
+  }
+  await mkdir(path.join(fixtureDir, "assets"));
+  for (const name of await readdir(path.join(ROOT, "assets"))) {
+    await copyFile(path.join(ROOT, "assets", name), path.join(fixtureDir, "assets", name));
+  }
+  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+    title: "phone shell test",
+    items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator", context: "Meta." }],
+  }));
+  origin = `http://127.0.0.1:${port}`;
+  child = spawn(process.env.FACILITATOR_TEST_PYTHON || "python3", [path.join(fixtureDir, "server.py")], {
+    cwd: fixtureDir, env: { ...process.env, FACILITATOR_TEST_PORT: String(port) }, stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
+  child.stdout.on("data", chunk => { output += chunk; });
+  child.stderr.on("data", chunk => { output += chunk; });
+  const deadline = Date.now() + 5000;
+  let ready = false;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) throw new Error(`fixture server exited:\n${output}`);
+    try { const response = await fetch(origin + "/state"); if (response.ok) { ready = true; break; } } catch {}
+    await settle(25);
+  }
+  if (!ready) throw new Error(`fixture server did not start:\n${output}`);
+  browser = await puppeteer.launch({ executablePath: CHROME, headless: true,
+    args: ["--disable-background-networking", "--no-first-run"] });
+});
+
+after(async () => {
+  if (browser) await browser.close();
+  if (child && child.exitCode === null) { child.kill("SIGTERM"); await once(child, "exit"); }
+  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+});
 
 // ---- unit 1: the viewport model and the full-screen start ----------------------------
 
@@ -76,4 +208,141 @@ test("the keyboard curve is the measured one and the settle clock matches it", a
   // the lift's landing is watched on the body's own transform, not the page's padding
   assert.match(source, /propertyName === "transform"/, "the lift landing is not watched on the transform");
   assert.doesNotMatch(source, /propertyName === "padding-bottom"/, "the lift landing still watches the old padding");
+});
+
+// ---- unit 3: the close ---------------------------------------------------------------
+
+test("the close starts at focus loss and leaves no residue", async () => {
+  const id = await create("Shell close on the phone");
+  await api(`/reply?box=${id}`, "A reply to answer.");
+  const { page, problems } = await openPhone(`/m?box=${id}`, { fake: true });
+  try {
+    await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
+    await page.focus(SEL);
+    await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height - KEYBOARD);
+    await settle(450);
+    const up = await page.evaluate(shellShape);
+    assert.ok(up.rowBottom <= PHONE.height - KEYBOARD, "the composer did not rise over the keyboard");
+    // the return begins at focus loss, before the viewport has reported anything:
+    // the inset is already zero and the box is still held for the settle window
+    await page.evaluate(() => document.activeElement && document.activeElement.blur());
+    await settle(40);
+    const atLoss = await page.evaluate(shellShape);
+    assert.equal(atLoss.kbInset, "0px", "the inset did not go to zero at focus loss");
+    assert.equal(atLoss.lifting, true, "the box was not held through the close");
+    assert.equal(atLoss.shellH, `${PHONE.height}px`, "the box was dropped before the keyboard was gone");
+    await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height);
+    await settle(500);
+    const down = await page.evaluate(shellShape);
+    assert.equal(down.obstructed, false);
+    assert.equal(down.lifting, false, "the settle window did not close");
+    assert.equal(down.kbInset, "0px", "the keyboard inset was left on after the close");
+    assert.equal(down.liftPad, "0px", "the reachability padding was left on after the close");
+    assert.equal(down.winX, 0, "a window scroll was left after the close");
+    assert.equal(down.winY, 0, "a window scroll was left after the close");
+    assert.equal(down.foot, PHONE.height - INSET, "the card foot moved across the close");
+    assert.ok(down.rowBottom > PHONE.height - KEYBOARD, "the composer did not come back down");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("repeated keyboard cycles keep the answer's place and accumulate nothing", async () => {
+  const id = await create("Shell cycles on the phone");
+  const paras = [];
+  for (let n = 1; n <= 40; n++) paras.push(`Paragraph ${n} of an answer long enough to scroll on a phone.`);
+  await api(`/reply?box=${id}`, paras.join("\n\n"));
+  const { page, problems } = await openPhone(`/m?box=${id}`, { fake: true });
+  try {
+    await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
+    const place = await page.evaluate(() => {
+      const v = document.querySelector("article.box.sel .replyview"); v.scrollTop = 120; return v.scrollTop;
+    });
+    assert.ok(place > 100, "the answer did not take a reading position");
+    for (let cycle = 0; cycle < 3; cycle++) {
+      await page.focus(SEL);
+      await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height - KEYBOARD);
+      await settle(400);
+      await page.evaluate(() => document.activeElement && document.activeElement.blur());
+      await settle(60);
+      await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height);
+      await settle(400);
+    }
+    const after = await page.evaluate(shellShape);
+    assert.equal(after.obstructed, false);
+    assert.equal(after.lifting, false, "the settle window never closed across the cycles");
+    assert.equal(after.kbInset, "0px", "the keyboard inset accumulated across cycles");
+    assert.equal(after.liftPad, "0px", "the reachability padding accumulated across cycles");
+    assert.equal(after.winX, 0);
+    assert.equal(after.winY, 0);
+    assert.equal(after.foot, PHONE.height - INSET, "the card foot drifted across cycles");
+    assert.ok(Math.abs(after.replyScroll - place) <= 1, `the answer's place drifted to ${after.replyScroll} from ${place}`);
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("the accessory strip going while the field stays focused returns the composer cleanly", async () => {
+  const id = await create("Shell accessory close on the phone");
+  await api(`/reply?box=${id}`, "A reply to answer.");
+  const { page, problems } = await openPhone(`/m?box=${id}`, { fake: true });
+  try {
+    await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
+    await page.focus(SEL);
+    await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height - ACCESSORY);
+    await settle(400);
+    const up = await page.evaluate(shellShape);
+    assert.equal(up.obstructed, true);
+    assert.equal(up.kb, false, "the accessory strip was read as a full keyboard");
+    assert.ok(up.rowBottom <= PHONE.height - ACCESSORY, "the composer did not rise over the accessory strip");
+    assert.equal(await page.evaluate(() => editing()), true, "the field was not focused for the accessory test");
+    // the strip goes but the field keeps its focus, the way a hardware keyboard leaves it
+    await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height);
+    await settle(500);
+    const down = await page.evaluate(shellShape);
+    assert.equal(down.obstructed, false, "the card stayed obstructed after the strip went");
+    assert.equal(down.kbInset, "0px", "the inset was left on after the strip went");
+    assert.equal(down.liftPad, "0px", "the reachability padding was left on after the strip went");
+    assert.equal(down.foot, PHONE.height - INSET, "the card foot moved after the strip went");
+    assert.ok(down.rowBottom > PHONE.height - ACCESSORY, "the composer did not return after the strip went");
+    assert.equal(await page.evaluate(() => editing()), true, "the field lost focus when only the strip went");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("switching cards while the keyboard is up leaves no stale reachability padding", async () => {
+  const a = await create("Card A on the phone");
+  await api(`/reply?box=${a}`, "Answer A, long enough to hold a reading position.");
+  const b = await create("Card B on the phone");
+  await api(`/reply?box=${b}`, "Answer B.");
+  const { page, problems } = await openPhone(`/m?box=${a}`, { fake: true });
+  const padOf = id => page.evaluate(box => {
+    const v = document.getElementById("box-" + box).querySelector(".replyview");
+    return getComputedStyle(v).getPropertyValue("--lift-pad").trim();
+  }, id);
+  try {
+    await page.waitForSelector(`#box-${a}.sel`, { timeout: 5000 });
+    await page.focus(SEL);
+    await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height - KEYBOARD);
+    await settle(450);
+    assert.notEqual(await padOf(a), "0px", "card A did not take reachability padding while lifted");
+    // move to card B while the keyboard is still up, the way a hardware-keyboard
+    // hotkey move keeps the composer alive, then close and come back to A
+    await page.evaluate(box => select(box), b);
+    await settle(60);
+    await page.evaluate(() => document.activeElement && document.activeElement.blur());
+    await settle(60);
+    await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height);
+    await settle(400);
+    await page.evaluate(box => select(box), a);
+    await settle(200);
+    assert.equal(await padOf(a), "0px", "card A kept stale reachability padding after a switch away while lifted");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
 });
