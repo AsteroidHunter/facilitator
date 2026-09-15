@@ -602,7 +602,7 @@
      on that frame: one fiftieth of a second blink on focus, a frame the eye
      cannot catch. the script blinks the same way on every keystroke while
      the keyboard is up, since the reveal fires on those too */
-  textarea:focus{animation:focus-blink .02s}
+  [data-owned-focus]:focus{animation:focus-blink .02s}
   @keyframes focus-blink{from{opacity:0}}
   /* the twin the row is measured on: the same rule as the row, the row's own
      width, out of the flow and out of sight. the row's height is read off it,
@@ -1135,6 +1135,10 @@ function makeBox(b){
   const compose = h("div", "compose");
   const ta = h("textarea");
   ta.rows = 1;
+  // the mark the caret-reveal blink and the per-keystroke re-arm read, so
+  // whichever field is focused, this plain one or the editor content standing in
+  // for it, is the one the reveal is kept off. the editor marks its content too
+  ta.setAttribute("data-owned-focus", "");
   const send = h("button", "sendbtn");
   send.type = "button"; send.setAttribute("aria-label", "send");
   send.innerHTML = SEND_ICON;
@@ -3018,10 +3022,18 @@ function revealCaret(ta, twin){
 // the caret (the css does the same on focus): the previous blink is cancelled
 // first, so fast typing stacks nothing
 let rowBlink = null;
+// the element the blink runs on: the editor content when the row wears the
+// editor, the plain field otherwise, so the re-arm covers the same box the
+// declarative :focus blink does and the reveal has nothing to centre on
+function ownedFocusEl(ta){
+  const field = ComposeFormat.fieldOf(ta);
+  return field && typeof field.focusEl === "function" ? field.focusEl() : ta;
+}
 function blinkRow(ta){
-  if (!ta.animate) return;
+  const el = ownedFocusEl(ta);
+  if (!el || !el.animate) return;
   if (rowBlink) rowBlink.cancel();
-  rowBlink = ta.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 20 });
+  rowBlink = el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 20 });
 }
 // the focusing tap on an empty row. the phone's own focus from a tap runs its
 // caret reveal, which scrolls the whole page under the rising keyboard, and the
