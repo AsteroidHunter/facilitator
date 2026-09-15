@@ -147,6 +147,7 @@ before(async () => {
       { id: "m1", bucket: "meta", title: "First", owner: "facilitator" },
       { id: "m2", bucket: "meta", title: "Second", owner: "facilitator" },
       { id: "m3", bucket: "meta", title: "Third", owner: "facilitator" },
+      { id: "p1", bucket: "meta", title: "Project meta", owner: "meadow" },
     ],
   }));
   await startServer();
@@ -270,18 +271,18 @@ test("the lane's queue is handed out in order, one claim at a time, through acks
 });
 
 test("a first-ever wait whose save fails leaves no listener counted and writes no crash line", async () => {
-  // the pastureland lane has not listened in this run, so its first wait records
+  // the meadow lane has not listened in this run, so its first wait records
   // ever_listened and saves. With the folder read-only that save fails, and the
   // count must not be left showing a listener that never really arrived
-  const before = (await api("/state")).body.listening.pastureland;
+  const before = (await api("/state")).body.listening.meadow;
   assert.equal(before, false, "the lane was already listening before the test");
   const crashesBefore = (await events()).filter(e => e.kind === "crash").length;
   await chmod(app, 0o500);
   let answer;
   try {
-    answer = await api("/wait?owner=pastureland&timeout=1&agent=firstlisten");
+    answer = await api("/wait?owner=meadow&timeout=1&agent=firstlisten");
     // the count did not move, and the failure is a plain 500, not a crash
-    const listening = (await api("/state")).body.listening.pastureland;
+    const listening = (await api("/state")).body.listening.meadow;
     assert.equal(listening, false, "a failed first wait left the lane counted as listening");
   } finally {
     await chmod(app, 0o700);
@@ -295,9 +296,9 @@ test("a first-ever wait whose save fails leaves no listener counted and writes n
 
   // once the folder is writable the lane listens and leaves cleanly, and the
   // count is not stuck from the earlier failure
-  const clean = await api("/wait?owner=pastureland&timeout=1&agent=firstlisten");
+  const clean = await api("/wait?owner=meadow&timeout=1&agent=firstlisten");
   assert.deepEqual(clean.body, { idle: true });
   await new Promise(resolve => setTimeout(resolve, 100));
-  assert.equal((await api("/state")).body.listening.pastureland, false, "the lane stayed counted as listening after a clean wait");
-  assert.equal((await api("/state")).body.everListened.pastureland, true, "the clean wait did not record ever_listened");
+  assert.equal((await api("/state")).body.listening.meadow, false, "the lane stayed counted as listening after a clean wait");
+  assert.equal((await api("/state")).body.everListened.meadow, true, "the clean wait did not record ever_listened");
 });
