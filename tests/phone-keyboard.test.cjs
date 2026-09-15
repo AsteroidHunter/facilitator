@@ -399,7 +399,7 @@ test("an accessory-sized viewport obstruction seats the card foot at its measure
   try {
     await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
     const replyAt = await page.evaluate(() => {
-      const reply = document.querySelector("article.box.sel .reply");
+      const reply = document.querySelector("article.box.sel .replyview");
       reply.scrollTop = 180;
       return reply.scrollTop;
     });
@@ -476,7 +476,7 @@ test("an accessory-sized viewport obstruction seats the card foot at its measure
     const down = await page.evaluate(shellShape);
     const preserved = await page.evaluate(() => {
       const ta = document.querySelector("article.box.sel textarea");
-      const reply = document.querySelector("article.box.sel .reply");
+      const reply = document.querySelector("article.box.sel .replyview");
       return {
         draft: ta.value, start: ta.selectionStart, end: ta.selectionEnd,
         replyAt: reply.scrollTop,
@@ -819,7 +819,7 @@ test("after a close the answer's scroll is back in bounds and its place is kept"
     await page.evaluate(k => window.__keyboard.set(k.height, 0), { height: PHONE.height - KEYBOARD });
     await settle(600);
     const shrunk = await page.evaluate(() => {
-      const r = document.querySelector("article.box.sel .reply");
+      const r = document.querySelector("article.box.sel .replyview");
       r.scrollTop = 1e6;
       return { st: r.scrollTop, max: r.scrollHeight - r.clientHeight, box: r.clientHeight };
     });
@@ -829,7 +829,7 @@ test("after a close the answer's scroll is back in bounds and its place is kept"
     await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height);
     await settle(800);
     const grown = await page.evaluate(() => {
-      const r = document.querySelector("article.box.sel .reply");
+      const r = document.querySelector("article.box.sel .replyview");
       return { st: r.scrollTop, max: r.scrollHeight - r.clientHeight, box: r.clientHeight };
     });
     assert.ok(grown.box > shrunk.box, "the answer's box did not grow back after the close");
