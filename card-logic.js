@@ -144,7 +144,7 @@ function cardState(b){
   const shown = s === "note" ? "working" : s;
   // the machine never ships yours with messages still queued; this guard
   // covers the recomputed path, where an older reply can leave the ball on
-  // his side while a newer message is still in line, and that used to paint
+  // the reader's side while a newer message is still in line, and that used to paint
   // the card yellow. only yours is rewritten, so done, parked and every
   // green state keep exactly the state they had
   return (shown === "yours" && b.pending > 0) ? "queued" : shown;
@@ -294,7 +294,7 @@ function labelOf(state, owner){
 }
 
 // which replies the owner has laid eyes on: box id -> how many replies the
-// card carried when he last opened it; selecting a card counts as reading the
+// card carried when it was last opened; selecting a card counts as reading the
 // reply it shows. the board keeps this, one record per card, so a card opened
 // on the phone counts as read on the desktop too. the map below is this page's
 // copy of what the state last said, with its own writes held on top of it
@@ -340,12 +340,12 @@ function markSeen(id){
   if (seenTotals[id] != null) setSeenMany({ [id]: seenTotals[id] });
 }
 
-// does this lane still hold a reply he has not opened? this is the left
+// does this lane still hold a reply the reader has not opened? this is the left
 // list's own seen test, card by card, so the tab and the row can never
 // disagree about what unread means: the agent has answered, the ball is with
-// him, nothing of his is still queued behind it, and he has not opened the
+// the reader, nothing of the reader's is still queued behind it, and the reader has not opened the
 // card since that answer landed. cardState keeps done and deferred cards out,
-// so a lane he has finished with never asks for him again
+// so a lane the reader has finished with never asks again
 function laneUnread(state, owner){
   return !!state && state.boxes.some(b =>
     b.owner === owner && b.id !== "q" && cardState(b) === "yours" &&
@@ -541,7 +541,7 @@ function foldWants(pend){
 // together, and a press that catches a run freezes it where it stands and
 // re-aims from there rather than starting it over. the page hands in its run
 // counter and the rule its lane opens on; the sheet holds the length, the curve
-// and the travel. motion he has asked not to see is a plain flip.
+// and the travel. motion the reader has asked not to see is a plain flip.
 const FOLD_TIMER_MS = 430;   // behind the sheet's run, for a fold with nothing to transition
 function foldStrip(el, pend, runKey, open, place){
   if (!pend) return;
@@ -652,7 +652,7 @@ function pendBottom(pend){
 }
 
 // the run's one time tag: the first send of the run, since that is when the run
-// he is waiting on began. an entry queued before the server recorded times
+// being waited on began. an entry queued before the server recorded times
 // carries none, and the tag is simply blank rather than wrong
 function stampRun(pend, stamps){
   const s = pend.querySelector(".pendstamp");
@@ -704,7 +704,7 @@ function syncPend(el, texts, stamps){
 // no box at all rather than a guess.
 //
 // what stands below is what the two pages share: which reply is on show, what
-// that reply was given, the minute the box stays shut for, his own word about
+// that reply was given, the minute the box stays shut for, the reader's own word about
 // it, and the one pass that mounts, fills and takes the strip away. the strip
 // itself is each page's own to build (growAnswered) and to fold (foldAnswered),
 // exactly as the sent box below it is, so each surface keeps its own gesture,
@@ -714,20 +714,20 @@ function syncPend(el, texts, stamps){
 // completed, and then opens itself, once. there is no setting for it: the
 // number is written here, in seconds, and read nowhere else
 const ANSWERED_OPEN_AFTER_SEC = 60;
-// his own word about one reply's box, kept under that reply's own name. it
+// the reader's own word about one reply's box, kept under that reply's own name. it
 // outlives the poll, the card being put away and opened again, the walk through
-// the history and the page being loaded again: a box he shut stays shut for
-// that reply, and the only thing that changes it is his own hand on that same
+// the history and the page being loaded again: a box the reader shut stays shut for
+// that reply, and the only thing that changes it is the reader's own hand on that same
 // reply's box. there is no clock on the record and nothing evicts it, so
-// waiting cannot reopen a box he shut and neither can shutting or opening the
+// waiting cannot reopen a box the reader shut and neither can shutting or opening the
 // box on any other reply: each reply's word stands on its own.
 // only the two words below are ever written or believed, which is how the view
 // record on this page already reads storage: anything else found there counts
 // as nothing said at all
 const ANSWERED_CHOICE_KEY = "answbox.";   // + the reply's own name
 const ANSWERED_SAID = ["open", "closed"];
-// this page's own copy of what he said, read before the record: a private
-// window refuses the write, and his word must still hold for as long as the
+// this page's own copy of what the reader said, read before the record: a private
+// window refuses the write, and the reader's word must still hold for as long as the
 // page is open. the map is made without a prototype, so a reply id can never
 // borrow an answer from the object it is a key of
 const answeredChoices = Object.create(null);
@@ -767,7 +767,7 @@ function releaseAnsweredVisit(el){
                         () => autoOpenAnswered(el, meta));
 }
 
-// "open", "closed", or nothing at all when he has not said anything about this
+// "open", "closed", or nothing at all when nothing has been said about this
 // reply
 function answeredChoice(replyId){
   if (!replyId) return null;
@@ -778,10 +778,10 @@ function answeredChoice(replyId){
   answeredChoices[replyId] = said;
   return said;
 }
-// he opened or shut the box himself: that is this reply's state from now on,
+// the reader opened or shut the box: that is this reply's state from now on,
 // and the minute's own clock has nothing left to say about it. a storage that
 // refuses the write changes nothing else, since the page's own copy above is
-// read first and holds his word for as long as the page is open
+// read first and holds the reader's word for as long as the page is open
 function setAnsweredChoice(replyId, open){
   if (!replyId) return;
   const said = open ? "open" : "closed";
@@ -823,7 +823,7 @@ function clearAnsweredClock(key){
 // after its answer landed has nothing left to wait for and is drawn open in the
 // frame it appears in; a reply that landed a moment ago waits out what is left
 // of its own minute. what the clock fires is asked again when it fires, since
-// by then the box may be showing another reply, or he may have said himself
+// by then the box may be showing another reply, or the reader may have said
 function armAnsweredClock(key, meta, open){
   clearAnsweredClock(key);
   if (!key || !meta || !meta.id || answeredChoice(meta.id)) return;
@@ -881,7 +881,7 @@ function fillAnswered(pend, batch){
 }
 
 // where this box's lane stands when it is opened: the beginning of the batch
-// the first time, and where he left it every time after that. the box below
+// the first time, and where it was left every time after that. the box below
 // keeps its own rule, newest at the foot, because a line arrives there and no
 // line ever arrives here
 function answeredPlace(pend){
@@ -907,7 +907,7 @@ function dropAnswered(el){
 // no row is rewritten under a selection, and nothing near the composer moves,
 // which is why a draft and a caret are never disturbed by one of these passes.
 // a different reply, whether it landed live or was stepped back to, takes the
-// rows, the stamp, its own minute and his own word about it
+// rows, the stamp, its own minute and the reader's own word about it
 function syncAnswered(el, meta, opts){
   if (!el || !el.answwrap) return;
   const batch = answeredBatch(meta);
@@ -918,7 +918,7 @@ function syncAnswered(el, meta, opts){
   el.answProtected = null;
   const open = answeredOpensNow(meta);
   // the arrival is the page's own two beats, and only for a box that arrives
-  // shut on the card he is looking at: a box that is already past its minute is
+  // shut on the card the reader is looking at: a box that is already past its minute is
   // mounted open, and growing an open box out of nothing is a run nobody asked
   // for. a box already standing keeps its node across a history step, so the
   // strip does not blink out and back in between two pages
@@ -936,8 +936,8 @@ function syncAnswered(el, meta, opts){
   if (answeredRoomChanged) answeredRoomChanged();
 }
 
-// he opened or shut the box himself. the page's fold calls this and nothing
-// else does, so the clock is only ever put out by his own hand
+// the reader opened or shut the box. the page's fold calls this and nothing
+// else does, so the clock is only ever put out by the reader's own hand
 function answeredChose(el, open){
   if (!el) return;
   clearAnsweredClock(el.answKey || (el.box && el.box.id));
@@ -988,8 +988,8 @@ function answeredStrip(){
     '<div class="pendscroll"><div class="pendslide"></div></div></div>';
   pend.setAttribute("role", "group");
   pend.setAttribute("aria-label", "your messages that the reply below answers");
-  // only his own scrolling is remembered: a run's own clamping, while the box
-  // is changing height, is the layout moving the lane and not him
+  // only the reader's own scrolling is remembered: a run's own clamping, while the box
+  // is changing height, is the layout moving the lane and not the reader
   const lane = pend.querySelector(".pendscroll");
   lane.addEventListener("scroll", () => {
     if (!pend.classList.contains("motion")) pend.answAt = lane.scrollTop;
@@ -1444,7 +1444,7 @@ function editTitle(id, opts){
   t.onblur = () => { if (t.isContentEditable) commit(); };
 }
 
-// after a send, move to the next YELLOW card: one awaiting his read, never a
+// after a send, move to the next YELLOW card: one awaiting the reader's read, never a
 // green working card or a grey queued one. opts go to select as they are; the
 // desktop asks for focus. answers with the card it landed on, or nothing when
 // there was none to land on
@@ -1455,10 +1455,10 @@ function jumpNextYellow(fromId, opts, source){
   const p = (source || viewPool(lastState)).filter(b =>
     !b.done && !(b.writing || b.bg) && b.ball === "you" && b.id !== fromId);
   if (!p.length) return;
-  // the send should land on the card that has waited on him
+  // the send should land on the card that has waited
   // longest, not the newest. agentTs is written in the same breath as the turn
-  // going back to him, so it marks when a card became his to read; ts moves on
-  // his own sends and on progress notes too, so it cannot mean that. a card the
+  // going back to the reader, so it marks when a card became the reader's to read; ts moves on
+  // the reader's own sends and on progress notes too, so it cannot mean that. a card the
   // agent has never answered has only its own ts to age by, and one carrying
   // neither stamp cannot be aged, so it sorts last instead of posing as the
   // oldest thing here. the filter above already made a fresh array, so nothing

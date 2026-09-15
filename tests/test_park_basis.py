@@ -6,8 +6,8 @@
            recall the request, so a snooze the page replaced can still arrive
            last. The place is remembered per card AND stream, so another page
            touching the same card cannot erase this page's own high water mark.
-  message  the later-message protection: a snooze decided before one of his
-           messages existed does not bury that message.
+  message  the later-message protection: a snooze decided before one such
+           message existed does not bury that message.
   as before an older caller that names neither is served exactly as it was.
 
 The card, the messages, the stream names, the times and the revision below are
@@ -16,7 +16,7 @@ save is replaced with a stand-in that only moves the revision the way the real
 one does, _notify and _log are replaced with nothing, and the board is seeded
 by hand before every case.
 
-    python3 -m unittest author/tests/test_park_basis.py
+    python3 -m unittest tests/test_park_basis.py
 
 server.py is found by walking up from this file, or by FACILITATOR_SERVER
 pointing straight at it. Apply changes.json before running this.
@@ -148,8 +148,8 @@ class ParkRules(unittest.TestCase):
         self.assertFalse(answer["parked"], "and the answer names the state the card is really in")
         self.assertEqual(answer["rev"], SEEDED_REV, "nothing was written, so nothing moved")
         self.assertEqual(self.server._state["rev"], SEEDED_REV)
-        self.assertFalse(self.box["parked"], "the card he just wrote to is not snoozed")
-        self.assertEqual(len(self.box["pending"]), 1, "and his message is untouched")
+        self.assertFalse(self.box["parked"], "the card just written to is not snoozed")
+        self.assertEqual(len(self.box["pending"]), 1, "and that message is untouched")
 
     def test_an_unpark_is_never_judged_by_the_basis(self):
         self.box["parked"] = True

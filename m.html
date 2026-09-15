@@ -417,7 +417,7 @@
   /* a message the board has not confirmed yet: drawn the moment it is sent, a
      shade lighter, its receipt saying so, and kept on the card until the board
      has it. one it could not be given stays too, in the ink the unreachable
-     note wears, and a tap puts the words back in the row he types on */
+     note wears, and a tap puts the words back in the typing row */
   .pendlocal{display:flex; flex-direction:column}
   .pendlocal .pendmsg{padding-top:var(--sp-s)}
   .pendmsg.pending .pendcontent{opacity:.6}
@@ -462,7 +462,7 @@
      squeezed to a sliver is a control that cannot be seen or hit. it holds on
      the smallest phone in the hand, with the box below open or shut.
      and it never takes more than the answer can spare: everything standing over
-     the sent box and the row he types on, less the answer's own line. --boxband
+     the sent box and the typing row, less the answer's own line. --boxband
      is what that box and that row take, measured by the script below and
      written on the card so this rule and the answer's own both read it.
      what the box cannot show at either end, its own lane scrolls */
@@ -481,7 +481,7 @@
      keyboard up above all, where the card is half of what it is at rest and
      this box's own cap is measured against the window rather than the card.
      so on those cards it may have everything except three things it may not
-     touch: the row he types on with its step and the answer's clear air
+     touch: the typing row with its step and the answer's clear air
      (--footband, measured), the answer's own reserved line, and the box above
      at its own floor -- the shut bar when that box is folded, its open floor
      when it is not.
@@ -525,7 +525,7 @@
      the answer's own line and the ramp under it. one rule decides the share, so
      neither can push the column past the card */
 
-  /* ---- the foot: the plus, the row he types on, the send square ------------ */
+  /* ---- the foot: the plus, the typing row, the send square ------------ */
   .bottombar{
     display:flex; align-items:flex-end; gap:var(--sp-s); flex:none;
     margin:0 calc(var(--pad-x)*2/3); border-top:1px solid var(--line); background:var(--card);
@@ -753,9 +753,9 @@
 
   /* ---- the startup curtain ------------------------------------------------ */
   /* What an installed open shows over its own first frames. The picture, the
-     lengths, the 620ms arrival, the 5200ms turn and the 260ms fade are the
-     pastureland phone app's loading page, copied from its pwa/index.html; the
-     coastline in the body below is that file's shape, unchanged.
+     lengths, the 620ms arrival, the 5200ms turn and the 260ms fade are
+     taken from an earlier phone app's loading page; the
+     coastline in the body below keeps that shape, unchanged.
 
      It lives in this document rather than being built by the script, for the
      reason that file gives: markup in the page is on screen from the page's
@@ -846,8 +846,8 @@
      child of the body rather than of the page: the page is scaled while a menu
      is out, and a fixed layer inside a scaled element is measured against that
      element instead of against the screen. nothing in here is a picture, text or
-     a request. the coastline below is the pastureland phone app's own shape,
-     copied unchanged from its pwa/index.html, written once and used twice
+     a request. the coastline below keeps an earlier phone app's shape,
+     copied unchanged, written once and used twice
      because a second copy of it would cost another 19,457 bytes to place the
      same picture beside itself and referring to the first costs 67 -->
 <div id="loading" aria-hidden="true">
@@ -960,7 +960,7 @@ let activeOwner = localStorage.getItem("activeproj") || "facilitator";
 let validOwners = new Set();
 // the drawer's tab (doing, deferred, done) is one choice per project and lives
 // in card-logic.js; curView() answers with the open project's own
-const lastSel = {};             // owner -> the card he was on when he left that tab
+const lastSel = {};             // owner -> the card that was open when that tab was left
 let pendingFocus = null;        // a card just made: name it as soon as it is drawn
 let wantBox = new URLSearchParams(location.search).get("box");   // a notification opened the page on this card
 
@@ -997,13 +997,13 @@ function watchBand(el){
   // sibling cannot be read. the answer inherits them and every rule that read
   // --boxband reads the number it always read.
   //
-  // --boxband  what the sent box and the row he types on cover at the foot of
+  // --boxband  what the sent box and the typing row cover at the foot of
   //            the answer.
   // --cardroom the room the card's body actually holds, which is what the two
   //            boxes and the answer are shared out of. measured rather than
   //            written as a percentage, so it is right while the keyboard has
   //            the card at half the height it has at rest.
-  // --footband what stands UNDER the sent box: the row he types on, the step
+  // --footband what stands UNDER the sent box: the typing row, the step
   //            over it and the answer's clear air. the band less the sent box
   //            itself, so it does not move when that box folds, which is what
   //            lets that box's own share be worked out from it without the two
@@ -1127,7 +1127,7 @@ function makeBox(b){
   bottombar.append(clipfile, clip, compose);
   pendwrap.append(meta, bottombar);
   // the column: the scroller holding the answered box over the answer, and laid
-  // over the answer at the card's floor the sent box and the row he types on
+  // over the answer at the card's floor the sent box and the typing row
   replyview.append(answwrap, reply);
   body.append(replyview, pendwrap);
   box.appendChild(body);
@@ -1220,7 +1220,7 @@ function makeBox(b){
                 // answ is null until the card shows a reply the board recorded a
                 // batch for, and null again the moment it shows one it did not.
                 // answId is the name of the reply the box is drawn for, which is
-                // what a poll compares against and what a fold he chooses is
+                // what a poll compares against and what a chosen fold is
                 // written down under
                 answwrap, answ: null, answId: null, answKey: "answ:" + b.id };
   // the two fades: the band the box and the bar stand in, and the band the
@@ -1232,7 +1232,7 @@ function makeBox(b){
 
 // ---- the sent box --------------------------------------------------------------
 // arrive is what tells a send from a poll, exactly as it does on the desktop: a
-// send is an arrival he is watching, so the box rises into the room the answer
+// send is an arrival being watched, so the box rises into the room the answer
 // gives up and then fades in where it stands. a poll bringing messages that were
 // already sent, on a first load or from another window, has no arrival to show
 // and mounts the box plainly
@@ -1254,7 +1254,7 @@ function growPend(el, arrive){
 // that has stood empty in the card's column since the card was made, and folded
 // the way this page folds its own sent box: a tap on the strip, and the card's
 // one run under it, the box and the words it holds moving together.
-// arrive tells a reply that has just landed on the card he is looking at from a
+// arrive tells a reply that has just landed on the card in view from a
 // card being drawn or a page being stepped back to
 function growAnswered(el, arrive){
   const pend = answeredStrip();
@@ -1269,21 +1269,21 @@ function growAnswered(el, arrive){
   if (arrive) risePend(el, pend);
   return pend;
 }
-// manual is the tap of his own hand as against the minute's own clock: only his
+// manual is the tap of a hand as against the minute's own clock: only the
 // hand is written down, and what is written down outlasts the clock, the poll,
 // the card being left and the page being loaded again
 function foldAnswered(el, open, manual){
   if (!el || !el.answ) return;
   if (manual) answeredChose(el, open);
   holdAnswerScroll(el);   // the box rides in the scroller: hold the visible line while it folds
-  // the batch's beginning, or where he left it, on the card's one fold run
+  // the batch's beginning, or where it was left, on the card's one fold run
   foldStrip(el, el.answ, "answFoldRun", open, answeredPlace);
 }
 // the arrival's two beats (risePend), the rows, the delivery words, the run
 // stamp and the poll's own pass over the box (syncPend) are shared with the
 // desktop: card-logic.js. so is everything the box above the answer knows about
 // which reply it belongs to, what that reply was given, the minute it stays
-// shut for and his own word about it
+// shut for and the reader's own word about it
 
 // ---- sending, closing, parking, naming ------------------------------------------
 // what the cross on the card does, and what the key that stands for it does: the
@@ -1364,7 +1364,7 @@ function askPhoneEnterAdvance(id){
 // confirmed it, and sent again under the same id until it has. the board keeps
 // the result beside the effect, so a retry after a lost reply is answered from
 // the receipt and the message never lands twice. one card's sends go one at a
-// time, in the order he typed them; a card being made is one card however many
+// time, in the order they were typed; a card being made is one card however many
 // times the plus is pressed while it is on its way. the rows below are drawn
 // from this store, so a card shows its unsent messages whether or not it is
 // the one on screen, and a reload draws them again and sends them on.
@@ -1372,7 +1372,7 @@ const OPS_KEY = "pendops";
 // operations kept at once, pending, unsure and not-sent together. past this
 // the phone refuses to mint another rather than forget one, since every kept
 // operation is words the board has not confirmed; the words of a refused send
-// stay in the row he types on and the card says why
+// stay in the typing row and the card says why
 const OPS_MAX = 50;
 const OP_TRY_MS = 10000;                     // one try's deadline
 // how long a send is resent on its own. well under the two days the board
@@ -1674,7 +1674,7 @@ function landCreate(op, result){
   if (lastState && lastState.boxes.some(b => b.id === result.id)) apply(lastState);
 }
 // the words of a message the board refused, or could not be reached for, go
-// back in the row he types on; after what is already there, never over it
+// back in the typing row; after what is already there, never over it
 function takeBack(op){
   ops = ops.filter(o => o !== op);
   saveOps();
@@ -1709,7 +1709,7 @@ function drawLocalRows(el, local){
     if (!row || row.parentNode !== holder){
       row = pendRow(op.text);
       row.dataset.op = op.id;
-      // a not-sent row gives the words back on a tap. an unsure row is his to
+      // a not-sent row gives the words back on a tap. an unsure row is the reader's to
       // decide: the first tap arms it and says the message may already have
       // gone, and only a second tap within a few seconds takes the words back;
       // nothing is ever resent for it on its own
@@ -1760,7 +1760,7 @@ function drawerNote(text){
 // its way, and the operation loop behind it sees it home. the desktop waits
 // for the server before it draws the line because the server is on the same
 // machine and answers in a millisecond; here that wait is a second of nothing
-// happening under his finger
+// happening under a finger
 function doSend(id, opts){
   opts = opts || {};
   const trace = tracePhone("begin", "send", { box: id });
@@ -1886,20 +1886,20 @@ function setTab(owner){
 // the bar the board draws, in the board's order and without the tabs the board
 // has closed. this page is a bridge, so it shows exactly those tabs; a board
 // that has closed every lane leaves the bar whole rather than empty. the keys
-// that jump to a tab count along this same list, so a number is the tab he can
-// see in that place
+// that jump to a tab count along this same list, so a number is the tab that can be
+// seen in that place
 function barOwners(st){
   const all = allRowsOf(st);
   const open = all.filter(ow => !tabShut(st, ow));
   return open.length ? open : all;
 }
-// the bar is scrolled by hand and must stay where his finger left it. two
+// the bar is scrolled by hand and must stay where a finger left it. two
 // things used to take it back to the start. the first is the rebuild below,
 // which empties the row and puts a fresh set of tabs in it: a scroller with no
 // content is a scroller at nothing, so the place is read before and written
 // back after. the second is the line at the foot: it brought the tab in view on
 // every pass, and a poll comes round every 1.2 seconds, so a bar scrolled off
-// the tab he is on was yanked back to it a moment later, which is what was seen.
+// the current tab was yanked back to it a moment later, which is what was seen.
 // it runs on a change of tab now and never on a redraw
 let tabShown = null;
 function renderTabs(st){
@@ -1907,7 +1907,7 @@ function renderTabs(st){
   const lane = bar.parentNode;   // the bar is the row; its parent is the scroller
   if (tabTouch && tabTouch.rects) return;   // a tab being carried owns the bar
   const owners = barOwners(st);
-  // the tab under him closed on the other device: step to the first one left,
+  // the current tab closed on the other device: step to the first one left,
   // the way the board does. setTab repaints, and the paint below is the same
   // paint either way, so this falls through rather than returning
   if (owners.length && !owners.includes(activeOwner)) setTab(owners[0]);
@@ -2240,15 +2240,15 @@ scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu
 // phone's OWN launch image, which iOS shows the instant the app is tapped and
 // holds until it hands the web view this page; the second is the curtain in
 // this document, which stands over the app's first frames from this page's
-// first paint until the board is really on screen. Both are the pastureland
-// phone app's, copied from its pwa/src/splash.ts and pwa/index.html: the same
+// first paint until the board is really on screen. Both are taken from
+// an earlier phone app: the same
 // white, the same handle in the same grey, the same globe, the same 1000ms
 // minimum hold and the same 260ms fade. Two things are this board's own.
 //
 // The logo in the middle is the facilitator squid.
 //
-// And the globe is the connection step rather than a stopwatch. The app it was
-// taken from lifts its page after two seconds however the boot went, because it
+// And the globe is the connection step rather than a stopwatch. The earlier app
+// lifts its page after two seconds however the boot went, because it
 // has a copy of the conversation to fall back on. This board has no such copy
 // and would be lifting onto an empty frame, so there is no cap here at all:
 //
@@ -2640,7 +2640,7 @@ function apply(state){
     // the line a send has just drawn is not the poll's to take away. a state
     // fetched before the server had that message knows nothing about it, and the
     // pass over the box would read the shorter list as the run being claimed and
-    // clear the box he is looking at. el.sendGuard is the moment the send landed,
+    // clear the box in view. el.sendGuard is the moment the send landed,
     // and stands at the end of time while one is still in flight
     const stale = (state.fetchedAt || 0) < (el.sendGuard || 0);
     if (!stale) syncPendPhone(el, b, pt);
@@ -2649,7 +2649,7 @@ function apply(state){
     // on show the stepper owns that box, so the poll leaves it alone and
     // histExit is what hands it back to the live reply. the pass compares the
     // reply's own name, so a poll carrying the same reply again touches no dom
-    // at all and nothing near the row he types on moves
+    // at all and nothing near the typing row moves
     if (!(hist && hist.id === b.id))
       syncAnswered(el, liveAnswered(b), { arrive: drewBoard && b.id === selectedId });
     const cs = cardState(b);
@@ -2909,7 +2909,7 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("pageshow", resume);
 window.addEventListener("online", resume);
 
-// ---- the row he types on -----------------------------------------------------------
+// ---- the typing row -----------------------------------------------------------
 // the row is measured on its twin, never by collapsing the row itself: a row
 // collapsed to be measured hands its scroll to the engine's clamp for the length
 // of one layout, and the engine's own reveal of the caret, made at the
@@ -2966,7 +2966,7 @@ function caretLine(ta, twin, m){
 // is brought inside the box: the last line brings the row's foot with it, so
 // nothing is left below to scroll, and the first brings the row's head. after
 // every keystroke, since a height write throws the engine's own reveal off, on
-// focus, so the line he tapped is the line in view once the keyboard is up,
+// focus, so the tapped line is the line in view once the keyboard is up,
 // at the keyboard's edge, where the cap shrinks the box, and when it lands.
 // the box is read as a rectangle rather than as clientHeight, which the engine
 // rounds while the cap is a fraction, and the end of the text is asked for as
@@ -3222,7 +3222,7 @@ reconcile();
 // the board's own keys, for the keyboard a phone can be paired with. they are
 // read the way the desktop reads them, off e.key and the modifier flags, and a
 // key is only taken from the browser where it is answered here; a plain arrow
-// while he is typing is never touched, since that one belongs to the caret.
+// while typing is never touched, since that one belongs to the caret.
 // this page is also run as a standalone app off the home screen, where the
 // system answers some command combinations itself before the page is shown
 // them. which ones cannot be learned from a browser driven headless, so both of
@@ -3390,7 +3390,7 @@ addEventListener("keydown", e => {
   dispatchCardShortcut(e, phoneShortcutActions);
 });
 
-// ---- installing, and being told when a card turns to his turn -------------------------
+// ---- installing, and being told when a card turns to the reader's turn -------------------------
 let swReg = null;
 if ("serviceWorker" in navigator){
   navigator.serviceWorker.register("/m-sw.js", { scope: "/m" })

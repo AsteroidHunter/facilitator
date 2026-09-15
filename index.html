@@ -813,7 +813,7 @@
   }
   /* ---- the sent-and-waiting box ------------------------------------------- */
   /* the card starts with no box at all. the board only carries a sent strip
-     while a send of his is unanswered, so the first send builds one and the
+     while a send is unanswered, so the first send builds one and the
      reply landing takes it away again.
      the box is the answer's twin in width: it starts where the answer's first
      letter starts and ends where the answer's own right margin used to end, and
@@ -837,7 +837,7 @@
     /* what stands under the box: the bar's own hairline, the typing row at
        rest, and the step between the two. the row is counted at rest on
        purpose, since a composer grown to several lines pushes the pair past
-       the middle line, which is right: what he is in the middle of typing is
+       the middle line, which is right: what is being typed is
        the one thing on the card allowed to */
     --under-bar:calc(1px + var(--row-min) + var(--sp-s));
     /* the arrow trade, and its wait, so it ends on the frame the run stamp
@@ -1024,7 +1024,7 @@
        both pinned to that right edge, which has not moved */
     max-width:80%; margin-left:auto;
     /* a web address is one word with nothing in it a line may break at, so it
-       ran straight past the cap and the lane cut it off, and he could not read
+       ran straight past the cap and the lane cut it off, and the reader could not read
        the end of it. this lets a word that cannot fit break where it has to.
        it only ever fires on a word too long for the line, so nothing that
        already wrapped between words moves. the break lands on the cap's own
@@ -1330,7 +1330,7 @@
      squeezed to a sliver is a control that cannot be seen or hit. it holds on
      the shortest phone and the shortest card, with the box below open or shut.
      and it never takes more than the answer can spare, which is everything
-     standing over the sent box and the row he types in, less the answer's own
+     standing over the sent box and the row the reader types in, less the answer's own
      two lines. --boxband is what the sent box and that row take, measured by
      the script at the foot of this file and written on the card so that this
      rule and the answer's own can both read it; until it lands the fallback is
@@ -1352,7 +1352,7 @@
      rest of the card needs, or the box above it would be shrunk under its own
      floor and the answer would lose its lines to a strip nobody can read.
      so on those cards it may have everything except three things it may not
-     touch: the row he types on with its step and the answer's clear air
+     touch: the row the reader types on with its step and the answer's clear air
      (--footband, measured, so a composer grown to several lines is in it), the
      answer's own reserved lines, and the box above at its own floor -- the shut
      bar when that box is folded, its open floor when it is not.
@@ -1464,7 +1464,7 @@
   body.focus .box.sel .pendwrap:has(.pendlist) .bottombar{
     box-shadow:0 calc(var(--sp-s) * -1) 0 var(--card);
   }
-  /* the row he types on: the bare field under a hairline, and nothing else. the
+  /* the row the reader types on: the bare field under a hairline, and nothing else. the
      line is not on the row, the bar above carries it, so the row gives up its
      own top border or the two would stand a pixel apart and read as a mistake.
      the row takes what is left of the bar and no more: the button and the step
@@ -1501,7 +1501,7 @@
     max-height:calc(var(--ch)*0.28); min-height:var(--row-min);
   }
   /* the typing row's own head, and the card's fourth fade. the fade
-     lives on the top side of the line above this row only, and a long thing he
+     lives on the top side of the line above this row only, and a long thing the reader
      is typing is cut square by that line on the way past it. so the same ramp
      goes on the underside of it, a horizontal mirror image of the one above.
      the row grows a line at a time until it reaches its cap and then scrolls
@@ -1539,7 +1539,7 @@
      the same ramp turned over, so the two are one number and one shape, and
      a change to either carries to both. --upband is written on this field by the
      script off this field's own scroll, so it hides itself here exactly as it
-     does up there: at the top of what he has typed it is nothing, the stops
+     does up there: at the top of what has been typed it is nothing, the stops
      collapse onto the edge and the first line is at full ink, and no band shows
      on a row that has not scrolled at all, which is most rows.
      the block caret keeps its full ink in the band, and nothing here was bent to
@@ -1897,7 +1897,7 @@
   @keyframes c3blink{0%,80%,100%{opacity:.3} 40%{opacity:1}}
   /* the line under the newest sent bubble. the reference app writes Delivered
      or Read there in this grey; here it also says Queued, the board's own word
-     for a message no agent has taken yet, so nothing he types can read as sent
+     for a message no agent has taken yet, so nothing typed can read as sent
      while it is only waiting on a lane nobody is listening to */
   #magic3 .c3rcpt{align-self:flex-end; padding:1px 4px 0; font-size:11px;
     font-weight:600; color:var(--c3-muted)}
@@ -2195,7 +2195,7 @@
   :is(#magic3, #magic4) .cm-content{padding:var(--sp-s) 9px; caret-color:transparent}
   /* the line's own left padding, restated here so the hanging indents further
      down can be built on a number this file owns. 16px is exactly what the
-     vendored theme already set and what he has already looked at, so nothing
+     vendored theme already set and what has already been looked at, so nothing
      moves; it is written out so a rebuild of the bundle cannot move it, and so
      an indented line and a plain one can be guaranteed to start on one column */
   :is(#magic3, #magic4).mdpanel{--md-lpad:16px}
@@ -2383,7 +2383,7 @@
   :is(#magic3, #magic4) .md-fm-top{border-radius:5px 5px 0 0}
   :is(#magic3, #magic4) .md-fm-bot{border-radius:0 0 5px 5px}
   /* the cursor inside the block: the fences come back as themselves, so what
-     he edits is the file and not a picture of it */
+     is edited is the file and not a picture of it */
   :is(#magic3, #magic4) .md-fm-raw{height:auto; font-size:11.5px; line-height:1.8}
   /* a box taken off this tab: gone, and gone in edit mode too, with no ghost of
      it left behind. its resize squares and its cross go with it */
@@ -2413,8 +2413,8 @@
      but as a light wash over the glass instead of a deep block, because the
      board is a light surface */
   #magic1.filled{display:flex; padding:0; overflow:hidden; border:none;
-    /* the corner, restored 20260822: the reference's 18px was tried and
-       not kept. only the glass itself was ever the ask */
+    /* the corner, restored 20260822: the reference's 18px was tried and not
+       kept. only the glass itself was ever the ask */
     border-radius:9px; position:relative;
     /* the stub rule centres its contents; the player needs its column to be the
        full height of the panel, or the buttons drift as the text grows */
@@ -2774,7 +2774,7 @@
   /* the small card's column, shared out. .mpend above is flex:none and grows to
      whatever it holds, which is right while it is the only box on the card and
      wrong the moment a second one stands over the reply: the two together would
-     push the reply and the row he types on out through the foot of the card.
+     push the reply and the row the reader types on out through the foot of the card.
      so on a card that carries both, each box gives way above its own bar, the
      reply keeps a whole first line, and what a box cannot show it scrolls. a
      card with no box over its reply is not touched by any of this and keeps
@@ -3200,7 +3200,7 @@
     background:radial-gradient(circle 8px at 100% 0,
       transparent 0 7px, var(--line) 7px 8px, var(--seat) 8px);
   }
-  /* a lane still holding a reply he has not opened says so with weight alone,
+  /* a lane still holding a reply the reader has not opened says so with weight alone,
      the way a mail client does: no dot, no count, no colour. selection is a
      seated tab shape (paper fill, border, ink text) and never uses weight, so
      the two can sit on one tab and still read apart. 600 is the board's own
@@ -3366,7 +3366,7 @@
   #nprows{display:flex; flex-direction:column; gap:2px; padding:0 0 4px;
     max-height:56vh; overflow-y:auto}
   /* rows are plain information, never controls, with one exception: the row
-     of a project whose tab he closed is the way back to it, so that row and
+     of a project whose tab was closed is the way back to it, so that row and
      only that row takes clicks and says so with the pointer and a soft fill */
   .nprow{display:flex; flex-direction:column; gap:1px; width:100%;
     padding:9px 12px; text-align:left}
@@ -3748,7 +3748,7 @@ for (const type of ["click", "pointerdown", "keydown", "submit"]){
 // ---- the lane's worktrees -------------------------------------------------
 // the card's top bar names a worktree, and the names come from git by way of
 // /worktrees rather than from anything typed here. one entry per lane, held for
-// the life of the page: the answer changes only when he adds or removes a
+// the life of the page: the answer changes only when the reader adds or removes a
 // worktree, and the bar redraws on every poll, so a fetch per redraw would put
 // a git process on the server several times a second. the cached map is read
 // synchronously by the redraw and filled by the promise behind it, so a lane
@@ -3838,9 +3838,9 @@ function deselect(){
 
 let tabDrag = null;   // one grip, two gestures: sideways reorders the bar, a downward tug tears the tab out
 let tabGlide = null;  // the settle timer after a drop; the bar may not repaint under it
-// the tabs he has closed: his view of the bar, never anything about the lanes
+// the tabs the reader has closed: the reader's view of the bar, never anything about the lanes
 // themselves. it rides in the board's own tab record beside the order, so the
-// bar he closed a tab in is the bar the phone draws too, and a closed tab is
+// bar a tab was closed in is the bar the phone draws too, and a closed tab is
 // as cheap to undo as it ever was. TABHIDE is the key the closed set used to
 // live under, read once by the carry-over below and written nowhere
 const TABHIDE = "tabhide.";
@@ -3850,7 +3850,7 @@ function tabClosed(ow, st){
 // ---- the one-time carry-over out of this browser's own storage ---------------
 // the bar's arrangement and the read marks used to live in localStorage, one
 // browser at a time; they live on the board now. the first load after the move
-// hands this browser's arrangement and read marks over, once, so nothing he
+// hands this browser's arrangement and read marks over, once, so nothing the reader
 // had set up is lost. after that the old keys are never read again
 function seedTabsOnce(st){
   if (!st || tabRecord(st).order.length) return;   // the board already holds an arrangement
@@ -3884,7 +3884,7 @@ function seedSeenOnce(st){
 function renderTabs(st){
   if (!FOCUS || !st) return;
   if (tabDrag?.mode === "reorder" || tabGlide) return;   // a live drag owns the bar; the repaint lands after the drop
-  // a tab closed while he was on it, or closed in another window: the board
+  // a tab closed while the reader was on it, or closed in another window: the board
   // steps to the first tab still in the bar. it may never sit on a lane the bar
   // is not showing. setTab repaints on its own, and the paint below is the same
   // paint either way, so this falls through rather than returning
@@ -3923,7 +3923,7 @@ function renderTabs(st){
       if (!LOCKED){
         t.appendChild(tabKillMark(ow));
         // the dwell is counted on the tab itself, so it runs wherever on the
-        // tab he happens to be resting, the cross's own band included. crossing
+        // tab the pointer happens to be resting, the cross's own band included. crossing
         // into a child of the tab is not leaving the tab, so the band opening
         // under the pointer cannot cancel the rest that opened it
         t.addEventListener("mouseenter", () => tabDwell(t));
@@ -3964,10 +3964,10 @@ function renderTabs(st){
       kill.classList.toggle("off", alone);
       kill.title = alone ? "the last project tab stays open" : "close project";
     }
-    // the tab he is sitting on is bolded on the same terms as the rest: being
+    // the tab the reader is sitting on is bolded on the same terms as the rest: being
     // parked on a lane is not the same as having opened its cards
     t.classList.toggle("unread", laneUnread(st, t.dataset.owner));
-    // a closed lane holding a reply he has not opened stays closed: the bold is
+    // a closed lane holding a reply the reader has not opened stays closed: the bold is
     // still marked on the tab, and the tab is still out of the bar. nothing
     // here can put a tab back; only the plus button's folder flow does that
     t.classList.toggle("closed", tabClosed(t.dataset.owner, st));
@@ -4026,7 +4026,7 @@ function closeTab(ow){
   const rec = tabRecord(lastState);
   writeTabs({ order: rec.order.length ? rec.order : allRowsOf(lastState),
               closed: [...rec.closed, ow] });
-  // he closed the tab he was on: the board takes the neighbour to its right,
+  // the active tab was closed: the board takes the neighbour to its right,
   // or the one to its left at the end of the bar
   if (activeOwner === ow){
     const i = open.indexOf(ow);
@@ -4035,8 +4035,8 @@ function closeTab(ow){
   }
   renderTabs(lastState);
 }
-// the one way back, and the way he already knows: the plus button's folder flow
-// lands here holding the lane whose folder he chose. the key is dropped, the tab
+// the one way back, and the way the reader already knows: the plus button's folder flow
+// lands here holding the lane whose folder was chosen. the key is dropped, the tab
 // is in the bar in its own place again, and the board steps onto it
 function reopenTab(ow){
   if (lastState){
@@ -4044,7 +4044,7 @@ function reopenTab(ow){
     writeTabs({ order: rec.order.length ? rec.order : allRowsOf(lastState),
                 closed: rec.closed.filter(x => x !== ow) });
   }
-  setTab(ow);   // this ends the choosing tab and lands on the card he left here
+  setTab(ow);   // this ends the choosing tab and lands on the card left here
   if (lastState) renderTabs(lastState);
 }
 // the first clear direction locks the gesture for the whole drag: mostly
@@ -4241,9 +4241,9 @@ document.getElementById("npstart").addEventListener("click", async () => {
     const path = r.path.replace(/\/+$/, "") || r.path;
     const name = path.split("/").filter(Boolean).pop() || "project";
     // a folder already behind a tab: name that tab instead of refusing. a
-    // folder whose tab he closed is the reopening itself, not a refusal: the
-    // lane is still the server's, and picking its folder here is him saying
-    // which one he wants back
+    // folder whose tab was closed is the reopening itself, not a refusal: the
+    // lane is still the server's, and picking its folder here says
+    // which one is wanted back
     const open = lastState && allRowsOf(lastState)
       .find(ow => (lastState.pwds || {})[ow] === path);
     if (open){
@@ -4807,7 +4807,7 @@ function statusOf(b){
 
 // ---- the sent-and-waiting box ---------------------------------------------
 // the card carries no box at rest. the first send grows one, every send after
-// it drops a line into the box that already stands, folded or open as he last
+// it drops a line into the box that already stands, folded or open as the reader last
 // left it, and the reply landing takes the box away with the pending list it
 // was drawn from. that is the board's own rule for the strip, unchanged.
 //
@@ -4842,7 +4842,7 @@ function historyChevronSVG(){
 // not on the bar, so it rides the top of the box's own content column on every
 // frame of an opening exactly as the run stamp does, and the two stay tangent
 // all the way up rather than only at the end.
-// arrive is what tells a send from a poll. a send is an arrival he is watching,
+// arrive is what tells a send from a poll. a send is an arrival the reader is watching,
 // so the box rises into the room the answer gives up; a poll bringing messages
 // that were already sent, on this page's first load or from another window, has
 // no arrival to show and mounts the box plainly
@@ -4852,7 +4852,7 @@ function growPend(el, arrive){
     '<div class="pendbody">' + chevSVG("chevtop") +
     '<div class="pendstamp"></div>' +
     '<div class="pendscroll"><div class="pendslide"></div></div></div>';
-  // always mounted directly over the bar he types on, which stands on the card
+  // always mounted directly over the bar the reader types on, which stands on the card
   // itself, so the box lands on the card under the answer
   el.pendwrap.insertBefore(pend, el.bottombar);
   el.pend = pend;
@@ -4871,7 +4871,7 @@ function growPend(el, arrive){
 // growPend for the box below. the strip is mounted into a wrapper that has
 // stood empty in the card's column since the card was made, so nothing is
 // inserted between the title and the answer on the frame it arrives.
-// arrive tells a reply that has just landed on the card he is looking at from a
+// arrive tells a reply that has just landed on the card the reader is looking at from a
 // card being drawn or a page being stepped back to: the first rises into the
 // room the answer gives up, the rest are simply standing there
 function growAnswered(el, arrive){
@@ -4886,7 +4886,7 @@ function growAnswered(el, arrive){
   // the same gesture the box below carries, and the same code carrying it: a
   // pull to the left brings up each line's own time, and a press that did not
   // move folds the box. the fold it is handed is this box's own, which writes
-  // down that the choice was his
+  // down that the choice was the reader's
   wirePend(el, pend, open => foldAnswered(el, open, true));
   if (arrive) risePend(el, pend); else snapCard();
   return pend;
@@ -4909,7 +4909,7 @@ answeredRoomChanged = snapCard;
 // the times it reveals, the three pixels that make a press a drag and the
 // verdict that ends it are one piece of code on both. what they do not share is
 // which fold a press runs, so the caller hands that in: the box below folds
-// itself, the box above folds itself and writes down that the choice was his
+// itself, the box above folds itself and writes down that the choice was the reader's
 function wirePend(el, strip, fold){
   fold = fold || (open => foldPend(el, open));
   const area = strip.querySelector(".pendbody");
@@ -4974,8 +4974,8 @@ function foldPend(el, open){ foldBox(el, el.pend, "foldRun", open); }
 // above rather than a box below is one property in the sheet, the distance its
 // content column travels, handed over with its sign flipped; not a second run
 // written here to be kept in step with this one.
-// manual is the press of his own hand as against the minute's own clock: only
-// his hand is written down, and what is written down outlasts the clock, the
+// manual is the press of a hand as against the minute's own clock: only
+// the hand is written down, and what is written down outlasts the clock, the
 // poll, the card being put away and the page being loaded again.
 // and the room: the box below is laid over the answer and takes none, so a fold
 // of it re-snaps nothing; this one stands in the column, so the answer's lines
@@ -4989,7 +4989,7 @@ function foldAnswered(el, open, manual){
 function foldBox(el, pend, runKey, open, landed){
   if (!pend) return;
   const mine = ++el[runKey];
-  // the box below opens on its newest line; the box above opens where he left
+  // the box below opens on its newest line; the box above opens where the reader left
   // this batch, or at its beginning the first time
   const place = pend === el.answ ? answeredPlace : pendBottom;
   const from = pend.getBoundingClientRect().height;
@@ -5109,7 +5109,7 @@ function watchBand(el){
   // a sibling cannot be read. the answer inherits them and every rule that read
   // --boxband reads the number it always read.
   //
-  // --boxband  what the sent box and the row he types on cover at the foot of
+  // --boxband  what the sent box and the row the reader types on cover at the foot of
   //            the answer: the depth the answer's own ramp is cut to, and what
   //            the box above has to take off the room it may have.
   // --cardroom the room the card's body actually holds, which is what the two
@@ -5117,7 +5117,7 @@ function watchBand(el){
   //            written as a percentage: a percentage says this only where the
   //            body's height is definite, and a measured number says it always,
   //            including while a keyboard has the card at half its height.
-  // --footband what stands UNDER the sent box: the row he types on, the step
+  // --footband what stands UNDER the sent box: the row the reader types on, the step
   //            over it and the answer's clear air. it is the band less the sent
   //            box itself, so a composer grown to several lines is inside it,
   //            and it does not move when that box folds -- which is what lets
@@ -5149,7 +5149,7 @@ function watchBand(el){
 
 // how much of a scroller has gone up out of sight, written back on it as
 // --upband, which is the depth the ramp at its top edge is cut to. two of them
-// wear it: the answer, which dissolves under the title, and the row he types in,
+// wear it: the answer, which dissolves under the title, and the row the reader types in,
 // which dissolves under the bar's hairline.
 // capped at the ramp's own depth, except on the typing row where the matching
 // clear strip is added to that cap. both are read off --replyfade and --replyair
@@ -5219,12 +5219,12 @@ function watchRise(node){
 // this walks the one card on screen, which is also the only one whose numbers
 // mean anything.
 // the mock has four moments to run at, because nothing else on its page can
-// change. here the answer's room also changes when he switches cards, when a new
+// change. here the answer's room also changes when the reader switches cards, when a new
 // reply lands, and when the box arrives or leaves, so those call it too.
 // a fold does NOT call it, and neither does a send once the box exists. opening
 // and folding are reversible and return the box to the same resting height, so
 // there is nothing to re-snap for; and re-snapping mid fold would slide the
-// answer's lines under him while he is watching the box move
+// answer's lines under the reader while the box moves
 function snapCard(){
   if (!FOCUS) return;
   const el = els[selectedId];
@@ -5348,7 +5348,7 @@ function snapCard(){
 // the gaps are read off the type's own boxes and not off the elements'. a Range
 // over the words hands back the line's content box, which is where the letters
 // live; the element box is not. the two ways of measuring disagree by about
-// three and a half pixels and only one of them is white he can see.
+// three and a half pixels and only one of them is white the reader can see.
 // the mock always finds a <p> under the answer. here fmt writes lists, quotes
 // and fenced blocks too, so the first line of ink is taken off whatever the
 // first laid-out child turns out to be
@@ -5616,7 +5616,7 @@ function makeBox(b, i, state){
     bottombar.append(clipfile, clip, compose);
     pendwrap.append(meta, bottombar);
     // the column: the scroller holding the answered box over the answer, and laid
-    // over the answer at the card's floor the sent box and the row he types in
+    // over the answer at the card's floor the sent box and the row the reader types in
     replyview.append(answwrap, reply);
     body.append(replyview, pendwrap);
     box.appendChild(body);
@@ -5734,7 +5734,7 @@ function makeBox(b, i, state){
                   // answ is null until the card shows a reply the board recorded
                   // a batch for, and null again the moment it shows one it did
                   // not. answId is the name of the reply the box is drawn for,
-                  // which is what a poll compares against and what a fold he
+                  // which is what a poll compares against and what a fold the reader
                   // chooses is written down under
                   answwrap, answ: null, answId: null, answKey: "answ:" + b.id,
                   answFoldRun: 0,
@@ -5743,7 +5743,7 @@ function makeBox(b, i, state){
     // or no box, so it is armed here and not when a box is built
     watchBand(els[b.id]);
     // and the ramps at the head of the two things that scroll on this card: the
-    // answer under the title, and the row he types in under the bar's hairline
+    // answer under the title, and the row the reader types in under the bar's hairline
     watchRise(replyview);
     watchRise(ta);
 
@@ -5899,7 +5899,7 @@ async function doSend(id, opts){
     }
     // the line lands in the box now and not a poll later. the first send builds
     // the box, folded, and every send after it drops a line into the box that
-    // already stands, folded or open as he last left it: a send never touches
+    // already stands, folded or open as the reader last left it: a send never touches
     // the fold. the client clock stamps it and the poll's server time takes
     // over. the raw is pre-marked as current so the redraw behind this brings
     // nothing it does not already hold
@@ -6894,7 +6894,7 @@ let c3For = null;             // the tab the chat is currently drawn for
 let c3Msgs = [];              // the thread as the server last handed it over
 let c3Sig = "";               // what is on screen, so an unmoved thread never redraws
 let c3Out = [];               // lines handed over and not yet back from /thread
-let c3Follow = true;          // stuck to the bottom, until he scrolls off it
+let c3Follow = true;          // stuck to the bottom, until the reader scrolls off it
 let c3Painted = false;        // a thread is on screen: an arrival may animate now
 let c3Files = [];             // pictures picked and not yet sent
 let c3Air = 0;                // a send is in the air until this moment
@@ -6985,7 +6985,7 @@ function chatBuild(){
   attach.addEventListener("pointerdown", keepFocus);
   // enter sends and shift enter breaks the line, the board's own two keys. the
   // reference app has no enter handler at all and sends by the button only;
-  // that is a change to how he types, and it is not one to make unasked
+  // that is a change to how the reader types, and it is not one to make unasked
   ta.addEventListener("keydown", e => {
     if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); chatSend(); }
   });
@@ -7000,7 +7000,7 @@ function chatBuild(){
     file.value = "";   // the same picture picked twice has to fire this again
   });
   msgs.addEventListener("scroll", c3Scrolled);
-  // evidence of a real hand on the thread, which is what tells his scrolling
+  // evidence of a real hand on the thread, which is what tells the reader's scrolling
   // apart from this panel's own
   for (const ev of ["wheel", "pointerdown", "touchstart"]) {
     msgs.addEventListener(ev, () => { c3Gesture = performance.now(); }, { passive: true });
@@ -7039,7 +7039,7 @@ function chatOff(host){
   // build empties the box first: putting the stub line back now would wipe it
   if (host.dataset.p3 !== "1") host.textContent = "magic box 3";
   // c3Out is left alone on purpose. a line that never reached the server is
-  // still his, and it comes back with the chat rather than dying on a tab
+  // still the reader's, and it comes back with the chat rather than dying on a tab
   // switch. the picked pictures go with the tray, which goes with the box
   for (const p of c3Picks.values()) if (!p.taken) URL.revokeObjectURL(p.url);
   c3Picks.clear(); c3Files = [];
@@ -7066,7 +7066,7 @@ function c3Blocks(text){
   return [{ shot: false, text: String(text) }];
 }
 // the thread as one ordered list of things to draw: what the server is holding,
-// then whatever is still in his hands. the key is what the render matches on,
+// then whatever is still in hand. the key is what the render matches on,
 // so a message that has not moved keeps the very elements it is already in
 function c3Events(){
   const out = [], seen = new Set();
@@ -7230,7 +7230,7 @@ function chatDraw(instant){
   c3Sig = sig;
   const list = el.msgs;
   // the list is reconciled, never rebuilt. a message already on screen keeps
-  // the element it is in, so a poll cannot lose his scroll position, cut an
+  // the element it is in, so a poll cannot lose the scroll position, cut an
   // animation short, or throw away pixels that have already arrived
   const have = new Map();
   for (const w of list.querySelectorAll(":scope > .c3evt")) have.set(w.dataset.key, w);
@@ -7244,7 +7244,7 @@ function chatDraw(instant){
     // whatever the cursor is standing on lands in the right seat either way
     if (cursor === w) cursor = cursor.nextElementSibling;
     else list.insertBefore(w, cursor);
-    // only a genuinely new bubble pops, and only one from the other side: his
+    // only a genuinely new bubble pops, and only one from the other side: the reader's
     // own arrive by flying out of the typing box, and the first paint of a
     // thread is not an arrival at all
     c3Fill(w, ev, fresh && c3Painted && ev.role === "agent");
@@ -7267,7 +7267,7 @@ function chatDraw(instant){
     seat = seat.previousElementSibling;
   }
   if (!ordered) for (const t of tail) list.appendChild(t);
-  // anything he said after the last thing the agent said is still unanswered,
+  // anything the reader said after the last thing the agent said is still unanswered,
   // which is the same set the server counts in the card's pending. a line that
   // never landed says so on its own bubble, in red, so this line stays out of it
   let unanswered = 0;
@@ -7277,14 +7277,14 @@ function chatDraw(instant){
   c3Decorate(list);
   // a live arrival glides to the bottom; the first paint and every redraw land
   // there with no motion at all. either way it happens only while the tail is
-  // being followed: something landing while he is reading further up must not
+  // being followed: something landing while the reader is reading further up must not
   // move the view by one pixel
   if (c3Follow) c3Pin(!!instant || !c3Painted || !born);
   if (list.querySelector(".c3evt")) c3Painted = true;
 }
 // the bottom. an instant pin lands in the same frame the content did; a glide
 // is what a live arrival gets, and while one is running an away reading of the
-// scroll is this panel's own doing rather than his, so it may not let go of
+// scroll is this panel's own doing rather than the reader's, so it may not let go of
 // the tail
 function c3Pin(now){
   const host = document.getElementById("magic3");
@@ -7298,7 +7298,7 @@ function c3AtBottom(list){
 }
 // the one place following flips: away from the bottom is reading back through
 // it, at the bottom is following it again. a glide this panel started fires
-// scroll events the whole way up, and none of those are him letting go of the
+// scroll events the whole way up, and none of those are the reader letting go of the
 // tail, so while one is running the flip needs a real gesture behind it
 function c3Scrolled(){
   const host = document.getElementById("magic3");
@@ -7436,7 +7436,7 @@ function c3ShiftBegin(list){
     }
   };
 }
-// his own bubble does not pop, it flies: it lays out in its final seat, is
+// the reader's own bubble does not pop, it flies: it lays out in its final seat, is
 // carried back to the box the words were typed in, and let go. the web
 // animations api rather than a transition, so the start state lives inside the
 // animation itself and the two style writes can never be folded into one
@@ -7520,7 +7520,7 @@ async function chatSend(){
   c3Files = [];
   c3Tray(); c3Refresh();
   // on screen before the request leaves, at full strength, and it stays there
-  // until the thread comes back holding it: there is no moment where his words
+  // until the thread comes back holding it: there is no moment where the reader's words
   // are nowhere
   const out = { id: c3Id(), at: Date.now(), text, failed: false, files,
                 shots: shots.map(p => ({ url: p.url, w: p.w, h: p.h, kind: p.kind, name: p.name })), urls: [] };
@@ -7528,7 +7528,7 @@ async function chatSend(){
   const shift = c3ShiftBegin(list);
   c3Out.push(out);
   c3Save(); c3Sig = "";
-  c3Follow = true;         // sending snaps him back to the tail
+  c3Follow = true;         // sending snaps the view back to the tail
   chatDraw(true);          // the instant pin lands first; the motion plays over it
   const w = list.querySelector('.c3evt[data-key="out|' + out.id + '"]');
   shift(new Set(w ? w.querySelectorAll(":scope > .c3row") : []));
@@ -7591,12 +7591,12 @@ let mdClean = "";             // the text as it stands on disk, which is what di
 let mdLoad = null;            // the bundle's load promise, so it is asked for exactly once
 let mdLeave = false;          // back pressed once on unsaved work: the second press leaves
 // the open file, held across a tab switch, under the tab it was open on. the
-// panel really is taken apart when he leaves the tab, because magic box 3 has
+// panel really is taken apart when the tab is left, because magic box 3 has
 // three tenants and only one of them may hold it at a time, so the DOM is not
 // somewhere state can live. this is: one plain object outside the DOM per tab,
 // carrying the editor's own state object whole. a codemirror state outlives its
 // view, so putting it back is one constructor call and everything comes with
-// it, his unsaved text, his cursor, his selection and his undo history alike.
+// it, the unsaved text, the cursor, the selection and the undo history alike.
 // keyed by tab because two tabs have the panel now, and neither may ever be
 // handed the other's file
 let mdKeep = {};
@@ -7739,7 +7739,7 @@ function mdOff(){
   if (host.dataset.p3 !== "1" && host.dataset.c3 !== "1") host.textContent = mount.stub;
 }
 // keep is true only where the panel is being taken down by a tab switch, and
-// false everywhere he himself closed the file: a file he pressed back on stays
+// false everywhere the reader closed the file: a file the reader pressed back on stays
 // closed, and one the board took off the screen comes back
 function mdTearDown(keep){
   // filed under the tab the panel is drawn for, and never under the tab that is
@@ -7754,9 +7754,9 @@ function mdTearDown(keep){
   document.removeEventListener("mouseup", mdMouseUp);
   mdOpen = null; mdClean = ""; mdLeave = false;
 }
-// the other half of that: the panel rebuilt on the tab he left it on, put back
+// the other half of that: the panel rebuilt on the tab it was left on, put back
 // on the file it was on. nothing is read off disk here, on purpose, because
-// what he had on screen may be ahead of what disk has and disk must not win
+// what was on screen may be ahead of what disk has and disk must not win
 function mdRestore(host){
   const k = mdKeep[activeOwner];
   if (!k || mdOpen || !window.CM6) return;
@@ -7779,7 +7779,7 @@ function mdRestore(host){
   mdDirty();
 }
 // one line at the foot of the panel. a receipt clears itself after a moment; a
-// refusal stays, because it is the only place he is told the save did not land
+// refusal stays, because it is the only place the reader is told the save did not land
 function mdNote(host, text, bad){
   if (!host || !host._md) return;
   const n = host._md.note;
@@ -7936,7 +7936,7 @@ async function mdOpenFile(root, rel){
 // the pack hides markers, draws tables, fences and images, and stops there. it
 // has nothing to say about the yaml block at the head of every one of the
 // files, about a paragraph the file hard wraps, or about how far a list's
-// second line should hang, and all three of those are things he can see. this
+// second line should hang, and all three of those are things the reader can see. this
 // is the layer that says it, written out of the six primitives the vendored
 // bundle exports for exactly this.
 const MD_MONO = 8.4;   // one character of the board's mono at the editor's 14px: 0.6em, its own advance
@@ -8176,7 +8176,7 @@ function mdLayer(){
       // so a tree that has moved is a rebuild too. scrolling is on neither
       // list, on purpose. the walk is over the whole file, so a reflowed
       // paragraph's height is known before it is ever scrolled to and the bar
-      // under his thumb does not jump as it arrives
+      // under the reader's thumb does not jump as it arrives
       if (lit === v.lit && !tr.docChanged && !tr.selection &&
           C.syntaxTree(tr.state) === C.syntaxTree(tr.startState)) return v;
       return { lit, deco: build(tr.state, lit) };
@@ -8194,7 +8194,7 @@ function mdBox(D, cls, w){
 }
 // seat is a state kept whole across a tab switch, and when there is one the
 // text and the endings are not read at all: that state already carries them,
-// along with his cursor and his undo history
+// along with the cursor and the undo history
 function mdMount(host, text, crlf, seat){
   const C = window.CM6, el = host._md;
   const state = seat || C.EditorState.create({
@@ -8202,7 +8202,7 @@ function mdMount(host, text, crlf, seat){
     extensions: [
       // a file written with windows endings keeps them. without this codemirror
       // joins every line with \n on the way back out, and the first save would
-      // quietly rewrite the whole file for no reason he asked for
+      // quietly rewrite the whole file for no reason anyone asked for
       ...(crlf ? [C.EditorState.lineSeparator.of("\r\n")] : []),
       C.markdown({ base: C.markdownLanguage }),
       C.history(),
@@ -8245,8 +8245,8 @@ function mdMount(host, text, crlf, seat){
   // no focus on open, on purpose. the raw file comes back wherever the cursor
   // is, and a fresh view's cursor is at position 0, which is the first line of
   // the yaml block: focusing here would open every file on the one view of it
-  // kept out of sight. the first click is what puts him in the file, and it
-  // lands the cursor where he clicked, which is where the markup belongs
+  // kept out of sight. the first click is what puts the reader in the file, and it
+  // lands the cursor where the reader clicked, which is where the markup belongs
 }
 function mdClose(){
   const host = mdHost();
@@ -8281,9 +8281,9 @@ async function mdSave(){
   if (!host._md || !mdOpen) return;
   const d = r ? await r.json().catch(() => null) : null;
   if (r && r.status === 409){
-    // somebody else wrote the file while it was open in here. his text stays
+    // somebody else wrote the file while it was open in here. the reader's text stays
     // exactly where it is, in the editor, and the panel says so plainly rather
-    // than writing over their work or throwing his away
+    // than writing over their work or throwing the reader's away
     mdNote(host, "changed on disk, so this was not saved", true);
     return;
   }
@@ -8317,7 +8317,7 @@ async function mdPoll(){
     mdSig = ""; mdData = null;
   }
   const lane = activeOwner;
-  mdRestore(host);   // a file open when he left this tab is open again before anything is drawn
+  mdRestore(host);   // a file open when the tab was left is open again before anything is drawn
   const r = await fetch("/mdfiles?lane=" + encodeURIComponent(lane),
                         { cache: "no-store" }).catch(() => null);
   if (!host._md || mdHost() !== host || mdFor !== lane || activeOwner !== lane) return;
@@ -8337,7 +8337,7 @@ async function mdPoll(){
   if (mdOpen){
     // the open file's stamp as the list last saw it. moved means an agent has
     // written it underneath, and saying so here is earlier and kinder than
-    // letting him type on and find out when the save is refused
+    // letting the reader type on and find out when the save is refused
     const seat = d.roots.find(x => x.root === mdOpen.root);
     const f = seat && seat.files.find(x => x.rel === mdOpen.rel);
     if (f && f.mtime !== mdOpen.mtime && !host._md.note.classList.contains("bad"))
@@ -8635,9 +8635,9 @@ addEventListener("keydown", e => {
 // cut down to what the small card is: no stepper, so the reply is always the
 // live one; no staged fold, so the class is flipped the way this card flips its
 // own sent box. what it does not cut down is the reply's own name, the minute
-// measured off that reply's own completion time, and his own word about it,
+// measured off that reply's own completion time, and the reader's own word about it,
 // since all three are facts about the reply and not about the surface drawing
-// it: a box he shuts here is shut on the large card and on the phone as well
+// it: a box the reader shuts here is shut on the large card and on the phone as well
 function syncMiniAnswered(el, b){
   const meta = liveAnswered(b);
   const batch = answeredBatch(meta);
@@ -8714,7 +8714,7 @@ function renderMiniCards(state){
         if (!mel || !mel.answId) return;
         const open = !answ.classList.contains("open");
         answ.classList.toggle("open", open);
-        // his own hand: this reply's box is his from now on, and the minute's
+        // the reader's own hand: this reply's box is the reader's from now on, and the minute's
         // clock has nothing left to say about it on any surface
         answeredChose(mel, open);
       });
@@ -8967,7 +8967,7 @@ function focusedCaretContext(){
 let queueFatCaret = () => {};
 let pollFails = 0;
 // the fetch and the render each get their own try. One try around both is
-// what told him the server was unreachable when a card had failed to draw:
+// what told the reader the server was unreachable when a card had failed to draw:
 // three throws from anywhere in the render path raised pollFails to three and
 // painted the banner over a server that was answering perfectly. The banner
 // keeps its wording and its three strikes and now means what it says; a render
