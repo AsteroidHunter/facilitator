@@ -2,6 +2,8 @@
 
 This project is released under the [Facilitator License 1.0.0](LICENSE.md). Contributions are accepted under the terms in [CONTRIBUTING.md](CONTRIBUTING.md).
 
+The bundled CodeMirror editor (`cm-markdown.js`) is included under its own MIT license; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
 ## Attachments
 
 Card and chat composers accept files from the attach button, drag and drop, or a clipboard that provides files. The document page's existing drop path accepts the same types. Each file can be at most 100 MiB. Unsupported, empty and oversized files show a message. Uploads keep their original bytes and add a local `/uploads/...` address to the message.
