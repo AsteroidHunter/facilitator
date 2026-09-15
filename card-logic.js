@@ -1553,7 +1553,7 @@ function histExit(id){
   el.histDown.disabled = true;
   if (was){
     el.reply.innerHTML = fmt(el.reply.dataset.raw);
-    el.reply.scrollTop = 0;
+    (el.replyview || el.reply).scrollTop = 0;   // the answer's own scroller back to its top
     // back on the live reply, so the box over it is the live reply's own batch
     // again. the card is read out of the state the page is holding rather than
     // remembered from the step away, so a reply that landed while an older page
@@ -1573,7 +1573,7 @@ async function histStep(id, dir){   // +1 steps older, -1 steps back toward live
   hist = { id, step };
   const el = els[id];
   el.reply.innerHTML = fmt(list[list.length - step]);
-  el.reply.scrollTop = 0;
+  (el.replyview || el.reply).scrollTop = 0;   // the answer's own scroller back to its top
   // this page's own batch and its own completion time, so an older answer is
   // read with the messages it was actually given and its own minute, and never
   // with the live card's
