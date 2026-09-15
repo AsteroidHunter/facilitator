@@ -103,6 +103,7 @@ before(async () => {
     items: [
       { id: "0", bucket: "meta", title: "Standing note for the tool lane", owner: "facilitator" },
       { id: "n1", bucket: "now", title: "Rope ladder, second rung", owner: "pastureland" },
+      { id: "q", bucket: "meta", title: "Quick chat", owner: "qchat" },
     ],
   }));
   await startServer();
