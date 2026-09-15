@@ -1140,6 +1140,7 @@ function makeBox(b){
     ? tracePhone("begin", "stage", { stage: "editor-init", box: b.id }) : null;
   const field = ComposeFormat.attach(ta, {
     newline: e => e.shiftKey || document.body.classList.contains("kb"),
+    tapTakeover: true,
   });
   if (editorTrace) endPhoneTrace(editorTrace, { stage: "editor-init", box: b.id,
     editor: true, editorReady: !field.formatted() || !!field.view, formatted: field.formatted() });

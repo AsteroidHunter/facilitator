@@ -938,6 +938,23 @@
     // inside the editor and the page is told once, whether the change came
     // from a keystroke, a paste, a command or a line inserted above
     view.contentDOM.addEventListener("input", event => event.stopPropagation());
+    // The focusing tap, taken over on the content itself when the page asks for
+    // it. The browser's own focus from a tap runs a caret reveal that scrolls
+    // the page, and the one refusal it honours is preventScroll on a focus call,
+    // which a tap cannot carry. So the tap into an unfocused editor is refused
+    // here and the focus made by hand with preventScroll, in the same gesture,
+    // with the caret placed where the finger landed and no scroll into view. A
+    // tap that already holds the caret is left to the editor. Capture, so this
+    // runs before the editor's own pointer handling.
+    if (field.tapTakeover) {
+      view.contentDOM.addEventListener("mousedown", event => {
+        if (event.button !== 0 || hasCaret(view)) return;
+        event.preventDefault();
+        view.focus();
+        const at = view.posAtCoords({ x: event.clientX, y: event.clientY }, false);
+        if (at != null) view.dispatch({ selection: { anchor: at } });
+      }, true);
+    }
     wearFace(field);
     moveListeners(field, true);
     if (hadFocus) view.focus();
@@ -1027,6 +1044,10 @@
       shellClass: opts.className || "cffield",
       // a line the page writes in keeps its words in textContent, not in value
       textValue: !!opts.textValue,
+      // the page takes the focusing tap over itself, so the browser's own caret
+      // reveal, the scroll that brings a freshly focused field into view, never
+      // runs on the content element
+      tapTakeover: !!opts.tapTakeover,
       // what an empty row shows, built fresh for each editor that asks
       placeholder: typeof opts.placeholder === "function" ? opts.placeholder : null,
       newline: typeof opts.newline === "function" ? opts.newline : event => event.shiftKey,
