@@ -607,6 +607,14 @@
       theme(C),
       ...(field.placeholder ? [C.placeholder(field.placeholder())] : []),
       C.EditorView.lineWrapping,
+      // While the page is lifting the composer for a rising keyboard, a scroll
+      // into view rides the browser's own caret reveal, so it is refused for
+      // that window and allowed again once the keyboard has settled and typing
+      // should follow the caret as usual. Only a page that takes the focusing
+      // tap over asks for this, and only where the build carries the facet.
+      ...(field.tapTakeover && C.EditorView.scrollHandler
+        ? [C.EditorView.scrollHandler.of(() => document.body.classList.contains("lifting"))]
+        : []),
       C.EditorView.updateListener.of(update => {
         if (!update.docChanged) return;
         // the page is told inside the editor's own update, so anything it does
@@ -913,7 +921,10 @@
       const restore = () => {
         if (field.view !== view || !hasCaret(view)) return;
         if (view.state.doc !== words) return;
-        if (!view.state.selection.eq(keep)) view.dispatch({ selection: keep, scrollIntoView: true });
+        // no scroll into view: this runs at the focus edge, where a scroll
+        // rides the browser's caret reveal. The page brings the caret's own
+        // line into view after focus by itself.
+        if (!view.state.selection.eq(keep)) view.dispatch({ selection: keep });
       };
       Promise.resolve().then(restore);
       setTimeout(restore, 0);
