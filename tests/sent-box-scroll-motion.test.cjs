@@ -1,8 +1,8 @@
 // A sent box that folds open or shut must never flash a scrollbar for the length
-// of the motion, and its rows must not slide sideways when one appears or leaves.
-// The lane inside the box scrolls once the box is settled; while it moves it is
-// clipped, and it reserves a stable gutter so the row column keeps one x whether
-// a bar is present or not. Every card, message and answer below is invented.
+// of the motion, and its rows must not slide sideways. The lane inside the box
+// scrolls once the box is settled; while it moves it is clipped, and it hides its
+// bar and holds no gutter, so the row column keeps one x with no bar ever drawn.
+// Every card, message and answer below is invented.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawn } = require("node:child_process");
@@ -112,7 +112,8 @@ function readLane(id, which){
     motion: pend.classList.contains("motion"),
     overflows: lane.scrollHeight > lane.clientHeight + 1,
     overflowY: cs.overflowY,
-    scrollbarGutter: cs.getPropertyValue("scrollbar-gutter").trim(),
+    scrollbarWidth: cs.scrollbarWidth,
+    gutter: lane.offsetWidth - lane.clientWidth,
     rowRight: row ? Math.round(row.getBoundingClientRect().right * 100) / 100 : null,
   };
 }
@@ -139,11 +140,13 @@ for (const kind of ["desktop", "phone"]) {
 
       await wait(700);
       const settled = await page.evaluate(readLane, cardId, which);
-      // settled and genuinely scrolling, the lane reserves a stable gutter so the
-      // rows sit at one x whether the bar is drawn or not
+      // settled and genuinely scrolling, the lane hides its bar and reserves no
+      // gutter for one, and the rows still sit at one x through the fold
       assert.ok(settled.overflows, "the box did not stay tall enough to scroll when settled");
-      assert.equal(settled.scrollbarGutter, "stable",
-        `the settled lane does not reserve the scrollbar gutter: ${settled.scrollbarGutter}`);
+      assert.equal(settled.scrollbarWidth, "none",
+        `the settled lane still shows a bar: scrollbar-width is ${settled.scrollbarWidth}`);
+      assert.equal(settled.gutter, 0,
+        `the settled lane still holds a gutter: ${settled.gutter}px`);
       assert.ok(motion.rowRight != null && settled.rowRight != null &&
         Math.abs(settled.rowRight - motion.rowRight) <= 0.5,
         `rows slid sideways: motion ${motion.rowRight} settled ${settled.rowRight}`);
