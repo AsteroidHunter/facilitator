@@ -264,13 +264,25 @@
      same floor pinned to it */
   .body{display:flex; flex-direction:column; flex:1 1 0; min-height:0;
     padding:var(--titleair) 0 0; position:relative; overflow:hidden}
-  .reply{
+  /* the answer's own scroller: it owns the scroll, the touch inertia, the gutter
+     and the clear air under it, and the answered box rides inside it above the
+     answer prose so the box leaves under the title as the reader scrolls */
+  .replyview{
+    display:flex; flex-direction:column;
     flex:1 1 auto; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
-    overscroll-behavior:contain; color:var(--ink);
-    font-size:17px; line-height:1.55;
-    padding:0 calc(var(--pad-x)*5/3 - var(--sbar)) 0 calc(var(--pad-x)*2/3);
+    overscroll-behavior:contain;
     scrollbar-gutter:stable;
     margin-bottom:var(--replyair);
+    /* the box's fold is held by hand (holdAnswerScroll); the browser's own scroll
+       anchoring is off so the two do not both give the box's travel to the scroll */
+    overflow-anchor:none;
+  }
+  /* the answer prose is a block inside the scroller now; it does not shrink so it
+     stands at its own height and lets the scroller take the overflow */
+  .reply{
+    flex:none; color:var(--ink);
+    font-size:17px; line-height:1.55;
+    padding:0 calc(var(--pad-x)*5/3 - var(--sbar)) 0 calc(var(--pad-x)*2/3);
   }
   /* the card's two fades, the desktop's rules at phone size and with the phone's
      own seat in front of them. the depths, the stops and the compositing are the
@@ -290,7 +302,7 @@
      third keeps it off the rest of the answer; the two are added and the first is
      multiplied into the pair, so above the box the answer is whole at its full
      width and below it the ramp is the only thing left */
-  .box.sel .reply, .box.cardswipe .reply{
+  .box.sel .replyview, .box.cardswipe .replyview{
     -webkit-mask-image:
       linear-gradient(to bottom,
         rgba(0,0,0,0) 0,
@@ -336,12 +348,12 @@
        scrollable height, so an answer that already fits gains no travel */
     padding-bottom:calc(var(--boxband, 0px) + var(--replyfade));
   }
-  .box.histview .reply{opacity:.8}
-  .reply::-webkit-scrollbar{width:var(--sbar)}
-  .reply::-webkit-scrollbar-track{background:transparent}
-  .reply::-webkit-scrollbar-thumb{background:transparent; border:3px solid transparent;
+  .box.histview .replyview{opacity:.8}
+  .replyview::-webkit-scrollbar{width:var(--sbar)}
+  .replyview::-webkit-scrollbar-track{background:transparent}
+  .replyview::-webkit-scrollbar-thumb{background:transparent; border:3px solid transparent;
     background-clip:padding-box; border-radius:99px}
-  .reply.scrolling::-webkit-scrollbar-thumb{background-color:var(--line-strong)}
+  .replyview.scrolling::-webkit-scrollbar-thumb{background-color:var(--line-strong)}
 
   /* ---- the sent box, folded to a bar, opened to the run ------------------- */
   .pendwrap{position:absolute; left:0; right:0; bottom:0;
@@ -460,34 +472,13 @@
      is what that box and that row take, measured by the script below and
      written on the card so this rule and the answer's own both read it.
      what the box cannot show at either end, its own lane scrolls */
+  /* the wrapper is a block in the answer's own scroller now, so it takes only the
+     height its strip holds and rides up out of view with the answer under it. it
+     does not shrink, and its strip caps itself when open */
   .pendwrap-answered{
-    display:flex; flex-direction:column;
-    /* it does not shrink, for the reason the desktop card's does not: the
-       answer beside it is basis:auto over the whole of a long text, and a flex
-       column shares its shortfall out in proportion to basis, so a shrinkable
-       wrapper is held under its own height. the cap below is what yields room
-       to the answer */
-    flex:0 0 auto;
-    min-height:calc(var(--pend-bar) + var(--sp-s));
-    max-height:calc(var(--cardroom, 100%) - var(--boxband, 0px) - var(--answ-keep));
+    display:flex; flex-direction:column; flex:none;
   }
-  /* OPEN, the floor is what an open box IS: the stamp's line with the corner
-     arrow standing on it, and one whole sent line under it, after the open
-     dress's padding and the step below the strip.
-     it is a min-height, and that is the point of it. naming the same number
-     inside a maximum does not make it a minimum: a maximum is a cap, the used
-     height still comes from the column, and the column shrinks what it is
-     allowed to shrink -- so the wrapper went on shrinking toward the shut bar's
-     floor and left an open class over a lane with nothing in it. this stops the
-     column at the number instead of merely refusing to pass it.
-     this page runs the same fold as the card page now, so the floor stands
-     aside while a run is going and takes hold again where the run lands */
-  .pendwrap-answered:has(.pendlist.open:not(.motion)){min-height:var(--answ-open)}
   .pendwrap-answered:empty{display:none}
-  /* while the box is arriving it holds no room of its own yet: the arrival is
-     the answer giving the room up and then the bar coming up in it, and a floor
-     held from the first frame would spend that first beat in one step */
-  .pendwrap-answered:has(.pendlist.rising){min-height:0}
   /* and the other half of the share-out. the sent box is laid OVER the answer
      and takes no room in the column, so nothing in the column can hold it back:
      on a card carrying both boxes it has to leave the rest of the card what the
@@ -1016,8 +1007,8 @@ function watchBand(el){
   //            lets that box's own share be worked out from it without the two
   //            chasing each other.
   const write = () => {
-    const body = el.reply.parentElement;
-    const band = boxBand(el.reply, el.pendwrap);
+    const body = el.replyview.parentElement;
+    const band = boxBand(el.replyview, el.pendwrap);
     const own = el.pend ? el.pend.getBoundingClientRect().height : 0;
     let room = 0;
     if (body){
@@ -1031,10 +1022,10 @@ function watchBand(el){
   if (window.ResizeObserver){
     const ro = new ResizeObserver(write);
     ro.observe(el.pendwrap);
-    ro.observe(el.reply);
+    ro.observe(el.replyview);
     // the card's own room changes with the keyboard and with the window, which
     // need not touch either of the two above
-    if (el.reply.parentElement) ro.observe(el.reply.parentElement);
+    if (el.replyview.parentElement) ro.observe(el.replyview.parentElement);
   }
   write();
 }
@@ -1098,10 +1089,14 @@ function makeBox(b){
   box.appendChild(head);
 
   const body = h("div", "body");
+  // the answer's own scroller: the box holding what the answer was given and the
+  // answer itself ride inside it, so the box leaves under the title as the reader
+  // scrolls down exactly as the first paragraphs do
+  const replyview = h("div", "replyview");
   const reply = h("div", "reply cardmd");
   reply.dataset.raw = replyFull(b);
   reply.innerHTML = fmt(reply.dataset.raw);
-  barFade(reply);
+  barFade(replyview);
   // the seat the box holding what this answer was given is mounted into. it is
   // built with the card and stands empty until the board has a batch to show
   // for the reply the card is showing, so the strip is never inserted between
@@ -1130,9 +1125,10 @@ function makeBox(b){
   compose.append(ta, send, twin);
   bottombar.append(clipfile, clip, compose);
   pendwrap.append(meta, bottombar);
-  // the column: what the answer was given, the answer, and laid over the answer
-  // at the card's floor the sent box and the row he types on
-  body.append(answwrap, reply, pendwrap);
+  // the column: the scroller holding the answered box over the answer, and laid
+  // over the answer at the card's floor the sent box and the row he types on
+  replyview.append(answwrap, reply);
+  body.append(replyview, pendwrap);
   box.appendChild(body);
   document.getElementById("cards").appendChild(box);
 
@@ -1216,7 +1212,7 @@ function makeBox(b){
     await attach(files, ta);
   });
 
-  els[b.id] = { box, reply, meta, ta, twin, send, tick, titleEl, arc, x, pendwrap, bottombar,
+  els[b.id] = { box, reply, replyview, meta, ta, twin, send, tick, titleEl, arc, x, pendwrap, bottombar,
                 pend: null, pendRaw: "", histUp, histDown, histPos, clip, clipfile, field,
                 foldRun: 0, answFoldRun: 0,   // one run number per box, for a second press
                 // answ is null until the card shows a reply the board recorded a
@@ -1228,7 +1224,7 @@ function makeBox(b){
   // the two fades: the band the box and the bar stand in, and the band the
   // answer has scrolled away under the title
   watchBand(els[b.id]);
-  watchRise(reply);
+  watchRise(replyview);
   return els[b.id];
 }
 
@@ -1277,6 +1273,7 @@ function growAnswered(el, arrive){
 function foldAnswered(el, open, manual){
   if (!el || !el.answ) return;
   if (manual) answeredChose(el, open);
+  holdAnswerScroll(el);   // the box rides in the scroller: hold his line while it folds
   // the batch's beginning, or where he left it, on the card's one fold run
   foldStrip(el, el.answ, "answFoldRun", open, answeredPlace);
 }
@@ -2546,7 +2543,7 @@ function startupPendingArt(){
 // is still would be the page moving again
 function startupFrame(){
   const pane = document.getElementById("pane");
-  const reply = document.querySelector("#cards .box.sel .reply");
+  const reply = document.querySelector("#cards .box.sel .replyview");
   // the typing row, read as well as the answer above it. the row can change
   // height on its own after the board is drawn, when the composer swaps its
   // plain field for the typed-formatting editor, and the answer gives up its
@@ -3152,7 +3149,7 @@ document.getElementById("page").addEventListener("transitionend", e => {
 // close motion, past the end of the range the taller box leaves, and paint a
 // white band there until the next scroll
 function snapBack(el){
-  for (const node of [el.reply, el.ta]){
+  for (const node of [el.replyview, el.ta]){
     const max = Math.max(0, node.scrollHeight - node.clientHeight);
     if (node.scrollTop > max) node.scrollTop = max;
   }

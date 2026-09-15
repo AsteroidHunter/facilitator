@@ -196,12 +196,16 @@ async function geometry(page, label){
 
 async function showFormerSpacing(page){
   await page.evaluate(id => {
-    const reply = els[id].reply;
-    const cs = getComputedStyle(reply);
-    const base = parseFloat(cs.getPropertyValue("--replyair"));
-    const correction = parseFloat(cs.marginTop) + parseFloat(cs.marginBottom) - base;
-    reply.style.marginTop = correction.toFixed(2) + "px";
-    reply.style.marginBottom = base.toFixed(2) + "px";
+    // the snap now spends its upper share on the prose block's top margin and its
+    // lower share on the scroller's own bottom margin. put the whole remainder
+    // back above the answer to recover the former, unbalanced spacing.
+    const el = els[id];
+    const view = el.replyview || el.reply;
+    const base = parseFloat(getComputedStyle(view).getPropertyValue("--replyair"));
+    const upper = parseFloat(getComputedStyle(el.reply).marginTop) || 0;
+    const lower = (parseFloat(getComputedStyle(view).marginBottom) || 0) - base;
+    el.reply.style.marginTop = (upper + Math.max(0, lower)).toFixed(2) + "px";
+    view.style.marginBottom = base.toFixed(2) + "px";
   }, cardId);
 }
 

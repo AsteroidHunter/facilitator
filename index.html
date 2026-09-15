@@ -241,7 +241,7 @@
   .meta .w::after{content:"…"; animation:ell 1.4s steps(4) infinite}
   @keyframes ell{0%{content:""} 25%{content:"."} 50%{content:".."} 75%{content:"..."}}
   /* while an older reply shows (histview) the reply text dims a little */
-  .box.histview .reply{opacity:.8}
+  .box.histview .replyview{opacity:.8}
 
   .compose{display:flex; gap:8px; margin-top:9px; align-items:flex-end}
   textarea{
@@ -378,7 +378,7 @@
   /* scrolls stop dead at the edges: no rubber band, no chained bounce, in
      the page or in any scrolling region (reply, card body, composer, list) */
   html, body{overscroll-behavior:none}
-  #tiklist, #tickets, .box .body, .box .reply, textarea{overscroll-behavior:none}
+  #tiklist, #tickets, .box .body, .box .replyview, textarea{overscroll-behavior:none}
   /* the star field fills the whole window, but its phase is locked to the
      stage: fitStage() slides the pattern's origin to wherever the centered
      stage lands, so the stars under the boxes always line up with them and
@@ -671,13 +671,27 @@
      smaller padding with no lane to fill it and its words would have stood
      --sbar further right than a long one's. stable holds the room on every
      answer, so one column serves them all */
-  body.focus .box.sel .reply{
+  /* the scroller owns the scroll, the gutter and the clear air under it; the
+     answered box and the answer prose ride inside it, so the box leaves under the
+     title as the reader scrolls exactly as the first lines do */
+  body.focus .box.sel .replyview{
+    display:flex; flex-direction:column;
     flex:1 1 auto; min-height:0; overflow-y:auto;
+    scrollbar-gutter:stable;
+    margin-bottom:var(--replyair);
+    /* the box's fold is held by hand (holdAnswerScroll), so the browser's own
+       scroll anchoring is turned off here: left on, the two both give the box's
+       travel back to the scroll and the line jumps by twice what it should */
+    overflow-anchor:none;
+  }
+  /* the answer prose keeps its own type and the column it stands in; it is a
+     block inside the scroller now, not the scroller itself, and it does not shrink
+     so it stands at its own height and lets the scroller take the overflow */
+  body.focus .box.sel .reply{
+    flex:none;
     font-size:18px; line-height:1.55;
     padding-left:calc(var(--pad-x)*2/3);
     padding-right:calc(var(--pad-x)*5/3 - var(--sbar));
-    scrollbar-gutter:stable;
-    margin-bottom:var(--replyair);
   }
   /* the answer's own edge where it meets the sent box, and one of the card's
      three fades.
@@ -734,7 +748,7 @@
      above it to dissolve, and a grey wash under the title on a card with nothing
      scrolled away is impossible by construction */
   body.focus .box.sel{--replyfade:22px; --replyair:3.5px}
-  body.focus .box.sel .reply{
+  body.focus .box.sel .replyview{
     -webkit-mask-image:
       linear-gradient(to bottom,
         rgba(0,0,0,0) 0,
@@ -804,7 +818,7 @@
      does not scroll. and while there is text left below, this padding is simply
      out of sight past the foot of the words, where the ramp goes on doing its
      old job of saying keep going */
-  body.focus .box.sel .reply{
+  body.focus .box.sel .replyview{
     padding-bottom:calc(var(--boxband, 0px) + var(--replyfade));
   }
   /* ---- the sent-and-waiting box ------------------------------------------- */
@@ -1333,44 +1347,16 @@
      rule and the answer's own can both read it; until it lands the fallback is
      nothing, which reserves the most rather than the least.
      what the box cannot show at either end, its own lane scrolls. */
+  /* the wrapper is a block in the answer's own scroller now, so it takes only the
+     height its strip holds and rides up out of view with the answer under it. it
+     does not shrink, and its strip caps itself when open, so the card's room is no
+     longer shared between this box and the answer beside it */
   body.focus .box.sel .pendwrap-answered{
-    display:flex; flex-direction:column;
-    /* it does not shrink. the answer beside it is basis:auto over the whole of
-       a long text, and a flex column shares its shortfall out in proportion to
-       basis, so a shrinkable wrapper is pulled off its own height however tall
-       its strip is -- worst while a run has the open floor suspended, where it
-       sat at the shut bar for the whole fold and jumped at the end. the cap
-       below is what yields room to the answer, and it yields exactly */
-    flex:0 0 auto;
-    min-height:calc(var(--pend-bar) + var(--sp-s));
-    max-height:calc(var(--cardroom, 100%) - var(--boxband, 0px) - var(--answ-keep));
-  }
-  /* OPEN, the floor is what an open box IS: the stamp's line with the corner
-     arrow standing on it, and one whole sent line under it, after the open
-     dress's padding and the step below the strip.
-     it is a min-height, and that is the point of it. naming the same number
-     inside a maximum does not make it a minimum: a maximum is a cap, the used
-     height still comes from the column, and the column shrinks what it is
-     allowed to shrink -- so the wrapper went on shrinking toward the shut bar's
-     floor and left an open class over a lane with nothing in it. this stops the
-     column at the number instead of merely refusing to pass it.
-     it is held off while a fold is running, so an opening or shutting box can
-     be animated between its two heights without the floor holding it open. the
-     destination of an opening run is measured with the fold's own class off and
-     the open class on, which is exactly when this rule applies, so the run
-     lands on the floor rather than jumping to it afterwards */
-  body.focus .box.sel .pendwrap-answered:has(.pendlist.open:not(.motion)){
-    min-height:var(--answ-open);
+    display:flex; flex-direction:column; flex:none;
   }
   /* a card the board has recorded nothing for carries no box at all, and the
      empty wrapper it is mounted into takes no room either */
   body.focus .box.sel .pendwrap-answered:empty{display:none}
-  /* while the box is arriving it holds no room of its own yet. the arrival is
-     two beats, the answer giving the room up and then the bar coming up in the
-     cleared room, and a floor held from the first frame would spend the first
-     beat in one step and leave the second beat rising inside room that was
-     already standing empty */
-  body.focus .box.sel .pendwrap-answered:has(.pendlist.rising){min-height:0}
   /* and the other half of the share-out. the sent box is laid OVER the answer
      and takes no room in the column, so nothing in the column can hold it back:
      on a card carrying both boxes it has to leave the rest of the card what the
@@ -1769,17 +1755,17 @@
   #tiklist::-webkit-scrollbar, #tickets::-webkit-scrollbar,
   :is(#magic3, #magic4) .mdlist::-webkit-scrollbar,
   :is(#magic3, #magic4) .cm-scroller::-webkit-scrollbar,
-  .box .reply::-webkit-scrollbar,
+  .box .replyview::-webkit-scrollbar,
   body.focus .box.sel :is(textarea, .cffield .cm-scroller)::-webkit-scrollbar{width:var(--sbar)}
   #tiklist::-webkit-scrollbar-track, #tickets::-webkit-scrollbar-track,
   :is(#magic3, #magic4) .mdlist::-webkit-scrollbar-track,
   :is(#magic3, #magic4) .cm-scroller::-webkit-scrollbar-track,
-  .box .reply::-webkit-scrollbar-track,
+  .box .replyview::-webkit-scrollbar-track,
   body.focus .box.sel :is(textarea, .cffield .cm-scroller)::-webkit-scrollbar-track{background:transparent}
   #tiklist::-webkit-scrollbar-thumb, #tickets::-webkit-scrollbar-thumb,
   :is(#magic3, #magic4) .mdlist::-webkit-scrollbar-thumb,
   :is(#magic3, #magic4) .cm-scroller::-webkit-scrollbar-thumb,
-  .box .reply::-webkit-scrollbar-thumb,
+  .box .replyview::-webkit-scrollbar-thumb,
   body.focus .box.sel :is(textarea, .cffield .cm-scroller)::-webkit-scrollbar-thumb{
     background:transparent; border:3px solid transparent;
     background-clip:padding-box; border-radius:99px}
@@ -1789,8 +1775,8 @@
   :is(#magic3, #magic4) .mdlist:hover::-webkit-scrollbar-thumb,
   :is(#magic3, #magic4) .cm-scroller.scrolling::-webkit-scrollbar-thumb,
   :is(#magic3, #magic4) .cm-scroller:hover::-webkit-scrollbar-thumb,
-  .box .reply.scrolling::-webkit-scrollbar-thumb,
-  .box .reply:hover::-webkit-scrollbar-thumb,
+  .box .replyview.scrolling::-webkit-scrollbar-thumb,
+  .box .replyview:hover::-webkit-scrollbar-thumb,
   body.focus .box.sel :is(textarea, .cffield .cm-scroller).scrolling::-webkit-scrollbar-thumb,
   body.focus .box.sel :is(textarea, .cffield .cm-scroller):hover::-webkit-scrollbar-thumb{
     background-color:var(--line-strong)}
@@ -5075,6 +5061,7 @@ function foldPend(el, open){ foldBox(el, el.pend, "foldRun", open); }
 function foldAnswered(el, open, manual){
   if (!el || !el.answ) return;
   if (manual) answeredChose(el, open);
+  holdAnswerScroll(el);   // the box rides in the scroller: hold his line while it folds
   foldBox(el, el.answ, "answFoldRun", open, snapCard);
 }
 function foldBox(el, pend, runKey, open, landed){
@@ -5215,8 +5202,8 @@ function watchBand(el){
   //            the sent box's own share be worked out from it without the two
   //            chasing each other.
   const write = () => {
-    const body = el.reply.parentElement;
-    const band = boxBand(el.reply, el.pendwrap);
+    const body = el.replyview.parentElement;
+    const band = boxBand(el.replyview, el.pendwrap);
     const own = el.pend ? el.pend.getBoundingClientRect().height : 0;
     let room = 0;
     if (body){
@@ -5230,10 +5217,10 @@ function watchBand(el){
   if (window.ResizeObserver){
     const ro = new ResizeObserver(write);
     ro.observe(el.pendwrap);
-    ro.observe(el.reply);
+    ro.observe(el.replyview);
     // the card's own room changes with the window and with the card's furniture
     // above the body, neither of which has to touch the two above
-    if (el.reply.parentElement) ro.observe(el.reply.parentElement);
+    if (el.replyview.parentElement) ro.observe(el.replyview.parentElement);
   }
   write();
 }
@@ -5332,7 +5319,14 @@ function snapCard(){
   const answ = el.answ;
   if (answ && (answ.classList.contains("open") || answ.classList.contains("motion") ||
                answ.classList.contains("rising"))) return;
-  const r = el.reply;
+  // the snap reads the answer at its own top, the state every gap is measured in.
+  // a card scrolled down is left as it stands: the line grid it was snapped to at
+  // the top rides with the scroll, and a fold while he is scrolled is held still
+  // by holdAnswerScroll, so re-snapping against the scrolled lines would only
+  // slide his line by the difference between two viewport measurements
+  if (el.replyview && el.replyview.scrollTop > 1) return;
+  const r = el.reply;            // the answer prose, a block inside the scroller
+  const view = el.replyview;     // the scroller that owns the scroll and the fades
   const head = el.box.querySelector(".head");
   // the title's slide is undone before a single measurement is taken, so every
   // run reads the sheet's own head and not the head the last run left
@@ -5340,51 +5334,43 @@ function snapCard(){
   el.titleEl.style.marginBottom = "";
   r.style.marginTop = "";
   r.style.marginBottom = "";
+  view.style.marginTop = "";
+  view.style.marginBottom = "";
   const cs = getComputedStyle(r);
+  const vcs = getComputedStyle(view);
   const line = parseFloat(cs.lineHeight);
-  const rect = r.getBoundingClientRect();
+  const rect = view.getBoundingClientRect();
   if (!line || !rect.height) return;     // a card that is not laid out yet
   // an answer with no ink has no line grid to snap to, and pushing an empty box
   // down by a fraction of a line would only move the title for nothing
   const first = [...r.children].find(n => n.getBoundingClientRect().height > 2);
   if (!first) return;
-  // the room is the answer's first line down to the cut, and the padding at the
-  // foot is no part of it. that padding is the scroll's own run-out, it stands
-  // below the last word and below the cut both, and it moves no ink at the top
-  // of the answer, which is the state this pass measures in. subtracting it
-  // would take a band the reader never sees off a count of the lines he does,
-  // and push the whole answer off the line grid by that much
-  const room = rect.height - boxBand(r, el.pendwrap) - parseFloat(cs.paddingTop || 0);
+  // the room is the answer's first line down to the cut. the box above the answer
+  // now rides inside this same scroller, so the height it holds is room the prose
+  // does not have; the run-out padding at the foot is the scroll's own and no part
+  // of it either. subtracting both leaves the whole number of lines the ramp needs
+  const answH = (answ && el.answwrap) ? el.answwrap.getBoundingClientRect().height : 0;
+  const room = rect.height - boxBand(view, el.pendwrap) - answH - parseFloat(vcs.paddingTop || 0);
   const rem = room % line;
   // the remainder is spent as air at the head of the answer, and on a card with
   // nothing standing over the answer it goes to the NEARER whole line, so the
   // air under the title is disturbed by at most half a line either way.
-  // with the answered box standing there the remainder may only be GIVEN. the
-  // nearer line is a negative margin half the time, and a negative margin here
-  // pulls the answer's first line up past the bottom edge of a box whose own
-  // room is fixed and does not move with it: the sent words and the answer
-  // would print over one another. so on those cards the air is added rather
-  // than taken, the answer always starts under the whole box, and the room is
-  // still the whole number of lines the ramp needs it to be
+  // with the answered box standing there the remainder may only be GIVEN, so the
+  // answer's first line always clears the box above it rather than pulling up
+  // under it.
   const s = (rem > line / 2 && !answ) ? rem - line : rem;
   if (Math.abs(s) > 0.5){
     if (answ){
-      // The raised sent box and the waiting box frame the answer as a pair.
-      // Keep the line-grid correction responsive to the answer's own line
-      // height, but share its spare room between those two edges instead of
-      // leaving the whole remainder under the raised box. The two margins add
-      // back to exactly s, so the answer keeps the same snapped line count;
-      // boxBand also stays fixed because the lifted bottom edge and its extra
-      // clear margin cancel in that measurement.
-      // Balance the white the eye sees, from the raised box's painted edge to
-      // the first glyph and from the last unobscured glyph to the waiting box.
-      // A Range describes the font box, not its ink, and the answered wrapper
-      // includes the responsive step under the painted box; neither abstract
-      // edge is the visible gap. Canvas supplies this face's actual ink bounds.
-      // Read the answer's laid-out text rectangles once while both correction
-      // margins are reset, then choose how much of s belongs above. Moving one
-      // pixel from the lower share to the upper moves every glyph down one, so
-      // half the measured difference is the exact balanced share.
+      // The raised box and the waiting box frame the answer as a pair. Share the
+      // spare room between those two edges: the upper share pushes the prose down
+      // off the box above (a margin on the prose block, inside the scroller), the
+      // lower share lifts the scroller's own foot off the waiting box. The two
+      // add back to exactly s, so the answer keeps its snapped line count.
+      // Balance the white the eye sees, from the raised box's painted edge to the
+      // first glyph and from the last unobscured glyph to the waiting box. A Range
+      // describes the font box, not its ink; canvas supplies this face's actual
+      // ink bounds. Moving one pixel from the lower share to the upper moves every
+      // glyph down one, so half the measured difference is the balanced share.
       const canvas = document.createElement("canvas");
       const context = canvas.getContext("2d");
       context.font = cs.font;
@@ -5408,17 +5394,16 @@ function snapCard(){
       const top0 = firstLine ? inkTop(firstLine) - el.answ.getBoundingClientRect().bottom : 0;
       const bottom0 = lastLine ? pendingTop - inkBottom(lastLine) : top0;
       // When the answer is short, the large body region below its only line is
-      // content room rather than a boundary gap; it cannot be made equal by
-      // moving the line. In that case keep the line at the smallest top gap and
-      // put the snap remainder below it. Two line heights distinguish that
-      // shape using the answer's own responsive measure.
+      // content room rather than a boundary gap; it cannot be made equal by moving
+      // the line. In that case keep the line at the smallest top gap and put the
+      // snap remainder below it.
       const balanced = bottom0 > line * 2 ? 0 : (bottom0 - top0) / 2;
       const upper = Math.max(0, Math.min(s, balanced));
       const lower = s - upper;
       r.style.marginTop = upper.toFixed(2) + "px";
-      r.style.marginBottom = (parseFloat(cs.marginBottom) + lower).toFixed(2) + "px";
+      view.style.marginBottom = (parseFloat(vcs.marginBottom) + lower).toFixed(2) + "px";
     } else {
-      r.style.marginTop = s.toFixed(2) + "px";
+      view.style.marginTop = s.toFixed(2) + "px";
     }
   }
   // the answer has moved, so the title's two gaps are no longer a pair. this
@@ -5467,16 +5452,19 @@ function tiltTitleAir(el, first){
   // back because the rect says where that line is now while what this needs is
   // where it is with the answer at its own top, which is the state every moment
   // below is read in
+  // the box and the first line both ride in the scroller now, so the scroll is
+  // added back to read where each stands with the answer at its own top, which is
+  // the state every measure here is taken in
   let under;
   if (el.answ && el.answwrap){
-    under = el.answwrap.getBoundingClientRect().top - t.bottom;
+    under = el.answwrap.getBoundingClientRect().top + el.replyview.scrollTop - t.bottom;
   } else {
     rg.selectNodeContents(first);
     const lines = rg.getClientRects();
     let a = null;
     for (let i = 0; i < lines.length && !a; i++) if (lines[i].height > 2) a = lines[i];
     if (!a) return;
-    under = a.top + reply.scrollTop - t.bottom;
+    under = a.top + el.replyview.scrollTop - t.bottom;
   }
   const tilt = (under - over) / 2;
   if (!isFinite(tilt) || Math.abs(tilt) < 0.02) return;
@@ -5659,6 +5647,12 @@ function makeBox(b, i, state){
 
 
     const body = h("div", "body");
+    // the answer's own scroller, and the two things that ride inside it: the box
+    // holding what the answer was given, and the answer itself. the box is the
+    // first line of the scroll, so it leaves under the title as the reader scrolls
+    // down exactly as the first paragraphs do, and the fades and the run-out below
+    // stay on this one element that owns the scroll
+    const replyview = h("div", "replyview");
     const reply = h("div", "reply cardmd");
     reply.dataset.raw = replyFull(b);
     reply.innerHTML = fmt(reply.dataset.raw);
@@ -5699,9 +5693,10 @@ function makeBox(b, i, state){
     compose.append(ta, send);
     bottombar.append(clipfile, clip, compose);
     pendwrap.append(meta, bottombar);
-    // the column: what the answer was given, the answer, and laid over the
-    // answer at the card's floor the sent box and the row he types in
-    body.append(answwrap, reply, pendwrap);
+    // the column: the scroller holding the answered box over the answer, and laid
+    // over the answer at the card's floor the sent box and the row he types in
+    replyview.append(answwrap, reply);
+    body.append(replyview, pendwrap);
     box.appendChild(body);
 
     const sec = statusOf(b);
@@ -5809,7 +5804,7 @@ function makeBox(b, i, state){
 
     // pend is null until the first send builds the box, and null again the
     // moment the reply lands and empties the pending list
-    els[b.id] = { box, reply, meta, metaNote, histctl, histPos, histUp, histDown,
+    els[b.id] = { box, reply, replyview, meta, metaNote, histctl, histPos, histUp, histDown,
                   pend: null, pendRaw: "", foldRun: 0, ta, send, wstat, toc: entry, sec,
                   titleEl, tocTitle: entry.querySelector(".ttitle"), arc, x,
                   topbar, branch, bname, wtpick, wtmenu, hasWt: false, hasHistory,
@@ -5827,13 +5822,13 @@ function makeBox(b, i, state){
     watchBand(els[b.id]);
     // and the ramps at the head of the two things that scroll on this card: the
     // answer under the title, and the row he types in under the bar's hairline
-    watchRise(reply);
+    watchRise(replyview);
     watchRise(ta);
     // and the two thumbs on this card, each only inked while its own scroller
     // is moving. the row he types in is on the same wiring as the answer and
     // not on one of its own: the class and the 700ms are the sheet's, so the
     // bar in the composer and the bar in the answer come and go alike
-    barFade(reply);
+    barFade(replyview);
     barFade(ta);
 
     // explicit focus ring: title -> text -> attach -> send -> cross -> moon -> (wrap)
