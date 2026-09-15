@@ -422,3 +422,49 @@ test("the editor scroller clips while the words fit and scrolls once they pass t
     await page.close();
   }
 });
+
+// ---- unit 5: the shove budget resets on an editor keystroke --------------------------
+test("a keystroke in the editor content resets the shove budget", async () => {
+  const id = await create("Editor shove reset");
+  await api(`/reply?box=${id}`, "A reply to answer.");
+  const { page, problems } = await openEditor(id, { fake: true });
+  try {
+    // the keyboard up and settled, the caret in the content
+    await page.focus(SEL);
+    await page.evaluate(k => window.__keyboard.set(k.height, 0), { height: PHONE.height - KEYBOARD });
+    await settle(600);
+    assert.equal(await page.evaluate(() => document.body.classList.contains("obstructed")), true, "the keyboard did not read as up");
+    assert.equal(await page.evaluate(() => document.body.classList.contains("lifting")), false, "the lift window never closed");
+
+    // a shove is a window scrolled while the keyboard stays steady, reported by
+    // a viewport scroll event. stand the window off its origin and count the
+    // page's own scroll-home, which is the shove being cleared
+    const armed = await page.evaluate(() => {
+      Object.defineProperty(window, "scrollY", { configurable: true, get: () => 40 });
+      window.__scrollHome = 0;
+      window.scrollTo = () => { window.__scrollHome++; };
+      return window.scrollY;
+    });
+    assert.equal(armed, 40, "the window shove could not be simulated");
+
+    const shove = () => page.evaluate(() => { window.visualViewport.dispatchEvent(new Event("scroll")); });
+    // the budget is three per keystroke: three shoves are cleared, the fourth is
+    // yielded to
+    for (let n = 0; n < 4; n++) { await shove(); await settle(20); }
+    const exhausted = await page.evaluate(() => window.__scrollHome);
+    assert.equal(exhausted, 3, `the shove budget is not three per keystroke (cleared ${exhausted})`);
+
+    // a keystroke in the editor content resets the budget, so the next shove is
+    // cleared again
+    await page.keyboard.type("z");
+    await settle(40);
+    await shove();
+    await settle(20);
+    const afterKey = await page.evaluate(() => window.__scrollHome);
+    assert.equal(afterKey, 4, "a keystroke in the editor did not reset the shove budget");
+
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
