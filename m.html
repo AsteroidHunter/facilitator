@@ -590,6 +590,10 @@
      cannot catch. the script blinks the same way on every keystroke while
      the keyboard is up, since the reveal fires on those too */
   textarea:focus{animation:focus-blink .02s}
+  /* the same one-frame blink on the editor's own content, since with the
+     typed formatting on the element the phone focuses and would reveal is the
+     content and not the hidden field behind it */
+  .compose .cffield .cm-content:focus{animation:focus-blink .02s}
   @keyframes focus-blink{from{opacity:0}}
   /* the twin the row is measured on: the same rule as the row, the row's own
      width, out of the flow and out of sight. the row's height is read off it,
@@ -2990,9 +2994,13 @@ function revealCaret(ta, twin){
 // first, so fast typing stacks nothing
 let rowBlink = null;
 function blinkRow(ta){
-  if (!ta.animate) return;
+  // the blink lands on the element the phone actually focuses: the editor's
+  // content when the typed formatting is on, the field itself when it is not
+  const field = ComposeFormat.fieldOf(ta);
+  const el = field ? field.caretTarget() : ta;
+  if (!el.animate) return;
   if (rowBlink) rowBlink.cancel();
-  rowBlink = ta.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 20 });
+  rowBlink = el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 20 });
 }
 // the focusing tap on an empty row. the phone's own focus from a tap runs its
 // caret reveal, which scrolls the whole page under the rising keyboard, and the
