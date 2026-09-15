@@ -1,13 +1,15 @@
-// The selected ticket tab (doing, deferred, done) is meant to be drawn from the
-// same shape as the selected project tab across the top of the board: the 7px
-// top corners and the browser-style bottom notch that flares the tab open into
-// the surface under it. This drives a real board headless and reads the computed
-// shape off both selected tabs, so a drift on either row is caught here.
+// The selected list tab (doing, deferred, done) is meant to be drawn from the
+// same shape as the selected project tab on the same page: the 7px top corners
+// and the browser-style bottom notch that flares the tab open into the surface
+// under it. This holds on the Mac board's ticket panel and on the phone's card
+// drawer, so both are driven headless here and the computed shape is read off
+// both selected tabs, so a drift on either surface is caught.
 //
-// The one thing that is allowed to differ is the surface each tab opens into: a
-// project tab opens into the board's paper and a ticket tab into the panel's
-// white, so the notch's own seat fill is read against each tab's own fill rather
-// than against the other row's.
+// The one thing that is allowed to differ is the surface each tab opens into, so
+// the notch's own seat fill is read against each tab's own fill rather than
+// against the other row's. On the Mac a project tab opens into the board's paper
+// and a ticket tab into the panel's white; on the phone the page is white
+// throughout, so both open into the same white.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawn } = require("node:child_process");
@@ -21,6 +23,7 @@ const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const DESK = { width: 1440, height: 900 };
+const PHONE = { width: 375, height: 812, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
 const LINE = "230, 223, 210";   // var(--line), the board's own hairline
 
 let browser;
@@ -72,6 +75,43 @@ async function seatLine(page, sel) {
     const cs = getComputedStyle(document.querySelector(one));
     return [cs.borderBottomWidth, cs.borderBottomStyle, cs.borderBottomColor].join(" ");
   }, sel);
+}
+
+// the shared check: a selected list tab wears the same corners and bottom notch
+// as the selected project tab on the same page. the notch's own seat colour is
+// each tab's own fill, so the fill is read off each tab rather than assuming the
+// two open into one shared surface
+async function assertSameJoint(page, refSel, tabSel, headSel, where) {
+  const ref = await tabShape(page, refSel);
+  const tab = await tabShape(page, tabSel);
+  assert.ok(ref && tab, `${where}: a selected project tab and a selected list tab are both on the page`);
+
+  // the corners: the list tab's top two match the project tab's, no longer square
+  assert.equal(tab.tlr, ref.tlr, `${where}: top-left radius drifted from the project tab`);
+  assert.equal(tab.trr, ref.trr, `${where}: top-right radius drifted from the project tab`);
+  assert.equal(tab.tlr, "7px", `${where}: the top-left corner is not the board's 7px`);
+  assert.notEqual(tab.tlr, "0px", `${where}: the top-left corner is still square`);
+  assert.notEqual(tab.trr, "0px", `${where}: the top-right corner is still square`);
+
+  // the joint: each bottom notch is the same box in the same place as the project
+  // tab's and is painted with the same hairline, and opens into the tab's own fill
+  for (const side of ["before", "after"]) {
+    const t = tab[side], p = ref[side];
+    assert.equal(t.width, p.width, `${where}: ${side} notch width drifted from the project tab`);
+    assert.equal(t.height, p.height, `${where}: ${side} notch height drifted from the project tab`);
+    assert.equal(t.bottom, p.bottom, `${where}: ${side} notch does not seat where the project tab's does`);
+    assert.equal(t.anchor, p.anchor, `${where}: ${side} notch is not offset like the project tab's`);
+    assert.equal(t.anchor, "-8px", `${where}: ${side} notch is not flared 8px past the tab edge`);
+    assert.ok(/radial-gradient/.test(t.bg), `${where}: ${side} notch on the list tab is not painted`);
+    assert.ok(/radial-gradient/.test(p.bg), `${where}: ${side} notch on the project tab is not painted`);
+    assert.ok(t.bg.includes(LINE), `${where}: ${side} list notch hairline is not the board's line`);
+    assert.ok(p.bg.includes(LINE), `${where}: ${side} project notch hairline is not the board's line`);
+    assert.ok(t.bg.includes(tab.fill), `${where}: ${side} list notch does not open into the tab's own fill`);
+    assert.ok(p.bg.includes(ref.fill), `${where}: ${side} project notch does not open into its own fill`);
+  }
+
+  // the seat: the head the tabs sit on carries the board's own 1px line
+  assert.equal(await seatLine(page, headSel), `1px solid rgb(${LINE})`, `${where}: the head's seat line is not the board's 1px line`);
 }
 
 before(async () => {
@@ -149,41 +189,32 @@ test("the selected ticket tab wears the selected project tab's corners and joint
     await page.click("#tv-todo");
     await settle(300);
 
-    const project = await tabShape(page, "#tabbar .ptab.on");
-    const ticket = await tabShape(page, "#tikhead .tvb.on");
-    assert.ok(project && ticket, "a selected project tab and a selected ticket tab are both on the page");
+    await assertSameJoint(page, "#tabbar .ptab.on", "#tikhead .tvb.on", "#tikhead", "the board");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
 
-    // the corners: the ticket tab's top two match the project tab's, and are no
-    // longer the square zero they used to be
-    assert.equal(ticket.tlr, project.tlr, "top-left radius drifted from the project tab");
-    assert.equal(ticket.trr, project.trr, "top-right radius drifted from the project tab");
-    assert.equal(ticket.tlr, "7px", "the top-left corner is not the board's 7px");
-    assert.notEqual(ticket.tlr, "0px", "the top-left corner is still square");
-    assert.notEqual(ticket.trr, "0px", "the top-right corner is still square");
-
-    // the joint: each bottom notch is the same box in the same place as the
-    // project tab's, and is painted with the same hairline. the seat colour in
-    // the gradient is each tab's own fill, since the two open into two surfaces
-    for (const side of ["before", "after"]) {
-      const t = ticket[side], p = project[side];
-      assert.equal(t.width, p.width, `${side} notch width drifted from the project tab`);
-      assert.equal(t.height, p.height, `${side} notch height drifted from the project tab`);
-      assert.equal(t.bottom, p.bottom, `${side} notch does not seat where the project tab's does`);
-      assert.equal(t.anchor, p.anchor, `${side} notch is not offset like the project tab's`);
-      assert.equal(t.anchor, "-8px", `${side} notch is not flared 8px past the tab edge`);
-      assert.ok(/radial-gradient/.test(t.bg), `${side} notch on the ticket tab is not painted`);
-      assert.ok(/radial-gradient/.test(p.bg), `${side} notch on the project tab is not painted`);
-      assert.ok(t.bg.includes(LINE), `${side} ticket notch hairline is not the board's line`);
-      assert.ok(p.bg.includes(LINE), `${side} project notch hairline is not the board's line`);
-      // each tab opens into its own fill: the notch's seat colour is the tab's
-      // own background, the relationship that reads as one continuous surface
-      assert.ok(t.bg.includes(ticket.fill), "the ticket notch does not open into the ticket tab's own fill");
-      assert.ok(p.bg.includes(project.fill), "the project notch does not open into the project tab's own fill");
+test("the selected drawer tab wears the phone project tab's corners and joint", async () => {
+  const page = await browser.newPage();
+  const problems = [];
+  page.on("pageerror", error => problems.push("pageerror: " + error.message));
+  try {
+    await page.setViewport(PHONE);
+    await page.goto(origin + "/m", { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => typeof lastState !== "undefined" && lastState !== null, { timeout: 8000 });
+    await settle(400);
+    if (!(await page.$("#tabbar .ptab.on"))) {
+      await page.click("#tabbar .ptab");
+      await settle(300);
     }
-
-    // the seat: the head the tabs sit on carries the board's own 1px line, the
-    // same hairline the project tab's joint runs its border out into
-    assert.equal(await seatLine(page, "#tikhead"), `1px solid rgb(${LINE})`, "the ticket head's seat line is not the board's 1px line");
+    // the card drawer holds the doing, deferred and done row; open it and pick doing
+    await page.evaluate(() => showMenu(drawer));
+    await settle(600);
+    await page.click("#tv-todo");
+    await settle(300);
+    await assertSameJoint(page, "#tabbar .ptab.on", "#tikhead .tvb.on", "#tikhead", "the phone drawer");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
