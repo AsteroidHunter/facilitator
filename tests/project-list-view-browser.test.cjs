@@ -20,11 +20,11 @@ const SHOTS = process.env.M636_SHOTS || "/tmp/m636-shots";
 const DESK = { width: 1440, height: 900 };
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
 
-// the four lanes, and what each is for. the last two are made through /project,
-// so their ids are the slugs the server hands out: one that reads as a view
-// name and one that opens with a digit, both keyed and read back as themselves
+// the four lanes, and what each is for. the last three are made through
+// /project, so their ids are the slugs the server hands out: a plain word, one
+// that reads as a view name, and one that opens with a digit
 const A = "facilitator";          // the project a view is picked in
-const B = "pastureland";          // the project the pick must not follow
+const B = "greenhouse";           // the project the pick must not follow
 const C = "done";                 // a lane whose id is one of the view names
 const D = "2026-q1-review";       // the lane no test opens until it has to
 
@@ -208,14 +208,14 @@ before(async () => {
 
   // the two made-up project lanes. the server only takes a folder under the
   // home directory, so each gets a throwaway one that is removed again below
-  for (const name of ["Done", "2026 Q1 Review"]) {
+  for (const name of ["Greenhouse", "Done", "2026 Q1 Review"]) {
     const dir = await mkdtemp(path.join(homedir(), ".facilitator-listview-fixture-"));
     laneDirs.push(dir);
     const made = await post(`/project?name=${encodeURIComponent(name)}`, dir);
     assert.equal(made.status, 200, `lane ${name} was refused: ${JSON.stringify(made.body)}`);
   }
   const lanes = Object.keys((await state()).pwds);
-  for (const owner of [C, D]) assert.ok(lanes.includes(owner), `lane ${owner} is not on the board`);
+  for (const owner of [B, C, D]) assert.ok(lanes.includes(owner), `lane ${owner} is not on the board`);
 
   // five cards per lane, oldest first, so every view has something in it and
   // two of them have enough for the arrow keys to walk

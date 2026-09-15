@@ -1328,8 +1328,14 @@
 <script>
 const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
                   ["now", "Now"], ["done", "Done"], ["later", "Later"]];
-const METAS = [["toolmeta", "facilitator"], ["triagemeta", "pastureland"]];
-const NAME = { facilitator: "facilitator agent", pastureland: "pastureland agent" };
+// the two meta sections: the tool's own lane on top, the active project lane
+// below. the project section's owner is whichever tab is open, so no project id
+// is written here and a fresh board with only the tool lane shows just it
+const METAS = ["toolmeta", "triagemeta"];
+function metaOwnerOf(key){
+  return key === "toolmeta" ? "facilitator" : (activeOwner !== "facilitator" ? activeOwner : null);
+}
+const NAME = { facilitator: "facilitator agent" };
 const laneName = ow => NAME[ow] || (ow + " agent");   // project lanes name themselves
 const els = {};       // box id -> {box, reply, meta, ta, send, donebtn, toc, sec}
 const secEls = {}, tocGroups = {};
@@ -1344,40 +1350,6 @@ const lastSel = {};   // owner -> the card you were on when you left its row
 
 // project tabs: one owner shown at a time; ?project=owner locks a pulled-out
 // window to that project alone
-const RETIRED_OWNERS = new Set(["triage"]);
-function retiredOwnerStorageKey(key){
-  for (const owner of RETIRED_OWNERS){
-    if (key === "tabhide." + owner || key === "minibox." + owner ||
-        key === "doc.tasks." + owner || key === "tikview." + owner ||
-        key.startsWith("pos." + owner + ".") ||
-        key.startsWith("size." + owner + ".") ||
-        key.startsWith("hide." + owner + ".") ||
-        key.startsWith("layoutbak.pos." + owner + ".") ||
-        key.startsWith("layoutbak.size." + owner + ".")) return true;
-  }
-  return false;
-}
-function purgeRetiredOwnerStorage(){
-  try {
-    if (RETIRED_OWNERS.has(localStorage.getItem("activeproj")))
-      localStorage.removeItem("activeproj");
-  } catch (err) {}
-  let order = [];
-  try { order = JSON.parse(localStorage.getItem("taborder") || "[]"); } catch (err) {}
-  try {
-    if (Array.isArray(order)){
-      const kept = order.filter(owner => !RETIRED_OWNERS.has(owner));
-      if (kept.length !== order.length) localStorage.setItem("taborder", JSON.stringify(kept));
-    }
-    const remove = [];
-    for (let i = 0; i < localStorage.length; i++){
-      const key = localStorage.key(i);
-      if (key && retiredOwnerStorageKey(key)) remove.push(key);
-    }
-    for (const key of remove) localStorage.removeItem(key);
-  } catch (err) {}
-}
-purgeRetiredOwnerStorage();
 const LOCKED = new URLSearchParams(location.search).get("project");
 let activeOwner = LOCKED || localStorage.getItem("activeproj") || "facilitator";
 let ownerReady = false;
@@ -1403,17 +1375,7 @@ function clearOwnerRefusal(){
   ownerRefused = false;
   document.getElementById("owner-refused")?.remove();
 }
-function stateCarriesRetiredOwner(state){
-  if ((state.boxes || []).some(box => RETIRED_OWNERS.has(box.owner))) return true;
-  if ((state.projects || []).some(project => RETIRED_OWNERS.has(project.id))) return true;
-  return ["pwds", "busy", "listening", "everListened", "workspaces", "listenerGap", "agents"]
-    .some(field => Object.keys(state[field] || {}).some(owner => RETIRED_OWNERS.has(owner)));
-}
 function validateActiveOwner(state){
-  if (stateCarriesRetiredOwner(state)){
-    showOwnerRefusal("Board state contains a retired owner and must be migrated before use.");
-    return false;
-  }
   knownOwnerIds = new Set(Object.keys(state.pwds || {}));
   validActiveOwnerIds = new Set([...knownOwnerIds].filter(owner => owner !== "qchat"));
   if (LOCKED){
@@ -1439,8 +1401,6 @@ function validateActiveOwner(state){
   if (first) applySavedLayout();
   return true;
 }
-if (LOCKED && RETIRED_OWNERS.has(LOCKED))
-  showOwnerRefusal('Project "' + LOCKED + '" is not available.');
 for (const type of ["click", "pointerdown", "keydown", "submit"]){
   addEventListener(type, event => {
     if (!ownerRefused) return;
@@ -1872,11 +1832,12 @@ function build(state){
     const group = h("div", "toc-group");
     const bucketRow = h("div", "toc-bucket");
     bucketRow.appendChild(h("span", null, label));
-    const metaOwner = METAS.find(([k]) => k === key)?.[1];
-    if (metaOwner){   // the plus lives in the left bar: the page shows one box at a time
+    if (METAS.includes(key)){   // the plus lives in the left bar: the page shows one box at a time
       const plus = h("button", "tocadd", "＋");
       plus.title = "new box";
       plus.addEventListener("click", async () => {
+        const metaOwner = metaOwnerOf(key);
+        if (!metaOwner) return;
         const r = await fetch("/create?owner=" + metaOwner, { method: "POST" }).then(x => x.json()).catch(() => null);
         if (r?.id) localStorage.setItem("focusbox", r.id);
         poll();
@@ -2053,10 +2014,12 @@ function makeBox(b, i, state){
 // "+" row under each meta section: one click = new box owned by that section,
 // its first message names it
 function addRows(){
-  for (const [key, owner] of METAS){
+  for (const key of METAS){
     const addRow = h("div", "addrow");
     const addBtn = h("button", "addbtn", "＋ new box");
     addBtn.addEventListener("click", async () => {
+      const owner = metaOwnerOf(key);
+      if (!owner) return;
       const r = await fetch("/create?owner=" + owner, { method: "POST" }).then(x => x.json()).catch(() => null);
       if (r?.id) localStorage.setItem("focusbox", r.id);  // survive the rebuild reload
       poll();  // unknown id triggers the rebuild
