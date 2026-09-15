@@ -1025,6 +1025,13 @@ function watchBand(el){
   //            itself, so it does not move when that box folds, which is what
   //            lets that box's own share be worked out from it without the two
   //            chasing each other.
+  // each of the three is written only when it changes. these feed the size of the
+  // very elements this observer watches (the box's cap off --cardroom, the
+  // answer's run-out off --boxband), so a write on every fire, even of the value
+  // already held, keeps the observer firing on its own writes, which the browser
+  // gives up on as a loop through a whole keyboard run. deduped, the writes
+  // converge in a frame and the loop never starts.
+  let lastBand = null, lastRoom = null, lastFoot = null;
   const write = () => {
     const body = el.replyview.parentElement;
     const band = boxBand(el.replyview, el.pendwrap);
@@ -1034,12 +1041,26 @@ function watchBand(el){
       const cs = getComputedStyle(body);
       room = body.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
     }
-    el.box.style.setProperty("--boxband", band + "px");
-    el.box.style.setProperty("--cardroom", Math.max(0, Math.round(room)) + "px");
-    el.box.style.setProperty("--footband", Math.max(0, Math.round(band - own)) + "px");
+    const roomPx = Math.max(0, Math.round(room));
+    const footPx = Math.max(0, Math.round(band - own));
+    if (band !== lastBand){ lastBand = band; el.box.style.setProperty("--boxband", band + "px"); }
+    if (roomPx !== lastRoom){ lastRoom = roomPx; el.box.style.setProperty("--cardroom", roomPx + "px"); }
+    if (footPx !== lastFoot){ lastFoot = footPx; el.box.style.setProperty("--footband", footPx + "px"); }
+  };
+  // the write resizes the very elements this observer watches (the box's cap off
+  // --cardroom and --footband, the answer's run-out off --boxband), so running it
+  // inside the observer leaves a resize the observer never delivers, which the
+  // browser reports as a loop through a whole keyboard run. it is coalesced onto
+  // the next frame instead: one write a frame, outside the observer's own
+  // delivery, so nothing loops, and the dedupe above settles it once sizes hold
+  let scheduled = false;
+  const schedule = () => {
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(() => { scheduled = false; write(); });
   };
   if (window.ResizeObserver){
-    const ro = new ResizeObserver(write);
+    const ro = new ResizeObserver(schedule);
     ro.observe(el.pendwrap);
     ro.observe(el.replyview);
     // the card's own room changes with the keyboard and with the window, which
