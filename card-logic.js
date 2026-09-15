@@ -465,23 +465,6 @@ function seatSquare(ta, square){
   square.style.marginBottom = (hgt - mid - square.offsetHeight / 2) + "px";
 }
 
-// the thumb shows while its own scroller is actually moving and fades out 700ms
-// after it rests, which is the ticket list's own trick and the markdown panes'
-// after it. restated here rather than shared with them for the reason the
-// markdown pane restated it: those two are wired once over elements that exist
-// from the first paint, and a card is built and rebuilt long after that block
-// has run. both scrollers on the card come through here, the answer and the row
-// he types in, and the class and the 700ms are the same in all of them, so
-// every bar on the board comes and goes alike
-function barFade(node){
-  let t = null;
-  node.addEventListener("scroll", () => {
-    node.classList.add("scrolling");
-    clearTimeout(t);
-    t = setTimeout(() => node.classList.remove("scrolling"), 700);
-  }, { passive: true });
-}
-
 // ---- the sent-and-waiting box -----------------------------------------------------
 // the box itself is each page's own to build (growPend): the desktop wires the
 // fold gesture over it and the phone a plain tap. what stands below is the box's

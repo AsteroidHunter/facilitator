@@ -657,27 +657,17 @@
      behind the box on this card and cannot space anything by itself, so the
      script at the foot of this file reads it off this rule and holds the ramp
      that same distance off the box's top edge.
-     the right third is written less the scrollbar's lane, and the two together
-     still come to five thirds. a scrollbar the board draws itself is not an
-     overlay: it is laid inside the answer's border box and takes its width off
-     the words, so a lane added and nothing given back would have walked the
-     right hand edge of every line --sbar to the left. taking the lane out of
-     the padding puts the lane where the margin was and leaves the words where
-     they were, to the pixel, and the words still stand five thirds of --pad-x
-     off the answer's own right edge, counting the lane, exactly as before.
-     the gutter is held whether the answer scrolls or not, and that is the other
-     half of it: overflow:auto only makes room for the lane on the answers that
-     actually overflow, so without this a short answer would have spent the
-     smaller padding with no lane to fill it and its words would have stood
-     --sbar further right than a long one's. stable holds the room on every
-     answer, so one column serves them all */
-  /* the scroller owns the scroll, the gutter and the clear air under it; the
-     answered box and the answer prose ride inside it, so the box leaves under the
-     title as the reader scrolls exactly as the first lines do */
+     the right third is written --sbar short, from when a lane was laid inside
+     the answer's border box to hold a bar. the bar is hidden board-wide now and
+     no lane is reserved, so nothing fills that step and the words run --sbar
+     nearer the right edge than the left measure alone would place them: the one
+     spot a hidden bar widens the column, by that step and no more. */
+  /* the scroller owns the scroll and the clear air under it; the answered box
+     and the answer prose ride inside it, so the box leaves under the title as
+     the reader scrolls exactly as the first lines do */
   body.focus .box.sel .replyview{
     display:flex; flex-direction:column;
     flex:1 1 auto; min-height:0; overflow-y:auto;
-    scrollbar-gutter:stable;
     margin-bottom:var(--replyair);
     /* the box's fold is held by hand (holdAnswerScroll), so the browser's own
        scroll anchoring is turned off here: left on, the two both give the box's
@@ -995,10 +985,9 @@
   body.focus .box.sel .pendscroll{
     flex:1 1 auto; min-height:0;
     overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain;
-    /* the lane holds the scrollbar's own gutter whether it scrolls or not, so the
-       rows keep one x when a bar comes and goes; while the box folds the lane is
-       clipped instead, in the motion rule below, so no bar is drawn over the run */
-    scrollbar-gutter:stable;
+    /* no bar is drawn on the lane, so the rows keep one x with no gutter held
+       for one; while the box folds the lane is clipped instead, in the motion
+       rule below, so nothing draws over the run */
   }
   /* the run's one time tag, in the chat panel's own run stamp manner: small,
      muted, one for the whole run instead of one over every line. it is on
@@ -1491,23 +1480,12 @@
   /* --row-min, the row's own floor, is a shared token in card-tokens.css */
   body.focus .box.sel textarea{
     background:transparent; border:none !important; box-shadow:none;
-    /* the side padding paired with equal negative margin keeps the text flush
-       while giving the block caret room so the edges cannot slice it.
-       the right margin carries one more thing: the scrollbar's own lane, and
-       that is the whole of how the slim bar below costs the words nothing. a
-       lane the board draws itself is not an overlay, it is laid inside the
-       field's border box and takes its width off the content, so a lane added
-       and nothing given back would have pulled the wrap in by --sbar and
-       walked the right hand end of every line that far left. widening the box
-       by the same --sbar puts the lane in the step between the field and the
-       send square, which was empty, and leaves the words where they were to
-       the pixel: measured, the text column's two edges are the same number
-       before and after, at one line and at fifteen.
-       the gutter is held stable for the answer's own reason: overflow:auto
-       only makes room for a lane once the row actually overflows, so without
-       this the words would step sideways on the line that first scrolls */
+    /* the side padding gives the block caret room so the edges cannot slice the
+       text. the right margin still pulls the field --sbar wider into the step
+       between it and the send square, from when a lane sat there; with the bar
+       hidden board-wide and no lane reserved, the words run --sbar into that
+       step, which was empty, and nowhere else */
     padding:var(--sp-s) 4px; margin:0 calc(-4px - var(--sbar)) 0 -4px;
-    scrollbar-gutter:stable;
     font-size:17px; line-height:1.5;
     max-height:calc(var(--ch)*0.28); overflow-y:auto; min-height:var(--row-min);
   }
@@ -1519,7 +1497,7 @@
   }
   body.focus .box.sel .cffield .cm-scroller{
     background:transparent; border:none; box-shadow:none;
-    padding:var(--sp-s) 4px; scrollbar-gutter:stable;
+    padding:var(--sp-s) 4px;
     max-height:calc(var(--ch)*0.28); min-height:var(--row-min);
   }
   /* the typing row's own head, and the card's fourth fade. the fade
@@ -1726,60 +1704,9 @@
   #tiklist{flex:1; overflow-y:auto; display:flex; flex-direction:column;
     gap:calc(var(--ch)*0.007);
     padding:calc(var(--ch)*0.012) 0.6vw calc(var(--ch)*0.012) 0.7vw}
-  /* the list's scrollbar, slimmed: a 7px lane, bare track, a rounded thumb
-     in the line-strong ink, a shade deeper under the pointer. scoped to the
-     ticket panel only; the rest of the page keeps its stock bars */
-  /* the thumb floats off the right edge (transparent border trick) and only
-     shows while the list actually scrolls or the pointer hovers it */
-  /* the markdown panel's file list is on these same selectors: a list of
-     files scrolls the way the list of cards does, and so does the open
-     file under it, all three out of one rule */
-  /* the card's answer joins them: the stock bar it was left with
-     ran the whole height of the card and read as furniture. it takes the same
-     lane, the same bare track, the same thumb and the same self-hiding, so the
-     one scroller he reads on is drawn like every other scroller on the board.
-     the thumb's LENGTH is the browser's and is left alone: it says how much
-     there is to scroll, so an answer that only just overflows is meant to show
-     a nearly full length thumb. thin and out of sight at rest is the fix, and
-     that matters more here than in the lists: the answer now carries scroll
-     room under its last line for the fade, so answers that used to fit exactly
-     scroll by a few pixels and would otherwise wear a bar with nothing to say.
-     the lane is written once as --sbar because the answer gives it back out of
-     its own right padding.
-     the row he types in joins them last, and it was the one scroller
-     left on the stock macos bar: measured, that bar inked to 0.502 against this
-     one's 0.199, which is the answer's own number to the third decimal. it gives
-     the lane back out of its right margin rather than its padding, because its
-     padding is 4px of caret room and the lane is wider than that; the step
-     between the field and the send square held the difference and was empty */
-  #tiklist::-webkit-scrollbar, #tickets::-webkit-scrollbar,
-  :is(#magic3, #magic4) .mdlist::-webkit-scrollbar,
-  :is(#magic3, #magic4) .cm-scroller::-webkit-scrollbar,
-  .box .replyview::-webkit-scrollbar,
-  body.focus .box.sel :is(textarea, .cffield .cm-scroller)::-webkit-scrollbar{width:var(--sbar)}
-  #tiklist::-webkit-scrollbar-track, #tickets::-webkit-scrollbar-track,
-  :is(#magic3, #magic4) .mdlist::-webkit-scrollbar-track,
-  :is(#magic3, #magic4) .cm-scroller::-webkit-scrollbar-track,
-  .box .replyview::-webkit-scrollbar-track,
-  body.focus .box.sel :is(textarea, .cffield .cm-scroller)::-webkit-scrollbar-track{background:transparent}
-  #tiklist::-webkit-scrollbar-thumb, #tickets::-webkit-scrollbar-thumb,
-  :is(#magic3, #magic4) .mdlist::-webkit-scrollbar-thumb,
-  :is(#magic3, #magic4) .cm-scroller::-webkit-scrollbar-thumb,
-  .box .replyview::-webkit-scrollbar-thumb,
-  body.focus .box.sel :is(textarea, .cffield .cm-scroller)::-webkit-scrollbar-thumb{
-    background:transparent; border:3px solid transparent;
-    background-clip:padding-box; border-radius:99px}
-  #tiklist.scrolling::-webkit-scrollbar-thumb, #tiklist:hover::-webkit-scrollbar-thumb,
-  #tickets.scrolling::-webkit-scrollbar-thumb, #tickets:hover::-webkit-scrollbar-thumb,
-  :is(#magic3, #magic4) .mdlist.scrolling::-webkit-scrollbar-thumb,
-  :is(#magic3, #magic4) .mdlist:hover::-webkit-scrollbar-thumb,
-  :is(#magic3, #magic4) .cm-scroller.scrolling::-webkit-scrollbar-thumb,
-  :is(#magic3, #magic4) .cm-scroller:hover::-webkit-scrollbar-thumb,
-  .box .replyview.scrolling::-webkit-scrollbar-thumb,
-  .box .replyview:hover::-webkit-scrollbar-thumb,
-  body.focus .box.sel :is(textarea, .cffield .cm-scroller).scrolling::-webkit-scrollbar-thumb,
-  body.focus .box.sel :is(textarea, .cffield .cm-scroller):hover::-webkit-scrollbar-thumb{
-    background-color:var(--line-strong)}
+  /* the ticket list, the markdown panes, the answer and the compose row scroll
+     with no bar and no lane reserved for one: the page-wide rule in
+     card-tokens.css hides every bar, so none is styled or slimmed here. */
   .trow{
     position:relative; flex:none; height:calc(var(--ch)*0.072);
     border:1px solid var(--line); border-radius:5px; background:#fff;
@@ -3438,11 +3365,6 @@
   #nphead{display:none}   /* the whole Active Folders bar removed */
   #nprows{display:flex; flex-direction:column; gap:2px; padding:0 0 4px;
     max-height:56vh; overflow-y:auto}
-  /* the well's scrollbar: the thumb is the landing's other orange */
-  #nprows::-webkit-scrollbar{width:9px}
-  #nprows::-webkit-scrollbar-track{background:transparent}
-  #nprows::-webkit-scrollbar-thumb{background:#F0B27E; border:3px solid transparent;
-    background-clip:padding-box; border-radius:99px}
   /* rows are plain information, never controls, with one exception: the row
      of a project whose tab he closed is the way back to it, so that row and
      only that row takes clicks and says so with the pointer and a soft fill */
@@ -5824,12 +5746,6 @@ function makeBox(b, i, state){
     // answer under the title, and the row he types in under the bar's hairline
     watchRise(replyview);
     watchRise(ta);
-    // and the two thumbs on this card, each only inked while its own scroller
-    // is moving. the row he types in is on the same wiring as the answer and
-    // not on one of its own: the class and the 700ms are the sheet's, so the
-    // bar in the composer and the bar in the answer come and go alike
-    barFade(replyview);
-    barFade(ta);
 
     // explicit focus ring: title -> text -> attach -> send -> cross -> moon -> (wrap)
     const ring = [titleEl, ta, clip, send, x, arc];
@@ -9275,20 +9191,6 @@ function fitStage(){
   seatPagePill();   // the stage's foot has moved, and the pill sits against it
 }
 addEventListener("resize", fitStage);
-
-// the ticket list's scrollbar thumb shows only while scrolling (or hover):
-// a short-lived class carries the visibility, fading out after the wheel rests
-{
-  const lists = ["tiklist", "tickets"].map(id => document.getElementById(id)).filter(Boolean);
-  for (const el of lists){
-    let t = null;
-    el.addEventListener("scroll", () => {
-      el.classList.add("scrolling");
-      clearTimeout(t);
-      t = setTimeout(() => el.classList.remove("scrolling"), 700);
-    }, { passive: true });
-  }
-}
 
 // the copy button on fenced blocks: one click puts the block's text on the
 // clipboard; the icon is the standard two-sheets copy glyph, drawn inline

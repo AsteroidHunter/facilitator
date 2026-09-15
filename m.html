@@ -264,14 +264,13 @@
      same floor pinned to it */
   .body{display:flex; flex-direction:column; flex:1 1 0; min-height:0;
     padding:var(--titleair) 0 0; position:relative; overflow:hidden}
-  /* the answer's own scroller: it owns the scroll, the touch inertia, the gutter
-     and the clear air under it, and the answered box rides inside it above the
-     answer prose so the box leaves under the title as the reader scrolls */
+  /* the answer's own scroller: it owns the scroll, the touch inertia and the
+     clear air under it, and the answered box rides inside it above the answer
+     prose so the box leaves under the title as the reader scrolls */
   .replyview{
     display:flex; flex-direction:column;
     flex:1 1 auto; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
     overscroll-behavior:contain;
-    scrollbar-gutter:stable;
     margin-bottom:var(--replyair);
     /* the box's fold is held by hand (holdAnswerScroll); the browser's own scroll
        anchoring is off so the two do not both give the box's travel to the scroll */
@@ -349,11 +348,6 @@
     padding-bottom:calc(var(--boxband, 0px) + var(--replyfade));
   }
   .box.histview .replyview{opacity:.8}
-  .replyview::-webkit-scrollbar{width:var(--sbar)}
-  .replyview::-webkit-scrollbar-track{background:transparent}
-  .replyview::-webkit-scrollbar-thumb{background:transparent; border:3px solid transparent;
-    background-clip:padding-box; border-radius:99px}
-  .replyview.scrolling::-webkit-scrollbar-thumb{background-color:var(--line-strong)}
 
   /* ---- the sent box, folded to a bar, opened to the run ------------------- */
   .pendwrap{position:absolute; left:0; right:0; bottom:0;
@@ -409,10 +403,10 @@
   }
   .pendlist.offseat .pendbody{transform:translate3d(0, var(--pend-rise), 0); opacity:0}
   .pendstamp{flex:none; text-align:right; font:12px var(--mono); color:var(--sub); padding:0 0 var(--sp-s); min-height:1.2em}
-  /* the lane holds the scrollbar's own gutter whether it scrolls or not, so the
-     rows keep one x when a bar comes and goes; while the box folds it is clipped
-     instead, in the motion rule below, so no bar is drawn over the run */
-  .pendscroll{flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; scrollbar-gutter:stable}
+  /* no bar is drawn on the lane, so the rows keep one x with no gutter held for
+     one; while the box folds it is clipped instead, in the motion rule below, so
+     nothing draws over the run */
+  .pendscroll{flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain}
   .pendmsg + .pendmsg{padding-top:var(--sp-s)}
   .pendmsg .pendcontent{
     position:relative; margin:0 0 0 auto; text-align:right; white-space:pre-wrap;
@@ -1104,7 +1098,6 @@ function makeBox(b){
   const reply = h("div", "reply cardmd");
   reply.dataset.raw = replyFull(b);
   reply.innerHTML = fmt(reply.dataset.raw);
-  barFade(replyview);
   // the seat the box holding what this answer was given is mounted into. it is
   // built with the card and stands empty until the board has a batch to show
   // for the reply the card is showing, so the strip is never inserted between
