@@ -375,3 +375,50 @@ test("a scroll into view is refused while the keyboard opens and resumes once it
     await page.close();
   }
 });
+
+// ---- unit 4: no nested scroll container while the content fits -----------------------
+test("the editor scroller clips while the words fit and scrolls once they pass the cap", async () => {
+  const id = await create("Editor scroller overflow");
+  await api(`/reply?box=${id}`, "A reply to answer.");
+  const { page, problems } = await openEditor(id, { fake: true });
+  try {
+    const overflowY = () => page.evaluate(() =>
+      getComputedStyle(document.querySelector("article.box.sel .cm-scroller")).overflowY);
+    const range = () => page.evaluate(() => {
+      const s = document.querySelector("article.box.sel .cm-scroller");
+      return s.scrollHeight - s.clientHeight;
+    });
+
+    // the empty row clips, so the reveal has no scroll container to seize
+    await page.focus(SEL);
+    await settle(60);
+    assert.equal(await overflowY(), "clip", "the empty editor scroller is a scroll container");
+
+    // the keyboard up, a few lines under the five line cap: still clipping, and
+    // no scroll range at all
+    await page.evaluate(k => window.__keyboard.set(k.height, 0), { height: PHONE.height - KEYBOARD });
+    await settle(120);
+    await typeLines(page, 3);
+    await settle(100);
+    assert.equal(await overflowY(), "clip", "the fitting editor scroller is a scroll container");
+    assert.ok(await range() <= 0.5, "the fitting row already holds a scroll range");
+
+    // past the cap: it becomes a scroller again and holds a range, so a long
+    // draft can be reached
+    await typeLines(page, 12, 4);
+    await settle(150);
+    assert.equal(await overflowY(), "auto", "the overflowing editor scroller did not become a scroll container");
+    assert.ok(await range() > 0.5, "the overflowing editor scroller holds no scroll range");
+
+    // shrunk back under the cap: clipping again
+    for (let n = 12; n > 3; n--) {
+      for (let k = 0; k < `line ${n}`.length + 1; k++) await page.keyboard.press("Backspace");
+    }
+    await settle(150);
+    assert.equal(await overflowY(), "clip", "the row that shrank back under the cap stayed a scroll container");
+
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});

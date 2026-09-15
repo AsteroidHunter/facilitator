@@ -580,8 +580,12 @@
   .compose .cffield .cm-scroller{
     background:transparent; border:none; padding:var(--sp-s) 4px; margin:0 -4px;
     min-height:var(--row-min); max-height:28vh;
-    max-height:calc(var(--vvh, 100vh) * .28); overflow-y:auto;
+    max-height:calc(var(--vvh, 100vh) * .28); overflow:clip;
   }
+  /* while the words fit the cap the scroller clips rather than scrolls, so it
+     is no scroll container for the phone's caret reveal to seize; once they
+     pass the cap the script marks it and it scrolls, the way the field does */
+  .compose .cffield .cm-scroller.cfscroll{overflow-y:auto}
   body.kb .compose .cffield .cm-scroller{max-height:calc(5 * 1.5em + 2 * var(--sp-s))}
   textarea::placeholder{color:#B4AA99}
   /* the phone skips its caret reveal, the scroll of the whole page that
@@ -2945,6 +2949,10 @@ function fitRow(ta, twin){
   }
   const was = parseFloat(ta.style.height) || 0;
   ta.style.height = want + "px";
+  // the editor's scroller scrolls only once its words pass the cap; while they
+  // fit it clips and is no scroll container for the reveal. ta.classList is the
+  // scroller's own while the editor stands in for the field
+  if (field && field.formatted()) ta.classList.toggle("cfscroll", want - ta.clientHeight > 0.5);
   return want > was;
 }
 // the caret's line, counted on the twin from the text up to the end of the word
