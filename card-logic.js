@@ -968,7 +968,7 @@ function answeredChose(el, open){
 // catch a height animated by a transition, so the scroll is held by hand: a
 // ResizeObserver on the box reports each step of the run before it paints, and
 // every pixel the box gains at the top is given straight back to the scroll, so
-// the line he is reading holds still. a card at its own top is left alone, since
+// the line being read holds still. a card at its own top is left alone, since
 // the box growing down into the room under the title is the intended fold.
 const ANSWERED_ANCHOR_MS = 560;   // the fold's run plus a little, then the hold ends
 function holdAnswerScroll(el){
