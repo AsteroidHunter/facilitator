@@ -5321,7 +5321,7 @@ function snapCard(){
                answ.classList.contains("rising"))) return;
   // the snap reads the answer at its own top, the state every gap is measured in.
   // a card scrolled down is left as it stands: the line grid it was snapped to at
-  // the top rides with the scroll, and a fold while he is scrolled is held still
+  // the top rides with the scroll, and a fold while the reader is scrolled is held still
   // by holdAnswerScroll, so re-snapping against the scrolled lines would only
   // slide the visible line by the difference between two viewport measurements
   if (el.replyview && el.replyview.scrollTop > 1) return;
