@@ -1554,12 +1554,6 @@ def _migrate() -> None:
         _state["busy"] = {ow: None for ow in OWNERS}
         _state["claimed"] = {ow: [] for ow in OWNERS}
         _state["busy_ts"] = {ow: 0.0 for ow in OWNERS}
-    if _box("t0") is None:  # box 0 is the facilitator agent's; pastureland-meta gets its own pin
-        _state["boxes"].insert(_state["boxes"].index(_box("0")) + 1 if _box("0") else 0, {
-            "id": "t0", "bucket": "meta", "title": "Release pastureland: drop meta thoughts here",
-            "reply": "", "pending": [], "done": False, "parked": False, "replies": 0,
-            "ball": "you", "ts": time.time(), "owner": "pastureland",
-        })
     # confirmed delivery (2026-08-25): state written before it existed has no
     # ack map at all, and an empty one reads exactly like no claim in play
     _state.setdefault("ack", {})
