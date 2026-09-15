@@ -948,7 +948,7 @@ test("the settings come in from the right, with the header, its mark and the not
     assert.equal(made.label, "Notifications");
     assert.ok(parseFloat(made.indent) > parseFloat(made.headPad), "Notifications is not stepped in under the header");
     assert.equal(made.border, "none", "the control has a border");
-    assert.equal(made.fill, "rgb(245, 244, 241)", "the control is not on the board's own paper tint");
+    assert.equal(made.fill, "rgb(255, 255, 255)", "the control is not on the phone's own paper");
     assert.equal(made.colour, "rgb(33, 29, 23)", "the control is not in the board's own ink");
     assert.equal(made.gone, true, "the old button is still in the card list");
 
