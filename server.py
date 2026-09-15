@@ -959,10 +959,10 @@ ANSWERED_BATCH_VERSION = 1
 # the transcript row shortens it.
 # HISTORY_MAX above is a different thing entirely: it caps how many PAGES of
 # reply history one card offers, never what any one of those pages answered.
-BUILTIN_OWNERS = ("facilitator", "pastureland", "qchat")  # qchat: the quick chat panel's lane, dormant in the current board
+BUILTIN_OWNERS = ("facilitator",)  # the tool's own lane, always present
 OWNERS = BUILTIN_OWNERS
-# the built-in three above are the floor; project lanes stored in state.json
-# extend OWNERS at load and at creation, via _register_owner below
+# facilitator is the only built-in owner; every other lane is registered from
+# data (run.config.json, saved cards, stored projects) at load and at creation
 
 # names for unnamed cards, handed out without repeats among live cards
 FAIRY_NAMES = (
@@ -1033,15 +1033,23 @@ def _register_owner(ow: str) -> None:
 
 def _sync_owner_registries() -> None:
     """Bring the runtime owner set and its presence maps back in step with the
-    state: the built-in owners plus the projects the state holds, in that
-    order, and nothing else. Run after the state is put back by a failed save,
-    so a lane a route registered before that save is forgotten with it, while
-    the live counts of every lane that stays are kept. Callers hold _lock."""
+    state: the built-in facilitator, the run.config.json lanes, the projects the
+    state holds and any owner a saved card carries, in that order, and nothing
+    else. Run after the state is put back by a failed save, so a lane a route
+    registered before that save is forgotten with it, while the live counts of
+    every lane that stays are kept. Callers hold _lock."""
     global OWNERS
     kept = list(BUILTIN_OWNERS)
+    for ow in _LANE_DIRS:
+        if ow not in kept:
+            kept.append(ow)
     for p in _state.get("projects", []):
         if isinstance(p, dict) and p.get("id") and p["id"] not in kept:
             kept.append(p["id"])
+    for b in _state.get("boxes", []):
+        ow = b.get("owner") if isinstance(b, dict) else None
+        if ow and ow not in kept:
+            kept.append(ow)
     OWNERS = tuple(kept)
     for registry in (_waiters, _last_wait, _agent_names):
         for ow in [ow for ow in registry if ow not in OWNERS]:
@@ -1491,10 +1499,17 @@ def _migrate() -> None:
     """Apply each versioned, idempotent upgrade to saved board state."""
     _state.setdefault("paused", False)
     _state.setdefault("title", "facilitator")
-    # project lanes (2026-08-13): stored lanes merge with the built-in three
-    # first, so every per-owner loop below covers them too
+    # owners come from data, not code: the built-in facilitator, the lanes named
+    # in run.config.json, the stored project lanes, and any owner a saved card
+    # already carries. Registered here, before the per-owner loops below lay out
+    # each lane's slots, workspaces and pages
+    for ow in _LANE_DIRS:
+        _register_owner(ow)
     for p in _state.setdefault("projects", []):
         _register_owner(p["id"])
+    for b in _state["boxes"]:
+        if b.get("owner"):
+            _register_owner(b["owner"])
     # monotonic box-id counter: count-based ids collided after a deletion
     _state.setdefault("next_bid", 1 + max(
         [int(b["id"][1:]) for b in _state["boxes"]

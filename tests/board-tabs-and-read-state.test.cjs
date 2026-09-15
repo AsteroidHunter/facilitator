@@ -110,6 +110,7 @@ before(async () => {
     items: [
       { id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" },
       { id: "1.1", bucket: "now", title: "A pastureland card", owner: "pastureland" },
+      { id: "q", bucket: "meta", title: "Quick chat", owner: "qchat" },
     ],
   }));
   await startServer();
