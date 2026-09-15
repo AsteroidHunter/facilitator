@@ -71,6 +71,7 @@ async function navigator(lane = "pastureland", width = 340) {
   await page.setViewport({ width: 900, height: 760, deviceScaleFactor: 2 });
   await page.goto(`${origin}/index.html`, { waitUntil: "domcontentloaded" });
   await page.evaluate(({ selectedLane, roots, panelWidth }) => {
+    mdMounts(["website", "pastureland"]);
     activeOwner = selectedLane;
     mdBoxes();
     const host = mdBuild(MD_MOUNTS[selectedLane]);

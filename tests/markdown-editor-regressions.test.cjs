@@ -83,6 +83,7 @@ async function mountedEditor(source, height = 520) {
   await page.setViewport({ width: 900, height: 760, deviceScaleFactor: 2 });
   await page.goto(`${origin}/index.html`, { waitUntil: "domcontentloaded" });
   await page.evaluate(async (text, panelHeight) => {
+    mdMounts(["website", "pastureland"]);
     activeOwner = "pastureland";
     mdBoxes();
     const host = mdBuild(MD_MOUNTS.pastureland);

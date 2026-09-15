@@ -7556,21 +7556,24 @@ chatPoll(); setInterval(chatPoll, C3_POLL);
 // the markdown, read and written where it lives. the third tenant of magic box
 // 3, beside the picture panel and the chat above, and it follows their rule
 // exactly: one tab owns a box, every other tab gets the plain stub back. one
-// panel with two homes, because the pastureland tab's magic box 3 is the chat's
-// already: each tab that has the panel says which box it mounts in, and a tab
-// that is not named here never builds it at all. this map is the only place
-// either of those names is written down, so moving the panel to another tab or
-// another box is an edit of one line
-const MD_MOUNTS = {
-  website: { box: "magic3", stub: "magic box 3" },
-  pastureland:  { box: "magic4", stub: "magic box 4" },
-};
-// the boxes those mounts name that the page does not already carry. magic box 4
+// panel with two homes: the first markdown lane mounts in magic box 3, the
+// second in magic box 4. which lanes those are is board data, read from
+// run.config.json's markdown_lanes and carried in on /state, so no lane id is
+// written here and moving the panel to another tab is a config edit alone
+const MD_SLOTS = [{ box: "magic3", stub: "magic box 3" }, { box: "magic4", stub: "magic box 4" }];
+let MD_MOUNTS = {};
+// fill the mount map from the lanes the board names, in the order the slots
+// take them; a board that names none leaves the panel off on every tab
+function mdMounts(lanes){
+  MD_MOUNTS = {};
+  (lanes || []).slice(0, MD_SLOTS.length).forEach((lane, i) => { MD_MOUNTS[lane] = MD_SLOTS[i]; });
+  return MD_MOUNTS;
+}
+// the boxes the slots name that the page does not already carry. magic box 4
 // is the only one today: it was added to hold this panel and has no other
-// tenant, so it belongs on the tab that mounts the panel in it and nowhere
-// else. worked out from the map rather than written down, so a mount moved to
-// another box, or a second lane given box 4, needs no edit anywhere here
-const MD_OWN = [...new Set(Object.values(MD_MOUNTS).map(m => m.box))]
+// tenant, so it is put on the page only while a tab mounts the panel in it.
+// worked out from the slots, so it stands whatever lanes fill them
+const MD_OWN = [...new Set(MD_SLOTS.map(s => s.box))]
   .filter(box => !document.getElementById(box));
 // the two folders the server will let a lane's panel touch, in the order the
 // head offers them, and named by the kind of folder rather than by the folder:
@@ -9013,6 +9016,7 @@ async function poll(){
     apply(state);
     lastState = state;
     P3_LANE = state.imagePanelLane || "";
+    mdMounts(state.markdownLanes);
     const caretAfter = focusedCaretContext();
     if (caretBefore && caretAfter && caretBefore.editor === caretAfter.editor &&
         (caretBefore.left !== caretAfter.left || caretBefore.top !== caretAfter.top ||
