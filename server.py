@@ -357,9 +357,9 @@ Endpoints:
                                /reply is the sole final handover action.
 
 Owner routing (2026-08-05): every box carries an owner tag, facilitator (tool
-discussion, this repo's agent) or pastureland (the project under discussion, its
-own agent). Each owner has its own busy/claim slot and listener-presence
-tracking, so the two agents drain the same board without blocking each other.
+discussion, this repo's agent) or a project lane (the project under discussion,
+its own agent). Each owner has its own busy/claim slot and listener-presence
+tracking, so the lanes drain the same board without blocking each other.
 
 State persists to state.json next to this file; every send/reply also appends
 to transcript.jsonl so the discussion survives anything. A first-ever start
