@@ -313,3 +313,65 @@ test("the focus blink is on the focused editor content and re-arms on each keyst
     await page.close();
   }
 });
+
+// ---- unit 3: no scroll into view from the editor while the keyboard opens ------------
+test("a scroll into view is refused while the keyboard opens and resumes once it settles", async () => {
+  const id = await create("Editor open scroll");
+  await api(`/reply?box=${id}`, "A reply to answer.");
+  const { page, problems } = await openEditor(id, { fake: true });
+  try {
+    await page.focus(SEL);
+    await typeLines(page, 12);   // more than the cap, so the end is off the box
+    await settle(60);
+    // the caret at the head, the scroller at its top, the window unmoved
+    await page.evaluate(() => {
+      const v = els[selectedId].field.view;
+      v.dispatch({ selection: { anchor: 0 } });
+      v.scrollDOM.scrollTop = 0;
+      window.scrollTo(0, 0);
+    });
+    await settle(40);
+
+    // the keyboard begins to rise: while it is lifting, a scroll into view is
+    // refused, so neither the scroller nor the window moves under the reveal
+    await page.evaluate(k => window.__keyboard.set(k.height, 0), { height: PHONE.height - KEYBOARD });
+    await settle(30);
+    assert.equal(await page.evaluate(() => document.body.classList.contains("lifting")), true,
+      "the open did not arm the lift window");
+    await page.evaluate(() => {
+      const v = els[selectedId].field.view;
+      window.__before = { st: v.scrollDOM.scrollTop, y: window.scrollY };
+      v.dispatch({ selection: { anchor: v.state.doc.length }, scrollIntoView: true });
+    });
+    await settle(40);
+    const during = await page.evaluate(() => {
+      const v = els[selectedId].field.view;
+      return { st: v.scrollDOM.scrollTop, y: window.scrollY, before: window.__before };
+    });
+    assert.ok(Math.abs(during.st - during.before.st) <= 0.5,
+      `the scroller scrolled into view while the keyboard was opening: ${during.before.st} to ${during.st}`);
+    assert.equal(during.y, 0, "the window scrolled while the keyboard was opening");
+
+    // once the lift has settled the same scroll into view brings the caret's
+    // end into the box, so ordinary typing is still followed
+    await settle(500);
+    assert.equal(await page.evaluate(() => document.body.classList.contains("lifting")), false,
+      "the lift window never closed");
+    await page.evaluate(() => {
+      const v = els[selectedId].field.view;
+      v.scrollDOM.scrollTop = 0;
+      v.dispatch({ selection: { anchor: v.state.doc.length }, scrollIntoView: true });
+    });
+    await settle(80);
+    const after = await page.evaluate(() => {
+      const v = els[selectedId].field.view;
+      return { st: v.scrollDOM.scrollTop, y: window.scrollY };
+    });
+    assert.ok(after.st > 0.5, "a settled scroll into view did not bring the caret's line into the box");
+    assert.equal(after.y, 0, "a settled scroll into view moved the window");
+
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
