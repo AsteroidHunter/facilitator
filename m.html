@@ -384,6 +384,10 @@
                padding-top var(--pend-move) var(--gentle),
                padding-bottom var(--pend-move) var(--gentle);
   }
+  /* for the length of the fold the lane is shorter than its rows. clipped rather
+     than scrolled it draws no bar over the run, and the stable gutter it keeps
+     means the rows do not shift when the bar returns on the settled box */
+  .pendlist.motion .pendscroll{overflow:hidden}
   /* strength travels with the column and is the quicker of the two, so it is
      spent before the box lands. it is part of the run rather than an animation
      of its own: a press that turns a run around carries the words on from the
@@ -393,7 +397,10 @@
   }
   .pendlist.offseat .pendbody{transform:translate3d(0, var(--pend-rise), 0); opacity:0}
   .pendstamp{flex:none; text-align:right; font:12px var(--mono); color:var(--sub); padding:0 0 var(--sp-s); min-height:1.2em}
-  .pendscroll{flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain}
+  /* the lane holds the scrollbar's own gutter whether it scrolls or not, so the
+     rows keep one x when a bar comes and goes; while the box folds it is clipped
+     instead, in the motion rule below, so no bar is drawn over the run */
+  .pendscroll{flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; scrollbar-gutter:stable}
   .pendmsg + .pendmsg{padding-top:var(--sp-s)}
   .pendmsg .pendcontent{
     position:relative; margin:0 0 0 auto; text-align:right; white-space:pre-wrap;

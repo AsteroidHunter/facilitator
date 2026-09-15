@@ -981,6 +981,10 @@
   body.focus .box.sel .pendscroll{
     flex:1 1 auto; min-height:0;
     overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain;
+    /* the lane holds the scrollbar's own gutter whether it scrolls or not, so the
+       rows keep one x when a bar comes and goes; while the box folds the lane is
+       clipped instead, in the motion rule below, so no bar is drawn over the run */
+    scrollbar-gutter:stable;
   }
   /* the run's one time tag, in the chat panel's own run stamp manner: small,
      muted, one for the whole run instead of one over every line. it is on
@@ -1233,6 +1237,10 @@
                padding-top var(--pend-move) var(--gentle),
                padding-bottom var(--pend-move) var(--gentle);
   }
+  /* for the length of the fold the lane is shorter than its rows. clipped rather
+     than scrolled it draws no bar over the run, and the stable gutter it keeps
+     means the rows do not shift when the bar returns on the settled box */
+  body.focus .box.sel .pendlist.motion .pendscroll{overflow:hidden}
   /* and the column travels on that same run: one length, one curve, and a
      transition rather than an animation, so a second click carries the column
      on from where it stands instead of starting it over from its far end */
