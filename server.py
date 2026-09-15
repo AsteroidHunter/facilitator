@@ -29,7 +29,7 @@ Endpoints:
                                much later query cannot tell a never-landed id
                                from one whose receipt has since aged out
   POST /send?box=ID[&via=mini][&op=OP] -> body = the human's message text (plain text).
-                               via states where he typed it: mini is the small
+                               via states where it was typed: mini is the small
                                card in the corner, no via at all is the big card
                                in the middle. Only the literal "mini" is stored
                                (as the message's via field), so any other value
@@ -1076,8 +1076,7 @@ def _lane_internal(lane: str) -> Path | None:
 # may read and write: that lane's own internal folder and its wiki beside it.
 # The folder names come off the lane's own directory and not its owner id,
 # because a lane can be named for its work while its folder is named for its
-# project: the pastureland lane lives in pastureland/ and keeps pastureland-internal
-# and pastureland-wiki. Worked out per lane rather than written down as paths,
+# project directory. Worked out per lane rather than written down as paths,
 # the way _lane_internal already does it, so no one machine's home directory
 # gets into tracked source and a lane moved on disk carries its folders with it.
 # The lane list is what makes this a fence: a lane not on it has no folders at
@@ -1190,14 +1189,13 @@ def _lane_worktrees(lane: str) -> dict:
 
     Two folders are tried, in this order. A lane's dir is often a wrapper rather
     than the checkout itself, with the repository one level in, in a child named
-    after the wrapper: projects/facilitator holds facilitator/, and the
-    pastureland lane's projects/pastureland holds pastureland/. So the lane's
-    own folder is asked first, and the same-name child only if that folder is
-    not a checkout. Only ever the same-name child and never an arbitrary one:
-    journal holds upstream-ref, a reference checkout that is not that
-    lane's project, and offering its branches as the lane's own would be a
-    quiet lie. A wrapper with no same-name checkout under it simply has no
-    repository, which is the true answer for it."""
+    after the wrapper: a wrapper folder holds a same-name checkout beside its
+    own siblings. So the lane's own folder is asked first, and the same-name
+    child only if that folder is not a checkout. Only ever the same-name child
+    and never an arbitrary one: a wrapper may also hold an unrelated reference
+    checkout under a different name, and offering its branches as the lane's own
+    would be a quiet lie. A wrapper with no same-name checkout under it simply
+    has no repository, which is the true answer for it."""
     d = _lane_pwds().get(lane)
     if not d:
         return {"current": "", "names": []}
@@ -1615,7 +1613,7 @@ def _migrate() -> None:
         b.setdefault("ws", ws[b.get("owner", "pastureland")][0]["id"])
         b.setdefault("task", None)
         b.setdefault("agent_ts", 0)
-        # how many of this card's replies he has read (2026-09-02): a board
+        # how many of this card's replies have been read (2026-09-02): a board
         # record, so opening a card on the phone marks it read on the board
         b.setdefault("seen", 0)
     # the card state machine (2026-08-26): boxes written before it carry the
@@ -2006,23 +2004,23 @@ def _pages(owner: str) -> list:
 # shelf bits, and the lane's claim slot (busy), all of which show their color
 # while the flow keeps moving beneath, so lifting any of them shows exactly
 # the card that went in. ball survives as the machine's turn register ("me" =
-# the agent owes him, "you" = a reply awaits him): the page reads whose-turn
+# the agent owes the reader, "you" = a reply awaits the reader): the page reads whose-turn
 # off it, so it ships as written, but no color is ever computed from it.
 #
-# state (color)   new       untouched card (grey; yellow when born his, ball
+# state (color)   new       untouched card (grey; yellow when born the reader's, ball
 #                           "you": a seeded or standing card)
-#                 queued    a message of his waits on the agent (grey)
+#                 queued    a message from the reader waits on the agent (grey)
 #                 working   the flag's heartbeat is beating (green)
 #                 note      an interim progress note while its heartbeat is
-#                           beating (green; no turn waits on him)
-#                 deferred  working, plus a reply that becomes his turn the
+#                           beating (green; no turn waits on the reader)
+#                 deferred  working, plus a reply that becomes the reader's turn the
 #                           moment the work ends (green)
-#                 yours     an unanswered reply awaits him (yellow)
+#                 yours     an unanswered reply awaits the reader (yellow)
 #                 rest      nothing pending either way (grey)
 # event           /send                    -> clears parked, then queued; a
 #                                          beating flag keeps its
 #                                          green, and a deferred turn dies:
-#                                          he has answered
+#                                          the reader has answered
 #                 /reply                   -> yours; flag still beating ->
 #                                          deferred; leftover msgs -> queued
 #                 /note                    -> note, starts heartbeat, consumes
@@ -2092,7 +2090,7 @@ def _turn_to_you(b: dict) -> None:
 
 def _handover(b: dict) -> None:
     """A deferred card leaving green: the reply recorded under the flag is
-    finally waiting on him, so the turn register flips as the state moves."""
+    finally waiting on the reader, so the turn register flips as the state moves."""
     if b["state"] == "deferred":
         _turn_to_you(b)
         _log("handover", b["id"], "working flag down, deferred turn handed over")
@@ -2245,7 +2243,7 @@ def _next_reply_id(bid: str) -> str:
 
     Two replies with the same words, and two completed inside one second, are
     two pages of a card's history and every client has to be able to hold them
-    apart: a page it is showing, a batch it is drawing and a fold he has chosen
+    apart: a page it is showing, a batch it is drawing and a fold the reader has chosen
     all hang off this name. The counter says what the words and the clock
     cannot."""
     n = int(_state.get("next_reply_id", 1))
@@ -2258,7 +2256,7 @@ def _release_unacked() -> None:
     back through /ack went into a dead connection, so after ACK_GRACE the box
     goes back to the FRONT of its lane's queue, the same move the 15 minute
     steal-back makes. The card falls back to the queued grey the moment the
-    claim mask lifts: beneath a claim the state is the "queued" his message
+    claim mask lifts: beneath a claim the state is the "queued" a message from the reader
     put it in, never yellow.
 
     Only the claim a token was minted for can be released by it: a record left
@@ -2310,7 +2308,7 @@ def _sweep(persist: bool = True) -> bool:
 # ---- the phone page and its push notifications ------------------------------
 # GET /m is the board for a phone: one card at a time, the project tabs across
 # the top, the card list in a drawer off the left edge. The files below are
-# what make it installable and let it be told when a card turns to his turn.
+# what make it installable and let it be told when a card turns to the reader's turn.
 PHONE_FILES = {
     "/m": (HERE / "m.html", "text/html; charset=utf-8"),
     "/m-sw.js": (HERE / "m-sw.js", "application/javascript; charset=utf-8"),
@@ -2561,7 +2559,7 @@ def _push_bridge_available() -> tuple[bool, str]:
 
 
 def _push_turn(bid: str) -> None:
-    """Every subscribed phone is told once that a card turned to his turn.
+    """Every subscribed phone is told once that a card turned to the reader's turn.
     Runs on its own thread: it reads the subscriptions under the lock, checks
     that Tailscale is connected and serving this board before each send, talks
     to push services with the lock released, and takes it again only to keep
@@ -2824,7 +2822,7 @@ def _ui_state() -> dict:
                 # browser's: the page bolds a card whose reply count has
                 # passed this, on whichever device is looking
                 "seen": b.get("seen", 0),
-                # when the card last turned to his turn: the phone's push
+                # when the card last turned to the reader's turn: the phone's push
                 # handler reads the board and names the card that turned last
                 "turnTs": b.get("turn_ts", 0),
                 "engine": b.get("engine", "claude"),
@@ -2855,8 +2853,8 @@ def _ui_state() -> dict:
         "end": st["end"],
         "paused": st.get("paused", False),
         "title": st.get("title", "facilitator"),
-        # the one tab bar both pages draw: the lane order and the lanes he
-        # has closed. An empty order means no arrangement has been saved
+        # the one tab bar both pages draw: the lane order and the lanes that
+        # are closed. An empty order means no arrangement has been saved
         "tabs": st.get("tabs", {"order": [], "closed": []}),
         "listening": {ow: _waiters.get(ow, 0) > 0 for ow in OWNERS},
         "everListened": st.get("ever_listened", {}),
@@ -3537,8 +3535,8 @@ def _post_mdsave(q: Query, raw: bytes):
     # the stale-write guard: the stamp the page was handed on read comes
     # back here, and a file whose stamp has moved since is one somebody
     # else has written. Refused with the current stamp so the page can
-    # say plainly what happened; his text is never merged or dropped for
-    # him, it stays in the editor where he can still see it
+    # say plainly what happened; the reader's text is never merged or dropped for
+    # the reader, it stays in the editor where it can still be seen
     try:
         now = _md_stamp(p)
     except OSError:
@@ -3580,7 +3578,7 @@ def _post_send(q: Query, text: str):
         if box is None or not text:
             return 400, {"error": "bad box or empty text"}
         msg = {"mid": _state["next_mid"], "text": text, "ts": time.time()}
-        # where he typed it: via=mini means the small card in the corner.
+        # where it was typed: via=mini means the small card in the corner.
         # Only that literal is kept, so a caller that passes nothing (the
         # big card, any older sender) stores exactly what it always did
         if via:
@@ -3589,9 +3587,9 @@ def _post_send(q: Query, text: str):
             msg["op"] = op
         box["pending"].append(msg)
         box["parked"] = False
-        box["ball"] = "me"  # his message sent: the ball is in the agent's court
-        # his message queues the card; a beating flag keeps its green,
-        # and a deferred turn dies here, since he has read and
+        box["ball"] = "me"  # the message is sent: the ball is in the agent's court
+        # the message queues the card; a beating flag keeps its green,
+        # and a deferred turn dies here, since the reader has read and
         # answered: it must not resurface when the flag goes down
         box["state"] = "working" if _hb_live(box) else "queued"
         box["ts"] = time.time()
@@ -3830,7 +3828,7 @@ def _post_ping(q: Query, text: str):
 # there drops the answer, not the bytes already on their way here. So a snooze
 # the phone gave up on can still arrive after the unsnooze that replaced it,
 # and absolute values applied in arrival order would leave the board holding
-# the value he undid. Only this side sees the arrivals, so only this side can
+# the value that was undone. Only this side sees the arrivals, so only this side can
 # refuse them.
 #
 # The contract. A page names its own command stream (sid) and numbers every
@@ -3844,7 +3842,7 @@ def _post_ping(q: Query, text: str):
 # page B place 1 unsnoozes, which is B's first command and so is applied; then
 # A's abandoned place 1 snooze arrives. It is obsolete inside A's own stream,
 # but B had taken the card's only slot, so it was applied and the card snoozed
-# itself again behind him. Keeping A's fact beside B's answers that with no
+# itself again behind the reader. Keeping A's fact beside B's answers that with no
 # comparison of clocks or of tap times between devices: both newer commands
 # agree, and the last one is simply behind A's own high water mark.
 #
@@ -3910,13 +3908,13 @@ def _post_park(q: Query, text: str):
         return 400, {"error": "bad park order"}
     # What a snooze was decided on: the board's own clock at the moment the moon
     # was tapped, which the page can name because every reading carries the
-    # board's time. A snooze that crossed one of his messages on the way here
-    # was decided before that message existed, and a card he has just written to
-    # is not a card he is snoozing, so the board keeps what it has and says so
+    # board's time. A snooze that crossed one of the reader's messages on the way here
+    # was decided before that message existed, and a card the reader has just written to
+    # is not a card the reader is snoozing, so the board keeps what it has and says so
     # rather than burying the message under a defer.
     #
     # The guard is deliberately the narrowest one that answers that: only a
-    # park, only against his own queued messages, and only when a basis is
+    # park, only against the reader's own queued messages, and only when a basis is
     # given. An unpark, an older page that sends no basis, an agent's progress
     # note and a park of a done card all behave exactly as they always did, and
     # a basis that will not read as a number is no basis at all.
@@ -4336,7 +4334,7 @@ def _post_push_subscribe(q: Query, text: str):
 
 def _post_tabs(q: Query, text: str):
     # the tab bar's whole record in one write, so a reorder can
-    # never half land: the lane order and the lanes he has closed
+    # never half land: the lane order and the lanes that are closed
     # arrive together and replace what was stored
     try:
         rec = json.loads(text) if text else None
@@ -4368,7 +4366,7 @@ def _post_tabs(q: Query, text: str):
 
 def _post_seen(q: Query, text: str):
     # the read marks: for each card named, how many of its replies
-    # he has read. One record per card on the board itself, so the
+    # have been read. One record per card on the board itself, so the
     # phone and the board can never disagree about what is unread
     try:
         rec = json.loads(text) if text else None

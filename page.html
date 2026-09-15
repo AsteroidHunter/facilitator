@@ -2129,7 +2129,7 @@ let autoNext = null;
 const AUTONEXT_MS = 0;   // future user setting: quiet time after a send before moving on
 function cancelAutoNext(){ clearTimeout(autoNext); autoNext = null; }
 
-// after a send, move to the next YELLOW card: one awaiting his read, never a
+// after a send, move to the next YELLOW card: one awaiting a read, never a
 // green working card or a grey queued one
 function jumpNextYellow(fromId){
   if (!lastState) return;

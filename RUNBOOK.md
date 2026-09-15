@@ -130,7 +130,7 @@ Magic box 3 holds one picture per lane, a plot above all. Write the file into yo
 
     <your project folder>/<your lane id>-internal/panel.png
 
-So the `sketchbook` lane writes `~/projects/sketchbook/sketchbook-internal/panel.png`. Png, svg, jpg, gif and webp all work. The board picks it up within about four seconds, swaps itself when you rewrite the file, and falls back to its empty marks when you delete it. Nothing needs adding to the server, and no lane can read another's folder. Note that the panel is currently switched on for the `sketchbook` tab only; every other tab still shows the plain stub.
+So the `example` lane writes `~/projects/example/example-internal/panel.png`. Png, svg, jpg, gif and webp all work. The board picks it up within about four seconds, swaps itself when you rewrite the file, and falls back to its empty marks when you delete it. Nothing needs adding to the server, and no lane can read another's folder. Note that the panel is switched on for one configured tab only; every other tab still shows the plain stub.
 
 ## Seeding a board
 
