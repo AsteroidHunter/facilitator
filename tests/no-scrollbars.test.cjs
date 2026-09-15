@@ -248,19 +248,35 @@ test("the reply, a sent lane, the compose field and the ticket list all still sc
   await page.close();
 });
 
+// flag every scroller as scrolling so a board that still styles a bar paints its
+// thumb for the capture, which is how a scrollbar looks at rest for the reader;
+// where the bar is hidden this class carries no rule and changes nothing
+function revealBars(page){
+  return page.evaluate(() => {
+    for (const el of document.querySelectorAll("*")){
+      const cs = getComputedStyle(el);
+      if (["auto", "scroll"].includes(cs.overflowY) || ["auto", "scroll"].includes(cs.overflowX))
+        el.classList.add("scrolling");
+    }
+  });
+}
+
 test("screenshots, when a directory is given", async t => {
   if (!SHOTS){ t.skip("SCROLLBAR_SHOTS not set"); return; }
   await mkdir(SHOTS, { recursive:true });
   const mac = await openPage(PAGES[0]);
   await mac.evaluate(() => {
-    const ta = document.querySelector(`article.box.sel textarea`);
+    const ta = document.querySelector("article.box.sel textarea");
     if (ta){ ta.value = Array.from({ length:6 }, (_, i) => `Invented composed line ${i + 1} being typed.`).join("\n");
       ta.dispatchEvent(new Event("input", { bubbles:true })); }
   });
+  await revealBars(mac);
   await wait(300);
   await mac.screenshot({ path:path.join(SHOTS, `mac-${LABEL}.png`) });
   await mac.close();
   const phone = await openPage(PAGES[1]);
+  await revealBars(phone);
+  await wait(300);
   await phone.screenshot({ path:path.join(SHOTS, `phone-${LABEL}.png`) });
   await phone.close();
 });
