@@ -961,6 +961,29 @@ function answeredChose(el, open){
   setAnsweredChoice(el.answId, open);
 }
 
+// the box rides at the top of the answer's own scroller now, so a fold changes
+// the height of the content standing ABOVE whatever the reader is looking at.
+// while he is scrolled down into the answer that would slide his line up or down
+// by the whole of the box's travel. the browser's own scroll anchoring does not
+// catch a height animated by a transition, so the scroll is held by hand: a
+// ResizeObserver on the box reports each step of the run before it paints, and
+// every pixel the box gains at the top is given straight back to the scroll, so
+// the line he is reading holds still. a card at its own top is left alone, since
+// the box growing down into the room under the title is the fold that was asked for.
+const ANSWERED_ANCHOR_MS = 560;   // the fold's run plus a little, then the hold ends
+function holdAnswerScroll(el){
+  const view = el && el.replyview, wrap = el && el.answwrap;
+  if (!view || !wrap || view.scrollTop <= 0 || typeof ResizeObserver === "undefined") return;
+  let last = wrap.getBoundingClientRect().height;
+  const ro = new ResizeObserver(() => {
+    const now = wrap.getBoundingClientRect().height;
+    const delta = now - last;
+    if (delta){ view.scrollTop += delta; last = now; }
+  });
+  ro.observe(wrap);
+  setTimeout(() => ro.disconnect(), ANSWERED_ANCHOR_MS);
+}
+
 // the box's two arrows, and the one thing about them that is its own: they
 // point the other way. shut, the bar's arrow points DOWN, at the answer the box
 // opens toward; open, the corner arrow is this same glyph turned over by the

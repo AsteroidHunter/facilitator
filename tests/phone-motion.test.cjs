@@ -390,12 +390,12 @@ test("the answer dissolves under the title as it scrolls and into the sent box a
     await settle(300);
     const rest = await page.evaluate(() => {
       const box = document.querySelector("article.box.sel");
-      const reply = box.querySelector(".reply");
+      const view = box.querySelector(".replyview");   // the answer's scroller owns the fades
       const wrap = box.querySelector(".pendwrap");
-      const cs = getComputedStyle(reply);
+      const cs = getComputedStyle(view);
       return {
         wrapPosition: getComputedStyle(wrap).position,
-        overlap: reply.getBoundingClientRect().bottom - wrap.getBoundingClientRect().top,
+        overlap: view.getBoundingClientRect().bottom - wrap.getBoundingClientRect().top,
         band: cs.getPropertyValue("--boxband").trim(),
         wrapHeight: Math.round(wrap.getBoundingClientRect().height),
         up: cs.getPropertyValue("--upband").trim(),
@@ -404,7 +404,7 @@ test("the answer dissolves under the title as it scrolls and into the sent box a
         mask: cs.webkitMaskImage,
         composite: cs.webkitMaskComposite || cs.maskComposite,
         runout: cs.paddingBottom,
-        scrolls: reply.scrollHeight > reply.clientHeight + 1,
+        scrolls: view.scrollHeight > view.clientHeight + 1,
       };
     });
     assert.equal(rest.wrapPosition, "absolute", "the sent box is not laid over the answer");
@@ -422,10 +422,10 @@ test("the answer dissolves under the title as it scrolls and into the sent box a
 
     // one pixel of scroll buys one pixel of ramp, and the ramp stops at its depth
     const scrolled = await page.evaluate(async () => {
-      const reply = document.querySelector("article.box.sel .reply");
-      const read = () => getComputedStyle(reply).getPropertyValue("--upband").trim();
+      const view = document.querySelector("article.box.sel .replyview");
+      const read = () => getComputedStyle(view).getPropertyValue("--upband").trim();
       const step = async to => {
-        reply.scrollTop = to;
+        view.scrollTop = to;
         await new Promise(r => setTimeout(r, 60));
         return read();
       };
