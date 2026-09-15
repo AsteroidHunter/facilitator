@@ -3611,7 +3611,7 @@ if (typeof noteDoing !== "function") window.noteDoing = () => {};
 const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
                   ["now", "Now"], ["done", "Done"], ["later", "Later"]];
 const METAS = [["toolmeta", "facilitator"], ["triagemeta", "pastureland"]];
-const NAME = { facilitator: "facilitator agent", pastureland: "pastureland agent", journal: "journal agent" };
+const NAME = { facilitator: "facilitator agent", pastureland: "pastureland agent" };
 const laneName = ow => NAME[ow] || (ow + " agent");   // project lanes name themselves
 /* the dormant worktree selector's mark: a branch fork drawn in stroke only,
    so it takes the name's own muted ink through currentColor
@@ -6744,9 +6744,9 @@ spotClaimCode().then(() => { spotBuild(); spotPoll(); });
 // never has to reach into this repo to show something. the server hands that
 // folder over at /laneimg/<lane>/<file>. deleting the file empties the panel
 // again. P3_LANE below is the one tab the panel belongs to. every other tab
-// keeps the plain stub magic box 3 always was. this is the only place the name
-// is written down, so moving the panel to another tab is a one word change here
-const P3_LANE = "sketchbook";
+// keeps the plain stub magic box 3 always was. the lane comes from the board
+// state (imagePanelLane, from run.config.json); empty leaves the panel off
+let P3_LANE = "";
 const P3_EXT = ["png", "svg", "jpg", "jpeg", "gif", "webp"];
 const P3_ICON = {
   // an axis with three bars, and a framed picture: the two things that belong here
@@ -9008,6 +9008,7 @@ async function poll(){
     if (!lastState) build(state);
     apply(state);
     lastState = state;
+    P3_LANE = state.imagePanelLane || "";
     const caretAfter = focusedCaretContext();
     if (caretBefore && caretAfter && caretBefore.editor === caretAfter.editor &&
         (caretBefore.left !== caretAfter.left || caretBefore.top !== caretAfter.top ||
@@ -9287,9 +9288,10 @@ function syncLayoutsOnce(){
 const HIDE_SEED = "hideseed.1";
 function seedHiddenOnce(){
   if (localStorage.getItem(HIDE_SEED)) return;
+  if (!P3_LANE) return;
   localStorage.setItem(HIDE_SEED, "1");
-  localStorage.setItem("hide.sketchbook.goalbox", "1");
-  localStorage.setItem("hide.sketchbook.rail", "1");
+  localStorage.setItem("hide." + P3_LANE + ".goalbox", "1");
+  localStorage.setItem("hide." + P3_LANE + ".rail", "1");
 }
 
 function applySavedLayout(){

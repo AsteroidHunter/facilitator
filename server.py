@@ -441,6 +441,17 @@ def _configured_level() -> str:
     return named if named in LOG_LEVELS else "info"
 
 
+def _image_panel_lane() -> str:
+    """The lane whose own internal folder feeds the image panel (magic box 3),
+    read from run.config.json (machine-local, gitignored). Empty when unset,
+    which leaves the panel off on every tab and the feature idle."""
+    try:
+        cfg = json.loads((HERE / "run.config.json").read_text())
+    except Exception:
+        return ""
+    return str(cfg.get("image_panel_lane") or "").strip()
+
+
 class DatedRotatingHandler(logging.handlers.RotatingFileHandler):
     """A file per day per kind, capped by size and pruned by count.
 
@@ -557,6 +568,7 @@ class HumanLineFormatter(logging.Formatter):
 
 
 LOG_LEVEL = _configured_level()
+IMAGE_PANEL_LANE = _image_panel_lane()
 LOGGER = logging.getLogger("facilitator")
 LOGGER.setLevel(LOG_LEVELS[LOG_LEVEL])
 LOGGER.propagate = False
@@ -2853,6 +2865,9 @@ def _ui_state() -> dict:
         "end": st["end"],
         "paused": st.get("paused", False),
         "title": st.get("title", "facilitator"),
+        # the lane whose own internal folder feeds the image panel, read
+        # from run.config.json; empty leaves the panel off on every tab
+        "imagePanelLane": IMAGE_PANEL_LANE,
         # the one tab bar both pages draw: the lane order and the lanes that
         # are closed. An empty order means no arrangement has been saved
         "tabs": st.get("tabs", {"order": [], "closed": []}),

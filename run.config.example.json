@@ -1,6 +1,7 @@
 {
   "port": 8877,
   "log_level": "info",
+  "image_panel_lane": "",
   "lanes": [
     {
       "owner": "facilitator",

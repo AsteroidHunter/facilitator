@@ -1329,7 +1329,7 @@
 const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
                   ["now", "Now"], ["done", "Done"], ["later", "Later"]];
 const METAS = [["toolmeta", "facilitator"], ["triagemeta", "pastureland"]];
-const NAME = { facilitator: "facilitator agent", pastureland: "pastureland agent", journal: "journal agent" };
+const NAME = { facilitator: "facilitator agent", pastureland: "pastureland agent" };
 const laneName = ow => NAME[ow] || (ow + " agent");   // project lanes name themselves
 const els = {};       // box id -> {box, reply, meta, ta, send, donebtn, toc, sec}
 const secEls = {}, tocGroups = {};
