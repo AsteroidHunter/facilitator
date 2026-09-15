@@ -346,3 +346,74 @@ test("switching cards while the keyboard is up leaves no stale reachability padd
     await page.close();
   }
 });
+
+// ---- unit 4: the focus locks ---------------------------------------------------------
+
+test("the caret-reveal blink is keyed to whichever field is focused", async () => {
+  const source = await readFile(path.join(ROOT, "m.html"), "utf8");
+  // the blink that keeps the phone from scrolling the page on a focus is keyed to
+  // the owned-focus mark, so it covers whichever field is actually focused, the
+  // plain textarea or the editor content, and not the textarea alone
+  assert.match(source, /\[data-owned-focus\]:focus\{animation:focus-blink/, "the blink is not keyed to the owned-focus mark");
+  assert.doesNotMatch(source, /\btextarea:focus\{animation:focus-blink/, "the blink is still keyed to the textarea alone");
+});
+
+test("both the plain field and the editor content carry the owned-focus mark", async () => {
+  const id = await create("Owned focus on the phone");
+  await api(`/reply?box=${id}`, "A reply to answer.");
+  const { page, problems } = await openPhone(`/m?box=${id}`);
+  try {
+    await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
+    // formatting is on by default, so the editor content is the focusable field;
+    // it carries the mark once the editor has mounted
+    await page.waitForFunction(() => {
+      const c = document.querySelector("article.box.sel .cm-content");
+      return c && c.hasAttribute("data-owned-focus");
+    }, { timeout: 5000 });
+    // the plain textarea kept as the model is marked too, so formatting off leaves
+    // the focused field covered as well
+    assert.equal(await page.evaluate(() =>
+      document.querySelector("article.box.sel textarea").hasAttribute("data-owned-focus")), true,
+      "the plain field is not marked");
+    await page.evaluate(() => ComposeFormat.setEnabled(false));
+    await settle(150);
+    const off = await page.evaluate(() => ({
+      marked: document.querySelector("article.box.sel textarea").hasAttribute("data-owned-focus"),
+      mirror: !!document.querySelector("article.box.sel .cm-content"),
+    }));
+    assert.equal(off.marked, true, "the plain field lost its mark when formatting went off");
+    assert.equal(off.mirror, false, "the editor content stayed after formatting went off");
+    await page.evaluate(() => ComposeFormat.setEnabled(true));
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("a keystroke while the keyboard is up re-arms the blink on the focused editor content", async () => {
+  const id = await create("Blink rearm on the phone");
+  await api(`/reply?box=${id}`, "A reply to answer.");
+  const { page, problems } = await openPhone(`/m?box=${id}`, { fake: true });
+  try {
+    await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
+    await page.waitForFunction(() => {
+      const c = document.querySelector("article.box.sel .cm-content");
+      return c && c.hasAttribute("data-owned-focus");
+    }, { timeout: 5000 });
+    await page.focus(SEL);
+    await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height - KEYBOARD);
+    await settle(400);
+    // the re-arm puts its one-frame opacity blink on the focused editor content,
+    // not on the scroller around it, so the reveal has nothing to centre on
+    const blinked = await page.evaluate(() => {
+      const c = document.querySelector("article.box.sel .cm-content");
+      const before = c.getAnimations().length;
+      window.blinkRow(document.querySelector("article.box.sel textarea"));
+      return c.getAnimations().length > before;
+    });
+    assert.equal(blinked, true, "the blink did not re-arm on the focused editor content");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});

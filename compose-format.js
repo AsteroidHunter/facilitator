@@ -877,6 +877,10 @@
     const view = new C.EditorView({ state: freshState(C, field, text, caret), parent });
     parent.insertBefore(view.dom, ta.nextSibling);   // the row's own seat
     field.view = view;
+    // the editor content is the field the reader actually focuses now, so it
+    // carries the same owned-focus mark the plain field does, and a page keying a
+    // caret-reveal lock to that mark covers this content the same way
+    view.contentDOM.setAttribute("data-owned-focus", "");
     field.seat = ta.nextSibling;   // where the field goes back to
     field.heldStyle = ta.getAttribute("style") || "";
     field.heldEditable = ta.getAttribute("contenteditable");
@@ -1039,6 +1043,11 @@
       formatted() { return !!this.view; },
       focused() {
         return this.view ? hasCaret(this.view) : document.activeElement === this.ta;
+      },
+      // the element the reader's caret actually sits in, for a page keying a
+      // focus lock to it: the editor content while the editor is on, else the field
+      focusEl() {
+        return this.view ? this.view.contentDOM : this.ta;
       },
       // the row's own height from its words, which is the two lines every
       // composer wrote by hand before there was a second face to write them on
