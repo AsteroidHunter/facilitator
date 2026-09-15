@@ -14,7 +14,7 @@
 <link rel="manifest" href="/m-manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="facilitator">
 <meta name="theme-color" content="#FFFFFF">
 <link rel="apple-touch-icon" href="/m-icon-180.png">
@@ -81,7 +81,14 @@
        moves on the platform keyboard's clock and curve, --kb-anim */
     --pad-b:calc(env(safe-area-inset-bottom, 0px) + var(--app-inset));
     --kb-inset:0px;
-    --kb-anim:.25s cubic-bezier(.38,.7,.125,1);
+    /* the gap the compose bar keeps above the keyboard is the app's own thin
+       margin. the lifted body travels the resting clearance less that gap less
+       the keyboard's measured inset; at rest it is nothing */
+    --kb-gap:var(--app-inset);
+    --kb-lift:0px;
+    /* the platform keyboard's own clock and curve, fitted to a recording of it,
+       leaving rest at no speed and landing at rest at no speed */
+    --kb-anim:.22s cubic-bezier(.45,0,.55,1);
     /* The tab strip, its seated tab and the exposed canvas share one paper.
        A page-only highlight would reveal a seam when the page draws back. */
     background:var(--paper);
@@ -96,15 +103,14 @@
     --page-scale:1;
     transform:scale(var(--page-scale));
     transform-origin:50% 50%;
-    transition:padding-bottom var(--kb-anim),
-               transform var(--drawer-ms) var(--drawer-curve);
+    transition:transform var(--drawer-ms) var(--drawer-curve);
   }
-  /* the clearance is the page's own, so the keyboard's value is set on the
-     page as well: a property an element declares is not the one it inherits */
-  body.obstructed #page{--pad-b:calc(var(--kb-inset) + var(--app-inset))}
-  /* a small obstruction uses the reported edge directly, without the app's
-     extra margin. the full keyboard and resting safe area keep that margin */
-  body.obstructed:not(.kb) #page{--pad-b:var(--kb-inset)}
+  /* the lift is the whole of the keyboard's visible motion: the card body rises
+     by a transform and the page's own bottom clearance never changes, so no box
+     resizes at a keyboard edge. the small accessory strip lifts on the same rule
+     as the full keyboard, so both clear the obstruction the same way. the value
+     is set on the page, which holds --kb-inset, and inherits to the card body */
+  body.obstructed #page, body.lifting #page{--kb-lift:calc(var(--pad-b) - var(--kb-gap) - var(--kb-inset))}
   /* the box while the viewport is obstructed, and through the close's settle window.
      the top follows the visual viewport, for the phone that slides the layout
      viewport under the keyboard; the height is the learned full-screen height
@@ -262,8 +268,18 @@
      ramp at the foot be cut on the box's top edge. nothing moves by a pixel:
      the wrapper stood on the body's floor in the column and it stands on the
      same floor pinned to it */
+  /* the clip box: a static box from the card header to the card foot that cuts
+     the body where it rises under the header. clip and never hidden, so it is
+     not a scroll container the phone's caret reveal could seize and scroll */
+  .liftclip{display:flex; flex-direction:column; flex:1 1 auto; min-height:0; overflow:clip}
+  /* the one lifted piece: the answer's scroller and the sent box and typing row
+     over it, moved as a whole by a transform on the keyboard's own clock. it
+     keeps its own layer between edges so a close starts on the frame it is
+     asked for, and it clips rather than scrolls, so it is no reveal target */
   .body{display:flex; flex-direction:column; flex:1 1 0; min-height:0;
-    padding:var(--titleair) 0 0; position:relative; overflow:hidden}
+    padding:var(--titleair) 0 0; position:relative; overflow:clip;
+    transform:translateY(var(--kb-lift, 0px));
+    transition:transform var(--kb-anim); will-change:transform}
   /* the answer's own scroller: it owns the scroll, the touch inertia and the
      clear air under it, and the answered box rides inside it above the answer
      prose so the box leaves under the title as the reader scrolls */
@@ -272,6 +288,11 @@
     flex:1 1 auto; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
     overscroll-behavior:contain;
     margin-bottom:var(--replyair);
+    /* the lift carries the answer's top up under the header; this much top
+       padding, written by the script only once the lift has landed, gives that
+       much back to the scroll so the top stays reachable while the keyboard is
+       up. it is nothing at rest */
+    padding-top:var(--lift-pad, 0px);
     /* the box's fold is held by hand (holdAnswerScroll); the browser's own scroll
        anchoring is off so the two do not both give the box's travel to the scroll */
     overflow-anchor:none;
@@ -581,7 +602,7 @@
      on that frame: one fiftieth of a second blink on focus, a frame the eye
      cannot catch. the script blinks the same way on every keystroke while
      the keyboard is up, since the reveal fires on those too */
-  textarea:focus{animation:focus-blink .02s}
+  [data-owned-focus]:focus{animation:focus-blink .02s}
   @keyframes focus-blink{from{opacity:0}}
   /* the twin the row is measured on: the same rule as the row, the row's own
      width, out of the flow and out of sight. the row's height is read off it,
@@ -1004,6 +1025,13 @@ function watchBand(el){
   //            itself, so it does not move when that box folds, which is what
   //            lets that box's own share be worked out from it without the two
   //            chasing each other.
+  // each of the three is written only when it changes. these feed the size of the
+  // very elements this observer watches (the box's cap off --cardroom, the
+  // answer's run-out off --boxband), so a write on every fire, even of the value
+  // already held, keeps the observer firing on its own writes, which the browser
+  // gives up on as a loop through a whole keyboard run. deduped, the writes
+  // converge in a frame and the loop never starts.
+  let lastBand = null, lastRoom = null, lastFoot = null;
   const write = () => {
     const body = el.replyview.parentElement;
     const band = boxBand(el.replyview, el.pendwrap);
@@ -1013,12 +1041,26 @@ function watchBand(el){
       const cs = getComputedStyle(body);
       room = body.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
     }
-    el.box.style.setProperty("--boxband", band + "px");
-    el.box.style.setProperty("--cardroom", Math.max(0, Math.round(room)) + "px");
-    el.box.style.setProperty("--footband", Math.max(0, Math.round(band - own)) + "px");
+    const roomPx = Math.max(0, Math.round(room));
+    const footPx = Math.max(0, Math.round(band - own));
+    if (band !== lastBand){ lastBand = band; el.box.style.setProperty("--boxband", band + "px"); }
+    if (roomPx !== lastRoom){ lastRoom = roomPx; el.box.style.setProperty("--cardroom", roomPx + "px"); }
+    if (footPx !== lastFoot){ lastFoot = footPx; el.box.style.setProperty("--footband", footPx + "px"); }
+  };
+  // the write resizes the very elements this observer watches (the box's cap off
+  // --cardroom and --footband, the answer's run-out off --boxband), so running it
+  // inside the observer leaves a resize the observer never delivers, which the
+  // browser reports as a loop through a whole keyboard run. it is coalesced onto
+  // the next frame instead: one write a frame, outside the observer's own
+  // delivery, so nothing loops, and the dedupe above settles it once sizes hold
+  let scheduled = false;
+  const schedule = () => {
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(() => { scheduled = false; write(); });
   };
   if (window.ResizeObserver){
-    const ro = new ResizeObserver(write);
+    const ro = new ResizeObserver(schedule);
     ro.observe(el.pendwrap);
     ro.observe(el.replyview);
     // the card's own room changes with the keyboard and with the window, which
@@ -1114,6 +1156,10 @@ function makeBox(b){
   const compose = h("div", "compose");
   const ta = h("textarea");
   ta.rows = 1;
+  // the mark the caret-reveal blink and the per-keystroke re-arm read, so
+  // whichever field is focused, this plain one or the editor content standing in
+  // for it, is the one the reveal is kept off. the editor marks its content too
+  ta.setAttribute("data-owned-focus", "");
   const send = h("button", "sendbtn");
   send.type = "button"; send.setAttribute("aria-label", "send");
   send.innerHTML = SEND_ICON;
@@ -1126,7 +1172,11 @@ function makeBox(b){
   // over the answer at the card's floor the sent box and the typing row
   replyview.append(answwrap, reply);
   body.append(replyview, pendwrap);
-  box.appendChild(body);
+  // the clip box the body lifts inside: the body rises under the card header on
+  // a transform and this cuts it there, without being a scroll container
+  const liftclip = h("div", "liftclip");
+  liftclip.appendChild(body);
+  box.appendChild(liftclip);
   document.getElementById("cards").appendChild(box);
 
   // the row's typed formatting, on unless the setting says otherwise. it is
@@ -1209,8 +1259,8 @@ function makeBox(b){
     await attach(files, ta);
   });
 
-  els[b.id] = { box, reply, replyview, meta, ta, twin, send, tick, titleEl, arc, x, pendwrap, bottombar,
-                pend: null, pendRaw: "", histUp, histDown, histPos, clip, clipfile, field,
+  els[b.id] = { box, body, reply, replyview, meta, ta, twin, send, tick, titleEl, arc, x, pendwrap, bottombar,
+                pend: null, pendRaw: "", histUp, histDown, histPos, clip, clipfile, field, liftPad: 0,
                 foldRun: 0, answFoldRun: 0,   // one run number per box, for a second press
                 // answ is null until the card shows a reply the board recorded a
                 // batch for, and null again the moment it shows one it did not.
@@ -1845,6 +1895,10 @@ function select(id){
   const trace = tracePhone("begin", "select", { box: id });
   if (!els[id]){ endPhoneTrace(trace, { box: id }); return; }
   const leaving = selectedId && selectedId !== id ? els[selectedId] : null;
+  // a card left while the keyboard is still up (a hardware-keyboard hotkey move)
+  // never runs its own close, so its reachability padding is cleared here rather
+  // than left on the answer to show as a gap when the card is seen again
+  if (leaving) setLiftPad(leaving, 0);
   cancelAutoNext();
   if (hist && hist.id !== id) histExit(hist.id);
   selectedId = id; localStorage.setItem("selbox", id);
@@ -2989,10 +3043,18 @@ function revealCaret(ta, twin){
 // the caret (the css does the same on focus): the previous blink is cancelled
 // first, so fast typing stacks nothing
 let rowBlink = null;
+// the element the blink runs on: the editor content when the row wears the
+// editor, the plain field otherwise, so the re-arm covers the same box the
+// declarative :focus blink does and the reveal has nothing to centre on
+function ownedFocusEl(ta){
+  const field = ComposeFormat.fieldOf(ta);
+  return field && typeof field.focusEl === "function" ? field.focusEl() : ta;
+}
 function blinkRow(ta){
-  if (!ta.animate) return;
+  const el = ownedFocusEl(ta);
+  if (!el || !el.animate) return;
   if (rowBlink) rowBlink.cancel();
-  rowBlink = ta.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 20 });
+  rowBlink = el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 20 });
 }
 // the focusing tap on an empty row. the phone's own focus from a tap runs its
 // caret reveal, which scrolls the whole page under the rising keyboard, and the
@@ -3024,7 +3086,7 @@ function takeFocusTap(e, ta){
 const VIEWPORT_EPSILON_PX = 1;
 const PAGE_SCALE_EPSILON = .01;
 const MIN_SOFT_KEYBOARD_PX = 100;
-const KB_ANIM_MS = 250;                    // the css --kb-anim: the keyboard's own duration
+const KB_ANIM_MS = 220;                    // the css --kb-anim: the keyboard's own duration
 const LIFT_SETTLE_MS = KB_ANIM_MS + 200;   // the settle window, which a landing closes early
 const CLOSE_RETRY_MS = 350;                // the viewport reports late after a close
 const MAX_SHOVE_CLEARS = 3;                // per keystroke; a phone that keeps re-shoving is yielded to
@@ -3124,11 +3186,12 @@ function armLift(){
   if (liftTimer) clearTimeout(liftTimer);
   liftTimer = setTimeout(() => { liftTimer = null; liftLanded(true); }, LIFT_SETTLE_MS + 20);
 }
-// the foot has landed. the window closes here for an open, and for a close
+// the lift has landed. the window closes here for an open, and for a close
 // whose viewport already reads whole; a close the phone has not finished
 // reporting keeps the clock, so the box's top stands until the layout viewport
-// is slid back. an open landed brings the caret's line into view, a close
-// landed puts the scrollers back in bounds
+// is slid back. an open landed brings the caret's line into view and hands the
+// answer its reachability padding; a close landed takes it back and puts the
+// scrollers in bounds
 function liftLanded(byClock){
   const w = readWorld();
   const whole = viewportObstruction(w.baseline, w.vvHeight) === 0 && w.vvTop <= 1;
@@ -3136,11 +3199,38 @@ function liftLanded(byClock){
   reconcile();
   const el = selectedId && els[selectedId];
   if (!el) return;
-  if (appliedObstruction){ if (ComposeFormat.focused(el.ta)) revealCaret(el.ta, el.twin); }
-  else snapBack(el);
+  if (appliedObstruction){
+    setLiftPad(el, liftDistance(el));
+    if (ComposeFormat.focused(el.ta)) revealCaret(el.ta, el.twin);
+  } else {
+    setLiftPad(el, 0);
+    snapBack(el);
+  }
 }
-document.getElementById("page").addEventListener("transitionend", e => {
-  if (e.target === e.currentTarget && e.propertyName === "padding-bottom") liftLanded(false);
+// how far the body actually rose, read off its own rendered transform rather
+// than recomputed from the inset, so it is whatever the engine drew
+function liftDistance(el){
+  const m = new DOMMatrix(getComputedStyle(el.body).transform);
+  return Math.max(0, Math.round(-m.m42));
+}
+// the reachability padding, applied only once the lift has landed and never at
+// an edge: the answer's top rose under the header, so this much top padding
+// gives it back to the scroll, and the scroll is shifted by the same step in
+// the same frame so nothing on screen moves
+function setLiftPad(el, next){
+  if (next === el.liftPad) return;
+  // the scroll is read BEFORE the padding changes: removing the padding shrinks
+  // the scrollable height and the engine clamps the scroll on its own, so a read
+  // after the change would already be moved and the shift would double
+  const view = el.replyview, delta = next - el.liftPad, st = view.scrollTop;
+  el.liftPad = next;
+  view.style.setProperty("--lift-pad", next + "px");
+  view.scrollTop = Math.max(0, st + delta);
+}
+// the lift is one transform on the shown card's body; its own transitionend is
+// the exact landing, and the settle clock above closes one that never fires it
+document.getElementById("cards").addEventListener("transitionend", e => {
+  if (e.target.classList.contains("body") && e.propertyName === "transform") liftLanded(false);
 });
 // the phone can hand a scroller its pre-close offset a frame after its own
 // close motion, past the end of the range the taller box leaves, and paint a
