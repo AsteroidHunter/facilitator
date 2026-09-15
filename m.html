@@ -3199,7 +3199,8 @@ function keyboardClosed(){
 document.addEventListener("focusin", reconcile);
 document.addEventListener("focusout", () => requestAnimationFrame(reconcile));   // a frame's grace: focus may be hopping between fields
 for (const type of ["beforeinput", "keydown"]){
-  document.addEventListener(type, e => { if (e.target instanceof HTMLTextAreaElement) shoveClears = 0; }, true);
+  document.addEventListener(type, e => { const t = e.target;
+    if (t instanceof HTMLTextAreaElement || (t && t.isContentEditable && t.closest && t.closest(".compose"))) shoveClears = 0; }, true);
 }
 if (window.visualViewport){
   window.visualViewport.addEventListener("resize", reconcile);
