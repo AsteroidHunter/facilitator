@@ -45,3 +45,35 @@ test("the start globe is centred on its own full-screen box", async () => {
   assert.match(curtain, /left:50%; top:50%/, "the globe is not centred in the curtain");
   assert.match(curtain, /margin:-7vmin 0 0 -7vmin/, "the globe is not pulled back by half its own size");
 });
+
+// ---- unit 2: the transform lift ------------------------------------------------------
+
+test("the card body lifts by a transform inside a clip box, never by resizing", async () => {
+  const source = await readFile(path.join(ROOT, "m.html"), "utf8");
+  const sheet = source.slice(source.indexOf("<style>"), source.indexOf("</style>"));
+  // the clip box cuts the lifted body where it rises under the card header, and
+  // it is clip and not hidden so it is never a scroll container the caret reveal
+  // could seize
+  assert.match(sheet, /\.liftclip\{[^}]*overflow:\s*clip/, "the clip box is missing or is not overflow:clip");
+  assert.doesNotMatch(sheet, /\.liftclip\{[^}]*overflow:\s*hidden/, "the clip box is a scroll container");
+  // the body is the one lifted piece, moved only by a transform on the keyboard clock
+  assert.match(sheet, /\.body\{[^}]*transform:\s*translateY\(var\(--kb-lift/, "the body does not lift by a transform");
+  assert.match(sheet, /\.body\{[^}]*transition:\s*transform var\(--kb-anim\)/, "the body's lift is not on the keyboard clock");
+  assert.match(sheet, /\.body\{[^}]*will-change:\s*transform/, "the lifted body keeps no layer between edges");
+  // the lift distance: the resting clearance less the gap less the keyboard inset
+  assert.match(sheet, /--kb-lift:\s*calc\(var\(--pad-b\)\s*-\s*var\(--kb-gap\)\s*-\s*var\(--kb-inset\)\)/,
+    "the lift distance is not the resting clearance less the gap less the inset");
+  // the old box-resizing lift is gone: the page's bottom padding no longer grows
+  // with the keyboard
+  assert.doesNotMatch(sheet, /body\.obstructed[^{]*#page\{[^}]*--pad-b:/,
+    "the page still grows its padding at the keyboard edge");
+});
+
+test("the keyboard curve is the measured one and the settle clock matches it", async () => {
+  const source = await readFile(path.join(ROOT, "m.html"), "utf8");
+  assert.match(source, /--kb-anim:\.22s cubic-bezier\(\.45,0,\.55,1\)/, "the keyboard curve is not the measured one");
+  assert.match(source, /const KB_ANIM_MS = 220/, "the settle clock does not match the css curve");
+  // the lift's landing is watched on the body's own transform, not the page's padding
+  assert.match(source, /propertyName === "transform"/, "the lift landing is not watched on the transform");
+  assert.doesNotMatch(source, /propertyName === "padding-bottom"/, "the lift landing still watches the old padding");
+});
