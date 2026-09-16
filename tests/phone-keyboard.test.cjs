@@ -150,10 +150,13 @@ function shellShape() {
   const body = document.body;
   return {
     foot: pane.bottom - vvTop, tab: bar.top - vvTop, title: title.top - vvTop,
-    // the clearance as it is laid out, which a menu's depth cannot touch: the
-    // measured foot above is the picture, and the page's picture draws back
-    // towards the middle of the screen while a menu is out
+    // the card's own two edges as they are laid out, which a menu's depth cannot
+    // touch: the measured foot above is the picture, and the page's picture draws
+    // back towards the middle of the screen while a menu is out. the head is the
+    // edge nothing may move; the foot is the edge the keyboard's room comes out of
     footLaidOut: paneEl.offsetTop + paneEl.offsetHeight,
+    headLaidOut: paneEl.offsetTop,
+    answer: Math.round(document.querySelector("article.box.sel .replyview").getBoundingClientRect().height),
     row: ta.height, rowBottom: ta.bottom - vvTop,
     bodyTop: body.getBoundingClientRect().top, bodyHeight: body.getBoundingClientRect().height,
     kb: body.classList.contains("kb"), obstructed: body.classList.contains("obstructed"),
@@ -322,7 +325,7 @@ test("the row grows to its text exactly, one to twelve lines, the caret's line i
   }
 });
 
-test("the composer rises over the keyboard on its own curve while the card box keeps its size (overlay mode)", async () => {
+test("the composer rises over the keyboard on its own curve while the card's top stands still (overlay mode)", async () => {
   const id = await create("Keyboard overlay on the phone");
   await api(`/reply?box=${id}`, "A reply to answer.");
   const { page, problems } = await openPhone(`/m?box=${id}`, { fake: true });
@@ -344,10 +347,12 @@ test("the composer rises over the keyboard on its own curve while the card box k
     const up = await page.evaluate(shellShape);
     assert.equal(up.kb, true, "the shrunken viewport with the row focused is not read as the keyboard");
     assert.equal(up.inset, `${KEYBOARD}px`);
-    // the card box never resizes at a keyboard edge: it keeps its laid-out size
-    // and the shell keeps its full height. what moves is the whole card, carried
-    // up as one piece, its own foot with it
-    assert.equal(up.footLaidOut, PHONE.height - INSET, "the card box resized at the keyboard edge");
+    // the card's room comes out of its own foot: the laid-out foot is up by the
+    // keyboard, the laid-out top is exactly where it was, and the shell keeps its
+    // full height, so no box of the page itself resizes at a keyboard edge
+    assert.equal(up.footLaidOut, PHONE.height - INSET - KEYBOARD, "the card's foot did not take the keyboard's room");
+    assert.equal(up.headLaidOut, rest.headLaidOut, "the card's top edge moved at the keyboard edge");
+    assert.equal(rest.answer - up.answer, KEYBOARD, "the answer did not shorten by the keyboard's room");
     assert.ok(Math.abs((rest.foot - up.foot) - KEYBOARD) <= 2,
       `the card's foot rose ${rest.foot - up.foot}, not the keyboard's ${KEYBOARD}`);
     assert.equal(up.bodyHeight, PHONE.height, "the box did not keep its full-screen height");
@@ -361,11 +366,11 @@ test("the composer rises over the keyboard on its own curve while the card box k
     assert.ok(Math.abs((rest.rowBottom - up.rowBottom) - KEYBOARD) <= 2,
       `the composer rose ${rest.rowBottom - up.rowBottom}, not the keyboard's ${KEYBOARD}`);
     assert.ok(open.length >= 8, `too few frames sampled (${open.length})`);
-    // the motion is the whole card's: its foot and its title travel with the
-    // composer, one way and together, and only the tabs hold every frame
+    // the motion is the card's foot and the composer standing on it, one way and
+    // together; the tabs and the title hold on every frame
     assertOneWay(open.map(s => s.rowBottom), "up", "the composer");
     assertOneWay(open.map(s => s.foot), "up", "the card foot");
-    assertOneWay(open.map(s => s.title), "up", "the title");
+    assertStill(open.map(s => s.title), "the title");
     assertStill(open.map(s => s.tab), "the tab bar");
     assertStill(open.map(s => s.row), "the row's height");
     const between = open.filter(s => s.rowBottom < rest.rowBottom - 1 && s.rowBottom > up.rowBottom + 1).length;
@@ -396,7 +401,7 @@ test("the composer rises over the keyboard on its own curve while the card box k
     assert.equal(down.bodyHeight, PHONE.height);
     assertOneWay(close.map(s => s.rowBottom), "down", "the composer");
     assertOneWay(close.map(s => s.foot), "down", "the card foot");
-    assertOneWay(close.map(s => s.title), "down", "the title");
+    assertStill(close.map(s => s.title), "the title");
     assertStill(close.map(s => s.tab), "the tab bar");
     assertStill(close.map(s => s.row), "the row's height");
     assert.ok(Math.max(...close.map(s => s.rowBottom)) <= down.rowBottom + 0.5, "the composer overshot the rest edge");
@@ -446,17 +451,17 @@ test("an accessory-sized viewport obstruction seats the card foot at its measure
     assert.equal(up.obstructed, true, "the focused accessory-sized viewport loss was ignored");
     assert.equal(up.kb, false, "the accessory strip was mistaken for a full soft keyboard");
     assert.equal(up.inset, `${ACCESSORY}px`, "the card did not use the measured obstruction");
-    assert.equal(up.footLaidOut, PHONE.height - INSET, "the card box resized at the accessory edge");
+    assert.equal(up.footLaidOut, PHONE.height - INSET - ACCESSORY, "the card's foot did not take the accessory's room");
+    assert.equal(up.headLaidOut, rest.headLaidOut, "the card's top edge moved at the accessory edge");
     assert.ok(Math.abs((rest.rowBottom - up.rowBottom) - ACCESSORY) <= 2,
       `the composer rose ${rest.rowBottom - up.rowBottom}, not the accessory's ${ACCESSORY}`);
     assert.equal(up.tab, rest.tab, "the project tabs moved while the composer rose");
-    assert.ok(Math.abs((rest.title - up.title) - ACCESSORY) <= 2,
-      `the card title rose ${rest.title - up.title}, not the accessory's ${ACCESSORY} with the rest of the card`);
+    assert.equal(up.title, rest.title, "the card title moved while the composer rose for the accessory strip");
     assert.equal(up.row, rest.row, "the hardware-keyboard composer took the soft-keyboard cap");
     assert.ok(frames.length >= 8, `too few accessory frames sampled (${frames.length})`);
     assertOneWay(frames.map(s => s.rowBottom), "up", "the accessory composer");
     assertOneWay(frames.map(s => s.foot), "up", "the accessory card foot");
-    assertOneWay(frames.map(s => s.title), "up", "the accessory card title");
+    assertStill(frames.map(s => s.title), "the accessory card title");
     assertStill(frames.map(s => s.tab), "the accessory tab bar");
     const between = frames.filter(s => s.rowBottom < rest.rowBottom - 1 && s.rowBottom > up.rowBottom + 1).length;
     assert.ok(between >= 3, `the accessory adjustment jumped instead of gliding: ${between} frames`);
@@ -524,6 +529,7 @@ test("a viewport the phone slides under the keyboard: the box follows its top, t
   const { page, problems } = await openPhone(`/m?box=${id}`, { fake: true });
   try {
     await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
+    const rest = await page.evaluate(shellShape);
     await page.focus(SEL);
     await page.evaluate(k => window.__keyboard.set(k.height, k.top), { height: PHONE.height - KEYBOARD, top: KEYBOARD });
     await settle(600);
@@ -532,7 +538,8 @@ test("a viewport the phone slides under the keyboard: the box follows its top, t
     assert.equal(up.bodyTop, KEYBOARD, "the box's top did not follow the slid viewport");
     assert.equal(up.bodyHeight, PHONE.height);
     assert.equal(up.tab, INSET, "the tabs are not at the visible top");
-    assert.equal(up.footLaidOut, PHONE.height - INSET, "the card box resized in slide mode");
+    assert.equal(up.footLaidOut, PHONE.height - INSET - KEYBOARD, "the card's foot did not take the keyboard's room in slide mode");
+    assert.equal(up.headLaidOut, rest.headLaidOut, "the card's top edge moved in slide mode");
     assert.ok(up.rowBottom <= PHONE.height - KEYBOARD && up.rowBottom >= PHONE.height - KEYBOARD - INSET - 2,
       `the composer (${up.rowBottom}) is not just above the slid keyboard edge (${PHONE.height - KEYBOARD})`);
 
@@ -568,7 +575,7 @@ test("a measured focused shortfall adjusts the foot, while an unfocused shrink i
     assert.equal(small.obstructed, true, "a focused 24px viewport loss was ignored");
     assert.equal(small.kb, false, "a focused 24px loss was mistaken for a full soft keyboard");
     assert.equal(small.inset, "24px");
-    assert.equal(small.footLaidOut, PHONE.height - INSET, "the card box resized at a small obstruction");
+    assert.equal(small.footLaidOut, PHONE.height - INSET - 24, "the card's foot did not take the small obstruction's room");
     assert.ok(small.rowBottom <= PHONE.height - 24 && small.rowBottom >= PHONE.height - 24 - INSET - 2,
       `the composer (${small.rowBottom}) is not just above the measured obstruction (${PHONE.height - 24})`);
     await page.evaluate(() => document.activeElement.blur());
@@ -614,7 +621,7 @@ test("landscape relearns its clear height and reduced motion applies the measure
     const up = {
       ...await page.evaluate(shellShape),
       ...await page.evaluate(() => ({
-        transition: getComputedStyle(document.querySelector("article.box.sel .body")).transitionDuration,
+        transition: getComputedStyle(document.getElementById("pane")).transitionDuration,
         draft: document.querySelector("article.box.sel textarea").value,
       })),
     };
@@ -625,12 +632,12 @@ test("landscape relearns its clear height and reduced motion applies the measure
     assert.equal(up.obstructed, true);
     assert.equal(up.kb, false);
     assert.equal(up.inset, `${ACCESSORY}px`);
-    assert.equal(up.footLaidOut, LANDSCAPE.height - INSET, "the landscape card box resized at the accessory edge");
+    assert.equal(up.footLaidOut, LANDSCAPE.height - INSET - ACCESSORY,
+      "the landscape card's foot did not take the accessory's room");
     assert.ok(Math.abs((rest.rowBottom - up.rowBottom) - ACCESSORY) <= 2,
       `the landscape composer rose ${rest.rowBottom - up.rowBottom}, not the accessory's ${ACCESSORY}`);
     assert.equal(up.tab, rest.tab, "the landscape tabs moved under the accessory strip");
-    assert.ok(Math.abs((rest.title - up.title) - ACCESSORY) <= 2,
-      `the landscape card title rose ${rest.title - up.title}, not the accessory's ${ACCESSORY} with the rest of the card`);
+    assert.equal(up.title, rest.title, "the landscape card title moved under the accessory strip");
     assert.equal(up.bodyHeight, LANDSCAPE.height);
     assert.equal(up.transition, "0s", "reduced motion left the lift transition running");
     assert.equal(up.draft, "landscape draft");
@@ -860,7 +867,7 @@ test("after a close the answer's scroll is back in bounds and its place is kept"
       const r = document.querySelector("article.box.sel .replyview");
       return { st: r.scrollTop, max: r.scrollHeight - r.clientHeight, box: r.clientHeight };
     });
-    assert.equal(grown.box, shrunk.box, "the answer's box resized across the keyboard cycle");
+    assert.equal(grown.box, shrunk.box + KEYBOARD, "the answer did not get the keyboard's room back after the close");
     assert.ok(grown.st <= grown.max + 0.5, `the answer sits ${grown.st - grown.max}px past its end after the close`);
     assert.ok(Math.abs(grown.st - grown.max) <= 0.5, "the answer lost its place at the end");
     assert.deepEqual(problems, []);
@@ -885,7 +892,8 @@ test("a window that shrinks with the keyboard: the box keeps the full-screen hei
     assert.equal(up.kb, true, "the shrunken window with the row focused is not read as the keyboard");
     assert.equal(up.inset, `${KEYBOARD}px`);
     assert.equal(up.bodyHeight, PHONE.height, "the box shrank with the window");
-    assert.equal(up.footLaidOut, PHONE.height - INSET, "the card box resized with the window");
+    assert.equal(up.footLaidOut, PHONE.height - INSET - KEYBOARD, "the card's foot did not take the keyboard's room");
+    assert.equal(up.headLaidOut, rest.headLaidOut, "the card's top edge moved with the window");
     assert.ok(Math.abs((rest.rowBottom - up.rowBottom) - KEYBOARD) <= 2,
       `the composer rose ${rest.rowBottom - up.rowBottom}, not the keyboard's ${KEYBOARD}`);
     assert.equal(up.row, rest.row);

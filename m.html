@@ -93,7 +93,7 @@
     --pad-b:calc(env(safe-area-inset-bottom, 0px) + var(--app-inset));
     --kb-inset:0px;
     /* the gap the compose bar keeps above the keyboard is the app's own thin
-       margin. the lifted body travels the resting clearance less that gap less
+       margin. the card's foot travels the resting clearance less that gap less
        the keyboard's measured inset; at rest it is nothing */
     --kb-gap:var(--app-inset);
     --kb-lift:0px;
@@ -116,14 +116,15 @@
     transform-origin:50% 50%;
     transition:transform var(--drawer-ms) var(--drawer-curve);
   }
-  /* the lift is the whole of the keyboard's visible motion: the card body rises
-     by a transform and the page's own bottom clearance never changes, so no box
-     resizes at a keyboard edge. the small accessory strip lifts on the same rule
-     as the full keyboard, so both clear the obstruction the same way. the value
-     is set on the page, which holds --kb-inset, and inherits to the card body.
+  /* the lift is the whole of the keyboard's visible motion: how far the card's
+     own bottom edge, and the typing row standing on it, come up. the page's own
+     bottom clearance never changes, so the strip and the card's top edge are
+     untouched by a keyboard. the small accessory strip lifts on the same rule as
+     the full keyboard, so both clear the obstruction the same way. the value is
+     set on the page, which holds --kb-inset, and inherits to the card pane.
      it is a rise or it is nothing, never a fall. the inset goes to nothing at
-     focus loss while the body is still held for the close's settle window, and
-     the bare arithmetic there is the resting clearance itself: the body would
+     focus loss while the pane is still held for the close's settle window, and
+     the bare arithmetic there is the resting clearance itself: the foot would
      travel that far BELOW where it rests, and spring back up the moment the hold
      ended, which is one motion made into three */
   body.obstructed #page, body.lifting #page{--kb-lift:min(0px, calc(var(--pad-b) - var(--kb-gap) - var(--kb-inset)))}
@@ -185,29 +186,21 @@
   #offline.stale{color:#6B5A2E; background:#F6F1E4; border-color:#E4D9BC}
 
   /* ---- the card pane ------------------------------------------------------ */
-  /* the shelf the pane stands in: the box that cuts it when the keyboard carries
-     it up, so it leaves under the tab strip rather than over it. its own box is
-     stretched sideways and downwards by the same amount it is pulled in, so the
-     pane's shadow keeps the room it always had on those three sides; the top
-     edge is left where the strip ends, which is the edge a rising pane has to be
-     cut on. what the card's shadow loses there is the last stretch above the
-     strip's own line, which is already paper to the eye, and it is cut the same
-     at rest as under a keyboard: nothing changes at an edge. clip and never
-     hidden: a clip box is not a scroll container the caret reveal could seize */
-  #shelf{
-    flex:1 1 auto; min-height:0; display:flex; flex-direction:column;
-    overflow:clip; margin:0 -20px -20px; padding:0 20px 20px;
-  }
   main{
     flex:1 1 auto; min-height:0; margin-top:var(--sp-s);
     background:var(--card); border:1px solid var(--line-strong); border-radius:7px;
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
     display:flex; flex-direction:column; overflow:hidden; position:relative;
-    /* the keyboard's whole visible motion. the card rises as one piece, its top
-       bar and title with it, so nothing inside it is cut under a pinned header
-       and no box is resized at a keyboard edge */
-    transform:translateY(var(--kb-lift, 0px));
-    transition:transform var(--kb-anim); will-change:transform;
+    /* the keyboard's whole visible motion. the card's own bottom edge comes up
+       to the keyboard and the typing row rides on it, while the card's top edge,
+       its top bar and its title stand where they are and the gap under the tab
+       strip is kept, so nothing is ever drawn over the strip and no title is
+       ever left behind its own words. the room comes out of the answer between
+       them, which is the one part that can give it: it scrolls, so what it can
+       no longer show is still reachable. the margin is the lift turned over,
+       since the lift is a rise and this is the room a rise leaves */
+    margin-bottom:calc(0px - var(--kb-lift, 0px));
+    transition:margin-bottom var(--kb-anim);
   }
   #empty{display:none; flex:1; align-items:center; justify-content:center;
     font:italic 400 17px var(--serif); color:var(--sub); padding:20px; text-align:center}
@@ -302,13 +295,14 @@
      ramp at the foot be cut on the box's top edge. nothing moves by a pixel:
      the wrapper stood on the body's floor in the column and it stands on the
      same floor pinned to it */
-  /* the clip box: a static box from the card header to the card foot that cuts
-     the body where it rises under the header. clip and never hidden, so it is
-     not a scroll container the phone's caret reveal could seize and scroll */
+  /* the clip box: a static box from the card header to the card foot, which is
+     what keeps the column inside the card's own outline as the card's bottom
+     edge comes up for the keyboard. clip and never hidden, so it is not a scroll
+     container the phone's caret reveal could seize and scroll */
   .liftclip{display:flex; flex-direction:column; flex:1 1 auto; min-height:0; overflow:clip}
-  /* the card's own column under its title. it no longer moves by itself: the
-     whole pane rises instead, so the title rides up with the words rather than
-     standing still while they slide under it. it still clips rather than
+  /* the card's own column under its title. it does not move at a keyboard edge:
+     the card's foot comes up and this column is what gives the room, so the
+     title above it never has words sliding under it. it clips rather than
      scrolls, so it is no reveal target */
   .body{display:flex; flex-direction:column; flex:1 1 0; min-height:0;
     padding:var(--titleair) 0 0; position:relative; overflow:clip}
@@ -320,11 +314,6 @@
     flex:1 1 auto; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
     overscroll-behavior:contain;
     margin-bottom:var(--replyair);
-    /* the lift carries the answer's top up under the header; this much top
-       padding, written by the script only once the lift has landed, gives that
-       much back to the scroll so the top stays reachable while the keyboard is
-       up. it is nothing at rest */
-    padding-top:var(--lift-pad, 0px);
     /* the box's fold is held by hand (holdAnswerScroll); the browser's own scroll
        anchoring is off so the two do not both give the box's travel to the scroll */
     overflow-anchor:none;
@@ -952,15 +941,10 @@
 <div id="page">
   <div class="bar"><span id="tabbar"></span></div>
   <div id="offline"></div>
-  <!-- the shelf the card pane stands in and rises inside. it begins under the tab
-       strip, so a pane carried up by the keyboard leaves under the strip instead
-       of drawing over it and over the status bar -->
-  <div id="shelf">
-    <main id="pane" class="blank">
-      <div id="empty">no cards on this tab yet</div>
-      <div id="cards"></div>
-    </main>
-  </div>
+  <main id="pane" class="blank">
+    <div id="empty">no cards on this tab yet</div>
+    <div id="cards"></div>
+  </main>
 </div>
 <div id="scrim"></div>
 
@@ -1333,7 +1317,7 @@ function makeBox(b){
   });
 
   els[b.id] = { box, body, reply, replyview, meta, ta, twin, send, tick, titleEl, arc, x, pendwrap, bottombar,
-                pend: null, pendRaw: "", histUp, histDown, histPos, clip, clipfile, field, liftPad: 0,
+                pend: null, pendRaw: "", histUp, histDown, histPos, clip, clipfile, field,
                 foldRun: 0, answFoldRun: 0,   // one run number per box, for a second press
                 // answ is null until the card shows a reply the board recorded a
                 // batch for, and null again the moment it shows one it did not.
@@ -1968,10 +1952,6 @@ function select(id){
   const trace = tracePhone("begin", "select", { box: id });
   if (!els[id]){ endPhoneTrace(trace, { box: id }); return; }
   const leaving = selectedId && selectedId !== id ? els[selectedId] : null;
-  // a card left while the keyboard is still up (a hardware-keyboard hotkey move)
-  // never runs its own close, so its reachability padding is cleared here rather
-  // than left on the answer to show as a gap when the card is seen again
-  if (leaving) setLiftPad(leaving, 0);
   cancelAutoNext();
   if (hist && hist.id !== id) histExit(hist.id);
   selectedId = id; localStorage.setItem("selbox", id);
@@ -3262,9 +3242,8 @@ function armLift(){
 // the lift has landed. the window closes here for an open, and for a close
 // whose viewport already reads whole; a close the phone has not finished
 // reporting keeps the clock, so the box's top stands until the layout viewport
-// is slid back. an open landed brings the caret's line into view and hands the
-// answer its reachability padding; a close landed takes it back and puts the
-// scrollers in bounds
+// is slid back. an open landed brings the caret's line into view; a close landed
+// puts the scrollers in bounds
 function liftLanded(byClock){
   const w = readWorld();
   const whole = viewportObstruction(w.baseline, w.vvHeight) === 0 && w.vvTop <= 1;
@@ -3273,37 +3252,16 @@ function liftLanded(byClock){
   const el = selectedId && els[selectedId];
   if (!el) return;
   if (appliedObstruction){
-    setLiftPad(el, liftDistance());
     if (ComposeFormat.focused(el.ta)) revealCaret(el.ta, el.twin);
   } else {
-    setLiftPad(el, 0);
     snapBack(el);
   }
 }
-// how far the pane actually rose, read off its own rendered transform rather
-// than recomputed from the inset, so it is whatever the engine drew
-function liftDistance(){
-  const m = new DOMMatrix(getComputedStyle(document.getElementById("pane")).transform);
-  return Math.max(0, Math.round(-m.m42));
-}
-// the reachability padding, applied only once the lift has landed and never at
-// an edge: the answer's top rose under the header, so this much top padding
-// gives it back to the scroll, and the scroll is shifted by the same step in
-// the same frame so nothing on screen moves
-function setLiftPad(el, next){
-  if (next === el.liftPad) return;
-  // the scroll is read BEFORE the padding changes: removing the padding shrinks
-  // the scrollable height and the engine clamps the scroll on its own, so a read
-  // after the change would already be moved and the shift would double
-  const view = el.replyview, delta = next - el.liftPad, st = view.scrollTop;
-  el.liftPad = next;
-  view.style.setProperty("--lift-pad", next + "px");
-  view.scrollTop = Math.max(0, st + delta);
-}
-// the lift is one transform on the card pane; its own transitionend is the exact
-// landing, and the settle clock above closes one that never fires it
+// the lift is the room the card pane keeps under its own bottom edge; that
+// margin's own transitionend is the exact landing, and the settle clock above
+// closes one that never fires it
 document.getElementById("pane").addEventListener("transitionend", e => {
-  if (e.target.id === "pane" && e.propertyName === "transform") liftLanded(false);
+  if (e.target.id === "pane" && e.propertyName === "margin-bottom") liftLanded(false);
 });
 // the phone can hand a scroller its pre-close offset a frame after its own
 // close motion, past the end of the range the taller box leaves, and paint a
