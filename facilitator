@@ -1548,6 +1548,9 @@ def cmd_install(args):
         return
     if words:
         sys.exit("install takes no options; got " + " ".join(words) + "\n" + INSTALL_HELP)
+    # keep these lines in order with uv's and npm's when the output is a pipe
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)
     check_python()
     uv = ensure_uv()
     ensure_env(uv)
