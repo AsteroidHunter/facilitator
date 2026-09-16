@@ -419,7 +419,9 @@
   .pendlist.open .pendbody{
     display:flex; flex-direction:column; flex:1 1 auto; min-height:0; position:relative;
   }
-  .pendlist.open .chevtop{position:absolute; left:0; top:3px; transform:rotate(180deg)}
+  /* the open box's seat for the arrow: the top right corner, inside the box's
+     own padding, on the line the run stamp is printed on from the left end */
+  .pendlist.open .chevtop{position:absolute; right:0; top:3px; transform:rotate(180deg)}
   /* the fold's one run, the card page's own: the box's height and padding and
      the column inside it move over one length on one curve, so they start and
      settle together and neither can finish first. the column's two ends are the
@@ -444,7 +446,9 @@
     transition:transform var(--pend-move) var(--gentle), opacity .22s ease-out;
   }
   .pendlist.offseat .pendbody{transform:translate3d(0, var(--pend-rise), 0); opacity:0}
-  .pendstamp{flex:none; text-align:right; font:12px var(--mono); color:var(--sub); padding:0 0 var(--sp-s); min-height:1.2em}
+  /* the run's one time tag, at the left end of the header line, with the arrow
+     at the other end of that same line */
+  .pendstamp{flex:none; text-align:left; font:12px var(--mono); color:var(--sub); padding:0 0 var(--sp-s); min-height:1.2em}
   /* no bar is drawn on the lane, so the rows keep one x with no gutter held for
      one; while the box folds it is clipped instead, in the motion rule below, so
      nothing draws over the run */
