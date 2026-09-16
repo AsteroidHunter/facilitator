@@ -185,11 +185,29 @@
   #offline.stale{color:#6B5A2E; background:#F6F1E4; border-color:#E4D9BC}
 
   /* ---- the card pane ------------------------------------------------------ */
+  /* the shelf the pane stands in: the box that cuts it when the keyboard carries
+     it up, so it leaves under the tab strip rather than over it. its own box is
+     stretched sideways and downwards by the same amount it is pulled in, so the
+     pane's shadow keeps the room it always had on those three sides; the top
+     edge is left where the strip ends, which is the edge a rising pane has to be
+     cut on. what the card's shadow loses there is the last stretch above the
+     strip's own line, which is already paper to the eye, and it is cut the same
+     at rest as under a keyboard: nothing changes at an edge. clip and never
+     hidden: a clip box is not a scroll container the caret reveal could seize */
+  #shelf{
+    flex:1 1 auto; min-height:0; display:flex; flex-direction:column;
+    overflow:clip; margin:0 -20px -20px; padding:0 20px 20px;
+  }
   main{
     flex:1 1 auto; min-height:0; margin-top:var(--sp-s);
     background:var(--card); border:1px solid var(--line-strong); border-radius:7px;
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
     display:flex; flex-direction:column; overflow:hidden; position:relative;
+    /* the keyboard's whole visible motion. the card rises as one piece, its top
+       bar and title with it, so nothing inside it is cut under a pinned header
+       and no box is resized at a keyboard edge */
+    transform:translateY(var(--kb-lift, 0px));
+    transition:transform var(--kb-anim); will-change:transform;
   }
   #empty{display:none; flex:1; align-items:center; justify-content:center;
     font:italic 400 17px var(--serif); color:var(--sub); padding:20px; text-align:center}
@@ -288,14 +306,12 @@
      the body where it rises under the header. clip and never hidden, so it is
      not a scroll container the phone's caret reveal could seize and scroll */
   .liftclip{display:flex; flex-direction:column; flex:1 1 auto; min-height:0; overflow:clip}
-  /* the one lifted piece: the answer's scroller and the sent box and typing row
-     over it, moved as a whole by a transform on the keyboard's own clock. it
-     keeps its own layer between edges so a close starts on the frame it is
-     asked for, and it clips rather than scrolls, so it is no reveal target */
+  /* the card's own column under its title. it no longer moves by itself: the
+     whole pane rises instead, so the title rides up with the words rather than
+     standing still while they slide under it. it still clips rather than
+     scrolls, so it is no reveal target */
   .body{display:flex; flex-direction:column; flex:1 1 0; min-height:0;
-    padding:var(--titleair) 0 0; position:relative; overflow:clip;
-    transform:translateY(var(--kb-lift, 0px));
-    transition:transform var(--kb-anim); will-change:transform}
+    padding:var(--titleair) 0 0; position:relative; overflow:clip}
   /* the answer's own scroller: it owns the scroll, the touch inertia and the
      clear air under it, and the answered box rides inside it above the answer
      prose so the box leaves under the title as the reader scrolls */
@@ -808,8 +824,16 @@
      to read the board, it stops and turns red when a reading fails, and it is
      taken down only by a live reading that has been drawn and has stopped
      moving. The script below owns that rule; this sheet owns the picture. */
+  /* the curtain takes the root's own measure rather than the four edges of the
+     box it is offered. installed, those are not the same box for the first frames
+     of a cold open: the web view hands the page the screen less the status bar
+     and only settles to the whole screen once the root has overhung it, so a
+     curtain pinned to the offered box is drawn short and the globe in the middle
+     of it sits high until the settle lands. the root's measure is the screen from
+     the first frame. in a browser tab there is no curtain at all, so nothing
+     there is changed by this */
   #loading{
-    position:fixed; inset:0; z-index:40;
+    position:fixed; left:0; right:0; top:0; height:var(--screen-h, var(--root-h)); z-index:40;
     background:#ffffff;
     opacity:1;
     transition:opacity 260ms ease;
@@ -902,14 +926,34 @@
     </div>
   </div>
 </div>
+<script>
+  // The one length the sheet cannot work out for itself on the first frames of a
+  // cold installed open: how tall the screen is. The engine reports neither the
+  // safe area nor the whole screen until it has settled, so everything it can
+  // resolve until then is the shorter box it first offered, and a curtain
+  // measured by any of it is drawn short with its globe high. The screen's own
+  // height is known from the start and never settles. It stands here, after the
+  // curtain and before anything is laid out, so the curtain still needs no
+  // script to exist and the sheet keeps its own fallback if this never runs. A
+  // browser tab is left alone: it has no curtain, and the offered box is the
+  // right answer there.
+  if (navigator.standalone) {
+    document.documentElement.style.setProperty("--screen-h", screen.height + "px");
+  }
+</script>
 
 <div id="page">
   <div class="bar"><span id="tabbar"></span></div>
   <div id="offline"></div>
-  <main id="pane" class="blank">
-    <div id="empty">no cards on this tab yet</div>
-    <div id="cards"></div>
-  </main>
+  <!-- the shelf the card pane stands in and rises inside. it begins under the tab
+       strip, so a pane carried up by the keyboard leaves under the strip instead
+       of drawing over it and over the status bar -->
+  <div id="shelf">
+    <main id="pane" class="blank">
+      <div id="empty">no cards on this tab yet</div>
+      <div id="cards"></div>
+    </main>
+  </div>
 </div>
 <div id="scrim"></div>
 
@@ -3222,17 +3266,17 @@ function liftLanded(byClock){
   const el = selectedId && els[selectedId];
   if (!el) return;
   if (appliedObstruction){
-    setLiftPad(el, liftDistance(el));
+    setLiftPad(el, liftDistance());
     if (ComposeFormat.focused(el.ta)) revealCaret(el.ta, el.twin);
   } else {
     setLiftPad(el, 0);
     snapBack(el);
   }
 }
-// how far the body actually rose, read off its own rendered transform rather
+// how far the pane actually rose, read off its own rendered transform rather
 // than recomputed from the inset, so it is whatever the engine drew
-function liftDistance(el){
-  const m = new DOMMatrix(getComputedStyle(el.body).transform);
+function liftDistance(){
+  const m = new DOMMatrix(getComputedStyle(document.getElementById("pane")).transform);
   return Math.max(0, Math.round(-m.m42));
 }
 // the reachability padding, applied only once the lift has landed and never at
@@ -3249,10 +3293,10 @@ function setLiftPad(el, next){
   view.style.setProperty("--lift-pad", next + "px");
   view.scrollTop = Math.max(0, st + delta);
 }
-// the lift is one transform on the shown card's body; its own transitionend is
-// the exact landing, and the settle clock above closes one that never fires it
-document.getElementById("cards").addEventListener("transitionend", e => {
-  if (e.target.classList.contains("body") && e.propertyName === "transform") liftLanded(false);
+// the lift is one transform on the card pane; its own transitionend is the exact
+// landing, and the settle clock above closes one that never fires it
+document.getElementById("pane").addEventListener("transitionend", e => {
+  if (e.target.id === "pane" && e.propertyName === "transform") liftLanded(false);
 });
 // the phone can hand a scroller its pre-close offset a frame after its own
 // close motion, past the end of the range the taller box leaves, and paint a
