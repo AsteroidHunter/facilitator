@@ -330,6 +330,22 @@ test("uninstall refuses while the board answers on the port, and removes nothing
   assert.ok(installed(res.files), "files were removed while the board was up");
 });
 
+test("uninstall prints the bridge-off command when a bridge is active", async () => {
+  const dir = await freshClone();
+  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
+  const active = [
+    "cli.find_tailscale = lambda: '/fake/ts'",
+    "cli.tailscale_status = lambda ts: {}",
+    "cli.tailnet_name = lambda status: 'host'",
+    "cli.analyze_bridge = lambda ts, name, port: ({}, {'active': True, 'removable': True, 'on': True, 'enable_blocked': False, 'why': ''})",
+  ].join("\n");
+  const res = await run(dir, stubs() + "\n" + active + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
+  assert.equal(res.exit, null, res.out);
+  assert.match(res.out, /A phone bridge is active\. Turn it off with: facilitator bridge off/, res.out);
+  // the bridge itself is only read, never changed: no tmux, serve or off call
+  assert.equal(res.files.venv, false, "the uninstall did not proceed past the note");
+});
+
 test("uninstall refuses unknown options before it touches anything", async () => {
   const dir = await freshClone();
   const refused = await execFileAsync("python3", [path.join(dir, "facilitator"), "uninstall", "--bogus"], { cwd: dir })
