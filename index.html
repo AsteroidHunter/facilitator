@@ -1011,38 +1011,23 @@
     transition:transform .22s cubic-bezier(.22,1,.36,1), opacity .18s ease;
   }
   body.focus .box.sel .pendmsg + .pendmsg{padding-top:var(--sp-s)}
+  /* the column the message stands in is the row itself: every block it is drawn
+     in -- a paragraph, a list, a code block, a single line -- begins at the
+     box's left content edge, the same x for all of them, and takes the row's
+     whole width, so a line too long for it wraps at the row's right edge.
+     nothing is sized to its own words and nothing is pushed across by a margin
+     of its own. the delivery word under the row and the time a drag brings up
+     keep the right edge, each by its own rule below */
   body.focus .box.sel .pendmsg .pendcontent{
     position:relative; margin:0;
     text-align:left; white-space:pre-wrap;
-    /* the column the paragraphs stand in: as wide as its widest paragraph,
-       capped at four fifths of the box so a long paragraph wraps rather than
-       running the whole way across, and pushed right by an automatic margin, so
-       its RIGHT end holds at the box's edge, where the delivery word under the
-       row and the time a drag brings up are both pinned. each paragraph inside
-       is sized against that same edge by the rule below */
-    width:fit-content; max-width:80%; margin-left:auto;
     /* a web address is one word with nothing in it a line may break at, so it
-       ran straight past the cap and the lane cut it off, and the reader could not read
+       ran straight past the edge and the lane cut it off, and the reader could not read
        the end of it. this lets a word that cannot fit break where it has to.
        it only ever fires on a word too long for the line, so nothing that
-       already wrapped between words moves. the break lands on the cap's own
-       edge, which is the same edge every other line breaks on, so a broken
-       address still sits square against the right end with the rest of them */
+       already wrapped between words moves */
     overflow-wrap:break-word;
   }
-  /* each paragraph the sender typed is its own block: exactly as wide as its own
-     words, capped at the column, and pushed right by its own automatic margin,
-     so a short line stands flush against the right edge and a long paragraph
-     fills the cap and wraps. a list stands beside its own numbers as one block,
-     a code block as another. .pline is one line of a paragraph the renderer
-     joined with <br>, split back out so a short line under a long one is sized
-     on its own rather than beginning where the long one begins. the drag's own
-     time is left out of the rule: it stays pinned to the right */
-  body.focus .box.sel .pendmsg .pendcontent > :not(.ptime),
-  body.focus .box.sel .pendmsg .pendcontent .pline{
-    width:fit-content; max-width:100%; margin-left:auto;
-  }
-  body.focus .box.sel .pendmsg .pendcontent .pline{display:block}
   /* the delivery word under a line, written the way the chat panel writes Read
      and Delivered under its own sent bubbles: right aligned, muted, and clearly
      quieter than the words above it. one of each on screen, ever: reading runs

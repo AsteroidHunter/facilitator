@@ -622,41 +622,15 @@ function foldStrip(el, pend, runKey, open, place){
   const timer = setTimeout(done, FOLD_TIMER_MS);
 }
 
-// each line the sender typed reads as its own block against the box's right
-// edge, so a short line under a long paragraph stands on its own instead of
-// beginning where the long paragraph begins and trailing off in the middle of
-// the box. the renderer joins the lines of one paragraph with <br>; break that
-// paragraph back into one block per line. a block the renderer already drew
-// whole -- a list, a code block, a single-line paragraph -- is one block already
-// and is left as it is, and so is any <br> inside a list item or a quote, so
-// nothing about how a block reads inside it changes
-function splitPendLines(content){
-  for (const block of [...content.children]){
-    if (block.tagName !== "P") continue;
-    const nodes = [...block.childNodes];
-    if (!nodes.some(node => node.nodeName === "BR")) continue;
-    const lines = [[]];
-    for (const node of nodes){
-      if (node.nodeName === "BR") lines.push([]);
-      else lines[lines.length - 1].push(node);
-    }
-    block.textContent = "";
-    for (const line of lines){
-      const seg = h("span", "pline");
-      for (const node of line) seg.appendChild(node);
-      block.appendChild(seg);
-    }
-  }
-}
-
-// one row: the words, the time that comes up on a drag where the page keeps
-// one, and the delivery word
+// one row: the words as the renderer draws them, the time that comes up on a
+// drag where the page keeps one, and the delivery word. every block the
+// renderer makes -- a paragraph, a list, a code block -- begins at the box's
+// left edge, which the sheet does, so nothing here reshapes what it built
 function pendRow(text, ts){
   const row = h("div", "pendmsg");
   row.dataset.text = text;
   const content = h("div", "pendcontent cardmd");
   content.innerHTML = fmt(text);
-  splitPendLines(content);
   if (pendTimes){
     const t = h("span", "ptime", stampText(ts));
     content.appendChild(t);
