@@ -253,9 +253,10 @@ test("the card body lifts by a transform inside a clip box, never by resizing", 
   assert.match(sheet, /\.body\{[^}]*transform:\s*translateY\(var\(--kb-lift/, "the body does not lift by a transform");
   assert.match(sheet, /\.body\{[^}]*transition:\s*transform var\(--kb-anim\)/, "the body's lift is not on the keyboard clock");
   assert.match(sheet, /\.body\{[^}]*will-change:\s*transform/, "the lifted body keeps no layer between edges");
-  // the lift distance: the resting clearance less the gap less the keyboard inset
-  assert.match(sheet, /--kb-lift:\s*calc\(var\(--pad-b\)\s*-\s*var\(--kb-gap\)\s*-\s*var\(--kb-inset\)\)/,
-    "the lift distance is not the resting clearance less the gap less the inset");
+  // the lift distance: the resting clearance less the gap less the keyboard
+  // inset, floored at nothing so the rise can never come out a fall
+  assert.match(sheet, /--kb-lift:min\(0px, calc\(var\(--pad-b\)\s*-\s*var\(--kb-gap\)\s*-\s*var\(--kb-inset\)\)\)/,
+    "the lift distance is not the resting clearance less the gap less the inset, floored at nothing");
   // the old box-resizing lift is gone: the page's bottom padding no longer grows
   // with the keyboard
   assert.doesNotMatch(sheet, /body\.obstructed[^{]*#page\{[^}]*--pad-b:/,
@@ -272,6 +273,50 @@ test("the keyboard curve is the measured one and the settle clock matches it", a
 });
 
 // ---- unit 3: the close ---------------------------------------------------------------
+
+test("the close never carries the card below where it rests", async () => {
+  const id = await create("Shell close travel on the phone");
+  await api(`/reply?box=${id}`, "A reply to answer.");
+  const { page, problems } = await openPhone(`/m?box=${id}`, { fake: true });
+  // a headless window has no home indicator, so the clearance the arithmetic
+  // subtracts is nothing and the fault cannot appear. the phone's own clearance
+  // is written in here, which is the whole of what the device adds
+  const PAD_B = 40;
+  const lift = () => page.evaluate(() => {
+    const shape = getComputedStyle(document.querySelector("article.box.sel .body")).transform;
+    return {
+      declared: getComputedStyle(document.getElementById("page")).getPropertyValue("--kb-lift").trim(),
+      moved: shape === "none" ? 0 : Math.round(parseFloat(shape.split(",")[5])),
+      lifting: document.body.classList.contains("lifting"),
+    };
+  });
+  try {
+    await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
+    await page.addStyleTag({ content: `#page{--pad-b:${PAD_B}px}` });
+    await settle(60);
+    assert.equal((await lift()).moved, 0, "the body is not at rest before the keyboard");
+    await page.focus(SEL);
+    await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height - KEYBOARD);
+    await settle(450);
+    assert.ok((await lift()).moved < 0, "the body did not rise for the keyboard");
+    // the inset goes to nothing at focus loss while the body is still held for
+    // the settle window. what is held there must be the rise ending, not a fall
+    await page.evaluate(() => document.activeElement && document.activeElement.blur());
+    await settle(260);
+    const held = await lift();
+    assert.equal(held.lifting, true, "the settle window closed before the reading");
+    // the reading is the transform the body actually wears, since a custom
+    // property hands back its own text rather than a resolved length
+    assert.ok(held.moved <= 0,
+      `the body was carried ${held.moved} points below where it rests, on a lift of ${held.declared}`);
+    await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height);
+    await settle(500);
+    assert.equal((await lift()).moved, 0, "the body did not land back at rest");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
 
 test("the close starts at focus loss and leaves no residue", async () => {
   const id = await create("Shell close on the phone");

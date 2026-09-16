@@ -120,8 +120,13 @@
      by a transform and the page's own bottom clearance never changes, so no box
      resizes at a keyboard edge. the small accessory strip lifts on the same rule
      as the full keyboard, so both clear the obstruction the same way. the value
-     is set on the page, which holds --kb-inset, and inherits to the card body */
-  body.obstructed #page, body.lifting #page{--kb-lift:calc(var(--pad-b) - var(--kb-gap) - var(--kb-inset))}
+     is set on the page, which holds --kb-inset, and inherits to the card body.
+     it is a rise or it is nothing, never a fall. the inset goes to nothing at
+     focus loss while the body is still held for the close's settle window, and
+     the bare arithmetic there is the resting clearance itself: the body would
+     travel that far BELOW where it rests, and spring back up the moment the hold
+     ended, which is one motion made into three */
+  body.obstructed #page, body.lifting #page{--kb-lift:min(0px, calc(var(--pad-b) - var(--kb-gap) - var(--kb-inset)))}
   /* the box while the viewport is obstructed, and through the close's settle window.
      the top follows the visual viewport, for the phone that slides the layout
      viewport under the keyboard; the height is the learned full-screen height
