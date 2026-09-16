@@ -1,8 +1,9 @@
-// Both boxes on the card read left to right. A message block is still only as
-// wide as its own words and still stands against the right edge, but the words
-// inside it start at the block's left edge instead of ending at its right one,
-// so a list marker sits beside its text rather than out at the edge of the box
-// with white space between them. The measures are printed before they are
+// Both sent-message boxes are plainly left aligned on both pages. Every block a
+// message is drawn in -- a paragraph, a list, a code block, a single line --
+// begins at the box's left content edge, the same x for all of them, and a line
+// too long for the row wraps at the row's right edge instead of at a cap set
+// short of it. Nothing hugs the right edge any more, and no message is broken
+// into one block per typed line. The measures are printed before they are
 // asserted, so one run records the numbers whether it passes or fails. Every
 // card, message and answer here is invented.
 const assert = require("node:assert/strict");
@@ -19,12 +20,23 @@ const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PYTHON = process.env.FACILITATOR_TEST_PYTHON || "python3";
 const SHOTS = process.env.PEND_ALIGN_SHOTS || "";
-// the three shapes each box is measured in: a list whose marker used to stand
-// out at the far left, a short line, and a line long enough to wrap
-const LIST = "1. Invented short option.";
-const SHORT = "Invented short line.";
-const WRAPPED = "Invented message long enough to need more than one line inside the box, " +
-  "so its second line can be measured against its first.";
+// one message holding the three shapes that used to be sized apart: a paragraph
+// long enough to wrap, a short line typed under it, and a two-item list. the
+// line breaks are plain ones, as a keyboard's own return makes them, so the
+// renderer joins the long paragraph and the short line into one <p> with a <br>
+// and draws the list on its own
+const LONG = "This is an invented long paragraph written to be wide enough that it " +
+  "must wrap onto more than one line inside the narrow sent message box on the card.";
+const SHORT = "Short line.";
+const ITEM1 = "First invented option here.";
+const ITEM2 = "Second invented option here.";
+const MIXED = `${LONG}\n${SHORT}\n1. ${ITEM1}\n2. ${ITEM2}`;
+// and the two other shapes, each as its own message: a single line, and a code
+// block, which the renderer draws in a block with padding of its own
+const SINGLE = "Invented single line.";
+const CODE = "```\nconst invented = 1;\n```";
+const SENT = [MIXED, SINGLE, CODE];
+const INDENT = 24;   // the list's own indent, the furthest an item's text may sit in
 let browser, child, fixtureDir, origin, cardId;
 
 async function freePort(){
@@ -72,12 +84,12 @@ before(async () => {
   }
   cardId = (await api("/create?owner=facilitator", "Invented card for both message boxes")).id;
   // the three the reply answers: they end up in the box above the answer
-  for (const text of [LIST, SHORT, WRAPPED]) await api(`/send?box=${cardId}`, text);
+  for (const text of SENT) await api(`/send?box=${cardId}`, text);
   await claim();
   await api(`/reply?box=${cardId}`, Array.from({length:3}, (_, i) =>
     `Invented answer paragraph ${i + 1}, written to give the card some prose.`).join("\n\n"));
   // and the same three again, waiting: they end up in the box under the answer
-  for (const text of [LIST, SHORT, WRAPPED]) await api(`/send?box=${cardId}`, text);
+  for (const text of SENT) await api(`/send?box=${cardId}`, text);
   browser = await puppeteer.launch({ executablePath:CHROME, headless:true,
     args:["--disable-background-networking", "--no-first-run", "--no-sandbox", "--disable-setuid-sandbox"] });
 });
@@ -121,51 +133,66 @@ async function openBoxes(page){
   }
   await pause(120);
 }
-// one box's rows: the block each message is drawn in, every line of ink in it,
-// and the list it holds when it holds one
+// one box's rows: the lane they stand in, the block each message is drawn in,
+// every block inside that one, and every line of ink with the kind of block it
+// belongs to, so a line inside a list or a code block is judged by that block's
+// own indent rather than by the box's edge
 async function rowsOf(page, seat){
   return page.evaluate((id, seat) => {
     const strip = document.querySelector(`#box-${id} ${seat} .pendlist`);
     const lane = strip.querySelector(".pendslide").getBoundingClientRect();
     const round = n => Math.round(n * 100) / 100;
+    const edges = el => { const r = el.getBoundingClientRect();
+      return {left:round(r.left), right:round(r.right), width:round(r.width)}; };
     return {
-      lane:{left:round(lane.left), right:round(lane.right)},
+      lane:{left:round(lane.left), right:round(lane.right), width:round(lane.width)},
+      splits:strip.querySelectorAll(".pline").length,
       rows:[...strip.querySelectorAll(".pendmsg")].map(row => {
         const content = row.querySelector(".pendcontent");
-        const block = content.getBoundingClientRect();
         const list = content.querySelector("ol, ul");
-        // one entry per line of ink: the rects on a line are gathered by their
-        // own top and the line's beginning is the leftmost of them, so a space
+        const lines = [];
+        const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+        // one entry per line of ink, gathered by the line's own top so a space
         // left hanging at the end of a wrapped line cannot be read as a start
         const seen = new Map();
-        const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
         for (let node = walker.nextNode(); node; node = walker.nextNode()){
           if (!node.textContent.trim()) continue;
           if (node.parentElement.closest(".ptime")) continue;   // the drag's own time, pinned right
+          const inList = !!node.parentElement.closest("li");
+          const inCode = !!node.parentElement.closest(".codeblock");
           const range = document.createRange();
           range.selectNodeContents(node);
           for (const rect of range.getClientRects()){
             if (rect.width <= 0.5) continue;
             const key = Math.round(rect.top);
             const line = seen.get(key);
-            if (!line) seen.set(key, {left:rect.left, right:rect.right, top:rect.top});
+            if (!line) seen.set(key, {left:rect.left, right:rect.right, top:rect.top, inList, inCode,
+                                      text:node.textContent.trim().slice(0, 20)});
             else { line.left = Math.min(line.left, rect.left); line.right = Math.max(line.right, rect.right); }
           }
         }
-        const lines = [...seen.values()].sort((a, b) => a.top - b.top)
-          .map(line => ({left:round(line.left), right:round(line.right), top:round(line.top)}));
-        return { text:(row.dataset.text || "").slice(0, 28),
-                 textAlign:getComputedStyle(content).textAlign,
-                 block:{left:round(block.left), right:round(block.right), width:round(block.width)},
-                 list:list ? {left:round(list.getBoundingClientRect().left)} : null,
-                 lines };
+        for (const line of [...seen.values()].sort((a, b) => a.top - b.top))
+          lines.push({text:line.text, left:round(line.left), right:round(line.right),
+                      inList:line.inList, inCode:line.inCode});
+        const rcpt = row.querySelector(".rcpt"), ptime = row.querySelector(".ptime");
+        return {
+          text:(row.dataset.text || "").slice(0, 24),
+          textAlign:getComputedStyle(content).textAlign,
+          content:edges(content),
+          blocks:[...content.children].filter(child => !child.classList.contains("ptime"))
+            .map(child => ({tag:child.tagName.toLowerCase(), ...edges(child)})),
+          list:list ? edges(list) : null,
+          lines,
+          rcpt:rcpt && rcpt.textContent ? edges(rcpt) : null,
+          ptime:ptime ? edges(ptime) : null,
+        };
       }),
     };
   }, cardId, seat);
 }
 
 for (const kind of ["desktop", "phone"]) {
-  test(`${kind}: both boxes read left to right with no white space before the words`, async () => {
+  test(`${kind}: every block in both boxes begins at the box's left edge`, async () => {
     const page = await openPage(kind);
     await openBoxes(page);
     const boxes = { top:await rowsOf(page, ".pendwrap-answered"), bottom:await rowsOf(page, ".pendwrap") };
@@ -173,35 +200,77 @@ for (const kind of ["desktop", "phone"]) {
     if (SHOTS) { await mkdir(SHOTS, {recursive:true}); await page.screenshot({path:path.join(SHOTS, `${kind}-both-boxes.png`)}); }
 
     for (const [name, box] of Object.entries(boxes)) {
-      assert.equal(box.rows.length, 3, `the ${name} box is not holding the three invented messages`);
-      const [list, short, wrapped] = box.rows;
+      assert.equal(box.rows.length, SENT.length, `the ${name} box is not holding the invented messages`);
+      // no message is broken into one block per typed line any more
+      assert.equal(box.splits, 0, `the ${name} box is still splitting messages line by line`);
+      const [mixed, single, code] = box.rows;
+
       for (const row of box.rows) {
-        assert.equal(row.textAlign, "left", `the ${name} box still ends its words at the right edge`);
-        // the block still stands against the box's right edge, as it always has
-        assert.ok(Math.abs(row.block.right - box.lane.right) <= 1,
-          `the ${name} box moved a message off the right edge: ${JSON.stringify(row)}`);
-        // and every line in it begins at that block's own left edge, or one
-        // list indent in from it on a message that is a list
-        const start = row.list ? row.list.left : row.block.left;
-        const indent = row.list ? 24 : 1.5;
-        for (const line of row.lines)
-          assert.ok(line.left - start >= -1.5 && line.left - start <= indent,
-            `the ${name} box left white space before a line: ${JSON.stringify({row:row.text, line, block:row.block})}`);
+        assert.equal(row.textAlign, "left", `the ${name} box is not left aligning its words`);
+        // the row's own column starts and ends on the lane, so nothing is pushed
+        // off the left edge by a margin of its own
+        assert.ok(Math.abs(row.content.left - box.lane.left) <= 1,
+          `the ${name} box left white space before a message: ${JSON.stringify(row)}`);
+        assert.ok(Math.abs(row.content.right - box.lane.right) <= 1,
+          `the ${name} box stopped a message short of the right edge: ${JSON.stringify(row)}`);
+        // and every block inside it begins on that same x, whatever it holds
+        for (const block of row.blocks)
+          assert.ok(Math.abs(block.left - box.lane.left) <= 1,
+            `the ${name} box moved a ${block.tag} off the left edge: ${JSON.stringify({row:row.text, block, lane:box.lane})}`);
+        // every line of ink starts there too, except a list's own items, which
+        // stand one indent in from the marker beside them, and a code block's,
+        // which stand inside that block's own padding
+        for (const line of row.lines) {
+          if (line.inCode) continue;
+          const room = line.inList ? INDENT : 1.5;
+          assert.ok(line.left - box.lane.left >= -1.5 && line.left - box.lane.left <= room,
+            `the ${name} box left white space before a line: ${JSON.stringify({row:row.text, line, lane:box.lane})}`);
+        }
       }
-      assert.ok(list.list, `the ${name} box's first message did not render as a list`);
-      // the marker stands at the block's own left edge and its text one indent
-      // in from it, so the two are beside each other and not a box apart
-      assert.ok(Math.abs(list.list.left - list.block.left) <= 1,
-        `the ${name} box moved the list off its block's left edge: ${JSON.stringify(list)}`);
-      assert.ok(list.lines[0].left - list.list.left <= 24,
-        `the ${name} box left a gap between the marker and its text: ${JSON.stringify(list)}`);
-      // a short line is narrower than the box and still ends at its right edge
-      assert.ok(short.block.width < (box.lane.right - box.lane.left) * 0.8,
-        `the short message is wider than its own words: ${JSON.stringify(short)}`);
-      // and a wrapped one takes more than one line, each beginning on the same edge
-      assert.ok(wrapped.lines.length >= 2, `the long message did not wrap: ${JSON.stringify(wrapped)}`);
-      const lefts = new Set(wrapped.lines.map(line => Math.round(line.left)));
-      assert.equal(lefts.size, 1, `the wrapped lines do not share one left edge: ${JSON.stringify(wrapped.lines)}`);
+
+      // the list: its block on the box's edge, its marker inside that edge and
+      // its text one indent in, so the marker reads first and the text beside it
+      assert.ok(mixed.list, `the ${name} box's first message did not render as a list`);
+      assert.ok(Math.abs(mixed.list.left - box.lane.left) <= 1,
+        `the ${name} box moved the list off the left edge: ${JSON.stringify({list:mixed.list, lane:box.lane})}`);
+      const items = mixed.lines.filter(line => line.inList);
+      assert.equal(items.length, 2, `the ${name} box did not draw the two invented items: ${JSON.stringify(mixed.lines)}`);
+      for (const item of items)
+        assert.ok(item.left - mixed.list.left > 0 && item.left - mixed.list.left <= INDENT,
+          `the ${name} box did not seat the marker beside its text: ${JSON.stringify({item, list:mixed.list})}`);
+
+      // the short line typed under the long paragraph begins on the same x as
+      // the paragraph above it instead of standing off at the right edge
+      const prose = mixed.lines.filter(line => !line.inList && !line.inCode);
+      const shortLine = prose.find(line => line.text.startsWith("Short line"));
+      const longLines = prose.filter(line => line.text.startsWith("This is an invented"));
+      assert.ok(shortLine, `the ${name} box did not draw the short line: ${JSON.stringify(prose)}`);
+      assert.ok(longLines.length >= 2, `the ${name} box did not wrap the long paragraph: ${JSON.stringify(prose)}`);
+      assert.ok(Math.abs(shortLine.left - longLines[0].left) <= 1,
+        `the ${name} box sized the short line apart from the paragraph above it: ${JSON.stringify({shortLine, longLines})}`);
+      // and the paragraph wraps at the row's right edge, not at a cap short of it
+      const reach = Math.max(...longLines.map(line => line.right));
+      assert.ok(reach > box.lane.left + box.lane.width * 0.85,
+        `the ${name} box wrapped the paragraph short of the right edge: ${JSON.stringify({reach, lane:box.lane})}`);
+
+      // the single line and the code block are blocks like any other: both begin
+      // on the box's edge, and neither is as wide as its own words alone
+      assert.equal(single.blocks.length, 1, `the ${name} box drew the single line in more than one block: ${JSON.stringify(single)}`);
+      assert.ok(Math.abs(single.blocks[0].width - box.lane.width) <= 1,
+        `the ${name} box sized the single line to its own words: ${JSON.stringify({block:single.blocks[0], lane:box.lane})}`);
+      assert.ok(code.lines.some(line => line.inCode), `the ${name} box did not draw the code block: ${JSON.stringify(code)}`);
+      assert.ok(Math.abs(code.blocks[0].width - box.lane.width) <= 1,
+        `the ${name} box sized the code block to its own words: ${JSON.stringify({block:code.blocks[0], lane:box.lane})}`);
+
+      // the delivery word under a row and the time a drag brings up are not part
+      // of this change: both stay at the box's right edge
+      const delivered = box.rows.map(row => row.rcpt).filter(Boolean);
+      for (const rcpt of delivered)
+        assert.ok(Math.abs(rcpt.right - box.lane.right) <= 1,
+          `the ${name} box moved the delivery word off the right edge: ${JSON.stringify(rcpt)}`);
+      for (const row of box.rows)
+        if (row.ptime) assert.ok(Math.abs(row.ptime.right - box.lane.right) <= 1,
+          `the ${name} box moved the drag's own time off the right edge: ${JSON.stringify(row.ptime)}`);
     }
     await page.close();
   });
