@@ -233,8 +233,14 @@ test("the start globe is centred on its own full-screen box", async () => {
   // half its own size, so once the web view is the whole screen the globe sits
   // at the screen's own centre. This pins the centring mechanism; the on-device
   // shift the plain status-bar style caused is measured on the simulator.
-  assert.match(curtain, /#loading\{[^}]*position:fixed; inset:0/,
-    "the curtain is not pinned to all four screen edges");
+  assert.match(curtain, /#loading\{[^}]*position:fixed; left:0; right:0; top:0; height:var\(--screen-h, var\(--root-h\)\)/,
+    "the curtain is not measured by the screen, falling back to the root's own height");
+  assert.match(source, /if \(navigator\.standalone\) \{\s*\n\s*document\.documentElement\.style\.setProperty\("--screen-h", screen\.height \+ "px"\);/,
+    "the screen's height is not handed to the sheet before the page is laid out");
+  // the curtain still needs no script to exist: its markup comes first, and the
+  // one line that measures it stands after the curtain it measures
+  assert.ok(source.indexOf('<div id="loading"') < source.indexOf('setProperty("--screen-h"'),
+    "the screen's height is written before the curtain it measures");
   assert.match(curtain, /left:50%; top:50%/, "the globe is not centred in the curtain");
   assert.match(curtain, /margin:-7vmin 0 0 -7vmin/, "the globe is not pulled back by half its own size");
 });

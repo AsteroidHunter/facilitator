@@ -824,8 +824,16 @@
      to read the board, it stops and turns red when a reading fails, and it is
      taken down only by a live reading that has been drawn and has stopped
      moving. The script below owns that rule; this sheet owns the picture. */
+  /* the curtain takes the root's own measure rather than the four edges of the
+     box it is offered. installed, those are not the same box for the first frames
+     of a cold open: the web view hands the page the screen less the status bar
+     and only settles to the whole screen once the root has overhung it, so a
+     curtain pinned to the offered box is drawn short and the globe in the middle
+     of it sits high until the settle lands. the root's measure is the screen from
+     the first frame. in a browser tab there is no curtain at all, so nothing
+     there is changed by this */
   #loading{
-    position:fixed; inset:0; z-index:40;
+    position:fixed; left:0; right:0; top:0; height:var(--screen-h, var(--root-h)); z-index:40;
     background:#ffffff;
     opacity:1;
     transition:opacity 260ms ease;
@@ -918,6 +926,21 @@
     </div>
   </div>
 </div>
+<script>
+  // The one length the sheet cannot work out for itself on the first frames of a
+  // cold installed open: how tall the screen is. The engine reports neither the
+  // safe area nor the whole screen until it has settled, so everything it can
+  // resolve until then is the shorter box it first offered, and a curtain
+  // measured by any of it is drawn short with its globe high. The screen's own
+  // height is known from the start and never settles. It stands here, after the
+  // curtain and before anything is laid out, so the curtain still needs no
+  // script to exist and the sheet keeps its own fallback if this never runs. A
+  // browser tab is left alone: it has no curtain, and the offered box is the
+  // right answer there.
+  if (navigator.standalone) {
+    document.documentElement.style.setProperty("--screen-h", screen.height + "px");
+  }
+</script>
 
 <div id="page">
   <div class="bar"><span id="tabbar"></span></div>
