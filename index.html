@@ -6261,9 +6261,9 @@ function inlineEdit(spanEl, initial, onSave){
 // helpers under it keep old per-site quirks exactly as they were.
 // magic box 1: a Spotify player on the same liquid glass the board's down
 // button uses. signs in with the flow Spotify calls PKCE, which needs no
-// secret, so the id below is public by design and the token never leaves this
-// browser.
-const SPOT_ID = "";
+// secret. the app id is machine-local: it rides in on the board state from
+// run.config.json, so the page ships without one and each board uses its own
+let SPOT_ID = "";
 const SPOT_REDIRECT = "http://127.0.0.1:8877/";
 const SPOT_SCOPES = "user-read-playback-state user-modify-playback-state "
   + "user-read-currently-playing user-library-read user-library-modify";
@@ -6289,6 +6289,23 @@ async function spotConnect(){
     scope: SPOT_SCOPES, code_challenge_method: "S256", code_challenge: challenge,
   });
   window.open(url, "spotify-connect", "width=520,height=720");
+}
+function spotCreateAppId(){
+  // no app id is configured yet, so there is nothing to sign into. open
+  // Spotify's dashboard in a new tab to make an app and copy its id into the
+  // machine-local config
+  window.open("https://developer.spotify.com/dashboard", "_blank", "noopener");
+}
+function spotResetStub(){
+  // the connect and create stubs differ only by whether an id is set. when the
+  // id arrives on the state after the stub was already drawn, redraw it so a
+  // configured board never keeps the create prompt. a built player never wears
+  // the stub and is left untouched
+  const host = document.getElementById("magic1");
+  if (host && host.querySelector(".spconnect")){
+    host.classList.remove("filled");
+    spotBuild();
+  }
 }
 addEventListener("message", async e => {
   if (e.origin !== location.origin || !e.data || !e.data.spotifyCode) return;
@@ -6543,10 +6560,18 @@ function spotBuild(){
   if (!localStorage.getItem("spot.refresh") ||
       localStorage.getItem("spot.scopes") !== SPOT_SCOPES){
     const btn = h("button", "spconnect");
-    btn.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true">'
-      + '<path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>'
-      + '<span>Connect Spotify</span>';
-    btn.addEventListener("click", spotConnect);
+    // the same mark and stub either way: with an id set this signs in; with
+    // none it opens Spotify's dashboard to make one. only the word and the
+    // press target change, never the shape or the colours
+    const mark = '<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true">'
+      + '<path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>';
+    if (SPOT_ID){
+      btn.innerHTML = mark + '<span>Connect Spotify</span>';
+      btn.addEventListener("click", spotConnect);
+    } else {
+      btn.innerHTML = mark + '<span>Create Spotify App ID</span>';
+      btn.addEventListener("click", spotCreateAppId);
+    }
     host.appendChild(btn);
     return host;
   }
@@ -8970,6 +8995,12 @@ async function poll(){
     lastState = state;
     P3_LANE = state.imagePanelLane || "";
     mdMounts(state.markdownLanes);
+    // the Spotify app id is machine-local and rides in on the state; when it
+    // first arrives, redraw the stub so a configured board drops the create
+    // prompt for the sign-in
+    const spotWas = SPOT_ID;
+    SPOT_ID = state.spotifyClientId || "";
+    if (SPOT_ID !== spotWas) spotResetStub();
     const caretAfter = focusedCaretContext();
     if (caretBefore && caretAfter && caretBefore.editor === caretAfter.editor &&
         (caretBefore.left !== caretAfter.left || caretBefore.top !== caretAfter.top ||
