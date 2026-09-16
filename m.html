@@ -612,9 +612,15 @@
      brings a freshly focused field into view, when the field is at opacity 0
      on that frame: one fiftieth of a second blink on focus, a frame the eye
      cannot catch. the script blinks the same way on every keystroke while
-     the keyboard is up, since the reveal fires on those too */
+     the keyboard is up, since the reveal fires on those too.
+     the blink is held flat at nothing for its whole run and steps back at the
+     end. rising from nothing instead put the field at nothing for an instant
+     only, and by the frame the reveal was worked out it was already partly
+     there, which the phone reads as a field to bring into view. a plain field's
+     reveal lands inside that instant and survived the rise; a line the page
+     writes in has its reveal a frame later and did not */
   [data-owned-focus]:focus{animation:focus-blink .02s}
-  @keyframes focus-blink{from{opacity:0}}
+  @keyframes focus-blink{0%,99%{opacity:0}}
   /* the twin the row is measured on: the same rule as the row, the row's own
      width, out of the flow and out of sight. the row's height is read off it,
      so the row itself is never collapsed to be measured, which is what threw

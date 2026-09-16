@@ -419,6 +419,39 @@ test("the caret-reveal blink is keyed to whichever field is focused", async () =
   assert.doesNotMatch(source, /\btextarea:focus\{animation:focus-blink/, "the blink is still keyed to the textarea alone");
 });
 
+test("the blink holds the focused field at nothing for the whole of its run", async () => {
+  const id = await create("Blink hold on the phone");
+  const { page, problems } = await openPhone(`/m?box=${id}`);
+  try {
+    await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
+    await page.waitForFunction(() => {
+      const c = document.querySelector("article.box.sel .cm-content");
+      return c && c.hasAttribute("data-owned-focus");
+    }, { timeout: 5000 });
+    // A blink that rises from nothing is at nothing for an instant only, and a
+    // reveal worked out a frame later finds a field partly there and brings it
+    // into view. The run is sampled at its own clock rather than in real time,
+    // so the reading is the animation's shape and not a race.
+    const read = await page.evaluate(() => {
+      const content = document.querySelector("article.box.sel .cm-content");
+      content.focus();
+      const blink = content.getAnimations().find(a => a.animationName === "focus-blink");
+      if (!blink) return null;
+      blink.pause();
+      const at = time => { blink.currentTime = time; return getComputedStyle(content).opacity; };
+      return { duration: blink.effect.getTiming().duration, start: at(0), mid: at(10), late: at(19) };
+    });
+    assert.ok(read, "no blink ran on the focused editor content");
+    assert.equal(read.duration, 20, "the blink is not the one-frame run the sheet describes");
+    assert.equal(read.start, "0", "the blink does not begin at nothing");
+    assert.equal(read.mid, "0", "the blink let the field back partway through its run");
+    assert.equal(read.late, "0", "the blink let the field back before its run was out");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
 test("both the plain field and the editor content carry the owned-focus mark", async () => {
   const id = await create("Owned focus on the phone");
   await api(`/reply?box=${id}`, "A reply to answer.");
