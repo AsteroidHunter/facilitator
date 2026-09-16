@@ -132,6 +132,10 @@ Magic box 3 holds one picture per lane, a plot above all. Write the file into yo
 
 So the `example` lane writes `~/projects/example/example-internal/panel.png`. Png, svg, jpg, gif and webp all work. The board picks it up within about four seconds, swaps itself when you rewrite the file, and falls back to its empty marks when you delete it. Nothing needs adding to the server, and no lane can read another's folder. Note that the panel is switched on for one configured tab only; every other tab still shows the plain stub.
 
+## The Spotify player
+
+`spotify_client_id` in `run.config.json` is the client id magic box 1 signs into Spotify with; make an app at the Spotify developer dashboard (https://developer.spotify.com/dashboard) to get one, and leave the key empty until you do.
+
 ## Seeding a board
 
 A first-ever start (no `state.json`) reads `seed.json` beside the server: the board title plus opening boxes (see `seed.example.json` for the shape). `seed.json` is gitignored because real discussion content is private and never ships in this repo; the example holds invented content only. To start a new project's board: copy the example to `seed.json`, fill in real items, run the server.

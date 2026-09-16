@@ -464,6 +464,17 @@ def _markdown_lanes() -> tuple:
     return tuple(x.strip() for x in lanes if isinstance(x, str) and x.strip())
 
 
+def _spotify_client_id() -> str:
+    """The Spotify app client id the player signs in with, read from
+    run.config.json (machine-local, gitignored). Empty when unset, which turns
+    the connect stub into a prompt to create an app id rather than a sign-in."""
+    try:
+        cfg = json.loads((HERE / "run.config.json").read_text())
+    except Exception:
+        return ""
+    return str(cfg.get("spotify_client_id") or "").strip()
+
+
 class DatedRotatingHandler(logging.handlers.RotatingFileHandler):
     """A file per day per kind, capped by size and pruned by count.
 
@@ -581,6 +592,7 @@ class HumanLineFormatter(logging.Formatter):
 
 LOG_LEVEL = _configured_level()
 IMAGE_PANEL_LANE = _image_panel_lane()
+SPOTIFY_CLIENT_ID = _spotify_client_id()
 LOGGER = logging.getLogger("facilitator")
 LOGGER.setLevel(LOG_LEVELS[LOG_LEVEL])
 LOGGER.propagate = False
@@ -2835,6 +2847,9 @@ def _ui_state() -> dict:
         # the lane whose own internal folder feeds the image panel, read
         # from run.config.json; empty leaves the panel off on every tab
         "imagePanelLane": IMAGE_PANEL_LANE,
+        # the Spotify app client id the player signs in with, read from
+        # run.config.json; empty turns the connect stub into a create prompt
+        "spotifyClientId": SPOTIFY_CLIENT_ID,
         # the lanes the markdown panel mounts on, read from run.config.json;
         # empty leaves the panel off on every tab
         "markdownLanes": list(MD_LANES),
