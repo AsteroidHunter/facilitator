@@ -51,8 +51,19 @@
   *{box-sizing:border-box}
   /* Height follows the containing block, not a viewport unit. The two are not
      always the same box, and a column taken from the longer one overhangs the
-     shorter. The shell fallback below matches. */
-  html{height:100%; -webkit-text-size-adjust:100%}
+     shorter. The shell fallback below matches. The one exception is the root
+     element in a home-screen app: a percentage there resolves against the area
+     the web view first offers, which is the screen less the status bar, and a
+     root that exactly fills that shorter area is what the web view then settles
+     to, reporting a viewport missing the top safe area however full-screen the
+     metas above asked to be. A root measured by the screen overhangs that first
+     offer and the web view opens to the whole screen instead. That display mode
+     has no toolbar for the unit to run under; a browser tab, where it would,
+     keeps the percentage. Everything under the root, the body included, still
+     follows its containing block. */
+  :root{--root-h:100%}
+  @media (display-mode:standalone){ :root{--root-h:100vh} }
+  html{height:var(--root-h); -webkit-text-size-adjust:100%}
   body{
     --paper:#FFFFFF;
     margin:0; background:var(--paper); color:var(--ink);

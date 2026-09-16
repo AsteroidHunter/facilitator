@@ -89,6 +89,17 @@ async function openPhone(route, { fake = false, roWatch = false } = {}) {
   return { page, problems };
 }
 
+// the measure the root takes its height from, and the boxes that take it
+function rootMeasure(page) {
+  return page.evaluate(() => ({
+    measure: getComputedStyle(document.documentElement).getPropertyValue("--root-h").trim(),
+    root: Math.round(document.documentElement.getBoundingClientRect().height),
+    body: Math.round(document.body.getBoundingClientRect().height),
+    inner: window.innerHeight,
+    standalone: matchMedia("(display-mode: standalone)").matches,
+  }));
+}
+
 // the card's foot, the composer's foot, and the close's own leftovers, read in
 // the visual viewport's coordinates
 function shellShape() {
@@ -172,6 +183,47 @@ test("the installed shell asks the phone for a full-screen web view", async () =
     "the shell is not installable as a standalone app");
   assert.match(source, /viewport-fit=cover/,
     "the viewport does not cover the whole screen");
+});
+
+test("the installed display mode measures the root by the screen, a tab by its box", async () => {
+  const source = await readFile(path.join(ROOT, "m.html"), "utf8");
+  const sheet = source.slice(source.indexOf("<style>"), source.indexOf("</style>"));
+  // A percentage on the root resolves against the box the web view first offers
+  // the page, which in a home-screen app is the screen less the status bar. A
+  // root that exactly fills that shorter box is what the web view settles to,
+  // and it then reports a viewport missing the top safe area, however
+  // full-screen the metas above asked to be. A root measured by the screen
+  // overhangs the first offer and the web view opens to the whole screen. Only
+  // the root changes measure: everything under it, the body included, still
+  // follows its containing block, which can be shorter than a unit reads.
+  assert.match(sheet, /html\{height:var\(--root-h\)/, "the root does not take the display mode's measure");
+  assert.match(sheet, /body\{[^}]*height:100%/, "the body no longer follows its containing block");
+  const { page, problems } = await openPhone("/m");
+  try {
+    const tab = await rootMeasure(page);
+    assert.equal(tab.measure, "100%", "a browser tab does not measure the root by its own box");
+    assert.equal(tab.standalone, false, "the tab reported itself as an installed app");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+  // No media-feature emulation carries a display mode, so the installed reading
+  // is taken from a window the browser itself opened in that mode.
+  const installedBrowser = await puppeteer.launch({ executablePath: CHROME, headless: true,
+    args: ["--disable-background-networking", "--no-first-run", `--app=${origin}/m`] });
+  try {
+    const [appPage] = await installedBrowser.pages();
+    await appPage.setViewport(PHONE);
+    await appPage.goto(`${origin}/m`, { waitUntil: "domcontentloaded" });
+    await appPage.waitForFunction(() => lastState !== null, { timeout: 5000 });
+    const installed = await rootMeasure(appPage);
+    assert.equal(installed.standalone, true, "the app window did not report the installed display mode");
+    assert.equal(installed.measure, "100vh", "an installed app does not measure the root by the screen");
+    assert.equal(installed.root, installed.inner, "the root box is not the whole reported viewport");
+    assert.equal(installed.body, installed.inner, "the body box is not the whole reported viewport");
+  } finally {
+    await installedBrowser.close();
+  }
 });
 
 test("the start globe is centred on its own full-screen box", async () => {
