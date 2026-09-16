@@ -89,6 +89,17 @@ async function openPhone(route, { fake = false, roWatch = false } = {}) {
   return { page, problems };
 }
 
+// the measure the root takes its height from, and the boxes that take it
+function rootMeasure(page) {
+  return page.evaluate(() => ({
+    measure: getComputedStyle(document.documentElement).getPropertyValue("--root-h").trim(),
+    root: Math.round(document.documentElement.getBoundingClientRect().height),
+    body: Math.round(document.body.getBoundingClientRect().height),
+    inner: window.innerHeight,
+    standalone: matchMedia("(display-mode: standalone)").matches,
+  }));
+}
+
 // the card's foot, the composer's foot, and the close's own leftovers, read in
 // the visual viewport's coordinates
 function shellShape() {
@@ -172,6 +183,47 @@ test("the installed shell asks the phone for a full-screen web view", async () =
     "the shell is not installable as a standalone app");
   assert.match(source, /viewport-fit=cover/,
     "the viewport does not cover the whole screen");
+});
+
+test("the installed display mode measures the root by the screen, a tab by its box", async () => {
+  const source = await readFile(path.join(ROOT, "m.html"), "utf8");
+  const sheet = source.slice(source.indexOf("<style>"), source.indexOf("</style>"));
+  // A percentage on the root resolves against the box the web view first offers
+  // the page, which in a home-screen app is the screen less the status bar. A
+  // root that exactly fills that shorter box is what the web view settles to,
+  // and it then reports a viewport missing the top safe area, however
+  // full-screen the metas above asked to be. A root measured by the screen
+  // overhangs the first offer and the web view opens to the whole screen. Only
+  // the root changes measure: everything under it, the body included, still
+  // follows its containing block, which can be shorter than a unit reads.
+  assert.match(sheet, /html\{height:var\(--root-h\)/, "the root does not take the display mode's measure");
+  assert.match(sheet, /body\{[^}]*height:100%/, "the body no longer follows its containing block");
+  const { page, problems } = await openPhone("/m");
+  try {
+    const tab = await rootMeasure(page);
+    assert.equal(tab.measure, "100%", "a browser tab does not measure the root by its own box");
+    assert.equal(tab.standalone, false, "the tab reported itself as an installed app");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+  // No media-feature emulation carries a display mode, so the installed reading
+  // is taken from a window the browser itself opened in that mode.
+  const installedBrowser = await puppeteer.launch({ executablePath: CHROME, headless: true,
+    args: ["--disable-background-networking", "--no-first-run", `--app=${origin}/m`] });
+  try {
+    const [appPage] = await installedBrowser.pages();
+    await appPage.setViewport(PHONE);
+    await appPage.goto(`${origin}/m`, { waitUntil: "domcontentloaded" });
+    await appPage.waitForFunction(() => lastState !== null, { timeout: 5000 });
+    const installed = await rootMeasure(appPage);
+    assert.equal(installed.standalone, true, "the app window did not report the installed display mode");
+    assert.equal(installed.measure, "100vh", "an installed app does not measure the root by the screen");
+    assert.equal(installed.root, installed.inner, "the root box is not the whole reported viewport");
+    assert.equal(installed.body, installed.inner, "the body box is not the whole reported viewport");
+  } finally {
+    await installedBrowser.close();
+  }
 });
 
 test("the start globe is centred on its own full-screen box", async () => {
@@ -365,6 +417,39 @@ test("the caret-reveal blink is keyed to whichever field is focused", async () =
   // plain textarea or the editor content, and not the textarea alone
   assert.match(source, /\[data-owned-focus\]:focus\{animation:focus-blink/, "the blink is not keyed to the owned-focus mark");
   assert.doesNotMatch(source, /\btextarea:focus\{animation:focus-blink/, "the blink is still keyed to the textarea alone");
+});
+
+test("the blink holds the focused field at nothing for the whole of its run", async () => {
+  const id = await create("Blink hold on the phone");
+  const { page, problems } = await openPhone(`/m?box=${id}`);
+  try {
+    await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
+    await page.waitForFunction(() => {
+      const c = document.querySelector("article.box.sel .cm-content");
+      return c && c.hasAttribute("data-owned-focus");
+    }, { timeout: 5000 });
+    // A blink that rises from nothing is at nothing for an instant only, and a
+    // reveal worked out a frame later finds a field partly there and brings it
+    // into view. The run is sampled at its own clock rather than in real time,
+    // so the reading is the animation's shape and not a race.
+    const read = await page.evaluate(() => {
+      const content = document.querySelector("article.box.sel .cm-content");
+      content.focus();
+      const blink = content.getAnimations().find(a => a.animationName === "focus-blink");
+      if (!blink) return null;
+      blink.pause();
+      const at = time => { blink.currentTime = time; return getComputedStyle(content).opacity; };
+      return { duration: blink.effect.getTiming().duration, start: at(0), mid: at(10), late: at(19) };
+    });
+    assert.ok(read, "no blink ran on the focused editor content");
+    assert.equal(read.duration, 20, "the blink is not the one-frame run the sheet describes");
+    assert.equal(read.start, "0", "the blink does not begin at nothing");
+    assert.equal(read.mid, "0", "the blink let the field back partway through its run");
+    assert.equal(read.late, "0", "the blink let the field back before its run was out");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
 });
 
 test("both the plain field and the editor content carry the owned-focus mark", async () => {
