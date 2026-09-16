@@ -7,6 +7,18 @@
 // held here, one per project, and each page reads it through curView(). Nothing
 // here runs on load.
 
+// ---- whether the answered box may open itself --------------------------------
+// the one switch over everything the box above the answer does on its own. it
+// is written here and read in the two places below that open that box without a
+// hand on it: the pass that mounts it, and the opener the minute's clock and a
+// protected visit both end in. nothing else reads it, and the strip's own click
+// or tap does not, so the reader's hand still opens and shuts the box.
+// false is what the board asks for: the box stands at its folded strip on both
+// pages whatever the reply's age, the visit or the reader's stored word about
+// it would otherwise have said. true hands the whole of that logic back exactly
+// as it was written, which is why none of it has been taken out
+const ANSWERED_AUTO_EXPAND = false;
+
 // ---- what a page may set ----------------------------------------------------
 // poolScope: a page that narrows the lane's pool further hands back the test to
 // keep a card by, or null for the whole lane. the desktop narrows to the chosen
@@ -745,6 +757,7 @@ function protectAnsweredVisit(el){
 }
 
 function autoOpenAnswered(el, meta){
+  if (!ANSWERED_AUTO_EXPAND) return;   // the box opens by hand alone
   if (!el || !meta || !el.answ || el.answId !== meta.id ||
       el.answ.classList.contains("open") || answeredChoice(meta.id)) return;
   if (el.answProtected === meta.id) return;
@@ -916,7 +929,10 @@ function syncAnswered(el, meta, opts){
   // Protection belongs to the reply that was on screen when editing began.
   // A newly completed reply is a new box and must keep its own minute.
   el.answProtected = null;
-  const open = answeredOpensNow(meta);
+  // the switch at the head of this file stands in front of the whole rule: with
+  // it off a box is mounted at its folded strip whatever that rule would say,
+  // and the strip's own click or tap is the only thing that opens it after
+  const open = ANSWERED_AUTO_EXPAND && answeredOpensNow(meta);
   // the arrival is the page's own two beats, and only for a box that arrives
   // shut on the card the reader is looking at: a box that is already past its minute is
   // mounted open, and growing an open box out of nothing is a run nobody asked
