@@ -1013,16 +1013,18 @@
   body.focus .box.sel .pendmsg + .pendmsg{padding-top:var(--sp-s)}
   body.focus .box.sel .pendmsg .pendcontent{
     position:relative; margin:0;
-    text-align:right; white-space:pre-wrap;
-    /* the sent line's own width: its left end never reaches past the
-       fifth of the box nearest that end, so the words are capped at four fifths
-       and wrap rather than run the whole way across. the cap is on the line's
-       own block and the block is pushed right by an automatic margin, so it is
-       the LEFT end that gives way and the right end that holds: a short line is
-       untouched, and a long one breaks at four fifths and takes a second line.
-       the delivery word under the line and the time that comes up on a drag are
-       both pinned to that right edge, which has not moved */
-    max-width:80%; margin-left:auto;
+    text-align:left; white-space:pre-wrap;
+    /* the sent line's own width: the block is exactly as wide as the words in
+       it, capped at four fifths of the box so a long line wraps rather than
+       running the whole way across, and pushed right by an automatic margin. so
+       the RIGHT end holds, where the delivery word under the line and the time
+       a drag brings up are both pinned, and the left end stands where the words
+       begin: a short line is untouched, and a long one breaks at four fifths
+       and takes a second line.
+       the words read left to right inside that block, so a list's marker, which
+       stands at the block's own left edge, stands beside its own text instead
+       of a box's width away from it */
+    width:fit-content; max-width:80%; margin-left:auto;
     /* a web address is one word with nothing in it a line may break at, so it
        ran straight past the cap and the lane cut it off, and the reader could not read
        the end of it. this lets a word that cannot fit break where it has to.

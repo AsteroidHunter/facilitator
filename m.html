@@ -461,9 +461,14 @@
      nothing draws over the run */
   .pendscroll{flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain}
   .pendmsg + .pendmsg{padding-top:var(--sp-s)}
+  /* the block is exactly as wide as the words in it, capped at four fifths of
+     the box and pushed right by the automatic margin, so its right end holds
+     where it always stood and its left end is where the words begin. the words
+     read left to right inside it, so a list's marker stands beside its own text
+     instead of a box's width away from it */
   .pendmsg .pendcontent{
-    position:relative; margin:0 0 0 auto; text-align:right; white-space:pre-wrap;
-    max-width:80%; overflow-wrap:break-word;
+    position:relative; margin:0 0 0 auto; text-align:left; white-space:pre-wrap;
+    width:fit-content; max-width:80%; overflow-wrap:break-word;
   }
   .rcpt{display:block; text-align:right; font:10.5px/1.35 var(--mono); color:var(--sub); padding:2px 0 0}
   .rcpt:empty{display:none}
