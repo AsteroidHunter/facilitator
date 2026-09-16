@@ -1630,10 +1630,16 @@ test("a window shorter than its own vh still centres the globe on the window", a
     // lengths, never from innerHeight or innerWidth
     const panelTop = box.panel[1], panelLeft = box.panel[0];
     const panelH = box.panel[3], panelW = box.panel[2];
-    // the curtain is the box it was given
-    assert.ok(Math.abs(panelH - took.block) < 1,
-      "the curtain is not the box it was given: " + panelH +
-      " against " + took.block);
+    // Installed, the curtain is the screen's own measure and not the box it is
+    // offered. Those are two different boxes for the first frames of a cold open:
+    // the web view hands the page the screen less the status bar and only settles
+    // to the whole screen once the root has overhung it, and a curtain pinned to
+    // the offered box is drawn short, with the globe in the middle of it sitting
+    // high until the settle lands. A browser tab keeps no curtain at all, so the
+    // containing-block rule this case was written for is unaffected there.
+    assert.ok(Math.abs(panelH - took.vh) < 1,
+      "the curtain is not the screen's own measure: " + panelH +
+      " against a resolved 100vh of " + took.vh + ", with the offered box at " + took.block);
     // and the globe's middle is the panel's middle, not half of what a unit reads
     const wanted = panelTop + panelH / 2;
     const lvhWould = panelTop + took.lvh / 2;
