@@ -2,6 +2,7 @@
   "port": 8877,
   "log_level": "info",
   "image_panel_lane": "",
+  "spotify_client_id": "",
   "markdown_lanes": ["example"],
   "lanes": [
     {
