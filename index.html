@@ -908,10 +908,11 @@
     left:50%; margin-left:-5.5px;                        /* half its own 11px */
     bottom:calc((var(--pend-bar) - 7px)/2 - var(--strip-line));
   }
-  /* the open box's seat: the top left corner, inside the box's own padding, on
-     the very line the run stamp is printed on. it is pinned inside the body and
-     not on the strip, so it rides the top of the box's content exactly as the
-     stamp does, on every frame of a run and not only on the last one.
+  /* the open box's seat: the top right corner, inside the box's own padding, on
+     the very line the run stamp is printed on, which is printed from the left
+     end now. it is pinned inside the body and not on the strip, so it rides the
+     top of the box's content exactly as the stamp does, on every frame of a run
+     and not only on the last one.
      the two numbers are what make the tangency. the whole part of the drop is
      given to the pin, where chrome's rounding to a whole pixel reaches it and
      does no harm, and the last 0.27 is given to the transform, which is applied
@@ -920,7 +921,7 @@
      with it at others. the arrow is a stroked diagonal with round ends and no
      flat horizontal edge, so standing it off the pixel grid costs it nothing */
   body.focus .box.sel .chevtop{
-    left:0; top:3px; transition-delay:0s;
+    right:0; top:3px; transition-delay:0s;
     transform:translateY(-0.27px) rotate(180deg);
     opacity:0;
   }
@@ -991,14 +992,15 @@
   }
   /* the run's one time tag, in the chat panel's own run stamp manner: small,
      muted, one for the whole run instead of one over every line. it is on
-     the right edge, so the tag ends on the same inside edge the lines below it
-     end on. it sits outside the sliding column, so the drag never moves it. the
+     the left edge, so the tag begins on the same inside edge the lines below it
+     begin on. it sits outside the sliding column, so the drag never moves it. the
      room under it is the strip's own step and not a number of its own: the
-     stamp and the arrow share the top line, and the first row stands off that
-     line by the same amount every row below it stands off the row above it */
+     stamp and the arrow share the top line, the arrow at its other end, and the
+     first row stands off that line by the same amount every row below it stands
+     off the row above it */
   body.focus .box.sel .pendstamp{
     flex:none;
-    text-align:right; font:12px var(--mono); color:var(--sub);
+    text-align:left; font:12px var(--mono); color:var(--sub);
     padding:0 0 var(--sp-s);
   }
   /* the column that slides. the drag writes --dx on the strip and both the
