@@ -29,15 +29,22 @@
       Needs HTTPS certificates switched on once for the tailnet, in the
       Tailscale admin console; says so and stops when they are off.
       --dry-run prints the commands instead of running them
+  facilitator install
+      set up a fresh checkout in place: check Python, find or install uv, create
+      the .venv and sync requirements, write run.config.json and seed.json from
+      the examples when they are missing, and install the test dependencies when
+      node is present. Safe to run again.
+  facilitator uninstall [--wipe]
+      remove what install made: the .venv, node_modules and the generated config
+      files. Keeps the board's data (state.json, transcript.jsonl, uploads, logs
+      and vapid-key.pem) unless --wipe is given. Never removes this folder and
+      never stops a running server.
 
 Reads run.config.json beside this script: machine-local and gitignored, since
-lanes name real directories and tmux sessions; copy run.config.example.json
-and fill it in. This script is Python stdlib only. The server needs uvicorn
-and starlette, installed once into a .venv beside it:
-
-    python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-
-run starts the server with that .venv's python when the folder is there, and
+lanes name real directories and tmux sessions; facilitator install writes it
+from run.config.example.json for you to fill in. This script is Python stdlib
+only; facilitator install builds the server's .venv from requirements.txt with
+uv. run starts the server with that .venv's python when the folder is there, and
 with its own interpreter otherwise.
 """
 
@@ -1401,6 +1408,251 @@ def cmd_bridge(args):
     show_way_in(url)
 
 
+# --- install and uninstall: the environment, the config and the test deps ---
+#
+# install makes a fresh checkout runnable with one command and is safe to run
+# again: every step reports either what it did or that it was already done.
+# uninstall takes away exactly what install made, keeping the board's data
+# unless --wipe is given. Neither ever removes this folder, and uninstall never
+# stops a running server: it refuses while one is up and says so.
+MIN_PYTHON = (3, 9)              # the floor the pinned server libraries need
+UV_HOME_BINS = ("~/.local/bin/uv", "~/.cargo/bin/uv")
+UV_INSTALL_URL = "https://astral.sh/uv/install.sh"
+INSTALL_HELP = """usage: facilitator install
+
+Make this checkout runnable: check Python, find or install uv, create the .venv
+and sync requirements, write run.config.json and seed.json from the examples
+when they are missing, and install the test dependencies when node is present.
+Safe to run again; a second run changes nothing."""
+UNINSTALL_HELP = """usage: facilitator uninstall [--wipe]
+
+Remove what install made: the .venv, node_modules and the generated config
+files. Keeps the board's data (state.json, transcript.jsonl, uploads, logs and
+vapid-key.pem) unless --wipe is given. Never removes this folder and never stops
+a running server."""
+
+
+def check_python():
+    """Report the running interpreter against the floor the server needs, and
+    stop below it. This is the interpreter that would build the environment, so
+    it is the one that has to be new enough."""
+    have = sys.version_info[:3]
+    shown = ".".join(str(part) for part in have)
+    floor = ".".join(str(part) for part in MIN_PYTHON)
+    if have < MIN_PYTHON:
+        sys.exit(f"python: {shown} is below the {floor} minimum; "
+                 "install a newer Python, then run install again")
+    print(f"python: {shown} meets the {floor} minimum")
+
+
+def find_uv():
+    """The uv command: PATH first, then the two places uv's own installer puts
+    it, so a uv installed here on a past run is found even when it never went
+    onto PATH."""
+    found = shutil.which("uv")
+    if found:
+        return found
+    for candidate in UV_HOME_BINS:
+        path = os.path.expanduser(candidate)
+        if os.access(path, os.X_OK):
+            return path
+    return None
+
+
+def install_uv():
+    """Install uv and return its path, or stop. Homebrew when it is there,
+    otherwise uv's own installer into the home folder, told not to touch any
+    shell profile. uv is required; there is no fallback to a plain venv."""
+    brew = shutil.which("brew")
+    if brew:
+        print("uv: not found; installing with Homebrew")
+        if subprocess.run([brew, "install", "uv"]).returncode != 0:
+            sys.exit("uv: Homebrew could not install it; install uv yourself, then run install again")
+    else:
+        if not shutil.which("curl"):
+            sys.exit("uv: curl is needed to fetch the installer; install uv yourself, then run install again")
+        print("uv: not found; installing with the astral.sh installer into your home")
+        script = subprocess.run(["curl", "-LsSf", UV_INSTALL_URL], capture_output=True, text=True)
+        if script.returncode != 0 or not script.stdout:
+            sys.exit("uv: could not download the installer; install uv yourself, then run install again")
+        env = {**os.environ, "INSTALLER_NO_MODIFY_PATH": "1"}
+        if subprocess.run(["sh"], input=script.stdout, text=True, env=env).returncode != 0:
+            sys.exit("uv: the installer did not finish; install uv yourself, then run install again")
+    uv = find_uv()
+    if not uv:
+        sys.exit("uv: installed but still not found; open a new shell so it is on PATH, then run install again")
+    return uv
+
+
+def ensure_uv():
+    uv = find_uv()
+    if uv:
+        print("uv: found")
+        return uv
+    return install_uv()
+
+
+def ensure_env(uv):
+    """Create the environment when it is not there and sync the pinned packages
+    into it. Creating is skipped when the environment already stands; syncing
+    runs either way because it is idempotent and is how a changed requirements
+    file is picked up."""
+    venv_python = HERE / ".venv" / "bin" / "python"
+    if venv_python.exists():
+        print("environment: .venv present")
+    else:
+        print("environment: creating .venv")
+        if subprocess.run([uv, "venv", ".venv"], cwd=str(HERE)).returncode != 0:
+            sys.exit("environment: uv could not create .venv; see the output above")
+    print("packages: syncing to requirements.txt")
+    if subprocess.run([uv, "pip", "sync", "--python", ".venv/bin/python", "requirements.txt"],
+                      cwd=str(HERE)).returncode != 0:
+        sys.exit("packages: uv could not sync requirements.txt; see the output above")
+
+
+def ensure_config():
+    """Write each config file from its example only when it is not already
+    there, so a second run and a user's own edits are both left untouched."""
+    for name, example in (("run.config.json", "run.config.example.json"),
+                          ("seed.json", "seed.example.json")):
+        target = HERE / name
+        if target.exists():
+            print(f"config: {name} present")
+        else:
+            shutil.copyfile(HERE / example, target)
+            print(f"config: wrote {name} from {example}")
+
+
+def ensure_node_deps():
+    """Install the test dependencies when node is here, and say plainly that
+    they are only for the tests. Skipped without node, since the board itself
+    does not need them."""
+    npm = shutil.which("npm")
+    if not (shutil.which("node") and npm):
+        print("node packages: node not found; skipped (needed only to run the tests)")
+        return
+    if (HERE / "node_modules" / "puppeteer-core").exists():
+        print("node packages: present (for the tests)")
+        return
+    print("node packages: installing puppeteer-core for the tests")
+    if subprocess.run([npm, "install", "puppeteer-core"], cwd=str(HERE)).returncode != 0:
+        sys.exit("node packages: npm could not install puppeteer-core; see the output above")
+
+
+def cmd_install(args):
+    """Set up a fresh checkout in place, beside this command, in the order the
+    steps depend on each other. Every step is idempotent."""
+    words = args[1:]
+    if any(w in ("-h", "--help") for w in words):
+        print(INSTALL_HELP)
+        return
+    if words:
+        sys.exit("install takes no options; got " + " ".join(words) + "\n" + INSTALL_HELP)
+    check_python()
+    uv = ensure_uv()
+    ensure_env(uv)
+    ensure_config()
+    ensure_node_deps()
+    print("")
+    print("Board installed. Start it with:")
+    print("  ./facilitator run")
+    print("Config lives beside this command: run.config.json (edit it) and seed.json")
+
+
+def board_running(port):
+    """True when this board answers on the port right now. The board shape is
+    checked, not a bare ping, so another service on the port is not mistaken for
+    the board."""
+    return board_state(port) is not None
+
+
+def bridge_note(port):
+    """The one line to print when a phone bridge is active, or None. Read only
+    and best effort: anything unreadable is treated as no bridge, because the
+    note must never fail an uninstall and uninstall must never touch the
+    bridge."""
+    try:
+        ts = find_tailscale()
+        if not ts:
+            return None
+        name = tailnet_name(tailscale_status(ts))
+        _, analysis = analyze_bridge(ts, name, port)
+        if analysis["active"]:
+            return "A phone bridge is active. Turn it off with: facilitator bridge off"
+    except SystemExit:
+        return None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return None
+
+
+def remove_path(path):
+    """Remove one file, directory or symlink when it is there; True when
+    something went. A directory symlink is unlinked, never followed into its
+    target, so a linked .venv is severed and its target left whole."""
+    try:
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+            return True
+        if path.is_dir():
+            shutil.rmtree(path)
+            return True
+    except OSError as problem:
+        sys.exit(f"uninstall: could not remove {path.name}: {problem.strerror or 'error'}")
+    return False
+
+
+def cmd_uninstall(args):
+    """Take away exactly what install made, keeping the board's data unless
+    --wipe is given. Refuses while the server is up, and never removes this
+    folder."""
+    words = args[1:]
+    if any(w in ("-h", "--help") for w in words):
+        print(UNINSTALL_HELP)
+        return
+    wipe = "--wipe" in words
+    extra = [w for w in words if w != "--wipe"]
+    if extra:
+        sys.exit("uninstall takes --wipe and nothing else; got "
+                 + " ".join(extra) + "\n" + UNINSTALL_HELP)
+
+    port = board_port()
+    if board_running(port):
+        sys.exit(f"uninstall: the board is up on port {port}; "
+                 "stop that server first, then run uninstall again")
+
+    note = bridge_note(port)
+    if note:
+        print(note)
+
+    made = [(".venv", HERE / ".venv"),
+            ("node_modules", HERE / "node_modules"),
+            ("package.json", HERE / "package.json"),
+            ("package-lock.json", HERE / "package-lock.json"),
+            ("run.config.json", HERE / "run.config.json"),
+            ("seed.json", HERE / "seed.json")]
+    data = [("state.json", HERE / "state.json"),
+            ("transcript.jsonl", HERE / "transcript.jsonl"),
+            ("uploads", HERE / "uploads"),
+            ("logs", LOG_DIR),
+            ("vapid-key.pem", HERE / "vapid-key.pem")]
+
+    for label, path in made:
+        print(f"removed {label}" if remove_path(path) else f"{label} not present")
+
+    if wipe:
+        for label, path in data:
+            print(f"removed {label}" if remove_path(path) else f"{label} not present")
+        # state's scratch and backups are the board's data too, not the install
+        for path in [HERE / "state.tmp", *sorted(HERE.glob("state.json.bak-*"))]:
+            if remove_path(path):
+                print(f"removed {path.name}")
+    else:
+        for label, path in data:
+            if path.exists():
+                print(f"kept {label}")
+
+
 def main():
     args = sys.argv[1:]
     cmd = args[0] if args and not args[0].startswith("-") else "run"
@@ -1412,6 +1664,10 @@ def main():
         cmd_status()
     elif cmd == "bridge":
         cmd_bridge(args)
+    elif cmd == "install":
+        cmd_install(args)
+    elif cmd == "uninstall":
+        cmd_uninstall(args)
     else:
         sys.exit(__doc__.strip())
 
