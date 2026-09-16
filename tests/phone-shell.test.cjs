@@ -241,18 +241,20 @@ test("the start globe is centred on its own full-screen box", async () => {
 
 // ---- unit 2: the transform lift ------------------------------------------------------
 
-test("the card body lifts by a transform inside a clip box, never by resizing", async () => {
+test("the card pane lifts by a transform inside a clip box, never by resizing", async () => {
   const source = await readFile(path.join(ROOT, "m.html"), "utf8");
   const sheet = source.slice(source.indexOf("<style>"), source.indexOf("</style>"));
-  // the clip box cuts the lifted body where it rises under the card header, and
-  // it is clip and not hidden so it is never a scroll container the caret reveal
-  // could seize
-  assert.match(sheet, /\.liftclip\{[^}]*overflow:\s*clip/, "the clip box is missing or is not overflow:clip");
-  assert.doesNotMatch(sheet, /\.liftclip\{[^}]*overflow:\s*hidden/, "the clip box is a scroll container");
-  // the body is the one lifted piece, moved only by a transform on the keyboard clock
-  assert.match(sheet, /\.body\{[^}]*transform:\s*translateY\(var\(--kb-lift/, "the body does not lift by a transform");
-  assert.match(sheet, /\.body\{[^}]*transition:\s*transform var\(--kb-anim\)/, "the body's lift is not on the keyboard clock");
-  assert.match(sheet, /\.body\{[^}]*will-change:\s*transform/, "the lifted body keeps no layer between edges");
+  // the clip box cuts the pane where it rises under the tab strip, and it is clip
+  // and not hidden so it is never a scroll container the caret reveal could seize
+  assert.match(sheet, /#shelf\{[^}]*overflow:\s*clip/, "the clip box is missing or is not overflow:clip");
+  assert.doesNotMatch(sheet, /#shelf\{[^}]*overflow:\s*hidden/, "the clip box is a scroll container");
+  // the pane is the one lifted piece, moved only by a transform on the keyboard
+  // clock, so the card's title rides up with the words under it
+  assert.match(sheet, /main\{[^}]*transform:\s*translateY\(var\(--kb-lift/, "the pane does not lift by a transform");
+  assert.match(sheet, /main\{[^}]*transition:\s*transform var\(--kb-anim\)/, "the pane's lift is not on the keyboard clock");
+  assert.match(sheet, /main\{[^}]*will-change:\s*transform/, "the lifted pane keeps no layer between edges");
+  assert.doesNotMatch(sheet, /\.body\{[^}]*transform:\s*translateY\(var\(--kb-lift/,
+    "the card body still lifts on its own, under a title that stays put");
   // the lift distance: the resting clearance less the gap less the keyboard
   // inset, floored at nothing so the rise can never come out a fall
   assert.match(sheet, /--kb-lift:min\(0px, calc\(var\(--pad-b\)\s*-\s*var\(--kb-gap\)\s*-\s*var\(--kb-inset\)\)\)/,
@@ -263,11 +265,47 @@ test("the card body lifts by a transform inside a clip box, never by resizing", 
     "the page still grows its padding at the keyboard edge");
 });
 
+test("the keyboard carries the whole card, title and all, by one distance", async () => {
+  const id = await create("Whole card lift on the phone");
+  await api(`/reply?box=${id}`, "A reply to answer.");
+  const { page, problems } = await openPhone(`/m?box=${id}`, { fake: true });
+  const marks = () => page.evaluate(() => {
+    const box = document.querySelector("article.box.sel");
+    const top = el => Math.round(el.getBoundingClientRect().top * 10) / 10;
+    return {
+      bar: top(document.querySelector(".bar")),
+      title: top(box.querySelector(".title")),
+      row: top(box.querySelector(".compose")),
+      foot: Math.round(document.getElementById("pane").getBoundingClientRect().bottom * 10) / 10,
+    };
+  });
+  try {
+    await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
+    const rest = await marks();
+    await page.focus(SEL);
+    await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height - KEYBOARD);
+    await settle(450);
+    const up = await marks();
+    const moved = key => Math.round(rest[key] - up[key]);
+    assert.ok(moved("row") > 100, `the compose row did not rise for the keyboard: ${moved("row")}`);
+    // one piece: the title rides up with the words under it, and the card's own
+    // bottom edge comes with them, so nothing of the card is cut under a header
+    // that stayed behind
+    assert.equal(moved("title"), moved("row"), "the title did not rise with the compose row");
+    assert.equal(moved("foot"), moved("row"), "the card's bottom edge did not rise with the compose row");
+    // the tab strip is the one thing that stays, as it did before the rebuild
+    assert.equal(moved("bar"), 0, "the tab strip moved with the card");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
 test("the keyboard curve is the measured one and the settle clock matches it", async () => {
   const source = await readFile(path.join(ROOT, "m.html"), "utf8");
   assert.match(source, /--kb-anim:\.22s cubic-bezier\(\.45,0,\.55,1\)/, "the keyboard curve is not the measured one");
   assert.match(source, /const KB_ANIM_MS = 220/, "the settle clock does not match the css curve");
-  // the lift's landing is watched on the body's own transform, not the page's padding
+  // the lift's landing is watched on the pane's own transform, not the page's padding
   assert.match(source, /propertyName === "transform"/, "the lift landing is not watched on the transform");
   assert.doesNotMatch(source, /propertyName === "padding-bottom"/, "the lift landing still watches the old padding");
 });
@@ -283,7 +321,7 @@ test("the close never carries the card below where it rests", async () => {
   // is written in here, which is the whole of what the device adds
   const PAD_B = 40;
   const lift = () => page.evaluate(() => {
-    const shape = getComputedStyle(document.querySelector("article.box.sel .body")).transform;
+    const shape = getComputedStyle(document.getElementById("pane")).transform;
     return {
       declared: getComputedStyle(document.getElementById("page")).getPropertyValue("--kb-lift").trim(),
       moved: shape === "none" ? 0 : Math.round(parseFloat(shape.split(",")[5])),
