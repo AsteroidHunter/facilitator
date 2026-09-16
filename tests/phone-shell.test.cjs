@@ -1,9 +1,10 @@
 // The phone page's shell, built along a proven full-screen design: the
-// standalone metas that hand the app the whole screen, the transform lift that
-// carries the composer over the keyboard without resizing any box, the close
-// that lands with no jump and no bare strip, the focus locks keyed to whichever
-// field is actually focused, and the guard that stops a size watcher from
-// chasing its own writes. Grown one unit at a time.
+// standalone metas that hand the app the whole screen, the room the card keeps
+// under its own foot so the composer clears the keyboard while the card's top
+// and title stand still, the close that lands with no jump and no bare strip,
+// the focus locks keyed to whichever field is actually focused, and the guard
+// that stops a size watcher from chasing its own writes. Grown one unit at a
+// time.
 //
 // What only an iPhone can show, the keyboard's own motion beside the card's and
 // the status bar's inset on the reported height, is proven on the simulator.
@@ -115,7 +116,10 @@ function shellShape() {
     lifting: body.classList.contains("lifting"),
     kbInset: page.style.getPropertyValue("--kb-inset"),
     kbLift: getComputedStyle(page).getPropertyValue("--kb-lift").trim(),
-    liftPad: getComputedStyle(view).getPropertyValue("--lift-pad").trim(),
+    // the room the card keeps under its own foot for the keyboard, which is the
+    // whole of the lift now
+    paneRoom: getComputedStyle(document.getElementById("pane")).marginBottom,
+    answer: Math.round(view.getBoundingClientRect().height),
     replyScroll: view.scrollTop, winX: window.scrollX, winY: window.scrollY,
     shellH: body.style.getPropertyValue("--shell-h"),
   };
@@ -245,44 +249,61 @@ test("the start globe is centred on its own full-screen box", async () => {
   assert.match(curtain, /margin:-7vmin 0 0 -7vmin/, "the globe is not pulled back by half its own size");
 });
 
-// ---- unit 2: the transform lift ------------------------------------------------------
+// ---- unit 2: the card's foot takes the keyboard ---------------------------------------
 
-test("the card pane lifts by a transform inside a clip box, never by resizing", async () => {
+test("the card keeps the keyboard's room under its own foot, and nothing above it moves", async () => {
   const source = await readFile(path.join(ROOT, "m.html"), "utf8");
   const sheet = source.slice(source.indexOf("<style>"), source.indexOf("</style>"));
-  // the clip box cuts the pane where it rises under the tab strip, and it is clip
-  // and not hidden so it is never a scroll container the caret reveal could seize
-  assert.match(sheet, /#shelf\{[^}]*overflow:\s*clip/, "the clip box is missing or is not overflow:clip");
-  assert.doesNotMatch(sheet, /#shelf\{[^}]*overflow:\s*hidden/, "the clip box is a scroll container");
-  // the pane is the one lifted piece, moved only by a transform on the keyboard
-  // clock, so the card's title rides up with the words under it
-  assert.match(sheet, /main\{[^}]*transform:\s*translateY\(var\(--kb-lift/, "the pane does not lift by a transform");
-  assert.match(sheet, /main\{[^}]*transition:\s*transform var\(--kb-anim\)/, "the pane's lift is not on the keyboard clock");
-  assert.match(sheet, /main\{[^}]*will-change:\s*transform/, "the lifted pane keeps no layer between edges");
+  // the pane stands in the page's own column: the clip box a whole-card lift
+  // needed is gone, because nothing above the card's bottom edge moves any more
+  assert.doesNotMatch(sheet, /#shelf\{/, "the clip box for a whole-card lift is still in the sheet");
+  assert.doesNotMatch(source, /id="shelf"/, "the clip box for a whole-card lift is still in the markup");
+  // the card holds the keyboard's room under its own foot, on the keyboard's own
+  // clock, so its foot and the typing row come up and its top edge does not
+  assert.match(sheet, /main\{[^}]*margin-bottom:calc\(0px - var\(--kb-lift, 0px\)\)/,
+    "the card's foot does not keep the lift as its own room");
+  assert.match(sheet, /main\{[^}]*transition:margin-bottom var\(--kb-anim\)/,
+    "the card's foot is not on the keyboard clock");
+  assert.doesNotMatch(sheet, /main\{[^}]*transform:\s*translateY\(var\(--kb-lift/,
+    "the whole card still rides the keyboard's lift");
   assert.doesNotMatch(sheet, /\.body\{[^}]*transform:\s*translateY\(var\(--kb-lift/,
     "the card body still lifts on its own, under a title that stays put");
+  // the reachability padding went with the lift it answered: an answer whose top
+  // never moves needs nothing given back, and the padding drew as a blank band
+  assert.doesNotMatch(sheet, /--lift-pad/, "the answer still takes a lift's reachability padding");
   // the lift distance: the resting clearance less the gap less the keyboard
   // inset, floored at nothing so the rise can never come out a fall
   assert.match(sheet, /--kb-lift:min\(0px, calc\(var\(--pad-b\)\s*-\s*var\(--kb-gap\)\s*-\s*var\(--kb-inset\)\)\)/,
     "the lift distance is not the resting clearance less the gap less the inset, floored at nothing");
-  // the old box-resizing lift is gone: the page's bottom padding no longer grows
-  // with the keyboard
+  // the page's own bottom padding still never grows with the keyboard: the room
+  // is the card's, so the strip and the page under it are left alone
   assert.doesNotMatch(sheet, /body\.obstructed[^{]*#page\{[^}]*--pad-b:/,
     "the page still grows its padding at the keyboard edge");
 });
 
-test("the keyboard carries the whole card, title and all, by one distance", async () => {
-  const id = await create("Whole card lift on the phone");
-  await api(`/reply?box=${id}`, "A reply to answer.");
+test("the keyboard raises the card's bottom edge and the typing row, and nothing above them", async () => {
+  const id = await create("Bottom rise on the phone");
+  const paras = [];
+  for (let n = 1; n <= 40; n++) paras.push(`Paragraph ${n} of an answer long enough to scroll on a phone.`);
+  await api(`/reply?box=${id}`, paras.join("\n\n"));
   const { page, problems } = await openPhone(`/m?box=${id}`, { fake: true });
+  // the edges the order names, in the visible viewport's own coordinates
   const marks = () => page.evaluate(() => {
     const box = document.querySelector("article.box.sel");
-    const top = el => Math.round(el.getBoundingClientRect().top * 10) / 10;
+    const view = box.querySelector(".replyview");
+    const round = value => Math.round(value * 10) / 10;
+    const edge = (el, side) => round(el.getBoundingClientRect()[side]);
+    const bar = document.querySelector(".bar"), pane = document.getElementById("pane");
+    const topbar = box.querySelector(".topbar");
     return {
-      bar: top(document.querySelector(".bar")),
-      title: top(box.querySelector(".title")),
-      row: top(box.querySelector(".compose")),
-      foot: Math.round(document.getElementById("pane").getBoundingClientRect().bottom * 10) / 10,
+      barTop: edge(bar, "top"), barBottom: edge(bar, "bottom"),
+      cardTop: edge(pane, "top"), cardBottom: edge(pane, "bottom"),
+      titleBarTop: edge(topbar, "top"), titleBarBottom: edge(topbar, "bottom"),
+      rowBottom: edge(box.querySelector(".compose"), "bottom"),
+      answer: round(view.getBoundingClientRect().height),
+      answerPad: getComputedStyle(view).paddingTop,
+      answerTravel: Math.round(view.scrollHeight - view.clientHeight),
+      visible: window.visualViewport.height,
     };
   });
   try {
@@ -292,15 +313,31 @@ test("the keyboard carries the whole card, title and all, by one distance", asyn
     await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height - KEYBOARD);
     await settle(450);
     const up = await marks();
-    const moved = key => Math.round(rest[key] - up[key]);
-    assert.ok(moved("row") > 100, `the compose row did not rise for the keyboard: ${moved("row")}`);
-    // one piece: the title rides up with the words under it, and the card's own
-    // bottom edge comes with them, so nothing of the card is cut under a header
-    // that stayed behind
-    assert.equal(moved("title"), moved("row"), "the title did not rise with the compose row");
-    assert.equal(moved("foot"), moved("row"), "the card's bottom edge did not rise with the compose row");
-    // the tab strip is the one thing that stays, as it did before the rebuild
-    assert.equal(moved("bar"), 0, "the tab strip moved with the card");
+    const rose = Math.round(rest.rowBottom - up.rowBottom);
+    assert.ok(Math.abs(rose - KEYBOARD) <= 2, `the typing row rose ${rose}, not the keyboard's ${KEYBOARD}`);
+    // the card's own bottom edge comes up with the row it carries, so the row
+    // sits on the keyboard with the card's edge just under it
+    assert.equal(Math.round(rest.cardBottom - up.cardBottom), rose,
+      "the card's bottom edge did not rise with the typing row");
+    // and nothing above that edge moves: the strip keeps its place, the card
+    // keeps its gap under the strip, and the title bar never leaves
+    for (const key of ["barTop", "barBottom", "cardTop", "titleBarTop", "titleBarBottom"]) {
+      assert.equal(up[key], rest[key], `${key} moved with the keyboard: ${rest[key]} to ${up[key]}`);
+    }
+    assert.ok(up.titleBarBottom <= up.visible,
+      `the title bar (${up.titleBarBottom}) is below the visible viewport (${up.visible})`);
+    // what gives is the answer between them: it is shorter by exactly the rise,
+    // and it keeps every word by handing the loss to its own scroll
+    assert.equal(Math.round(rest.answer - up.answer), rose, "the answer did not shorten by the keyboard's rise");
+    assert.equal(up.answerPad, "0px", "the answer took top padding, which reads as a blank band under the title");
+    assert.equal(up.answerTravel, rest.answerTravel + rose, "the shortened answer did not gain the travel it lost");
+
+    await page.evaluate(() => document.activeElement && document.activeElement.blur());
+    await settle(60);
+    await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height);
+    await settle(600);
+    const down = await marks();
+    assert.deepEqual(down, rest, "the card did not come back to the shape it rests in");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
@@ -311,8 +348,9 @@ test("the keyboard curve is the measured one and the settle clock matches it", a
   const source = await readFile(path.join(ROOT, "m.html"), "utf8");
   assert.match(source, /--kb-anim:\.22s cubic-bezier\(\.45,0,\.55,1\)/, "the keyboard curve is not the measured one");
   assert.match(source, /const KB_ANIM_MS = 220/, "the settle clock does not match the css curve");
-  // the lift's landing is watched on the pane's own transform, not the page's padding
-  assert.match(source, /propertyName === "transform"/, "the lift landing is not watched on the transform");
+  // the lift's landing is watched on the pane's own room, not the page's padding
+  assert.match(source, /e\.target\.id === "pane" && e\.propertyName === "margin-bottom"/,
+    "the lift landing is not watched on the card's own room");
   assert.doesNotMatch(source, /propertyName === "padding-bottom"/, "the lift landing still watches the old padding");
 });
 
@@ -327,10 +365,10 @@ test("the close never carries the card below where it rests", async () => {
   // is written in here, which is the whole of what the device adds
   const PAD_B = 40;
   const lift = () => page.evaluate(() => {
-    const shape = getComputedStyle(document.getElementById("pane")).transform;
+    const room = parseFloat(getComputedStyle(document.getElementById("pane")).marginBottom) || 0;
     return {
       declared: getComputedStyle(document.getElementById("page")).getPropertyValue("--kb-lift").trim(),
-      moved: shape === "none" ? 0 : Math.round(parseFloat(shape.split(",")[5])),
+      moved: -Math.round(room),
       lifting: document.body.classList.contains("lifting"),
     };
   });
@@ -338,24 +376,24 @@ test("the close never carries the card below where it rests", async () => {
     await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
     await page.addStyleTag({ content: `#page{--pad-b:${PAD_B}px}` });
     await settle(60);
-    assert.equal((await lift()).moved, 0, "the body is not at rest before the keyboard");
+    assert.equal((await lift()).moved, 0, "the card's foot is not at rest before the keyboard");
     await page.focus(SEL);
     await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height - KEYBOARD);
     await settle(450);
-    assert.ok((await lift()).moved < 0, "the body did not rise for the keyboard");
-    // the inset goes to nothing at focus loss while the body is still held for
+    assert.ok((await lift()).moved < 0, "the card's foot did not rise for the keyboard");
+    // the inset goes to nothing at focus loss while the pane is still held for
     // the settle window. what is held there must be the rise ending, not a fall
     await page.evaluate(() => document.activeElement && document.activeElement.blur());
     await settle(260);
     const held = await lift();
     assert.equal(held.lifting, true, "the settle window closed before the reading");
-    // the reading is the transform the body actually wears, since a custom
-    // property hands back its own text rather than a resolved length
+    // the reading is the room the pane actually keeps, since a custom property
+    // hands back its own text rather than a resolved length
     assert.ok(held.moved <= 0,
-      `the body was carried ${held.moved} points below where it rests, on a lift of ${held.declared}`);
+      `the card's foot was carried ${held.moved} points below where it rests, on a lift of ${held.declared}`);
     await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height);
     await settle(500);
-    assert.equal((await lift()).moved, 0, "the body did not land back at rest");
+    assert.equal((await lift()).moved, 0, "the card's foot did not land back at rest");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
@@ -387,7 +425,8 @@ test("the close starts at focus loss and leaves no residue", async () => {
     assert.equal(down.obstructed, false);
     assert.equal(down.lifting, false, "the settle window did not close");
     assert.equal(down.kbInset, "0px", "the keyboard inset was left on after the close");
-    assert.equal(down.liftPad, "0px", "the reachability padding was left on after the close");
+    assert.equal(down.paneRoom, "0px", "the card kept the keyboard's room after the close");
+    assert.equal(down.answer, up.answer + KEYBOARD, "the answer did not get its height back after the close");
     assert.equal(down.winX, 0, "a window scroll was left after the close");
     assert.equal(down.winY, 0, "a window scroll was left after the close");
     assert.equal(down.foot, PHONE.height - INSET, "the card foot moved across the close");
@@ -423,7 +462,7 @@ test("repeated keyboard cycles keep the answer's place and accumulate nothing", 
     assert.equal(after.obstructed, false);
     assert.equal(after.lifting, false, "the settle window never closed across the cycles");
     assert.equal(after.kbInset, "0px", "the keyboard inset accumulated across cycles");
-    assert.equal(after.liftPad, "0px", "the reachability padding accumulated across cycles");
+    assert.equal(after.paneRoom, "0px", "the keyboard's room accumulated across cycles");
     assert.equal(after.winX, 0);
     assert.equal(after.winY, 0);
     assert.equal(after.foot, PHONE.height - INSET, "the card foot drifted across cycles");
@@ -454,7 +493,7 @@ test("the accessory strip going while the field stays focused returns the compos
     const down = await page.evaluate(shellShape);
     assert.equal(down.obstructed, false, "the card stayed obstructed after the strip went");
     assert.equal(down.kbInset, "0px", "the inset was left on after the strip went");
-    assert.equal(down.liftPad, "0px", "the reachability padding was left on after the strip went");
+    assert.equal(down.paneRoom, "0px", "the card kept the strip's room after the strip went");
     assert.equal(down.foot, PHONE.height - INSET, "the card foot moved after the strip went");
     assert.ok(down.rowBottom > PHONE.height - ACCESSORY, "the composer did not return after the strip went");
     assert.equal(await page.evaluate(() => editing()), true, "the field lost focus when only the strip went");
@@ -464,33 +503,42 @@ test("the accessory strip going while the field stays focused returns the compos
   }
 });
 
-test("switching cards while the keyboard is up leaves no stale reachability padding", async () => {
+test("a card switch while the keyboard is up hands the new card the shorter answer", async () => {
   const a = await create("Card A on the phone");
   await api(`/reply?box=${a}`, "Answer A, long enough to hold a reading position.");
   const b = await create("Card B on the phone");
   await api(`/reply?box=${b}`, "Answer B.");
   const { page, problems } = await openPhone(`/m?box=${a}`, { fake: true });
-  const padOf = id => page.evaluate(box => {
-    const v = document.getElementById("box-" + box).querySelector(".replyview");
-    return getComputedStyle(v).getPropertyValue("--lift-pad").trim();
-  }, id);
+  const answer = () => page.evaluate(() => {
+    const view = document.querySelector("article.box.sel .replyview");
+    return { height: Math.round(view.getBoundingClientRect().height), pad: getComputedStyle(view).paddingTop };
+  });
   try {
     await page.waitForSelector(`#box-${a}.sel`, { timeout: 5000 });
+    const rest = await answer();
     await page.focus(SEL);
     await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height - KEYBOARD);
     await settle(450);
-    assert.notEqual(await padOf(a), "0px", "card A did not take reachability padding while lifted");
+    const upA = await answer();
+    assert.ok(Math.abs((rest.height - upA.height) - KEYBOARD) <= 2,
+      `card A's answer lost ${rest.height - upA.height}, not the keyboard's ${KEYBOARD}`);
     // move to card B while the keyboard is still up, the way a hardware-keyboard
-    // hotkey move keeps the composer alive, then close and come back to A
+    // hotkey move does, carrying the caret into the next card's row so the
+    // keyboard never goes; then close and come back to A
     await page.evaluate(box => select(box), b);
-    await settle(60);
+    await page.focus(SEL);
+    await settle(450);
+    const upB = await answer();
+    assert.equal(upB.height, upA.height, "card B came in at its resting height with the keyboard still up");
     await page.evaluate(() => document.activeElement && document.activeElement.blur());
     await settle(60);
     await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height);
     await settle(400);
     await page.evaluate(box => select(box), a);
     await settle(200);
-    assert.equal(await padOf(a), "0px", "card A kept stale reachability padding after a switch away while lifted");
+    const back = await answer();
+    assert.equal(back.height, rest.height, "card A came back short after a switch away while the keyboard was up");
+    assert.equal(back.pad, "0px", "card A came back with padding standing over its answer");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
