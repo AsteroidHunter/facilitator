@@ -484,9 +484,9 @@
   /* ---- the answered box: what the answer on the card was given ------------- */
   /* the sent box drawn again over the answer instead of under it: the same
      strip, the same shut bar, the same lane, the same rows, the same tap to
-     fold and the same run under that tap. two things about it are its own. it is raised out
-     of the card on the board's own pair instead of being let into it, and its
-     arrows point the other way: shut, down at the answer it opens toward; open,
+     fold and the same run under that tap. two things about it are its own. it stands out
+     of the card rather than being let into it, so it wears no shade either way
+     up, and its arrows point the other way: shut, down at the answer it opens toward; open,
      the corner arrow turned over by the rule the box below already carries, up
      at the title it shuts toward.
      the wrapper stands in the card's column rather than pinned to its floor, so
@@ -563,16 +563,18 @@
      is what makes the answer start under the BOX and not under part of it: the
      wrapper gives way when the card runs short, and the strip is flex:none in
      the rule above, so without this it would stand at its own height and print
-     its words over the top of the answer. no overflow is set here: shut, the raised shade
-     belongs to the head inside this strip, and a parent clip cuts a child's
-     shade square across the rounded corners it is drawn to. open, mid-fold and
-     arriving each clip by their own rule */
+     its words over the top of the answer. no overflow is set here: open,
+     mid-fold and arriving each clip by their own rule */
   .pendwrap-answered .pendlist{
     flex:1 1 auto; min-height:0;
     --pend-rise:calc((15px*1.5 + var(--sp-s)) * -1);   /* its words travel down */
   }
+  /* and no shade of its own, either way up. the raised pair it used to cast
+     around itself is off; none rather than nothing written at all, because
+     nothing written at all would hand the strip and its shut bar the sunk pair
+     the box below wears, and a box let INTO the card is what this one is not */
   .pendwrap-answered .pendlist.open,
-  .pendwrap-answered .pendlist:not(.open) .pendhead{box-shadow:var(--raised-soft)}
+  .pendwrap-answered .pendlist:not(.open) .pendhead{box-shadow:none}
   /* the answer needs no floor of its own: it takes whatever the column has
      left, and what it has left is settled by the box above, which may not take
      the answer's own line and the ramp under it. one rule decides the share, so

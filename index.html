@@ -1285,10 +1285,10 @@
      reveals a time and the same staged fold. three things about it are its own,
      and each of the three is what standing ABOVE the answer means rather than a
      second design of anything.
-     it is raised out of the card instead of let into it, so its shade falls
-     below it rather than hanging off its top inside edge. the pair is the
-     board's own --raised-soft, shared with the phone and the small card, and it
-     is the one thing the accepted mock states outright.
+     it stands out of the card instead of being let into it, and it wears no
+     shade for that: the raised pair it wore, the board's own --raised-soft, is
+     off, and the sunk pair the box below wears is kept off it, so what stands
+     around it is its own hairline and the card's white.
      its arrows point the other way. shut, the bar's arrow points down at the
      answer the box opens toward; open, the corner arrow is that same glyph
      turned over by the rule the box below already carries, so it points up at
@@ -1390,18 +1390,20 @@
      standing at its own height: the answer laid out against the shorter wrapper
      and the sent words printed over the top of it. growing and shrinking with
      the wrapper is what keeps the two edges one edge.
-     no overflow is set here. shut, the raised shade belongs to the head
-     inside this strip, and a parent clip cuts a child's shade square across the
-     rounded corners it is drawn to. the states that must clip already do: open,
+     no overflow is set here. the states that must clip already do: open,
      mid-fold and arriving, each by its own rule, and the wrapper's floor is
      what keeps the shut bar whole */
   body.focus .box.sel .pendwrap-answered .pendlist{
     flex:1 1 auto; min-height:0;
     --pend-rise:calc((16px*1.5 + var(--sp-s)) * -1);
   }
+  /* and no shade of its own, either way up. the raised pair it used to cast
+     around itself is off; none rather than nothing written at all, because
+     nothing written at all would hand the strip and its shut bar the sunk pair
+     the boxes below wear, and a box let INTO the card is what this one is not */
   body.focus .box.sel .pendwrap-answered .pendlist.open,
   body.focus .box.sel .pendwrap-answered .pendlist:not(.open) .pendhead{
-    box-shadow:var(--raised-soft);
+    box-shadow:none;
   }
   /* the shut bar's arrow is seated off the strip's TOP edge here and not off
      its bottom. under the box below, the bottom edge is the one that holds
