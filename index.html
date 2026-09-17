@@ -1054,6 +1054,12 @@
     -webkit-mask:var(--bubble-tail) right 0 / 24px 25px no-repeat;
     mask:var(--bubble-tail) right 0 / 24px 25px no-repeat;
   }
+  /* the 7px the tail hangs into. under the box by the composer the delivery
+     word's own seat holds that room; the box above the answer carries no word,
+     so its last row would end on the bubble's edge and the lane, a scroller,
+     would cut the hook there. a last row with nothing under it keeps the room
+     itself */
+  body.focus .box.sel .pendmsg:last-child:has(> .rcpt:empty){padding-bottom:7px}
   /* the delivery word under a line, written the way the chat panel writes Read
      and Delivered under its own sent bubbles: right aligned, muted, and clearly
      quieter than the words above it. one of each on screen, ever: reading runs
