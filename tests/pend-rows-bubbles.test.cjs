@@ -325,8 +325,11 @@ for (const kind of ["desktop", "phone"]) {
       // hangs both on the last bubble of a run
       assert.equal(delivered.tail.content, '""', "the bubble under which Delivered sits carries no tail");
       for (const row of boxes.bottom.rows) {
-        assert.equal(row.rcpt.padding, "7px 4px 0px", `the bottom box's delivery word keeps the old seat: ${JSON.stringify(row.rcpt)}`);
-        near(row.rcpt.textRight, row.bubble.right - 4, 0.6, `bottom box, ${row.rcpt.text}'s right end 4px in from the bubble's edge`);
+        assert.equal(row.rcpt.padding, "7px 18px 0px", `the bottom box's delivery word keeps the old seat: ${JSON.stringify(row.rcpt)}`);
+        // the word ends where the bubble's straight bottom edge ends, one
+        // corner radius in, so it stands clear of the corner's arc and, on the
+        // last bubble, of the hook that leaves the edge just past that point
+        near(row.rcpt.textRight, row.bubble.right - 18, 0.6, `bottom box, ${row.rcpt.text}'s right end 18px in from the bubble's edge`);
         near(row.rcpt.textTop, row.bubble.bottom + 7, 0.6, `bottom box, ${row.rcpt.text} starting 7px under the bubble`);
       }
     });

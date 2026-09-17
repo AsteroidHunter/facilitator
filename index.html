@@ -1080,16 +1080,19 @@
      and a Read under every one of them says the same thing down the column. a
      line with no word under it gives its room back, since a word under every
      older line would read as a ragged column.
-     its seat is under the bubble's straight bottom edge: 4px in from the
-     bubble's right edge, since under an 18px corner and the tail the edge
-     itself is the one place the bubble has no straight side to sit under, and
-     7px down, which clears a hook that reaches 6px under the bubble. Read
-     under the bubble before the last takes the same seat, so the two read as
-     one column */
+     its seat is under the bubble's straight bottom edge. the word's right end
+     steps in from the bubble's right edge by the corner's own radius, 18px,
+     which is where the bottom edge stops being straight: the corner's arc
+     begins there, and on the last bubble the hook's underside leaves the edge
+     just past it and runs down to its tip 7.7px in. so the whole word stands
+     under the flat edge, clear of the curve and of the hook, and not tucked
+     under the tip where a 4px inset had put it. it starts 7px down, which
+     clears a hook that reaches 6.9px under the bubble. Read under the bubble
+     before the last takes the same seat, so the two read as one column */
   body.focus .box.sel .rcpt{
     display:block; text-align:right;
     font:10.5px/1.35 var(--mono); color:var(--sub);
-    padding:7px 4px 0;
+    padding:7px 18px 0;
   }
   body.focus .box.sel .rcpt:empty{display:none}
   /* each line's own send time, lying under its own message until the drag frees
