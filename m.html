@@ -462,8 +462,21 @@
   .pendmsg .pendcontent{
     position:relative; margin:0 0 0 auto; text-align:left; white-space:pre-wrap;
     width:fit-content; max-width:80%; overflow-wrap:break-word;
-    background:var(--bubble-fill); border-radius:18px; padding:var(--sp-s) var(--sp-x);
+    background:var(--bubble-fill); border-radius:18px;
+    /* the air over and under the words is not one number: at 15px on a 22.5px
+       line the font's tallest glyph stands 4.9px under the line's top and its
+       deepest descender only 3.3px over the bottom, so equal padding left 1.6px
+       more air over the ink than under it. the bottom takes half and the top
+       gives it up, so the ink has the same air either side, measured from the
+       first line's tallest glyph and the last line's deepest, and the bubble's
+       height is unchanged. the Mac page writes its own split for its own type */
+    padding:calc(var(--sp-s) - .75px) var(--sp-x) calc(var(--sp-s) + .75px);
   }
+  /* a list's last item keeps its own 2px bottom margin under the list's zeroed
+     one, which inside a padded bubble is 2px more air under a message ending
+     in a list than under one ending in a paragraph. gone, so the air under
+     the ink is one number whatever the message ends in */
+  .pendmsg .pendcontent li:last-child{margin-bottom:0}
   /* the tail, the hook Messages hangs under the last bubble of a run. every
      message in one of these boxes is the sender's, so a box is one run and its
      last row carries the hook; every bubble before it is the plain round box.

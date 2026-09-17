@@ -166,11 +166,30 @@ async function measure(page, seat){
       }
       return [...seen.values()].sort((a, b) => a.top - b.top).map(l => ({left:r(l.left), right:r(l.right), width:r(l.right - l.left)}));
     };
+    // the ink's own air: the first line's tallest glyph top and the last line's
+    // deepest glyph foot, each read from the line's content rect (a Range on
+    // the text) and the font's own metrics for that text (a canvas), against
+    // the bubble's edges. equal padding is not the measure, since the font's
+    // ink stands high in its line
+    const ctx = document.createElement("canvas").getContext("2d");
+    const inkAir = (c, b) => {
+      const cs = getComputedStyle(c);
+      ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      const nodes = [];
+      const walker = document.createTreeWalker(c, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode())
+        if (n.textContent.trim() && !n.parentElement.closest(".ptime")) nodes.push(n);
+      const first = rectsOf(nodes[0])[0], lastRects = rectsOf(nodes[nodes.length - 1]), last = lastRects[lastRects.length - 1];
+      const mf = ctx.measureText(nodes[0].textContent), ml = ctx.measureText(nodes[nodes.length - 1].textContent);
+      return { topAir:r(first.top + (mf.fontBoundingBoxAscent - mf.actualBoundingBoxAscent) - b.top),
+               bottomAir:r(b.bottom - (last.bottom - (ml.fontBoundingBoxDescent - ml.actualBoundingBoxDescent))) };
+    };
     const rows = [...strip.querySelectorAll(".pendmsg")].map(row => {
       const c = row.querySelector(".pendcontent"), cs = getComputedStyle(c), after = getComputedStyle(c, "::after");
       const rc = row.querySelector(".rcpt"), rcs = getComputedStyle(rc);
       const rcText = rc.firstChild ? rectsOf(rc.firstChild) : [];
       return {
+        ink:inkAir(c, c.getBoundingClientRect()),
         text:(row.dataset.text || "").slice(0, 24),
         bubble:{...box(c), fill:cs.backgroundColor, radius:cs.borderRadius, align:cs.textAlign,
                 pad:{top:parseFloat(cs.paddingTop), right:parseFloat(cs.paddingRight), bottom:parseFloat(cs.paddingBottom), left:parseFloat(cs.paddingLeft)}},
@@ -214,8 +233,10 @@ for (const kind of ["desktop", "phone"]) {
           const b = row.bubble;
           assert.equal(b.fill, FILL, `the ${name} box's bubble is not filled: ${JSON.stringify(b)}`);
           assert.equal(b.radius, "18px", `the ${name} box's bubble corner is not 18px: ${JSON.stringify(b)}`);
-          near(b.pad.top, box.air.y, 0.05, `${name} box, bubble air above the words`);
-          near(b.pad.bottom, box.air.y, 0.05, `${name} box, bubble air below the words`);
+          // the air above and below the line boxes is the small step twice,
+          // split unevenly so the ink inside them is centred (the test below)
+          near(b.pad.top + b.pad.bottom, 2 * box.air.y, 0.05, `${name} box, bubble air above and below the words together`);
+          assert.ok(b.pad.top < box.air.y && b.pad.bottom > box.air.y, `the ${name} box's bubble does not give the ink's low seat back: ${JSON.stringify(b.pad)}`);
           near(b.pad.left, box.air.x, 0.05, `${name} box, bubble air left of the words`);
           near(b.pad.right, box.air.x, 0.05, `${name} box, bubble air right of the words`);
           assert.equal(b.align, "left", `the ${name} box ends its words at the right edge`);
@@ -260,6 +281,13 @@ for (const kind of ["desktop", "phone"]) {
       }
     });
 
+    test("the ink of the words has the same air over it as under it, one line or many", () => {
+      for (const [name, box] of Object.entries(boxes))
+        for (const row of box.rows)
+          assert.ok(Math.abs(row.ink.topAir - row.ink.bottomAir) <= 1,
+            `the ${name} box's words sit off centre in their bubble: ${JSON.stringify({text:row.text, ink:row.ink, pad:row.bubble.pad})}`);
+    });
+
     test("the tail hangs under the last bubble of each box and under no other", () => {
       for (const [name, box] of Object.entries(boxes)) {
         const last = box.rows[box.rows.length - 1];
@@ -293,6 +321,9 @@ for (const kind of ["desktop", "phone"]) {
       const [read, delivered] = boxes.bottom.rows;
       assert.equal(read.rcpt.text, "Read");
       assert.equal(delivered.rcpt.text, "Delivered");
+      // Delivered sits under the bubble that carries the tail, as Messages
+      // hangs both on the last bubble of a run
+      assert.equal(delivered.tail.content, '""', "the bubble under which Delivered sits carries no tail");
       for (const row of boxes.bottom.rows) {
         assert.equal(row.rcpt.padding, "7px 4px 0px", `the bottom box's delivery word keeps the old seat: ${JSON.stringify(row.rcpt)}`);
         near(row.rcpt.textRight, row.bubble.right - 4, 0.6, `bottom box, ${row.rcpt.text}'s right end 4px in from the bubble's edge`);
