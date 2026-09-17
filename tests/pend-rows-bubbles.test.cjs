@@ -275,6 +275,11 @@ for (const kind of ["desktop", "phone"]) {
         assert.equal(t.image, 'url("data:image/svg+xml,', `the ${name} box's tail is not cut by the mask: ${JSON.stringify(t)}`);
         assert.equal(t.size, "24px 25px", `the ${name} box's tail mask is not 24 by 25: ${JSON.stringify(t)}`);
         assert.equal(t.at, "100% 0px", `the ${name} box's tail is not at the right end: ${JSON.stringify(t)}`);
+        // the lane keeps the 7px the tail hangs into, with or without a
+        // delivery word under the bubble, so the hook is never cut on the
+        // lane's edge
+        assert.ok(box.lane.bottom - last.bubble.bottom >= 6.95,
+          `the ${name} box's lane cuts the tail off: ${JSON.stringify({lane:box.lane, bubble:last.bubble})}`);
       }
     });
 
