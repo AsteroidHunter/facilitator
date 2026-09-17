@@ -5,13 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>facilitator</title>
 <!-- the board's own app manifest: what Chrome offers to install this page as,
-     and what the installed app takes its name and its icon from. The phone page
-     has a manifest of its own at /m-manifest.json with the scope and the id of
-     /m, so Chrome holds the two as two apps and installing one leaves the other
-     alone. The icon below is the same mark, for the tab, which showed a blank
-     page while the icon here was an empty data URL -->
+     and what the installed app takes its name and its icon from, in the dock
+     and in the box Chrome shows before it installs. The phone page has a
+     manifest of its own at /m-manifest.json with the scope and the id of /m, so
+     Chrome holds the two as two apps and installing one leaves the other alone.
+     The icon line below is untouched: the install reads its picture from the
+     manifest, and the empty one here is what keeps the board from asking for a
+     tab icon it has never shown -->
 <link rel="manifest" href="/manifest.json">
-<link rel="icon" href="/m-icon-192.png">
+<link rel="icon" href="data:,">
 <script>
   // the Spotify sign in opens in its own small window and comes back here. when
   // that window lands, hand the code to the board that opened it and close, so
