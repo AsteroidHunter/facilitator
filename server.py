@@ -115,6 +115,16 @@ Endpoints:
   GET  /compose-format.js   -> the composer's typed formatting: the setting,
                                and the editor layer the card pages put over a
                                composer while it is on
+  GET  /manifest.json, /sw.js -> what makes the board page installable as a Mac
+                               app: its web app manifest, whose name the
+                               installed app's bundle and dock icon are taken
+                               from, and its service worker, which keeps nothing
+                               and is there so the install offer cannot turn on
+                               which Chrome is installed. The worker is served
+                               from the root so its scope can be the whole
+                               board; /m keeps its own worker, whose scope is
+                               the longer of the two. The icons are the
+                               phone's, served as below
   GET  /m                   -> m.html, the phone page: the project tabs, one
                                card filling the screen, the card list in a
                                drawer off the left edge, nothing else
@@ -4907,6 +4917,11 @@ ROUTES = [
     Route("/card-logic.js", _static("card-logic.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/compose-format.js", _static("compose-format.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/card-report.js", _static("card-report.js", "application/javascript; charset=utf-8"), methods=["GET"]),
+    # the board page's own pair, beside index.html: the manifest Chrome installs
+    # it from, and the worker whose scope has to be the root, which is why it is
+    # served from the root rather than from a folder
+    Route("/manifest.json", _static("manifest.json", "application/manifest+json; charset=utf-8"), methods=["GET"]),
+    Route("/sw.js", _static("sw.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/m-manifest.json", _endpoint(_get_manifest), methods=["GET"]),
     # the phone page and the files that make it installable, each a plain
     # file beside this one (the icons under assets/). Served with the
