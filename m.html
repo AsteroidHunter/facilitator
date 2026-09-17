@@ -450,17 +450,25 @@
      nothing draws over the run */
   .pendscroll{flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain}
   .pendmsg + .pendmsg{padding-top:var(--sp-s)}
-  /* the column the message stands in is the row itself: every block it is drawn
-     in -- a paragraph, a list, a code block, a single line -- begins at the
-     box's left content edge, the same x for all of them, and takes the row's
-     whole width, so a line too long for it wraps at the row's right edge.
-     nothing is sized to its own words and nothing is pushed across by a margin
-     of its own. the delivery word under the row keeps the right edge by its own
-     rule below */
+  /* the column the paragraphs stand in: as wide as its widest paragraph, capped
+     at four fifths of the box and pushed right by the automatic margin, so its
+     right end holds where it always stood. each paragraph inside is sized
+     against that same edge by the rule below */
   .pendmsg .pendcontent{
-    position:relative; margin:0; text-align:left; white-space:pre-wrap;
-    overflow-wrap:break-word;
+    position:relative; margin:0 0 0 auto; text-align:left; white-space:pre-wrap;
+    width:fit-content; max-width:80%; overflow-wrap:break-word;
   }
+  /* each paragraph the sender typed is its own block against the right edge: a
+     short line flush right, a long paragraph filling the cap and wrapping, a
+     list beside its own numbers as one block, a code block as another. .pline is
+     one line of a paragraph the renderer joined with <br>, split back out so a
+     short line under a long one is sized on its own rather than beginning where
+     the long one begins. the drag's own time is pinned right, so it is left out */
+  .pendmsg .pendcontent > :not(.ptime),
+  .pendmsg .pendcontent .pline{
+    width:fit-content; max-width:100%; margin-left:auto;
+  }
+  .pendmsg .pendcontent .pline{display:block}
   .rcpt{display:block; text-align:right; font:10.5px/1.35 var(--mono); color:var(--sub); padding:2px 0 0}
   .rcpt:empty{display:none}
   /* a message the board has not confirmed yet: drawn the moment it is sent, a
