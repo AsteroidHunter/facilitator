@@ -1019,10 +1019,10 @@
      the words are left aligned inside it, so a list, a code block and a short
      line under a long paragraph all start on one left edge; every block inside
      keeps its own width, which is the bubble's, and its own formatting.
-     the fill is the shared token in card-tokens.css. the corner is 18px because
-     the tail's path is drawn for an 18px corner. the air inside is the small
-     step by the side one, this page's own --sp-s by --sp-x, and the step
-     between two bubbles is the row step above */
+     the fill and the tail's mask are the shared tokens in card-tokens.css. the
+     corner is 18px because the tail's path is drawn for an 18px corner. the air
+     inside is the small step by the side one, this page's own --sp-s by --sp-x,
+     and the step between two bubbles is the row step above */
   body.focus .box.sel .pendmsg .pendcontent{
     position:relative; margin:0;
     text-align:left; white-space:pre-wrap;
@@ -1037,6 +1037,22 @@
        edge, which is the same edge every other line breaks on, so a broken
        address still sits square against the right end with the rest of them */
     overflow-wrap:break-word;
+  }
+  /* the tail, the hook Messages hangs under the last bubble of a run. every
+     message in one of these boxes is the sender's, so a box is one run and its
+     last row carries the hook; every bubble before it is the plain round box.
+     it is a pseudo-element of the bubble itself, so it moves with the bubble as
+     one object, and it is a mask over the bubble's own fill rather than paper
+     painted over a squared corner, so it is right over any paper. the box spans
+     the bubble and hangs 7px under it; the mask cuts the hook out at the right
+     end and leaves the rest empty. absolute, so it adds no gap between bubbles */
+  body.focus .box.sel .pendmsg:last-child .pendcontent::after{
+    content:"";
+    position:absolute; left:0; right:0; bottom:-7px; height:25px;
+    background:var(--bubble-fill);
+    pointer-events:none;
+    -webkit-mask:var(--bubble-tail) right 0 / 24px 25px no-repeat;
+    mask:var(--bubble-tail) right 0 / 24px 25px no-repeat;
   }
   /* the delivery word under a line, written the way the chat panel writes Read
      and Delivered under its own sent bubbles: right aligned, muted, and clearly

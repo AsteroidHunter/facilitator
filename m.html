@@ -455,14 +455,32 @@
      right by the automatic margin, so its right end holds where it always
      stood. the words are left aligned inside it, so a list, a code block and a
      short line under a long paragraph all start on one left edge, and every
-     block inside keeps its formatting. the fill is the shared token in
-     card-tokens.css; the corner is 18px because the tail's path is drawn for
-     an 18px corner; the air inside is this page's own --sp-s by --sp-x */
+     block inside keeps its formatting. the fill and the tail's mask are the
+     shared tokens in card-tokens.css; the corner is 18px because the tail's
+     path is drawn for an 18px corner; the air inside is this page's own
+     --sp-s by --sp-x */
   .pendmsg .pendcontent{
     position:relative; margin:0 0 0 auto; text-align:left; white-space:pre-wrap;
     width:fit-content; max-width:80%; overflow-wrap:break-word;
     background:var(--bubble-fill); border-radius:18px; padding:var(--sp-s) var(--sp-x);
   }
+  /* the tail, the hook Messages hangs under the last bubble of a run. every
+     message in one of these boxes is the sender's, so a box is one run and its
+     last row carries the hook; every bubble before it is the plain round box.
+     a pseudo-element of the bubble itself, masked out of the bubble's own fill,
+     spanning the bubble and hanging 7px under it; absolute, so it adds no gap.
+     on this page a box's run goes on into the unsent holder under the confirmed
+     rows, so a row waiting there is the run's last, and the confirmed row above
+     it gives the hook up for as long as the holder has a row in it */
+  .pendmsg:last-child .pendcontent::after{
+    content:"";
+    position:absolute; left:0; right:0; bottom:-7px; height:25px;
+    background:var(--bubble-fill);
+    pointer-events:none;
+    -webkit-mask:var(--bubble-tail) right 0 / 24px 25px no-repeat;
+    mask:var(--bubble-tail) right 0 / 24px 25px no-repeat;
+  }
+  .pendslide:has(+ .pendlocal .pendmsg) .pendmsg:last-child .pendcontent::after{content:none}
   .rcpt{display:block; text-align:right; font:10.5px/1.35 var(--mono); color:var(--sub); padding:2px 0 0}
   .rcpt:empty{display:none}
   /* a message the board has not confirmed yet: drawn the moment it is sent, a
