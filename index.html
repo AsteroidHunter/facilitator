@@ -10358,6 +10358,16 @@ syncLayoutsOnce();
 seedHiddenOnce();
 applySavedLayout();
 poll(); setInterval(poll, 1200);
+
+// ---- installing this board as an app of its own -------------------------------
+// The worker keeps nothing at all, and sw.js says why it is here: Chrome asked
+// for one before it would offer an install for years, and though this Chrome no
+// longer does, the offer should not turn on which Chrome is installed. A page
+// served over plain http off loopback gets no worker, and the board runs the
+// same there, so a refusal here is nothing to say out loud.
+if ("serviceWorker" in navigator){
+  navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
+}
 </script>
 </body>
 </html>
