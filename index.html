@@ -60,6 +60,13 @@
     margin-left:auto}   /* holds the right edge now the status row is gone */
   #editbtn:hover{background:#E2DCFC}
   body.editmode #editbtn{background:var(--accent); color:#fff}
+  /* the install control, in the edit button's own dress so the bar stays one
+     row of controls: the same face, size, colours, corner and padding, and no
+     margin of its own, since the button before it already holds the right edge.
+     It is hidden except while Chrome is offering to install the board */
+  #installbtn{font:13px var(--mono); color:var(--accent); background:var(--accent-soft);
+    border:none; border-radius:4px; padding:3px 9px; cursor:pointer; transition:.2s; flex:none}
+  #installbtn:hover{background:#E2DCFC}
   /* ---- settings ----------------------------------------------------------
      the board's own choices, opened off the bar. it holds what the phone's
      settings panel holds for this browser and is drawn in the bar's own
@@ -3547,6 +3554,7 @@
   <span id="projnote"></span>
   <span class="name" id="boardname">facilitator</span>
   <button id="editbtn" title="edit layout">✎</button>
+  <button id="installbtn" type="button" hidden>Install app</button>
   <input type="color" id="bgpick" title="background color (temporary)" value="#F5F4F1">
   <span id="setwrap">
     <button id="setbtn" type="button" title="settings" aria-label="settings" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-1 1.47V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.6 1.6 0 0 0 4.6 15a1.6 1.6 0 0 0-1.47-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 8.9a1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.6 1.6 0 0 0 8.88 4.6H9a1.6 1.6 0 0 0 1-1.47V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77V9a1.6 1.6 0 0 0 1.47 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.47 1z"/></svg></button>
@@ -10368,6 +10376,31 @@ poll(); setInterval(poll, 1200);
 if ("serviceWorker" in navigator){
   navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
 }
+// The control in the bar, which stands there only while there is something to
+// press it for. Chrome sends one offer per page, and only for a page it would
+// install, which the board is not once it has been installed. The offer has to
+// be held onto, because its box can be asked for only from a real click, and
+// only through the event that carried it. A browser that sends no offer, and
+// the installed app itself, show no control at all.
+let installOffer = null;
+const installBtn = document.getElementById("installbtn");
+const installedHere = () => matchMedia("(display-mode: standalone)").matches;
+addEventListener("beforeinstallprompt", e => {
+  e.preventDefault();
+  installOffer = e;
+  if (!installedHere()) installBtn.hidden = false;
+});
+// an install finished anywhere takes the control away here too
+addEventListener("appinstalled", () => { installOffer = null; installBtn.hidden = true; });
+installBtn.addEventListener("click", () => {
+  const offer = installOffer;
+  if (!offer) return;
+  // one offer is good for one box. Chrome sends a fresh one the next time the
+  // board is opened, which is what brings the control back after a dismissal
+  installOffer = null;
+  installBtn.hidden = true;
+  try { offer.prompt(); } catch (e) {}
+});
 </script>
 </body>
 </html>
