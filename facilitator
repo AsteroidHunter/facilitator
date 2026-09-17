@@ -2,7 +2,9 @@
 """facilitator: board CLI.
 
   facilitator run [--attach] [--spawn] [--force] [--dry-run]
-      start the server and the app window. That is all it touches by default:
+      start the server and the app window: the board installed as a Chrome app
+      when it has been installed on this Mac, and a chromeless Chrome window on
+      the board's own root when it has not. That is all it touches by default:
       uncovered lanes are only REPORTED, with the attach instruction printed
       for pasting. --attach types that instruction into the lane's existing
       tmux claude (send-keys); --spawn additionally creates a fresh session
@@ -72,6 +74,11 @@ TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 LOG_DIR = Path(os.environ.get("FACILITATOR_LOG_DIR")
                or (HERE.parent / "facilitator-internal" / "logs"))
 LOG_KEEP = 30   # dated bridge files kept, oldest deleted
+# Where Chrome writes the small Mac app it makes when a web page is installed:
+# one bundle per installed app, named for that app's manifest and carrying its
+# icon. The variable is how a test points this at a folder of its own
+CHROME_APPS = Path(os.environ.get("FACILITATOR_CHROME_APPS")
+                   or (Path.home() / "Applications" / "Chrome Apps.localized"))
 TAILSCALE_STATUS_TIMEOUT = 30
 TAILSCALE_CHANGE_TIMEOUT = 120
 BRIDGE_HELP = """usage: facilitator bridge [on|off] [--dry-run]
@@ -181,8 +188,54 @@ def window_url(cfg):
     return cfg.get("app_url") or f"http://127.0.0.1:{cfg['port']}"
 
 
+def app_name():
+    """The name the installed board app goes by, read from the manifest Chrome
+    installs it from, so the bundle looked for here and the one Chrome writes
+    cannot drift apart. None when that file cannot be read."""
+    try:
+        name = json.loads((HERE / "manifest.json").read_text()).get("name")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return (name or "").strip() or None
+
+
+def installed_app():
+    """The installed board app's own bundle, or None when the board has not
+    been installed in Chrome on this Mac. Chrome names the bundle for the
+    manifest's name; an install under a second Chrome profile carries that
+    profile's name after it, so that spelling is taken as well."""
+    name = app_name()
+    if not name:
+        return None
+    bundle = CHROME_APPS / f"{name}.app"
+    if bundle.is_dir():
+        return bundle
+    try:
+        others = sorted(p for p in CHROME_APPS.glob(f"{name} *.app") if p.is_dir())
+    except OSError:
+        return None
+    return others[0] if others else None
+
+
 def open_app(cfg, dry):
+    """The board's window: the installed app when the board has been installed
+    in Chrome, and the chromeless Chrome window when it has not.
+
+    The installed app is opened without -n on purpose. A copy of it already
+    showing the board is brought forward rather than started a second time, so
+    this can never put a second window over the one already there, whatever
+    Chrome's own windows can be read as. It opens the board's root and nothing
+    else, so a window configured to show some other page stays a Chrome
+    window."""
     url = window_url(cfg)
+    app = installed_app() if same_board_page(url, f"http://127.0.0.1:{cfg['port']}") else None
+    if app:
+        if dry:
+            print(f"window: would open the installed app {app.name}")
+            return
+        subprocess.run(["open", "-a", str(app)], check=False)
+        print(f"window: opened the installed app {app.name}")
+        return
     if dry:
         print(f"window: would open {url} as a chromeless app window")
         return
