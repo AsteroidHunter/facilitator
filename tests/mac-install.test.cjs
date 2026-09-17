@@ -192,12 +192,13 @@ test("the board's worker is served from the root as a script, and keeps nothing"
   assert.doesNotMatch(source, /caches\./, "the worker keeps something");
 });
 
-test("the board page links its manifest and its icon", async () => {
+test("the board page links its manifest, and asks for no picture of its own", async () => {
   const source = await readFile(path.join(ROOT, "index.html"), "utf8");
   const head = source.slice(0, source.indexOf("</head>"));
   assert.match(head, /<link rel="manifest" href="\/manifest\.json">/);
-  assert.match(head, /<link rel="icon" href="\/m-icon-192\.png">/);
-  assert.doesNotMatch(head, /rel="icon" href="data:,"/, "the tab icon is still empty");
+  // the install reads its picture from the manifest, so the page's own icon
+  // link stays the empty one it has always been and asks the board for nothing
+  assert.match(head, /<link rel="icon" href="data:,">/);
 });
 
 // ---- the workers, and the line between them -----------------------------------
