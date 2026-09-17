@@ -1028,7 +1028,15 @@
     text-align:left; white-space:pre-wrap;
     width:fit-content; max-width:80%; margin-left:auto;
     background:var(--bubble-fill); border-radius:18px;
-    padding:var(--sp-s) var(--sp-x);
+    /* the air over and under the words is not one number. the font's ink
+       stands low in its line: at 16px on a 24px line the tallest glyph's top
+       is 6.2px under the line's top and the deepest descender's foot only
+       2.6px over its bottom, so equal padding left 3.5px more air over the ink
+       than under it. the bottom takes half of that and the top gives it up, so
+       the ink has the same air either side, measured from the first line's
+       tallest glyph and the last line's deepest, and the bubble's height is
+       what it was. the phone page writes its own split for its own type */
+    padding:calc(var(--sp-s) - 1.75px) var(--sp-x) calc(var(--sp-s) + 1.75px);
     /* a web address is one word with nothing in it a line may break at, so it
        ran straight past the cap and the lane cut it off, and the reader could not read
        the end of it. this lets a word that cannot fit break where it has to.
@@ -1038,6 +1046,11 @@
        address still sits square against the right end with the rest of them */
     overflow-wrap:break-word;
   }
+  /* a list's last item keeps its own 2px bottom margin under the list's zeroed
+     one, which inside a padded bubble is 2px more air under a message that
+     ends in a list than under one that ends in a paragraph. gone, so the air
+     under the ink is one number whatever the message ends in */
+  body.focus .box.sel .pendmsg .pendcontent li:last-child{margin-bottom:0}
   /* the tail, the hook Messages hangs under the last bubble of a run. every
      message in one of these boxes is the sender's, so a box is one run and its
      last row carries the hook; every bubble before it is the plain round box.
