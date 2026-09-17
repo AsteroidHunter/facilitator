@@ -14,7 +14,7 @@ const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, '.venv/bin
 const CHROME = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const EVIDENCE = process.env.BULLET_SPACE_EVIDENCE || path.join(tmpdir(), 'facilitator-bullet-space-evidence');
 const ROW = 'article.box.sel textarea';
-const COPIED = ['m.html', 'm-sw.js', 'm-manifest.json', 'card-markdown.js', 'card-tokens.css',
+const COPIED = ['m.html', 'm-sw.js', 'm-manifest.json', 'sw.js', 'manifest.json', 'card-markdown.js', 'card-tokens.css',
   'card-logic.js', 'card-report.js', 'compose-format.js', 'cm-markdown.js', 'index.html', 'page.html'];
 const PLATFORMS = [
   { name: 'phone', viewport: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },

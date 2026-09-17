@@ -22,7 +22,7 @@ const SHOTS = process.env.SPOTIFY_SHOTS || "";
 const BOARD = { width: 1440, height: 900, deviceScaleFactor: 2 };
 const INVENTED = "invented-spotify-app-id-31415926";
 const DASHBOARD = "https://developer.spotify.com/dashboard";
-const COPIED = ["index.html", "page.html", "m.html", "m-sw.js", "m-manifest.json", "cm-markdown.js",
+const COPIED = ["index.html", "page.html", "m.html", "m-sw.js", "m-manifest.json", "sw.js", "manifest.json", "cm-markdown.js",
                 "compose-format.js", "card-markdown.js", "card-logic.js", "card-report.js", "card-tokens.css"];
 
 let baseDir, serverSource, browser, seq = 0;

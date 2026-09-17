@@ -28,7 +28,7 @@ const CHROME = process.env.CHROME_PATH ||
 const PYTHON = path.join(ROOT, ".venv", "bin", "python3");
 const SHOTS = process.env.M627_SHOTS || "/tmp/m627-startup-shots";
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true };
-const COPIED = ["m.html", "m-sw.js", "m-manifest.json", "card-markdown.js", "card-tokens.css",
+const COPIED = ["m.html", "m-sw.js", "m-manifest.json", "sw.js", "manifest.json", "card-markdown.js", "card-tokens.css",
                 "card-logic.js", "card-report.js", "compose-format.js", "cm-markdown.js",
                 "index.html", "page.html"];
 const ASSETS = ["m-icon-180.png", "m-icon-192.png", "m-icon-512.png", "m-splash-squid.png"];
