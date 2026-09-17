@@ -53,7 +53,7 @@ before(async () => {
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
   await writeFile(path.join(fixtureDir, "server.py"),
     source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])"));
-  for (const name of ["index.html", "m.html", "page.html", "m-sw.js", "m-manifest.json",
+  for (const name of ["index.html", "m.html", "page.html", "m-sw.js", "m-manifest.json", "sw.js", "manifest.json",
       "card-markdown.js", "card-tokens.css", "card-logic.js", "card-report.js",
       "compose-format.js", "cm-markdown.js"])
     await copyFile(path.join(ROOT, name), path.join(fixtureDir, name));

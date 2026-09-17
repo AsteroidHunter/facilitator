@@ -31,7 +31,7 @@ const CHROME = process.env.CHROME_PATH ||
 const PYTHON = process.env.FACILITATOR_TEST_PYTHON || "python3";
 const SHOTS = process.env.DRAWER_KEYBOARD_SHOTS || "";
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
-const COPIED = ["m.html", "m-sw.js", "m-manifest.json", "card-markdown.js", "card-tokens.css",
+const COPIED = ["m.html", "m-sw.js", "m-manifest.json", "sw.js", "manifest.json", "card-markdown.js", "card-tokens.css",
                 "card-logic.js", "card-report.js", "compose-format.js", "cm-markdown.js",
                 "index.html", "page.html"];
 

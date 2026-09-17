@@ -83,7 +83,7 @@ before(async () => {
   const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
   assert.notEqual(source, patched);
   await writeFile(path.join(app, "server.py"), patched);
-  for (const name of ["index.html", "page.html", "m.html", "m-sw.js", "m-manifest.json", "cm-markdown.js",
+  for (const name of ["index.html", "page.html", "m.html", "m-sw.js", "m-manifest.json", "sw.js", "manifest.json", "cm-markdown.js",
     "compose-format.js", "card-markdown.js", "card-logic.js", "card-report.js", "card-tokens.css"])
     await copyFile(path.join(ROOT, name), path.join(app, name));
   await mkdir(path.join(app, "assets"));

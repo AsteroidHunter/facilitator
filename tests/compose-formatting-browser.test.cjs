@@ -26,7 +26,7 @@ const DESKTOP = { width: 1440, height: 900 };
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
 const KEYBOARD = 336;                     // an iPhone keyboard with its accessory bar, in css px
 const ROW = "article.box.sel textarea";   // the card's typing row, whichever face it wears
-const COPIED = ["m.html", "m-sw.js", "m-manifest.json", "card-markdown.js", "card-tokens.css",
+const COPIED = ["m.html", "m-sw.js", "m-manifest.json", "sw.js", "manifest.json", "card-markdown.js", "card-tokens.css",
                 "card-logic.js", "card-report.js", "compose-format.js", "cm-markdown.js",
                 "index.html", "page.html"];
 

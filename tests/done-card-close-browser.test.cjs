@@ -93,6 +93,8 @@ before(async () => {
   assert.notEqual(patched, source, "test server port was not patched");
   await writeFile(path.join(fixtureDir, "server.py"), patched);
   await copyFile(path.join(ROOT, "index.html"), path.join(fixtureDir, "index.html"));
+  await copyFile(path.join(ROOT, "manifest.json"), path.join(fixtureDir, "manifest.json"));
+  await copyFile(path.join(ROOT, "sw.js"), path.join(fixtureDir, "sw.js"));
   await copyFile(path.join(ROOT, "page.html"), path.join(fixtureDir, "page.html"));
   await copyFile(path.join(ROOT, "card-markdown.js"), path.join(fixtureDir, "card-markdown.js"));
   await copyFile(path.join(ROOT, "card-tokens.css"), path.join(fixtureDir, "card-tokens.css"));
