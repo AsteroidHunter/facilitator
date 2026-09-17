@@ -61,10 +61,17 @@
 /* ---- the sent bubble ----------------------------------------------------- */
 /* Each message in the card's two sent boxes is one bubble. Each page draws it
    by its own rules at its own air; what the two pages share stands here once.
-   --bubble-fill is the bubble's tint, the one value meant to be changed later,
-   so it is written here and nowhere else. */
+   --bubble-fill is the bubble's tint and the tail's paint, the one value meant
+   to be changed later, so it is written here and nowhere else.
+   --bubble-tail is the tail's mask: a 24 by 25 image holding the measured path
+   of the hook Messages hangs under the last bubble of a run. Each page paints
+   it in the bubble's own fill at the right end of a box that spans the bubble
+   and hangs 7px under it. The path's closing run sweeps through an 18px corner
+   from the inside, so the bubble's corner is 18px on both pages and the two
+   paints share no seam. */
 :root{
   --bubble-fill:#F3F3F3;
+  --bubble-tail:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 25'%3E%3Cpath d='M0 16V18H2C5 18 11.8 22.6 14.8 24.3Q15.6 24.9 16.4 23.9C16.5 22.4 14.65 20.5 14.65 19V17.6C14.65 16.3 16.2 14.7 17.6 13.5L12 10H0Z'/%3E%3C/svg%3E");
 }
 
 /* ---- no scrollbars, only scrolling --------------------------------------- */
