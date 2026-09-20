@@ -39,10 +39,11 @@ async function api(origin, route, options = {}) {
 async function startServer({ config, seed, state } = {}) {
   const dir = path.join(baseDir, "srv-" + (++seq));
   await mkdir(dir, { recursive: true });
-  const port = await freePort();
+  const port = await require('./fixture-auth.cjs').freePortPair();
   const patched = serverSource.replace(
     "PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
   await writeFile(path.join(dir, "server.py"), patched);
+  require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(dir, "server.py")));
   if (config !== undefined) {
     const withDirs = {
       ...config,

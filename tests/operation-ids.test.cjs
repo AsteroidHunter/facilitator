@@ -98,7 +98,7 @@ before(async () => {
   outer = await mkdtemp(path.join(tmpdir(), "facilitator-ops-"));
   app = path.join(outer, "app");
   await mkdir(app);
-  port = await freePort();
+  port = await require('./fixture-auth.cjs').freePortPair();
   origin = `http://127.0.0.1:${port}`;
   let source = await readFile(path.join(ROOT, "server.py"), "utf8");
   source = patch(source, "PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
@@ -106,6 +106,7 @@ before(async () => {
   source = patch(source, "OP_EVICT_FLOOR = 2 * 86400", `OP_EVICT_FLOOR = ${EVICT_FLOOR_S}`);
   source = patch(source, "OP_KEEP = 4000", `OP_KEEP = ${KEEP}`);
   await writeFile(path.join(app, "server.py"), source);
+  require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(app, "server.py")));
   await writeFile(path.join(app, "seed.json"), JSON.stringify({
     title: "operations fixture",
     items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" }],
@@ -390,13 +391,14 @@ test("the first start with receipts keeps a copy of the old state file beside it
   await mkdir(dir);
   const source = await readFile(path.join(app, "server.py"), "utf8");
   await writeFile(path.join(dir, "server.py"), source);
+  require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(dir, "server.py")));
   const legacy = {
     title: "older board", boxes: [{ id: "0", bucket: "meta", title: "Old standing card", owner: "facilitator",
       reply: "kept", pending: [{ mid: 1, text: "still queued", ts: 1 }], done: false, replies: 1 }],
     inbox: ["0"], busy: {}, claimed: {}, busy_ts: {}, ack: {}, end: false, paused: false, next_mid: 2, next_bid: 1,
   };
   await writeFile(path.join(dir, "state.json"), JSON.stringify(legacy));
-  const legacyPort = await freePort();
+  const legacyPort = await require('./fixture-auth.cjs').freePortPair();
   const legacyLogs = path.join(outer, "legacy-logs");
   const run = spawn("python3", [path.join(dir, "server.py")], {
     cwd: dir,

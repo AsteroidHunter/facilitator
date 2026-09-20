@@ -153,6 +153,7 @@ before(async () => {
     '                raise RuntimeError("cannot start new thread")\n' +
     '            threading.Thread(target=_push_turn, args=(bid,), daemon=True).start()');
   await writeFile(path.join(app, "server.py"), source);
+  require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(app, "server.py")));
   await writeFile(path.join(app, "seed.json"), JSON.stringify({
     title: "rollback fixture",
     items: [

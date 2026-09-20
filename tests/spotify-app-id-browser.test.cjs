@@ -42,6 +42,7 @@ async function startServer(config) {
   await mkdir(dir, { recursive: true });
   const port = await freePort();
   await writeFile(path.join(dir, "server.py"), serverSource);
+  require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(dir, "server.py")));
   for (const name of COPIED) await copyFile(path.join(ROOT, name), path.join(dir, name));
   await mkdir(path.join(dir, "assets"));
   for (const name of await readdir(path.join(ROOT, "assets")))

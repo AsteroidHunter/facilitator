@@ -37,6 +37,7 @@ before(async()=>{
   fixture=await mkdtemp(path.join(tmpdir(),"m688-colors-")); const port=await freePort();
   const source=(await readFile(path.join(ROOT,"server.py"),"utf8")).replace("PORT = 8877","PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
   await writeFile(path.join(fixture,"server.py"),source);
+  require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(fixture,"server.py")));
   for(const name of ["m.html","m-sw.js","m-manifest.json","card-markdown.js","card-tokens.css","card-logic.js","card-report.js","compose-format.js","cm-markdown.js"])
     await copyFile(path.join(ROOT,name),path.join(fixture,name));
   await mkdir(path.join(fixture,"assets"));

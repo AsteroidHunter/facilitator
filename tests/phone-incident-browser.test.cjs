@@ -61,6 +61,7 @@ async function fixture(t, options = {}) {
   if (options.schema === 2)
     source = execFileSync("git", ["show", "994ea18:server.py"], { cwd: ROOT, encoding: "utf8" });
   await fs.writeFile(path.join(dir, "server.py"), source.replace("PORT = 8877", `PORT = ${port}`));
+  require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(dir, "server.py")));
   for (const name of ["m.html", "card-logic.js", "card-report.js", "card-markdown.js", "card-tokens.css",
                       "compose-format.js", "cm-markdown.js", "m-sw.js", "m-manifest.json"]) {
     if (name === "card-report.js") {

@@ -2607,10 +2607,8 @@ def _push_turn(bid: str) -> None:
     for sub in subs:
         # A sign-out or password change invalidates delivery as well as HTTP
         # access. Pre-upgrade subscriptions have no session and are skipped.
-        if (HERE / "bridge_auth.py").is_file():
-            import bridge_auth
-            if not bridge_auth.has_session_digest(sub.get("session")):
-                continue
+        if _BRIDGE_AUTH is None or not _BRIDGE_AUTH.has_session_digest(sub.get("session")):
+            continue
         # Probe immediately before every service call. A bridge can go down
         # while an earlier phone's push service is answering, and that must
         # close the gate for every subscription still waiting in this turn.
@@ -4370,9 +4368,7 @@ def _post_push_subscribe(q: Query, text: str):
     rec = {"endpoint": endpoint,
            "keys": {k: str(v) for k, v in keys.items() if k in ("p256dh", "auth")},
            "ts": time.time()}
-    if (HERE / "bridge_auth.py").is_file():
-        import bridge_auth
-        rec["session"] = bridge_auth.current_session_digest()
+    rec["session"] = _BRIDGE_AUTH.current_session_digest() if _BRIDGE_AUTH else ""
     with _lock:
         subs = [s for s in _state.get("push_subs", []) if s.get("endpoint") != endpoint]
         subs.append(rec)
@@ -5215,13 +5211,28 @@ def _refuse_legacy_serve() -> None:
         raise SystemExit("Old Tailscale Serve rule targets the unguarded board port. Run `facilitator bridge off`, then restart the board and run `facilitator bridge on`.")
 
 
-def _make_server() -> BoardServer:
-    app = build_app()
-    # Fixture copies of server.py used by older local-route tests do not carry
-    # the bridge files. In that case no bridge socket is opened at all.
-    if (HERE / "bridge_gate.py").is_file() and (HERE / "bridge_auth.py").is_file():
+_BRIDGE_AUTH = None
+
+
+def _require_bridge_components():
+    """Load the complete gate before either listening socket can be opened."""
+    global _BRIDGE_AUTH
+    for name in ("bridge_auth.py", "bridge_gate.py", "m-gate.html"):
+        if not (HERE / name).is_file():
+            raise SystemExit(f"Phone bridge component {name} is missing; the board stayed down. Restore the complete installation before restarting.")
+    try:
+        import bridge_auth
         from bridge_gate import BridgeGate
-        app = BridgeGate(app, BRIDGE_PORT)
+    except Exception as error:
+        raise SystemExit("Phone bridge authentication could not load; the board stayed down. Restore the complete installation before restarting.") from error
+    _BRIDGE_AUTH = bridge_auth
+    return BridgeGate
+
+
+def _make_server(bridge_gate=None) -> BoardServer:
+    if bridge_gate is None:
+        bridge_gate = _require_bridge_components()
+    app = bridge_gate(build_app(), BRIDGE_PORT)
     config = uvicorn.Config(
         app, host="127.0.0.1", port=PORT,
         log_config=None, access_log=False, server_header=False,
@@ -5245,6 +5256,7 @@ def main() -> None:
     # particular, a replacement started while the old server still owns the
     # port must not migrate state or append the transcript schema boundary: the
     # old process can still append legacy rows until it has actually stopped.
+    bridge_gate = _require_bridge_components()
     _refuse_legacy_serve()
     try:
         sock = _listen()
@@ -5253,16 +5265,14 @@ def main() -> None:
                reason=f"facilitator could not listen on 127.0.0.1:{PORT}: {error}")
         raise SystemExit(1) from None
 
-    bridge_sock = None
-    if (HERE / "bridge_gate.py").is_file() and (HERE / "bridge_auth.py").is_file():
-        try:
-            bridge_sock = _listen(BRIDGE_PORT)
-        except OSError as error:
-            sock.close()
-            _error("bindfail", port=BRIDGE_PORT,
-                   reason=f"facilitator could not listen on 127.0.0.1:{BRIDGE_PORT}: {error}")
-            raise SystemExit(1) from None
-    server = _make_server()
+    try:
+        bridge_sock = _listen(BRIDGE_PORT)
+    except OSError as error:
+        sock.close()
+        _error("bindfail", port=BRIDGE_PORT,
+               reason=f"facilitator could not listen on 127.0.0.1:{BRIDGE_PORT}: {error}")
+        raise SystemExit(1) from None
+    server = _make_server(bridge_gate)
 
     def stopping(signum, frame) -> None:
         """Ctrl-C, a kill, or the terminal closing: the reason is remembered and
@@ -5296,7 +5306,7 @@ def main() -> None:
         pushed = _state.get("push_last_ok") or {}
         _info("start", port=PORT, boxes=len(_state["boxes"]), log_level=LOG_LEVEL,
               push_ok=pushed.get("ts"), push_host=pushed.get("host"))
-        server.run(sockets=[sock, bridge_sock] if bridge_sock else [sock])
+        server.run(sockets=[sock, bridge_sock])
     except Exception as error:
         # the last word about a start that died of something rather than being
         # asked to stop: the stop line below says only which type ended it, and
@@ -5309,8 +5319,7 @@ def main() -> None:
         ended = sys.exc_info()[0]
         _info("stop", reason=_stop_reason or (ended.__name__ if ended else "end of stream"))
         sock.close()
-        if bridge_sock:
-            bridge_sock.close()
+        bridge_sock.close()
 
 
 if __name__ == "__main__":

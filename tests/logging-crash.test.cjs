@@ -60,12 +60,13 @@ async function fixture(name) {
   const fatal = [
     '        if os.environ.get("FACILITATOR_TEST_FATAL"):',
     `            raise ValueError("${PLAIN}")`,
-    "        server.run(sockets=[sock])",
+    "        server.run(sockets=[sock, bridge_sock])",
   ].join("\n");
   const beforeFatal = patched;
-  patched = patched.replace("        server.run(sockets=[sock])", fatal);
+  patched = patched.replace("        server.run(sockets=[sock, bridge_sock])", fatal);
   assert.notEqual(patched, beforeFatal, "the fatal start was not patched in");
   await writeFile(path.join(app, "server.py"), patched);
+  require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(app, "server.py")));
   await writeFile(path.join(app, "seed.json"), JSON.stringify({
     title: "crash fixture",
     items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" }],

@@ -95,6 +95,14 @@ test('bridge gates every route, persists sessions, signs out and rejects legacy 
       return proc;
     };
     const stop = async () => { if (child && child.exitCode === null) { child.kill('SIGTERM'); await once(child,'exit'); } };
+    for (const name of ['bridge_gate.py','bridge_auth.py','m-gate.html']) {
+      await fs.rm(path.join(app,name));
+      child = start();
+      await once(child,'exit');
+      assert.match(child.output(),new RegExp(`Phone bridge component ${name.replace('.', '\\.')} is missing`));
+      await assert.rejects(request(port,'/state'),undefined,`local port opened without ${name}`);
+      await fs.copyFile(path.join(ROOT,name),path.join(app,name));
+    }
     await fs.writeFile(path.join(outer,'serve.json'), JSON.stringify({ Web:{ 'fixture.ts.net:443':{ Handlers:{ '/':{ Proxy:`http://127.0.0.1:${port}` } } } } }));
     child = start();
     await once(child,'exit');
@@ -232,6 +240,15 @@ test('bridge gates every route, persists sessions, signs out and rejects legacy 
     for (let n=0;n<5;n++) await request(port+1,'/auth/login','POST',JSON.stringify({password:'wrong'}),origin);
     assert.equal((await request(port+1,'/auth/login','POST',JSON.stringify({password:PASS}),origin)).status,429);
     await stop(); child = null;
+    await run(PYTHON,['-c',[
+      'import os, server, bridge_auth',
+      'server._BRIDGE_AUTH = bridge_auth',
+      'server._state = {"push_subs": [{"session": "0"*64, "endpoint": "https://push.invalid/one"}]}',
+      'server._box = lambda bid: None',
+      'server._push_bridge_available = lambda: (_ for _ in ()).throw(AssertionError("push check was bypassed"))',
+      'os.unlink("bridge_auth.py")',
+      'server._push_turn("fixture")',
+    ].join('\n')],{cwd:app,env});
   } finally {
     if (browser) await browser.close();
     if (child && child.exitCode === null) { child.kill('SIGTERM'); await once(child,'exit'); }

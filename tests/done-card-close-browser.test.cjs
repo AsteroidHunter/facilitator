@@ -92,6 +92,7 @@ before(async () => {
   const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
   assert.notEqual(patched, source, "test server port was not patched");
   await writeFile(path.join(fixtureDir, "server.py"), patched);
+  require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(fixtureDir, "server.py")));
   await copyFile(path.join(ROOT, "index.html"), path.join(fixtureDir, "index.html"));
   await copyFile(path.join(ROOT, "manifest.json"), path.join(fixtureDir, "manifest.json"));
   await copyFile(path.join(ROOT, "sw.js"), path.join(fixtureDir, "sw.js"));

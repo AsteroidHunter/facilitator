@@ -1125,6 +1125,7 @@ test("a real restart: the old server goes, the port frees, the new one answers w
     const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
     assert.notEqual(patched, source, "test server port was not patched");
     await writeFile(path.join(board, "server.py"), patched);
+    require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(board, "server.py")));
     await writeFile(path.join(board, "run.config.json"), JSON.stringify({ port: livePort, lanes: [] }));
     await writeFile(path.join(board, "seed.json"), JSON.stringify({
       title: "cli restart fixture",
