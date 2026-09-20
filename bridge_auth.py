@@ -27,7 +27,7 @@ CURRENT_SESSION = ContextVar("bridge_session", default="")
 
 
 def validate_password(value):
-    """The same input rule as Pastureland's installer, with an upper bound."""
+    """Require a bounded printable ASCII password with mixed character types."""
     if not value:
         raise ValueError("That was empty. Choose a strong passphrase.")
     if len(value) < 11 or len(value) > 256:
