@@ -1,33 +1,22 @@
 /* The phone page's service worker: what lets /m be added to a home screen and
    what shows a notification when the server sends a push.
 
-   It caches almost nothing on purpose. The board is live data, so every
-   reading of it and every command go straight to the server, untouched. Only
-   the page's own shell (the page, the renderer, the shared sheet and logic,
-   the manifest, and the squid the startup screen is painted from) is kept, and
-   network first at that: the copy is used only when the server cannot be
-   reached, so an installed page still opens and can say the server is
-   unreachable. Every fetch the worker makes itself has a deadline: a worker
-   woken by a push, or answering a page open, must never sit on a connection the
-   server is not answering.
+   The page navigation must reach the server, because the server may return
+   either the board or the sign-in page. Static renderer files and the splash
+   picture can be kept; readings and commands always go straight to the server.
+   Every fetch the worker makes itself has a deadline.
 
    No board data is kept anywhere here. The page's startup screen waits for a
    live reading before it shows the board, so a stored copy could not shorten a
    start; it could only make one look connected when it was not. */
 
-/* The version is past every earlier one on purpose. Two changes reached this
-   file for the same release, the startup screen's and the composer's, and each
-   of them on its own had raised the name to m-3. A worker already installed
-   under either of those names holds a shell that is missing the other's files,
-   so the combined worker takes a name neither of them ever used and the install
-   fills the whole set again from the server. */
-const CACHE = "facilitator-m-5";
-const SHELL = ["/m", "/card-markdown.js", "/card-tokens.css", "/card-logic.js",
-               "/compose-format.js", "/m-manifest.json"];
-/* The squid the page paints the phone's own launch image from. It is kept for
-   the same reason the shell is: an installed open that cannot reach the server
-   should still be able to paint the picture the NEXT open starts with, and the
-   page draws that picture from this one file. It is asked for on its own rather
+/* New cache name drops previously kept authenticated pages and manifests. */
+const CACHE = "facilitator-m-7";
+const SHELL = ["/card-markdown.js", "/card-tokens.css", "/card-logic.js",
+               "/compose-format.js"];
+/* The squid the page paints the phone's own launch image from. It is kept
+   so a page already open through a short interruption can still paint it.
+   It is asked for on its own rather
    than added to the list above, because addAll is all-or-nothing and a build
    whose image had not landed yet would lose the whole shell with it. */
 const SPLASH = "/m-splash-squid.png";
@@ -40,8 +29,8 @@ const SPLASH = "/m-splash-squid.png";
    bundle arrives with the cache name above. */
 const VENDORED = "/cm-markdown.js";
 const KEPT = [...SHELL, SPLASH, VENDORED];
-const SHELL_DEADLINE_MS = 8000;   // a page open waits this long for the server before the kept copy
-const PUSH_DEADLINE_MS = 6000;    // a push reads the board this long, then shows what it has
+const SHELL_DEADLINE_MS = 8000;   // static files wait this long before the kept copy
+const PUSH_DEADLINE_MS = 6000;    // wait at most this long for auth before dropping a push
 
 function bounded(request, ms) {
   return fetch(request, { signal: AbortSignal.timeout(ms) });
@@ -78,7 +67,9 @@ self.addEventListener("fetch", event => {
   if (request.method !== "GET") return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
-  const isPage = request.mode === "navigate";
+  // The navigation is an authentication decision. Never serve a kept board
+  // shell in place of the server's sign-in page after a session has ended.
+  if (request.mode === "navigate") return;
   /* The one thing read from the copy before the server is asked. Everything
      else here is network first, because everything else can change under an
      installed app and a stale copy of it would be wrong. This file cannot: it
@@ -98,17 +89,17 @@ self.addEventListener("fetch", event => {
     })());
     return;
   }
-  if (!isPage && !KEPT.includes(url.pathname)) return;   // live data: never intercepted
+  if (!KEPT.includes(url.pathname)) return;   // live data: never intercepted
   event.respondWith((async () => {
     try {
       const fresh = await bounded(request, SHELL_DEADLINE_MS);
       if (fresh.ok) {
         const cache = await caches.open(CACHE);
-        cache.put(isPage ? "/m" : request, fresh.clone()).catch(() => {});
+        cache.put(request, fresh.clone()).catch(() => {});
       }
       return fresh;
     } catch (error) {
-      const kept = await caches.match(isPage ? "/m" : request);
+      const kept = await caches.match(request);
       if (kept) return kept;
       throw error;
     }
@@ -121,6 +112,13 @@ self.addEventListener("fetch", event => {
 // generic notification so the browser sees the event was handled.
 self.addEventListener("push", event => {
   event.waitUntil((async () => {
+    // A push service can hold an encrypted title for hours after sign-out.
+    // The server may have accepted it while the session was still live, so
+    // ask again at delivery time and show nothing if the answer is unavailable.
+    try {
+      const status = await bounded("/auth/check", PUSH_DEADLINE_MS);
+      if (!status.ok || !(await status.json()).authenticated) return;
+    } catch (_) { return; }
     let title = "facilitator";
     let box = "";
     try {

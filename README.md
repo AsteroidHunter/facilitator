@@ -1,10 +1,17 @@
 ## Install
 
 From a clone, run `./install.sh`. It checks Python, sets up the local environment,
-and adds `facilitator` to your shell. Open a new terminal after installation,
+asks for a phone app password, and adds `facilitator` to your shell. The password
+needs at least 11 printable ASCII characters, including a letter, number and
+symbol. In a noninteractive install, run `facilitator password set` in a terminal
+before enabling the phone bridge. Open a new terminal after installation,
 then use `facilitator run`, `facilitator restart`, `facilitator status`, or
-`facilitator bridge`. Remove the installation with `facilitator uninstall`
-(or `./uninstall.sh`); `--wipe` also removes board data.
+`facilitator bridge`. If upgrading while an older bridge is active, run
+`facilitator bridge off` before restarting the updated server; it refuses to
+start while the old unguarded Serve target remains. Then run
+`facilitator bridge on` to get the QR code for the password-gated phone page.
+Remove the installation with `facilitator uninstall` (or `./uninstall.sh`);
+`--wipe` also removes board data and bridge credentials.
 
 ## License
 

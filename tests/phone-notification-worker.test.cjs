@@ -6,13 +6,17 @@ const vm = require("node:vm");
 
 const SOURCE = path.resolve(__dirname, "..", "m-sw.js");
 
-async function worker({ clients = [], uncontrolled = [] } = {}) {
+async function worker({ clients = [], uncontrolled = [], authenticated = true, authOffline = false } = {}) {
   const handlers = {};
   const shown = [];
   const opened = [];
   const context = {
     URL, AbortSignal, Promise,
-    fetch: async () => { throw new Error("notification push must not read mutable board state"); },
+    fetch: async (request) => {
+      assert.equal(request, "/auth/check", "push read board state instead of session status");
+      if (authOffline) throw new Error("offline");
+      return { ok: true, json: async () => ({ authenticated }) };
+    },
     caches: { keys: async () => [], open: async () => ({ addAll: async () => {} }) },
     self: {
       location: { origin: "https://board.test" },
@@ -55,6 +59,14 @@ test("a missing or malformed payload safely shows the generic board notification
     await harness.dispatch("push", { data });
     assert.equal(harness.shown[0].title, "facilitator");
     assert.equal(harness.shown[0].options.data.box, "");
+  }
+});
+
+test("a queued push cannot reveal a title after sign-out or while offline", async () => {
+  for (const options of [{authenticated:false}, {authOffline:true}]) {
+    const harness = await worker(options);
+    await harness.dispatch("push", { data: { json: () => ({box:"private",title:"Private card"}) } });
+    assert.deepEqual(harness.shown, []);
   }
 });
 
