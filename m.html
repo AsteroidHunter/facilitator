@@ -1315,7 +1315,7 @@ function makeBox(b){
     if (ComposeFormat.focused(ta) && (grew || (typed && document.body.classList.contains("obstructed")))) blinkRow(ta);
     revealCaret(ta, twin);
     seatSquare(ta, send);
-    send.classList.toggle("show", ta.value.trim().length > 0);
+    send.classList.toggle("show", ta.value.trim().length > 0 || phoneArrowAgainFor(b.id));
   };
   ta.addEventListener("input", () => {
     clearPhoneEnterAgain();
@@ -1353,7 +1353,7 @@ function makeBox(b){
     tracePhone("note", "send", { box: b.id });
     if (ComposeFormat.focused(ta)) e.preventDefault();
   });
-  send.addEventListener("click", () => doSend(b.id));
+  send.addEventListener("click", () => composerArrow(b.id));
   clip.addEventListener("pointerdown", e => { if (ComposeFormat.focused(ta)) e.preventDefault(); });
   wireAttachmentTransfer(ta);
   clip.addEventListener("click", () => clipfile.click());
@@ -1447,9 +1447,8 @@ async function closeCard(id){
 function undone(id){
   fetch("/done?box=" + encodeURIComponent(id) + "&v=0", { method: "POST" }).then(() => poll()).catch(() => {});
 }
-// The send button keeps the existing confirmed-send move. Enter has its own
-// explicit gesture: the first press sends and stays, and a separate second
-// press inside this window asks to move after the send is confirmed.
+// Enter and the card's send arrow each send and stay on their first press.
+// Their separate second presses inside this window move after confirmation.
 let autoNext = null;
 const AUTONEXT_MS = 0;   // the desktop's number; a quiet time after a send before moving on
 const ENTER_AGAIN_MS = 700;
@@ -1464,6 +1463,12 @@ function clearPhoneEnterAgain(intent = phoneEnterAgain){
   intent.active = false;
   intent.op.advance = false;
   if (phoneEnterAgain === intent) phoneEnterAgain = null;
+  if (intent.source === "arrow") els[intent.id]?.tick();
+}
+function phoneArrowAgainFor(id){
+  return !!(phoneEnterAgain?.active && !phoneEnterAgain.advance &&
+    phoneEnterAgain.source === "arrow" && phoneEnterAgain.id === id &&
+    phoneEnterViewKey(id) === phoneEnterAgain.view && Date.now() <= phoneEnterAgain.deadline);
 }
 function cancelAutoNext(){
   clearTimeout(autoNext); autoNext = null;
@@ -1483,27 +1488,36 @@ function schedulePhoneAdvance(op, intent = null){
     if (selectedId === op.box) jumpNextYellow(op.box, null, navigationPool(lastState, op.box));
   }, AUTONEXT_MS);
 }
-function armPhoneEnterAgain(id, op){
+function armPhoneEnterAgain(id, op, source = "enter"){
   cancelAutoNext();
   const intent = {
-    id, op, view: phoneEnterViewKey(id), deadline: Date.now() + ENTER_AGAIN_MS,
+    id, op, source, view: phoneEnterViewKey(id), deadline: Date.now() + ENTER_AGAIN_MS,
     delivered: false, advance: false, active: true, timer: null,
   };
   intent.timer = setTimeout(() => {
     if (phoneEnterAgain === intent && !intent.advance) clearPhoneEnterAgain(intent);
   }, ENTER_AGAIN_MS);
   phoneEnterAgain = intent;
+  if (source === "arrow") els[id]?.tick();
 }
-function askPhoneEnterAdvance(id){
+function askPhoneEnterAdvance(id, source = "enter"){
   const intent = phoneEnterAgain;
-  if (!intent || !intent.active || intent.id !== id || phoneEnterViewKey(id) !== intent.view) return false;
+  if (!intent || !intent.active || intent.source !== source || intent.id !== id || phoneEnterViewKey(id) !== intent.view) return false;
   if (intent.advance) return true;
   if (Date.now() > intent.deadline) return false;
   intent.advance = true;
   intent.op.advance = true;
   clearTimeout(intent.timer);
+  if (source === "arrow") els[id]?.tick();
   if (intent.delivered) schedulePhoneAdvance(intent.op, intent);
   return true;
+}
+function composerArrow(id){
+  if (phoneArrowAgainFor(id) && askPhoneEnterAdvance(id, "arrow")) return;
+  const el = els[id];
+  if (!el?.ta.value.trim()) return;
+  const op = doSend(id, { advance: false });
+  if (op) armPhoneEnterAgain(id, op, "arrow");
 }
 // ---- what the phone has asked the board and not yet heard back on -----------------
 // the phone is a room and a radio away from the board. a tap has to show
