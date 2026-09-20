@@ -26,6 +26,8 @@
 # the server's libraries, installed beside it from requirements.txt
 /.venv/
 /.facilitator-install.json
+/.facilitator-skills.json
+/.facilitator-skills.tmp
 
 .DS_Store
 __pycache__/

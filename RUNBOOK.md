@@ -2,14 +2,14 @@
 
 For an agent sitting behind the board. Read this cold and start; nothing else is assumed.
 
-The tool: `server.py` (Python, port 8877) serves `index.html` (vanilla JS) at http://127.0.0.1:8877. Its pinned packages go in the standard `.venv` beside it. For a new checkout run `./install.sh`: it checks Python, finds or installs uv, builds the `.venv` and syncs the pinned packages, writes `run.config.json` and `seed.json` from the examples when they are missing, installs the test dependencies when node is present, and prompts for a phone app password in an interactive terminal. A noninteractive install finishes without a password; run `facilitator password set` before enabling the bridge. It is safe to run again, and after requirements change it syncs the `.venv` on its own. `facilitator uninstall` (or `./uninstall.sh`) removes only setup artifacts recorded as installer-owned; it preserves preexisting or edited config and keeps board data and bridge credentials unless `--wipe` is given. Artifacts from the former `facilitator install` have no ownership record, so uninstall keeps those legacy files for manual inspection. `facilitator run` starts the server with that `.venv`. Stacked discussion boxes, one per point, each a mini-thread between the owner and one agent. Messages queue FIFO into the agent's terminal session; every message and reply persists (`state.json`, `transcript.jsonl`, both written beside the server, both gitignored). The endpoint reference is the module docstring in `server.py`; keep it truthful as endpoints change.
+The tool: `server.py` (Python, port 8877) serves `index.html` (vanilla JS) at http://127.0.0.1:8877. Its pinned packages go in the standard `.venv` beside it. For a new checkout run `./install.sh`: it checks Python, finds or installs uv, builds the `.venv` and syncs the pinned packages, writes `run.config.json` and `seed.json` from the examples when they are missing, installs the test dependencies when node is present, prompts for a phone app password in an interactive terminal, and registers the shared agent skill. A noninteractive install finishes without a password; run `facilitator password set` before enabling the bridge. It is safe to run again, and after requirements change it syncs the `.venv` on its own. `facilitator uninstall` (or `./uninstall.sh`) removes only setup artifacts recorded as installer-owned, including its agent-skill links; it preserves preexisting or edited config and keeps board data and bridge credentials unless `--wipe` is given. Artifacts from the former `facilitator install` have no ownership record, so uninstall keeps those legacy files for manual inspection. `facilitator run` starts the server with that `.venv`. Stacked discussion boxes, one per point, each a mini-thread between the owner and one agent. Messages queue FIFO into the agent's terminal session; every message and reply persists (`state.json`, `transcript.jsonl`, both written beside the server, both gitignored). The endpoint reference is the module docstring in `server.py`; keep it truthful as endpoints change.
 
 ## The loop
 
-From the terminal session that owns your lane, repeat forever. Two calls, both required:
+From the agent conversation that owns your lane, repeat the current two-call production protocol. The installed `facilitator` skill resolves the lane and its `scripts/onboard.py wait` helper makes both calls for each claim:
 
-    timeout 560 curl -s "http://127.0.0.1:8877/wait?owner=facilitator&timeout=540&agent=claude"
-    curl -s -X POST "http://127.0.0.1:8877/ack?owner=facilitator&token=<the ack field>"
+    curl --max-time 560 -sS "http://127.0.0.1:8877/wait?owner=facilitator&timeout=540&agent=claude"
+    curl -sS -X POST "http://127.0.0.1:8877/ack?owner=facilitator&token=<the ack field>"
 
 `agent=` states your name; the board's card rows show each lane's live agent name, or offline, from exactly this. It returns `{"box": id, "title": ..., "messages": [...], "queued_after": n, "ack": token}` on a claim, `{"idle": true}` on timeout, `{"paused": true}` while paused, `{"end": true}` once ended and drained.
 
@@ -17,13 +17,14 @@ The `ack` token is the receipt for the card you were just handed, and confirming
 
 WARNING: a loop without the confirm line claims cards it cannot keep. Every claim bounces back to the queue 90 seconds later and gets handed out again, forever, and your reply lands on a card you no longer hold.
 
-Answer a claim with:
+Answer a claim with a complete reply:
 
-    curl -s -X POST --data-binary "the full reply text" "http://127.0.0.1:8877/reply?box=ID&ctx=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' "two line summary of where this card stands")"
+    curl -sS -X POST --data-binary @reply.txt "http://127.0.0.1:8877/reply?box=ID"
 
-`ctx=` is REQUIRED: every reply carries a fresh two-line summary strip (220 chars max, urlencoded), stored as the card's grey summary box in the same move. The server refuses a reply without one. Write the summary first, from the reader's seat, then the reply.
+`ctx=` is optional compatibility data. The summary strip was removed from the card; a supplied strip is still stored and must be at most 50 words. The server accepts a reply without one.
 
 - `/wait?owner=...` claims the oldest queued box in your owner lane and marks it busy. Never leave a claim unanswered; an open claim blocks your whole lane (each owner has its own busy slot, see Owner routing below).
+- Before replying to a held card, `GET /fresh?owner=YOURLANE` and answer any messages that arrived after the claim. It folds them into that claim so the reply covers the latest question too.
 - Three nets sit under a claim, in order: a hand-off written into a dead socket rolls back at once, an unconfirmed claim returns after 90 seconds, and a claim older than 15 minutes is stolen back. Do not lean on any of them; confirm what you claim and answer what you confirm.
 - Before going idle, check whether anything is waiting on your lane: `GET /unread?owner=YOURLANE` answers `{"queued": N, "claimed": M}`, messages still waiting plus messages in the claim you hold. It reads only, so it is safe from a hook. Paste this as a Stop hook command and go back to the loop instead of idling whenever `queued` is above zero:
 
@@ -38,7 +39,7 @@ Answer a claim with:
 - Every reply fully self-contained. The box shows ONLY the latest reply, so a short follow-up ERASES a longer answer. Restate rather than reference.
 - A small-card version, when needed, is a separate urlencoded `short` query on `/reply`. If it is omitted, both cards show the full body. Never put `---` in the body as a hidden separator. It is authored Markdown and renders as a horizontal rule.
 - Answer what was asked and stop: no unsolicited offers, no "want me to" tails, no validation preambles.
-- `POST /note?box=ID` is the only background-progress action. It stores the interim text, consumes and releases any held claim, enters the explicit green note state, starts or refreshes the heartbeat, and keeps the turn with the agent. Keep pinging while work continues. A note whose heartbeat dies rests grey, never yellow. `/reply` is only for a final answer and rejects the removed `quiet` query.
+- `POST /note?box=ID` consumes and releases a held claim. Do not use it for progress on a claim: later owner messages can be hidden until a full reply. For work that continues, register `/working`, keep its heartbeat current, and send a full `/reply` with the flag still live. That reply remains deferred until the work truly ends and the flag drops. The removed `quiet` query is rejected.
 - The colour law is the machine's now, not your discipline: every card sits in one server-side state and the colour is a pure read of it. A normal reply under a live working flag lands the card in deferred, still green; the turn is handed over when the flag drops (`/working?box=ID&v=0`) or its heartbeat expires. A progress note stays in note until another event or the heartbeat ends.
 - A reply that closes or parks a box carries zero new information. Folded boxes go unread. Keep-in-mind notes go to an open box or the project docs.
 
@@ -53,11 +54,11 @@ A user-created box is auto-named with the chopped first line of its first messag
 
 ## Context strips
 
-`POST /context?box=ID` (body, 50 words max, refused over that, never truncated) keeps each box's summary current; the same text rides every reply's required `ctx=`. Its job is orientation, never recap: line one says why the card exists and what it is trying to settle; line two says where that stands right now. Details of the latest exchange do not belong in it. It is the working cure for box-context amnesia; the wider question of keeping per-box context straight at scale stays open.
+`POST /context?box=ID` stores optional historical context (50 words max, refused over that, never truncated). The context strip is no longer displayed, and `/reply` no longer requires `ctx=`. When answering, use the current claim and `/fresh` for new messages rather than relying on an old strip.
 
 ## Permission blocks
 
-A permission denial from an automated classifier NEVER pauses the listener. Strip the blocked step, do everything approvable, note the block in the meta box, keep draining. Box-typed orders do not count as visible consent for pushes or destructive operations; one approval word typed in the terminal releases them.
+Follow the current host's permission rules and the user's authorization in this session. A board card does not override a host restriction. If a step is blocked, complete permitted work, explain the blocked step and reason in the relevant reply, and keep the listener running when possible. Do not infer permission for pushes or destructive operations merely from these operating instructions.
 
 ## Restarts
 
@@ -97,11 +98,11 @@ Five things never appear in any line: message or title text, keys and authentica
 
 ## Real work
 
-Real work ships from boxes: builds and scans go to subagents, results land back in the ordering box. Pushes and destructive operations follow the terminal-consent rule above. After work is finished and verified, stage and commit its changes automatically. Messages: short, imperative, technical, no co-author or AI signature lines. Commit messages and code comments never name private folder paths, machines, people, or other projects. Push only on the owner's explicit word, typed in the terminal.
+Real work ships from boxes: delegate bounded builds and scans when delegation is available and authorized, and report results in the ordering box. Follow the actual session's authorization for pushes and destructive operations. After work is finished and verified, stage and commit its changes when authorized. Messages: short, imperative, technical, no co-author or AI signature lines. Commit messages and code comments never name private folder paths, machines, people, or other projects.
 
 ## Delegation
 
-Anything past about a minute of hands-on work (code edits, builds, scans, renders) goes to a throwaway worker agent; the listener answers cards and never grinds. Sort by the shape of the job before starting, never mid-way: a misjudged job is finished by the listener, not handed off half done.
+The listener normally delegates substantive bounded work and stays responsible for the card, unless the owner asks it to do the work directly or the current host does not authorize delegation. Sort by the shape of the job before starting; a misjudged job need not be handed off halfway through.
 
 Every worker brief carries six parts: the goal as one checkable sentence; full context, since the worker starts knowing nothing; boundaries, what it must not touch and which neighboring work is someone else's; the output contract, the exact shape coming back; proof, the worker verifies its own work (driven browser or equivalent) before reporting; and the house rules (plain words, no em dashes, no signatures, never restart the server, delete any probe box after use). Quality test: a stranger with no history could do the job right from the brief alone.
 
@@ -121,8 +122,8 @@ and kill it when the work ends. The server also watches the other direction: an 
 
 Two agents share one board. Every box carries an owner tag: `facilitator` (discussion about this tool, served by this repo's agent) or a project lane such as `example` (the project under discussion, served by its own agent). `/wait?owner=...` claims only that owner's boxes, and each owner has its own busy slot and listener-presence tracking, so the two agents never block or steal from each other. An ownerless `/wait` defaults to facilitator. Two meta sections sit on top, tool-meta first, each with its own plus button; user-created boxes inherit the section's owner; the writing indicator and the offline banner name the agent. Every meta box carries the owner's remove cross, any standing card the seed placed included (box `0` for the tool lane, for instance); a lane with its standing box removed just works from its remaining boxes, and notes that would have gone there go to an open box or the project docs. The two loops, side by side:
 
-    timeout 560 curl -s "http://127.0.0.1:8877/wait?owner=facilitator&timeout=540&agent=claude"
-    timeout 560 curl -s "http://127.0.0.1:8877/wait?owner=example&timeout=540&agent=claude"
+    curl --max-time 560 -sS "http://127.0.0.1:8877/wait?owner=facilitator&timeout=540&agent=claude"
+    curl --max-time 560 -sS "http://127.0.0.1:8877/wait?owner=example&timeout=540&agent=claude"
 
 Each lane confirms its own claims against its own owner: `POST /ack?owner=facilitator&token=...` and `POST /ack?owner=example&token=...`. A token belongs to one lane's claim and is refused (409) anywhere else.
 
