@@ -3050,19 +3050,15 @@
   @media (max-width:989px){ body.focus #navpad{display:none} }
 
   /* ---- the project's pages ---------------------------------------------- */
-  /* one pill at the foot of the workspace, centred on the window: the plus on
-     the left, then one dot per page of the project in the board's own order.
-     It is fixed to the window rather than placed on the stage, so it keeps its
-     seat while the board is stepped back and while the stage slides under a
-     resize; seatPagePill writes the one number it needs, how far up from the
-     foot it sits, and that number is what keeps it off the rail. */
+  /* Keep the page switcher and its handlers mounted, but hide its desktop UI.
+     Its styling and seat logic remain here with the page creation code. */
   #pagepill{display:none}
   body.focus #pagepill{
     /* --mark is the one size every item in the pill draws itself at, so the
        plus and the page marks cannot drift apart; --pillgap is named because
        a dot growing in has to cancel it, and a flex gap cannot be animated */
     --mark:7px; --pillgap:6px;
-    display:flex; align-items:center; gap:var(--pillgap);
+    align-items:center; gap:var(--pillgap);
     position:fixed; left:50%; transform:translateX(-50%); bottom:8px; z-index:12;
     padding:3px 7px;
     /* the workspace's own corner, the 7px #appframe turns: a small rounded
@@ -3651,11 +3647,8 @@
   </div>
 </div>
 
-<!-- the project's pages: the switcher at the foot of the workspace, the menu a
-     right-click on one of its dots opens, and the window a deletion has to go
-     through. All three stand outside the stage, so the stage's transform never
-     drags them off their seat and they stay reachable while a blank page has
-     the board itself stepped back. -->
+<!-- The page switcher remains mounted for its page handlers, though its desktop
+     UI is hidden. The menu and deletion confirmation stay with that code. -->
 <div id="pagepill" class="off" role="group" aria-label="Pages in this project"></div>
 <div id="pagemenu" role="menu" aria-label="Page actions"></div>
 <div id="pagewarn">
@@ -4676,7 +4669,7 @@ function renderPages(state){
 function seatPagePill(){
   if (!FOCUS) return;
   const pill = document.getElementById("pagepill");
-  if (!pill || pill.classList.contains("off")) return;
+  if (!pill || pill.classList.contains("off") || getComputedStyle(pill).display === "none") return;
   const stage = document.getElementById("stage");
   const gap = 8;
   const own = pill.getBoundingClientRect();
