@@ -3703,7 +3703,7 @@ async function saveDiagnostic(source = "settings"){
   };
   clearTimeout(diagnosticToastTimer);
   tell(tracePhone("version") === 3 && !diagnosticRetry
-    ? "Recording the next 20 seconds before saving…" : "Saving diagnostic history…");
+    ? "Recording the next 20 seconds before saving" : "Saving diagnostic history…");
   try {
     const answer = await tracePhone("mark", source, phoneTraceState(), diagnosticRetry);
     const outcome = answer?.status || "failed";
