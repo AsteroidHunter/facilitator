@@ -193,7 +193,7 @@ test("the launch image is painted from the real squid, with no background behind
   }
 });
 
-test("the worker keeps the shell and the squid, and keeps no reading of the board", async () => {
+test("the worker keeps static assets but no page or reading of the board", async () => {
   const { browser, page } = await openApp(origin + "/m");
   try {
     await workerReady(page);
@@ -202,17 +202,17 @@ test("the worker keeps the shell and the squid, and keeps no reading of the boar
       channel.port1.onmessage = e => resolve(e.data);
       navigator.serviceWorker.controller.postMessage({ kind: "diagnostic-worker" }, [channel.port2]);
     }));
-    assert.deepEqual(workerIdentity, { kind: "diagnostic-worker", cache: "facilitator-m-5" });
+    assert.deepEqual(workerIdentity, { kind: "diagnostic-worker", cache: "facilitator-m-7" });
     // let the page take several readings, so anything that was going to be kept
     // has had every chance to be
     await page.waitForFunction(() => lastState !== null, { timeout: 20000 });
     await new Promise(resolve => setTimeout(resolve, 3000));
     const kept = await keptPaths(page);
     const names = Object.keys(kept);
-    assert.deepEqual(names, ["facilitator-m-5"], "the worker kept more than one cache: " + names);
-    const paths = kept["facilitator-m-5"];
-    for (const want of ["/m", "/card-logic.js", "/card-markdown.js", "/card-tokens.css",
-                        "/m-manifest.json", "/m-splash-squid.png",
+    assert.deepEqual(names, ["facilitator-m-7"], "the worker kept more than one cache: " + names);
+    const paths = kept["facilitator-m-7"];
+    for (const want of ["/card-logic.js", "/card-markdown.js", "/card-tokens.css",
+                        "/m-splash-squid.png",
                         // the composer's typed formatting and the editor it is drawn
                         // with: an installed open that cannot reach the board must get
                         // the same row it had, not a shell with the setting missing
@@ -222,6 +222,8 @@ test("the worker keeps the shell and the squid, and keeps no reading of the boar
     // THE BOARD IS NEVER KEPT. Not the reading, not the page's own commands.
     assert.equal(paths.some(p => p.startsWith("/m/state")), false,
       "a reading of the board was kept: " + paths);
+    assert.equal(paths.includes("/m"), false, "a cached board could bypass sign-out");
+    assert.equal(paths.includes("/m-manifest.json"), false, "a cached manifest could retain a private board title");
     assert.equal(paths.some(p => p === "/state" || p.startsWith("/send") || p.startsWith("/create")), false,
       "board traffic was kept: " + paths);
     // and it is not merely unkept, it is not answered by the worker at all
@@ -237,42 +239,24 @@ test("the worker keeps the shell and the squid, and keeps no reading of the boar
   }
 });
 
-test("an installed open with nothing answering still opens, on the stopped red globe", async () => {
+test("an offline navigation cannot reopen a cached authenticated board", async () => {
   const { browser, page } = await openApp(origin + "/m");
   try {
     await workerReady(page);
     await page.waitForFunction(() => !document.getElementById("loading"), { timeout: 25000 });
-    // the phone loses the network entirely: airplane mode, the bridge switched
-    // off, the tailnet gone. the page it opens with can only come from the cache
+    // Navigation must ask the server whether to show the app or the sign-in
+    // page. An offline reload cannot use an old authenticated shell.
+    const kept = await keptPaths(page);
+    assert.equal(Object.values(kept).flat().includes("/m"), false);
     await page.setOfflineMode(true);
-    await page.reload({ waitUntil: "domcontentloaded" });
-    const served = await page.evaluate(() => ({
+    await page.reload({ waitUntil: "domcontentloaded" }).catch(() => null);
+    const offline = await page.evaluate(() => ({
+      board: !!document.getElementById("cards"),
       title: document.title,
-      curtain: !!document.getElementById("loading"),
-      cards: document.getElementById("cards").childElementCount,
     }));
-    assert.equal(served.title.length > 0, true, "the offline open did not get a page at all");
-    assert.equal(served.curtain, true, "the offline open had no startup screen");
-    assert.equal(served.cards, 0, "an offline open drew cards it could not have read");
-    // and the globe says so: stopped, red, and it stays
-    await page.waitForFunction(() => document.getElementById("loading")?.classList.contains("down"),
-      { timeout: 20000 });
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    const state = await page.evaluate(() => {
-      const el = document.getElementById("loading");
-      const globe = el.querySelector(".globe");
-      const earth = el.querySelector(".earth");
-      return { present: true, down: el.classList.contains("down"),
-               opacity: Number(getComputedStyle(el).opacity),
-               border: getComputedStyle(globe).borderTopColor,
-               play: earth.getAnimations().map(a => a.playState),
-               stated: document.body.classList.contains("stated"),
-               still: startupStill };
-    });
-    assert.deepEqual(state, { present: true, down: true, opacity: 1,
-      border: "rgb(168, 68, 42)", play: ["paused"], stated: false, still: false });
-    // the network comes back and the same page finishes its start
+    assert.equal(offline.board, false, "an offline reload displayed an old board: " + JSON.stringify(offline));
     await page.setOfflineMode(false);
+    await page.goto(origin + "/m", { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => !document.getElementById("loading"), { timeout: 30000 });
     const back = await page.evaluate(() => ({
       cards: document.getElementById("cards").childElementCount,
@@ -299,31 +283,31 @@ test("a changed page is served over the kept one, and a new cache version replac
     await writeFile(path.join(fixtureDir, "m.html"),
       pageSource.replace("<body>", "<body>\n<!-- m627-stale-check -->"));
     const workerSource = await readFile(path.join(fixtureDir, "m-sw.js"), "utf8");
-    assert.ok(workerSource.includes('const CACHE = "facilitator-m-5"'), "the cache name moved");
+    assert.ok(workerSource.includes('const CACHE = "facilitator-m-7"'), "the cache name moved");
     await writeFile(path.join(fixtureDir, "m-sw.js"),
-      workerSource.replace('const CACHE = "facilitator-m-5"', 'const CACHE = "facilitator-m-6"'));
+      workerSource.replace('const CACHE = "facilitator-m-7"', 'const CACHE = "facilitator-m-8"'));
 
     await page.reload({ waitUntil: "domcontentloaded" });
     // network first: the page that comes back is the server's, not the kept one
     const second = await page.evaluate(() => document.documentElement.outerHTML.includes("m627-stale-check"));
     assert.equal(second, true, "the kept page was served over the changed one");
     // and the new worker drops the cache the old one filled
-    await page.waitForFunction(async () => (await caches.keys()).includes("facilitator-m-6"),
+    await page.waitForFunction(async () => (await caches.keys()).includes("facilitator-m-8"),
       { timeout: 25000 });
-    await page.waitForFunction(async () => !(await caches.keys()).includes("facilitator-m-5"),
+    await page.waitForFunction(async () => !(await caches.keys()).includes("facilitator-m-7"),
       { timeout: 25000 });
     const kept = await keptPaths(page);
-    assert.deepEqual(Object.keys(kept), ["facilitator-m-6"]);
-    assert.ok(kept["facilitator-m-6"].includes("/m-splash-squid.png"),
+    assert.deepEqual(Object.keys(kept), ["facilitator-m-8"]);
+    assert.ok(kept["facilitator-m-8"].includes("/m-splash-squid.png"),
       "the new cache did not take the squid with it");
-    assert.ok(kept["facilitator-m-6"].includes("/cm-markdown.js"),
+    assert.ok(kept["facilitator-m-8"].includes("/cm-markdown.js"),
       "the new cache did not take the composer's editor with it");
-    // the kept copy is the changed page too, so a later offline open is not stale
+    // The authenticated page is intentionally absent from the new cache.
     const keptPage = await page.evaluate(async () => {
       const answer = await caches.match("/m");
       return answer ? (await answer.text()).includes("m627-stale-check") : null;
     });
-    assert.equal(keptPage, true, "the copy kept for the next offline open was the old page");
+    assert.equal(keptPage, null, "the worker cached an authenticated page");
   } finally {
     await browser.close();
   }
