@@ -116,6 +116,56 @@ test("v3 keeps a two-minute scroll prelude through routine polls and records pos
   assert.doesNotMatch(JSON.stringify(report), /private|draft|https?:/);
 });
 
+test("busy recovery cannot evict the captured scroll and stall prelude", async () => {
+  const f = fixture(); f.history.capability(3);
+  f.now(100); f.history.note("input", { action:"response-scroll", part:"touch", box:"m12" });
+  f.now(500); f.history.note("timer", { late:1200 });
+  f.now(1000); const pending = f.history.mark("settings", { box:"m12" });
+  for (let i = 0; i < 200; i++) {
+    f.now(1100 + i * 90);
+    f.history.note("input", { action:"card", part:"touch-end", box:"m12" });
+    f.history.note("phase", { action:"drawer", part:"menu-commit", phase:"end", ms:12 });
+  }
+  f.now(19500); f.history.note("frame", { ms:650 });
+  f.now(21000); await f.run();
+  assert.equal((await pending).status, "saved");
+  const report = latest(f);
+  assert.ok(report.events.some(e => e.event === "input" && e.action === "response-scroll" && e.at === -900));
+  assert.ok(report.events.some(e => e.event === "timer" && e.late === 1200 && e.at === -500));
+  assert.ok(report.events.some(e => e.event === "frame" && e.ms === 650 && e.at === 18500));
+  assert.equal(report.events.filter(e => e.event === "mark").length, 1);
+  assert.equal(report.events.find(e => e.event === "mark").at, 0);
+  assert.ok(report.events.length <= 128);
+  assert.ok(Buffer.byteLength(JSON.stringify(f.calls[0])) <= 12 * 1024);
+});
+
+test("fresh v2 and v1 marks strip all retained v3-only events and fields", async () => {
+  const f = fixture(); f.history.capability(3);
+  f.history.note("input", { action:"response-scroll", part:"touch" });
+  f.history.note("frame", { ms:650 });
+  f.history.note("phase", { action:"state", part:"json", bytes:100 });
+  f.history.note("render", { changed:true, bytes:100, action:"state", part:"apply", editorReady:true });
+  f.history.note("lifecycle", { lifecycle:"pagehide", persisted:true });
+  f.history.capability(2);
+  assert.equal((await f.mark()).status, "saved");
+  const v2 = latest(f);
+  assert.equal(v2.v, 2);
+  assert.equal(v2.events.some(e => ["input", "frame", "phase"].includes(e.event)), false);
+  assert.equal(v2.events.some(e => e.lifecycle === "pagehide"), false);
+  assert.equal(v2.events.some(e => ["changed", "bytes", "action", "part", "persisted"].some(k => k in e)), false);
+  assert.ok(v2.events.some(e => e.event === "render" && e.editorReady));
+  f.history.capability(3);
+  f.history.note("scroll", { action:"response-scroll", phase:"end", count:4 });
+  f.history.note("stage", { stage:"title-input", editorReady:true });
+  f.history.capability(undefined);
+  assert.equal((await f.mark()).status, "saved");
+  const v1 = latest(f);
+  assert.equal(v1.v, 1);
+  assert.equal("build" in v1, false);
+  assert.equal(v1.events.some(e => ["input", "frame", "phase", "scroll", "stage", "observer"].includes(e.event)), false);
+  assert.equal(v1.events.some(e => ["changed", "bytes", "action", "part", "persisted", "editorReady"].some(k => k in e)), false);
+});
+
 test("v3 failed save keeps the original mark and pagehide never claims persistence", async () => {
   const f = fixture(); f.history.capability(3); f.answer("dropped");
   f.now(1000); const pending = f.history.mark("shortcut", { box: "m12" });
