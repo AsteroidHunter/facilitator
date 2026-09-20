@@ -554,6 +554,129 @@ test("backspace closes the card on show, and only the cards the board's own key 
   }
 });
 
+for (const surface of ["phone", "desktop"]) {
+  test(`${surface} S and N move the selected card to Deferred and Doing`, async () => {
+    await clearLane();
+    const id = await create(`${surface} destination keys`);
+    await api(`/reply?box=${id}`, "A reply to answer.");
+    const neighbour = await create(`${surface} key repeat neighbour`);
+    await api(`/reply?box=${neighbour}`, "A second reply.");
+    const { page, problems } = surface === "phone"
+      ? await openPhone(`/m?box=${id}`) : await openDesktop();
+    const requests = [];
+    page.on("request", request => {
+      const url = new URL(request.url());
+      if (url.pathname === "/park" || url.pathname === "/done") requests.push(url);
+    });
+    try {
+      if (surface === "desktop") await selectDesktop(page, id);
+      else await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
+      await page.focus(SEL);
+      await page.keyboard.type("sn");
+      assert.equal(await page.$eval(SEL, field => field.value), "sn",
+        "the composer did not receive the destination letters");
+      assert.equal(requests.length, 0, "typing in the composer changed card state");
+      await page.evaluate(cardId => editTitle(cardId), id);
+      await page.keyboard.type("sn");
+      assert.equal(await page.evaluate(cardId => els[cardId].titleEl.textContent, id), "sn",
+        "the title did not receive the destination letters");
+      assert.equal(requests.length, 0, "typing in the title changed card state");
+      await page.evaluate(() => document.activeElement.blur());
+      await page.evaluate(() => {
+        for (const options of [
+          { key: "s", metaKey: true }, { key: "n", ctrlKey: true },
+          { key: "s", shiftKey: true }, { key: "n", altKey: true },
+          { key: "s", isComposing: true }, { key: "n", isComposing: true },
+          { key: "s", repeat: true }, { key: "n", repeat: true },
+        ]) dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ...options }));
+      });
+      assert.equal(requests.length, 0, "a modified or composing key changed card state");
+
+      let response = page.waitForResponse(r => new URL(r.url()).pathname === "/park");
+      await page.keyboard.press("s");
+      assert.equal((await response).status(), 200);
+      await page.waitForFunction(cardId => els[cardId].box.classList.contains("parked"), {}, id);
+      assert.equal((await savedBox(id)).parked, true);
+      await page.evaluate(cardId => {
+        select(cardId);
+        dispatchEvent(new KeyboardEvent("keydown", { key: "s", repeat: true, bubbles: true }));
+      }, neighbour);
+      assert.equal((await savedBox(neighbour)).parked, false,
+        "holding S moved the next selected card to Deferred");
+      assert.equal(requests.length, 1, "the repeated S sent another state request");
+      await page.evaluate(cardId => select(cardId), id);
+      await page.keyboard.press("s");
+      await settle(120);
+      assert.equal(requests.length, 1, "S toggled an already Deferred card");
+
+      response = page.waitForResponse(r => new URL(r.url()).pathname === "/park" && new URL(r.url()).searchParams.get("v") === "0");
+      await page.keyboard.press("n");
+      assert.equal((await response).status(), 200);
+      await page.waitForFunction(cardId => !els[cardId].box.classList.contains("parked"), {}, id);
+      assert.equal((await savedBox(id)).parked, false);
+      await page.keyboard.press("n");
+      await settle(120);
+      assert.equal(requests.length, 2, "N sent a request for an already Doing card");
+
+      await api(`/done?box=${id}&v=1`);
+      await page.evaluate(() => poll());
+      await page.waitForFunction(cardId => els[cardId].box.classList.contains("done"), {}, id);
+      response = page.waitForResponse(r => new URL(r.url()).pathname === "/done" && new URL(r.url()).searchParams.get("v") === "0");
+      await page.keyboard.press("n");
+      assert.equal((await response).status(), 200);
+      assert.equal((await savedBox(id)).done, false, "N did not restore a Done card to Doing");
+
+      await api(`/done?box=${id}&v=1`);
+      await page.evaluate(() => poll());
+      await page.waitForFunction(cardId => els[cardId].box.classList.contains("done"), {}, id);
+      response = page.waitForResponse(r => new URL(r.url()).pathname === "/park" && new URL(r.url()).searchParams.get("v") === "1");
+      await page.keyboard.press("s");
+      assert.equal((await response).status(), 200);
+      const moved = await savedBox(id);
+      assert.equal(moved.parked, true, "S did not move a Done card to Deferred");
+      assert.equal(moved.done, false, "S left the card in Done");
+      assert.deepEqual(problems, []);
+    } finally {
+      await page.close();
+    }
+  });
+}
+
+test("destination letters stay in the desktop Markdown editor", async () => {
+  await clearLane();
+  const id = await create("Markdown destination keys");
+  const { page, problems } = await openDesktop();
+  const flags = [];
+  page.on("request", request => {
+    const route = new URL(request.url()).pathname;
+    if (route === "/park" || route === "/done") flags.push(route);
+  });
+  try {
+    await selectDesktop(page, id);
+    await page.evaluate(async () => {
+      mdMounts(["unused", "facilitator"]);
+      mdBoxes();
+      const host = mdBuild(MD_MOUNTS.facilitator);
+      if (!host || !await mdBundle()) throw new Error("Markdown editor could not mount");
+      mdFor = "facilitator";
+      mdOpen = { lane: mdFor, root: "fixture-internal", rel: "fixture.md", mtime: "1" };
+      mdClean = "editor text";
+      mdMount(host, mdClean, false);
+      host.classList.add("editing");
+    });
+    await page.click("#magic4 .cm-content");
+    await page.keyboard.type("sn");
+    assert.equal(await page.evaluate(() => mdView.state.sliceDoc()), "editor textsn");
+    assert.deepEqual(flags, [], "typing in Markdown changed card state");
+    const state = await savedBox(id);
+    assert.equal(state.done, false);
+    assert.equal(state.parked, false);
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
 // where the phone's old return-to-the-last-card fired: the send has just moved
 // the screen on, which is exactly when the chord used to walk back
 test("after the phone send's move, command z and control z move no card and stay the row's", async () => {
@@ -1315,6 +1438,18 @@ test("desktop mini capture keeps its subset ahead of typing and the board", asyn
     assert.equal(await shownId(page), mainBefore, "mini stepping moved the main selection");
     assert.equal(await page.evaluate(() => ComposeFormat.focused(miniEls[miniId].ta)), true,
       "mini stepping from typing did not carry its caret");
+
+    const flags = [];
+    page.on("request", request => {
+      const route = new URL(request.url()).pathname;
+      if (route === "/park" || route === "/done") flags.push(route);
+    });
+    await page.evaluate(() => {
+      document.activeElement.blur();
+      dispatchEvent(new KeyboardEvent("keydown", { key: "s", bubbles: true }));
+      dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true }));
+    });
+    assert.deepEqual(flags, [], "mini focus let destination keys change the large card");
 
     const created = page.waitForResponse(response => new URL(response.url()).pathname === "/create");
     await chord(page, "t", "Meta");

@@ -3539,6 +3539,13 @@ const phoneShortcutActions = {
       closeCard(selectedId);
     }
   },
+  destination(e, shortcut){
+    if (phoneShortcutTyping(e.target) || !selectedId) return;
+    const b = lastState?.boxes.find(x => x.id === selectedId);
+    if (b?.bucket !== "meta") return;
+    e.preventDefault();
+    setCardDestination(selectedId, shortcut.value);
+  },
 };
 
 addEventListener("keydown", e => {

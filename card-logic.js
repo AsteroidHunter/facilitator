@@ -98,6 +98,13 @@ const CARD_SHORTCUT_DEFINITIONS = [
     action: "close", mini: false,
     match: e => e.key === "Backspace" || e.key === "Delete" ? true : null,
   },
+  {
+    action: "destination", mini: false,
+    match: e => !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey &&
+      !e.repeat && !e.isComposing && !e.defaultPrevented &&
+      (e.key === "s" || e.key === "S" || e.key === "n" || e.key === "N")
+      ? ((e.key === "s" || e.key === "S") ? "deferred" : "doing") : null,
+  },
 ];
 
 // Pure recognition over key/modifier fields. The finite mini scope sees only
@@ -1120,6 +1127,19 @@ function flagShown(id, kind){
 }
 
 function toggleFlag(id, kind){ return setFlag(id, kind, !flagShown(id, kind)); }
+
+// The letter keys name destinations, unlike the moon's reversible tap. Read
+// the held value so a second key during an unanswered request is judged against
+// what the card already shows, then use the same ordered flag requests as a tap.
+function setCardDestination(id, destination){
+  if (destination === "deferred"){
+    if (!flagShown(id, "park")) return setFlag(id, "park", true);
+  } else if (destination === "doing"){
+    const parked = flagShown(id, "park"), done = flagShown(id, "done");
+    if (parked) setFlag(id, "park", false);
+    if (done) return setFlag(id, "done", false);
+  }
+}
 
 // one card's wanted state, true on screen at once and asked of the board after.
 //
