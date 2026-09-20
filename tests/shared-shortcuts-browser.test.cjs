@@ -868,6 +868,82 @@ test("phone double Enter waits for delivery, rejects held repeats, and cancels o
   }
 });
 
+test("phone send arrow sends once, preserves focus, and moves only on a quick second tap", async () => {
+  await clearLane();
+  const from = await create("Phone arrow source");
+  await api(`/reply?box=${from}`, "A reply to answer.");
+  const waiting = await create("Phone arrow destination");
+  await api(`/reply?box=${waiting}`, "Another reply waiting.");
+  const { page, problems } = await openPhone(`/m?box=${from}`);
+  try {
+    await page.waitForSelector(`#box-${from}.sel`, { timeout: 5000 });
+    await page.evaluate(() => {
+      clearTimeout(pollTimer); pollTimer = null;
+      window.__nativeFetch = window.fetch;
+      window.__sendReplies = [];
+      window.fetch = (...args) => {
+        if (!new URL(String(args[0]), location.href).pathname.endsWith("/send")) return window.__nativeFetch(...args);
+        return new Promise(resolve => window.__sendReplies.push((status = 200) => resolve(new Response(
+          JSON.stringify(status === 200 ? { ok: true, rev: lastRev } : { error: "refused" }),
+          { status, headers: { "Content-Type": "application/json" } }))));
+      };
+    });
+    await page.focus(SEL);
+    await page.setViewport({ ...PHONE, height: PHONE.height - KEYBOARD });
+    await page.waitForFunction(() => document.body.classList.contains("kb"), { timeout: 3000 });
+    await page.keyboard.type("arrow message");
+    await settle(500);
+    await page.tap("article.box.sel .sendbtn");
+    await page.waitForFunction(() => window.__sendReplies.length === 1);
+    assert.deepEqual(await page.evaluate(() => ({
+      text: document.querySelector("article.box.sel textarea").value,
+      shown: document.querySelector("article.box.sel .sendbtn").classList.contains("show"),
+      focused: ComposeFormat.focused(document.querySelector("article.box.sel textarea")),
+      keyboard: document.body.classList.contains("kb"),
+      advance: localSends(selectedId)[0].advance,
+    })), { text: "", shown: true, focused: true, keyboard: true, advance: false });
+    await page.tap("article.box.sel .sendbtn");
+    assert.equal(await page.evaluate(() => window.__sendReplies.length), 1);
+    assert.equal(await shownId(page), from);
+    assert.equal(await page.evaluate(() => localSends(selectedId)[0].advance), true);
+    await page.evaluate(() => window.__sendReplies.shift()());
+    await page.waitForFunction(id => selectedId === id, { timeout: 3000 }, waiting);
+    await page.setViewport(PHONE);
+    await settle(500);
+    await page.focus(SEL);
+    await page.keyboard.type("arrow with closed keyboard");
+    await page.evaluate(() => document.activeElement.blur());
+    await page.tap("article.box.sel .sendbtn");
+    await page.waitForFunction(() => window.__sendReplies.length === 1);
+    assert.equal(await page.evaluate(() => ComposeFormat.focused(document.querySelector("article.box.sel textarea"))), false,
+      "the arrow opened an unfocused row");
+    assert.equal(await page.$eval(SEL, field => field.value), "");
+    await page.evaluate(() => window.__sendReplies.shift()());
+    await page.waitForFunction(() => ops.filter(op => op.kind === "send").length === 0);
+    await settle(800);
+    assert.equal(await shownId(page), waiting, "one tap with the keyboard closed moved cards");
+    await page.evaluate(id => select(id), from);
+    await page.focus(SEL);
+    await page.keyboard.type("refused arrow send");
+    await page.tap("article.box.sel .sendbtn");
+    await page.tap("article.box.sel .sendbtn");
+    await page.waitForFunction(() => window.__sendReplies.length === 1);
+    await page.evaluate(() => window.__sendReplies.shift()(400));
+    await page.waitForFunction(id => localSends(id).some(op => op.state === "failed"), { timeout: 3000 }, from);
+    assert.equal(await shownId(page), from, "a refused arrow send moved away from its failure");
+    const refusedArrow = await page.evaluate(() => ({
+      shown: document.querySelector("article.box.sel .sendbtn").classList.contains("show"),
+      text: document.querySelector("article.box.sel textarea").value,
+      armed: !!phoneArrowAgainFor(selectedId),
+    }));
+    assert.equal(refusedArrow.armed, false, "a refused send left navigation armed");
+    assert.equal(refusedArrow.shown, !!refusedArrow.text.trim(), "the arrow did not match the remaining draft");
+    assert.deepEqual(problems.filter(problem => !/status of 400 \(Bad Request\)/.test(problem)), []);
+  } finally {
+    await page.close();
+  }
+});
+
 test("desktop double Enter waits for delivery and failed sends restore their text", async () => {
   await clearLane();
   const from = await create("Desktop double Enter source");
@@ -943,14 +1019,42 @@ test("desktop double Enter waits for delivery and failed sends restore their tex
       "restoring a failed send changed or replaced text typed while it was pending");
 
     await page.$eval(SEL, field => {
-      field.value = "the send button still moves";
+      field.value = "the first send arrow stays";
       field.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await page.evaluate(() => document.querySelector("article.box.sel .sendbtn").click());
     await page.waitForFunction(() => window.__sendReplies.length === 1);
+    assert.equal(await page.$eval(SEL, field => field.value), "");
+    assert.equal(await shownId(page), from);
+    assert.equal(await page.evaluate(() => document.querySelector("article.box.sel .sendbtn").classList.contains("show")), true);
+    await page.evaluate(() => document.querySelector("article.box.sel .sendbtn").click());
+    assert.equal(await page.evaluate(() => window.__sendReplies.length), 1,
+      "the second arrow sent the message again");
     assert.equal(await shownId(page), from, "the send button moved before delivery");
     await page.evaluate(() => window.__sendReplies.shift()());
     await page.waitForFunction(id => selectedId === id, { timeout: 3000 }, waiting);
+    await selectDesktop(page, from);
+    await page.focus(SEL);
+    await page.keyboard.type("failed arrow message");
+    await page.evaluate(() => document.querySelector("article.box.sel .sendbtn").click());
+    await page.evaluate(() => document.querySelector("article.box.sel .sendbtn").click());
+    await page.waitForFunction(() => window.__sendReplies.length === 1);
+    await page.evaluate(() => window.__sendReplies.shift()(500));
+    await page.waitForFunction(id => els[id].metaNote.textContent.includes("send failed"), { timeout: 3000 }, from);
+    assert.equal(await shownId(page), from);
+    assert.equal(await page.$eval(SEL, field => field.value), "failed arrow message");
+    assert.equal(await page.evaluate(() => !!arrowAgainFor(selectedId)), false);
+    await page.$eval(SEL, field => {
+      field.value = "arrow expires on this card";
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await page.evaluate(() => document.querySelector("article.box.sel .sendbtn").click());
+    await page.waitForFunction(() => window.__sendReplies.length === 1);
+    await settle(800);
+    assert.equal(await page.evaluate(() => document.querySelector("article.box.sel .sendbtn").classList.contains("show")), false);
+    await page.evaluate(() => window.__sendReplies.shift()());
+    await settle(80);
+    assert.equal(await shownId(page), from, "an expired arrow intent moved after delivery");
     assert.deepEqual(problems.filter(problem => !/status of 500/.test(problem)), []);
   } finally {
     await page.close();
