@@ -25,6 +25,11 @@ before(async () => {
 });
 after(async () => { if (browser) await (ownedBrowser ? browser.close() : browser.disconnect()); });
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function shiftEnter(page) {
+  await page.keyboard.down("Shift");
+  try { await page.keyboard.press("Enter"); }
+  finally { await page.keyboard.up("Shift"); }
+}
 async function wait(fn, timeout = 6000) {
   const end = Date.now() + timeout;
   while (Date.now() < end) { const result = await fn(); if (result) return result; await delay(25); }
@@ -60,7 +65,13 @@ async function fixture(t, options = {}) {
   let source = await fs.readFile(path.join(ROOT, "server.py"), "utf8");
   if (options.schema === 2)
     source = execFileSync("git", ["show", "994ea18:server.py"], { cwd: ROOT, encoding: "utf8" });
-  await fs.writeFile(path.join(dir, "server.py"), source.replace("PORT = 8877", `PORT = ${port}`));
+  if (options.schema === 3)
+    source = execFileSync("git", ["show", "97edd47:server.py"], { cwd: ROOT, encoding: "utf8" });
+  const patched = source.replace("PORT = 8877", `PORT = ${port}`)
+    .replace('TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"',
+             'TAILSCALE_APP = "/facilitator-test/no-tailscale-app"');
+  assert.match(patched, /TAILSCALE_APP = "\/facilitator-test\/no-tailscale-app"/);
+  await fs.writeFile(path.join(dir, "server.py"), patched);
   require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(dir, "server.py")));
   for (const name of ["m.html", "card-logic.js", "card-report.js", "card-markdown.js", "card-tokens.css",
                       "compose-format.js", "cm-markdown.js", "m-sw.js", "m-manifest.json"]) {
@@ -212,6 +223,163 @@ test("new phone page saves a compatible incident to the actual pre-v3 receiver",
   assert.deepEqual(f.errors, []);
 });
 
+test("formatted Enter records capture, editor decision, send result, Shift and composition without text", async t => {
+  const f = await fixture(t), { page } = f;
+  await page.evaluate(() => { select("m1"); fixtureViewport(innerHeight); ComposeFormat.setEnabled(true); });
+  await page.waitForFunction(() => !!els.m1?.field?.view, { polling:25 });
+  await page.evaluate(() => { els.m1.ta.focus(); fixtureViewport(innerHeight - 60); });
+  await page.keyboard.type("Private formatted draft marker");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => !els.m1.ta.value, { polling:25 });
+  await page.keyboard.type("Second private draft marker");
+  await shiftEnter(page);
+  await page.evaluate(() => {
+    const event = new KeyboardEvent("keydown", { key:"Enter", code:"Enter", isComposing:true,
+      bubbles:true, cancelable:true });
+    Object.defineProperty(event, "keyCode", { value:229 });
+    els.m1.field.focusEl().dispatchEvent(event);
+    const unrelated = new KeyboardEvent("keydown", { key:"Unidentified", code:"KeyA", isComposing:true,
+      bubbles:true, cancelable:true });
+    Object.defineProperty(unrelated, "keyCode", { value:229 });
+    els.m1.field.focusEl().dispatchEvent(unrelated);
+  });
+  await page.evaluate(() => fixtureViewport(innerHeight - 336));
+  await page.keyboard.press("Enter");
+  assert.match(await page.evaluate(() => els.m1.ta.value), /\n$/);
+  await page.evaluate(() => document.getElementById("savediagnostic").click());
+  await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent ===
+    "Diagnostic history saved on the Mac.", { polling:25 });
+  const saved = (await f.readLog()).find(r => r.kind === "incident" && r.reason === "manual");
+  assert.equal(saved.v, 4);
+  const entered = saved.events.filter(e => e.event === "enter");
+  assert.ok(entered.some(e => e.step === "capture" && e.kb === false && e.draft &&
+    e.base - e.vh >= 56 && e.base - e.vh <= 64), JSON.stringify(entered));
+  assert.ok(entered.some(e => e.step === "format" && e.branch === "send"));
+  assert.ok(entered.some(e => e.step === "handler" && e.branch === "send" && e.minted === true && e.draft === true));
+  assert.ok(entered.some(e => e.step === "handler" && e.branch === "shift" && e.shift === true));
+  assert.ok(entered.some(e => e.step === "handler" && e.branch === "composition" && e.keyCode === 229));
+  assert.ok(entered.filter(e => e.keyCode === 229).every(e => e.key === "Enter"),
+    "unrelated IME keydowns entered the Enter-only history");
+  assert.ok(entered.some(e => e.step === "handler" && e.branch === "keyboard" && e.kb === true));
+  assert.ok(entered.some(e => e.step === "format" && e.branch === "editor" && e.kb === true));
+  assert.ok(entered.some(e => e.step === "editor" && e.branch === "row-line" && e.kb === true));
+  assert.ok(entered.every(e => !Object.hasOwn(e, "box") && !Object.hasOwn(e, "op")));
+  assert.doesNotMatch(JSON.stringify(saved), /Private formatted|Second private|marker/);
+  assert.ok(f.requests.every(b => Buffer.byteLength(JSON.stringify(b)) <= 16 * 1024));
+  assert.deepEqual(f.errors, []);
+});
+
+test("plain software Return records line insertion, then hardware Enter sends", async t => {
+  const f = await fixture(t), { page } = f;
+  await page.evaluate(() => { select("m1"); fixtureViewport(innerHeight); ComposeFormat.setEnabled(false); });
+  await page.waitForFunction(() => !els.m1?.field?.view, { polling:25 });
+  await page.evaluate(() => { els.m1.ta.focus(); fixtureViewport(innerHeight - 336); });
+  await page.keyboard.type("Private plain draft marker");
+  await page.keyboard.press("Enter");
+  assert.match(await page.evaluate(() => els.m1.ta.value), /\n$/);
+  await shiftEnter(page);
+  await page.evaluate(() => {
+    const event = new KeyboardEvent("keydown", { key:"Enter", code:"Enter", isComposing:true,
+      bubbles:true, cancelable:true });
+    Object.defineProperty(event, "keyCode", { value:229 });
+    els.m1.ta.dispatchEvent(event);
+  });
+  await page.evaluate(() => fixtureViewport(innerHeight - 60));
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => !els.m1.ta.value, { polling:25 });
+  await page.evaluate(() => document.getElementById("savediagnostic").click());
+  await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent ===
+    "Diagnostic history saved on the Mac.", { polling:25 });
+  const saved = (await f.readLog()).find(r => r.kind === "incident" && r.reason === "manual");
+  assert.equal(saved.v, 4);
+  const entered = saved.events.filter(e => e.event === "enter");
+  assert.ok(entered.some(e => e.step === "handler" && e.branch === "keyboard" && e.kb === true), JSON.stringify(entered));
+  assert.ok(entered.some(e => e.step === "beforeinput" && e.branch === "line-intent"));
+  assert.ok(entered.some(e => e.step === "input" && e.branch === "line-applied"));
+  assert.ok(entered.some(e => e.step === "handler" && e.branch === "shift" && e.shift === true));
+  assert.ok(entered.some(e => e.step === "handler" && e.branch === "composition" && e.keyCode === 229));
+  assert.ok(entered.some(e => e.step === "handler" && e.branch === "send" && e.minted === true && e.kb === false));
+  assert.doesNotMatch(JSON.stringify(saved), /Private plain|marker/);
+  assert.deepEqual(f.errors, []);
+});
+
+test("actual schema-3 receiver saves ordinary history and explains omitted Enter detail", async t => {
+  const f = await fixture(t, { schema: 3 }), { page } = f;
+  assert.equal(await page.evaluate(() => phoneHistory.version()), 3);
+  await page.evaluate(() => { select("m1"); ComposeFormat.setEnabled(false); els.m1.ta.focus(); });
+  await page.keyboard.type("Private old receiver draft");
+  await shiftEnter(page);
+  await page.evaluate(() => document.getElementById("savediagnostic").click());
+  await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent.startsWith(
+    "History saved, but Enter details need the updated server."), { polling:25 });
+  const first = (await f.readLog()).find(r => r.kind === "incident" && r.reason === "manual");
+  assert.equal(first.v, 3);
+  assert.equal(first.events.some(e => e.event === "enter"), false);
+  assert.doesNotMatch(JSON.stringify(first), /Private old receiver/);
+  assert.equal(f.requests.filter(b => b.reports[0].reason === "manual").length, 1);
+  await page.evaluate(() => { phoneHistory.capability(4); document.getElementById("savediagnostic").click(); });
+  await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent.startsWith(
+    "History saved, but Enter details need the updated server."), { polling:25 });
+  const attempts = f.requests.filter(b => b.reports[0].reason === "manual");
+  assert.equal(attempts.length, 3, "stale capability did not retry the strict v3 receiver");
+  assert.deepEqual(attempts.slice(-2).map(b => b.reports[0].v), [4,3]);
+  assert.equal((await f.readLog()).filter(r => r.kind === "incident" && r.reason === "manual").length, 2);
+  assert.deepEqual(f.errors, []);
+});
+
+test("stale schema-4 fallback counts each POST and retains an exhausted save", async t => {
+  const f = await fixture(t, { schema: 3 }), { page } = f;
+  for (let n = 0; n < 3; n++) {
+    await page.evaluate(() => document.getElementById("savediagnostic").click());
+    await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent ===
+      "Diagnostic history saved on the Mac.", { polling:25 });
+  }
+  await page.evaluate(() => {
+    phoneHistory.capability(4);
+    phoneHistory.note("enter", { step:"capture", branch:"seen", base:812, inner:764,
+      vh:696, vt:0, scale:100, kb:true, target:"textarea", focus:"textarea", draft:true,
+      key:"Enter", code:"Enter", keyCode:13, shift:false, repeat:false,
+      composing:false, prevented:false });
+    document.getElementById("savediagnostic").click();
+  });
+  await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent.startsWith(
+    "Too many saves this minute."), { polling:25 });
+  const attempts = f.requests.filter(b => b.reports[0].reason === "manual");
+  assert.equal(attempts.length, 4, "compatibility sent an unbudgeted fifth POST");
+  assert.deepEqual(attempts.map(b => b.reports[0].v), [3,3,3,4]);
+  assert.equal((await f.readLog()).filter(r => r.kind === "incident" && r.reason === "manual").length, 3);
+  assert.equal(await page.evaluate(() => document.getElementById("savediagnostic").textContent),
+    "Retry diagnostic save");
+  await page.evaluate(() => document.getElementById("savediagnostic").click());
+  await page.waitForFunction(() => !document.getElementById("savediagnostic").disabled, { polling:25 });
+  assert.equal(f.requests.filter(b => b.reports[0].reason === "manual").length, 4,
+    "an immediate retry escaped the attempt cap");
+  assert.deepEqual(f.errors, []);
+});
+
+test("Enter pressure keeps recent bounded evidence and never accepts draft text", async t => {
+  const f = await fixture(t), { page } = f;
+  await page.evaluate(() => {
+    for (let n = 0; n < 200; n++) phoneHistory.note("enter", {
+      step:"capture", branch:"seen", base:812, inner:764, vh:696, vt:0, scale:100,
+      kb:true, target:"textarea", focus:"textarea", draft:true,
+      key:"Enter", code:"Enter", keyCode:13, shift:false, repeat:false,
+      composing:false, prevented:false, text:"Private pressure draft marker",
+    });
+    document.getElementById("savediagnostic").click();
+  });
+  await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent ===
+    "Diagnostic history saved on the Mac.", { polling:25 });
+  const saved = (await f.readLog()).find(r => r.kind === "incident" && r.reason === "manual");
+  assert.equal(saved.v, 4);
+  assert.ok(saved.events.some(e => e.event === "enter" && e.step === "capture"));
+  assert.ok(saved.lost > 0, "pressure did not report evictions");
+  assert.ok(saved.events.length <= 128);
+  assert.ok(f.requests.every(b => Buffer.byteLength(JSON.stringify(b)) <= 12 * 1024));
+  assert.doesNotMatch(JSON.stringify(saved), /Private pressure|draft marker|"text"/);
+  assert.deepEqual(f.errors, []);
+});
+
 test("response scrolling and drawer gestures retain frame evidence during a delayed poll", async t => {
   const f = await fixture(t), { page } = f;
   f.stateLatency(2200);
@@ -239,7 +407,7 @@ test("response scrolling and drawer gestures retain frame evidence during a dela
   await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent === "Diagnostic history saved on the Mac.", { polling: 25 });
   const saved = (await f.readLog()).find(r => r.kind === "incident" && r.reason === "manual");
   assert.ok(saved);
-  assert.equal(saved.v, 3);
+  assert.equal(saved.v, 4);
   assert.ok(saved.events.some(e => e.event === "input" && e.action === "response-scroll"));
   assert.ok(saved.events.some(e => e.event === "scroll" && e.phase === "end" && e.count > 0));
   assert.ok(saved.events.some(e => e.event === "input" && e.action === "drawer"));

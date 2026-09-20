@@ -528,12 +528,26 @@
   // already been prevented, both before its handlers and between them. The key
   // still travels on to the listener the page hung on this same element, which
   // is what sends, and what it sends is the source exactly as it was typed.
+  function noteEnter(field, step, event, branch) {
+    try { field.enterTrace?.(step, event, branch); } catch (_) {}
+  }
   function enterKey(C, field, view, event) {
-    if (event.key !== "Enter" || event.isComposing || event.keyCode === 229) return;
-    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.key !== "Enter") {
+      if (event.code === "Enter" || event.code === "NumpadEnter" || event.keyCode === 13)
+        noteEnter(field, "format", event, "other-key");
+      return;
+    }
+    if (event.isComposing || event.keyCode === 229) {
+      noteEnter(field, "format", event, "composition"); return;
+    }
+    if (event.altKey || event.ctrlKey || event.metaKey) {
+      noteEnter(field, "format", event, "modifier"); return;
+    }
     // the page's own send: nothing writes in the row on the way out, neither
     // the editor's continuation nor the browser's own line break
-    if (!field.newline(event)) { event.preventDefault(); return; }
+    if (!field.newline(event)) {
+      event.preventDefault(); noteEnter(field, "format", event, "send"); return;
+    }
     // A marker with nothing typed after it ends the list. That rule is this
     // row's own and older than the editor in it. Everything the pack's binding
     // does not answer is the row's own as well: it is bound to a bare return,
@@ -549,10 +563,14 @@
       // is the one place a held return does something, and it is the whole of
       // the correction rather than an exception to it: the list ends once and
       // the run stops there, instead of a marker and a blank line per repeat.
-      if (event.repeat && !ending) return;
+      if (event.repeat && !ending) {
+        noteEnter(field, "format", event, "repeat"); return;
+      }
       insertNewline(C, view);
+      noteEnter(field, "format", event, ending ? "empty-item" : "row-line");
       return;
     }
+    noteEnter(field, "format", event, "editor");
     // and what is left is the editor's own continuation, which carries a "> "
     // or a "- " down a line on every press, held or not, and declines every
     // line that has neither
@@ -596,10 +614,26 @@
       // arrives here at all.
       C.EditorView.domEventHandlers({
         keydown: (event, view) => {
-          if (event.key !== "Enter" || event.isComposing || event.keyCode === 229) return false;
-          if (event.altKey || event.ctrlKey || event.metaKey) return false;
-          if (!field.newline(event) || event.repeat) return true;
-          return insertNewline(C, view);
+          if (event.key !== "Enter") {
+            if (event.code === "Enter" || event.code === "NumpadEnter" || event.keyCode === 13)
+              noteEnter(field, "editor", event, "other-key");
+            return false;
+          }
+          if (event.isComposing || event.keyCode === 229) {
+            noteEnter(field, "editor", event, "composition"); return false;
+          }
+          if (event.altKey || event.ctrlKey || event.metaKey) {
+            noteEnter(field, "editor", event, "modifier"); return false;
+          }
+          if (!field.newline(event)) {
+            noteEnter(field, "editor", event, "send"); return true;
+          }
+          if (event.repeat) {
+            noteEnter(field, "editor", event, "repeat"); return true;
+          }
+          const inserted = insertNewline(C, view);
+          noteEnter(field, "editor", event, inserted ? "row-line" : "editor");
+          return inserted;
         },
       }),
       C.keymap.of(keys),
@@ -930,6 +964,7 @@
     // under, so this pass is exactly as wide as they are and no wider.
     field.enter = event => {
       if (field.view === view && hasCaret(view)) enterKey(C, field, view, event);
+      else if (event.key === "Enter") noteEnter(field, "format", event, "no-caret");
     };
     view.dom.addEventListener("keydown", field.enter, true);
     // the two the layer cannot read off the state on its own, put on the
@@ -1034,6 +1069,7 @@
       // what an empty row shows, built fresh for each editor that asks
       placeholder: typeof opts.placeholder === "function" ? opts.placeholder : null,
       newline: typeof opts.newline === "function" ? opts.newline : event => event.shiftKey,
+      enterTrace: typeof opts.enterTrace === "function" ? opts.enterTrace : null,
       // one place a page is told the words changed, whichever face is on
       changed() {
         const target = this.view ? this.view.dom : this.ta;

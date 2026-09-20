@@ -1064,7 +1064,7 @@ if (typeof startReporter === "function") startReporter("phone");
 // A diagnostic token, not a release claim: it distinguishes this instrumented
 // page from an older installed shell without exposing a URL or local path.
 // This names the loaded HTML only; the worker reports its own cache identity.
-const PHONE_DIAGNOSTIC_BUILD = "phone-diag-20260919-2";
+const PHONE_DIAGNOSTIC_BUILD = "phone-enter-diag-20260920-1";
 tracePhone("identity", PHONE_DIAGNOSTIC_BUILD);
 // the marker a freeze report carries; it goes nowhere if the reporter is absent
 if (typeof noteDoing !== "function") window.noteDoing = () => {};
@@ -1073,7 +1073,7 @@ function tracePhone(action, ...args){
   try { return window.phoneHistory?.[action](...args); } catch (_) {}
 }
 function traceFrameOpportunity(action){
-  if (tracePhone("version") !== 3) return;
+  if (tracePhone("version") < 3) return;
   requestAnimationFrame(() => {
     tracePhone("note", "phase", { action, part: "frame-one" });
     requestAnimationFrame(() => tracePhone("note", "phase", { action, part: "frame-two" }));
@@ -1343,6 +1343,7 @@ function makeBox(b){
     ? tracePhone("begin", "stage", { stage: "editor-init", box: b.id }) : null;
   const field = ComposeFormat.attach(ta, {
     newline: e => e.shiftKey || document.body.classList.contains("kb"),
+    enterTrace: (step, e, branch) => notePhoneEnter(step, e, branch, ta),
   });
   if (editorTrace) endPhoneTrace(editorTrace, { stage: "editor-init", box: b.id,
     editor: true, editorReady: !field.formatted() || !!field.view, formatted: field.formatted() });
@@ -1386,14 +1387,24 @@ function makeBox(b){
   // habit belongs. with the on-screen keyboard up the return key still makes a
   // new line, as it always has here, and the square is still the way to send
   ta.addEventListener("keydown", e => {
-    if (e.key !== "Enter" || e.shiftKey || e.isComposing || document.body.classList.contains("kb")) return;
+    if (e.key !== "Enter") {
+      if (e.code === "Enter" || e.code === "NumpadEnter" || e.keyCode === 13)
+        notePhoneEnter("handler", e, "other-key", ta);
+      return;
+    }
+    if (e.shiftKey) { notePhoneEnter("handler", e, "shift", ta); return; }
+    if (e.isComposing) { notePhoneEnter("handler", e, "composition", ta); return; }
+    if (document.body.classList.contains("kb")) { notePhoneEnter("handler", e, "keyboard", ta); return; }
     e.preventDefault();
-    if (e.repeat) return;
-    if (!ta.value.trim()){
+    if (e.repeat) { notePhoneEnter("handler", e, "repeat", ta); return; }
+    const hadDraft = !!ta.value.trim();
+    if (!hadDraft){
       if (!askPhoneEnterAdvance(b.id)) cancelAutoNext();
+      notePhoneEnter("handler", e, "empty", ta);
       return;
     }
     const op = doSend(b.id, { advance: false });
+    notePhoneEnter("handler", e, op ? "send" : "held", ta, !!op, hadDraft);
     if (op) armPhoneEnterAgain(b.id, op);
   });
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => tick());
@@ -3342,6 +3353,61 @@ let obstructionUp = false, appliedObstruction = false, appliedSoftKeyboard = fal
 let appliedTop = null, appliedHeight = null, appliedVvHeight = null;
 let liftUntil = 0, liftTimer = null, closeRetry = null, shoveClears = 0;
 
+// Enter evidence stays in the existing private incident recorder. This reads
+// the classifier's remembered baseline without teaching it a new one. Roles,
+// dimensions, and event values are bounded there; no draft characters leave.
+function phoneEnterRole(node, el){
+  if (node === el?.ta) return "textarea";
+  if (el?.field?.view?.dom.contains(node)) return "editor";
+  return "other";
+}
+function notePhoneEnter(step, event, branch, ta, minted, draftAtKey){
+  try {
+    const el = selectedId && els[selectedId];
+    if (!el || el.ta !== ta) return;
+    const vv = window.visualViewport;
+    const quarter = value => Number.isFinite(value) ? Math.round(value / 4) * 4 : 0;
+    const key = event.key === "Enter" ? "Enter" : event.key === "Unidentified" ? "Unidentified" : event.key == null ? undefined : "Other";
+    const code = event.code === "Enter" || event.code === "NumpadEnter" ? event.code
+      : event.code === "Unidentified" ? "Unidentified" : event.code == null ? undefined : "Other";
+    tracePhone("note", "enter", { step, branch, base: quarter(baseline), inner: quarter(window.innerHeight),
+      vh: quarter(vv?.height ?? window.innerHeight), vt: quarter(vv?.offsetTop ?? 0),
+      scale: Number.isFinite(vv?.scale) ? Math.round(vv.scale * 100) : 100,
+      kb: document.body.classList.contains("kb"), target: phoneEnterRole(event.target, el),
+      focus: phoneEnterRole(document.activeElement, el),
+      draft: draftAtKey === undefined ? !!ta.value.trim() : draftAtKey,
+      ...(key ? { key } : {}), ...(code ? { code } : {}),
+      ...(Number.isInteger(event.keyCode) ? { keyCode: event.keyCode } : {}),
+      ...(typeof event.shiftKey === "boolean" ? { shift: event.shiftKey } : {}),
+      ...(typeof event.repeat === "boolean" ? { repeat: event.repeat } : {}),
+      ...(typeof event.isComposing === "boolean" ? { composing: event.isComposing } : {}),
+      prevented: !!event.defaultPrevented,
+      ...(minted === undefined ? {} : { minted }),
+      ...(event.inputType === "insertLineBreak" || event.inputType === "insertParagraph"
+        ? { inputType: event.inputType } : {}) });
+  } catch (_) {} // a diagnostic getter must never change an Enter decision
+}
+function notePhoneEnterInput(step, event){
+  if (event.inputType !== "insertLineBreak" && event.inputType !== "insertParagraph") return;
+  const el = selectedId && els[selectedId];
+  if (!el) return;
+  const inComposer = el.ta.closest(".compose")?.contains(event.target) ||
+    el.field?.view?.dom.contains(event.target);
+  if (inComposer) notePhoneEnter(step, event, step === "input" ? "line-applied" : "line-intent", el.ta);
+}
+document.addEventListener("keydown", event => {
+  if (event.key !== "Enter" && event.code !== "Enter" && event.code !== "NumpadEnter" &&
+      event.keyCode !== 13) return;
+  const el = selectedId && els[selectedId];
+  if (!el) return;
+  const inComposer = el.ta.closest(".compose")?.contains(event.target) ||
+    el.field?.view?.dom.contains(event.target);
+  if (!inComposer && !ComposeFormat.focused(el.ta)) return;
+  notePhoneEnter("capture", event, "seen", el.ta);
+}, true);
+document.addEventListener("beforeinput", event => notePhoneEnterInput("beforeinput", event), true);
+document.addEventListener("input", event => notePhoneEnterInput("input", event), true);
+
 function editing(){
   const a = document.activeElement;
   return !!a && a !== document.body && (a.matches("textarea, input:not([type=file])") || a.isContentEditable);
@@ -3747,14 +3813,15 @@ async function saveDiagnostic(source = "settings"){
     if (source === "shortcut") toast.textContent = text;
   };
   clearTimeout(diagnosticToastTimer);
-  tell(tracePhone("version") === 3 && !diagnosticRetry
+  tell(tracePhone("version") >= 3 && !diagnosticRetry
     ? "Recording the next 20 seconds before saving" : "Saving diagnostic history…");
   try {
     const answer = await tracePhone("mark", source, phoneTraceState(), diagnosticRetry);
     const outcome = answer?.status || "failed";
-    diagnosticRetry = outcome !== "saved";
+    diagnosticRetry = outcome !== "saved" && outcome !== "saved-legacy";
     const messages = {
       saved: "Diagnostic history saved on the Mac.",
+      "saved-legacy": "History saved, but Enter details need the updated server. Restart Facilitator, then record again.",
       offline: "Offline. History is held in this page. Reconnect and retry.",
       limited: "Too many saves this minute. History is held in this page. Retry shortly.",
       busy: "A diagnostic save is already running. Try again shortly.",
