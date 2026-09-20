@@ -121,6 +121,23 @@ test("modified native combinations remain outside common recognition", async () 
   assert.equal(resolve(event("t", { ctrlKey: true })), null);
 });
 
+test("plain S and N name card destinations only outside modified or composing keys", async () => {
+  const { resolve } = await shortcuts();
+  for (const key of ["s", "S"]) {
+    assert.deepEqual(plain(resolve(event(key))), { action: "destination", value: "deferred" });
+    assert.equal(resolve(event(key), "mini"), null);
+  }
+  for (const key of ["n", "N"]) {
+    assert.deepEqual(plain(resolve(event(key))), { action: "destination", value: "doing" });
+    assert.equal(resolve(event(key), "mini"), null);
+  }
+  for (const key of ["s", "n"]) {
+    for (const modifier of ["metaKey", "ctrlKey", "shiftKey", "altKey", "repeat", "isComposing", "defaultPrevented"]) {
+      assert.equal(resolve(event(key, { [modifier]: true })), null, `${key} with ${modifier}`);
+    }
+  }
+});
+
 test("the phone diagnostic marker has one exact chord and leaves other scopes and editing keys alone", async () => {
   const { resolve, dispatch } = await shortcuts();
   const chord = event("M", { ctrlKey: true, shiftKey: true });

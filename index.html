@@ -9116,6 +9116,13 @@ const boardShortcutActions = {
         .then(() => poll()).catch(() => {});
     }
   },
+  destination(e, shortcut){
+    if (miniFocused || boardShortcutTyping(e.target) || !selectedId) return;
+    const b = lastState?.boxes.find(x => x.id === selectedId);
+    if (b?.bucket !== "meta") return;
+    e.preventDefault();
+    setCardDestination(selectedId, shortcut.value);
+  },
 };
 
 addEventListener("keydown", e => {

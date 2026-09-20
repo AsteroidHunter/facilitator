@@ -22,6 +22,23 @@ import { openPage, heldTaps } from "./fixture.mjs";
 
 const parkCalls = board => board.asked("/park").map(e => e.params.v);
 
+test("destination keys hold their latest value while an earlier park request travels", async () => {
+  const { clock, board, ctx, page } = await openPage();
+  board.delays["/park"] = 2500;
+
+  ctx.setCardDestination("1", "deferred");
+  ctx.setCardDestination("1", "deferred");
+  assert.equal(page.parked("1"), true);
+  assert.deepEqual(parkCalls(board), ["1"], "a repeated S sent a second park request");
+
+  await clock.advance(100);
+  ctx.setCardDestination("1", "doing");
+  assert.equal(page.parked("1"), false, "N did not restore Doing on screen at once");
+  await clock.advance(4900);
+  assert.equal(board.box("1").parked, false, "the board kept the earlier Deferred value");
+  assert.deepEqual(parkCalls(board), ["1", "0"], "the two destinations were not ordered");
+});
+
 test("the first snooze is on screen at once, with the request 2.5 seconds out", async () => {
   const { clock, board, ctx, page } = await openPage();
   board.delays["/park"] = 2500;
