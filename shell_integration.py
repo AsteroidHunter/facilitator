@@ -1,4 +1,4 @@
-"""Own the command link and exact shell blocks installed by ./install.sh."""
+"""Own the command, shell block, and personal skill links installed by ./install.sh."""
 import json
 import os
 import subprocess
@@ -10,6 +10,8 @@ CLI = ROOT / "facilitator"
 HOME = Path.home()
 BIN = HOME / ".local" / "share" / "facilitator" / "bin" / "facilitator"
 PROFILE_RECORD = BIN.parent.parent / "profiles.json"
+SKILL = ROOT / ".agents" / "skills" / "facilitator"
+SKILL_RECORD = ROOT / ".facilitator-skills.json"
 BEGIN = b"# >>> Facilitator installer >>>"
 END = b"# <<< Facilitator installer <<<"
 PATH_LINE = b'export PATH="$HOME/.local/share/facilitator/bin:$PATH"'
@@ -85,6 +87,7 @@ def preflight():
         raise SystemExit(f"facilitator: {BIN} already exists; leaving it untouched")
     for rc in set(profiles() + [Path(p) for p in recorded_profiles()]):
         inspect_profile(rc)
+    skills_preflight()
 
 
 def install():
@@ -95,6 +98,7 @@ def install():
         print(f"command: linked {BIN}")
     else:
         print("command: already linked")
+    skills_install()
     local_bin = str(BIN.parent)
     if local_bin in os.environ.get("PATH", "").split(os.pathsep):
         print("PATH: Facilitator bin already available")
@@ -114,12 +118,18 @@ def install():
 
 
 def uninstall():
+    skills_uninstall()
+    # Another checkout's command and profile block are not ours, even though
+    # the block text is identical. Without the command link as evidence, leave
+    # global shell settings alone.
+    if not owned_link():
+        if BIN.exists() or BIN.is_symlink():
+            print(f"kept changed command {BIN}")
+        print("kept PATH block: command is not owned by this checkout")
+        return
     recorded = recorded_profiles()
-    if owned_link():
-        BIN.unlink()
-        print(f"removed command link {BIN}")
-    elif BIN.exists() or BIN.is_symlink():
-        print(f"kept changed command {BIN}")
+    BIN.unlink()
+    print(f"removed command link {BIN}")
     other_entries = BIN.parent.is_dir() and any(BIN.parent.iterdir())
     if other_entries:
         print(f"kept PATH block: other commands remain in {BIN.parent}")
@@ -147,6 +157,128 @@ def uninstall():
         print(f"removed installer block from {rc}")
     if PROFILE_RECORD.exists() and not keep_record:
         PROFILE_RECORD.unlink()
+
+
+def skill_destinations():
+    """Personal skill locations in the two hosts, without editing their settings."""
+    claude_root = os.environ.get("CLAUDE_CONFIG_DIR")
+    claude = Path(claude_root).expanduser() if claude_root else HOME / ".claude"
+    if not claude.is_absolute():
+        raise SystemExit("facilitator: CLAUDE_CONFIG_DIR must be an absolute path")
+    return (claude / "skills" / "facilitator", HOME / ".agents" / "skills" / "facilitator")
+
+
+def skill_record():
+    if SKILL_RECORD.is_symlink():
+        raise SystemExit(f"facilitator: {SKILL_RECORD} is a symlink; leaving it untouched")
+    if not SKILL_RECORD.exists():
+        return {"version": 1, "links": {}, "dirs": {}}
+    try:
+        record = json.loads(SKILL_RECORD.read_text())
+        if (not isinstance(record, dict) or record.get("version") != 1
+                or not isinstance(record.get("links"), dict)
+                or not isinstance(record.get("dirs"), dict)):
+            raise ValueError("invalid skill record")
+        for path, entry in record["links"].items():
+            if (not Path(path).is_absolute() or Path(path).name != "facilitator"
+                    or Path(path).parent.name != "skills" or not isinstance(entry, dict)
+                    or entry.get("target") != str(SKILL)
+                    or not isinstance(entry.get("dev"), int)
+                    or not isinstance(entry.get("ino"), int)
+                    or not isinstance(entry.get("ctime_ns"), int)
+                    or not isinstance(entry.get("parent"), str)):
+                raise ValueError("invalid skill link record")
+        for path, entry in record["dirs"].items():
+            if (not Path(path).is_absolute() or not isinstance(entry, dict)
+                    or not isinstance(entry.get("dev"), int)
+                    or not isinstance(entry.get("ino"), int)):
+                raise ValueError("invalid skill directory record")
+        return record
+    except (OSError, ValueError):
+        raise SystemExit(f"facilitator: {SKILL_RECORD} is invalid; leaving skills untouched")
+
+
+def save_skill_record(record):
+    temporary = SKILL_RECORD.with_suffix(".tmp")
+    if temporary.exists() or temporary.is_symlink():
+        raise SystemExit(f"facilitator: {temporary} already exists; leaving it untouched")
+    temporary.write_text(json.dumps(record, indent=2) + "\n")
+    temporary.replace(SKILL_RECORD)
+
+
+def same_skill(link):
+    if not link.is_symlink():
+        return False
+    try:
+        return (link.parent / os.readlink(link)).resolve() == SKILL.resolve()
+    except (OSError, RuntimeError):
+        return False
+
+
+def skills_preflight():
+    skill_record()
+    if not (SKILL / "SKILL.md").is_file():
+        raise SystemExit(f"facilitator: skill source missing at {SKILL}")
+    for link in skill_destinations():
+        if (link.exists() or link.is_symlink()) and not same_skill(link):
+            raise SystemExit(f"facilitator: {link} already exists; leaving existing skill untouched")
+
+
+def make_skill_parents(parent, record):
+    missing = []
+    cursor = parent
+    while not cursor.exists() and not cursor.is_symlink():
+        missing.append(cursor)
+        cursor = cursor.parent
+    if not cursor.is_dir():
+        raise SystemExit(f"facilitator: {cursor} is not a directory; leaving skills untouched")
+    for directory in reversed(missing):
+        directory.mkdir()
+        stat = directory.lstat()
+        record["dirs"][str(directory)] = {"dev": stat.st_dev, "ino": stat.st_ino}
+        save_skill_record(record)
+
+
+def skills_install():
+    skills_preflight()
+    record = skill_record()
+    for link in skill_destinations():
+        if link.is_symlink():
+            print(f"skill: {link} already points to this checkout")
+            continue
+        make_skill_parents(link.parent, record)
+        link.symlink_to(SKILL)
+        stat = link.lstat()
+        record["links"][str(link)] = {"target": str(SKILL), "dev": stat.st_dev,
+                                      "ino": stat.st_ino, "ctime_ns": stat.st_ctime_ns,
+                                      "parent": str(link.parent.resolve())}
+        save_skill_record(record)
+        print(f"skill: linked {link}")
+
+
+def skills_uninstall():
+    record = skill_record()
+    for raw, entry in record["links"].items():
+        link = Path(raw)
+        if (link.is_symlink() and os.readlink(link) == entry["target"]
+                and str(link.parent.resolve()) == entry["parent"]
+                and (link.lstat().st_dev, link.lstat().st_ino, link.lstat().st_ctime_ns)
+                == (entry["dev"], entry["ino"], entry["ctime_ns"])):
+            link.unlink()
+            print(f"removed skill link {link}")
+        elif link.exists() or link.is_symlink():
+            print(f"kept changed skill {link}")
+    for raw, entry in sorted(record["dirs"].items(), key=lambda item: len(Path(item[0]).parts), reverse=True):
+        directory = Path(raw)
+        if directory.is_dir() and not directory.is_symlink():
+            stat = directory.lstat()
+            if (stat.st_dev, stat.st_ino) == (entry["dev"], entry["ino"]):
+                try:
+                    directory.rmdir()
+                except OSError:
+                    pass  # other skills or settings now live here
+    if SKILL_RECORD.exists():
+        SKILL_RECORD.unlink()
 
 
 if __name__ == "__main__":

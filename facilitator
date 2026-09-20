@@ -32,8 +32,8 @@
       --dry-run prints the commands instead of running them
   facilitator uninstall [--wipe]
       remove what install made: the .venv, node_modules and the generated config
-      files and the owned shell command. Keeps the board's data (state.json,
-      transcript.jsonl, uploads, logs, bridge credentials and vapid-key.pem)
+      files, owned shell command, and owned agent-skill links. Keeps the board's
+      data (state.json, transcript.jsonl, uploads, logs, bridge credentials and vapid-key.pem)
       unless --wipe is given.
       Never removes this folder or stops a running server.
   facilitator password set
@@ -1484,14 +1484,14 @@ INSTALL_HELP = """usage: ./install.sh
 Make this checkout runnable: check Python, find or install uv, create the .venv
 and sync requirements, write run.config.json and seed.json from the examples
 when they are missing, install test dependencies when node is present, then
-prompt for a phone app password in an interactive terminal.
+prompt for a phone app password in an interactive terminal and register the
+shared agent skill through ./install.sh.
 Safe to run again; a second run changes nothing."""
 UNINSTALL_HELP = """usage: facilitator uninstall [--wipe]
 
-Remove what install made: the .venv, node_modules and the generated config
-files. Keeps board data and bridge credentials unless --wipe is given.
-Never removes this folder and never stops
-a running server."""
+Remove what install made: the .venv, node_modules, generated config, and owned
+command and agent-skill links. Keeps board data and bridge credentials unless
+--wipe is given. Never removes this folder or stops a running server."""
 
 
 def check_python():

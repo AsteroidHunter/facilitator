@@ -9,7 +9,7 @@
 const assert = require("node:assert/strict");
 const { after, test } = require("node:test");
 const { execFile } = require("node:child_process");
-const { copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } = require("node:fs/promises");
+const { copyFile, cp, lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
@@ -29,6 +29,7 @@ async function freshClone() {
   for (const name of ["facilitator", "shell_integration.py", "run.config.example.json", "seed.example.json", "requirements.txt"]) {
     await copyFile(path.join(ROOT, name), path.join(dir, name));
   }
+  await cp(path.join(ROOT, '.agents'), path.join(dir, '.agents'), { recursive: true });
   return dir;
 }
 
@@ -322,6 +323,31 @@ test("uninstall --wipe removes the board's data too", async () => {
   assert.match(res.out, /removed uploads/);
   assert.match(res.out, /removed logs/);
   assert.match(res.out, /removed vapid-key\.pem/);
+});
+
+test("uninstall --wipe removes owned skill links but keeps another personal skill", async () => {
+  const dir = await freshClone();
+  const home = path.join(dir, 'home');
+  await mkdir(home);
+  const env = { SHELL: '/bin/zsh' };
+  const setup = [
+    'import shell_integration',
+    'shell_integration.install()',
+    stubs(),
+    snapshot("cli.cmd_install(['install'])"),
+  ].join('\n');
+  const installed = await run(dir, setup, env);
+  assert.equal(installed.exit, null, installed.out);
+  const other = path.join(home, '.agents/skills/other');
+  await mkdir(other);
+  await writeFile(path.join(other, 'SKILL.md'), 'mine');
+  await fabricateData(dir);
+  const removed = await run(dir, stubs() + '\n' + snapshot("cli.cmd_uninstall(['uninstall', '--wipe'])"), env);
+  assert.equal(removed.exit, null, removed.out);
+  for (const host of ['.claude', '.agents'])
+    await assert.rejects(lstat(path.join(home, host, 'skills/facilitator')), { code: 'ENOENT' });
+  assert.equal(await readFile(path.join(other, 'SKILL.md'), 'utf8'), 'mine');
+  assert.equal(await readFile(path.join(dir, '.agents/skills/facilitator/SKILL.md'), 'utf8').then(Boolean), true);
 });
 
 test("a second uninstall is harmless and says nothing is present", async () => {
