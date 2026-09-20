@@ -16,6 +16,7 @@ async function fixture() {
   await fs.mkdir(repo);
   for (const file of ['facilitator', 'shell_integration.py', 'install.sh', 'requirements.txt', 'run.config.example.json', 'seed.example.json'])
     await fs.copyFile(path.join(root, file), path.join(repo, file));
+  await fs.cp(path.join(root, '.agents'), path.join(repo, '.agents'), { recursive: true });
   const env = { ...process.env, HOME: home, SHELL: '/bin/zsh', PATH: '/usr/bin:/bin' };
   for (const name of ['ZDOTDIR', 'BASH_ENV', 'ENV']) delete env[name];
   return { dir, home, repo, env, async clean() { await fs.rm(dir, { recursive: true, force: true }); } };
@@ -33,11 +34,127 @@ test('owned command and profile block install twice and uninstall without changi
     await integration(f, 'install');
     await integration(f, 'install');
     assert.equal(await fs.readlink(path.join(f.home, '.local/share/facilitator/bin/facilitator')), path.join(f.repo, 'facilitator'));
+    for (const host of ['.claude', '.agents']) {
+      const link = path.join(f.home, host, 'skills', 'facilitator');
+      assert.equal(await fs.readlink(link), path.join(f.repo, '.agents/skills/facilitator'));
+      assert.match(await fs.readFile(path.join(link, 'SKILL.md'), 'utf8'), /^---\nname: facilitator/m);
+    }
     const installed = await fs.readFile(rc, 'utf8');
     assert.equal((installed.match(/# >>> Facilitator installer >>>/g) || []).length, 1);
     await integration(f, 'uninstall');
     assert.equal(await fs.readFile(rc, 'utf8'), original);
     await assert.rejects(fs.lstat(path.join(f.home, '.local/share/facilitator/bin/facilitator')), { code: 'ENOENT' });
+    for (const host of ['.claude', '.agents'])
+      await assert.rejects(fs.lstat(path.join(f.home, host, 'skills', 'facilitator')), { code: 'ENOENT' });
+    assert.equal(await fs.readFile(path.join(f.repo, '.agents/skills/facilitator/SKILL.md'), 'utf8').then(Boolean), true);
+  } finally { await f.clean(); }
+});
+
+test('preexisting skill names and a link from another checkout stop installation without changing settings', async () => {
+  for (const obstruction of ['directory', 'file', 'other-link']) {
+    const f = await fixture();
+    try {
+      const link = path.join(f.home, '.claude/skills/facilitator');
+      await fs.mkdir(path.dirname(link), { recursive: true });
+      if (obstruction === 'directory') {
+        await fs.mkdir(link);
+        await fs.writeFile(path.join(link, 'mine.txt'), 'mine');
+      } else if (obstruction === 'file') {
+        await fs.writeFile(link, 'mine');
+      } else {
+        const other = path.join(f.dir, 'other-checkout-skill');
+        await fs.mkdir(other);
+        await fs.symlink(other, link);
+      }
+      await assert.rejects(integration(f, 'preflight'), /already exists/);
+      await assert.rejects(integration(f, 'install'), /already exists/);
+      assert.equal((await fs.lstat(link)).isDirectory(), obstruction === 'directory');
+      await assert.rejects(fs.lstat(path.join(f.home, '.agents/skills/facilitator')), { code: 'ENOENT' });
+      await assert.rejects(fs.lstat(path.join(f.home, '.local/share/facilitator/bin/facilitator')), { code: 'ENOENT' });
+      await integration(f, 'uninstall');
+      assert.equal((await fs.lstat(link)).isDirectory(), obstruction === 'directory');
+      if (obstruction === 'directory') assert.equal(await fs.readFile(path.join(link, 'mine.txt'), 'utf8'), 'mine');
+      if (obstruction === 'file') assert.equal(await fs.readFile(link, 'utf8'), 'mine');
+    } finally { await f.clean(); }
+  }
+});
+
+test('a preexisting link to this skill stays unowned across install, reinstall, and uninstall', async () => {
+  const f = await fixture();
+  try {
+    const link = path.join(f.home, '.claude/skills/facilitator');
+    await fs.mkdir(path.dirname(link), { recursive: true });
+    await fs.symlink(path.join(f.repo, '.agents/skills/facilitator'), link);
+    const original = await fs.lstat(link);
+    await integration(f, 'install');
+    await integration(f, 'install');
+    const record = JSON.parse(await fs.readFile(path.join(f.repo, '.facilitator-skills.json'), 'utf8'));
+    assert.equal(Object.hasOwn(record.links, link), false);
+    assert.equal(Object.keys(record.links).length, 1);
+    await integration(f, 'uninstall');
+    assert.equal((await fs.lstat(link)).ino, original.ino);
+    await assert.rejects(fs.lstat(path.join(f.home, '.agents/skills/facilitator')), { code: 'ENOENT' });
+  } finally { await f.clean(); }
+});
+
+test('replaced links and unrelated skills survive uninstall', async () => {
+  const f = await fixture();
+  try {
+    await integration(f, 'install');
+    const claude = path.join(f.home, '.claude/skills/facilitator');
+    const codex = path.join(f.home, '.agents/skills/facilitator');
+    const unrelated = path.join(f.home, '.agents/skills/unrelated');
+    await fs.mkdir(unrelated);
+    await fs.writeFile(path.join(unrelated, 'SKILL.md'), 'mine');
+    await fs.rm(claude);
+    await fs.symlink(path.join(f.dir, 'replacement'), claude);
+    await integration(f, 'uninstall');
+    assert.equal(await fs.readlink(claude), path.join(f.dir, 'replacement'));
+    await assert.rejects(fs.lstat(codex), { code: 'ENOENT' });
+    assert.equal(await fs.readFile(path.join(unrelated, 'SKILL.md'), 'utf8'), 'mine');
+  } finally { await f.clean(); }
+});
+
+test('a recreated link to the same source is no longer installer-owned', async () => {
+  const f = await fixture();
+  try {
+    await integration(f, 'install');
+    const link = path.join(f.home, '.agents/skills/facilitator');
+    const source = await fs.readlink(link);
+    await fs.rm(link);
+    await fs.symlink(source, link);
+    await integration(f, 'install');
+    await integration(f, 'uninstall');
+    assert.equal(await fs.readlink(link), source);
+  } finally { await f.clean(); }
+});
+
+test('custom Claude config root is recorded and removed even when the environment changes', async () => {
+  const f = await fixture();
+  try {
+    const config = path.join(f.dir, 'claude-config');
+    await integration(f, 'install', { ...f.env, CLAUDE_CONFIG_DIR: config });
+    const link = path.join(config, 'skills/facilitator');
+    assert.equal(await fs.readlink(link), path.join(f.repo, '.agents/skills/facilitator'));
+    await integration(f, 'uninstall');
+    await assert.rejects(fs.lstat(link), { code: 'ENOENT' });
+    await assert.rejects(fs.lstat(config), { code: 'ENOENT' });
+  } finally { await f.clean(); }
+});
+
+test('another checkout cannot claim or remove this checkout’s skill or shell setup', async () => {
+  const f = await fixture();
+  try {
+    await integration(f, 'install');
+    const other = path.join(f.dir, 'other-checkout');
+    await fs.mkdir(other);
+    await fs.copyFile(path.join(f.repo, 'shell_integration.py'), path.join(other, 'shell_integration.py'));
+    await fs.cp(path.join(f.repo, '.agents'), path.join(other, '.agents'), { recursive: true });
+    const otherIntegration = op => exec('python3', [path.join(other, 'shell_integration.py'), op], { env: f.env });
+    await assert.rejects(otherIntegration('preflight'));
+    await otherIntegration('uninstall');
+    assert.equal(await fs.readlink(path.join(f.home, '.claude/skills/facilitator')), path.join(f.repo, '.agents/skills/facilitator'));
+    assert.match(await fs.readFile(path.join(f.home, '.zshrc'), 'utf8'), /Facilitator installer/);
   } finally { await f.clean(); }
 });
 
@@ -218,10 +335,10 @@ test('./install.sh sets up a fake checkout and exposes the real CLI command', as
     const env = { ...f.env, PATH: `${tools}:${f.env.PATH}` };
     const first = await exec('bash', [path.join(f.repo, 'install.sh')], { cwd: f.repo, env });
     assert.match(first.stdout, /FACILITATOR|█████/);
-    assert.match(first.stdout, /1\. Check the command location/);
+    assert.match(first.stdout, /1\. Check the command and skill locations/);
     assert.match(first.stdout, /2\. Set up the board/);
     assert.match(first.stdout, /3\. Create the phone app password/);
-    assert.match(first.stdout, /4\. Add the facilitator command/);
+    assert.match(first.stdout, /4\. Add the facilitator command and agent skill/);
     assert.match(first.stdout, /facilitator password set/);
     assert.match(first.stdout, /Installed\. Run: facilitator run/);
     const second = await exec('bash', [path.join(f.repo, 'install.sh')], { cwd: f.repo, env });
