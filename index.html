@@ -2457,9 +2457,13 @@
   /* the cursor inside the block: the fences come back as themselves, so what
      is edited is the file and not a picture of it */
   :is(#magic3, #magic4) .md-fm-raw{height:auto; font-size:11.5px; line-height:1.8}
-  /* a box taken off this tab: gone, and gone in edit mode too, with no ghost of
-     it left behind. its resize squares and its cross go with it */
+  /* a box taken off this tab is absent from the board. The layout pencil
+     exposes a faint outline so its existing region control can restore it. */
+  body.focus:not(.layout-ready) #stage{visibility:hidden}
   body.focus .region-off{visibility:hidden; pointer-events:none}
+  body.focus.editmode .region-off{visibility:visible; opacity:.35}
+  .rkill.restore::before{transform:translate(-50%,-50%)}
+  .rkill.restore::after{transform:translate(-50%,-50%) rotate(90deg)}
   /* magic box 2 holds a small copy of this tool's own cards, so any of them can
      be read and answered from any project tab. the parts and the styling are
      lifted straight off the large card: title, reply, a composer that is a line
@@ -3759,7 +3763,10 @@ function validateActiveOwner(state){
   const first = !ownerReady;
   ownerReady = true;
   clearOwnerRefusal();
-  if (first) applySavedLayout();
+  if (first){
+    migrateLegacyVisibility();
+    applySavedLayout();
+  }
   return true;
 }
 for (const type of ["click", "pointerdown", "keydown", "submit"]){
@@ -9336,6 +9343,10 @@ function renameMagicLayouts(){
 // they stay independent. the old values are kept under layoutbak. in case the
 // copy is not wanted
 const LAYOUT_SYNC = "layoutsync.1";
+// Capture this before syncLayoutsOnce writes its first-run key below. Browsers
+// that already used this board keep their current visible regions; new lanes
+// opened after this change use the smaller default.
+const HAD_LEGACY_LAYOUT = !!localStorage.getItem(LAYOUT_SYNC);
 function syncLayoutsOnce(){
   if (!dragEnabled || localStorage.getItem(LAYOUT_SYNC)) return;
   localStorage.setItem(LAYOUT_SYNC, "1");
@@ -9370,6 +9381,26 @@ function seedHiddenOnce(){
   localStorage.setItem("hide." + P3_LANE + ".rail", "1");
 }
 
+const DEFAULT_HIDDEN_REGIONS = new Set(["rail", "magic2", "magic3", "magic4", "goalbox"]);
+const VISIBILITY_MIGRATION = "layoutvisibility.1";
+function migrateLegacyVisibility(){
+  if (localStorage.getItem(VISIBILITY_MIGRATION)) return;
+  if (HAD_LEGACY_LAYOUT){
+    for (const owner of validActiveOwnerIds){
+      for (const id of DEFAULT_HIDDEN_REGIONS){
+        if (!localStorage.getItem("hide." + owner + "." + id))
+          localStorage.setItem("show." + owner + "." + id, "1");
+      }
+    }
+  }
+  localStorage.setItem(VISIBILITY_MIGRATION, "1");
+}
+function regionHidden(owner, id){
+  if (localStorage.getItem("hide." + owner + "." + id)) return true;
+  return DEFAULT_HIDDEN_REGIONS.has(id) &&
+    !localStorage.getItem("show." + owner + "." + id);
+}
+
 function applySavedLayout(){
   if (!ownerReady) return;
   // a box that belongs to the markdown panel is put on this tab or taken off it
@@ -9382,10 +9413,8 @@ function applySavedLayout(){
   // for without touching any other tab
   document.body.dataset.lane = activeOwner;
   for (const el of document.querySelectorAll(REGION_SEL)){
-    // put away by the cross, on this tab only. never inherited from another tab,
-    // unlike position and size, because a tab is curated on purpose
-    el.classList.toggle("region-off",
-      !!localStorage.getItem("hide." + activeOwner + "." + regionId(el)));
+    // Visibility belongs to this tab, unlike inherited position and size.
+    el.classList.toggle("region-off", regionHidden(activeOwner, regionId(el)));
     const saved = src ? localStorage.getItem("pos." + src + "." + regionId(el)) : null;
     if (saved){
       try {
@@ -9411,6 +9440,7 @@ function applySavedLayout(){
       el.style.height = "";
     }
   }
+  document.body.classList.add("layout-ready");
   seatPagePill();   // the card and the rail may have just moved under the pill
 }
 let dragging = null;
@@ -9463,8 +9493,14 @@ let handleRaf = 0;
 // exactly as it was
 function toggleRegionHidden(id){
   const key = "hide." + activeOwner + "." + id;
-  if (localStorage.getItem(key)) localStorage.removeItem(key);
-  else localStorage.setItem(key, "1");
+  const show = "show." + activeOwner + "." + id;
+  if (regionHidden(activeOwner, id)){
+    localStorage.removeItem(key);
+    localStorage.setItem(show, "1");
+  } else {
+    localStorage.removeItem(show);
+    localStorage.setItem(key, "1");
+  }
   applySavedLayout();
 }
 const HANDLE_CURSOR = { nw: "nwse-resize", se: "nwse-resize", ne: "nesw-resize",
@@ -9569,8 +9605,8 @@ function trackHandles(){
   const sr = document.getElementById("stage").getBoundingClientRect();
   for (const it of handleItems){
     const r = it.el.getBoundingClientRect();
-    // a box taken off this tab keeps its rect, so its squares have to be pulled
-    // by hand or they float over nothing
+    // Hidden regions are faintly visible while arranging, but stay fixed until
+    // restored: their only live control is the plus on their corner.
     if (it.el.classList.contains("region-off")){ it.hd.style.display = "none"; continue; }
     if (!r.width && !r.height){ it.hd.style.display = "none"; continue; }
     it.hd.style.display = "";
@@ -9581,7 +9617,9 @@ function trackHandles(){
   }
   for (const it of killItems){
     const r = it.el.getBoundingClientRect();
-    if (it.el.classList.contains("region-off")){ it.kill.style.display = "none"; continue; }
+    const restore = it.el.classList.contains("region-off");
+    it.kill.classList.toggle("restore", restore);
+    it.kill.title = restore ? "show this box on this tab" : "hide this box on this tab";
     if (!r.width && !r.height){ it.kill.style.display = "none"; continue; }
     it.kill.style.display = "";
     // just outside the top right corner, clear of the corner square. inside it
