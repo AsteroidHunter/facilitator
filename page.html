@@ -1890,8 +1890,7 @@ function makeBox(b, i, state){
       // classify against the current server record, never this render's copy
       await fetch("/close?box=" + encodeURIComponent(b.id), { method: "POST" }).catch(() => {});
       // dismiss this card from the center and jump to the next ongoing chat, so no extra click is needed
-      const doing = poolOf(lastState).filter(o => !o.done && !o.parked && o.id !== b.id && o.id !== "0" && o.id !== "t0");
-      if (doing.length) select(doing[0].id); else deselect();
+      selectNextDoing(b.id);
       poll();
     });
     head.appendChild(x);
@@ -2169,11 +2168,21 @@ async function doSend(id){
   }
 }
 
+function selectNextDoing(id){
+  const doing = poolOf(lastState).filter(b =>
+    !b.done && !b.parked && b.id !== id && b.id !== "0" && b.id !== "t0");
+  if (doing.length) select(doing[0].id); else deselect();
+}
+
 async function toggleFlag(id, kind){
   const cls = kind === "done" ? "done" : "parked";
   const on = els[id].box.classList.contains(cls);
+  const current = lastState?.boxes.find(b => b.id === id);
+  const advance = kind === "park" && !on && selectedId === id && curView() === "todo" &&
+    current && current.owner === activeOwner && !current.done && !current.parked;
   els[id].box.classList.remove("peek");
   await fetch("/" + kind + "?box=" + encodeURIComponent(id) + "&v=" + (on ? 0 : 1), { method: "POST" }).catch(() => {});
+  if (advance && selectedId === id && curView() === "todo") selectNextDoing(id);
   poll();
 }
 

@@ -642,6 +642,114 @@ for (const surface of ["phone", "desktop"]) {
   });
 }
 
+for (const { surface, route, action } of [
+  { surface: "phone", route: "/m", action: "button" },
+  { surface: "phone", route: "/m", action: "shortcut" },
+  { surface: "desktop", route: "/", action: "button" },
+  { surface: "desktop", route: "/", action: "shortcut" },
+  { surface: "document page", route: "/page", action: "button" },
+]) {
+  test(`${surface} Snooze ${action} shows another Doing card`, async () => {
+    await clearLane();
+    const deferred = await create(`${surface} ${action} to defer`);
+    const next = await create(`${surface} ${action} to show`);
+    const { page, problems } = route === "/m"
+      ? await openPhone(`${route}?box=${deferred}`) : await openDesktop(route);
+    try {
+      if (route !== "/m") await selectDesktop(page, deferred);
+      else await page.waitForSelector(`#box-${deferred}.sel`, { timeout: 5000 });
+      const response = page.waitForResponse(r => {
+        const url = new URL(r.url());
+        return url.pathname === "/park" && url.searchParams.get("box") === deferred &&
+          url.searchParams.get("v") === "1";
+      });
+      if (action === "button"){
+        await page.evaluate(id => document.getElementById("box-" + id).querySelector(".arcbtn").click(), deferred);
+      } else {
+        await page.evaluate(() => document.activeElement.blur());
+        await page.keyboard.press("s");
+      }
+      assert.equal((await response).status(), 200);
+      await page.waitForFunction(id => selectedId === id, { timeout: 5000 }, next);
+      assert.equal(await shownId(page), next);
+      assert.equal((await savedBox(deferred)).parked, true);
+      assert.equal(await page.evaluate(() => activeOwner), "facilitator");
+
+      // Opening the Deferred list is a deliberate selection; a second S is
+      // still a destination, and the moon may reverse the park in place.
+      await page.evaluate(id => {
+        document.getElementById("tv-deferred").click();
+        select(id);
+      }, deferred);
+      await settle(100);
+      assert.equal(await shownId(page), deferred);
+      if (action === "shortcut"){
+        await page.evaluate(() => document.activeElement.blur());
+        await page.keyboard.press("s");
+        await settle(100);
+        assert.equal((await savedBox(deferred)).parked, true);
+        assert.equal(await shownId(page), deferred);
+      }
+      await page.evaluate(id => document.getElementById("box-" + id).querySelector(".arcbtn").click(), deferred);
+      await page.waitForFunction(id => !els[id].box.classList.contains("parked"), { timeout: 5000 }, deferred);
+      assert.equal(await shownId(page), deferred);
+      assert.equal((await savedBox(deferred)).parked, false);
+      assert.deepEqual(problems, []);
+    } finally {
+      await page.close();
+    }
+  });
+}
+
+test("Snooze uses Done's empty-Doing fallback and keeps project selection local", async () => {
+  await clearLane();
+  const last = await create("Last Doing card");
+  const { page, problems } = await openDesktop();
+  try {
+    await selectDesktop(page, last);
+    const atTap = await page.evaluate(id => {
+      document.getElementById("box-" + id).querySelector(".arcbtn").click();
+      return selectedId;
+    }, last);
+    assert.equal(atTap, null, "the last Doing card did not use Done's deselection fallback");
+    await page.waitForFunction(id => els[id].box.classList.contains("parked"), { timeout: 5000 }, last);
+    assert.equal((await savedBox(last)).parked, true);
+    await settle(350);
+    assert.notEqual(await shownId(page), last, "the only Doing card returned after Snooze settled");
+
+    const pair = await create("A Doing card after the empty lane");
+    await page.evaluate(() => poll());
+    await selectDesktop(page, pair);
+    await page.evaluate(() => setTab("pastureland"));
+    assert.equal(await page.evaluate(() => activeOwner), "pastureland");
+    await page.evaluate(() => setTab("facilitator"));
+    assert.equal(await shownId(page), pair, "the snoozed card replaced this lane's remembered Doing selection");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("phone Snooze clears the last Doing card from the screen", async () => {
+  await clearLane();
+  const last = await create("Phone last Doing card");
+  const { page, problems } = await openPhone(`/m?box=${last}`);
+  try {
+    await page.waitForSelector(`#box-${last}.sel`, { timeout: 5000 });
+    const atTap = await page.evaluate(id => {
+      document.getElementById("box-" + id).querySelector(".arcbtn").click();
+      return selectedId;
+    }, last);
+    assert.equal(atTap, null);
+    assert.equal((await savedBox(last)).parked, true);
+    await settle(350);
+    assert.notEqual(await shownId(page), last);
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
 test("destination letters stay in the desktop Markdown editor", async () => {
   await clearLane();
   const id = await create("Markdown destination keys");

@@ -1457,8 +1457,7 @@ function foldAnswered(el, open, manual){
 // never left holding a card that has just gone
 async function closeCard(id){
   await fetch("/close?box=" + encodeURIComponent(id), { method: "POST" }).catch(() => {});
-  const doing = lastState ? poolOf(lastState).filter(o => !o.done && !o.parked && o.id !== id && o.id !== "0" && o.id !== "t0") : [];
-  if (doing.length) select(doing[0].id); else deselect();
+  selectNextDoing(id);
   poll();
 }
 function undone(id){
