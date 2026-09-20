@@ -8,7 +8,7 @@ const source = readFileSync(path.join(__dirname, "..", "card-report.js"), "utf8"
 const OP = "12345678-1234-4234-8234-123456789abc";
 function fixture(name = "phone") {
   let now = 0, next = 0, answer = "saved";
-  const timers = new Map(), windowEvents = {}, documentEvents = {}, calls = [], beacons = [];
+  const timers = new Map(), intervals = [], windowEvents = {}, documentEvents = {}, calls = [], beacons = [];
   const listen = store => (name, fn) => (store[name] ||= []).push(fn);
   const fire = (store, name, value = {}) => { for (const fn of store[name] || []) fn(value); };
   const document = { hidden: false, addEventListener: listen(documentEvents) };
@@ -18,7 +18,7 @@ function fixture(name = "phone") {
     location: { href: "https://fixture.invalid/m" },
     performance: { now: () => now }, Date: { now: () => 1800000000000 + now },
     setTimeout(fn, ms = 0) { const id = ++next; timers.set(id, { fn, at: now + ms }); return id; },
-    clearTimeout(id) { timers.delete(id); }, setInterval() {},
+    clearTimeout(id) { timers.delete(id); }, setInterval(fn, ms) { intervals.push({ fn, ms }); },
     addEventListener: listen(windowEvents),
     fetch: async (url, init = {}) => {
       if (url !== "/clientlog") {
@@ -38,6 +38,7 @@ function fixture(name = "phone") {
   return {
     context, history: context.phoneHistory, calls, beacons, navigator,
     now: value => { now = value; }, answer: value => { answer = value; },
+    tick: ms => { for (const interval of intervals) if (interval.ms === ms) interval.fn(); },
     hidden(value) { document.hidden = value; fire(documentEvents, "visibilitychange"); },
     fire: (name, value) => fire(windowEvents, name, value),
     async run() {
@@ -78,6 +79,92 @@ test("incident capability follows v1 to v2 to v1 server responses", async () => 
   assert.equal(latest(f).v, 1);
   assert.equal("build" in latest(f), false);
   assert.equal(latest(f).events.some(e => e.event === "stage" || e.event === "observer"), false);
+});
+
+test("v3 keeps a two-minute scroll prelude through routine polls and records post-mark gaps", async () => {
+  const f = fixture();
+  f.history.capability(3); f.history.identity("phone-html-test"); f.history.worker("facilitator-m-5");
+  f.now(1000);
+  f.history.note("input", { action: "response-scroll", part: "touch", box: "m12", text: "private draft" });
+  for (let i = 0; i < 70; i++) {
+    f.now(2000 + i * 1500);
+    const request = f.history.begin("request", { route: "/m/state" });
+    f.now(2020 + i * 1500);
+    f.history.end(request, { route: "/m/state", status: 200 }, { headers: { get: () => "2" } });
+  }
+  f.now(115000);
+  const pending = f.history.mark("settings", { box: "m12" });
+  assert.equal(f.calls.length, 0, "a mark is not reported saved before the post window or server reply");
+  f.now(120000);
+  f.history.note("scroll", { action: "response-scroll", phase: "end", ms: 1800, count: 12 });
+  f.now(130000); f.history.note("frame", { ms: 1100 });
+  f.now(135000); await f.run();
+  assert.equal((await pending).status, "saved");
+  const report = latest(f);
+  assert.equal(report.v, 3);
+  assert.equal(report.build, "phone-html-test");
+  assert.equal(report.worker, "facilitator-m-5");
+  assert.match(report.session, /^[a-f0-9]{16}$/);
+  assert.ok(report.events.length <= 128);
+  assert.ok(report.events.some(e => e.event === "input" && e.at === -114000));
+  assert.ok(report.events.some(e => e.event === "scroll" && e.at === 5000));
+  assert.ok(report.events.some(e => e.event === "frame" && e.at === 15000));
+  assert.equal(report.events.filter(e => e.event === "mark").length, 1);
+  assert.equal(report.events.find(e => e.event === "mark").at, 0);
+  assert.ok(report.events.some(e => e.event === "poll" && e.count > 0));
+  assert.ok(Buffer.byteLength(JSON.stringify(f.calls[0])) <= 12 * 1024);
+  assert.doesNotMatch(JSON.stringify(report), /private|draft|https?:/);
+});
+
+test("v3 failed save keeps the original mark and pagehide never claims persistence", async () => {
+  const f = fixture(); f.history.capability(3); f.answer("dropped");
+  f.now(1000); const pending = f.history.mark("shortcut", { box: "m12" });
+  f.now(21000); await f.run();
+  assert.equal((await pending).status, "failed");
+  const marked = latest(f).marked;
+  f.now(50000); f.answer("saved");
+  assert.equal((await f.mark("settings", {}, true)).status, "saved");
+  assert.equal(latest(f).marked, marked);
+  assert.equal(latest(f).events.find(e => e.event === "mark").source, "shortcut");
+  const hidden = fixture(); hidden.history.capability(3);
+  const waiting = hidden.history.mark("settings");
+  hidden.fire("pagehide");
+  assert.equal((await waiting).status, "failed");
+  assert.equal(hidden.calls.length, 0);
+  assert.equal(hidden.beacons.length, 1);
+});
+
+test("a v3 mark rejected after a server downgrade stays retryable with its original timestamp", async () => {
+  const f = fixture(); f.history.capability(3);
+  f.now(1000); const pending = f.history.mark("settings", { box: "m12" });
+  f.history.capability(2); f.answer("status");
+  f.now(21000); await f.run();
+  assert.equal((await pending).status, "failed");
+  assert.equal(latest(f).v, 3);
+  const first = latest(f).marked;
+  f.history.capability(3); f.answer("saved");
+  f.now(50000);
+  assert.equal((await f.mark("shortcut", {}, true)).status, "saved");
+  assert.equal(latest(f).marked, first);
+  assert.equal(latest(f).events.find(e => e.event === "mark").source, "settings");
+});
+
+test("v3 timer detects a visible gap but ignores a resumed page's delayed callback", async () => {
+  const f = fixture(); f.history.capability(3);
+  f.now(100); f.tick(100);
+  f.now(1500); f.tick(100);
+  assert.equal(f.calls.length, 0);
+  f.now(21500); await f.run();
+  assert.equal(latest(f).reason, "freeze");
+  assert.ok(latest(f).events.some(e => e.event === "timer" && e.late >= 1000));
+  const resumed = fixture(); resumed.history.capability(3);
+  resumed.hidden(true); resumed.now(10000); resumed.hidden(false); resumed.tick(100);
+  resumed.history.freeze(9000);
+  await resumed.run();
+  assert.equal(resumed.calls.length, 0);
+  const pending = resumed.history.mark("settings");
+  resumed.now(30000); await resumed.run(); await pending;
+  assert.equal(latest(resumed).events.some(e => e.event === "freeze" || e.event === "timer"), false);
 });
 
 test("normal history stays in RAM, with entry and age eviction and a bounded marker batch", async () => {

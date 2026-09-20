@@ -1031,13 +1031,21 @@
 if (typeof startReporter === "function") startReporter("phone");
 // A diagnostic token, not a release claim: it distinguishes this instrumented
 // page from an older installed shell without exposing a URL or local path.
-const PHONE_DIAGNOSTIC_BUILD = "phone-diag-20260913-1";
+// This names the loaded HTML only; the worker reports its own cache identity.
+const PHONE_DIAGNOSTIC_BUILD = "phone-diag-20260919-2";
 tracePhone("identity", PHONE_DIAGNOSTIC_BUILD);
 // the marker a freeze report carries; it goes nowhere if the reporter is absent
 if (typeof noteDoing !== "function") window.noteDoing = () => {};
 // The recorder is optional and every call is isolated from the phone's work.
 function tracePhone(action, ...args){
   try { return window.phoneHistory?.[action](...args); } catch (_) {}
+}
+function traceFrameOpportunity(action){
+  if (tracePhone("version") !== 3) return;
+  requestAnimationFrame(() => {
+    tracePhone("note", "phase", { action, part: "frame-one" });
+    requestAnimationFrame(() => tracePhone("note", "phase", { action, part: "frame-two" }));
+  });
 }
 function phoneTraceState(){
   try {
@@ -1161,7 +1169,11 @@ function watchBand(el){
   const schedule = () => {
     if (scheduled) return;
     scheduled = true;
-    requestAnimationFrame(() => { scheduled = false; write(); });
+    requestAnimationFrame(() => {
+      scheduled = false;
+      const started = performance.now();
+      try { write(); } finally { tracePhone("observerSample", performance.now() - started); }
+    });
   };
   if (window.ResizeObserver){
     const ro = new ResizeObserver(schedule);
@@ -1193,7 +1205,12 @@ function riseBand(node){
 // scroll has already settled and hand it to a gradient. once at the start too,
 // so a card opened part way down opens with the right band
 function watchRise(node){
-  node.addEventListener("scroll", () => riseBand(node), { passive: true });
+  node.addEventListener("scroll", () => {
+    const started = performance.now();
+    riseBand(node);
+    const ms = performance.now() - started;
+    if (ms >= 8) tracePhone("note", "phase", { action: "response-scroll", part: "handler", ms });
+  }, { passive: true });
   riseBand(node);
 }
 
@@ -2030,7 +2047,11 @@ function setTab(owner){
   activeOwner = owner; localStorage.setItem("activeproj", owner);
   const pick = lastState && pickInRow(lastState, owner);
   if (pick) select(pick.id); else deselect();
-  if (lastState) apply(lastState);
+  if (lastState){
+    const trace = tracePhone("begin", "phase", { action: "project", part: "apply" });
+    apply(lastState);
+    endPhoneTrace(trace, { action: "project", part: "apply" });
+  }
 }
 // the bar the board draws, in the board's order and without the tabs the board
 // has closed. this page is a bridge, so it shows exactly those tabs; a board
@@ -2205,7 +2226,7 @@ function applySelection(state){
 }
 
 // ---- the drawer's list, the desktop's ticket panel ----------------------------------
-function renderTickets(state){
+function renderTickets(state, action = "state"){
   const tik = document.getElementById("tiklist");
   // this project's own tab, never the last project's: the buttons and the rows
   // below are drawn from the one read
@@ -2219,6 +2240,7 @@ function renderTickets(state){
                       (b.id === selectedId ? "!" : "") + b.title +
                       Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",");
   if (tik.dataset.sig === sig) return;
+  const ticketTrace = tracePhone("begin", "phase", { action, part: "tickets" });
   tik.dataset.sig = sig;
   tik.textContent = "";
   for (const b of pool){
@@ -2246,6 +2268,7 @@ function renderTickets(state){
   }
   if (!pool.length) tik.appendChild(h("div", "tempty", view === "done" ? "no done chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here"));
   syncSpinner();
+  endPhoneTrace(ticketTrace, { action, part: "tickets" });
 }
 // each button writes the view of the project being looked at, and nothing else:
 // another project keeps whatever view was chosen for it, and one that has never
@@ -2307,7 +2330,9 @@ function paintMenu(panel, v){
 function dismissEditor(){
   const at = document.activeElement;
   if (!editing() || !at || typeof at.blur !== "function") return;
+  const trace = tracePhone("begin", "phase", { action: "drawer", part: "blur" });
   at.blur();
+  endPhoneTrace(trace, { action: "drawer", part: "blur" });
 }
 // a run, on whichever of the two curves the thing that began it hands in. the
 // drag's dress comes off first and the page is measured while it is off, so what
@@ -2320,20 +2345,26 @@ function runMenu(panel, v, curve){
     document.body.classList.remove("menudrag");
     void page.offsetWidth;
   }
+  const menuTrace = tracePhone("begin", "phase", { action: "drawer", part: "menu-commit" });
   panel.classList.toggle("open", v > 0);
   paintMenu(panel, v);
+  endPhoneTrace(menuTrace, { action: "drawer", part: "menu-commit" });
 }
 function showMenu(panel, curve){
   const trace = tracePhone("begin", "drawer", { side: panel.dataset.side });
-  if (lastState) renderTickets(lastState);
+  if (lastState) renderTickets(lastState, "drawer");
   runMenu(panel, 1, curve || "var(--drawer-tap)");
+  const scrollTrace = tracePhone("begin", "phase", { action: "drawer", part: "scroll-view" });
   panel.querySelector(".trow.on")?.scrollIntoView({ block: "nearest" });
+  endPhoneTrace(scrollTrace, { action: "drawer", part: "scroll-view" });
   endPhoneTrace(trace, { side: panel.dataset.side, shown: true });
+  traceFrameOpportunity("drawer");
 }
 function hideMenu(panel, curve){
   const trace = tracePhone("begin", "drawer", { side: panel.dataset.side });
   runMenu(panel, 0, curve || "var(--drawer-tap)");
   endPhoneTrace(trace, { side: panel.dataset.side, shown: false });
+  traceFrameOpportunity("drawer");
 }
 function openDrawer(){ showMenu(drawer); }
 function closeDrawer(){ hideMenu(drawer); }
@@ -2382,6 +2413,63 @@ scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu
   document.addEventListener("mousedown", e => { if (e.button === 0) start(e.clientX, e.clientY); });
   document.addEventListener("mousemove", e => move(e.clientX, e.clientY, null));
   document.addEventListener("mouseup", end);
+}
+
+// Keep only the start, first intended move, and end of a gesture. Coordinates
+// are used to classify it here and never passed to the diagnostic recorder.
+{
+  let touch = null, scrollRun = null, scrollTimer = null;
+  document.addEventListener("touchstart", e => {
+    const p = e.touches[0];
+    if (!p) return;
+    const target = e.target;
+    const action = target.closest?.(".box.sel .replyview") ? "response-scroll"
+      : p.clientX <= 28 || p.clientX >= innerWidth - 28 ? "drawer"
+      : target.closest?.(".trow, #cards") ? "card"
+      : target.closest?.(".ptab") ? "project" : null;
+    touch = action ? { action, x: p.clientX, y: p.clientY, intended: false } : null;
+    if (touch) tracePhone("note", "input", { action, part: "touch", box: selectedId });
+  }, { capture: true, passive: true });
+  document.addEventListener("touchmove", e => {
+    const p = e.touches[0];
+    if (!p || !touch || touch.intended) return;
+    const dx = Math.abs(p.clientX - touch.x), dy = Math.abs(p.clientY - touch.y);
+    if (Math.max(dx, dy) < (touch.action === "drawer" ? 6 : 10)) return;
+    if (touch.action === "card" && dy > dx && e.target.closest?.(".box.sel"))
+      touch.action = "response-scroll";
+    if (touch.action === "response-scroll" && dy <= dx) return;
+    if (touch.action === "card" && dx <= dy) return;
+    touch.intended = true;
+    tracePhone("note", "input", { action: touch.action, part: "intent", box: selectedId });
+    traceFrameOpportunity(touch.action);
+  }, { capture: true, passive: true });
+  const finishTouch = () => {
+    if (touch) tracePhone("note", "input", { action: touch.action, part: "touch-end", box: selectedId });
+    touch = null;
+  };
+  document.addEventListener("touchend", finishTouch, { capture: true, passive: true });
+  document.addEventListener("touchcancel", finishTouch, { capture: true, passive: true });
+  document.addEventListener("scroll", e => {
+    const target = e.target;
+    if (!target.matches?.(".replyview") || !target.closest(".box.sel")) return;
+    if (!scrollRun) {
+      scrollRun = { at: performance.now(), count: 0 };
+      tracePhone("note", "scroll", { action: "response-scroll", phase: "start", box: selectedId });
+      traceFrameOpportunity("response-scroll");
+    }
+    scrollRun.count++;
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(() => {
+      const run = scrollRun;
+      scrollRun = null;
+      if (run) tracePhone("note", "scroll", { action: "response-scroll", phase: "end",
+        box: selectedId, ms: performance.now() - run.at, count: run.count });
+    }, 180);
+  }, true);
+  document.addEventListener("pointerdown", e => {
+    if (e.pointerType !== "mouse") return;
+    if (e.target.closest?.(".trow")) tracePhone("note", "input", { action: "card", part: "touch", box: selectedId });
+  }, true);
 }
 
 // ---- the startup curtain, and the launch image the phone keeps -----------------------
@@ -2947,10 +3035,17 @@ async function readBoard(){
     const query = ["since=" + (lastRev == null ? "" : lastRev)];
     const waiting = askIds();
     if (waiting.length) query.push("ops=" + waiting.map(encodeURIComponent).join(","));
+    const headersTrace = tracePhone("begin", "phase", { action: "state", part: "fetch-headers" });
     const r = await fetch("/m/state?" + query.join("&"), { cache: "no-store", signal: AbortSignal.timeout(POLL_DEADLINE_MS) });
+    endPhoneTrace(headersTrace, { action: "state", part: "fetch-headers", status: r.status }, r);
     response = r;
     if (!r.ok) throw new Error("status " + r.status);
+    const jsonTrace = tracePhone("begin", "phase", { action: "state", part: "json" });
     data = await r.json();
+    const declaredSize = r.headers.get("Content-Length");
+    const size = declaredSize === null ? NaN : Number(declaredSize);
+    endPhoneTrace(jsonTrace, { action: "state", part: "json", changed: !!data.changed,
+      ...(Number.isSafeInteger(size) && size >= 0 ? { bytes: size } : {}) });
     try { window.phoneHistory?.capability(data.incidentSchema); } catch (_) {}
   } catch (e) {
     pollFails++;
@@ -2974,7 +3069,11 @@ async function readBoard(){
     }
     noteDoing("render");
     try {
-      if (data.ops) reconcileOps(data.ops);
+      if (data.ops){
+        const reconcileTrace = tracePhone("begin", "phase", { action: "state", part: "reconcile" });
+        reconcileOps(data.ops);
+        endPhoneTrace(reconcileTrace, { action: "state", part: "reconcile" });
+      }
       if (data.changed){
         const state = { ...data, ...(data.live || {}), fetchedAt: asked };
         delete state.live; delete state.ops;
@@ -3004,7 +3103,9 @@ async function readBoard(){
           if (b && validOwners.has(b.owner)){ wantBox = null; activeOwner = b.owner; localStorage.setItem("activeproj", b.owner); selectedId = want; }
         }
         try {
+          const applyTrace = tracePhone("begin", "phase", { action: "state", part: "apply" });
           apply(state);
+          endPhoneTrace(applyTrace, { action: "state", part: "apply", changed: true });
           drewBoard = true;   // a whole reading reached the screen
         } catch (e) {
           lastState = heldState;
@@ -3555,9 +3656,21 @@ addEventListener("keydown", e => {
 // ---- installing, and being told when a card turns to the reader's turn -------------------------
 let swReg = null;
 if ("serviceWorker" in navigator){
+  const identifyWorker = () => {
+    const controller = navigator.serviceWorker.controller;
+    if (!controller || typeof MessageChannel !== "function") return;
+    const channel = new MessageChannel();
+    channel.port1.onmessage = e => {
+      if (e.data?.kind === "diagnostic-worker") tracePhone("worker", e.data.cache);
+      channel.port1.close();
+    };
+    controller.postMessage({ kind: "diagnostic-worker" }, [channel.port2]);
+    setTimeout(() => channel.port1.close(), 1000);
+  };
   navigator.serviceWorker.register("/m-sw.js", { scope: "/m" })
-    .then(reg => { swReg = reg; })
+    .then(reg => { swReg = reg; identifyWorker(); })
     .catch(() => {});   // plain http off localhost has no worker, and the page works without one
+  navigator.serviceWorker.addEventListener("controllerchange", identifyWorker);
   navigator.serviceWorker.addEventListener("message", e => { if (e.data?.box) goToBox(e.data.box); });
 }
 function keyBytes(b64url){
@@ -3589,7 +3702,8 @@ async function saveDiagnostic(source = "settings"){
     if (source === "shortcut") toast.textContent = text;
   };
   clearTimeout(diagnosticToastTimer);
-  tell("Saving diagnostic history…");
+  tell(tracePhone("version") === 3 && !diagnosticRetry
+    ? "Recording the next 20 seconds before saving…" : "Saving diagnostic history…");
   try {
     const answer = await tracePhone("mark", source, phoneTraceState(), diagnosticRetry);
     const outcome = answer?.status || "failed";

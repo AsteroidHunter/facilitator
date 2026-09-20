@@ -21,7 +21,7 @@
    under either of those names holds a shell that is missing the other's files,
    so the combined worker takes a name neither of them ever used and the install
    fills the whole set again from the server. */
-const CACHE = "facilitator-m-4";
+const CACHE = "facilitator-m-5";
 const SHELL = ["/m", "/card-markdown.js", "/card-tokens.css", "/card-logic.js",
                "/compose-format.js", "/m-manifest.json"];
 /* The squid the page paints the phone's own launch image from. It is kept for
@@ -64,6 +64,13 @@ self.addEventListener("activate", event => {
     for (const name of await caches.keys()) if (name !== CACHE) await caches.delete(name);
     await self.clients.claim();
   })());
+});
+
+// Answer only a controlled page's request for this worker's actual cache name.
+// The page does not infer a loaded worker version from the server's current file.
+self.addEventListener("message", event => {
+  if (event.data?.kind === "diagnostic-worker" && event.ports?.[0])
+    event.ports[0].postMessage({ kind: "diagnostic-worker", cache: CACHE });
 });
 
 self.addEventListener("fetch", event => {

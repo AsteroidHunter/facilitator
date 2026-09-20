@@ -317,6 +317,48 @@ test("v2 incident metadata is strict and persisted without content", async () =>
   }
 });
 
+test("v3 accepts bounded prelude and recovery events while rejecting private fields", async () => {
+  await reportsSince();
+  const revised = incident();
+  revised.v = 3;
+  revised.build = "phone-diag-test-3";
+  revised.worker = "facilitator-m-5";
+  revised.session = "0123456789abcdef";
+  revised.events = [
+    { event:"input", action:"response-scroll", part:"touch", at:-119000,
+      visible:true, online:true, resume:1 },
+    { event:"poll", count:8, ms:225, serverMs:3, at:-10000,
+      visible:true, online:true, resume:1 },
+    { event:"mark", reason:"manual", source:"settings", at:0,
+      visible:true, online:true, resume:1 },
+    { event:"frame", ms:1250, at:1000, visible:true, online:true, resume:1 },
+    { event:"scroll", action:"response-scroll", phase:"end", ms:1900,
+      count:17, at:19000, visible:true, online:true, resume:1 },
+  ];
+  assert.deepEqual(await send({ page:"phone", reports:[revised] }),
+    { status:200, body:{ ok:true, written:1, dropped:0 } });
+  const [written] = await reportsSince();
+  assert.deepEqual(written.events, revised.events);
+  assert.equal(written.worker, "facilitator-m-5");
+  const changes = [
+    r => { r.events[0].text = "private message"; },
+    r => { r.events[0].x = 42; },
+    r => { r.events[0].at = -120001; },
+    r => { r.events.at(-1).at = 20001; },
+    r => { r.events[2].at = 1; },
+    r => { r.events.push({ ...r.events[2] }); },
+    r => { r.worker = "bad worker name"; },
+    r => { r.session = "private-token"; },
+    r => { r.events[0].action = "private"; },
+    r => { r.events = Array(129).fill(r.events[2]); },
+  ];
+  for (const mutate of changes) {
+    const bad = structuredClone(revised); mutate(bad);
+    assert.equal((await send({ page:"phone", reports:[bad] })).status, 400);
+  }
+  assert.equal((await reportsSince()).length, 0, "rejected v3 batches wrote nothing");
+});
+
 test("a confirmed incident shares the dated client stream and leaves existing report fields intact", async () => {
   await reportsSince();
   const result = await send({ page: "phone", reports: [incident(), report({ line: 5950, message: "fixture failure" })] });
@@ -344,18 +386,18 @@ test("different incident reasons, cards and operation ids share the four-write m
     return r;
   });
   const response = await send({ page: "phone", reports: reportsToSend });
-  // The confirmed v1 and v2 cases above already used two of this server's
+  // The confirmed v1, v2 and v3 cases above already used three of this server's
   // shared four incident writes in the current minute.
-  assert.deepEqual(response.body, { ok: true, written: 2, dropped: 8 });
+  assert.deepEqual(response.body, { ok: true, written: 1, dropped: 9 });
   const fresh = await reportsSince();
-  assert.equal(fresh.filter(r => r.kind === "incident").length, 2);
-  assert.equal(fresh.filter(r => r.kind === "dropped").reduce((sum, r) => sum + r.dropped, 0), 8);
+  assert.equal(fresh.filter(r => r.kind === "incident").length, 1);
+  assert.equal(fresh.filter(r => r.kind === "dropped").reduce((sum, r) => sum + r.dropped, 0), 9);
 });
 
 test("only the three phone operation routes expose a numeric server duration", async () => {
   const state = await fetch(origin + "/m/state");
   assert.match(state.headers.get("x-facilitator-duration-ms"), /^\d+$/);
-  assert.equal((await state.json()).incidentSchema, 2);
+  assert.equal((await state.json()).incidentSchema, 3);
   const ordinary = await fetch(origin + "/state");
   assert.equal(ordinary.headers.get("x-facilitator-duration-ms"), null);
   await ordinary.arrayBuffer();
