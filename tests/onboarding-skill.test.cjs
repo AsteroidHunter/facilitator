@@ -47,7 +47,8 @@ async function fixture(laneDirs) {
   await fs.writeFile(path.join(app, 'seed.json'), JSON.stringify({
     title: 'onboarding fixture',
     items: [{ id: '0', bucket: 'meta', title: 'Tool', owner: 'facilitator' },
-      { id: 'm1', bucket: 'meta', title: 'Project', owner: 'garden' }],
+      { id: 'm1', bucket: 'meta', title: 'Project', owner: 'garden' },
+      { id: 'm2', bucket: 'meta', title: 'Second project card', owner: 'garden' }],
   }));
   for (const host of ['.claude', '.agents']) {
     const skillDir = path.join(home, host, 'skills');
@@ -176,6 +177,18 @@ test('one wait confirms a claim, fresh messages are answered, and a working repl
     assert.equal((await post(f, '/working?box=m1&v=0')).status, 200);
     state = await (await fetch(f.origin + '/state')).json();
     assert.equal(state.boxes.find(box => box.id === 'm1').reply, 'I received both messages. Work is underway.');
+    assert.equal((await post(f, '/send?box=m2', 'Another card')).status, 200);
+    const noClaim = await (await fetch(f.origin + '/fresh?owner=garden')).json();
+    assert.deepEqual(noClaim.messages, []);
+    assert.equal(Object.hasOwn(noClaim, 'box'), false);
+    assert.equal((await post(f, '/reply?box=m1', 'The background work is complete.')).status, 200);
+    const next = await f.run(f.project, 'wait', '--owner', 'garden', '--timeout', '1');
+    assert.equal(next.box, 'm2');
+    assert.deepEqual(next.messages, ['Another card']);
+    const freshNext = await (await fetch(f.origin + '/fresh?owner=garden')).json();
+    assert.equal(freshNext.box, 'm2');
+    assert.deepEqual(freshNext.messages, []);
+    assert.equal((await post(f, '/reply?box=m2', 'I received the other card.')).status, 200);
     assert.equal((await f.run(f.project, 'wait', '--owner', 'garden', '--timeout', '1')).status, 'idle');
   } finally { await f.close(); }
 });
