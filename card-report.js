@@ -227,10 +227,14 @@
       "ResizeObserver loop completed with undelivered notifications."]);
     const legacyEvents = new Set(["create", "select", "focus", "send", "operation", "request",
       "render", "drawer", "viewport", "lifecycle", "problem", "freeze", "mark"]);
+    const v2Events = new Set([...legacyEvents, "stage", "observer"]);
+    const oldLifecycles = new Set(["start", "hidden", "visible", "pageshow", "online", "offline"]);
     const legacyFields = new Set(["event", "time", "visible", "online", "resume", "box", "selected", "op",
       "phase", "route", "side", "source", "outcome", "lifecycle", "problem", "reason",
       "ms", "seq", "status", "serverMs", "rev", "boxes", "vh", "vt", "late",
       "present", "shown", "title", "titled", "emptyTitle", "editing", "known", "kb", "lifting"]);
+    const v2Fields = new Set([...legacyFields, "stage", "observer", "editor", "editorReady",
+      "inputReady", "selectedDom", "paneBlank", "loading", "connected", "formatted", "active"]);
     const boxPattern = /^(?:[mt]?\d+(?:\.\d+)*|q)$/;
     const opPattern = /^(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/;
     let ring = [], lost = 0, sparseLost = 0, suppressed = 0, seq = 0, generation = 0;
@@ -381,8 +385,11 @@
       const now = ring.at(-1).time;
       if (schema >= 3) return captureSparse(reason, now, Date.now());
       let recent = ring.filter(e => now - e.time <= AGE);
-      if (schema < 2) recent = recent.filter(e => legacyEvents.has(e.event)).map(e =>
-        Object.fromEntries(Object.entries(e).filter(([key]) => legacyFields.has(key))));
+      const permittedEvents = schema === 2 ? v2Events : legacyEvents;
+      const permittedFields = schema === 2 ? v2Fields : legacyFields;
+      recent = recent.filter(e => permittedEvents.has(e.event) &&
+        (e.event !== "lifecycle" || oldLifecycles.has(e.lifecycle))).map(e =>
+        Object.fromEntries(Object.entries(e).filter(([key]) => permittedFields.has(key))));
       const report = { kind: "incident", v: schema, reason, marked: Date.now(),
         box: [...recent].reverse().find(e => e.box)?.box || "",
         lost, suppressed, events: recent.map(({ time, ...e }) => ({ ...e, at: -cap(now - time, AGE) })) };
@@ -412,22 +419,53 @@
         build, worker, session, events: recent.map(({ time, ...e }) =>
           ({ ...e, at: Math.max(-SPARSE_AGE, Math.min(POST_MS, Math.round(time - markAt))) })) };
       Object.defineProperty(report, "_markAt", { value: markAt });
+      // Reserve room for recovery before a busy page can fill the post window.
+      fitReport(report, BYTES - 2048, 112);
       return report;
     }
-    function bodyOf(report) {
+    function finishCollection(initial) {
+      const markAt = initial._markAt;
+      const post = [...important, ...work, ...life, ...pollBuckets, ...observerBuckets]
+        .filter(e => e.time > markAt && e.time <= markAt + POST_MS && e.event !== "mark");
+      if (activeRequest && activeRequest.time > markAt && activeRequest.time <= markAt + POST_MS)
+        post.push({ ...activeRequest.detail, event: "request", phase: "start", seq: activeRequest.seq,
+          time: activeRequest.time, visible: activeRequest.visible,
+          online: navigator.onLine !== false, resume: activeRequest.generation });
+      const events = [...initial.events, ...post.map(({ time, ...e }) =>
+        ({ ...e, at: Math.max(0, Math.min(POST_MS, Math.round(time - markAt))) }))]
+        .sort((a, b) => a.at - b.at);
+      const report = { ...initial, worker, lost: Math.max(initial.lost, sparseLost), events };
+      Object.defineProperty(report, "_markAt", { value: markAt });
+      fitReport(report, BYTES, 128);
+      return report;
+    }
+    function fitReport(report, maxBytes, maxEvents) {
       let body;
-      // All strings are ASCII enums or validated ids. Byte length equals
-      // length here, and trimming oldest entries always keeps the marker.
       for (;;) {
         body = JSON.stringify({ page: "phone", reports: [report] });
-        if ((body.length <= BYTES && report.events.length <= (report.v === 3 ? 128 : 40)) ||
+        if ((body.length <= maxBytes && report.events.length <= maxEvents) ||
             report.events.length <= 1) return body;
-        const drop = report.v === 3
-          ? report.events.findIndex(e => e.event === "poll") : 0;
-        const index = drop >= 0 ? drop : report.events.findIndex(e => e.event !== "mark");
+        const lastPost = [...report.events].reverse().find(e => e.at > 0 && e.event !== "mark");
+        const essential = e => ["input", "scroll", "frame", "timer", "freeze"].includes(e.event);
+        let index = -1, rank = Infinity;
+        for (let i = 0; i < report.events.length; i++) {
+          const e = report.events[i];
+          if (e.event === "mark" || e === lastPost) continue;
+          const score = e.event === "poll" ? 0
+            : e.event === "phase" && e.part === "observer" ? 1
+            : e.at > 0 && !essential(e) ? 2
+            : e.at <= 0 && !essential(e) ? 3
+            : e.at > 0 ? 4 : 5;
+          if (score < rank) { rank = score; index = i; }
+        }
         if (index < 0) return body;
         report.events.splice(index, 1); report.lost = cap(report.lost + 1, 1000000000);
       }
+    }
+    function bodyOf(report) {
+      // The fixed enum/ID alphabet is ASCII. This is also the final bound on a
+      // retained retry, after any worker identity added during recovery.
+      return fitReport(report, BYTES, report.v === 3 ? 128 : 40);
     }
     function permit() {
       const now = performance.now();
@@ -478,8 +516,7 @@
         current.timer = setTimeout(() => {
           if (collecting !== current) return;
           collecting = null;
-          held = captureSparse(initial.reason, markAt, initial.marked,
-            initial.events.find(e => e.event === "mark"));
+          held = finishCollection(initial);
           upload().then(resolve);
         }, POST_MS);
       });
@@ -568,8 +605,7 @@
         if (collecting) {
           const current = collecting;
           collecting = null; clearTimeout(current.timer);
-          held = captureSparse(current.initial.reason, current.markAt, current.initial.marked,
-            current.initial.events.find(e => e.event === "mark"));
+          held = finishCollection(current.initial);
           current.resolve({ status: "failed" }); // a beacon is never a persistence acknowledgement
         }
         const report = pendingManual || (!busy ? held : null);

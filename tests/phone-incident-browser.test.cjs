@@ -1,7 +1,7 @@
 // All pages belong to invented fixtures in agent-profile Chrome. Targets are
 // created in the background and are never activated.
 const assert = require("node:assert/strict");
-const { spawn } = require("node:child_process");
+const { spawn, execFileSync } = require("node:child_process");
 const { once } = require("node:events");
 const fs = require("node:fs/promises");
 const http = require("node:http");
@@ -58,10 +58,8 @@ async function fixture(t, options = {}) {
   await new Promise(resolve => probe.close(resolve));
   const origin = `http://127.0.0.1:${port}`;
   let source = await fs.readFile(path.join(ROOT, "server.py"), "utf8");
-  if (options.schema === 2) {
-    assert.equal(source.split('"incidentSchema": 3').length, 2);
-    source = source.replace('"incidentSchema": 3', '"incidentSchema": 2');
-  }
+  if (options.schema === 2)
+    source = execFileSync("git", ["show", "994ea18:server.py"], { cwd: ROOT, encoding: "utf8" });
   await fs.writeFile(path.join(dir, "server.py"), source.replace("PORT = 8877", `PORT = ${port}`));
   for (const name of ["m.html", "card-logic.js", "card-report.js", "card-markdown.js", "card-tokens.css",
                       "compose-format.js", "cm-markdown.js", "m-sw.js", "m-manifest.json"]) {
@@ -180,10 +178,14 @@ test("Settings saves a real bounded client log with rendered feedback and existi
   assert.deepEqual(f.errors, []);
 });
 
-test("new phone page sends a compatible v2 incident until the server advertises v3", async t => {
+test("new phone page saves a compatible incident to the actual pre-v3 receiver", async t => {
   const f = await fixture(t, { schema: 2 });
   await f.page.evaluate(() => {
+    phoneHistory.capability(3);
     phoneHistory.note("input", { action: "response-scroll", part: "touch" });
+    phoneHistory.note("phase", { action: "state", part: "json", bytes: 400 });
+    phoneHistory.note("render", { changed: true, bytes: 400, action: "state" });
+    phoneHistory.capability(2);
     document.getElementById("savediagnostic").click();
   });
   await f.page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent ===
@@ -192,7 +194,20 @@ test("new phone page sends a compatible v2 incident until the server advertises 
   assert.equal(saved.v, 2);
   assert.ok(saved.events.length <= 40);
   assert.equal(saved.events.some(e => e.event === "input"), false);
+  assert.equal(saved.events.some(e => ["bytes", "changed", "action", "part"].some(key => key in e)), false);
   assert.equal("worker" in saved, false);
+  await f.page.evaluate(() => {
+    phoneHistory.capability(3);
+    phoneHistory.note("frame", { ms: 750 });
+    phoneHistory.note("stage", { stage: "title-input", editorReady: true });
+    phoneHistory.capability(undefined);
+    document.getElementById("savediagnostic").click();
+  });
+  await wait(async () => (await f.readLog()).filter(r => r.kind === "incident" && r.reason === "manual").length === 2);
+  const second = (await f.readLog()).filter(r => r.kind === "incident" && r.reason === "manual")[1];
+  assert.equal(second.v, 1);
+  assert.equal(second.events.some(e => ["input", "frame", "phase", "stage"].includes(e.event)), false);
+  assert.equal(second.events.some(e => ["bytes", "changed", "action", "part", "editorReady"].some(key => key in e)), false);
   assert.deepEqual(f.errors, []);
 });
 
