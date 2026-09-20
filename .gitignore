@@ -6,6 +6,8 @@
 
 # the phone page's push signing key pair: made by openssl on first need, private
 /vapid-key.pem
+/bridge-auth.json
+/bridge-auth.lock
 
 # machine-local lane config: names real project directories
 /run.config.json

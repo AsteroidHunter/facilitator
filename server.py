@@ -1,5 +1,10 @@
 """Triage facilitator — thinnest possible local server.
 
+The local board uses port 8877; Tailscale Serve targets the separately gated
+loopback port 8878. Every route on that socket requires a persistent session,
+except the install/sign-in page, its manifest and icons, and auth endpoints.
+An old Serve mapping to 8877 prevents startup until it is removed.
+
 One page, one state file. The human types into per-item boxes; messages queue
 FIFO; the agent (Claude, in the terminal session that launched this) drains the
 queue one box at a time via GET /wait (long-poll) and answers via POST /reply.
@@ -125,9 +130,13 @@ Endpoints:
                                board; /m keeps its own worker, whose scope is
                                the longer of the two. The icons are the
                                phone's, served as below
-  GET  /m                   -> m.html, the phone page: the project tabs, one
+  GET  /m                   -> m.html after bridge sign-in, the phone page: the project tabs, one
                                card filling the screen, the card list in a
-                               drawer off the left edge, nothing else
+                               drawer off the left edge; before sign-in the bridge
+                               serves m-gate.html with PWA installation steps
+  GET  /auth/check          -> bridge session status and password setup status
+  POST /auth/login          -> JSON {password}; sets a persistent HttpOnly cookie
+  POST /auth/logout         -> invalidates that session and clears its cookie
   GET  /m-manifest.json, /m-sw.js, /m-icon-<size>.png, /m-splash-squid.png
                             -> what makes the phone page installable: its web
                                app manifest, its service worker (network
@@ -152,13 +161,15 @@ Endpoints:
                                live working flag, or a working flag dropped or
                                expired while a reply waited in deferred) one
                                push with that event's encrypted card id and
-                               title goes to every subscription
+                               title goes to every subscription with an active
+                               bridge session
                                only while Tailscale is connected and its HTTPS
                                Serve proxy targets this board. The push is
                                signed with a VAPID token openssl produces; the
                                phone's worker uses that event identity directly.
                                Progress notes never push. A subscription the
                                push service reports gone (404, 410) is dropped
+  POST /push/unsubscribe    -> JSON {endpoint}; remove this phone's subscription
   GET  /mdfiles?lane=L      -> every .md file under the two folders lane L's own
                                markdown panel may touch (that lane's internal
                                folder and its wiki, both named after the lane's
@@ -938,6 +949,7 @@ UPLOAD_TYPES = {**IMG_TYPES,
                 ".pdf": "application/pdf", ".doc": "application/msword",
                 ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
 PORT = 8877
+BRIDGE_PORT = PORT + 1  # a distinct socket; never infer trust from Host or proxy headers
 # ---- the transport's bounds ------------------------------------------------------
 # What the board accepts at once and how long it lets a peer sit on the line.
 # The numbers are for one Mac serving one desktop, one phone through the
@@ -2523,7 +2535,7 @@ def _proxy_targets_board(proxy) -> bool:
         target = urlparse(proxy)
         return (target.scheme == "http" and
                 target.hostname == "127.0.0.1" and
-                target.port == PORT and target.path in ("", "/") and
+                target.port == BRIDGE_PORT and target.path in ("", "/") and
                 not target.params and not target.query and not target.fragment and
                 target.username is None and target.password is None)
     except ValueError:
@@ -2593,6 +2605,12 @@ def _push_turn(bid: str) -> None:
     gone = []
     worked = None
     for sub in subs:
+        # A sign-out or password change invalidates delivery as well as HTTP
+        # access. Pre-upgrade subscriptions have no session and are skipped.
+        if (HERE / "bridge_auth.py").is_file():
+            import bridge_auth
+            if not bridge_auth.has_session_digest(sub.get("session")):
+                continue
         # Probe immediately before every service call. A bridge can go down
         # while an earlier phone's push service is answering, and that must
         # close the gate for every subscription still waiting in this turn.
@@ -4352,12 +4370,30 @@ def _post_push_subscribe(q: Query, text: str):
     rec = {"endpoint": endpoint,
            "keys": {k: str(v) for k, v in keys.items() if k in ("p256dh", "auth")},
            "ts": time.time()}
+    if (HERE / "bridge_auth.py").is_file():
+        import bridge_auth
+        rec["session"] = bridge_auth.current_session_digest()
     with _lock:
         subs = [s for s in _state.get("push_subs", []) if s.get("endpoint") != endpoint]
         subs.append(rec)
         _state["push_subs"] = subs
         _save()
         return 200, {"ok": True, "count": len(subs)}
+
+
+def _post_push_unsubscribe(q: Query, text: str):
+    try:
+        body = json.loads(text)
+        endpoint = body.get("endpoint")
+    except (ValueError, AttributeError):
+        endpoint = None
+    if not isinstance(endpoint, str) or len(endpoint) > 2048:
+        return 400, {"error": "bad subscription"}
+    with _lock:
+        subs = [s for s in _state.get("push_subs", []) if s.get("endpoint") != endpoint]
+        _state["push_subs"] = subs
+        _save()
+        return 200, {"ok": True}
 
 
 def _post_tabs(q: Query, text: str):
@@ -4979,6 +5015,7 @@ ROUTES = [
     Route("/progress", _state_endpoint(_post_progress, "text"), methods=["POST"]),
     Route("/dismiss", _state_endpoint(_post_dismiss, "text"), methods=["POST"]),
     Route("/push/subscribe", _state_endpoint(_post_push_subscribe, "text"), methods=["POST"]),
+    Route("/push/unsubscribe", _state_endpoint(_post_push_unsubscribe, "text"), methods=["POST"]),
     Route("/tabs", _state_endpoint(_post_tabs, "text"), methods=["POST"]),
     Route("/seen", _state_endpoint(_post_seen, "text"), methods=["POST"]),
     Route("/pause", _state_endpoint(_post_pause, "text"), methods=["POST"]),
@@ -5132,20 +5169,61 @@ def _quiet_uvicorn() -> None:
         log.setLevel(logging.INFO)
 
 
-def _listen() -> socket.socket:
+def _listen(port: int = PORT) -> socket.socket:
     """The listening socket, bound the way the old server bound it: loopback
     only, address reuse on, so a restart does not wait out a closed socket's
     linger and a second board on the same port is refused."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(("127.0.0.1", PORT))
+    sock.bind(("127.0.0.1", port))
     sock.listen(LISTEN_BACKLOG)
     return sock
 
 
+def _legacy_target_in(config: object) -> bool:
+    """Any Serve proxy to the old unguarded socket is unsafe after upgrade."""
+    if isinstance(config, dict):
+        proxy = config.get("Proxy")
+        if isinstance(proxy, str):
+            try:
+                target = urlparse(proxy)
+                if (target.scheme == "http" and target.hostname == "127.0.0.1" and
+                        target.port == PORT):
+                    return True
+            except ValueError:
+                pass
+        return any(_legacy_target_in(value) for value in config.values())
+    if isinstance(config, list):
+        return any(_legacy_target_in(value) for value in config)
+    return False
+
+
+def _refuse_legacy_serve() -> None:
+    """Keep an existing Serve rule from exposing the old unguarded port.
+
+    The old bridge is persistent, so a freshly installed server must check it
+    before it binds. The operator removes that exact rule with `bridge off`,
+    then installs the password and turns the guarded bridge on.
+    """
+    ts = _tailscale_command()
+    if ts is None:
+        return  # no Serve command is installed on this Mac
+    config = _tailscale_json(ts, ["serve", "status", "--json"])
+    if config is None:
+        raise SystemExit("Cannot inspect Tailscale Serve; the board stayed down so an old bridge cannot expose it.")
+    if _legacy_target_in(config):
+        raise SystemExit("Old Tailscale Serve rule targets the unguarded board port. Run `facilitator bridge off`, then restart the board and run `facilitator bridge on`.")
+
+
 def _make_server() -> BoardServer:
+    app = build_app()
+    # Fixture copies of server.py used by older local-route tests do not carry
+    # the bridge files. In that case no bridge socket is opened at all.
+    if (HERE / "bridge_gate.py").is_file() and (HERE / "bridge_auth.py").is_file():
+        from bridge_gate import BridgeGate
+        app = BridgeGate(app, BRIDGE_PORT)
     config = uvicorn.Config(
-        build_app(), host="127.0.0.1", port=PORT,
+        app, host="127.0.0.1", port=PORT,
         log_config=None, access_log=False, server_header=False,
         http=BoardProtocol, ws="none", lifespan="on", loop="asyncio",
         limit_concurrency=CONNECTION_LIMIT, backlog=LISTEN_BACKLOG,
@@ -5167,6 +5245,7 @@ def main() -> None:
     # particular, a replacement started while the old server still owns the
     # port must not migrate state or append the transcript schema boundary: the
     # old process can still append legacy rows until it has actually stopped.
+    _refuse_legacy_serve()
     try:
         sock = _listen()
     except OSError as error:
@@ -5174,6 +5253,15 @@ def main() -> None:
                reason=f"facilitator could not listen on 127.0.0.1:{PORT}: {error}")
         raise SystemExit(1) from None
 
+    bridge_sock = None
+    if (HERE / "bridge_gate.py").is_file() and (HERE / "bridge_auth.py").is_file():
+        try:
+            bridge_sock = _listen(BRIDGE_PORT)
+        except OSError as error:
+            sock.close()
+            _error("bindfail", port=BRIDGE_PORT,
+                   reason=f"facilitator could not listen on 127.0.0.1:{BRIDGE_PORT}: {error}")
+            raise SystemExit(1) from None
     server = _make_server()
 
     def stopping(signum, frame) -> None:
@@ -5208,7 +5296,7 @@ def main() -> None:
         pushed = _state.get("push_last_ok") or {}
         _info("start", port=PORT, boxes=len(_state["boxes"]), log_level=LOG_LEVEL,
               push_ok=pushed.get("ts"), push_host=pushed.get("host"))
-        server.run(sockets=[sock])
+        server.run(sockets=[sock, bridge_sock] if bridge_sock else [sock])
     except Exception as error:
         # the last word about a start that died of something rather than being
         # asked to stop: the stop line below says only which type ended it, and
@@ -5221,6 +5309,8 @@ def main() -> None:
         ended = sys.exc_info()[0]
         _info("stop", reason=_stop_reason or (ended.__name__ if ended else "end of stream"))
         sock.close()
+        if bridge_sock:
+            bridge_sock.close()
 
 
 if __name__ == "__main__":

@@ -25,15 +25,20 @@
       code that opens the phone page (/m); turning it off removes only this
       board's root handler and leaves unrelated Serve configuration alone.
       The server keeps listening on 127.0.0.1 only; Tailscale does the
-      proxying, and being on the tailnet is the whole of the access control.
+      proxying to a password-gated listener. A saved phone session lasts until
+      sign-out. Set or reset the app password with `facilitator password set`.
       Needs HTTPS certificates switched on once for the tailnet, in the
       Tailscale admin console; says so and stops when they are off.
       --dry-run prints the commands instead of running them
   facilitator uninstall [--wipe]
       remove what install made: the .venv, node_modules and the generated config
       files and the owned shell command. Keeps the board's data (state.json,
-      transcript.jsonl, uploads, logs and vapid-key.pem) unless --wipe is given.
+      transcript.jsonl, uploads, logs, bridge credentials and vapid-key.pem)
+      unless --wipe is given.
       Never removes this folder or stops a running server.
+  facilitator password set
+      prompt twice for the phone bridge password; replacing it signs out every
+      phone immediately. Passwords are never accepted on the command line.
 
 Reads run.config.json beside this script: machine-local and gitignored, since
 lanes name real directories and tmux sessions; ./install.sh writes it
@@ -77,6 +82,39 @@ BRIDGE_HELP = """usage: facilitator bridge [on|off] [--dry-run]
 With no on/off word, toggle the phone bridge. `on` and `off` are idempotent.
 The bridge persists after this command exits; use `facilitator bridge off` to
 sever the phone session. `--dry-run` inspects current state without changing it."""
+
+
+def cmd_password(args, *, installer=False):
+    """Create or replace the password with hidden terminal input only."""
+    if not installer and args != ["password", "set"]:
+        sys.exit("usage: facilitator password set")
+    if not sys.stdin.isatty():
+        if installer:
+            print("password: no interactive terminal; run `facilitator password set` before enabling the phone bridge")
+            return
+        sys.exit("password: run this command in an interactive terminal")
+    import bridge_auth
+    if installer and bridge_auth.configured():
+        print("password: existing app password kept; use it to sign in on your phone")
+        return
+    import getpass
+    print("Choose a strong password to log into your Facilitator phone app.")
+    print("Use at least 11 characters, with a letter, a number and a symbol.\n")
+    while True:
+        first = getpass.getpass("App password (input hidden): ")
+        try:
+            bridge_auth.validate_password(first)
+        except ValueError as error:
+            print(error)
+            continue
+        second = getpass.getpass("Confirm app password (input hidden): ")
+        if first != second:
+            print("The passwords did not match. Try both entries again.")
+            continue
+        bridge_auth.set_password(first)
+        print("App password confirmed. Existing phone sessions were signed out." if not installer
+              else "App password confirmed.")
+        return
 
 
 def bridge_log(kind, level="info", **fields):
@@ -1162,7 +1200,9 @@ def bridge_config(config, name, port):
             raise ValueError("nested foreground config")
         candidates.append(("foreground", candidate))
 
+    protected_port = port + 1
     exact = 0
+    legacy = 0
     board_elsewhere = False
     foreign_root = False
     port_conflict = False
@@ -1212,14 +1252,18 @@ def bridge_config(config, name, port):
                 proxy = handler.get("Proxy")
                 if proxy is not None and not isinstance(proxy, str):
                     raise ValueError("proxy is malformed")
-                is_board = proxy_targets_board(proxy, port)
+                is_board = proxy_targets_board(proxy, protected_port)
+                is_legacy = proxy_targets_board(proxy, port)
                 # Accept only what our command writes. A matching Proxy plus
                 # another field, such as AcceptAppCaps, belongs to somebody
                 # else and must survive both `on` and `off`.
-                is_ours = is_board and set(handler) == {"Proxy"}
+                is_ours = (is_board or is_legacy) and set(handler) == {"Proxy"}
                 if source == "background" and on_our_root and mount == "/" and https_443 and is_ours:
-                    exact += 1
-                elif is_board:
+                    if is_legacy:
+                        legacy += 1
+                    else:
+                        exact += 1
+                elif is_board or is_legacy:
                     board_elsewhere = True
                 if source == "background" and on_our_root and mount == "/":
                     root_entries += 1
@@ -1233,13 +1277,15 @@ def bridge_config(config, name, port):
             if allowed and host == name and public_port == 443:
                 funnel_443 = True
 
-    if exact > 1 or root_entries > 1:
+    if exact + legacy > 1 or root_entries > 1:
         raise ValueError("duplicate root handlers")
-    active = exact == 1 or board_elsewhere
+    active = exact == 1 or legacy == 1 or board_elsewhere
     # Tailscale's narrow handler removal also clears same-endpoint Funnel when
     # the last web handler goes away, so that state is not safe to remove.
-    removable = exact == 1 and not board_elsewhere and not funnel_443
-    if board_elsewhere:
+    removable = exact + legacy == 1 and not board_elsewhere and not funnel_443
+    if legacy:
+        why = "the old unguarded bridge is active; run `facilitator bridge off` before enabling the password-gated bridge"
+    elif board_elsewhere:
         why = "this board is served by a configuration facilitator does not own"
     elif foreground_443:
         why = "a foreground Serve session is using HTTPS port 443"
@@ -1251,9 +1297,9 @@ def bridge_config(config, name, port):
         why = "another service owns port 443"
     else:
         why = ""
-    on = removable and not why
+    on = exact == 1 and removable and not why
     return {"active": active, "removable": removable, "on": on,
-            "enable_blocked": bool(why), "why": why}
+            "legacy": bool(legacy), "enable_blocked": bool(why), "why": why}
 
 
 def analyze_bridge(ts, name, port):
@@ -1330,6 +1376,18 @@ def require_bridge_ready(status, name, port):
         sys.exit("Tailscale HTTPS is off for this tailnet: switch on HTTPS certificates under DNS in the Tailscale admin console, then run facilitator bridge again.")
     if state(port) is None:
         sys.exit(f"server: DOWN (port {port}); run facilitator run first")
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port + 1}/auth/check", timeout=2) as response:
+            gate = json.load(response)
+    except (OSError, ValueError):
+        sys.exit("bridge: password gate is down; restart the updated server before enabling the bridge")
+    if not isinstance(gate, dict) or gate.get("configured") is not True:
+        sys.exit("bridge: set the app password with `facilitator password set` first")
+    local_pids = listener_pids(port)
+    guard_pids = listener_pids(port + 1)
+    if (local_pids is None or guard_pids is None or len(local_pids) != 1 or
+            local_pids != guard_pids):
+        sys.exit("bridge: the password gate is not owned by this board server; no changes made")
 
 
 def bridge_conflict(analysis):
@@ -1377,6 +1435,8 @@ def cmd_bridge(args):
         print("Bridge is off.")
         return
 
+    if analysis["legacy"]:
+        bridge_conflict(analysis)
     require_bridge_ready(status, name, port)
     if analysis["on"]:
         if dry:
@@ -1387,7 +1447,7 @@ def cmd_bridge(args):
     if analysis["active"] or analysis["enable_blocked"]:
         bridge_conflict(analysis)
     command = [ts, "serve", "--bg", "--https=443", "--set-path=/",
-               f"http://127.0.0.1:{port}"]
+               f"http://127.0.0.1:{port + 1}"]
     if dry:
         print("bridge: would run " + " ".join(shlex.quote(word) for word in command))
         return
@@ -1423,13 +1483,14 @@ INSTALL_HELP = """usage: ./install.sh
 
 Make this checkout runnable: check Python, find or install uv, create the .venv
 and sync requirements, write run.config.json and seed.json from the examples
-when they are missing, and install the test dependencies when node is present.
+when they are missing, install test dependencies when node is present, then
+prompt for a phone app password in an interactive terminal.
 Safe to run again; a second run changes nothing."""
 UNINSTALL_HELP = """usage: facilitator uninstall [--wipe]
 
 Remove what install made: the .venv, node_modules and the generated config
-files. Keeps the board's data (state.json, transcript.jsonl, uploads, logs and
-vapid-key.pem) unless --wipe is given. Never removes this folder and never stops
+files. Keeps board data and bridge credentials unless --wipe is given.
+Never removes this folder and never stops
 a running server."""
 
 
@@ -1673,7 +1734,9 @@ def cmd_uninstall(args):
             ("transcript.jsonl", HERE / "transcript.jsonl"),
             ("uploads", HERE / "uploads"),
             ("logs", LOG_DIR),
-            ("vapid-key.pem", HERE / "vapid-key.pem")]
+            ("vapid-key.pem", HERE / "vapid-key.pem"),
+            ("bridge-auth.json", HERE / "bridge-auth.json"),
+            ("bridge-auth.lock", HERE / "bridge-auth.lock")]
 
     for label, path in made:
         marker = owned.get(label)
@@ -1711,6 +1774,10 @@ def main():
         cmd_status()
     elif cmd == "bridge":
         cmd_bridge(args)
+    elif cmd == "password":
+        cmd_password(args)
+    elif cmd == "_password-setup" and os.environ.get("FACILITATOR_INTERNAL_INSTALL") == "1":
+        cmd_password(args, installer=True)
     elif cmd == "_install" and os.environ.get("FACILITATOR_INTERNAL_INSTALL") == "1":
         cmd_install(args)
     elif cmd == "uninstall":

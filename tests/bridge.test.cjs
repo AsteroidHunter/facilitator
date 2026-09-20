@@ -24,6 +24,8 @@ const CONNECTED = {
 };
 
 let board;
+let gate;
+let gateConfigured = true;
 let boardPort;
 let fixtureDir;
 let binDir;
@@ -35,7 +37,7 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function boardProxy(port = boardPort) {
+function boardProxy(port = boardPort + 1) {
   return `http://127.0.0.1:${port}`;
 }
 
@@ -94,6 +96,7 @@ async function writeJson(file, value) {
 }
 
 async function resetFake({ status = CONNECTED, serve = {}, control = {} } = {}) {
+  gateConfigured = true;
   await rm(fakeDir, { recursive: true, force: true });
   await mkdir(fakeDir, { recursive: true });
   await writeJson(path.join(fakeDir, "status.json"), status);
@@ -194,11 +197,26 @@ before(async () => {
     res.setHeader("content-type", "application/json");
     res.end(JSON.stringify({ boxes: [], queued: 0, listening: {}, listenerGap: {}, busy: {} }));
   });
-  await new Promise((resolve, reject) => {
-    board.once("error", reject);
-    board.listen(0, "127.0.0.1", resolve);
+  gate = createServer((req, res) => {
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ authenticated: false, configured: gateConfigured }));
   });
-  boardPort = board.address().port;
+  for (;;) {
+    await new Promise((resolve, reject) => {
+      board.once("error", reject);
+      board.listen(0, "127.0.0.1", resolve);
+    });
+    boardPort = board.address().port;
+    try {
+      await new Promise((resolve, reject) => {
+        gate.once("error", reject);
+        gate.listen(boardPort + 1, "127.0.0.1", resolve);
+      });
+      break;
+    } catch {
+      await new Promise(resolve => board.close(resolve));
+    }
+  }
 });
 
 beforeEach(async () => {
@@ -207,6 +225,7 @@ beforeEach(async () => {
 
 after(async () => {
   if (board) await new Promise(resolve => board.close(resolve));
+  if (gate) await new Promise(resolve => gate.close(resolve));
   if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
 });
 
@@ -244,6 +263,27 @@ test("toggle from off enables persistently, preserves unrelated config, and prin
   assert.deepEqual(await serveState(), expected);
   assert.equal(mutations(await fakeCalls()).length, 1, "repeated on mutated Serve again");
   assert.equal((await bridgeLogs()).length, 1, "repeated on logged another transition");
+});
+
+test("old unguarded Serve root must be removed before the protected bridge can start", async () => {
+  const legacy = servingBoard();
+  legacy.Web[HOST_PORT].Handlers["/"].Proxy = boardProxy(boardPort);
+  await resetFake({ serve: legacy });
+  const enable = await bridge(["on"]);
+  assert.equal(enable.code, 1);
+  assert.match(enable.stderr, /old unguarded bridge.*bridge off/);
+  assert.deepEqual(mutations(await fakeCalls()), []);
+  const disable = await bridge(["off"]);
+  assert.equal(disable.code, 0, disable.stderr);
+  assert.equal((await serveState()).Web?.[HOST_PORT]?.Handlers?.["/"], undefined);
+});
+
+test("an unconfigured password gate refuses Serve enablement", async () => {
+  gateConfigured = false;
+  const enable = await bridge(["on"]);
+  assert.equal(enable.code, 1);
+  assert.match(enable.stderr, /facilitator password set/);
+  assert.deepEqual(mutations(await fakeCalls()), []);
 });
 
 test("toggle from on removes only facilitator's root and explicit off is idempotent", async () => {
@@ -293,7 +333,7 @@ test("dry runs inspect state, help is side-effect free, and both changes are sho
   let result = await bridge(["--dry-run"]);
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stdout,
-    new RegExp(`^bridge: would run .*tailscale serve --bg --https=443 --set-path=/ http://127\\.0\\.0\\.1:${boardPort}\\n$`));
+    new RegExp(`^bridge: would run .*tailscale serve --bg --https=443 --set-path=/ http://127\\.0\\.0\\.1:${boardPort + 1}\\n$`));
   assert.equal(mutations(await fakeCalls()).length, 0);
   assert.deepEqual(await serveState(), original);
 
