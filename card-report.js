@@ -200,17 +200,26 @@
     const ENTRIES = 40, AGE = 60000, BYTES = 12 * 1024;
     const COALESCE = 250, UI_SLOW = 150, REQUEST_SLOW = 2000;
     const COOLDOWN = 30000, SAVES_PER_MINUTE = 4, SAVE_TIMEOUT = 4000;
+    const POST_MS = 20000, SPARSE_AGE = 120000;
     const events = new Set(["create", "select", "focus", "send", "operation", "request",
-      "render", "stage", "observer", "drawer", "viewport", "lifecycle", "problem", "freeze", "mark"]);
+      "render", "stage", "observer", "drawer", "viewport", "lifecycle", "problem", "freeze", "mark",
+      "input", "scroll", "frame", "timer", "phase", "poll"]);
+    const v3Events = new Set(["input", "scroll", "frame", "timer", "phase", "poll"]);
     const reasons = new Set(["manual", "slow-ui", "slow-request", "invariant", "problem", "freeze"]);
     const numbers = { ms: 600000, seq: 1000000000, status: 599, serverMs: 600000,
-      rev: 1000000000000, boxes: 10000, vh: 10000, vt: 10000, late: 600000 };
+      rev: 1000000000000, boxes: 10000, vh: 10000, vt: 10000, late: 600000,
+      count: 1000000, bytes: 16000000 };
     const flags = new Set(["present", "shown", "title", "titled", "emptyTitle", "editing", "known", "kb", "lifting",
-      "editor", "editorReady", "inputReady", "selectedDom", "paneBlank", "loading", "connected", "formatted", "active"]);
+      "editor", "editorReady", "inputReady", "selectedDom", "paneBlank", "loading", "connected", "formatted", "active",
+      "changed", "persisted"]);
     const choices = { phase: ["start", "end"], route: ["/send", "/create", "/m/state"],
       side: ["left", "right"], source: ["settings", "shortcut"],
+      action: ["drawer", "card", "response-scroll", "project", "state"],
+      part: ["touch", "intent", "touch-end", "handler", "menu-commit", "frame-one", "frame-two",
+        "transition", "select", "tickets", "tabs", "blur", "scroll-view", "fetch-headers",
+        "json", "apply", "reconcile", "observer"],
       outcome: ["minted", "applied", "retry", "unsure", "failed"],
-      lifecycle: ["start", "hidden", "visible", "pageshow", "online", "offline"],
+      lifecycle: ["start", "hidden", "visible", "pageshow", "pagehide", "online", "offline"],
       problem: ["error", "rejection", "render", "fetch"],
       stage: ["create-response", "card-insertion", "editor-init", "selected-ready", "title-input"],
       observer: ["loop-limit", "undelivered"], reason: [...reasons] };
@@ -224,7 +233,10 @@
       "present", "shown", "title", "titled", "emptyTitle", "editing", "known", "kb", "lifting"]);
     const boxPattern = /^(?:[mt]?\d+(?:\.\d+)*|q)$/;
     const opPattern = /^(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/;
-    let ring = [], lost = 0, suppressed = 0, seq = 0, generation = 0;
+    let ring = [], lost = 0, sparseLost = 0, suppressed = 0, seq = 0, generation = 0;
+    const important = [], work = [], life = [], pollBuckets = [], observerBuckets = [];
+    let collecting = null, worker = "unknown", activeRequest = null;
+    const session = Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
     let lastResume = -Infinity, lastAuto = -Infinity, attempts = [];
     let viewport = null, viewportTimer = null, viewportAt = -Infinity, viewportKey = "";
     let held = null, pendingManual = null, beaconed = null, busy = false, build = "phone-diag-unidentified", schema = 1;
@@ -250,10 +262,29 @@
         ring.shift(); lost = cap(lost + 1, 1000000000);
       }
     }
+    function sparseKeep(entry, force = false) {
+      if (schema < 3) return;
+      const event = entry.event;
+      if (!force && event === "request" && (entry.phase !== "end" || (entry.ms || 0) < 1000 && (entry.status || 0) < 400)) return;
+      if (!force && event === "render" && (entry.phase !== "end" || (entry.ms || 0) < 50)) return;
+      if (!force && event === "phase" && entry.action === "state" &&
+          (entry.phase !== "end" || (entry.ms || 0) < 50)) return;
+      if (event === "viewport") return; // coarse viewport state rides the next action or frame anomaly
+      const target = event === "lifecycle" ? life
+        : event === "input" || event === "scroll" || event === "frame" || event === "timer" || event === "freeze" || event === "mark" ? important : work;
+      target.push(entry);
+      const limit = target === important ? 60 : target === work ? 40 : 8;
+      const cutoff = collecting ? collecting.markAt - SPARSE_AGE : entry.time - SPARSE_AGE;
+      while (target.length && (target.length > limit || target[0].time < cutoff)) {
+        target.shift(); sparseLost = cap(sparseLost + 1, 1000000000);
+      }
+    }
     function append(event, detail, time = performance.now()) {
       evict(time);
-      ring.push({ ...detail, event, time, visible: !document.hidden,
-        online: navigator.onLine !== false, resume: generation });
+      const entry = { ...detail, event, time, visible: !document.hidden,
+        online: navigator.onLine !== false, resume: generation };
+      ring.push(entry);
+      sparseKeep(entry);
     }
     function drainViewport() {
       if (viewportTimer !== null) clearTimeout(viewportTimer);
@@ -264,7 +295,7 @@
       append("viewport", sample.detail, sample.time);
     }
     function note(event, detail) {
-      if (!events.has(event)) return;
+      if (!events.has(event) || (schema < 3 && v3Events.has(event))) return;
       const fields = clean(detail), now = performance.now();
       if (event === "viewport") {
         const key = [fields.kb, fields.lifting, fields.vh, fields.vt].join("|");
@@ -283,19 +314,59 @@
       if (event === "operation" && fields.outcome === "failed") automatic("problem");
     }
     function begin(event, detail) {
+      if (schema < 3 && v3Events.has(event)) return null;
       const token = { event, time: performance.now(), seq: seq = (seq + 1) % 1000000000,
-        generation, visible: !document.hidden };
+        generation, visible: !document.hidden, detail: clean(detail) };
+      if (schema >= 3 && event === "request" && token.detail.route === "/m/state") activeRequest = token;
       note(event, { ...detail, phase: "start", seq: token.seq });
       return token;
     }
+    function pollSummary(time, ms, serverMs) {
+      if (schema < 3) return;
+      const start = Math.floor(time / 10000) * 10000;
+      let bucket = pollBuckets.at(-1);
+      if (!bucket || bucket.time !== start) {
+        bucket = { event: "poll", time: start, visible: !document.hidden,
+          online: navigator.onLine !== false, resume: generation, count: 0, ms: 0, serverMs: 0 };
+        pollBuckets.push(bucket);
+      }
+      bucket.count++;
+      bucket.ms = Math.max(bucket.ms, Math.round(ms));
+      bucket.serverMs = Math.max(bucket.serverMs, Math.round(serverMs || 0));
+      while (pollBuckets.length > 12) pollBuckets.shift();
+    }
+    function observerSample(ms) {
+      if (schema < 3) return;
+      const time = performance.now(), start = Math.floor(time / 20000) * 20000;
+      let bucket = observerBuckets.at(-1);
+      if (!bucket || bucket.time !== start) {
+        bucket = { event: "phase", part: "observer", time: start,
+          visible: !document.hidden, online: navigator.onLine !== false,
+          resume: generation, count: 0, ms: 0 };
+        observerBuckets.push(bucket);
+      }
+      bucket.count++;
+      bucket.ms = Math.max(bucket.ms, cap(ms, 600000));
+      while (observerBuckets.length > 6) observerBuckets.shift();
+    }
     function end(token, detail, response) {
       if (!token) return;
+      if (activeRequest === token) activeRequest = null;
       const ms = performance.now() - token.time;
       let serverMs;
       try {
         const value = response?.headers?.get("X-Facilitator-Duration-Ms");
         if (value && /^\d{1,6}$/.test(value)) serverMs = Number(value);
       } catch (_) {}
+      if (schema >= 3 && token.event === "request" && detail?.route === "/m/state" &&
+          detail?.status < 400 && ms < 1000) pollSummary(performance.now(), ms, serverMs);
+      if (schema >= 3 && ((token.event === "request" && ms >= 1000) ||
+          (token.event === "render" && ms >= 50) ||
+          (token.event === "phase" && detail?.action === "state" && ms >= 50))) {
+        sparseKeep({ ...clean({ ...detail, phase: "start", seq: token.seq }),
+          event: token.event, time: token.time, visible: token.visible,
+          online: navigator.onLine !== false, resume: token.generation }, true);
+      }
       note(token.event, { ...detail, phase: "end", seq: token.seq, ms, serverMs });
       const stable = token.visible && !document.hidden && token.generation === generation;
       if (stable && ms >= (token.event === "request" ? REQUEST_SLOW : UI_SLOW)) {
@@ -307,7 +378,8 @@
     }
     function capture(reason, detail) {
       note("mark", { ...detail, reason });
-      const now = performance.now();
+      const now = ring.at(-1).time;
+      if (schema >= 3) return captureSparse(reason, now, Date.now());
       let recent = ring.filter(e => now - e.time <= AGE);
       if (schema < 2) recent = recent.filter(e => legacyEvents.has(e.event)).map(e =>
         Object.fromEntries(Object.entries(e).filter(([key]) => legacyFields.has(key))));
@@ -317,14 +389,44 @@
       if (schema >= 2) report.build = build;
       return report;
     }
+    function captureSparse(reason, markAt, marked, fallbackMark = null) {
+      const earliest = markAt - SPARSE_AGE;
+      let recent = [...important, ...work, ...life, ...pollBuckets, ...observerBuckets]
+        .filter(e => e.time >= earliest && e.time <= markAt + POST_MS &&
+          (e.event !== "mark" || e.time === markAt && e.reason === reason))
+        .sort((a, b) => a.time - b.time);
+      if (activeRequest && activeRequest.time >= earliest && activeRequest.time <= markAt)
+        recent.push({ ...activeRequest.detail, event: "request", phase: "start", seq: activeRequest.seq,
+          time: activeRequest.time, visible: activeRequest.visible,
+          online: navigator.onLine !== false, resume: activeRequest.generation });
+      // A marker is reserved even when a busy page has filled every other lane.
+      const mark = recent.find(e => e.event === "mark" && e.time === markAt);
+      if (!mark) {
+        const { at: _at, ...saved } = fallbackMark || {};
+        recent.push({ event: "mark", reason, time: markAt, visible: !document.hidden,
+          online: navigator.onLine !== false, resume: generation, ...saved });
+      }
+      recent.sort((a, b) => a.time - b.time);
+      const report = { kind: "incident", v: 3, reason, marked,
+        box: [...recent].reverse().find(e => e.box)?.box || "", lost: sparseLost, suppressed,
+        build, worker, session, events: recent.map(({ time, ...e }) =>
+          ({ ...e, at: Math.max(-SPARSE_AGE, Math.min(POST_MS, Math.round(time - markAt))) })) };
+      Object.defineProperty(report, "_markAt", { value: markAt });
+      return report;
+    }
     function bodyOf(report) {
       let body;
       // All strings are ASCII enums or validated ids. Byte length equals
       // length here, and trimming oldest entries always keeps the marker.
       for (;;) {
         body = JSON.stringify({ page: "phone", reports: [report] });
-        if (body.length <= BYTES || report.events.length <= 1) return body;
-        report.events.shift(); report.lost = cap(report.lost + 1, 1000000000);
+        if ((body.length <= BYTES && report.events.length <= (report.v === 3 ? 128 : 40)) ||
+            report.events.length <= 1) return body;
+        const drop = report.v === 3
+          ? report.events.findIndex(e => e.event === "poll") : 0;
+        const index = drop >= 0 ? drop : report.events.findIndex(e => e.event !== "mark");
+        if (index < 0) return body;
+        report.events.splice(index, 1); report.lost = cap(report.lost + 1, 1000000000);
       }
     }
     function permit() {
@@ -359,16 +461,31 @@
     }
     function automatic(reason) {
       const now = performance.now();
-      if (!reasons.has(reason) || document.hidden || busy || pendingManual ||
+      if (!reasons.has(reason) || document.hidden || busy || collecting || pendingManual ||
           (held && held.reason === "manual") || now - lastAuto < COOLDOWN) {
         suppressed = cap(suppressed + 1, 1000000000); return;
       }
       lastAuto = now;
       held = capture(reason);
-      upload();
+      if (schema >= 3) collect(held, false);
+      else upload();
+    }
+    function collect(initial, manual) {
+      const markAt = initial._markAt;
+      return new Promise(resolve => {
+        const current = { initial, markAt, resolve, timer: null, manual };
+        collecting = current;
+        current.timer = setTimeout(() => {
+          if (collecting !== current) return;
+          collecting = null;
+          held = captureSparse(initial.reason, markAt, initial.marked,
+            initial.events.find(e => e.event === "mark"));
+          upload().then(resolve);
+        }, POST_MS);
+      });
     }
     function mark(source, detail, retry = false) {
-      if (busy) {
+      if (busy || collecting) {
         if (!pendingManual) pendingManual = capture("manual", { ...detail, source });
         return Promise.resolve({ status: "busy" });
       }
@@ -378,23 +495,56 @@
         pendingManual = null;
         held = capture("manual", { ...detail, source });
       }
+      if (schema >= 3 && !retry) return collect(held, true);
       return upload();
     }
-    function lifecycle(value) {
+    function lifecycle(value, detail = {}) {
       if (value === "visible" || value === "pageshow") beaconed = null;
       generation = cap(generation + 1, 1000000000);
       lastResume = performance.now();
-      note("lifecycle", { lifecycle: value });
+      if (schema >= 3 || value !== "pagehide")
+        note("lifecycle", schema >= 3 ? { lifecycle: value, ...detail } : { lifecycle: value });
     }
     document.addEventListener("visibilitychange", safe(() => lifecycle(document.hidden ? "hidden" : "visible")));
-    for (const event of ["pageshow", "online", "offline"]) addEventListener(event, safe(() => lifecycle(event)));
+    addEventListener("pageshow", safe(e => lifecycle("pageshow", { persisted: !!e?.persisted })));
+    for (const event of ["pagehide", "online", "offline"]) addEventListener(event, safe(() => lifecycle(event)));
     note("lifecycle", { lifecycle: "start" });
+    // Neither callback proves that pixels were presented. Together they show
+    // whether script callbacks and frame opportunities stopped around an input.
+    let lastFrame = null, frameEpoch = generation;
+    if (typeof requestAnimationFrame === "function") {
+      const frame = safe(time => {
+        if (!document.hidden && schema >= 3 && lastFrame !== null && frameEpoch === generation) {
+          const gap = time - lastFrame;
+          if (gap >= 250 && time - lastResume > gap + 100) {
+            note("frame", { ms: gap });
+            if (gap >= 1000) automatic("freeze");
+          }
+        }
+        lastFrame = document.hidden ? null : time;
+        frameEpoch = generation;
+        requestAnimationFrame(frame);
+      });
+      requestAnimationFrame(frame);
+    }
+    let due = performance.now() + 100;
+    setInterval(safe(() => {
+      const now = performance.now(), late = now - due;
+      due = now + 100;
+      if (schema >= 3 && !document.hidden && late >= 500 && now - lastResume > late + 100) {
+        note("timer", { late });
+        if (late >= 1000) automatic("freeze");
+      }
+    }), 100);
     return {
       begin: safe(begin), end: safe(end), note: safe(note),
       identity: safe(value => { if (/^[a-z0-9._-]{1,64}$/.test(String(value))) build = String(value); }),
+      worker: safe(value => { if (/^[a-z0-9._-]{1,64}$/.test(String(value))) worker = String(value); }),
+      version: safe(() => schema, 1),
+      observerSample: safe(observerSample),
       // Follow every successful reading. A server rolled back under an open
       // page omits the capability, so that page must return to strict v1 too.
-      capability: safe(value => { schema = Number(value) >= 2 ? 2 : 1; }),
+      capability: safe(value => { schema = Number(value) >= 3 ? 3 : Number(value) >= 2 ? 2 : 1; }),
       mark: safe(mark, Promise.resolve({ status: "failed" })),
       problem: safe((kind, message) => {
         if (!choices.problem.includes(kind)) return;
@@ -408,11 +558,20 @@
         note("problem", { problem: kind }); automatic("problem");
       }),
       freeze: safe(late => {
+        const continuous = performance.now() - lastResume > late + TICK;
+        if (schema >= 3 && !continuous) return;
         note("freeze", { late });
-        if (performance.now() - lastResume > late + TICK) automatic("freeze");
+        if (continuous) automatic("freeze");
       }),
       hide: safe(() => {
         drainViewport();
+        if (collecting) {
+          const current = collecting;
+          collecting = null; clearTimeout(current.timer);
+          held = captureSparse(current.initial.reason, current.markAt, current.initial.marked,
+            current.initial.events.find(e => e.event === "mark"));
+          current.resolve({ status: "failed" }); // a beacon is never a persistence acknowledgement
+        }
         const report = pendingManual || (!busy ? held : null);
         if (report && report !== beaconed && navigator.sendBeacon && permit()) {
           if (navigator.sendBeacon("/clientlog", new Blob([bodyOf(report)], { type: "application/json" })))

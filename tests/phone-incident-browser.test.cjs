@@ -30,7 +30,7 @@ async function wait(fn, timeout = 6000) {
   while (Date.now() < end) { const result = await fn(); if (result) return result; await delay(25); }
   throw new Error("fixture condition timed out");
 }
-async function fixture(t) {
+async function fixture(t, options = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "facilitator-incident-browser-"));
   let child, context, page;
   const errors = [], requests = [];
@@ -57,10 +57,20 @@ async function fixture(t) {
   const port = probe.address().port;
   await new Promise(resolve => probe.close(resolve));
   const origin = `http://127.0.0.1:${port}`;
-  const source = await fs.readFile(path.join(ROOT, "server.py"), "utf8");
+  let source = await fs.readFile(path.join(ROOT, "server.py"), "utf8");
+  if (options.schema === 2) {
+    assert.equal(source.split('"incidentSchema": 3').length, 2);
+    source = source.replace('"incidentSchema": 3', '"incidentSchema": 2');
+  }
   await fs.writeFile(path.join(dir, "server.py"), source.replace("PORT = 8877", `PORT = ${port}`));
   for (const name of ["m.html", "card-logic.js", "card-report.js", "card-markdown.js", "card-tokens.css",
                       "compose-format.js", "cm-markdown.js", "m-sw.js", "m-manifest.json"]) {
+    if (name === "card-report.js") {
+      const reporter = await fs.readFile(path.join(ROOT, name), "utf8");
+      assert.equal(reporter.split("const POST_MS = 20000").length, 2);
+      await fs.writeFile(path.join(dir, name), reporter.replace("const POST_MS = 20000", "const POST_MS = 75"));
+      continue;
+    }
     if (name !== "m.html") { await fs.copyFile(path.join(ROOT, name), path.join(dir, name)); continue; }
     const phone = await fs.readFile(path.join(ROOT, name), "utf8");
     const marker = "const createDiagnostics = new Map();         // transient timing tokens; never persisted";
@@ -92,7 +102,7 @@ async function fixture(t) {
   await page.setViewport(PHONE);
   page.on("pageerror", e => errors.push(e.message));
   await page.setRequestInterception(true);
-  let telemetry = "pass";
+  let telemetry = "pass", stateLatency = 0;
   page.on("request", request => {
     if (!request.url().startsWith(origin)) { request.abort().catch(() => {}); return; }
     const route = new URL(request.url()).pathname;
@@ -100,6 +110,10 @@ async function fixture(t) {
       requests.push(JSON.parse(request.postData()));
       if (telemetry === "fail") { request.abort().catch(() => {}); return; }
       if (telemetry === "dropped") { request.respond({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, written: 0, dropped: 1 }) }).catch(() => {}); return; }
+    }
+    if (route === "/m/state" && stateLatency) {
+      setTimeout(() => request.continue().catch(() => {}), stateLatency);
+      return;
     }
     request.continue().catch(() => {});
   });
@@ -132,7 +146,8 @@ async function fixture(t) {
     }
     return lines;
   }
-  return { page, origin, requests, errors, readLog, telemetry: value => { telemetry = value; } };
+  return { page, origin, requests, errors, readLog,
+    telemetry: value => { telemetry = value; }, stateLatency: value => { stateLatency = value; } };
 }
 
 test("Settings saves a real bounded client log with rendered feedback and existing operation correlation", async t => {
@@ -151,7 +166,7 @@ test("Settings saves a real bounded client log with rendered feedback and existi
   const reports = await f.readLog();
   const saved = reports.find(r => r.kind === "incident" && r.reason === "manual");
   assert.ok(saved, JSON.stringify(reports));
-  assert.ok(saved.events.length <= 40);
+  assert.ok(saved.events.length <= 128);
   assert.equal(saved.events.at(-1).source, "settings");
   const operation = saved.events.find(e => e.outcome === "minted" && e.op);
   assert.ok(operation);
@@ -162,6 +177,62 @@ test("Settings saves a real bounded client log with rendered feedback and existi
   assert.ok(f.requests.every(b => Buffer.byteLength(JSON.stringify(b)) <= 16 * 1024));
   await page.screenshot({ path: path.join(EVIDENCE, "settings-saved.png") });
   await fs.writeFile(path.join(EVIDENCE, "manual-saved.json"), JSON.stringify({ state, saved, errors: f.errors }, null, 2));
+  assert.deepEqual(f.errors, []);
+});
+
+test("new phone page sends a compatible v2 incident until the server advertises v3", async t => {
+  const f = await fixture(t, { schema: 2 });
+  await f.page.evaluate(() => {
+    phoneHistory.note("input", { action: "response-scroll", part: "touch" });
+    document.getElementById("savediagnostic").click();
+  });
+  await f.page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent ===
+    "Diagnostic history saved on the Mac.", { polling: 25 });
+  const saved = (await f.readLog()).find(r => r.kind === "incident" && r.reason === "manual");
+  assert.equal(saved.v, 2);
+  assert.ok(saved.events.length <= 40);
+  assert.equal(saved.events.some(e => e.event === "input"), false);
+  assert.equal("worker" in saved, false);
+  assert.deepEqual(f.errors, []);
+});
+
+test("response scrolling and drawer gestures retain frame evidence during a delayed poll", async t => {
+  const f = await fixture(t), { page } = f;
+  f.stateLatency(2200);
+  const scrollBox = await page.evaluate(() => {
+    const view = document.querySelector(".box.sel .replyview");
+    view.querySelector(".reply").textContent = Array(100).fill("Invented response line for scroll testing.").join("\n");
+    const rect = view.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, from: rect.bottom - 45, to: rect.top + 45,
+      canScroll: view.scrollHeight > view.clientHeight };
+  });
+  assert.ok(scrollBox.canScroll);
+  await page.evaluate(() => { clearTimeout(pollTimer); void poll(); });
+  await delay(100);
+  await page.touchscreen.touchStart(scrollBox.x, scrollBox.from);
+  for (let step = 1; step <= 8; step++)
+    await page.touchscreen.touchMove(scrollBox.x, scrollBox.from + (scrollBox.to - scrollBox.from) * step / 8);
+  await page.touchscreen.touchEnd();
+  await delay(250);
+  await page.touchscreen.touchStart(6, 500);
+  for (let x = 30; x <= 250; x += 40) await page.touchscreen.touchMove(x, 500);
+  await page.touchscreen.touchEnd();
+  await page.evaluate(() => { const until = performance.now() + 650; while (performance.now() < until) {} });
+  await delay(2300);
+  await page.evaluate(() => document.getElementById("savediagnostic").click());
+  await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent === "Diagnostic history saved on the Mac.", { polling: 25 });
+  const saved = (await f.readLog()).find(r => r.kind === "incident" && r.reason === "manual");
+  assert.ok(saved);
+  assert.equal(saved.v, 3);
+  assert.ok(saved.events.some(e => e.event === "input" && e.action === "response-scroll"));
+  assert.ok(saved.events.some(e => e.event === "scroll" && e.phase === "end" && e.count > 0));
+  assert.ok(saved.events.some(e => e.event === "input" && e.action === "drawer"));
+  assert.ok(saved.events.some(e => e.event === "request" && e.ms >= 2000));
+  assert.ok(saved.events.some(e => e.event === "phase" && e.part === "fetch-headers" && e.ms >= 2000));
+  assert.ok(saved.events.some(e => e.event === "frame" && e.ms >= 250) ||
+    saved.events.some(e => e.event === "timer" && e.late >= 500));
+  assert.doesNotMatch(JSON.stringify(saved), /Invented|response line|https?:|clientX|clientY/);
+  assert.ok(f.requests.every(b => Buffer.byteLength(JSON.stringify(b)) <= 16 * 1024));
   assert.deepEqual(f.errors, []);
 });
 
