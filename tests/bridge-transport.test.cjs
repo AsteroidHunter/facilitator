@@ -180,6 +180,7 @@ before(async () => {
   source = patch(source, "BODY_READ_TIMEOUT = 30.0", `BODY_READ_TIMEOUT = ${BODY_READ_S}`);
   source = patch(source, "WAIT_SLOTS = 8", `WAIT_SLOTS = ${WAIT_SLOTS}`);
   await writeFile(path.join(app, "server.py"), source);
+  require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(app, "server.py")));
   await writeFile(path.join(app, "seed.json"), JSON.stringify({
     title: "transport fixture",
     items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" }],

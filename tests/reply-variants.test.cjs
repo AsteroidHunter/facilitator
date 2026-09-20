@@ -77,6 +77,7 @@ before(async () => {
   const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
   assert.notEqual(patched, source, "test server port was not patched");
   await writeFile(path.join(fixtureDir, "server.py"), patched);
+  require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(fixtureDir, "server.py")));
   await copyFile(path.join(ROOT, "card-markdown.js"), path.join(fixtureDir, "card-markdown.js"));
   await copyFile(path.join(ROOT, "card-tokens.css"), path.join(fixtureDir, "card-tokens.css"));
   await copyFile(path.join(ROOT, "card-logic.js"), path.join(fixtureDir, "card-logic.js"));

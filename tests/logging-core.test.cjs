@@ -104,6 +104,7 @@ before(async () => {
   const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
   assert.notEqual(patched, source, "test server port was not patched");
   await writeFile(path.join(appDir, "server.py"), patched);
+  require('./fixture-auth.cjs').copyBridgeFiles(appDir);
 });
 
 after(async () => {
@@ -357,6 +358,7 @@ test("no message text and no path ever reaches a log line; the transcript keeps 
   const logs = path.join(wrapper, "logs");
   await mkdir(app, { recursive: true });
   await writeFile(path.join(app, "server.py"), await readFile(path.join(appDir, "server.py")));
+  require('./fixture-auth.cjs').copyBridgeFiles(app);
   await writeFile(path.join(app, "seed.json"), JSON.stringify({
     title: "keep out",
     items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" }],
@@ -440,6 +442,7 @@ async function boardFolder(name, level) {
   const quick = source.replace("ACK_GRACE = 90.0", "ACK_GRACE = 1.0");
   assert.notEqual(quick, source, "the unconfirmed claim's clock was not patched");
   await writeFile(path.join(app, "server.py"), quick);
+  require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(app, "server.py")));
   await writeFile(path.join(app, "seed.json"), JSON.stringify({
     title: "debug fixture",
     items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" }],

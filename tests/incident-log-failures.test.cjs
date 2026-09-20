@@ -11,6 +11,7 @@ test("confirmed incident writes report disk failure, retain rate capacity, and u
   const dir = await mkdtemp(path.join(tmpdir(), "facilitator-incident-log-"));
   try {
     await copyFile(path.join(__dirname, "..", "server.py"), path.join(dir, "server.py"));
+    require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(dir, "server.py")));
     const { stdout } = await run(process.env.FACILITATOR_TEST_PYTHON || "python3", ["-c", `
 import json, logging
 from pathlib import Path
@@ -47,6 +48,7 @@ test("slow requests are thresholded, bounded by route, and accept only canonical
   const dir = await mkdtemp(path.join(tmpdir(), "facilitator-slow-request-"));
   try {
     await copyFile(path.join(__dirname, "..", "server.py"), path.join(dir, "server.py"));
+    require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(dir, "server.py")));
     const { stdout } = await run(process.env.FACILITATOR_TEST_PYTHON || "python3", ["-c", `
 import server as s
 seen = []

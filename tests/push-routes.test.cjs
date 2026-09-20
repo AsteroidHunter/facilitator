@@ -22,6 +22,8 @@ let fixtureDir;
 let logs;
 let port;
 let origin;
+let bridgeOrigin;
+let bridgeCookie;
 let pushService;      // the stub push service the subscriptions point at
 let pushOrigin;
 const pushes = [];    // every push the stub received: {path, headers, body}
@@ -98,6 +100,13 @@ async function api(route, options = {}) {
 }
 
 async function post(route, body) {
+  if (route.startsWith("/push/subscribe") || route.startsWith("/push/unsubscribe")) {
+    const response = await fetch(bridgeOrigin + route, {
+      method: "POST", body,
+      headers: { Origin: bridgeOrigin, Cookie: bridgeCookie },
+    });
+    return { status: response.status, body: await response.json() };
+  }
   return api(route, { method: "POST", body });
 }
 
@@ -289,7 +298,6 @@ before(async () => {
   tailscaleMode = path.join(outer, "tailscale-mode");
   tailscaleStatus = path.join(outer, "tailscale-status.json");
   serveStatus = path.join(outer, "serve-status.json");
-  port = await freePort();
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
   let patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
   assert.notEqual(patched, source, "test server port was not patched");
@@ -304,6 +312,7 @@ before(async () => {
   assert.match(patched, /TAILSCALE_APP = "\/facilitator-test\/no-tailscale-app"/,
     "the fixture could fall through to the real Mac app");
   await writeFile(path.join(fixtureDir, "server.py"), patched);
+  require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(fixtureDir, "server.py")));
   await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({ title: "push test", items: [] }));
   await installFakeTailscale();
   await setTailscale(CONNECTED, {});
@@ -333,8 +342,19 @@ before(async () => {
   await new Promise(resolve => pushService.listen(0, "127.0.0.1", resolve));
   pushOrigin = `http://127.0.0.1:${pushService.address().port}`;
 
+  port = await require('./fixture-auth.cjs').freePortPair();
   origin = `http://127.0.0.1:${port}`;
+  bridgeOrigin = `http://127.0.0.1:${port + 1}`;
+  execFileSync(pythonExecutable, ["-c", "import bridge_auth; bridge_auth.set_password('FixturePush7!')"],
+    { cwd: fixtureDir });
   await startServer();
+  const login = await fetch(bridgeOrigin + "/auth/login", {
+    method: "POST", headers: { Origin: bridgeOrigin, "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "FixturePush7!" }),
+  });
+  assert.equal(login.status, 200);
+  bridgeCookie = login.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(bridgeCookie, "fixture login did not issue a bridge session");
 });
 
 after(async () => {

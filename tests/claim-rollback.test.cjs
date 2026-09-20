@@ -101,6 +101,7 @@ async function stateUntil(check, ms = 5000, why = "the board never reached the e
 async function probe(code) {
   const dir = await mkdtemp(path.join(outer, "probe-"));
   await writeFile(path.join(dir, "server.py"), await readFile(path.join(app, "server.py"), "utf8"));
+  require('./fixture-auth.cjs').copyBridgeFiles(dir);
   const { stdout } = await execFileAsync("python3", ["-c", code], {
     cwd: dir,
     env: { ...process.env, FACILITATOR_TEST_PORT: "1", FACILITATOR_LOG_DIR: path.join(dir, "logs") },
@@ -133,13 +134,14 @@ before(async () => {
   app = path.join(outer, "app");
   logs = path.join(outer, "logs");
   await mkdir(app);
-  port = await freePort();
+  port = await require('./fixture-auth.cjs').freePortPair();
   origin = `http://127.0.0.1:${port}`;
   let source = await readFile(path.join(ROOT, "server.py"), "utf8");
   source = patch(source, "PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
   source = patch(source, "ACK_GRACE = 90.0", `ACK_GRACE = ${ACK_GRACE_S}`);
   source = patch(source, "WRITE_STALL_TIMEOUT = 30.0", "WRITE_STALL_TIMEOUT = 1.0");
   await writeFile(path.join(app, "server.py"), source);
+  require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(app, "server.py")));
   await writeFile(path.join(app, "seed.json"), JSON.stringify({
     title: "claims fixture",
     items: [
