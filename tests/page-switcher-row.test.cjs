@@ -73,6 +73,9 @@ async function openBoard() {
   await page.goto(origin + "/", { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => typeof lastState !== "undefined" && lastState !== null,
     { timeout: 8000 });
+  // Exercise the retained page controls without changing their hidden default.
+  await page.addStyleTag({ content: "body.focus #pagepill:not(.off){display:flex}" });
+  await page.evaluate(() => seatPagePill());
   await settle(500);
   return { page, problems, context };
 }

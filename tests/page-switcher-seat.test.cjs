@@ -158,6 +158,9 @@ async function openBoard() {
   await page.goto(origin + "/", { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => typeof lastState !== "undefined" && lastState !== null,
     { timeout: 8000 });
+  // Reveal the dormant switcher in this fixture to cover its retained seat logic.
+  await page.addStyleTag({ content: "body.focus #pagepill:not(.off){display:flex}" });
+  await page.evaluate(() => seatPagePill());
   await settle(500);
   return { page, problems, context };
 }

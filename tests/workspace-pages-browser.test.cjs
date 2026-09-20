@@ -65,7 +65,7 @@ async function until(check, ms = 4000) {
 
 // its own browsing context each time, so what one test leaves in storage is
 // never what the next one starts from
-async function openBoard(storage) {
+async function openBoard(storage, { revealPill = true } = {}) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   const problems = [];
@@ -86,6 +86,12 @@ async function openBoard(storage) {
   await page.goto(origin + "/", { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => typeof lastState !== "undefined" && lastState !== null,
     { timeout: 8000 });
+  if (revealPill) {
+    // The desktop pill is hidden by default; reveal it only to exercise the
+    // retained page creation, navigation and deletion controls in this fixture.
+    await page.addStyleTag({ content: "body.focus #pagepill:not(.off){display:flex}" });
+    await page.evaluate(() => seatPagePill());
+  }
   await settle(500);
   return { page, problems, context };
 }
@@ -227,7 +233,28 @@ beforeEach(async () => {
   }
 });
 
-test("the board opens on one page, with the plus on the pill's left", async () => {
+test("the desktop hides the mounted page switcher without reserving card room", async () => {
+  const { page, problems, context } = await openBoard(undefined, { revealPill: false });
+  try {
+    const state = await page.evaluate(() => ({
+      display: getComputedStyle(document.getElementById("pagepill")).display,
+      add: !!document.querySelector("#pagepill .pageadd"),
+      dots: document.querySelectorAll("#pagepill .pdot").length,
+      maxHeight: document.querySelector("main").style.maxHeight,
+    }));
+    assert.deepEqual(state, { display: "none", add: true, dots: 1, maxHeight: "" });
+    await page.setViewport({ width: 1280, height: 800 });
+    await settle(300);
+    const short = await page.evaluate(() => ({
+      display: getComputedStyle(document.getElementById("pagepill")).display,
+      maxHeight: document.querySelector("main").style.maxHeight,
+    }));
+    assert.deepEqual(short, { display: "none", maxHeight: "" });
+    assert.deepEqual(problems, []);
+  } finally { await context.close(); }
+});
+
+test("the retained page controls open on one page, with the plus on the pill's left", async () => {
   const { page, problems, context } = await openBoard();
   try {
     const shape = await pillShape(page);
