@@ -8,7 +8,7 @@ The tool: `server.py` (Python, port 8877) serves `index.html` (vanilla JS) at ht
 
 From the agent conversation that owns your lane, repeat the current two-call production protocol. The installed `facilitator` skill resolves the lane and its `scripts/onboard.py wait` helper makes both calls for each claim:
 
-    curl --max-time 560 -sS "http://127.0.0.1:8877/wait?owner=facilitator&timeout=540&agent=claude"
+    curl --max-time 60 -sS "http://127.0.0.1:8877/wait?owner=facilitator&timeout=50&agent=claude"
     curl -sS -X POST "http://127.0.0.1:8877/ack?owner=facilitator&token=<the ack field>"
 
 `agent=` states your name; the board's card rows show each lane's live agent name, or offline, from exactly this. It returns `{"box": id, "title": ..., "messages": [...], "queued_after": n, "ack": token}` on a claim, `{"idle": true}` on timeout, `{"paused": true}` while paused, `{"end": true}` once ended and drained.
@@ -17,14 +17,14 @@ The `ack` token is the receipt for the card you were just handed, and confirming
 
 WARNING: a loop without the confirm line claims cards it cannot keep. Every claim bounces back to the queue 90 seconds later and gets handed out again, forever, and your reply lands on a card you no longer hold.
 
-Answer a claim with a complete reply:
+After reading the separate `/fresh` result as described below, answer with a complete reply:
 
     curl -sS -X POST --data-binary @reply.txt "http://127.0.0.1:8877/reply?box=ID"
 
-`ctx=` is optional compatibility data. The summary strip was removed from the card; a supplied strip is still stored and must be at most 50 words. The server accepts a reply without one.
+`ctx=` is optional compatibility data. A supplied context is stored and must be at most 50 words. The server accepts a reply without one.
 
 - `/wait?owner=...` claims the oldest queued box in your owner lane and marks it busy. Never leave a claim unanswered; an open claim blocks your whole lane (each owner has its own busy slot, see Owner routing below).
-- Before replying to a held card, `GET /fresh?owner=YOURLANE` and answer any messages that arrived after the claim. It folds them into that claim so the reply covers the latest question too.
+- Immediately before **every** `/reply`, including an interim or worker-completion reply, call `GET /fresh?owner=YOURLANE` and read its result before composing and sending. If it returns messages for the card you are answering, include them; those messages are folded into the held claim. If it names a different held card, handle that claim first and do not use its messages in a reply on another card. With no held card, `/fresh` returns an empty message list and hands over nothing; queued messages on other cards remain for their own claims. Do not combine a `/fresh` call with a prewritten reply in one command.
 - Three nets sit under a claim, in order: a hand-off written into a dead socket rolls back at once, an unconfirmed claim returns after 90 seconds, and a claim older than 15 minutes is stolen back. Do not lean on any of them; confirm what you claim and answer what you confirm.
 - Before going idle, check whether anything is waiting on your lane: `GET /unread?owner=YOURLANE` answers `{"queued": N, "claimed": M}`, messages still waiting plus messages in the claim you hold. It reads only, so it is safe from a hook. Paste this as a Stop hook command and go back to the loop instead of idling whenever `queued` is above zero:
 
@@ -54,7 +54,7 @@ A user-created box is auto-named with the chopped first line of its first messag
 
 ## Context strips
 
-`POST /context?box=ID` stores optional historical context (50 words max, refused over that, never truncated). The context strip is no longer displayed, and `/reply` no longer requires `ctx=`. When answering, use the current claim and `/fresh` for new messages rather than relying on an old strip.
+`POST /context?box=ID` stores optional historical context (50 words max, refused over that, never truncated). `/reply` no longer requires `ctx=`. When answering, use the current claim and `/fresh` for new messages rather than relying on an old strip.
 
 ## Permission blocks
 
@@ -122,8 +122,8 @@ and kill it when the work ends. The server also watches the other direction: an 
 
 Two agents share one board. Every box carries an owner tag: `facilitator` (discussion about this tool, served by this repo's agent) or a project lane such as `example` (the project under discussion, served by its own agent). `/wait?owner=...` claims only that owner's boxes, and each owner has its own busy slot and listener-presence tracking, so the two agents never block or steal from each other. An ownerless `/wait` defaults to facilitator. Two meta sections sit on top, tool-meta first, each with its own plus button; user-created boxes inherit the section's owner; the writing indicator and the offline banner name the agent. Every meta box carries the owner's remove cross, any standing card the seed placed included (box `0` for the tool lane, for instance); a lane with its standing box removed just works from its remaining boxes, and notes that would have gone there go to an open box or the project docs. The two loops, side by side:
 
-    curl --max-time 560 -sS "http://127.0.0.1:8877/wait?owner=facilitator&timeout=540&agent=claude"
-    curl --max-time 560 -sS "http://127.0.0.1:8877/wait?owner=example&timeout=540&agent=claude"
+    curl --max-time 60 -sS "http://127.0.0.1:8877/wait?owner=facilitator&timeout=50&agent=claude"
+    curl --max-time 60 -sS "http://127.0.0.1:8877/wait?owner=example&timeout=50&agent=claude"
 
 Each lane confirms its own claims against its own owner: `POST /ack?owner=facilitator&token=...` and `POST /ack?owner=example&token=...`. A token belongs to one lane's claim and is refused (409) anywhere else.
 
