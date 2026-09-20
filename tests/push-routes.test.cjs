@@ -41,7 +41,7 @@ const receiverKeys = {
   auth: b64url(randomBytes(16)),
 };
 
-function servesBoard(targetPort = port, mount = "/") {
+function servesBoard(targetPort = port + 1, mount = "/") {
   return {
     TCP: { "443": { HTTPS: true } },
     Web: {
@@ -401,13 +401,13 @@ test("pushes follow the live bridge without replaying turns missed while it was 
 });
 
 test("an unrelated HTTPS Serve proxy does not open the push gate", async () => {
-  const wrongPort = servesBoard(port + 1);
-  const wrongMount = servesBoard(port, "/somewhere-else");
+  const wrongPort = servesBoard(port);
+  const wrongMount = servesBoard(port + 1, "/somewhere-else");
   const plainHTTP = servesBoard();
   plainHTTP.TCP["443"].HTTPS = false;
   const ipv6Loopback = servesBoard();
   ipv6Loopback.Web["fixture.tail0000.ts.net:443"].Handlers["/"].Proxy =
-    `http://[::1]:${port}`;
+    `http://[::1]:${port + 1}`;
   for (const [name, config] of [
     ["A different service is shared", wrongPort],
     ["Only a different path is shared", wrongMount],

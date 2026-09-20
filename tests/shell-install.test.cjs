@@ -220,7 +220,9 @@ test('./install.sh sets up a fake checkout and exposes the real CLI command', as
     assert.match(first.stdout, /FACILITATOR|█████/);
     assert.match(first.stdout, /1\. Check the command location/);
     assert.match(first.stdout, /2\. Set up the board/);
-    assert.match(first.stdout, /3\. Add the facilitator command/);
+    assert.match(first.stdout, /3\. Create the phone app password/);
+    assert.match(first.stdout, /4\. Add the facilitator command/);
+    assert.match(first.stdout, /facilitator password set/);
     assert.match(first.stdout, /Installed\. Run: facilitator run/);
     const second = await exec('bash', [path.join(f.repo, 'install.sh')], { cwd: f.repo, env });
     assert.match(second.stdout, /command: already linked/);
