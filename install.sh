@@ -5,7 +5,7 @@ REPO="$(cd "$(dirname "$0")" && pwd)"
 
 if [ "$#" -gt 0 ]; then
   if [ "$#" -eq 1 ] && { [ "$1" = "--help" ] || [ "$1" = "-h" ]; }; then
-    printf 'usage: ./install.sh\n\nSet up this checkout, create a phone app password, and add facilitator to your shell PATH.\n'
+    printf 'usage: ./install.sh\n\nSet up this checkout, create a phone app password, and register the command and shared agent skill.\n'
     exit 0
   fi
   printf 'install: unknown option or argument: %s\nusage: ./install.sh\n' "$*" >&2
@@ -39,12 +39,12 @@ PY
 step() { printf '\n%s\n%s\n' "$1" '────────────────────────────────────────'; }
 
 banner
-step '1. Check the command location'
+step '1. Check the command and skill locations'
 python3 "$REPO/shell_integration.py" preflight
 step '2. Set up the board and dependencies'
 FACILITATOR_INTERNAL_INSTALL=1 python3 "$REPO/facilitator" _install
 step '3. Create the phone app password'
 FACILITATOR_INTERNAL_INSTALL=1 python3 "$REPO/facilitator" _password-setup
-step '4. Add the facilitator command'
+step '4. Add the facilitator command and agent skill'
 python3 "$REPO/shell_integration.py" install
-printf '\nInstalled. Run: facilitator run\n'
+printf '\nInstalled. Run: facilitator run\nAgent onboarding: /facilitator onboard (Claude Code) or $facilitator onboard (Codex)\n'
