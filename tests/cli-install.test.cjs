@@ -139,10 +139,12 @@ function snapshot(callLine) {
 
 async function run(dir, body, env = {}) {
   let stdout;
+  const isolatedEnv = { ...process.env, HOME: path.join(dir, "home"), FACILITATOR_LOG_DIR: path.join(dir, "logs") };
+  for (const name of ["ZDOTDIR", "BASH_ENV", "ENV"]) delete isolatedEnv[name];
   try {
     ({ stdout } = await execFileAsync("python3", ["-c", `${loadCli(dir)}\n${body}`], {
       cwd: dir,
-      env: { ...process.env, HOME: path.join(dir, "home"), FACILITATOR_LOG_DIR: path.join(dir, "logs"), ...env },
+      env: { ...isolatedEnv, ...env },
       timeout: 30000,
     }));
   } catch (problem) {
