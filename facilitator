@@ -29,26 +29,22 @@
       Needs HTTPS certificates switched on once for the tailnet, in the
       Tailscale admin console; says so and stops when they are off.
       --dry-run prints the commands instead of running them
-  facilitator install
-      set up a fresh checkout in place: check Python, find or install uv, create
-      the .venv and sync requirements, write run.config.json and seed.json from
-      the examples when they are missing, and install the test dependencies when
-      node is present. Safe to run again.
   facilitator uninstall [--wipe]
       remove what install made: the .venv, node_modules and the generated config
-      files. Keeps the board's data (state.json, transcript.jsonl, uploads, logs
-      and vapid-key.pem) unless --wipe is given. Never removes this folder and
-      never stops a running server.
+      files and the owned shell command. Keeps the board's data (state.json,
+      transcript.jsonl, uploads, logs and vapid-key.pem) unless --wipe is given.
+      Never removes this folder or stops a running server.
 
 Reads run.config.json beside this script: machine-local and gitignored, since
-lanes name real directories and tmux sessions; facilitator install writes it
+lanes name real directories and tmux sessions; ./install.sh writes it
 from run.config.example.json for you to fill in. This script is Python stdlib
-only; facilitator install builds the server's .venv from requirements.txt with
+only; ./install.sh builds the server's .venv from requirements.txt with
 uv. run starts the server with that .venv's python when the folder is there, and
 with its own interpreter otherwise.
 """
 
 import ctypes
+import hashlib
 import json
 import os
 import shlex
@@ -63,6 +59,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 HERE = Path(__file__).resolve().parent
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))  # command may be invoked through its installed symlink
 CONFIG = HERE / "run.config.json"
 RETIRED_OWNERS = frozenset({"triage"})
 # the Mac app keeps its command line inside the bundle and off PATH
@@ -1418,7 +1416,10 @@ def cmd_bridge(args):
 MIN_PYTHON = (3, 9)              # the floor the pinned server libraries need
 UV_HOME_BINS = ("~/.local/bin/uv", "~/.cargo/bin/uv")
 UV_INSTALL_URL = "https://astral.sh/uv/install.sh"
-INSTALL_HELP = """usage: facilitator install
+INSTALL_RECORD = HERE / ".facilitator-install.json"
+INSTALL_ARTIFACTS = (".venv", "node_modules", "package.json", "package-lock.json",
+                     "run.config.json", "seed.json")
+INSTALL_HELP = """usage: ./install.sh
 
 Make this checkout runnable: check Python, find or install uv, create the .venv
 and sync requirements, write run.config.json and seed.json from the examples
@@ -1551,14 +1552,26 @@ def cmd_install(args):
     # keep these lines in order with uv's and npm's when the output is a pipe
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)
-    check_python()
-    uv = ensure_uv()
-    ensure_env(uv)
-    ensure_config()
-    ensure_node_deps()
+    previous = read_install_record()
+    before = {name: (HERE / name).exists() for name in INSTALL_ARTIFACTS}
+    try:
+        check_python()
+        uv = ensure_uv()
+        ensure_env(uv)
+        ensure_config()
+        ensure_node_deps()
+    finally:
+        # A failed dependency step can still have created files. Record them so
+        # a later uninstall can remove only that partial install's own files.
+        owned = previous.copy()
+        for name in INSTALL_ARTIFACTS:
+            path = HERE / name
+            if not before[name] and path.exists():
+                owned[name] = file_digest(path) if path.is_file() else "directory"
+        INSTALL_RECORD.write_text(json.dumps(owned, indent=2) + "\n")
     print("")
     print("Board installed. Start it with:")
-    print("  ./facilitator run")
+    print("  facilitator run")
     print("Config lives beside this command: run.config.json (edit it) and seed.json")
 
 
@@ -1605,6 +1618,24 @@ def remove_path(path):
     return False
 
 
+def file_digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def read_install_record():
+    if INSTALL_RECORD.is_symlink():
+        sys.exit("install record is a symlink; refusing to modify it")
+    if not INSTALL_RECORD.exists():
+        return {}
+    try:
+        record = json.loads(INSTALL_RECORD.read_text())
+        if not isinstance(record, dict) or any(k not in INSTALL_ARTIFACTS for k in record):
+            raise ValueError("invalid install record")
+        return record
+    except (OSError, ValueError):
+        sys.exit("install record is invalid; refusing to guess which files belong to Facilitator")
+
+
 def cmd_uninstall(args):
     """Take away exactly what install made, keeping the board's data unless
     --wipe is given. Refuses while the server is up, and never removes this
@@ -1624,6 +1655,10 @@ def cmd_uninstall(args):
         sys.exit(f"uninstall: the board is up on port {port}; "
                  "stop that server first, then run uninstall again")
 
+    owned = read_install_record()
+    import shell_integration
+    shell_integration.uninstall()
+
     note = bridge_note(port)
     if note:
         print(note)
@@ -1641,7 +1676,16 @@ def cmd_uninstall(args):
             ("vapid-key.pem", HERE / "vapid-key.pem")]
 
     for label, path in made:
-        print(f"removed {label}" if remove_path(path) else f"{label} not present")
+        marker = owned.get(label)
+        if marker is None:
+            print(f"kept {label} (not recorded as installer-owned)" if path.exists()
+                  else f"{label} not present")
+        elif marker != "directory" and (not path.is_file() or file_digest(path) != marker):
+            print(f"kept changed {label}")
+        else:
+            print(f"removed {label}" if remove_path(path) else f"{label} not present")
+    if INSTALL_RECORD.exists():
+        INSTALL_RECORD.unlink()
 
     if wipe:
         for label, path in data:
@@ -1667,7 +1711,7 @@ def main():
         cmd_status()
     elif cmd == "bridge":
         cmd_bridge(args)
-    elif cmd == "install":
+    elif cmd == "_install" and os.environ.get("FACILITATOR_INTERNAL_INSTALL") == "1":
         cmd_install(args)
     elif cmd == "uninstall":
         cmd_uninstall(args)
