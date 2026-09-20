@@ -99,6 +99,113 @@ test('bash profile changes are removed without touching existing bash settings',
   } finally { await f.clean(); }
 });
 
+test('login and interactive Bash resolve the installed command', async () => {
+  const f = await fixture();
+  try {
+    const env = { ...f.env, SHELL: '/bin/bash' };
+    await fs.writeFile(path.join(f.home, '.bash_profile'), 'export MY_LOGIN_SETTING=kept\n');
+    await integration(f, 'install', env);
+    const expected = path.join(f.home, '.local/share/facilitator/bin/facilitator');
+    const login = await exec('bash', ['-lc', 'command -v facilitator'], { env });
+    const interactive = await exec('bash', ['-ic', 'command -v facilitator'], { env });
+    assert.equal(login.stdout.trim(), expected);
+    assert.equal(interactive.stdout.trim(), expected);
+    await integration(f, 'uninstall', env);
+    assert.equal(await fs.readFile(path.join(f.home, '.bash_profile'), 'utf8'), 'export MY_LOGIN_SETTING=kept\n');
+  } finally { await f.clean(); }
+});
+
+test('an existing .profile remains the Bash login profile after install and uninstall', async () => {
+  const f = await fixture();
+  try {
+    const env = { ...f.env, SHELL: '/bin/bash' };
+    const profile = path.join(f.home, '.profile');
+    const original = 'export PROFILE_SENTINEL=preserved\n';
+    await fs.writeFile(profile, original);
+    await integration(f, 'install', env);
+    await assert.rejects(fs.lstat(path.join(f.home, '.bash_profile')), { code: 'ENOENT' });
+    const login = await exec('bash', ['-lc', 'printf "%s:%s" "$PROFILE_SENTINEL" "$(command -v facilitator)"'], { env });
+    assert.equal(login.stdout.trim(), `preserved:${f.home}/.local/share/facilitator/bin/facilitator`);
+    await integration(f, 'uninstall', env);
+    assert.equal(await fs.readFile(profile, 'utf8'), original);
+    await assert.rejects(fs.lstat(path.join(f.home, '.bash_profile')), { code: 'ENOENT' });
+  } finally { await f.clean(); }
+});
+
+test('uninstall removes an empty login profile it created', async () => {
+  const f = await fixture();
+  try {
+    const env = { ...f.env, SHELL: '/bin/bash' };
+    await integration(f, 'install', env);
+    await integration(f, 'uninstall', env);
+    await assert.rejects(fs.lstat(path.join(f.home, '.bash_profile')), { code: 'ENOENT' });
+    await assert.rejects(fs.lstat(path.join(f.home, '.bashrc')), { code: 'ENOENT' });
+  } finally { await f.clean(); }
+});
+
+test('Zsh resolves the command from exported ZDOTDIR and uninstall finds that profile later', async () => {
+  const f = await fixture();
+  try {
+    const zdot = path.join(f.home, 'zsh-config');
+    await fs.mkdir(zdot);
+    const rc = path.join(zdot, '.zshrc');
+    await fs.writeFile(rc, 'export OTHER=kept\n');
+    const env = { ...f.env, ZDOTDIR: zdot };
+    await integration(f, 'install', env);
+    const result = await exec('zsh', ['-ic', 'command -v facilitator'], { env });
+    assert.equal(result.stdout.trim(), path.join(f.home, '.local/share/facilitator/bin/facilitator'));
+    await integration(f, 'uninstall', f.env);
+    assert.equal(await fs.readFile(rc, 'utf8'), 'export OTHER=kept\n');
+  } finally { await f.clean(); }
+});
+
+test('Zsh profile selection honors an unexported ZDOTDIR in .zshenv', async () => {
+  const f = await fixture();
+  try {
+    const zdot = path.join(f.home, 'zsh-config');
+    await fs.mkdir(zdot);
+    await fs.writeFile(path.join(f.home, '.zshenv'), 'ZDOTDIR="$HOME/zsh-config"\n');
+    await integration(f, 'install');
+    await assert.rejects(fs.lstat(path.join(f.home, '.zshrc')), { code: 'ENOENT' });
+    const rc = path.join(zdot, '.zshrc');
+    assert.match(await fs.readFile(rc, 'utf8'), /Facilitator installer/);
+    const result = await exec('zsh', ['-ic', 'command -v facilitator'], { env: f.env });
+    assert.equal(result.stdout.trim(), path.join(f.home, '.local/share/facilitator/bin/facilitator'));
+    await integration(f, 'uninstall');
+    await assert.rejects(fs.lstat(rc), { code: 'ENOENT' });
+  } finally { await f.clean(); }
+});
+
+test('CRLF and missing final newline survive install and uninstall byte for byte', async () => {
+  for (const original of [Buffer.from('export OTHER=kept\r\n# note\r\n'), Buffer.from('export OTHER=kept')]) {
+    const f = await fixture();
+    try {
+      const rc = path.join(f.home, '.zshrc');
+      await fs.writeFile(rc, original);
+      await integration(f, 'install');
+      await integration(f, 'uninstall');
+      assert.deepEqual(await fs.readFile(rc), original);
+    } finally { await f.clean(); }
+  }
+});
+
+test('help and unknown installer arguments do not create or edit files', async () => {
+  const f = await fixture();
+  try {
+    const rc = path.join(f.home, '.zshrc');
+    await fs.writeFile(rc, 'export EXISTING=1\n');
+    const help = await exec('bash', [path.join(f.repo, 'install.sh'), '--help'], { cwd: f.repo, env: f.env });
+    assert.match(help.stdout, /usage: \.\/install\.sh/);
+    const error = await exec('bash', [path.join(f.repo, 'install.sh'), '--bogus'], { cwd: f.repo, env: f.env })
+      .then(() => null, failure => failure);
+    assert.ok(error);
+    assert.match(error.stderr, /unknown option/);
+    assert.equal(await fs.readFile(rc, 'utf8'), 'export EXISTING=1\n');
+    await assert.rejects(fs.lstat(path.join(f.repo, '.venv')), { code: 'ENOENT' });
+    await assert.rejects(fs.lstat(path.join(f.home, '.local/share/facilitator/bin/facilitator')), { code: 'ENOENT' });
+  } finally { await f.clean(); }
+});
+
 test('./install.sh sets up a fake checkout and exposes the real CLI command', async () => {
   const f = await fixture();
   try {

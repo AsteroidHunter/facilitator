@@ -3,6 +3,15 @@
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")" && pwd)"
 
+if [ "$#" -gt 0 ]; then
+  if [ "$#" -eq 1 ] && { [ "$1" = "--help" ] || [ "$1" = "-h" ]; }; then
+    printf 'usage: ./install.sh\n\nSet up this checkout and add facilitator to your shell PATH.\n'
+    exit 0
+  fi
+  printf 'install: unknown option or argument: %s\nusage: ./install.sh\n' "$*" >&2
+  exit 2
+fi
+
 banner() {
   python3 - <<'PY'
 import sys
