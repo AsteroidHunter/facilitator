@@ -460,7 +460,7 @@ test("a reversal after an empty answer is sent, even with a reading agreeing in 
   assert.equal(page.note("1"), "");
 });
 
-test("the card being looked at stays the card being looked at, in every tab", async () => {
+test("snoozing the selected Doing card advances while Deferred browsing stays put", async () => {
   const { clock, board, page } = await openPage();
   board.delays["/park"] = 2500;
   page.select("1");
@@ -468,14 +468,16 @@ test("the card being looked at stays the card being looked at, in every tab", as
 
   page.tap("1");
   assert.deepEqual(page.list, ["2"], "the doing tab loses it at once");
-  assert.equal(page.selected(), "1", "and the card is still the selected one");
-  assert.ok(page.card("1"), "and still on the page");
+  assert.equal(page.selected(), "2", "the next Doing card takes the screen");
+  assert.ok(page.card("1"), "the Deferred card remains available to browse");
 
   page.setView("deferred");
   assert.deepEqual(page.list, ["1"], "the deferred tab has it at once, before any answer");
+  page.select("1");
 
   page.tap("1");
   assert.deepEqual(page.list, [], "and loses it again on the reversing tap");
+  assert.equal(page.selected(), "1", "deliberate Deferred browsing keeps its selection");
   page.setView("todo");
   assert.deepEqual(page.list, ["1", "2"]);
 

@@ -5570,8 +5570,7 @@ function makeBox(b, i, state){
       // an empty card can never erase replies that arrived on later polls
       await fetch("/close?box=" + encodeURIComponent(b.id), { method: "POST" }).catch(() => {});
       // dismiss this card from the center and jump to the next ongoing chat, so no extra click is needed
-      const doing = poolOf(lastState).filter(o => !o.done && !o.parked && o.id !== b.id && o.id !== "0" && o.id !== "t0");
-      if (doing.length) select(doing[0].id); else deselect();
+      selectNextDoing(b.id);
       poll();
     });
     topbar.appendChild(x);   // the cross is an item of the bar now, not a pinned corner

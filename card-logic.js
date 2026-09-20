@@ -1141,6 +1141,13 @@ function setCardDestination(id, destination){
   }
 }
 
+// Closing a card and snoozing the card on screen use the same Doing fallback.
+function selectNextDoing(id){
+  const doing = lastState ? poolOf(lastState).filter(b =>
+    !b.done && !b.parked && b.id !== id && b.id !== "0" && b.id !== "t0") : [];
+  if (doing.length) select(doing[0].id); else deselect();
+}
+
 // one card's wanted state, true on screen at once and asked of the board after.
 //
 // The order of the steps below is load bearing. The intent is written down and
@@ -1151,6 +1158,11 @@ function setCardDestination(id, destination){
 // to that pass, exactly when it matters most, since the older command it is
 // there to overtake may still be on its way to the board.
 function setFlag(id, kind, want){
+  const current = typeof lastState === "undefined" ? null : lastState?.boxes.find(b => b.id === id);
+  const advance = kind === "park" && want &&
+    typeof selectedId !== "undefined" && selectedId === id &&
+    typeof curView === "function" && curView() === "todo" &&
+    current && current.owner === activeOwner && !current.done && !current.parked;
   const spec = flagSpec(kind);
   const key = flagKey(id, kind);
   const hold = flagHolds[key] || (flagHolds[key] = { id, kind, truth: null, boxRef: null, sending: 0 });
@@ -1164,6 +1176,7 @@ function setFlag(id, kind, want){
   paintFlag(id, spec, want, true);                                  // the card, in this same turn
   const going = hold.sending ? Promise.resolve() : sendFlag(key);   // the board, before any redraw
   flagRepaint();                                                    // the list, the tabs, the place
+  if (advance) selectNextDoing(id);
   return going;
 }
 
