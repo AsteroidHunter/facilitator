@@ -13,7 +13,7 @@ const puppeteer = require("puppeteer-core");
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PYTHON = process.env.FACILITATOR_TEST_PYTHON || "python3";
-const SHOTS = process.env.M710_SHOTS || path.join(tmpdir(), "facilitator-default-layout-shots");
+const SHOTS = process.env.FACILITATOR_LAYOUT_SHOTS || path.join(tmpdir(), "facilitator-default-layout-shots");
 const REGIONS = ["clockbox", "tickets", "magic1", "magic2", "magic3", "magic4", "goalbox", "rail", "main"];
 const FOUR = ["clockbox", "tickets", "magic1", "main"];
 let fixtureDir, origin, child, browser, firstProject;
