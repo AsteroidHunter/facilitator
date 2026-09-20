@@ -78,8 +78,11 @@ before(async () => {
   const port = await freePort();
   origin = `http://127.0.0.1:${port}`;
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
-  const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
+  const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])")
+    .replace('TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"',
+             'TAILSCALE_APP = "/facilitator-test/no-tailscale-app"');
   assert.notEqual(patched, source, "test server port was not patched");
+  assert.match(patched, /TAILSCALE_APP = "\/facilitator-test\/no-tailscale-app"/);
   await writeFile(path.join(fixtureDir, "server.py"), patched);
   require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(fixtureDir, "server.py")));
   await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
@@ -87,7 +90,7 @@ before(async () => {
     items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" }],
   }));
 
-  child = spawn("python3", [path.join(fixtureDir, "server.py")], {
+  child = spawn(process.env.FACILITATOR_TEST_PYTHON || "python3", [path.join(fixtureDir, "server.py")], {
     cwd: fixtureDir,
     env: { ...process.env, FACILITATOR_TEST_PORT: String(port), FACILITATOR_LOG_DIR: logs },
     stdio: ["ignore", "pipe", "pipe"],
@@ -360,6 +363,49 @@ test("v3 accepts bounded prelude and recovery events while rejecting private fie
   assert.equal((await reportsSince()).length, 0, "rejected v3 batches wrote nothing");
 });
 
+test("v4 keeps bounded Enter decisions and rejects private or malformed fields", async () => {
+  await reportsSince();
+  const entry = { event:"enter", step:"capture", branch:"seen", at:-200,
+    visible:true, online:true, resume:1, base:812, inner:764, vh:696, vt:0,
+    scale:100, kb:true, target:"editor", focus:"editor", draft:true,
+    key:"Enter", code:"NumpadEnter", keyCode:13, shift:false, repeat:false,
+    composing:false, prevented:false };
+  const revised = incident();
+  revised.v = 4;
+  revised.build = "phone-enter-diag-test";
+  revised.worker = "facilitator-m-7";
+  revised.session = "0123456789abcdef";
+  revised.events = [entry,
+    { ...entry, step:"handler", branch:"keyboard", at:-190 },
+    { event:"enter", step:"beforeinput", branch:"line-intent", inputType:"insertLineBreak",
+      at:-180, visible:true, online:true, resume:1, base:812, inner:764, vh:696, vt:0,
+      scale:100, kb:true, target:"editor", focus:"editor", draft:true, prevented:false },
+    { event:"mark", reason:"manual", source:"settings", at:0,
+      visible:true, online:true, resume:1 }];
+  assert.deepEqual(await send({ page:"phone", reports:[revised] }),
+    { status:200, body:{ ok:true, written:1, dropped:0 } });
+  const [written] = await reportsSince();
+  assert.deepEqual(written.events, revised.events);
+  const changes = [
+    r => { r.events[0].text = "private draft"; },
+    r => { r.events[0].key = "a typed character"; },
+    r => { r.events[0].code = "KeyA"; },
+    r => { r.events[0].target = "private field"; },
+    r => { r.events[0].base = 10001; },
+    r => { r.events[0].scale = 1.5; },
+    r => { r.events[0].draft = "private draft"; },
+    r => { delete r.events[0].step; },
+    r => { r.events[2].inputType = "insertText"; },
+    r => { r.events[3].keyCode = 13; },
+    r => { r.v = 5; },
+  ];
+  for (const mutate of changes) {
+    const bad = structuredClone(revised); mutate(bad);
+    assert.equal((await send({ page:"phone", reports:[bad] })).status, 400);
+  }
+  assert.equal((await reportsSince()).length, 0, "rejected v4 batches wrote nothing");
+});
+
 test("a confirmed incident shares the dated client stream and leaves existing report fields intact", async () => {
   await reportsSince();
   const result = await send({ page: "phone", reports: [incident(), report({ line: 5950, message: "fixture failure" })] });
@@ -387,18 +433,17 @@ test("different incident reasons, cards and operation ids share the four-write m
     return r;
   });
   const response = await send({ page: "phone", reports: reportsToSend });
-  // The confirmed v1, v2 and v3 cases above already used three of this server's
-  // shared four incident writes in the current minute.
-  assert.deepEqual(response.body, { ok: true, written: 1, dropped: 9 });
+  // The confirmed v1, v2, v3 and v4 cases above used the four shared writes.
+  assert.deepEqual(response.body, { ok: true, written: 0, dropped: 10 });
   const fresh = await reportsSince();
-  assert.equal(fresh.filter(r => r.kind === "incident").length, 1);
-  assert.equal(fresh.filter(r => r.kind === "dropped").reduce((sum, r) => sum + r.dropped, 0), 9);
+  assert.equal(fresh.filter(r => r.kind === "incident").length, 0);
+  assert.equal(fresh.filter(r => r.kind === "dropped").reduce((sum, r) => sum + r.dropped, 0), 10);
 });
 
 test("only the three phone operation routes expose a numeric server duration", async () => {
   const state = await fetch(origin + "/m/state");
   assert.match(state.headers.get("x-facilitator-duration-ms"), /^\d+$/);
-  assert.equal((await state.json()).incidentSchema, 3);
+  assert.equal((await state.json()).incidentSchema, 4);
   const ordinary = await fetch(origin + "/state");
   assert.equal(ordinary.headers.get("x-facilitator-duration-ms"), null);
   await ordinary.arrayBuffer();

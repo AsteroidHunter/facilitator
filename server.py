@@ -228,10 +228,13 @@ Endpoints:
                                and 500 characters per string field. A batch this
                                board cannot read is a 400 with nothing stored, a
                                body over 16 KB a 413. Phone incident histories
-                               use a strict versioned schema, 40 events from
-                               at most 60 seconds, and four writes per minute
-                               across all incident reasons. Their confirmed
-                               response follows a successful log write/flush
+                               use a strict versioned schema: v1/v2 keep up to
+                               40 events over 60 seconds; v3/v4 keep up to 128
+                               over a 120-second lead-up and 20-second recovery.
+                               V4 adds bounded Enter decisions and viewport
+                               geometry without draft text. All versions share
+                               four writes per minute across incident reasons.
+                               Confirmation follows a successful log write/flush
   GET  /thread?box=ID&n=N   -> last N user/agent/note messages of a box from the
                                transcript (read by the quick chat panel and the
                                page view's own stepper)
@@ -739,6 +742,7 @@ INCIDENT_PER_MINUTE = 4      # one key, regardless of reason, card or operation
 INCIDENT_EVENTS = frozenset(("create", "select", "focus", "send", "operation", "request",
                             "render", "stage", "observer", "drawer", "viewport", "lifecycle", "problem", "freeze", "mark"))
 INCIDENT_EVENTS_V3 = INCIDENT_EVENTS | frozenset(("input", "scroll", "frame", "timer", "phase", "poll"))
+INCIDENT_EVENTS_V4 = INCIDENT_EVENTS_V3 | {"enter"}
 INCIDENT_REASONS = ("manual", "slow-ui", "slow-request", "invariant", "problem", "freeze")
 INCIDENT_NUMBERS = {"ms": 600000, "seq": 1000000000, "status": 599, "serverMs": 600000,
                     "rev": 1000000000000, "boxes": 10000, "vh": 10000, "vt": 10000,
@@ -762,6 +766,18 @@ INCIDENT_ACTIONS = ("drawer", "card", "response-scroll", "project", "state")
 INCIDENT_PARTS = ("touch", "intent", "touch-end", "handler", "menu-commit", "frame-one",
                   "frame-two", "transition", "select", "tickets", "tabs", "blur", "scroll-view",
                   "fetch-headers", "json", "apply", "reconcile", "observer")
+INCIDENT_ENTER_NUMBERS = {"base": 10000, "inner": 10000, "scale": 1000, "keyCode": 255}
+INCIDENT_ENTER_FLAGS = frozenset(("shift", "repeat", "composing", "prevented", "draft", "minted"))
+INCIDENT_ENTER_CHOICES = {
+    "step": ("capture", "format", "editor", "handler", "beforeinput", "input"),
+    "branch": ("seen", "other-key", "composition", "modifier", "send", "shift", "keyboard",
+               "repeat", "empty", "held", "row-line", "empty-item", "editor", "no-caret",
+               "line-intent", "line-applied"),
+    "key": ("Enter", "Unidentified", "Other"),
+    "code": ("Enter", "NumpadEnter", "Unidentified", "Other"),
+    "target": ("textarea", "editor", "other"), "focus": ("textarea", "editor", "other"),
+    "inputType": ("insertLineBreak", "insertParagraph"),
+}
 
 
 def _incident_integer(value, low: int, high: int) -> bool:
@@ -777,12 +793,12 @@ def _incident_valid(page: str, report: dict) -> bool:
     unknown fields and bad types before any part of a batch reaches a log."""
     version = report.get("v")
     fields = {"kind", "v", "reason", "marked", "box", "lost", "suppressed", "events"}
-    if version in (2, 3): fields.add("build")
-    if version == 3: fields.update(("worker", "session"))
+    if version in (2, 3, 4): fields.add("build")
+    if version in (3, 4): fields.update(("worker", "session"))
     if (page != "phone" or set(report) != fields
-            or type(version) is not int or version not in (1, 2, 3)
-            or (version in (2, 3) and (not isinstance(report["build"], str) or not INCIDENT_BUILD.fullmatch(report["build"])))
-            or (version == 3 and (not isinstance(report["worker"], str) or not INCIDENT_BUILD.fullmatch(report["worker"])
+            or type(version) is not int or version not in (1, 2, 3, 4)
+            or (version in (2, 3, 4) and (not isinstance(report["build"], str) or not INCIDENT_BUILD.fullmatch(report["build"])))
+            or (version in (3, 4) and (not isinstance(report["worker"], str) or not INCIDENT_BUILD.fullmatch(report["worker"])
                                   or not isinstance(report["session"], str) or not INCIDENT_SESSION.fullmatch(report["session"])))
             or report["reason"] not in INCIDENT_REASONS or not _incident_box(report["box"])
             or not _incident_integer(report["marked"], 0, 10000000000000)
@@ -790,14 +806,17 @@ def _incident_valid(page: str, report: dict) -> bool:
             or not _incident_integer(report["suppressed"], 0, 1000000000)):
         return False
     entries = report["events"]
-    if not isinstance(entries, list) or not 1 <= len(entries) <= (128 if version == 3 else 40):
+    if not isinstance(entries, list) or not 1 <= len(entries) <= (128 if version >= 3 else 40):
         return False
-    previous = -120000 if version == 3 else -60000
+    previous = -120000 if version >= 3 else -60000
     for entry in entries:
         if (not isinstance(entry, dict) or not {"event", "at", "visible", "online", "resume"} <= entry.keys()
                 or not isinstance(entry["event"], str)
-                or entry["event"] not in (INCIDENT_EVENTS_V3 if version == 3 else INCIDENT_EVENTS)
-                or not _incident_integer(entry["at"], previous, 20000 if version == 3 else 0)):
+                or entry["event"] not in (INCIDENT_EVENTS_V4 if version == 4 else INCIDENT_EVENTS_V3 if version == 3 else INCIDENT_EVENTS)
+                or not _incident_integer(entry["at"], previous, 20000 if version >= 3 else 0)):
+            return False
+        if entry["event"] == "enter" and not {"step", "branch", "base", "inner", "vh", "vt",
+                                                 "scale", "kb", "target", "focus", "draft"} <= entry.keys():
             return False
         previous = entry["at"]
         for name, value in entry.items():
@@ -812,11 +831,20 @@ def _incident_valid(page: str, report: dict) -> bool:
             elif name in INCIDENT_CHOICES:
                 if value not in INCIDENT_CHOICES[name]:
                     return False
-            elif version == 3 and name == "action":
+            elif version >= 3 and name == "action":
                 if value not in INCIDENT_ACTIONS:
                     return False
-            elif version == 3 and name == "part":
+            elif version >= 3 and name == "part":
                 if value not in INCIDENT_PARTS:
+                    return False
+            elif version == 4 and entry["event"] == "enter" and name in INCIDENT_ENTER_NUMBERS:
+                if not _incident_integer(value, 0, INCIDENT_ENTER_NUMBERS[name]):
+                    return False
+            elif version == 4 and entry["event"] == "enter" and name in INCIDENT_ENTER_FLAGS:
+                if type(value) is not bool:
+                    return False
+            elif version == 4 and entry["event"] == "enter" and name in INCIDENT_ENTER_CHOICES:
+                if value not in INCIDENT_ENTER_CHOICES[name]:
                     return False
             elif name in ("box", "selected"):
                 if not _incident_box(value):
@@ -826,7 +854,7 @@ def _incident_valid(page: str, report: dict) -> bool:
                     return False
             else:
                 return False
-    if version == 3:
+    if version >= 3:
         marks = [e for e in entries if e["event"] == "mark"]
         return len(marks) == 1 and marks[0].get("reason") == report["reason"] and marks[0]["at"] == 0
     return entries[-1]["event"] == "mark" and entries[-1].get("reason") == report["reason"]
@@ -2777,7 +2805,7 @@ def _live_section() -> dict:
 def _phone_state(since: int | None, ops: list[str]) -> dict:
     """Callers hold _lock and have swept the clocks."""
     rev = _state.get("rev", 0)
-    out = {"rev": rev, "changed": since is None or since != rev, "now": time.time(), "incidentSchema": 3,
+    out = {"rev": rev, "changed": since is None or since != rev, "now": time.time(), "incidentSchema": 4,
            "live": _live_section()}
     if out["changed"]:
         qpos, seen = {}, {ow: 0 for ow in OWNERS}

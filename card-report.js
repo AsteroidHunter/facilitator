@@ -203,15 +203,16 @@
     const POST_MS = 20000, SPARSE_AGE = 120000;
     const events = new Set(["create", "select", "focus", "send", "operation", "request",
       "render", "stage", "observer", "drawer", "viewport", "lifecycle", "problem", "freeze", "mark",
-      "input", "scroll", "frame", "timer", "phase", "poll"]);
+      "input", "scroll", "frame", "timer", "phase", "poll", "enter"]);
     const v3Events = new Set(["input", "scroll", "frame", "timer", "phase", "poll"]);
     const reasons = new Set(["manual", "slow-ui", "slow-request", "invariant", "problem", "freeze"]);
     const numbers = { ms: 600000, seq: 1000000000, status: 599, serverMs: 600000,
       rev: 1000000000000, boxes: 10000, vh: 10000, vt: 10000, late: 600000,
-      count: 1000000, bytes: 16000000 };
+      count: 1000000, bytes: 16000000, base: 10000, inner: 10000,
+      scale: 1000, keyCode: 255 };
     const flags = new Set(["present", "shown", "title", "titled", "emptyTitle", "editing", "known", "kb", "lifting",
       "editor", "editorReady", "inputReady", "selectedDom", "paneBlank", "loading", "connected", "formatted", "active",
-      "changed", "persisted"]);
+      "changed", "persisted", "shift", "repeat", "composing", "prevented", "draft", "minted"]);
     const choices = { phase: ["start", "end"], route: ["/send", "/create", "/m/state"],
       side: ["left", "right"], source: ["settings", "shortcut"],
       action: ["drawer", "card", "response-scroll", "project", "state"],
@@ -222,7 +223,15 @@
       lifecycle: ["start", "hidden", "visible", "pageshow", "pagehide", "online", "offline"],
       problem: ["error", "rejection", "render", "fetch"],
       stage: ["create-response", "card-insertion", "editor-init", "selected-ready", "title-input"],
-      observer: ["loop-limit", "undelivered"], reason: [...reasons] };
+      observer: ["loop-limit", "undelivered"], reason: [...reasons],
+      step: ["capture", "format", "editor", "handler", "beforeinput", "input"],
+      branch: ["seen", "other-key", "composition", "modifier", "send", "shift", "keyboard",
+        "repeat", "empty", "held", "row-line", "empty-item", "editor", "no-caret",
+        "line-intent", "line-applied"],
+      key: ["Enter", "Unidentified", "Other"],
+      code: ["Enter", "NumpadEnter", "Unidentified", "Other"],
+      target: ["textarea", "editor", "other"], focus: ["textarea", "editor", "other"],
+      inputType: ["insertLineBreak", "insertParagraph"] };
     const routineProblems = new Set(["ResizeObserver loop limit exceeded",
       "ResizeObserver loop completed with undelivered notifications."]);
     const legacyEvents = new Set(["create", "select", "focus", "send", "operation", "request",
@@ -267,7 +276,7 @@
       }
     }
     function sparseKeep(entry, force = false) {
-      if (schema < 3) return;
+      if (schema < 3 && entry.event !== "enter") return;
       const event = entry.event;
       if (!force && event === "request" && (entry.phase !== "end" || (entry.ms || 0) < 1000 && (entry.status || 0) < 400)) return;
       if (!force && event === "render" && (entry.phase !== "end" || (entry.ms || 0) < 50)) return;
@@ -275,7 +284,7 @@
           (entry.phase !== "end" || (entry.ms || 0) < 50)) return;
       if (event === "viewport") return; // coarse viewport state rides the next action or frame anomaly
       const target = event === "lifecycle" ? life
-        : event === "input" || event === "scroll" || event === "frame" || event === "timer" || event === "freeze" || event === "mark" ? important : work;
+        : event === "input" || event === "enter" || event === "scroll" || event === "frame" || event === "timer" || event === "freeze" || event === "mark" ? important : work;
       target.push(entry);
       const limit = target === important ? 60 : target === work ? 40 : 8;
       const cutoff = collecting ? collecting.markAt - SPARSE_AGE : entry.time - SPARSE_AGE;
@@ -385,6 +394,7 @@
       const now = ring.at(-1).time;
       if (schema >= 3) return captureSparse(reason, now, Date.now());
       let recent = ring.filter(e => now - e.time <= AGE);
+      const enterOmitted = recent.some(e => e.event === "enter");
       const permittedEvents = schema === 2 ? v2Events : legacyEvents;
       const permittedFields = schema === 2 ? v2Fields : legacyFields;
       recent = recent.filter(e => permittedEvents.has(e.event) &&
@@ -394,6 +404,7 @@
         box: [...recent].reverse().find(e => e.box)?.box || "",
         lost, suppressed, events: recent.map(({ time, ...e }) => ({ ...e, at: -cap(now - time, AGE) })) };
       if (schema >= 2) report.build = build;
+      Object.defineProperty(report, "_enterOmitted", { value: enterOmitted });
       return report;
     }
     function captureSparse(reason, markAt, marked, fallbackMark = null) {
@@ -414,11 +425,14 @@
           online: navigator.onLine !== false, resume: generation, ...saved });
       }
       recent.sort((a, b) => a.time - b.time);
-      const report = { kind: "incident", v: 3, reason, marked,
+      const enterOmitted = schema < 4 && recent.some(e => e.event === "enter");
+      if (schema < 4) recent = recent.filter(e => e.event !== "enter");
+      const report = { kind: "incident", v: schema, reason, marked,
         box: [...recent].reverse().find(e => e.box)?.box || "", lost: sparseLost, suppressed,
         build, worker, session, events: recent.map(({ time, ...e }) =>
           ({ ...e, at: Math.max(-SPARSE_AGE, Math.min(POST_MS, Math.round(time - markAt))) })) };
       Object.defineProperty(report, "_markAt", { value: markAt });
+      Object.defineProperty(report, "_enterOmitted", { value: enterOmitted });
       // Reserve room for recovery before a busy page can fill the post window.
       fitReport(report, BYTES - 2048, 112);
       return report;
@@ -431,11 +445,14 @@
         post.push({ ...activeRequest.detail, event: "request", phase: "start", seq: activeRequest.seq,
           time: activeRequest.time, visible: activeRequest.visible,
           online: navigator.onLine !== false, resume: activeRequest.generation });
-      const events = [...initial.events, ...post.map(({ time, ...e }) =>
+      const enterOmitted = initial._enterOmitted || initial.v < 4 && post.some(e => e.event === "enter");
+      const savedPost = initial.v < 4 ? post.filter(e => e.event !== "enter") : post;
+      const events = [...initial.events, ...savedPost.map(({ time, ...e }) =>
         ({ ...e, at: Math.max(0, Math.min(POST_MS, Math.round(time - markAt))) }))]
         .sort((a, b) => a.at - b.at);
       const report = { ...initial, worker, lost: Math.max(initial.lost, sparseLost), events };
       Object.defineProperty(report, "_markAt", { value: markAt });
+      Object.defineProperty(report, "_enterOmitted", { value: enterOmitted });
       fitReport(report, BYTES, 128);
       return report;
     }
@@ -446,7 +463,7 @@
         if ((body.length <= maxBytes && report.events.length <= maxEvents) ||
             report.events.length <= 1) return body;
         const lastPost = [...report.events].reverse().find(e => e.at > 0 && e.event !== "mark");
-        const essential = e => ["input", "scroll", "frame", "timer", "freeze"].includes(e.event);
+        const essential = e => ["enter", "input", "scroll", "frame", "timer", "freeze"].includes(e.event);
         let index = -1, rank = Infinity;
         for (let i = 0; i < report.events.length; i++) {
           const e = report.events[i];
@@ -465,7 +482,21 @@
     function bodyOf(report) {
       // The fixed enum/ID alphabet is ASCII. This is also the final bound on a
       // retained retry, after any worker identity added during recovery.
-      return fitReport(report, BYTES, report.v === 3 ? 128 : 40);
+      return fitReport(report, BYTES, report.v >= 3 ? 128 : 40);
+    }
+    function compatibleV3(report) {
+      // A receiver can be rolled back after its last /m/state. Its strict v3
+      // validator rejects the new event, so keep the ordinary incident and
+      // tell the owner that the Enter evidence needs the updated receiver.
+      const omitted = report.events.some(e => e.event === "enter");
+      const newer = new Set(["base", "inner", "scale", "keyCode", "shift", "repeat",
+        "composing", "prevented", "draft", "minted", "step", "branch", "key",
+        "code", "target", "focus", "inputType"]);
+      const compatible = { ...report, v: 3,
+        events: report.events.filter(e => e.event !== "enter").map(e =>
+          Object.fromEntries(Object.entries(e).filter(([key]) => !newer.has(key)))) };
+      Object.defineProperty(compatible, "_enterOmitted", { value: omitted || !!report._enterOmitted });
+      return compatible;
     }
     function permit() {
       const now = performance.now();
@@ -486,12 +517,22 @@
         try {
           const controller = new AbortController();
           timer = setTimeout(() => controller.abort(), SAVE_TIMEOUT);
-          const response = await realFetch.call(window, "/clientlog", { method: "POST",
+          let submitted = held;
+          let response = await realFetch.call(window, "/clientlog", { method: "POST",
             headers: { "content-type": "application/json" }, body: bodyOf(held),
             signal: controller.signal, keepalive: true });
+          if (response.status === 400 && held.v === 4) {
+            // The compatibility write is a real second attempt. It cannot
+            // bypass the same four-per-minute budget as any other save.
+            if (!permit()) { resolve({ status: "limited" }); return; }
+            submitted = compatibleV3(held);
+            response = await realFetch.call(window, "/clientlog", { method: "POST",
+              headers: { "content-type": "application/json" }, body: bodyOf(submitted),
+              signal: controller.signal, keepalive: true });
+          }
           const answer = response.ok ? await response.json() : null;
           if (answer?.ok === true && answer.written === 1 && answer.dropped === 0) {
-            held = null; resolve({ status: "saved" });
+            held = null; resolve({ status: submitted._enterOmitted ? "saved-legacy" : "saved" });
           } else resolve({ status: "failed" });
         } catch (_) { resolve({ status: "failed" }); }
         finally { if (timer !== null) clearTimeout(timer); busy = false; }
@@ -581,7 +622,7 @@
       observerSample: safe(observerSample),
       // Follow every successful reading. A server rolled back under an open
       // page omits the capability, so that page must return to strict v1 too.
-      capability: safe(value => { schema = Number(value) >= 3 ? 3 : Number(value) >= 2 ? 2 : 1; }),
+      capability: safe(value => { schema = Number(value) >= 4 ? 4 : Number(value) >= 3 ? 3 : Number(value) >= 2 ? 2 : 1; }),
       mark: safe(mark, Promise.resolve({ status: "failed" })),
       problem: safe((kind, message) => {
         if (!choices.problem.includes(kind)) return;
