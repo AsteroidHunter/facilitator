@@ -1,4 +1,4 @@
-// What `facilitator install` makes and what `facilitator uninstall` takes back.
+// What `./install.sh` makes and what `facilitator uninstall` takes back.
 //
 // install turns a fresh checkout into a running board in one command, and is
 // safe to run again; uninstall removes exactly what install made and keeps the
@@ -26,7 +26,7 @@ const dirs = [];
 async function freshClone() {
   const dir = await realpath(await mkdtemp(path.join(tmpdir(), "facilitator-cli-install-")));
   dirs.push(dir);
-  for (const name of ["facilitator", "run.config.example.json", "seed.example.json", "requirements.txt"]) {
+  for (const name of ["facilitator", "shell_integration.py", "run.config.example.json", "seed.example.json", "requirements.txt"]) {
     await copyFile(path.join(ROOT, name), path.join(dir, name));
   }
   return dir;
@@ -53,6 +53,7 @@ function loadCli(dir) {
     "import importlib.machinery, importlib.util, io, json, os, subprocess, sys, types, contextlib",
     `loader = importlib.machinery.SourceFileLoader("facilitator_cli", ${JSON.stringify(path.join(dir, "facilitator"))})`,
     "spec = importlib.util.spec_from_loader(loader.name, loader)",
+    `sys.path.insert(0, ${JSON.stringify(dir)})`,
     "cli = importlib.util.module_from_spec(spec)",
     "loader.exec_module(cli)",
   ].join("\n");
@@ -141,7 +142,7 @@ async function run(dir, body, env = {}) {
   try {
     ({ stdout } = await execFileAsync("python3", ["-c", `${loadCli(dir)}\n${body}`], {
       cwd: dir,
-      env: { ...process.env, FACILITATOR_LOG_DIR: path.join(dir, "logs"), ...env },
+      env: { ...process.env, HOME: path.join(dir, "home"), FACILITATOR_LOG_DIR: path.join(dir, "logs"), ...env },
       timeout: 30000,
     }));
   } catch (problem) {
@@ -154,18 +155,18 @@ async function run(dir, body, env = {}) {
 
 const installed = files => files.venv && files.node_modules && files.run_config && files.seed;
 
-test("install and uninstall are commands of their own, in the usage and the dispatch", async () => {
+test("install uses the script while uninstall remains a command", async () => {
   const dir = await freshClone();
   const source = await readFile(path.join(dir, "facilitator"), "utf8");
-  assert.match(source, /^ {2}facilitator install$/m, "install is not in the usage");
+  assert.doesNotMatch(source, /^ {2}facilitator install$/m);
   assert.match(source, /^ {2}facilitator uninstall \[--wipe\]$/m, "uninstall is not in the usage");
-  assert.match(source, /elif cmd == "install":\n\s+cmd_install\(args\)/, "install is not dispatched");
+  assert.match(source, /elif cmd == "_install" and os\.environ\.get\("FACILITATOR_INTERNAL_INSTALL"\)/);
   assert.match(source, /elif cmd == "uninstall":\n\s+cmd_uninstall\(args\)/, "uninstall is not dispatched");
 
   const unknown = await execFileAsync("python3", [path.join(dir, "facilitator"), "nonsense"], { cwd: dir })
     .then(() => null, error => error);
   assert.ok(unknown, "an unknown command was accepted");
-  assert.match(unknown.stderr, /facilitator install/);
+  assert.doesNotMatch(unknown.stderr, /facilitator install/);
   assert.match(unknown.stderr, /facilitator uninstall \[--wipe\]/);
 });
 
@@ -186,7 +187,7 @@ test("install creates the environment, the config and the test deps in one run",
   assert.match(res.out, /config: wrote seed\.json from seed\.example\.json/);
   assert.match(res.out, /node packages: installing puppeteer-core for the tests/);
   assert.match(res.out, /Board installed\. Start it with:/);
-  assert.match(res.out, /\.\/facilitator run/);
+  assert.match(res.out, /facilitator run/);
   assert.match(res.out, /run\.config\.json \(edit it\)/);
 
   const kinds = res.calls.map(c => `${c[0]} ${c[1]}`);
@@ -219,6 +220,18 @@ test("a user's own config is left untouched by install", async () => {
   assert.match(res.out, /config: run\.config\.json present/);
   const kept = JSON.parse(await readFile(path.join(dir, "run.config.json"), "utf8"));
   assert.equal(kept.mine, true, "install overwrote a config the user had already written");
+});
+
+test("uninstall preserves a preexisting config and an edited generated seed", async () => {
+  const dir = await freshClone();
+  await writeFile(path.join(dir, "run.config.json"), '{"mine":true}');
+  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
+  await writeFile(path.join(dir, "seed.json"), '{"edited":true}');
+  const result = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
+  assert.equal(await readFile(path.join(dir, "run.config.json"), "utf8"), '{"mine":true}');
+  assert.equal(await readFile(path.join(dir, "seed.json"), "utf8"), '{"edited":true}');
+  assert.match(result.out, /kept run\.config\.json/);
+  assert.match(result.out, /kept changed seed\.json/);
 });
 
 test("without node, the test deps are skipped and named as such", async () => {

@@ -1,3 +1,11 @@
+## Install
+
+From a clone, run `./install.sh`. It checks Python, sets up the local environment,
+and adds `facilitator` to your shell. Open a new terminal after installation,
+then use `facilitator run`, `facilitator restart`, `facilitator status`, or
+`facilitator bridge`. Remove the installation with `facilitator uninstall`
+(or `./uninstall.sh`); `--wipe` also removes board data.
+
 ## License
 
 This project is released under the [Facilitator License 1.0.0](LICENSE.md). Contributions are accepted under the terms in [CONTRIBUTING.md](CONTRIBUTING.md).
