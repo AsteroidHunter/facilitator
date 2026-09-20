@@ -17,6 +17,7 @@ async function fixture() {
   for (const file of ['facilitator', 'shell_integration.py', 'install.sh', 'requirements.txt', 'run.config.example.json', 'seed.example.json'])
     await fs.copyFile(path.join(root, file), path.join(repo, file));
   const env = { ...process.env, HOME: home, SHELL: '/bin/zsh', PATH: '/usr/bin:/bin' };
+  for (const name of ['ZDOTDIR', 'BASH_ENV', 'ENV']) delete env[name];
   return { dir, home, repo, env, async clean() { await fs.rm(dir, { recursive: true, force: true }); } };
 }
 async function integration(f, op, env = f.env) {
