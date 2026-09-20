@@ -16,7 +16,7 @@ const PYTHON = process.env.FACILITATOR_TEST_PYTHON || "python3";
 const SHOTS = process.env.M710_SHOTS || path.join(tmpdir(), "facilitator-default-layout-shots");
 const REGIONS = ["clockbox", "tickets", "magic1", "magic2", "magic3", "magic4", "goalbox", "rail", "main"];
 const FOUR = ["clockbox", "tickets", "magic1", "main"];
-let fixtureDir, origin, child, browser;
+let fixtureDir, origin, child, browser, firstProject;
 
 async function freePort(){
   const server = createServer();
@@ -122,8 +122,8 @@ test("fresh and newly opened projects show four regions; a restored region persi
   try {
     await assertVisible(page, FOUR);
     await page.screenshot({ path:path.join(SHOTS, "fresh-board.png") });
-    const newOwner = await makeProject("Fresh Project");
-    await selectProject(page, newOwner);
+    firstProject = await makeProject("Fresh Project");
+    await selectProject(page, firstProject);
     await assertVisible(page, FOUR);
     await page.screenshot({ path:path.join(SHOTS, "new-project.png") });
     await page.click("#editbtn");
@@ -148,6 +148,8 @@ test("existing browser keeps visible regions while its future project gets the n
   try {
     await assertVisible(page, ["clockbox", "tickets", "magic1", "magic3", "goalbox", "rail", "main"]);
     await page.screenshot({ path:path.join(SHOTS, "legacy-board.png") });
+    await selectProject(page, firstProject);
+    await assertVisible(page, FOUR);
     const laterOwner = await makeProject("Later Project");
     await selectProject(page, laterOwner);
     await assertVisible(page, FOUR);

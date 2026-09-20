@@ -9383,10 +9383,21 @@ function seedHiddenOnce(){
 
 const DEFAULT_HIDDEN_REGIONS = new Set(["rail", "magic2", "magic3", "magic4", "goalbox"]);
 const VISIBILITY_MIGRATION = "layoutvisibility.1";
+function hadLegacyVisibility(owner){
+  if (owner === "facilitator" || localStorage.getItem("activeproj") === owner ||
+      localStorage.getItem("tikview." + owner) || localStorage.getItem("activepage." + owner))
+    return true;
+  for (const id of ["main", "clockbox", "rail", "tickets", "magic1", "magic2", "magic3", "magic4", "goalbox"]){
+    if (["pos", "size", "hide"].some(kind => localStorage.getItem(kind + "." + owner + "." + id)))
+      return true;
+  }
+  return false;
+}
 function migrateLegacyVisibility(){
   if (localStorage.getItem(VISIBILITY_MIGRATION)) return;
   if (HAD_LEGACY_LAYOUT){
     for (const owner of validActiveOwnerIds){
+      if (!hadLegacyVisibility(owner)) continue;
       for (const id of DEFAULT_HIDDEN_REGIONS){
         if (!localStorage.getItem("hide." + owner + "." + id))
           localStorage.setItem("show." + owner + "." + id, "1");
