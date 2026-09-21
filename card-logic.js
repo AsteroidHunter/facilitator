@@ -230,42 +230,66 @@ function paintViewTabs(){
     if (b) b.classList.toggle("on", name === view);
   }
 }
-// the tab change carries the freshly drawn list in on an ordered slide: doing,
-// deferred and done are indices 0..2, so pressing a LATER tab brings the new
-// group in from the left so the contents travel rightward, and pressing an
-// EARLIER tab brings it in from the right so they travel leftward. only the row
-// column (#tikslide) inside the clipped well is moved, so the well and the pill
-// above hold still. a same-tab press, a missing wrapper or reduced motion make
-// the swap instant, and nothing calls this on a poll, so ordinary updates and
-// the first render never read as a tab change. rapid presses cancel the last
-// slide so no transform is left stuck. the 220ms curve is the list's own, the
-// one its rows already glide on.
-let tikSlideAnim = null;
-function slideTicketList(prevView, nextView){
-  const from = TICKET_VIEWS.indexOf(prevView), to = TICKET_VIEWS.indexOf(nextView);
-  if (from < 0 || to < 0 || from === to) return;
-  const slide = document.getElementById("tikslide");
-  if (!slide || typeof slide.animate !== "function") return;
-  if (window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  const enter = to > from ? "-100%" : "100%";   // later tab enters from the left, moving right
-  if (tikSlideAnim) tikSlideAnim.cancel();
-  tikSlideAnim = slide.animate(
-    [{ transform: "translateX(" + enter + ")" }, { transform: "none" }],
-    { duration: 220, easing: "cubic-bezier(0.25, 1, 0.5, 1)" });
-  tikSlideAnim.addEventListener("finish", () => { tikSlideAnim = null; });
-  tikSlideAnim.addEventListener("cancel", () => { tikSlideAnim = null; });
+// doing, deferred and done are three adjacent sections of one horizontal sheet
+// under the fixed, clipped well: section i rests at translateX(-i*100%). Pressing
+// a tab to the right moves the sheet left so the next section enters from the
+// right, pressing one to the left reverses it, and a two-section jump travels
+// visibly across the middle section. Only #tiksheet moves; the labels, the pill
+// and the well hold still. A poll, a project change and the first render place
+// the sheet with no motion (moveTicketSheet(view, false)), and reduced motion
+// jumps too; only a tab press animates. A press reads the sheet's live position
+// and redirects from exactly there, so a reversal mid-travel never resets.
+const TIK_TRAVEL_PER = 0.24, TIK_TRAVEL_MAX = 0.62;   // seconds per section, and the cap
+const TIK_EASE = "cubic-bezier(.42,.06,.38,1)";       // the board's --gentle
+let tikSheetAnim = null;
+let tikShownView = null;      // the section the sheet rests at or is travelling to
+let tikTravelIntent = null;   // set while a tab press commits, so a render does not jump the sheet
+
+// the sheet's live translateX in sections (1 == one section to the left), read
+// off the composited transform so a redirect begins where the eye sees it
+function tikSheetSection(sheet){
+  const t = getComputedStyle(sheet).transform;
+  const m = t && t.match(/matrix\(([^)]+)\)/);
+  if (!m) return 0;
+  const tx = parseFloat(m[1].split(",")[4]) || 0;
+  const w = sheet.getBoundingClientRect().width || 1;
+  return -tx / w;
 }
-// the doing, deferred and done tabs are a filter over the lane's pool. the left
-// list and the arrow keys have to walk the same set, or the arrows cycle into
-// cards the list is not showing
-function viewFilter(b){
+function moveTicketSheet(view, animate){
+  const sheet = document.getElementById("tiksheet");
+  if (!sheet) return;
+  const i = Math.max(0, TICKET_VIEWS.indexOf(view));
+  const targetPct = -i * 100;
+  const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!animate || reduce || typeof sheet.animate !== "function"){
+    if (tikSheetAnim){ tikSheetAnim.cancel(); tikSheetAnim = null; }
+    sheet.style.transform = "translateX(" + targetPct + "%)";
+    tikShownView = view;
+    return;
+  }
+  const fromPct = -tikSheetSection(sheet) * 100;   // live, before the cancel below
+  if (tikSheetAnim) tikSheetAnim.cancel();
+  sheet.style.transform = "translateX(" + targetPct + "%)";   // the resting state after the run
+  const dist = Math.abs(i - (-fromPct / 100)) || 1;
+  const dur = Math.min(TIK_TRAVEL_MAX, TIK_TRAVEL_PER * dist) * 1000;
+  tikSheetAnim = sheet.animate(
+    [{ transform: "translateX(" + fromPct + "%)" }, { transform: "translateX(" + targetPct + "%)" }],
+    { duration: dur, easing: TIK_EASE });
+  tikSheetAnim.addEventListener("finish", () => { tikSheetAnim = null; });
+  tikShownView = view;
+}
+// the doing, deferred and done sections filter the lane's pool. the arrow keys
+// walk the current section's set, and each pane is drawn from its own section, so
+// the three are computed by view rather than off the one current read
+function viewFilterFor(b, view){
   const s = cardState(b);
-  const view = curView();
   return view === "done" ? s === "done"
        : view === "deferred" ? s === "parked"
        : (s !== "done" && s !== "parked");
 }
-function viewPool(state){ return poolOf(state).filter(viewFilter); }
+function viewFilter(b){ return viewFilterFor(b, curView()); }
+function viewPoolFor(state, view){ return poolOf(state).filter(b => viewFilterFor(b, view)); }
+function viewPool(state){ return viewPoolFor(state, curView()); }
 
 function poolOf(state){
   const keep = poolScope ? poolScope(state) : null;

@@ -66,18 +66,16 @@ function functionSource(html, name, nextName) {
   return html.slice(start, end);
 }
 
-function rendererFrom(html, clock) {
+// page.html is the document view and keeps its single-list renderCarousel, so it
+// is exercised whole. index.html now draws each of the three sheet sections with
+// paintTicketPane, which owns the scroll keep and the reveal guard, so that one
+// function is exercised for the board.
+function pageRendererFrom(html, clock) {
   const tiklist = new FakeElement("div");
-  // the board's renderer now appends the rows into a #tikslide column inside the
-  // well, so the well can hold still while a tab change slides that column. the
-  // page view keeps its rows directly in #tiklist, so #tikslide stays empty and
-  // unused there. the test reads whichever of the two ends up holding the rows.
-  const tikslide = new FakeElement("div");
   const chips = new FakeElement("div");
   const document = {
     getElementById(id) {
       if (id === "tiklist") return tiklist;
-      if (id === "tikslide") return tikslide;
       if (id === "chips") return chips;
       throw new Error(`unexpected element id: ${id}`);
     },
@@ -85,9 +83,6 @@ function rendererFrom(html, clock) {
   const h = (tag, className, text) => new FakeElement(tag, className, text);
   const DateStub = { now: () => clock.now };
   const source = functionSource(html, "renderCarousel", "ord");
-  // the chosen view is one per project now: the renderer asks curView() for the
-  // open project's own, and paints the three buttons from the same answer. this
-  // test is about the list's scroll position, so the paint is a stub
   const renderCarousel = new Function(
     "document", "Date", "curWs", "poolOf", "viewFilter", "queueState",
     "cardState", "h", "seenReplies", "shortAge", "syncSpinner",
@@ -99,47 +94,67 @@ function rendererFrom(html, clock) {
     ["|", "/", "-", "\\"], 0, "facilitator", () => "todo", () => {},
     "m1", null,
   );
-  return { renderCarousel, tiklist, tikslide };
+  return { renderCarousel, tiklist };
+}
+function paneRendererFrom(html, clock) {
+  const pane = new FakeElement("div");
+  const h = (tag, className, text) => new FakeElement(tag, className, text);
+  const DateStub = { now: () => clock.now };
+  const source = functionSource(html, "paintTicketPane", "renderCarousel");
+  const paintTicketPane = new Function(
+    "Date", "queueState", "cardState", "h", "seenReplies", "shortAge",
+    "SPIN_FRAMES", "spinFrame", "curView", "selectedId", "selectedTask",
+    `${source}; return paintTicketPane;`,
+  )(
+    DateStub, () => "queued", () => "queued", h, {}, () => "1m",
+    ["|", "/", "-", "\\"], 0, () => "todo", "m1", null,
+  );
+  return { paintTicketPane, pane };
 }
 
+function pool(clock) {
+  return Array.from({ length: 20 }, (_, index) => ({
+    id: `m${index + 1}`, owner: "facilitator", ball: "me", writing: false, bg: false,
+    done: false, pending: 0, task: "", title: `Card ${index + 1}`, agentTs: clock.now / 1000 - 30,
+  }));
+}
+
+test("page.html leaves manual ticket-list scrolling alone on a routine repaint", async () => {
+  const html = await readFile(path.join(ROOT, "page.html"), "utf8");
+  const clock = { now: 1_000_000 };
+  const { renderCarousel, tiklist } = pageRendererFrom(html, clock);
+  const state = { agents: { facilitator: { name: "facilitator", alive: true } }, boxes: pool(clock) };
+  renderCarousel(state);
+  assert.equal(tiklist.scrollCalls, 1, "the first render must reveal its selected row");
+  tiklist.scrollCalls = 0;
+  tiklist.scrollTop = 320;
+  const firstSignature = tiklist.dataset.sig;
+  clock.now += 61_000;
+  renderCarousel(state);
+  assert.notEqual(tiklist.dataset.sig, firstSignature, "the age boundary must force a repaint");
+  assert.equal(tiklist.scrollCalls, 0, "a routine repaint must not reveal the selected row");
+  assert.equal(tiklist.scrollTop, 320, "the user's list position must stay unchanged");
+});
+
+test("index.html keeps a section's scroll on a routine repaint and reveals only on select", async () => {
+  const html = await readFile(path.join(ROOT, "index.html"), "utf8");
+  const clock = { now: 1_000_000 };
+  const { paintTicketPane, pane } = paneRendererFrom(html, clock);
+  const state = { agents: { facilitator: { name: "facilitator", alive: true } } };
+  const cards = pool(clock);   // one fixed pool, so advancing the clock crosses an age boundary
+  paintTicketPane(pane, cards, "todo", state, "facilitator|true");
+  assert.equal(pane.scrollCalls, 1, "the first render of a section reveals its selected row");
+  pane.scrollCalls = 0;
+  pane.scrollTop = 320;
+  const firstSignature = pane.dataset.sig;
+  clock.now += 61_000;
+  paintTicketPane(pane, cards, "todo", state, "facilitator|true");
+  assert.notEqual(pane.dataset.sig, firstSignature, "the age boundary must force a repaint");
+  assert.equal(pane.scrollCalls, 0, "a routine repaint must not reveal the selected row");
+  assert.equal(pane.scrollTop, 320, "the reader's scroll within the section is kept");
+});
+
 for (const pageName of ["index.html", "page.html"]) {
-  test(`${pageName} leaves manual ticket-list scrolling alone on a routine repaint`, async () => {
-    const html = await readFile(path.join(ROOT, pageName), "utf8");
-    const clock = { now: 1_000_000 };
-    const { renderCarousel, tiklist, tikslide } = rendererFrom(html, clock);
-    const state = {
-      agents: { facilitator: { name: "facilitator", alive: true } },
-      boxes: Array.from({ length: 20 }, (_, index) => ({
-        id: `m${index + 1}`,
-        owner: "facilitator",
-        ball: "me",
-        writing: false,
-        bg: false,
-        done: false,
-        pending: 0,
-        task: "",
-        title: `Card ${index + 1}`,
-        agentTs: clock.now / 1000 - 30,
-      })),
-    };
-
-    renderCarousel(state);
-    // the rows land in #tikslide on the board and in #tiklist on the page; the
-    // one holding them is the scroller whose position the reveal acts on
-    const rows = tikslide.children.length ? tikslide : tiklist;
-    assert.equal(rows.scrollCalls, 1, "the first render must reveal its selected row");
-    rows.scrollCalls = 0;
-    rows.scrollTop = 320;
-    const firstSignature = tiklist.dataset.sig;
-
-    clock.now += 61_000;
-    renderCarousel(state);
-
-    assert.notEqual(tiklist.dataset.sig, firstSignature, "the age boundary must force a repaint");
-    assert.equal(rows.scrollCalls, 0, "a routine repaint must not reveal the selected row");
-    assert.equal(rows.scrollTop, 320, "the user's list position must stay unchanged");
-  });
-
   test(`${pageName} still reveals a row when the user explicitly selects it`, async () => {
     const html = await readFile(path.join(ROOT, pageName), "utf8");
     const source = functionSource(html, "select", "updatePwd");

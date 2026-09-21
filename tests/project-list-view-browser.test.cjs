@@ -114,7 +114,15 @@ const openPageView = storage => openPage("/page", DESK, storage);
 // the button standing lit, the rows the list is showing, and the set the arrow
 // keys walk: the three that have to agree
 const litButton = page => page.$$eval("#tikhead .tvb.on", buttons => buttons.map(b => b.textContent));
-const rowTitles = page => page.$$eval("#tiklist .trow .ttl", rows => rows.map(r => r.textContent));
+// the board and phone now draw all three sections of the sheet at once, so the
+// rows on show are the current section's pane; the page's document view keeps its
+// single hidden list. read whichever holds the shown view's cards.
+const rowTitles = page => page.evaluate(() => {
+  const sheet = document.getElementById("tiksheet");
+  const view = typeof curView === "function" ? curView() : null;
+  const scope = sheet && view ? sheet.querySelector('.tikpane[data-view="' + view + '"]') : document.getElementById("tiklist");
+  return scope ? [...scope.querySelectorAll(".trow .ttl")].map(r => r.textContent) : [];
+});
 const walkTitles = page => page.evaluate(() => viewPool(lastState).map(b => b.title));
 const openTab = page => page.evaluate(() => activeOwner);
 const stored = (page, owner) => page.evaluate(key => localStorage.getItem(key), "tikview." + owner);
