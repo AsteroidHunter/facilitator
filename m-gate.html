@@ -36,7 +36,8 @@
   .name{font:650 22px/1.1 var(--inter)}
   .version{font:12px/1.4 var(--mono); color:var(--sub); margin-top:4px}
 
-  /* the staged reveal, unchanged in order and timing */
+  /* the staged reveal: the identity fades in together, then the card and each
+     step and the footer in turn, one every four tenths of a second */
   .identity img,.name,.version,.card,.browser-link{opacity:0; transition:opacity .36s ease}
   .identity img.shown,.name.shown,.version.shown,.card.shown,.browser-link.shown{opacity:1}
 
@@ -191,9 +192,12 @@
   if (installed) showLogin();
   else {
     const reveal = (selector, at) => setTimeout(() => document.querySelector(selector)?.classList.add('shown'), reduced ? 0 : at);
-    reveal('.identity img',0); reveal('.name',120); reveal('.version',240); reveal('.install-face .card',450);
-    document.querySelectorAll('.step').forEach((row,i) => setTimeout(() => row.classList.add('shown'), reduced ? 0 : 1000 + i*560));
-    reveal('.browser-link', reduced ? 0 : 1000 + 4*560 + 900);
+    const gap = 400;
+    reveal('.identity img',0); reveal('.name',0); reveal('.version',0);
+    reveal('.install-face .card', gap);
+    const steps = document.querySelectorAll('.step');
+    steps.forEach((row,i) => setTimeout(() => row.classList.add('shown'), reduced ? 0 : gap*2 + i*gap));
+    reveal('.browser-link', gap*2 + steps.length*gap);
   }
   document.getElementById('use-browser').addEventListener('click', event => { event.preventDefault(); showLogin(); });
   document.getElementById('login-form').addEventListener('submit', async event => {
