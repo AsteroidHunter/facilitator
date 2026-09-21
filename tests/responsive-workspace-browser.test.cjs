@@ -112,7 +112,16 @@ test("a region a user dragged low is still fully visible after fitting", async (
   } finally { await context.close(); }
 });
 
-test("leaving fullscreen refits at constant width, though a bare height shrink stays frozen", async () => {
+test("leaving fullscreen refits at constant width, though a bare height shrink stays frozen", {
+  // This test drives the REAL Fullscreen API. Against the shared background Chrome
+  // (connect mode) the browser-testing policy forbids any real fullscreen, so skip
+  // it explicitly with a reported reason rather than letting it attempt fullscreen
+  // and silently pass when refused. The same-width refit is covered without any
+  // real fullscreen by tests/native-fullscreen-refit-browser.test.cjs.
+  skip: process.env.FACILITATOR_CDP_ENDPOINT
+    ? "connect mode forbids the real Fullscreen API; covered by native-fullscreen-refit-browser"
+    : false,
+}, async () => {
   // The user leaves native macOS fullscreen at the same window width and only the
   // height drops. A plain same-width resize is frozen on purpose, so the refit
   // must come from the fullscreen signal. Here we drive the Fullscreen API, which
