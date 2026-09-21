@@ -1830,9 +1830,23 @@
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   .trow .ta{flex:none; font:10px var(--mono); color:var(--sub)}
   .trow.working{background:#F3FFF0; border-color:#C4D9BB}
-  .trow.yours{background:#FEFFEB; border-color:#E8DCAE}
+  .trow.yours{background:#FFFBEB; border-color:#E8DCAE}
   .trow.queuedc{background:#F7F7F7; border-color:#CDD4DE}
   .trow.donec{opacity:.55}
+  /* the ready-to-test fill: a distinct cool wash for a card whose delivered
+     change is available for the reader to try. The neutral hairline is the same
+     cool line the queued/parked rows carry, and it steps aside for the selected
+     border so selection still reads. background sits after .trow.match below so
+     the marker wins the fill. */
+  .trow.testc:not(.on){border-color:#CDD4DE}
+  /* Your-turn staleness: a visibly yellow card desaturates in step jumps at 4 /
+     8 / 16 / 32 minutes since it became the reader's turn, so how long it has
+     waited is glanceable. The renderer adds a tier only to yellow rows, never to
+     working, queued, done or ready-to-test. */
+  .trow.stale-1{filter:saturate(.75)}
+  .trow.stale-2{filter:saturate(.5)}
+  .trow.stale-3{filter:saturate(.25)}
+  .trow.stale-4{filter:saturate(0)}
   .trow.on{
     border-color:var(--line-strong);
     /* the selected row rises off the list: the chat frame's own shadow shape,
@@ -2992,6 +3006,9 @@
     border:1px solid var(--line-strong); background:#E9ECEF}
   /* selecting a task highlights its chats in the left box */
   .trow.match{background:var(--accent-soft); border-color:#C9C2F2}
+  /* the ready-to-test fill wins over every state and the task-match wash, so a
+     card marked ready stays recognizable whichever list it sits in */
+  .trow.testc{background:#EBEFFF}
   /* ---- the rail: started date, dotted track, red goal dot --------------- */
   body.focus #rail{
     position:fixed;
@@ -9064,6 +9081,9 @@ function paintTicketPane(pane, pool, view, state, laneSig){
               pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
                       ((seenReplies[b.id] || 0) >= (b.replies || 0) ? "r" : "") +
                       (b.id === selectedId ? "!" : "") + (b.task || "") + b.title +
+                      // the marker and the staleness tier ride the signature so a
+                      // mark, a clear or a crossed age boundary repaints the row
+                      (testReady(b) ? "T" : "") + "S" + staleTier(b, Date.now()) +
                       Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",") +
               "|" + selectedTask;
   if (pane.dataset.sig === sig) return;
@@ -9081,15 +9101,23 @@ function paintTicketPane(pane, pool, view, state, laneSig){
     // falls in with yours or queued by where the ball sits
     const busy = s === "working" || (s === "done" && cardState({ ...b, done: false, parked: false, state: null }) === "working");
     const read = seenReplies[b.id] || 0;
+    const isYours = s === "yours" || (s === "new" && b.ball === "you");
+    const isMatch = selectedTask && b.task === selectedTask;
+    const isTest = testReady(b);
+    // only a visibly yellow row ages: never the ready-to-test wash or a task-match highlight
+    const tier = (isYours && !isTest && !isMatch) ? staleTier(b, Date.now()) : 0;
     const r = h("div", "trow" + (b.id === selectedId ? " on" : "") + (busy ? " working" : "") +
                 (s === "yours" && read >= (b.replies || 0) ? " seen" : "") +
-                (s === "yours" || (s === "new" && b.ball === "you") ? " yours" : "") +
+                (isYours ? " yours" : "") +
                 (s === "queued" || (s === "new" && b.ball !== "you") ? " queuedc" : "") +
                 (s === "done" ? " donec" : "") +
-                (selectedTask && b.task === selectedTask ? " match" : ""));
+                (isMatch ? " match" : "") +
+                (isTest ? " testc" : "") +
+                (tier ? " stale-" + tier : ""));
     const inner = h("div", "trowin");
     const ttl = h("div", "ttl", b.title);
-    if (/^[0-9]/.test(b.id)) ttl.prepend(h("span", "tnum", b.id));
+    const num = ticketNum(b.id);
+    if (num) ttl.prepend(h("span", "tnum", num));
     inner.appendChild(ttl);
     const meta = h("div", "tmeta");
     meta.appendChild(h("span", "tage", busy ? SPIN_FRAMES[spinFrame] : s === "done" ? "done" : shortAge(b.agentTs)));
