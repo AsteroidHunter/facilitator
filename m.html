@@ -764,24 +764,45 @@
   /* a finger is followed frame by frame, so the moving layers are not timed */
   body.menudrag #scrim, body.menudrag #page, body.menudrag #drawer, body.menudrag #settings,
   body.menudrag #drawer::after, body.menudrag #settings::after{transition:none}
-  #tikhead{flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 8px 0; border-bottom:1px solid var(--line)}
-  /* the drawer tabs ARE the project tabs, the same reuse the bar makes: every
-     .ptab rule above applies here, the 7px top corners and the bottom notch with
-     them, and only what this row keeps is said again. the seat, because the list
-     under this head is the panel's own white and not the bar's paper; three equal
-     segments across the width; height auto over the bar's fixed 39; the 6 and 5
-     of padding the segments carried; and the 1px drop the head's own seat line
-     needs, which the bar's tabs do not since they seat on the bar's foot */
-  #tikhead .tvb{flex:1; --seat:var(--card); height:auto; padding:6px 0 5px; top:1px}
-  .tikadd{flex:none; align-self:center; width:28px; height:28px; padding:0; margin-left:4px;
+  #tikhead{flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 8px 0; border-bottom:none}
+  /* the drawer tabs reuse the project tabs for type and spacing, three equal
+     segments beside the plus, but they no longer draw the seated-tab shape: the
+     selected name sits in its own depressed pill and the two unselected names
+     stay bare, so top:0 seats the pill on the names' baseline and only colour
+     moves under a tap. */
+  #tikhead .tvb{flex:1; --seat:var(--card); height:auto; padding:6px 0 5px; top:0; transition:color .18s}
+  /* the selected name's depressed pill: white fill, the drawer's hairline and
+     the shared sunk shade, at the same depth as the recessed list well. the
+     seated-tab notches the .ptab rules would draw are struck. */
+  #tikhead .tvb.on{
+    color:var(--ink); background:var(--card);
+    border:1px solid var(--line); border-radius:7px;
+    box-shadow:var(--sunk-deep);
+  }
+  #tikhead .tvb.on::before, #tikhead .tvb.on::after{display:none}
+  /* the new-card plus is a phone-only affordance the board makes with a key. it
+     sits in its own thin strip above the names rather than in their row, so the
+     three names keep the full width, doing flush left and done flush right like
+     the board, and it never overlaps the list below. */
+  #tiktop{flex:none; display:flex; align-items:center; justify-content:flex-end; padding:4px 8px 0}
+  .tikadd{flex:none; width:28px; height:28px; padding:0;
     font:500 15px/1 var(--mono); color:var(--ink); background:none; border:none; cursor:pointer; opacity:.75}
   /* the plus while the card it was pressed for is still being made: it breathes
      until the board answers, and a second press meanwhile is the same press */
   .tikadd.pending{animation:tikpulse 1s ease-in-out infinite}
   @keyframes tikpulse{0%,100%{opacity:.25} 50%{opacity:.85}}
   .tiknote{font:italic 12.5px var(--sans); color:#7A2E1B; padding:8px 12px}
-  #tiklist{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; display:flex; flex-direction:column;
-    gap:6px; padding:10px 8px}
+  /* the list well: a recessed white rectangle set in a little from the drawer's
+     own edges, at the same depth as the pill above, with a strip of the drawer
+     between them. it clips the row column so a tab slide is bounded by the well
+     and the pill never moves. #tikslide is that column; the slide only ever
+     transforms it, never this well. */
+  #tiklist{flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch;
+    position:relative; display:flex; flex-direction:column;
+    margin:7px 8px 8px;
+    background:var(--card); border:1px solid var(--line); border-radius:7px; box-shadow:var(--sunk-deep);
+    padding:10px 8px}
+  #tikslide{display:flex; flex-direction:column; flex:0 0 auto; gap:6px}
   .trow{
     position:relative; flex:none; height:52px;
     border:1px solid var(--line); border-radius:5px; background:#fff;
@@ -996,13 +1017,15 @@
 <div id="scrim"></div>
 
 <aside id="drawer" aria-label="cards" data-side="left">
+  <div id="tiktop">
+    <button id="tikadd" class="tikadd" type="button" title="new card" aria-label="new card">+</button>
+  </div>
   <div id="tikhead">
     <button id="tv-todo" class="ptab tvb on" type="button">doing</button>
     <button id="tv-deferred" class="ptab tvb" type="button">deferred</button>
     <button id="tv-done" class="ptab tvb" type="button">done</button>
-    <button id="tikadd" class="tikadd" type="button" title="new card" aria-label="new card">+</button>
   </div>
-  <div id="tiklist"></div>
+  <div id="tiklist"><div id="tikslide"></div></div>
 </aside>
 
 <aside id="settings" aria-label="settings" data-side="right">
@@ -2284,6 +2307,7 @@ function applySelection(state){
 // ---- the drawer's list, the desktop's ticket panel ----------------------------------
 function renderTickets(state, action = "state"){
   const tik = document.getElementById("tiklist");
+  const slide = document.getElementById("tikslide") || tik;   // the row column the well clips and the tab slide moves
   // this project's own tab, never the last project's: the buttons and the rows
   // below are drawn from the one read
   const view = curView();
@@ -2298,7 +2322,7 @@ function renderTickets(state, action = "state"){
   if (tik.dataset.sig === sig) return;
   const ticketTrace = tracePhone("begin", "phase", { action, part: "tickets" });
   tik.dataset.sig = sig;
-  tik.textContent = "";
+  slide.textContent = "";
   for (const b of pool){
     const s = queueState(b);
     const busy = s === "working" || (s === "done" && cardState({ ...b, done: false, parked: false, state: null }) === "working");
@@ -2320,9 +2344,9 @@ function renderTickets(state, action = "state"){
     r.appendChild(inner);
     r.dataset.id = b.id;
     r.addEventListener("click", () => { select(b.id); closeDrawer(); });
-    tik.appendChild(r);
+    slide.appendChild(r);
   }
-  if (!pool.length) tik.appendChild(h("div", "tempty", view === "done" ? "no done chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here"));
+  if (!pool.length) slide.appendChild(h("div", "tempty", view === "done" ? "no done chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here"));
   syncSpinner();
   endPhoneTrace(ticketTrace, { action, part: "tickets" });
 }
@@ -2330,10 +2354,12 @@ function renderTickets(state, action = "state"){
 // another project keeps whatever view was chosen for it, and one that has never
 // been given a view opens on doing
 function setView(v){
+  const prev = curView();   // the view showing before the tap, for the slide direction
   if (!setTicketViewOf(activeOwner, v)) return;
   cancelAutoNext();
   paintViewTabs();
   if (lastState) renderTickets(lastState);
+  slideTicketList(prev, v);   // a real tab change carries the fresh list in; polls do not
 }
 document.getElementById("tv-todo").addEventListener("click", () => setView("todo"));
 document.getElementById("tv-deferred").addEventListener("click", () => setView("deferred"));

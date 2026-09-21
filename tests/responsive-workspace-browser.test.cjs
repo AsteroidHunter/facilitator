@@ -370,3 +370,93 @@ test("an unsent draft, the selected card and focus survive wide -> portrait -> w
     assert.equal(backState.selbox, wideState.selbox, "the same card is still selected");
   } finally { await context.close(); }
 });
+
+// What the real pointer hits at a selector's center: the element on top there,
+// whether it is the scrim, and whether it belongs to the drawer. A DOM .click()
+// dispatches to the element no matter what covers it, so it cannot see a scrim
+// painting over the drawer; document.elementFromPoint and a real mouse click can.
+async function hitInfo(page, selector) {
+  return page.evaluate(sel => {
+    const el = document.querySelector(sel);
+    const r = el.getBoundingClientRect();
+    const x = Math.round(r.left + r.width / 2), y = Math.round(r.top + r.height / 2);
+    const top = document.elementFromPoint(x, y);
+    return { x, y, top: top ? (top.id || top.className) : null,
+      isScrim: !!(top && top.id === "respscrim"),
+      inDrawer: !!(top && top.closest && top.closest("#tickets")) };
+  }, selector);
+}
+const wait = (page, ms) => page.evaluate(t => new Promise(r => setTimeout(r, t)), ms);
+
+test("in portrait a real pointer reaches the drawer's tabs and rows, not the scrim", async () => {
+  // two extra cards so a row that is not already selected exists to click
+  await fx.post("/create?owner=facilitator", "Hit-test card A");
+  await fx.post("/create?owner=facilitator", "Hit-test card B");
+  const { context, page } = await fx.openBoard(null, { width: 560, height: 1000 });
+  try {
+    await page.waitForFunction(() => document.body.dataset.respMode === "portrait");
+    await page.waitForFunction(() => document.querySelectorAll("#tiklist .trow").length >= 2);
+
+    // open the drawer with a real click on the app-bar button
+    const btn = await hitInfo(page, "#respdrawerbtn");
+    await page.mouse.click(btn.x, btn.y);
+    await wait(page, 340);
+    assert.equal((await portraitSnap(page)).tickets.x, 0, "the drawer did not open on a real click");
+
+    // an opaque drawer surface: the conversation must not bleed through the strip
+    const bg = await page.evaluate(() => getComputedStyle(document.getElementById("tickets")).backgroundColor);
+    assert.notEqual(bg, "rgba(0, 0, 0, 0)", "the portrait drawer must have an opaque background");
+
+    // the scrim must not be the pointer target over the drawer's own controls
+    const tabHit = await hitInfo(page, "#tv-deferred");
+    assert.ok(tabHit.inDrawer && !tabHit.isScrim, "a drawer tab is covered by the scrim: " + JSON.stringify(tabHit));
+    const rowHit = await hitInfo(page, "#tiklist .trow");
+    assert.ok(rowHit.inDrawer && !rowHit.isScrim, "a drawer row is covered by the scrim: " + JSON.stringify(rowHit));
+
+    // a real click on the deferred tab switches the group (a scrim would eat it)
+    await page.mouse.click(tabHit.x, tabHit.y);
+    await wait(page, 320);
+    assert.equal(await page.evaluate(() => curView()), "deferred", "a real tab click did not switch the group");
+
+    // back to doing, then a real click on an unselected row selects that card and
+    // closes the drawer, rather than the scrim merely dismissing it
+    const todoHit = await hitInfo(page, "#tv-todo");
+    await page.mouse.click(todoHit.x, todoHit.y);
+    await wait(page, 320);
+    const target = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll("#tiklist .trow")];
+      const pick = rows.find(r => r.dataset.id !== selectedId) || rows[0];
+      const rect = pick.getBoundingClientRect();
+      return { id: pick.dataset.id, x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+    });
+    await page.mouse.click(target.x, target.y);
+    await wait(page, 340);
+    const afterRow = await page.evaluate(() => ({ sel: selectedId, open: document.body.classList.contains("resp-drawer-open") }));
+    assert.equal(afterRow.sel, target.id, "a real row click did not select that card");
+    assert.equal(afterRow.open, false, "a real row click did not close the drawer");
+
+    // an outside click, over the scrim, dismisses without selecting anything behind
+    await page.mouse.click(btn.x, btn.y);   // reopen
+    await wait(page, 340);
+    const selAtOpen = await page.evaluate(() => selectedId);
+    await page.mouse.click(540, 500);       // far right, over the scrim beyond the drawer
+    await wait(page, 340);
+    const afterOutside = await page.evaluate(() => ({ sel: selectedId, open: document.body.classList.contains("resp-drawer-open") }));
+    assert.equal(afterOutside.open, false, "an outside click did not dismiss the drawer");
+    assert.equal(afterOutside.sel, selAtOpen, "an outside click selected background content");
+  } finally { await context.close(); }
+});
+
+test("the desktop holder stays transparent while only the portrait drawer is opaque", async () => {
+  const { context, page } = await fx.openBoard(null, { width: 1440, height: 900 });
+  try {
+    const ticketsBg = () => page.evaluate(() => getComputedStyle(document.getElementById("tickets")).backgroundColor);
+    assert.equal(await ticketsBg(), "rgba(0, 0, 0, 0)", "the desktop holder must be transparent");
+    await page.setViewport({ width: 560, height: 1000 });
+    await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+    assert.notEqual(await ticketsBg(), "rgba(0, 0, 0, 0)", "the portrait drawer must be opaque");
+    await page.setViewport({ width: 1440, height: 900 });
+    await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+    assert.equal(await ticketsBg(), "rgba(0, 0, 0, 0)", "returning to wide restores the transparent holder");
+  } finally { await context.close(); }
+});
