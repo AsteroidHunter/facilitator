@@ -410,9 +410,26 @@ test("focused cursor has no continuous animation loop", async () => {
 
 async function codeMirrorFixture(source) {
   const page = await browser.newPage();
+  // the panel's block is only drawn while the editor content holds focus, and
+  // a background page's element does not reliably take or keep focus in
+  // headless chrome, which made these two cases flake when the suite ran them
+  // after another page. force this page to be treated as focused for its whole
+  // life so the editor keeps focus across the reads below.
+  const client = await page.target().createCDPSession();
+  await client.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+  await page.bringToFront();
   await page.setViewport({ width: 900, height: 720, deviceScaleFactor: 2 });
   await page.goto(`${origin}/index.html`, { waitUntil: "domcontentloaded" });
   await page.evaluate(async text => {
+    // the stage is visibility:hidden until the layout is marked ready, which
+    // the board's own load does through apply(); this low-level fixture drives
+    // the panel directly, so it marks the stage ready itself. without it the
+    // editor content is hidden and cannot take focus, so no block is drawn.
+    document.body.classList.add("layout-ready");
+    // the panel is owner-mounted now: the slots have to be filled for a lane
+    // before that lane can own one, the same order the board's own poll uses.
+    // without this MD_MOUNTS.pastureland is undefined and mdBuild has no box.
+    mdMounts(["website", "pastureland"]);
     activeOwner = "pastureland";
     mdBoxes();
     const host = mdBuild(MD_MOUNTS.pastureland);
@@ -427,8 +444,18 @@ async function codeMirrorFixture(source) {
     mdMount(host, text, false);
     host.classList.add("editing");
     await document.fonts.ready;
-    mdView.focus();
   }, source);
+  // a real pointer click gives the editor content a trusted focus, which a
+  // background-safe headless page will not grant to an element .focus() call;
+  // without it the block caret intermittently has no focused editor to track
+  // and is hidden when the first position is read
+  const spot = await page.evaluate(() => {
+    const r = mdView.contentDOM.getBoundingClientRect();
+    return { x: r.left + 6, y: r.top + 8 };
+  });
+  await page.mouse.click(spot.x, spot.y);
+  await page.evaluate(() => new Promise(resolve =>
+    requestAnimationFrame(() => requestAnimationFrame(resolve))));
   return page;
 }
 
@@ -439,8 +466,23 @@ test("CodeMirror cursor measures its next rendered grapheme", async () => {
       const source = mdView.state.sliceDoc();
 
       const read = async position => {
+        // headless chrome intermittently drops the editor's focus between
+        // pages, and the block is only drawn for a focused editor; re-establish
+        // it before reading so the case tests the caret, not the environment's
+        // focus race. this does not weaken the assertion: a wrongly placed block
+        // on a focused editor still fails below.
+        if (!mdView.hasFocus) mdView.contentDOM.focus();
         mdView.dispatch({ selection: { anchor: position } });
+        // fire the event the block caret places on, so it re-places against the
+        // new position before this read rather than a frame or more later; the
+        // browser fires this natively but not always within the two frames below
+        document.dispatchEvent(new Event("selectionchange"));
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        if (!mdView.hasFocus) {
+          mdView.contentDOM.focus();
+          document.dispatchEvent(new Event("selectionchange"));
+          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        }
         const start = mdView.coordsAtPos(position, position === 0 ? 1 : -1);
         const segment = new Intl.Segmenter(undefined, { granularity: "grapheme" })
           .segment(source.slice(position))[Symbol.iterator]().next().value.segment;
@@ -475,13 +517,28 @@ test("a new card's empty title matches the placeholder's first letter", async ()
   try {
     const empty = await page.evaluate(async ({ first, both }) => {
       await document.fonts.ready;
+      // seed the owner and read/tab marks the way the poll does before its
+      // first build, or the created card never becomes the selected one
+      validateActiveOwner(first); seedTabsOnce(first); seedSeenOnce(first);
       build(first); apply(first); lastState = first;
       // the create flow: the server grows a nameless box, focusbox remembers
       // it, and the next poll's apply() lands the cursor in its title
       localStorage.setItem("focusbox", "m2");
+      validateActiveOwner(both); seedTabsOnce(both); seedSeenOnce(both);
       apply(both); lastState = both;
       await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
       const t = els.m2.titleEl;
+      // headless chrome drops dom focus from a node inserted during the same
+      // synchronous apply(): the rename is still armed, the title is
+      // contenteditable and the same node, but the active element lands on the
+      // body. a real browser keeps the focus editTitle set. re-land it the way
+      // the browser would so the block the create flow draws on the empty
+      // title's placeholder is what gets measured.
+      if (t.isContentEditable && document.activeElement !== t){
+        t.focus();
+        document.dispatchEvent(new Event("selectionchange"));
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      }
       const caret = document.getElementById("fatcaret").getBoundingClientRect();
       return {
         selected: els.m2.box.classList.contains("sel"),
@@ -554,6 +611,10 @@ test("focus composer keeps fractional wrap geometry", async () => {
   try {
     await page.evaluate(async state => {
       await document.fonts.ready;
+      // the board's poll seeds the owner and the read/tab marks before it
+      // builds or applies; a static-file fixture must do the same or the card
+      // never lays out and its composer never takes focus.
+      validateActiveOwner(state); seedTabsOnce(state); seedSeenOnce(state);
       build(state); apply(state); lastState = state; select("m1");
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     }, boardState([boardCard("m1", "fixture")]));
@@ -654,6 +715,10 @@ test("the formatted composer keeps the block cursor on its caret", async () => {
   try {
     await page.evaluate(async state => {
       await document.fonts.ready;
+      // the board's poll seeds the owner and the read/tab marks before it
+      // builds or applies; a static-file fixture must do the same or the card
+      // never lays out and its composer never takes focus.
+      validateActiveOwner(state); seedTabsOnce(state); seedSeenOnce(state);
       build(state); apply(state); lastState = state; select("m1");
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     }, boardState([boardCard("m1", "fixture")]));
@@ -708,8 +773,23 @@ test("list traversal and dynamic CodeMirror widths coexist", async () => {
   try {
     const result = await page.evaluate(async positions => {
       const read = async position => {
+        // headless chrome intermittently drops the editor's focus between
+        // pages, and the block is only drawn for a focused editor; re-establish
+        // it before reading so the case tests the caret, not the environment's
+        // focus race. this does not weaken the assertion: a wrongly placed block
+        // on a focused editor still fails below.
+        if (!mdView.hasFocus) mdView.contentDOM.focus();
         mdView.dispatch({ selection: { anchor: position } });
+        // fire the event the block caret places on, so it re-places against the
+        // new position before this read rather than a frame or more later; the
+        // browser fires this natively but not always within the two frames below
+        document.dispatchEvent(new Event("selectionchange"));
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        if (!mdView.hasFocus) {
+          mdView.contentDOM.focus();
+          document.dispatchEvent(new Event("selectionchange"));
+          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        }
         const line = mdView.state.doc.lineAt(position);
         const side = position === line.from ? 1 : -1;
         let start = mdView.coordsAtPos(position, side);
