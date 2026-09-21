@@ -558,3 +558,59 @@ test("formatted: block height and vertical centering track the stage scale", asy
     await page.close();
   }
 });
+
+test("plain: the block height tracks the stage scale and stays in the field", async () => {
+  const page = await browser.newPage();
+  try {
+    await openBoard(page, { formatted: false, awaitFonts: true });
+    await page.evaluate(() => {
+      const ta = els.m1.ta;
+      ta.value = "one two three four";
+      els.m1.tick();
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+    }, WRAP_URL);
+    await settle(page, 3);
+
+    // the plain textarea caret comes from the mirror path (fieldCaret), which
+    // also has to scale its layout-pixel metrics under the stage transform
+    const measure = async scale => {
+      await page.evaluate(s => {
+        const stage = document.getElementById("stage");
+        stage.style.transformOrigin = "top left";
+        stage.style.transform = s === 1 ? "none" : "scale(" + s + ")";
+        els.m1.ta.focus();
+        document.dispatchEvent(new Event("selectionchange"));
+      }, scale);
+      await settle(page, 3);
+      await page.evaluate(() => {
+        if (!document.getElementById("fatcaret").classList.contains("on")) {
+          els.m1.ta.focus();
+          document.dispatchEvent(new Event("selectionchange"));
+        }
+      });
+      await settle(page, 3);
+      return page.evaluate(() => {
+        const ta = els.m1.ta;
+        const fc = document.getElementById("fatcaret").getBoundingClientRect();
+        const box = ta.getBoundingClientRect();
+        return { caretOn: document.getElementById("fatcaret").classList.contains("on"),
+          blockH: fc.height, blockTop: fc.top, blockBottom: fc.bottom,
+          fieldTop: box.top, fieldBottom: box.bottom,
+          fontPx: parseFloat(getComputedStyle(ta).fontSize) };
+      });
+    };
+
+    for (const s of [1, 0.8, 0.5]) {
+      const r = await measure(s);
+      assert.ok(r.caretOn, `plain: no block at scale ${s}`);
+      const expectedH = r.fontPx * 1.1 * s;
+      assert.ok(Math.abs(r.blockH - expectedH) < 0.75,
+        `plain scale ${s}: block height ${r.blockH.toFixed(2)} not the scaled 1.1em ${expectedH.toFixed(2)}`);
+      assert.ok(r.blockTop >= r.fieldTop - 1 && r.blockBottom <= r.fieldBottom + 1,
+        `plain scale ${s}: block escaped the field row vertically`);
+    }
+  } finally {
+    await page.close();
+  }
+});
