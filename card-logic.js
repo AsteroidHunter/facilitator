@@ -230,6 +230,31 @@ function paintViewTabs(){
     if (b) b.classList.toggle("on", name === view);
   }
 }
+// the tab change carries the freshly drawn list in on an ordered slide: doing,
+// deferred and done are indices 0..2, so pressing a LATER tab brings the new
+// group in from the left so the contents travel rightward, and pressing an
+// EARLIER tab brings it in from the right so they travel leftward. only the row
+// column (#tikslide) inside the clipped well is moved, so the well and the pill
+// above hold still. a same-tab press, a missing wrapper or reduced motion make
+// the swap instant, and nothing calls this on a poll, so ordinary updates and
+// the first render never read as a tab change. rapid presses cancel the last
+// slide so no transform is left stuck. the 220ms curve is the list's own, the
+// one its rows already glide on.
+let tikSlideAnim = null;
+function slideTicketList(prevView, nextView){
+  const from = TICKET_VIEWS.indexOf(prevView), to = TICKET_VIEWS.indexOf(nextView);
+  if (from < 0 || to < 0 || from === to) return;
+  const slide = document.getElementById("tikslide");
+  if (!slide || typeof slide.animate !== "function") return;
+  if (window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const enter = to > from ? "-100%" : "100%";   // later tab enters from the left, moving right
+  if (tikSlideAnim) tikSlideAnim.cancel();
+  tikSlideAnim = slide.animate(
+    [{ transform: "translateX(" + enter + ")" }, { transform: "none" }],
+    { duration: 220, easing: "cubic-bezier(0.25, 1, 0.5, 1)" });
+  tikSlideAnim.addEventListener("finish", () => { tikSlideAnim = null; });
+  tikSlideAnim.addEventListener("cancel", () => { tikSlideAnim = null; });
+}
 // the doing, deferred and done tabs are a filter over the lane's pool. the left
 // list and the arrow keys have to walk the same set, or the arrows cycle into
 // cards the list is not showing

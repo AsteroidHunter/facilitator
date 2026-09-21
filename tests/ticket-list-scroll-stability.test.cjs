@@ -68,10 +68,16 @@ function functionSource(html, name, nextName) {
 
 function rendererFrom(html, clock) {
   const tiklist = new FakeElement("div");
+  // the board's renderer now appends the rows into a #tikslide column inside the
+  // well, so the well can hold still while a tab change slides that column. the
+  // page view keeps its rows directly in #tiklist, so #tikslide stays empty and
+  // unused there. the test reads whichever of the two ends up holding the rows.
+  const tikslide = new FakeElement("div");
   const chips = new FakeElement("div");
   const document = {
     getElementById(id) {
       if (id === "tiklist") return tiklist;
+      if (id === "tikslide") return tikslide;
       if (id === "chips") return chips;
       throw new Error(`unexpected element id: ${id}`);
     },
@@ -93,14 +99,14 @@ function rendererFrom(html, clock) {
     ["|", "/", "-", "\\"], 0, "facilitator", () => "todo", () => {},
     "m1", null,
   );
-  return { renderCarousel, tiklist };
+  return { renderCarousel, tiklist, tikslide };
 }
 
 for (const pageName of ["index.html", "page.html"]) {
   test(`${pageName} leaves manual ticket-list scrolling alone on a routine repaint`, async () => {
     const html = await readFile(path.join(ROOT, pageName), "utf8");
     const clock = { now: 1_000_000 };
-    const { renderCarousel, tiklist } = rendererFrom(html, clock);
+    const { renderCarousel, tiklist, tikslide } = rendererFrom(html, clock);
     const state = {
       agents: { facilitator: { name: "facilitator", alive: true } },
       boxes: Array.from({ length: 20 }, (_, index) => ({
@@ -118,17 +124,20 @@ for (const pageName of ["index.html", "page.html"]) {
     };
 
     renderCarousel(state);
-    assert.equal(tiklist.scrollCalls, 1, "the first render must reveal its selected row");
-    tiklist.scrollCalls = 0;
-    tiklist.scrollTop = 320;
+    // the rows land in #tikslide on the board and in #tiklist on the page; the
+    // one holding them is the scroller whose position the reveal acts on
+    const rows = tikslide.children.length ? tikslide : tiklist;
+    assert.equal(rows.scrollCalls, 1, "the first render must reveal its selected row");
+    rows.scrollCalls = 0;
+    rows.scrollTop = 320;
     const firstSignature = tiklist.dataset.sig;
 
     clock.now += 61_000;
     renderCarousel(state);
 
     assert.notEqual(tiklist.dataset.sig, firstSignature, "the age boundary must force a repaint");
-    assert.equal(tiklist.scrollCalls, 0, "a routine repaint must not reveal the selected row");
-    assert.equal(tiklist.scrollTop, 320, "the user's list position must stay unchanged");
+    assert.equal(rows.scrollCalls, 0, "a routine repaint must not reveal the selected row");
+    assert.equal(rows.scrollTop, 320, "the user's list position must stay unchanged");
   });
 
   test(`${pageName} still reveals a row when the user explicitly selects it`, async () => {
