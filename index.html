@@ -3046,6 +3046,89 @@
     display:block; position:fixed; left:0; top:var(--bar-h);
     width:var(--cw); height:var(--ch); transform-origin:top left; z-index:1;
   }
+  /* only a pane toggle slides the stage; a resize refit still snaps instantly so
+     dragging the window edge never smears */
+  body.resp-panning #stage{
+    transition:transform .28s ease, opacity .18s ease, visibility .18s ease;
+  }
+  /* the two-pane edge arrow: a small round button pinned to a window edge,
+     vertically centered, outside the scaled stage so it keeps its own size. It
+     is hidden until fitStage turns it on for the two-pane mode. */
+  #respnav{display:none}
+  body.focus #respnav{
+    position:fixed; top:50%; transform:translateY(-50%); z-index:13;
+    width:34px; height:34px; padding:0; border-radius:50%;
+    border:1px solid var(--line); background:color-mix(in srgb, var(--paper) 92%, #fff 8%);
+    box-shadow:0 1px 4px rgba(60,45,20,.14); cursor:pointer;
+    font:400 20px/1 var(--sans); color:var(--ink);
+    display:flex; align-items:center; justify-content:center;
+  }
+  body.focus #respnav:hover{border-color:var(--ink)}
+  body.focus #respnav.toright{right:10px}
+  body.focus #respnav.toleft{left:10px}
+
+  /* ---- portrait phone-style view ---------------------------------------- */
+  /* When the window is portrait or too narrow, the scaled landscape board is
+     dropped for a single readable column: the selected conversation fills the
+     width and the ticket list lives in a slide-in drawer. The same DOM stays
+     mounted, so drafts, the selected card and focus are all preserved and there
+     is no navigation to /m. The regions are position:fixed; with the stage's
+     transform removed they resolve against the viewport, so overriding a few
+     rules (with !important, to beat the per-tab inline layout styles) is enough
+     to reflow them. */
+  body[data-resp-mode="portrait"] #stage{
+    transform:none !important; left:0; top:var(--bar-h);
+    width:100vw; height:calc(100vh - var(--bar-h));
+  }
+  /* the conversation fills the column, edge to edge under the bar */
+  body[data-resp-mode="portrait"] main{
+    position:fixed !important; left:0 !important; right:0 !important;
+    top:var(--bar-h) !important; bottom:0 !important;
+    width:auto !important; height:auto !important; max-height:none !important;
+    border-radius:0 !important; border-left:none !important; border-right:none !important;
+  }
+  /* the ticket list becomes a left drawer, off-canvas until opened */
+  body[data-resp-mode="portrait"] #tickets{
+    position:fixed !important; left:0 !important; top:var(--bar-h) !important;
+    width:min(86vw, 380px) !important; height:calc(100vh - var(--bar-h)) !important;
+    max-width:none; border-radius:0 !important; z-index:14;
+    transform:translateX(-100%); transition:transform .26s ease;
+    box-shadow:2px 0 18px rgba(60,45,20,.18);
+  }
+  body[data-resp-mode="portrait"].resp-drawer-open #tickets{transform:translateX(0)}
+  /* on the frame the phone view is entered the drawer is placed without sliding;
+     only a button toggle animates it */
+  body.resp-noanim #tickets{transition:none !important}
+  /* the scrim behind the open drawer, tap to close */
+  #respscrim{display:none}
+  body[data-resp-mode="portrait"].resp-drawer-open #respscrim{
+    display:block; position:fixed; inset:var(--bar-h) 0 0 0; z-index:13;
+    background:rgba(40,32,16,.28);
+  }
+  /* the drawer button, sitting in the app bar */
+  #respdrawerbtn{display:none}
+  body[data-resp-mode="portrait"] #respdrawerbtn{
+    display:flex; align-items:center; justify-content:center;
+    position:fixed; left:8px; top:6px; z-index:15;
+    width:30px; height:30px; padding:0; border-radius:7px;
+    border:1px solid var(--line); color:var(--ink); cursor:pointer;
+    background:color-mix(in srgb, var(--paper) 92%, #fff 8%);
+  }
+  body[data-resp-mode="portrait"] #respdrawerbtn:hover{border-color:var(--ink)}
+  /* the landscape-only regions and controls are not part of the phone column */
+  body[data-resp-mode="portrait"] #clockbox,
+  body[data-resp-mode="portrait"] #chips,
+  body[data-resp-mode="portrait"] #magic1,
+  body[data-resp-mode="portrait"] #magic2,
+  body[data-resp-mode="portrait"] #magic3,
+  body[data-resp-mode="portrait"] #magic4,
+  body[data-resp-mode="portrait"] #goalbox,
+  body[data-resp-mode="portrait"] #respnav,
+  body[data-resp-mode="portrait"] #editbtn,
+  /* the page switcher would float over the full-width card's composer here; it
+     stays a landscape control (page switching is still there in the wider modes
+     and in the phone app) */
+  body[data-resp-mode="portrait"] #pagepill{display:none !important}
   /* regions absent from the ui_3 drawing stay dormant regardless of their
      own rule bodies */
   body.focus #wsl, body.focus #qchat, body.focus #taskbox,
@@ -4716,9 +4799,15 @@ function seatPagePill(){
 // whole board this asks for more height than the card has and nothing moves at
 // all, so the board only ever gives up room it does not have.
 function reserveFootRoom(floor){
+  // in the portrait phone view the card's height is set by the stylesheet, not by
+  // footer-room clamping, so leave it alone
+  if (document.body.dataset.respMode === "portrait") return;
   const card = document.querySelector("main");
   if (!card) return;
-  const room = Math.max(MIN_CARD_H, Math.round(floor - card.getBoundingClientRect().top));
+  // floor and the card top are screen pixels; the card lives in the scaled
+  // stage, so its max-height is a stage-local number and the screen gap has to
+  // be divided by the stage scale before it is written back
+  const room = Math.max(MIN_CARD_H, Math.round((floor - card.getBoundingClientRect().top) / stageScale));
   if (card.style.maxHeight !== room + "px") card.style.maxHeight = room + "px";
 }
 const MIN_CARD_H = 160;   // a card is never squeezed past being a card
@@ -9256,24 +9345,256 @@ tickClock();
 setInterval(tickClock, 1000);
 
 // scale the fixed 1440x900 stage to the largest that fits, centered
+// the stage is a fixed 1440x900 design. these hold the transform actually on
+// the stage right now, so the drag, resize and overlay math can turn screen
+// pixels back into stage coordinates while the stage is scaled below 1:1.
+const STAGE_W = 1440, STAGE_H = 900, STAGE_BAR = 41;
+let stageScale = 1, stageTx = 0, stageTy = 0;
+let respMode = "wide";
+let lastFitW = null;   // innerWidth at the last fit; a height-only resize keeps it
+// the arrangeable regions, by id, used to measure how far the visible board
+// actually reaches so the fit shrinks only as much as real content needs
+const FIT_REGIONS = ["main", "clockbox", "rail", "tickets", "magic1", "magic2",
+  "magic3", "magic4", "goalbox"];
+// the two-pane split: the left plus middle group (time, tickets, player and the
+// conversation) always shows; the right group only appears when the window is
+// wide enough or by panning to it
+const LEFT_MID_REGIONS = ["main", "clockbox", "rail", "tickets", "magic1"];
+const RIGHT_REGIONS = ["magic2", "magic3", "magic4", "goalbox"];
+// below this fit scale the whole board is no longer comfortably readable, so a
+// narrower layout takes over. A small hysteresis band keeps the mode from
+// flapping while the corner is dragged across the threshold.
+const WIDE_FLOOR = 0.8, MODE_HYST = 0.04;
+// portrait takes over when the window is clearly taller than it is wide (a
+// portrait monitor: height at least this factor of width) or when the width is a
+// small enough fraction of the left+middle group's own width that the board is
+// no longer usable. Both are width/aspect facts read only on a fit trigger, so
+// the height-only freeze still holds. These two numbers are a visual choice and
+// meant to be tuned against screenshots; a near-square window stays landscape.
+const PORTRAIT_ASPECT = 1.2, PORTRAIT_FLOOR = 0.5;
+
+// the far right and foot of a set of visible regions, in stage-local design
+// pixels. Hidden regions (visibility:hidden via region-off) and display:none
+// regions do not count, so a board with no right column fits without their empty
+// space, and a region a user dragged past the nominal canvas is still measured
+// so it is not clipped. getBoundingClientRect is scaled, so divide by the scale
+// on the stage right now to get design pixels.
+function contentBounds(ids){
+  const stage = document.getElementById("stage");
+  const sr = stage.getBoundingClientRect();
+  const S = stageScale || 1;
+  let right = 1, bottom = 1, any = false;
+  for (const id of (ids || FIT_REGIONS)){
+    const el = id === "main" ? document.querySelector("main") : document.getElementById(id);
+    // region-off is the per-tab hide. Do NOT test computed visibility: the stage
+    // is visibility:hidden with a transition until layout-ready, and a region
+    // read mid-transition would look hidden and drop out of the measurement even
+    // though it keeps its layout box. display:none regions have a zero-size box
+    // and fall out through the size check below.
+    if (!el || el.classList.contains("region-off")) continue;
+    if (getComputedStyle(el).display === "none") continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) continue;
+    any = true;
+    right = Math.max(right, (r.right - sr.x) / S);
+    bottom = Math.max(bottom, (r.bottom - sr.y) / S);
+  }
+  return { right, bottom, any };
+}
+
+// per project, which pane the two-pane view is showing. It is deliberately kept
+// apart from the saved layout keys: it is a view offset, not an arrangement, so
+// it never rewrites where a region lives.
+function paneKey(){ return "pane." + activeOwner; }
+function getPane(){ return localStorage.getItem(paneKey()) === "1" ? 1 : 0; }
+function setPane(p){
+  if (p) localStorage.setItem(paneKey(), "1"); else localStorage.removeItem(paneKey());
+  document.body.classList.add("resp-panning");   // slide, do not jump, on a toggle
+  clearTimeout(setPane._t);
+  setPane._t = setTimeout(() => document.body.classList.remove("resp-panning"), 320);
+  fitStage();
+}
+let respHasRight = false;
+
 function fitStage(){
   if (!FOCUS) return;
   const stage = document.getElementById("stage");
   if (!stage) return;
-  const bar = 41, DW = 1440, DH = 900;
-  const availH = innerHeight - bar;
-  // fixed size, never scaled: center it, and only scale DOWN if the window is
-  // smaller than the app so nothing is lost; elements keep their size otherwise
-  // fixed size, never scaled: the app is a locked rectangle, centered. The
-  // elements inside never resize; a smaller window just shows less of it.
-  const tx = Math.max(0, (innerWidth - DW) / 2);
-  const ty = Math.max(0, (availH - DH) / 2);
-  stage.style.transform = `translate(${tx}px, ${ty}px)`;
+  const availH = innerHeight - STAGE_BAR;
+  // measure the real content extent with the card's foot-clearance clamp lifted,
+  // so the clamp seatPagePill applies afterwards can never feed back into the
+  // scale. The card is the one region whose box seatPagePill shortens.
+  const card = document.querySelector("main");
+  const savedMax = card ? card.style.maxHeight : "";
+  if (card) card.style.maxHeight = "";
+  const all = contentBounds(FIT_REGIONS);
+  const leftMid = contentBounds(LEFT_MID_REGIONS);
+  const rightGrp = contentBounds(RIGHT_REGIONS);
+  if (card) card.style.maxHeight = savedMax;
+  // a visible right region actually reaches past the left plus middle group; only
+  // then is there something to pan to and an arrow to offer
+  respHasRight = rightGrp.any && rightGrp.right > leftMid.right + 8;
+
+  const heightScale = Math.min(1, availH / all.bottom);
+  const prev = respMode;
+  // Mode is chosen from width and aspect only, so height never selects the mode:
+  // a short but wide window stays wide (just fit smaller), and a tall narrow one
+  // becomes portrait. Combined with the rule that this runs only on a fit trigger
+  // (load, width change, fullscreen), a plain vertical drag can never switch
+  // modes. WIDE_FLOOR and PORTRAIT_FLOOR are the fractions of the content's own
+  // width the window must exceed to stay wide or to avoid portrait; each boundary
+  // has a small hysteresis band so the mode does not flap on the threshold.
+  // Portrait wins first: a window taller than it is wide (a portrait monitor) or
+  // one too narrow to keep the left+middle group readable becomes the phone-style
+  // view instead of a tiny landscape board sitting in empty bands.
+  const aspectGate = PORTRAIT_ASPECT + (prev === "portrait" ? -0.06 : 0.06);
+  const portraitW = leftMid.right * (PORTRAIT_FLOOR + (prev === "portrait" ? -MODE_HYST : MODE_HYST));
+  const wideW = all.right * (WIDE_FLOOR + (prev === "wide" ? -MODE_HYST : MODE_HYST));
+  if (innerHeight > innerWidth * aspectGate || innerWidth < portraitW){
+    respMode = "portrait";
+  } else if (respHasRight && innerWidth < wideW){
+    respMode = "twopane";
+  } else {
+    respMode = "wide";
+  }
+  document.body.dataset.respMode = respMode;
+
+  if (respMode === "portrait"){
+    // phone-style: drop the scaled stage entirely and let the portrait stylesheet
+    // reflow the live regions into a single readable column with a drawer. The
+    // same DOM stays mounted, so the selected card, drafts and focus are kept and
+    // there is no navigation to /m.
+    if (prev !== "portrait"){
+      // place the drawer without a slide when the view is first entered
+      document.body.classList.add("resp-noanim");
+      requestAnimationFrame(() => requestAnimationFrame(() =>
+        document.body.classList.remove("resp-noanim")));
+    }
+    stageScale = 1; stageTx = 0; stageTy = 0;
+    stage.style.transform = "none";
+    document.body.style.backgroundPosition = "0px " + STAGE_BAR + "px";
+    // on-canvas arranging makes no sense in the reflowed column
+    if (document.body.classList.contains("editmode")) setEditMode(false);
+    lastFitW = innerWidth;
+    applyRespNav();
+    seatPagePill();
+    return;
+  }
+  // leaving portrait: make sure its drawer is not left open behind the board
+  document.body.classList.remove("resp-drawer-open");
+
+  let scale, tx, ty;
+  if (respMode === "twopane"){
+    // near 6:5: keep the left plus middle group readable at a height-based scale
+    // and expose a window over the same stage; the arrow pans it left or right.
+    // Positions are never touched; this is purely a view transform.
+    scale = Math.min(1, innerWidth / leftMid.right, heightScale);
+    ty = Math.max(0, Math.min((availH - STAGE_H * scale) / 2, availH - all.bottom * scale));
+    const pane = respHasRight ? getPane() : 0;
+    // pane 0 shows the left plus middle from the left edge; pane 1 pans left so
+    // the true right edge of the board sits at the window's right edge, which
+    // keeps the conversation in the middle visible in both panes.
+    tx = pane === 1 ? Math.min(0, innerWidth - all.right * scale) : 0;
+  } else {
+    // wide landscape: one uniform scale that fits the whole visible board inside
+    // the usable window, never enlarged past 1:1. Fitting the actual content, not
+    // the nominal 900px canvas, keeps a 1440x900 window at full size while still
+    // showing every region after leaving fullscreen instead of clipping the foot.
+    scale = Math.min(1, innerWidth / all.right, availH / all.bottom);
+    // center the whole 1440x900 canvas, exactly as before, so a normal board does
+    // not shift sideways and only the vertical clipping is fixed. But if a region
+    // was dragged past the nominal canvas, canvas-centering could push that
+    // content off screen, so clamp the offset to whatever still keeps the real
+    // content foot and right edge inside the window.
+    tx = Math.max(0, Math.min((innerWidth - STAGE_W * scale) / 2, innerWidth - all.right * scale));
+    ty = Math.max(0, Math.min((availH - STAGE_H * scale) / 2, availH - all.bottom * scale));
+  }
+  stageScale = scale; stageTx = tx; stageTy = ty;
+  stage.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+  lastFitW = innerWidth;
   // slide the window-wide star field so its phase matches the stage's origin
-  document.body.style.backgroundPosition = tx + "px " + (bar + ty) + "px";
+  document.body.style.backgroundPosition = tx + "px " + (STAGE_BAR + ty) + "px";
+  applyRespNav();   // show or hide the pan arrow for the current mode and pane
   seatPagePill();   // the stage's foot has moved, and the pill sits against it
 }
-addEventListener("resize", fitStage);
+
+// the edge arrow that pans between the two panes. It only exists when the mode
+// is two-pane and a visible right region lies beyond the first pane; if the
+// right side is hidden or moved into the first pane, the arrow and any stale
+// pane state go away.
+const respNav = document.createElement("button");
+respNav.id = "respnav";
+respNav.type = "button";
+respNav.setAttribute("aria-label", "show the other side of the board");
+respNav.addEventListener("click", () => setPane(getPane() ? 0 : 1));
+if (document.body) document.body.appendChild(respNav);
+function applyRespNav(){
+  const show = FOCUS && respMode === "twopane" && respHasRight;
+  if (!show){
+    respNav.style.display = "none";
+    // a pane that can no longer be reached must not stick around as saved state
+    if (!respHasRight && localStorage.getItem(paneKey())) localStorage.removeItem(paneKey());
+    return;
+  }
+  const pane = getPane();
+  respNav.style.display = "";
+  respNav.classList.toggle("toright", pane === 0);
+  respNav.classList.toggle("toleft", pane === 1);
+  respNav.textContent = pane === 0 ? "›" : "‹";   // › or ‹
+  respNav.title = pane === 0 ? "show the right side" : "back to the left side";
+}
+
+// the portrait phone view's drawer: the ticket list slides in from the left over
+// the conversation, with a scrim behind it. Both controls only do anything while
+// the portrait stylesheet is active; the button and scrim are hidden otherwise.
+const respDrawerBtn = document.createElement("button");
+respDrawerBtn.id = "respdrawerbtn";
+respDrawerBtn.type = "button";
+respDrawerBtn.setAttribute("aria-label", "show the ticket list");
+respDrawerBtn.setAttribute("aria-expanded", "false");
+respDrawerBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>';
+const respScrim = document.createElement("div");
+respScrim.id = "respscrim";
+function openDrawer(on){
+  document.body.classList.toggle("resp-drawer-open", on);
+  respDrawerBtn.setAttribute("aria-expanded", on ? "true" : "false");
+}
+respDrawerBtn.addEventListener("click", () =>
+  openDrawer(!document.body.classList.contains("resp-drawer-open")));
+respScrim.addEventListener("click", () => openDrawer(false));
+if (document.body){ document.body.appendChild(respScrim); document.body.appendChild(respDrawerBtn); }
+// picking a ticket in the drawer closes it so the chosen conversation is shown
+document.getElementById("tiklist")?.addEventListener("click", e => {
+  if (document.body.dataset.respMode === "portrait" && e.target.closest(".trow"))
+    setTimeout(() => openDrawer(false), 0);
+});
+// The board fits on load, on entering focus, and whenever the WIDTH changes or
+// the window enters or leaves fullscreen. A height-only resize is frozen on
+// purpose: the user asked that nothing move or rescale when the window is only
+// made shorter, even if that clips the board's foot, because Chrome cannot be
+// stopped from shrinking the window and reacting to every height change looks
+// worse than a stable board.
+function onViewportResize(){
+  if (!FOCUS) return;
+  if (lastFitW !== null && innerWidth === lastFitW) return;   // height-only: freeze
+  fitStage();
+}
+addEventListener("resize", onViewportResize);
+// Leaving native macOS fullscreen does not fire fullscreenchange and leaves
+// document.fullscreenElement null, and it can return to a window of the SAME
+// width (only the height drops), so the width-keyed resize above would freeze
+// and the foot would stay clipped. Chrome does flip the (display-mode:
+// fullscreen) media feature on native macOS fullscreen and fires its change
+// event on both enter and exit, so this listener refits the board on that
+// transition even when the width does not change. It bypasses the width gate on
+// purpose; it only fires on a real fullscreen transition, never on a manual
+// vertical drag, so the height-only freeze is preserved.
+try {
+  const fsq = matchMedia("(display-mode: fullscreen)");
+  const onFs = () => fitStage();
+  if (fsq.addEventListener) fsq.addEventListener("change", onFs);
+  else if (fsq.addListener) fsq.addListener(onFs);
+} catch (e) {}
 
 // the copy button on fenced blocks: one click puts the block's text on the
 // clipboard; the icon is the standard two-sheets copy glyph, drawn inline
@@ -9451,7 +9772,11 @@ function applySavedLayout(){
     }
   }
   document.body.classList.add("layout-ready");
-  seatPagePill();   // the card and the rail may have just moved under the pill
+  // regions may have just been shown, hidden, moved or resized, or a different
+  // tab's layout applied, so refit: this keeps every visible region on screen
+  // and reseats the pill. It is a content change, not a height resize, so the
+  // freeze rule does not apply here.
+  if (typeof fitStage === "function") fitStage(); else seatPagePill();
 }
 let dragging = null;
 let dragEnabled = true;    // hold Option and drag a box to move it; snaps to the grid
@@ -9471,8 +9796,10 @@ addEventListener("pointerdown", e => {
 });
 addEventListener("pointermove", e => {
   if (!dragging) return;
-  dragging.x = Math.max(GRID / 2, onStar(e.clientX - dragging.dx - dragging.sx));
-  dragging.y = Math.max(GRID / 2, onStar(e.clientY - dragging.dy - dragging.sy));
+  // the pointer delta is in screen pixels; divide by the stage scale to move the
+  // box the right number of stage-local pixels while the stage is scaled down
+  dragging.x = Math.max(GRID / 2, onStar((e.clientX - dragging.dx - dragging.sx) / stageScale));
+  dragging.y = Math.max(GRID / 2, onStar((e.clientY - dragging.dy - dragging.sy) / stageScale));
   dragging.el.style.left = dragging.x + "px";
   dragging.el.style.top = dragging.y + "px";
 });
@@ -9517,6 +9844,7 @@ const HANDLE_CURSOR = { nw: "nwse-resize", se: "nwse-resize", ne: "nesw-resize",
   sw: "nesw-resize", n: "ns-resize", s: "ns-resize", e: "ew-resize", w: "ew-resize" };
 function setEditMode(on){
   if (!FOCUS) return;
+  if (on && document.body.dataset.respMode === "portrait") return;   // no canvas to arrange in the phone view
   if (on && !onBoardPage()) return;   // no board on this page, nothing to arrange
   editMode = on;
   document.body.classList.toggle("editmode", on);
@@ -9622,8 +9950,10 @@ function trackHandles(){
     it.hd.style.display = "";
     const x = it.dir.includes("w") ? r.x : it.dir.includes("e") ? r.x + r.width : r.x + r.width / 2;
     const y = it.dir.includes("n") ? r.y : it.dir.includes("s") ? r.y + r.height : r.y + r.height / 2;
-    it.hd.style.left = (x - sr.x - 4.5) + "px";
-    it.hd.style.top = (y - sr.y - 4.5) + "px";
+    // the handle layer is a child of the scaled stage, so its offsets are
+    // stage-local: divide the screen gap by the stage scale before placing it
+    it.hd.style.left = ((x - sr.x) / stageScale - 4.5) + "px";
+    it.hd.style.top = ((y - sr.y) / stageScale - 4.5) + "px";
   }
   for (const it of killItems){
     const r = it.el.getBoundingClientRect();
@@ -9635,8 +9965,8 @@ function trackHandles(){
     // just outside the top right corner, clear of the corner square. inside it
     // would land exactly on a card's own moon and cross, which sit at the same
     // inset, and would cover whatever the box is holding
-    it.kill.style.left = (r.x + r.width + 14 - sr.x) + "px";
-    it.kill.style.top = (r.y - 14 - sr.y) + "px";
+    it.kill.style.left = ((r.x + r.width - sr.x) / stageScale + 14) + "px";
+    it.kill.style.top = ((r.y - sr.y) / stageScale - 14) + "px";
   }
   handleRaf = requestAnimationFrame(trackHandles);
 }
@@ -9646,16 +9976,19 @@ function beginSize(e, el, dir){
   e.stopPropagation();
   const r = el.getBoundingClientRect();
   const sr = document.getElementById("stage").getBoundingClientRect();
+  // getBoundingClientRect returns scaled screen pixels; divide by the stage
+  // scale so every stored edge and size is in stage-local design pixels
+  const S = stageScale;
   sizing = { el, dir, px: e.clientX, py: e.clientY,
-    left: r.x - sr.x, top: r.y - sr.y, w: r.width, h: r.height,
+    left: (r.x - sr.x) / S, top: (r.y - sr.y) / S, w: r.width / S, h: r.height / S,
     // the far edges, snapped: a west or north pull anchors on these
-    right: onStar(r.x - sr.x + r.width), bottom: onStar(r.y - sr.y + r.height),
+    right: onStar((r.x - sr.x + r.width) / S), bottom: onStar((r.y - sr.y + r.height) / S),
     moved: false };
 }
 addEventListener("pointermove", e => {
   if (!sizing) return;
   const s = sizing;
-  const dx = e.clientX - s.px, dy = e.clientY - s.py;
+  const dx = (e.clientX - s.px) / stageScale, dy = (e.clientY - s.py) / stageScale;
   // widths and heights stay whole cells, never under two; a west or north
   // pull moves the origin to a star line and keeps the far edge pinned
   let w = Math.max(2 * GRID, Math.round((s.w + (s.dir.includes("e") ? dx : 0)) / GRID) * GRID);
@@ -9709,9 +10042,11 @@ addEventListener("pointermove", e => {
   if (Math.hypot(e.clientX - editPending.px, e.clientY - editPending.py) < 4) return;
   const p = editPending;
   editPending = null;
-  // hand the gesture to the option-drag machinery above: same snap, same save
+  // hand the gesture to the option-drag machinery above: same snap, same save.
+  // the seed position divides the screen offset by the stage scale, matching the
+  // option-drag move handler
   dragging = { el: p.el, dx: p.dx, dy: p.dy, sx: p.sx, sy: p.sy,
-    x: onStar(p.px - p.dx - p.sx), y: onStar(p.py - p.dy - p.sy) };
+    x: onStar((p.px - p.dx - p.sx) / stageScale), y: onStar((p.py - p.dy - p.sy) / stageScale) };
   squelchClick = true;
   document.body.classList.add("dragging");
 });
