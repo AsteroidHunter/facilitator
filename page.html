@@ -558,9 +558,18 @@
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   .trow .ta{flex:none; font:10px var(--mono); color:var(--sub)}
   .trow.working{background:#F3FFF0; border-color:#C4D9BB}
-  .trow.yours{background:#FEFFEB; border-color:#E8DCAE}
+  .trow.yours{background:#FFFBEB; border-color:#E8DCAE}
   .trow.queuedc{background:#F7F7F7; border-color:#CDD4DE}
   .trow.donec{opacity:.55}
+  /* the ready-to-test hairline, a neutral cool line that steps aside for the
+     selected border; the fill sits after .trow.match below so the marker wins it */
+  .trow.testc:not(.on){border-color:#CDD4DE}
+  /* Your-turn staleness: a visibly yellow card desaturates in step jumps at 4 /
+     8 / 16 / 32 minutes since it became the reader's turn. Only yellow rows age. */
+  .trow.stale-1{filter:saturate(.75)}
+  .trow.stale-2{filter:saturate(.5)}
+  .trow.stale-3{filter:saturate(.25)}
+  .trow.stale-4{filter:saturate(0)}
   .trow.on{
     border-color:var(--line-strong);
     /* the selected row rises off the list: the chat frame's own shadow shape,
@@ -696,6 +705,8 @@
   #todoadd::placeholder{color:#B4AA99}
   /* selecting a task highlights its chats in the left box */
   .trow.match{background:var(--accent-soft); border-color:#C9C2F2}
+  /* the ready-to-test fill wins over every state and the task-match wash */
+  .trow.testc{background:#EBEFFF}
   /* ---- the rail: started date, dotted track, red goal dot --------------- */
   body.focus #rail{
     position:fixed;
@@ -2625,6 +2636,29 @@ function cardState(b){
 // nulled in the copy so cardState recomputes from the flags instead of handing
 // back the server's "parked" when we peel the park off
 function queueState(b){ return b.parked ? cardState({ ...b, parked: false, state: null }) : cardState(b); }
+// The visible row number, the durable ready-to-test display gate, and the
+// Your-turn staleness tier: kept here in step with card-logic.js, which the
+// board and phone share but this typed page does not load.
+function ticketNum(id){
+  const s = String(id == null ? "" : id);
+  const m = /^m(\d+)$/.exec(s);
+  if (m) return "#" + m[1];
+  if (/^[0-9]/.test(s)) return "#" + s;
+  return "";
+}
+function testReady(b){ return !!(b && b.testing) && queueState(b) === "yours"; }
+function staleTier(b, nowMs){
+  if (!b || testReady(b)) return 0;
+  if (queueState(b) !== "yours") return 0;
+  const turnTs = b.turnTs || 0;
+  if (!turnTs) return 0;
+  const ageMin = (nowMs / 1000 - turnTs) / 60;
+  if (ageMin >= 32) return 4;
+  if (ageMin >= 16) return 3;
+  if (ageMin >= 8) return 2;
+  if (ageMin >= 4) return 1;
+  return 0;
+}
 // the strict await of the bar count and auto-select: pending vetoes it, and
 // so does work in flight, claimed or registered; green outranks the ball
 function awaitsYou(b){
@@ -2755,6 +2789,9 @@ function renderCarousel(state){
               pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
                       ((seenReplies[b.id] || 0) >= (b.agentTs || 0) ? "r" : "") +
                       (b.id === selectedId ? "!" : "") + (b.task || "") + b.title +
+                      // the marker and the staleness tier ride the signature so a
+                      // mark, a clear or a crossed age boundary repaints the row
+                      (testReady(b) ? "T" : "") + "S" + staleTier(b, Date.now()) +
                       Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",") +
               "|" + selectedTask;
   if (tik.dataset.sig !== sig){
@@ -2772,15 +2809,23 @@ function renderCarousel(state){
       // falls in with yours or queued by where the ball sits
       const busy = s === "working" || (s === "done" && cardState({ ...b, done: false, parked: false, state: null }) === "working");
       const seenTs = seenReplies[b.id] || 0;
+      const isYours = s === "yours" || (s === "new" && b.ball === "you");
+      const isMatch = selectedTask && b.task === selectedTask;
+      const isTest = testReady(b);
+      // only a visibly yellow row ages: never the ready-to-test wash or a task-match highlight
+      const tier = (isYours && !isTest && !isMatch) ? staleTier(b, Date.now()) : 0;
       const r = h("div", "trow" + (b.id === selectedId ? " on" : "") + (busy ? " working" : "") +
                   (s === "yours" && seenTs >= (b.agentTs || 0) ? " seen" : "") +
-                  (s === "yours" || (s === "new" && b.ball === "you") ? " yours" : "") +
+                  (isYours ? " yours" : "") +
                   (s === "queued" || (s === "new" && b.ball !== "you") ? " queuedc" : "") +
                   (s === "done" ? " donec" : "") +
-                  (selectedTask && b.task === selectedTask ? " match" : ""));
+                  (isMatch ? " match" : "") +
+                  (isTest ? " testc" : "") +
+                  (tier ? " stale-" + tier : ""));
       const inner = h("div", "trowin");
       const ttl = h("div", "ttl", b.title);
-      if (/^[0-9]/.test(b.id)) ttl.prepend(h("span", "tnum", b.id));
+      const num = ticketNum(b.id);
+      if (num) ttl.prepend(h("span", "tnum", num));
       inner.appendChild(ttl);
       const meta = h("div", "tmeta");
       meta.appendChild(h("span", "tage", busy ? SPIN_FRAMES[spinFrame] : s === "done" ? "done" : shortAge(b.agentTs)));
