@@ -243,7 +243,8 @@ test("the reply, a sent lane, the compose field and the ticket list all still sc
   const compose = await stillScrolls(page, `#box-${cardId} textarea`, { longText:true });
   assert.ok(compose.found && compose.overflows && compose.moved > 40,
     `the compose field did not move with long text: ${JSON.stringify(compose)}`);
-  const list = await stillScrolls(page, "#tiklist");
+  // the well clips; the shown section's pane is the scroller now
+  const list = await stillScrolls(page, '.tikpane[data-view="todo"]');
   assert.ok(list.found && list.overflows && list.moved > 40,
     `the ticket list did not move: ${JSON.stringify(list)}`);
   await page.close();
