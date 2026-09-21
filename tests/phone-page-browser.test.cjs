@@ -533,7 +533,8 @@ test("a pull from the left edge brings in the card list with the desktop's three
         open: document.getElementById("drawer").classList.contains("open"),
         left: rect.left,
         labels: [...document.querySelectorAll("#tikhead .tvb")].map(b => b.textContent),
-        rows: [...document.querySelectorAll("#tiklist .trow")].map(r => ({
+        // the sheet draws all three sections; the shown one is the doing pane
+        rows: [...document.querySelectorAll('.tikpane[data-view="todo"] .trow')].map(r => ({
           title: r.querySelector(".ttl").textContent, cls: r.className,
         })),
       };
@@ -556,13 +557,13 @@ test("a pull from the left edge brings in the card list with the desktop's three
 
     await page.evaluate(() => document.getElementById("tv-deferred").click());
     await settle();
-    assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll("#tiklist .trow .ttl")].map(t => t.textContent)),
+    assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('.tikpane[data-view="deferred"] .trow .ttl')].map(t => t.textContent)),
       ["Parked on the phone"]);
     await page.evaluate(() => document.getElementById("tv-done").click());
     await settle();
-    assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll("#tiklist .trow .ttl")].map(t => t.textContent)),
+    assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('.tikpane[data-view="done"] .trow .ttl')].map(t => t.textContent)),
       ["Done on the phone"]);
-    await page.evaluate(() => document.querySelector("#tiklist .trow").click());
+    await page.evaluate(() => document.querySelector('.tikpane[data-view="done"] .trow').click());
     await settle(300);
     const picked = await page.evaluate(() => ({
       open: document.getElementById("drawer").classList.contains("open"),

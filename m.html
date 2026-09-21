@@ -793,16 +793,18 @@
   @keyframes tikpulse{0%,100%{opacity:.25} 50%{opacity:.85}}
   .tiknote{font:italic 12.5px var(--sans); color:#7A2E1B; padding:8px 12px}
   /* the list well: a recessed white rectangle set in a little from the drawer's
-     own edges, at the same depth as the pill above, with a strip of the drawer
-     between them. it clips the row column so a tab slide is bounded by the well
-     and the pill never moves. #tikslide is that column; the slide only ever
-     transforms it, never this well. */
-  #tiklist{flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch;
+     own edges, at the same depth as the pill above. it clips a horizontal sheet
+     of three sections and shows one at a time, so a tab change travels the sheet
+     across the well while the well and the pill above never move. */
+  #tiklist{flex:1; min-height:0; overflow:hidden;
     position:relative; display:flex; flex-direction:column;
     margin:7px 8px 8px;
-    background:var(--card); border:1px solid var(--line); border-radius:7px; box-shadow:var(--sunk-deep);
-    padding:10px 8px}
-  #tikslide{display:flex; flex-direction:column; flex:0 0 auto; gap:6px}
+    background:var(--card); border:1px solid var(--line); border-radius:7px; box-shadow:var(--sunk-deep)}
+  /* doing|deferred|done laid left to right, one section wide each; section i rests
+     at translateX(-i*100%) and the well clips all but the shown one */
+  #tiksheet{flex:1; min-height:0; display:flex; flex-direction:row; will-change:transform}
+  .tikpane{flex:0 0 100%; min-width:0; height:100%; overflow-y:auto; overflow-x:hidden;
+    -webkit-overflow-scrolling:touch; display:flex; flex-direction:column; gap:6px; padding:10px 8px}
   .trow{
     position:relative; flex:none; height:52px;
     border:1px solid var(--line); border-radius:5px; background:#fff;
@@ -1025,7 +1027,7 @@
     <button id="tv-deferred" class="ptab tvb" type="button">deferred</button>
     <button id="tv-done" class="ptab tvb" type="button">done</button>
   </div>
-  <div id="tiklist"><div id="tikslide"></div></div>
+  <div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div>
 </aside>
 
 <aside id="settings" aria-label="settings" data-side="right">
@@ -2305,24 +2307,13 @@ function applySelection(state){
 }
 
 // ---- the drawer's list, the desktop's ticket panel ----------------------------------
-function renderTickets(state, action = "state"){
-  const tik = document.getElementById("tiklist");
-  const slide = document.getElementById("tikslide") || tik;   // the row column the well clips and the tab slide moves
-  // this project's own tab, never the last project's: the buttons and the rows
-  // below are drawn from the one read
-  const view = curView();
-  paintViewTabs();
-  const pool = viewPool(state);
-  const lane = state.agents?.[activeOwner];
-  const sig = view + "|" + (lane ? lane.name + lane.alive : "") + "|" +
-              pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
-                      ((seenReplies[b.id] || 0) >= (b.replies || 0) ? "r" : "") +
-                      (b.id === selectedId ? "!" : "") + b.title +
-                      Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",");
-  if (tik.dataset.sig === sig) return;
-  const ticketTrace = tracePhone("begin", "phase", { action, part: "tickets" });
-  tik.dataset.sig = sig;
-  slide.textContent = "";
+// one section of the drawer's sheet: its rows, its own scroll kept across a
+// rebuild. a tap selects the card and closes the drawer, so selection never
+// travels the sheet; only a tab tap does.
+function paintPhonePane(pane, pool, view, sig, state){
+  pane.dataset.sig = sig;
+  const keepScroll = pane.scrollTop;
+  pane.textContent = "";
   for (const b of pool){
     const s = queueState(b);
     const busy = s === "working" || (s === "done" && cardState({ ...b, done: false, parked: false, state: null }) === "working");
@@ -2344,22 +2335,52 @@ function renderTickets(state, action = "state"){
     r.appendChild(inner);
     r.dataset.id = b.id;
     r.addEventListener("click", () => { select(b.id); closeDrawer(); });
-    slide.appendChild(r);
+    pane.appendChild(r);
   }
-  if (!pool.length) slide.appendChild(h("div", "tempty", view === "done" ? "no done chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here"));
-  syncSpinner();
-  endPhoneTrace(ticketTrace, { action, part: "tickets" });
+  if (!pool.length) pane.appendChild(h("div", "tempty", view === "done" ? "no done chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here"));
+  pane.scrollTop = keepScroll;
+}
+function renderTickets(state, action = "state"){
+  const sheet = document.getElementById("tiksheet");
+  paintViewTabs();
+  if (!sheet) return;
+  const lane = state.agents?.[activeOwner];
+  const laneSig = lane ? lane.name + lane.alive : "";
+  const jobs = [];
+  for (const name of TICKET_VIEWS){
+    const pane = sheet.querySelector('.tikpane[data-view="' + name + '"]');
+    if (!pane) continue;
+    const pool = viewPoolFor(state, name);
+    const sig = name + "|" + laneSig + "|" +
+                pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
+                        ((seenReplies[b.id] || 0) >= (b.replies || 0) ? "r" : "") +
+                        (b.id === selectedId ? "!" : "") + b.title +
+                        Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",");
+    if (pane.dataset.sig !== sig) jobs.push({ pane, pool, name, sig });
+  }
+  if (jobs.length){
+    const ticketTrace = tracePhone("begin", "phase", { action, part: "tickets" });
+    for (const j of jobs) paintPhonePane(j.pane, j.pool, j.name, j.sig, state);
+    syncSpinner();
+    endPhoneTrace(ticketTrace, { action, part: "tickets" });
+  }
+  // keep the sheet on the current section without motion on a poll or first draw;
+  // a tab tap owns its own travel
+  if (tikTravelIntent == null && tikShownView !== curView()) moveTicketSheet(curView(), false);
 }
 // each button writes the view of the project being looked at, and nothing else:
 // another project keeps whatever view was chosen for it, and one that has never
 // been given a view opens on doing
 function setView(v){
-  const prev = curView();   // the view showing before the tap, for the slide direction
   if (!setTicketViewOf(activeOwner, v)) return;
   cancelAutoNext();
   paintViewTabs();
+  // the render holds the sheet where it is; the travel then animates it from its
+  // live position to the chosen section, across any middle section
+  tikTravelIntent = v;
   if (lastState) renderTickets(lastState);
-  slideTicketList(prev, v);   // a real tab change carries the fresh list in; polls do not
+  tikTravelIntent = null;
+  moveTicketSheet(v, true);
 }
 document.getElementById("tv-todo").addEventListener("click", () => setView("todo"));
 document.getElementById("tv-deferred").addEventListener("click", () => setView("deferred"));
