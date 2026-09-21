@@ -101,6 +101,12 @@ Five things never appear in any line: message or title text, keys and authentica
 
 Real work ships from boxes: delegate bounded builds and scans when delegation is available and authorized, and report results in the ordering box. Follow the actual session's authorization for pushes and destructive operations. After work is finished and verified, stage and commit its changes when authorized. Messages: short, imperative, technical, no co-author or AI signature lines. Commit messages and code comments never name private folder paths, machines, people, or other projects.
 
+## App version
+
+The displayed `0.2.N` is this project's count of meaningful updates. When a verified feature or substantive fix lands on premain, advance N once for each distinct meaningful update; do not count its merge again. Tests, documentation, behavior-preserving refactors, pure cosmetic tuning, version-label edits, and reverted or superseded experiments do not add a count.
+
+Keep the displayed value in `index.html` at `#npversion`. The phone installation and sign-in gate derives its label from that same value, so do not add a second hardcoded version. The gate caches its HTML at server startup; a running gate picks up a changed label after the next authorized restart.
+
 ## Delegation
 
 The listener normally delegates substantive bounded work and stays responsible for the card, unless the owner asks it to do the work directly or the current host does not authorize delegation. Sort by the shape of the job before starting; a misjudged job need not be handed off halfway through.
