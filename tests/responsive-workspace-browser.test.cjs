@@ -318,8 +318,11 @@ test("a portrait window becomes a phone-style column, not a tiny board, without 
     const s = await portraitSnap(page);
     assert.equal(s.mode, "portrait");
     assert.equal(s.pathname, "/", "portrait must not navigate to /m");
-    assert.equal(s.main.x, 0, "the conversation should fill the width from the left edge");
-    assert.equal(s.main.w, 900, "the conversation should fill the whole width");
+    // the conversation is a contained card sitting inside the workspace frame,
+    // inset from the window edge on both sides, not a full-bleed sheet
+    assert.ok(s.main.x >= 7 && s.main.x <= 20,
+      `the conversation should sit inside the frame, not on the window edge (x=${s.main.x})`);
+    assert.equal(s.main.w, 900 - 2 * s.main.x, "the column fills the width between its frame insets");
     assert.equal(s.clockShown, false, "the landscape clock is not part of the phone column");
     assert.equal(s.drawerBtnShown, true, "the drawer button is offered in portrait");
     assert.ok(s.tickets.x <= -s.tickets.w + 1, "the ticket drawer starts off-canvas");
@@ -467,5 +470,79 @@ test("the desktop holder stays transparent while only the portrait drawer is opa
     await page.setViewport({ width: 1440, height: 900 });
     await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
     assert.equal(await ticketsBg(), "rgba(0, 0, 0, 0)", "returning to wide restores the transparent holder");
+  } finally { await context.close(); }
+});
+
+// The reported portrait bug: the selected project tab visually "held" the card
+// because the full-bleed card was pinned under the bar with its top border on
+// the row the seated tab opens onto, hiding the workspace frame. The fix seats
+// the card INSIDE the #appframe boundary with a strip of board paper on every
+// side. This asserts the observable geometry, at the narrow shape from the
+// screenshot, then confirms the portrait inset fully releases back to landscape.
+async function portraitFrameGeom(page) {
+  return page.evaluate(() => {
+    const onTab = document.querySelector("#tabbar .ptab.on");
+    const frame = document.getElementById("appframe");
+    const main = document.querySelector("main");
+    const cs = getComputedStyle(main), fcs = getComputedStyle(frame);
+    const t = onTab.getBoundingClientRect(), f = frame.getBoundingClientRect(), m = main.getBoundingClientRect();
+    const composer = document.querySelector("main .cm-editor") || document.querySelector("main textarea");
+    return {
+      frameShown: fcs.display !== "none",
+      tabToCardGap: m.top - t.bottom,
+      frameTopToCardGap: m.top - f.top,
+      cardLeftInset: m.left - f.left,
+      cardRightInset: f.right - m.right,
+      cardBottomInset: f.bottom - m.bottom,
+      cardBorderTop: parseFloat(cs.borderTopWidth),
+      cardBorderLeft: parseFloat(cs.borderLeftWidth),
+      cardBorderRight: parseFloat(cs.borderRightWidth),
+      cardRadius: parseFloat(cs.borderTopLeftRadius),
+      titleShown: !!document.querySelector("main .title"),
+      composerBottom: composer ? composer.getBoundingClientRect().bottom : null,
+      innerHeight, innerWidth,
+    };
+  });
+}
+
+test("in portrait the selected project tab seats on the workspace frame, not on the card", async () => {
+  // the failing shape from the screenshot: a narrow portrait desktop window
+  const { context, page } = await fx.openBoard(null, { width: 500, height: 900 });
+  try {
+    await page.waitForFunction(() => document.body.dataset.respMode === "portrait");
+    await page.waitForSelector("main .cm-editor", { visible: true }).catch(() => {});
+    const g = await portraitFrameGeom(page);
+
+    assert.equal(g.frameShown, true, "the workspace frame must be drawn in portrait");
+    // a real strip of board paper between the seated tab's bottom and the card:
+    // the tab opens onto the workspace, not onto the card's top border
+    assert.ok(g.tabToCardGap > 2,
+      `the seated tab must open onto paper above the card, not the card itself (gap=${g.tabToCardGap})`);
+    // the card sits inside the frame boundary on every side
+    assert.ok(g.frameTopToCardGap > 2, `the card top must sit below the frame's top line (gap=${g.frameTopToCardGap})`);
+    assert.ok(g.cardLeftInset > 2 && g.cardRightInset > 2,
+      `the card must be inset inside the frame's side lines (l=${g.cardLeftInset}, r=${g.cardRightInset})`);
+    assert.ok(g.cardBottomInset > 2, `the card must be inset above the frame's bottom line (b=${g.cardBottomInset})`);
+    // it keeps its own full border and rounded corners, so it reads as a
+    // contained object rather than a full-bleed sheet
+    assert.ok(g.cardBorderTop >= 1 && g.cardBorderLeft >= 1 && g.cardBorderRight >= 1,
+      "the card keeps its full border in portrait");
+    assert.ok(g.cardRadius >= 4, "the card keeps its rounded corners in portrait");
+    // content and composer stay reachable within the window
+    assert.equal(g.titleShown, true, "the card title is present");
+    assert.ok(g.composerBottom !== null && g.composerBottom <= g.innerHeight + 0.5,
+      `the composer must stay within the window (bottom=${g.composerBottom}, h=${g.innerHeight})`);
+
+    // returning to a wide window fully releases the portrait inset: the card is
+    // back in the scaled stage at its landscape frame position, well past the
+    // small portrait inset
+    await page.setViewport({ width: 1440, height: 900 });
+    await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+    const back = await page.evaluate(() => ({
+      mode: document.body.dataset.respMode,
+      mainX: document.querySelector("main").getBoundingClientRect().x,
+    }));
+    assert.equal(back.mode, "wide", "a wide window returns to the landscape board");
+    assert.ok(back.mainX > 100, `the card returns to its landscape frame position, not the portrait inset (x=${back.mainX})`);
   } finally { await context.close(); }
 });

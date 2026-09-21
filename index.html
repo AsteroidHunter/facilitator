@@ -3105,12 +3105,26 @@
     transform:none !important; left:0; top:var(--bar-h);
     width:100vw; height:calc(100vh - var(--bar-h));
   }
-  /* the conversation fills the column, edge to edge under the bar */
+  /* the conversation is a contained card sitting INSIDE the workspace frame,
+     not a full-bleed sheet pinned under the bar. edge to edge with its top on
+     --bar-h, the card's own top border landed on the row the seated project tab
+     opens onto, so the selected tab read as holding the card and the #appframe
+     boundary was hidden behind the white sheet. it keeps its own 1px border and
+     7px corners now (the base focus rule) and is inset from the frame's boundary
+     by --app-inset on every side, so a strip of board paper shows between the
+     frame and the card and the seated tab opens onto that workspace paper rather
+     than onto the card. the top additionally clears the frame's top line, the
+     --app-inset + --bar-h - 2px row the boundary is drawn on, before adding the
+     same paper gap. */
   body[data-resp-mode="portrait"] main{
-    position:fixed !important; left:0 !important; right:0 !important;
-    top:var(--bar-h) !important; bottom:0 !important;
+    /* the frame's own inset from the window, plus one more of the same as the
+       paper gap that seats the card inside the boundary line */
+    --port-inset:calc(var(--app-inset) * 2);
+    position:fixed !important;
+    left:var(--port-inset) !important; right:var(--port-inset) !important;
+    bottom:var(--port-inset) !important;
+    top:calc(var(--app-inset) + var(--bar-h) - 2px + var(--app-inset)) !important;
     width:auto !important; height:auto !important; max-height:none !important;
-    border-radius:0 !important; border-left:none !important; border-right:none !important;
   }
   /* the ticket list becomes a left drawer, off-canvas until opened. the desktop
      holder is transparent so its labels sit bare on the workspace; a drawer over
