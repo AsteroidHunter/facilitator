@@ -1,15 +1,12 @@
-// The selected list tab (doing, deferred, done) is meant to be drawn from the
-// same shape as the selected project tab on the same page: the 7px top corners
-// and the browser-style bottom notch that flares the tab open into the surface
-// under it. This holds on the Mac board's ticket panel and on the phone's card
-// drawer, so both are driven headless here and the computed shape is read off
-// both selected tabs, so a drift on either surface is caught.
-//
-// The one thing that is allowed to differ is the surface each tab opens into, so
-// the notch's own seat fill is read against each tab's own fill rather than
-// against the other row's. On the Mac a project tab opens into the board's paper
-// and a ticket tab into the panel's white; on the phone the page is white
-// throughout, so both open into the same white.
+// The selected list tab (doing, deferred, done) is a depressed pill now, not a
+// browser-style tab that flares open into the list. Only the selected name
+// carries the pill: white fill, the board's hairline on all four sides, the
+// board's one sunk shade, the 7px corner on all four corners, and no bottom
+// notch. The two unselected names stay bare on the workspace. The list is its
+// own recessed well carrying that same sunk shade, so the pill and the well read
+// at one depth, and the head no longer draws a seat line under the names. This
+// holds on the Mac board's ticket panel and on the phone's card drawer, so both
+// are driven headless here and a drift on either surface is caught.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawn } = require("node:child_process");
@@ -24,7 +21,8 @@ const CHROME = process.env.CHROME_PATH ||
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const DESK = { width: 1440, height: 900 };
 const PHONE = { width: 375, height: 812, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
-const LINE = "230, 223, 210";   // var(--line), the board's own hairline
+const LINE = "rgb(230, 223, 210)";   // var(--line), the board's own hairline
+const CARD = "rgb(255, 255, 255)";   // var(--card), the pill and well fill
 
 let browser;
 let child;
@@ -49,69 +47,74 @@ async function post(route, body) {
   return { status: response.status, body: await response.json() };
 }
 
-// the shape a selected tab draws: the two top radii, its own fill, and each
-// bottom notch as its box, its anchored offset and the paint inside it. the
-// notch's unanchored side resolves against the tab's own width, so it is left
-// out of what one row is expected to share with the other
-async function tabShape(page, sel) {
-  return page.evaluate(one => {
-    const el = document.querySelector(one);
-    if (!el) return null;
-    const cs = getComputedStyle(el);
-    const notch = (which, anchor) => {
-      const p = getComputedStyle(el, which);
-      return { width: p.width, height: p.height, bottom: p.bottom, anchor: p[anchor], bg: p.backgroundImage };
+// the pill a selected tab draws, the well it sits over, and the head that holds
+// the names: their corners, borders on every side, fills, sunk shades and the
+// two notch pseudo-elements read off in one pass
+async function surfaces(page, tabSel, headSel, wellSel) {
+  return page.evaluate(sels => {
+    const box = el => {
+      if (!el) return null;
+      const cs = getComputedStyle(el);
+      const notch = which => getComputedStyle(el, which).display;
+      return {
+        radii: [cs.borderTopLeftRadius, cs.borderTopRightRadius,
+          cs.borderBottomRightRadius, cs.borderBottomLeftRadius],
+        borders: ["Top", "Right", "Bottom", "Left"].map(s =>
+          [cs["border" + s + "Width"], cs["border" + s + "Style"], cs["border" + s + "Color"]].join(" ")),
+        fill: cs.backgroundColor, shadow: cs.boxShadow,
+        before: notch("::before"), after: notch("::after"),
+        seatLine: [cs.borderBottomWidth, cs.borderBottomStyle].join(" "),
+      };
     };
+    const head = document.querySelector(sels.head);
+    const bare = [...head.querySelectorAll(".tvb")].filter(t => !t.classList.contains("on"));
     return {
-      tlr: cs.borderTopLeftRadius, trr: cs.borderTopRightRadius,
-      fill: cs.backgroundColor,
-      before: notch("::before", "left"), after: notch("::after", "right"),
+      pill: box(document.querySelector(sels.tab)),
+      well: box(document.querySelector(sels.well)),
+      headSeat: [getComputedStyle(head).borderBottomWidth, getComputedStyle(head).borderBottomStyle].join(" "),
+      bare: bare.map(box),
     };
-  }, sel);
+  }, { tab: tabSel, head: headSel, well: wellSel });
 }
 
-async function seatLine(page, sel) {
-  return page.evaluate(one => {
-    const cs = getComputedStyle(document.querySelector(one));
-    return [cs.borderBottomWidth, cs.borderBottomStyle, cs.borderBottomColor].join(" ");
-  }, sel);
-}
+// the check: the selected name is a depressed pill (four 7px corners, a full
+// hairline on every side, the sunk shade, a white fill, no notch), the two
+// unselected names are bare, the well carries the same sunk shade so the two
+// read at one depth, and the head draws no seat line
+async function assertPill(page, tabSel, headSel, wellSel, where) {
+  const s = await surfaces(page, tabSel, headSel, wellSel);
+  assert.ok(s.pill && s.well, `${where}: the selected pill and the list well are both on the page`);
 
-// the shared check: a selected list tab wears the same corners and bottom notch
-// as the selected project tab on the same page. the notch's own seat colour is
-// each tab's own fill, so the fill is read off each tab rather than assuming the
-// two open into one shared surface
-async function assertSameJoint(page, refSel, tabSel, headSel, where) {
-  const ref = await tabShape(page, refSel);
-  const tab = await tabShape(page, tabSel);
-  assert.ok(ref && tab, `${where}: a selected project tab and a selected list tab are both on the page`);
+  // four 7px corners: a pill is a plain rounded rectangle, not a tab
+  for (const r of s.pill.radii) assert.equal(r, "7px", `${where}: a pill corner is not the board's 7px (${s.pill.radii})`);
+  // a full hairline on every side, the bottom one included, unlike the old tab
+  for (let i = 0; i < 4; i++)
+    assert.equal(s.pill.borders[i], `1px solid ${LINE}`, `${where}: the pill's ${["top", "right", "bottom", "left"][i]} border is not the board's hairline`);
+  assert.equal(s.pill.fill, CARD, `${where}: the pill is not filled white`);
+  assert.ok(s.pill.shadow.includes("inset"), `${where}: the pill carries no sunk shade`);
+  // no browser-tab notch on the pill
+  assert.equal(s.pill.before, "none", `${where}: the pill still draws a ::before notch`);
+  assert.equal(s.pill.after, "none", `${where}: the pill still draws a ::after notch`);
 
-  // the corners: the list tab's top two match the project tab's, no longer square
-  assert.equal(tab.tlr, ref.tlr, `${where}: top-left radius drifted from the project tab`);
-  assert.equal(tab.trr, ref.trr, `${where}: top-right radius drifted from the project tab`);
-  assert.equal(tab.tlr, "7px", `${where}: the top-left corner is not the board's 7px`);
-  assert.notEqual(tab.tlr, "0px", `${where}: the top-left corner is still square`);
-  assert.notEqual(tab.trr, "0px", `${where}: the top-right corner is still square`);
-
-  // the joint: each bottom notch is the same box in the same place as the project
-  // tab's and is painted with the same hairline, and opens into the tab's own fill
-  for (const side of ["before", "after"]) {
-    const t = tab[side], p = ref[side];
-    assert.equal(t.width, p.width, `${where}: ${side} notch width drifted from the project tab`);
-    assert.equal(t.height, p.height, `${where}: ${side} notch height drifted from the project tab`);
-    assert.equal(t.bottom, p.bottom, `${where}: ${side} notch does not seat where the project tab's does`);
-    assert.equal(t.anchor, p.anchor, `${where}: ${side} notch is not offset like the project tab's`);
-    assert.equal(t.anchor, "-8px", `${where}: ${side} notch is not flared 8px past the tab edge`);
-    assert.ok(/radial-gradient/.test(t.bg), `${where}: ${side} notch on the list tab is not painted`);
-    assert.ok(/radial-gradient/.test(p.bg), `${where}: ${side} notch on the project tab is not painted`);
-    assert.ok(t.bg.includes(LINE), `${where}: ${side} list notch hairline is not the board's line`);
-    assert.ok(p.bg.includes(LINE), `${where}: ${side} project notch hairline is not the board's line`);
-    assert.ok(t.bg.includes(tab.fill), `${where}: ${side} list notch does not open into the tab's own fill`);
-    assert.ok(p.bg.includes(ref.fill), `${where}: ${side} project notch does not open into its own fill`);
+  // the two unselected names are bare: no shade, no fill, no visible border
+  assert.equal(s.bare.length, 2, `${where}: there are not two unselected names`);
+  for (const b of s.bare) {
+    assert.equal(b.shadow, "none", `${where}: an unselected name carries a shade`);
+    assert.ok(b.fill === "rgba(0, 0, 0, 0)" || b.fill === "transparent", `${where}: an unselected name has a fill (${b.fill})`);
+    // a border is invisible when it has no width, no style, or a clear colour
+    for (const border of b.borders)
+      assert.ok(/^0px|\bnone\b|transparent|rgba\(0, 0, 0, 0\)/.test(border), `${where}: an unselected name has a visible border (${border})`);
   }
 
-  // the seat: the head the tabs sit on carries the board's own 1px line
-  assert.equal(await seatLine(page, headSel), `1px solid rgb(${LINE})`, `${where}: the head's seat line is not the board's 1px line`);
+  // the well reads at the pill's depth: it carries the same sunk-shade string
+  assert.ok(s.well.shadow.includes("inset"), `${where}: the list well carries no sunk shade`);
+  assert.equal(s.well.shadow, s.pill.shadow, `${where}: the well and the pill do not read at one depth`);
+  assert.equal(s.well.borders[0], `1px solid ${LINE}`, `${where}: the well's top border is not the board's hairline`);
+  assert.equal(s.well.radii[0], "7px", `${where}: the well's corner is not the board's 7px`);
+
+  // the head no longer draws a seat line under the names
+  assert.ok(/^0px|none$/.test(s.headSeat) || s.headSeat === "0px none",
+    `${where}: the head still draws a seat line under the names (${s.headSeat})`);
 }
 
 before(async () => {
@@ -174,7 +177,7 @@ after(async () => {
   if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
 });
 
-test("the selected ticket tab wears the selected project tab's corners and joint", async () => {
+test("the selected ticket tab is a depressed pill over a recessed well", async () => {
   const page = await browser.newPage();
   const problems = [];
   page.on("pageerror", error => problems.push("pageerror: " + error.message));
@@ -190,14 +193,14 @@ test("the selected ticket tab wears the selected project tab's corners and joint
     await page.click("#tv-todo");
     await settle(300);
 
-    await assertSameJoint(page, "#tabbar .ptab.on", "#tikhead .tvb.on", "#tikhead", "the board");
+    await assertPill(page, "#tikhead .tvb.on", "#tikhead", "#tiklist", "the board");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
   }
 });
 
-test("the selected drawer tab wears the phone project tab's corners and joint", async () => {
+test("the selected drawer tab is a depressed pill over a recessed well", async () => {
   const page = await browser.newPage();
   const problems = [];
   page.on("pageerror", error => problems.push("pageerror: " + error.message));
@@ -215,7 +218,7 @@ test("the selected drawer tab wears the phone project tab's corners and joint", 
     await settle(600);
     await page.click("#tv-todo");
     await settle(300);
-    await assertSameJoint(page, "#tabbar .ptab.on", "#tikhead .tvb.on", "#tikhead", "the phone drawer");
+    await assertPill(page, "#tikhead .tvb.on", "#tikhead", "#tiklist", "the phone drawer");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
