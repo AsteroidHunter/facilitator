@@ -7784,18 +7784,26 @@ chatPoll(); setInterval(chatPoll, C3_POLL);
 
 // the markdown, read and written where it lives. the third tenant of magic box
 // 3, beside the picture panel and the chat above, and it follows their rule
-// exactly: one tab owns a box, every other tab gets the plain stub back. one
-// panel with two homes: the first markdown lane mounts in magic box 3, the
-// second in magic box 4. which lanes those are is board data, read from
-// run.config.json's markdown_lanes and carried in on /state, so no lane id is
-// written here and moving the panel to another tab is a config edit alone
+// exactly: one tab owns a box, every other tab gets the plain stub back. the
+// first markdown lane mounts in magic box 3; every lane after it shares magic
+// box 4, the markdown-only box on the right, so a third and later project carry
+// the same reader without a new box and without touching the picture or chat
+// slots. which lanes those are is board data, read from run.config.json's
+// markdown_lanes and carried in on /state, so no lane id is written here and
+// moving the panel to another tab is a config edit alone. magic box 4 stays
+// last in this list on purpose: the overflow below lands on the last slot, and
+// that slot must be the box with no picture or chat tenant
 const MD_SLOTS = [{ box: "magic3", stub: "magic box 3" }, { box: "magic4", stub: "magic box 4" }];
 let MD_MOUNTS = {};
-// fill the mount map from the lanes the board names, in the order the slots
-// take them; a board that names none leaves the panel off on every tab
+// fill the mount map from the lanes the board names: the first slot to the first
+// lane, and any lane past the slots to the last slot rather than off the panel.
+// lanes sharing the last slot never collide, because one tab owns a box at a
+// time and layout and editor state are kept per tab. a board that names no lanes
+// leaves the panel off on every tab
 function mdMounts(lanes){
   MD_MOUNTS = {};
-  (lanes || []).slice(0, MD_SLOTS.length).forEach((lane, i) => { MD_MOUNTS[lane] = MD_SLOTS[i]; });
+  const last = MD_SLOTS.length - 1;
+  (lanes || []).forEach((lane, i) => { MD_MOUNTS[lane] = MD_SLOTS[Math.min(i, last)]; });
   return MD_MOUNTS;
 }
 // the boxes the slots name that the page does not already carry. magic box 4
@@ -8505,17 +8513,32 @@ function mdClose(){
 async function mdSave(){
   const host = mdHost();
   if (!host || !host._md || !mdView || !mdOpen) return;
+  // the editor and the open file this save belongs to, taken before the first
+  // await. lanes past the second share the one markdown-only box, so a switch
+  // between two of them tears this editor down and builds another in the very
+  // same DOM host, and a B to C to B roundtrip builds a third: the host stays
+  // one element through all of it, so its identity cannot tell the incarnations
+  // apart. the view and the open-file object are made fresh every time, so a
+  // moved reference is the sign a late answer has come back for an editor that
+  // is no longer the one on screen
+  const view = mdView, open = mdOpen;
   // the same reason as in mdDirty, and here it is the file itself at stake:
   // toString would have written every \r\n in the file back as a bare \n, which
   // is the silent rewrite the line separator above was added to prevent
-  const text = mdView.state.sliceDoc();
-  const r = await fetch("/mdsave?lane=" + encodeURIComponent(mdOpen.lane) +
-                        "&root=" + encodeURIComponent(mdOpen.root) +
-                        "&rel=" + encodeURIComponent(mdOpen.rel) +
-                        "&mtime=" + encodeURIComponent(mdOpen.mtime),
+  const text = view.state.sliceDoc();
+  // stale is: the live editor is not the one this save started on. the request
+  // has already been sent to this file's own lane and is left to land there;
+  // only the UI updates below are dropped, so a late answer never writes another
+  // project's mtime, clean baseline or receipt, and never paints its warning
+  const stale = () => mdView !== view || mdOpen !== open || mdHost() !== host || !host._md;
+  const r = await fetch("/mdsave?lane=" + encodeURIComponent(open.lane) +
+                        "&root=" + encodeURIComponent(open.root) +
+                        "&rel=" + encodeURIComponent(open.rel) +
+                        "&mtime=" + encodeURIComponent(open.mtime),
                         { method: "POST", body: text }).catch(() => null);
-  if (!host._md || !mdOpen) return;
+  if (stale()) return;
   const d = r ? await r.json().catch(() => null) : null;
+  if (stale()) return;
   if (r && r.status === 409){
     // somebody else wrote the file while it was open in here. the reader's text stays
     // exactly where it is, in the editor, and the panel says so plainly rather
@@ -8527,7 +8550,7 @@ async function mdSave(){
     mdNote(host, (d && d.error) || "could not save", true);
     return;
   }
-  mdOpen.mtime = d.mtime;
+  open.mtime = d.mtime;
   mdClean = text;
   mdSig = "";        // the file's stamp moved, so let the list redraw behind this
   mdDirty();
@@ -8536,14 +8559,20 @@ async function mdSave(){
 async function mdPoll(){
   if (!ownerReady) return;
   // the tabs that own a box, the same rule the picture panel and the chat
-  // follow, with two tabs rather than one. the panel comes out of the box it
-  // was in whenever this tab is not that box's tab, which is what frees magic
-  // box 3 for the chat on the way to the chat lane's tab
+  // follow. the panel comes out of the box it was in whenever this tab is not
+  // that box's tab, which is what frees magic box 3 for the chat on the way to
+  // the chat lane's tab
   const mount = MD_MOUNTS[activeOwner];
   // the panel's own box arrives before the build asks for it and leaves after
   // the teardown below has let go of it
   mdBoxes();
-  if (mdHome && (!mount || mdHome.box !== mount.box)) mdOff();
+  // the panel is taken down when its box is not this tab's box, and also when
+  // the box is the same but the tab is not the one it was drawn for: lanes past
+  // the second share the one markdown-only box, so a switch between two of them
+  // keeps the box yet must still hand the panel its own file and folder rather
+  // than leave the last lane's open on the new tab. mdFor lags activeOwner until
+  // the rebuild below, so this reads it as the lane the panel is still drawn for
+  if (mdHome && (!mount || mdHome.box !== mount.box || mdFor !== activeOwner)) mdOff();
   if (!mount) return;
   const host = mdBuild(mount);
   if (!host || !host._md) return;
@@ -9270,7 +9299,14 @@ async function poll(){
     apply(state);
     lastState = state;
     P3_LANE = state.imagePanelLane || "";
+    // the mount map decides which lane's reader is on screen, so a change to the
+    // board's markdown lanes re-applies the layout to put a reader up or take one
+    // down. the first reading always changes it from nothing, which is what shows
+    // a configured reader at load without the reader revealing it by hand
+    const mdSigWas = Object.entries(MD_MOUNTS).map(([l, m]) => l + ":" + m.box).join(",");
     mdMounts(state.markdownLanes);
+    const mdSigNow = Object.entries(MD_MOUNTS).map(([l, m]) => l + ":" + m.box).join(",");
+    if (ownerReady && mdSigNow !== mdSigWas) applySavedLayout();
     // the Spotify app id is machine-local and rides in on the state; when it
     // first arrives, redraw the stub so a configured board drops the create
     // prompt for the sign-in
@@ -9919,7 +9955,17 @@ function migrateLegacyVisibility(){
   localStorage.setItem(VISIBILITY_MIGRATION, "1");
 }
 function regionHidden(owner, id){
+  // an explicit hide always wins: a box the reader put away by hand stays away
+  // even when it is this lane's configured markdown reader, and the reader is
+  // told rather than having that choice quietly overwritten
   if (localStorage.getItem("hide." + owner + "." + id)) return true;
+  // a lane's configured markdown reader is on screen by default, like the four
+  // default elements and unlike the other default-hidden boxes. the box it
+  // mounts in is the reader the board named for this lane, so it is shown without
+  // a reveal. read from the mount map, so no lane id is written here and a lane
+  // with no configured reader keeps the plain default layout
+  const mount = MD_MOUNTS[owner];
+  if (mount && mount.box === id) return false;
   return DEFAULT_HIDDEN_REGIONS.has(id) &&
     !localStorage.getItem("show." + owner + "." + id);
 }
