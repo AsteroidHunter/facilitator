@@ -10114,10 +10114,15 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     }
     if (width) width *= rangeScaleX;
     const m = fmetrics(cs);
-    // the baseline is the marker's inline box top plus the font's ascent
+    // the baseline is the marker's inline box top plus the font's ascent. the
+    // marker offset, the field's own scroll and the ascent are all untransformed
+    // pixels (the mirror sits outside the stage), so the vertical scale is
+    // applied the same way the horizontal terms above already take it, to land
+    // the baseline in the field's viewport space under a scaled stage
     return { x: r.left + (kr.left - mr.left) * rangeScaleX
                      - el.scrollLeft * fieldScaleX,
-             base: r.top + (kr.top - mr.top) - el.scrollTop + m.asc,
+             base: r.top + ((kr.top - mr.top) * rangeScaleX
+                     - el.scrollTop * fieldScaleX + m.asc * fieldScaleX),
              fs: parseFloat(cs.fontSize), fbA: m.fbA, fbD: m.fbD,
              width, scaleX: fieldScaleX, clip: r };
   }
@@ -10306,8 +10311,11 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     }
     if (!selected) return null;
     const glyph = cmGraphemeRect(view, pos, grapheme, selected, after, 2 * scaleX);
-    const top = cmInlineBodyTop(view, pos, selected, m.boxH);
-    return { x: glyph ? glyph.left : selected.left, base: top + m.asc,
+    // coordsAtPos and the glyph rect are viewport pixels, carrying the stage
+    // scale; the layout-px ascent is scaled into that space before it sets the
+    // baseline, and the body-height match runs in the same space
+    const top = cmInlineBodyTop(view, pos, selected, m.boxH * scaleX);
+    return { x: glyph ? glyph.left : selected.left, base: top + m.asc * scaleX,
              fs, fbA: m.fbA, fbD: m.fbD,
              capH: m.capH, width: glyph && glyph.width, scaleX, clip };
   }
@@ -10369,13 +10377,13 @@ document.getElementById("taskstatus").addEventListener("click", () => {
           let point = null;
           try { point = view.coordsAtPos(main.head, main.assoc || 1); } catch (e) {}
           if (point && point.bottom > point.top){
-            return { x: point.left, base: point.top + m.asc, fs,
+            return { x: point.left, base: point.top + m.asc * scaleX, fs,
                      fbA: m.fbA, fbD: m.fbD, capH: m.capH,
                      width: null, scaleX, clip };
           }
         }
       }
-      if (rr.height) return { x: rr.left, base: rr.top + m.asc, fs, fbA: m.fbA, fbD: m.fbD,
+      if (rr.height) return { x: rr.left, base: rr.top + m.asc * scaleX, fs, fbA: m.fbA, fbD: m.fbD,
                               capH: m.capH, width: editableAdvance(el, rg, rr), scaleX, clip };
     }
     // an empty editable gives a zero rect; park the block at the field's
@@ -10387,7 +10395,9 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     // took before the two are added
     const r = er;
     const inset = (parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft)) * scaleX;
-    return { x: r.left + inset, base: r.top + (r.height - m.boxH) / 2 + m.asc, fs,
+    // r.height is a viewport rect; the layout-px box and ascent are scaled to
+    // match it so the empty-field block centers correctly under a scaled stage
+    return { x: r.left + inset, base: r.top + (r.height - m.boxH * scaleX) / 2 + m.asc * scaleX, fs,
              fbA: m.fbA, fbD: m.fbD, capH: m.capH,
              width: generatedFirstAdvance(el, scaleX), scaleX, clip };
   }
@@ -10405,17 +10415,23 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     // text can lend its first grapheme, while other empty positions, line
     // endings and zero-size decorated text keep the accepted half-em cell.
     // This changes only the fixed overlay; the editor and its text never move.
+    // the block is a fixed overlay in viewport pixels, so its height and
+    // vertical centering scale by the same stage factor its width and base
+    // already use; at an unscaled stage this factor is 1 and the geometry is
+    // exactly what it was
+    const sx = c.scaleX || 1;
     const bw = Number.isFinite(c.width) && c.width > 0
-      ? c.width : c.fs * 0.5 * (c.scaleX || 1);
+      ? c.width : c.fs * 0.5 * sx;
     let bh, y;
     if (!isField && cur.classList.contains("title")){
-      bh = c.capH + 1;   // one pixel of optical overshoot above the caps
+      bh = c.capH * sx + 1;   // one pixel of optical overshoot above the caps
       y = c.base - bh;
     } else {
       // text boxes: 1.1em centered on the glyph band, the accepted look;
       // the font's full bounding cell read too tall here
-      bh = c.fs * 1.1;
-      y = c.base - c.fbA + (c.fbA + c.fbD - bh) / 2;
+      bh = c.fs * 1.1 * sx;
+      const fbA = c.fbA * sx, fbD = c.fbD * sx;
+      y = c.base - fbA + (fbA + fbD - bh) / 2;
     }
     // a caret scrolled out of the field's box must not hover over other ui
     if (y + bh < c.clip.top - 1 || y > c.clip.bottom + 1 ||

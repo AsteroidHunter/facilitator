@@ -478,40 +478,82 @@ test("formatted: both cursor layers are clipped to the scroller when the caret r
   }
 });
 
-test("formatted: the block tracks the caret under a scaled stage", async () => {
+test("formatted: block height and vertical centering track the stage scale", async () => {
   const page = await browser.newPage();
   try {
     await openBoard(page, { formatted: true, awaitFonts: true });
-    const off = await page.evaluate(url => {
-      // the responsive build scales #stage; emulate that and confirm the fixed
-      // overlay, which reads screen coordinates, still lands on the caret
-      const stage = document.getElementById("stage");
-      stage.style.transformOrigin = "top left";
-      stage.style.transform = "scale(0.8)";
+    await page.evaluate(url => {
       const ta = els.m1.ta;
-      ta.value = url;
+      ta.value = url + "\nsecond line of text here";
       els.m1.tick();
       ta.focus();
       const view = ComposeFormat.fieldOf(ta).view;
-      const pos = Math.floor(view.state.doc.length / 2);
-      view.dispatch({ selection: { anchor: pos } });
-      document.dispatchEvent(new Event("selectionchange"));
-      return pos;
+      view.dispatch({ selection: { anchor: Math.floor(view.state.doc.length / 2) } });
     }, WRAP_URL);
-    assert.ok(off >= 0);
     await settle(page, 3);
-    const read = await page.evaluate(() => {
-      const ta = els.m1.ta;
-      const view = ComposeFormat.fieldOf(ta).view;
-      const at = view.coordsAtPos(view.state.selection.main.head,
-        view.state.selection.main.assoc || -1);
-      const fc = document.getElementById("fatcaret").getBoundingClientRect();
-      return { caretOn: document.getElementById("fatcaret").classList.contains("on"),
-        dx: fc.left - at.left, dy: fc.top - at.top };
-    });
-    assert.ok(read.caretOn, "no block under a scaled stage");
-    assert.ok(Math.abs(read.dx) < 1.5, `scaled block sat ${read.dx}px off the caret horizontally`);
-    assert.ok(Math.abs(read.dy) < 3, `scaled block sat ${read.dy}px off the caret row`);
+
+    // the responsive build scales #stage; the fixed overlay is drawn outside it
+    // in viewport pixels, so its height and vertical centering must scale with
+    // the glyph rather than staying a fixed layout-pixel height
+    const measure = async scale => {
+      await page.evaluate(s => {
+        const stage = document.getElementById("stage");
+        stage.style.transformOrigin = "top left";
+        stage.style.transform = s === 1 ? "none" : "scale(" + s + ")";
+        if (!ComposeFormat.fieldOf(els.m1.ta).view.hasFocus) els.m1.ta.focus();
+        document.dispatchEvent(new Event("selectionchange"));
+      }, scale);
+      await settle(page, 3);
+      // re-place if headless dropped focus so the block had not shown yet
+      await page.evaluate(() => {
+        if (!document.getElementById("fatcaret").classList.contains("on")) {
+          els.m1.ta.focus();
+          document.dispatchEvent(new Event("selectionchange"));
+        }
+      });
+      await settle(page, 3);
+      return page.evaluate(() => {
+        const view = ComposeFormat.fieldOf(els.m1.ta).view;
+        const main = view.state.selection.main;
+        const a = view.coordsAtPos(main.head, main.assoc || 1);
+        const fc = document.getElementById("fatcaret").getBoundingClientRect();
+        const lift = document.getElementById("fatcaretlift").getBoundingClientRect();
+        return {
+          caretOn: document.getElementById("fatcaret").classList.contains("on"),
+          glyphH: a.bottom - a.top, glyphMid: (a.top + a.bottom) / 2,
+          blockH: fc.height, blockTop: fc.top, blockMid: fc.top + fc.height / 2,
+          dx: fc.left - a.left,
+          liftH: lift.height, liftTop: lift.top,
+          fontPx: parseFloat(getComputedStyle(view.contentDOM).fontSize),
+        };
+      });
+    };
+
+    const rows = {};
+    for (const s of [1, 0.8, 0.5]) rows[s] = await measure(s);
+
+    const baseRatio = rows[1].blockH / rows[1].glyphH;
+    const baseCenter = rows[1].blockMid - rows[1].glyphMid;
+    for (const s of [1, 0.8, 0.5]) {
+      const r = rows[s];
+      assert.ok(r.caretOn, `no block at scale ${s}`);
+      // the block box is 1.1em scaled by the stage, matching the scaled glyph
+      const expectedH = r.fontPx * 1.1 * s;
+      assert.ok(Math.abs(r.blockH - expectedH) < 0.75,
+        `scale ${s}: block height ${r.blockH.toFixed(2)} not the scaled 1.1em ${expectedH.toFixed(2)}`);
+      // its ratio to the scaled glyph row stays constant, not a fixed pixel height
+      assert.ok(Math.abs(r.blockH / r.glyphH - baseRatio) < 0.03,
+        `scale ${s}: block/glyph ratio ${(r.blockH / r.glyphH).toFixed(3)} drifted from ${baseRatio.toFixed(3)}`);
+      // the block stays centered on the glyph as at 1:1 (the reported defect put
+      // it +2.2px low at 0.8 and +5.5px low at 0.5)
+      assert.ok(Math.abs((r.blockMid - r.glyphMid) - baseCenter) < 0.75,
+        `scale ${s}: block center ${(r.blockMid - r.glyphMid).toFixed(2)}px drifted from the 1:1 offset ${baseCenter.toFixed(2)}px`);
+      // both blended layers keep the one scaled box
+      assert.ok(Math.abs(r.liftH - r.blockH) < 0.01 && Math.abs(r.liftTop - r.blockTop) < 0.01,
+        `scale ${s}: the two cursor layers diverged`);
+      // horizontal tracking preserved
+      assert.ok(Math.abs(r.dx) < 1.5, `scale ${s}: block ${r.dx.toFixed(2)}px off horizontally`);
+    }
   } finally {
     await page.close();
   }
