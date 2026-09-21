@@ -394,7 +394,7 @@
   /* scrolls stop dead at the edges: no rubber band, no chained bounce, in
      the page or in any scrolling region (reply, card body, composer, list) */
   html, body{overscroll-behavior:none}
-  #tiklist, #tickets, .box .body, .box .replyview, textarea{overscroll-behavior:none}
+  #tiklist, .tikpane, #tickets, .box .body, .box .replyview, textarea{overscroll-behavior:none}
   /* the star field fills the whole window, but its phase is locked to the
      stage: fitStage() slides the pattern's origin to wherever the centered
      stage lands, so the stars under the boxes always line up with them and
@@ -1786,16 +1786,21 @@
   }
   #tikhead .tvb.on::before, #tikhead .tvb.on::after{display:none}
   /* the list well: the second recessed surface, at the same depth as the pill,
-     with its own white fill, hairline and sunk shade. it holds the row column
-     and clips it, so a horizontal tab slide is bounded by the well and the pill
-     above never moves. #tikslide is that inner column; the well scrolls it
-     vertically and the slide only ever transforms it, never this well. */
-  #tiklist{position:relative; flex:1; min-height:0; overflow-y:auto; overflow-x:hidden;
+     with its own white fill, hairline and sunk shade. it clips a horizontal
+     sheet of three sections and shows one at a time, so a tab change travels the
+     sheet across the well while the well and the pill above never move. */
+  #tiklist{position:relative; flex:1; min-height:0; overflow:hidden;
     display:flex; flex-direction:column;
     background:var(--card); border:1px solid var(--line); border-radius:7px;
-    box-shadow:var(--sunk-deep);
+    box-shadow:var(--sunk-deep)}
+  /* #tiksheet is doing|deferred|done laid left to right, one section wide each.
+     section i rests at translateX(-i*100%); the well clips all but the shown one. */
+  #tiksheet{flex:1; min-height:0; display:flex; flex-direction:row; will-change:transform}
+  /* each section scrolls its own rows and keeps its own scroll position; the row
+     padding and gap live here, so the sheet moves the rows and never the well. */
+  .tikpane{flex:0 0 100%; min-width:0; height:100%; overflow-y:auto; overflow-x:hidden;
+    display:flex; flex-direction:column; gap:calc(var(--ch)*0.007);
     padding:calc(var(--ch)*0.012) 0.6vw calc(var(--ch)*0.012) 0.7vw}
-  #tikslide{display:flex; flex-direction:column; flex:0 0 auto; gap:calc(var(--ch)*0.007)}
   /* the ticket list, the markdown panes, the answer and the compose row scroll
      with no bar and no lane reserved for one: the page-wide rule in
      card-tokens.css hides every bar, so none is styled or slimmed here. */
@@ -3717,7 +3722,7 @@
 </div>
 
 <div id="chips"></div>
-<div id="tickets"><div id="tikhead"><button id="tv-todo" class="ptab tvb on">doing</button><button id="tv-deferred" class="ptab tvb">deferred</button><button id="tv-done" class="ptab tvb">done</button></div><div id="tiklist"><div id="tikslide"></div></div></div>
+<div id="tickets"><div id="tikhead"><button id="tv-todo" class="ptab tvb on">doing</button><button id="tv-deferred" class="ptab tvb">deferred</button><button id="tv-done" class="ptab tvb">done</button></div><div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div></div>
 <div id="magic1">magic box 1</div>
 <div id="magic2">magic box 2</div>
 <div id="magic3">magic box 3</div>
@@ -9037,79 +9042,92 @@ function relAge(ts){
 
 // shortAge and the list's spinner (syncSpinner, SPIN_FRAMES, spinFrame) are
 // shared with the phone page in card-logic.js
-function renderCarousel(state){
-  const tik = document.getElementById("tiklist");
-  const slide = document.getElementById("tikslide") || tik;   // the row column the well clips and the tab slide moves
-  const chips = document.getElementById("chips");
-  const w = curWs(state);
-  const all = poolOf(state);    // every chat of the workspace, grouped and sorted
-  // this project's own tab, never the last project's: the buttons and the rows
-  // below are drawn from the one read
-  const view = curView();
-  paintViewTabs();
-  // panel tab from the one state: done -> done, parked -> deferred, else doing
-  const pool = all.filter(viewFilter);
-  const lane = state.agents?.[activeOwner];
-  const sig = view + "|" + (lane ? lane.name + lane.alive : "") + "|" +
+// one section of the sheet: its own rows, its own scroll kept across a rebuild,
+// and the row-glide of survivors. drawn only when its own group's signature
+// changes, so a change in one section never rebuilds the others.
+function paintTicketPane(pane, pool, view, state, laneSig){
+  const sig = view + "|" + laneSig + "|" +
               pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
                       ((seenReplies[b.id] || 0) >= (b.replies || 0) ? "r" : "") +
                       (b.id === selectedId ? "!" : "") + (b.task || "") + b.title +
                       Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",") +
               "|" + selectedTask;
-  if (tik.dataset.sig !== sig){
-    tik.dataset.sig = sig;
-    // ordinary polls must not pull a manually scrolled list back to the
-    // selected row; only a selection new to this rendered list is revealed
-    const selectedBefore = slide.querySelector(".trow.on")?.dataset.id;
-    // remember where each row sat, so survivors glide instead of teleporting
-    const oldPos = {};
-    for (const prev of slide.children) if (prev.dataset && prev.dataset.id) oldPos[prev.dataset.id] = prev.getBoundingClientRect().top;
-    slide.textContent = "";
-    for (const b of pool){
-      const s = queueState(b);   // working covers claimed and a worker's job behind it
-      // quirks kept: a claimed done row still pulses, and an untouched row
-      // falls in with yours or queued by where the ball sits
-      const busy = s === "working" || (s === "done" && cardState({ ...b, done: false, parked: false, state: null }) === "working");
-      const read = seenReplies[b.id] || 0;
-      const r = h("div", "trow" + (b.id === selectedId ? " on" : "") + (busy ? " working" : "") +
-                  (s === "yours" && read >= (b.replies || 0) ? " seen" : "") +
-                  (s === "yours" || (s === "new" && b.ball === "you") ? " yours" : "") +
-                  (s === "queued" || (s === "new" && b.ball !== "you") ? " queuedc" : "") +
-                  (s === "done" ? " donec" : "") +
-                  (selectedTask && b.task === selectedTask ? " match" : ""));
-      const inner = h("div", "trowin");
-      const ttl = h("div", "ttl", b.title);
-      if (/^[0-9]/.test(b.id)) ttl.prepend(h("span", "tnum", b.id));
-      inner.appendChild(ttl);
-      const meta = h("div", "tmeta");
-      meta.appendChild(h("span", "tage", busy ? SPIN_FRAMES[spinFrame] : s === "done" ? "done" : shortAge(b.agentTs)));
-      // the tag is the lane's live truth, never a stored per-card value
-      const ag = state.agents?.[b.owner];
-      meta.appendChild(h("span", "teng", ag ? (ag.alive ? ag.name : "offline") : ""));
-      inner.appendChild(meta);
-      r.appendChild(inner);
-      r.dataset.id = b.id;
-      r.addEventListener("click", () => select(b.id));
-      slide.appendChild(r);
-    }
-    if (!pool.length) slide.appendChild(h("div", "tempty", view === "done" ? "no done chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here"));
-    // surviving rows glide to their new spots, the 220ms rise of the sister
-    // board, instead of teleporting on every re-sort
-    for (const row of slide.children){
-      const was = row.dataset && oldPos[row.dataset.id];
-      if (was == null) continue;
-      const dy = was - row.getBoundingClientRect().top;
-      if (Math.abs(dy) < 2) continue;
-      row.style.transition = "none";
-      row.style.transform = "translateY(" + dy + "px)";
-      void row.offsetHeight;
-      row.style.transition = "transform 220ms cubic-bezier(0.25, 1, 0.5, 1)";
-      row.style.transform = "";
-      row.addEventListener("transitionend", () => { row.style.transition = ""; }, { once: true });
-    }
-    if (selectedBefore !== selectedId)
-      slide.querySelector(".trow.on")?.scrollIntoView({ block: "nearest" });
+  if (pane.dataset.sig === sig) return;
+  pane.dataset.sig = sig;
+  // ordinary polls must not pull a manually scrolled section back to the top or
+  // to the selected row; only a selection new to this render is revealed
+  const selectedBefore = pane.querySelector(".trow.on")?.dataset.id;
+  const keepScroll = pane.scrollTop;
+  const oldPos = {};
+  for (const prev of pane.children) if (prev.dataset && prev.dataset.id) oldPos[prev.dataset.id] = prev.getBoundingClientRect().top;
+  pane.textContent = "";
+  for (const b of pool){
+    const s = queueState(b);   // working covers claimed and a worker's job behind it
+    // quirks kept: a claimed done row still pulses, and an untouched row
+    // falls in with yours or queued by where the ball sits
+    const busy = s === "working" || (s === "done" && cardState({ ...b, done: false, parked: false, state: null }) === "working");
+    const read = seenReplies[b.id] || 0;
+    const r = h("div", "trow" + (b.id === selectedId ? " on" : "") + (busy ? " working" : "") +
+                (s === "yours" && read >= (b.replies || 0) ? " seen" : "") +
+                (s === "yours" || (s === "new" && b.ball === "you") ? " yours" : "") +
+                (s === "queued" || (s === "new" && b.ball !== "you") ? " queuedc" : "") +
+                (s === "done" ? " donec" : "") +
+                (selectedTask && b.task === selectedTask ? " match" : ""));
+    const inner = h("div", "trowin");
+    const ttl = h("div", "ttl", b.title);
+    if (/^[0-9]/.test(b.id)) ttl.prepend(h("span", "tnum", b.id));
+    inner.appendChild(ttl);
+    const meta = h("div", "tmeta");
+    meta.appendChild(h("span", "tage", busy ? SPIN_FRAMES[spinFrame] : s === "done" ? "done" : shortAge(b.agentTs)));
+    // the tag is the lane's live truth, never a stored per-card value
+    const ag = state.agents?.[b.owner];
+    meta.appendChild(h("span", "teng", ag ? (ag.alive ? ag.name : "offline") : ""));
+    inner.appendChild(meta);
+    r.appendChild(inner);
+    r.dataset.id = b.id;
+    r.addEventListener("click", () => select(b.id));
+    pane.appendChild(r);
   }
+  if (!pool.length) pane.appendChild(h("div", "tempty", view === "done" ? "no done chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here"));
+  pane.scrollTop = keepScroll;   // a rebuild must not throw away where the reader had scrolled
+  // surviving rows glide to their new spots, the 220ms rise of the sister
+  // board, instead of teleporting on every re-sort
+  for (const row of pane.children){
+    const was = row.dataset && oldPos[row.dataset.id];
+    if (was == null) continue;
+    const dy = was - row.getBoundingClientRect().top;
+    if (Math.abs(dy) < 2) continue;
+    row.style.transition = "none";
+    row.style.transform = "translateY(" + dy + "px)";
+    void row.offsetHeight;
+    row.style.transition = "transform 220ms cubic-bezier(0.25, 1, 0.5, 1)";
+    row.style.transform = "";
+    row.addEventListener("transitionend", () => { row.style.transition = ""; }, { once: true });
+  }
+  // reveal a newly selected row only in the section on show, never in an
+  // offscreen one, so the well is never scrolled to a card nobody can see
+  if (selectedBefore !== selectedId && view === curView())
+    pane.querySelector(".trow.on")?.scrollIntoView({ block: "nearest" });
+}
+function renderCarousel(state){
+  const sheet = document.getElementById("tiksheet");
+  const chips = document.getElementById("chips");
+  const w = curWs(state);
+  paintViewTabs();
+  const lane = state.agents?.[activeOwner];
+  const laneSig = lane ? lane.name + lane.alive : "";
+  // every section is drawn, so the middle group is really there to be passed on a
+  // two-section jump; each is its own group's pool
+  if (sheet){
+    for (const name of TICKET_VIEWS){
+      const pane = sheet.querySelector('.tikpane[data-view="' + name + '"]');
+      if (pane) paintTicketPane(pane, viewPoolFor(state, name), name, state, laneSig);
+    }
+    // place the sheet at the current section with no motion on a poll, the first
+    // render or a project change; a tab press owns its own travel below
+    if (tikTravelIntent == null && tikShownView !== curView()) moveTicketSheet(curView(), false);
+  }
+  const pool = viewPoolFor(state, curView());
   // chips spring up above the panel: green while its agent works, yellow
   // while the ticket awaits input; click jumps there
   // quirk kept: the claim and the ball alone gate a chip; bg does not open
@@ -9292,12 +9310,15 @@ addEventListener("keydown", e => {
   // else: another project keeps whatever view was chosen for it, and one that
   // has never been given a view opens on doing
   const setView = v => {
-    const prev = curView();   // the view showing before the tab was pressed, for the slide direction
     if (!setTicketViewOf(activeOwner, v)) return;
     cancelAutoNext();
     paintViewTabs();
+    // the render keeps the sheet where it is (tikTravelIntent), then the travel
+    // animates it from its live position to the chosen section, across any middle
+    tikTravelIntent = v;
     if (lastState) apply(lastState);
-    slideTicketList(prev, v);   // a real tab change carries the fresh list in; polls do not
+    tikTravelIntent = null;
+    moveTicketSheet(v, true);
   };
   document.getElementById("tv-todo").addEventListener("click", () => setView("todo"));
   document.getElementById("tv-deferred").addEventListener("click", () => setView("deferred"));

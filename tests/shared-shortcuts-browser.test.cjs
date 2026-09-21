@@ -219,9 +219,15 @@ function assertUndoStackIntact(stack, where) {
 }
 
 // the cards the list is showing, in the order it shows them, which is the order
-// the walking keys have to keep
+// the walking keys have to keep. the sheet draws all three sections at once, so
+// the shown cards are the current section's pane
 function listOrder(page) {
-  return page.evaluate(() => [...document.querySelectorAll("#tiklist .trow")].map(row => row.dataset.id));
+  return page.evaluate(() => {
+    const sheet = document.getElementById("tiksheet");
+    const view = typeof curView === "function" ? curView() : null;
+    const scope = sheet && view ? sheet.querySelector('.tikpane[data-view="' + view + '"]') : document.getElementById("tiklist");
+    return scope ? [...scope.querySelectorAll(".trow")].map(row => row.dataset.id) : [];
+  });
 }
 
 function activeElement(page) {
