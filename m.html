@@ -822,11 +822,23 @@
   .tnum{font:600 13px var(--mono); color:var(--sub); margin-right:.45em}
   .tempty{font:italic 12.5px var(--sans); color:#B4AA99; padding:8px 12px}
   .trow.working{background:#F3FFF0; border-color:#C4D9BB}
-  .trow.yours{background:#FEFFEB; border-color:#E8DCAE}
+  .trow.yours{background:#FFFBEB; border-color:#E8DCAE}
   .trow.queuedc{background:#F7F7F7; border-color:#CDD4DE}
   .trow.donec{opacity:.55}
   .trow.on{border-color:var(--line-strong); transform:translateY(-1px); z-index:1;
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
+  /* the ready-to-test fill: a distinct cool wash whose neutral hairline steps
+     aside for the selected border. background sits after .trow.on so the marker
+     wins the fill on any row. */
+  .trow.testc{background:#EBEFFF}
+  .trow.testc:not(.on){border-color:#CDD4DE}
+  /* Your-turn staleness: a visibly yellow card desaturates in step jumps at 4 /
+     8 / 16 / 32 minutes since it became the reader's turn. Only yellow rows get
+     a tier, never working, queued, done or ready-to-test. */
+  .trow.stale-1{filter:saturate(.75)}
+  .trow.stale-2{filter:saturate(.5)}
+  .trow.stale-3{filter:saturate(.25)}
+  .trow.stale-4{filter:saturate(0)}
   /* ---- the settings, on the panel off the right edge ---------------------- */
   /* the header, its mark on the left in the line the card's own marks are drawn
      in, and the card title's face and weight, which is the one heading face on
@@ -2318,14 +2330,21 @@ function paintPhonePane(pane, pool, view, sig, state){
     const s = queueState(b);
     const busy = s === "working" || (s === "done" && cardState({ ...b, done: false, parked: false, state: null }) === "working");
     const read = seenReplies[b.id] || 0;
+    const isYours = s === "yours" || (s === "new" && b.ball === "you");
+    const isTest = testReady(b);
+    // only a visibly yellow row ages: never the ready-to-test wash
+    const tier = (isYours && !isTest) ? staleTier(b, Date.now()) : 0;
     const r = h("div", "trow" + (b.id === selectedId ? " on" : "") + (busy ? " working" : "") +
                 (s === "yours" && read >= (b.replies || 0) ? " seen" : "") +
-                (s === "yours" || (s === "new" && b.ball === "you") ? " yours" : "") +
+                (isYours ? " yours" : "") +
                 (s === "queued" || (s === "new" && b.ball !== "you") ? " queuedc" : "") +
-                (s === "done" ? " donec" : ""));
+                (s === "done" ? " donec" : "") +
+                (isTest ? " testc" : "") +
+                (tier ? " stale-" + tier : ""));
     const inner = h("div", "trowin");
     const ttl = h("div", "ttl", b.title);
-    if (/^[0-9]/.test(b.id)) ttl.prepend(h("span", "tnum", b.id));
+    const num = ticketNum(b.id);
+    if (num) ttl.prepend(h("span", "tnum", num));
     inner.appendChild(ttl);
     const meta = h("div", "tmeta");
     meta.appendChild(h("span", "tage", busy ? SPIN_FRAMES[spinFrame] : s === "done" ? "done" : shortAge(b.agentTs)));
@@ -2355,6 +2374,9 @@ function renderTickets(state, action = "state"){
                 pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
                         ((seenReplies[b.id] || 0) >= (b.replies || 0) ? "r" : "") +
                         (b.id === selectedId ? "!" : "") + b.title +
+                        // the marker and the staleness tier ride the signature so a
+                        // mark, a clear or a crossed age boundary repaints the row
+                        (testReady(b) ? "T" : "") + "S" + staleTier(b, Date.now()) +
                         Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",");
     if (pane.dataset.sig !== sig) jobs.push({ pane, pool, name, sig });
   }
