@@ -9682,8 +9682,51 @@ document.getElementById("tiklist")?.addEventListener("click", e => {
 // made shorter, even if that clips the board's foot, because Chrome cannot be
 // stopped from shrinking the window and reacting to every height change looks
 // worse than a stable board.
+// A detected native fullscreen transition arms a short SETTLING window. Native
+// macOS fullscreen animates the window to its final size over several frames,
+// and the (display-mode: fullscreen) flip fires MID-animation, so a single fit
+// on that flip lands on an intermediate height; the later final-height resize
+// arrives at the SAME width (enter from a maximized window, or leave back to
+// one, only changes height) and the width freeze below would drop it, leaving
+// the board fitted to the wrong size until a reload or a width change (this
+// exact ordering, dm-change at an intermediate height then a same-width resize
+// to the final height, was captured on the real window). While the settle is
+// armed, resizes refit even at constant width, and it stays armed until the size
+// has stopped changing for FS_SETTLE_QUIET_MS or the FS_SETTLE_MAX_MS hard cap,
+// then does one final authoritative fit and disarms. It is armed ONLY by a real
+// fullscreen transition, so an ordinary vertical drag never triggers it and the
+// height-only freeze still holds.
+// FS_SETTLE_QUIET_MS is a bounded heuristic: a stretch with no size change is
+// TREATED as the transition having settled. It does not read the OS animation
+// clock, so the hard cap below is the real guarantee that the settle always ends.
+const FS_SETTLE_QUIET_MS = 160;   // no size change for this long => treat as settled
+const FS_SETTLE_MAX_MS = 1200;    // absolute upper bound on one transition's settling
+let fsSettling = false;
+let fsQuietTimer = 0, fsCapTimer = 0;
+function fsSettleDisarm(){
+  if (!fsSettling) return;
+  fsSettling = false;
+  clearTimeout(fsQuietTimer); clearTimeout(fsCapTimer);
+  fitStage();   // final fit at the settled size
+}
+function fsSettleBumpQuiet(){
+  clearTimeout(fsQuietTimer);
+  fsQuietTimer = setTimeout(fsSettleDisarm, FS_SETTLE_QUIET_MS);
+}
+function fsSettleArm(){
+  if (!fsSettling){
+    fsSettling = true;
+    clearTimeout(fsCapTimer);
+    fsCapTimer = setTimeout(fsSettleDisarm, FS_SETTLE_MAX_MS);
+  }
+  fsSettleBumpQuiet();
+  fitStage();   // fit to the current (possibly intermediate) size right away
+}
 function onViewportResize(){
   if (!FOCUS) return;
+  // while a fullscreen transition is settling, follow the animating size past
+  // the width freeze so the FINAL height is the one the board fits to
+  if (fsSettling){ fitStage(); fsSettleBumpQuiet(); return; }
   if (lastFitW !== null && innerWidth === lastFitW) return;   // height-only: freeze
   fitStage();
 }
@@ -9693,13 +9736,12 @@ addEventListener("resize", onViewportResize);
 // width (only the height drops), so the width-keyed resize above would freeze
 // and the foot would stay clipped. Chrome does flip the (display-mode:
 // fullscreen) media feature on native macOS fullscreen and fires its change
-// event on both enter and exit, so this listener refits the board on that
-// transition even when the width does not change. It bypasses the width gate on
-// purpose; it only fires on a real fullscreen transition, never on a manual
-// vertical drag, so the height-only freeze is preserved.
+// event on both enter and exit, so this arms the settle on that transition even
+// when the width does not change. It only fires on a real fullscreen transition,
+// never on a manual vertical drag, so the height-only freeze is preserved.
 try {
   const fsq = matchMedia("(display-mode: fullscreen)");
-  const onFs = () => fitStage();
+  const onFs = () => fsSettleArm();
   if (fsq.addEventListener) fsq.addEventListener("change", onFs);
   else if (fsq.addListener) fsq.addListener(onFs);
 } catch (e) {}
