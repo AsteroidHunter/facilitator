@@ -4832,6 +4832,13 @@ function select(id, opts){
     els[k].box.classList.toggle("sel", k === id);
     els[k].toc.classList.toggle("t-sel", k === id);
   }
+  // the card is laid out again now that it wears .sel. a draft it kept while it
+  // was hidden may carry a stale inline height, since the guarded autosize
+  // skips the write on a display:none card, so re-measure the composer once
+  // here. this reflects a draft that also grew while hidden, an upload that
+  // landed on it, without waiting for a keystroke. the tick guards itself, so a
+  // card whose row has no field is a no-op.
+  if (els[id].tick) els[id].tick();
   releaseAnsweredVisit(leaving);
   syncDesktopHistoryAvailability(id);
   // the ticket rows re-render on the poll, up to a second later; the selection
@@ -5774,6 +5781,17 @@ function makeBox(b, i, state){
     // it, and the height going to auto and back in the two lines above resets
     // that scroll under it
     const tick = () => {
+      // a card that is not the selected one is display:none in focus mode, so
+      // nothing on it is laid out and its field, or its editor scroller when the
+      // row wears its formatted face, measures a zero height. an async caller
+      // that lands after the reader has switched away, a web font settling or an
+      // upload finishing, would then write that zero over a retained draft's
+      // kept height and leave one line behind until the next keystroke. skip the
+      // write while the row has no box; select() re-measures it on the way back.
+      // clientHeight reads the active scroller through the field's own proxy, so
+      // it is the visible surface that is checked and not the hidden textarea,
+      // and offsetParent catches a display:none anywhere above it.
+      if (!ta.offsetParent || !ta.clientHeight) return;
       ta.style.height = "auto";
       ta.style.height = ta.scrollHeight + "px";
       seatSquare(ta, send);
@@ -10431,10 +10449,15 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     }
     if (width) width *= rangeScaleX;
     const m = fmetrics(cs);
-    // the baseline is the marker's inline box top plus the font's ascent
+    // the baseline is the marker's inline box top plus the font's ascent. the
+    // marker offset, the field's own scroll and the ascent are all untransformed
+    // pixels (the mirror sits outside the stage), so the vertical scale is
+    // applied the same way the horizontal terms above already take it, to land
+    // the baseline in the field's viewport space under a scaled stage
     return { x: r.left + (kr.left - mr.left) * rangeScaleX
                      - el.scrollLeft * fieldScaleX,
-             base: r.top + (kr.top - mr.top) - el.scrollTop + m.asc,
+             base: r.top + ((kr.top - mr.top) * rangeScaleX
+                     - el.scrollTop * fieldScaleX + m.asc * fieldScaleX),
              fs: parseFloat(cs.fontSize), fbA: m.fbA, fbD: m.fbD,
              width, scaleX: fieldScaleX, clip: r };
   }
@@ -10444,25 +10467,25 @@ document.getElementById("taskstatus").addEventListener("click", () => {
   // can map either edge of that box, but an insertion point inside several
   // spaces has no glyph box of its own. spread those real document positions
   // across the box, and borrow only the row from a full-height edge
-  function cmListSpaceCaret(pos){
+  function cmListSpaceCaret(view, pos){
     let at, node, holder, from, to;
     try {
-      at = mdView.domAtPos(pos);
+      at = view.domAtPos(pos);
       node = at.node;
       if (node.nodeType === 1){
         node = node.childNodes[at.offset] || node.childNodes[at.offset - 1];
       }
       if (!node || node.nodeType !== 3) return null;
       holder = node.parentElement && node.parentElement.closest(".md-li-gap, .md-li-ind");
-      if (!holder || !mdView.contentDOM.contains(holder)) return null;
-      from = mdView.posAtDOM(node, 0);
-      to = mdView.posAtDOM(node, node.nodeValue.length);
+      if (!holder || !view.contentDOM.contains(holder)) return null;
+      from = view.posAtDOM(node, 0);
+      to = view.posAtDOM(node, node.nodeValue.length);
     } catch (e){ return null; }
     if (to <= from || pos < from || pos > to) return null;
 
-    const before = mdView.coordsAtPos(from, -1);
-    const after = mdView.coordsAtPos(to, 1);
-    const tall = [before, after, mdView.coordsAtPos(from, 1), mdView.coordsAtPos(to, -1)]
+    const before = view.coordsAtPos(from, -1);
+    const after = view.coordsAtPos(to, 1);
+    const tall = [before, after, view.coordsAtPos(from, 1), view.coordsAtPos(to, -1)]
       .find(q => q && q.bottom > q.top);
     if (!tall) return null;
 
@@ -10488,9 +10511,9 @@ document.getElementById("taskstatus").addEventListener("click", () => {
   }
 
   const cmInlineMarks = new Set(["EmphasisMark", "StrikethroughMark", "CodeMark"]);
-  function cmInlineMarkNode(pos){
+  function cmInlineMarkNode(view, pos){
     try {
-      const tree = window.CM6.syntaxTree(mdView.state);
+      const tree = window.CM6.syntaxTree(view.state);
       for (const side of [-1, 1]){
         for (let node = tree.resolveInner(pos, side); node; node = node.parent){
           if (cmInlineMarks.has(node.name)) return node;
@@ -10500,8 +10523,8 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     return null;
   }
 
-  function cmInlineMarkAt(pos){
-    return !!cmInlineMarkNode(pos);
+  function cmInlineMarkAt(view, pos){
+    return !!cmInlineMarkNode(view, pos);
   }
 
   const cmRectHeight = rect => rect && rect.bottom > rect.top
@@ -10517,14 +10540,14 @@ document.getElementById("taskstatus").addEventListener("click", () => {
   // that top makes it visibly dip even though the line never moved. Find the
   // body-height endpoint outside this exact mark on the already-selected row.
   // Row and horizontal affinity remain owned by CodeMirror's selected rect.
-  function cmInlineBodyTop(pos, selected, bodyHeight){
-    const mark = cmInlineMarkNode(pos);
+  function cmInlineBodyTop(view, pos, selected, bodyHeight){
+    const mark = cmInlineMarkNode(view, pos);
     if (!mark || !cmRectHeight(selected)) return selected && selected.top;
     const candidates = [
-      mdView.coordsAtPos(mark.from, -1),
-      mdView.coordsAtPos(mark.to, 1),
-      mdView.coordsAtPos(mark.from, 1),
-      mdView.coordsAtPos(mark.to, -1),
+      view.coordsAtPos(mark.from, -1),
+      view.coordsAtPos(mark.to, 1),
+      view.coordsAtPos(mark.from, 1),
+      view.coordsAtPos(mark.to, -1),
     ].filter(rect => cmRowsOverlap(rect, selected));
     if (!candidates.length) return selected.top;
     candidates.sort((a, b) =>
@@ -10538,13 +10561,13 @@ document.getElementById("taskstatus").addEventListener("click", () => {
   // CodeMirror selected. In RTL that start is the range's right edge, so the
   // block extends left. At a distinct bidi or wrap affinity, the selected x
   // does not match that edge and the caller deliberately keeps a bounded cell.
-  function cmGraphemeRect(pos, grapheme, selected, logical, tolerance){
+  function cmGraphemeRect(view, pos, grapheme, selected, logical, tolerance){
     if (!grapheme || /[\r\n]/.test(grapheme) ||
         !cmRectHeight(selected) || !cmRectHeight(logical) ||
         !cmRowsOverlap(selected, logical)) return null;
     try {
-      const start = mdView.domAtPos(pos);
-      const end = mdView.domAtPos(pos + grapheme.length);
+      const start = view.domAtPos(pos);
+      const end = view.domAtPos(pos + grapheme.length);
       const range = document.createRange();
       range.setStart(start.node, start.offset);
       range.setEnd(end.node, end.offset);
@@ -10566,14 +10589,70 @@ document.getElementById("taskstatus").addEventListener("click", () => {
   // the same row use its + side regardless of arrow direction. Association
   // still owns a real wrap boundary, and horizontally separated bidi sites:
   // those are different visual caret positions rather than one styled seam.
-  function cmInlineGraphemeSide(pos, before, after, localGap){
-    if (!cmInlineMarkAt(pos) || !before || !after ||
+  function cmInlineGraphemeSide(view, pos, before, after, localGap){
+    if (!cmInlineMarkAt(view, pos) || !before || !after ||
         before.bottom <= before.top || after.bottom <= after.top) return 0;
     const overlap = Math.min(before.bottom, after.bottom) -
       Math.max(before.top, after.top);
     if (overlap <= Math.min(before.bottom - before.top,
                             after.bottom - after.top) * 0.5) return 0;
     return Math.abs(after.left - before.left) <= localGap ? 1 : 0;
+  }
+
+  // the formatted composer wears a codemirror editor of its own, laid over the
+  // hidden textarea the row keeps its class on. the module hands back that
+  // editor's view for the field, so the block reads the same coordinates the
+  // markdown panel does rather than a browser range that forgets which side of
+  // a soft wrap the caret belongs on
+  function composerView(el){
+    if (!el || !el.closest) return null;
+    const shell = el.closest(".cffield");
+    if (!shell) return null;
+    const mirror = shell.querySelector(".cfmirror");
+    const field = mirror && window.ComposeFormat && window.ComposeFormat.fieldOf(mirror);
+    return (field && field.view) || null;
+  }
+
+  // codemirror owns the mapping from document positions to the decorated dom.
+  // ask the view in its own editor rather than reading the browser selection: a
+  // collapsed range inside a zero-size markdown marker has no height even though
+  // codemirror still knows the insertion point, and at a soft-wrap boundary the
+  // browser range loses the visual row the view's selection assoc records.
+  // prefer the character before an interior position and the character after a
+  // line start; the opposite side covers a zero-size decoration on the preferred
+  // side. the markdown panel and each formatted composer are the same kind of
+  // editor, so both come through here with their own view.
+  function cmCaret(view, el, m, fs, scaleX, clip){
+    const main = view.state.selection.main;
+    if (!main.empty) return null;
+    const pos = main.head, line = view.state.doc.lineAt(pos);
+    const grapheme = graphemeAt(line.text, pos - line.from);
+    const before = view.coordsAtPos(pos, -1);
+    const after = view.coordsAtPos(pos, 1);
+    const spaced = cmListSpaceCaret(view, pos);
+    let selected = null;
+    if (spaced){
+      selected = { left: spaced.x, right: spaced.x,
+                   top: spaced.top, bottom: spaced.bottom };
+    } else {
+      let side = main.assoc || (pos === line.from ? 1 : -1);
+      if (grapheme && !/[\r\n]/.test(grapheme) &&
+          cmInlineGraphemeSide(view, pos, before, after, 2 * scaleX)) side = 1;
+      for (const s of [side, -side]){
+        const q = s < 0 ? before : after;
+        if (!q) continue;
+        if (q.bottom > q.top){ selected = q; break; }
+      }
+    }
+    if (!selected) return null;
+    const glyph = cmGraphemeRect(view, pos, grapheme, selected, after, 2 * scaleX);
+    // coordsAtPos and the glyph rect are viewport pixels, carrying the stage
+    // scale; the layout-px ascent is scaled into that space before it sets the
+    // baseline, and the body-height match runs in the same space
+    const top = cmInlineBodyTop(view, pos, selected, m.boxH * scaleX);
+    return { x: glyph ? glyph.left : selected.left, base: top + m.asc * scaleX,
+             fs, fbA: m.fbA, fbD: m.fbD,
+             capH: m.capH, width: glyph && glyph.width, scaleX, clip };
   }
 
   // contenteditable path: codemirror maps its own decorated document first;
@@ -10590,42 +10669,16 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     // scrolled out of sight still counts as inside, and the block then hangs
     // over whatever is drawn under the panel
     const clip = (el.closest(".cm-scroller") || el).getBoundingClientRect();
-    // codemirror owns the mapping from document positions to the decorated dom.
-    // ask it first in its editor rather than reading the browser selection: a
-    // collapsed range inside a zero-size markdown marker has no height even
-    // though codemirror still knows the insertion point. prefer the character
-    // before an interior position and the character after a line start. the
-    // opposite side covers a zero-size decoration on the preferred side.
+    // the markdown panel's editor first, then the composer's own if this is the
+    // element it owns; either returns null and falls through to the range below
     if (mdView && el === mdView.contentDOM && mdView.hasFocus){
-      const main = mdView.state.selection.main;
-      if (main.empty){
-        const pos = main.head, line = mdView.state.doc.lineAt(pos);
-        const grapheme = graphemeAt(line.text, pos - line.from);
-        const before = mdView.coordsAtPos(pos, -1);
-        const after = mdView.coordsAtPos(pos, 1);
-        const spaced = cmListSpaceCaret(pos);
-        let selected = null;
-        if (spaced){
-          selected = { left: spaced.x, right: spaced.x,
-                       top: spaced.top, bottom: spaced.bottom };
-        } else {
-          let side = main.assoc || (pos === line.from ? 1 : -1);
-          if (grapheme && !/[\r\n]/.test(grapheme) &&
-              cmInlineGraphemeSide(pos, before, after, 2 * scaleX)) side = 1;
-          for (const s of [side, -side]){
-            const q = s < 0 ? before : after;
-            if (!q) continue;
-            if (q.bottom > q.top){ selected = q; break; }
-          }
-        }
-        if (selected){
-          const glyph = cmGraphemeRect(pos, grapheme, selected, after, 2 * scaleX);
-          const top = cmInlineBodyTop(pos, selected, m.boxH);
-          return { x: glyph ? glyph.left : selected.left, base: top + m.asc,
-                   fs, fbA: m.fbA, fbD: m.fbD,
-                   capH: m.capH, width: glyph && glyph.width, scaleX, clip };
-        }
-      }
+      const c = cmCaret(mdView, el, m, fs, scaleX, clip);
+      if (c) return c;
+    }
+    const own = composerView(el);
+    if (own && el === own.contentDOM && own.hasFocus){
+      const c = cmCaret(own, el, m, fs, scaleX, clip);
+      if (c) return c;
     }
     const sel = getSelection();
     if (sel.rangeCount){
@@ -10653,20 +10706,19 @@ document.getElementById("taskstatus").addEventListener("click", () => {
       // insertion point, including the space beside its quote bar. Use it
       // before the generic fallback centers the block in the whole field.
       if (!rr.height){
-        const mirror = el.closest(".cffield")?.querySelector(".cfmirror");
-        const view = window.ComposeFormat?.fieldOf(mirror)?.view;
+        const view = composerView(el);
         if (view && el === view.contentDOM && view.state.selection.main.empty){
           const main = view.state.selection.main;
           let point = null;
           try { point = view.coordsAtPos(main.head, main.assoc || 1); } catch (e) {}
           if (point && point.bottom > point.top){
-            return { x: point.left, base: point.top + m.asc, fs,
+            return { x: point.left, base: point.top + m.asc * scaleX, fs,
                      fbA: m.fbA, fbD: m.fbD, capH: m.capH,
                      width: null, scaleX, clip };
           }
         }
       }
-      if (rr.height) return { x: rr.left, base: rr.top + m.asc, fs, fbA: m.fbA, fbD: m.fbD,
+      if (rr.height) return { x: rr.left, base: rr.top + m.asc * scaleX, fs, fbA: m.fbA, fbD: m.fbD,
                               capH: m.capH, width: editableAdvance(el, rg, rr), scaleX, clip };
     }
     // an empty editable gives a zero rect; park the block at the field's
@@ -10678,7 +10730,9 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     // took before the two are added
     const r = er;
     const inset = (parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft)) * scaleX;
-    return { x: r.left + inset, base: r.top + (r.height - m.boxH) / 2 + m.asc, fs,
+    // r.height is a viewport rect; the layout-px box and ascent are scaled to
+    // match it so the empty-field block centers correctly under a scaled stage
+    return { x: r.left + inset, base: r.top + (r.height - m.boxH * scaleX) / 2 + m.asc * scaleX, fs,
              fbA: m.fbA, fbD: m.fbD, capH: m.capH,
              width: generatedFirstAdvance(el, scaleX), scaleX, clip };
   }
@@ -10696,28 +10750,49 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     // text can lend its first grapheme, while other empty positions, line
     // endings and zero-size decorated text keep the accepted half-em cell.
     // This changes only the fixed overlay; the editor and its text never move.
+    // the block is a fixed overlay in viewport pixels, so its height and
+    // vertical centering scale by the same stage factor its width and base
+    // already use; at an unscaled stage this factor is 1 and the geometry is
+    // exactly what it was
+    const sx = c.scaleX || 1;
     const bw = Number.isFinite(c.width) && c.width > 0
-      ? c.width : c.fs * 0.5 * (c.scaleX || 1);
+      ? c.width : c.fs * 0.5 * sx;
     let bh, y;
     if (!isField && cur.classList.contains("title")){
-      bh = c.capH + 1;   // one pixel of optical overshoot above the caps
+      bh = c.capH * sx + 1;   // one pixel of optical overshoot above the caps
       y = c.base - bh;
     } else {
       // text boxes: 1.1em centered on the glyph band, the accepted look;
       // the font's full bounding cell read too tall here
-      bh = c.fs * 1.1;
-      y = c.base - c.fbA + (c.fbA + c.fbD - bh) / 2;
+      bh = c.fs * 1.1 * sx;
+      const fbA = c.fbA * sx, fbD = c.fbD * sx;
+      y = c.base - fbA + (fbA + fbD - bh) / 2;
     }
     // a caret scrolled out of the field's box must not hover over other ui
     if (y + bh < c.clip.top - 1 || y > c.clip.bottom + 1 ||
         c.x + bw < c.clip.left - 1 || c.x > c.clip.right + 5){
       hide(); return;
     }
+    // a caret row scrolled part way under the field's top rule, or past any
+    // other edge of the scroller it lives in, must not paint a solid block over
+    // the ui outside that field. clip both blended layers to the part of the
+    // block that falls inside the scroller rectangle, keeping the same box so
+    // the block still sits on its glyph within the field. the small tolerances
+    // match the all-or-nothing check above so a fully seated block is never
+    // touched, and a block that only overhangs the right edge, which the caret
+    // at the end of a line does, keeps that overhang the way it always had it.
+    const ct = Math.max(0, (c.clip.top - 1) - y);
+    const cb = Math.max(0, (y + bh) - (c.clip.bottom + 1));
+    const cl = Math.max(0, (c.clip.left - 1) - c.x);
+    const cr = Math.max(0, (c.x + bw) - (c.clip.right + 5));
+    const clipCss = (ct || cb || cl || cr)
+      ? "inset(" + ct + "px " + cr + "px " + cb + "px " + cl + "px)" : "none";
     for (const el of cells){
       el.style.left = c.x + "px";
       el.style.top = y + "px";
       el.style.width = bw + "px";
       el.style.height = bh + "px";
+      el.style.clipPath = clipCss;
     }
     if (!bar.classList.contains("on") || c.x !== px || y !== py){
       // restart the blink so the block lands solid, the way a native caret does
