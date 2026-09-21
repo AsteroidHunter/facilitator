@@ -172,6 +172,39 @@ function cardState(b){
 // nulled in the copy so cardState recomputes from the flags instead of handing
 // back the server's "parked" when we peel the park off
 function queueState(b){ return b.parked ? cardState({ ...b, parked: false, state: null }) : cardState(b); }
+// The visible number a row shows before its title. Cards keep their internal
+// ids for routing and never renumber from list position: an m-prefixed id (a
+// card made on the board) shows its digits, an already-numeric seeded id shows
+// as it is with no double #, and a purely non-numeric standing id shows none.
+function ticketNum(id){
+  const s = String(id == null ? "" : id);
+  const m = /^m(\d+)$/.exec(s);
+  if (m) return "#" + m[1];
+  if (/^[0-9]/.test(s)) return "#" + s;
+  return "";
+}
+// The ready-to-test marker's display gate. The board keeps a durable per-card
+// flag (b.testing); it paints only while the card is actually awaiting the
+// reader, so a card that returns to work, queues or is done keeps its own
+// colour. A parked card that still awaits the reader qualifies through queueState.
+function testReady(b){ return !!(b && b.testing) && queueState(b) === "yours"; }
+// The Your-turn staleness tier, 0..4, in the reference dock's step fade at 4 / 8
+// / 16 / 32 minutes. Only a card that is visibly the reader's turn ages, timed
+// from when it BECAME the reader's turn (turnTs), never from creation, a poll or
+// a read. A ready-to-test card, a card with no recorded turn time, and every
+// non-yellow state do not age.
+function staleTier(b, nowMs){
+  if (!b || testReady(b)) return 0;
+  if (queueState(b) !== "yours") return 0;
+  const turnTs = b.turnTs || 0;
+  if (!turnTs) return 0;
+  const ageMin = (nowMs / 1000 - turnTs) / 60;
+  if (ageMin >= 32) return 4;
+  if (ageMin >= 16) return 3;
+  if (ageMin >= 8) return 2;
+  if (ageMin >= 4) return 1;
+  return 0;
+}
 // the strict await of the bar count and auto-select: pending vetoes it, and
 // so does work in flight, claimed or registered; green outranks the ball
 function awaitsYou(b){

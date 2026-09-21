@@ -65,6 +65,15 @@ Endpoints:
                                reply under the flag is handed over
   POST /ping?box=ID         -> heartbeat for a registered job; refreshes its
                                green while the job actually runs
+  POST /testing?box=ID&v=1|0 -> raise or lower the ready-to-test marker: a
+                               durable per-card flag the agent sets once a
+                               delivered change is actually available for the
+                               reader to try. v=1 is refused unless the card is
+                               awaiting the reader (a completed reply waits and
+                               no job runs), so it can never mark active, queued
+                               or done work. v=0 always clears. The reader
+                               answering the card, and close/done, clear it too.
+                               It adds no reply, consumes no claim and moves no card
   POST /park?box=ID&v=1|0   -> park a box to Later / bring it back
   POST /context?box=ID      -> body = the box's two-line context strip (agent-kept)
   POST /title?box=ID        -> body = replacement title (agent keeps titles brief;
@@ -1677,6 +1686,10 @@ def _migrate() -> None:
         # how many of this card's replies have been read (2026-09-02): a board
         # record, so opening a card on the phone marks it read on the board
         b.setdefault("seen", 0)
+        # the ready-to-test marker (2026-09-21): a durable per-card flag the
+        # agent sets once a delivered change is actually available for the
+        # reader to try. Cards written before it default off.
+        b.setdefault("testing", False)
     # the card state machine (2026-08-26): boxes written before it carry the
     # old scattered flags. bg and bg_ts collapse into hb; a fresh heartbeat
     # keeps its green (deferred if a turn was recorded under the flag), a dead
@@ -2013,6 +2026,7 @@ def _box_has_content(box: dict) -> bool:
 def _mark_box_done(box: dict) -> str:
     box["done"] = True
     box["parked"] = False
+    box["testing"] = False   # a closed card is not awaiting a test
     _log("done", box["id"], "")
     return "done"
 
@@ -2131,6 +2145,24 @@ def _shown(b: dict) -> str:
          else "working" if _state["busy"].get(b.get("owner", "facilitator")) == b["id"]
          else b["state"])
     return {"deferred": "working", "rest": "queued"}.get(s, s)
+
+
+def _await_reader_test(b: dict) -> bool:
+    """The one condition a card may be flagged ready-to-test in: a completed
+    reply is waiting on the reader and no work is in flight. It reads the machine
+    state through the same facts _shown does, but ignores the parked shelf so a
+    deferred (shelved) card still awaiting the reader qualifies. Excluded: a done
+    card, a live job, a held claim, and every state still owed to the agent
+    (queued, new, working, note, the green deferred, and the quiet rest). This
+    guards the set path so the marker can never declare active, queued or done
+    work available."""
+    if b.get("done"):
+        return False
+    if _hb_live(b):
+        return False
+    if _state["busy"].get(b.get("owner", "facilitator")) == b["id"]:
+        return False
+    return b.get("state") == "yours"
 
 
 def _turn_to_you(b: dict) -> None:
@@ -2787,6 +2819,9 @@ def _phone_box(b: dict) -> dict:
         "answered": _answered_out(b.get("answered")),
         "writing": _state["busy"].get(ow) == b["id"],
         "bg": _hb_live(b), "state": _shown(b),
+        # the ready-to-test marker, a durable per-card flag; the page paints it
+        # only while the card is actually awaiting the reader
+        "testing": bool(b.get("testing", False)),
     }
 
 
@@ -2899,6 +2934,9 @@ def _ui_state() -> dict:
                 # machine's state through the shelf mask, beside the raw
                 # flags above so the page never has to reconcile them
                 "state": _shown(b),
+                # the ready-to-test marker, a durable per-card flag; the page
+                # paints it only while the card is actually awaiting the reader
+                "testing": bool(b.get("testing", False)),
                 "queuePos": qpos.get(b["id"], 0),
             }
             for b in st["boxes"]
@@ -3661,6 +3699,11 @@ def _post_send(q: Query, text: str):
             msg["op"] = op
         box["pending"].append(msg)
         box["parked"] = False
+        # fresh feedback lowers the ready-to-test marker: the reader has answered,
+        # so any earlier "ready to try" no longer stands. This sits past the op
+        # receipt above, so a deduplicated retry of an already-accepted send
+        # returns without reaching here and cannot clear a later fresh marker.
+        box["testing"] = False
         box["ball"] = "me"  # the message is sent: the ball is in the agent's court
         # the message queues the card; a beating flag keeps its green,
         # and a deferred turn dies here, since the reader has read and
@@ -3854,6 +3897,7 @@ def _post_done(q: Query, text: str):
         box["done"] = q.one("v", "1") == "1"
         if box["done"]:
             box["parked"] = False
+            box["testing"] = False   # a done card is not awaiting a test
         _log("done" if box["done"] else "undone", bid, "")
         _save()
         _notify()
@@ -3895,6 +3939,36 @@ def _post_ping(q: Query, text: str):
             box["hb"] = time.time()
             _green(box)  # a registered job beating again takes back its green
         return 200, {"ok": True, "bg": bool(box.get("hb"))}
+
+
+def _post_testing(q: Query, text: str):
+    # The ready-to-test marker: an explicit per-card flag the agent raises once a
+    # delivered change is actually available for the reader to try, and lowers by
+    # hand. v=1 marks, v=0 clears. Marking is refused unless the card is genuinely
+    # awaiting the reader (see _await_reader_test), so the flag can never claim
+    # that active, queued or done work is ready; clearing is always allowed. This
+    # route touches only the flag: it adds no reply or history row, consumes no
+    # claim, marks nothing seen and moves no card. The reader answering the card,
+    # and the card being closed or marked done, lower the flag on their own paths.
+    bid = q.one("box")
+    want = q.one("v", "1") == "1"
+    with _lock:
+        box = _box(bid)
+        if box is None:
+            return 400, {"error": "bad box"}
+        held = bool(box.get("testing", False))
+        if want and not held and not _await_reader_test(box):
+            # nothing changes: a card not awaiting the reader stays as it is, and
+            # the caller is told why rather than left to guess
+            return 409, {"error": "card is not awaiting the reader", "testing": held}
+        if held == want:
+            # already in the asked-for state: no revision and no notice
+            return 200, {"ok": True, "testing": want, "unchanged": True}
+        box["testing"] = want
+        _log("testmark" if want else "testclear", bid, "")
+        _save()
+        _notify()
+        return 200, {"ok": True, "testing": want}
 
 
 # ---- the order of each page's own park commands -------------------------------
@@ -4118,7 +4192,7 @@ def _post_create(q: Query, text: str):
             "full_replies": 0, "reply_kind": "",
             "state": "new", "hb": 0,
             "ball": "me", "ts": time.time(), "owner": owner,
-            "ws": ws0, "task": None, "agent_ts": 0, "seen": 0,
+            "ws": ws0, "task": None, "agent_ts": 0, "seen": 0, "testing": False,
         }
         _state["boxes"].insert(idx, made)
         result = {"ok": True, "id": bid_new}
@@ -5022,6 +5096,7 @@ ROUTES = [
     Route("/done", _state_endpoint(_post_done, "text"), methods=["POST"]),
     Route("/working", _state_endpoint(_post_working, "text"), methods=["POST"]),
     Route("/ping", _state_endpoint(_post_ping, "text"), methods=["POST"]),
+    Route("/testing", _state_endpoint(_post_testing, "text"), methods=["POST"]),
     Route("/park", _state_endpoint(_post_park, "text"), methods=["POST"]),
     Route("/worktree", _state_endpoint(_post_worktree, "text"), methods=["POST"]),
     Route("/context", _state_endpoint(_post_context, "text"), methods=["POST"]),
