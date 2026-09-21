@@ -92,8 +92,8 @@ async function launch({ seed } = {}) {
   if (!(await fetch(origin + "/state")).ok) throw new Error(`fixture did not start:\n${output}`);
 
   // Dual mode. When FACILITATOR_CDP_ENDPOINT is set (the shared background Chrome
-  // the browser-testing policy requires), CONNECT to it and drive isolated
-  // background targets that never take focus. With no env var it launches a
+  // the browser-testing policy requires), CONNECT to it and create background
+  // targets without activation calls. With no env var it launches a
   // private headless Chrome exactly as before, so CI and reviewers run unchanged.
   const cdpEndpoint = (process.env.FACILITATOR_CDP_ENDPOINT || "").replace(/\/$/, "");
   let browser, browserConn = null;
@@ -136,9 +136,10 @@ async function launch({ seed } = {}) {
   // touches this fixture's own ephemeral origin, never profile-wide data. The
   // board itself never calls requestFullscreen, so blocking it changes no
   // production behavior; it only stops a stray test from driving OS fullscreen.
-  function connectInit(entries) {
+  function connectInit(entries, fixtureOrigin) {
     try {
-      if (!sessionStorage.getItem("__fx_seeded")) {
+      if (window === window.top && location.origin === fixtureOrigin &&
+          !sessionStorage.getItem("__fx_seeded")) {
         sessionStorage.setItem("__fx_seeded", "1");
         localStorage.clear();
         if (entries) for (const [k, v] of Object.entries(entries)) localStorage.setItem(k, v);
@@ -149,6 +150,8 @@ async function launch({ seed } = {}) {
         new DOMException("Fullscreen API disabled in the connect-mode fixture", "NotAllowedError"));
       Element.prototype.requestFullscreen = blocked;
       if (Element.prototype.webkitRequestFullscreen) Element.prototype.webkitRequestFullscreen = function () {};
+      Document.prototype.exitFullscreen = blocked;
+      if (Document.prototype.webkitExitFullscreen) Document.prototype.webkitExitFullscreen = function () {};
     } catch (e) {}
   }
 
@@ -183,7 +186,7 @@ async function launch({ seed } = {}) {
         const target = await tp;
         page = await target.page();
         if (prep) await page.evaluateOnNewDocument(prep);
-        await page.evaluateOnNewDocument(connectInit, storage || null);
+        await page.evaluateOnNewDocument(connectInit, storage || null, origin);
         await page.setViewport(viewport || { width: 1440, height: 900 });
         await page.goto(origin + "/", { waitUntil: "domcontentloaded" });
         await page.waitForFunction(() => document.body.classList.contains("layout-ready") && typeof lastState !== "undefined" && lastState);

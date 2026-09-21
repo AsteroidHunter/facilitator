@@ -91,8 +91,7 @@ test("same-width EXIT: display-mode arms, the final shorter height refits", () =
   const m = buildMachine();
   m.setSize(1512, 949); m.setLastFitW(1512);   // fitted fullscreen, same width
   m.setSize(1512, 820); m.fireResize();        // intermediate collapse, frozen
-  const n = m.calls().length;
-  assert.equal(n >= 0, true);
+  assert.equal(m.calls().length, 0, "the intermediate same-width exit resize stays frozen before the signal");
   m.fireChange();                              // leaving fullscreen arms the settle
   m.setSize(1512, 744); m.fireResize();        // final windowed height, same width
   assert.equal(m.lastCall().ih, 744, "leaving fullscreen must refit to the shorter final height");
