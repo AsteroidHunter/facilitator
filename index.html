@@ -1747,35 +1747,55 @@
   .chip.g{background:#E3FFDB}
   .chip.y{background:#FFF8DB}
   @keyframes chippop{from{opacity:0; transform:translateY(6px) scale(.7)}}
-  /* the ticket panel: each ticket a chat; the open one overhangs seamlessly
-     toward the chat frame, its right border erased as drawn */
+  /* the ticket holder: the selected name in its own depressed pill above an
+     independent recessed list well, two surfaces at one depth with a strip of
+     workspace between them. the holder itself paints nothing now and does not
+     clip: the pill and the well each carry their own fill, hairline and sunk
+     shade, so the paper shows through the gap between them. */
   body.focus #tickets{
     position:fixed; left:var(--tik-x); width:var(--tik-w);
     top:calc(var(--oy) + var(--ch)*var(--tik-y));
     height:calc(var(--ch)*var(--tik-h));
-    background:#fff; border:1px solid var(--line); border-radius:7px;
-    box-shadow:0 1px 10px rgba(60,45,20,.04);
-    display:flex; flex-direction:column; overflow:hidden;
+    background:transparent; border:none; border-radius:0; box-shadow:none;
+    display:flex; flex-direction:column; overflow:visible; gap:7px;
   }
   /* the ticket panel's head row, holding the doing / deferred / done segments.
      the markdown panel used to share this one rule with it; 20260828 it stopped,
      because the two heads no longer want the same air on their sides, and its
      own row is written out beside its own tabs further down */
-  /* 12px of side air, not 8: a seated tab flares 7px past its own edge, and at
-     8px the outer notch would land on the panel's own border with nothing
-     between them. the folder head keeps the same 12 for the same reason */
-  #tikhead{flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 12px 0; border-bottom:1px solid var(--line)}
-  /* the ticket tabs ARE the project tabs, the same reuse the folder tabs make:
-     every .ptab rule up top applies here, the 7px top corners and the browser
-     style bottom notches with them, and only what this row keeps is said again.
-     the seat, because the surface under this head is the panel's own white and
-     not the board's paper; three equal segments across the width; height auto
-     over the bar's fixed 38; and the 6 and 5 of padding the segments carried, so
-     the head stays exactly as tall as it was */
-  #tikhead .tvb{flex:1; --seat:var(--card); height:auto; padding:6px 0 5px}
-  #tiklist{flex:1; overflow-y:auto; display:flex; flex-direction:column;
-    gap:calc(var(--ch)*0.007);
+  /* no side air and no line under the head now: the three names divide the
+     head into equal thirds across the holder's full width, so the first name's
+     outer-left edge and the last name's outer-right edge sit flush with the
+     well's own sides. */
+  #tikhead{flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 0 0; border-bottom:none}
+  /* the ticket tabs still reuse the project tabs for type and spacing, three
+     equal segments across the width, but they no longer draw the seated-tab
+     shape: top:0 drops the 1px lift a .ptab carries so the seated pill and the
+     two bare names share one baseline, and only the colour moves under a
+     pointer. what a name paints when selected is set just below. */
+  #tikhead .tvb{flex:1; --seat:var(--card); height:auto; top:0; padding:6px 0 5px; transition:color .18s}
+  /* the selected name sits in its own depressed rectangular pill: white fill,
+     the holder's hairline and the shared sunk shade, so it reads at the same
+     depth as the recessed well below it. the two unselected names stay bare on
+     the workspace. the seated-tab bottom notches the .ptab rules would draw are
+     struck: a pill is a plain rounded rectangle, not a tab bitten into a strip. */
+  #tikhead .tvb.on{
+    color:var(--ink); background:var(--card);
+    border:1px solid var(--line); border-radius:7px;
+    box-shadow:var(--sunk-deep);
+  }
+  #tikhead .tvb.on::before, #tikhead .tvb.on::after{display:none}
+  /* the list well: the second recessed surface, at the same depth as the pill,
+     with its own white fill, hairline and sunk shade. it holds the row column
+     and clips it, so a horizontal tab slide is bounded by the well and the pill
+     above never moves. #tikslide is that inner column; the well scrolls it
+     vertically and the slide only ever transforms it, never this well. */
+  #tiklist{position:relative; flex:1; min-height:0; overflow-y:auto; overflow-x:hidden;
+    display:flex; flex-direction:column;
+    background:var(--card); border:1px solid var(--line); border-radius:7px;
+    box-shadow:var(--sunk-deep);
     padding:calc(var(--ch)*0.012) 0.6vw calc(var(--ch)*0.012) 0.7vw}
+  #tikslide{display:flex; flex-direction:column; flex:0 0 auto; gap:calc(var(--ch)*0.007)}
   /* the ticket list, the markdown panes, the answer and the compose row scroll
      with no bar and no lane reserved for one: the page-wide rule in
      card-tokens.css hides every bar, so none is styled or slimmed here. */
@@ -3087,11 +3107,16 @@
     width:auto !important; height:auto !important; max-height:none !important;
     border-radius:0 !important; border-left:none !important; border-right:none !important;
   }
-  /* the ticket list becomes a left drawer, off-canvas until opened */
+  /* the ticket list becomes a left drawer, off-canvas until opened. the desktop
+     holder is transparent so its labels sit bare on the workspace; a drawer over
+     the conversation needs its own opaque paper, or the conversation shows
+     through the tab strip and the gap above the well. the well and pill keep
+     their own fills, so this only fills the strip and the gap behind them. */
   body[data-resp-mode="portrait"] #tickets{
     position:fixed !important; left:0 !important; top:var(--bar-h) !important;
     width:min(86vw, 380px) !important; height:calc(100vh - var(--bar-h)) !important;
     max-width:none; border-radius:0 !important; z-index:14;
+    background:var(--paper) !important;
     transform:translateX(-100%); transition:transform .26s ease;
     box-shadow:2px 0 18px rgba(60,45,20,.18);
   }
@@ -3692,7 +3717,7 @@
 </div>
 
 <div id="chips"></div>
-<div id="tickets"><div id="tikhead"><button id="tv-todo" class="ptab tvb on">doing</button><button id="tv-deferred" class="ptab tvb">deferred</button><button id="tv-done" class="ptab tvb">done</button></div><div id="tiklist"></div></div>
+<div id="tickets"><div id="tikhead"><button id="tv-todo" class="ptab tvb on">doing</button><button id="tv-deferred" class="ptab tvb">deferred</button><button id="tv-done" class="ptab tvb">done</button></div><div id="tiklist"><div id="tikslide"></div></div></div>
 <div id="magic1">magic box 1</div>
 <div id="magic2">magic box 2</div>
 <div id="magic3">magic box 3</div>
@@ -9014,6 +9039,7 @@ function relAge(ts){
 // shared with the phone page in card-logic.js
 function renderCarousel(state){
   const tik = document.getElementById("tiklist");
+  const slide = document.getElementById("tikslide") || tik;   // the row column the well clips and the tab slide moves
   const chips = document.getElementById("chips");
   const w = curWs(state);
   const all = poolOf(state);    // every chat of the workspace, grouped and sorted
@@ -9034,11 +9060,11 @@ function renderCarousel(state){
     tik.dataset.sig = sig;
     // ordinary polls must not pull a manually scrolled list back to the
     // selected row; only a selection new to this rendered list is revealed
-    const selectedBefore = tik.querySelector(".trow.on")?.dataset.id;
+    const selectedBefore = slide.querySelector(".trow.on")?.dataset.id;
     // remember where each row sat, so survivors glide instead of teleporting
     const oldPos = {};
-    for (const prev of tik.children) if (prev.dataset && prev.dataset.id) oldPos[prev.dataset.id] = prev.getBoundingClientRect().top;
-    tik.textContent = "";
+    for (const prev of slide.children) if (prev.dataset && prev.dataset.id) oldPos[prev.dataset.id] = prev.getBoundingClientRect().top;
+    slide.textContent = "";
     for (const b of pool){
       const s = queueState(b);   // working covers claimed and a worker's job behind it
       // quirks kept: a claimed done row still pulses, and an untouched row
@@ -9064,12 +9090,12 @@ function renderCarousel(state){
       r.appendChild(inner);
       r.dataset.id = b.id;
       r.addEventListener("click", () => select(b.id));
-      tik.appendChild(r);
+      slide.appendChild(r);
     }
-    if (!pool.length) tik.appendChild(h("div", "tempty", view === "done" ? "no done chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here"));
+    if (!pool.length) slide.appendChild(h("div", "tempty", view === "done" ? "no done chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here"));
     // surviving rows glide to their new spots, the 220ms rise of the sister
     // board, instead of teleporting on every re-sort
-    for (const row of tik.children){
+    for (const row of slide.children){
       const was = row.dataset && oldPos[row.dataset.id];
       if (was == null) continue;
       const dy = was - row.getBoundingClientRect().top;
@@ -9082,7 +9108,7 @@ function renderCarousel(state){
       row.addEventListener("transitionend", () => { row.style.transition = ""; }, { once: true });
     }
     if (selectedBefore !== selectedId)
-      tik.querySelector(".trow.on")?.scrollIntoView({ block: "nearest" });
+      slide.querySelector(".trow.on")?.scrollIntoView({ block: "nearest" });
   }
   // chips spring up above the panel: green while its agent works, yellow
   // while the ticket awaits input; click jumps there
@@ -9266,10 +9292,12 @@ addEventListener("keydown", e => {
   // else: another project keeps whatever view was chosen for it, and one that
   // has never been given a view opens on doing
   const setView = v => {
+    const prev = curView();   // the view showing before the tab was pressed, for the slide direction
     if (!setTicketViewOf(activeOwner, v)) return;
     cancelAutoNext();
     paintViewTabs();
     if (lastState) apply(lastState);
+    slideTicketList(prev, v);   // a real tab change carries the fresh list in; polls do not
   };
   document.getElementById("tv-todo").addEventListener("click", () => setView("todo"));
   document.getElementById("tv-deferred").addEventListener("click", () => setView("deferred"));
@@ -9580,7 +9608,17 @@ function openDrawer(on){
 respDrawerBtn.addEventListener("click", () =>
   openDrawer(!document.body.classList.contains("resp-drawer-open")));
 respScrim.addEventListener("click", () => openDrawer(false));
-if (document.body){ document.body.appendChild(respScrim); document.body.appendChild(respDrawerBtn); }
+// the scrim lives inside #stage, the drawer's own stacking context. #stage is
+// position:fixed, so it always forms a context; a scrim left on the body could
+// never sit between the conversation and the portrait drawer (z-index:14) that
+// is trapped inside #stage, and would paint over the whole drawer instead. Kept
+// in #stage it dims only the conversation and lets the drawer take the pointer,
+// while outside-click dismissal still works because the scrim covers the rest.
+// The drawer button stays on the body, above #stage, so it is always usable.
+if (document.body){
+  (document.getElementById("stage") || document.body).appendChild(respScrim);
+  document.body.appendChild(respDrawerBtn);
+}
 // picking a ticket in the drawer closes it so the chosen conversation is shown
 document.getElementById("tiklist")?.addEventListener("click", e => {
   if (document.body.dataset.respMode === "portrait" && e.target.closest(".trow"))
