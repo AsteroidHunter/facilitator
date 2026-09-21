@@ -9395,6 +9395,9 @@ setInterval(tickClock, 1000);
 // the stage right now, so the drag, resize and overlay math can turn screen
 // pixels back into stage coordinates while the stage is scaled below 1:1.
 const STAGE_W = 1440, STAGE_H = 900, STAGE_BAR = 41;
+// Leave room between fitted content, including its soft shadows, and the rounded
+// app frame instead of seating the lowest region directly on the frame line.
+const FRAME_CLEAR = 16;
 let stageScale = 1, stageTx = 0, stageTy = 0;
 let respMode = "wide";
 let lastFitW = null;   // innerWidth at the last fit; a height-only resize keeps it
@@ -9448,6 +9451,30 @@ function contentBounds(ids){
   return { right, bottom, any };
 }
 
+// the inner edges the board must stay within, in screen pixels: the rounded app
+// frame's own inner box (its border box less its border) pulled in by FRAME_CLEAR
+// on the sides and bottom. The frame is fixed and inset from the window, so the
+// window edges alone are the wrong bound: fitting to them lets the lowest region
+// land on the window edge, past the frame line. When the frame is not measurable
+// (before layout, or off the board) the window edges are the safe fallback.
+function frameLimits(){
+  const frame = document.getElementById("appframe");
+  let left = 0, right = innerWidth, bottom = innerHeight;
+  if (frame){
+    const fr = frame.getBoundingClientRect();
+    if (fr.width > 1 && fr.height > 1){
+      const cs = getComputedStyle(frame);
+      const bL = parseFloat(cs.borderLeftWidth) || 0;
+      const bR = parseFloat(cs.borderRightWidth) || 0;
+      const bB = parseFloat(cs.borderBottomWidth) || 0;
+      left = fr.left + bL + FRAME_CLEAR;
+      right = fr.right - bR - FRAME_CLEAR;
+      bottom = fr.bottom - bB - FRAME_CLEAR;
+    }
+  }
+  return { left, right, bottom };
+}
+
 // per project, which pane the two-pane view is showing. It is deliberately kept
 // apart from the saved layout keys: it is a view offset, not an arrangement, so
 // it never rewrites where a region lives.
@@ -9466,7 +9493,11 @@ function fitStage(){
   if (!FOCUS) return;
   const stage = document.getElementById("stage");
   if (!stage) return;
-  const availH = innerHeight - STAGE_BAR;
+  // fit inside the rounded app frame, not the raw window: the frame is inset from
+  // every edge, so a region fitted to the window bottom lands past the frame line.
+  const lim = frameLimits();
+  const availH = lim.bottom - STAGE_BAR;   // room from the stage top to the frame's inner foot
+  const availW = lim.right - lim.left;     // room across the frame's inner width
   // measure the real content extent with the card's foot-clearance clamp lifted,
   // so the clamp seatPagePill applies afterwards can never feed back into the
   // scale. The card is the one region whose box seatPagePill shortens.
@@ -9546,13 +9577,13 @@ function fitStage(){
     // the usable window, never enlarged past 1:1. Fitting the actual content, not
     // the nominal 900px canvas, keeps a 1440x900 window at full size while still
     // showing every region after leaving fullscreen instead of clipping the foot.
-    scale = Math.min(1, innerWidth / all.right, availH / all.bottom);
-    // center the whole 1440x900 canvas, exactly as before, so a normal board does
-    // not shift sideways and only the vertical clipping is fixed. But if a region
-    // was dragged past the nominal canvas, canvas-centering could push that
-    // content off screen, so clamp the offset to whatever still keeps the real
-    // content foot and right edge inside the window.
-    tx = Math.max(0, Math.min((innerWidth - STAGE_W * scale) / 2, innerWidth - all.right * scale));
+    scale = Math.min(1, availW / all.right, availH / all.bottom);
+    // center the whole 1440x900 canvas in the window (the frame is centered in the
+    // window too), so a normal board does not shift sideways. availH reserves the
+    // frame's inner bottom and the right edge is clamped to the frame too. Keep
+    // the original zero translation floor so already-fitting content retains its
+    // horizontal position instead of shifting by the frame inset.
+    tx = Math.max(0, Math.min((innerWidth - STAGE_W * scale) / 2, lim.right - all.right * scale));
     ty = Math.max(0, Math.min((availH - STAGE_H * scale) / 2, availH - all.bottom * scale));
   }
   stageScale = scale; stageTx = tx; stageTy = ty;
