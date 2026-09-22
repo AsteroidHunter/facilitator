@@ -1,3 +1,7 @@
+<p align="center">
+  <img alt="Facilitator" src="tools/readme-header/facilitator-header.svg" width="820">
+</p>
+
 ## Install
 
 From a clone, run `./install.sh`. It checks Python, sets up the local environment,
