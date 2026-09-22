@@ -59,12 +59,12 @@ const { ticketNum, testReady, omniTicket, appendOmniRowArt, syncOmniCard } = san
 // a card the machine has landed on the reader's turn (a completed reply waits)
 const yours = extra => ({ state: "yours", ball: "you", replies: 1, agentTs: 1000, pending: 0, ...extra });
 
-test("ticketNum shows a # number for board and numeric ids, none for standing ids", () => {
-  assert.equal(ticketNum("m128"), "#128");   // a card made on the board
-  assert.equal(ticketNum("m5"), "#5");
-  assert.equal(ticketNum("128"), "#128");     // already numeric: no double #
-  assert.equal(ticketNum("1.1"), "#1.1");
-  assert.equal(ticketNum("0"), "#0");
+test("ticketNum shows a plain number for board and numeric ids, none for standing ids", () => {
+  assert.equal(ticketNum("m128"), "128");   // a card made on the board
+  assert.equal(ticketNum("m5"), "5");
+  assert.equal(ticketNum("128"), "128");     // already numeric: shown as is
+  assert.equal(ticketNum("1.1"), "1.1");
+  assert.equal(ticketNum("0"), "0");
   assert.equal(ticketNum("q"), "");           // purely non-numeric standing id
   assert.equal(ticketNum("meta"), "");
   assert.equal(ticketNum("m1a"), "");         // m not followed by digits only
@@ -74,8 +74,8 @@ test("ticketNum shows a # number for board and numeric ids, none for standing id
 
 test("ticketNum never renumbers: the id is read as given, not from position", () => {
   // two rows in some list order still map to their own ids
-  assert.equal(ticketNum("m131"), "#131");
-  assert.equal(ticketNum("m126"), "#126");
+  assert.equal(ticketNum("m131"), "131");
+  assert.equal(ticketNum("m126"), "126");
 });
 
 test("omniTicket maps canonical titles to the three supplied assets", () => {

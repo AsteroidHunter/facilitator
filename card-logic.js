@@ -175,12 +175,13 @@ function queueState(b){ return b.parked ? cardState({ ...b, parked: false, state
 // The visible number a row shows before its title. Cards keep their internal
 // ids for routing and never renumber from list position: an m-prefixed id (a
 // card made on the board) shows its digits, an already-numeric seeded id shows
-// as it is with no double #, and a purely non-numeric standing id shows none.
+// as it is, and a purely non-numeric standing id shows none. The number is a
+// plain figure with no # prefix.
 function ticketNum(id){
   const s = String(id == null ? "" : id);
   const m = /^m(\d+)$/.exec(s);
-  if (m) return "#" + m[1];
-  if (/^[0-9]/.test(s)) return "#" + s;
+  if (m) return m[1];
+  if (/^[0-9]/.test(s)) return s;
   return "";
 }
 // Omni Ticket v0 is a presentation derived from its canonical title. The card
