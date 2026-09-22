@@ -8211,9 +8211,12 @@ async function mdList(){
   if (gen !== mdGen || !host._md || mdHost() !== host || mdFor !== lane || activeOwner !== lane) return;
   const d = r && r.ok ? await r.json().catch(() => null) : null;
   if (gen !== mdGen || !host._md || mdHost() !== host || mdFor !== lane || activeOwner !== lane) return;
-  if (!d){
-    // a server from before these routes existed. saying the one thing to do
-    // beats an empty box that looks broken
+  // an old server answers this route in the pre-navigator shape: no route at all
+  // (d is null) or valid json carrying roots+files but no top-level entries array.
+  // both mean the running server predates this navigator, so say the one thing to
+  // do rather than assign an unreadable shape and leave the panel silently blank.
+  // the open editor is untouched: this only writes the list's own placeholder
+  if (!d || !Array.isArray(d.entries)){
     if (!mdData && mdSig !== "no-routes"){
       mdSig = "no-routes";
       host._md.list.textContent = "";
