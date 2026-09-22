@@ -183,6 +183,49 @@ function ticketNum(id){
   if (/^[0-9]/.test(s)) return "#" + s;
   return "";
 }
+// Omni Ticket v0 is a presentation derived from its canonical title. The card
+// itself keeps the same id, routes and state as every other card. Three supplied
+// artworks are defined today; later ticket numbers cycle through them without
+// adding a stored variant field, so adding artwork later stays a local mapping.
+function omniTicket(title){
+  const match = /^Omni Ticket #([1-9]\d*)$/.exec(String(title == null ? "" : title));
+  if (!match) return null;
+  const number = Number(match[1]);
+  if (!Number.isSafeInteger(number)) return null;
+  const variant = ((number - 1) % 3) + 1;
+  return { number, variant, src: "/assets/ticket-" + variant + ".webp" };
+}
+function omniArt(info, cls){
+  const image = h("img", cls);
+  image.src = info.src;
+  image.alt = "";
+  image.draggable = false;
+  image.dataset.variant = String(info.variant);
+  image.setAttribute("aria-hidden", "true");
+  return image;
+}
+// Keep an expanded card in step when an inline rename crosses into or out of
+// the canonical Omni title. Ticket-list rows rebuild on title changes already.
+function syncOmniCard(el, b){
+  if (!el || !el.box || !el.titleEl) return null;
+  const info = omniTicket(b && b.title);
+  el.box.classList.toggle("omni-card", !!info);
+  if (el.toc) el.toc.classList.toggle("omni-card", !!info);
+  const head = el.titleEl.parentNode;
+  let image = head && head.querySelector(".omni-card-art");
+  if (!info){ if (image) image.remove(); return null; }
+  if (!image){ image = omniArt(info, "omni-card-art"); head.insertBefore(image, el.titleEl); }
+  image.src = info.src;
+  image.dataset.variant = String(info.variant);
+  return info;
+}
+function appendOmniRowArt(row, inner, b){
+  const info = omniTicket(b && b.title);
+  if (!info) return null;
+  row.classList.add("omni-ticket");
+  inner.appendChild(omniArt(info, "omni-art"));
+  return info;
+}
 // The ready-to-test marker's display gate. The board keeps a durable per-card
 // flag (b.testing); it paints only while the card is actually awaiting the
 // reader, so a card that returns to work, queues or is done keeps its own
