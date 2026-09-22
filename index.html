@@ -41,6 +41,17 @@
     background-image:radial-gradient(circle at 18% -4%, #FCFCFB 0%, rgba(252,252,251,0) 52%);
   }
 
+  /* every selection wears the block caret's own dress: a solid black cell laid
+     over the picked characters with their ink turned white, the same terminal
+     block the fat caret draws at the insertion point, now continuous across the
+     whole run instead of the OS or browser's own tint. the caret is engineered
+     to render pure #000 over the app's white surfaces and lift its letter to
+     pure #FFFFFF, so the selection names those two colours outright. set once
+     here for the whole app, it holds over prose, code, links, the composer, the
+     title and the markdown tool alike; the fat caret hides while a selection
+     stands, so this is the only mark the reader sees */
+  ::selection{background:#000; color:#fff}
+
   /* ---- status bar ------------------------------------------------------- */
   .bar{
     position:sticky; top:0; z-index:10;
@@ -285,8 +296,7 @@
   /* the block caret is the board's own, drawn over every field it tracks, and
      the vendored theme sets a caret colour of its own on this element */
   :is(.compose, .mcompose) .cffield .cm-content{caret-color:transparent}
-  :is(.compose, .mcompose) .cffield .cm-content ::selection,
-  :is(.compose, .mcompose) .cffield .cm-content::selection{background:var(--accent-soft)}
+  /* selection here takes the app-wide block dress set at the top of the sheet */
   /* the app draws its own caret: a terminal style block over every typing
      spot. its height follows the focused field's font; when there is a visible
      character under it, its width follows that rendered character's advance.
@@ -869,7 +879,10 @@
        delivery words, the run stamp and the pulled times each write their own
        size in mono below, so the sent words stay the plainly larger thing */
     font:16px/1.5 var(--sans); color:var(--ink);
-    cursor:pointer; user-select:none;
+    /* the box is click-to-fold, so the bar keeps the hand, but its sent words
+       are real text a reader may pick out and copy: the pick is allowed here
+       and reconciled with the fold and the pull in wirePend */
+    cursor:pointer; user-select:text; -webkit-user-select:text;
     /* the hairline the arrow's seat has to reckon with. an absolute seat is
        measured from inside the border, and the two dresses do not wear their
        hairline in the same place: shut it is on the bar, open it is on the
@@ -2311,11 +2324,9 @@
   :is(#magic3, #magic4) .cm-codeblock-line{min-height:0}
   :is(#magic3, #magic4) .cm-gutters{display:none}
   /* the editor draws no selection layer of its own in here, so the selection on
-     screen is the browser's native one and left alone it comes out the system
-     blue. this is that selection wearing the accent wash the board already
-     marks a matched row with, and the caret is set on the content above */
-  :is(#magic3, #magic4) .cm-content ::selection,
-  :is(#magic3, #magic4) .cm-content::selection{background:var(--accent-soft)}
+     screen is the browser's native one; left alone it comes out the system blue.
+     it takes the app-wide block dress set at the top of the sheet instead, the
+     same terminal cell the fat caret drawn over this content already wears */
   /* the cursor's line carries no fill here. it is marked only so the rule under
      it can put that line's raw markers back */
   :is(#magic3, #magic4) .cm-activeLine{background:none}
@@ -3568,8 +3579,8 @@
     background:#FFFFFF;
     border:none; border-radius:4px; min-height:330px;
     box-shadow:inset 0 1px 6px rgba(60,45,20,.14), inset 0 0 0 1px rgba(60,45,20,.08)}
-  /* the one place orange may rest: selecting text inside the well */
-  #nppanel ::selection{background:#FFD9B3; color:var(--ink)}
+  /* selecting text inside the well takes the app-wide block dress set at the
+     top of the sheet, so the whole markdown tool marks a pick the same way */
   #nphead{display:none}   /* the whole Active Folders bar removed */
   #nprows{display:flex; flex-direction:column; gap:2px; padding:0 0 4px;
     max-height:56vh; overflow-y:auto}
@@ -5092,6 +5103,17 @@ answeredRoomChanged = snapCard;
 // verdict that ends it are one piece of code on both. what they do not share is
 // which fold a press runs, so the caller hands that in: the box below folds
 // itself, the box above folds itself and writes down that the choice was the reader's
+// true when a live selection touches el. intersectsNode catches a cross-boundary
+// pick whose commonAncestorContainer sits outside el; collapsed/empty give false.
+function boxHasSelection(el){
+  const sel = getSelection();
+  if (!sel || sel.isCollapsed || !sel.rangeCount) return false;
+  for (let i = 0; i < sel.rangeCount; i++){
+    const r = sel.getRangeAt(i);
+    if (!r.collapsed && r.intersectsNode(el)) return true;
+  }
+  return false;
+}
 function wirePend(el, strip, fold){
   fold = fold || (open => foldPend(el, open));
   const area = strip.querySelector(".pendbody");
@@ -5108,6 +5130,10 @@ function wirePend(el, strip, fold){
   // without a click cannot swallow the next real one
   strip.addEventListener("pointerdown", () => { moved = false; }, true);
   area.addEventListener("pointerdown", e => {
+    // a mouse press starts a text selection, not the leftward pull: the pull is
+    // the phone's gesture, so it stays on touch and pen and a mouse drag is left
+    // to pick out the sent words rather than capture the pointer away from them
+    if (e.pointerType === "mouse") return;
     if (!strip.classList.contains("open") || id !== null) return;
     id = e.pointerId; x0 = e.clientX; y0 = e.clientY;
     area.setPointerCapture(id);
@@ -5132,6 +5158,8 @@ function wirePend(el, strip, fold){
 
   strip.addEventListener("click", () => {
     if (moved) return;
+    // a drag-release click that touched the box is a copy, not a fold
+    if (boxHasSelection(strip)) return;
     fold(!strip.classList.contains("open"));
   });
 }
