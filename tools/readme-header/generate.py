@@ -1,32 +1,32 @@
 #!/usr/bin/env python3
 """Render the README banner from the app's own source of truth.
 
-The banner is a wide rounded panel carrying the same logo/name/version lockup
-the app shows on first open (the `#npbrand` block in index.html, styled by the
-badge rules in card-tokens.css). It keeps only that lockup's three elements,
-with no background scenery: logo, name, version.
+The banner reproduces the lockup shown at the top of the PWA installation guide
+page (the `.identity` block in m-gate.html): a square logo with the name beside
+it and the version stacked directly beneath. Only those three elements appear,
+on a transparent background, with no panel, border, rounding, shadow, or
+scenery.
 
-Everything is lifted straight out of index.html so the banner cannot drift from
-the app:
+Everything is lifted from the product source so the banner cannot drift:
 
-- logo: the embedded data-URI PNG on `#npmark`, reused as-is (the same artwork
-  the PWA header ships), so there is no second logo file to keep in step.
-- name: the text of `#npbrandname`.
-- version: the text of `#npversion`. This is the app's single version source of
-  truth (RUNBOOK), the same string bridge_gate.py reads for the phone gate, so
-  there is never a second version string to maintain.
+- logo: the data-URI PNG on the installation header's `.identity img` in
+  m-gate.html, drawn in a square box with contain semantics, as that page does.
+- name: the text of `.name` in m-gate.html.
+- version: the text of `#npversion` in index.html. This is the app's single
+  version source of truth (RUNBOOK), the same string bridge_gate.py reads to
+  fill the gate's version label, so there is never a second version string.
+
+Style matches the installation header (tokens from card-tokens.css): the name is
+Inter weight 650 in ink #211D17, the version is IBM Plex Mono in sub #75695A
+directly below it, and the relative sizes and spacing keep the header's
+64:22:12 logo:name:version proportion with a 12/4 gap. A prefers-color-scheme
+media query lightens only the ink colours for dark hosts; the background stays
+transparent and the geometry is unchanged.
 
 Output is one static, self-contained SVG: no scripts and no external references,
-with the logo carried inside it as a data URI. The panel is an opaque warm-paper
-rectangle with rounded corners, so it reads the same on a light or dark README
-and needs no light/dark split. It is meant to be shown through a plain `<img>`;
-static image hosts differ in what they render, so confirm the result where it
-will be published.
-
-Palette and font come from card-tokens.css (paper #F5F4F1, ink #211D17,
-sub #75695A, the Inter stack). Text stays as `<text>` in the Inter/-apple-system
-stack; when a viewer lacks Inter it falls back to the platform sans, so the
-banner still reads.
+with the logo carried inside it as a data URI. It is meant to be shown through a
+plain `<img>`; static image hosts differ in what they render, so confirm the
+result where it will be published.
 
 Usage:
     python tools/readme-header/generate.py [--repo-root PATH] [--out-dir PATH]
@@ -46,48 +46,40 @@ import struct
 import sys
 from pathlib import Path
 
-# --- The app's single sources, lifted from index.html -----------------------
-# Version: the exact convention bridge_gate.py uses for the phone gate, so the
-# banner shares the app's one version source of truth (RUNBOOK, #npversion).
+# --- The app's own sources ---------------------------------------------------
+# Version: the exact convention bridge_gate.py uses, so the banner shares the
+# app's one version source of truth (RUNBOOK, index.html #npversion).
 VERSION_RE = re.compile(r'id="npversion">(v[0-9]+\.[0-9]+\.[0-9]+)<')
-NAME_RE = re.compile(r'id="npbrandname">([^<]+)<')
-LOGO_RE = re.compile(r'id="npmark"[^>]*\ssrc="(data:image/png;base64,[^"]+)"')
+# Logo and name: the installation header's own lockup in m-gate.html.
+LOGO_RE = re.compile(r'class="identity">\s*<img[^>]*\ssrc="(data:image/png;base64,[^"]+)"')
+NAME_RE = re.compile(r'class="name">([^<]+)<')
 
-# --- Banner geometry, in the SVG's own user units ----------------------------
-# A fixed panel wide enough that the centred lockup never risks clipping and
-# small errors in the text-width estimate below stay invisible.
-PANEL_W = 880
-PANEL_H = 240
-PANEL_RADIUS = 22
+# --- Lockup dial, mirroring m-gate.html .identity at 2x ----------------------
+# Base header: logo 64, name 22, version 12, gap 12, name-to-version 4, name
+# line-height 1.1, version line-height 1.4. Scaled here by 2, proportions kept.
+SCALE = 2
+LOGO = 64 * SCALE          # 64 -> 128 square box (object-fit: contain)
+NAME_FS = 22 * SCALE       # Inter 650
+VER_FS = 12 * SCALE        # IBM Plex Mono
+GAP = 12 * SCALE           # logo-to-copy gap (.identity gap:12)
+NV_GAP = 4 * SCALE         # name-to-version gap (.version margin-top:4)
+NAME_LH = 1.1              # .name line-height
+VER_LH = 1.4              # .version line-height
+PAD = 16 * SCALE           # transparent breathing room around the lockup
 
-# Palette + font, from card-tokens.css.
-PAPER = "#F5F4F1"
-INK = "#211D17"
-SUB = "#75695A"
-LINE_STRONG = "#D8CFBE"
-FONT_STACK = (
-    "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', "
-    "Roboto, Helvetica, Arial, sans-serif"
-)
+# Colours from card-tokens.css. Dark-host variant lightens only the ink.
+INK = "#211D17"            # --ink (name)
+SUB = "#75695A"            # --sub (version)
+INK_DARK = "#F0EDE8"       # lightened name for dark hosts
+SUB_DARK = "#A79C8C"       # lightened version for dark hosts
+NAME_FONT = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+VER_FONT = "'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
 
-# Lockup dial. The app pairs a 32px-tall mark with a 40px name (0.8 ratio) and a
-# 10px version; the banner keeps those ratios, scaled up. Letter-spacing mirrors
-# the app (name -0.02em, version +0.035em), expressed in user units below.
-NAME_FS = 88
-LOGO_H = round(NAME_FS * 0.8)          # 70
-VER_FS = 22
-LOGO_GAP = 16                          # mark-to-text gap
-NAME_TRACKING = -0.02 * NAME_FS        # px
-VER_TRACKING = 0.035 * VER_FS          # px
-# The name's optical centre sits a hair above the panel centre so the version
-# hangs into the space below it, as it does under the app's name.
-NAME_CENTER_LIFT = 10
-VER_BASELINE_DROP = 26                 # version baseline below the name baseline
-
-# Approximate Inter advance widths (fraction of em) for horizontal centring.
-# Centring only; the panel is far wider than the lockup, so small errors do not
-# show. Unknown characters fall back to AVG_ADVANCE.
+# Approximate Inter advance widths (fraction of em) for the name, used only to
+# centre the lockup; unknown characters fall back to AVG_ADVANCE. IBM Plex Mono
+# is monospaced, so the version uses a single fixed advance.
 AVG_ADVANCE = 0.60
+MONO_ADVANCE = 0.60
 ADVANCE = {
     "a": .548, "b": .586, "c": .513, "d": .586, "e": .553, "f": .341, "g": .586,
     "h": .579, "i": .253, "j": .253, "k": .527, "l": .253, "m": .875, "n": .579,
@@ -102,16 +94,16 @@ ADVANCE = {
 }
 
 
-def _extract(pattern: re.Pattern[str], text: str, what: str) -> str:
+def _extract(pattern: re.Pattern[str], text: str, what: str, where: str) -> str:
     m = pattern.search(text)
     if not m:
-        raise SystemExit(f"Could not read {what} from index.html")
+        raise SystemExit(f"Could not read {what} from {where}")
     return m.group(1)
 
 
 def png_size(data_uri: str) -> tuple[int, int]:
     """Intrinsic (width, height) from a base64 PNG's IHDR, so the logo keeps its
-    aspect ratio without a second hardcoded number."""
+    aspect ratio inside the square box without a second hardcoded number."""
     raw = base64.b64decode(data_uri.split(",", 1)[1])
     if raw[:8] != b"\x89PNG\r\n\x1a\n" or raw[12:16] != b"IHDR":
         raise SystemExit("Logo data URI is not a PNG with a leading IHDR")
@@ -121,54 +113,59 @@ def png_size(data_uri: str) -> tuple[int, int]:
     return width, height
 
 
-def text_width(text: str, font_size: int, tracking: float) -> float:
-    advance = sum(ADVANCE.get(ch, AVG_ADVANCE) for ch in text) * font_size
-    if len(text) > 1:
-        advance += tracking * (len(text) - 1)
-    return advance
+def inter_width(text: str, font_size: float) -> float:
+    return sum(ADVANCE.get(ch, AVG_ADVANCE) for ch in text) * font_size
+
+
+def mono_width(text: str, font_size: float) -> float:
+    return len(text) * MONO_ADVANCE * font_size
 
 
 def build_svg(name: str, version: str, logo_uri: str) -> str:
-    logo_w_px, logo_h_px = png_size(logo_uri)
-    logo_w = LOGO_H * (logo_w_px / logo_h_px)
+    # Validate the logo decodes; the square box uses contain, so the intrinsic
+    # size only needs to be a valid PNG (aspect handled by preserveAspectRatio).
+    png_size(logo_uri)
 
-    name_w = text_width(name, NAME_FS, NAME_TRACKING)
-    ver_w = text_width(version, VER_FS, VER_TRACKING)
-    text_block_w = max(name_w, ver_w)
-    lockup_w = logo_w + LOGO_GAP + text_block_w
+    name_w = inter_width(name, NAME_FS)
+    ver_w = mono_width(version, VER_FS)
+    copy_w = max(name_w, ver_w)
+    content_w = LOGO + GAP + copy_w
 
-    group_x = (PANEL_W - lockup_w) / 2
-    center_y = PANEL_H / 2
+    canvas_w = round(content_w + 2 * PAD)
+    canvas_h = round(LOGO + 2 * PAD)
+    group_x = (canvas_w - content_w) / 2
+    center_y = canvas_h / 2
 
     logo_x = group_x
-    logo_y = center_y - NAME_CENTER_LIFT - LOGO_H / 2
+    logo_y = center_y - LOGO / 2
 
-    text_x = group_x + logo_w + LOGO_GAP
-    # Inter cap height is ~0.72em; place the baseline so the cap centres on the
-    # lifted name centre.
-    name_baseline = (center_y - NAME_CENTER_LIFT) + 0.72 * NAME_FS / 2
-    ver_baseline = name_baseline + VER_BASELINE_DROP
+    text_x = group_x + LOGO + GAP
+    # Centre the name-over-version column against the logo centre.
+    copy_h = NAME_FS * NAME_LH + NV_GAP + VER_FS * VER_LH
+    copy_top = center_y - copy_h / 2
+    name_baseline = copy_top + 0.80 * NAME_FS
+    ver_baseline = copy_top + NAME_FS * NAME_LH + NV_GAP + 0.80 * VER_FS
 
     safe_name = html.escape(name)
     safe_ver = html.escape(version)
 
     return f"""<svg xmlns="http://www.w3.org/2000/svg" \
 xmlns:xlink="http://www.w3.org/1999/xlink" \
-width="{PANEL_W}" height="{PANEL_H}" viewBox="0 0 {PANEL_W} {PANEL_H}" \
+width="{canvas_w}" height="{canvas_h}" viewBox="0 0 {canvas_w} {canvas_h}" \
 role="img" aria-label="{safe_name} {safe_ver}">
   <title>{safe_name} {safe_ver}</title>
-  <rect x="0.5" y="0.5" width="{PANEL_W - 1}" height="{PANEL_H - 1}" \
-rx="{PANEL_RADIUS}" ry="{PANEL_RADIUS}" fill="{PAPER}" \
-stroke="{LINE_STRONG}" stroke-width="1"/>
-  <image x="{logo_x:.2f}" y="{logo_y:.2f}" width="{logo_w:.2f}" \
-height="{LOGO_H}" xlink:href="{logo_uri}" \
-preserveAspectRatio="xMidYMid meet"/>
-  <text x="{text_x:.2f}" y="{name_baseline:.2f}" \
-font-family="{FONT_STACK}" font-size="{NAME_FS}" font-weight="700" \
-letter-spacing="{NAME_TRACKING:.2f}" fill="{INK}">{safe_name}</text>
-  <text x="{text_x:.2f}" y="{ver_baseline:.2f}" \
-font-family="{FONT_STACK}" font-size="{VER_FS}" font-weight="500" \
-letter-spacing="{VER_TRACKING:.2f}" fill="{SUB}">{safe_ver}</text>
+  <style>
+    .name {{ font-family: {NAME_FONT}; font-weight: 650; font-size: {NAME_FS}px; fill: {INK}; }}
+    .ver  {{ font-family: {VER_FONT}; font-weight: 400; font-size: {VER_FS}px; fill: {SUB}; }}
+    @media (prefers-color-scheme: dark) {{
+      .name {{ fill: {INK_DARK}; }}
+      .ver  {{ fill: {SUB_DARK}; }}
+    }}
+  </style>
+  <image x="{logo_x:.2f}" y="{logo_y:.2f}" width="{LOGO}" height="{LOGO}" \
+xlink:href="{logo_uri}" preserveAspectRatio="xMidYMid meet"/>
+  <text class="name" x="{text_x:.2f}" y="{name_baseline:.2f}">{safe_name}</text>
+  <text class="ver" x="{text_x:.2f}" y="{ver_baseline:.2f}">{safe_ver}</text>
 </svg>
 """
 
@@ -193,20 +190,24 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     index_path = repo_root / "index.html"
-    if not index_path.exists():
-        raise SystemExit(f"Required source file not found: {index_path}")
+    gate_path = repo_root / "m-gate.html"
+    for pth in (index_path, gate_path):
+        if not pth.exists():
+            raise SystemExit(f"Required source file not found: {pth}")
     index_html = index_path.read_text(encoding="utf-8")
+    gate_html = gate_path.read_text(encoding="utf-8")
 
-    name = _extract(NAME_RE, index_html, "the brand name (#npbrandname)")
-    logo_uri = _extract(LOGO_RE, index_html, "the logo (#npmark)")
-    version = args.version or _extract(VERSION_RE, index_html, "the version (#npversion)")
+    name = _extract(NAME_RE, gate_html, "the name (.name)", gate_path.name)
+    logo_uri = _extract(LOGO_RE, gate_html, "the logo (.identity img)", gate_path.name)
+    version = args.version or _extract(VERSION_RE, index_html, "the version (#npversion)", index_path.name)
 
     svg = build_svg(name, version, logo_uri)
     out_svg = out_dir / "facilitator-header.svg"
     out_svg.write_text(svg, encoding="utf-8")
 
-    print(f"wrote {out_svg} ({PANEL_W}x{PANEL_H})")
-    print(f"name {name!r}")
+    print(f"wrote {out_svg}")
+    print(f"name {name!r} (source: {gate_path})")
+    print(f"logo source: {gate_path}")
     print(f"version {version} (source: {index_path})")
     return 0
 
