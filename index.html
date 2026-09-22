@@ -1839,14 +1839,6 @@
      border so selection still reads. background sits after .trow.match below so
      the marker wins the fill. */
   .trow.testc:not(.on){border-color:#CDD4DE}
-  /* Your-turn staleness: a visibly yellow card desaturates in step jumps at 4 /
-     8 / 16 / 32 minutes since it became the reader's turn, so how long it has
-     waited is glanceable. The renderer adds a tier only to yellow rows, never to
-     working, queued, done or ready-to-test. */
-  .trow.stale-1{filter:saturate(.75)}
-  .trow.stale-2{filter:saturate(.5)}
-  .trow.stale-3{filter:saturate(.25)}
-  .trow.stale-4{filter:saturate(0)}
   .trow.on{
     border-color:var(--line-strong);
     /* the selected row rises off the list: the chat frame's own shadow shape,
@@ -9110,9 +9102,9 @@ function paintTicketPane(pane, pool, view, state, laneSig){
               pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
                       ((seenReplies[b.id] || 0) >= (b.replies || 0) ? "r" : "") +
                       (b.id === selectedId ? "!" : "") + (b.task || "") + b.title +
-                      // the marker and the staleness tier ride the signature so a
-                      // mark, a clear or a crossed age boundary repaints the row
-                      (testReady(b) ? "T" : "") + "S" + staleTier(b, Date.now()) +
+                      // the marker rides the signature so a mark or a clear
+                      // repaints the row
+                      (testReady(b) ? "T" : "") +
                       Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",") +
               "|" + selectedTask;
   if (pane.dataset.sig === sig) return;
@@ -9133,16 +9125,13 @@ function paintTicketPane(pane, pool, view, state, laneSig){
     const isYours = s === "yours" || (s === "new" && b.ball === "you");
     const isMatch = selectedTask && b.task === selectedTask;
     const isTest = testReady(b);
-    // only a visibly yellow row ages: never the ready-to-test wash or a task-match highlight
-    const tier = (isYours && !isTest && !isMatch) ? staleTier(b, Date.now()) : 0;
     const r = h("div", "trow" + (b.id === selectedId ? " on" : "") + (busy ? " working" : "") +
                 (s === "yours" && read >= (b.replies || 0) ? " seen" : "") +
                 (isYours ? " yours" : "") +
                 (s === "queued" || (s === "new" && b.ball !== "you") ? " queuedc" : "") +
                 (s === "done" ? " donec" : "") +
                 (isMatch ? " match" : "") +
-                (isTest ? " testc" : "") +
-                (tier ? " stale-" + tier : ""));
+                (isTest ? " testc" : ""));
     const inner = h("div", "trowin");
     const ttl = h("div", "ttl", b.title);
     const num = ticketNum(b.id);
