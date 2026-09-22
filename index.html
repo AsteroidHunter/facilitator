@@ -2488,13 +2488,11 @@
   /* the cursor inside the block: the fences come back as themselves, so what
      is edited is the file and not a picture of it */
   :is(#magic3, #magic4) .md-fm-raw{height:auto; font-size:11.5px; line-height:1.8}
-  /* a box taken off this tab is absent from the board. The layout pencil
-     exposes a faint outline so its existing region control can restore it. */
+  /* a box taken off this tab is absent from the board, and stays absent while
+     the layout pencil is on: the pencil arranges only the boxes that are on
+     screen, so a removed box shows no faint ghost and carries no control. */
   body.focus:not(.layout-ready) #stage{visibility:hidden}
   body.focus .region-off{visibility:hidden; pointer-events:none}
-  body.focus.editmode .region-off{visibility:visible; opacity:.35}
-  .rkill.restore::before{transform:translate(-50%,-50%)}
-  .rkill.restore::after{transform:translate(-50%,-50%) rotate(90deg)}
   /* magic box 2 holds a small copy of this tool's own cards, so any of them can
      be read and answered from any project tab. the parts and the styling are
      lifted straight off the large card: title, reply, a composer that is a line
@@ -10170,8 +10168,8 @@ function trackHandles(){
   const sr = document.getElementById("stage").getBoundingClientRect();
   for (const it of handleItems){
     const r = it.el.getBoundingClientRect();
-    // Hidden regions are faintly visible while arranging, but stay fixed until
-    // restored: their only live control is the plus on their corner.
+    // a removed box is off the board in edit mode as well, so it wears no
+    // resize handles: the pencil only arranges the boxes that are on screen.
     if (it.el.classList.contains("region-off")){ it.hd.style.display = "none"; continue; }
     if (!r.width && !r.height){ it.hd.style.display = "none"; continue; }
     it.hd.style.display = "";
@@ -10183,10 +10181,13 @@ function trackHandles(){
     it.hd.style.top = ((y - sr.y) / stageScale - 4.5) + "px";
   }
   for (const it of killItems){
+    // a removed box carries no control while arranging: it is off the board in
+    // edit mode too, so its cross is taken down along with its handles. hiding a
+    // visible box with its cross flips it into this state on the next frame, so
+    // the box and every control on it leave together and at once.
+    if (it.el.classList.contains("region-off")){ it.kill.style.display = "none"; continue; }
     const r = it.el.getBoundingClientRect();
-    const restore = it.el.classList.contains("region-off");
-    it.kill.classList.toggle("restore", restore);
-    it.kill.title = restore ? "show this box on this tab" : "hide this box on this tab";
+    it.kill.title = "hide this box on this tab";
     if (!r.width && !r.height){ it.kill.style.display = "none"; continue; }
     it.kill.style.display = "";
     // just outside the top right corner, clear of the corner square. inside it
