@@ -72,6 +72,12 @@
     overflow:hidden;
     -webkit-tap-highlight-color:transparent;
   }
+
+  /* a selection wears the block dress the whole app now shares: a solid black
+     cell over the picked characters with their ink lifted to white, continuous
+     across the run rather than the OS or browser's own tint, so a long-press
+     pick of the sent words or the prose reads the same here as on the board */
+  ::selection{background:#000; color:#fff}
   /* the page: the tabs, the note and the card, on the paper, as one surface.
      both menus cross over it, with the shade between them and it, and the
      surface itself draws back a little while either one is out */
@@ -400,7 +406,10 @@
     display:flex; flex-direction:column; flex:none; position:relative;
     margin:0 calc(var(--pad-x)*2/3) var(--sp-s);
     font:15px/1.5 var(--sans); color:var(--ink);
-    cursor:pointer; user-select:none; -webkit-user-select:none;
+    /* a tap folds the box, but its sent words are real text a long press may
+       pick out and copy; the tap yields to a live pick in its handler so the
+       box never folds out from under a selection */
+    cursor:pointer; user-select:text; -webkit-user-select:text;
   }
   .pendhead{
     display:flex; align-items:center; justify-content:center; align-self:stretch; flex:none;
@@ -1470,6 +1479,18 @@ function makeBox(b){
 }
 
 // ---- the sent box --------------------------------------------------------------
+// true when a live selection touches el, so copying a sent line never triggers a
+// fold or a row action. intersectsNode catches a cross-boundary pick whose
+// commonAncestorContainer sits outside el; collapsed/empty give false.
+function boxHasSelection(el){
+  const sel = getSelection();
+  if (!sel || sel.isCollapsed || !sel.rangeCount) return false;
+  for (let i = 0; i < sel.rangeCount; i++){
+    const r = sel.getRangeAt(i);
+    if (!r.collapsed && r.intersectsNode(el)) return true;
+  }
+  return false;
+}
 // arrive is what tells a send from a poll, exactly as it does on the desktop: a
 // send is an arrival being watched, so the box rises into the room the answer
 // gives up and then fades in where it stands. a poll bringing messages that were
@@ -1480,8 +1501,10 @@ function growPend(el, arrive){
   pend.innerHTML = '<div class="pendhead">' + chevSVG("chevmid") + "</div>" +
     '<div class="pendbody">' + chevSVG("chevtop") + '<div class="pendstamp"></div>' +
     '<div class="pendscroll"><div class="pendslide"></div><div class="pendlocal"></div></div></div>';
-  pend.addEventListener("click", () =>
-    foldStrip(el, pend, "foldRun", foldWants(pend), pendBottom));
+  pend.addEventListener("click", () => {
+    if (boxHasSelection(pend)) return;
+    foldStrip(el, pend, "foldRun", foldWants(pend), pendBottom);
+  });
   el.pendwrap.insertBefore(pend, el.bottombar);
   el.pend = pend;
   if (arrive) risePend(el, pend);
@@ -1502,7 +1525,10 @@ function growAnswered(el, arrive){
   // the floor the sheet holds for the shut bar is held off for exactly as long
   // as the strip wears it. growPend puts it on the same way
   if (arrive) pend.classList.add("rising");
-  pend.addEventListener("click", () => foldAnswered(el, foldWants(pend), true));
+  pend.addEventListener("click", () => {
+    if (boxHasSelection(pend)) return;
+    foldAnswered(el, foldWants(pend), true);
+  });
   el.answwrap.appendChild(pend);
   el.answ = pend;
   if (arrive) risePend(el, pend);
@@ -1966,6 +1992,9 @@ function drawLocalRows(el, local){
       // gone, and only a second tap within a few seconds takes the words back;
       // nothing is ever resent for it on its own
       row.addEventListener("click", e => {
+        // selecting/copying the row's words must not take the message back; a
+        // live pick on the row leaves the tap to the fold guard above
+        if (boxHasSelection(row)) return;
         if (op.state === "failed"){ e.stopPropagation(); takeBack(op); return; }
         if (op.state !== "unsure") return;
         e.stopPropagation();
