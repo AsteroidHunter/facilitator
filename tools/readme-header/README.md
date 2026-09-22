@@ -22,11 +22,12 @@ sub `#75695A`, the Inter stack).
 One static SVG in this folder: `facilitator-header.svg`.
 
 The panel is an opaque warm-paper rectangle with rounded corners, so it reads the
-same on a light or dark README and needs no light/dark split. The SVG carries no
-scripts and no external references (the logo travels inside it as a data URI),
-which is what GitHub's image sanitiser allows for an SVG shown through `<img>`.
-Text stays as `<text>` in the Inter / `-apple-system` stack; a viewer without
-Inter falls back to the platform sans, so the banner still reads.
+same on a light or dark README and needs no light/dark split. The SVG is
+self-contained: no scripts and no external references, with the logo carried
+inside it as a data URI, so it is meant to be shown through a plain `<img>`.
+Static image hosts differ in what they render, so confirm the result where it
+will be published. Text stays as `<text>` in the Inter / `-apple-system` stack; a
+viewer without Inter falls back to the platform sans, so the banner still reads.
 
 ## Run it
 
