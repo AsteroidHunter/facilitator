@@ -44,3 +44,32 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Lucide icons
+
+The navigator's file-type icons are Lucide, the chosen set for now; they are easy
+to swap later. Update or remove this notice if the icons change.
+
+`index.html` embeds five file-type icons from Lucide as inline static SVG path
+data (the `MD_ICONS` constant): `folder`, `file-text`, `file-code`, `image` and
+`file`. No package is installed and nothing is fetched at runtime; only the exact
+path geometry is copied in. The icons were taken from Lucide release `1.47.0`,
+commit `3b9ea6d08707edc439f25a4c354cb0d6b8bee973`, at
+`https://github.com/lucide-icons/lucide`. None of the five belong to Lucide's
+Feather-derived subset, so all are covered by the ISC License below.
+
+### ISC License
+
+Copyright (c) 2026 Lucide Icons and Contributors
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
