@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="Facilitator" src="tools/readme-header/facilitator-header.svg" width="820">
+  <img alt="Facilitator" src="tools/readme-header/facilitator-header.svg" width="460">
 </p>
 
 ## Install
