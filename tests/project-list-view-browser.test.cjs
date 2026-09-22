@@ -222,6 +222,13 @@ before(async () => {
     laneDirs.push(dir);
     const made = await post(`/project?name=${encodeURIComponent(name)}`, dir);
     assert.equal(made.status, 200, `lane ${name} was refused: ${JSON.stringify(made.body)}`);
+    // This suite supplies its own exact five-card shape below. Remove the new
+    // project's empty default Omni card so its view/order assertions stay about
+    // those five fixture cards rather than the product's lane-opening default.
+    const initial = (await state()).boxes.find(box =>
+      box.owner === made.body.id && box.title === "Omni Ticket #1");
+    assert.ok(initial, `lane ${name} did not receive its default Omni card`);
+    assert.equal((await post(`/close?box=${initial.id}`)).status, 200);
   }
   const lanes = Object.keys((await state()).pwds);
   for (const owner of [B, C, D]) assert.ok(lanes.includes(owner), `lane ${owner} is not on the board`);
