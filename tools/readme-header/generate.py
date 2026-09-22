@@ -16,11 +16,12 @@ the app:
   truth (RUNBOOK), the same string bridge_gate.py reads for the phone gate, so
   there is never a second version string to maintain.
 
-Output is one static SVG. GitHub renders committed SVGs referenced by a plain
-`<img>`; the panel is an opaque warm-paper rectangle with rounded corners, so it
-reads the same on a light or dark README and needs no light/dark split. The SVG
-carries no scripts and no external references (the logo travels inside it as a
-data URI), which is what GitHub's image sanitiser allows.
+Output is one static, self-contained SVG: no scripts and no external references,
+with the logo carried inside it as a data URI. The panel is an opaque warm-paper
+rectangle with rounded corners, so it reads the same on a light or dark README
+and needs no light/dark split. It is meant to be shown through a plain `<img>`;
+static image hosts differ in what they render, so confirm the result where it
+will be published.
 
 Palette and font come from card-tokens.css (paper #F5F4F1, ink #211D17,
 sub #75695A, the Inter stack). Text stays as `<text>` in the Inter/-apple-system
