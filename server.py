@@ -179,33 +179,60 @@ Endpoints:
                                Progress notes never push. A subscription the
                                push service reports gone (404, 410) is dropped
   POST /push/unsubscribe    -> JSON {endpoint}; remove this phone's subscription
-  GET  /mdfiles?lane=L      -> every .md file under the two folders lane L's own
-                               markdown panel may touch (that lane's internal
-                               folder and its wiki, both named after the lane's
-                               own directory), grouped by folder, each with its
-                               path relative to that folder and its stamp, and
-                               each folder with the kind it answers to. A folder
-                               that is missing or empty comes back present and
-                               empty rather than not at all. A lane the panel is
-                               not mounted on has no folders here at all
-  GET  /mdfile?lane=L&root=R&rel=P -> one markdown file's whole text plus the
-                               stamp the save guard wants back, and crlf saying
-                               which line endings it arrived in. R has to be one
-                               of lane L's own two folder names, so one lane
-                               asking for another lane's folder is refused, and P
-                               is a path under it. The joined path is resolved
-                               and has to land inside that folder, so .. segments,
-                               absolute paths and symlinks pointing out are all
-                               refused (400), as is anything that is not a .md
-                               file or not utf-8 text
+  GET  /mdfiles?lane=L&kind=K&rel=D -> the navigator's listing. Always the two
+                               folders lane L owns (its internal folder and its
+                               wiki, both named after the lane's own directory),
+                               each with the kind it answers to and whether it
+                               exists, for the panel's two tabs. Plus the
+                               immediate children of ONE directory: folder K
+                               (internal by default), directory D under it (its
+                               root for a blank D). Every child carries its name
+                               and type (dir, file or other), a file its ext, size
+                               and stamp. All names are shown, dotfiles and
+                               dotfolders included; a fifo/socket/device is named
+                               but marked unavailable, and a symlink pointing out
+                               of the folder is named but never resolved for its
+                               content. Bounded to one directory per request, so a
+                               folder holding a large archive costs nothing until
+                               opened. A missing or empty directory, and a lane the
+                               panel is not mounted on, come back present-and-empty
+  GET  /mdfile?lane=L&root=R&rel=P -> one text file's whole text plus the stamp
+                               the save guard wants back, and crlf saying which
+                               line endings it arrived in. R has to be one of lane
+                               L's own two folder names, so one lane asking for
+                               another lane's folder is refused, and P is a path
+                               under it. The joined path is resolved and has to
+                               land inside that folder: a path that resolves
+                               OUTSIDE it is refused (400), whether it got there by
+                               .. segments, an absolute rel, or a symlink pointing
+                               out; a .. that still resolves inside names that same
+                               in-root location and is served. The target has to
+                               be a regular file (404 for a missing name, a
+                               directory or a special file), within the editor size
+                               cap (413), and actual text: not a recognized binary
+                               type by extension and not bytes that merely decode
+                               as utf-8 (415)
+  GET  /mdimg?lane=L&root=R&rel=P -> one in-root image for the inline preview.
+                               Same lane and path rules as /mdfile. The target has
+                               to be a regular file whose extension is an image
+                               type (415 otherwise) under a conservative size cap
+                               (413). Served with nosniff and a sandbox CSP like
+                               /uploads, so even an SVG runs no script; the bytes
+                               are loaded into an <img>, never injected into the
+                               board
   POST /mdsave?lane=L&root=R&rel=P&mtime=S -> body = the file's whole new text,
                                raw and unstripped. Same lane and path rules as
-                               /mdfile. S is the stamp handed out on read: if the
-                               file's stamp has moved since, somebody else wrote
-                               it and the save is refused with 409 and the current
-                               stamp, never merged and never clobbered. Written
-                               temp-file-then-rename like state.json, and answers
-                               the new stamp
+                               /mdfile. The target has to already exist as a
+                               regular file (the navigator creates nothing), what
+                               is on disk now has to itself be text (415, so a
+                               binary is never overwritten by a text body) and the
+                               new body has to be text too. S is the stamp handed
+                               out on read: if the file's stamp has moved since,
+                               somebody else wrote it and the save is refused with
+                               409 and the current stamp, never merged and never
+                               clobbered. Written temp-file-then-rename like
+                               state.json, keeping the file's permission bits, and
+                               answers the new stamp
   POST /tabs                -> body = the project tab bar's whole record as
                                JSON, {"order": [owner ids], "closed": [owner
                                ids]}: which tabs the bar shows and in what
@@ -417,9 +444,11 @@ import secrets
 import shutil
 import signal
 import socket
+import stat
 import struct
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -1004,6 +1033,13 @@ BODY_READ_TIMEOUT = 30.0        # seconds a request body may take to arrive
 GRACEFUL_STOP_TIMEOUT = 3       # seconds a stop waits for open requests before cutting them
 MAX_TEXT_BODY = 1024 * 1024     # bytes of a plain text body: a message, a reply, a markdown file
 MAX_UPLOAD_BODY = 100 * 1024 * 1024   # bytes of one attachment
+MAX_IMG_PREVIEW = 25 * 1024 * 1024    # bytes of an in-root image the navigator will preview inline
+# the control bytes a real text file never carries: every C0 control except tab,
+# newline, carriage return and form feed. A file can decode as utf-8 and still be
+# binary (an ascii-only payload, or bytes that merely validate), so the navigator
+# treats any of these, or a decode failure, as "not text": such a file is never
+# opened in the editor and never overwritten by an editor save.
+_TEXT_FORBIDDEN = bytes(b for b in range(0x20) if b not in (0x09, 0x0a, 0x0c, 0x0d))
 # ---- operation receipts ----------------------------------------------------------
 # A receipt lives at most OP_RETENTION and is never let go by the count cap
 # while it is younger than OP_EVICT_FLOOR. The phone stops retrying an operation
@@ -1217,7 +1253,7 @@ def _md_roots(lane: str) -> list[tuple]:
 
 
 def _md_path(lane: str, root: str, rel: str) -> Path | None:
-    """The file a markdown request names, or None when it is not genuinely one
+    """The file a navigator request names, or None when it is not genuinely one
     of that lane's. root is a folder name and rel is a path under it, and the
     root has to be one of the two this lane itself owns: one lane asking for
     another lane's folder by name gets nothing, since that name is not among
@@ -1225,7 +1261,10 @@ def _md_path(lane: str, root: str, rel: str) -> Path | None:
     every symlink, so the containment test below sees where the path really
     lands and not what it was spelled as. An absolute rel replaces the root
     outright under pathlib's join, which is exactly why the same test catches
-    it. Markdown only, and never the folder itself."""
+    it. Any file type now, not markdown alone: what a file can be opened or saved
+    as is decided by the caller's own regular-file and text checks, not by its
+    name. Never the folder itself, and never a path that lands outside the root,
+    so a symlink pointing out of the folder still resolves to nothing here."""
     bases = {p.name: p for _, p in _md_roots(lane)}
     base = bases.get(root)
     if base is None or not rel:
@@ -1234,9 +1273,117 @@ def _md_path(lane: str, root: str, rel: str) -> Path | None:
         p = (base / rel).resolve()
     except OSError:
         return None
-    if p.suffix.lower() != ".md":
-        return None
     return p if p != base and base in p.parents else None
+
+
+def _looks_text(data: bytes) -> bool:
+    """Whether a byte string is editable text rather than binary that happens to
+    decode. NUL and the other C0 control bytes are the tell of a binary file, so
+    their presence is a no up front; then a clean utf-8 decode is required. The
+    control-byte scan is one C-level translate, so this stays cheap on a whole
+    file. Kept separate from every path check because it is the gate that decides
+    what may open in the editor and what may be written back over an existing
+    file, and both sides have to apply exactly the same rule."""
+    if data.translate(None, _TEXT_FORBIDDEN) != data:
+        return False
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return True
+
+
+def _read_capped(p: Path, cap: int) -> bytes | None:
+    """At most cap+1 bytes of an already-resolved path, or None when it is not a
+    regular file the server may read. One reader for the editor read, the
+    overwrite check and the image preview, so allocation is always bounded by
+    cap+1 and never sized by the file on disk. The open is non-blocking, so a
+    fifo swapped in at the path never stalls a worker: it opens at once and is
+    then rejected by the regular-file test on the descriptor. O_NOFOLLOW guards
+    the final component: _md_path already resolved every symlink, so the real
+    file is opened directly and a link planted at the path between resolve and
+    open is refused rather than followed. A len of cap+1 is the caller's signal
+    that the file is over its ceiling."""
+    try:
+        fd = os.open(p, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        with os.fdopen(fd, "rb", closefd=True) as fh:
+            fd = -1
+            return fh.read(cap + 1)
+    except OSError:
+        return None
+    finally:
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+
+# extensions whose files are a recognized binary container even when a stretch of
+# their bytes happens to be ascii: a PDF, an office document, an archive, a media
+# file, a compiled artifact, a database. _looks_text alone cannot catch these,
+# since a minimal PDF is all printable ascii yet editing it as text corrupts its
+# byte offsets. This is a deliberate, NOT exhaustive, deny-list for the one job of
+# keeping the text editor from opening or overwriting a known container; it makes
+# no claim to detect every binary format. svg is intentionally absent: it is text,
+# editable, and separately previewable as an image. Unknown and extensionless
+# names are left to _looks_text, so plain notes and source files still open.
+_BINARY_EXTS = frozenset({
+    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp",
+    "rtf", "pages", "numbers", "epub", "mobi",
+    "zip", "tar", "gz", "tgz", "bz2", "xz", "zst", "7z", "rar", "jar", "war", "whl",
+    "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "avif", "tif", "tiff",
+    "heic", "heif",
+    "mp3", "m4a", "aac", "wav", "ogg", "oga", "opus", "flac", "weba",
+    "mp4", "m4v", "mov", "webm", "mkv", "avi", "wmv", "ogv",
+    "woff", "woff2", "ttf", "otf", "eot",
+    "exe", "dll", "so", "dylib", "class", "pyc", "wasm", "o", "a",
+    "db", "sqlite", "sqlite3",
+})
+
+
+def _binary_ext(rel: str) -> bool:
+    """Whether a name ends in a recognized binary/container extension the text
+    editor must never open or overwrite. Extension only, by design: see
+    _BINARY_EXTS. Not a universal binary test."""
+    return Path(rel).suffix.lower().lstrip(".") in _BINARY_EXTS
+
+
+def _md_entry(e: "os.DirEntry", base: Path) -> dict:
+    """One directory entry as the navigator lists it, without ever following a
+    link that leaves the root. A symlink pointing outside the two folders is
+    named but marked unavailable and never resolved for its content; a symlink
+    inside is classified by what it points at; a fifo, socket or device is named
+    but not offered. Dotfiles and dotfolders are listed like any other name, so
+    the panel really does show everything that is in the folder."""
+    name = e.name
+    try:
+        if e.is_symlink():
+            try:
+                real = Path(e.path).resolve()
+                inside = real != base and base in real.parents
+            except OSError:
+                inside = False
+            if not inside:
+                return {"name": name, "type": "other", "avail": False,
+                        "reason": "link outside the folder"}
+        # after the guard above, is_dir/is_file may follow the link safely: it is
+        # either not a link at all or one that already lands inside this root
+        if e.is_dir():
+            return {"name": name, "type": "dir", "avail": True}
+        if e.is_file():
+            st = e.stat()
+            return {"name": name, "type": "file", "avail": True,
+                    "ext": Path(name).suffix.lower().lstrip("."),
+                    "size": st.st_size, "mtime": str(st.st_mtime_ns)}
+    except OSError:
+        return {"name": name, "type": "other", "avail": False, "reason": "unreadable"}
+    return {"name": name, "type": "other", "avail": False, "reason": "not a regular file"}
 
 
 def _md_stamp(p: Path) -> str:
@@ -3410,57 +3557,109 @@ def _get_push_key(q: Query, _):
 
 
 def _get_mdfiles(q: Query, _):
-    # what the markdown panel lists: every .md under the two folders the
-    # lane in the query owns, each one re-checked for containment rather
-    # than trusted because it came out of a walk. A folder that does not
-    # exist yet, or holds nothing, comes back present and empty, so the
-    # panel can say so instead of looking broken. The kind each folder
-    # answers to goes back with it, since that is what the page labels
-    # its two tabs with and it is the only part of the name a lane's
-    # panel can know before it has asked
+    # what the navigator lists: the two folders this lane owns, for the tabs, and
+    # the immediate children of ONE directory under one of them. Bounded on
+    # purpose. The old panel walked every folder's whole tree on every poll,
+    # which is fine for a handful of notes but freezes on an internal folder that
+    # holds large archived builds and reports; one directory per request reads
+    # only what is on screen and costs nothing for a folder nobody has opened.
+    # A directory that is missing or empty, or a lane the panel is not mounted
+    # on, comes back present-and-empty so the panel can say so, not look broken.
     lane = q.one("lane")
-    roots = []
-    for kind, base in _md_roots(lane):
-        files = []
-        try:
-            for p in sorted(base.rglob("*.md")):
-                if any(part.startswith(".") for part in p.relative_to(base).parts):
-                    continue   # hidden files and hidden folders stay out of sight
-                real = _md_path(lane, base.name, str(p.relative_to(base)))
-                if real is None or not real.is_file():
-                    continue   # a symlink pointing out of the folder ends here
-                st = real.stat()
-                files.append({"rel": str(p.relative_to(base)), "name": p.name,
-                              "mtime": str(st.st_mtime_ns), "size": st.st_size})
-        except OSError:
-            pass
-        roots.append({"root": base.name, "kind": kind,
-                      "exists": base.is_dir(), "files": files})
-    return 200, {"roots": roots}
+    roots = _md_roots(lane)
+    meta = [{"root": base.name, "kind": kind, "exists": base.is_dir()}
+            for kind, base in roots]
+    kind = q.one("kind") or (roots[0][0] if roots else "")
+    base = next((p for k, p in roots if k == kind), None)
+    rel = q.one("rel")
+    out = {"roots": meta, "kind": kind,
+           "root": base.name if base is not None else "",
+           "dir": rel, "exists": False, "entries": []}
+    if base is None:
+        return 200, out
+    # the directory this listing is of: the root itself for a blank rel, else a
+    # path under it, resolved and contained exactly like a file path. .. segments
+    # and a symlinked directory pointing out of the root both land outside and
+    # are refused here, before a single child is read
+    try:
+        target = (base / rel).resolve() if rel else base
+    except OSError:
+        return 200, out
+    if not (target == base or base in target.parents) or not target.is_dir():
+        return 200, out
+    entries = []
+    try:
+        with os.scandir(target) as it:
+            for e in it:
+                entries.append(_md_entry(e, base))
+    except OSError:
+        return 200, out
+    # folders first, then files, each case-insensitively by name: the order the
+    # panel used to build for itself, done once here so every reader agrees
+    entries.sort(key=lambda x: (x["type"] != "dir", x["name"].casefold()))
+    out["exists"] = True
+    out["entries"] = entries
+    return 200, out
 
 
 def _get_mdfile(q: Query, _):
-    # one markdown file's whole text, with the stamp the save guard will
-    # want back. Not decoded loosely: a file that is not utf-8 is
-    # reported as such rather than handed over with replacement
-    # characters that a later save would then write back over the real
-    # bytes
-    p = _md_path(q.one("lane"), q.one("root"), q.one("rel"))
+    # one file's whole text for the editor, with the stamp the save guard will
+    # want back. The path is resolved and contained like every navigator path;
+    # then _read_capped opens it as a regular file only (never a directory, fifo,
+    # socket or device, and without blocking or following a link swapped in at the
+    # path), reading at most the cap plus one byte so the allocation is bounded.
+    # A file that decodes as utf-8 but carries NUL or other control bytes, or that
+    # is a known non-text media/document type, is refused, so the editor is never
+    # handed bytes a later save would then write back over the real file.
+    root, rel = q.one("root"), q.one("rel")
+    p = _md_path(q.one("lane"), root, rel)
     if p is None:
-        return 400, {"error": "outside the markdown folders"}
-    if not p.is_file():
+        return 400, {"error": "outside the navigator folders"}
+    data = _read_capped(p, MAX_TEXT_BODY)
+    if data is None:
         return 404, {"error": "no such file"}
-    try:
-        text = p.read_bytes().decode("utf-8")
-    except UnicodeDecodeError:
-        return 400, {"error": "not utf-8 text"}
-    except OSError:
-        return 400, {"error": "unreadable file"}
+    if len(data) > MAX_TEXT_BODY:
+        return 413, {"error": "file is too large to open in the editor"}
+    # both the requested name and the resolved target's name are checked: an
+    # in-root alias named notes.txt pointing at doc.pdf must not slip a recognized
+    # binary past the deny-list on its text-looking alias name. An in-root text
+    # alias (its target a plain text file) still passes, since neither name is one
+    if _binary_ext(rel) or _binary_ext(p.name):
+        return 415, {"error": "this file type is not opened as text"}
+    if not _looks_text(data):
+        return 415, {"error": "not a text file"}
+    text = data.decode("utf-8")
     # windows line endings are carried to the page rather than silently
     # flattened: the editor is told to keep them so a save writes the
     # file back in the endings it arrived in
-    return 200, {"root": q.one("root"), "rel": q.one("rel"),
+    return 200, {"root": root, "rel": rel,
                  "text": text, "mtime": _md_stamp(p), "crlf": "\r\n" in text}
+
+
+def _get_mdimg(q: Query, _):
+    # one in-root image, for the navigator's inline preview. The same resolve and
+    # containment as every navigator path, then a regular file whose extension is
+    # one of the image types, read through the same bounded reader so a file that
+    # grows after a size check can never be served past the cap. Served with the
+    # exact headers /uploads uses: nosniff so the type cannot be reinterpreted, and
+    # a sandbox CSP so even an SVG is dropped into an opaque origin where its
+    # script, if any, cannot run. The bytes are a resource the browser loads into
+    # an <img>, never markup injected into the board.
+    p = _md_path(q.one("lane"), q.one("root"), q.one("rel"))
+    if p is None:
+        return 400, {"error": "outside the navigator folders"}
+    suffix = p.suffix.lower()
+    if suffix not in IMG_TYPES:
+        return 415, {"error": "not an image"}
+    data = _read_capped(p, MAX_IMG_PREVIEW)
+    if data is None:
+        return 404, {"error": "no such file"}
+    if len(data) > MAX_IMG_PREVIEW:
+        return 413, {"error": "image is too large to preview"}
+    return Response(data, media_type=IMG_TYPES[suffix],
+                    headers={"Cache-Control": "no-store",
+                             "X-Content-Type-Options": "nosniff",
+                             "Content-Security-Policy": "sandbox"})
 
 
 # -- the agent's long poll, in three locked steps ------------------------------
@@ -3632,18 +3831,32 @@ def _post_clientlog(q: Query, raw: bytes):
 
 
 def _post_mdsave(q: Query, raw: bytes):
-    # the body is taken raw because the shared text read strips it: a
-    # markdown file's trailing newline is content and losing it would break
-    # the round trip on the very first save
-    p = _md_path(q.one("lane"), q.one("root"), q.one("rel"))
+    # the body is taken raw because the shared text read strips it: a file's
+    # trailing newline is content and losing it would break the round trip on the
+    # very first save. The navigator never creates files, so the target has to
+    # already exist as a regular file; what is there now has to itself be text, so
+    # a binary is never overwritten through an arbitrary utf-8 body; and the new
+    # body has to be text too. The endpoint has already capped the body at
+    # MAX_TEXT_BODY before these bytes were kept.
+    root, rel = q.one("root"), q.one("rel")
+    p = _md_path(q.one("lane"), root, rel)
     if p is None:
-        return 400, {"error": "outside the markdown folders"}
-    if not p.is_file():
+        return 400, {"error": "outside the navigator folders"}
+    if not _looks_text(raw):
+        return 415, {"error": "refusing to save non-text content"}
+    # the resolved target's name too, so an alias name cannot hide a binary target
+    if _binary_ext(rel) or _binary_ext(p.name):
+        return 415, {"error": "this file type is not editable as text"}
+    # what is on disk right now, through the same bounded regular-file reader: None
+    # when the target is missing or not a regular file (the navigator creates
+    # nothing and never writes a directory or a special file), and refused if it is
+    # too large or is itself binary. This is the guard that stops a POST straight at
+    # a binary path from clobbering it with a text body.
+    current = _read_capped(p, MAX_TEXT_BODY)
+    if current is None:
         return 404, {"error": "no such file"}
-    try:
-        raw.decode("utf-8")
-    except UnicodeDecodeError:
-        return 400, {"error": "not utf-8 text"}
+    if len(current) > MAX_TEXT_BODY or not _looks_text(current):
+        return 415, {"error": "refusing to overwrite a non-text file"}
     # the stale-write guard: the stamp the page was handed on read comes
     # back here, and a file whose stamp has moved since is one somebody
     # else has written. Refused with the current stamp so the page can
@@ -3656,13 +3869,27 @@ def _post_mdsave(q: Query, raw: bytes):
     was = q.one("mtime")
     if was and was != now:
         return 409, {"error": "changed on disk", "mtime": now}
-    # written the way state.json is written: a temp file beside it, then
-    # one rename, so a reader never sees a half-written file. The temp
-    # name appends rather than replaces the suffix, so it can never
-    # collide with a real neighbour of the same stem
-    tmp = p.with_name(p.name + ".tmp")
+    # the temp is a fresh, exclusive descriptor in the target's own directory:
+    # mkstemp opens with O_CREAT|O_EXCL|O_NOFOLLOW, so it can neither reuse a real
+    # neighbour (no data loss) nor follow a symlink planted at a predictable
+    # <name>.tmp (no write or chmod outside the root), which the old fixed name
+    # could. The permission bits are copied onto that descriptor with fchmod, then
+    # one atomic rename puts it in place. Only the temp this request itself made is
+    # ever cleaned up on failure; no pre-existing neighbour is touched.
     try:
-        tmp.write_bytes(raw)
+        mode = os.stat(p).st_mode & 0o777
+    except OSError:
+        mode = None
+    try:
+        fd, tmpname = tempfile.mkstemp(dir=str(p.parent), prefix=p.name + ".", suffix=".tmp")
+    except OSError as e:
+        return 400, {"error": str(e)}
+    tmp = Path(tmpname)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(raw)
+            if mode is not None:
+                os.fchmod(fh.fileno(), mode)
         os.replace(tmp, p)
     except OSError as e:
         tmp.unlink(missing_ok=True)
@@ -5086,6 +5313,7 @@ ROUTES = [
     Route("/push/key", _endpoint(_get_push_key), methods=["GET"]),
     Route("/mdfiles", _endpoint(_get_mdfiles), methods=["GET"]),
     Route("/mdfile", _endpoint(_get_mdfile), methods=["GET"]),
+    Route("/mdimg", _endpoint(_get_mdimg), methods=["GET"]),
     Route("/upload", _endpoint(_post_upload, "raw", MAX_UPLOAD_BODY, "upload too large"), methods=["POST"]),
     Route("/clientlog", _endpoint(_post_clientlog, "raw", CLIENT_MAX_BODY, "report batch too large"), methods=["POST"]),
     Route("/mdsave", _endpoint(_post_mdsave, "raw", MAX_TEXT_BODY), methods=["POST"]),
