@@ -551,10 +551,10 @@
     min-height:16px}
   .tmeta .teng{font:400 10.5px var(--mono); color:#B4AA99}
   /* the number lives inside the title text, so it sits on the title's first
-     line by construction, wrapped or not. it inherits the title's typeface,
-     size and line-height, so only its lighter weight and colour set it apart
-     and it reads as the same run of type, not a separate face */
-  .tnum{font:inherit; font-weight:400; color:#C1C1C1; margin-right:.45em}
+     line by construction, wrapped or not. it inherits the title's full
+     typography (typeface, size, weight and line-height), so only its grey
+     colour sets it apart and it reads as the same run of type */
+  .tnum{font:inherit; color:#C1C1C1; margin-right:.45em}
   .tempty{font:italic 12.5px var(--sans); color:#B4AA99; padding:8px 12px}
   .trow .tt{flex:1; min-width:0; font:500 12.5px/1.25 var(--sans); color:var(--ink);
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
@@ -2638,8 +2638,8 @@ function queueState(b){ return b.parked ? cardState({ ...b, parked: false, state
 function ticketNum(id){
   const s = String(id == null ? "" : id);
   const m = /^m(\d+)$/.exec(s);
-  if (m) return "#" + m[1];
-  if (/^[0-9]/.test(s)) return "#" + s;
+  if (m) return m[1];
+  if (/^[0-9]/.test(s)) return s;
   return "";
 }
 function testReady(b){ return !!(b && b.testing) && queueState(b) === "yours"; }
