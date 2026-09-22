@@ -980,6 +980,18 @@
     #loading.down .earth{animation-play-state:paused !important}
     #loading{transition:opacity 260ms ease !important}
   }
+  /* Omni cards use the supplied playing-card art in place of the row's
+     internal id. State, age, agent label and actions remain the ordinary ones. */
+  .trow.omni-ticket{background:#fff}
+  .trow.omni-ticket .trowin{padding-left:7px}
+  .omni-art{display:block; flex:none; width:auto; height:44px; max-width:38px;
+    object-fit:contain; object-position:center}
+  .box.omni-card{background:#fff !important}
+  .box.omni-card .head{display:flex; align-items:center; gap:12px;
+    padding-left:calc(var(--pad-x)*2/3)}
+  .box.omni-card .omni-card-art{display:block; flex:none; width:46px; height:66px;
+    object-fit:contain; object-position:center}
+  .box.omni-card .title{flex:1 1 0; padding-left:0}
 </style>
 <link rel="stylesheet" href="/card-tokens.css">
 </head>
@@ -1471,6 +1483,7 @@ function makeBox(b){
                 // what a poll compares against and what a chosen fold is
                 // written down under
                 answwrap, answ: null, answId: null, answKey: "answ:" + b.id };
+  syncOmniCard(els[b.id], b);
   // the two fades: the band the box and the bar stand in, and the band the
   // answer has scrolled away under the title
   watchBand(els[b.id]);
@@ -2361,9 +2374,10 @@ function paintPhonePane(pane, pool, view, sig, state){
                 (s === "done" ? " donec" : "") +
                 (isTest ? " testc" : ""));
     const inner = h("div", "trowin");
+    const omni = appendOmniRowArt(r, inner, b);
     const ttl = h("div", "ttl", b.title);
     const num = ticketNum(b.id);
-    if (num) ttl.prepend(h("span", "tnum", num));
+    if (num && !omni) ttl.prepend(h("span", "tnum", num));
     inner.appendChild(ttl);
     const meta = h("div", "tmeta");
     meta.appendChild(h("span", "tage", busy ? SPIN_FRAMES[spinFrame] : s === "done" ? "done" : shortAge(b.agentTs)));
@@ -3017,6 +3031,7 @@ function apply(state){
       else el.reply.innerHTML = fmt(rawReply);
     }
     if (!el.titleEl.isContentEditable && el.titleEl.textContent !== b.title) el.titleEl.textContent = b.title;
+    syncOmniCard(el, b);
     const pt = (b.pendingTexts || []).join("\n\n");
     // the line a send has just drawn is not the poll's to take away. a state
     // fetched before the server had that message knows nothing about it, and the

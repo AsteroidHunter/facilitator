@@ -89,7 +89,7 @@ Endpoints:
                                the home directory): creates a new project lane
                                whose owner id is a slug of N, stores {id, name,
                                dir} in state.json so restarts keep it, and
-                               returns the id; no card is created with the lane;
+                               returns the id; the lane starts with Omni Ticket #1;
                                a taken id walks numbered suffixes (-2, -3) until
                                free; empty names and bad folders are refused (400)
   POST /delete?box=ID       -> legacy empty-meta removal route. A stale caller
@@ -159,6 +159,7 @@ Endpoints:
                                prompt offers the one name the board goes by;
                                every other field is served as the file has it,
                                and a blank title leaves the file's own name
+  GET  /assets/ticket-<1|2|3>.webp -> supplied Omni Ticket artwork
   GET  /push/key            -> {"key": ...}: the VAPID public key, base64url,
                                that the phone subscribes with. The key pair
                                lives in vapid-key.pem beside state.json,
@@ -1114,6 +1115,7 @@ FAIRY_NAMES = (
     "Starlit Selkie Crossing", "Buttercup Ogre Nap", "Silverfern Faun Prank",
     "Mushroom Hobgoblin Tea", "Cobweb Banshee Lullaby", "Riverbed Undine Chorus",
 )
+OMNI_TITLE_RE = re.compile(r"^Omni Ticket #(\d+)$")
 _LANE_DIRS = {}
 
 SEED_PATH = HERE / "seed.json"
@@ -2559,6 +2561,11 @@ PHONE_FILES = {
     # the squid on its own, no background: the phone paints its own home-screen
     # launch image from it, sized to whichever iPhone is asking
     "/m-splash-squid.png": (HERE / "assets" / "m-splash-squid.png", "image/png"),
+}
+OMNI_FILES = {
+    f"/assets/ticket-{number}.webp":
+        (HERE / "assets" / f"ticket-{number}.webp", "image/webp")
+    for number in range(1, 4)
 }
 # Web push without a payload: the push service only has to be told "wake the
 # phone's worker", and the worker reads /state itself, so nothing here is
@@ -4366,6 +4373,51 @@ def _post_context(q: Query, text: str):
         return 200, {"ok": True}
 
 
+def _omni_number(title: str) -> int | None:
+    """The title is the whole v0 Omni contract; cards keep normal ids/state."""
+    match = OMNI_TITLE_RE.fullmatch(title or "")
+    if not match:
+        return None
+    number = int(match.group(1))
+    return number if number > 0 else None
+
+
+def _next_omni_number(owner: str) -> int:
+    """Allocate within one lane while the caller holds _lock."""
+    used = [_omni_number(b.get("title", "")) for b in _state["boxes"]
+            if b.get("owner", "facilitator") == owner]
+    return max((number for number in used if number is not None), default=0) + 1
+
+
+def _entered_title(owner: str, text: str) -> str:
+    """Normalize the exact `omni` command without catching ordinary words."""
+    title = (text or "").splitlines()[0][:80]
+    if title.strip().casefold() == "omni":
+        return f"Omni Ticket #{_next_omni_number(owner)}"
+    return title
+
+
+def _create_box_record(owner: str, title: str) -> dict:
+    """Install one ordinary data-contract card; callers save and notify."""
+    bid_new = f"m{_state['next_bid']}"  # never reused, even after deletes
+    _state["next_bid"] += 1
+    # keep each meta section grouped: insert after its last same-owner meta box
+    idx = max([i for i, b in enumerate(_state["boxes"])
+               if b["bucket"] == "meta" and b.get("owner") == owner] or [-1]) + 1
+    ws0 = (_state.get("workspaces", {}).get(owner) or [{}])[0].get("id")
+    made = {
+        "id": bid_new, "bucket": "meta", "title": title, "reply": "",
+        "reply_full": "", "reply_short": "",
+        "pending": [], "done": False, "parked": False, "replies": 0,
+        "full_replies": 0, "reply_kind": "",
+        "state": "new", "hb": 0,
+        "ball": "me", "ts": time.time(), "owner": owner,
+        "ws": ws0, "task": None, "agent_ts": 0, "seen": 0, "testing": False,
+    }
+    _state["boxes"].insert(idx, made)
+    return made
+
+
 def _post_title(q: Query, text: str):
     bid = q.one("box")
     with _lock:
@@ -4379,7 +4431,7 @@ def _post_title(q: Query, text: str):
             free = [n for n in FAIRY_NAMES if n not in used]
             box["title"] = random.choice(free or FAIRY_NAMES)
         else:
-            box["title"] = text.splitlines()[0][:80]
+            box["title"] = _entered_title(box.get("owner", "facilitator"), text)
         _log("title", bid, box["title"])
         _save()
         _notify()
@@ -4405,23 +4457,9 @@ def _post_create(q: Query, text: str):
             return 400, {"error": "unknown owner"}
         # born nameless; a whimsical name lands only if naming is walked
         # away from (the empty-body /title call below)
-        title = (text or "").splitlines()[0][:80] if text else ""
-        bid_new = f"m{_state['next_bid']}"  # never reused, even after deletes
-        _state["next_bid"] += 1
-        # keep each meta section grouped: insert after its last same-owner meta box
-        idx = max([i for i, b in enumerate(_state["boxes"])
-                   if b["bucket"] == "meta" and b.get("owner") == owner] or [-1]) + 1
-        ws0 = (_state.get("workspaces", {}).get(owner) or [{}])[0].get("id")
-        made = {
-            "id": bid_new, "bucket": "meta", "title": title, "reply": "",
-            "reply_full": "", "reply_short": "",
-            "pending": [], "done": False, "parked": False, "replies": 0,
-            "full_replies": 0, "reply_kind": "",
-            "state": "new", "hb": 0,
-            "ball": "me", "ts": time.time(), "owner": owner,
-            "ws": ws0, "task": None, "agent_ts": 0, "seen": 0, "testing": False,
-        }
-        _state["boxes"].insert(idx, made)
+        title = _entered_title(owner, text) if text else ""
+        made = _create_box_record(owner, title)
+        bid_new = made["id"]
         result = {"ok": True, "id": bid_new}
         if op:
             _op_commit(op, fp, "create", bid_new, result)
@@ -4439,7 +4477,7 @@ def _post_create(q: Query, text: str):
 def _post_project(q: Query, text: str):
     # a new project lane from the page's plus tab: slug the name,
     # store {id, name, dir} so restarts keep it, give the lane its
-    # per-owner slots; the tab appears with an empty board
+    # per-owner slots; the tab appears with its one general-purpose Omni card
     name = q.one("name").strip()
     slug = "".join(c if c.isalnum() else "-" for c in name.lower())
     while "--" in slug:
@@ -4476,8 +4514,11 @@ def _post_project(q: Query, text: str):
         # the lane opens on its board page, the same one migration gives every
         # project that predates the switcher
         _state.setdefault("pages", {})[slug] = [_page_record("pg1", "board")]
-        # no card is created with the lane: a fresh folder opens onto
-        # an empty board and cards come only from the owner's hand
+        # A newly added project begins with one ordinary-contract card whose
+        # canonical title gives it the Omni presentation. This happens only in
+        # this creation transaction, never in migration, so restart and old
+        # projects cannot gain duplicates or be backfilled.
+        _create_box_record(slug, "Omni Ticket #1")
         # the folder's own name is written down, never the path to it:
         # a lane's directory is one line away from a home directory
         _log("project", slug, f"{name} -> {d}", log_fields={"folder": d.name})
@@ -5310,6 +5351,8 @@ ROUTES = [
     # up on the next open rather than a cache later
     *[Route(path, _endpoint(lambda q, _, p=p, c=c: _file(p, c)), methods=["GET"])
       for path, (p, c) in PHONE_FILES.items() if path != "/m-manifest.json"],
+    *[Route(path, _endpoint(lambda q, _, p=p, c=c: _file(p, c)), methods=["GET"])
+      for path, (p, c) in OMNI_FILES.items()],
     Route("/push/key", _endpoint(_get_push_key), methods=["GET"]),
     Route("/mdfiles", _endpoint(_get_mdfiles), methods=["GET"]),
     Route("/mdfile", _endpoint(_get_mdfile), methods=["GET"]),
