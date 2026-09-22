@@ -2885,8 +2885,6 @@ function renderCarousel(state){
       const inner = h("div", "trowin");
       const omni = appendOmniRowArt(r, inner, b);
       const ttl = h("div", "ttl", b.title);
-      const num = ticketNum(b.id);
-      if (num && !omni) ttl.prepend(h("span", "tnum", num));
       inner.appendChild(ttl);
       const meta = h("div", "tmeta");
       meta.appendChild(h("span", "tage", busy ? SPIN_FRAMES[spinFrame] : s === "done" ? "done" : shortAge(b.agentTs)));
