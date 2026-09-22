@@ -564,12 +564,6 @@
   /* the ready-to-test hairline, a neutral cool line that steps aside for the
      selected border; the fill sits after .trow.match below so the marker wins it */
   .trow.testc:not(.on){border-color:#CDD4DE}
-  /* Your-turn staleness: a visibly yellow card desaturates in step jumps at 4 /
-     8 / 16 / 32 minutes since it became the reader's turn. Only yellow rows age. */
-  .trow.stale-1{filter:saturate(.75)}
-  .trow.stale-2{filter:saturate(.5)}
-  .trow.stale-3{filter:saturate(.25)}
-  .trow.stale-4{filter:saturate(0)}
   .trow.on{
     border-color:var(--line-strong);
     /* the selected row rises off the list: the chat frame's own shadow shape,
@@ -2636,9 +2630,9 @@ function cardState(b){
 // nulled in the copy so cardState recomputes from the flags instead of handing
 // back the server's "parked" when we peel the park off
 function queueState(b){ return b.parked ? cardState({ ...b, parked: false, state: null }) : cardState(b); }
-// The visible row number, the durable ready-to-test display gate, and the
-// Your-turn staleness tier: kept here in step with card-logic.js, which the
-// board and phone share but this typed page does not load.
+// The visible row number and the durable ready-to-test display gate: kept here
+// in step with card-logic.js, which the board and phone share but this typed
+// page does not load.
 function ticketNum(id){
   const s = String(id == null ? "" : id);
   const m = /^m(\d+)$/.exec(s);
@@ -2647,18 +2641,6 @@ function ticketNum(id){
   return "";
 }
 function testReady(b){ return !!(b && b.testing) && queueState(b) === "yours"; }
-function staleTier(b, nowMs){
-  if (!b || testReady(b)) return 0;
-  if (queueState(b) !== "yours") return 0;
-  const turnTs = b.turnTs || 0;
-  if (!turnTs) return 0;
-  const ageMin = (nowMs / 1000 - turnTs) / 60;
-  if (ageMin >= 32) return 4;
-  if (ageMin >= 16) return 3;
-  if (ageMin >= 8) return 2;
-  if (ageMin >= 4) return 1;
-  return 0;
-}
 // the strict await of the bar count and auto-select: pending vetoes it, and
 // so does work in flight, claimed or registered; green outranks the ball
 function awaitsYou(b){
@@ -2789,9 +2771,9 @@ function renderCarousel(state){
               pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
                       ((seenReplies[b.id] || 0) >= (b.agentTs || 0) ? "r" : "") +
                       (b.id === selectedId ? "!" : "") + (b.task || "") + b.title +
-                      // the marker and the staleness tier ride the signature so a
-                      // mark, a clear or a crossed age boundary repaints the row
-                      (testReady(b) ? "T" : "") + "S" + staleTier(b, Date.now()) +
+                      // the marker rides the signature so a mark or a clear
+                      // repaints the row
+                      (testReady(b) ? "T" : "") +
                       Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",") +
               "|" + selectedTask;
   if (tik.dataset.sig !== sig){
@@ -2812,16 +2794,13 @@ function renderCarousel(state){
       const isYours = s === "yours" || (s === "new" && b.ball === "you");
       const isMatch = selectedTask && b.task === selectedTask;
       const isTest = testReady(b);
-      // only a visibly yellow row ages: never the ready-to-test wash or a task-match highlight
-      const tier = (isYours && !isTest && !isMatch) ? staleTier(b, Date.now()) : 0;
       const r = h("div", "trow" + (b.id === selectedId ? " on" : "") + (busy ? " working" : "") +
                   (s === "yours" && seenTs >= (b.agentTs || 0) ? " seen" : "") +
                   (isYours ? " yours" : "") +
                   (s === "queued" || (s === "new" && b.ball !== "you") ? " queuedc" : "") +
                   (s === "done" ? " donec" : "") +
                   (isMatch ? " match" : "") +
-                  (isTest ? " testc" : "") +
-                  (tier ? " stale-" + tier : ""));
+                  (isTest ? " testc" : ""));
       const inner = h("div", "trowin");
       const ttl = h("div", "ttl", b.title);
       const num = ticketNum(b.id);
