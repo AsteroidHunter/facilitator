@@ -37,6 +37,14 @@
     background-image:radial-gradient(circle at 18% -4%, #FCFCFB 0%, rgba(252,252,251,0) 52%);
   }
 
+  /* every selection wears the block caret's dress the whole app now shares: a
+     solid black cell over the picked characters with their ink lifted to white,
+     continuous across the run rather than the OS or browser's own tint. set once
+     here for the page, it holds over prose, code, links, the composer, the title
+     and the markdown tool alike; the fat caret hides while a selection stands, so
+     this is the only mark the reader sees */
+  ::selection{background:#000; color:#fff}
+
   /* ---- status bar ------------------------------------------------------- */
   .bar{
     position:sticky; top:0; z-index:10;
@@ -435,7 +443,10 @@
     display:flex; flex-direction:column; flex:none; gap:var(--sp-s);
     margin-top:auto;
     font:15px/1.5 var(--sans); color:var(--ink);
-    cursor:pointer; user-select:none;
+    /* the box is click-to-fold, so the bar keeps the hand, but its sent words
+       are real text a reader may pick out and copy; the click yields to a live
+       pick in its handler so a selection never folds the box */
+    cursor:pointer; user-select:text; -webkit-user-select:text;
   }
   body.focus .box.sel .pendlist::before{
     content:"↑ " attr(data-label);   /* the arrow flips with the fold state */
@@ -869,8 +880,8 @@
     background:#FFFFFF;
     border:none; border-radius:4px; min-height:330px;
     box-shadow:inset 0 1px 6px rgba(60,45,20,.14), inset 0 0 0 1px rgba(60,45,20,.08)}
-  /* the one place orange may rest: selecting text inside the well */
-  #nppanel ::selection{background:#FFD9B3; color:var(--ink)}
+  /* selecting text inside the well takes the app-wide block dress set at the
+     top of the sheet, so the whole markdown tool marks a pick the same way */
   #nphead{display:none}   /* the whole Active Folders bar removed */
   #nprows{display:flex; flex-direction:column; gap:2px; padding:0 0 4px;
     max-height:56vh; overflow-y:auto}
@@ -1160,8 +1171,7 @@
   body.docview .cfline{margin:2px 0 26px}
   body.docview :is(.cfline, .cfnew) .cm-scroller{min-height:22px; overflow:visible}
   body.docview :is(.cfline, .cfnew) .cm-content{caret-color:transparent}
-  body.docview :is(.cfline, .cfnew) .cm-content ::selection,
-  body.docview :is(.cfline, .cfnew) .cm-content::selection{background:var(--accent-soft)}
+  /* selection here takes the app-wide block dress set at the top of the sheet */
   /* the resting block, the same cell the plain line drew for itself. it stands
      on the selected section's line and on the new-card line, and goes the
      moment the caret is in one, where the app's own #fatcaret takes over */
@@ -1871,6 +1881,18 @@ function build(state){
   landFocus();
 }
 
+// true when a live selection touches el. intersectsNode catches a cross-boundary
+// pick whose commonAncestorContainer sits outside el; collapsed/empty give false.
+function boxHasSelection(el){
+  const sel = getSelection();
+  if (!sel || sel.isCollapsed || !sel.rangeCount) return false;
+  for (let i = 0; i < sel.rangeCount; i++){
+    const r = sel.getRangeAt(i);
+    if (!r.collapsed && r.intersectsNode(el)) return true;
+  }
+  return false;
+}
+
 // one box + its outline entry, inserted at its position within its section
 function makeBox(b, i, state){
   noteDoing("card");
@@ -1941,7 +1963,11 @@ function makeBox(b, i, state){
     const histDown = h("button");
     meta.append(metaNote);
     const pend = h("div", "pendlist");   // sent-and-waiting bar; a click unfolds the list
-    pend.addEventListener("click", () => pend.classList.toggle("open"));
+    pend.addEventListener("click", () => {
+      // a drag-release click that touched the box is a copy, not a fold
+      if (boxHasSelection(pend)) return;
+      pend.classList.toggle("open");
+    });
     const compose = h("div", "compose");
     const ta = h("textarea");
     ta.rows = 1;
