@@ -142,6 +142,23 @@ Magic box 3 holds one picture per lane, a plot above all. Write the file into yo
 
 So the `example` lane writes `~/projects/example/example-internal/panel.png`. Png, svg, jpg, gif and webp all work. The board picks it up within about four seconds, swaps itself when you rewrite the file, and falls back to its empty marks when you delete it. Nothing needs adding to the server, and no lane can read another's folder. Note that the panel is switched on for one configured tab only; every other tab still shows the plain stub.
 
+## The file navigator
+
+On a lane listed in `markdown_lanes`, magic box 3 (and the markdown-only box for
+later lanes) is a file navigator over that lane's own two folders, its internal
+folder and its wiki. It shows every file in a folder, not just Markdown:
+folders, text, code, images and anything else, dotfiles included, each with a
+type icon and a plain black label. (The icon set is easy to swap later.) Text files open in the built-in editor, with
+the live Markdown preview for `.md` and plain text for everything else; images
+preview inline with their name, size and date; anything that is not text or an
+image shows that same metadata and a note that it cannot be opened here. The
+listing is read one directory at a time, so a folder holding a large archive
+costs nothing until it is opened. The boundaries hold exactly as before: only
+the two configured folders are reachable, a path that resolves outside them is
+refused, a symlink pointing out of a folder is shown but never opened or served,
+and a special file is shown but never read. Editing writes text back with the
+same stale-write guard and never overwrites a binary or creates a new file.
+
 ## The Spotify player
 
 `spotify_client_id` in `run.config.json` is the client id magic box 1 signs into Spotify with; make an app at the Spotify developer dashboard (https://developer.spotify.com/dashboard) to get one, and leave the key empty until you do.
