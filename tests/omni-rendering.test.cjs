@@ -15,9 +15,9 @@ for (const name of ["index.html", "m.html", "page.html"]){
     assert.match(html, /\.trow\.omni-ticket\{background:#fff\}/);
     assert.match(html, /\.omni-art\{[^}]*object-fit:contain/s);
     assert.match(html, /\.box\.omni-card\{background:#fff !important\}/);
-    assert.match(html,
-      /const inner = h\("div", "trowin"\);\s*const omni = appendOmniRowArt\(r, inner, b\);\s*const ttl = h\("div", "ttl", b\.title\);\s*const num = ticketNum\(b\.id\);\s*if \(num && !omni\)[\s\S]*?inner\.appendChild\(ttl\);\s*const meta = h\("div", "tmeta"\);/,
-      `${name} changed the art/title/meta order or restored Omni's internal id`);
+    assert.ok(
+      /const inner = h\("div", "trowin"\);\s*const omni = appendOmniRowArt\(r, inner, b\);\s*const ttl = h\("div", "ttl", b\.title\);\s*inner\.appendChild\(ttl\);\s*const meta = h\("div", "tmeta"\);/.test(html),
+      `${name} changed the art/title/meta order or restored a ticket number prefix`);
     assert.match(html, /syncOmniCard\(els\[b\.id\], b\)/,
       `${name} does not decorate the initially built expanded card`);
     assert.match(html, /syncOmniCard\(el, b\)/,
