@@ -1,14 +1,15 @@
 name: readme-header
 
 # Refresh the README header banner (tools/readme-header/facilitator-header.svg)
-# whenever the app's source for it changes. The banner is rendered from
-# index.html: the logo (#npmark), name (#npbrandname), and version (#npversion),
-# which is the app's single version source of truth. Branch-relative on purpose:
-# each branch keeps its own banner for the version on that branch.
+# whenever the app's source for it changes. The banner reproduces the
+# installation header lockup: the logo and name come from m-gate.html
+# (.identity), and the version from index.html (#npversion), which is the app's
+# single version source of truth. Branch-relative on purpose: each branch keeps
+# its own banner for the version on that branch.
 #
 # Nothing here is live until this workflow file and the generator are actually
-# pushed to GitHub. It does not create semantic version bumps and cannot force
-# GitHub's README image cache to refresh instantly.
+# pushed to the host. It does not create semantic version bumps and cannot force
+# the host's README image cache to refresh instantly.
 
 on:
   push:
@@ -18,6 +19,7 @@ on:
       - '**'
     paths:
       - index.html
+      - m-gate.html
       - tools/readme-header/generate.py
       - .github/workflows/readme-header.yml
 
