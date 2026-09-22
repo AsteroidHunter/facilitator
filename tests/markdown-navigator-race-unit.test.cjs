@@ -99,6 +99,8 @@ function build() {
     // the real mdInfoInto renders a card; the fallback sentence lands in an
     // element of class mdunopenwhy, so its presence is proof the fallback ran
     ctl.info = () => __els.filter(e => e.className === "mdunopenwhy").map(e => ({ reason: e._text }));
+    // the list's own placeholder line (empty/old-server message), as rendered
+    ctl.tempty = () => __els.filter(e => e.className === "tempty").map(e => e._text);
     ctl.state = () => ({ mdGen, mdData, mdOpen, mdShown });
   `;
   const factory = new Function("ctl", preamble + "\n" + REAL + "\n" + tail);
@@ -206,4 +208,21 @@ test("a current image error shows the fallback for that image", async () => {
   img.onerror();                             // still current
   assert.equal(m.info().length, 1);
   assert.match(m.info()[0].reason, /could not be shown/);
+});
+
+test("an old {roots:[...files]} response shows the restart message, not a blank panel", async () => {
+  const m = build();
+  m.set({ activeOwner: "lane1", mdFor: "lane1", mdKind: "internal", mdGen: 1, mdData: null,
+          mdOpen: { rel: "draft.md" } });   // pretend an editor holds unsaved work
+  m.callList();
+  // a running server still on the pre-navigator shape: valid JSON, roots+files,
+  // but no top-level entries/kind/dir
+  m.resolveFetch(0, 200, true, { roots: [{ root: "i", kind: "internal", exists: true,
+    files: [{ rel: "README.md", name: "README.md", mtime: "1" }] }] });
+  await flush();
+  assert.equal(m.state().mdData, null, "an unreadable old shape must not become mdData");
+  const msgs = m.tempty();
+  assert.equal(msgs.length, 1, "the restart message is shown instead of a blank list");
+  assert.match(msgs[0], /restart the board/);
+  assert.deepEqual(m.state().mdOpen, { rel: "draft.md" }, "the open editor is left untouched");
 });
