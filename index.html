@@ -3681,6 +3681,22 @@
   .rkill::before{transform:translate(-50%,-50%) rotate(45deg)}
   .rkill::after{transform:translate(-50%,-50%) rotate(-45deg)}
 
+  /* Omni cards keep the normal state machine and right-side metadata. Their
+     supplied playing-card art replaces the internal-id prefix at the left,
+     while white remains the face through queued, working and reader states. */
+  .trow.omni-ticket{background:#fff}
+  .trow.omni-ticket .trowin{padding-left:8px}
+  .omni-art{display:block; flex:none; width:auto; height:calc(100% - 8px);
+    max-width:52px; object-fit:contain; object-position:center}
+  .box.omni-card{background:#fff !important}
+  .box.omni-card .num, .toc-entry.omni-card .tnum{display:none}
+  .omni-card-art{display:block; flex:none; width:30px; height:44px;
+    object-fit:contain; object-position:center}
+  body.focus .box.sel.omni-card{background:#fff !important}
+  body.focus .box.sel.omni-card .head{flex-wrap:nowrap; align-items:center}
+  body.focus .box.sel.omni-card .omni-card-art{order:10; width:46px; height:66px;
+    margin-left:calc(var(--pad-x)*2/3)}
+  body.focus .box.sel.omni-card .title{flex:1 1 0; padding-left:0}
 </style>
 <link rel="stylesheet" href="/card-tokens.css">
 </head>
@@ -5932,6 +5948,7 @@ function makeBox(b, i, state){
                   answwrap, answ: null, answId: null, answKey: "answ:" + b.id,
                   answFoldRun: 0,
                   pendwrap, bottombar, clip, clipfile, tick, field };
+    syncOmniCard(els[b.id], b);
     // the ramp's top edge follows the wrapper from the card's first frame, box
     // or no box, so it is armed here and not when a box is built
     watchBand(els[b.id]);
@@ -6255,6 +6272,7 @@ function apply(state){
       el.titleEl.textContent = b.title;
       el.tocTitle.textContent = b.title;
     }
+    syncOmniCard(el, b);
     /* Worktree selector redraw, intentionally dormant with its UI and wiring.
     // the bar's worktree name, written only when it has actually changed: this
     // runs on every poll and rewriting a text node under a pointer is enough to
@@ -9133,9 +9151,10 @@ function paintTicketPane(pane, pool, view, state, laneSig){
                 (isMatch ? " match" : "") +
                 (isTest ? " testc" : ""));
     const inner = h("div", "trowin");
+    const omni = appendOmniRowArt(r, inner, b);
     const ttl = h("div", "ttl", b.title);
     const num = ticketNum(b.id);
-    if (num) ttl.prepend(h("span", "tnum", num));
+    if (num && !omni) ttl.prepend(h("span", "tnum", num));
     inner.appendChild(ttl);
     const meta = h("div", "tmeta");
     meta.appendChild(h("span", "tage", busy ? SPIN_FRAMES[spinFrame] : s === "done" ? "done" : shortAge(b.agentTs)));
