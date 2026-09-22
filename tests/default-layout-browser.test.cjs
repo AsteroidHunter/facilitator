@@ -127,10 +127,14 @@ test("fresh and newly opened projects show four regions; a restored region persi
     await selectProject(page, firstProject);
     await assertVisible(page, FOUR);
     await page.screenshot({ path:path.join(SHOTS, "new-project.png") });
-    await page.click("#editbtn");
-    await page.waitForSelector('.rkill.restore[data-region="magic2"]', { visible:true });
-    await page.click('.rkill.restore[data-region="magic2"]');
-    await page.click("#editbtn");
+    // Edit mode now shows only the boxes that are on screen: a removed box is
+    // not resurrected as a faint ghost, and the in-canvas restore cross was
+    // removed along with the ghosts. A reveal is exercised through the same
+    // persisted show key the board writes; see the m797 report for the tradeoff.
+    await page.evaluate(owner => {
+      localStorage.setItem("show." + owner + ".magic2", "1");
+      applySavedLayout();
+    }, firstProject);
     await assertVisible(page, ["clockbox", "tickets", "magic1", "magic2", "main"]);
     await page.reload({ waitUntil:"domcontentloaded" });
     await page.waitForFunction(() => document.body.classList.contains("layout-ready") && lastState);
