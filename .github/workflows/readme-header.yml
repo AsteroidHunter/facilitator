@@ -1,0 +1,84 @@
+name: readme-header
+
+# Refresh the README header banner (tools/readme-header/facilitator-header.svg)
+# whenever the app's source for it changes. The banner is rendered from
+# index.html: the logo (#npmark), name (#npbrandname), and version (#npversion),
+# which is the app's single version source of truth. Branch-relative on purpose:
+# each branch keeps its own banner for the version on that branch.
+#
+# Nothing here is live until this workflow file and the generator are actually
+# pushed to GitHub. It does not create semantic version bumps and cannot force
+# GitHub's README image cache to refresh instantly.
+
+on:
+  push:
+    # Branches only: a tag push must never make this create a branch of the
+    # same name via the push step below.
+    branches:
+      - '**'
+    paths:
+      - index.html
+      - tools/readme-header/generate.py
+      - .github/workflows/readme-header.yml
+
+# One run per branch, cancelling an older in-flight run. This is only an
+# optimisation: correctness comes from the publish step, which re-fetches the
+# branch head and re-renders from it before every push attempt.
+concurrency:
+  group: readme-header-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # only to commit the regenerated SVG on this branch
+    steps:
+      - name: Check out the pushed branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+
+      - name: Render from the current head and publish if the banner changed
+        # BRANCH is passed as data, never spliced into the shell below, so an
+        # unusual (but valid) ref name cannot break out of the string.
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Bounded, non-force publish loop. Every attempt re-fetches the branch
+          # tip and RE-RENDERS from that exact head, so the committed SVG always
+          # matches the newest source. There is no rebase of a pre-rendered
+          # commit, so a stale banner can never land on top of newer source and
+          # an old version can never be published. The reset only rewinds this
+          # disposable runner checkout, never anything in a real repository.
+          for attempt in 1 2 3 4 5; do
+            git fetch origin "refs/heads/$BRANCH"
+            git reset --hard FETCH_HEAD
+            python tools/readme-header/generate.py
+            if git diff --quiet -- tools/readme-header/facilitator-header.svg; then
+              echo "Banner already current for $(git rev-parse HEAD); nothing to commit."
+              exit 0
+            fi
+            git add tools/readme-header/facilitator-header.svg
+            git commit -m "Refresh README header banner"
+            # Plain (non-force) push. If the branch advanced meanwhile the push
+            # is rejected and we loop to re-fetch and re-render from the new head.
+            if git push origin "HEAD:refs/heads/$BRANCH"; then
+              echo "Pushed refreshed banner onto $BRANCH."
+              exit 0
+            fi
+            echo "Push rejected (attempt $attempt); re-fetching and re-rendering."
+          done
+          echo "Could not publish banner after retries." >&2
+          exit 1
