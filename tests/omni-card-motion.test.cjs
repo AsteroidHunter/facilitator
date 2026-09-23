@@ -1,24 +1,32 @@
-// Deterministic unit tests for the Omni card's display name and its sweep:
-// the card-versus-row names, the lane's next number, what a committed title
-// asks for on Tab and on blur, reduced motion, and the frame the title and art
-// change in. card-logic.js runs in a sandbox with a small DOM stub and a hand
+// Deterministic unit tests for the Omni card's display name, its entry rule and
+// its light: the card-versus-row names, the word sets that ask for Omni (the
+// same table tests/test_omni_entry.py holds the server to), the lane's next
+// number, what a committed title asks for on Tab and on blur, the frame the
+// title and art change in, the star at the end of the way in, and reduced
+// motion. card-logic.js runs in a sandbox with a small DOM stub and a hand
 // driven animation clock, so no browser is started.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const fs = require("node:fs");
+const path = require("node:path");
 const vm = require("node:vm");
 
-const SRC = require("node:path").resolve(__dirname, "..", "card-logic.js");
+const SRC = path.resolve(__dirname, "..", "card-logic.js");
+const CASES = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "omni-entry-cases.json"), "utf8"));
+// <U+XXXX> is that character and <pad:N> is N spaces, as in the table
+const decode = text => text
+  .replace(/<U\+([0-9A-F]{4,6})>/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+  .replace(/<pad:(\d+)>/g, (_, n) => " ".repeat(Number(n)));
 const noop = () => {};
 const RECT0 = { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 };
 const rect = (left, top, right, bottom) => ({ left, top, right, bottom, width: right - left, height: bottom - top });
 
 function makeSandbox(){
-  const frames = [], posts = [];
+  const frames = [], posts = [], timers = [];
   const layout = { frame: rect(0, 0, 600, 800), art: rect(20, 42, 40, 66) };
   const el = tag => {
     const node = { tagName: String(tag || "div").toUpperCase(), className: "", children: [], textContent: "",
-      dataset: {}, parentNode: null, attributes: {}, rect: null, wordsRect: null };
+      innerHTML: "", dataset: {}, parentNode: null, attributes: {}, listeners: {}, rect: null, wordsRect: null };
     node.style = { setProperty(name, value){ node.style[name] = String(value); } };
     const names = () => node.className.split(/\s+/).filter(Boolean);
     node.classList = {
@@ -48,7 +56,8 @@ function makeSandbox(){
     };
     node.setAttribute = (name, value) => { node.attributes[name] = String(value); };
     node.removeAttribute = name => { delete node.attributes[name]; };
-    node.addEventListener = noop;
+    node.addEventListener = (type, fn) => { (node.listeners[type] = node.listeners[type] || []).push(fn); };
+    node.fire = type => { for (const fn of node.listeners[type] || []) fn({ type }); };
     node.focus = () => { sandbox.document.activeElement = node; };
     node.querySelector = selector => selector.startsWith(".")
       ? node.children.find(child => child.classList && child.classList.contains(selector.slice(1))) || null : null;
@@ -67,7 +76,8 @@ function makeSandbox(){
       createRange: () => ({ node: null, selectNodeContents(n){ this.node = n; },
         getBoundingClientRect(){ return this.node.wordsRect || this.node.getBoundingClientRect(); } }) },
     getSelection: () => ({ removeAllRanges: noop, addRange: noop }),
-    setInterval: noop, clearInterval: noop, setTimeout: () => 0, clearTimeout: noop,
+    setInterval: noop, clearInterval: noop, clearTimeout: noop,
+    setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     requestAnimationFrame: cb => { frames.push(cb); return frames.length; }, cancelAnimationFrame: noop,
     reduced: false, matchMedia: () => ({ matches: sandbox.reduced }),
     fetch: (url, opts) => { posts.push({ url, body: opts && opts.body }); return Promise.resolve({ ok: true }); },
@@ -80,7 +90,7 @@ function makeSandbox(){
   vm.runInContext("keyboardTitle = true", sandbox);   // the desktop's Tab path
   // one frame of the page's animation clock at `now` ms
   const frame = now => { for (const cb of frames.splice(0)) cb(now); };
-  return { sandbox, frames, posts, layout, frame, el };
+  return { sandbox, frames, posts, timers, layout, frame, el };
 }
 
 // one desktop card in the sandbox: its box, head, title, composer and outline
@@ -105,9 +115,15 @@ function makeCard(env, title){
   return record;
 }
 const hasArt = card => card.titleEl.parentNode.children.some(child => child.className === "omni-card-art");
-const sweepOf = card => card.box.children.find(child => child.className === "omni-sweep") || null;
-const bandAt = card => parseFloat(sweepOf(card).style["--omni-at"]) / 100;
+const childOf = (card, cls) => card.box.children.find(child => child.className === cls) || null;
+const lightAt = card => Number(childOf(card, "omni-sweep").style["--omni-p"]);
 const key = k => ({ key: k, shiftKey: false, preventDefault: noop, stopPropagation: noop });
+// name a card through the title field and leave it by `how`: Tab, or a blur
+function commit(env, card, typed, how){
+  env.sandbox.editTitle("m9", how === "blur" ? { fromClick: true } : undefined);
+  card.titleEl.textContent = typed;
+  if (how === "blur") card.titleEl.onblur(); else card.titleEl.onkeydown(key(how));
+}
 
 test("the card reads Omni Card #N while the stored title and rows keep Omni Ticket #N", () => {
   const { sandbox } = makeSandbox();
@@ -117,19 +133,34 @@ test("the card reads Omni Card #N while the stored title and rows keep Omni Tick
   assert.equal(sandbox.omniCardTitle("omni"), "omni");
   assert.equal(sandbox.omniCardTitle("Omni Card #3"), "Omni Card #3");
   assert.equal(sandbox.omniCardTitle(null), "");
-  // identity still follows the canonical title only
-  assert.equal(sandbox.omniTicket("Omni Card #3"), null);
-  assert.equal(sandbox.omniTicket("Omni Ticket #3").number, 3);
 });
 
-test("the omni word is read forgivingly and the next number is the lane's highest plus one", () => {
+test("the entry rule accepts exactly the word sets in the shared table", () => {
   const { sandbox } = makeSandbox();
-  for (const word of ["omni", "Omni", " OMNI ", "oMnI\n"]) assert.equal(sandbox.omniCommand(word), true, word);
-  for (const word of ["omnibus", "omni ticket", "Omni Ticket #3", ""]) assert.equal(sandbox.omniCommand(word), false, word);
+  for (const raw of CASES.accept) assert.equal(sandbox.omniEntry(decode(raw)), true, JSON.stringify(raw));
+  for (const raw of CASES.reject) assert.equal(sandbox.omniEntry(decode(raw)), false, JSON.stringify(raw));
+  // the table itself covers what the rule promises: order, repeats, both
+  // number spellings, extra words and non numbers
+  for (const form of ["ticket omni", "omni omni", "omni card #3", "omni card 3", "omni ticket #12", "omni ticket 12"])
+    assert.ok(CASES.accept.includes(form), form);
+  for (const form of ["omni ticket please", "omni card ticket", "omni 3", "omni card three", "omni card 03"])
+    assert.ok(CASES.reject.includes(form), form);
+});
+
+test("only the canonical title is an Omni ticket, as the server reads it", () => {
+  const { sandbox } = makeSandbox();
+  for (const [raw, number] of CASES.canonical){
+    const info = sandbox.omniTicket(decode(raw));
+    assert.equal(info ? info.number : null, number, raw);
+  }
+});
+
+test("the next number is the lane's highest canonical number plus one", () => {
+  const { sandbox } = makeSandbox();
   const boxes = [
     { owner: "facilitator", title: "Omni Ticket #1" }, { owner: "facilitator", title: "Omni Ticket #4" },
     { owner: "facilitator", title: "Omni Card #9" }, { owner: "other", title: "Omni Ticket #7" },
-    { title: "Omni Ticket #6" },   // no owner reads as the default lane, as on the server
+    { owner: "facilitator", title: "ticket omni" }, { title: "Omni Ticket #6" },
   ];
   assert.equal(sandbox.omniNextNumber(boxes, "facilitator"), 7);   // gaps are never reused
   assert.equal(sandbox.omniNextNumber(boxes, "other"), 8);
@@ -137,92 +168,105 @@ test("the omni word is read forgivingly and the next number is the lane's highes
   assert.equal(sandbox.omniNextNumber([{ owner: "a", title: "Omni Ticket #40" }], "a"), 41);   // no cap
 });
 
-test("a committed title sweeps in, out or not at all, and reduced motion drops the sweep", () => {
+test("a committed title lights only the way in, and reduced motion lights nothing", () => {
   const { sandbox } = makeSandbox();
   const plan = (...args) => JSON.parse(JSON.stringify(sandbox.omniRetitle(...args)));
   assert.deepEqual(plan(false, "", "omni", false), { dir: "in", sweep: true });
-  assert.deepEqual(plan(false, "Old name", " OMNI ", false), { dir: "in", sweep: true });
+  assert.deepEqual(plan(false, "Old name", "ticket OMNI", false), { dir: "in", sweep: true });
   assert.deepEqual(plan(false, "Old name", "Omni Ticket #8", false), { dir: "in", sweep: true });
-  assert.deepEqual(plan(true, "Omni Card #3", "Fix login", false), { dir: "out", sweep: true });
-  assert.deepEqual(plan(true, "Omni Card #3", "Omni Card #3 notes", false), { dir: "out", sweep: true });
+  assert.deepEqual(plan(true, "Omni Card #3", "Fix login", false), { dir: "out", sweep: false });
+  assert.deepEqual(plan(true, "Omni Card #3", "Omni Card #3 notes", false), { dir: "out", sweep: false });
   assert.deepEqual(plan(false, "", "omni", true), { dir: "in", sweep: false });
   assert.deepEqual(plan(true, "Omni Card #3", "Fix login", true), { dir: "out", sweep: false });
-  assert.equal(sandbox.omniRetitle(true, "Omni Card #3", "Omni Card #3", false), null);   // left as it was
-  assert.equal(sandbox.omniRetitle(true, "Omni Card #3", "omni", false), null);           // stays Omni, new number
-  assert.equal(sandbox.omniRetitle(false, "Old name", "New name", false), null);           // ordinary both sides
-  assert.equal(sandbox.omniRetitle(true, "Omni Card #3", "   ", false), null);             // emptied: the name is kept
+  assert.equal(sandbox.omniRetitle(false, "Old name", "omni ticket please", false), null);   // not an Omni form
+  assert.equal(sandbox.omniRetitle(false, "Old name", "omni 3", false), null);
+  assert.equal(sandbox.omniRetitle(true, "Omni Card #3", "Omni Card #3", false), null);       // left as it was
+  assert.equal(sandbox.omniRetitle(true, "Omni Card #3", "card omni", false), null);          // stays Omni
+  assert.equal(sandbox.omniRetitle(false, "Old name", "New name", false), null);
+  assert.equal(sandbox.omniRetitle(true, "Omni Card #3", "   ", false), null);
 });
 
-test("the sweep runs 600 ms corner to corner, eased, and backward for out", () => {
+test("the light runs 600 ms corner to corner, eased, starting and ending off the card", () => {
   const { sandbox } = makeSandbox();
-  const MS = vm.runInContext("OMNI_SWEEP_MS", sandbox), BAND = vm.runInContext("OMNI_SWEEP_BAND", sandbox);
+  const MS = vm.runInContext("OMNI_SWEEP_MS", sandbox), REACH = vm.runInContext("OMNI_SWEEP_REACH", sandbox);
   assert.ok(MS >= 500 && MS <= 700);
   const frame = rect(0, 0, 600, 800);
   assert.equal(sandbox.omniSweepSpot(frame, 0, 800), 0);     // bottom left
   assert.equal(sandbox.omniSweepSpot(frame, 600, 0), 1);     // top right
   assert.equal(sandbox.omniSweepSpot(frame, 0, 0), 0.5);     // the other diagonal
   assert.equal(sandbox.omniSweepSpot(frame, 600, 800), 0.5);
-  assert.equal(sandbox.omniSweepAt(0, "in"), -BAND);         // wholly off the card at both ends
-  assert.equal(sandbox.omniSweepAt(MS, "in"), 1 + BAND);
-  assert.equal(sandbox.omniSweepAt(0, "out"), 1 + BAND);
-  assert.equal(sandbox.omniSweepAt(MS, "out"), -BAND);
-  assert.ok(Math.abs(sandbox.omniSweepAt(MS / 2, "in") - 0.5) < 1e-9);
+  assert.equal(sandbox.omniSweepAt(0), -REACH);
+  assert.equal(sandbox.omniSweepAt(MS), 1 + REACH);
+  assert.ok(Math.abs(sandbox.omniSweepAt(MS / 2) - 0.5) < 1e-9);
   let last = -Infinity;
   for (let ms = 0; ms <= MS; ms += 10){   // eased and never past its end: no bounce
-    const at = sandbox.omniSweepAt(ms, "in");
-    assert.ok(at >= last && at <= 1 + BAND);
+    const at = sandbox.omniSweepAt(ms);
+    assert.ok(at >= last && at <= 1 + REACH);
     last = at;
   }
-  // soft at the ends, quick through the middle
-  assert.ok(sandbox.omniSweepAt(60, "in") - sandbox.omniSweepAt(0, "in") <
-            sandbox.omniSweepAt(330, "in") - sandbox.omniSweepAt(270, "in"));
+  assert.ok(sandbox.omniSweepAt(60) - sandbox.omniSweepAt(0) < sandbox.omniSweepAt(330) - sandbox.omniSweepAt(270));
+  // the page's widest falloff is the reach the script counts on
+  for (const page of ["index.html", "m.html"]){
+    const css = fs.readFileSync(path.resolve(__dirname, "..", page), "utf8");
+    assert.match(css, new RegExp(`rgba\\(255,230,200,0\\) calc\\(var\\(--omni-c\\) - ${REACH * 100}%\\)`), page);
+  }
 });
 
-test("Tab on a new card named omni sweeps it in, swapping title and art as the band passes", () => {
+test("Tab on a card named ticket omni lights it in, swaps title and art as the light passes, then glints", () => {
   const env = makeSandbox();
-  const { sandbox, frames, posts } = env;
+  const { sandbox, frames, posts, timers } = env;
   const card = makeCard(env, "…");
   sandbox.editTitle("m9");
-  card.titleEl.textContent = "omni";
-  card.titleEl.wordsRect = rect(20, 40, 80, 70);
+  card.titleEl.textContent = "ticket omni";
+  card.titleEl.wordsRect = rect(20, 40, 110, 70);
   card.titleEl.onkeydown(key("Tab"));
   assert.equal(sandbox.document.activeElement, card.ta);          // on to the composer
-  assert.deepEqual(posts.map(p => p.body), ["omni"]);              // the stored title is the server's to make
-  assert.ok(sweepOf(card), "a Tab into Omni starts the sweep");
+  assert.deepEqual(posts.map(p => p.body), ["ticket omni"]);       // the stored title is the server's to make
+  assert.ok(childOf(card, "omni-sweep"), "a Tab into Omni starts the light");
   assert.equal(frames.length, 1);
-  // a reading that lands before the band reaches the title is held for it
+  // a reading that lands before the light reaches the title is held for it
   sandbox.syncOmniCard(card, { title: "Omni Ticket #3" });
   assert.equal(hasArt(card), false);
-  const spot = sandbox.omniSweepSpot(env.layout.frame, 50, 55);
-  let swappedAt = null, before = null;
+  const spot = sandbox.omniSweepSpot(env.layout.frame, 65, 55);
+  let swappedAt = null, starAt = null, before = null, star = null;
   for (let now = 0; now <= 640 && frames.length; now += 16){
     const was = card.titleEl.textContent;
     env.frame(now);
+    if (!star && childOf(card, "omni-star")){
+      starAt = now; star = childOf(card, "omni-star");
+      // the star fires in the frame the light's centre reaches the top right corner
+      assert.ok(lightAt(card) >= 1 && before < 1, `light at ${lightAt(card)}`);
+      assert.match(star.innerHTML, /^<svg viewBox="0 0 24 24"[^>]*><path d="M12 0C/);
+    }
     if (swappedAt == null && card.titleEl.textContent !== was){
       swappedAt = now;
-      // the title, the art and the white face change in the frame the band's centre passes the title
-      assert.ok(bandAt(card) >= spot - 1e-4 && before < spot);
+      // the title, the art and the white face change in the frame the light's centre passes the title
+      assert.ok(lightAt(card) >= spot && before < spot);
       assert.equal(card.titleEl.textContent, "Omni Card #3");
       assert.equal(hasArt(card), true);
       assert.equal(card.box.classList.contains("omni-card"), true);
-    } else if (swappedAt == null){
-      assert.equal(hasArt(card), false);
-      before = bandAt(card);
-    }
+    } else if (swappedAt == null) assert.equal(hasArt(card), false);
+    if (childOf(card, "omni-sweep")) before = lightAt(card);
   }
   assert.ok(swappedAt > 250 && swappedAt < 350, `swapped at ${swappedAt} ms`);
-  assert.equal(sweepOf(card), null);                              // the band is gone after 600 ms
+  assert.ok(starAt > 400 && starAt < 500, `star at ${starAt} ms`);
+  assert.equal(childOf(card, "omni-sweep"), null);                 // the light is gone after 600 ms
   assert.equal(card.omniSweep, null);
-  assert.equal(card.tocTitle.textContent, "Omni Ticket #3");      // the outline keeps the stored name
+  assert.equal(card.tocTitle.textContent, "Omni Ticket #3");       // the outline keeps the stored name
+  // the star outlives the light by its own twinkle and then takes itself away
+  assert.equal(childOf(card, "omni-star"), star);
+  const starMs = vm.runInContext("OMNI_STAR_MS", sandbox);
+  assert.ok(starMs >= 300 && starMs <= 400);
+  assert.ok(timers.some(t => t.ms === starMs + 200));
+  star.fire("animationend");
+  assert.equal(childOf(card, "omni-star"), null);
 });
 
 test("the board's own number wins over the page's count, and a stale reading is ignored", () => {
   for (const [latest, shown] of [["Omni Ticket #4", "Omni Card #4"], ["…", "Omni Card #3"]]){
     const env = makeSandbox();
     const card = makeCard(env, "…");
-    env.sandbox.editTitle("m9");
-    card.titleEl.textContent = "omni";
-    card.titleEl.onkeydown(key("Tab"));
+    commit(env, card, "omni card #9", "Tab");   // a typed number is not the number given
     env.sandbox.syncOmniCard(card, { title: latest });
     for (let now = 0; now <= 640; now += 16) env.frame(now);
     assert.equal(card.titleEl.textContent, shown, latest);
@@ -230,75 +274,68 @@ test("the board's own number wins over the page's count, and a stale reading is 
   }
 });
 
-test("blurring an Omni card whose name was changed sweeps it out from the top right", () => {
+test("blurring an Omni card whose name was changed swaps it back at once, with no light and no star", () => {
   const env = makeSandbox();
-  const { sandbox, posts } = env;
+  const { frames, posts } = env;
   const card = makeCard(env, "Omni Ticket #3");
   assert.equal(card.titleEl.textContent, "Omni Card #3");
   assert.equal(hasArt(card), true);
-  sandbox.editTitle("m9", { fromClick: true });
-  card.titleEl.textContent = "Fix login";
-  card.titleEl.onblur();
+  commit(env, card, "Fix login", "blur");
   assert.deepEqual(posts.map(p => p.body), ["Fix login"]);
-  assert.ok(sweepOf(card));
-  // the words and the art together are the title area the band is timed to
-  const spot = sandbox.omniSweepSpot(env.layout.frame, (20 + 200) / 2, (40 + 70) / 2);
-  let swappedAt = null, before = null;
-  for (let now = 0; now <= 640; now += 16){
-    env.frame(now);
-    if (swappedAt == null && !hasArt(card)){
-      swappedAt = now;
-      assert.ok(bandAt(card) <= spot + 1e-4 && before > spot);
-      assert.equal(card.box.classList.contains("omni-card"), false);
-      assert.equal(card.titleEl.textContent, "Fix login");
-    } else if (swappedAt == null){
-      before = bandAt(card);
-      assert.ok(before <= 1.14 + 1e-9);
-      assert.equal(card.box.classList.contains("omni-card"), true);
-    }
-  }
-  assert.ok(swappedAt > 200 && swappedAt < 350, `swapped at ${swappedAt} ms`);
-  assert.equal(sweepOf(card), null);
+  assert.equal(childOf(card, "omni-sweep"), null);
+  assert.equal(frames.length, 0);
+  assert.equal(hasArt(card), false);
+  assert.equal(card.box.classList.contains("omni-card"), false);
+  assert.equal(card.titleEl.textContent, "Fix login");
+  for (let now = 0; now <= 900; now += 16) env.frame(now);
+  assert.equal(childOf(card, "omni-star"), null);
 });
 
-test("reduced motion changes the card at once in both directions, with no sweep", () => {
+test("titles outside the word sets never light or change the card", () => {
+  for (const typed of ["omni ticket please", "omni 3", "omnibus", "the omni card", "omni card #0"]){
+    const env = makeSandbox();
+    const card = makeCard(env, "…");
+    commit(env, card, typed, "Tab");
+    assert.equal(childOf(card, "omni-sweep"), null, typed);
+    assert.equal(env.frames.length, 0, typed);
+    assert.equal(hasArt(card), false, typed);
+    assert.equal(card.titleEl.textContent, typed);
+  }
+});
+
+test("reduced motion changes the card at once both ways, with no light and no star", () => {
   const env = makeSandbox();
   const { sandbox, frames } = env;
   sandbox.reduced = true;
   const card = makeCard(env, "…");
-  sandbox.editTitle("m9");
-  card.titleEl.textContent = " Omni ";
-  card.titleEl.onkeydown(key("Tab"));
-  assert.equal(sweepOf(card), null);
+  commit(env, card, " Omni Ticket ", "Tab");
+  assert.equal(childOf(card, "omni-sweep"), null);
   assert.equal(frames.length, 0);
   assert.equal(card.titleEl.textContent, "Omni Card #3");
   assert.equal(hasArt(card), true);
-  sandbox.editTitle("m9", { fromClick: true });
-  card.titleEl.textContent = "Plain again";
-  card.titleEl.onblur();
-  assert.equal(sweepOf(card), null);
+  commit(env, card, "Plain again", "blur");
+  assert.equal(childOf(card, "omni-sweep"), null);
+  assert.equal(childOf(card, "omni-star"), null);
   assert.equal(frames.length, 0);
   assert.equal(hasArt(card), false);
   assert.equal(card.box.classList.contains("omni-card"), false);
 });
 
-test("an unchanged name, Escape and a card not laid out never sweep", () => {
+test("an unchanged name, Escape and a card not laid out never light", () => {
   const env = makeSandbox();
   const { sandbox, frames, posts } = env;
   const card = makeCard(env, "Omni Ticket #3");
   sandbox.editTitle("m9", { fromClick: true });
   card.titleEl.onblur();                                    // left as it was
-  sandbox.editTitle("m9");
-  card.titleEl.textContent = "Something else";
-  card.titleEl.onkeydown(key("Escape"));                    // Escape puts the old name back
+  commit(env, card, "Something else", "Escape");            // Escape puts the old name back
   assert.equal(card.titleEl.textContent, "Omni Card #3");
   assert.equal(frames.length, 0);
   assert.deepEqual(posts, []);
+  const plain = makeCard(env, "Plain");
   env.layout.frame = RECT0;                                 // a hidden card lands at once
-  sandbox.editTitle("m9");
-  card.titleEl.textContent = "Hidden rename";
-  card.titleEl.onkeydown(key("Tab"));
-  assert.equal(sweepOf(card), null);
+  commit(env, plain, "omni", "Tab");
+  assert.equal(childOf(plain, "omni-sweep"), null);
   assert.equal(frames.length, 0);
-  assert.equal(hasArt(card), false);
+  assert.equal(hasArt(plain), true);
+  assert.equal(plain.titleEl.textContent, "Omni Card #3");
 });

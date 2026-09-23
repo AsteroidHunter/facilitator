@@ -1163,7 +1163,17 @@ FAIRY_NAMES = (
     "Starlit Selkie Crossing", "Buttercup Ogre Nap", "Silverfern Faun Prank",
     "Mushroom Hobgoblin Tea", "Cobweb Banshee Lullaby", "Riverbed Undine Chorus",
 )
-OMNI_TITLE_RE = re.compile(r"^Omni Ticket #(\d+)$")
+# The canonical Omni title and the typed words that ask for one. Both are kept
+# character for character with card-logic.js (omniTicket, omniEntry), so the
+# page and the board can never read one title two ways: ASCII digits with no
+# leading zero, up to the largest whole number a page's script holds exactly,
+# and the same explicit white space and line breaks on both sides.
+OMNI_TITLE_RE = re.compile(r"Omni Ticket #([1-9][0-9]*)")
+OMNI_MAX = 2 ** 53 - 1
+_OMNI_BREAK = re.compile(r"[\n\r\v\f\x1c\x1d\x1e\x85\U00002028\U00002029]")
+_OMNI_SPACE = re.compile(
+    r"[\t\n\v\f\r \xa0\U00001680\U00002000-\U0000200a\U00002028\U00002029\U0000202f\U0000205f\U00003000]+")
+_OMNI_NUMBER = re.compile(r"#?([1-9][0-9]*)")
 _LANE_DIRS = {}
 
 SEED_PATH = HERE / "seed.json"
@@ -4427,7 +4437,31 @@ def _omni_number(title: str) -> int | None:
     if not match:
         return None
     number = int(match.group(1))
-    return number if number > 0 else None
+    return number if number <= OMNI_MAX else None
+
+
+def _omni_entry(text: str) -> bool:
+    """Whether a typed title asks for an Omni ticket. Its first line, cut at
+    80 characters the way a stored title is, is split on white space,
+    lowercased and read as a set of words, and it asks only when that set is
+    exactly {omni}, {omni, card} or {omni, ticket}, or one of the last two with
+    one number, written N or #N. Order and repeats do not matter, so "ticket
+    omni" asks too; any other word, a second number or a bare {omni, N} does not."""
+    line = _OMNI_BREAK.split(text or "")[0][:80]
+    words = {w for w in _OMNI_SPACE.split(line.lower()) if w}
+    if "omni" not in words:
+        return False
+    words.discard("omni")
+    kinds = numbers = 0
+    for word in words:
+        match = _OMNI_NUMBER.fullmatch(word)
+        if word in ("card", "ticket"):
+            kinds += 1
+        elif match and int(match.group(1)) <= OMNI_MAX:
+            numbers += 1
+        else:
+            return False
+    return kinds <= 1 and numbers <= (1 if kinds else 0)
 
 
 def _next_omni_number(owner: str) -> int:
@@ -4438,9 +4472,11 @@ def _next_omni_number(owner: str) -> int:
 
 
 def _entered_title(owner: str, text: str) -> str:
-    """Normalize the exact `omni` command without catching ordinary words."""
+    """Turn a title that asks for an Omni ticket (see _omni_entry) into the
+    lane's next canonical one. A number typed with it is not honoured: the
+    ticket takes the lane's highest number plus one, as every Omni ticket does."""
     title = (text or "").splitlines()[0][:80]
-    if title.strip().casefold() == "omni":
+    if _omni_entry(title):
         return f"Omni Ticket #{_next_omni_number(owner)}"
     return title
 
