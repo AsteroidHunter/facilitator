@@ -548,10 +548,9 @@ function omniGlint(el, frame){
   setTimeout(gone, OMNI_GLINT_MS + 200);   // a page out of sight runs no animation to end
   return glint;
 }
-// the title on the sweep's measure: the middle of its words, together with the
-// art beside them when there is art, which is where the change is seen
-function omniTitleSpot(el, frame){
-  const t = el.titleEl;
+// a title where the change is seen: the middle of its words, together with the
+// art beside them when there is art
+function omniTitleCentre(t, art){
   let r = t.getBoundingClientRect();
   if (t.firstChild && typeof document.createRange === "function"){
     const rg = document.createRange();
@@ -560,13 +559,18 @@ function omniTitleSpot(el, frame){
     if (words.width && words.height) r = words;
   }
   let { left, top, right, bottom } = r;
-  const art = t.parentNode && t.parentNode.querySelector(".omni-card-art");
   const a = art && art.getBoundingClientRect();
   if (a && a.width){
     left = Math.min(left, a.left); top = Math.min(top, a.top);
     right = Math.max(right, a.right); bottom = Math.max(bottom, a.bottom);
   }
-  return omniSweepSpot(frame, (left + right) / 2, (top + bottom) / 2);
+  return { x: (left + right) / 2, y: (top + bottom) / 2 };
+}
+// the card's title on the sweep's measure
+function omniTitleSpot(el, frame){
+  const head = el.titleEl.parentNode;
+  const c = omniTitleCentre(el.titleEl, head && head.querySelector(".omni-card-art"));
+  return omniSweepSpot(frame, c.x, c.y);
 }
 // the card's words and art as one Omni state. the outline keeps the title as
 // it is stored; the words are left alone while the reader is typing in them
@@ -574,6 +578,64 @@ function omniFace(el, title){
   if (!el.titleEl.isContentEditable) el.titleEl.textContent = omniCardTitle(title);
   if (el.tocTitle) el.tocTitle.textContent = title;
   return paintOmniCard(el, { title });
+}
+
+// ---- the ticket's sweep ----------------------------------------------------------
+// the card's row in the ticket list takes the same light in the same frames,
+// with no glint, and changes to its Omni name and art, or back, as the light
+// passes its own title. the list redraws its rows from each reading of the
+// board, so the sweep finds them again every frame by the id each page marks
+// them with, lays the light back on a row drawn afresh and puts on it the face
+// the light has reached. a row with no size, not drawn or out of the page's
+// layout, simply takes the face it ends on
+function omniRows(id){
+  return [...document.querySelectorAll(".trow")].filter(row => row.dataset && row.dataset.id === id);
+}
+// a row's place on the sweep. its light is laid at 45 degrees, so a point's
+// value is how far it has come along that direction: 0 at the bottom left
+// corner, 1 at the top right, the same run a "45deg" gradient lays its stops on
+function omniRowSpot(frame, x, y){
+  return ((x - frame.left) + (frame.bottom - y)) / (frame.width + frame.height);
+}
+// a row's words and art as one Omni state, the way appendOmniRowArt draws it.
+// the row reads the stored title, Omni Ticket #N, where the card reads Omni Card #N
+function omniRowFace(row, title){
+  const inner = row.querySelector(".trowin"), ttl = inner && inner.querySelector(".ttl");
+  if (!ttl) return;
+  const info = omniTicket(title);
+  row.classList.toggle("omni-ticket", !!info);
+  if (ttl.textContent !== title) ttl.textContent = title;
+  let art = inner.querySelector(".omni-art");
+  if (!info){ if (art) art.remove(); return; }
+  if (!art){ art = omniArt(info, "omni-art"); inner.insertBefore(art, ttl); }
+  if (art.dataset.variant !== String(info.variant)){ art.src = info.src; art.dataset.variant = String(info.variant); }
+}
+function omniRowsFace(id, title){ for (const row of omniRows(id)) omniRowFace(row, title); }
+// the title a sweep ends on: becoming Omni, the board's own number once a
+// reading has brought it and the page's count of it until then
+function omniSweepTo(run){ return omniSweepFresh(run) ? run.latest.title : run.title; }
+// one frame of the rows' light, at the light's place `at`
+function omniRowsStep(run, at){
+  for (const row of omniRows(run.id)){
+    const frame = row.getBoundingClientRect();
+    let light = row.querySelector(".omni-sweep");
+    if (!frame.width || !frame.height){ if (light) light.remove(); omniRowFace(row, omniSweepTo(run)); continue; }
+    if (!light){ light = h("div", "omni-sweep"); row.appendChild(light); }
+    light.style.setProperty("--omni-p", at.toFixed(4));
+    if (!run.rowCrossed){
+      const inner = row.querySelector(".trowin"), ttl = inner && inner.querySelector(".ttl");
+      const c = ttl && omniTitleCentre(ttl, inner.querySelector(".omni-art"));
+      if (c && omniSweepPassed(at, omniRowSpot(frame, c.x, c.y), run.dir)) run.rowCrossed = true;
+    }
+    omniRowFace(row, run.rowCrossed ? omniSweepTo(run) : run.rowFrom);
+  }
+}
+function omniRowsEnd(run){
+  for (const row of omniRows(run.id)){
+    const light = row.querySelector(".omni-sweep");
+    if (light) light.remove();
+    omniRowFace(row, omniSweepTo(run));
+  }
 }
 // a committed name, carried onto the card's face: lit where a card crosses into
 // or out of Omni, at once where the reader asked for reduced motion or where
@@ -590,10 +652,11 @@ function omniRetitleCard(id, shown, name){
     const b = stateBoxOf(id);
     title = "Omni Ticket #" + omniNextNumber(lastState && lastState.boxes, (b && b.owner) || "facilitator");
   }
-  if (!plan){ if (omniTicket(title)) omniFace(el, title); return; }
-  if (!plan.sweep || !omniSweep(el, plan.dir, title)) omniFace(el, title);
+  const land = () => { omniFace(el, title); omniRowsFace(id, title); };
+  if (!plan){ if (omniTicket(title)) land(); return; }
+  if (!plan.sweep || !omniSweep(el, id, plan.dir, title)) land();
 }
-function omniSweep(el, dir, title){
+function omniSweep(el, id, dir, title){
   if (typeof requestAnimationFrame !== "function") return false;
   const light = h("div", "omni-sweep");
   light.style.setProperty("--omni-p", String(omniSweepAt(0, dir)));
@@ -601,7 +664,11 @@ function omniSweep(el, dir, title){
   const frame = light.getBoundingClientRect();
   if (!frame.width || !frame.height){ light.remove(); return false; }
   const spot = omniTitleSpot(el, frame);
-  const run = el.omniSweep = { dir, title, light, latest: null, crossed: false, glint: null, start: null, frame: 0, timer: 0 };
+  // the row starts from the title the board last gave it
+  const was = stateBoxOf(id);
+  const run = el.omniSweep = { id, dir, title, light, latest: null, crossed: false, glint: null,
+                               rowFrom: was ? String(was.title || "") : "", rowCrossed: false,
+                               start: null, frame: 0, timer: 0 };
   const tick = now => {
     if (el.omniSweep !== run) return;
     if (run.start == null) run.start = now;
@@ -609,6 +676,7 @@ function omniSweep(el, dir, title){
     const at = omniSweepAt(ms, dir);
     light.style.setProperty("--omni-p", at.toFixed(4));
     if (!run.crossed && omniSweepPassed(at, spot, dir)) omniSweepCross(el, run);
+    omniRowsStep(run, at);
     // the light's centre has reached the top right corner: the way in ends on a ting
     if (dir === "in" && !run.glint && at >= 1) run.glint = omniGlint(el, frame);
     if (ms >= OMNI_SWEEP_MS) omniSweepEnd(el);
@@ -627,9 +695,7 @@ function omniSweepFresh(run){
 }
 function omniSweepCross(el, run){
   run.crossed = true;
-  // becoming Omni, the card wears the board's own number once a reading has
-  // brought it, and the page's count of it until then
-  omniFace(el, omniSweepFresh(run) ? run.latest.title : run.title);
+  omniFace(el, omniSweepTo(run));
 }
 function omniSweepEnd(el){
   const run = el && el.omniSweep;
@@ -639,6 +705,7 @@ function omniSweepEnd(el){
   if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(run.frame);
   clearTimeout(run.timer);
   run.light.remove();
+  omniRowsEnd(run);
   if (omniSweepFresh(run)) omniFace(el, run.latest.title);
 }
 // The ready-to-test marker's display gate. The board keeps a durable per-card
