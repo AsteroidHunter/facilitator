@@ -15,7 +15,7 @@
 //   - toggleRegionHidden writes only per-tab hide/show keys and never rewrites a
 //     saved position or size, so arranging does not disturb custom layouts.
 //   - per-project visibility, the four-widget default layout, an explicit
-//     reveal, and a data-driven markdown reader all still resolve correctly.
+//     reveal, and a data-driven file navigator all still resolve correctly.
 //
 // Every lane/owner name here is invented, never a configured project name.
 const assert = require("node:assert/strict");
@@ -172,7 +172,7 @@ test("hiding a visible box removes the box's handles and cross on the next frame
 function buildRegions(seed) {
   const preamble = `
     let activeOwner = "facilitator";
-    let MD_MOUNTS = {};
+    let FILENAV_MOUNTS = {};
     let applyCalls = 0;
     const writes = [];
     const __store = new Map(${JSON.stringify(Object.entries(seed || {}))});
@@ -187,7 +187,7 @@ function buildRegions(seed) {
     ctl.regionHidden = (o, id) => regionHidden(o, id);
     ctl.toggle = id => toggleRegionHidden(id);
     ctl.setOwner = o => { activeOwner = o; };
-    ctl.setMounts = m => { MD_MOUNTS = m; };
+    ctl.setMounts = m => { FILENAV_MOUNTS = m; };
     ctl.get = k => localStorage.getItem(k);
     ctl.writes = () => writes.slice();
     ctl.applyCalls = () => applyCalls;
@@ -259,7 +259,7 @@ test("per-project visibility survives a reload (keys are read back per tab)", ()
   assert.equal(r.regionHidden("birch", "magic2"), true, "birch keeps the default for magic2");
 });
 
-test("a data-driven markdown reader shows by default and still honours an explicit hide", () => {
+test("a data-driven file navigator shows by default and still honours an explicit hide", () => {
   const r = buildRegions();
   r.setMounts({ alder: { box: "magic4" } });
   assert.equal(r.regionHidden("alder", "magic4"), false, "the lane's configured reader shows without a show key");

@@ -148,7 +148,7 @@ So the `example` lane writes `~/projects/example/example-internal/panel.png`. Pn
 
 ## The file navigator
 
-On a lane listed in `markdown_lanes`, magic box 3 (and the markdown-only box for
+On a lane listed in `navigator_lanes`, magic box 3 (and the navigator-only box for
 later lanes) is a file navigator over that lane's own two folders, its internal
 folder and its wiki. It shows every file in a folder, not just Markdown:
 folders, text, code, images and anything else, dotfiles included, each with a

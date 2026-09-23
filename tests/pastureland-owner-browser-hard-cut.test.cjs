@@ -99,7 +99,7 @@ before(async () => {
         res.end('{"current":"","names":[]}');
         return;
       }
-      if (url.pathname === "/mdfiles") {
+      if (url.pathname === "/navfiles") {
         res.setHeader("content-type", "application/json");
         res.end('{"roots":[]}');
         return;

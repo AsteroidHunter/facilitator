@@ -83,20 +83,20 @@ async function mountedEditor(source, height = 520) {
   await page.setViewport({ width: 900, height: 760, deviceScaleFactor: 2 });
   await page.goto(`${origin}/index.html`, { waitUntil: "domcontentloaded" });
   await page.evaluate(async (text, panelHeight) => {
-    mdMounts(["website", "pastureland"]);
+    fileNavMounts(["website", "pastureland"]);
     activeOwner = "pastureland";
-    mdBoxes();
-    const host = mdBuild(MD_MOUNTS.pastureland);
+    fileNavBoxes();
+    const host = fileNavBuild(FILENAV_MOUNTS.pastureland);
     host.style.left = "32px";
     host.style.top = "32px";
     host.style.width = "340px";
     host.style.height = panelHeight + "px";
-    const loaded = await mdBundle();
+    const loaded = await fileNavBundle();
     if (!loaded) throw new Error("CodeMirror bundle did not load");
-    mdFor = "pastureland";
-    mdOpen = { lane: "pastureland", root: "fixture-internal", rel: "fixture.md", mtime: "1" };
-    mdClean = text;
-    mdMount(host, text, false);
+    fileNavFor = "pastureland";
+    fileNavOpen = { lane: "pastureland", root: "fixture-internal", rel: "fixture.md", mtime: "1" };
+    fileNavClean = text;
+    fileNavMount(host, text, false);
     host.classList.add("editing");
     await document.fonts.ready;
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -113,10 +113,10 @@ async function caretState(page) {
       width: value.width ?? value.right - value.left,
       height: value.height ?? value.bottom - value.top,
     });
-    const selection = mdView.state.selection.main;
+    const selection = fileNavView.state.selection.main;
     const pos = selection.head;
-    const source = mdView.state.sliceDoc();
-    const lineDoc = mdView.state.doc.lineAt(pos);
+    const source = fileNavView.state.sliceDoc();
+    const lineDoc = fileNavView.state.doc.lineAt(pos);
     let grapheme = "";
     try {
       const tail = lineDoc.text.slice(pos - lineDoc.from);
@@ -128,8 +128,8 @@ async function caretState(page) {
     let nextRange = null;
     if (grapheme && !/[\r\n]/.test(grapheme)) {
       try {
-        const start = mdView.domAtPos(pos);
-        const end = mdView.domAtPos(pos + grapheme.length);
+        const start = fileNavView.domAtPos(pos);
+        const end = fileNavView.domAtPos(pos + grapheme.length);
         const range = document.createRange();
         range.setStart(start.node, start.offset);
         range.setEnd(end.node, end.offset);
@@ -144,13 +144,13 @@ async function caretState(page) {
     return {
       pos,
       assoc: selection.assoc,
-      before: pos ? mdView.state.sliceDoc(pos - 1, pos) : null,
-      after: pos < mdView.state.doc.length ? mdView.state.sliceDoc(pos, pos + 1) : null,
+      before: pos ? fileNavView.state.sliceDoc(pos - 1, pos) : null,
+      after: pos < fileNavView.state.doc.length ? fileNavView.state.sliceDoc(pos, pos + 1) : null,
       source,
       grapheme,
       nextRange,
-      minus: rect(mdView.coordsAtPos(pos, -1)),
-      plus: rect(mdView.coordsAtPos(pos, 1)),
+      minus: rect(fileNavView.coordsAtPos(pos, -1)),
+      plus: rect(fileNavView.coordsAtPos(pos, 1)),
       caret: rect(caret.getBoundingClientRect()),
       lift: rect(lift.getBoundingClientRect()),
       line: rect(document.querySelector("#magic4 .cm-activeLine").getBoundingClientRect()),
@@ -188,7 +188,7 @@ async function listLayoutState(page, textStart, markerIndex = 0) {
     const raw = mark.querySelector(".cm-formatting-block");
     const rawRect = rect(raw && raw.getBoundingClientRect());
     const gapBox = mark.querySelector(".md-li-gap");
-    const text = mdView.coordsAtPos(position, 1);
+    const text = fileNavView.coordsAtPos(position, 1);
     let ink;
     if (mark.classList.contains("md-li-dot")) {
       const pseudo = getComputedStyle(mark, "::before");
@@ -211,24 +211,24 @@ async function listLayoutState(page, textStart, markerIndex = 0) {
       gap: text.left - ink.right,
       sourceGap: rawRect ? text.left - rawRect.right : null,
       line: rect(line),
-      contentHeight: mdView.contentHeight,
+      contentHeight: fileNavView.contentHeight,
     };
   }, { position: textStart, index: markerIndex });
 }
 
 async function setCursor(page, pos) {
   await page.evaluate(position => {
-    mdView.focus();
-    mdView.dispatch({ selection: { anchor: position } });
+    fileNavView.focus();
+    fileNavView.dispatch({ selection: { anchor: position } });
   }, pos);
   return caretState(page);
 }
 
 async function setCursorAssoc(page, pos, assoc) {
   await page.evaluate(({ position, association }) => {
-    mdView.focus();
-    const Selection = mdView.state.selection.constructor;
-    mdView.dispatch({ selection: Selection.create([
+    fileNavView.focus();
+    const Selection = fileNavView.state.selection.constructor;
+    fileNavView.dispatch({ selection: Selection.create([
       Selection.cursor(position, association),
     ]) });
     document.dispatchEvent(new Event("selectionchange"));
@@ -249,20 +249,20 @@ async function focusGeometry(source, needle) {
   const page = await mountedEditor(source);
   try {
     return await page.evaluate(async sought => {
-      const position = mdView.state.sliceDoc().indexOf(sought) + 2;
+      const position = fileNavView.state.sliceDoc().indexOf(sought) + 2;
       const read = {
-        contentHeight: mdView.contentHeight,
-        scrollHeight: mdView.scrollDOM.scrollHeight,
+        contentHeight: fileNavView.contentHeight,
+        scrollHeight: fileNavView.scrollDOM.scrollHeight,
         gaps: document.querySelectorAll("#magic4 .md-gap").length,
       };
-      mdView.focus();
-      mdView.dispatch({ selection: { anchor: position } });
+      fileNavView.focus();
+      fileNavView.dispatch({ selection: { anchor: position } });
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       return {
         read,
         focused: {
-          contentHeight: mdView.contentHeight,
-          scrollHeight: mdView.scrollDOM.scrollHeight,
+          contentHeight: fileNavView.contentHeight,
+          scrollHeight: fileNavView.scrollDOM.scrollHeight,
           gaps: document.querySelectorAll("#magic4 .md-gap").length,
         },
       };
@@ -308,12 +308,12 @@ test("a joined soft break remains keyboard editable", async () => {
   try {
     const breakPosition = source.indexOf("\n");
     await page.evaluate(position => {
-      mdView.focus();
-      mdView.dispatch({ selection: { anchor: position + 1 } });
+      fileNavView.focus();
+      fileNavView.dispatch({ selection: { anchor: position + 1 } });
     }, breakPosition);
     await page.keyboard.press("Backspace");
     const edited = await page.evaluate(() => ({
-      text: mdView.state.sliceDoc(),
+      text: fileNavView.state.sliceDoc(),
       gaps: document.querySelectorAll("#magic4 .md-gap").length,
     }));
     assert.equal(edited.text, source.replace("\n", ""));
@@ -333,15 +333,15 @@ test("block caret uses CodeMirror coordinates at a bullet gap", async () => {
   const page = await mountedEditor(source, 340);
   try {
     const result = await page.evaluate(async () => {
-      mdView.focus();
-      mdView.dispatch({ selection: { anchor: 1 } });
+      fileNavView.focus();
+      fileNavView.dispatch({ selection: { anchor: 1 } });
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       await new Promise(resolve => setTimeout(resolve, 350));
-      const zeroSize = mdView.coordsAtPos(1);
-      const expected = mdView.coordsAtPos(1, -1);
+      const zeroSize = fileNavView.coordsAtPos(1);
+      const expected = fileNavView.coordsAtPos(1, -1);
       const caret = document.getElementById("fatcaret");
       const drawn = caret.getBoundingClientRect();
-      const clip = mdView.scrollDOM.getBoundingClientRect();
+      const clip = fileNavView.scrollDOM.getBoundingClientRect();
       const native = getSelection().rangeCount
         ? getSelection().getRangeAt(0).getBoundingClientRect()
         : null;
@@ -406,7 +406,7 @@ test("ordered marker traversal draws both sides of its source space", async () =
     assert.ok(Math.abs(backwardText.caret.left - forward[3].caret.left) < 1.5);
     assert.ok(Math.abs(backwardMarker.caret.left - forward[2].caret.left) < 1.5);
 
-    const textEdge = await page.evaluate(() => mdView.coordsAtPos(3, 1));
+    const textEdge = await page.evaluate(() => fileNavView.coordsAtPos(3, 1));
     await page.mouse.click(textEdge.left + 1, (textEdge.top + textEdge.bottom) / 2);
     const clicked = await caretState(page);
     assert.equal(clicked.pos, 3, "clicking the first letter did not choose its leading edge");
@@ -414,7 +414,7 @@ test("ordered marker traversal draws both sides of its source space", async () =
       "the clicked caret did not draw on the selected text edge");
     assert.equal(clicked.source, source);
     await page.keyboard.press("Backspace");
-    assert.equal(await page.evaluate(() => mdView.state.sliceDoc()),
+    assert.equal(await page.evaluate(() => fileNavView.state.sliceDoc()),
       "Some written stuff", "CodeMirror's list-unwrapping edit stopped working");
   } finally {
     await page.close();
@@ -528,7 +528,7 @@ test("list typing keeps one baseline and production marker air", async () => {
     try {
       if (fixture.width) await fixturePage.evaluate(width => {
         document.getElementById("magic4").style.width = width + "px";
-        mdView.requestMeasure();
+        fileNavView.requestMeasure();
       }, fixture.width);
       const states = await arrowStates(
         fixturePage, fixture.start, "ArrowRight", fixture.count);
@@ -1007,19 +1007,19 @@ test("split-row delimiter seams retain wrap affinity and in-flow reveal", async 
     const fixture = await page.evaluate(async () => {
       const host = document.getElementById("magic4");
       host.style.width = "210px";
-      mdView.requestMeasure();
+      fileNavView.requestMeasure();
       const settle = () => new Promise(resolve => setTimeout(resolve, 60));
       await settle();
       for (let count = 4; count <= 50; count++) {
         const source = `1. **${"W".repeat(count)}**`;
-        mdView.dispatch({
-          changes: { from: 0, to: mdView.state.doc.length, insert: source },
+        fileNavView.dispatch({
+          changes: { from: 0, to: fileNavView.state.doc.length, insert: source },
           selection: { anchor: 0 },
         });
         await settle();
         const seam = source.lastIndexOf("**");
-        const minus = mdView.coordsAtPos(seam, -1);
-        const plus = mdView.coordsAtPos(seam, 1);
+        const minus = fileNavView.coordsAtPos(seam, -1);
+        const plus = fileNavView.coordsAtPos(seam, 1);
         const overlap = Math.min(minus.bottom, plus.bottom) -
           Math.max(minus.top, plus.top);
         if (minus.bottom > minus.top && plus.bottom > plus.top && overlap <= 0)
@@ -1051,7 +1051,7 @@ test("split-row delimiter seams retain wrap affinity and in-flow reveal", async 
 
     const reveal = await page.evaluate(async () => {
       const settle = () => new Promise(resolve => setTimeout(resolve, 250));
-      const source = mdView.state.sliceDoc();
+      const source = fileNavView.state.sliceDoc();
       const line = () => document.querySelector("#magic4 .cm-activeLine")
         .getBoundingClientRect().height;
       const shown = line();
@@ -1059,11 +1059,11 @@ test("split-row delimiter seams retain wrap affinity and in-flow reveal", async 
       suppress.textContent = "#magic4 .cm-formatting-inline{" +
         "max-width:0!important;opacity:0!important;margin:0!important}";
       document.head.appendChild(suppress);
-      mdView.requestMeasure();
+      fileNavView.requestMeasure();
       await settle();
       const hidden = line();
       suppress.remove();
-      mdView.requestMeasure();
+      fileNavView.requestMeasure();
       await settle();
       return { source, shown, hidden, restored: line() };
     });
@@ -1094,9 +1094,9 @@ test("leading bold list clicks resolve delimiter and text boundaries", async () 
       for (const pos of [boldStart, boldStart + 1, firstLetter,
         boldClose, boldClose + 1, boldClose + 2]) {
         const target = await page.evaluate(position => {
-          const end = mdView.state.doc.length;
+          const end = fileNavView.state.doc.length;
           const side = position === end ? -1 : 1;
-          const r = mdView.coordsAtPos(position, side);
+          const r = fileNavView.coordsAtPos(position, side);
           return { x: r.left + (position === end ? -0.5 : 0.5),
             y: (r.top + r.bottom) / 2 };
         }, pos);
@@ -1140,12 +1140,12 @@ test("leading bold list delimiters remain ordinary editable source", async () =>
         await page.keyboard.press(operation.key);
         const expected = fixture.source.slice(0, operation.removed) +
           fixture.source.slice(operation.removed + 1);
-        assert.equal(await page.evaluate(() => mdView.state.sliceDoc()), expected,
+        assert.equal(await page.evaluate(() => fileNavView.state.sliceDoc()), expected,
           `${fixture.name} ${operation.key} did not edit delimiter source normally`);
         await page.keyboard.down("Meta");
         await page.keyboard.press("z");
         await page.keyboard.up("Meta");
-        assert.equal(await page.evaluate(() => mdView.state.sliceDoc()), fixture.source,
+        assert.equal(await page.evaluate(() => fileNavView.state.sliceDoc()), fixture.source,
           `${fixture.name} undo did not restore delimiter source`);
       }
     } finally {

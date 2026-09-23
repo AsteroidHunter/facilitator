@@ -631,7 +631,7 @@ test("the small card beside the big one formats and sends the same way", async (
   }
 });
 
-test("the board's own markdown panel and the card row keep separate words and separate undo", async () => {
+test("the board's own file navigator and the card row keep separate words and separate undo", async () => {
   // the panel mounts on the lane that carries one, so the card is made there too
   const made = await api("/create?owner=pastureland", "Panel and row");
   const id = made.body.id;
@@ -642,42 +642,42 @@ test("the board's own markdown panel and the card row keep separate words and se
     await editorOn(page);
     // the workspace panel's own editor, opened on an invented file
     await page.evaluate(async () => {
-      mdBoxes();
-      const host = mdBuild(MD_MOUNTS.pastureland);
+      fileNavBoxes();
+      const host = fileNavBuild(FILENAV_MOUNTS.pastureland);
       host.style.left = "32px"; host.style.top = "32px";
       host.style.width = "340px"; host.style.height = "320px";
-      if (!await mdBundle()) throw new Error("the editor bundle did not load");
-      mdFor = "pastureland";
-      mdOpen = { lane: "pastureland", root: "fixture-internal", rel: "fixture.md", mtime: "1" };
-      mdClean = "panel words";
-      mdMount(host, "panel words", false);
+      if (!await fileNavBundle()) throw new Error("the editor bundle did not load");
+      fileNavFor = "pastureland";
+      fileNavOpen = { lane: "pastureland", root: "fixture-internal", rel: "fixture.md", mtime: "1" };
+      fileNavClean = "panel words";
+      fileNavMount(host, "panel words", false);
       host.classList.add("editing");
     });
-    await page.click(".mdedit .cm-content");
+    await page.click(".fnavedit .cm-content");
     await page.keyboard.type(" typed in the panel");
     await settle();
-    assert.equal(await page.evaluate(() => mdView.state.sliceDoc()), "panel words typed in the panel");
+    assert.equal(await page.evaluate(() => fileNavView.state.sliceDoc()), "panel words typed in the panel");
     assert.equal(await page.$eval(ROW, row => row.value), "", "the panel's words reached the card row");
 
     await page.focus(ROW);
     await page.keyboard.type("row words");
     await settle();
-    assert.equal(await page.evaluate(() => mdView.state.sliceDoc()), "panel words typed in the panel",
+    assert.equal(await page.evaluate(() => fileNavView.state.sliceDoc()), "panel words typed in the panel",
       "the row's words reached the panel");
-    assert.equal(await page.evaluate(() => mdView.hasFocus), false,
+    assert.equal(await page.evaluate(() => fileNavView.hasFocus), false,
       "both editors believed they had the caret");
 
     // undo in the row takes back the row's words and leaves the panel alone
     await chord(page, "z", "Meta");
     await settle();
     assert.equal(await page.$eval(ROW, row => row.value), "", "the row's undo took nothing back");
-    assert.equal(await page.evaluate(() => mdView.state.sliceDoc()), "panel words typed in the panel",
+    assert.equal(await page.evaluate(() => fileNavView.state.sliceDoc()), "panel words typed in the panel",
       "the row's undo reached into the panel");
     // and undo in the panel takes back the panel's words and leaves the row alone
-    await page.click(".mdedit .cm-content");
+    await page.click(".fnavedit .cm-content");
     await chord(page, "z", "Meta");
     await settle();
-    assert.equal(await page.evaluate(() => mdView.state.sliceDoc()), "panel words",
+    assert.equal(await page.evaluate(() => fileNavView.state.sliceDoc()), "panel words",
       "the panel's undo took nothing back");
     assert.deepEqual(problems, []);
   } finally {

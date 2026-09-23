@@ -48,7 +48,7 @@
      to render pure #000 over the app's white surfaces and lift its letter to
      pure #FFFFFF, so the selection names those two colours outright. set once
      here for the whole app, it holds over prose, code, links, the composer, the
-     title and the markdown tool alike; the fat caret hides while a selection
+     title and the file navigator alike; the fat caret hides while a selection
      stands, so this is the only mark the reader sees */
   ::selection{background:#000; color:#fff}
 
@@ -314,7 +314,7 @@
      dodges, which divides what the lower one left by white less the ink, so the
      letter lands on exactly #FFFFFF and the paper, already nothing, stays
      exactly #000000. every surface this block stands on renders #FFFFFF under
-     it, measured: the composer, the card title and the markdown panel. both
+     it, measured: the composer, the card title and the file navigator. both
      results fall out of two colours the board already owns and neither is
      written down.
      they are two elements rather than one inside the other because a blend
@@ -1774,7 +1774,7 @@
     display:flex; flex-direction:column; overflow:visible; gap:7px;
   }
   /* the ticket panel's head row, holding the doing / deferred / done segments.
-     the markdown panel used to share this one rule with it; 20260828 it stopped,
+     the file navigator used to share this one rule with it; 20260828 it stopped,
      because the two heads no longer want the same air on their sides, and its
      own row is written out beside its own tabs further down */
   /* no side air and no line under the head now: the three names divide the
@@ -1834,7 +1834,7 @@
   .tikpane{flex:0 0 100%; min-width:0; height:100%; overflow-y:auto; overflow-x:hidden;
     display:flex; flex-direction:column; gap:calc(var(--ch)*0.007);
     padding:calc(var(--ch)*0.012) 0.6vw calc(var(--ch)*0.012) 0.7vw}
-  /* the ticket list, the markdown panes, the answer and the compose row scroll
+  /* the ticket list, the file navigator panes, the answer and the compose row scroll
      with no bar and no lane reserved for one: the page-wide rule in
      card-tokens.css hides every bar, so none is styled or slimmed here. */
   .trow{
@@ -1901,7 +1901,7 @@
     top:calc(var(--oy) + var(--ch)*var(--m2-y)); height:calc(var(--ch)*var(--m2-h))}
   /* magic box 4 shares magic box 3's column and its width, and sits directly
      under it, so the two read as one stack until either of them is dragged.
-     the box is only on the page on the tab that mounts the markdown panel in
+     the box is only on the page on the tab that mounts the file navigator in
      it, so on every other tab this rule has nothing to draw */
   #magic4{left:var(--m2-x); width:var(--m2-w);
     top:calc(var(--oy) + var(--ch)*var(--m4-y)); height:calc(var(--ch)*var(--m4-h))}
@@ -2217,17 +2217,17 @@
      gesture, so there is nothing behind it left to blur that anyone can see.
      the .bar rule itself is untouched, so the resting look is the resting look */
   body.p3zoom .bar{backdrop-filter:none; -webkit-backdrop-filter:none}
-  /* ---- the markdown, in magic box 3 or magic box 4 ---------------------- */
+  /* ---- the file navigator, in magic box 3 or magic box 4 ---------------------- */
   /* the third tenant of magic box 3, beside the picture panel and the chat
      above, and it takes their rule exactly: one tab owns a box and every other
      tab gets the plain dashed stub back. one panel with two homes, since a
-     markdown lane's magic box 3 may already be the chat's: the panel is the
-     first markdown lane's magic box 3 and the second's magic box 4, and every
+     navigator lane's magic box 3 may already be the chat's: the panel is the
+     first navigator lane's magic box 3 and the second's magic box 4, and every
      rule under here names both boxes because only one of them is ever the panel at
      a time. two states on the one surface, the list of files and an open file,
      and both wear a head row of the same height, so nothing under it moves
      when one becomes the other */
-  :is(#magic3, #magic4).mdpanel{
+  :is(#magic3, #magic4).fnavpanel{
     border:1px solid var(--line); background:var(--card); padding:0; overflow:hidden;
     /* the stub rule centres its one line of text; a panel wants the whole
        height of the box as a column, the same reset the chat makes */
@@ -2242,7 +2242,7 @@
      20260828: 12px of side air rather than the ticket head's 8. a seated tab
      flares 7px past its own edge, and at 8px that flare would land on the
      panel's own border with nothing between them */
-  :is(#magic3, #magic4) .mdhead{flex:none; display:flex; align-items:flex-end; gap:4px;
+  :is(#magic3, #magic4) .fnavhead{flex:none; display:flex; align-items:flex-end; gap:4px;
     padding:6px 12px 0; border-bottom:1px solid var(--line)}
   /* the folder tabs ARE the project tabs: every .ptab rule up top applies here
      unchanged, the 7px top corners and the browser-style bottom notches with
@@ -2251,111 +2251,111 @@
      auto over the bar's fixed 38, so the padding below can set the height; and
      that padding, which is the 6 and 5 the segments in here used to carry, so
      the head is exactly as tall as it was and the editor under it never moved */
-  :is(#magic3, #magic4) .mdtab{--seat:var(--card); height:auto; padding:6px 13px 5px}
-  :is(#magic3, #magic4) .mdnav{flex:none; display:flex; align-items:center; gap:3px;
+  :is(#magic3, #magic4) .fnavtab{--seat:var(--card); height:auto; padding:6px 13px 5px}
+  :is(#magic3, #magic4) .fnavnav{flex:none; display:flex; align-items:center; gap:3px;
     min-width:0; padding:5px 7px 4px; border-bottom:1px solid var(--line);
     font:11px var(--mono); color:var(--sub)}
-  :is(#magic3, #magic4) .mdnav[hidden]{display:none}
-  :is(#magic3, #magic4) .mdup, :is(#magic3, #magic4) .mdcrumb{
+  :is(#magic3, #magic4) .fnavnav[hidden]{display:none}
+  :is(#magic3, #magic4) .fnavup, :is(#magic3, #magic4) .fnavcrumb{
     flex:none; min-width:0; border:none; background:none; border-radius:4px; cursor:pointer;
     padding:2px 4px; font:inherit; color:inherit}
-  :is(#magic3, #magic4) .mdup{font-size:15px; line-height:1}
-  :is(#magic3, #magic4) .mdup:disabled{opacity:.3; cursor:default}
-  :is(#magic3, #magic4) .mdup:not(:disabled):hover,
-  :is(#magic3, #magic4) .mdcrumb:hover{background:#FFF8EF; color:var(--accent)}
-  :is(#magic3, #magic4) .mdcrumbs{display:flex; align-items:center; min-width:0;
+  :is(#magic3, #magic4) .fnavup{font-size:15px; line-height:1}
+  :is(#magic3, #magic4) .fnavup:disabled{opacity:.3; cursor:default}
+  :is(#magic3, #magic4) .fnavup:not(:disabled):hover,
+  :is(#magic3, #magic4) .fnavcrumb:hover{background:#FFF8EF; color:var(--accent)}
+  :is(#magic3, #magic4) .fnavcrumbs{display:flex; align-items:center; min-width:0;
     justify-content:flex-end; overflow:hidden; white-space:nowrap}
-  :is(#magic3, #magic4) .mdcrumb{overflow:hidden; text-overflow:ellipsis}
-  :is(#magic3, #magic4) .mdcrumbsep{flex:none; color:#C9BFAE}
+  :is(#magic3, #magic4) .fnavcrumb{overflow:hidden; text-overflow:ellipsis}
+  :is(#magic3, #magic4) .fnavcrumbsep{flex:none; color:#C9BFAE}
   /* the file list. the rows are the worktree menu's rows: a folder of file
      names is the same thing a menu of branch names is, so it is the same
      11.5px mono row at the same 5px radius with the same warm hover */
-  :is(#magic3, #magic4) .mdlist{flex:1; min-height:0; overflow-y:auto; overscroll-behavior:none;
+  :is(#magic3, #magic4) .fnavlist{flex:1; min-height:0; overflow-y:auto; overscroll-behavior:none;
     display:flex; flex-direction:column; gap:2px; padding:4px}
   /* the name is plain black on every row now, folder and file alike, for
      legibility; the type is carried by the icon to its left, not by the colour
      of the text */
-  :is(#magic3, #magic4) .mdrow{display:flex; align-items:center; gap:7px; flex:none; width:100%;
+  :is(#magic3, #magic4) .fnavrow{display:flex; align-items:center; gap:7px; flex:none; width:100%;
     text-align:left; border:none;
     background:none; border-radius:5px; padding:6px 9px; cursor:pointer;
     font:11.5px var(--mono); color:var(--ink);
     overflow:hidden; white-space:nowrap}
-  :is(#magic3, #magic4) .mdrow:hover, :is(#magic3, #magic4) .mdrow.selected{background:#FFF8EF}
-  :is(#magic3, #magic4) .mdrow.selected{outline:1px solid #EADCC9}
-  :is(#magic3, #magic4) .mdrowname{min-width:0; overflow:hidden; text-overflow:ellipsis}
+  :is(#magic3, #magic4) .fnavrow:hover, :is(#magic3, #magic4) .fnavrow.selected{background:#FFF8EF}
+  :is(#magic3, #magic4) .fnavrow.selected{outline:1px solid #EADCC9}
+  :is(#magic3, #magic4) .fnavrowname{min-width:0; overflow:hidden; text-overflow:ellipsis}
   /* the type icon: a 15px Lucide outline drawn in the muted ink, with the folder
      keeping the panel's warm accent so its old identity is not lost now that its
      name is black. an unavailable entry (a link out of the folder, a special
      file) is dimmed whole */
-  :is(#magic3, #magic4) .mdrowicon{flex:none; width:15px; height:15px; color:var(--sub);
+  :is(#magic3, #magic4) .fnavrowicon{flex:none; width:15px; height:15px; color:var(--sub);
     display:inline-flex; align-items:center; justify-content:center}
-  :is(#magic3, #magic4) .mdrowicon svg{width:15px; height:15px; display:block}
-  :is(#magic3, #magic4) .mdrow.folder .mdrowicon{color:#C69455}
-  :is(#magic3, #magic4) .mdrow.unavail{opacity:.5; cursor:default}
+  :is(#magic3, #magic4) .fnavrowicon svg{width:15px; height:15px; display:block}
+  :is(#magic3, #magic4) .fnavrow.folder .fnavrowicon{color:#C69455}
+  :is(#magic3, #magic4) .fnavrow.unavail{opacity:.5; cursor:default}
   /* the open file's bar, the head row's other face. 33px is the folder tabs'
      own height added up: their head's 6px of top air, the tab's 6 and 5 of
      padding and its 16px line. written down so the two states are exactly as
      tall as each other and the editor never shifts under the switch */
-  :is(#magic3, #magic4) .mdbar{display:none; flex:none; align-items:center; gap:6px;
+  :is(#magic3, #magic4) .fnavbar{display:none; flex:none; align-items:center; gap:6px;
     height:33px; padding:0 8px; border-bottom:1px solid var(--line)}
   /* the three open states all replace the file list with the bar and one body:
      the editor, the image preview, or the not-editable info card */
-  :is(#magic3, #magic4):is(.editing, .previewing, .unopenable) .mdhead,
-  :is(#magic3, #magic4):is(.editing, .previewing, .unopenable) .mdnav,
-  :is(#magic3, #magic4):is(.editing, .previewing, .unopenable) .mdlist{display:none}
-  :is(#magic3, #magic4):is(.editing, .previewing, .unopenable) .mdbar{display:flex}
-  :is(#magic3, #magic4).editing .mdedit{display:block}
-  :is(#magic3, #magic4):is(.previewing, .unopenable) .mdview{display:flex}
+  :is(#magic3, #magic4):is(.editing, .previewing, .unopenable) .fnavhead,
+  :is(#magic3, #magic4):is(.editing, .previewing, .unopenable) .fnavnav,
+  :is(#magic3, #magic4):is(.editing, .previewing, .unopenable) .fnavlist{display:none}
+  :is(#magic3, #magic4):is(.editing, .previewing, .unopenable) .fnavbar{display:flex}
+  :is(#magic3, #magic4).editing .fnavedit{display:block}
+  :is(#magic3, #magic4):is(.previewing, .unopenable) .fnavview{display:flex}
   /* save only makes sense on the editor, so it never shows for a preview or an
      info card even if a stale dirty class lingers */
-  :is(#magic3, #magic4):is(.previewing, .unopenable) .mdsave{display:none}
+  :is(#magic3, #magic4):is(.previewing, .unopenable) .fnavsave{display:none}
   /* the chevron back to the list: the navigation pad's own control, the same
      mono 16 in the same resting ink, reaching for the accent under the pointer */
-  :is(#magic3, #magic4) .mdback{flex:none; font:16px var(--mono); color:#C9BFAE; background:none;
+  :is(#magic3, #magic4) .fnavback{flex:none; font:16px var(--mono); color:#C9BFAE; background:none;
     border:none; cursor:pointer; padding:2px 6px; line-height:1; transition:color .2s}
-  :is(#magic3, #magic4) .mdback:hover{color:var(--accent)}
+  :is(#magic3, #magic4) .fnavback:hover{color:var(--accent)}
   /* the open file's path inside its folder, in the list rows' own face */
-  :is(#magic3, #magic4) .mdname{flex:1; min-width:0; font:11.5px var(--mono); color:var(--sub);
+  :is(#magic3, #magic4) .fnavname{flex:1; min-width:0; font:11.5px var(--mono); color:var(--sub);
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
   /* save is the small card's plain text send: no button face, the panel's grey,
      the accent under the pointer. it is not there at all until there is
      something to save, the way the card's send square only stands up once
      something has been typed into the card */
-  :is(#magic3, #magic4) .mdsave{flex:none; background:none; border:none; cursor:pointer;
+  :is(#magic3, #magic4) .fnavsave{flex:none; background:none; border:none; cursor:pointer;
     color:var(--sub); font:500 12px var(--sans); padding:0 2px;
     opacity:0; pointer-events:none; transition:opacity .2s}
-  :is(#magic3, #magic4) .mdsave:hover{color:var(--accent)}
-  :is(#magic3, #magic4).dirty .mdsave{opacity:1; pointer-events:auto}
+  :is(#magic3, #magic4) .fnavsave:hover{color:var(--accent)}
+  :is(#magic3, #magic4).dirty .fnavsave{opacity:1; pointer-events:auto}
   /* one line at the foot of the panel: a receipt in the board's grey, a refusal
      in its rust. empty it takes no room and draws no border at all, so the
      editor keeps the whole box until there is something to say */
-  :is(#magic3, #magic4) .mdnote{flex:none; font:10.5px/1.35 var(--mono); color:var(--sub);
+  :is(#magic3, #magic4) .fnavnote{flex:none; font:10.5px/1.35 var(--mono); color:var(--sub);
     padding:0 9px; overflow:hidden}
-  :is(#magic3, #magic4) .mdnote:not(:empty){padding:4px 9px 5px; border-top:1px solid var(--line)}
-  :is(#magic3, #magic4) .mdnote.bad{color:var(--must)}
-  :is(#magic3, #magic4) .mdedit{display:none; flex:1; min-height:0; overflow:hidden}
+  :is(#magic3, #magic4) .fnavnote:not(:empty){padding:4px 9px 5px; border-top:1px solid var(--line)}
+  :is(#magic3, #magic4) .fnavnote.bad{color:var(--must)}
+  :is(#magic3, #magic4) .fnavedit{display:none; flex:1; min-height:0; overflow:hidden}
   /* the image preview and the info card, sharing the editor's slot. the image
      sits centred on the panel's paper with room around it; its metadata line
      rides underneath in the list rows' own mono */
-  :is(#magic3, #magic4) .mdview{display:none; flex:1; min-height:0; overflow:auto;
+  :is(#magic3, #magic4) .fnavview{display:none; flex:1; min-height:0; overflow:auto;
     flex-direction:column; align-items:stretch; padding:12px; gap:10px}
-  :is(#magic3, #magic4) .mdfig{flex:1; min-height:0; display:flex; align-items:center;
+  :is(#magic3, #magic4) .fnavfig{flex:1; min-height:0; display:flex; align-items:center;
     justify-content:center; overflow:hidden}
-  :is(#magic3, #magic4) .mdimg{max-width:100%; max-height:100%; object-fit:contain;
+  :is(#magic3, #magic4) .fnavimg{max-width:100%; max-height:100%; object-fit:contain;
     border:1px solid var(--line); border-radius:4px; background:#fff}
-  :is(#magic3, #magic4) .mdmeta{flex:none; text-align:center}
-  :is(#magic3, #magic4) .mdmetaname{font:11.5px var(--mono); color:var(--ink);
+  :is(#magic3, #magic4) .fnavmeta{flex:none; text-align:center}
+  :is(#magic3, #magic4) .fnavmetaname{font:11.5px var(--mono); color:var(--ink);
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-  :is(#magic3, #magic4) .mdmetasub{font:10.5px var(--mono); color:var(--sub); margin-top:2px}
+  :is(#magic3, #magic4) .fnavmetasub{font:10.5px var(--mono); color:var(--sub); margin-top:2px}
   /* the not-editable card: a name, a metadata line and one plain sentence, set
      in the middle of the panel so an unsupported file still reads as a thing
      that is here and just cannot be shown */
-  :is(#magic3, #magic4) .mdunopen{margin:auto; max-width:100%; text-align:center;
+  :is(#magic3, #magic4) .fnavunopen{margin:auto; max-width:100%; text-align:center;
     display:flex; flex-direction:column; gap:6px; padding:16px}
-  :is(#magic3, #magic4) .mdunopenname{font:500 13px var(--sans); color:var(--ink);
+  :is(#magic3, #magic4) .fnavunopenname{font:500 13px var(--sans); color:var(--ink);
     overflow-wrap:anywhere}
-  :is(#magic3, #magic4) .mdunopenmeta{font:10.5px var(--mono); color:var(--sub)}
-  :is(#magic3, #magic4) .mdunopenwhy{font:12px/1.5 var(--sans); color:var(--sub)}
+  :is(#magic3, #magic4) .fnavunopenmeta{font:10.5px var(--mono); color:var(--sub)}
+  :is(#magic3, #magic4) .fnavunopenwhy{font:12px/1.5 var(--sans); color:var(--sub)}
   /* ---- the editor, wearing the board and not codemirror ----------------- */
   /* every rule below carries the two box ids on purpose: the vendored bundle
      injects a stylesheet of its own with bare .cm- classes in it, and a bare
@@ -2375,7 +2375,7 @@
      vendored theme already set and what has already been looked at, so nothing
      moves; it is written out so a rebuild of the bundle cannot move it, and so
      an indented line and a plain one can be guaranteed to start on one column */
-  :is(#magic3, #magic4).mdpanel{--md-lpad:16px}
+  :is(#magic3, #magic4).fnavpanel{--md-lpad:16px}
   :is(#magic3, #magic4) .cm-line{padding:0 var(--md-lpad)}
   /* a fenced block's lines carry a 28px floor from the vendored theme, which is
      ten pixels of air per line at the 12px mono they are set in here. the floor
@@ -3416,7 +3416,7 @@
     height:38px; padding:0 16px 5px;
     /* the surface the seated tab opens into, named once here so the fill and
        both notches read it from one place. up here that surface is the canvas
-       under the bar, which is the board's paper. the markdown panel's folder
+       under the bar, which is the board's paper. the file navigator's folder
        tabs wear these same rules over a white panel and say so by setting this
        one property; nothing else about the shape is restated down there */
     --seat:var(--paper);
@@ -3835,7 +3835,7 @@
 <div id="magic1">magic box 1</div>
 <div id="magic2">magic box 2</div>
 <div id="magic3">magic box 3</div>
-<!-- magic box 4 is deliberately not written here. it holds the markdown panel
+<!-- magic box 4 is deliberately not written here. it holds the file navigator
      and nothing else, so it is built into this spot on the tab whose mount
      names it and is off the page entirely on every other tab -->
 
@@ -4070,10 +4070,10 @@ function setTab(owner){
   // one that checks for the picture panel's mark before putting the stub line
   // back, so the panel that just arrived is never wiped by the one leaving
   chatPoll();
-  // and this tab's markdown, last of the three for the same reason: its
+  // and this tab's file navigator, last of the three for the same reason: its
   // teardown is the one that has to look for the other two before it puts
   // the stub line back
-  mdPoll();
+  fileNavPoll();
   if (lastState) apply(lastState);   // refilter the bar, outline and counters now
 }
 
@@ -7879,35 +7879,35 @@ async function chatPoll(){
 }
 chatPoll(); setInterval(chatPoll, C3_POLL);
 
-// the markdown, read and written where it lives. the third tenant of magic box
+// the file navigator, read and written where it lives. the third tenant of magic box
 // 3, beside the picture panel and the chat above, and it follows their rule
 // exactly: one tab owns a box, every other tab gets the plain stub back. the
-// first markdown lane mounts in magic box 3; every lane after it shares magic
-// box 4, the markdown-only box on the right, so a third and later project carry
+// first navigator lane mounts in magic box 3; every lane after it shares magic
+// box 4, the navigator-only box on the right, so a third and later project carry
 // the same reader without a new box and without touching the picture or chat
 // slots. which lanes those are is board data, read from run.config.json's
-// markdown_lanes and carried in on /state, so no lane id is written here and
+// navigator_lanes and carried in on /state, so no lane id is written here and
 // moving the panel to another tab is a config edit alone. magic box 4 stays
 // last in this list on purpose: the overflow below lands on the last slot, and
 // that slot must be the box with no picture or chat tenant
-const MD_SLOTS = [{ box: "magic3", stub: "magic box 3" }, { box: "magic4", stub: "magic box 4" }];
-let MD_MOUNTS = {};
+const FILENAV_SLOTS = [{ box: "magic3", stub: "magic box 3" }, { box: "magic4", stub: "magic box 4" }];
+let FILENAV_MOUNTS = {};
 // fill the mount map from the lanes the board names: the first slot to the first
 // lane, and any lane past the slots to the last slot rather than off the panel.
 // lanes sharing the last slot never collide, because one tab owns a box at a
 // time and layout and editor state are kept per tab. a board that names no lanes
 // leaves the panel off on every tab
-function mdMounts(lanes){
-  MD_MOUNTS = {};
-  const last = MD_SLOTS.length - 1;
-  (lanes || []).forEach((lane, i) => { MD_MOUNTS[lane] = MD_SLOTS[Math.min(i, last)]; });
-  return MD_MOUNTS;
+function fileNavMounts(lanes){
+  FILENAV_MOUNTS = {};
+  const last = FILENAV_SLOTS.length - 1;
+  (lanes || []).forEach((lane, i) => { FILENAV_MOUNTS[lane] = FILENAV_SLOTS[Math.min(i, last)]; });
+  return FILENAV_MOUNTS;
 }
 // the boxes the slots name that the page does not already carry. magic box 4
 // is the only one today: it was added to hold this panel and has no other
 // tenant, so it is put on the page only while a tab mounts the panel in it.
 // worked out from the slots, so it stands whatever lanes fill them
-const MD_OWN = [...new Set(MD_SLOTS.map(s => s.box))]
+const FILENAV_OWN = [...new Set(FILENAV_SLOTS.map(s => s.box))]
   .filter(box => !document.getElementById(box));
 // the two folders the server will let a lane's panel touch, in the order the
 // head offers them, and named by the kind of folder rather than by the folder:
@@ -7918,8 +7918,8 @@ const MD_OWN = [...new Set(MD_SLOTS.map(s => s.box))]
 // every folder in that head carries it and a head this narrow has no room to
 // say it twice. the server works the pair out again on every request, so
 // nothing here is what makes the fence hold
-const MD_KINDS = ["internal", "wiki"];
-const MD_POLL = 4000;         // the picture panel's own cadence, for the same reason
+const FILENAV_KINDS = ["internal", "wiki"];
+const FILENAV_POLL = 4000;         // the picture panel's own cadence, for the same reason
 // the type icons drawn beside every row. Lucide (ISC), the chosen set for now and
 // easy to swap later, vendored as the exact static path data from release 1.47.0,
 // commit 3b9ea6d08707edc439f25a4c354cb0d6b8bee973, the same way card-markdown.js
@@ -7927,7 +7927,7 @@ const MD_POLL = 4000;         // the picture panel's own cadence, for the same r
 // that carries no script, handler, foreignObject or external reference.
 // currentColor so the stylesheet colours them; aria-hidden because the row's own
 // filename and type already name it, so the icon is decorative
-const MD_ICONS = {
+const FILENAV_ICONS = {
   folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>',
   text: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>',
   code: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 12.5 8 15l2 2.5"/><path d="m14 12.5 2 2.5-2 2.5"/></svg>',
@@ -7939,42 +7939,42 @@ const MD_ICONS = {
 // which asks the server; the server, not this list, is the last word on whether
 // bytes are really text. images open in the preview, everything else is tried as
 // text and lands on the info card when the server says it is not
-const MD_IMG_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif", "apng"]);
-const MD_MD_EXT = new Set(["md", "markdown", "mdown", "mkd", "mkdn", "mdwn"]);
-const MD_TXT_EXT = new Set(["txt", "text", "log", "rst", "csv", "tsv", "ini", "cfg", "conf", "env", "properties"]);
-const MD_CODE_EXT = new Set(["js", "mjs", "cjs", "ts", "tsx", "jsx", "py", "rb", "go", "rs", "c", "h", "cc",
+const FILENAV_IMG_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif", "apng"]);
+const MARKDOWN_EXT = new Set(["md", "markdown", "mdown", "mkd", "mkdn", "mdwn"]);
+const FILENAV_TXT_EXT = new Set(["txt", "text", "log", "rst", "csv", "tsv", "ini", "cfg", "conf", "env", "properties"]);
+const FILENAV_CODE_EXT = new Set(["js", "mjs", "cjs", "ts", "tsx", "jsx", "py", "rb", "go", "rs", "c", "h", "cc",
   "cpp", "hpp", "cs", "java", "kt", "swift", "sh", "bash", "zsh", "css", "scss", "less", "html", "htm",
   "xml", "json", "yaml", "yml", "toml", "sql", "php", "pl", "lua", "r", "vue", "svelte", "gradle", "make"]);
-function mdExt(name){ const m = /\.([^.\/]+)$/.exec(String(name || "")); return m ? m[1].toLowerCase() : ""; }
-function mdIsImage(ext){ return MD_IMG_EXT.has(String(ext || "").toLowerCase()); }
-function mdIsMarkdown(rel){ return MD_MD_EXT.has(mdExt(rel)); }
-function mdParentDir(rel){ const i = String(rel).lastIndexOf("/"); return i < 0 ? "" : rel.slice(0, i); }
-function mdBaseName(rel){ return String(rel).split("/").pop(); }
+function fileNavExt(name){ const m = /\.([^.\/]+)$/.exec(String(name || "")); return m ? m[1].toLowerCase() : ""; }
+function fileNavIsImage(ext){ return FILENAV_IMG_EXT.has(String(ext || "").toLowerCase()); }
+function fileNavIsMarkdown(rel){ return MARKDOWN_EXT.has(fileNavExt(rel)); }
+function fileNavParentDir(rel){ const i = String(rel).lastIndexOf("/"); return i < 0 ? "" : rel.slice(0, i); }
+function fileNavBaseName(rel){ return String(rel).split("/").pop(); }
 // a file entry's icon key, its type word for a screen reader, and a human size.
-function mdIconKey(entry){
+function fileNavIconKey(entry){
   if (entry.type === "dir") return "folder";
   const ext = (entry.ext || "").toLowerCase();
-  if (mdIsImage(ext)) return "image";
-  if (MD_MD_EXT.has(ext) || MD_TXT_EXT.has(ext)) return "text";
-  if (MD_CODE_EXT.has(ext)) return "code";
+  if (fileNavIsImage(ext)) return "image";
+  if (MARKDOWN_EXT.has(ext) || FILENAV_TXT_EXT.has(ext)) return "text";
+  if (FILENAV_CODE_EXT.has(ext)) return "code";
   return "file";
 }
-function mdTypeWord(entry){
+function fileNavTypeWord(entry){
   if (entry.type === "dir") return "folder";
   if (!entry.avail) return "unavailable item";
   const ext = (entry.ext || "").toLowerCase();
-  if (mdIsImage(ext)) return "image";
-  if (MD_MD_EXT.has(ext)) return "markdown file";
-  if (MD_TXT_EXT.has(ext)) return "text file";
-  if (MD_CODE_EXT.has(ext)) return "code file";
+  if (fileNavIsImage(ext)) return "image";
+  if (MARKDOWN_EXT.has(ext)) return "markdown file";
+  if (FILENAV_TXT_EXT.has(ext)) return "text file";
+  if (FILENAV_CODE_EXT.has(ext)) return "code file";
   return "file";
 }
-function mdIconEl(entry){
-  const span = h("span", "mdrowicon" + (entry.type === "dir" ? " folder" : ""));
-  span.innerHTML = MD_ICONS[mdIconKey(entry)];   // a hard-coded constant, never file data
+function fileNavIconEl(entry){
+  const span = h("span", "fnavrowicon" + (entry.type === "dir" ? " folder" : ""));
+  span.innerHTML = FILENAV_ICONS[fileNavIconKey(entry)];   // a hard-coded constant, never file data
   return span;
 }
-function mdSizeText(n){
+function fileNavSizeText(n){
   n = Number(n);
   if (!isFinite(n) || n < 0) return "";
   if (n < 1024) return n + " B";
@@ -7983,27 +7983,27 @@ function mdSizeText(n){
   do { n /= 1024; i++; } while (n >= 1024 && i < u.length - 1);
   return (n < 10 ? n.toFixed(1) : Math.round(n)) + " " + u[i];
 }
-function mdWhenText(ns){
+function fileNavWhenText(ns){
   const ms = Number(ns) / 1e6;
   if (!isFinite(ms) || ms <= 0) return "";
   const d = new Date(ms);
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) +
     " " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
-function mdReasonWord(reason){
+function fileNavReasonWord(reason){
   if (reason === "link outside the folder") return "this link points outside the folder, so it is not opened here";
   if (reason === "not a regular file") return "this is a special file and cannot be shown";
   if (reason === "unreadable") return "this item could not be read";
   return "this item cannot be shown here";
 }
-let mdFor = null;             // the tab the panel is currently drawn for
-let mdHome = null;            // the mount it is built into, so a tab switch can find it again
-let mdKind = MD_KINDS[0];     // which folder's files the list is showing
-let mdSig = "";               // the drawn list's signature; an unchanged list is left alone
-let mdData = null;            // the last answer /mdfiles gave: one directory's listing plus both roots
-let mdBrowse = {};             // directory, selection and scroll, separate for every lane/root
-let mdOpen = null;            // {lane, root, kind, rel, mtime} of the text file in the editor, null otherwise
-let mdShown = null;           // {lane, root, rel, type} of an image or info card open in place of the list
+let fileNavFor = null;             // the tab the panel is currently drawn for
+let fileNavHome = null;            // the mount it is built into, so a tab switch can find it again
+let fileNavKind = FILENAV_KINDS[0];     // which folder's files the list is showing
+let fileNavSig = "";               // the drawn list's signature; an unchanged list is left alone
+let fileNavData = null;            // the last answer /navfiles gave: one directory's listing plus both roots
+let fileNavBrowse = {};             // directory, selection and scroll, separate for every lane/root
+let fileNavOpen = null;            // {lane, root, kind, rel, mtime} of the text file in the editor, null otherwise
+let fileNavShown = null;           // {lane, root, rel, type} of an image or info card open in place of the list
 // one generation token for every async load the panel starts. anything that
 // changes what the panel should show (navigating a folder, switching tab or
 // lane, opening or closing a file) bumps it; a listing, open or image callback
@@ -8011,12 +8011,12 @@ let mdShown = null;           // {lane, root, rel, type} of an image or info car
 // newer view. this is the single coherent guard against a slow Internal listing
 // landing under a Wiki view, a stale row opening the old name under a new folder,
 // or a delayed open replacing a newer file, image or draft.
-let mdGen = 0;
-function mdBump(){ return ++mdGen; }
-let mdView = null;            // the codemirror view, made when the first file is opened
-let mdClean = "";             // the text as it stands on disk, which is what dirty measures against
-let mdLoad = null;            // the bundle's load promise, so it is asked for exactly once
-let mdLeave = false;          // back pressed once on unsaved work: the second press leaves
+let fileNavGen = 0;
+function fileNavBump(){ return ++fileNavGen; }
+let fileNavView = null;            // the codemirror view, made when the first file is opened
+let fileNavClean = "";             // the text as it stands on disk, which is what dirty measures against
+let fileNavLoad = null;            // the bundle's load promise, so it is asked for exactly once
+let fileNavLeave = false;          // back pressed once on unsaved work: the second press leaves
 // the open file, held across a tab switch, under the tab it was open on. the
 // panel really is taken apart when the tab is left, because magic box 3 has
 // three tenants and only one of them may hold it at a time, so the DOM is not
@@ -8026,13 +8026,13 @@ let mdLeave = false;          // back pressed once on unsaved work: the second p
 // it, the unsaved text, the cursor, the selection and the undo history alike.
 // keyed by tab because two tabs have the panel now, and neither may ever be
 // handed the other's file
-let mdKeep = {};
-let mdNoteT = null;
+let fileNavKeep = {};
+let fileNavNoteT = null;
 // the box the panel is in at this moment, or null when it is in none of them
-function mdHost(){ return mdHome ? document.getElementById(mdHome.box) : null; }
-function mdBrowseState(lane = mdFor, kind = mdKind){
+function fileNavHost(){ return fileNavHome ? document.getElementById(fileNavHome.box) : null; }
+function fileNavBrowseState(lane = fileNavFor, kind = fileNavKind){
   const key = lane + "|" + kind;
-  return mdBrowse[key] || (mdBrowse[key] = { dir: "", selected: "", scroll: 0 });
+  return fileNavBrowse[key] || (fileNavBrowse[key] = { dir: "", selected: "", scroll: 0 });
 }
 // a box that belongs to this panel alone is on the page only while the open tab
 // mounts the panel in it, and is taken off the page everywhere else rather than
@@ -8040,10 +8040,10 @@ function mdBrowseState(lane = mdFor, kind = mdKind){
 // that is not there is never measured, never dragged, never resized and never
 // writes or clears a layout key for a tab it does not belong on. answers
 // whether the page changed, so a caller can put the edit handles back
-function mdBoxes(){
-  const mount = MD_MOUNTS[activeOwner];
+function fileNavBoxes(){
+  const mount = FILENAV_MOUNTS[activeOwner];
   let moved = false;
-  for (const box of MD_OWN){
+  for (const box of FILENAV_OWN){
     const el = document.getElementById(box);
     const want = !!mount && mount.box === box;
     if (want === !!el) continue;
@@ -8057,7 +8057,7 @@ function mdBoxes(){
     } else {
       // the panel comes out under its own hand before its box does, or an open
       // file goes down with the box instead of being kept for the way back
-      if (mdHome && mdHome.box === box) mdOff();
+      if (fileNavHome && fileNavHome.box === box) fileNavOff();
       el.remove();
     }
   }
@@ -8068,30 +8068,30 @@ function mdBoxes(){
 // boot: 1.6MB parsed at startup is a cost every board would pay and only this
 // one tab would use. a server from before the route answers 404 and the panel
 // says so instead of sitting there empty
-function mdBundle(){
+function fileNavBundle(){
   if (window.CM6) return Promise.resolve(true);
-  if (mdLoad) return mdLoad;
-  mdLoad = new Promise(res => {
+  if (fileNavLoad) return fileNavLoad;
+  fileNavLoad = new Promise(res => {
     const s = document.createElement("script");
     s.src = "/cm-markdown.js";
     s.onload = () => res(!!window.CM6);
-    s.onerror = () => { mdLoad = null; res(false); };
+    s.onerror = () => { fileNavLoad = null; res(false); };
     document.head.append(s);
   });
-  return mdLoad;
+  return fileNavLoad;
 }
 // the pack asks for this by name: while a drag selection is crossing markers it
 // wants to be told, or they flicker open and shut under the pointer
-function mdMouseUp(){
-  if (!mdView) return;
+function fileNavMouseUp(){
+  if (!fileNavView) return;
   requestAnimationFrame(() => {
-    if (mdView) mdView.dispatch({ effects: window.CM6.setMouseSelecting.of(false) });
+    if (fileNavView) fileNavView.dispatch({ effects: window.CM6.setMouseSelecting.of(false) });
   });
 }
 // the ticket list's own trick, restated because these two are built long after
 // that one was wired: the thumb shows while the pane is actually moving and
 // fades out 700ms after it rests
-function mdFade(el){
+function fileNavFade(el){
   let t = null;
   el.addEventListener("scroll", () => {
     el.classList.add("scrolling");
@@ -8099,69 +8099,69 @@ function mdFade(el){
     t = setTimeout(() => el.classList.remove("scrolling"), 700);
   }, { passive: true });
 }
-function mdBuild(mount){
+function fileNavBuild(mount){
   const host = document.getElementById(mount.box);
   if (!host) return null;
-  mdHome = mount;
-  if (host.dataset.md === "1") return host;
+  fileNavHome = mount;
+  if (host.dataset.filenav === "1") return host;
   host.textContent = "";
-  host.dataset.md = "1";
-  host.classList.add("mdpanel");
-  const head = h("div", "mdhead");
-  const tabs = MD_KINDS.map(kind => {
-    const b = h("button", "ptab mdtab", kind);
+  host.dataset.filenav = "1";
+  host.classList.add("fnavpanel");
+  const head = h("div", "fnavhead");
+  const tabs = FILENAV_KINDS.map(kind => {
+    const b = h("button", "ptab fnavtab", kind);
     // seated from the very first paint, so a head with nothing behind it yet
     // still shows one open folder rather than two shut ones
-    b.classList.toggle("on", kind === mdKind);
+    b.classList.toggle("on", kind === fileNavKind);
     // the folder's real name goes on the hover once the server has said it
     b.title = kind;
     b.onclick = () => {
-      if (mdKind === kind) return;
-      mdRememberList(); mdKind = kind; mdBrowse[mdFor + "|kind"] = kind;
-      mdSig = ""; mdBump(); mdList();
+      if (fileNavKind === kind) return;
+      fileNavRememberList(); fileNavKind = kind; fileNavBrowse[fileNavFor + "|kind"] = kind;
+      fileNavSig = ""; fileNavBump(); fileNavList();
     };
     head.append(b);
     return b;
   });
-  const nav = h("div", "mdnav");
-  const up = h("button", "mdup", "‹");
+  const nav = h("div", "fnavnav");
+  const up = h("button", "fnavup", "‹");
   up.title = "up one folder";
-  up.onclick = () => mdUp();
-  const crumbs = h("div", "mdcrumbs");
+  up.onclick = () => fileNavUp();
+  const crumbs = h("div", "fnavcrumbs");
   nav.append(up, crumbs);
-  const list = h("div", "mdlist");
-  mdFade(list);
-  const bar = h("div", "mdbar");
-  const back = h("button", "mdback", "‹");
+  const list = h("div", "fnavlist");
+  fileNavFade(list);
+  const bar = h("div", "fnavbar");
+  const back = h("button", "fnavback", "‹");
   back.title = "back to the files";
-  back.onclick = () => mdClose();
-  const name = h("span", "mdname");
-  const save = h("button", "mdsave", "save");
+  back.onclick = () => fileNavClose();
+  const name = h("span", "fnavname");
+  const save = h("button", "fnavsave", "save");
   save.title = "save this file";
-  save.onclick = () => mdSave();
+  save.onclick = () => fileNavSave();
   bar.append(back, name, save);
-  const edit = h("div", "mdedit");
+  const edit = h("div", "fnavedit");
   // the image preview and the not-editable info card share one region, shown in
   // place of the editor for the two open states that are not the text editor
-  const view = h("div", "mdview");
-  const note = h("div", "mdnote");
+  const view = h("div", "fnavview");
+  const note = h("div", "fnavnote");
   host.append(head, nav, list, bar, edit, view, note);
-  host._md = { head, tabs, nav, up, crumbs, list, bar, name, save, edit, view, note };
+  host._filenav = { head, tabs, nav, up, crumbs, list, bar, name, save, edit, view, note };
   return host;
 }
 // back to the plain dashed box, with the editor taken down and every scrap of
 // panel state dropped, so a tab that does not use this is left looking exactly
 // as it did before the panel existed
-function mdOff(){
-  const host = mdHost(), mount = mdHome;
-  mdRememberList();
-  mdHome = null;
-  if (!host || host.dataset.md !== "1") return;
-  mdTearDown(true);
-  mdFor = null; mdSig = ""; mdData = null;
-  host._md = null;
-  delete host.dataset.md;
-  host.classList.remove("mdpanel", "editing", "dirty", "previewing", "unopenable");
+function fileNavOff(){
+  const host = fileNavHost(), mount = fileNavHome;
+  fileNavRememberList();
+  fileNavHome = null;
+  if (!host || host.dataset.filenav !== "1") return;
+  fileNavTearDown(true);
+  fileNavFor = null; fileNavSig = ""; fileNavData = null;
+  host._filenav = null;
+  delete host.dataset.filenav;
+  host.classList.remove("fnavpanel", "editing", "dirty", "previewing", "unopenable");
   // in magic box 3 this teardown runs last of the three, so either of the other
   // two may have taken the box over in this same turn and emptied it already.
   // putting the stub line back now would wipe whichever one just arrived. the
@@ -8171,90 +8171,90 @@ function mdOff(){
 // keep is true only where the panel is being taken down by a tab switch, and
 // false everywhere the reader closed the file: a file the reader pressed back on stays
 // closed, and one the board took off the screen comes back
-function mdTearDown(keep){
+function fileNavTearDown(keep){
   // filed under the tab the panel is drawn for, and never under the tab that is
   // open now: the tab has usually already changed by the time this runs
-  if (mdFor){
-    if (keep && mdView && mdOpen)
-      mdKeep[mdFor] = { root: mdOpen.root, kind: mdOpen.kind, rel: mdOpen.rel, mtime: mdOpen.mtime,
-                        clean: mdClean, state: mdView.state, top: mdView.scrollDOM.scrollTop };
-    else delete mdKeep[mdFor];
+  if (fileNavFor){
+    if (keep && fileNavView && fileNavOpen)
+      fileNavKeep[fileNavFor] = { root: fileNavOpen.root, kind: fileNavOpen.kind, rel: fileNavOpen.rel, mtime: fileNavOpen.mtime,
+                        clean: fileNavClean, state: fileNavView.state, top: fileNavView.scrollDOM.scrollTop };
+    else delete fileNavKeep[fileNavFor];
   }
-  if (mdView){ mdView.destroy(); mdView = null; }
-  document.removeEventListener("mouseup", mdMouseUp);
-  mdOpen = null; mdShown = null; mdClean = ""; mdLeave = false;
+  if (fileNavView){ fileNavView.destroy(); fileNavView = null; }
+  document.removeEventListener("mouseup", fileNavMouseUp);
+  fileNavOpen = null; fileNavShown = null; fileNavClean = ""; fileNavLeave = false;
 }
 // the other half of that: the panel rebuilt on the tab it was left on, put back
 // on the file it was on. nothing is read off disk here, on purpose, because
 // what was on screen may be ahead of what disk has and disk must not win
-function mdRestore(host){
-  const k = mdKeep[activeOwner];
-  if (!k || mdOpen || !window.CM6) return;
-  delete mdKeep[activeOwner];
-  mdOpen = { lane: activeOwner, root: k.root, kind: k.kind, rel: k.rel, mtime: k.mtime };
-  mdClean = k.clean;
-  mdMount(host, "", false, k.state);
-  host._md.name.textContent = k.rel;
-  host._md.name.title = k.root + "/" + k.rel;
+function fileNavRestore(host){
+  const k = fileNavKeep[activeOwner];
+  if (!k || fileNavOpen || !window.CM6) return;
+  delete fileNavKeep[activeOwner];
+  fileNavOpen = { lane: activeOwner, root: k.root, kind: k.kind, rel: k.rel, mtime: k.mtime };
+  fileNavClean = k.clean;
+  fileNavMount(host, "", false, k.state);
+  host._filenav.name.textContent = k.rel;
+  host._filenav.name.title = k.root + "/" + k.rel;
   host.classList.add("editing");
   // the scroll is the one thing the state does not carry, so it is put back by
   // hand. twice: once now, and once after codemirror's own first measure, which
   // sets the scroller's height and would otherwise clamp this to zero
-  mdView.scrollDOM.scrollTop = k.top;
-  requestAnimationFrame(() => { if (mdView && mdOpen) mdView.scrollDOM.scrollTop = k.top; });
+  fileNavView.scrollDOM.scrollTop = k.top;
+  requestAnimationFrame(() => { if (fileNavView && fileNavOpen) fileNavView.scrollDOM.scrollTop = k.top; });
   // the kept state remembers whether the editor had the focus, and a rebuilt
   // view has not. said out loud here rather than waited for, because a blur
   // event will never arrive for a view that was destroyed before it could blur
-  mdView.dispatch({ effects: mdAwakeEff.of(mdView.hasFocus) });
-  mdDirty();
+  fileNavView.dispatch({ effects: mdAwakeEff.of(fileNavView.hasFocus) });
+  fileNavDirty();
 }
 // one line at the foot of the panel. a receipt clears itself after a moment; a
 // refusal stays, because it is the only place the reader is told the save did not land
-function mdNote(host, text, bad){
-  if (!host || !host._md) return;
-  const n = host._md.note;
+function fileNavNote(host, text, bad){
+  if (!host || !host._filenav) return;
+  const n = host._filenav.note;
   n.textContent = text || "";
   n.classList.toggle("bad", !!bad);
-  clearTimeout(mdNoteT);
-  if (text && !bad) mdNoteT = setTimeout(() => {
-    if (host._md && host._md.note.textContent === text) mdNote(host, "");
+  clearTimeout(fileNavNoteT);
+  if (text && !bad) fileNavNoteT = setTimeout(() => {
+    if (host._filenav && host._filenav.note.textContent === text) fileNavNote(host, "");
   }, 2500);
 }
-function mdDirty(){
-  const host = mdHost();
-  if (!host || !host._md) return false;
+function fileNavDirty(){
+  const host = fileNavHost();
+  if (!host || !host._filenav) return false;
   // sliceDoc and not doc.toString: a document's toString always joins its lines
   // with \n whatever separator the state was given, so on a file with windows
   // endings the two strings could never match and the panel stood dirty from
   // the moment it opened, with nothing typed into it
-  const dirty = !!mdView && !!mdOpen && mdView.state.sliceDoc() !== mdClean;
+  const dirty = !!fileNavView && !!fileNavOpen && fileNavView.state.sliceDoc() !== fileNavClean;
   host.classList.toggle("dirty", dirty);
-  if (!dirty) mdLeave = false;
+  if (!dirty) fileNavLeave = false;
   return dirty;
 }
-function mdRememberList(){
-  const host = mdHost();
-  if (!host || !host._md || !mdFor || mdOpen || mdShown) return;
-  mdBrowseState().scroll = host._md.list.scrollTop;
+function fileNavRememberList(){
+  const host = fileNavHost();
+  if (!host || !host._filenav || !fileNavFor || fileNavOpen || fileNavShown) return;
+  fileNavBrowseState().scroll = host._filenav.list.scrollTop;
 }
-function mdGo(dir){
-  const state = mdBrowseState();
-  mdRememberList();
+function fileNavGo(dir){
+  const state = fileNavBrowseState();
+  fileNavRememberList();
   state.dir = dir; state.selected = ""; state.scroll = 0;
-  mdSig = ""; mdBump(); mdList();
+  fileNavSig = ""; fileNavBump(); fileNavList();
 }
-function mdUp(){
-  const dir = mdBrowseState().dir;
+function fileNavUp(){
+  const dir = fileNavBrowseState().dir;
   if (!dir) return;
   const bits = dir.split("/");
   bits.pop();
-  mdGo(bits.join("/"));
+  fileNavGo(bits.join("/"));
 }
-function mdSelect(row, key){
-  const host = mdHost();
-  if (!host || !host._md) return;
-  mdBrowseState().selected = key;
-  for (const other of host._md.list.querySelectorAll(".mdrow"))
+function fileNavSelect(row, key){
+  const host = fileNavHost();
+  if (!host || !host._filenav) return;
+  fileNavBrowseState().selected = key;
+  for (const other of host._filenav.list.querySelectorAll(".fnavrow"))
     other.classList.toggle("selected", other === row);
 }
 // one directory's listing, fetched for the current lane, tab and folder. every
@@ -8262,111 +8262,111 @@ function mdSelect(row, key){
 // is ever read at a time. a listing whose directory has gone (deleted under the
 // reader) drops back to the root rather than sitting on a folder that is no
 // longer there
-async function mdList(){
-  const host = mdHost();
-  if (!host || !host._md) return;
-  const lane = activeOwner, kind = mdKind, gen = mdGen;
-  const state = mdBrowseState();
+async function fileNavList(){
+  const host = fileNavHost();
+  if (!host || !host._filenav) return;
+  const lane = activeOwner, kind = fileNavKind, gen = fileNavGen;
+  const state = fileNavBrowseState();
   const dir = state.dir;
-  const r = await fetch("/mdfiles?lane=" + encodeURIComponent(lane) +
+  const r = await fetch("/navfiles?lane=" + encodeURIComponent(lane) +
                         "&kind=" + encodeURIComponent(kind) +
                         "&rel=" + encodeURIComponent(dir), { cache: "no-store" }).catch(() => null);
   // gen guards against an older listing (say Internal) landing after a newer view
-  // change (say a switch to Wiki): its result is dropped, never assigned to mdData
-  if (gen !== mdGen || !host._md || mdHost() !== host || mdFor !== lane || activeOwner !== lane) return;
+  // change (say a switch to Wiki): its result is dropped, never assigned to fileNavData
+  if (gen !== fileNavGen || !host._filenav || fileNavHost() !== host || fileNavFor !== lane || activeOwner !== lane) return;
   const d = r && r.ok ? await r.json().catch(() => null) : null;
-  if (gen !== mdGen || !host._md || mdHost() !== host || mdFor !== lane || activeOwner !== lane) return;
+  if (gen !== fileNavGen || !host._filenav || fileNavHost() !== host || fileNavFor !== lane || activeOwner !== lane) return;
   // an old server answers this route in the pre-navigator shape: no route at all
   // (d is null) or valid json carrying roots+files but no top-level entries array.
   // both mean the running server predates this navigator, so say the one thing to
   // do rather than assign an unreadable shape and leave the panel silently blank.
   // the open editor is untouched: this only writes the list's own placeholder
   if (!d || !Array.isArray(d.entries)){
-    if (!mdData && mdSig !== "no-routes"){
-      mdSig = "no-routes";
-      host._md.list.textContent = "";
-      host._md.list.append(h("div", "tempty", "restart the board's server to reach the files"));
+    if (!fileNavData && fileNavSig !== "no-routes"){
+      fileNavSig = "no-routes";
+      host._filenav.list.textContent = "";
+      host._filenav.list.append(h("div", "tempty", "restart the board's server to reach the files"));
     }
     return;
   }
-  mdData = d;
+  fileNavData = d;
   // the folder went away or turned into something that is not a directory: step
   // up to the root, which always exists as long as the panel is mounted
   if (!d.exists && dir && d.kind === kind){
     state.dir = ""; state.selected = ""; state.scroll = 0;
-    mdSig = "";
-    return mdList();
+    fileNavSig = "";
+    return fileNavList();
   }
-  if (mdOpen || mdShown) return;   // a file is open in place of the list; leave it be
-  mdDrawList();
+  if (fileNavOpen || fileNavShown) return;   // a file is open in place of the list; leave it be
+  fileNavDrawList();
 }
-function mdDrawList(){
-  const host = mdHost();
-  if (!host || !host._md) return;
-  const el = host._md;
-  const meta = (mdData && mdData.roots) || [];
-  MD_KINDS.forEach((kind, i) => {
-    el.tabs[i].classList.toggle("on", kind === mdKind);
+function fileNavDrawList(){
+  const host = fileNavHost();
+  if (!host || !host._filenav) return;
+  const el = host._filenav;
+  const meta = (fileNavData && fileNavData.roots) || [];
+  FILENAV_KINDS.forEach((kind, i) => {
+    el.tabs[i].classList.toggle("on", kind === fileNavKind);
     const r = meta.find(x => x.kind === kind);
     if (r) el.tabs[i].title = r.root;   // the folder this tab really opens, on hover
   });
-  const state = mdBrowseState();
+  const state = fileNavBrowseState();
   // the breadcrumbs and the up control follow the folder alone, so they are
   // drawn from state before the listing has to match, and stay put while a fetch
   // for a new folder is in flight
   el.crumbs.textContent = "";
-  el.crumbs.title = state.dir ? mdKind + "/" + state.dir : mdKind;
+  el.crumbs.title = state.dir ? fileNavKind + "/" + state.dir : fileNavKind;
   el.up.disabled = !state.dir;
   el.nav.hidden = !state.dir;
   const parts = state.dir ? state.dir.split("/") : [];
   parts.forEach((part, i) => {
-    if (i) el.crumbs.append(h("span", "mdcrumbsep", "/"));
+    if (i) el.crumbs.append(h("span", "fnavcrumbsep", "/"));
     const dir = parts.slice(0, i + 1).join("/");
-    const b = h("button", "mdcrumb", part);
-    b.title = mdKind + "/" + dir;
-    b.onclick = () => mdGo(dir);
+    const b = h("button", "fnavcrumb", part);
+    b.title = fileNavKind + "/" + dir;
+    b.onclick = () => fileNavGo(dir);
     el.crumbs.append(b);
   });
   // only draw rows once the listing on hand is really this tab and this folder:
   // otherwise the previous folder's rows stay up, with no empty flash, until the
   // fetch for the new one lands
-  if (!mdData || mdData.kind !== mdKind || mdData.dir !== state.dir) return;
-  const entries = mdData.entries || [];
+  if (!fileNavData || fileNavData.kind !== fileNavKind || fileNavData.dir !== state.dir) return;
+  const entries = fileNavData.entries || [];
   // the drawn list carries its own signature: rebuilding it on every poll would
   // take the row out from under the pointer four times a minute for nothing
-  const sig = mdFor + "|" + mdKind + "|" + state.dir + "|" + mdData.exists + "|" +
+  const sig = fileNavFor + "|" + fileNavKind + "|" + state.dir + "|" + fileNavData.exists + "|" +
     entries.map(e => e.type + ":" + e.name + ":" + (e.mtime || "") + ":" + (e.avail ? 1 : 0)).join(",");
-  if (sig === mdSig) return;
-  const navKey = mdFor + "|" + mdKind + "|" + state.dir;
+  if (sig === fileNavSig) return;
+  const navKey = fileNavFor + "|" + fileNavKind + "|" + state.dir;
   if (el.list.dataset.navKey === navKey) state.scroll = el.list.scrollTop;
-  mdSig = sig;
+  fileNavSig = sig;
   el.list.textContent = "";
   el.list.dataset.navKey = navKey;
   if (!entries.length){
     // an empty folder is a fact and not a failure. the same italic line the
     // ticket list puts up when a lane holds no cards in the open view
     el.list.append(h("div", "tempty",
-      mdData.exists ? "this folder is empty" : "folder not found"));
+      fileNavData.exists ? "this folder is empty" : "folder not found"));
     return;
   }
   // every row captures the exact context it was rendered in, so a click reads
   // the row's own lane, root, folder and generation and never the live globals,
   // which a fetch that landed since may have moved
-  const ctx = { lane: mdFor, root: mdData.root, kind: mdData.kind, dir: mdData.dir, gen: mdGen };
+  const ctx = { lane: fileNavFor, root: fileNavData.root, kind: fileNavData.kind, dir: fileNavData.dir, gen: fileNavGen };
   for (const entry of entries){
     const key = (entry.type === "dir" ? "d:" : "f:") + entry.name;
-    const b = h("button", "mdrow " + (entry.type === "dir" ? "folder"
+    const b = h("button", "fnavrow " + (entry.type === "dir" ? "folder"
       : entry.avail ? "file" : "file unavail"));
-    b.append(mdIconEl(entry));
+    b.append(fileNavIconEl(entry));
     const label = entry.type === "dir" ? entry.name + "/" : entry.name;
-    b.append(h("span", "mdrowname", label));
-    b.title = label + (entry.avail ? "" : " (" + mdReasonWord(entry.reason) + ")");
+    b.append(h("span", "fnavrowname", label));
+    b.title = label + (entry.avail ? "" : " (" + fileNavReasonWord(entry.reason) + ")");
     // the type is spoken as well as drawn, so it is not carried by the icon or
     // the colour alone
-    b.setAttribute("aria-label", label + ", " + mdTypeWord(entry));
+    b.setAttribute("aria-label", label + ", " + fileNavTypeWord(entry));
     b.classList.toggle("selected", key === state.selected);
-    const activate = () => mdActivate(entry, ctx);
-    b.onclick = () => mdSelect(b, key);
+    const activate = () => fileNavActivate(entry, ctx);
+    b.onclick = () => fileNavSelect(b, key);
     b.ondblclick = activate;
     b.onkeydown = e => { if (e.key === "Enter"){ e.preventDefault(); activate(); } };
     el.list.append(b);
@@ -8379,32 +8379,32 @@ function mdDrawList(){
 // captured context: a row from a listing the view has since moved past (its gen
 // no longer current, or a different lane) is inert, so a fast click on a stale
 // row can never open the old name under a new folder or root
-function mdActivate(entry, ctx){
-  if (!ctx || ctx.gen !== mdGen || ctx.lane !== activeOwner || ctx.lane !== mdFor) return;
+function fileNavActivate(entry, ctx){
+  if (!ctx || ctx.gen !== fileNavGen || ctx.lane !== activeOwner || ctx.lane !== fileNavFor) return;
   const rel = (ctx.dir ? ctx.dir + "/" : "") + entry.name;
   const root = ctx.root;
   if (!root) return;
-  if (entry.type === "dir"){ if (entry.avail) mdGo(rel); return; }
-  const gen = mdBump();   // this open is the newest intent; older loads now drop
-  if (!entry.avail){ mdOpenInfo(root, rel, entry, mdReasonWord(entry.reason), gen); return; }
-  if (mdIsImage(entry.ext)) mdOpenImage(root, rel, entry, gen);
-  else mdOpenFile(root, rel, entry, gen);
+  if (entry.type === "dir"){ if (entry.avail) fileNavGo(rel); return; }
+  const gen = fileNavBump();   // this open is the newest intent; older loads now drop
+  if (!entry.avail){ fileNavOpenInfo(root, rel, entry, fileNavReasonWord(entry.reason), gen); return; }
+  if (fileNavIsImage(entry.ext)) fileNavOpenImage(root, rel, entry, gen);
+  else fileNavOpenFile(root, rel, entry, gen);
 }
-async function mdOpenFile(root, rel, meta, gen){
-  const host = mdHost();
-  if (!host || !host._md) return;
+async function fileNavOpenFile(root, rel, meta, gen){
+  const host = fileNavHost();
+  if (!host || !host._filenav) return;
   const lane = activeOwner;   // the panel is only ever live on the tab it is drawn for
-  mdRememberList();
-  mdNote(host, "opening");
-  const ready = await mdBundle();
+  fileNavRememberList();
+  fileNavNote(host, "opening");
+  const ready = await fileNavBundle();
   // gen guards every resumption: a delayed open must not replace a newer file,
   // image, draft or navigation the reader has moved on to since
-  if (gen !== mdGen || !host._md || mdHost() !== host || mdFor !== lane || activeOwner !== lane) return;
-  if (!ready){ mdNote(host, "the editor did not load: restart the board's server", true); return; }
-  const r = await fetch("/mdfile?lane=" + encodeURIComponent(lane) +
+  if (gen !== fileNavGen || !host._filenav || fileNavHost() !== host || fileNavFor !== lane || activeOwner !== lane) return;
+  if (!ready){ fileNavNote(host, "the editor did not load: restart the board's server", true); return; }
+  const r = await fetch("/navfile?lane=" + encodeURIComponent(lane) +
                         "&root=" + encodeURIComponent(root) +
                         "&rel=" + encodeURIComponent(rel), { cache: "no-store" }).catch(() => null);
-  if (gen !== mdGen || !host._md || mdHost() !== host || mdFor !== lane || activeOwner !== lane) return;
+  if (gen !== fileNavGen || !host._filenav || fileNavHost() !== host || fileNavFor !== lane || activeOwner !== lane) return;
   if (!r || !r.ok){
     // not text, too large, or gone: the file is still shown, as an info card that
     // names it and says why it does not open, rather than a bare error line
@@ -8412,64 +8412,64 @@ async function mdOpenFile(root, rel, meta, gen){
       : r && r.status === 415 ? "this is not a text file"
       : r && r.status === 404 ? "this file is no longer here"
       : "this file cannot be opened in the editor";
-    mdNote(host, "");
-    mdOpenInfo(root, rel, meta, why, gen);
+    fileNavNote(host, "");
+    fileNavOpenInfo(root, rel, meta, why, gen);
     return;
   }
   const d = await r.json().catch(() => null);
-  if (gen !== mdGen || !host._md || mdHost() !== host || mdFor !== lane || activeOwner !== lane) return;
-  if (!d){ mdNote(host, "could not open " + rel, true); return; }
-  mdTearDown(false);
+  if (gen !== fileNavGen || !host._filenav || fileNavHost() !== host || fileNavFor !== lane || activeOwner !== lane) return;
+  if (!d){ fileNavNote(host, "could not open " + rel, true); return; }
+  fileNavTearDown(false);
   // a non-markdown text file opens in the same editor but in plain mode, so its
   // hashes, stars and backticks are not silently drawn as markdown formatting
-  const plain = !mdIsMarkdown(rel);
-  mdOpen = { lane, root, kind: mdKind, rel, mtime: d.mtime };
-  mdClean = d.text;
-  mdMount(host, d.text, d.crlf, null, plain);
-  host._md.name.textContent = rel;
-  host._md.name.title = root + "/" + rel;
+  const plain = !fileNavIsMarkdown(rel);
+  fileNavOpen = { lane, root, kind: fileNavKind, rel, mtime: d.mtime };
+  fileNavClean = d.text;
+  fileNavMount(host, d.text, d.crlf, null, plain);
+  host._filenav.name.textContent = rel;
+  host._filenav.name.title = root + "/" + rel;
   host.classList.remove("previewing", "unopenable");
   host.classList.add("editing");
-  mdNote(host, "");
-  mdDirty();
+  fileNavNote(host, "");
+  fileNavDirty();
 }
 // an in-root image, shown in place of the list with a small line of metadata.
-// the bytes come from /mdimg, which serves them sandboxed, and they are only
+// the bytes come from /navimg, which serves them sandboxed, and they are only
 // ever a resource an <img> loads, never markup put into the page
-function mdOpenImage(root, rel, meta, gen){
-  if (gen !== mdGen) return;
-  const host = mdHost();
-  if (!host || !host._md) return;
+function fileNavOpenImage(root, rel, meta, gen){
+  if (gen !== fileNavGen) return;
+  const host = fileNavHost();
+  if (!host || !host._filenav) return;
   const lane = activeOwner;
-  mdRememberList();
-  mdTearDown(false);
-  mdShown = { lane, root, rel, type: "image" };
-  const el = host._md;
+  fileNavRememberList();
+  fileNavTearDown(false);
+  fileNavShown = { lane, root, rel, type: "image" };
+  const el = host._filenav;
   el.view.textContent = "";
-  const fig = h("div", "mdfig");
-  const img = h("img", "mdimg");
-  img.alt = mdBaseName(rel);
-  const cap = h("div", "mdmeta");
+  const fig = h("div", "fnavfig");
+  const img = h("img", "fnavimg");
+  img.alt = fileNavBaseName(rel);
+  const cap = h("div", "fnavmeta");
   const paint = dims => {
     cap.textContent = "";
-    cap.append(h("div", "mdmetaname", mdBaseName(rel)));
+    cap.append(h("div", "fnavmetaname", fileNavBaseName(rel)));
     const bits = [];
-    if (meta && meta.size != null) bits.push(mdSizeText(meta.size));
+    if (meta && meta.size != null) bits.push(fileNavSizeText(meta.size));
     if (dims) bits.push(dims);
-    if (meta && meta.mtime) bits.push(mdWhenText(meta.mtime));
-    cap.append(h("div", "mdmetasub", bits.filter(Boolean).join("   ·   ")));
+    if (meta && meta.mtime) bits.push(fileNavWhenText(meta.mtime));
+    cap.append(h("div", "fnavmetasub", bits.filter(Boolean).join("   ·   ")));
   };
   paint("");
   // both callbacks are still guarded: a load or an error that fires after the
   // reader moved on (gen bumped, host changed, or a different item now shown)
   // must not paint over the newer view
-  const current = () => gen === mdGen && mdHost() === host && mdShown &&
-    mdShown.type === "image" && mdShown.rel === rel && mdShown.root === root;
+  const current = () => gen === fileNavGen && fileNavHost() === host && fileNavShown &&
+    fileNavShown.type === "image" && fileNavShown.rel === rel && fileNavShown.root === root;
   // the browser knows the pixel size once it has decoded the image, which is
   // free; nothing is decoded on the server just to measure it
   img.onload = () => { if (current() && img.naturalWidth) paint(img.naturalWidth + " × " + img.naturalHeight); };
-  img.onerror = () => { if (current()) mdInfoInto(el, meta, rel, "this image could not be shown"); };
-  img.src = "/mdimg?lane=" + encodeURIComponent(lane) +
+  img.onerror = () => { if (current()) fileNavInfoInto(el, meta, rel, "this image could not be shown"); };
+  img.src = "/navimg?lane=" + encodeURIComponent(lane) +
             "&root=" + encodeURIComponent(root) + "&rel=" + encodeURIComponent(rel);
   fig.append(img);
   el.view.append(fig, cap);
@@ -8477,37 +8477,37 @@ function mdOpenImage(root, rel, meta, gen){
   el.name.title = root + "/" + rel;
   host.classList.remove("editing", "dirty", "unopenable");
   host.classList.add("previewing");
-  mdNote(host, "");
+  fileNavNote(host, "");
 }
 // a file that is not text and not an image, or an entry that is not available at
 // all: named, sized and dated, with a plain sentence about why it is not opened
-function mdOpenInfo(root, rel, meta, reason, gen){
-  if (gen !== undefined && gen !== mdGen) return;
-  const host = mdHost();
-  if (!host || !host._md) return;
-  mdRememberList();
-  mdTearDown(false);
-  mdShown = { lane: activeOwner, root, rel, type: "info" };
-  const el = host._md;
-  mdInfoInto(el, meta, rel, reason);
+function fileNavOpenInfo(root, rel, meta, reason, gen){
+  if (gen !== undefined && gen !== fileNavGen) return;
+  const host = fileNavHost();
+  if (!host || !host._filenav) return;
+  fileNavRememberList();
+  fileNavTearDown(false);
+  fileNavShown = { lane: activeOwner, root, rel, type: "info" };
+  const el = host._filenav;
+  fileNavInfoInto(el, meta, rel, reason);
   el.name.textContent = rel;
   el.name.title = root + "/" + rel;
   host.classList.remove("editing", "dirty", "previewing");
   host.classList.add("unopenable");
-  mdNote(host, "");
+  fileNavNote(host, "");
 }
-function mdInfoInto(el, meta, rel, reason){
+function fileNavInfoInto(el, meta, rel, reason){
   el.view.textContent = "";
-  const card = h("div", "mdunopen");
-  card.append(h("div", "mdunopenname", mdBaseName(rel)));
+  const card = h("div", "fnavunopen");
+  card.append(h("div", "fnavunopenname", fileNavBaseName(rel)));
   const bits = [];
   if (meta){
     if (meta.ext) bits.push("." + meta.ext);
-    if (meta.size != null) bits.push(mdSizeText(meta.size));
-    if (meta.mtime) bits.push(mdWhenText(meta.mtime));
+    if (meta.size != null) bits.push(fileNavSizeText(meta.size));
+    if (meta.mtime) bits.push(fileNavWhenText(meta.mtime));
   }
-  if (bits.length) card.append(h("div", "mdunopenmeta", bits.filter(Boolean).join("   ·   ")));
-  card.append(h("div", "mdunopenwhy", reason || "this item cannot be shown here"));
+  if (bits.length) card.append(h("div", "fnavunopenmeta", bits.filter(Boolean).join("   ·   ")));
+  card.append(h("div", "fnavunopenwhy", reason || "this item cannot be shown here"));
   el.view.append(card);
 }
 // ---- the board's own layer over the live preview pack ---------------------
@@ -8543,10 +8543,10 @@ function mdFront(doc){
 // rather than something a plugin adds after the fact. the editor refuses it
 // outright from a plugin. the field therefore carries the one thing a plugin
 // would have read off the view, whether the editor has the focus, and the two
-// listeners in mdMount put it there.
+// listeners in fileNavMount put it there.
 // the focus effect the editor rides a focus or blur in on, made once and shared
 // by both editor modes: the markdown layer consumes it, plain mode only carries
-// it so mdRestore can dispatch it either way without a missing effect
+// it so fileNavRestore can dispatch it either way without a missing effect
 function mdAwake(){
   if (!mdAwakeEff) mdAwakeEff = window.CM6.StateEffect.define();
   return mdAwakeEff;
@@ -8780,8 +8780,8 @@ function mdBox(D, cls, w){
 // seat is a state kept whole across a tab switch, and when there is one the
 // text and the endings are not read at all: that state already carries them,
 // along with the cursor and the undo history
-function mdMount(host, text, crlf, seat, plain){
-  const C = window.CM6, el = host._md;
+function fileNavMount(host, text, crlf, seat, plain){
+  const C = window.CM6, el = host._filenav;
   mdAwake();   // the focus effect the listeners below dispatch, in either mode
   // the endings, history, keymap, selection, theme, wrapping and dirty tracking
   // every text file shares whether or not it is markdown
@@ -8792,7 +8792,7 @@ function mdMount(host, text, crlf, seat, plain){
     ...(crlf ? [C.EditorState.lineSeparator.of("\r\n")] : []),
     C.history(),
     C.keymap.of([
-      { key: "Mod-s", preventDefault: true, run: () => { mdSave(); return true; } },
+      { key: "Mod-s", preventDefault: true, run: () => { fileNavSave(); return true; } },
       ...C.defaultKeymap, ...C.historyKeymap, C.indentWithTab,
     ]),
     C.collapseOnSelectionFacet.of(true),
@@ -8802,7 +8802,7 @@ function mdMount(host, text, crlf, seat, plain){
     // line's raw markers on. the fill it paints is taken back off in css
     C.highlightActiveLine(),
     C.EditorView.lineWrapping,
-    C.EditorView.updateListener.of(u => { if (u.docChanged) mdDirty(); }),
+    C.EditorView.updateListener.of(u => { if (u.docChanged) fileNavDirty(); }),
   ];
   const state = seat || C.EditorState.create({
     doc: text,
@@ -8811,7 +8811,7 @@ function mdMount(host, text, crlf, seat, plain){
       C.markdown({ base: C.markdownLanguage }),
       C.history(),
       C.keymap.of([
-        { key: "Mod-s", preventDefault: true, run: () => { mdSave(); return true; } },
+        { key: "Mod-s", preventDefault: true, run: () => { fileNavSave(); return true; } },
         ...C.defaultKeymap, ...C.historyKeymap, C.indentWithTab,
       ]),
       C.collapseOnSelectionFacet.of(true),
@@ -8829,20 +8829,20 @@ function mdMount(host, text, crlf, seat, plain){
       mdLayer(),
       C.highlightActiveLine(),
       C.EditorView.lineWrapping,
-      C.EditorView.updateListener.of(u => { if (u.docChanged) mdDirty(); }),
+      C.EditorView.updateListener.of(u => { if (u.docChanged) fileNavDirty(); }),
     ],
   });
   el.edit.textContent = "";
-  mdView = new C.EditorView({ state, parent: el.edit });
-  mdFade(mdView.scrollDOM);
-  mdView.contentDOM.addEventListener("mousedown",
-    () => mdView && mdView.dispatch({ effects: C.setMouseSelecting.of(true) }));
-  document.addEventListener("mouseup", mdMouseUp);
+  fileNavView = new C.EditorView({ state, parent: el.edit });
+  fileNavFade(fileNavView.scrollDOM);
+  fileNavView.contentDOM.addEventListener("mousedown",
+    () => fileNavView && fileNavView.dispatch({ effects: C.setMouseSelecting.of(true) }));
+  document.addEventListener("mouseup", fileNavMouseUp);
   // the two events the board's layer cannot read off the state on its own.
   // they are put on the element rather than handed to codemirror so the
   // dispatch lands outside its own update, which it will not allow from inside
-  for (const ev of ["focus", "blur"]) mdView.contentDOM.addEventListener(ev, () => {
-    if (mdView) mdView.dispatch({ effects: mdAwakeEff.of(ev === "focus") });
+  for (const ev of ["focus", "blur"]) fileNavView.contentDOM.addEventListener(ev, () => {
+    if (fileNavView) fileNavView.dispatch({ effects: mdAwakeEff.of(ev === "focus") });
   });
   // no focus on open, on purpose. the raw file comes back wherever the cursor
   // is, and a fresh view's cursor is at position 0, which is the first line of
@@ -8850,39 +8850,39 @@ function mdMount(host, text, crlf, seat, plain){
   // kept out of sight. the first click is what puts the reader in the file, and it
   // lands the cursor where the reader clicked, which is where the markup belongs
 }
-function mdClose(){
-  const host = mdHost();
-  if (!host || !host._md) return;
+function fileNavClose(){
+  const host = fileNavHost();
+  if (!host || !host._filenav) return;
   // unsaved work is never dropped on one click: the first press says so and the
   // second one leaves, which is the only warning there is room for in here
-  if (mdDirty() && !mdLeave){
-    mdLeave = true;
-    mdNote(host, "not saved. press again to leave it", true);
+  if (fileNavDirty() && !fileNavLeave){
+    fileNavLeave = true;
+    fileNavNote(host, "not saved. press again to leave it", true);
     return;
   }
-  mdBump();   // any in-flight open, image or listing for the file just closed is now stale
-  mdTearDown(false);
-  host._md.edit.textContent = "";
-  host._md.view.textContent = "";
-  host._md.name.textContent = "";
+  fileNavBump();   // any in-flight open, image or listing for the file just closed is now stale
+  fileNavTearDown(false);
+  host._filenav.edit.textContent = "";
+  host._filenav.view.textContent = "";
+  host._filenav.name.textContent = "";
   host.classList.remove("editing", "dirty", "previewing", "unopenable");
-  mdNote(host, "");
-  mdSig = "";
-  mdDrawList();
+  fileNavNote(host, "");
+  fileNavSig = "";
+  fileNavDrawList();
 }
-async function mdSave(){
-  const host = mdHost();
-  if (!host || !host._md || !mdView || !mdOpen) return;
+async function fileNavSave(){
+  const host = fileNavHost();
+  if (!host || !host._filenav || !fileNavView || !fileNavOpen) return;
   // the editor and the open file this save belongs to, taken before the first
-  // await. lanes past the second share the one markdown-only box, so a switch
+  // await. lanes past the second share the one navigator-only box, so a switch
   // between two of them tears this editor down and builds another in the very
   // same DOM host, and a B to C to B roundtrip builds a third: the host stays
   // one element through all of it, so its identity cannot tell the incarnations
   // apart. the view and the open-file object are made fresh every time, so a
   // moved reference is the sign a late answer has come back for an editor that
   // is no longer the one on screen
-  const view = mdView, open = mdOpen;
-  // the same reason as in mdDirty, and here it is the file itself at stake:
+  const view = fileNavView, open = fileNavOpen;
+  // the same reason as in fileNavDirty, and here it is the file itself at stake:
   // toString would have written every \r\n in the file back as a bare \n, which
   // is the silent rewrite the line separator above was added to prevent
   const text = view.state.sliceDoc();
@@ -8890,8 +8890,8 @@ async function mdSave(){
   // has already been sent to this file's own lane and is left to land there;
   // only the UI updates below are dropped, so a late answer never writes another
   // project's mtime, clean baseline or receipt, and never paints its warning
-  const stale = () => mdView !== view || mdOpen !== open || mdHost() !== host || !host._md;
-  const r = await fetch("/mdsave?lane=" + encodeURIComponent(open.lane) +
+  const stale = () => fileNavView !== view || fileNavOpen !== open || fileNavHost() !== host || !host._filenav;
+  const r = await fetch("/navsave?lane=" + encodeURIComponent(open.lane) +
                         "&root=" + encodeURIComponent(open.root) +
                         "&rel=" + encodeURIComponent(open.rel) +
                         "&mtime=" + encodeURIComponent(open.mtime),
@@ -8903,77 +8903,77 @@ async function mdSave(){
     // somebody else wrote the file while it was open in here. the reader's text stays
     // exactly where it is, in the editor, and the panel says so plainly rather
     // than writing over their work or throwing the reader's away
-    mdNote(host, "changed on disk, so this was not saved", true);
+    fileNavNote(host, "changed on disk, so this was not saved", true);
     return;
   }
   if (r && (r.status === 415 || r.status === 413)){
     // the file on disk is no longer plain text the editor may write (it turned
     // binary, or grew past the editor's size), so the save is refused rather
     // than allowed to overwrite it. the reader's text stays in the editor
-    mdNote(host, (d && d.error) || "this file can no longer be saved here", true);
+    fileNavNote(host, (d && d.error) || "this file can no longer be saved here", true);
     return;
   }
   if (!r || !r.ok || !d || !d.ok){
-    mdNote(host, (d && d.error) || "could not save", true);
+    fileNavNote(host, (d && d.error) || "could not save", true);
     return;
   }
   open.mtime = d.mtime;
-  mdClean = text;
-  mdSig = "";        // the file's stamp moved, so let the list redraw behind this
-  mdDirty();
-  mdNote(host, "saved");
+  fileNavClean = text;
+  fileNavSig = "";        // the file's stamp moved, so let the list redraw behind this
+  fileNavDirty();
+  fileNavNote(host, "saved");
 }
-async function mdPoll(){
+async function fileNavPoll(){
   if (!ownerReady) return;
   // the tabs that own a box, the same rule the picture panel and the chat
   // follow. the panel comes out of the box it was in whenever this tab is not
   // that box's tab, which is what frees magic box 3 for the chat on the way to
   // the chat lane's tab
-  const mount = MD_MOUNTS[activeOwner];
+  const mount = FILENAV_MOUNTS[activeOwner];
   // the panel's own box arrives before the build asks for it and leaves after
   // the teardown below has let go of it
-  mdBoxes();
+  fileNavBoxes();
   // the panel is taken down when its box is not this tab's box, and also when
   // the box is the same but the tab is not the one it was drawn for: lanes past
-  // the second share the one markdown-only box, so a switch between two of them
+  // the second share the one navigator-only box, so a switch between two of them
   // keeps the box yet must still hand the panel its own file and folder rather
-  // than leave the last lane's open on the new tab. mdFor lags activeOwner until
+  // than leave the last lane's open on the new tab. fileNavFor lags activeOwner until
   // the rebuild below, so this reads it as the lane the panel is still drawn for
-  if (mdHome && (!mount || mdHome.box !== mount.box || mdFor !== activeOwner)) mdOff();
+  if (fileNavHome && (!mount || fileNavHome.box !== mount.box || fileNavFor !== activeOwner)) fileNavOff();
   if (!mount) return;
-  const host = mdBuild(mount);
-  if (!host || !host._md) return;
-  if (mdFor !== activeOwner){
-    mdRememberList(); mdFor = activeOwner;
-    mdKind = mdBrowse[activeOwner + "|kind"] || MD_KINDS[0];
-    mdSig = ""; mdData = null; mdBump();
+  const host = fileNavBuild(mount);
+  if (!host || !host._filenav) return;
+  if (fileNavFor !== activeOwner){
+    fileNavRememberList(); fileNavFor = activeOwner;
+    fileNavKind = fileNavBrowse[activeOwner + "|kind"] || FILENAV_KINDS[0];
+    fileNavSig = ""; fileNavData = null; fileNavBump();
   }
   const lane = activeOwner;
-  mdRestore(host);   // a text file open when the tab was left is open again before anything is drawn
-  if (mdOpen){
+  fileNavRestore(host);   // a text file open when the tab was left is open again before anything is drawn
+  if (fileNavOpen){
     // while a file is open in the editor, the poll reads only that file's own
     // directory, bounded like every other listing, to notice an agent writing it
     // underneath, or the file being deleted or turned into something that is no
     // longer a plain file. the list behind the editor is left untouched
-    const dir = mdParentDir(mdOpen.rel);
-    const r = await fetch("/mdfiles?lane=" + encodeURIComponent(lane) +
-                          "&kind=" + encodeURIComponent(mdOpen.kind || mdKind) +
+    const dir = fileNavParentDir(fileNavOpen.rel);
+    const r = await fetch("/navfiles?lane=" + encodeURIComponent(lane) +
+                          "&kind=" + encodeURIComponent(fileNavOpen.kind || fileNavKind) +
                           "&rel=" + encodeURIComponent(dir), { cache: "no-store" }).catch(() => null);
-    if (!host._md || mdHost() !== host || mdFor !== lane || activeOwner !== lane || !mdOpen) return;
+    if (!host._filenav || fileNavHost() !== host || fileNavFor !== lane || activeOwner !== lane || !fileNavOpen) return;
     const d = r && r.ok ? await r.json().catch(() => null) : null;
-    if (!host._md || mdHost() !== host || mdFor !== lane || activeOwner !== lane || !mdOpen) return;
-    if (d && !host._md.note.classList.contains("bad")){
-      const base = mdBaseName(mdOpen.rel);
+    if (!host._filenav || fileNavHost() !== host || fileNavFor !== lane || activeOwner !== lane || !fileNavOpen) return;
+    if (d && !host._filenav.note.classList.contains("bad")){
+      const base = fileNavBaseName(fileNavOpen.rel);
       const f = (d.entries || []).find(x => x.type === "file" && x.name === base);
-      if (!f) mdNote(host, "this file is no longer here", true);
-      else if (f.mtime !== mdOpen.mtime) mdNote(host, "changed on disk since you opened it", true);
+      if (!f) fileNavNote(host, "this file is no longer here", true);
+      else if (f.mtime !== fileNavOpen.mtime) fileNavNote(host, "changed on disk since you opened it", true);
     }
     return;
   }
-  if (mdShown) return;   // an image or info card is open in place of the list
-  mdList();
+  if (fileNavShown) return;   // an image or info card is open in place of the list
+  fileNavList();
 }
-mdPoll(); setInterval(mdPoll, MD_POLL);
+fileNavPoll(); setInterval(fileNavPoll, FILENAV_POLL);
 
 // the picture, clicked, grows out of the panel until it fills the screen over a
 // dark veil, and shrinks back into the panel on the next click outside it or on
@@ -9658,13 +9658,13 @@ async function poll(){
     lastState = state;
     P3_LANE = state.imagePanelLane || "";
     // the mount map decides which lane's reader is on screen, so a change to the
-    // board's markdown lanes re-applies the layout to put a reader up or take one
+    // board's navigator lanes re-applies the layout to put a reader up or take one
     // down. the first reading always changes it from nothing, which is what shows
     // a configured reader at load without the reader revealing it by hand
-    const mdSigWas = Object.entries(MD_MOUNTS).map(([l, m]) => l + ":" + m.box).join(",");
-    mdMounts(state.markdownLanes);
-    const mdSigNow = Object.entries(MD_MOUNTS).map(([l, m]) => l + ":" + m.box).join(",");
-    if (ownerReady && mdSigNow !== mdSigWas) applySavedLayout();
+    const fileNavSigWas = Object.entries(FILENAV_MOUNTS).map(([l, m]) => l + ":" + m.box).join(",");
+    fileNavMounts(state.navigatorLanes);
+    const fileNavSigNow = Object.entries(FILENAV_MOUNTS).map(([l, m]) => l + ":" + m.box).join(",");
+    if (ownerReady && fileNavSigNow !== fileNavSigWas) applySavedLayout();
     // the Spotify app id is machine-local and rides in on the state; when it
     // first arrives, redraw the stub so a configured board drops the create
     // prompt for the sign-in
@@ -10356,15 +10356,15 @@ function migrateLegacyVisibility(){
 }
 function regionHidden(owner, id){
   // an explicit hide always wins: a box the reader put away by hand stays away
-  // even when it is this lane's configured markdown reader, and the reader is
+  // even when it is this lane's configured file navigator, and the reader is
   // told rather than having that choice quietly overwritten
   if (localStorage.getItem("hide." + owner + "." + id)) return true;
-  // a lane's configured markdown reader is on screen by default, like the four
+  // a lane's configured file navigator is on screen by default, like the four
   // default elements and unlike the other default-hidden boxes. the box it
   // mounts in is the reader the board named for this lane, so it is shown without
   // a reveal. read from the mount map, so no lane id is written here and a lane
   // with no configured reader keeps the plain default layout
-  const mount = MD_MOUNTS[owner];
+  const mount = FILENAV_MOUNTS[owner];
   if (mount && mount.box === id) return false;
   return DEFAULT_HIDDEN_REGIONS.has(id) &&
     !localStorage.getItem("show." + owner + "." + id);
@@ -10372,11 +10372,11 @@ function regionHidden(owner, id){
 
 function applySavedLayout(){
   if (!ownerReady) return;
-  // a box that belongs to the markdown panel is put on this tab or taken off it
+  // a box that belongs to the file navigator is put on this tab or taken off it
   // first, so everything below only ever sees the boxes this tab really has.
   // the edit handles are pinned to the boxes that were there when the pencil
   // went on, so a box that just arrived or left gets them rebuilt
-  if (mdBoxes() && editMode) buildHandles();
+  if (fileNavBoxes() && editMode) buildHandles();
   const src = layoutSource();
   // which tab is open, for the stylesheet: a tab can drop boxes it has no use
   // for without touching any other tab
@@ -10734,7 +10734,7 @@ document.getElementById("taskstatus").addEventListener("click", () => {
 // ---- the fat caret --------------------------------------------------------
 // a terminal style block cursor stands in for the native caret on every
 // typing surface: card reply boxes, the title while naming, the to-do input,
-// quick chat and the markdown editor. its left edge sits exactly on the
+// quick chat and the file navigator. its left edge sits exactly on the
 // insertion point. a visible character sets the block's width from the same
 // rendered text; generated placeholders lend their first grapheme to an empty
 // field, and other empty positions keep the established half-em cell.
@@ -11225,7 +11225,7 @@ document.getElementById("taskstatus").addEventListener("click", () => {
   // the formatted composer wears a codemirror editor of its own, laid over the
   // hidden textarea the row keeps its class on. the module hands back that
   // editor's view for the field, so the block reads the same coordinates the
-  // markdown panel does rather than a browser range that forgets which side of
+  // file navigator does rather than a browser range that forgets which side of
   // a soft wrap the caret belongs on
   function composerView(el){
     if (!el || !el.closest) return null;
@@ -11243,7 +11243,7 @@ document.getElementById("taskstatus").addEventListener("click", () => {
   // browser range loses the visual row the view's selection assoc records.
   // prefer the character before an interior position and the character after a
   // line start; the opposite side covers a zero-size decoration on the preferred
-  // side. the markdown panel and each formatted composer are the same kind of
+  // side. the file navigator and each formatted composer are the same kind of
   // editor, so both come through here with their own view.
   function cmCaret(view, el, m, fs, scaleX, clip){
     const main = view.state.selection.main;
@@ -11287,15 +11287,15 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     const er = el.getBoundingClientRect();
     const scaleX = el.offsetWidth ? er.width / el.offsetWidth : 1;
     // the box the block has to stay inside. an editable that scrolls inside a
-    // pane of its own, which the markdown panel's editor does, is bounded by
+    // pane of its own, which the file navigator's editor does, is bounded by
     // that pane and not by its own height: measured against itself a caret
     // scrolled out of sight still counts as inside, and the block then hangs
     // over whatever is drawn under the panel
     const clip = (el.closest(".cm-scroller") || el).getBoundingClientRect();
-    // the markdown panel's editor first, then the composer's own if this is the
+    // the file navigator's editor first, then the composer's own if this is the
     // element it owns; either returns null and falls through to the range below
-    if (mdView && el === mdView.contentDOM && mdView.hasFocus){
-      const c = cmCaret(mdView, el, m, fs, scaleX, clip);
+    if (fileNavView && el === fileNavView.contentDOM && fileNavView.hasFocus){
+      const c = cmCaret(fileNavView, el, m, fs, scaleX, clip);
       if (c) return c;
     }
     const own = composerView(el);

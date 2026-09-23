@@ -113,7 +113,7 @@ test('bridge gates every route, persists sessions, signs out and rejects legacy 
     assert.equal((await request(port,'/state')).status,200, 'local agents still read the board');
     assert.equal((await request(port,'/state','GET',null,{'X-Forwarded-For':'100.101.102.103'})).status,401,
       'a Serve proxy retargeted to the local port must be gated');
-    for (const route of ['/state','/m/state','/uploads/file.png','/page','/mdfile?lane=x',
+    for (const route of ['/state','/m/state','/uploads/file.png','/page','/navfile?lane=x',
       '/wait?owner=facilitator&timeout=0','/log','/dirs','/push/key'])
       assert.equal((await request(port+1,route)).status,401, route);
     assert.equal((await request(port+1,'/clientlog','POST','{}',{Origin:`http://127.0.0.1:${port+1}`})).status,401);

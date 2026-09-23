@@ -51,7 +51,7 @@ The navigator's file-type icons are Lucide, the chosen set for now; they are eas
 to swap later. Update or remove this notice if the icons change.
 
 `index.html` embeds five file-type icons from Lucide as inline static SVG path
-data (the `MD_ICONS` constant): `folder`, `file-text`, `file-code`, `image` and
+data (the `FILENAV_ICONS` constant): `folder`, `file-text`, `file-code`, `image` and
 `file`. No package is installed and nothing is fetched at runtime; only the exact
 path geometry is copied in. The icons were taken from Lucide release `1.47.0`,
 commit `3b9ea6d08707edc439f25a4c354cb0d6b8bee973`, at
