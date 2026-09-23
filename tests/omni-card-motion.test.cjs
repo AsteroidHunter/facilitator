@@ -23,7 +23,7 @@ const rect = (left, top, right, bottom) => ({ left, top, right, bottom, width: r
 
 function makeSandbox(){
   const frames = [], posts = [], timers = [];
-  const layout = { frame: rect(0, 0, 600, 800), art: rect(20, 42, 40, 66) };
+  const layout = { frame: rect(0, 0, 600, 800), art: rect(20, 42, 40, 66), rowArt: rect(8, 106, 38, 146) };
   const el = tag => {
     const node = { tagName: String(tag || "div").toUpperCase(), className: "", children: [], textContent: "",
       innerHTML: "", dataset: {}, parentNode: null, attributes: {}, listeners: {}, rect: null, wordsRect: null };
@@ -67,13 +67,15 @@ function makeSandbox(){
       if (node.rect) return node.rect;
       if (node.classList.contains("omni-sweep")) return layout.frame;
       if (node.classList.contains("omni-card-art")) return layout.art;
+      if (node.classList.contains("omni-art")) return layout.rowArt;
       return RECT0;
     };
     return node;
   };
   const sandbox = {
     document: { createElement: el, getElementById: () => null, querySelector: () => null,
-      querySelectorAll: () => [], addEventListener: noop, body: el(), activeElement: null,
+      querySelectorAll: selector => (selector === ".trow" ? sandbox.rows : []),
+      addEventListener: noop, body: el(), activeElement: null,
       createRange: () => ({ node: null, selectNodeContents(n){ this.node = n; },
         getBoundingClientRect(){ return this.node.wordsRect || this.node.getBoundingClientRect(); } }) },
     getSelection: () => ({ removeAllRanges: noop, addRange: noop }),
@@ -84,7 +86,7 @@ function makeSandbox(){
     reduced: false, matchMedia: () => ({ matches: sandbox.reduced }),
     fetch: (url, opts) => { posts.push({ url, body: opts && opts.body }); return Promise.resolve({ ok: true }); },
     poll: noop, console, localStorage: { getItem: () => null, setItem: noop }, navigator: {}, location: {},
-    els: {}, lastState: null,
+    els: {}, lastState: null, rows: [],
   };
   sandbox.window = sandbox; sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
@@ -122,6 +124,26 @@ function makeCard(env, title){
   sandbox.syncOmniCard(record, { title });
   return record;
 }
+// the card's row in the ticket list, drawn the way both pages draw it from a
+// reading's title: a 300 by 52 row, art first when the title is Omni, then the
+// title's words. `replace` stands in for the list redrawing the row
+function makeRow(env, title, replace){
+  const { sandbox, el } = env;
+  const row = el("div"), inner = el("div"), ttl = el("div");
+  row.className = "trow"; inner.className = "trowin"; ttl.className = "ttl";
+  row.dataset.id = "m9";
+  row.appendChild(inner);
+  sandbox.appendOmniRowArt(row, inner, { title });
+  ttl.textContent = title;
+  ttl.wordsRect = rect(40, 115, 140, 137);
+  inner.appendChild(ttl);
+  row.rect = rect(0, 100, 300, 152);
+  if (replace) sandbox.rows.splice(sandbox.rows.indexOf(replace), 1, row); else sandbox.rows.push(row);
+  return row;
+}
+const rowTitle = row => row.children[0].children.find(child => child.className === "ttl").textContent;
+const rowArt = row => row.children[0].children.some(child => child.className === "omni-art");
+const rowLight = row => row.children.find(child => child.className === "omni-sweep") || null;
 const hasArt = card => card.titleEl.parentNode.children.some(child => child.className === "omni-card-art");
 const childOf = (card, cls) => card.box.children.find(child => child.className === cls) || null;
 const lightAt = card => Number(childOf(card, "omni-sweep").style["--omni-p"]);
@@ -220,7 +242,7 @@ test("the light runs 600 ms corner to corner, eased, off the card at both ends, 
   // the page's widest falloff is the reach the script counts on
   for (const page of ["index.html", "m.html"]){
     const css = fs.readFileSync(path.resolve(__dirname, "..", page), "utf8");
-    assert.match(css, new RegExp(`rgba\\(255,230,200,0\\) calc\\(var\\(--omni-c\\) - ${REACH * 100}%\\)`), page);
+    assert.match(css, new RegExp(`rgba\\(255,242,232,0\\) calc\\(var\\(--omni-c\\) - ${REACH * 100}%\\)`), page);
   }
 });
 
@@ -391,4 +413,117 @@ test("an unchanged name, Escape and a card not laid out never light", () => {
   assert.equal(frames.length, 0);
   assert.equal(hasArt(plain), true);
   assert.equal(plain.titleEl.textContent, "Omni Card #3");
+});
+
+test("a row's place on its 45 degree light runs from its bottom left corner to its top right", () => {
+  const { sandbox } = makeSandbox();
+  const row = rect(0, 100, 300, 152);
+  assert.equal(sandbox.omniRowSpot(row, 0, 152), 0);
+  assert.equal(sandbox.omniRowSpot(row, 300, 100), 1);
+  // every point on one 45 degree line stands at one value
+  assert.equal(sandbox.omniRowSpot(row, 100, 130), sandbox.omniRowSpot(row, 110, 140));
+  assert.ok(sandbox.omniRowSpot(row, 110, 120) > sandbox.omniRowSpot(row, 100, 130));   // up and right is later
+});
+
+test("the ticket sweeps in with the card and turns into Omni Ticket #N as the light passes its title, with no glint", () => {
+  const env = makeSandbox();
+  const { sandbox, frames } = env;
+  const card = makeCard(env, "…");
+  let row = makeRow(env, "…");
+  commit(env, card, "ticket omni", "Tab");
+  const spot = sandbox.omniRowSpot(row.rect, 90, 126);   // the middle of the row title's words
+  let crossedAt = null, before = null, redrawn = false;
+  for (let now = 0; now <= 640 && frames.length; now += 16){
+    env.frame(now);
+    if (childOf(card, "omni-sweep")){
+      // one light, one clock: the row's light stands where the card's does in every frame
+      assert.ok(rowLight(row), `the row has its light at ${now} ms`);
+      assert.equal(rowLight(row).style["--omni-p"], childOf(card, "omni-sweep").style["--omni-p"]);
+    }
+    assert.equal(row.children.some(child => child.className === "omni-glint"), false);
+    if (crossedAt == null && rowTitle(row) !== "…"){
+      crossedAt = now;
+      assert.ok(Number(rowLight(row).style["--omni-p"]) >= spot && before < spot);
+      assert.equal(rowTitle(row), "Omni Ticket #3");   // the row reads the ticket's name, not the card's
+      assert.equal(rowArt(row), true);
+      assert.equal(row.classList.contains("omni-ticket"), true);
+    } else if (crossedAt == null){
+      assert.equal(rowArt(row), false);
+      assert.equal(row.classList.contains("omni-ticket"), false);
+      before = Number(rowLight(row).style["--omni-p"]);
+      // the list redraws the row from the board's new title before the light reaches it:
+      // the next frame lays the light back on and keeps the old face until it passes
+      if (!redrawn && now >= 96){
+        redrawn = true;
+        sandbox.syncOmniCard(card, { title: "Omni Ticket #3" });
+        row = makeRow(env, "Omni Ticket #3", row);
+        assert.equal(rowLight(row), null);
+      }
+    }
+  }
+  assert.ok(redrawn);
+  assert.ok(crossedAt > 150 && crossedAt < 350, `row crossed at ${crossedAt} ms`);
+  assert.equal(rowLight(row), null);   // the light leaves with the card's
+  assert.equal(rowTitle(row), "Omni Ticket #3");
+  assert.equal(env.sandbox.document.body.children.filter(child => child.className === "omni-glint").length, 1,
+    "only the card glints");
+});
+
+test("the ticket sweeps out from the top right and swaps back as the light passes, with no glint", () => {
+  const env = makeSandbox();
+  const { sandbox, frames } = env;
+  const card = makeCard(env, "Omni Ticket #3");
+  const row = makeRow(env, "Omni Ticket #3");
+  commit(env, card, "Fix login", "blur");
+  // the words and the art together are the row's title area
+  const spot = sandbox.omniRowSpot(row.rect, (8 + 140) / 2, (106 + 146) / 2);
+  let crossedAt = null, before = null, first = null;
+  for (let now = 0; now <= 640 && frames.length; now += 16){
+    env.frame(now);
+    if (first == null) first = Number(rowLight(row).style["--omni-p"]);
+    if (crossedAt == null && !rowArt(row)){
+      crossedAt = now;
+      assert.ok(Number(rowLight(row).style["--omni-p"]) <= spot && before > spot);
+      assert.equal(rowTitle(row), "Fix login");
+      assert.equal(row.classList.contains("omni-ticket"), false);
+    } else if (crossedAt == null){
+      assert.equal(rowTitle(row), "Omni Ticket #3");
+      before = Number(rowLight(row).style["--omni-p"]);
+    }
+  }
+  assert.ok(first > 1, "the light starts past the row's top right corner");
+  assert.ok(crossedAt > 150 && crossedAt < 400, `row crossed at ${crossedAt} ms`);
+  assert.equal(rowLight(row), null);
+  assert.equal(sandbox.document.body.children.some(child => child.className === "omni-glint"), false);
+});
+
+test("reduced motion changes the ticket at once both ways, with no light", () => {
+  const env = makeSandbox();
+  const { sandbox, frames } = env;
+  sandbox.reduced = true;
+  const card = makeCard(env, "…");
+  const row = makeRow(env, "…");
+  commit(env, card, "omni", "Tab");
+  assert.equal(frames.length, 0);
+  assert.equal(rowLight(row), null);
+  assert.equal(rowTitle(row), "Omni Ticket #3");
+  assert.equal(rowArt(row), true);
+  commit(env, card, "Plain again", "blur");
+  assert.equal(rowLight(row), null);
+  assert.equal(rowTitle(row), "Plain again");
+  assert.equal(rowArt(row), false);
+});
+
+test("a row with no size takes its final face at once, with no light", () => {
+  const env = makeSandbox();
+  const card = makeCard(env, "…");
+  const row = makeRow(env, "…");
+  row.rect = RECT0;   // not laid out: the drawer is shut or the list is not shown
+  commit(env, card, "omni", "Tab");
+  env.frame(0);
+  assert.equal(rowLight(row), null);
+  assert.equal(rowTitle(row), "Omni Ticket #3");
+  assert.equal(rowArt(row), true);
+  for (let now = 16; now <= 640; now += 16) env.frame(now);
+  assert.equal(rowTitle(row), "Omni Ticket #3");
 });

@@ -54,14 +54,24 @@ for (const [name, size, open] of [["index.html", "17.5px", ["body.focus .box.sel
     assert.match(sweep, /position:absolute; inset:0; pointer-events:none; --omni-p:-1/);
     assert.doesNotMatch(sweep, /z-index|isolation|opacity|transform|filter/);
     const layer = which => (new RegExp(`^\\s*\\.omni-sweep::${which}\\{([^}]*)\\}`, "m").exec(html) || [])[1] || "";
-    assert.match(layer("before"), /mix-blend-mode:multiply;[\s\S]*radial-gradient\(circle at var\(--omni-x\) var\(--omni-y\)[\s\S]*linear-gradient\(to top right/);
-    assert.match(layer("after"), /mix-blend-mode:screen;[\s\S]*radial-gradient\(circle at var\(--omni-x\) var\(--omni-y\)[\s\S]*linear-gradient\(to top right/);
+    assert.match(layer("before"), /mix-blend-mode:multiply;[\s\S]*radial-gradient\(circle at var\(--omni-x\) var\(--omni-y\)[\s\S]*linear-gradient\(var\(--omni-dir\)/);
+    assert.match(layer("after"), /mix-blend-mode:screen;[\s\S]*radial-gradient\(circle at var\(--omni-x\) var\(--omni-y\)[\s\S]*linear-gradient\(var\(--omni-dir\)/);
+    // a card lays the light corner to corner; a row at 45 degrees with a smaller sun
+    assert.match(sweep, /--omni-dir:to top right; --omni-sun:160px; --omni-core:50px;/);
+    assert.match(html, /\.trow > \.omni-sweep\{--omni-dir:45deg; --omni-sun:56px; --omni-core:18px\}/);
+    // less yellow: every colour in the light, the working shine and the glint's
+    // edge is white with at most a trace of warmth, red over blue by no more than 25
+    const block = html.slice(html.indexOf(".omni-sweep{"), html.indexOf("@keyframes omni-glint"));
+    const rows = /\.trow\.omni-ticket\.working::before\{[\s\S]*?\.trow\.omni-ticket\.working::after\{[^}]*\}/.exec(html);
+    for (const [, r, g, b] of [...(block + (rows ? rows[0] : "")).matchAll(/rgba\((\d+),(\d+),(\d+),/g)]){
+      assert.ok(Number(r) - Number(b) <= 25 && Math.abs(Number(r) - Number(g)) <= 15, `rgb(${r},${g},${b}) is too warm`);
+    }
     // no yellow or gold left: the warmth is warm white, the glare near white
     assert.doesNotMatch(html, /rgba\(224,176,64|rgba\(255,214,110/);
     // brighter: the glare's core and its sun are full white, and the warmth
     // stands at .58 across the diagonal and .7 at the sun
-    assert.match(layer("after"), /rgba\(255,254,250,1\) 0,[\s\S]*rgba\(255,254,250,1\) var\(--omni-c\),/);
-    assert.match(layer("before"), /rgba\(255,230,200,\.7\) 0,[\s\S]*rgba\(255,230,200,\.58\) var\(--omni-c\),/);
+    assert.match(layer("after"), /rgba\(255,255,253,1\) 0,[\s\S]*rgba\(255,255,253,1\) var\(--omni-c\),/);
+    assert.match(layer("before"), /rgba\(255,242,232,\.88\) 0,[\s\S]*rgba\(255,242,232,\.78\) var\(--omni-c\),/);
     // the old star and its halo are gone
     assert.doesNotMatch(html, /omni-star/);
     // the glint: fixed on the screen so the card's clip cannot cut it, a tiny
@@ -90,11 +100,11 @@ test("a working Omni row wears the same sunlight while ordinary rows keep the wh
   assert.match(html, /\.trow\.working::after\{[^}]*rgba\(255,255,255,\.55\) 50%/);
   const warmth = /\.trow\.omni-ticket\.working::before\{([^}]*)\}/.exec(html)[1];
   const glare = /\.trow\.omni-ticket\.working::after\{([^}]*)\}/.exec(html)[1];
-  // raised with the card's light: warmth .68, glare full white at the centre
-  assert.match(warmth, /mix-blend-mode:multiply;[\s\S]*rgba\(255,230,200,\.68\) 50%[\s\S]*animation:ticket-working-shimmer 1\.6s linear infinite/);
-  assert.match(glare, /mix-blend-mode:screen;[\s\S]*rgba\(255,254,250,1\) 50%/);
+  // matched to the card's light: the near neutral warmth at .85, glare full white at the centre
+  assert.match(warmth, /mix-blend-mode:multiply;[\s\S]*rgba\(255,242,232,\.85\) 50%[\s\S]*animation:ticket-working-shimmer 1\.6s linear infinite/);
+  assert.match(glare, /mix-blend-mode:screen;[\s\S]*rgba\(255,255,253,1\) 50%/);
   // bells, not bands: each layer peaks at exactly one stop
-  for (const [layer, peak] of [[warmth, ".68"], [glare, "1"]]){
+  for (const [layer, peak] of [[warmth, ".85"], [glare, "1"]]){
     const alphas = [...layer.matchAll(/rgba\(\d+,\d+,\d+,([.\d]+)\) [\d.]+%/g)].map(m => m[1]);
     assert.equal(alphas.filter(a => a === peak).length, 1);
     assert.ok(alphas.every(a => Number(a) <= Number(peak)));

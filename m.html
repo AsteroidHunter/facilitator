@@ -995,44 +995,48 @@
   .box.omni-card .omni-card-art{display:block; flex:none; font-size:24px; width:auto; height:1em;
     align-self:flex-start; margin-top:.125em; object-fit:contain; object-position:center}
   .box.omni-card .title{flex:1 1 0; padding-left:0}
-  /* the light a card crosses into and out of Omni under, and the glint it
-     leaves on the card's top right corner on the way in, the desktop's own and
-     explained there: a wide warm bell multiplied in and a narrow near white
-     glare screened over it, each with a round sun riding the diagonal, moved
-     by the script through --omni-p. the element takes no z-index, so each
-     layer's blend reaches the card */
+  /* the light a card, or its row in the ticket list, crosses into and out of
+     Omni under, and the glint it leaves on the card's top right corner on the
+     way in, the desktop's own and explained there: a wide bell of white with
+     the barest warmth multiplied in and a narrow white glare screened over it,
+     each with a round sun riding the diagonal, moved by the script through
+     --omni-p. a row lays it at 45 degrees with a smaller sun. the element
+     takes no z-index, so each layer's blend reaches what is under it */
   .omni-sweep{position:absolute; inset:0; pointer-events:none; --omni-p:-1;
+    --omni-dir:to top right; --omni-sun:160px; --omni-core:50px;
     --omni-c:calc(var(--omni-p) * 100%);
     --omni-x:calc(var(--omni-p) * 100%); --omni-y:calc((1 - var(--omni-p)) * 100%)}
+  .trow > .omni-sweep{--omni-dir:45deg; --omni-sun:56px; --omni-core:18px}
   .omni-sweep::before, .omni-sweep::after{content:""; position:absolute; inset:0; z-index:40}
   .omni-sweep::before{
     mix-blend-mode:multiply;
     background:
-      radial-gradient(circle at var(--omni-x) var(--omni-y), rgba(255,230,200,.7) 0,
-        rgba(255,230,200,.54) 40px, rgba(255,230,200,.24) 80px, rgba(255,230,200,.07) 120px,
-        rgba(255,230,200,0) 160px),
-      linear-gradient(to top right, rgba(255,230,200,0) calc(var(--omni-c) - 24%),
-        rgba(255,230,200,.08) calc(var(--omni-c) - 18%), rgba(255,230,200,.24) calc(var(--omni-c) - 12%),
-        rgba(255,230,200,.46) calc(var(--omni-c) - 6%), rgba(255,230,200,.58) var(--omni-c),
-        rgba(255,230,200,.46) calc(var(--omni-c) + 6%), rgba(255,230,200,.24) calc(var(--omni-c) + 12%),
-        rgba(255,230,200,.08) calc(var(--omni-c) + 18%), rgba(255,230,200,0) calc(var(--omni-c) + 24%))}
+      radial-gradient(circle at var(--omni-x) var(--omni-y), rgba(255,242,232,.88) 0,
+        rgba(255,242,232,.68) calc(var(--omni-sun) * .25), rgba(255,242,232,.31) calc(var(--omni-sun) * .5),
+        rgba(255,242,232,.08) calc(var(--omni-sun) * .75), rgba(255,242,232,0) var(--omni-sun)),
+      linear-gradient(var(--omni-dir), rgba(255,242,232,0) calc(var(--omni-c) - 24%),
+        rgba(255,242,232,.11) calc(var(--omni-c) - 18%), rgba(255,242,232,.32) calc(var(--omni-c) - 12%),
+        rgba(255,242,232,.62) calc(var(--omni-c) - 6%), rgba(255,242,232,.78) var(--omni-c),
+        rgba(255,242,232,.62) calc(var(--omni-c) + 6%), rgba(255,242,232,.32) calc(var(--omni-c) + 12%),
+        rgba(255,242,232,.11) calc(var(--omni-c) + 18%), rgba(255,242,232,0) calc(var(--omni-c) + 24%))}
   .omni-sweep::after{
     mix-blend-mode:screen;
     background:
-      radial-gradient(circle at var(--omni-x) var(--omni-y), rgba(255,254,250,1) 0,
-        rgba(255,254,250,.82) 10px, rgba(255,254,250,.46) 20px, rgba(255,254,250,.17) 30px,
-        rgba(255,254,250,.05) 40px, rgba(255,254,250,0) 50px),
-      linear-gradient(to top right, rgba(255,254,250,0) calc(var(--omni-c) - 9%),
-        rgba(255,254,250,.04) calc(var(--omni-c) - 7.5%), rgba(255,254,250,.14) calc(var(--omni-c) - 6%),
-        rgba(255,254,250,.32) calc(var(--omni-c) - 4.5%), rgba(255,254,250,.61) calc(var(--omni-c) - 3%),
-        rgba(255,254,250,.88) calc(var(--omni-c) - 1.5%), rgba(255,254,250,1) var(--omni-c),
-        rgba(255,254,250,.88) calc(var(--omni-c) + 1.5%), rgba(255,254,250,.61) calc(var(--omni-c) + 3%),
-        rgba(255,254,250,.32) calc(var(--omni-c) + 4.5%), rgba(255,254,250,.14) calc(var(--omni-c) + 6%),
-        rgba(255,254,250,.04) calc(var(--omni-c) + 7.5%), rgba(255,254,250,0) calc(var(--omni-c) + 9%))}
+      radial-gradient(circle at var(--omni-x) var(--omni-y), rgba(255,255,253,1) 0,
+        rgba(255,255,253,.82) calc(var(--omni-core) * .2), rgba(255,255,253,.46) calc(var(--omni-core) * .4),
+        rgba(255,255,253,.17) calc(var(--omni-core) * .6), rgba(255,255,253,.05) calc(var(--omni-core) * .8),
+        rgba(255,255,253,0) var(--omni-core)),
+      linear-gradient(var(--omni-dir), rgba(255,255,253,0) calc(var(--omni-c) - 9%),
+        rgba(255,255,253,.04) calc(var(--omni-c) - 7.5%), rgba(255,255,253,.14) calc(var(--omni-c) - 6%),
+        rgba(255,255,253,.32) calc(var(--omni-c) - 4.5%), rgba(255,255,253,.61) calc(var(--omni-c) - 3%),
+        rgba(255,255,253,.88) calc(var(--omni-c) - 1.5%), rgba(255,255,253,1) var(--omni-c),
+        rgba(255,255,253,.88) calc(var(--omni-c) + 1.5%), rgba(255,255,253,.61) calc(var(--omni-c) + 3%),
+        rgba(255,255,253,.32) calc(var(--omni-c) + 4.5%), rgba(255,255,253,.14) calc(var(--omni-c) + 6%),
+        rgba(255,255,253,.04) calc(var(--omni-c) + 7.5%), rgba(255,255,253,0) calc(var(--omni-c) + 9%))}
   .omni-glint{position:fixed; width:8px; height:8px; margin:-4px 0 0 -4px; z-index:1000;
     pointer-events:none; border-radius:50%;
-    background:radial-gradient(circle, #fff 0, #fff 34%, rgba(255,248,238,.85) 54%, rgba(255,248,238,0) 74%);
-    filter:drop-shadow(0 0 .8px rgba(255,178,110,.95)) drop-shadow(0 0 4px rgba(255,210,160,.85));
+    background:radial-gradient(circle, #fff 0, #fff 34%, rgba(255,252,248,.85) 54%, rgba(255,252,248,0) 74%);
+    filter:drop-shadow(0 0 .8px rgba(204,192,182,.95)) drop-shadow(0 0 4px rgba(255,244,236,.9));
     animation:omni-glint 300ms both}
   .omni-glint::before, .omni-glint::after, .omni-glint i{position:absolute; left:50%; top:50%;
     background:#fff}
