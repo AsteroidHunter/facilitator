@@ -3813,6 +3813,16 @@ function stepCard(dir, focus){
   document.getElementById("cards").addEventListener("touchcancel", () => settle(false));
 }
 
+// the card whose response control+shift+s may page, or null. A drawer out over
+// the card, or a card mid-swipe, is not the response the reader is looking at.
+// It is asked again before a waiting page down is made
+function phoneResponseCard(){
+  const cls = document.body.classList;
+  const el = selectedId && els[selectedId];
+  if (cls.contains("menuout") || cls.contains("carddrag") || !el) return null;
+  return { id: selectedId, owner: activeOwner, el };
+}
+
 const phoneShortcutTyping = cardShortcutEditing;
 const phoneShortcutActions = {
   diagnostic(e){
@@ -3859,11 +3869,16 @@ const phoneShortcutActions = {
     e.preventDefault();
     setCardDestination(selectedId, shortcut.value);
   },
+  responsePage(e){
+    responseTap(e, phoneResponseCard);
+  },
 };
 
 addEventListener("keydown", e => {
   dispatchCardShortcut(e, phoneShortcutActions);
 });
+// a page down still waiting when the page is hidden is dropped
+document.addEventListener("visibilitychange", cancelResponseTap);
 
 // ---- installing, and being told when a card turns to the reader's turn -------------------------
 let swReg = null;
