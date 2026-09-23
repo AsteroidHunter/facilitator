@@ -1115,7 +1115,7 @@ if (typeof startReporter === "function") startReporter("phone");
 // A diagnostic token, not a release claim: it distinguishes this instrumented
 // page from an older installed shell without exposing a URL or local path.
 // This names the loaded HTML only; the worker reports its own cache identity.
-const PHONE_DIAGNOSTIC_BUILD = "phone-enter-diag-20260920-1";
+const PHONE_DIAGNOSTIC_BUILD = "phone-scroll-diag-20260922-1";
 tracePhone("identity", PHONE_DIAGNOSTIC_BUILD);
 // the marker a freeze report carries; it goes nowhere if the reporter is absent
 if (typeof noteDoing !== "function") window.noteDoing = () => {};
@@ -2573,44 +2573,181 @@ scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu
 
 // Keep only the start, first intended move, and end of a gesture. Coordinates
 // are used to classify it here and never passed to the diagnostic recorder.
+// A touch that begins on the selected response also says where the response
+// stood. Its scroll position and heights are read at touch start, at the intent
+// and at touch end and nowhere else, because each read can force a layout.
 {
-  let touch = null, scrollRun = null, scrollTimer = null;
+  // Neither number has been checked on the phone yet. A healthy pan scrolls
+  // within a few frames of its intent; a finger that has come this far is a
+  // swipe and not a finger settling.
+  const NO_SCROLL_MS = 300;       // after the intent, the time a pan has to scroll
+  const NO_SCROLL_PX = 24;        // vertical finger travel that makes a swipe far
+  const AFTER_TOUCH_MS = 1000;    // a first scroll or a new reply this soon after a touch is still its own
+  let touch = null, scrollRun = null, scrollTimer = null, lastTouch = null, swapWatch = null;
+  // where the response stands, in whole pixels; edge "none" has nothing to scroll
+  const measure = scroller => {
+    const top = Math.round(scroller.scrollTop), height = scroller.clientHeight;
+    const range = Math.max(0, Math.round(scroller.scrollHeight - height));
+    return { top, range, view: Math.round(height),
+      edge: range < 2 ? "none" : top <= 1 ? "top" : top >= range - 1 ? "bottom" : "middle" };
+  };
+  // how long the event waited for the page, which a busy main thread stretches
+  const lagOf = e => e.timeStamp > 0 ? performance.now() - e.timeStamp : undefined;
+  const focusNow = () => {
+    const at = document.activeElement;
+    return !at || at === document.body ? "none" : phoneEnterRole(at, selectedId && els[selectedId]);
+  };
+  // a layer over the page that takes a finger meant for the response under it:
+  // the shade while a menu is out, the startup curtain, or a menu still leaving
+  const layerOf = target => target.closest?.("#scrim") ? "scrim"
+    : target.closest?.("#loading") ? "curtain"
+    : target.closest?.("#drawer:not(.open), #settings:not(.open)") ? "panel" : null;
+  const taken = (t, by, side) => {
+    if (t.taken) return;
+    t.taken = by;
+    tracePhone("note", "input", { action: "response-scroll", part: "taken", box: selectedId, by, side });
+  };
+  // the reply's words replaced while a finger is on them or just after: a poll
+  // bringing a new reply, or the history arrows stepping through older ones
+  const watchSwaps = t => {
+    swapWatch?.disconnect();
+    swapWatch = null;
+    const reply = t.scroller.querySelector(":scope > .reply");
+    if (!reply || typeof MutationObserver !== "function") return;
+    const watch = swapWatch = new MutationObserver(() => {
+      tracePhone("note", "phase", { action: "response-scroll", part: "reply-swap", box: selectedId,
+        hist: !!(hist && hist.id === selectedId), ms: performance.now() - t.start });
+    });
+    watch.observe(reply, { childList: true });
+  };
+  // whether the swipe moved nothing, judged once: at touch end, or NO_SCROLL_MS
+  // after the intent if the finger is still down. Only armed at an intent that
+  // could scroll, so a response at its edge being pushed further is never a save
+  const judge = (t, end) => {
+    if (!t.armed) return;
+    t.armed = false;
+    clearTimeout(t.timer);
+    if (t.count || !t.far || (end && end.top !== t.top)) return;
+    tracePhone("noScroll", t.box);
+  };
   document.addEventListener("touchstart", e => {
     const p = e.touches[0];
     if (!p) return;
     const target = e.target;
-    const action = target.closest?.(".box.sel .replyview") ? "response-scroll"
+    const scroller = target.closest?.(".box.sel .replyview") || null;
+    const action = scroller ? "response-scroll"
       : p.clientX <= 28 || p.clientX >= innerWidth - 28 ? "drawer"
       : target.closest?.(".trow, #cards") ? "card"
       : target.closest?.(".ptab") ? "project" : null;
-    touch = action ? { action, x: p.clientX, y: p.clientY, intended: false } : null;
-    if (touch) tracePhone("note", "input", { action, part: "touch", box: selectedId });
+    const layer = scroller || !selectedId ? null : layerOf(target);
+    if (touch) { touch.armed = false; clearTimeout(touch.timer); }   // a second finger is no swipe
+    touch = action || layer ? { action, layer, x: p.clientX, y: p.clientY, intended: false } : null;
+    if (!touch) return;
+    if (layer) touch.side = layer === "scrim" ? menuOut()?.dataset.side
+      : layer === "panel" ? target.closest("#drawer, #settings").dataset.side : undefined;
+    if (!scroller) {
+      if (action) tracePhone("note", "input", { action, part: "touch", box: selectedId });
+      return;
+    }
+    const cls = document.body.classList, at = measure(scroller);
+    Object.assign(touch, { scroller, box: selectedId, start: performance.now(), top: at.top,
+      count: 0, far: false, prevented: false, armed: false,
+      dragging: cls.contains("menudrag") || cls.contains("carddrag") });
+    lastTouch = touch;
+    watchSwaps(touch);
+    tracePhone("note", "input", { action, part: "touch", box: selectedId, ...at,
+      hist: !!(hist && hist.id === selectedId), kb: cls.contains("kb"), focus: focusNow(), lag: lagOf(e) });
   }, { capture: true, passive: true });
   document.addEventListener("touchmove", e => {
     const p = e.touches[0];
-    if (!p || !touch || touch.intended) return;
+    if (!p || !touch) return;
     const dx = Math.abs(p.clientX - touch.x), dy = Math.abs(p.clientY - touch.y);
+    if (touch.scroller && dy >= NO_SCROLL_PX) touch.far = true;
+    if (touch.intended) return;
     if (Math.max(dx, dy) < (touch.action === "drawer" ? 6 : 10)) return;
+    if (touch.layer) {
+      // asked once, on the first decided move: a vertical swipe over the
+      // response that a layer took instead
+      const layer = touch.layer;
+      touch.layer = null;
+      const r = dy > dx && els[selectedId]?.replyview?.getBoundingClientRect();
+      if (r && touch.x >= r.left && touch.x <= r.right && touch.y >= r.top && touch.y <= r.bottom)
+        taken(touch, layer, touch.side);
+    }
+    if (!touch.action) return;
     if (touch.action === "card" && dy > dx && e.target.closest?.(".box.sel"))
       touch.action = "response-scroll";
     if (touch.action === "response-scroll" && dy <= dx) return;
     if (touch.action === "card" && dx <= dy) return;
     touch.intended = true;
-    tracePhone("note", "input", { action: touch.action, part: "intent", box: selectedId });
+    const detail = { action: touch.action, part: "intent", box: selectedId };
+    if (touch.action === "response-scroll")
+      Object.assign(detail, { dir: p.clientY < touch.y ? "up" : "down", far: dy >= NO_SCROLL_PX, lag: lagOf(e) });
+    if (touch.scroller) {
+      const at = measure(touch.scroller);
+      detail.edge = at.edge;
+      // a finger moving down pulls the response towards its top edge
+      const into = detail.dir === "down" ? "top" : "bottom";
+      if (at.range >= 2 && at.edge !== into && at.top === touch.top && !touch.count) {
+        const t = touch;
+        t.armed = true;
+        t.timer = setTimeout(() => judge(t, null), NO_SCROLL_MS);
+      }
+    }
+    tracePhone("note", "input", detail);
     traceFrameOpportunity(touch.action);
   }, { capture: true, passive: true });
-  const finishTouch = () => {
-    if (touch) tracePhone("note", "input", { action: touch.action, part: "touch-end", box: selectedId });
+  // after every page handler has had the move: whether one cancelled the pan,
+  // and whether an edge pull or a card swipe began on this touch
+  addEventListener("touchmove", e => {
+    const t = touch;
+    if (!t?.scroller) return;
+    if (e.defaultPrevented) t.prevented = true;
+    if (t.dragging) return;
+    const cls = document.body.classList;
+    if (cls.contains("menudrag")) taken(t, "drawer");
+    else if (cls.contains("carddrag")) taken(t, "cardswipe");
+  }, { passive: true });
+  document.addEventListener("focusin", () => { if (touch?.scroller) taken(touch, "focus"); }, true);
+  const finishTouch = e => {
+    const t = touch;
     touch = null;
+    if (!t?.action) return;
+    const part = e.type === "touchcancel" ? "touch-cancel" : "touch-end";
+    if (!t.scroller) {
+      tracePhone("note", "input", { action: t.action, part, box: selectedId });
+      return;
+    }
+    const now = performance.now(), end = t.scroller.isConnected ? measure(t.scroller) : null;
+    t.ended = now;
+    tracePhone("note", "input", { action: t.action, part, box: selectedId,
+      moved: end ? Math.abs(end.top - t.top) : undefined, count: t.count, ms: now - t.start,
+      same: !!end && !!t.scroller.closest(".box.sel"), prevented: t.prevented });
+    judge(t, end);
+    const watch = swapWatch;
+    setTimeout(() => {
+      if (swapWatch !== watch) return;
+      watch?.disconnect();
+      swapWatch = null;
+    }, AFTER_TOUCH_MS);
   };
   document.addEventListener("touchend", finishTouch, { capture: true, passive: true });
   document.addEventListener("touchcancel", finishTouch, { capture: true, passive: true });
   document.addEventListener("scroll", e => {
     const target = e.target;
+    const t = touch?.scroller === target ? touch : null;
+    if (t) {
+      t.count++;
+      if (t.armed) { t.armed = false; clearTimeout(t.timer); }
+    }
     if (!target.matches?.(".replyview") || !target.closest(".box.sel")) return;
     if (!scrollRun) {
-      scrollRun = { at: performance.now(), count: 0 };
-      tracePhone("note", "scroll", { action: "response-scroll", phase: "start", box: selectedId });
+      const now = performance.now();
+      // how long after the finger came down the first scroll arrived
+      const from = t || (lastTouch?.scroller === target && now - lastTouch.ended <= AFTER_TOUCH_MS ? lastTouch : null);
+      scrollRun = { at: now, count: 0 };
+      tracePhone("note", "scroll", { action: "response-scroll", phase: "start", box: selectedId,
+        wait: from ? now - from.start : undefined });
       traceFrameOpportunity("response-scroll");
     }
     scrollRun.count++;
@@ -3937,7 +4074,7 @@ async function saveDiagnostic(source = "settings"){
     diagnosticRetry = outcome !== "saved" && outcome !== "saved-legacy";
     const messages = {
       saved: "Diagnostic history saved on the Mac.",
-      "saved-legacy": "History saved, but Enter details need the updated server. Restart Facilitator, then record again.",
+      "saved-legacy": "History saved, but Enter or scroll details need the updated server. Restart Facilitator, then record again.",
       offline: "Offline. History is held in this page. Reconnect and retry.",
       limited: "Too many saves this minute. History is held in this page. Retry shortly.",
       busy: "A diagnostic save is already running. Try again shortly.",

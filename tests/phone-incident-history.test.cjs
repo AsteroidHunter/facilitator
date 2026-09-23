@@ -11,7 +11,9 @@ function fixture(name = "phone") {
   const timers = new Map(), intervals = [], windowEvents = {}, documentEvents = {}, calls = [], beacons = [];
   const listen = store => (name, fn) => (store[name] ||= []).push(fn);
   const fire = (store, name, value = {}) => { for (const fn of store[name] || []) fn(value); };
-  const document = { hidden: false, addEventListener: listen(documentEvents) };
+  const classes = new Set();
+  const body = { classList: { contains: name => classes.has(name) } };
+  const document = { hidden: false, addEventListener: listen(documentEvents), body, activeElement: body };
   const navigator = { onLine: true, sendBeacon: (url, body) => { beacons.push({ url, body }); return true; } };
   const context = vm.createContext({
     Blob, AbortController, URL, Promise, console, document, navigator,
@@ -27,16 +29,20 @@ function fixture(name = "phone") {
       }
       calls.push(JSON.parse(init.body));
       if (answer === "throw") throw new Error("fixture telemetry failure");
+      // a receiver still on schema 4, which refuses a v5 history outright
+      if (answer === "v4" && calls.at(-1).reports[0].v === 5) return { ok: false, status: 400 };
       if (answer === "timeout") return new Promise((resolve, reject) => init.signal.addEventListener("abort", () => reject(new Error("aborted"))));
       if (answer === "status") return { ok: false };
-      return { ok: true, json: async () => ({ ok: true, written: answer === "saved" ? 1 : 0, dropped: answer === "saved" ? 0 : 1 }) };
+      const stored = answer === "saved" || answer === "v4";
+      return { ok: true, json: async () => ({ ok: true, written: stored ? 1 : 0, dropped: stored ? 0 : 1 }) };
     },
   });
   context.window = context;
   vm.runInContext(source, context);
   context.startReporter(name);
   return {
-    context, history: context.phoneHistory, calls, beacons, navigator,
+    context, history: context.phoneHistory, calls, beacons, navigator, document, classes,
+    fireDocument: (name, value) => fire(documentEvents, name, value),
     now: value => { now = value; }, answer: value => { answer = value; },
     tick: ms => { for (const interval of intervals) if (interval.ms === ms) interval.fn(); },
     hidden(value) { document.hidden = value; fire(documentEvents, "visibilitychange"); },
@@ -437,4 +443,256 @@ test("desktop reporters retain their existing batching without starting phone hi
   assert.equal(batch.reports.length, 1);
   assert.equal(batch.reports[0].count, 2);
   assert.equal(plain(batch.reports[0]).kind, "render");
+});
+
+// ---- schema 5: a swipe on the response -------------------------------------------
+// The phone page's own gesture block, cut out of m.html by its two markers and
+// run against this recorder with a stand-in response scroller. No browser and
+// no layout: the scroller's numbers are set by hand.
+const phoneSource = readFileSync(path.join(__dirname, "..", "m.html"), "utf8");
+function gestureBlock() {
+  const first = "// Keep only the start, first intended move, and end of a gesture.";
+  const start = phoneSource.indexOf(first), end = phoneSource.indexOf("// ---- the startup curtain", start);
+  assert.ok(start >= 0 && end > start && phoneSource.indexOf(first, start + 1) < 0, "the gesture block moved");
+  return phoneSource.slice(start, end);
+}
+// a response 500px tall holding 1500px, 400px down: range 1000, in the middle
+function responseScroller({ top = 400, height = 500, full = 1500 } = {}) {
+  const view = { scrollTop: top, clientHeight: height, scrollHeight: full, isConnected: true,
+    selected: true, reply: {},
+    matches: selector => selector === ".replyview",
+    closest: selector => !view.selected ? null
+      : selector === ".box.sel .replyview" ? view : selector === ".box.sel" ? {} : null,
+    querySelector: selector => selector === ":scope > .reply" ? view.reply : null,
+    getBoundingClientRect: () => ({ left: 0, right: 390, top: 100, bottom: 700 }) };
+  return view;
+}
+// a layer over the page, found by the one selector that names it
+const layerTarget = (selector, side) => ({ closest: asked =>
+  asked === selector ? {} : asked === "#drawer, #settings" ? { dataset: { side } } : null });
+function gesture(schema = 5, shape) {
+  const f = fixture();
+  f.history.capability(schema);
+  const view = responseScroller(shape), observers = [];
+  Object.assign(f.context, {
+    innerWidth: 390, selectedId: "m12", hist: null, els: { m12: { replyview: view } },
+    menuOut: () => null, phoneEnterRole: () => "other", traceFrameOpportunity: () => {},
+    MutationObserver: class {
+      constructor(fn) { this.fn = fn; observers.push(this); }
+      observe(target) { this.target = target; }
+      disconnect() { this.target = null; }
+    },
+  });
+  vm.runInContext("function tracePhone(action, ...args){ try { return window.phoneHistory?.[action](...args); } catch (_) {} }", f.context);
+  vm.runInContext(gestureBlock(), f.context);
+  let at = 0;
+  const touches = (x, y) => [{ clientX: x, clientY: y }];
+  return { ...f, view,
+    at(ms) { at = ms; f.now(ms); },
+    down(x, y, target = view) { f.fireDocument("touchstart", { touches: touches(x, y), target, timeStamp: at - 4 }); },
+    // the page's capture listener first, then the window's after every handler
+    move(x, y, { target = view, prevented = false } = {}) {
+      const e = { touches: touches(x, y), target, timeStamp: at - 3, defaultPrevented: prevented };
+      f.fireDocument("touchmove", e);
+      f.fire("touchmove", e);
+    },
+    up(type = "touchend") { f.fireDocument(type, { type, touches: [] }); },
+    scroll() { f.fireDocument("scroll", { target: view }); },
+    swapReply() { for (const o of observers) if (o.target === view.reply) o.fn([]); },
+    async inspect(ms) {
+      const pending = f.history.mark("settings");
+      this.at(ms); await f.run(); await pending;
+      return latest(f);
+    },
+  };
+}
+const bare = ({ visible, online, resume, ...e }) => e;
+const gestureEvent = (report, part) => report.events.find(e => e.event === "input" && e.part === part);
+
+test("a swipe that moves nothing saves a no-scroll incident carrying every new gesture field", async () => {
+  const g = gesture();
+  g.at(1000); g.down(200, 600);
+  g.at(1016); g.move(200, 588);            // the intent: 12px up, not yet far
+  g.at(1100); g.move(200, 560);            // 40px: far
+  g.at(1315); await g.run();
+  assert.equal(g.calls.length, 0);
+  g.at(1316); await g.run();               // NO_SCROLL_MS after the intent, finger still down
+  g.at(1400); g.up("touchcancel");
+  g.at(21316); await g.run();
+  assert.equal(g.calls.length, 1);
+  const report = latest(g);
+  assert.equal(report.v, 5);
+  assert.equal(report.reason, "no-scroll");
+  assert.equal(report.box, "m12");
+  assert.deepEqual(bare(gestureEvent(report, "touch")), { event: "input", action: "response-scroll",
+    part: "touch", box: "m12", top: 400, range: 1000, view: 500, edge: "middle", hist: false,
+    kb: false, focus: "none", lag: 4, at: -316 });
+  assert.deepEqual(bare(gestureEvent(report, "intent")), { event: "input", action: "response-scroll",
+    part: "intent", box: "m12", dir: "up", far: false, edge: "middle", lag: 3, at: -300 });
+  assert.deepEqual(bare(report.events.find(e => e.event === "mark")),
+    { event: "mark", reason: "no-scroll", box: "m12", at: 0 });
+  assert.deepEqual(bare(gestureEvent(report, "touch-cancel")), { event: "input", action: "response-scroll",
+    part: "touch-cancel", box: "m12", moved: 0, count: 0, ms: 400, same: true, prevented: false, at: 84 });
+  assert.doesNotMatch(JSON.stringify(report), /clientX|clientY|"x"|"y"/);
+});
+
+test("a finger lifted before the wait is judged at touch end, and only a far one saves", async () => {
+  for (const [to, saves] of [[580, false], [540, true]]) {
+    const g = gesture();
+    g.at(1000); g.down(200, 600);
+    g.at(1016); g.move(200, 588);
+    g.at(1060); g.move(200, to);           // 20px is a finger settling, 60px is a swipe
+    g.at(1090); g.up();
+    g.at(1400); await g.run();
+    g.at(22000); await g.run();
+    assert.equal(g.calls.length, saves ? 1 : 0, `a ${600 - to}px move`);
+    if (saves) assert.equal(latest(g).reason, "no-scroll");
+  }
+});
+
+test("no save at an edge the finger pushes into, or with nothing to scroll; the intent says which", async () => {
+  for (const [shape, dir, edge, saves] of [
+    [{ top: 0 }, "down", "top", false],
+    [{ top: 1000 }, "up", "bottom", false],
+    [{ full: 501 }, "up", "none", false],
+    [{ top: 0 }, "up", "top", true],       // leaving the top edge is a scroll that should happen
+  ]) {
+    const g = gesture(5, shape), step = dir === "up" ? -1 : 1;
+    g.at(1000); g.down(200, 600);
+    g.at(1016); g.move(200, 600 + step * 12);
+    g.at(1100); g.move(200, 600 + step * 60);
+    g.at(1400); await g.run(); g.up();
+    g.at(30000); await g.run();
+    assert.equal(g.calls.length, saves ? 1 : 0, JSON.stringify(shape) + dir);
+    const report = saves ? latest(g) : await g.inspect(60000);
+    assert.equal(gestureEvent(report, "intent").edge, edge);
+    assert.equal(gestureEvent(report, "intent").dir, dir);
+  }
+});
+
+test("no save once the response scrolled, and the first scroll says how long it took", async () => {
+  const g = gesture();
+  g.at(1000); g.down(200, 600);
+  g.at(1016); g.move(200, 588);
+  g.at(1050); g.scroll(); g.view.scrollTop = 430;
+  g.at(1100); g.move(200, 540);
+  g.at(1400); await g.run(); g.up();
+  g.at(30000); await g.run();
+  assert.equal(g.calls.length, 0);
+  const report = await g.inspect(60000);
+  assert.equal(report.events.find(e => e.event === "scroll" && e.phase === "start").wait, 50);
+  const end = gestureEvent(report, "touch-end");
+  assert.equal(end.count, 1);
+  assert.equal(end.moved, 30);
+  assert.equal(end.same, true);
+});
+
+test("taken, reply swaps, prevented pans and a replaced response are recorded without coordinates", async () => {
+  const g = gesture();
+  const swipe = async (start, fn) => { g.at(start); await fn(); await g.run(); };
+  await swipe(1000, () => {                // an edge pull from the response
+    g.down(10, 600); g.classes.add("menudrag"); g.move(40, 602, { prevented: true }); g.up();
+    g.classes.delete("menudrag");
+  });
+  await swipe(2000, () => {                // a card swipe from the response
+    g.down(200, 600); g.classes.add("carddrag"); g.move(150, 601, { prevented: true }); g.up();
+    g.classes.delete("carddrag");
+  });
+  await swipe(3000, () => {                // focus taken, then the reply replaced and the card redrawn
+    g.down(200, 600); g.fireDocument("focusin", {});
+    g.context.hist = { id: "m12", step: 1 }; g.swapReply();
+    g.view.isConnected = false; g.up();
+  });
+  g.view.isConnected = true; g.context.hist = null;
+  g.context.menuOut = () => ({ dataset: { side: "left" } });
+  // a vertical swipe over the response that the shade, the curtain or a
+  // leaving menu caught instead
+  for (const [start, target] of [[4000, layerTarget("#scrim")], [5000, layerTarget("#loading")],
+    [6000, layerTarget("#drawer:not(.open), #settings:not(.open)", "right")]])
+    await swipe(start, () => { g.down(200, 600, target); g.move(200, 560, { target }); g.up(); });
+  await swipe(7000, () => { g.down(200, 300, layerTarget("#scrim")); g.move(260, 302); g.up(); });   // sideways: not taken
+  const report = await g.inspect(30000);
+  const taken = report.events.filter(e => e.part === "taken").map(e => [e.by, e.side]);
+  assert.deepEqual(taken, [["drawer", undefined], ["cardswipe", undefined], ["focus", undefined],
+    ["scrim", "left"], ["curtain", undefined], ["panel", "right"]]);
+  const ends = report.events.filter(e => e.part === "touch-end");
+  assert.deepEqual(ends.map(e => e.prevented), [true, true, false]);
+  assert.equal(ends[2].same, false);
+  assert.equal("moved" in ends[2], false, "a detached response was read");
+  const swap = report.events.find(e => e.part === "reply-swap");
+  assert.deepEqual(bare(swap), { event: "phase", action: "response-scroll", part: "reply-swap",
+    box: "m12", hist: true, ms: 0, at: swap.at });
+  const allowed = new Set(["event", "at", "visible", "online", "resume", "action", "part", "box", "top",
+    "range", "view", "edge", "hist", "kb", "focus", "lag", "dir", "far", "moved", "count", "ms", "same",
+    "prevented", "by", "side", "phase", "wait", "reason", "source", "lifecycle", "selected"]);
+  for (const e of report.events) for (const key of Object.keys(e)) assert.ok(allowed.has(key), key);
+});
+
+test("a stuck card saves once per 120 seconds, inside the shared cooldown, only on schema 5", async () => {
+  const f = fixture();
+  f.history.capability(4);
+  assert.equal(f.history.noScroll("m12"), false, "a schema-4 receiver has no no-scroll reason");
+  f.history.capability(5);
+  assert.equal(f.history.noScroll("person@example.invalid"), false);
+  f.now(1000); assert.equal(f.history.noScroll("m12"), true);
+  f.now(21000); await f.run();
+  f.now(40000); assert.equal(f.history.noScroll("m12"), false, "the same card saved again inside 120 s");
+  assert.equal(f.history.noScroll("m13"), true, "another card waits only for the shared cooldown");
+  f.now(60000); await f.run();
+  f.now(65000); assert.equal(f.history.noScroll("m14"), false, "the shared 30 s cooldown");
+  f.now(71000); assert.equal(f.history.noScroll("m14"), true, "held back by the shared cooldown is not stuck");
+  f.now(91000); await f.run();
+  f.now(120999); assert.equal(f.history.noScroll("m12"), false);
+  f.now(121000); assert.equal(f.history.noScroll("m12"), true);
+  f.now(141000); await f.run();
+  assert.deepEqual(f.calls.map(c => [c.reports[0].reason, c.reports[0].box]),
+    [["no-scroll", "m12"], ["no-scroll", "m13"], ["no-scroll", "m14"], ["no-scroll", "m12"]]);
+  assert.equal(latest(f).suppressed, 3);
+  f.hidden(true);
+  f.now(300000); assert.equal(f.history.noScroll("m15"), false, "a hidden page saves nothing");
+});
+
+test("a schema-4 receiver is sent the history without the new fields and parts", async () => {
+  const played = async g => {
+    g.history.note("enter", { step: "capture", branch: "seen", base: 812, inner: 764, vh: 696, vt: 0,
+      scale: 100, kb: true, target: "textarea", focus: "textarea", draft: true, prevented: false });
+    g.at(1000); g.down(200, 600);
+    g.at(1016); g.move(200, 588);
+    g.at(1030); g.scroll(); g.fireDocument("focusin", {}); g.swapReply();
+    g.at(1100); g.up("touchcancel");
+  };
+  const assertV4 = report => {
+    assert.equal(report.v, 4);
+    const gestures = report.events.filter(e => e.event !== "enter");
+    for (const key of ["top", "range", "view", "edge", "hist", "focus", "lag", "dir", "far", "wait",
+      "moved", "same", "prevented", "by"])
+      assert.equal(gestures.some(e => key in e), false, key);
+    assert.equal(report.events.some(e => ["taken", "reply-swap", "touch-cancel"].includes(e.part)), false);
+    assert.ok(gestureEvent(report, "touch-end"), "the cancelled touch kept its v4 end");
+    const enter = report.events.find(e => e.event === "enter");
+    assert.equal(enter.focus, "textarea");
+    assert.equal(enter.prevented, false);
+  };
+  // a v5 history refused by a receiver rolled back under the open page
+  const stale = gesture(5); stale.answer("v4");
+  await played(stale);
+  const pending = stale.history.mark("settings");
+  stale.at(30000); await stale.run();
+  assert.equal((await pending).status, "saved-legacy");
+  assert.deepEqual(stale.calls.map(c => c.reports[0].v), [5, 4]);
+  assert.ok(gestureEvent(stale.calls[0].reports[0], "taken"), "the v5 attempt carried the new parts");
+  assertV4(latest(stale));
+  // a page told schema 4 from the start never sends them
+  const old = gesture(4);
+  await played(old);
+  const saved = old.history.mark("settings");
+  old.at(30000); await old.run();
+  assert.equal((await saved).status, "saved-legacy");
+  assert.deepEqual(old.calls.map(c => c.reports[0].v), [4]);
+  assertV4(latest(old));
+  // a no-scroll save has no v4 form, so it is not downgraded and stays held
+  const stuck = fixture(); stuck.history.capability(5); stuck.answer("v4");
+  stuck.now(1000); stuck.history.noScroll("m12");
+  stuck.now(21000); await stuck.run();
+  assert.deepEqual(stuck.calls.map(c => [c.reports[0].v, c.reports[0].reason]), [[5, "no-scroll"]]);
 });

@@ -397,7 +397,7 @@ test("v4 keeps bounded Enter decisions and rejects private or malformed fields",
     r => { delete r.events[0].step; },
     r => { r.events[2].inputType = "insertText"; },
     r => { r.events[3].keyCode = 13; },
-    r => { r.v = 5; },
+    r => { r.v = 6; },
   ];
   for (const mutate of changes) {
     const bad = structuredClone(revised); mutate(bad);
@@ -443,7 +443,7 @@ test("different incident reasons, cards and operation ids share the four-write m
 test("only the three phone operation routes expose a numeric server duration", async () => {
   const state = await fetch(origin + "/m/state");
   assert.match(state.headers.get("x-facilitator-duration-ms"), /^\d+$/);
-  assert.equal((await state.json()).incidentSchema, 4);
+  assert.equal((await state.json()).incidentSchema, 5);
   const ordinary = await fetch(origin + "/state");
   assert.equal(ordinary.headers.get("x-facilitator-duration-ms"), null);
   await ordinary.arrayBuffer();
@@ -453,4 +453,52 @@ test("only the three phone operation routes expose a numeric server duration", a
     assert.match(response.headers.get("x-facilitator-duration-ms"), /^\d+$/);
     await response.arrayBuffer();
   }
+});
+
+// Last, because the four incident writes a minute are spent above: a v5 history
+// this receiver reads is answered 200 and counted as dropped, and one it cannot
+// read is a 400. The written v5 lines are in tests/test_incident_route.py.
+test("v5 response gesture fields pass validation, are bounded, and are refused by older versions", async () => {
+  await reportsSince();
+  const v5 = incident();
+  Object.assign(v5, { v:5, reason:"no-scroll", build:"phone-scroll-diag-test",
+    worker:"facilitator-m-7", session:"0123456789abcdef" });
+  v5.events = [
+    { event:"input", action:"response-scroll", part:"touch", box:"m12", top:120, range:900,
+      view:500, edge:"middle", hist:false, kb:false, focus:"none", lag:4,
+      at:-400, visible:true, online:true, resume:1 },
+    { event:"input", action:"response-scroll", part:"intent", box:"m12", dir:"up", far:true,
+      edge:"middle", lag:3, at:-380, visible:true, online:true, resume:1 },
+    { event:"mark", reason:"no-scroll", box:"m12", at:0, visible:true, online:true, resume:1 },
+    { event:"input", action:"response-scroll", part:"touch-cancel", box:"m12", moved:0, count:0,
+      ms:450, same:true, prevented:false, at:50, visible:true, online:true, resume:1 },
+    { event:"phase", action:"response-scroll", part:"reply-swap", box:"m12", hist:true, ms:600,
+      at:200, visible:true, online:true, resume:1 },
+    { event:"scroll", action:"response-scroll", phase:"start", box:"m12", wait:900,
+      at:500, visible:true, online:true, resume:1 },
+  ];
+  assert.deepEqual(await send({ page:"phone", reports:[v5] }),
+    { status:200, body:{ ok:true, written:0, dropped:1 } });
+  const changes = [
+    r => { r.v = 4; },                                   // a v4 receiver has no no-scroll reason
+    r => { r.v = 4; r.reason = "manual"; r.events[2].reason = "manual"; },   // nor these fields
+    r => { r.events[0].edge = "left"; },
+    r => { r.events[0].top = 1.5; },
+    r => { r.events[0].range = 1000001; },
+    r => { r.events[0].x = 180; },
+    r => { r.events[1].dir = "sideways"; },
+    r => { r.events[1].far = "yes"; },
+    r => { r.events[0].focus = "private field"; },
+    r => { r.events[3].part = "touch-lost"; },
+    r => { r.events[2].reason = "manual"; },
+    r => { r.events.splice(1, 0, { event:"request", phase:"end", top:5, at:-390,
+      visible:true, online:true, resume:1 }); },         // gesture fields only on gesture events
+    r => { r.events.splice(1, 0, { event:"input", action:"response-scroll", part:"taken",
+      by:"private handler", at:-390, visible:true, online:true, resume:1 }); },
+  ];
+  for (const mutate of changes) {
+    const bad = structuredClone(v5); mutate(bad);
+    assert.equal((await send({ page:"phone", reports:[bad] })).status, 400, JSON.stringify(bad).slice(0, 120));
+  }
+  assert.equal((await reportsSince()).filter(r => r.kind === "incident").length, 0);
 });

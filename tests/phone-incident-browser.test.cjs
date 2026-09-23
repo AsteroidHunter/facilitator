@@ -250,7 +250,7 @@ test("formatted Enter records capture, editor decision, send result, Shift and c
   await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent ===
     "Diagnostic history saved on the Mac.", { polling:25 });
   const saved = (await f.readLog()).find(r => r.kind === "incident" && r.reason === "manual");
-  assert.equal(saved.v, 4);
+  assert.equal(saved.v, 5);
   const entered = saved.events.filter(e => e.event === "enter");
   assert.ok(entered.some(e => e.step === "capture" && e.kb === false && e.draft &&
     e.base - e.vh >= 56 && e.base - e.vh <= 64), JSON.stringify(entered));
@@ -291,7 +291,7 @@ test("plain software Return records line insertion, then hardware Enter sends", 
   await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent ===
     "Diagnostic history saved on the Mac.", { polling:25 });
   const saved = (await f.readLog()).find(r => r.kind === "incident" && r.reason === "manual");
-  assert.equal(saved.v, 4);
+  assert.equal(saved.v, 5);
   const entered = saved.events.filter(e => e.event === "enter");
   assert.ok(entered.some(e => e.step === "handler" && e.branch === "keyboard" && e.kb === true), JSON.stringify(entered));
   assert.ok(entered.some(e => e.step === "beforeinput" && e.branch === "line-intent"));
@@ -311,7 +311,7 @@ test("actual schema-3 receiver saves ordinary history and explains omitted Enter
   await shiftEnter(page);
   await page.evaluate(() => document.getElementById("savediagnostic").click());
   await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent.startsWith(
-    "History saved, but Enter details need the updated server."), { polling:25 });
+    "History saved, but Enter or scroll details need the updated server."), { polling:25 });
   const first = (await f.readLog()).find(r => r.kind === "incident" && r.reason === "manual");
   assert.equal(first.v, 3);
   assert.equal(first.events.some(e => e.event === "enter"), false);
@@ -319,7 +319,7 @@ test("actual schema-3 receiver saves ordinary history and explains omitted Enter
   assert.equal(f.requests.filter(b => b.reports[0].reason === "manual").length, 1);
   await page.evaluate(() => { phoneHistory.capability(4); document.getElementById("savediagnostic").click(); });
   await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent.startsWith(
-    "History saved, but Enter details need the updated server."), { polling:25 });
+    "History saved, but Enter or scroll details need the updated server."), { polling:25 });
   const attempts = f.requests.filter(b => b.reports[0].reason === "manual");
   assert.equal(attempts.length, 3, "stale capability did not retry the strict v3 receiver");
   assert.deepEqual(attempts.slice(-2).map(b => b.reports[0].v), [4,3]);
@@ -371,7 +371,7 @@ test("Enter pressure keeps recent bounded evidence and never accepts draft text"
   await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent ===
     "Diagnostic history saved on the Mac.", { polling:25 });
   const saved = (await f.readLog()).find(r => r.kind === "incident" && r.reason === "manual");
-  assert.equal(saved.v, 4);
+  assert.equal(saved.v, 5);
   assert.ok(saved.events.some(e => e.event === "enter" && e.step === "capture"));
   assert.ok(saved.lost > 0, "pressure did not report evictions");
   assert.ok(saved.events.length <= 128);
@@ -407,7 +407,7 @@ test("response scrolling and drawer gestures retain frame evidence during a dela
   await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent === "Diagnostic history saved on the Mac.", { polling: 25 });
   const saved = (await f.readLog()).find(r => r.kind === "incident" && r.reason === "manual");
   assert.ok(saved);
-  assert.equal(saved.v, 4);
+  assert.equal(saved.v, 5);
   assert.ok(saved.events.some(e => e.event === "input" && e.action === "response-scroll"));
   assert.ok(saved.events.some(e => e.event === "scroll" && e.phase === "end" && e.count > 0));
   assert.ok(saved.events.some(e => e.event === "input" && e.action === "drawer"));
