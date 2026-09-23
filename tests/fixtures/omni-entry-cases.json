@@ -1,0 +1,31 @@
+{
+  "about": "One table of typed titles read by both sides of the Omni entry rule: card-logic.js omniEntry (tests/omni-card-motion.test.cjs) and server.py _omni_entry (tests/test_omni_entry.py), so the page and the board are held to the same answers. <U+XXXX> stands for that character and <pad:N> for N spaces; both tests decode them the same way.",
+  "accept": [
+    "omni", "Omni", "OMNI", "  omni  ", "omni omni",
+    "omni card", "card omni", "Omni Card", "omni card card", "CARD omni",
+    "omni ticket", "ticket omni", "TICKET OMNI", "ticket ticket omni",
+    "omni card #3", "#3 card omni", "omni card 3", "3 omni card", "card 3 omni card", "omni card #3 #3",
+    "omni ticket #12", "ticket #12 omni", "omni ticket 12", "12 ticket omni", "omni ticket 12 12",
+    "Omni Ticket #1", "Omni Card #7", "Omni Ticket #9007199254740991",
+    "omni<U+00A0>ticket", "omni<U+0009>card", "omni<U+3000>ticket<U+2003>#4",
+    "omni<U+000A>anything on the next line", "omni<U+001C>card extra", "ticket omni<U+2028>more words",
+    "omni<pad:76>extra words past the cut", "omni<pad:70>ticket extra"
+  ],
+  "reject": [
+    "", "   ", "omnibus", "omni-ticket", "omni_card", "omni.", "Omni!", "the omni ticket", "omni ticket please",
+    "omni card ticket", "ticket card", "card", "ticket", "#3", "3",
+    "omni 3", "omni #3", "omni 3 3",
+    "omni card #0", "omni card 0", "omni card #03", "omni card 03", "omni card #-3", "omni card -3",
+    "omni card +3", "omni card 3.0", "omni card #3.", "omni card # 3", "omni card ##3", "omni card 3#",
+    "omni card #3 #4", "omni card #3 3", "omni ticket 3 4", "omni card three", "omni card #x",
+    "omni card 9007199254740992", "omni ticket #99999999999999999999",
+    "omni card <U+0663>", "omni card <U+FF13>", "omni<U+FEFF>card", "omni<U+200B>ticket",
+    "omni<pad:60>ticket extra"
+  ],
+  "canonical": [
+    ["Omni Ticket #1", 1], ["Omni Ticket #42", 42], ["Omni Ticket #9007199254740991", 9007199254740991],
+    ["Omni Ticket #01", null], ["Omni Ticket #0", null], ["Omni Ticket #9007199254740992", null],
+    ["Omni Ticket #<U+0663>", null], ["omni ticket #1", null], ["Omni Card #1", null],
+    ["Omni Ticket 1", null], ["Omni Ticket #1 ", null], ["ticket omni", null]
+  ]
+}
