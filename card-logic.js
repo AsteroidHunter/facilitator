@@ -361,10 +361,53 @@ function omniArt(info, cls){
   image.setAttribute("aria-hidden", "true");
   return image;
 }
+// The card itself reads "Omni Card #N" while the ticket rows keep the stored
+// "Omni Ticket #N", so the two teach a ticket and a card apart. Only the words
+// on the card change: the stored title, the numbering and identity all stay
+// the canonical ones.
+function omniCardTitle(title){
+  const info = omniTicket(title);
+  return info ? "Omni Card #" + info.number : String(title == null ? "" : title);
+}
+// the word that asks the board for an Omni ticket, read as forgivingly as the
+// server reads it: case and the white space around it do not matter
+function omniCommand(text){
+  return String(text == null ? "" : text).trim().toLowerCase() === "omni";
+}
+// the number the board gives the next Omni ticket in a lane, counted the way
+// the server counts it: the highest canonical number already there, plus one.
+// the card shows it the moment the word is committed, and the next reading of
+// the board writes the server's own number over it should the two differ
+function omniNextNumber(boxes, owner){
+  let top = 0;
+  for (const b of boxes || []){
+    if ((b.owner || "facilitator") !== owner) continue;
+    const info = omniTicket(b.title);
+    if (info && info.number > top) top = info.number;
+  }
+  return top + 1;
+}
+// what a committed title does to the card's Omni face: dir is "in" as the card
+// becomes Omni and "out" as it stops being one, and sweep is false where the
+// reader asked for reduced motion, so the face simply changes. a name left as
+// it was, or one that keeps the card on the side it was on, asks for nothing
+function omniRetitle(wasOmni, shown, typed, reduced){
+  const name = String(typed == null ? "" : typed).trim();
+  if (!name || name === shown) return null;
+  const becomes = omniCommand(name) || !!omniTicket(name);
+  const dir = becomes && !wasOmni ? "in" : !becomes && wasOmni ? "out" : null;
+  return dir ? { dir, sweep: !reduced } : null;
+}
 // Keep an expanded card in step when an inline rename crosses into or out of
 // the canonical Omni title. Ticket-list rows rebuild on title changes already.
+// a sweep in flight owns the card's face until it lands, so a reading that
+// arrives meanwhile is kept for it and drawn once the band has passed
 function syncOmniCard(el, b){
   if (!el || !el.box || !el.titleEl) return null;
+  if (el.omniSweep){ el.omniSweep.latest = b; return omniTicket(b && b.title); }
+  return paintOmniCard(el, b);
+}
+function paintOmniCard(el, b){
   const info = omniTicket(b && b.title);
   el.box.classList.toggle("omni-card", !!info);
   if (el.toc) el.toc.classList.toggle("omni-card", !!info);
@@ -382,6 +425,121 @@ function appendOmniRowArt(row, inner, b){
   row.classList.add("omni-ticket");
   inner.appendChild(omniArt(info, "omni-art"));
   return info;
+}
+
+// ---- the Omni sweep ------------------------------------------------------------
+// a golden band crosses the whole card on its diagonal as a committed title makes
+// it an Omni card, from the bottom left corner to the top right, and runs back
+// from the top right to the bottom left as a card stops being one. the title's
+// words and the art change under the band, in the frame its centre passes them
+const OMNI_SWEEP_MS = 600;
+const OMNI_SWEEP_BAND = 0.14;   // the band's half width, on the sweep's own 0..1 measure
+// ease in and out on a half cosine: quick through the middle, soft at both
+// ends, and never past where it is going
+function omniEase(x){ return (1 - Math.cos(Math.PI * Math.min(Math.max(x, 0), 1))) / 2; }
+// where a point stands on the sweep: 0 at the card's bottom left corner, 1 at
+// its top right, and one value along every line parallel to the other diagonal,
+// which is exactly how a "to top right" gradient lays out its stops
+function omniSweepSpot(frame, x, y){
+  return ((x - frame.left) / frame.width + (frame.bottom - y) / frame.height) / 2;
+}
+// the band's centre at ms into the sweep. it starts wholly off the card and
+// ends wholly off it, so neither end of the run shows an edge
+function omniSweepAt(ms, dir){
+  const k = omniEase(ms / OMNI_SWEEP_MS);
+  return -OMNI_SWEEP_BAND + (dir === "out" ? 1 - k : k) * (1 + 2 * OMNI_SWEEP_BAND);
+}
+function omniSweepPassed(at, spot, dir){ return dir === "out" ? at <= spot : at >= spot; }
+// the title on the sweep's measure: the middle of its words, together with the
+// art beside them when there is art, which is where the change is seen
+function omniTitleSpot(el, frame){
+  const t = el.titleEl;
+  let r = t.getBoundingClientRect();
+  if (t.firstChild && typeof document.createRange === "function"){
+    const rg = document.createRange();
+    rg.selectNodeContents(t);
+    const words = rg.getBoundingClientRect();
+    if (words.width && words.height) r = words;
+  }
+  let { left, top, right, bottom } = r;
+  const art = t.parentNode && t.parentNode.querySelector(".omni-card-art");
+  const a = art && art.getBoundingClientRect();
+  if (a && a.width){
+    left = Math.min(left, a.left); top = Math.min(top, a.top);
+    right = Math.max(right, a.right); bottom = Math.max(bottom, a.bottom);
+  }
+  return omniSweepSpot(frame, (left + right) / 2, (top + bottom) / 2);
+}
+// the card's words and art as one Omni state. the outline keeps the title as
+// it is stored; the words are left alone while the reader is typing in them
+function omniFace(el, title){
+  if (!el.titleEl.isContentEditable) el.titleEl.textContent = omniCardTitle(title);
+  if (el.tocTitle) el.tocTitle.textContent = title;
+  return paintOmniCard(el, { title });
+}
+// a committed name, carried onto the card's face: swept where a card crosses
+// into or out of Omni, at once where the reader asked for reduced motion or
+// the card is not laid out, and an Omni card asked for a fresh number shows
+// the number it is about to get
+function omniRetitleCard(id, shown, name){
+  const el = els[id];
+  if (!el || !el.box || !el.titleEl) return;
+  omniSweepEnd(el);   // a sweep still running lands first
+  const reduced = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+  const plan = omniRetitle(el.box.classList.contains("omni-card"), shown, name, reduced);
+  let title = name;
+  if (omniCommand(name)){
+    const b = stateBoxOf(id);
+    title = "Omni Ticket #" + omniNextNumber(lastState && lastState.boxes, (b && b.owner) || "facilitator");
+  }
+  if (!plan){ if (omniTicket(title)) omniFace(el, title); return; }
+  if (!plan.sweep || !omniSweep(el, plan.dir, title)) omniFace(el, title);
+}
+function omniSweep(el, dir, title){
+  if (typeof requestAnimationFrame !== "function") return false;
+  const band = h("div", "omni-sweep");
+  band.style.setProperty("--omni-at", (omniSweepAt(0, dir) * 100) + "%");
+  el.box.appendChild(band);
+  const frame = band.getBoundingClientRect();
+  if (!frame.width || !frame.height){ band.remove(); return false; }
+  const spot = omniTitleSpot(el, frame);
+  const run = el.omniSweep = { dir, title, band, latest: null, crossed: false, start: null, frame: 0, timer: 0 };
+  const tick = now => {
+    if (el.omniSweep !== run) return;
+    if (run.start == null) run.start = now;
+    const ms = now - run.start;
+    const at = omniSweepAt(ms, dir);
+    band.style.setProperty("--omni-at", (at * 100).toFixed(2) + "%");
+    if (!run.crossed && omniSweepPassed(at, spot, dir)) omniSweepCross(el, run);
+    if (ms >= OMNI_SWEEP_MS) omniSweepEnd(el);
+    else run.frame = requestAnimationFrame(tick);
+  };
+  run.frame = requestAnimationFrame(tick);
+  // a page out of sight draws no frames, and the card still has to land
+  run.timer = setTimeout(() => { if (el.omniSweep === run) omniSweepEnd(el); }, OMNI_SWEEP_MS + 250);
+  return true;
+}
+// a reading that arrived during the sweep speaks for the card only when it is
+// already on the side the sweep is taking the card to. one fetched before the
+// board had the new name would put the old face back under the band
+function omniSweepFresh(run){
+  return !!(run.latest && (!!omniTicket(run.latest.title)) === (run.dir === "in"));
+}
+function omniSweepCross(el, run){
+  run.crossed = true;
+  // becoming Omni, the card wears the board's own number once a reading has
+  // brought it, and the page's count of it until then
+  omniFace(el, omniSweepFresh(run) ? run.latest.title : run.title);
+}
+function omniSweepEnd(el){
+  const run = el && el.omniSweep;
+  if (!run) return;
+  if (!run.crossed) omniSweepCross(el, run);
+  el.omniSweep = null;
+  if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(run.frame);
+  clearTimeout(run.timer);
+  run.band.remove();
+  if (omniSweepFresh(run)) omniFace(el, run.latest.title);
 }
 // The ready-to-test marker's display gate. The board keeps a durable per-card
 // flag (b.testing); it paints only while the card is actually awaiting the
@@ -1741,6 +1899,9 @@ function editTitle(id, opts){
     if (name && name !== old){
       t.textContent = name;
       if (el.tocTitle) el.tocTitle.textContent = name;
+      // focus is leaving the title, by Tab, Enter or a click away, and a name
+      // crossing into or out of Omni sweeps the card over in the same moment
+      omniRetitleCard(id, old, name);
       fetch("/title?box=" + encodeURIComponent(id), { method: "POST", body: name })
         .then(() => poll()).catch(() => {});
     } else if (!name && !old){
