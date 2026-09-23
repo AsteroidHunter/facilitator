@@ -116,7 +116,7 @@ Endpoints:
                                show a picture on the board without writing a file
                                into this repo
   GET  /cm-markdown.js      -> the vendored CodeMirror 6 bundle beside index.html,
-                               fetched the first time the markdown panel opens
+                               fetched the first time the file navigator opens a file
   GET  /card-markdown.js    -> the shared, finite card-prose renderer used by
                                the board, page view and small card
   GET  /card-tokens.css     -> the card's shared sheet: the colour and font
@@ -180,7 +180,7 @@ Endpoints:
                                Progress notes never push. A subscription the
                                push service reports gone (404, 410) is dropped
   POST /push/unsubscribe    -> JSON {endpoint}; remove this phone's subscription
-  GET  /mdfiles?lane=L&kind=K&rel=D -> the navigator's listing. Always the two
+  GET  /navfiles?lane=L&kind=K&rel=D -> the navigator's listing. Always the two
                                folders lane L owns (its internal folder and its
                                wiki, both named after the lane's own directory),
                                each with the kind it answers to and whether it
@@ -197,7 +197,7 @@ Endpoints:
                                folder holding a large archive costs nothing until
                                opened. A missing or empty directory, and a lane the
                                panel is not mounted on, come back present-and-empty
-  GET  /mdfile?lane=L&root=R&rel=P -> one text file's whole text plus the stamp
+  GET  /navfile?lane=L&root=R&rel=P -> one text file's whole text plus the stamp
                                the save guard wants back, and crlf saying which
                                line endings it arrived in. R has to be one of lane
                                L's own two folder names, so one lane asking for
@@ -213,17 +213,17 @@ Endpoints:
                                cap (413), and actual text: not a recognized binary
                                type by extension and not bytes that merely decode
                                as utf-8 (415)
-  GET  /mdimg?lane=L&root=R&rel=P -> one in-root image for the inline preview.
-                               Same lane and path rules as /mdfile. The target has
+  GET  /navimg?lane=L&root=R&rel=P -> one in-root image for the inline preview.
+                               Same lane and path rules as /navfile. The target has
                                to be a regular file whose extension is an image
                                type (415 otherwise) under a conservative size cap
                                (413). Served with nosniff and a sandbox CSP like
                                /uploads, so even an SVG runs no script; the bytes
                                are loaded into an <img>, never injected into the
                                board
-  POST /mdsave?lane=L&root=R&rel=P&mtime=S -> body = the file's whole new text,
+  POST /navsave?lane=L&root=R&rel=P&mtime=S -> body = the file's whole new text,
                                raw and unstripped. Same lane and path rules as
-                               /mdfile. The target has to already exist as a
+                               /navfile. The target has to already exist as a
                                regular file (the navigator creates nothing), what
                                is on disk now has to itself be text (415, so a
                                binary is never overwritten by a text body) and the
@@ -517,17 +517,33 @@ def _image_panel_lane() -> str:
     return str(cfg.get("image_panel_lane") or "").strip()
 
 
-def _markdown_lanes() -> tuple:
-    """The lanes the markdown panel is mounted on, read from run.config.json
-    (machine-local, gitignored). Empty when unset, which leaves the panel off on
-    every tab. A lane not listed here has no markdown folders and every markdown
-    route refuses it."""
+def _navigator_lanes() -> tuple:
+    """The lanes the file navigator is mounted on, read from run.config.json
+    (machine-local, gitignored) under `navigator_lanes`. Empty when unset, which
+    leaves the navigator off on every tab. A lane not listed here has no navigator
+    folders and every navigator route refuses it. The former key `markdown_lanes`
+    is no longer read; _warn_legacy_config names its replacement once at startup if
+    it is still present."""
     try:
         cfg = json.loads((HERE / "run.config.json").read_text())
     except Exception:
         return ()
-    lanes = cfg.get("markdown_lanes") or []
+    lanes = cfg.get("navigator_lanes") or []
     return tuple(x.strip() for x in lanes if isinstance(x, str) and x.strip())
+
+
+def _warn_legacy_config() -> None:
+    """One startup line when run.config.json still carries a config key this
+    server no longer reads, naming the key that replaced it. Best-effort and read
+    fresh: a missing or unreadable config is simply nothing to warn about. Today
+    that is `markdown_lanes`, which became `navigator_lanes` when the panel it
+    named became the file navigator."""
+    try:
+        cfg = json.loads((HERE / "run.config.json").read_text())
+    except Exception:
+        return
+    if isinstance(cfg, dict) and "markdown_lanes" in cfg:
+        _warning("stale_config", key="markdown_lanes", use="navigator_lanes")
 
 
 def _spotify_client_id() -> str:
@@ -694,6 +710,10 @@ def _info(kind: str, box: str = "", /, **fields) -> None:
 
 def _debug(kind: str, box: str = "", /, **fields) -> None:
     _event(logging.DEBUG, kind, box, **fields)
+
+
+def _warning(kind: str, box: str = "", /, **fields) -> None:
+    _event(logging.WARNING, kind, box, **fields)
 
 
 def _error(kind: str, box: str = "", /, **fields) -> None:
@@ -1060,7 +1080,7 @@ KEEP_ALIVE_TIMEOUT = 5          # seconds an idle kept-alive connection is held 
 WRITE_STALL_TIMEOUT = 30.0      # seconds an answer may sit unread in a full socket before the connection is cut
 BODY_READ_TIMEOUT = 30.0        # seconds a request body may take to arrive
 GRACEFUL_STOP_TIMEOUT = 3       # seconds a stop waits for open requests before cutting them
-MAX_TEXT_BODY = 1024 * 1024     # bytes of a plain text body: a message, a reply, a markdown file
+MAX_TEXT_BODY = 1024 * 1024     # bytes of a plain text body: a message, a reply, a text file
 MAX_UPLOAD_BODY = 100 * 1024 * 1024   # bytes of one attachment
 MAX_IMG_PREVIEW = 25 * 1024 * 1024    # bytes of an in-root image the navigator will preview inline
 # the control bytes a real text file never carries: every C0 control except tab,
@@ -1248,7 +1268,7 @@ def _lane_internal(lane: str) -> Path | None:
     return Path(d) / (lane + "-internal") if d else None
 
 
-# the lanes the markdown editor is mounted on, and the two folders each of them
+# the lanes the file navigator is mounted on, and the two folders each of them
 # may read and write: that lane's own internal folder and its wiki beside it.
 # The folder names come off the lane's own directory and not its owner id,
 # because a lane can be named for its work while its folder is named for its
@@ -1257,11 +1277,11 @@ def _lane_internal(lane: str) -> Path | None:
 # gets into tracked source and a lane moved on disk carries its folders with it.
 # The lane list is what makes this a fence: a lane not on it has no folders at
 # all here, and every route below then refuses it.
-MD_LANES = _markdown_lanes()
-MD_KINDS = ("internal", "wiki")
+NAV_LANES = _navigator_lanes()
+NAV_KINDS = ("internal", "wiki")
 
 
-def _md_roots(lane: str) -> list[tuple]:
+def _nav_roots(lane: str) -> list[tuple]:
     """One lane's allowed folders as (kind, folder) pairs, fully resolved, in the
     order the page's head offers them. Resolved once here so every path check
     downstream compares real paths against real paths: a root that is itself
@@ -1270,11 +1290,11 @@ def _md_roots(lane: str) -> list[tuple]:
     that could not be resolved at all takes only its own place out of the list.
     A lane the panel is not mounted on, and a lane nobody has heard of, yield
     nothing, and every route then refuses."""
-    d = _lane_pwds().get(lane) if lane in MD_LANES else None
+    d = _lane_pwds().get(lane) if lane in NAV_LANES else None
     if not d:
         return []
     out = []
-    for kind in MD_KINDS:
+    for kind in NAV_KINDS:
         try:
             out.append((kind, (Path(d) / (Path(d).name + "-" + kind)).resolve()))
         except OSError:
@@ -1282,7 +1302,7 @@ def _md_roots(lane: str) -> list[tuple]:
     return out
 
 
-def _md_path(lane: str, root: str, rel: str) -> Path | None:
+def _nav_path(lane: str, root: str, rel: str) -> Path | None:
     """The file a navigator request names, or None when it is not genuinely one
     of that lane's. root is a folder name and rel is a path under it, and the
     root has to be one of the two this lane itself owns: one lane asking for
@@ -1295,7 +1315,7 @@ def _md_path(lane: str, root: str, rel: str) -> Path | None:
     as is decided by the caller's own regular-file and text checks, not by its
     name. Never the folder itself, and never a path that lands outside the root,
     so a symlink pointing out of the folder still resolves to nothing here."""
-    bases = {p.name: p for _, p in _md_roots(lane)}
+    bases = {p.name: p for _, p in _nav_roots(lane)}
     base = bases.get(root)
     if base is None or not rel:
         return None
@@ -1330,7 +1350,7 @@ def _read_capped(p: Path, cap: int) -> bytes | None:
     cap+1 and never sized by the file on disk. The open is non-blocking, so a
     fifo swapped in at the path never stalls a worker: it opens at once and is
     then rejected by the regular-file test on the descriptor. O_NOFOLLOW guards
-    the final component: _md_path already resolved every symlink, so the real
+    the final component: _nav_path already resolved every symlink, so the real
     file is opened directly and a link planted at the path between resolve and
     open is refused rather than followed. A len of cap+1 is the caller's signal
     that the file is over its ceiling."""
@@ -1384,7 +1404,7 @@ def _binary_ext(rel: str) -> bool:
     return Path(rel).suffix.lower().lstrip(".") in _BINARY_EXTS
 
 
-def _md_entry(e: "os.DirEntry", base: Path) -> dict:
+def _nav_entry(e: "os.DirEntry", base: Path) -> dict:
     """One directory entry as the navigator lists it, without ever following a
     link that leaves the root. A symlink pointing outside the two folders is
     named but marked unavailable and never resolved for its content; a symlink
@@ -1416,7 +1436,7 @@ def _md_entry(e: "os.DirEntry", base: Path) -> dict:
     return {"name": name, "type": "other", "avail": False, "reason": "not a regular file"}
 
 
-def _md_stamp(p: Path) -> str:
+def _nav_stamp(p: Path) -> str:
     """A file's modification time as the stale-write guard carries it: whole
     nanoseconds, as a decimal string. A string because the number is around
     1.8e18 and a browser would round it away as a double, and the guard has to
@@ -3144,9 +3164,9 @@ def _ui_state() -> dict:
         # the Spotify app client id the player signs in with, read from
         # run.config.json; empty turns the connect stub into a create prompt
         "spotifyClientId": SPOTIFY_CLIENT_ID,
-        # the lanes the markdown panel mounts on, read from run.config.json;
+        # the lanes the file navigator mounts on, read from run.config.json;
         # empty leaves the panel off on every tab
-        "markdownLanes": list(MD_LANES),
+        "navigatorLanes": list(NAV_LANES),
         # the one tab bar both pages draw: the lane order and the lanes that
         # are closed. An empty order means no arrangement has been saved
         "tabs": st.get("tabs", {"order": [], "closed": []}),
@@ -3591,7 +3611,7 @@ def _get_push_key(q: Query, _):
     return 200, {"key": key}
 
 
-def _get_mdfiles(q: Query, _):
+def _get_navfiles(q: Query, _):
     # what the navigator lists: the two folders this lane owns, for the tabs, and
     # the immediate children of ONE directory under one of them. Bounded on
     # purpose. The old panel walked every folder's whole tree on every poll,
@@ -3601,7 +3621,7 @@ def _get_mdfiles(q: Query, _):
     # A directory that is missing or empty, or a lane the panel is not mounted
     # on, comes back present-and-empty so the panel can say so, not look broken.
     lane = q.one("lane")
-    roots = _md_roots(lane)
+    roots = _nav_roots(lane)
     meta = [{"root": base.name, "kind": kind, "exists": base.is_dir()}
             for kind, base in roots]
     kind = q.one("kind") or (roots[0][0] if roots else "")
@@ -3626,7 +3646,7 @@ def _get_mdfiles(q: Query, _):
     try:
         with os.scandir(target) as it:
             for e in it:
-                entries.append(_md_entry(e, base))
+                entries.append(_nav_entry(e, base))
     except OSError:
         return 200, out
     # folders first, then files, each case-insensitively by name: the order the
@@ -3637,7 +3657,7 @@ def _get_mdfiles(q: Query, _):
     return 200, out
 
 
-def _get_mdfile(q: Query, _):
+def _get_navfile(q: Query, _):
     # one file's whole text for the editor, with the stamp the save guard will
     # want back. The path is resolved and contained like every navigator path;
     # then _read_capped opens it as a regular file only (never a directory, fifo,
@@ -3647,7 +3667,7 @@ def _get_mdfile(q: Query, _):
     # is a known non-text media/document type, is refused, so the editor is never
     # handed bytes a later save would then write back over the real file.
     root, rel = q.one("root"), q.one("rel")
-    p = _md_path(q.one("lane"), root, rel)
+    p = _nav_path(q.one("lane"), root, rel)
     if p is None:
         return 400, {"error": "outside the navigator folders"}
     data = _read_capped(p, MAX_TEXT_BODY)
@@ -3668,10 +3688,10 @@ def _get_mdfile(q: Query, _):
     # flattened: the editor is told to keep them so a save writes the
     # file back in the endings it arrived in
     return 200, {"root": root, "rel": rel,
-                 "text": text, "mtime": _md_stamp(p), "crlf": "\r\n" in text}
+                 "text": text, "mtime": _nav_stamp(p), "crlf": "\r\n" in text}
 
 
-def _get_mdimg(q: Query, _):
+def _get_navimg(q: Query, _):
     # one in-root image, for the navigator's inline preview. The same resolve and
     # containment as every navigator path, then a regular file whose extension is
     # one of the image types, read through the same bounded reader so a file that
@@ -3680,7 +3700,7 @@ def _get_mdimg(q: Query, _):
     # a sandbox CSP so even an SVG is dropped into an opaque origin where its
     # script, if any, cannot run. The bytes are a resource the browser loads into
     # an <img>, never markup injected into the board.
-    p = _md_path(q.one("lane"), q.one("root"), q.one("rel"))
+    p = _nav_path(q.one("lane"), q.one("root"), q.one("rel"))
     if p is None:
         return 400, {"error": "outside the navigator folders"}
     suffix = p.suffix.lower()
@@ -3865,7 +3885,7 @@ def _post_clientlog(q: Query, raw: bytes):
     return 200, {"ok": True, "written": written, "dropped": dropped}
 
 
-def _post_mdsave(q: Query, raw: bytes):
+def _post_navsave(q: Query, raw: bytes):
     # the body is taken raw because the shared text read strips it: a file's
     # trailing newline is content and losing it would break the round trip on the
     # very first save. The navigator never creates files, so the target has to
@@ -3874,7 +3894,7 @@ def _post_mdsave(q: Query, raw: bytes):
     # body has to be text too. The endpoint has already capped the body at
     # MAX_TEXT_BODY before these bytes were kept.
     root, rel = q.one("root"), q.one("rel")
-    p = _md_path(q.one("lane"), root, rel)
+    p = _nav_path(q.one("lane"), root, rel)
     if p is None:
         return 400, {"error": "outside the navigator folders"}
     if not _looks_text(raw):
@@ -3898,7 +3918,7 @@ def _post_mdsave(q: Query, raw: bytes):
     # say plainly what happened; the reader's text is never merged or dropped for
     # the reader, it stays in the editor where it can still be seen
     try:
-        now = _md_stamp(p)
+        now = _nav_stamp(p)
     except OSError:
         return 400, {"error": "unreadable file"}
     was = q.one("mtime")
@@ -3929,7 +3949,7 @@ def _post_mdsave(q: Query, raw: bytes):
     except OSError as e:
         tmp.unlink(missing_ok=True)
         return 400, {"error": str(e)}
-    return 200, {"ok": True, "mtime": _md_stamp(p)}
+    return 200, {"ok": True, "mtime": _nav_stamp(p)}
 
 
 def _post_send(q: Query, text: str):
@@ -5359,8 +5379,8 @@ ROUTES = [
     Route("/uploads/{rest:path}", _endpoint(_get_upload), methods=["GET"]),
     Route("/laneimg/{rest:path}", _endpoint(_get_laneimg), methods=["GET"]),
     # the vendored editor, one prebuilt file beside index.html. The page
-    # asks for it the first time the markdown panel is opened and never
-    # on boot, so a board nobody edits markdown on pays nothing for it
+    # asks for it the first time the file navigator is opened and never
+    # on boot, so a board nobody opens the file navigator on pays nothing for it
     Route("/cm-markdown.js", _static("cm-markdown.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/card-markdown.js", _static("card-markdown.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/card-tokens.css", _static("card-tokens.css", "text/css; charset=utf-8"), methods=["GET"]),
@@ -5382,12 +5402,12 @@ ROUTES = [
     *[Route(path, _endpoint(lambda q, _, p=p, c=c: _file(p, c)), methods=["GET"])
       for path, (p, c) in OMNI_FILES.items()],
     Route("/push/key", _endpoint(_get_push_key), methods=["GET"]),
-    Route("/mdfiles", _endpoint(_get_mdfiles), methods=["GET"]),
-    Route("/mdfile", _endpoint(_get_mdfile), methods=["GET"]),
-    Route("/mdimg", _endpoint(_get_mdimg), methods=["GET"]),
+    Route("/navfiles", _endpoint(_get_navfiles), methods=["GET"]),
+    Route("/navfile", _endpoint(_get_navfile), methods=["GET"]),
+    Route("/navimg", _endpoint(_get_navimg), methods=["GET"]),
     Route("/upload", _endpoint(_post_upload, "raw", MAX_UPLOAD_BODY, "upload too large"), methods=["POST"]),
     Route("/clientlog", _endpoint(_post_clientlog, "raw", CLIENT_MAX_BODY, "report batch too large"), methods=["POST"]),
-    Route("/mdsave", _endpoint(_post_mdsave, "raw", MAX_TEXT_BODY), methods=["POST"]),
+    Route("/navsave", _endpoint(_post_navsave, "raw", MAX_TEXT_BODY), methods=["POST"]),
     Route("/send", _state_endpoint(_post_send, "text"), methods=["POST"]),
     Route("/ack", _state_endpoint(_post_ack, "text"), methods=["POST"]),
     Route("/reply", _state_endpoint(_post_reply, "text"), methods=["POST"]),
@@ -5653,6 +5673,7 @@ _stop_reason: str | None = None
 
 def main() -> None:
     _quiet_uvicorn()
+    _warn_legacy_config()
 
     # Own the listening socket before touching durable board data. In
     # particular, a replacement started while the old server still owns the

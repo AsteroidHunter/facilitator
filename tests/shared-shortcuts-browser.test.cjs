@@ -158,7 +158,7 @@ async function pressUndoChords(page) {
 }
 
 // The same question asked of a row wearing its typed-formatting editor. That
-// editor claims the chords it acts on, exactly as the markdown panel's does in
+// editor claims the chords it acts on, exactly as the file navigator's does in
 // the last test in this file, so what is asked here is that every chord still
 // reached the end of the page's own handling and that nothing took one the
 // editor does not bind. The card assertion beside each call is what proves the
@@ -757,9 +757,9 @@ test("phone Snooze clears the last Doing card from the screen", async () => {
   }
 });
 
-test("destination letters stay in the desktop Markdown editor", async () => {
+test("destination letters stay in the desktop file navigator", async () => {
   await clearLane();
-  const id = await create("Markdown destination keys");
+  const id = await create("file navigator destination keys");
   const { page, problems } = await openDesktop();
   const flags = [];
   page.on("request", request => {
@@ -769,20 +769,20 @@ test("destination letters stay in the desktop Markdown editor", async () => {
   try {
     await selectDesktop(page, id);
     await page.evaluate(async () => {
-      mdMounts(["unused", "facilitator"]);
-      mdBoxes();
-      const host = mdBuild(MD_MOUNTS.facilitator);
-      if (!host || !await mdBundle()) throw new Error("Markdown editor could not mount");
-      mdFor = "facilitator";
-      mdOpen = { lane: mdFor, root: "fixture-internal", rel: "fixture.md", mtime: "1" };
-      mdClean = "editor text";
-      mdMount(host, mdClean, false);
+      fileNavMounts(["unused", "facilitator"]);
+      fileNavBoxes();
+      const host = fileNavBuild(FILENAV_MOUNTS.facilitator);
+      if (!host || !await fileNavBundle()) throw new Error("file navigator editor could not mount");
+      fileNavFor = "facilitator";
+      fileNavOpen = { lane: fileNavFor, root: "fixture-internal", rel: "fixture.md", mtime: "1" };
+      fileNavClean = "editor text";
+      fileNavMount(host, fileNavClean, false);
       host.classList.add("editing");
     });
     await page.click("#magic4 .cm-content");
     await page.keyboard.type("sn");
-    assert.equal(await page.evaluate(() => mdView.state.sliceDoc()), "editor textsn");
-    assert.deepEqual(flags, [], "typing in Markdown changed card state");
+    assert.equal(await page.evaluate(() => fileNavView.state.sliceDoc()), "editor textsn");
+    assert.deepEqual(flags, [], "typing in the file navigator changed card state");
     const state = await savedBox(id);
     assert.equal(state.done, false);
     assert.equal(state.parked, false);
@@ -1780,27 +1780,27 @@ test("CodeMirror keeps its own undo and redo, and the board stays where it is", 
     await watchUndoKeys(page);
     await page.evaluate(async ({ currentId }) => {
       select(currentId);
-      mdBoxes();
-      const host = mdBuild(MD_MOUNTS.pastureland);
+      fileNavBoxes();
+      const host = fileNavBuild(FILENAV_MOUNTS.pastureland);
       host.style.left = "32px";
       host.style.top = "32px";
       host.style.width = "340px";
       host.style.height = "520px";
-      if (!await mdBundle()) throw new Error("CodeMirror bundle did not load");
-      mdFor = "pastureland";
-      mdOpen = { lane: "pastureland", root: "fixture-internal", rel: "fixture.md", mtime: "1" };
-      mdClean = "editor text";
-      mdMount(host, "editor text", false);
+      if (!await fileNavBundle()) throw new Error("CodeMirror bundle did not load");
+      fileNavFor = "pastureland";
+      fileNavOpen = { lane: "pastureland", root: "fixture-internal", rel: "fixture.md", mtime: "1" };
+      fileNavClean = "editor text";
+      fileNavMount(host, "editor text", false);
       host.classList.add("editing");
     }, { currentId: current });
     await page.click("#magic4 .cm-content");
     await page.keyboard.type("X");
-    assert.equal(await page.evaluate(() => mdView.state.sliceDoc()), "editor textX");
+    assert.equal(await page.evaluate(() => fileNavView.state.sliceDoc()), "editor textX");
     await chord(page, "z", "Meta");
-    assert.equal(await page.evaluate(() => mdView.state.sliceDoc()), "editor text",
+    assert.equal(await page.evaluate(() => fileNavView.state.sliceDoc()), "editor text",
       "CodeMirror did not perform its own undo");
     await chord(page, "z", "Meta", "Shift");
-    assert.equal(await page.evaluate(() => mdView.state.sliceDoc()), "editor textX",
+    assert.equal(await page.evaluate(() => fileNavView.state.sliceDoc()), "editor textX",
       "the shifted chord did not redo in CodeMirror");
     assert.equal(await shownId(page), current,
       "an undo chord moved the board while the editor was holding the keys");

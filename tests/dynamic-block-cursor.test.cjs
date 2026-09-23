@@ -428,20 +428,20 @@ async function codeMirrorFixture(source) {
     document.body.classList.add("layout-ready");
     // the panel is owner-mounted now: the slots have to be filled for a lane
     // before that lane can own one, the same order the board's own poll uses.
-    // without this MD_MOUNTS.pastureland is undefined and mdBuild has no box.
-    mdMounts(["website", "pastureland"]);
+    // without this FILENAV_MOUNTS.pastureland is undefined and fileNavBuild has no box.
+    fileNavMounts(["website", "pastureland"]);
     activeOwner = "pastureland";
-    mdBoxes();
-    const host = mdBuild(MD_MOUNTS.pastureland);
+    fileNavBoxes();
+    const host = fileNavBuild(FILENAV_MOUNTS.pastureland);
     host.style.left = "32px";
     host.style.top = "32px";
     host.style.width = "420px";
     host.style.height = "300px";
-    if (!await mdBundle()) throw new Error("CodeMirror bundle did not load");
-    mdFor = "pastureland";
-    mdOpen = { lane: "pastureland", root: "fixture-internal", rel: "fixture.md", mtime: "1" };
-    mdClean = text;
-    mdMount(host, text, false);
+    if (!await fileNavBundle()) throw new Error("CodeMirror bundle did not load");
+    fileNavFor = "pastureland";
+    fileNavOpen = { lane: "pastureland", root: "fixture-internal", rel: "fixture.md", mtime: "1" };
+    fileNavClean = text;
+    fileNavMount(host, text, false);
     host.classList.add("editing");
     await document.fonts.ready;
   }, source);
@@ -450,7 +450,7 @@ async function codeMirrorFixture(source) {
   // without it the block caret intermittently has no focused editor to track
   // and is hidden when the first position is read
   const spot = await page.evaluate(() => {
-    const r = mdView.contentDOM.getBoundingClientRect();
+    const r = fileNavView.contentDOM.getBoundingClientRect();
     return { x: r.left + 6, y: r.top + 8 };
   });
   await page.mouse.click(spot.x, spot.y);
@@ -463,7 +463,7 @@ test("CodeMirror cursor measures its next rendered grapheme", async () => {
   const page = await codeMirrorFixture("iW 1\uFE0F\u20E3X");
   try {
     const result = await page.evaluate(async () => {
-      const source = mdView.state.sliceDoc();
+      const source = fileNavView.state.sliceDoc();
 
       const read = async position => {
         // headless chrome intermittently drops the editor's focus between
@@ -471,22 +471,22 @@ test("CodeMirror cursor measures its next rendered grapheme", async () => {
         // it before reading so the case tests the caret, not the environment's
         // focus race. this does not weaken the assertion: a wrongly placed block
         // on a focused editor still fails below.
-        if (!mdView.hasFocus) mdView.contentDOM.focus();
-        mdView.dispatch({ selection: { anchor: position } });
+        if (!fileNavView.hasFocus) fileNavView.contentDOM.focus();
+        fileNavView.dispatch({ selection: { anchor: position } });
         // fire the event the block caret places on, so it re-places against the
         // new position before this read rather than a frame or more later; the
         // browser fires this natively but not always within the two frames below
         document.dispatchEvent(new Event("selectionchange"));
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        if (!mdView.hasFocus) {
-          mdView.contentDOM.focus();
+        if (!fileNavView.hasFocus) {
+          fileNavView.contentDOM.focus();
           document.dispatchEvent(new Event("selectionchange"));
           await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         }
-        const start = mdView.coordsAtPos(position, position === 0 ? 1 : -1);
+        const start = fileNavView.coordsAtPos(position, position === 0 ? 1 : -1);
         const segment = new Intl.Segmenter(undefined, { granularity: "grapheme" })
           .segment(source.slice(position))[Symbol.iterator]().next().value.segment;
-        const end = mdView.coordsAtPos(position + segment.length, -1);
+        const end = fileNavView.coordsAtPos(position + segment.length, -1);
         const caret = document.getElementById("fatcaret").getBoundingClientRect();
         return { segment, expected: end.left - start.left,
           caret: { left: caret.left, right: caret.right, width: caret.width } };
@@ -778,29 +778,29 @@ test("list traversal and dynamic CodeMirror widths coexist", async () => {
         // it before reading so the case tests the caret, not the environment's
         // focus race. this does not weaken the assertion: a wrongly placed block
         // on a focused editor still fails below.
-        if (!mdView.hasFocus) mdView.contentDOM.focus();
-        mdView.dispatch({ selection: { anchor: position } });
+        if (!fileNavView.hasFocus) fileNavView.contentDOM.focus();
+        fileNavView.dispatch({ selection: { anchor: position } });
         // fire the event the block caret places on, so it re-places against the
         // new position before this read rather than a frame or more later; the
         // browser fires this natively but not always within the two frames below
         document.dispatchEvent(new Event("selectionchange"));
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        if (!mdView.hasFocus) {
-          mdView.contentDOM.focus();
+        if (!fileNavView.hasFocus) {
+          fileNavView.contentDOM.focus();
           document.dispatchEvent(new Event("selectionchange"));
           await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         }
-        const line = mdView.state.doc.lineAt(position);
+        const line = fileNavView.state.doc.lineAt(position);
         const side = position === line.from ? 1 : -1;
-        let start = mdView.coordsAtPos(position, side);
-        if (!start || start.bottom <= start.top) start = mdView.coordsAtPos(position, -side);
+        let start = fileNavView.coordsAtPos(position, side);
+        if (!start || start.bottom <= start.top) start = fileNavView.coordsAtPos(position, -side);
         const caret = document.getElementById("fatcaret").getBoundingClientRect();
-        const text = mdView.state.sliceDoc();
+        const text = fileNavView.state.sliceDoc();
         const segment = position < line.to
           ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
             .segment(line.text.slice(position - line.from))[Symbol.iterator]().next().value.segment
           : "";
-        const end = segment ? mdView.coordsAtPos(position + segment.length, -1) : null;
+        const end = segment ? fileNavView.coordsAtPos(position + segment.length, -1) : null;
         return {
           position,
           segment,
@@ -812,7 +812,7 @@ test("list traversal and dynamic CodeMirror widths coexist", async () => {
           text,
         };
       };
-      const content = mdView.contentDOM;
+      const content = fileNavView.contentDOM;
       const cs = getComputedStyle(content);
       const rect = content.getBoundingClientRect();
       const scale = content.offsetWidth ? rect.width / content.offsetWidth : 1;

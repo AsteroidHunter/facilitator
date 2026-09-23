@@ -1,7 +1,7 @@
 // Browser regressions for the general file navigator (the former Markdown-only
 // panel). The fixture serves the reshaped, bounded per-directory listing that
-// /mdfiles now answers, plus /mdfile and /mdimg, from a synthetic tree, so the
-// page's real mdList/mdDrawList/open paths are exercised end to end.
+// /navfiles now answers, plus /navfile and /navimg, from a synthetic tree, so the
+// page's real fileNavList/fileNavDrawList/open paths are exercised end to end.
 //
 // NOTE ON EXECUTION: this suite launches headed Chrome through puppeteer. Under
 // the standing background-only browser policy (browser-testing-policy) automated
@@ -97,9 +97,9 @@ before(async () => {
     } else if (url.pathname === "/card-tokens.css") {
       res.setHeader("content-type", "text/css; charset=utf-8");
       res.end(await readFile(path.join(ROOT, "card-tokens.css")));
-    } else if (url.pathname === "/mdfiles") {
+    } else if (url.pathname === "/navfiles") {
       send(listing(url.searchParams.get("kind") || "internal", url.searchParams.get("rel") || ""));
-    } else if (url.pathname === "/mdfile") {
+    } else if (url.pathname === "/navfile") {
       const kind = url.searchParams.get("root") === "sample-wiki" ? "wiki" : "internal";
       const node = (function () {
         let n = TREE["sample-" + kind];
@@ -109,7 +109,7 @@ before(async () => {
       if (!node || node.image) { res.statusCode = 404; return send({ error: "no such file" }); }
       if (node.binary) { res.statusCode = 415; return send({ error: "not a text file" }); }
       send({ text: node.text, mtime: "fixture", crlf: false });
-    } else if (url.pathname === "/mdimg") {
+    } else if (url.pathname === "/navimg") {
       res.setHeader("content-type", "image/png");
       res.setHeader("content-security-policy", "sandbox");
       res.setHeader("x-content-type-options", "nosniff");
@@ -135,28 +135,28 @@ async function navigator(lane = "pastureland", width = 340) {
   await page.setViewport({ width: 900, height: 760, deviceScaleFactor: 2 });
   await page.goto(`${origin}/index.html`, { waitUntil: "domcontentloaded" });
   await page.evaluate(async ({ selectedLane, panelWidth }) => {
-    mdMounts(["website", "pastureland"]);
+    fileNavMounts(["website", "pastureland"]);
     activeOwner = selectedLane;
-    mdBoxes();
-    const host = mdBuild(MD_MOUNTS[selectedLane]);
+    fileNavBoxes();
+    const host = fileNavBuild(FILENAV_MOUNTS[selectedLane]);
     host.style.left = "32px";
     host.style.top = "32px";
     host.style.width = panelWidth + "px";
     host.style.height = "500px";
-    mdFor = selectedLane;
-    mdKind = "internal";
-    mdData = null; mdSig = "";
-    await mdList();
+    fileNavFor = selectedLane;
+    fileNavKind = "internal";
+    fileNavData = null; fileNavSig = "";
+    await fileNavList();
   }, { selectedLane: lane, panelWidth: width });
-  await page.waitForSelector(".mdrow");
+  await page.waitForSelector(".fnavrow");
   return page;
 }
 
 async function rows(page) {
-  return page.$$eval(".mdrow", all => all.map(row => ({
-    name: row.querySelector(".mdrowname").textContent,
+  return page.$$eval(".fnavrow", all => all.map(row => ({
+    name: row.querySelector(".fnavrowname").textContent,
     kind: row.classList.contains("folder") ? "folder" : "file",
-    icon: !!row.querySelector(".mdrowicon svg"),
+    icon: !!row.querySelector(".fnavrowicon svg"),
     selected: row.classList.contains("selected"),
   })));
 }
@@ -176,7 +176,7 @@ test("lists every in-root name with a type icon, folders first", async () => {
 test("folder and file labels are plain black, not orange or grey", async () => {
   const page = await navigator();
   try {
-    const colors = await page.$$eval(".mdrow .mdrowname", els =>
+    const colors = await page.$$eval(".fnavrow .fnavrowname", els =>
       els.map(el => getComputedStyle(el).color));
     // --ink resolves to a near-black; assert none are the old orange/grey
     for (const c of colors) {
@@ -189,49 +189,49 @@ test("folder and file labels are plain black, not orange or grey", async () => {
 test("double click and Enter navigate folders, breadcrumbs, and files", async () => {
   const page = await navigator();
   try {
-    await page.$eval(".mdrow.folder", row =>
+    await page.$eval(".fnavrow.folder", row =>
       row.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
-    await page.waitForFunction(() => document.querySelector(".mdcrumbs") &&
-      document.querySelector(".mdcrumbs").textContent === "guides");
+    await page.waitForFunction(() => document.querySelector(".fnavcrumbs") &&
+      document.querySelector(".fnavcrumbs").textContent === "guides");
     assert.deepEqual((await rows(page)).map(row => row.name), ["deep/", "intro.md"]);
-    await page.focus(".mdrow.file");
+    await page.focus(".fnavrow.file");
     await page.keyboard.press("Enter");
     await page.waitForSelector("#magic4.editing");
-    assert.equal(await page.$eval(".mdname", el => el.textContent), "guides/intro.md");
-    await page.click(".mdback");
-    await page.waitForSelector(".mdrow");
+    assert.equal(await page.$eval(".fnavname", el => el.textContent), "guides/intro.md");
+    await page.click(".fnavback");
+    await page.waitForSelector(".fnavrow");
     assert.deepEqual((await rows(page)).map(row => row.name), ["deep/", "intro.md"]);
-    await page.click(".mdup");
+    await page.click(".fnavup");
     await page.waitForFunction(() =>
-      [...document.querySelectorAll(".mdrowname")].some(n => n.textContent === "README.md"));
+      [...document.querySelectorAll(".fnavrowname")].some(n => n.textContent === "README.md"));
   } finally { await page.close(); }
 });
 
 test("an image opens in the preview, not the editor", async () => {
   const page = await navigator();
   try {
-    await page.$$eval(".mdrow.file", (els) => {
-      const img = els.find(e => e.querySelector(".mdrowname").textContent === "diagram.png");
+    await page.$$eval(".fnavrow.file", (els) => {
+      const img = els.find(e => e.querySelector(".fnavrowname").textContent === "diagram.png");
       img.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
     });
     await page.waitForSelector("#magic4.previewing");
-    const src = await page.$eval(".mdimg", el => el.getAttribute("src"));
-    assert.ok(src.startsWith("/mdimg?"), "image should be served from /mdimg");
+    const src = await page.$eval(".fnavimg", el => el.getAttribute("src"));
+    assert.ok(src.startsWith("/navimg?"), "image should be served from /navimg");
     assert.equal(await page.$("#magic4 .cm-editor"), null, "no editor for an image");
-    await page.click(".mdback");
-    await page.waitForSelector(".mdrow");
+    await page.click(".fnavback");
+    await page.waitForSelector(".fnavrow");
   } finally { await page.close(); }
 });
 
 test("a non-text file shows a not-editable info card", async () => {
   const page = await navigator();
   try {
-    await page.$$eval(".mdrow.file", (els) => {
-      const bin = els.find(e => e.querySelector(".mdrowname").textContent === "archive.bin");
+    await page.$$eval(".fnavrow.file", (els) => {
+      const bin = els.find(e => e.querySelector(".fnavrowname").textContent === "archive.bin");
       bin.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
     });
     await page.waitForSelector("#magic4.unopenable");
-    const why = await page.$eval(".mdunopenwhy", el => el.textContent);
+    const why = await page.$eval(".fnavunopenwhy", el => el.textContent);
     assert.match(why, /not a text file/i);
     assert.equal(await page.$("#magic4 .cm-editor"), null);
   } finally { await page.close(); }
@@ -240,14 +240,14 @@ test("a non-text file shows a not-editable info card", async () => {
 test("keeps directory state separate across roots", async () => {
   const page = await navigator();
   try {
-    await page.$eval(".mdrow.folder", row =>
+    await page.$eval(".fnavrow.folder", row =>
       row.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
-    await page.waitForFunction(() => document.querySelector(".mdcrumbs").textContent === "guides");
-    await page.click(".mdtab:nth-child(2)");   // wiki
+    await page.waitForFunction(() => document.querySelector(".fnavcrumbs").textContent === "guides");
+    await page.click(".fnavtab:nth-child(2)");   // wiki
     await page.waitForFunction(() =>
-      [...document.querySelectorAll(".mdrowname")].some(n => n.textContent === "home.md"));
+      [...document.querySelectorAll(".fnavrowname")].some(n => n.textContent === "home.md"));
     assert.deepEqual((await rows(page)).map(row => row.name), ["reference/", "home.md"]);
-    await page.click(".mdtab:first-child");    // back to internal, still in guides
-    await page.waitForFunction(() => document.querySelector(".mdcrumbs").textContent === "guides");
+    await page.click(".fnavtab:first-child");    // back to internal, still in guides
+    await page.waitForFunction(() => document.querySelector(".fnavcrumbs").textContent === "guides");
   } finally { await page.close(); }
 });

@@ -1,6 +1,6 @@
 // A project lane stays isolated when facilitator is the only built-in owner.
 // The lane joins from run.config.json and a saved card, an owner no data names
-// is refused everywhere, and the markdown panel mounts only the configured
+// is refused everywhere, and the file navigator mounts only the configured
 // lanes and fences one lane out of another's folders. Invented lane names only.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
@@ -60,7 +60,7 @@ before(async () => {
       { owner: "facilitator", dir: serverDir },
       { owner: PROJECT, dir: projectDir },
     ],
-    markdown_lanes: [PROJECT],
+    navigator_lanes: [PROJECT],
   }));
   await writeFile(path.join(serverDir, "seed.json"), JSON.stringify({
     title: "owner hard cut",
@@ -165,8 +165,8 @@ test("a configured lane is a full owner and an unnamed lane is refused", async (
   assert.equal(result.status, 200);
 });
 
-test("markdown routes mount the configured lane and fence others out", async () => {
-  let result = await api("/mdfiles?lane=" + PROJECT);
+test("navigator routes mount the configured lane and fence others out", async () => {
+  let result = await api("/navfiles?lane=" + PROJECT);
   assert.equal(result.status, 200);
   assert.deepEqual(result.body.roots.map(root => [root.kind, root.root]), [
     ["internal", PROJECT + "-internal"],
@@ -174,27 +174,27 @@ test("markdown routes mount the configured lane and fence others out", async () 
   ]);
   assert.deepEqual(result.body.roots[0].files.map(file => file.rel), ["fixture.md"]);
 
-  // facilitator is a real owner but is not a markdown lane, so it has no folders
-  result = await api("/mdfiles?lane=facilitator");
-  assert.deepEqual(result.body, { roots: [] }, "a lane off the markdown list still has folders");
-  const unknown = await api("/mdfiles?lane=" + STRANGER);
+  // facilitator is a real owner but is not a navigator lane, so it has no folders
+  result = await api("/navfiles?lane=facilitator");
+  assert.deepEqual(result.body, { roots: [] }, "a lane off the navigator list still has folders");
+  const unknown = await api("/navfiles?lane=" + STRANGER);
   assert.deepEqual(unknown.body, { roots: [] });
 
-  result = await api("/mdfile?lane=" + PROJECT + "&root=" + PROJECT + "-internal&rel=fixture.md");
+  result = await api("/navfile?lane=" + PROJECT + "&root=" + PROJECT + "-internal&rel=fixture.md");
   assert.equal(result.status, 200);
   assert.equal(result.body.text, "# Notes\n");
   const stamp = result.body.mtime;
 
   // no other lane can reach this lane's folders
-  result = await api("/mdfile?lane=facilitator&root=" + PROJECT + "-internal&rel=fixture.md");
+  result = await api("/navfile?lane=facilitator&root=" + PROJECT + "-internal&rel=fixture.md");
   assert.equal(result.status, 400);
-  assert.deepEqual(result.body, { error: "outside the markdown folders" });
+  assert.deepEqual(result.body, { error: "outside the navigator folders" });
 
   result = await api(
-    "/mdsave?lane=" + PROJECT + "&root=" + PROJECT + "-internal&rel=fixture.md&mtime=" + stamp,
+    "/navsave?lane=" + PROJECT + "&root=" + PROJECT + "-internal&rel=fixture.md&mtime=" + stamp,
     { method: "POST", body: "# Updated\n" });
   assert.equal(result.status, 200);
-  result = await api("/mdsave?lane=facilitator&root=" + PROJECT + "-internal&rel=fixture.md",
+  result = await api("/navsave?lane=facilitator&root=" + PROJECT + "-internal&rel=fixture.md",
     { method: "POST", body: "# Reached across\n" });
   assert.equal(result.status, 400);
   assert.equal(await readFile(markdownFile, "utf8"), "# Updated\n",
@@ -204,14 +204,14 @@ test("markdown routes mount the configured lane and fence others out", async () 
 test("shipped source and examples carry no built-in project owner", async () => {
   const server = await readFile(path.join(ROOT, "server.py"), "utf8");
   assert.match(server, /BUILTIN_OWNERS = \("facilitator",\)/);
-  assert.match(server, /MD_LANES = _markdown_lanes\(\)/);
+  assert.match(server, /NAV_LANES = _navigator_lanes\(\)/);
   assert.doesNotMatch(server, /RETIRED_OWNERS/);
   assert.doesNotMatch(server, /OwnerMigrationRequired/);
   assert.doesNotMatch(server, /pastureland|qchat/);
 
   const runConfig = JSON.parse(await readFile(path.join(ROOT, "run.config.example.json"), "utf8"));
   assert.deepEqual(runConfig.lanes.map(lane => lane.owner), ["facilitator", "example"]);
-  assert.ok(Array.isArray(runConfig.markdown_lanes));
+  assert.ok(Array.isArray(runConfig.navigator_lanes));
   assert.ok(runConfig.lanes[1].prompt.includes("owner=example"));
 
   const seed = JSON.parse(await readFile(path.join(ROOT, "seed.example.json"), "utf8"));

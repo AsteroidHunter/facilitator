@@ -3,7 +3,7 @@
   "log_level": "info",
   "image_panel_lane": "",
   "spotify_client_id": "",
-  "markdown_lanes": ["example"],
+  "navigator_lanes": ["example"],
   "lanes": [
     {
       "owner": "facilitator",

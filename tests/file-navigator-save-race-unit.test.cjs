@@ -1,5 +1,5 @@
 // Deterministic, browser-free regression for the save transaction when two
-// lanes share one markdown host. It extracts the ACTUAL mdSave bytes from
+// lanes share one file navigator host. It extracts the ACTUAL fileNavSave bytes from
 // index.html and drives them with a mock fetch whose two awaits (the response
 // and its json) are resolved by hand, so a project switch can be slipped in at
 // either boundary. It proves a late answer for lane B never writes lane C's
@@ -25,10 +25,10 @@ function fnSource(signature) {
   throw new Error("unbalanced braces after " + signature);
 }
 
-const MD_SAVE = fnSource("async function mdSave()");
+const FILENAV_SAVE = fnSource("async function fileNavSave()");
 
 // one invented editor incarnation: a fresh view and open-file object every time,
-// exactly as mdTearDown/mdMount make them in the page
+// exactly as fileNavTearDown/fileNavMount make them in the page
 function editor(lane, rel, text, mtime) {
   return {
     view: { state: { sliceDoc: () => text } },
@@ -39,36 +39,36 @@ function editor(lane, rel, text, mtime) {
 
 function build() {
   const preamble = `
-    let mdView = null, mdOpen = null, mdClean = "", mdSig = "";
-    let host = { _md: {} };
+    let fileNavView = null, fileNavOpen = null, fileNavClean = "", fileNavSig = "";
+    let host = { _filenav: {} };
     const notes = [];
     const fetchCalls = [];
     let dirtyCalls = 0;
     let __fetchD = null, __jsonD = null;
     function deferred(){ let r; const p = new Promise(x => r = x); return { p, r }; }
-    function mdHost(){ return host; }
-    function mdNote(h, text, bad){ notes.push({ host: h, text, bad: !!bad }); }
-    function mdDirty(){ dirtyCalls++; return mdView && mdOpen && mdView.state.sliceDoc() !== mdClean; }
+    function fileNavHost(){ return host; }
+    function fileNavNote(h, text, bad){ notes.push({ host: h, text, bad: !!bad }); }
+    function fileNavDirty(){ dirtyCalls++; return fileNavView && fileNavOpen && fileNavView.state.sliceDoc() !== fileNavClean; }
     function fetch(url, opts){ fetchCalls.push({ url, opts }); __fetchD = deferred(); return __fetchD.p; }
   `;
   const tail = `
-    ctl.save = () => mdSave();
-    ctl.setEditor = e => { mdView = e ? e.view : null; mdOpen = e ? e.open : null; mdClean = e ? e.clean : ""; };
+    ctl.save = () => fileNavSave();
+    ctl.setEditor = e => { fileNavView = e ? e.view : null; fileNavOpen = e ? e.open : null; fileNavClean = e ? e.clean : ""; };
     ctl.setHost = h => { host = h; };
-    ctl.state = () => ({ mdOpen, mdClean, mdSig, notes: notes.slice(), fetchCalls: fetchCalls.slice(), dirtyCalls });
-    // resolve the response await; ok/status drive which branch mdSave takes
+    ctl.state = () => ({ fileNavOpen, fileNavClean, fileNavSig, notes: notes.slice(), fetchCalls: fetchCalls.slice(), dirtyCalls });
+    // resolve the response await; ok/status drive which branch fileNavSave takes
     ctl.resolveFetch = (status, ok) => { __jsonD = deferred(); __fetchD.r({ status, ok, json: () => __jsonD.p }); };
     ctl.resolveFetchNull = () => __fetchD.r(null);
     ctl.resolveJson = value => { __jsonD.r(value); };
     ctl.resolveJsonNull = () => { __jsonD.r(null); };
   `;
-  const factory = new Function("ctl", preamble + "\n" + MD_SAVE + "\n" + tail);
+  const factory = new Function("ctl", preamble + "\n" + FILENAV_SAVE + "\n" + tail);
   const ctl = {};
   factory(ctl);
   return ctl;
 }
 
-// let the awaited continuation inside mdSave run
+// let the awaited continuation inside fileNavSave run
 const tick = () => new Promise(r => setImmediate(r));
 
 const B = "meridian", C = "orchard";
@@ -85,7 +85,7 @@ test("happy path: the live editor's own save updates its mtime, baseline and rec
   await done;
   const s = m.state();
   assert.equal(b.open.mtime, "2", "the saved file's stamp should advance");
-  assert.equal(s.mdClean, "hello", "the clean baseline should become the saved text");
+  assert.equal(s.fileNavClean, "hello", "the clean baseline should become the saved text");
   assert.deepEqual(s.notes.at(-1), { host: s.notes.at(-1).host, text: "saved", bad: false });
   assert.match(s.fetchCalls[0].url, /lane=meridian/);
   assert.equal(s.fetchCalls[0].opts.body, "hello");
@@ -106,7 +106,7 @@ test("delayed fetch, same-host switch B->C: C's editor is left untouched", async
   await done;
   const s = m.state();
   assert.equal(c.open.mtime, "9", "C's mtime must not move on B's late answer");
-  assert.equal(s.mdClean, "text of C", "C's clean baseline must not be overwritten");
+  assert.equal(s.fileNavClean, "text of C", "C's clean baseline must not be overwritten");
   assert.equal(s.notes.length, 0, "no receipt or warning may be painted onto C");
   // the request still went to B's own lane and file
   assert.match(s.fetchCalls[0].url, /lane=meridian/);
@@ -127,7 +127,7 @@ test("delayed json, switch after the response but before its body: C is untouche
   await done;
   const s = m.state();
   assert.equal(c.open.mtime, "9");
-  assert.equal(s.mdClean, "text of C");
+  assert.equal(s.fileNavClean, "text of C");
   assert.equal(s.notes.length, 0, "a late json body must not update or notify C");
 });
 
@@ -146,7 +146,7 @@ test("B->C->B roundtrip: the returned-to B editor is a new incarnation and stays
   const s = m.state();
   // a lane-only guard would have accepted this, since the lane name is B again
   assert.equal(b2.open.mtime, "7", "the rebuilt B editor's mtime must not move");
-  assert.equal(s.mdClean, "new B text", "the rebuilt B editor's baseline must not be overwritten");
+  assert.equal(s.fileNavClean, "new B text", "the rebuilt B editor's baseline must not be overwritten");
   assert.equal(s.notes.length, 0, "no receipt may land on the rebuilt B editor");
 });
 
@@ -179,7 +179,7 @@ test("a live 409 still warns the editor that is actually open, without moving it
   const s = m.state();
   assert.deepEqual(s.notes.at(-1), { host: s.notes.at(-1).host, text: "changed on disk, so this was not saved", bad: true });
   assert.equal(b.open.mtime, "1", "a refused save must not advance the stamp");
-  assert.equal(s.mdClean, "text of B", "a refused save must not move the baseline");
+  assert.equal(s.fileNavClean, "text of B", "a refused save must not move the baseline");
 });
 
 test("a live error is reported on the open editor and leaves its state intact", async () => {
@@ -195,5 +195,5 @@ test("a live error is reported on the open editor and leaves its state intact", 
   const s = m.state();
   assert.deepEqual(s.notes.at(-1), { host: s.notes.at(-1).host, text: "disk full", bad: true });
   assert.equal(b.open.mtime, "1");
-  assert.equal(s.mdClean, "text of B");
+  assert.equal(s.fileNavClean, "text of B");
 });

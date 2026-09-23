@@ -87,20 +87,20 @@ class NavigatorBase(unittest.TestCase):
         self.outside.mkdir()
         # point the lane at our synthetic project, and mount the panel on it
         SERVER._lane_pwds = lambda: {self.LANE: str(self.projdir)}
-        SERVER.MD_LANES = (self.LANE,)
+        SERVER.NAV_LANES = (self.LANE,)
 
     def files(self, **kw):
         kw.setdefault("lane", self.LANE)
-        return SERVER._get_mdfiles(Q(**kw), None)
+        return SERVER._get_navfiles(Q(**kw), None)
 
     def read(self, root, rel):
-        return SERVER._get_mdfile(Q(lane=self.LANE, root=root, rel=rel), None)
+        return SERVER._get_navfile(Q(lane=self.LANE, root=root, rel=rel), None)
 
     def img(self, root, rel):
-        return SERVER._get_mdimg(Q(lane=self.LANE, root=root, rel=rel), None)
+        return SERVER._get_navimg(Q(lane=self.LANE, root=root, rel=rel), None)
 
     def save(self, root, rel, body, mtime=""):
-        return SERVER._post_mdsave(Q(lane=self.LANE, root=root, rel=rel, mtime=mtime), body)
+        return SERVER._post_navsave(Q(lane=self.LANE, root=root, rel=rel, mtime=mtime), body)
 
 
 class Listing(NavigatorBase):
@@ -153,7 +153,7 @@ class Listing(NavigatorBase):
         self.assertEqual(out["entries"], [])
 
     def test_unknown_lane_and_unknown_kind(self):
-        status, out = SERVER._get_mdfiles(Q(lane="ghost", kind="internal", rel=""), None)
+        status, out = SERVER._get_navfiles(Q(lane="ghost", kind="internal", rel=""), None)
         self.assertEqual(status, 200)
         self.assertEqual(out["roots"], [])
         self.assertEqual(out["entries"], [])
@@ -413,7 +413,7 @@ class Images(NavigatorBase):
 
 class TempWriteSafety(NavigatorBase):
     """The save's temp file must never destroy a real neighbour or follow a
-    planted symlink out of the root. These drive the REAL _post_mdsave handler."""
+    planted symlink out of the root. These drive the REAL _post_navsave handler."""
 
     def test_real_neighbour_named_target_tmp_survives(self):
         target = self.internal / "notes.txt"
