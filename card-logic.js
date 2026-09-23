@@ -105,6 +105,15 @@ const CARD_SHORTCUT_DEFINITIONS = [
       (e.key === "s" || e.key === "S" || e.key === "n" || e.key === "N")
       ? ((e.key === "s" || e.key === "S") ? "deferred" : "doing") : null,
   },
+  // control+shift+s pages the selected card's response: one tap down, two quick
+  // taps up. A held key's repeats are recognized too, so the page can keep them
+  // from the editor and the browser, and responseTap never counts them as taps
+  {
+    action: "responsePage", mini: false,
+    match: e => e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey &&
+      !e.isComposing && !e.defaultPrevented &&
+      (e.key === "s" || e.key === "S") ? true : null,
+  },
 ];
 
 // Pure recognition over key/modifier fields. The finite mini scope sees only
@@ -134,6 +143,89 @@ function dispatchCardShortcut(event, actions, scope = "card"){
 function cardShortcutEditing(target){
   return !!target && typeof target.closest === "function" &&
     !!target.closest("textarea, input, [contenteditable], [role='textbox'], .cm-editor");
+}
+
+// ---- paging the response with control+shift+s ------------------------------------
+// One tap pages the selected card's response down and two quick taps page it
+// up. The down waits out the double tap window first, so a double tap never
+// moves down and then back up. The response scroller (el.replyview) holds the
+// live reply and a history step alike, so either is paged the same way.
+const RESPONSE_TAP_MS = 300;
+// how much of the response's visible height one page moves, so the last lines
+// of the page before stay in sight at the top of the next
+const RESPONSE_PAGE_SHARE = 0.875;
+// the one tap waiting to become a page down, or null
+let responseTapWaiting = null;
+
+function cancelResponseTap(){
+  if (responseTapWaiting) clearTimeout(responseTapWaiting.timer);
+  responseTapWaiting = null;
+}
+
+// Where the chord may come from: the page itself, the card's own composer
+// (its textarea, or the editor standing in for it), or the response. The sent
+// box, the answered box, the title and every other field keep the chord.
+function responseTapSource(target, el){
+  const doc = el.replyview.ownerDocument;
+  if (!target || target === doc || target === doc.body || target === doc.documentElement) return true;
+  if (el.ta && target === el.ta) return true;
+  const editor = typeof target.closest === "function" && target.closest(".cm-editor");
+  if (editor) return !!el.ta && editor.contains(el.ta);
+  return el.replyview.contains(target) && !cardShortcutEditing(target) &&
+    !(el.pendwrap && el.pendwrap.contains(target)) &&
+    !(el.answwrap && el.answwrap.contains(target));
+}
+
+function pageResponseBy(view, dir){
+  const room = Math.max(0, view.scrollHeight - view.clientHeight);
+  const step = Math.max(1, Math.round(view.clientHeight * RESPONSE_PAGE_SHARE));
+  view.scrollTop = Math.max(0, Math.min(room, view.scrollTop + dir * step));
+}
+
+// A waiting tap still stands only for the same card, drawn by the same render,
+// in the same project, with the same focus, on a page that is still visible.
+function responseTapStands(tap, card){
+  return !!card && card.id === tap.id && card.owner === tap.owner && card.el === tap.el &&
+    tap.doc.activeElement === tap.focus && tap.doc.visibilityState !== "hidden" &&
+    !(card.el.box && card.el.box.isConnected === false) && card.el.replyview.clientHeight > 0;
+}
+
+// find is the page's word on which card may be paged now: { id, owner, el }, or
+// null while a menu, panel, overlay or swipe stands over the card. It is asked
+// on every tap and again when the wait ends, so a down is dropped rather than
+// made on a card the reader has left. Letting go of control or shift between
+// taps changes nothing. True means the chord was taken from the editor and the
+// browser.
+function responseTap(event, find){
+  const card = find();
+  const view = card && card.el && card.el.replyview;
+  if (!view || !(view.clientHeight > 0) || !responseTapSource(event.target, card.el)){
+    cancelResponseTap();
+    return false;
+  }
+  event.preventDefault();
+  if (event.repeat) return true;
+  const at = performance.now();
+  const waiting = responseTapWaiting;
+  cancelResponseTap();
+  if (waiting && responseTapStands(waiting, card)){
+    if (at - waiting.at < RESPONSE_TAP_MS){
+      pageResponseBy(view, -1);
+      return true;
+    }
+    // A delayed timer must not turn two slow taps into a double tap.
+    pageResponseBy(view, 1);
+  }
+  const doc = view.ownerDocument;
+  const tap = { id: card.id, owner: card.owner, el: card.el, doc, focus: doc.activeElement, at };
+  tap.timer = setTimeout(() => {
+    if (responseTapWaiting !== tap) return;
+    responseTapWaiting = null;
+    const now = find();
+    if (responseTapStands(tap, now)) pageResponseBy(now.el.replyview, 1);
+  }, RESPONSE_TAP_MS);
+  responseTapWaiting = tap;
+  return true;
 }
 
 // ---- the small helpers --------------------------------------------------------
