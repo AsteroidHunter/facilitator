@@ -3786,19 +3786,21 @@
      keyframes, width and pace */
   .trow.omni-ticket.working::before{
     content:""; position:absolute; inset:0; pointer-events:none; mix-blend-mode:multiply;
-    background:linear-gradient(90deg, rgba(255,230,200,0) 0%, rgba(255,230,200,.04) 10%,
-      rgba(255,230,200,.12) 20%, rgba(255,230,200,.27) 30%, rgba(255,230,200,.43) 40%,
-      rgba(255,230,200,.5) 50%, rgba(255,230,200,.43) 60%, rgba(255,230,200,.27) 70%,
-      rgba(255,230,200,.12) 80%, rgba(255,230,200,.04) 90%, rgba(255,230,200,0) 100%);
+    background:linear-gradient(90deg, rgba(255,230,200,0) 0%, rgba(255,230,200,.06) 10%,
+      rgba(255,230,200,.17) 20%, rgba(255,230,200,.37) 30%, rgba(255,230,200,.58) 40%,
+      rgba(255,230,200,.68) 50%, rgba(255,230,200,.58) 60%, rgba(255,230,200,.37) 70%,
+      rgba(255,230,200,.17) 80%, rgba(255,230,200,.06) 90%, rgba(255,230,200,0) 100%);
     animation:ticket-working-shimmer 1.6s linear infinite; will-change:transform}
   .trow.omni-ticket.working::after{
     mix-blend-mode:screen;
-    background:linear-gradient(90deg, rgba(255,253,248,0) 41%, rgba(255,253,248,.04) 42.5%,
-      rgba(255,253,248,.12) 44%, rgba(255,253,248,.29) 45.5%, rgba(255,253,248,.55) 47%,
-      rgba(255,253,248,.79) 48.5%, rgba(255,253,248,.9) 50%, rgba(255,253,248,.79) 51.5%,
-      rgba(255,253,248,.55) 53%, rgba(255,253,248,.29) 54.5%, rgba(255,253,248,.12) 56%,
-      rgba(255,253,248,.04) 57.5%, rgba(255,253,248,0) 59%)}
-  /* the same light crossing a whole card as it becomes Omni. the script moves
+    background:linear-gradient(90deg, rgba(255,254,250,0) 39.5%, rgba(255,254,250,.04) 41%,
+      rgba(255,254,250,.1) 42.5%, rgba(255,254,250,.23) 44%, rgba(255,254,250,.44) 45.5%,
+      rgba(255,254,250,.69) 47%, rgba(255,254,250,.91) 48.5%, rgba(255,254,250,1) 50%,
+      rgba(255,254,250,.91) 51.5%, rgba(255,254,250,.69) 53%, rgba(255,254,250,.44) 54.5%,
+      rgba(255,254,250,.23) 56%, rgba(255,254,250,.1) 57.5%, rgba(255,254,250,.04) 59%,
+      rgba(255,254,250,0) 60.5%)}
+  /* the same light crossing a whole card as it becomes Omni, bottom left to top
+     right, and back the other way as it stops being one. the script moves
      it by --omni-p, the light's centre on the sweep's 0..1 measure: 0 at the
      bottom left corner, 1 at the top right, one value along each line parallel
      to the other diagonal, which is how a "to top right" gradient lays its
@@ -3813,41 +3815,57 @@
   .omni-sweep::before{
     mix-blend-mode:multiply;
     background:
-      radial-gradient(circle at var(--omni-x) var(--omni-y), rgba(255,230,200,.5) 0,
-        rgba(255,230,200,.38) 40px, rgba(255,230,200,.17) 80px, rgba(255,230,200,.05) 120px,
+      radial-gradient(circle at var(--omni-x) var(--omni-y), rgba(255,230,200,.7) 0,
+        rgba(255,230,200,.54) 40px, rgba(255,230,200,.24) 80px, rgba(255,230,200,.07) 120px,
         rgba(255,230,200,0) 160px),
       linear-gradient(to top right, rgba(255,230,200,0) calc(var(--omni-c) - 24%),
-        rgba(255,230,200,.05) calc(var(--omni-c) - 18%), rgba(255,230,200,.16) calc(var(--omni-c) - 12%),
-        rgba(255,230,200,.32) calc(var(--omni-c) - 6%), rgba(255,230,200,.4) var(--omni-c),
-        rgba(255,230,200,.32) calc(var(--omni-c) + 6%), rgba(255,230,200,.16) calc(var(--omni-c) + 12%),
-        rgba(255,230,200,.05) calc(var(--omni-c) + 18%), rgba(255,230,200,0) calc(var(--omni-c) + 24%))}
+        rgba(255,230,200,.08) calc(var(--omni-c) - 18%), rgba(255,230,200,.24) calc(var(--omni-c) - 12%),
+        rgba(255,230,200,.46) calc(var(--omni-c) - 6%), rgba(255,230,200,.58) var(--omni-c),
+        rgba(255,230,200,.46) calc(var(--omni-c) + 6%), rgba(255,230,200,.24) calc(var(--omni-c) + 12%),
+        rgba(255,230,200,.08) calc(var(--omni-c) + 18%), rgba(255,230,200,0) calc(var(--omni-c) + 24%))}
   .omni-sweep::after{
     mix-blend-mode:screen;
     background:
-      radial-gradient(circle at var(--omni-x) var(--omni-y), rgba(255,253,248,.95) 0,
-        rgba(255,253,248,.72) 9px, rgba(255,253,248,.31) 18px, rgba(255,253,248,.07) 27px,
-        rgba(255,253,248,0) 36px),
-      linear-gradient(to top right, rgba(255,253,248,0) calc(var(--omni-c) - 6.5%),
-        rgba(255,253,248,.1) calc(var(--omni-c) - 4.5%), rgba(255,253,248,.35) calc(var(--omni-c) - 3%),
-        rgba(255,253,248,.7) calc(var(--omni-c) - 1.5%), rgba(255,253,248,.88) var(--omni-c),
-        rgba(255,253,248,.7) calc(var(--omni-c) + 1.5%), rgba(255,253,248,.35) calc(var(--omni-c) + 3%),
-        rgba(255,253,248,.1) calc(var(--omni-c) + 4.5%), rgba(255,253,248,0) calc(var(--omni-c) + 6.5%))}
-  /* the star the light leaves in the top right corner as it goes: four points
-     of near white with a thin warm edge on a small warm halo, which is what
-     lets white show on a white card. it twinkles once, 360ms (the script's
-     OMNI_STAR_MS), growing and turning a little as it fades */
-  .omni-star{position:absolute; top:2px; right:2px; width:26px; height:26px; z-index:41;
-    pointer-events:none; animation:omni-star 360ms cubic-bezier(.2,.7,.3,1) both}
-  .omni-star::before{content:""; position:absolute; inset:-8px; border-radius:50%;
-    background:radial-gradient(circle, rgba(255,230,200,.75) 0, rgba(255,230,200,.35) 35%,
-      rgba(255,230,200,0) 70%)}
-  .omni-star svg{position:relative; display:block; width:100%; height:100%;
-    filter:drop-shadow(0 0 1.5px rgba(226,160,96,.7))}
-  .omni-star path{fill:#fffdf8}
-  @keyframes omni-star{
-    0%{opacity:0; transform:scale(.3) rotate(-25deg)}
-    35%{opacity:1; transform:scale(1) rotate(0deg)}
-    100%{opacity:0; transform:scale(1.4) rotate(18deg)}}
+      radial-gradient(circle at var(--omni-x) var(--omni-y), rgba(255,254,250,1) 0,
+        rgba(255,254,250,.82) 10px, rgba(255,254,250,.46) 20px, rgba(255,254,250,.17) 30px,
+        rgba(255,254,250,.05) 40px, rgba(255,254,250,0) 50px),
+      linear-gradient(to top right, rgba(255,254,250,0) calc(var(--omni-c) - 9%),
+        rgba(255,254,250,.04) calc(var(--omni-c) - 7.5%), rgba(255,254,250,.14) calc(var(--omni-c) - 6%),
+        rgba(255,254,250,.32) calc(var(--omni-c) - 4.5%), rgba(255,254,250,.61) calc(var(--omni-c) - 3%),
+        rgba(255,254,250,.88) calc(var(--omni-c) - 1.5%), rgba(255,254,250,1) var(--omni-c),
+        rgba(255,254,250,.88) calc(var(--omni-c) + 1.5%), rgba(255,254,250,.61) calc(var(--omni-c) + 3%),
+        rgba(255,254,250,.32) calc(var(--omni-c) + 4.5%), rgba(255,254,250,.14) calc(var(--omni-c) + 6%),
+        rgba(255,254,250,.04) calc(var(--omni-c) + 7.5%), rgba(255,254,250,0) calc(var(--omni-c) + 9%))}
+  /* the ting that finishes the light, the way a shine on something polished
+     ends in an animated show: the moment the light reaches the card's top
+     right corner, a glint flashes on that corner point, sitting on the card's
+     edge. long, very thin rays across and up and down, shorter and thinner
+     ones on the diagonals, each tapering to a point, round a tiny intense
+     white core. a crisp warm edge and a soft warm glow are what let white show
+     against the white card. it pops open in 90ms with a small turn, holds,
+     and shrinks to nothing, 300ms in all (the script's OMNI_GLINT_MS). the
+     script hangs it off the body at the corner's own place on the screen, so
+     the card's rounded clip cannot cut the rays that reach past its edge */
+  .omni-glint{position:fixed; width:8px; height:8px; margin:-4px 0 0 -4px; z-index:1000;
+    pointer-events:none; border-radius:50%;
+    background:radial-gradient(circle, #fff 0, #fff 34%, rgba(255,248,238,.85) 54%, rgba(255,248,238,0) 74%);
+    filter:drop-shadow(0 0 .8px rgba(255,178,110,.95)) drop-shadow(0 0 4px rgba(255,210,160,.85));
+    animation:omni-glint 300ms both}
+  .omni-glint::before, .omni-glint::after, .omni-glint i{position:absolute; left:50%; top:50%;
+    background:#fff}
+  .omni-glint::before{content:""; width:76px; height:3px; margin:-1.5px 0 0 -38px;
+    clip-path:polygon(0 50%, 50% 0, 100% 50%, 50% 100%)}
+  .omni-glint::after{content:""; width:3px; height:76px; margin:-38px 0 0 -1.5px;
+    clip-path:polygon(50% 0, 100% 50%, 50% 100%, 0 50%)}
+  .omni-glint i{width:30px; height:2px; margin:-1px 0 0 -15px;
+    clip-path:polygon(0 50%, 50% 0, 100% 50%, 50% 100%)}
+  .omni-glint i:first-child{transform:rotate(45deg)}
+  .omni-glint i:last-child{transform:rotate(-45deg)}
+  @keyframes omni-glint{
+    0%{transform:scale(0) rotate(-20deg); animation-timing-function:cubic-bezier(.2,.9,.3,1)}
+    30%{transform:scale(1) rotate(0deg); animation-timing-function:linear}
+    55%{transform:scale(1) rotate(4deg); animation-timing-function:cubic-bezier(.55,0,.85,.4)}
+    100%{transform:scale(0) rotate(14deg)}}
 </style>
 <link rel="stylesheet" href="/card-tokens.css">
 </head>
