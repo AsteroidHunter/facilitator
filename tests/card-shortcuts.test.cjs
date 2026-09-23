@@ -121,21 +121,49 @@ test("modified native combinations remain outside common recognition", async () 
   assert.equal(resolve(event("t", { ctrlKey: true })), null);
 });
 
-test("plain S and N name card destinations only outside modified or composing keys", async () => {
+test("control N and control L name card destinations only with control alone and not composing", async () => {
   const { resolve } = await shortcuts();
-  for (const key of ["s", "S"]) {
-    assert.deepEqual(plain(resolve(event(key))), { action: "destination", value: "deferred" });
-    assert.equal(resolve(event(key), "mini"), null);
-  }
   for (const key of ["n", "N"]) {
-    assert.deepEqual(plain(resolve(event(key))), { action: "destination", value: "doing" });
-    assert.equal(resolve(event(key), "mini"), null);
+    assert.deepEqual(plain(resolve(event(key, { ctrlKey: true }))), { action: "destination", value: "doing" });
+    assert.equal(resolve(event(key, { ctrlKey: true }), "mini"), null);
   }
-  for (const key of ["s", "n"]) {
-    for (const modifier of ["metaKey", "ctrlKey", "shiftKey", "altKey", "repeat", "isComposing", "defaultPrevented"]) {
-      assert.equal(resolve(event(key, { [modifier]: true })), null, `${key} with ${modifier}`);
+  for (const key of ["l", "L"]) {
+    assert.deepEqual(plain(resolve(event(key, { ctrlKey: true }))), { action: "destination", value: "deferred" });
+    assert.equal(resolve(event(key, { ctrlKey: true }), "mini"), null);
+  }
+  for (const key of ["n", "l"]) {
+    for (const modifier of ["metaKey", "shiftKey", "altKey", "repeat", "isComposing", "defaultPrevented"]) {
+      assert.equal(resolve(event(key, { ctrlKey: true, [modifier]: true })), null, `control ${key} with ${modifier}`);
     }
   }
+});
+
+// a stray letter used to move the selected card; no bare letter is a command now
+test("plain N, S and L are no command, with or without shift", async () => {
+  const { resolve, dispatch } = await shortcuts();
+  for (const key of ["n", "N", "s", "S", "l", "L"]) {
+    for (const modifiers of [{}, { shiftKey: true }]) {
+      assert.equal(resolve(event(key, modifiers)), null, key);
+      assert.equal(resolve(event(key, modifiers), "mini"), null, key);
+      const called = [];
+      const actions = new Proxy({}, { get: (_, name) => (() => called.push(name)) });
+      assert.equal(dispatch(event(key, modifiers), actions), false, key);
+      assert.deepEqual(called, []);
+    }
+  }
+});
+
+test("control S is only the response scroll, never a destination or the diagnostic", async () => {
+  const { resolve } = await shortcuts();
+  for (const key of ["s", "S"]) {
+    assert.deepEqual(plain(resolve(event(key, { ctrlKey: true }))), { action: "responseScroll", value: true });
+    assert.equal(resolve(event(key, { ctrlKey: true }), "mini"), null);
+    // the old chord with shift is nothing now
+    assert.equal(resolve(event(key, { ctrlKey: true, shiftKey: true })), null);
+  }
+  // the diagnostic keeps its own chord and letter
+  assert.deepEqual(plain(resolve(event("m", { ctrlKey: true, shiftKey: true }))), { action: "diagnostic", value: true });
+  assert.equal(resolve(event("m", { ctrlKey: true })), null);
 });
 
 test("the phone diagnostic marker has one exact chord and leaves other scopes and editing keys alone", async () => {

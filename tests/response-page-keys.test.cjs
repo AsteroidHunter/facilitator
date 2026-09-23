@@ -55,10 +55,16 @@ async function logic(globals = {}) {
 }
 
 // a tiny tree: contains walks parents, closest finds the nearest editor, or the
-// nearest CodeMirror root when asked for .cm-editor
+// nearest CodeMirror root when asked for .cm-editor. animate records the
+// animation API calls the bounce makes
 function node(parent, opts = {}) {
   return {
-    parent, editor: !!opts.editor, cm: !!opts.cm, isConnected: true,
+    parent, editor: !!opts.editor, cm: !!opts.cm, isConnected: true, animations: [],
+    animate(frames, options) {
+      const run = { frames, options, cancelled: false, cancel() { run.cancelled = true; } };
+      this.animations.push(run);
+      return run;
+    },
     contains(other) {
       for (let at = other; at; at = at.parent) if (at === this) return true;
       return false;
@@ -88,6 +94,7 @@ function world({ clientHeight = 400, scrollHeight = 2000, scrollTop = 1000, comp
     const reply = node(replyview);
     const answwrap = node(replyview);
     const answeredRow = node(answwrap);
+    replyview.children = [answwrap, reply];
     const pendwrap = node(box);
     const pendRow = node(pendwrap);
     const compose = node(box);
@@ -112,7 +119,7 @@ function world({ clientHeight = 400, scrollHeight = 2000, scrollTop = 1000, comp
 
 function chord(target, over = {}) {
   const e = {
-    key: "S", target, ctrlKey: true, shiftKey: true, metaKey: false, altKey: false,
+    key: "S", target, ctrlKey: true, shiftKey: false, metaKey: false, altKey: false,
     isComposing: false, repeat: false, defaultPrevented: false, ...over,
     preventDefault() { e.defaultPrevented = true; },
   };
@@ -132,12 +139,12 @@ function keyboard(l, doc, actions, target) {
     l.dispatch(e, actions);
     return e;
   };
-  const release = key => fire("keyup", { key, ctrlKey: key !== "Control", shiftKey: key !== "Shift" });
+  const release = key => fire("keyup", { key, ctrlKey: key !== "Control", shiftKey: false });
   return { fire, press, release };
 }
 
-async function setup(opts) {
-  const l = await logic();
+async function setup(opts, globals) {
+  const l = await logic(globals);
   const w = world(opts);
   w.doc.activeElement = w.a.parts.content;
   const actions = { responseScroll: e => l.responseScrollKey(e, w.find) };
@@ -147,16 +154,30 @@ async function setup(opts) {
 const near = (actual, expected, label) =>
   assert.ok(Math.abs(actual - expected) < 1e-6, `${label || ""} ${actual} is not ${expected}`);
 
-test("control+shift+s with either case is the response scroll chord and nothing looser is", async () => {
+test("control+s with either case is the response scroll chord and nothing looser is", async () => {
   const { resolve } = await logic();
   for (const key of ["s", "S"]) assert.equal(resolve(chord(null, { key })).action, "responseScroll");
   assert.equal(resolve(chord(null, { repeat: true })).action, "responseScroll");
-  for (const over of [{ altKey: true }, { metaKey: true }, { ctrlKey: false }, { shiftKey: false },
+  for (const over of [{ altKey: true }, { metaKey: true }, { ctrlKey: false }, { shiftKey: true },
                       { isComposing: true }, { defaultPrevented: true }, { key: "d" }]) {
     assert.notEqual(resolve(chord(null, over))?.action, "responseScroll", JSON.stringify(over));
   }
-  assert.equal(resolve(chord(null, { ctrlKey: false, shiftKey: false, key: "s" })).action, "destination");
+  // plain s and the old control+shift+s are nothing at all
+  assert.equal(resolve(chord(null, { ctrlKey: false, key: "s" })), null);
+  assert.equal(resolve(chord(null, { shiftKey: true })), null);
   assert.equal(resolve(chord(null), "mini"), null);
+});
+
+test("control+shift+s no longer scrolls or bounces and leaves the key alone", async () => {
+  for (const scrollTop of [1000, 1600]) {
+    const f = await setup({ scrollTop });
+    const e = f.press({ shiftKey: true });
+    assert.equal(e.defaultPrevented, false);
+    assert.equal(f.time.pending(), 0);
+    f.time.run(10);
+    assert.deepEqual(f.view.writes, []);
+    assert.deepEqual(f.a.el.reply.animations, []);
+  }
 });
 
 test("holding the chord scrolls down slowly from the first frame and letting go of s stops it", async () => {
@@ -181,18 +202,22 @@ test("holding the chord scrolls down slowly from the first frame and letting go 
   assert.equal(f.timers(), 0);
 });
 
-test("letting go of control or shift stops the motion and forgets the tap", async () => {
-  for (const key of ["Control", "Shift"]) {
+test("letting go of control, or adding shift, stops the motion and forgets the tap", async () => {
+  const stops = {
+    Control: f => f.release("Control"),
+    Shift: f => f.fire("keydown", chord(null, { key: "Shift", shiftKey: true })),
+  };
+  for (const [key, stop] of Object.entries(stops)) {
     const f = await setup();
     f.press(); f.time.run(3);
-    f.release(key);
+    stop(f);
     assert.equal(f.time.pending(), 0, key);
     const top = f.view.scrollTop;
     f.time.run(10);
     assert.equal(f.view.scrollTop, top, key);
-    // a tap, a modifier let go, and a quick press again is a fresh down
+    // a tap, a modifier changed, and a quick press again is a fresh down
     f.press(); f.time.run(1); f.release("S");
-    f.release(key);
+    stop(f);
     f.time.elapse(100);
     const before = f.view.scrollTop;
     f.press(); f.time.run(2);
@@ -289,10 +314,100 @@ test("the motion stops at either end and still takes the chord there", async () 
   const hidden = await setup({ clientHeight: 0 });
   assert.equal(hidden.press().defaultPrevented, false);
   assert.equal(hidden.time.pending(), 0);
+  assert.deepEqual(hidden.a.el.reply.animations, []);
+});
+
+// ---- the edge bounce ------------------------------------------------------------
+const REDUCED = { matchMedia: query => ({ matches: query === "(prefers-reduced-motion: reduce)" }) };
+
+// the content's parts (the answered box and the answer) each took exactly the
+// bounces listed, by their outward translate, and nothing wrote the scroll
+function bounces(f) {
+  const parts = [f.a.el.answwrap, f.a.el.reply];
+  const outs = parts.map(part => part.animations.map(run => run.frames[1].translate));
+  assert.deepEqual(outs[0], outs[1], "the answered box and the answer moved apart");
+  return outs[1];
+}
+
+function assertBounceShape(run) {
+  assert.equal(run.options.duration, 250);
+  assert.equal(run.frames.length, 3, "one out and back, no overshoot");
+  assert.equal(run.frames[0].translate, "0 0");
+  assert.equal(run.frames[2].translate, "0 0");
+  assert.equal(run.frames[1].offset, 0.4);
+  for (const frame of run.frames.slice(0, 2)) assert.match(frame.easing, /^cubic-bezier\(/);
+}
+
+test("a press with nothing to scroll that way bounces once along the pressed direction", async () => {
+  const cases = {
+    "down at the bottom": { opts: { scrollTop: 1600 }, up: false, out: ["0 -7px"] },
+    "down when it does not scroll": { opts: { scrollHeight: 300, scrollTop: 0 }, up: false, out: ["0 -7px"] },
+    "down when it fits exactly": { opts: { scrollHeight: 400, scrollTop: 0 }, up: false, out: ["0 -7px"] },
+    // a tap that never reached a frame, then the hold, which goes up
+    "up at the top": { opts: { scrollTop: 0 }, up: true, out: ["0 7px"] },
+    "up when it does not scroll": { opts: { scrollHeight: 300, scrollTop: 0 }, up: true, out: ["0 -7px", "0 7px"] },
+  };
+  for (const [name, { opts, up, out }] of Object.entries(cases)) {
+    const f = await setup(opts);
+    if (up) { f.press(); f.release("S"); f.time.elapse(50); }
+    const e = f.press();
+    assert.equal(e.defaultPrevented, true, name);
+    assert.equal(f.time.pending(), 0, `${name}: a motion started`);
+    assert.deepEqual(bounces(f), out, name);
+    assertBounceShape(f.a.el.reply.animations.at(-1));
+    // a first bounce is replaced by a second rather than left to stack
+    if (out.length > 1) assert.equal(f.a.el.reply.animations[0].cancelled, true, name);
+    f.time.run(10);
+    assert.deepEqual(f.view.writes, [], name);
+    assert.equal(f.doc.activeElement, f.a.parts.content, name);
+    assert.deepEqual(bounces(f), out, `${name}: bounced again`);
+    assert.equal(f.timers(), 0);
+  }
+});
+
+test("a hold that reaches either end bounces once there and a scroll short of it does not", async () => {
+  const down = await setup({ scrollTop: 1590 });
+  down.press(); down.time.run(3);
+  assert.deepEqual(bounces(down), [], "bounced before the end");
+  down.time.run(1);
+  assert.equal(down.view.scrollTop, 1600);
+  assert.deepEqual(bounces(down), ["0 -7px"]);
+  for (let i = 0; i < 10; i++) { down.press({ repeat: true }); down.time.run(1); }
+  assert.deepEqual(bounces(down), ["0 -7px"], "a held key's repeats bounced again");
+  assertBounceShape(down.a.el.reply.animations[0]);
+
+  const up = await setup({ scrollTop: 10 });
+  up.press(); up.release("S"); up.time.elapse(50);
+  up.press(); up.time.run(10);
+  assert.equal(up.view.scrollTop, 0);
+  assert.deepEqual(bounces(up), ["0 7px"]);
+
+  const mid = await setup();
+  mid.press(); mid.time.run(20); mid.release("S");
+  assert.deepEqual(bounces(mid), []);
+});
+
+test("reduced motion gets no bounce and the keys work as before", async () => {
+  const edge = await setup({ scrollTop: 1600 }, REDUCED);
+  assert.equal(edge.press().defaultPrevented, true);
+  assert.deepEqual(bounces(edge), []);
+  edge.release("S"); edge.time.elapse(50);
+  // the tap still turns the next press into an up
+  edge.press(); edge.time.run(2);
+  near(edge.view.scrollTop, 1600 - 2 * STEP);
+
+  const short = await setup({ scrollHeight: 300, scrollTop: 0 }, REDUCED);
+  short.press();
+  assert.deepEqual(bounces(short), []);
+
+  const held = await setup({ scrollTop: 1596 }, REDUCED);
+  held.press(); held.time.run(10);
+  assert.equal(held.view.scrollTop, 1600);
+  assert.deepEqual(bounces(held), []);
 });
 
 test("modified, composing and already handled keys leave the response and the key alone", async () => {
-  for (const over of [{ altKey: true }, { metaKey: true }, { ctrlKey: false }, { shiftKey: false },
+  for (const over of [{ altKey: true }, { metaKey: true }, { ctrlKey: false }, { shiftKey: true },
                       { isComposing: true }, { defaultPrevented: true }]) {
     const f = await setup();
     const e = f.press(over);
@@ -304,8 +419,9 @@ test("modified, composing and already handled keys leave the response and the ke
 });
 
 test("another key or a changed modifier during the hold stops it without taking the key", async () => {
-  for (const over of [{ key: "a", ctrlKey: false, shiftKey: false }, { key: "ArrowDown" },
-                      { altKey: true }, { metaKey: true }, { isComposing: true }, { key: "Alt", altKey: true }]) {
+  for (const over of [{ key: "a", ctrlKey: false }, { key: "ArrowDown" }, { shiftKey: true },
+                      { altKey: true }, { metaKey: true }, { isComposing: true }, { key: "Alt", altKey: true },
+                      { key: "Shift", shiftKey: true }]) {
     const f = await setup();
     f.press(); f.time.run(2);
     const e = chord(f.a.parts.content, over);
@@ -315,13 +431,15 @@ test("another key or a changed modifier during the hold stops it without taking 
     f.time.run(5);
     assert.equal(f.view.writes.length, 2, JSON.stringify(over));
   }
-  // a modifier's own repeat while both are held is not a change
+  // control's own repeat while it alone is held is not a change
   const f = await setup();
-  f.press(); f.fire("keydown", chord(null, { key: "Shift", repeat: true }));
+  f.press(); f.fire("keydown", chord(null, { key: "Control", repeat: true }));
   assert.equal(f.time.pending(), 1);
 });
 
-test("the composer in either shape, the response and the page itself all take the chord", async () => {
+// control+s while typing in the card's own composer scrolls, and the caret's
+// field keeps focus
+test("the composer being typed in, in either shape, the response and the page itself all take the chord", async () => {
   for (const composer of ["cm", "textarea"]) {
     for (const where of ["content", "ta", "reply", "body"]) {
       const f = await setup({ composer });
@@ -465,8 +583,8 @@ test("desktop panels, menus, the small card and a picture keep the chord and sto
   assert.equal(f.time.pending(), 0);
   clear(); f.time.elapse(1000);
   // history and card steps are untouched, and scrolling still works after them
-  assert.equal(f.press({ key: "ArrowUp" }).defaultPrevented, true);
-  f.press({ key: "ArrowLeft" });
+  assert.equal(f.press({ key: "ArrowUp", shiftKey: true }).defaultPrevented, true);
+  f.press({ key: "ArrowLeft", shiftKey: true });
   assert.deepEqual(f.calls, [["history", "c1", 1], ["nav", -1]]);
   const top = f.view.scrollTop;
   f.press(); f.time.run(2); f.release("S");
@@ -495,10 +613,42 @@ test("a phone drawer or a swipe keeps the chord and stops a motion", async () =>
   f.press(); f.time.run(1); f.release("S");
   f.time.elapse(100);
   f.press(); f.time.run(2);
-  f.release("Shift");
+  f.release("Control");
   assert.equal(f.time.pending(), 0);
   near(f.view.scrollTop, top - STEP);
-  f.press({ key: "ArrowDown" });
-  f.press({ key: "ArrowRight" });
+  f.press({ key: "ArrowDown", shiftKey: true });
+  f.press({ key: "ArrowRight", shiftKey: true });
   assert.deepEqual(f.calls, [["history", "c1", -1], ["step", 1]]);
 });
+
+// control+n and control+l through each page's own action table: they move the
+// selected card only while nothing is being typed, where macOS keeps them for
+// the caret, and no plain letter or control+s moves it at all
+for (const name of ["index.html", "m.html"]) {
+  test(`${name} control+n and control+l move the card only when not typing`, async () => {
+    const f = await page(name, calls => ({
+      FOCUS: true, boardKeysLive: () => true, miniFocused: false, p3Zoom: null,
+      lastState: { boxes: [{ id: "c1", bucket: "meta" }] },
+      setCardDestination: (id, where) => calls.push(["destination", id, where]),
+    }));
+    const typing = { composer: f.a.parts.content, textarea: f.a.parts.ta, title: f.a.parts.title };
+    for (const [where, target] of Object.entries(typing)) {
+      for (const key of ["n", "l"]) {
+        assert.equal(f.press({ key }, target).defaultPrevented, false, `${where} control+${key}`);
+      }
+    }
+    assert.deepEqual(f.calls, [], "a destination key moved the card while typing");
+    for (const key of ["n", "N", "s", "S", "l", "L"]) f.press({ key, ctrlKey: false }, f.doc.body);
+    assert.deepEqual(f.calls, [], "a plain letter moved the card");
+    f.press({}, f.doc.body); f.release("S");
+    f.press({}, f.a.parts.content); f.release("S");
+    assert.deepEqual(f.calls, [], "control+s moved the card");
+    assert.equal(f.press({ key: "n" }, f.doc.body).defaultPrevented, true);
+    assert.equal(f.press({ key: "L" }, f.doc.body).defaultPrevented, true);
+    for (const over of [{ shiftKey: true }, { metaKey: true }, { altKey: true }, { repeat: true }]) {
+      f.press({ key: "n", ...over }, f.doc.body);
+      f.press({ key: "l", ...over }, f.doc.body);
+    }
+    assert.deepEqual(f.calls, [["destination", "c1", "doing"], ["destination", "c1", "deferred"]]);
+  });
+}

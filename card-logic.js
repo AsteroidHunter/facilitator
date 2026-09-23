@@ -98,22 +98,24 @@ const CARD_SHORTCUT_DEFINITIONS = [
     action: "close", mini: false,
     match: e => e.key === "Backspace" || e.key === "Delete" ? true : null,
   },
+  // control+n moves the selected card to Doing ("now") and control+l to
+  // Deferred ("later"). Plain letters are no command: a stray n or s used to
+  // move a card. Inside a text box macOS keeps control+n and control+l for the
+  // caret, so the pages act on these only when nothing is being typed
   {
     action: "destination", mini: false,
-    match: e => !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey &&
+    match: e => e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey &&
       !e.repeat && !e.isComposing && !e.defaultPrevented &&
-      (e.key === "s" || e.key === "S" || e.key === "n" || e.key === "N")
-      ? ((e.key === "s" || e.key === "S") ? "deferred" : "doing") : null,
+      (e.key === "n" || e.key === "N" || e.key === "l" || e.key === "L")
+      ? ((e.key === "l" || e.key === "L") ? "deferred" : "doing") : null,
   },
-  // control+shift+s scrolls the selected card's response while held: down, or
-  // up when a tap is followed at once by a hold. A held key's repeats are
+  // control+s scrolls the selected card's response while held: down, or up
+  // when a tap is followed at once by a hold. A held key's repeats are
   // recognized too, so the page can keep them from the editor and the browser,
   // and responseScrollKey never counts them as presses
   {
     action: "responseScroll", mini: false,
-    match: e => e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey &&
-      !e.isComposing && !e.defaultPrevented &&
-      (e.key === "s" || e.key === "S") ? true : null,
+    match: e => responseScrollChord(e) && !e.defaultPrevented ? true : null,
   },
 ];
 
@@ -146,21 +148,29 @@ function cardShortcutEditing(target){
     !!target.closest("textarea, input, [contenteditable], [role='textbox'], .cm-editor");
 }
 
-// ---- scrolling the response with control+shift+s ---------------------------------
+// ---- scrolling the response with control+s ---------------------------------------
 // Holding the chord scrolls the selected card's response slowly down from the
 // first frame. Tapping s and pressing it again within the double tap window,
-// with control and shift still held, scrolls up instead. Letting go of s,
-// control or shift stops the motion at once. The response scroller
-// (el.replyview) holds the live reply and a history step alike.
+// with control still held, scrolls up instead. Letting go of s or control
+// stops the motion at once. The response scroller (el.replyview) holds the
+// live reply and a history step alike. macOS text boxes give control+s no
+// meaning, so the chord works from the card's composer too.
 const RESPONSE_TAP_MS = 300;
 // CSS pixels per second
 const RESPONSE_SCROLL_SPEED = 150;
 // the longest frame gap counted, so a stalled page never catches up in a jump
 const RESPONSE_FRAME_MAX_MS = 50;
+// a press that finds nothing to scroll that way, or a hold that reaches the
+// end, nudges the response's content this far along the pressed direction and
+// back, so the key is seen to have landed
+const RESPONSE_BOUNCE_PX = 7;
+const RESPONSE_BOUNCE_MS = 250;
 // the motion under way, or null
 let responseScrolling = null;
 // the last down press, kept so a quick second press can turn it into an up
 let responseLastPress = null;
+// the bounce's running animations, so a quick second one replaces the first
+let responseBouncing = [];
 
 function stopResponseScroll(){
   if (responseScrolling && responseScrolling.frame) cancelAnimationFrame(responseScrolling.frame);
@@ -172,9 +182,36 @@ function dropResponseScroll(){
   responseLastPress = null;
 }
 
+// control and s and nothing else, so control+shift+s is not the chord
 function responseScrollChord(e){
-  return e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && !e.isComposing &&
+  return e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey && !e.isComposing &&
     (e.key === "s" || e.key === "S");
+}
+
+// Whether the response can move at all in dir (1 down, -1 up): false when it
+// does not scroll, or already stands at that end.
+function responseCanScroll(view, dir){
+  const room = Math.max(0, view.scrollHeight - view.clientHeight);
+  return dir > 0 ? view.scrollTop < room : view.scrollTop > 0;
+}
+
+// The edge bounce: the content inside the scroller (the answered box and the
+// answer) goes RESPONSE_BOUNCE_PX the way the scroll would have carried it and
+// eases back. It runs on the independent translate property through the
+// animation API, so no scroll position, style, focus, caret or draft is
+// written. Reduced motion gets none. True means a bounce was started.
+function responseScrollBounce(view, dir){
+  if (typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches) return false;
+  const parts = [...(view.children || [])].filter(part => typeof part.animate === "function");
+  if (!parts.length) return false;
+  for (const running of responseBouncing) running.cancel();
+  const out = `0 ${-dir * RESPONSE_BOUNCE_PX}px`;
+  responseBouncing = parts.map(part => part.animate([
+    { translate: "0 0", easing: "cubic-bezier(.25, .8, .4, 1)" },
+    { translate: out, offset: .4, easing: "cubic-bezier(.45, 0, .55, 1)" },
+    { translate: "0 0" },
+  ], { duration: RESPONSE_BOUNCE_MS }));
+  return true;
 }
 
 // Where the chord may come from: the page itself, the card's own composer
@@ -220,7 +257,9 @@ function responseScrollFrame(at){
   run.pos = Math.max(0, Math.min(room, run.pos + run.dir * RESPONSE_SCROLL_SPEED * dt / 1000));
   if (run.pos !== view.scrollTop) view.scrollTop = run.pos;
   if ((run.dir < 0 && run.pos === 0) || (run.dir > 0 && run.pos === room)){
+    // the motion stops here, so the hold that reached the end bounces once
     stopResponseScroll();
+    responseScrollBounce(view, run.dir);
     return;
   }
   run.frame = requestAnimationFrame(responseScrollFrame);
@@ -250,34 +289,41 @@ function responseScrollKey(event, find){
   stopResponseScroll();
   // an up is never the first press of the next pair, so the press after it goes down
   responseLastPress = up ? null : press;
+  const dir = up ? -1 : 1;
+  // nothing to scroll that way: the press still counts toward a double tap,
+  // but it bounces instead of starting a motion that would stop at once
+  if (!responseCanScroll(view, dir)){
+    responseScrollBounce(view, dir);
+    return true;
+  }
   responseScrolling = {
-    ...press, find, dir: up ? -1 : 1, last: at, pos: view.scrollTop,
+    ...press, find, dir, last: at, pos: view.scrollTop,
     frame: requestAnimationFrame(responseScrollFrame),
   };
   return true;
 }
 
 // Letting go of s stops the motion and keeps the press for the double tap
-// window. Letting go of control or shift stops it and forgets the press.
+// window. Letting go of control stops it and forgets the press.
 function responseScrollKeyUp(event){
-  if (!event.ctrlKey || !event.shiftKey || event.metaKey || event.altKey){
+  if (!event.ctrlKey || event.shiftKey || event.metaKey || event.altKey){
     dropResponseScroll();
     return;
   }
   if (event.key === "s" || event.key === "S"){
     stopResponseScroll();
     if (responseLastPress && responseLastPress.released == null) responseLastPress.released = performance.now();
-  } else if (event.key === "Control" || event.key === "Shift"){
+  } else if (event.key === "Control"){
     dropResponseScroll();
   }
 }
 
-// Any other key, or the chord with a changed modifier, ends the motion and the
-// double tap. The key itself is left alone. A repeat of control or shift while
-// both are still held is not a change.
+// Any other key, or the chord with a changed or added modifier (shift
+// included), ends the motion and the double tap. The key itself is left alone.
+// A repeat of control while it alone is held is not a change.
 function responseScrollOtherKey(event){
   if (responseScrollChord(event)) return;
-  if ((event.key === "Control" || event.key === "Shift") && event.ctrlKey && event.shiftKey &&
+  if (event.key === "Control" && event.ctrlKey && !event.shiftKey &&
       !event.metaKey && !event.altKey) return;
   dropResponseScroll();
 }
@@ -1551,7 +1597,7 @@ function flagShown(id, kind){
 
 function toggleFlag(id, kind){ return setFlag(id, kind, !flagShown(id, kind)); }
 
-// The letter keys name destinations, unlike the moon's reversible tap. Read
+// Control+n and control+l name destinations, unlike the moon's reversible tap. Read
 // the held value so a second key during an unanswered request is judged against
 // what the card already shows, then use the same ordered flag requests as a tap.
 function setCardDestination(id, destination){
