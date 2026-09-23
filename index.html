@@ -9661,10 +9661,10 @@ async function poll(){
   }
 }
 
-// the card whose response control+shift+s may page, or null. The small card,
+// the card whose response control+shift+s may scroll, or null. The small card,
 // an open picture, a panel, the worktree menu and the confirmation window each
 // hold the page's keys, and the response behind them is not what the reader is
-// looking at. It is asked again before a waiting page down is made
+// looking at. It is asked again on every frame of the motion
 function boardResponseCard(){
   const cls = document.body.classList;
   const el = selectedId && els[selectedId];
@@ -9724,8 +9724,8 @@ const boardShortcutActions = {
     e.preventDefault();
     setCardDestination(selectedId, shortcut.value);
   },
-  responsePage(e){
-    responseTap(e, boardResponseCard);
+  responseScroll(e){
+    responseScrollKey(e, boardResponseCard);
   },
 };
 
@@ -9737,8 +9737,9 @@ addEventListener("keydown", e => {
   if (!boardKeysLive()) return;
   dispatchCardShortcut(e, boardShortcutActions);
 });
-// a page down still waiting when the page is hidden is dropped
-document.addEventListener("visibilitychange", cancelResponseTap);
+// releases, other keys, a lost window and a hidden page stop the response
+// scroll whatever holds the board's keys
+listenResponseScroll();
 {
   // each button writes the view of the project being looked at, and nothing
   // else: another project keeps whatever view was chosen for it, and one that

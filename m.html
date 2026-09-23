@@ -3813,9 +3813,9 @@ function stepCard(dir, focus){
   document.getElementById("cards").addEventListener("touchcancel", () => settle(false));
 }
 
-// the card whose response control+shift+s may page, or null. A drawer out over
-// the card, or a card mid-swipe, is not the response the reader is looking at.
-// It is asked again before a waiting page down is made
+// the card whose response control+shift+s may scroll, or null. A drawer out
+// over the card, or a card mid-swipe, is not the response the reader is looking
+// at. It is asked again on every frame of the motion
 function phoneResponseCard(){
   const cls = document.body.classList;
   const el = selectedId && els[selectedId];
@@ -3869,16 +3869,16 @@ const phoneShortcutActions = {
     e.preventDefault();
     setCardDestination(selectedId, shortcut.value);
   },
-  responsePage(e){
-    responseTap(e, phoneResponseCard);
+  responseScroll(e){
+    responseScrollKey(e, phoneResponseCard);
   },
 };
 
 addEventListener("keydown", e => {
   dispatchCardShortcut(e, phoneShortcutActions);
 });
-// a page down still waiting when the page is hidden is dropped
-document.addEventListener("visibilitychange", cancelResponseTap);
+// releases, other keys, a lost window and a hidden page stop the response scroll
+listenResponseScroll();
 
 // ---- installing, and being told when a card turns to the reader's turn -------------------------
 let swReg = null;
