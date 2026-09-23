@@ -3966,7 +3966,7 @@ function stepCard(dir, focus){
   document.getElementById("cards").addEventListener("touchcancel", () => settle(false));
 }
 
-// the card whose response control+shift+s may scroll, or null. A drawer out
+// the card whose response control+s may scroll, or null. A drawer out
 // over the card, or a card mid-swipe, is not the response the reader is looking
 // at. It is asked again on every frame of the motion
 function phoneResponseCard(){
