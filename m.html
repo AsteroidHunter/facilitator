@@ -995,11 +995,12 @@
   .box.omni-card .omni-card-art{display:block; flex:none; font-size:24px; width:auto; height:1em;
     align-self:flex-start; margin-top:.125em; object-fit:contain; object-position:center}
   .box.omni-card .title{flex:1 1 0; padding-left:0}
-  /* the light a card crosses into Omni under and the star it leaves in the
-     top right corner, the desktop's own and explained there: a wide warm bell
-     multiplied in and a narrow near white glare screened over it, each with a
-     round sun riding the diagonal, moved by the script through --omni-p. the
-     element takes no z-index, so each layer's blend reaches the card */
+  /* the light a card crosses into and out of Omni under, and the glint it
+     leaves on the card's top right corner on the way in, the desktop's own and
+     explained there: a wide warm bell multiplied in and a narrow near white
+     glare screened over it, each with a round sun riding the diagonal, moved
+     by the script through --omni-p. the element takes no z-index, so each
+     layer's blend reaches the card */
   .omni-sweep{position:absolute; inset:0; pointer-events:none; --omni-p:-1;
     --omni-c:calc(var(--omni-p) * 100%);
     --omni-x:calc(var(--omni-p) * 100%); --omni-y:calc((1 - var(--omni-p)) * 100%)}
@@ -1007,37 +1008,47 @@
   .omni-sweep::before{
     mix-blend-mode:multiply;
     background:
-      radial-gradient(circle at var(--omni-x) var(--omni-y), rgba(255,230,200,.5) 0,
-        rgba(255,230,200,.38) 40px, rgba(255,230,200,.17) 80px, rgba(255,230,200,.05) 120px,
+      radial-gradient(circle at var(--omni-x) var(--omni-y), rgba(255,230,200,.7) 0,
+        rgba(255,230,200,.54) 40px, rgba(255,230,200,.24) 80px, rgba(255,230,200,.07) 120px,
         rgba(255,230,200,0) 160px),
       linear-gradient(to top right, rgba(255,230,200,0) calc(var(--omni-c) - 24%),
-        rgba(255,230,200,.05) calc(var(--omni-c) - 18%), rgba(255,230,200,.16) calc(var(--omni-c) - 12%),
-        rgba(255,230,200,.32) calc(var(--omni-c) - 6%), rgba(255,230,200,.4) var(--omni-c),
-        rgba(255,230,200,.32) calc(var(--omni-c) + 6%), rgba(255,230,200,.16) calc(var(--omni-c) + 12%),
-        rgba(255,230,200,.05) calc(var(--omni-c) + 18%), rgba(255,230,200,0) calc(var(--omni-c) + 24%))}
+        rgba(255,230,200,.08) calc(var(--omni-c) - 18%), rgba(255,230,200,.24) calc(var(--omni-c) - 12%),
+        rgba(255,230,200,.46) calc(var(--omni-c) - 6%), rgba(255,230,200,.58) var(--omni-c),
+        rgba(255,230,200,.46) calc(var(--omni-c) + 6%), rgba(255,230,200,.24) calc(var(--omni-c) + 12%),
+        rgba(255,230,200,.08) calc(var(--omni-c) + 18%), rgba(255,230,200,0) calc(var(--omni-c) + 24%))}
   .omni-sweep::after{
     mix-blend-mode:screen;
     background:
-      radial-gradient(circle at var(--omni-x) var(--omni-y), rgba(255,253,248,.95) 0,
-        rgba(255,253,248,.72) 9px, rgba(255,253,248,.31) 18px, rgba(255,253,248,.07) 27px,
-        rgba(255,253,248,0) 36px),
-      linear-gradient(to top right, rgba(255,253,248,0) calc(var(--omni-c) - 6.5%),
-        rgba(255,253,248,.1) calc(var(--omni-c) - 4.5%), rgba(255,253,248,.35) calc(var(--omni-c) - 3%),
-        rgba(255,253,248,.7) calc(var(--omni-c) - 1.5%), rgba(255,253,248,.88) var(--omni-c),
-        rgba(255,253,248,.7) calc(var(--omni-c) + 1.5%), rgba(255,253,248,.35) calc(var(--omni-c) + 3%),
-        rgba(255,253,248,.1) calc(var(--omni-c) + 4.5%), rgba(255,253,248,0) calc(var(--omni-c) + 6.5%))}
-  .omni-star{position:absolute; top:2px; right:2px; width:26px; height:26px; z-index:41;
-    pointer-events:none; animation:omni-star 360ms cubic-bezier(.2,.7,.3,1) both}
-  .omni-star::before{content:""; position:absolute; inset:-8px; border-radius:50%;
-    background:radial-gradient(circle, rgba(255,230,200,.75) 0, rgba(255,230,200,.35) 35%,
-      rgba(255,230,200,0) 70%)}
-  .omni-star svg{position:relative; display:block; width:100%; height:100%;
-    filter:drop-shadow(0 0 1.5px rgba(226,160,96,.7))}
-  .omni-star path{fill:#fffdf8}
-  @keyframes omni-star{
-    0%{opacity:0; transform:scale(.3) rotate(-25deg)}
-    35%{opacity:1; transform:scale(1) rotate(0deg)}
-    100%{opacity:0; transform:scale(1.4) rotate(18deg)}}
+      radial-gradient(circle at var(--omni-x) var(--omni-y), rgba(255,254,250,1) 0,
+        rgba(255,254,250,.82) 10px, rgba(255,254,250,.46) 20px, rgba(255,254,250,.17) 30px,
+        rgba(255,254,250,.05) 40px, rgba(255,254,250,0) 50px),
+      linear-gradient(to top right, rgba(255,254,250,0) calc(var(--omni-c) - 9%),
+        rgba(255,254,250,.04) calc(var(--omni-c) - 7.5%), rgba(255,254,250,.14) calc(var(--omni-c) - 6%),
+        rgba(255,254,250,.32) calc(var(--omni-c) - 4.5%), rgba(255,254,250,.61) calc(var(--omni-c) - 3%),
+        rgba(255,254,250,.88) calc(var(--omni-c) - 1.5%), rgba(255,254,250,1) var(--omni-c),
+        rgba(255,254,250,.88) calc(var(--omni-c) + 1.5%), rgba(255,254,250,.61) calc(var(--omni-c) + 3%),
+        rgba(255,254,250,.32) calc(var(--omni-c) + 4.5%), rgba(255,254,250,.14) calc(var(--omni-c) + 6%),
+        rgba(255,254,250,.04) calc(var(--omni-c) + 7.5%), rgba(255,254,250,0) calc(var(--omni-c) + 9%))}
+  .omni-glint{position:fixed; width:8px; height:8px; margin:-4px 0 0 -4px; z-index:1000;
+    pointer-events:none; border-radius:50%;
+    background:radial-gradient(circle, #fff 0, #fff 34%, rgba(255,248,238,.85) 54%, rgba(255,248,238,0) 74%);
+    filter:drop-shadow(0 0 .8px rgba(255,178,110,.95)) drop-shadow(0 0 4px rgba(255,210,160,.85));
+    animation:omni-glint 300ms both}
+  .omni-glint::before, .omni-glint::after, .omni-glint i{position:absolute; left:50%; top:50%;
+    background:#fff}
+  .omni-glint::before{content:""; width:76px; height:3px; margin:-1.5px 0 0 -38px;
+    clip-path:polygon(0 50%, 50% 0, 100% 50%, 50% 100%)}
+  .omni-glint::after{content:""; width:3px; height:76px; margin:-38px 0 0 -1.5px;
+    clip-path:polygon(50% 0, 100% 50%, 50% 100%, 0 50%)}
+  .omni-glint i{width:30px; height:2px; margin:-1px 0 0 -15px;
+    clip-path:polygon(0 50%, 50% 0, 100% 50%, 50% 100%)}
+  .omni-glint i:first-child{transform:rotate(45deg)}
+  .omni-glint i:last-child{transform:rotate(-45deg)}
+  @keyframes omni-glint{
+    0%{transform:scale(0) rotate(-20deg); animation-timing-function:cubic-bezier(.2,.9,.3,1)}
+    30%{transform:scale(1) rotate(0deg); animation-timing-function:linear}
+    55%{transform:scale(1) rotate(4deg); animation-timing-function:cubic-bezier(.55,0,.85,.4)}
+    100%{transform:scale(0) rotate(14deg)}}
 </style>
 <link rel="stylesheet" href="/card-tokens.css">
 </head>

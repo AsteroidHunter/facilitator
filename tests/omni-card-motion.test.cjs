@@ -62,6 +62,7 @@ function makeSandbox(){
     node.querySelector = selector => selector.startsWith(".")
       ? node.children.find(child => child.classList && child.classList.contains(selector.slice(1))) || null : null;
     node.querySelectorAll = () => [];
+    node.closest = () => null;
     node.getBoundingClientRect = () => {
       if (node.rect) return node.rect;
       if (node.classList.contains("omni-sweep")) return layout.frame;
@@ -76,6 +77,7 @@ function makeSandbox(){
       createRange: () => ({ node: null, selectNodeContents(n){ this.node = n; },
         getBoundingClientRect(){ return this.node.wordsRect || this.node.getBoundingClientRect(); } }) },
     getSelection: () => ({ removeAllRanges: noop, addRange: noop }),
+    getComputedStyle: node => ({ borderTopRightRadius: node.radius || "0px" }),
     setInterval: noop, clearInterval: noop, clearTimeout: noop,
     setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     requestAnimationFrame: cb => { frames.push(cb); return frames.length; }, cancelAnimationFrame: noop,
@@ -94,10 +96,16 @@ function makeSandbox(){
 }
 
 // one desktop card in the sandbox: its box, head, title, composer and outline
-// entry, in lane "facilitator" beside Omni tickets #1 and #2 and a #5 in another lane
+// entry, in lane "facilitator" beside Omni tickets #1 and #2 and a #5 in another
+// lane. the card's frame is a main with a 1px border round the light's box and
+// the board's 7px corner, which is where a glint belongs
 function makeCard(env, title){
   const { sandbox, el } = env;
   const box = el("article"), head = el("div"), titleEl = el("span"), ta = el("div"), arc = el("button");
+  const main = env.main = el("main");
+  main.rect = rect(-1, -1, 601, 801);
+  main.radius = "7px";
+  box.closest = selector => (selector === "main" ? main : null);
   box.className = "box sel";
   head.appendChild(el("span")); head.appendChild(titleEl); box.appendChild(head);
   titleEl.textContent = sandbox.omniCardTitle(title);
@@ -117,6 +125,7 @@ function makeCard(env, title){
 const hasArt = card => card.titleEl.parentNode.children.some(child => child.className === "omni-card-art");
 const childOf = (card, cls) => card.box.children.find(child => child.className === cls) || null;
 const lightAt = card => Number(childOf(card, "omni-sweep").style["--omni-p"]);
+const glintOf = env => env.sandbox.document.body.children.find(child => child.className === "omni-glint") || null;
 const key = k => ({ key: k, shiftKey: false, preventDefault: noop, stopPropagation: noop });
 // name a card through the title field and leave it by `how`: Tab, or a blur
 function commit(env, card, typed, how){
@@ -168,14 +177,14 @@ test("the next number is the lane's highest canonical number plus one", () => {
   assert.equal(sandbox.omniNextNumber([{ owner: "a", title: "Omni Ticket #40" }], "a"), 41);   // no cap
 });
 
-test("a committed title lights only the way in, and reduced motion lights nothing", () => {
+test("a committed title lights the way in and the way out, and reduced motion lights nothing", () => {
   const { sandbox } = makeSandbox();
   const plan = (...args) => JSON.parse(JSON.stringify(sandbox.omniRetitle(...args)));
   assert.deepEqual(plan(false, "", "omni", false), { dir: "in", sweep: true });
   assert.deepEqual(plan(false, "Old name", "ticket OMNI", false), { dir: "in", sweep: true });
   assert.deepEqual(plan(false, "Old name", "Omni Ticket #8", false), { dir: "in", sweep: true });
-  assert.deepEqual(plan(true, "Omni Card #3", "Fix login", false), { dir: "out", sweep: false });
-  assert.deepEqual(plan(true, "Omni Card #3", "Omni Card #3 notes", false), { dir: "out", sweep: false });
+  assert.deepEqual(plan(true, "Omni Card #3", "Fix login", false), { dir: "out", sweep: true });
+  assert.deepEqual(plan(true, "Omni Card #3", "Omni Card #3 notes", false), { dir: "out", sweep: true });
   assert.deepEqual(plan(false, "", "omni", true), { dir: "in", sweep: false });
   assert.deepEqual(plan(true, "Omni Card #3", "Fix login", true), { dir: "out", sweep: false });
   assert.equal(sandbox.omniRetitle(false, "Old name", "omni ticket please", false), null);   // not an Omni form
@@ -186,7 +195,7 @@ test("a committed title lights only the way in, and reduced motion lights nothin
   assert.equal(sandbox.omniRetitle(true, "Omni Card #3", "   ", false), null);
 });
 
-test("the light runs 600 ms corner to corner, eased, starting and ending off the card", () => {
+test("the light runs 600 ms corner to corner, eased, off the card at both ends, and backward on the way out", () => {
   const { sandbox } = makeSandbox();
   const MS = vm.runInContext("OMNI_SWEEP_MS", sandbox), REACH = vm.runInContext("OMNI_SWEEP_REACH", sandbox);
   assert.ok(MS >= 500 && MS <= 700);
@@ -195,21 +204,36 @@ test("the light runs 600 ms corner to corner, eased, starting and ending off the
   assert.equal(sandbox.omniSweepSpot(frame, 600, 0), 1);     // top right
   assert.equal(sandbox.omniSweepSpot(frame, 0, 0), 0.5);     // the other diagonal
   assert.equal(sandbox.omniSweepSpot(frame, 600, 800), 0.5);
-  assert.equal(sandbox.omniSweepAt(0), -REACH);
-  assert.equal(sandbox.omniSweepAt(MS), 1 + REACH);
-  assert.ok(Math.abs(sandbox.omniSweepAt(MS / 2) - 0.5) < 1e-9);
-  let last = -Infinity;
+  assert.equal(sandbox.omniSweepAt(0, "in"), -REACH);
+  assert.equal(sandbox.omniSweepAt(MS, "in"), 1 + REACH);
+  assert.equal(sandbox.omniSweepAt(0, "out"), 1 + REACH);     // the way out starts past the top right
+  assert.equal(sandbox.omniSweepAt(MS, "out"), -REACH);       // and ends past the bottom left
+  assert.ok(Math.abs(sandbox.omniSweepAt(MS / 2, "in") - 0.5) < 1e-9);
+  let up = -Infinity, down = Infinity;
   for (let ms = 0; ms <= MS; ms += 10){   // eased and never past its end: no bounce
-    const at = sandbox.omniSweepAt(ms);
-    assert.ok(at >= last && at <= 1 + REACH);
-    last = at;
+    const a = sandbox.omniSweepAt(ms, "in"), b = sandbox.omniSweepAt(ms, "out");
+    assert.ok(a >= up && a <= 1 + REACH && b <= down && b >= -REACH);
+    up = a; down = b;
   }
-  assert.ok(sandbox.omniSweepAt(60) - sandbox.omniSweepAt(0) < sandbox.omniSweepAt(330) - sandbox.omniSweepAt(270));
+  assert.ok(sandbox.omniSweepAt(60, "in") - sandbox.omniSweepAt(0, "in") <
+            sandbox.omniSweepAt(330, "in") - sandbox.omniSweepAt(270, "in"));
   // the page's widest falloff is the reach the script counts on
   for (const page of ["index.html", "m.html"]){
     const css = fs.readFileSync(path.resolve(__dirname, "..", page), "utf8");
     assert.match(css, new RegExp(`rgba\\(255,230,200,0\\) calc\\(var\\(--omni-c\\) - ${REACH * 100}%\\)`), page);
   }
+});
+
+test("the glint sits on the card's rounded top right corner, on its edge", () => {
+  const { sandbox } = makeSandbox();
+  const card = rect(10, 20, 410, 620);
+  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.omniGlintPoint(card, 0))), { x: 410, y: 20 });
+  const at = sandbox.omniGlintPoint(card, 7);
+  const inset = 7 * (1 - Math.SQRT1_2);   // where a 7px corner's curve crosses the diagonal
+  assert.equal(at.x, 410 - inset);
+  assert.equal(at.y, 20 + inset);
+  // on the curve: its distance from the curve's centre is the radius
+  assert.ok(Math.abs(Math.hypot(at.x - (410 - 7), at.y - (20 + 7)) - 7) < 1e-9);
 });
 
 test("Tab on a card named ticket omni lights it in, swaps title and art as the light passes, then glints", () => {
@@ -228,15 +252,21 @@ test("Tab on a card named ticket omni lights it in, swaps title and art as the l
   sandbox.syncOmniCard(card, { title: "Omni Ticket #3" });
   assert.equal(hasArt(card), false);
   const spot = sandbox.omniSweepSpot(env.layout.frame, 65, 55);
-  let swappedAt = null, starAt = null, before = null, star = null;
+  let swappedAt = null, glintAt = null, before = null, glint = null;
   for (let now = 0; now <= 640 && frames.length; now += 16){
     const was = card.titleEl.textContent;
     env.frame(now);
-    if (!star && childOf(card, "omni-star")){
-      starAt = now; star = childOf(card, "omni-star");
-      // the star fires in the frame the light's centre reaches the top right corner
+    if (!glint && glintOf(env)){
+      glintAt = now; glint = glintOf(env);
+      // the glint fires in the frame the light's centre reaches the top right corner
       assert.ok(lightAt(card) >= 1 && before < 1, `light at ${lightAt(card)}`);
-      assert.match(star.innerHTML, /^<svg viewBox="0 0 24 24"[^>]*><path d="M12 0C/);
+      // on the card's own corner, on its edge: the frame's top right, moved in onto the 7px curve,
+      // and hung off the body rather than inside the card's clip
+      const inset = 7 * (1 - Math.SQRT1_2);
+      assert.equal(glint.style.left, (601 - inset) + "px");
+      assert.equal(glint.style.top, (-1 + inset) + "px");
+      assert.equal(childOf(card, "omni-glint"), null);
+      assert.equal(glint.innerHTML, "<i></i><i></i>");   // the diagonals; the long cross is ::before and ::after
     }
     if (swappedAt == null && card.titleEl.textContent !== was){
       swappedAt = now;
@@ -249,17 +279,17 @@ test("Tab on a card named ticket omni lights it in, swaps title and art as the l
     if (childOf(card, "omni-sweep")) before = lightAt(card);
   }
   assert.ok(swappedAt > 250 && swappedAt < 350, `swapped at ${swappedAt} ms`);
-  assert.ok(starAt > 400 && starAt < 500, `star at ${starAt} ms`);
+  assert.ok(glintAt > 400 && glintAt < 500, `glint at ${glintAt} ms`);
   assert.equal(childOf(card, "omni-sweep"), null);                 // the light is gone after 600 ms
   assert.equal(card.omniSweep, null);
   assert.equal(card.tocTitle.textContent, "Omni Ticket #3");       // the outline keeps the stored name
-  // the star outlives the light by its own twinkle and then takes itself away
-  assert.equal(childOf(card, "omni-star"), star);
-  const starMs = vm.runInContext("OMNI_STAR_MS", sandbox);
-  assert.ok(starMs >= 300 && starMs <= 400);
-  assert.ok(timers.some(t => t.ms === starMs + 200));
-  star.fire("animationend");
-  assert.equal(childOf(card, "omni-star"), null);
+  // the glint outlives the light by its own ting and then takes itself away
+  assert.equal(glintOf(env), glint);
+  const glintMs = vm.runInContext("OMNI_GLINT_MS", sandbox);
+  assert.equal(glintMs, 300);
+  assert.ok(timers.some(t => t.ms === glintMs + 200));
+  glint.fire("animationend");
+  assert.equal(glintOf(env), null);
 });
 
 test("the board's own number wins over the page's count, and a stale reading is ignored", () => {
@@ -274,21 +304,43 @@ test("the board's own number wins over the page's count, and a stale reading is 
   }
 });
 
-test("blurring an Omni card whose name was changed swaps it back at once, with no light and no star", () => {
+test("blurring an Omni card whose name was changed sweeps it out from the top right, with no glint", () => {
   const env = makeSandbox();
-  const { frames, posts } = env;
+  const { sandbox, frames, posts } = env;
   const card = makeCard(env, "Omni Ticket #3");
   assert.equal(card.titleEl.textContent, "Omni Card #3");
   assert.equal(hasArt(card), true);
   commit(env, card, "Fix login", "blur");
   assert.deepEqual(posts.map(p => p.body), ["Fix login"]);
+  assert.ok(childOf(card, "omni-sweep"), "leaving Omni starts the light");
+  assert.equal(frames.length, 1);
+  // a reading that lands before the light reaches the title is held for it
+  sandbox.syncOmniCard(card, { title: "Fix login" });
+  assert.equal(hasArt(card), true);
+  // the words and the art together are the title area the light is timed to
+  const spot = sandbox.omniSweepSpot(env.layout.frame, (20 + 200) / 2, (40 + 70) / 2);
+  let swappedAt = null, before = null, first = null;
+  for (let now = 0; now <= 640 && frames.length; now += 16){
+    env.frame(now);
+    if (first == null) first = lightAt(card);
+    if (swappedAt == null && !hasArt(card)){
+      swappedAt = now;
+      // the art and the white face go in the frame the light's centre passes the title
+      assert.ok(lightAt(card) <= spot && before > spot);
+      assert.equal(card.box.classList.contains("omni-card"), false);
+      assert.equal(card.titleEl.textContent, "Fix login");
+    } else if (swappedAt == null) assert.equal(card.box.classList.contains("omni-card"), true);
+    if (childOf(card, "omni-sweep")) before = lightAt(card);
+    assert.equal(glintOf(env), null, "the way out never glints");
+  }
+  assert.ok(first > 1, "the light starts past the top right corner");
+  assert.ok(before < 0, "and leaves past the bottom left");
+  assert.ok(swappedAt > 200 && swappedAt < 350, `swapped at ${swappedAt} ms`);
   assert.equal(childOf(card, "omni-sweep"), null);
-  assert.equal(frames.length, 0);
+  assert.equal(card.omniSweep, null);
   assert.equal(hasArt(card), false);
-  assert.equal(card.box.classList.contains("omni-card"), false);
-  assert.equal(card.titleEl.textContent, "Fix login");
-  for (let now = 0; now <= 900; now += 16) env.frame(now);
-  assert.equal(childOf(card, "omni-star"), null);
+  for (let now = 656; now <= 1200; now += 16) env.frame(now);
+  assert.equal(glintOf(env), null);
 });
 
 test("titles outside the word sets never light or change the card", () => {
@@ -303,19 +355,20 @@ test("titles outside the word sets never light or change the card", () => {
   }
 });
 
-test("reduced motion changes the card at once both ways, with no light and no star", () => {
+test("reduced motion changes the card at once both ways, with no light and no glint", () => {
   const env = makeSandbox();
   const { sandbox, frames } = env;
   sandbox.reduced = true;
   const card = makeCard(env, "…");
   commit(env, card, " Omni Ticket ", "Tab");
   assert.equal(childOf(card, "omni-sweep"), null);
+  assert.equal(glintOf(env), null);
   assert.equal(frames.length, 0);
   assert.equal(card.titleEl.textContent, "Omni Card #3");
   assert.equal(hasArt(card), true);
   commit(env, card, "Plain again", "blur");
   assert.equal(childOf(card, "omni-sweep"), null);
-  assert.equal(childOf(card, "omni-star"), null);
+  assert.equal(glintOf(env), null);
   assert.equal(frames.length, 0);
   assert.equal(hasArt(card), false);
   assert.equal(card.box.classList.contains("omni-card"), false);

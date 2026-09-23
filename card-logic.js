@@ -455,16 +455,15 @@ function omniNextNumber(boxes, owner){
   return top + 1;
 }
 // what a committed title does to the card's Omni face: dir is "in" as the card
-// becomes Omni and "out" as it stops being one. only the way in is lit, and
-// not where the reader asked for reduced motion; a card leaving Omni simply
-// changes back. a name left as it was, or one that keeps the card on the side
-// it was on, asks for nothing
+// becomes Omni and "out" as it stops being one, and sweep is false where the
+// reader asked for reduced motion, so the face simply changes. a name left as
+// it was, or one that keeps the card on the side it was on, asks for nothing
 function omniRetitle(wasOmni, shown, typed, reduced){
   const name = String(typed == null ? "" : typed).trim();
   if (!name || name === shown) return null;
   const becomes = omniEntry(name);
   const dir = becomes && !wasOmni ? "in" : !becomes && wasOmni ? "out" : null;
-  return dir ? { dir, sweep: dir === "in" && !reduced } : null;
+  return dir ? { dir, sweep: !reduced } : null;
 }
 // Keep an expanded card in step when an inline rename crosses into or out of
 // the canonical Omni title. Ticket-list rows rebuild on title changes already.
@@ -497,15 +496,17 @@ function appendOmniRowArt(row, inner, b){
 
 // ---- the Omni sweep ------------------------------------------------------------
 // sunlight crosses the whole card on its diagonal as a committed title makes it
-// an Omni card, from the bottom left corner to the top right, and a small star
-// glints in that corner as the light leaves it. the title's words and the art
-// change under the light, in the frame its centre passes them. the light itself
-// is drawn by the page's .omni-sweep rule; this moves it
+// an Omni card, from the bottom left corner to the top right, and a glint
+// tings on that corner the moment the light reaches it. a card leaving Omni
+// takes the same light back the other way, top right to bottom left, with no
+// glint. the title's words and the art change under the light, in the frame
+// its centre passes them. the light itself is drawn by the page's .omni-sweep
+// rule and the glint by its .omni-glint; this moves the one and places the other
 const OMNI_SWEEP_MS = 600;
 // how far the light reaches either side of its centre, on the sweep's own 0..1
 // measure: the page's widest falloff, so the run starts and ends with none of it on the card
 const OMNI_SWEEP_REACH = 0.24;
-const OMNI_STAR_MS = 360;   // the page's omni-star keyframes run this long
+const OMNI_GLINT_MS = 300;   // the page's omni-glint keyframes run this long
 // ease in and out on a half cosine: quick through the middle, soft at both
 // ends, and never past where it is going
 function omniEase(x){ return (1 - Math.cos(Math.PI * Math.min(Math.max(x, 0), 1))) / 2; }
@@ -515,22 +516,37 @@ function omniEase(x){ return (1 - Math.cos(Math.PI * Math.min(Math.max(x, 0), 1)
 function omniSweepSpot(frame, x, y){
   return ((x - frame.left) / frame.width + (frame.bottom - y) / frame.height) / 2;
 }
-// the light's centre at ms into the sweep
-function omniSweepAt(ms){
-  return -OMNI_SWEEP_REACH + omniEase(ms / OMNI_SWEEP_MS) * (1 + 2 * OMNI_SWEEP_REACH);
+// the light's centre at ms into the sweep, run backward on the way out
+function omniSweepAt(ms, dir){
+  const k = omniEase(ms / OMNI_SWEEP_MS);
+  return -OMNI_SWEEP_REACH + (dir === "out" ? 1 - k : k) * (1 + 2 * OMNI_SWEEP_REACH);
 }
-// the four point star the light leaves in the top right corner. it twinkles
-// once, growing as it fades, and takes itself away
-const OMNI_STAR_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0C12.7 7.2 16.8 11.3 24 12' +
-  'C16.8 12.7 12.7 16.8 12 24C11.3 16.8 7.2 12.7 0 12C7.2 11.3 11.3 7.2 12 0Z"/></svg>';
-function omniStar(el){
-  const star = h("div", "omni-star");
-  star.innerHTML = OMNI_STAR_SVG;
-  el.box.appendChild(star);
-  const gone = () => star.remove();
-  star.addEventListener("animationend", gone);
-  setTimeout(gone, OMNI_STAR_MS + 200);   // a page out of sight runs no animation to end
-  return star;
+function omniSweepPassed(at, spot, dir){ return dir === "out" ? at <= spot : at >= spot; }
+// the point the glint sits on: the card's top right corner, moved in along the
+// diagonal onto the rounded edge itself, where the corner's curve crosses it
+function omniGlintPoint(rect, radius){
+  const inset = (radius || 0) * (1 - Math.SQRT1_2);
+  return { x: rect.right - inset, y: rect.top + inset };
+}
+// the ting on the card's corner. the card is the frame the page draws it in,
+// its main; the glint hangs off the body at that corner's place on the screen,
+// so the card's own rounded clip cannot cut the rays that reach past its edge.
+// it pops, holds and shrinks away on the page's keyframes, then takes itself away
+function omniGlint(el, frame){
+  const card = (el.box.closest && el.box.closest("main")) || null;
+  const rect = card ? card.getBoundingClientRect() : frame;
+  const radius = card && typeof getComputedStyle === "function"
+    ? parseFloat(getComputedStyle(card).borderTopRightRadius) || 0 : 0;
+  const point = omniGlintPoint(rect, radius);
+  const glint = h("div", "omni-glint");
+  glint.innerHTML = "<i></i><i></i>";   // the two diagonal rays; the long cross is its own ::before and ::after
+  glint.style.left = point.x + "px";
+  glint.style.top = point.y + "px";
+  document.body.appendChild(glint);
+  const gone = () => glint.remove();
+  glint.addEventListener("animationend", gone);
+  setTimeout(gone, OMNI_GLINT_MS + 200);   // a page out of sight runs no animation to end
+  return glint;
 }
 // the title on the sweep's measure: the middle of its words, together with the
 // art beside them when there is art, which is where the change is seen
@@ -559,10 +575,10 @@ function omniFace(el, title){
   if (el.tocTitle) el.tocTitle.textContent = title;
   return paintOmniCard(el, { title });
 }
-// a committed name, carried onto the card's face: lit on its way into Omni, at
-// once on its way out, where the reader asked for reduced motion or where the
-// card is not laid out. a title that asks for Omni shows the lane's next number,
-// whatever number was typed with it, since that is the number the board gives
+// a committed name, carried onto the card's face: lit where a card crosses into
+// or out of Omni, at once where the reader asked for reduced motion or where
+// the card is not laid out. a title that asks for Omni shows the lane's next
+// number, whatever number was typed with it, since that is the number the board gives
 function omniRetitleCard(id, shown, name){
   const el = els[id];
   if (!el || !el.box || !el.titleEl) return;
@@ -575,25 +591,26 @@ function omniRetitleCard(id, shown, name){
     title = "Omni Ticket #" + omniNextNumber(lastState && lastState.boxes, (b && b.owner) || "facilitator");
   }
   if (!plan){ if (omniTicket(title)) omniFace(el, title); return; }
-  if (!plan.sweep || !omniSweep(el, title)) omniFace(el, title);
+  if (!plan.sweep || !omniSweep(el, plan.dir, title)) omniFace(el, title);
 }
-function omniSweep(el, title){
+function omniSweep(el, dir, title){
   if (typeof requestAnimationFrame !== "function") return false;
   const light = h("div", "omni-sweep");
-  light.style.setProperty("--omni-p", String(omniSweepAt(0)));
+  light.style.setProperty("--omni-p", String(omniSweepAt(0, dir)));
   el.box.appendChild(light);
   const frame = light.getBoundingClientRect();
   if (!frame.width || !frame.height){ light.remove(); return false; }
   const spot = omniTitleSpot(el, frame);
-  const run = el.omniSweep = { title, light, latest: null, crossed: false, star: null, start: null, frame: 0, timer: 0 };
+  const run = el.omniSweep = { dir, title, light, latest: null, crossed: false, glint: null, start: null, frame: 0, timer: 0 };
   const tick = now => {
     if (el.omniSweep !== run) return;
     if (run.start == null) run.start = now;
     const ms = now - run.start;
-    const at = omniSweepAt(ms);
+    const at = omniSweepAt(ms, dir);
     light.style.setProperty("--omni-p", at.toFixed(4));
-    if (!run.crossed && at >= spot) omniSweepCross(el, run);
-    if (!run.star && at >= 1) run.star = omniStar(el);   // the light's centre is in the top right corner
+    if (!run.crossed && omniSweepPassed(at, spot, dir)) omniSweepCross(el, run);
+    // the light's centre has reached the top right corner: the way in ends on a ting
+    if (dir === "in" && !run.glint && at >= 1) run.glint = omniGlint(el, frame);
     if (ms >= OMNI_SWEEP_MS) omniSweepEnd(el);
     else run.frame = requestAnimationFrame(tick);
   };
@@ -602,16 +619,16 @@ function omniSweep(el, title){
   run.timer = setTimeout(() => { if (el.omniSweep === run) omniSweepEnd(el); }, OMNI_SWEEP_MS + 250);
   return true;
 }
-// a reading that arrived during the sweep speaks for the card only once it is
-// Omni. one fetched before the board had the new name would put the old face
-// back under the light
+// a reading that arrived during the sweep speaks for the card only when it is
+// already on the side the sweep is taking the card to. one fetched before the
+// board had the new name would put the old face back under the light
 function omniSweepFresh(run){
-  return !!(run.latest && omniTicket(run.latest.title));
+  return !!(run.latest && (!!omniTicket(run.latest.title)) === (run.dir === "in"));
 }
 function omniSweepCross(el, run){
   run.crossed = true;
-  // the card wears the board's own number once a reading has brought it, and
-  // the page's count of it until then
+  // becoming Omni, the card wears the board's own number once a reading has
+  // brought it, and the page's count of it until then
   omniFace(el, omniSweepFresh(run) ? run.latest.title : run.title);
 }
 function omniSweepEnd(el){

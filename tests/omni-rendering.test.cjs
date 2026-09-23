@@ -58,11 +58,30 @@ for (const [name, size, open] of [["index.html", "17.5px", ["body.focus .box.sel
     assert.match(layer("after"), /mix-blend-mode:screen;[\s\S]*radial-gradient\(circle at var\(--omni-x\) var\(--omni-y\)[\s\S]*linear-gradient\(to top right/);
     // no yellow or gold left: the warmth is warm white, the glare near white
     assert.doesNotMatch(html, /rgba\(224,176,64|rgba\(255,214,110/);
-    // the star: a four point path twinkling once, 300 to 400 ms
-    const star = /\.omni-star\{([^}]*)\}/.exec(html)[1];
-    const ms = Number(/animation:omni-star (\d+)ms/.exec(star)[1]);
-    assert.ok(ms >= 300 && ms <= 400);
-    assert.match(html, /@keyframes omni-star\{\s*0%\{opacity:0; transform:scale\(\.3\)[^}]*\}\s*35%\{opacity:1; transform:scale\(1\)[^}]*\}\s*100%\{opacity:0; transform:scale\(1\.4\)/);
+    // brighter: the glare's core and its sun are full white, and the warmth
+    // stands at .58 across the diagonal and .7 at the sun
+    assert.match(layer("after"), /rgba\(255,254,250,1\) 0,[\s\S]*rgba\(255,254,250,1\) var\(--omni-c\),/);
+    assert.match(layer("before"), /rgba\(255,230,200,\.7\) 0,[\s\S]*rgba\(255,230,200,\.58\) var\(--omni-c\),/);
+    // the old star and its halo are gone
+    assert.doesNotMatch(html, /omni-star/);
+    // the glint: fixed on the screen so the card's clip cannot cut it, a tiny
+    // white core, a long thin cross of rays longer than its thin diagonals, and
+    // a 300 ms pop, hold and shrink with a small turn
+    const glint = /\.omni-glint\{([^}]*)\}/.exec(html)[1];
+    assert.match(glint, /position:fixed; width:8px; height:8px; margin:-4px 0 0 -4px;/);
+    assert.match(glint, /radial-gradient\(circle, #fff 0, #fff 34%/);
+    assert.match(glint, /animation:omni-glint 300ms both/);
+    const dims = which => /width:(\d+)px; height:(\d+)px/
+      .exec(new RegExp(`^\\s*\\.omni-glint${which}\\{([^}]*)\\}`, "m").exec(html)[1]).slice(1).map(Number);
+    const [across, thick] = dims("::before"), [thin, tall] = dims("::after"), [diagonal, fine] = dims(" i");
+    assert.ok(across === tall && thick === thin && across >= 60 && thick <= 3, "the long cross");
+    assert.ok(diagonal < across && fine < thick, "the diagonals are shorter and thinner");
+    assert.match(html, /\.omni-glint i:first-child\{transform:rotate\(45deg\)\}\s*\.omni-glint i:last-child\{transform:rotate\(-45deg\)\}/);
+    const keys = /@keyframes omni-glint\{([\s\S]*?)\}\}/.exec(html)[1];
+    assert.match(keys, /^\s*0%\{transform:scale\(0\) rotate\(-?\d+deg\)/);
+    assert.match(keys, /30%\{transform:scale\(1\) rotate\(0deg\)/);   // open by 90 of the 300 ms
+    assert.match(keys, /55%\{transform:scale\(1\)/);                  // held
+    assert.match(keys, /100%\{transform:scale\(0\)/);                 // and gone
   });
 }
 
@@ -71,10 +90,11 @@ test("a working Omni row wears the same sunlight while ordinary rows keep the wh
   assert.match(html, /\.trow\.working::after\{[^}]*rgba\(255,255,255,\.55\) 50%/);
   const warmth = /\.trow\.omni-ticket\.working::before\{([^}]*)\}/.exec(html)[1];
   const glare = /\.trow\.omni-ticket\.working::after\{([^}]*)\}/.exec(html)[1];
-  assert.match(warmth, /mix-blend-mode:multiply;[\s\S]*rgba\(255,230,200,\.5\) 50%[\s\S]*animation:ticket-working-shimmer 1\.6s linear infinite/);
-  assert.match(glare, /mix-blend-mode:screen;[\s\S]*rgba\(255,253,248,\.9\) 50%/);
+  // raised with the card's light: warmth .68, glare full white at the centre
+  assert.match(warmth, /mix-blend-mode:multiply;[\s\S]*rgba\(255,230,200,\.68\) 50%[\s\S]*animation:ticket-working-shimmer 1\.6s linear infinite/);
+  assert.match(glare, /mix-blend-mode:screen;[\s\S]*rgba\(255,254,250,1\) 50%/);
   // bells, not bands: each layer peaks at exactly one stop
-  for (const [layer, peak] of [[warmth, ".5"], [glare, ".9"]]){
+  for (const [layer, peak] of [[warmth, ".68"], [glare, "1"]]){
     const alphas = [...layer.matchAll(/rgba\(\d+,\d+,\d+,([.\d]+)\) [\d.]+%/g)].map(m => m[1]);
     assert.equal(alphas.filter(a => a === peak).length, 1);
     assert.ok(alphas.every(a => Number(a) <= Number(peak)));
