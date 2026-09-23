@@ -989,9 +989,22 @@
   .box.omni-card{background:#fff !important}
   .box.omni-card .head{display:flex; align-items:center; gap:12px;
     padding-left:calc(var(--pad-x)*2/3)}
-  .box.omni-card .omni-card-art{display:block; flex:none; width:46px; height:66px;
-    object-fit:contain; object-position:center}
+  /* the card's art stands exactly as tall as the title's letters are set: its
+     font size is the title's own 24px and it is one em high at its natural
+     width, riding the title's first line centred in that line's 1.25 height */
+  .box.omni-card .omni-card-art{display:block; flex:none; font-size:24px; width:auto; height:1em;
+    align-self:flex-start; margin-top:.125em; object-fit:contain; object-position:center}
   .box.omni-card .title{flex:1 1 0; padding-left:0}
+  /* the sweep a card crosses into or out of Omni under, the desktop's own: a
+     golden band on the card's diagonal moved by the script through --omni-at,
+     14% either side of its centre */
+  .omni-sweep{position:absolute; inset:0; z-index:40; pointer-events:none;
+    background:linear-gradient(to top right,
+      rgba(224,176,64,0) calc(var(--omni-at) - 14%),
+      rgba(224,176,64,.34) calc(var(--omni-at) - 5%),
+      rgba(255,214,110,.8) var(--omni-at),
+      rgba(224,176,64,.34) calc(var(--omni-at) + 5%),
+      rgba(224,176,64,0) calc(var(--omni-at) + 14%))}
 </style>
 <link rel="stylesheet" href="/card-tokens.css">
 </head>
@@ -1327,7 +1340,7 @@ function makeBox(b){
   box.appendChild(topbar);
 
   const head = h("div", "head");
-  const titleEl = h("span", "title", b.title);
+  const titleEl = h("span", "title", omniCardTitle(b.title));   // Omni Card #N on the card itself
   titleEl.addEventListener("click", () => { if (!titleEl.isContentEditable) editTitle(b.id, { fromClick: true }); });
   head.appendChild(titleEl);
   box.appendChild(head);
@@ -3165,7 +3178,10 @@ function apply(state){
       if (hist && hist.id === b.id) histExit(b.id);
       else el.reply.innerHTML = fmt(rawReply);
     }
-    if (!el.titleEl.isContentEditable && el.titleEl.textContent !== b.title) el.titleEl.textContent = b.title;
+    // the card reads its own name, Omni Card #N for an Omni ticket; an Omni
+    // sweep in flight writes it itself
+    if (!el.titleEl.isContentEditable && !el.omniSweep && el.titleEl.textContent !== omniCardTitle(b.title))
+      el.titleEl.textContent = omniCardTitle(b.title);
     syncOmniCard(el, b);
     const pt = (b.pendingTexts || []).join("\n\n");
     // the line a send has just drawn is not the poll's to take away. a state
