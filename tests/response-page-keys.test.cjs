@@ -5,8 +5,8 @@ const vm = require("node:vm");
 const path = require("node:path");
 
 const ROOT = path.resolve(__dirname, "..");
-// 120 CSS pixels a second, so a 20ms frame moves 2.4
-const STEP = 2.4;
+// 150 CSS pixels a second, so a 20ms frame moves 3
+const STEP = 3;
 
 // a hand-driven clock and frame queue, so every frame lands at a known time
 function clock() {
@@ -167,8 +167,8 @@ test("holding the chord scrolls down slowly from the first frame and letting go 
   f.time.run(1);
   near(f.view.scrollTop, 1000 + STEP, "first frame");
   f.time.run(4);
-  // 100ms in, well inside the double tap window, the motion is already 12px
-  near(f.view.scrollTop, 1012, "after 100ms");
+  // 100ms in, well inside the double tap window, the motion is already 15px
+  near(f.view.scrollTop, 1015, "after 100ms");
   f.release("S");
   assert.equal(f.time.pending(), 0);
   const writes = f.view.writes.length;
@@ -176,7 +176,7 @@ test("holding the chord scrolls down slowly from the first frame and letting go 
   f.time.elapse(1000);
   f.time.run(5);
   assert.equal(f.view.writes.length, writes);
-  near(f.view.scrollTop, 1012);
+  near(f.view.scrollTop, 1015);
   assert.equal(f.doc.activeElement, f.a.parts.content);
   assert.equal(f.timers(), 0);
 });
@@ -260,15 +260,15 @@ test("a stalled frame moves at most one clamped step", async () => {
   const f = await setup();
   f.press();
   f.time.run(1, 5000);
-  near(f.view.scrollTop, 1000 + 6);
+  near(f.view.scrollTop, 1000 + 7.5);
 });
 
 test("the motion stops at either end and still takes the chord there", async () => {
-  const end = await setup({ scrollTop: 1597 });
+  const end = await setup({ scrollTop: 1596 });
   end.press(); end.time.run(10);
   assert.equal(end.view.scrollTop, 1600);
   assert.equal(end.view.writes.length, 2);
-  near(end.view.writes[0], 1599.4);
+  near(end.view.writes[0], 1599);
   assert.equal(end.time.pending(), 0);
   end.release("S");
   end.time.elapse(300);

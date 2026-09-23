@@ -154,7 +154,7 @@ function cardShortcutEditing(target){
 // (el.replyview) holds the live reply and a history step alike.
 const RESPONSE_TAP_MS = 300;
 // CSS pixels per second
-const RESPONSE_SCROLL_SPEED = 120;
+const RESPONSE_SCROLL_SPEED = 150;
 // the longest frame gap counted, so a stalled page never catches up in a jump
 const RESPONSE_FRAME_MAX_MS = 50;
 // the motion under way, or null
