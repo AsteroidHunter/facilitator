@@ -105,11 +105,12 @@ const CARD_SHORTCUT_DEFINITIONS = [
       (e.key === "s" || e.key === "S" || e.key === "n" || e.key === "N")
       ? ((e.key === "s" || e.key === "S") ? "deferred" : "doing") : null,
   },
-  // control+shift+s pages the selected card's response: one tap down, two quick
-  // taps up. A held key's repeats are recognized too, so the page can keep them
-  // from the editor and the browser, and responseTap never counts them as taps
+  // control+shift+s scrolls the selected card's response while held: down, or
+  // up when a tap is followed at once by a hold. A held key's repeats are
+  // recognized too, so the page can keep them from the editor and the browser,
+  // and responseScrollKey never counts them as presses
   {
-    action: "responsePage", mini: false,
+    action: "responseScroll", mini: false,
     match: e => e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey &&
       !e.isComposing && !e.defaultPrevented &&
       (e.key === "s" || e.key === "S") ? true : null,
@@ -145,27 +146,41 @@ function cardShortcutEditing(target){
     !!target.closest("textarea, input, [contenteditable], [role='textbox'], .cm-editor");
 }
 
-// ---- paging the response with control+shift+s ------------------------------------
-// One tap pages the selected card's response down and two quick taps page it
-// up. The down waits out the double tap window first, so a double tap never
-// moves down and then back up. The response scroller (el.replyview) holds the
-// live reply and a history step alike, so either is paged the same way.
+// ---- scrolling the response with control+shift+s ---------------------------------
+// Holding the chord scrolls the selected card's response slowly down from the
+// first frame. Tapping s and pressing it again within the double tap window,
+// with control and shift still held, scrolls up instead. Letting go of s,
+// control or shift stops the motion at once. The response scroller
+// (el.replyview) holds the live reply and a history step alike.
 const RESPONSE_TAP_MS = 300;
-// how much of the response's visible height one page moves, so the last lines
-// of the page before stay in sight at the top of the next
-const RESPONSE_PAGE_SHARE = 0.875;
-// the one tap waiting to become a page down, or null
-let responseTapWaiting = null;
+// CSS pixels per second
+const RESPONSE_SCROLL_SPEED = 90;
+// the longest frame gap counted, so a stalled page never catches up in a jump
+const RESPONSE_FRAME_MAX_MS = 50;
+// the motion under way, or null
+let responseScrolling = null;
+// the last down press, kept so a quick second press can turn it into an up
+let responseLastPress = null;
 
-function cancelResponseTap(){
-  if (responseTapWaiting) clearTimeout(responseTapWaiting.timer);
-  responseTapWaiting = null;
+function stopResponseScroll(){
+  if (responseScrolling && responseScrolling.frame) cancelAnimationFrame(responseScrolling.frame);
+  responseScrolling = null;
+}
+
+function dropResponseScroll(){
+  stopResponseScroll();
+  responseLastPress = null;
+}
+
+function responseScrollChord(e){
+  return e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && !e.isComposing &&
+    (e.key === "s" || e.key === "S");
 }
 
 // Where the chord may come from: the page itself, the card's own composer
 // (its textarea, or the editor standing in for it), or the response. The sent
 // box, the answered box, the title and every other field keep the chord.
-function responseTapSource(target, el){
+function responseScrollSource(target, el){
   const doc = el.replyview.ownerDocument;
   if (!target || target === doc || target === doc.body || target === doc.documentElement) return true;
   if (el.ta && target === el.ta) return true;
@@ -176,56 +191,105 @@ function responseTapSource(target, el){
     !(el.answwrap && el.answwrap.contains(target));
 }
 
-function pageResponseBy(view, dir){
+// A press or a motion still stands only for the same card, drawn by the same
+// render, in the same project, with the same focus, on a visible page, with its
+// response still connected and laid out.
+function responseScrollStands(was, card){
+  const view = card && card.el && card.el.replyview;
+  return !!view && card.id === was.id && card.owner === was.owner && card.el === was.el &&
+    was.doc.activeElement === was.focus && was.doc.visibilityState !== "hidden" &&
+    !(card.el.box && card.el.box.isConnected === false) && view.isConnected !== false &&
+    view.clientHeight > 0;
+}
+
+function responseScrollFrame(at){
+  const run = responseScrolling;
+  if (!run) return;
+  run.frame = 0;
+  if (!responseScrollStands(run, run.find())){
+    dropResponseScroll();
+    return;
+  }
+  const view = run.el.replyview;
+  const dt = Math.min(RESPONSE_FRAME_MAX_MS, Math.max(0, at - run.last));
+  run.last = at;
+  // the position is kept unrounded so slow motion is not lost to whole pixels,
+  // and taken afresh when something else has moved the response
+  if (Math.abs(view.scrollTop - run.pos) >= 1) run.pos = view.scrollTop;
   const room = Math.max(0, view.scrollHeight - view.clientHeight);
-  const step = Math.max(1, Math.round(view.clientHeight * RESPONSE_PAGE_SHARE));
-  view.scrollTop = Math.max(0, Math.min(room, view.scrollTop + dir * step));
+  run.pos = Math.max(0, Math.min(room, run.pos + run.dir * RESPONSE_SCROLL_SPEED * dt / 1000));
+  if (run.pos !== view.scrollTop) view.scrollTop = run.pos;
+  if ((run.dir < 0 && run.pos === 0) || (run.dir > 0 && run.pos === room)){
+    stopResponseScroll();
+    return;
+  }
+  run.frame = requestAnimationFrame(responseScrollFrame);
 }
 
-// A waiting tap still stands only for the same card, drawn by the same render,
-// in the same project, with the same focus, on a page that is still visible.
-function responseTapStands(tap, card){
-  return !!card && card.id === tap.id && card.owner === tap.owner && card.el === tap.el &&
-    tap.doc.activeElement === tap.focus && tap.doc.visibilityState !== "hidden" &&
-    !(card.el.box && card.el.box.isConnected === false) && card.el.replyview.clientHeight > 0;
-}
-
-// find is the page's word on which card may be paged now: { id, owner, el }, or
-// null while a menu, panel, overlay or swipe stands over the card. It is asked
-// on every tap and again when the wait ends, so a down is dropped rather than
-// made on a card the reader has left. Letting go of control or shift between
-// taps changes nothing. True means the chord was taken from the editor and the
-// browser.
-function responseTap(event, find){
+// The chord's keydown. find is the page's word on which card may be scrolled
+// now: { id, owner, el }, or null while a menu, panel, overlay or swipe stands
+// over the card. It is asked on every press and on every frame, so motion stops
+// on a card the reader has left. True means the chord was taken from the
+// editor and the browser.
+function responseScrollKey(event, find){
   const card = find();
   const view = card && card.el && card.el.replyview;
-  if (!view || !(view.clientHeight > 0) || !responseTapSource(event.target, card.el)){
-    cancelResponseTap();
+  if (!view || !(view.clientHeight > 0) || !responseScrollSource(event.target, card.el)){
+    dropResponseScroll();
     return false;
   }
   event.preventDefault();
+  // a held key's repeats neither restart the motion nor turn it round
   if (event.repeat) return true;
   const at = performance.now();
-  const waiting = responseTapWaiting;
-  cancelResponseTap();
-  if (waiting && responseTapStands(waiting, card)){
-    if (at - waiting.at < RESPONSE_TAP_MS){
-      pageResponseBy(view, -1);
-      return true;
-    }
-    // A delayed timer must not turn two slow taps into a double tap.
-    pageResponseBy(view, 1);
-  }
   const doc = view.ownerDocument;
-  const tap = { id: card.id, owner: card.owner, el: card.el, doc, focus: doc.activeElement, at };
-  tap.timer = setTimeout(() => {
-    if (responseTapWaiting !== tap) return;
-    responseTapWaiting = null;
-    const now = find();
-    if (responseTapStands(tap, now)) pageResponseBy(now.el.replyview, 1);
-  }, RESPONSE_TAP_MS);
-  responseTapWaiting = tap;
+  const press = { id: card.id, owner: card.owner, el: card.el, doc, focus: doc.activeElement, at };
+  const last = responseLastPress;
+  const up = !!last && last.released != null && at - last.at < RESPONSE_TAP_MS &&
+    responseScrollStands(last, card);
+  stopResponseScroll();
+  // an up is never the first press of the next pair, so the press after it goes down
+  responseLastPress = up ? null : press;
+  responseScrolling = {
+    ...press, find, dir: up ? -1 : 1, last: at, pos: view.scrollTop,
+    frame: requestAnimationFrame(responseScrollFrame),
+  };
   return true;
+}
+
+// Letting go of s stops the motion and keeps the press for the double tap
+// window. Letting go of control or shift stops it and forgets the press.
+function responseScrollKeyUp(event){
+  if (!event.ctrlKey || !event.shiftKey || event.metaKey || event.altKey){
+    dropResponseScroll();
+    return;
+  }
+  if (event.key === "s" || event.key === "S"){
+    stopResponseScroll();
+    if (responseLastPress && responseLastPress.released == null) responseLastPress.released = performance.now();
+  } else if (event.key === "Control" || event.key === "Shift"){
+    dropResponseScroll();
+  }
+}
+
+// Any other key, or the chord with a changed modifier, ends the motion and the
+// double tap. The key itself is left alone. A repeat of control or shift while
+// both are still held is not a change.
+function responseScrollOtherKey(event){
+  if (responseScrollChord(event)) return;
+  if ((event.key === "Control" || event.key === "Shift") && event.ctrlKey && event.shiftKey &&
+      !event.metaKey && !event.altKey) return;
+  dropResponseScroll();
+}
+
+// The listeners that stop the motion are the page's own and are never gated by
+// its overlays, so a release always lands. Losing the window or the page drops
+// the motion too, in case its release never arrives.
+function listenResponseScroll(){
+  addEventListener("keydown", responseScrollOtherKey, true);
+  addEventListener("keyup", responseScrollKeyUp, true);
+  addEventListener("blur", dropResponseScroll);
+  document.addEventListener("visibilitychange", dropResponseScroll);
 }
 
 // ---- the small helpers --------------------------------------------------------
