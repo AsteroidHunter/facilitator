@@ -112,8 +112,10 @@ const openPhone = storage => openPage("/m", PHONE, storage);
 const openPageView = storage => openPage("/page", DESK, storage);
 
 // the button standing lit, the rows the list is showing, and the set the arrow
-// keys walk: the three that have to agree
-const litButton = page => page.$$eval("#tikhead .tvb.on", buttons => buttons.map(b => b.textContent));
+// keys walk: the three that have to agree. the board's names are capitalised
+// (Doing, Deferred, Done) while the phone and the page keep them lower case, so
+// the lit name is compared case-blind
+const litButton = page => page.$$eval("#tikhead .tvb.on", buttons => buttons.map(b => b.textContent.toLowerCase()));
 // the board and phone now draw all three sections of the sheet at once, so the
 // rows on show are the current section's pane; the page's document view keeps its
 // single hidden list. read whichever holds the shown view's cards.

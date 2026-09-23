@@ -1,12 +1,16 @@
-// The selected list tab (doing, deferred, done) is a depressed pill now, not a
-// browser-style tab that flares open into the list. Only the selected name
-// carries the pill: white fill, the board's hairline on all four sides, the
-// board's one sunk shade, the 7px corner on all four corners, and no bottom
-// notch. The two unselected names stay bare on the workspace. The list is its
-// own recessed well carrying that same sunk shade, so the pill and the well read
-// at one depth, and the head no longer draws a seat line under the names. This
-// holds on the Mac board's ticket panel and on the phone's card drawer, so both
-// are driven headless here and a drift on either surface is caught.
+// The selected list tab (doing, deferred, done) is a depressed pill on the
+// phone's card drawer, not a browser-style tab that flares open into the list.
+// Only the selected name carries the pill: white fill, the board's hairline on
+// all four sides, the board's one sunk shade, the 7px corner on all four
+// corners, and no bottom notch. The two unselected names stay bare. The list is
+// its own recessed well carrying that same sunk shade, so the pill and the well
+// read at one depth, and the head draws no seat line under the names.
+// 20260922, m807: the Mac board dropped the pill. Its names read Doing, Deferred
+// and Done at 14px, the selected one at weight 700 in ink with no fill, border
+// or standing shade, the others at 500; any name dips into a 0.6-depth sunk
+// shade while pressed, for at least 80ms; the well's shade is --sunk-deep at
+// 90% depth; and selecting a name moves no name and not the well. Both surfaces
+// are driven headless here so a drift on either is caught.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawn } = require("node:child_process");
@@ -177,7 +181,50 @@ after(async () => {
   if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
 });
 
-test("the selected ticket tab is a depressed pill over a recessed well", async () => {
+// a box-shadow as its layers of [alpha, x, y, blur, spread], read off the
+// computed string so a colour serialised a hair differently still compares
+function layers(shadow) {
+  if (shadow === "none") return [];
+  return shadow.split(/,(?![^(]*\))/).map(layer => {
+    const alpha = /rgba?\(([^)]+)\)/.exec(layer)[1].split(",").map(Number)[3] ?? 1;
+    const lengths = [...layer.replace(/rgba?\([^)]+\)/, "").matchAll(/(-?[\d.]+)px/g)].map(m => Number(m[1]));
+    return [alpha, ...lengths];
+  });
+}
+function assertShade(shadow, want, what) {
+  const got = layers(shadow);
+  assert.equal(got.length, want.length, `${what}: ${shadow}`);
+  got.forEach((layer, i) => layer.forEach((n, j) =>
+    assert.ok(Math.abs(n - want[i][j]) < 0.006, `${what}: layer ${i} reads ${shadow}`)));
+}
+// --sunk-deep is inset 0 3px 7px .22 over inset 0 1px 2px .14; these are its
+// y offset, blur and alpha scaled by one depth
+const sunkAt = d => [[.22 * d, 0, 3 * d, 7 * d, 0], [.14 * d, 0, 1 * d, 2 * d, 0]];
+
+// every name's look and box, and the well's, read in one pass
+const boardTabs = page => page.evaluate(() => [...document.querySelectorAll("#tikhead .tvb")].map(t => {
+  const cs = getComputedStyle(t);
+  const r = t.getBoundingClientRect();
+  const drawn = (el, which) => {
+    const p = getComputedStyle(el, which);
+    return p.display === "none" || p.content === "none" || p.content === "normal" ? "none" : p.display;
+  };
+  return {
+    id: t.id, on: t.classList.contains("on"), label: t.textContent,
+    weight: cs.fontWeight, size: cs.fontSize, color: cs.color, fill: cs.backgroundColor, shadow: cs.boxShadow,
+    borders: ["Top", "Right", "Bottom", "Left"].map(s => [cs["border" + s + "Width"], cs["border" + s + "Color"]].join(" ")),
+    // a pseudo with no content draws nothing, whatever its display reads
+    before: drawn(t, "::before"), after: drawn(t, "::after"),
+    rect: [r.left, r.top, r.width, r.height],
+  };
+}));
+const wellBox = page => page.evaluate(() => {
+  const w = document.getElementById("tiklist");
+  const r = w.getBoundingClientRect();
+  return { shadow: getComputedStyle(w).boxShadow, rect: [r.left, r.top, r.width, r.height] };
+});
+
+test("the board's ticket names carry no pill, read by weight, and dip on press", async () => {
   const page = await browser.newPage();
   const problems = [];
   page.on("pageerror", error => problems.push("pageerror: " + error.message));
@@ -191,9 +238,84 @@ test("the selected ticket tab is a depressed pill over a recessed well", async (
       await settle(300);
     }
     await page.click("#tv-todo");
-    await settle(300);
+    // the pointer is taken off the names so a hover's ink cannot pass as selection
+    await page.mouse.move(DESK.width / 2, DESK.height - 4);
+    await settle(400);
 
-    await assertPill(page, "#tikhead .tvb.on", "#tikhead", "#tiklist", "the board");
+    const ink = await page.evaluate(() => getComputedStyle(document.body).color);
+    const before = await boardTabs(page);
+    const wellBefore = await wellBox(page);
+    assert.deepEqual(before.map(t => t.label), ["Doing", "Deferred", "Done"]);
+    assert.deepEqual(before.map(t => t.on), [true, false, false]);
+    for (const t of before) {
+      assert.equal(t.size, "14px", `${t.id} is not at 14px`);
+      assert.equal(t.weight, t.on ? "700" : "500", `${t.id} has the wrong weight`);
+      // no pill: no fill, no visible border, no standing shade, no notch
+      assert.ok(t.fill === "rgba(0, 0, 0, 0)" || t.fill === "transparent", `${t.id} has a fill (${t.fill})`);
+      for (const border of t.borders)
+        assert.ok(/^0px|transparent|rgba\(0, 0, 0, 0\)/.test(border), `${t.id} has a visible border (${border})`);
+      assertShade(t.shadow, sunkAt(0), `${t.id} carries a standing shade`);
+      assert.equal(t.before, "none", `${t.id} draws a ::before notch`);
+      assert.equal(t.after, "none", `${t.id} draws a ::after notch`);
+    }
+    assert.equal(before[0].color, ink, "the selected name is not in the board's ink");
+    assert.notEqual(before[1].color, ink, "an unselected name is in the selected ink");
+    // 700 is a weight the page asks the font service for, not one the browser fakes
+    const plex = await page.$eval('link[href*="IBM+Plex+Sans"]', l => l.getAttribute("href"));
+    assert.match(plex, /IBM\+Plex\+Sans:wght@[\d;]*\b700\b/, "IBM Plex Sans is not loaded at 700");
+
+    // the well sits at 90% of --sunk-deep
+    assertShade(wellBefore.shadow, sunkAt(.9), "the list well is not at 90% depth");
+
+    // a click still selects, and selecting moves no name and not the well
+    await page.click("#tv-done");
+    await settle(400);
+    const after = await boardTabs(page);
+    assert.deepEqual(after.map(t => t.on), [false, false, true], "a click on Done did not select it");
+    assert.equal(await page.evaluate(() => curView()), "done");
+    assert.deepEqual(after.map(t => t.weight), ["500", "500", "700"]);
+    assert.deepEqual(after.map(t => t.rect), before.map(t => t.rect), "a name moved when the selection changed");
+    assert.deepEqual((await wellBox(page)).rect, wellBefore.rect, "the well moved when the selection changed");
+
+    // a press brings the 0.6-depth shade in and a release takes it back out, on
+    // the selected name and an unselected one alike, by pointer and by key. the
+    // events are dispatched without bubbling so the board's own keys never see them
+    for (const id of ["tv-done", "tv-deferred"]) {
+      const held = await page.evaluate(async id => {
+        const t = document.getElementById(id);
+        const wait = ms => new Promise(r => setTimeout(r, ms));
+        t.dispatchEvent(new PointerEvent("pointerdown", { pointerType: "mouse" }));
+        await wait(200);
+        const down = getComputedStyle(t).boxShadow;
+        t.dispatchEvent(new PointerEvent("pointerup", { pointerType: "mouse" }));
+        await wait(450);
+        const up = getComputedStyle(t).boxShadow;
+        t.dispatchEvent(new KeyboardEvent("keydown", { key: " " }));
+        await wait(200);
+        const key = getComputedStyle(t).boxShadow;
+        t.dispatchEvent(new KeyboardEvent("keyup", { key: " " }));
+        await wait(450);
+        return { down, up, key, left: t.classList.contains("pressed") };
+      }, id);
+      assertShade(held.down, sunkAt(.6), `${id} held by a pointer`);
+      assertShade(held.up, sunkAt(0), `${id} after the pointer let go`);
+      assertShade(held.key, sunkAt(.6), `${id} held by Space`);
+      assert.equal(held.left, false, `${id} stayed pressed after the key came up`);
+    }
+
+    // a quick tap still shows the dip: the press is held for at least 80ms
+    const tap = await page.evaluate(async () => {
+      const t = document.getElementById("tv-todo");
+      const wait = ms => new Promise(r => setTimeout(r, ms));
+      t.dispatchEvent(new PointerEvent("pointerdown", { pointerType: "touch" }));
+      t.dispatchEvent(new PointerEvent("pointerup", { pointerType: "touch" }));
+      const at0 = t.classList.contains("pressed");
+      await wait(20);
+      const at20 = t.classList.contains("pressed");
+      await wait(300);
+      return { at0, at20, later: t.classList.contains("pressed") };
+    });
+    assert.deepEqual(tap, { at0: true, at20: true, later: false }, "a quick tap did not hold the press for its 80ms");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
