@@ -201,24 +201,29 @@
     const COALESCE = 250, UI_SLOW = 150, REQUEST_SLOW = 2000;
     const COOLDOWN = 30000, SAVES_PER_MINUTE = 4, SAVE_TIMEOUT = 4000;
     const POST_MS = 20000, SPARSE_AGE = 120000;
+    const STUCK_COOLDOWN = 120000;   // one no-scroll save per card in this long
     const events = new Set(["create", "select", "focus", "send", "operation", "request",
       "render", "stage", "observer", "drawer", "viewport", "lifecycle", "problem", "freeze", "mark",
       "input", "scroll", "frame", "timer", "phase", "poll", "enter"]);
     const v3Events = new Set(["input", "scroll", "frame", "timer", "phase", "poll"]);
-    const reasons = new Set(["manual", "slow-ui", "slow-request", "invariant", "problem", "freeze"]);
+    const reasons = new Set(["manual", "slow-ui", "slow-request", "invariant", "problem", "freeze", "no-scroll"]);
     const numbers = { ms: 600000, seq: 1000000000, status: 599, serverMs: 600000,
       rev: 1000000000000, boxes: 10000, vh: 10000, vt: 10000, late: 600000,
       count: 1000000, bytes: 16000000, base: 10000, inner: 10000,
-      scale: 1000, keyCode: 255 };
+      scale: 1000, keyCode: 255,
+      top: 1000000, range: 1000000, view: 10000, lag: 600000, wait: 600000, moved: 1000000 };
     const flags = new Set(["present", "shown", "title", "titled", "emptyTitle", "editing", "known", "kb", "lifting",
       "editor", "editorReady", "inputReady", "selectedDom", "paneBlank", "loading", "connected", "formatted", "active",
-      "changed", "persisted", "shift", "repeat", "composing", "prevented", "draft", "minted"]);
+      "changed", "persisted", "shift", "repeat", "composing", "prevented", "draft", "minted",
+      "hist", "far", "same"]);
     const choices = { phase: ["start", "end"], route: ["/send", "/create", "/m/state"],
       side: ["left", "right"], source: ["settings", "shortcut"],
       action: ["drawer", "card", "response-scroll", "project", "state"],
       part: ["touch", "intent", "touch-end", "handler", "menu-commit", "frame-one", "frame-two",
         "transition", "select", "tickets", "tabs", "blur", "scroll-view", "fetch-headers",
-        "json", "apply", "reconcile", "observer"],
+        "json", "apply", "reconcile", "observer", "touch-cancel", "taken", "reply-swap"],
+      edge: ["top", "bottom", "middle", "none"], dir: ["up", "down"],
+      by: ["drawer", "cardswipe", "focus", "scrim", "curtain", "panel"],
       outcome: ["minted", "applied", "retry", "unsure", "failed"],
       lifecycle: ["start", "hidden", "visible", "pageshow", "pagehide", "online", "offline"],
       problem: ["error", "rejection", "render", "fetch"],
@@ -230,8 +235,13 @@
         "line-intent", "line-applied"],
       key: ["Enter", "Unidentified", "Other"],
       code: ["Enter", "NumpadEnter", "Unidentified", "Other"],
-      target: ["textarea", "editor", "other"], focus: ["textarea", "editor", "other"],
+      target: ["textarea", "editor", "other"], focus: ["textarea", "editor", "other", "none"],
       inputType: ["insertLineBreak", "insertParagraph"] };
+    // What schema 5 added to response gestures. An older receiver refuses all of
+    // it, so a report for one leaves these out (withoutV5).
+    const v5Fields = new Set(["top", "range", "view", "edge", "hist", "focus", "lag", "dir",
+      "far", "wait", "moved", "same", "prevented", "by"]);
+    const v5Parts = new Set(["taken", "reply-swap"]);
     const routineProblems = new Set(["ResizeObserver loop limit exceeded",
       "ResizeObserver loop completed with undelivered notifications."]);
     const legacyEvents = new Set(["create", "select", "focus", "send", "operation", "request",
@@ -251,6 +261,7 @@
     let collecting = null, worker = "unknown", activeRequest = null;
     const session = Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
     let lastResume = -Infinity, lastAuto = -Infinity, attempts = [];
+    const stuck = new Map();   // card -> when its last no-scroll save was made
     let viewport = null, viewportTimer = null, viewportAt = -Infinity, viewportKey = "";
     let held = null, pendingManual = null, beaconed = null, busy = false, build = "phone-diag-unidentified", schema = 1;
     const cap = (n, max) => Math.min(max, Math.max(0, Math.round(n)));
@@ -284,7 +295,8 @@
           (entry.phase !== "end" || (entry.ms || 0) < 50)) return;
       if (event === "viewport") return; // coarse viewport state rides the next action or frame anomaly
       const target = event === "lifecycle" ? life
-        : event === "input" || event === "enter" || event === "scroll" || event === "frame" || event === "timer" || event === "freeze" || event === "mark" ? important : work;
+        : event === "input" || event === "enter" || event === "scroll" || event === "frame" || event === "timer" || event === "freeze" || event === "mark" ||
+          entry.part === "reply-swap" ? important : work;
       target.push(entry);
       const limit = target === important ? 60 : target === work ? 40 : 8;
       const cutoff = collecting ? collecting.markAt - SPARSE_AGE : entry.time - SPARSE_AGE;
@@ -427,12 +439,15 @@
       recent.sort((a, b) => a.time - b.time);
       const enterOmitted = schema < 4 && recent.some(e => e.event === "enter");
       if (schema < 4) recent = recent.filter(e => e.event !== "enter");
+      let scrollOmitted = false;
+      if (schema < 5) ({ kept: recent, omitted: scrollOmitted } = withoutV5(recent));
       const report = { kind: "incident", v: schema, reason, marked,
         box: [...recent].reverse().find(e => e.box)?.box || "", lost: sparseLost, suppressed,
         build, worker, session, events: recent.map(({ time, ...e }) =>
           ({ ...e, at: Math.max(-SPARSE_AGE, Math.min(POST_MS, Math.round(time - markAt))) })) };
       Object.defineProperty(report, "_markAt", { value: markAt });
       Object.defineProperty(report, "_enterOmitted", { value: enterOmitted });
+      Object.defineProperty(report, "_scrollOmitted", { value: scrollOmitted });
       // Reserve room for recovery before a busy page can fill the post window.
       fitReport(report, BYTES - 2048, 112);
       return report;
@@ -446,13 +461,19 @@
           time: activeRequest.time, visible: activeRequest.visible,
           online: navigator.onLine !== false, resume: activeRequest.generation });
       const enterOmitted = initial._enterOmitted || initial.v < 4 && post.some(e => e.event === "enter");
-      const savedPost = initial.v < 4 ? post.filter(e => e.event !== "enter") : post;
+      let savedPost = initial.v < 4 ? post.filter(e => e.event !== "enter") : post;
+      let scrollOmitted = !!initial._scrollOmitted;
+      if (initial.v < 5) {
+        const older = withoutV5(savedPost);
+        savedPost = older.kept; scrollOmitted ||= older.omitted;
+      }
       const events = [...initial.events, ...savedPost.map(({ time, ...e }) =>
         ({ ...e, at: Math.max(0, Math.min(POST_MS, Math.round(time - markAt))) }))]
         .sort((a, b) => a.at - b.at);
       const report = { ...initial, worker, lost: Math.max(initial.lost, sparseLost), events };
       Object.defineProperty(report, "_markAt", { value: markAt });
       Object.defineProperty(report, "_enterOmitted", { value: enterOmitted });
+      Object.defineProperty(report, "_scrollOmitted", { value: scrollOmitted });
       fitReport(report, BYTES, 128);
       return report;
     }
@@ -463,7 +484,8 @@
         if ((body.length <= maxBytes && report.events.length <= maxEvents) ||
             report.events.length <= 1) return body;
         const lastPost = [...report.events].reverse().find(e => e.at > 0 && e.event !== "mark");
-        const essential = e => ["enter", "input", "scroll", "frame", "timer", "freeze"].includes(e.event);
+        const essential = e => ["enter", "input", "scroll", "frame", "timer", "freeze"].includes(e.event) ||
+          e.part === "reply-swap";
         let index = -1, rank = Infinity;
         for (let i = 0; i < report.events.length; i++) {
           const e = report.events[i];
@@ -496,6 +518,36 @@
         events: report.events.filter(e => e.event !== "enter").map(e =>
           Object.fromEntries(Object.entries(e).filter(([key]) => !newer.has(key)))) };
       Object.defineProperty(compatible, "_enterOmitted", { value: omitted || !!report._enterOmitted });
+      Object.defineProperty(compatible, "_scrollOmitted", { value: !!report._scrollOmitted });
+      return compatible;
+    }
+    // Events as a schema 3 or 4 receiver reads them: the gesture parts it has
+    // no name for are left out, a cancelled touch is the touch-end it always
+    // was, and an Enter record keeps its own fields.
+    function withoutV5(list) {
+      let omitted = false;
+      const kept = [];
+      for (const e of list) {
+        if (e.event === "enter") { kept.push(e); continue; }
+        if (v5Parts.has(e.part)) { omitted = true; continue; }
+        const out = {};
+        for (const [key, value] of Object.entries(e)) {
+          if (v5Fields.has(key)) omitted = true;
+          else out[key] = value;
+        }
+        if (out.part === "touch-cancel") { out.part = "touch-end"; omitted = true; }
+        kept.push(out);
+      }
+      return { kept, omitted };
+    }
+    function compatibleV4(report) {
+      // The same rollback one schema later. A no-scroll save has no reason a
+      // schema-4 receiver accepts, so it stays held for a retry instead.
+      if (report.reason === "no-scroll") return null;
+      const { kept, omitted } = withoutV5(report.events);
+      const compatible = { ...report, v: 4, events: kept };
+      Object.defineProperty(compatible, "_enterOmitted", { value: !!report._enterOmitted });
+      Object.defineProperty(compatible, "_scrollOmitted", { value: omitted || !!report._scrollOmitted });
       return compatible;
     }
     function permit() {
@@ -521,33 +573,50 @@
           let response = await realFetch.call(window, "/clientlog", { method: "POST",
             headers: { "content-type": "application/json" }, body: bodyOf(held),
             signal: controller.signal, keepalive: true });
-          if (response.status === 400 && held.v === 4) {
+          // A v5 refusal steps down to v4, and a v4 refusal to v3.
+          while (response.status === 400 && submitted.v >= 4) {
+            const older = submitted.v === 5 ? compatibleV4(submitted) : compatibleV3(submitted);
+            if (!older) break;
             // The compatibility write is a real second attempt. It cannot
             // bypass the same four-per-minute budget as any other save.
             if (!permit()) { resolve({ status: "limited" }); return; }
-            submitted = compatibleV3(held);
+            submitted = older;
             response = await realFetch.call(window, "/clientlog", { method: "POST",
               headers: { "content-type": "application/json" }, body: bodyOf(submitted),
               signal: controller.signal, keepalive: true });
           }
           const answer = response.ok ? await response.json() : null;
           if (answer?.ok === true && answer.written === 1 && answer.dropped === 0) {
-            held = null; resolve({ status: submitted._enterOmitted ? "saved-legacy" : "saved" });
+            held = null;
+            resolve({ status: submitted._enterOmitted || submitted._scrollOmitted ? "saved-legacy" : "saved" });
           } else resolve({ status: "failed" });
         } catch (_) { resolve({ status: "failed" }); }
         finally { if (timer !== null) clearTimeout(timer); busy = false; }
       }, 0));
     }
-    function automatic(reason) {
+    function automatic(reason, detail) {
       const now = performance.now();
       if (!reasons.has(reason) || document.hidden || busy || collecting || pendingManual ||
           (held && held.reason === "manual") || now - lastAuto < COOLDOWN) {
-        suppressed = cap(suppressed + 1, 1000000000); return;
+        suppressed = cap(suppressed + 1, 1000000000); return false;
       }
       lastAuto = now;
-      held = capture(reason);
+      held = capture(reason, detail);
       if (schema >= 3) collect(held, false);
       else upload();
+      return true;
+    }
+    // A swipe on a scrollable response that moved nothing, as the page judged
+    // it. The shared cooldown and minute cap still apply, and a card that stays
+    // stuck saves once per STUCK_COOLDOWN rather than once per attempt.
+    function noScroll(box) {
+      if (schema < 5 || typeof box !== "string" || !boxPattern.test(box)) return false;
+      const now = performance.now();
+      for (const [card, at] of stuck) if (now - at >= STUCK_COOLDOWN) stuck.delete(card);
+      if (stuck.has(box)) { suppressed = cap(suppressed + 1, 1000000000); return false; }
+      if (!automatic("no-scroll", { box })) return false;
+      stuck.set(box, now);
+      return true;
     }
     function collect(initial, manual) {
       const markAt = initial._markAt;
@@ -622,8 +691,12 @@
       observerSample: safe(observerSample),
       // Follow every successful reading. A server rolled back under an open
       // page omits the capability, so that page must return to strict v1 too.
-      capability: safe(value => { schema = Number(value) >= 4 ? 4 : Number(value) >= 3 ? 3 : Number(value) >= 2 ? 2 : 1; }),
+      capability: safe(value => {
+        const offered = Number(value);
+        schema = offered >= 5 ? 5 : offered >= 4 ? 4 : offered >= 3 ? 3 : offered >= 2 ? 2 : 1;
+      }),
       mark: safe(mark, Promise.resolve({ status: "failed" })),
+      noScroll: safe(noScroll, false),
       problem: safe((kind, message) => {
         if (!choices.problem.includes(kind)) return;
         // Browsers may emit these while settling a normal responsive layout.

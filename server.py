@@ -269,8 +269,11 @@ Endpoints:
                                40 events over 60 seconds; v3/v4 keep up to 128
                                over a 120-second lead-up and 20-second recovery.
                                V4 adds bounded Enter decisions and viewport
-                               geometry without draft text. All versions share
-                               four writes per minute across incident reasons.
+                               geometry without draft text. V5 adds response
+                               scroll position, heights and finger direction
+                               (never coordinates) and the no-scroll reason.
+                               All versions share four writes per minute across
+                               incident reasons.
                                Confirmation follows a successful log write/flush
   GET  /thread?box=ID&n=N   -> last N user/agent/note messages of a box from the
                                transcript (read by the quick chat panel and the
@@ -782,7 +785,9 @@ INCIDENT_EVENTS = frozenset(("create", "select", "focus", "send", "operation", "
                             "render", "stage", "observer", "drawer", "viewport", "lifecycle", "problem", "freeze", "mark"))
 INCIDENT_EVENTS_V3 = INCIDENT_EVENTS | frozenset(("input", "scroll", "frame", "timer", "phase", "poll"))
 INCIDENT_EVENTS_V4 = INCIDENT_EVENTS_V3 | {"enter"}
+INCIDENT_SCHEMA = 5          # what /m/state offers the phone; every older version is still read
 INCIDENT_REASONS = ("manual", "slow-ui", "slow-request", "invariant", "problem", "freeze")
+INCIDENT_REASONS_V5 = INCIDENT_REASONS + ("no-scroll",)
 INCIDENT_NUMBERS = {"ms": 600000, "seq": 1000000000, "status": 599, "serverMs": 600000,
                     "rev": 1000000000000, "boxes": 10000, "vh": 10000, "vt": 10000,
                     "late": 600000, "resume": 1000000000, "count": 1000000, "bytes": 16000000}
@@ -796,7 +801,7 @@ INCIDENT_CHOICES = {"phase": ("start", "end"), "route": ("/send", "/create", "/m
                     "lifecycle": ("start", "hidden", "visible", "pageshow", "pagehide", "online", "offline"),
                     "problem": ("error", "rejection", "render", "fetch"),
                     "stage": ("create-response", "card-insertion", "editor-init", "selected-ready", "title-input"),
-                    "observer": ("loop-limit", "undelivered"), "reason": INCIDENT_REASONS}
+                    "observer": ("loop-limit", "undelivered")}
 INCIDENT_BOX = re.compile(r"(?:[mt]?\d+(?:\.\d+)*|q)", re.ASCII)
 INCIDENT_OP = re.compile(r"(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})")
 INCIDENT_BUILD = re.compile(r"[a-z0-9._-]{1,64}", re.ASCII)
@@ -805,6 +810,16 @@ INCIDENT_ACTIONS = ("drawer", "card", "response-scroll", "project", "state")
 INCIDENT_PARTS = ("touch", "intent", "touch-end", "handler", "menu-commit", "frame-one",
                   "frame-two", "transition", "select", "tickets", "tabs", "blur", "scroll-view",
                   "fetch-headers", "json", "apply", "reconcile", "observer")
+INCIDENT_PARTS_V5 = INCIDENT_PARTS + ("touch-cancel", "taken", "reply-swap")
+# v5: where the response stood and which way the finger went, never where the
+# finger was. Only the gesture events carry these
+INCIDENT_SCROLL_EVENTS = frozenset(("input", "scroll", "phase"))
+INCIDENT_SCROLL_NUMBERS = {"top": 1000000, "range": 1000000, "view": 10000, "lag": 600000,
+                           "wait": 600000, "moved": 1000000}
+INCIDENT_SCROLL_FLAGS = frozenset(("hist", "far", "same", "prevented"))
+INCIDENT_SCROLL_CHOICES = {"edge": ("top", "bottom", "middle", "none"), "dir": ("up", "down"),
+                           "focus": ("textarea", "editor", "other", "none"),
+                           "by": ("drawer", "cardswipe", "focus", "scrim", "curtain", "panel")}
 INCIDENT_ENTER_NUMBERS = {"base": 10000, "inner": 10000, "scale": 1000, "keyCode": 255}
 INCIDENT_ENTER_FLAGS = frozenset(("shift", "repeat", "composing", "prevented", "draft", "minted"))
 INCIDENT_ENTER_CHOICES = {
@@ -832,14 +847,15 @@ def _incident_valid(page: str, report: dict) -> bool:
     unknown fields and bad types before any part of a batch reaches a log."""
     version = report.get("v")
     fields = {"kind", "v", "reason", "marked", "box", "lost", "suppressed", "events"}
-    if version in (2, 3, 4): fields.add("build")
-    if version in (3, 4): fields.update(("worker", "session"))
+    if version in (2, 3, 4, 5): fields.add("build")
+    if version in (3, 4, 5): fields.update(("worker", "session"))
+    reasons = INCIDENT_REASONS_V5 if version == 5 else INCIDENT_REASONS
     if (page != "phone" or set(report) != fields
-            or type(version) is not int or version not in (1, 2, 3, 4)
-            or (version in (2, 3, 4) and (not isinstance(report["build"], str) or not INCIDENT_BUILD.fullmatch(report["build"])))
-            or (version in (3, 4) and (not isinstance(report["worker"], str) or not INCIDENT_BUILD.fullmatch(report["worker"])
+            or type(version) is not int or version not in (1, 2, 3, 4, 5)
+            or (version >= 2 and (not isinstance(report["build"], str) or not INCIDENT_BUILD.fullmatch(report["build"])))
+            or (version >= 3 and (not isinstance(report["worker"], str) or not INCIDENT_BUILD.fullmatch(report["worker"])
                                   or not isinstance(report["session"], str) or not INCIDENT_SESSION.fullmatch(report["session"])))
-            or report["reason"] not in INCIDENT_REASONS or not _incident_box(report["box"])
+            or report["reason"] not in reasons or not _incident_box(report["box"])
             or not _incident_integer(report["marked"], 0, 10000000000000)
             or not _incident_integer(report["lost"], 0, 1000000000)
             or not _incident_integer(report["suppressed"], 0, 1000000000)):
@@ -851,7 +867,7 @@ def _incident_valid(page: str, report: dict) -> bool:
     for entry in entries:
         if (not isinstance(entry, dict) or not {"event", "at", "visible", "online", "resume"} <= entry.keys()
                 or not isinstance(entry["event"], str)
-                or entry["event"] not in (INCIDENT_EVENTS_V4 if version == 4 else INCIDENT_EVENTS_V3 if version == 3 else INCIDENT_EVENTS)
+                or entry["event"] not in (INCIDENT_EVENTS_V4 if version >= 4 else INCIDENT_EVENTS_V3 if version == 3 else INCIDENT_EVENTS)
                 or not _incident_integer(entry["at"], previous, 20000 if version >= 3 else 0)):
             return False
         if entry["event"] == "enter" and not {"step", "branch", "base", "inner", "vh", "vt",
@@ -870,20 +886,32 @@ def _incident_valid(page: str, report: dict) -> bool:
             elif name in INCIDENT_CHOICES:
                 if value not in INCIDENT_CHOICES[name]:
                     return False
+            elif name == "reason":
+                if value not in reasons:
+                    return False
             elif version >= 3 and name == "action":
                 if value not in INCIDENT_ACTIONS:
                     return False
             elif version >= 3 and name == "part":
-                if value not in INCIDENT_PARTS:
+                if value not in (INCIDENT_PARTS_V5 if version >= 5 else INCIDENT_PARTS):
                     return False
-            elif version == 4 and entry["event"] == "enter" and name in INCIDENT_ENTER_NUMBERS:
+            elif version >= 4 and entry["event"] == "enter" and name in INCIDENT_ENTER_NUMBERS:
                 if not _incident_integer(value, 0, INCIDENT_ENTER_NUMBERS[name]):
                     return False
-            elif version == 4 and entry["event"] == "enter" and name in INCIDENT_ENTER_FLAGS:
+            elif version >= 4 and entry["event"] == "enter" and name in INCIDENT_ENTER_FLAGS:
                 if type(value) is not bool:
                     return False
-            elif version == 4 and entry["event"] == "enter" and name in INCIDENT_ENTER_CHOICES:
+            elif version >= 4 and entry["event"] == "enter" and name in INCIDENT_ENTER_CHOICES:
                 if value not in INCIDENT_ENTER_CHOICES[name]:
+                    return False
+            elif version >= 5 and entry["event"] in INCIDENT_SCROLL_EVENTS and name in INCIDENT_SCROLL_NUMBERS:
+                if not _incident_integer(value, 0, INCIDENT_SCROLL_NUMBERS[name]):
+                    return False
+            elif version >= 5 and entry["event"] in INCIDENT_SCROLL_EVENTS and name in INCIDENT_SCROLL_FLAGS:
+                if type(value) is not bool:
+                    return False
+            elif version >= 5 and entry["event"] in INCIDENT_SCROLL_EVENTS and name in INCIDENT_SCROLL_CHOICES:
+                if value not in INCIDENT_SCROLL_CHOICES[name]:
                     return False
             elif name in ("box", "selected"):
                 if not _incident_box(value):
@@ -2994,7 +3022,7 @@ def _live_section() -> dict:
 def _phone_state(since: int | None, ops: list[str]) -> dict:
     """Callers hold _lock and have swept the clocks."""
     rev = _state.get("rev", 0)
-    out = {"rev": rev, "changed": since is None or since != rev, "now": time.time(), "incidentSchema": 4,
+    out = {"rev": rev, "changed": since is None or since != rev, "now": time.time(), "incidentSchema": INCIDENT_SCHEMA,
            "live": _live_section()}
     if out["changed"]:
         qpos, seen = {}, {ow: 0 for ow in OWNERS}
