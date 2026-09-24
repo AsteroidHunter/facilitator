@@ -3803,18 +3803,19 @@
      becomes Omni, bottom left to top right, and back the other way as it stops
      being one. the script moves it by --omni-p, the light's centre on the
      sweep's 0..1 measure: 0 at the bottom left corner, 1 at the top right.
-     each layer is a bell laid "to top right", one value along each line
-     parallel to the other diagonal, so on a card and on a row alike the light
-     travels corner to corner and its angle follows that box's own diagonal.
-     it reaches 24% either side (the script's OMNI_SWEEP_REACH), with a round
-     sun of --omni-sun, its white core --omni-core, riding the diagonal itself;
-     a row, only a line tall, takes a smaller sun. the element takes no
-     z-index of its own, so each layer's blend reaches what is under it */
+     each layer is a bell along --omni-dir, reaching 24% either side (the
+     script's OMNI_SWEEP_REACH), with a round sun of --omni-sun, its white core
+     --omni-core, riding the diagonal itself. a card lays its stops "to top
+     right", one value along each line parallel to its other diagonal; a row,
+     far wider than it is tall, lays them at 45 degrees, so the light slides
+     across it as a slanted shine rather than lying along its length, and
+     takes a smaller sun. the element takes no z-index of its own, so each
+     layer's blend reaches what is under it */
   .omni-sweep{position:absolute; inset:0; pointer-events:none; --omni-p:-1;
-    --omni-sun:160px; --omni-core:50px;
+    --omni-dir:to top right; --omni-sun:160px; --omni-core:50px;
     --omni-c:calc(var(--omni-p) * 100%);
     --omni-x:calc(var(--omni-p) * 100%); --omni-y:calc((1 - var(--omni-p)) * 100%)}
-  .trow > .omni-sweep{--omni-sun:56px; --omni-core:18px}
+  .trow > .omni-sweep{--omni-dir:45deg; --omni-sun:56px; --omni-core:18px}
   .omni-sweep::before, .omni-sweep::after{content:""; position:absolute; inset:0; z-index:40}
   .omni-sweep::before{
     mix-blend-mode:multiply;
@@ -3822,7 +3823,7 @@
       radial-gradient(circle at var(--omni-x) var(--omni-y), rgba(255,242,232,.88) 0,
         rgba(255,242,232,.68) calc(var(--omni-sun) * .25), rgba(255,242,232,.31) calc(var(--omni-sun) * .5),
         rgba(255,242,232,.08) calc(var(--omni-sun) * .75), rgba(255,242,232,0) var(--omni-sun)),
-      linear-gradient(to top right,rgba(255,242,232,0) calc(var(--omni-c) - 24%),
+      linear-gradient(var(--omni-dir), rgba(255,242,232,0) calc(var(--omni-c) - 24%),
         rgba(255,242,232,.11) calc(var(--omni-c) - 18%), rgba(255,242,232,.32) calc(var(--omni-c) - 12%),
         rgba(255,242,232,.62) calc(var(--omni-c) - 6%), rgba(255,242,232,.78) var(--omni-c),
         rgba(255,242,232,.62) calc(var(--omni-c) + 6%), rgba(255,242,232,.32) calc(var(--omni-c) + 12%),
@@ -3834,7 +3835,7 @@
         rgba(255,255,253,.82) calc(var(--omni-core) * .2), rgba(255,255,253,.46) calc(var(--omni-core) * .4),
         rgba(255,255,253,.17) calc(var(--omni-core) * .6), rgba(255,255,253,.05) calc(var(--omni-core) * .8),
         rgba(255,255,253,0) var(--omni-core)),
-      linear-gradient(to top right,rgba(255,255,253,0) calc(var(--omni-c) - 9%),
+      linear-gradient(var(--omni-dir), rgba(255,255,253,0) calc(var(--omni-c) - 9%),
         rgba(255,255,253,.04) calc(var(--omni-c) - 7.5%), rgba(255,255,253,.14) calc(var(--omni-c) - 6%),
         rgba(255,255,253,.32) calc(var(--omni-c) - 4.5%), rgba(255,255,253,.61) calc(var(--omni-c) - 3%),
         rgba(255,255,253,.88) calc(var(--omni-c) - 1.5%), rgba(255,255,253,1) var(--omni-c),
