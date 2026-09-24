@@ -591,6 +591,12 @@ function omniFace(el, title){
 function omniRows(id){
   return [...document.querySelectorAll(".trow")].filter(row => row.dataset && row.dataset.id === id);
 }
+// a row's place on the sweep. its light is laid at 45 degrees, so a point's
+// value is how far it has come along that direction: 0 at the bottom left
+// corner, 1 at the top right, the same run a "45deg" gradient lays its stops on
+function omniRowSpot(frame, x, y){
+  return ((x - frame.left) + (frame.bottom - y)) / (frame.width + frame.height);
+}
 // a row's words and art as one Omni state, the way appendOmniRowArt draws it.
 // the row reads the stored title, Omni Ticket #N, where the card reads Omni Card #N
 function omniRowFace(row, title){
@@ -619,8 +625,7 @@ function omniRowsStep(run, at){
     if (!run.rowCrossed){
       const inner = row.querySelector(".trowin"), ttl = inner && inner.querySelector(".ttl");
       const c = ttl && omniTitleCentre(ttl, inner.querySelector(".omni-art"));
-      // the row's own corner to corner measure, the card's taken on the row's box
-      if (c && omniSweepPassed(at, omniSweepSpot(frame, c.x, c.y), run.dir)) run.rowCrossed = true;
+      if (c && omniSweepPassed(at, omniRowSpot(frame, c.x, c.y), run.dir)) run.rowCrossed = true;
     }
     omniRowFace(row, run.rowCrossed ? omniSweepTo(run) : run.rowFrom);
   }

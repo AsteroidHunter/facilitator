@@ -415,21 +415,14 @@ test("an unchanged name, Escape and a card not laid out never light", () => {
   assert.equal(plain.titleEl.textContent, "Omni Card #3");
 });
 
-test("a row's light runs corner to corner along the row's own diagonal, like the card's", () => {
+test("a row's place on its 45 degree light runs from its bottom left corner to its top right", () => {
   const { sandbox } = makeSandbox();
   const row = rect(0, 100, 300, 152);
-  assert.equal(sandbox.omniSweepSpot(row, 0, 152), 0);      // bottom left corner
-  assert.equal(sandbox.omniSweepSpot(row, 300, 100), 1);    // top right corner
-  // the light's line is the row's other diagonal, top left to bottom right,
-  // and the centre of the row lies on it halfway through
-  assert.equal(sandbox.omniSweepSpot(row, 0, 100), 0.5);
-  assert.equal(sandbox.omniSweepSpot(row, 300, 152), 0.5);
-  assert.equal(sandbox.omniSweepSpot(row, 150, 126), 0.5);
-  assert.equal(sandbox.omniSweepSpot(row, 75, 113), 0.5);
-  // the light's centre rides the bottom left to top right diagonal: a quarter of
-  // the way along it stands at a quarter of the sweep
-  assert.equal(sandbox.omniSweepSpot(row, 75, 139), 0.25);
-  assert.equal(sandbox.omniRowSpot, undefined, "no separate 45 degree measure is left");
+  assert.equal(sandbox.omniRowSpot(row, 0, 152), 0);
+  assert.equal(sandbox.omniRowSpot(row, 300, 100), 1);
+  // every point on one 45 degree line stands at one value
+  assert.equal(sandbox.omniRowSpot(row, 100, 130), sandbox.omniRowSpot(row, 110, 140));
+  assert.ok(sandbox.omniRowSpot(row, 110, 120) > sandbox.omniRowSpot(row, 100, 130));   // up and right is later
 });
 
 test("the ticket sweeps in with the card and turns into Omni Ticket #N as the light passes its title, with no glint", () => {
@@ -438,7 +431,7 @@ test("the ticket sweeps in with the card and turns into Omni Ticket #N as the li
   const card = makeCard(env, "…");
   let row = makeRow(env, "…");
   commit(env, card, "ticket omni", "Tab");
-  const spot = sandbox.omniSweepSpot(row.rect, 90, 126);   // the middle of the row title's words
+  const spot = sandbox.omniRowSpot(row.rect, 90, 126);   // the middle of the row title's words
   let crossedAt = null, before = null, redrawn = false;
   for (let now = 0; now <= 640 && frames.length; now += 16){
     env.frame(now);
@@ -483,7 +476,7 @@ test("the ticket sweeps out from the top right and swaps back as the light passe
   const row = makeRow(env, "Omni Ticket #3");
   commit(env, card, "Fix login", "blur");
   // the words and the art together are the row's title area
-  const spot = sandbox.omniSweepSpot(row.rect, (8 + 140) / 2, (106 + 146) / 2);
+  const spot = sandbox.omniRowSpot(row.rect, (8 + 140) / 2, (106 + 146) / 2);
   let crossedAt = null, before = null, first = null;
   for (let now = 0; now <= 640 && frames.length; now += 16){
     env.frame(now);
