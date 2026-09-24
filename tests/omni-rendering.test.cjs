@@ -54,11 +54,13 @@ for (const [name, size, open] of [["index.html", "17.5px", ["body.focus .box.sel
     assert.match(sweep, /position:absolute; inset:0; pointer-events:none; --omni-p:-1/);
     assert.doesNotMatch(sweep, /z-index|isolation|opacity|transform|filter/);
     const layer = which => (new RegExp(`^\\s*\\.omni-sweep::${which}\\{([^}]*)\\}`, "m").exec(html) || [])[1] || "";
-    assert.match(layer("before"), /mix-blend-mode:multiply;[\s\S]*radial-gradient\(circle at var\(--omni-x\) var\(--omni-y\)[\s\S]*linear-gradient\(var\(--omni-dir\)/);
-    assert.match(layer("after"), /mix-blend-mode:screen;[\s\S]*radial-gradient\(circle at var\(--omni-x\) var\(--omni-y\)[\s\S]*linear-gradient\(var\(--omni-dir\)/);
-    // a card lays the light corner to corner; a row at 45 degrees with a smaller sun
-    assert.match(sweep, /--omni-dir:to top right; --omni-sun:160px; --omni-core:50px;/);
-    assert.match(html, /\.trow > \.omni-sweep\{--omni-dir:45deg; --omni-sun:56px; --omni-core:18px\}/);
+    assert.match(layer("before"), /mix-blend-mode:multiply;[\s\S]*radial-gradient\(circle at var\(--omni-x\) var\(--omni-y\)[\s\S]*linear-gradient\(to top right,/);
+    assert.match(layer("after"), /mix-blend-mode:screen;[\s\S]*radial-gradient\(circle at var\(--omni-x\) var\(--omni-y\)[\s\S]*linear-gradient\(to top right,/);
+    // a card and a row both take the light corner to corner, along their own
+    // diagonal; the row changes only the size of its sun
+    assert.match(sweep, /--omni-sun:160px; --omni-core:50px;/);
+    assert.match(html, /\.trow > \.omni-sweep\{--omni-sun:56px; --omni-core:18px\}/);
+    assert.doesNotMatch(html, /--omni-dir|\.omni-sweep[^{]*\{[^}]*45deg/);
     // less yellow: every colour in the light, the working shine and the glint's
     // edge is white with at most a trace of warmth, red over blue by no more than 25
     const block = html.slice(html.indexOf(".omni-sweep{"), html.indexOf("@keyframes omni-glint"));
