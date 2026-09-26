@@ -162,7 +162,9 @@ Endpoints:
                                picture of the page an icon is added from.
                                The manifest's name and short_name are answered
                                from the saved board title, so the install
-                               prompt offers the one name the board goes by;
+                               prompt offers the one name the board goes by
+                               (the untitled default, the lowercase lane name,
+                               is offered as the app's name, Facilitator);
                                every other field is served as the file has it,
                                and a blank title leaves the file's own name
   GET  /assets/ticket-<1|2|3>.webp -> supplied Omni Ticket artwork
@@ -3622,6 +3624,15 @@ def _get_phone_page(q: Query, _):
     return 200, page.replace(PHONE_SHEET_LINK, inline, 1), ctype
 
 
+def _app_name(title: str) -> str:
+    # a board that was never given a title carries the tool's lowercase lane
+    # name, which the board and its lane keep. as the name under a home screen
+    # icon it is the app's own name and is capitalised like one; a title the
+    # owner chose is used exactly as written. the phone page's appNameFor
+    # makes the same one exception for its home screen tag
+    return "Facilitator" if title == "facilitator" else title
+
+
 def _get_manifest(q: Query, _):
     # the install prompt reads the app's name from here and the page
     # reads its own from the board title, so a name written into the
@@ -3640,8 +3651,8 @@ def _get_manifest(q: Query, _):
         with _lock:
             title = (_state.get("title") or "").strip()
         if title:
-            manifest["name"] = title
-            manifest["short_name"] = title
+            manifest["name"] = _app_name(title)
+            manifest["short_name"] = _app_name(title)
         raw = json.dumps(manifest, indent=2).encode()
     return 200, raw, ctype
 

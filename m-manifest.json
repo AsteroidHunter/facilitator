@@ -1,6 +1,6 @@
 {
-  "name": "facilitator",
-  "short_name": "facilitator",
+  "name": "Facilitator",
+  "short_name": "Facilitator",
   "description": "The facilitator board, one card at a time",
   "start_url": "/m",
   "scope": "/m",

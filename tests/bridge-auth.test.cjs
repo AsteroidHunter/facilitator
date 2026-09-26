@@ -119,7 +119,7 @@ test('bridge gates every route, persists sessions, signs out and rejects legacy 
     assert.equal((await request(port+1,'/clientlog','POST','{}',{Origin:`http://127.0.0.1:${port+1}`})).status,401);
     assert.match((await request(port+1,'/m')).text,/Adding the Facilitator to the Home Screen/);
     assert.equal((await request(port+1,'/m-icon-180.png')).status,200);
-    assert.match((await request(port+1,'/m-manifest.json')).text,/"name": "facilitator"/);
+    assert.match((await request(port+1,'/m-manifest.json')).text,/"name": "Facilitator"/);
     const origin = { Origin:`http://127.0.0.1:${port+1}` };
     assert.equal((await request(port+1,'/auth/login','POST',JSON.stringify({password:PASS}),origin)).status,503);
     assert.equal((await request(port+1,'/auth/login','POST',JSON.stringify({password:PASS}),
