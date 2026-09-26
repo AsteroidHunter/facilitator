@@ -87,12 +87,13 @@ function pageRendererFrom(html, clock) {
     "document", "Date", "curWs", "poolOf", "viewFilter", "queueState",
     "cardState", "h", "seenReplies", "shortAge", "syncSpinner",
     "SPIN_FRAMES", "spinFrame", "activeOwner", "curView", "paintViewTabs",
-    "selectedId", "selectedTask", `${source}; return renderCarousel;`,
+    "selectedId", "selectedTask", "testReady", "appendOmniRowArt",
+    `${source}; return renderCarousel;`,
   )(
     document, DateStub, () => null, state => state.boxes, () => true,
     () => "queued", () => "queued", h, {}, () => "1m", () => {},
     ["|", "/", "-", "\\"], 0, "facilitator", () => "todo", () => {},
-    "m1", null,
+    "m1", null, () => false, () => null,
   );
   return { renderCarousel, tiklist };
 }
@@ -104,10 +105,12 @@ function paneRendererFrom(html, clock) {
   const paintTicketPane = new Function(
     "Date", "queueState", "cardState", "h", "seenReplies", "shortAge",
     "SPIN_FRAMES", "spinFrame", "curView", "selectedId", "selectedTask",
+    "testReady", "appendOmniRowArt",
     `${source}; return paintTicketPane;`,
   )(
     DateStub, () => "queued", () => "queued", h, {}, () => "1m",
     ["|", "/", "-", "\\"], 0, () => "todo", "m1", null,
+    () => false, () => null,
   );
   return { paintTicketPane, pane };
 }
