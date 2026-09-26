@@ -1,0 +1,359 @@
+// The sun chip and the three section chips, on every card surface, with no
+// browser and no board. Each surface's own lines are cut out of the page that
+// ships them (the chips' construction and the pass that paints them) and run
+// with the real card-logic.js over a small DOM, and every request a click
+// makes is caught by a recording fetch instead of going anywhere.
+const assert = require("node:assert/strict");
+const { readFile } = require("node:fs/promises");
+const { test } = require("node:test");
+const vm = require("node:vm");
+const path = require("node:path");
+
+const ROOT = path.resolve(__dirname, "..");
+
+// ---- the small DOM -------------------------------------------------------------
+function element(tag) {
+  const attrs = new Map();
+  const classes = new Set();
+  const listeners = {};
+  let text = "";
+  const el = {
+    tagName: String(tag).toUpperCase(),
+    children: [], parentNode: null, dataset: {}, style: {},
+    innerHTML: "", title: "", type: "", tabIndex: -1,
+    classList: {
+      add(...names) { for (const name of names) classes.add(name); },
+      remove(...names) { for (const name of names) classes.delete(name); },
+      contains(name) { return classes.has(name); },
+      toggle(name, on) {
+        const want = on === undefined ? !classes.has(name) : !!on;
+        if (want) classes.add(name); else classes.delete(name);
+        return want;
+      },
+    },
+    getAttribute(name) { return attrs.has(name) ? attrs.get(name) : null; },
+    setAttribute(name, value) { attrs.set(name, String(value)); },
+    removeAttribute(name) { attrs.delete(name); },
+    addEventListener(type, fn) { (listeners[type] ||= []).push(fn); },
+    appendChild(node) { detach(node); el.children.push(node); node.parentNode = el; return node; },
+    append(...nodes) { for (const node of nodes) el.appendChild(node); },
+    insertBefore(node, ref) {
+      detach(node);
+      const at = el.children.indexOf(ref);
+      if (at < 0) el.children.push(node); else el.children.splice(at, 0, node);
+      node.parentNode = el;
+      return node;
+    },
+    focus() {},
+    click() {
+      const event = { type: "click", target: el, currentTarget: el, stopPropagation() {}, preventDefault() {} };
+      for (const fn of listeners.click || []) fn(event);
+    },
+  };
+  Object.defineProperty(el, "className", {
+    get: () => [...classes].join(" "),
+    set(value) { classes.clear(); for (const name of String(value).split(" ")) if (name) classes.add(name); },
+  });
+  Object.defineProperty(el, "textContent", {
+    get: () => text,
+    set(value) { text = value == null ? "" : String(value); },
+  });
+  return el;
+}
+function detach(node) {
+  const parent = node.parentNode;
+  if (parent) parent.children.splice(parent.children.indexOf(node), 1);
+  node.parentNode = null;
+}
+
+// ---- cutting the real lines out of a page -----------------------------------------
+function between(source, start, end) {
+  const from = source.indexOf(start);
+  assert.ok(from >= 0, `start marker missing: ${start}`);
+  const to = source.indexOf(end, from);
+  assert.ok(to > from, `end marker missing after ${start}: ${end}`);
+  return source.slice(from, to + end.length);
+}
+
+// ---- one page's context: card-logic.js with the names a page declares --------------
+async function context() {
+  const requests = [];
+  const store = new Map();
+  const sandbox = {
+    console, Date, setTimeout, clearTimeout, setInterval, clearInterval,
+    document: { createElement: element, body: element("body") },
+    localStorage: {
+      getItem: key => (store.has(key) ? store.get(key) : null),
+      setItem: (key, value) => store.set(key, String(value)),
+      removeItem: key => store.delete(key),
+    },
+    AbortSignal: { timeout: () => undefined },
+    CardMarkdown: { render: text => String(text || "") },
+    fetch: (url, init = {}) => {
+      requests.push({ url: String(url), method: init.method || "GET" });
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) });
+    },
+    els: {}, lastState: null, selectedId: null, activeOwner: "facilitator", lastSel: {},
+    poll() {}, select() {}, deselect() {}, growPend() {}, apply() {}, editTitle() {},
+  };
+  const ctx = vm.createContext(sandbox);
+  vm.runInContext(await readFile(path.join(ROOT, "card-logic.js"), "utf8"), ctx, { filename: "card-logic.js" });
+  return { ctx, requests };
+}
+const flush = async () => { for (let i = 0; i < 6; i++) await new Promise(resolve => setImmediate(resolve)); };
+
+// one card in each section, and the one a board can hold both ways
+const CARDS = {
+  doing: { id: "m1", state: "yours", done: false, parked: false },
+  deferred: { id: "m2", state: "parked", done: false, parked: true },
+  done: { id: "m3", state: "done", done: true, parked: false },
+  both: { id: "m4", state: "done", done: true, parked: true },
+};
+function card(kind) {
+  return { bucket: "meta", owner: "facilitator", title: "card " + kind, ball: "you", replies: 1,
+           agentTs: 1, ts: 1, pending: 0, ...CARDS[kind] };
+}
+function board(ctx) {
+  ctx.lastState = { boxes: Object.keys(CARDS).map(card), now: Date.now() / 1000, fetchedAt: Date.now() };
+  return ctx.lastState;
+}
+// what a request asked for, in the terms a reader cares about
+function asked(request) {
+  const url = new URL(request.url, "http://board");
+  return { path: url.pathname, box: url.searchParams.get("box"), v: url.searchParams.get("v"), method: request.method };
+}
+function offOf(chips) {
+  return Object.fromEntries(["sun", "arc", "x"].map(name => [name, chips[name].getAttribute("aria-disabled") === "true"]));
+}
+const EXPECTED_OFF = {
+  doing: { sun: true, arc: false, x: false },
+  deferred: { sun: false, arc: true, x: false },
+  done: { sun: false, arc: false, x: true },
+  both: { sun: false, arc: false, x: true },
+};
+
+// ---- the three surfaces, each built from its own page's lines ------------------------
+async function desktopLarge() {
+  const html = await readFile(path.join(ROOT, "index.html"), "utf8");
+  const build = between(html, '    const x = h("button", "xbtn", "×");', "    topbar.insertBefore(sun, arc);");
+  const paint = between(html, "    const cs = cardState(b);   // one state", "    paintSectionChips(el, b);");
+  const env = await context();
+  const makeChips = vm.runInContext(`(function(b, topbar, head, box){\n${build}\nreturn { sun, arc, x };\n})`, env.ctx);
+  const paintCard = vm.runInContext(`(function(el, b){\n${paint}\n})`, env.ctx);
+  return {
+    name: "desktop large card", html, env,
+    mount(b) {
+      const topbar = element("div");
+      topbar.appendChild(element("div"));   // the history control, first in the bar
+      const chips = makeChips(b, topbar, element("div"), element("article"));
+      const el = { box: element("article"), topbar, ...chips };
+      env.ctx.els[b.id] = el;
+      paintCard(el, b);
+      return el;
+    },
+    order: el => el.topbar.children.filter(node => [el.sun, el.arc, el.x].includes(node)),
+  };
+}
+
+async function desktopMini() {
+  const html = await readFile(path.join(ROOT, "index.html"), "utf8");
+  const build = between(html, '      const sun = sunChip("msun", b.id);', "        poll();\n      });");
+  const paint = between(html, '    el.box.classList.toggle("mwait", !!b.pending);', "    paintSectionChips(el, b);");
+  const env = await context();
+  const makeChips = vm.runInContext(`(function(b){\n${build}\nreturn { sun, arc, x };\n})`, env.ctx);
+  const paintCard = vm.runInContext(`(function(el, b){\n${paint}\n})`, env.ctx);
+  return {
+    name: "desktop small card", html, env,
+    mount(b) {
+      const chips = makeChips(b);
+      const el = { box: element("div"), ...chips };
+      // the small card shares the large card's entry for its flag taps
+      env.ctx.els[b.id] = { box: element("article") };
+      env.ctx.els[b.id].box.classList.toggle("done", env.ctx.cardState(b) === "done");
+      env.ctx.els[b.id].box.classList.toggle("parked", env.ctx.cardState(b) === "parked");
+      paintCard(el, b);
+      return el;
+    },
+  };
+}
+
+async function phone() {
+  const html = await readFile(path.join(ROOT, "m.html"), "utf8");
+  const icon = between(html, "const MOON_ICON = ", "</svg>';");
+  const close = between(html, "async function closeCard(id){", "  poll();\n}");
+  const build = between(html, '  const arc = h("button", "arcbtn");', "  topbar.append(histctl, sun, arc, x);");
+  const paint = between(html, '    const cs = cardState(b);\n    el.box.classList.toggle("done", cs === "done");',
+    "    paintSectionChips(el, b);");
+  const env = await context();
+  vm.runInContext(icon + "\n" + close, env.ctx);
+  const makeChips = vm.runInContext(`(function(b, topbar, histctl){\n${build}\nreturn { sun, arc, x };\n})`, env.ctx);
+  const paintCard = vm.runInContext(`(function(el, b){\n${paint}\n})`, env.ctx);
+  return {
+    name: "phone card", html, env,
+    mount(b) {
+      const topbar = element("div");
+      const chips = makeChips(b, topbar, element("div"));
+      const el = { box: element("article"), topbar, ...chips };
+      env.ctx.els[b.id] = el;
+      paintCard(el, b);
+      return el;
+    },
+    order: el => el.topbar.children.filter(node => [el.sun, el.arc, el.x].includes(node)),
+  };
+}
+
+// ---- the section rule ----------------------------------------------------------------
+test("a card's section is read off the tabs' own filter, done ahead of parked", async () => {
+  const { ctx } = await context();
+  for (const [kind, section] of [["doing", "todo"], ["deferred", "deferred"], ["done", "done"], ["both", "done"]]) {
+    const b = card(kind);
+    assert.equal(ctx.cardSection(b), section, kind);
+    for (const view of ["todo", "deferred", "done"])
+      assert.equal(ctx.viewFilterFor(b, view), view === section, `${kind} listed under ${view}`);
+  }
+  // a card with no state from the board is read from its flags the same way
+  assert.equal(ctx.cardSection({ ...card("both"), state: null }), "done");
+  assert.equal(ctx.cardSection({ ...card("deferred"), state: null }), "deferred");
+});
+
+// ---- the sun on every surface -----------------------------------------------------------
+for (const [name, make] of [["desktop large card", desktopLarge], ["desktop small card", desktopMini], ["phone card", phone]]) {
+  test(`${name} carries a sun built like the moon, left of it`, async () => {
+    const surface = await make();
+    board(surface.env.ctx);
+    const el = surface.mount(card("deferred"));
+    assert.equal(el.sun.tagName, "BUTTON");
+    assert.equal(el.sun.title, "move to doing");
+    assert.equal(el.sun.getAttribute("aria-label"), "move to doing");
+    // the same inline svg approach at the same glyph size as the moon beside it
+    const size = svg => /viewBox="0 0 24 24" width="9" height="9"/.test(svg);
+    assert.ok(size(el.arc.innerHTML), "the moon glyph changed size");
+    assert.ok(size(el.sun.innerHTML), "the sun glyph is not the moon's size");
+    assert.match(el.sun.innerHTML, /<circle cx="12" cy="12" r="4.5">/, "the sun has no disc");
+    assert.equal((el.sun.innerHTML.match(/M/g) || []).length, 8, "the sun does not carry eight rays");
+    if (surface.order) assert.deepEqual(surface.order(el), [el.sun, el.arc, el.x], "the chips are not sun, moon, cross");
+  });
+
+  test(`${name} fades the chip naming the card's own section`, async () => {
+    const surface = await make();
+    board(surface.env.ctx);
+    for (const kind of Object.keys(CARDS)) {
+      const el = surface.mount(card(kind));
+      assert.deepEqual(offOf(el), EXPECTED_OFF[kind], `${kind} card`);
+    }
+    // and a later pass that moves the card moves the fade with it
+    const el = surface.mount(card("deferred"));
+    vm.runInContext("(function(el, b){ paintSectionChips(el, b); })", surface.env.ctx)(el, card("doing"));
+    assert.deepEqual(offOf(el), EXPECTED_OFF.doing, "a deferred card woken to doing kept its old fade");
+  });
+
+  test(`${name}: the sun wakes a deferred card by clearing park and a done card by done v=0`, async () => {
+    const surface = await make();
+    const cases = [
+      ["deferred", [{ path: "/park", box: "m2", v: "0", method: "POST" }]],
+      ["done", [{ path: "/done", box: "m3", v: "0", method: "POST" }]],
+      // shown as done, held parked too: both come off, so it lands in doing
+      ["both", [{ path: "/park", box: "m4", v: "0", method: "POST" },
+                { path: "/done", box: "m4", v: "0", method: "POST" }]],
+    ];
+    for (const [kind, want] of cases) {
+      board(surface.env.ctx);
+      surface.env.requests.length = 0;
+      const el = surface.mount(card(kind));
+      el.sun.click();
+      await flush();
+      assert.deepEqual(surface.env.requests.map(asked), want, `${kind} card`);
+    }
+  });
+
+  test(`${name}: a faded chip's click sends nothing`, async () => {
+    const surface = await make();
+    for (const [kind, chip] of [["doing", "sun"], ["deferred", "arc"], ["done", "x"], ["both", "x"]]) {
+      board(surface.env.ctx);
+      surface.env.requests.length = 0;
+      const el = surface.mount(card(kind));
+      el[chip].click();
+      await flush();
+      assert.deepEqual(surface.env.requests, [], `${chip} on a ${kind} card`);
+    }
+  });
+
+  test(`${name}: the live moon and cross do what they did before`, async () => {
+    const surface = await make();
+    const cases = [
+      ["doing", "arc", { path: "/park", v: "1" }],
+      ["done", "arc", { path: "/park", v: "1" }],
+      // the cross always asks the board to close; the board itself deletes an
+      // empty card rather than marking it done (done-card-close covers that)
+      ["doing", "x", { path: "/close", v: null }],
+      ["deferred", "x", { path: "/close", v: null }],
+    ];
+    for (const [kind, chip, want] of cases) {
+      board(surface.env.ctx);
+      surface.env.requests.length = 0;
+      const el = surface.mount(card(kind));
+      el[chip].click();
+      await flush();
+      assert.deepEqual(surface.env.requests.map(asked),
+        [{ ...want, box: CARDS[kind].id, method: "POST" }], `${chip} on a ${kind} card`);
+    }
+  });
+}
+
+// ---- where each surface draws its chips ---------------------------------------------------
+test("the desktop bar lays the chips out sun, moon, cross", async () => {
+  const html = await readFile(path.join(ROOT, "index.html"), "utf8");
+  // the cross is ordered to the bar's end; the moon and the sun keep document order
+  assert.match(html, /body\.focus \.box\.sel \.xbtn\{\s*position:relative; flex:none; order:5;/);
+  const chipRule = between(html, "  body.focus .box.sel .arcbtn, body.focus .box.sel .sunbtn{", "}");
+  assert.doesNotMatch(chipRule, /[\s;{]order:/);
+  assert.match(chipRule, /width:16px; height:16px; border-radius:var\(--sq\)/);
+  // the focus ring runs cross, moon, sun, and a shift tab out of the title lands on the sun
+  assert.match(html, /const ring = \[titleEl, ta, clip, send, x, arc, sun\];/);
+  const logic = await readFile(path.join(ROOT, "card-logic.js"), "utf8");
+  assert.match(logic, /\(e\.shiftKey \? \(el\.sun \|\| el\.arc\) : el\.ta\)\.focus\(\)/);
+});
+
+test("the small card seats the round yellow sun one seat left of the moon", async () => {
+  const html = await readFile(path.join(ROOT, "index.html"), "utf8");
+  const right = cls => Number(new RegExp(`#magic2 \\.${cls}\\{position:absolute; top:9px; right:(\\d+)px`).exec(html)?.[1]);
+  assert.ok(right("msun") > right("marc") && right("marc") > right("mx"), "the small card's chips are not sun, moon, cross");
+  assert.equal(right("msun") - right("marc"), right("marc") - right("mx"), "the sun is not one seat along");
+  const sun = between(html, "  #magic2 .msun{", "}");
+  const moon = between(html, "  #magic2 .marc{", "}");
+  for (const part of ["width:16px; height:16px; border-radius:50%", "color:#000", "display:inline-flex"]) {
+    assert.ok(sun.includes(part) && moon.includes(part), `the sun is not built like the moon: ${part}`);
+  }
+  assert.match(sun, /background:#F7E187/);
+  // the entry the pass paints carries all three chips, and only doing cards are listed
+  assert.match(html, /miniEls\[b\.id\] = \{ box, title, reply, pend, ta, sun, arc, x,/);
+  const pick = vm.runInNewContext(`(state => { ${between(html, "  const cards = state.boxes.filter(", ");")} return cards; })`);
+  const listed = pick({ boxes: Object.keys(CARDS).map(card) }).map(b => b.id);
+  assert.deepEqual(listed, ["m1"], "the small card lists a card outside doing");
+});
+
+test("the phone bar and its entry carry the sun", async () => {
+  const html = await readFile(path.join(ROOT, "m.html"), "utf8");
+  const chipRule = between(html, "  .sunbtn, .arcbtn, .xbtn{", "}");
+  assert.match(chipRule, /width:28px; height:28px/);
+  assert.doesNotMatch(chipRule, /[\s;{]order:/);
+  assert.match(html, /els\[b\.id\] = \{ box, body, reply, replyview, meta, ta, twin, send, tick, titleEl, sun, arc, x,/);
+});
+
+test("a faded chip is lighter than a waiting one, keeps no hover, and is off for assistive technology", async () => {
+  const tokens = await readFile(path.join(ROOT, "card-tokens.css"), "utf8");
+  const off = Number(/--chipoff:([.\d]+);/.exec(tokens)?.[1]);
+  assert.ok(off > 0 && off < 0.5, "the fade is not visibly apart from the half fade of a waiting tap");
+  const desk = await readFile(path.join(ROOT, "index.html"), "utf8");
+  const phonePage = await readFile(path.join(ROOT, "m.html"), "utf8");
+  // the waiting state itself is left as it was
+  assert.ok(desk.includes(".box.flagwait .arcbtn{opacity:.5}"));
+  assert.ok(phonePage.includes(".box.flagwait .arcbtn{opacity:.5}"));
+  assert.ok(desk.includes('body.focus .box.sel :is(.sunbtn, .arcbtn, .xbtn)[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}'));
+  assert.ok(desk.includes('body.focus .box.sel :is(.sunbtn, .arcbtn, .xbtn)[aria-disabled="true"]:hover{background:var(--card)}'));
+  assert.ok(desk.includes('#magic2 :is(.msun, .marc, .mx)[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}'));
+  for (const [cls, rest] of [["msun", "#F7E187"], ["marc", "#F6C08A"], ["mx", "#FF9F98"]])
+    assert.ok(desk.includes(`#magic2 .${cls}[aria-disabled="true"]:hover{background:${rest}}`), `${cls} changes on hover while off`);
+  assert.ok(phonePage.includes('.box :is(.sunbtn, .arcbtn, .xbtn)[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}'));
+  assert.ok(phonePage.includes('.box :is(.sunbtn, .arcbtn, .xbtn)[aria-disabled="true"]:active{background:var(--card)}'));
+});

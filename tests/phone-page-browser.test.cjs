@@ -764,8 +764,10 @@ test("the defer chip parks, the history steps back, the plus makes a card to nam
     assert.equal((await savedBox(id)).parked, true);
     assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector("article.box.sel .title")).color), "rgb(90, 100, 115)",
       "a parked card's title is not the desktop's later colour");
+    // a deferred card's moon is switched off; the sun is what brings it back
+    assert.equal(await page.evaluate(() => document.querySelector("article.box.sel .arcbtn").getAttribute("aria-disabled")), "true");
     const unparked = page.waitForResponse(r => new URL(r.url()).pathname === "/park");
-    await page.evaluate(() => document.querySelector("article.box.sel .arcbtn").click());
+    await page.evaluate(() => document.querySelector("article.box.sel .sunbtn").click());
     assert.equal(new URL((await unparked).url()).searchParams.get("v"), "0");
 
     await page.evaluate(() => openDrawer());

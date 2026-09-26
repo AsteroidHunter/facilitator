@@ -25,7 +25,7 @@ const ANSWERED_AUTO_EXPAND = false;
 // workspace; the phone shows the lane whole
 let poolScope = null;
 // keyboardTitle: the desktop's keyboard path through a card's title. Tab commits
-// the name and moves on to the composer, or back to the defer chip with shift,
+// the name and moves on to the composer, or back to the sun chip with shift,
 // and Escape hands focus back to the composer. the phone has no keyboard path
 let keyboardTitle = false;
 // pendTimes: the desktop's sent rows each carry the time a drag reveals; a page
@@ -829,6 +829,10 @@ function viewFilterFor(b, view){
        : (s !== "done" && s !== "parked");
 }
 function viewFilter(b){ return viewFilterFor(b, curView()); }
+// the one section a card stands in, read off the very filter the three sections
+// are drawn from, so a card's chips can never name a section its tab disagrees
+// with. done outranks parked there, so a card the board holds both ways is done
+function cardSection(b){ return TICKET_VIEWS.find(view => viewFilterFor(b, view)); }
 function viewPoolFor(state, view){ return poolOf(state).filter(b => viewFilterFor(b, view)); }
 function viewPool(state){ return viewPoolFor(state, curView()); }
 
@@ -1738,6 +1742,60 @@ function selectNextDoing(id){
   if (doing.length) select(doing[0].id); else deselect();
 }
 
+// ---- the three section chips ---------------------------------------------------
+// every card carries a chip for each section, left to right in the tabs' own
+// order: the sun for doing, the moon for deferred, the cross for done. the chip
+// that names the section the card already stands in is faded and switched off,
+// since pressing it could only ask for what is already true. it is marked with
+// aria-disabled rather than the disabled property so it keeps its place in the
+// keyboard's path through the card, and each chip's own click reads the mark
+// and does nothing while it stands
+const SECTION_CHIPS = { todo: "sun", deferred: "arc", done: "x" };
+// a small disc with eight short rays, drawn on the moon's 24 unit box at the
+// moon's 9px. the rays stand clear of the disc and end round, so at that size
+// they still read as rays and not as a blot
+const SUN_ICON = '<svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" stroke="none" aria-hidden="true">' +
+  '<circle cx="12" cy="12" r="4.5"></circle>' +
+  '<path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3M4.58 4.58L6.7 6.7M17.3 17.3l2.12 2.12M4.58 19.42L6.7 17.3M17.3 6.7l2.12-2.12" ' +
+  'fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"></path></svg>';
+
+function chipOff(chip){ return !!chip && chip.getAttribute("aria-disabled") === "true"; }
+
+// the sun, built the same on every surface; each page seats it and dresses it
+function sunChip(cls, id){
+  const sun = h("button", cls);
+  sun.type = "button";
+  sun.title = "move to doing";
+  sun.setAttribute("aria-label", "move to doing");
+  sun.innerHTML = SUN_ICON;
+  sun.addEventListener("click", e => { e.stopPropagation(); if (!chipOff(sun)) wakeCard(id); });
+  return sun;
+}
+
+// el.sun, el.arc and el.x are the card's three chips under whatever classes the
+// surface gives them. only a chip whose state changes is written, so a poll that
+// moves nothing leaves a hover where it is
+function paintSectionChips(el, b){
+  const here = SECTION_CHIPS[cardSection(b)];
+  for (const name of ["sun", "arc", "x"]){
+    const chip = el && el[name];
+    if (!chip || chipOff(chip) === (name === here)) continue;
+    if (name === here) chip.setAttribute("aria-disabled", "true");
+    else chip.removeAttribute("aria-disabled");
+  }
+}
+
+// the sun's own move: whatever holds the card out of doing is lifted, through
+// the same ordered flag requests a tap on the moon makes. a card the board
+// holds both parked and done shows as done, so its face carries no parked class
+// and control+n's read of it sees none; the reading's own park flag is asked as
+// well here, or the sun would lift the done and leave the card in deferred
+function wakeCard(id){
+  const b = typeof lastState === "undefined" ? null : lastState?.boxes.find(x => x.id === id);
+  if (b && b.parked && !flagHolds[flagKey(id, "park")] && !flagShown(id, "park")) setFlag(id, "park", false);
+  return setCardDestination(id, "doing");
+}
+
 // one card's wanted state, true on screen at once and asked of the board after.
 //
 // The order of the steps below is load bearing. The intent is written down and
@@ -2080,7 +2138,7 @@ function editTitle(id, opts){
   t.onkeydown = e => {
     e.stopPropagation();   // card-switching keys must not fire while naming
     if (e.key === "Enter"){ e.preventDefault(); commit(); el.ta.focus(); }
-    else if (keyboardTitle && e.key === "Tab"){ e.preventDefault(); commit(); (e.shiftKey ? el.arc : el.ta).focus(); }
+    else if (keyboardTitle && e.key === "Tab"){ e.preventDefault(); commit(); (e.shiftKey ? (el.sun || el.arc) : el.ta).focus(); }
     else if (e.key === "Escape"){
       if (!old && !t.textContent.trim()) commit();
       else { end(); t.textContent = old; }
