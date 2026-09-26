@@ -1751,17 +1751,18 @@ function selectNextDoing(id){
 // keyboard's path through the card, and each chip's own click reads the mark
 // and does nothing while it stands
 const SECTION_CHIPS = { todo: "sun", deferred: "arc", done: "x" };
-// a hollow ring with eight short rays, drawn on the moon's 24 unit box at the
-// moon's 9px. the ring and the rays share one stroke, set once on the svg, so
-// they are one weight by construction. the ring's outer edge stands where the
-// old filled disc's edge stood (radius 3.3 plus half the 2.4 stroke), which
-// keeps the same air between it and the rays' round inner ends, and leaves a
-// hole 4.2 units across, near 1.6px at this size: wider than the ring's own
-// line, so it reads as a hole and not as a thick dot
+// a large hollow ring with eight short marks around it, drawn on the moon's 24
+// unit box at the moon's 9px. the ring and the marks share one stroke, set once
+// on the svg, so they are one weight by construction. the ring is the main
+// shape: radius 4.35 under the 2.4 stroke leaves a hole 6.3 units across, near
+// 2.4px at this size, and puts its outer edge at 5.55. the marks start at 8.55
+// so their round inner ends keep 1.8 units of air clear of the ring, and end at
+// 10.5 so their round outer ends stay inside the box
 const SUN_ICON = '<svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" ' +
   'stroke-width="2.4" stroke-linecap="round" aria-hidden="true">' +
-  '<circle cx="12" cy="12" r="3.3"></circle>' +
-  '<path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3M4.58 4.58L6.7 6.7M17.3 17.3l2.12 2.12M4.58 19.42L6.7 17.3M17.3 6.7l2.12-2.12"></path></svg>';
+  '<circle cx="12" cy="12" r="4.35"></circle>' +
+  '<path d="M12 1.5L12 3.45M12 20.55L12 22.5M1.5 12L3.45 12M20.55 12L22.5 12' +
+  'M4.58 4.58L5.95 5.95M18.05 18.05L19.42 19.42M4.58 19.42L5.95 18.05M18.05 5.95L19.42 4.58"></path></svg>';
 
 function chipOff(chip){ return !!chip && chip.getAttribute("aria-disabled") === "true"; }
 

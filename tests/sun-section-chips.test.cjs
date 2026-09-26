@@ -233,7 +233,26 @@ for (const [name, make] of [["desktop large card", desktopLarge], ["desktop smal
     // of the same weight and round ends as the rays
     const svg = /<svg [^>]*>/.exec(el.sun.innerHTML)?.[0] || "";
     const ring = /<circle [^>]*>/.exec(el.sun.innerHTML)?.[0] || "";
-    assert.match(ring, /cx="12" cy="12" r="3.3"/, "the sun has no ring in its middle");
+    assert.match(ring, /cx="12" cy="12" r="4.35"/, "the sun has no ring in its middle");
+    // the geometry itself: the hole, the ring's outer edge, and the air and
+    // the box around the marks, all measured on the stroke the glyph carries
+    const width = Number(/stroke-width="([\d.]+)"/.exec(svg)?.[1]);
+    const radius = Number(/ r="([\d.]+)"/.exec(ring)?.[1]);
+    const half = width / 2, outer = radius + half;
+    assert.ok(Math.abs((radius - half) * 2 - 6.3) < 1e-9, "the hole is not 6.3 units across");
+    const d = /<path d="([^"]+)"/.exec(el.sun.innerHTML)?.[1] || "";
+    const marks = [...d.matchAll(/M([\d.]+) ([\d.]+)L([\d.]+) ([\d.]+)/g)]
+      .map(m => [[+m[1], +m[2]], [+m[3], +m[4]]]);
+    assert.equal(marks.length, 8, "the sun's marks are not eight plain segments");
+    const from = ([x, y]) => Math.hypot(x - 12, y - 12);
+    for (const [a, b] of marks) {
+      const near = Math.min(from(a), from(b));
+      assert.ok(near - half - outer > 1.7, `a mark comes within ${(near - half - outer).toFixed(2)} of the ring`);
+      for (const value of [...a, ...b])
+        assert.ok(value - half >= 0 && value + half <= 24, "a mark's round end leaves the 24 unit box");
+      // each mark, round ends and all, is shorter than half the ring's width
+      assert.ok(Math.hypot(a[0] - b[0], a[1] - b[1]) + width < outer, "a mark is not short beside the ring");
+    }
     assert.match(svg, /fill="none"/, "the sun's middle is filled");
     assert.doesNotMatch(ring, /fill="(?!none")/, "the ring fills its own centre");
     assert.doesNotMatch(el.sun.innerHTML, /fill="currentColor"/, "part of the sun is filled");
