@@ -122,7 +122,8 @@ Endpoints:
   GET  /card-tokens.css     -> the card's shared sheet: the colour and font
                                tokens, the card's constants, the card prose
                                rules and the sent box's arrival dress, loaded
-                               by the board and the phone page
+                               by the board and folded into the phone page as
+                               /m serves it
   GET  /card-logic.js       -> the card's shared logic: the card state rules,
                                the lanes, the sent box's rows and the helpers
                                the board and the phone page carry in common
@@ -142,18 +143,23 @@ Endpoints:
   GET  /m                   -> m.html after bridge sign-in, the phone page: the project tabs, one
                                card filling the screen, the card list in a
                                drawer off the left edge; before sign-in the bridge
-                               serves m-gate.html with PWA installation steps
+                               serves m-gate.html with PWA installation steps.
+                               m.html goes out with card-tokens.css's text in
+                               place of its link, so the startup curtain's first
+                               frame needs no second file
   GET  /auth/check          -> bridge session status and password setup status
   POST /auth/login          -> JSON {password}; sets a persistent HttpOnly cookie
   POST /auth/logout         -> invalidates that session and clears its cookie
-  GET  /m-manifest.json, /m-sw.js, /m-icon-<size>.png, /m-splash-squid.png
+  GET  /m-manifest.json, /m-sw.js, /m-icon-<size>.png, /m-splash-squid.png, /m-splash.js
                             -> what makes the phone page installable: its web
                                app manifest, its service worker (network
                                first, shows the push notifications), its
                                home screen icons, cut from the board's own mark,
-                               and the mark on its own with no background, which
+                               the mark on its own with no background, which
                                the page paints this phone's home screen launch
-                               image from.
+                               image from, and the painter itself, which the
+                               sign-in page runs too, since iOS keeps the
+                               picture of the page an icon is added from.
                                The manifest's name and short_name are answered
                                from the saved board title, so the install
                                prompt offers the one name the board goes by;
@@ -2619,6 +2625,9 @@ PHONE_FILES = {
     # the squid on its own, no background: the phone paints its own home-screen
     # launch image from it, sized to whichever iPhone is asking
     "/m-splash-squid.png": (HERE / "assets" / "m-splash-squid.png", "image/png"),
+    # and the painter, shared by the phone page and the sign-in page in front
+    # of it, which is the page every new icon is added from
+    "/m-splash.js": (HERE / "m-splash.js", "application/javascript; charset=utf-8"),
 }
 OMNI_FILES = {
     f"/assets/ticket-{number}.webp":
@@ -3587,6 +3596,30 @@ def _get_laneimg(q: Query, _):
     if inside and p.is_file() and p.suffix.lower() in IMG_TYPES:
         return 200, p.read_bytes(), IMG_TYPES[p.suffix.lower()]
     return 404, {"error": "not found"}
+
+
+# the one sheet the phone page links that its first frame is drawn with. /m is
+# served with the sheet's own text in place of this link, so the startup
+# curtain is painted from the page's bytes alone instead of after a second
+# request. the file stays the one copy: the desktop page and the phone's worker
+# still ask for it by name, and a sheet that cannot be read leaves the link,
+# which asks for it the way the page always did
+PHONE_SHEET_LINK = b'<link rel="stylesheet" href="/card-tokens.css">'
+
+
+def _get_phone_page(q: Query, _):
+    p, ctype = PHONE_FILES["/m"]
+    if not p.is_file():
+        return 404, {"error": "not found"}
+    page = p.read_bytes()
+    try:
+        sheet = (HERE / "card-tokens.css").read_bytes()
+    except OSError:
+        return 200, page, ctype
+    if b"</style" in sheet.lower():
+        return 200, page, ctype   # it would close the element it is put in
+    inline = b'<style data-sheet="/card-tokens.css">\n' + sheet + b"</style>"
+    return 200, page.replace(PHONE_SHEET_LINK, inline, 1), ctype
 
 
 def _get_manifest(q: Query, _):
@@ -5429,12 +5462,13 @@ ROUTES = [
     Route("/manifest.json", _static("manifest.json", "application/manifest+json; charset=utf-8"), methods=["GET"]),
     Route("/sw.js", _static("sw.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/m-manifest.json", _endpoint(_get_manifest), methods=["GET"]),
-    # the phone page and the files that make it installable, each a plain
-    # file beside this one (the icons under assets/). Served with the
-    # no-store every answer carries, so a changed page or worker is picked
-    # up on the next open rather than a cache later
+    Route("/m", _endpoint(_get_phone_page), methods=["GET"]),
+    # the phone page's files that make it installable, each a plain file
+    # beside this one (the icons under assets/). Served with the no-store
+    # every answer carries, so a changed page or worker is picked up on the
+    # next open rather than a cache later
     *[Route(path, _endpoint(lambda q, _, p=p, c=c: _file(p, c)), methods=["GET"])
-      for path, (p, c) in PHONE_FILES.items() if path != "/m-manifest.json"],
+      for path, (p, c) in PHONE_FILES.items() if path not in ("/m", "/m-manifest.json")],
     *[Route(path, _endpoint(lambda q, _, p=p, c=c: _file(p, c)), methods=["GET"])
       for path, (p, c) in OMNI_FILES.items()],
     Route("/push/key", _endpoint(_get_push_key), methods=["GET"]),

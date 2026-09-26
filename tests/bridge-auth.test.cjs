@@ -65,7 +65,7 @@ test('bridge gates every route, persists sessions, signs out and rejects legacy 
   try {
     await fs.mkdir(app); await fs.mkdir(bin);
     for (const file of ['facilitator','server.py','bridge_auth.py','bridge_gate.py','m-gate.html','m.html',
-      'm-sw.js','m-manifest.json','seed.example.json','index.html','page.html','manifest.json',
+      'm-splash.js','m-sw.js','m-manifest.json','seed.example.json','index.html','page.html','manifest.json',
       'sw.js','card-markdown.js','card-tokens.css','card-logic.js','card-report.js',
       'compose-format.js','cm-markdown.js']) await fs.copyFile(path.join(ROOT,file), path.join(app,file));
     await fs.cp(path.join(ROOT,'assets'), path.join(app,'assets'), { recursive:true });

@@ -21,8 +21,9 @@
 <link rel="icon" href="/m-icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+<!-- the web font sheets themselves are asked for further down, by the script
+     before the shared files: a stylesheet linked here would keep the curtain
+     from being drawn until a file from another site had arrived -->
 <style>
   :root{
     /* the colours, the faces and the card's own constants (--app-inset,
@@ -1061,6 +1062,10 @@
     55%{transform:scale(1) rotate(4deg); animation-timing-function:cubic-bezier(.55,0,.85,.4)}
     100%{transform:scale(0) rotate(14deg)}}
 </style>
+<!-- the server serves /m with the shared sheet's own text in place of the link
+     below, so the curtain's first frame needs nothing but this page. the link
+     is what the file says on its own, and the one copy of the sheet is still
+     card-tokens.css -->
 <link rel="stylesheet" href="/card-tokens.css">
 </head>
 <body>
@@ -1142,10 +1147,33 @@
 </aside>
 <div id="diagnostictoast" role="status"></div>
 
+<script>
+  // the web font sheets, asked for without holding any paint. linked in the
+  // head they kept the whole page blank until they arrived, and they come from
+  // another site that nothing here can hurry. each goes in under a media query
+  // no screen matches, which the browser fetches without waiting on, and is
+  // switched on the moment it lands. the curtain waits for them and for the
+  // faces they name (webFacesLanded, below), so the board it uncovers is
+  // already in its own faces; a sheet that fails is an answer too, and the page
+  // keeps the fallback faces its stacks name
+  window.webFontSheets = Promise.all([
+    "https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap",
+    "https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap",
+  ].map(href => new Promise(settle => {
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.media = "print";
+    link.addEventListener("load", () => { link.media = "all"; settle(); }, { once: true });
+    link.addEventListener("error", () => settle(), { once: true });
+    link.href = href;
+    document.head.appendChild(link);
+  })));
+</script>
 <script src="/card-markdown.js"></script>
 <script src="/card-logic.js"></script>
 <script src="/card-report.js"></script>
 <script src="/compose-format.js"></script>
+<script src="/m-splash.js"></script>
 <script>
 document.getElementById("signout").addEventListener("click", async () => {
   const button = document.getElementById("signout");
@@ -1528,7 +1556,10 @@ function makeBox(b){
     notePhoneEnter("handler", e, op ? "send" : "held", ta, !!op, hadDraft);
     if (op) armPhoneEnterAgain(b.id, op);
   });
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => tick());
+  // fitted again once the web faces have landed. their sheets are asked for off
+  // the first paint, so they can still be on the way here, and a plain
+  // document.fonts.ready asked before they arrive answers at once
+  webFacesLanded().then(() => tick());
   tick();
   send.addEventListener("pointerdown", e => {
     tracePhone("note", "send", { box: b.id });
@@ -2868,157 +2899,10 @@ scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu
 // the reconnecting note's business, which is what that note is for.
 
 // --- the phone's own launch image (iOS) ---
-// An installed web app on iOS shows a launch image only through
-// <link rel="apple-touch-startup-image">, and each tag's media query has to
-// match the device's exact pixel size, so there is no fixed set of files that
-// covers every iPhone and the picture is painted for THIS device at runtime.
-// Android builds its splash from the manifest and every other browser ignores
-// these tags, so the work only happens where it does something.
-const SPLASH_LOGO = "/m-splash-squid.png";
-const SPLASH_BG = "#ffffff";
-// the logo's longer side spans this fraction of the screen's SHORTER edge; its
-// other side and its centred position follow from the file's own aspect ratio
-const SPLASH_LOGO_FRACTION = 0.32;
-// the credit line under it. both numbers are fractions of that same shorter
-// edge, so the line grows and shrinks with the screen exactly as the logo does
-const SPLASH_HANDLE = "@theonetrueakash";
-const SPLASH_HANDLE_FRACTION = 0.035;        // font size / shorter edge
-const SPLASH_HANDLE_BOTTOM_FRACTION = 0.12;  // bottom edge -> the text's middle
-// a quiet credit, not a label: apple's systemGray2
-const SPLASH_HANDLE_COLOR = "#aeaeb2";
-// Tried in order against a real 2D context, best first. A context runs the font
-// shorthand through the CSS parser and drops the WHOLE declaration if any part
-// of it fails to parse, leaving the context on its previous font, so a stack a
-// browser dislikes does not degrade: it silently paints the line in the canvas
-// default at the wrong size. Every name is a system face, so there is nothing
-// to load and the canvas can draw the moment it is asked to.
-const SPLASH_FONT_LADDER = [
-  '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif',
-  "system-ui",
-  "sans-serif",
-];
-
-// pure: screen + dpr + logo aspect -> the exact device-pixel canvas, the centred
-// logo rect, the credit line's size and anchor, and the device-matching media
-// query. no DOM and no canvas, so it can be checked on its own
-function splashLayout(inp){
-  const canvasW = Math.round(inp.screenW * inp.dpr);
-  const canvasH = Math.round(inp.screenH * inp.dpr);
-  const shortEdge = Math.min(canvasW, canvasH);
-  const box = shortEdge * SPLASH_LOGO_FRACTION;    // the logo's bounding square
-  // contain-fit the ratio inside that square: the longer side lands on the box
-  const logoW = inp.logoAspect >= 1 ? box : box * inp.logoAspect;
-  const logoH = inp.logoAspect >= 1 ? box / inp.logoAspect : box;
-  const orientation = inp.screenW <= inp.screenH ? "portrait" : "landscape";
-  return {
-    canvasW, canvasH,
-    screenW: inp.screenW, screenH: inp.screenH,
-    logoX: (canvasW - logoW) / 2, logoY: (canvasH - logoH) / 2, logoW, logoH,
-    // whole device pixels for the type size, unlike the logo's rect: this canvas
-    // is rasterized once at exactly these pixels and never resampled
-    handleFont: Math.round(shortEdge * SPLASH_HANDLE_FRACTION),
-    handleCenterX: canvasW / 2,
-    handleCenterY: canvasH - shortEdge * SPLASH_HANDLE_BOTTOM_FRACTION,
-    media: "(device-width: " + inp.screenW + "px) and (device-height: " + inp.screenH + "px) " +
-           "and (-webkit-device-pixel-ratio: " + inp.dpr + ") and (orientation: " + orientation + ")",
-  };
-}
-
-// the launch image's credit line restated in the SCREEN's own CSS pixels. only
-// the vertical axis converts: the canvas centres the text on canvasW/2, so the
-// horizontal answer is "the middle" and needs no number. the ratio is the
-// canvas-to-screen one rather than a bare 1/dpr, since the canvas is rounded to
-// whole device pixels and that can leave the two axes a hair apart
-function splashHandleBox(g, screenH){
-  const sy = (screenH === undefined ? g.screenH : screenH) / g.canvasH;
-  const fontPx = g.handleFont * sy;
-  return { top: g.handleCenterY * sy - fontPx / 2, height: fontPx, fontPx };
-}
-
-// put the credit line's font on a 2D context and hand back what the context
-// actually holds afterwards. each rung is assigned and then read back, and the
-// size coming back is the proof the shorthand parsed at all. the size is read as
-// a NUMBER rather than looked for as a piece of the string, because the size
-// asked for is a repeating fraction on most screens and comes back rounded
-function applySplashFont(ctx, px){
-  for (const family of SPLASH_FONT_LADDER){
-    ctx.font = px + "px " + family;
-    const back = /(\d+(?:\.\d+)?)px/.exec(ctx.font);
-    if (back && Math.abs(Number(back[1]) - px) < 0.05) break;
-  }
-  return ctx.font;
-}
-
-// THE CREDIT LINE IS ASKED FOR IN SCREEN PIXELS, NOT THE CANVAS'S.
-// Everything else on this canvas is a rectangle, and a rectangle drawn at three
-// times the size and shown at a third of it is the same picture. Type is not:
-// the system face carries a tracking table, so the same string at the same
-// proportion of the screen is measurably wider per em at a small size than at a
-// large one. The line is therefore asked for at the size it occupies on the
-// SCREEN and the canvas is scaled to put it on the device pixels the launch
-// image needs. "middle" is the point CSS puts at the middle of a line box.
-function drawSplashHandle(ctx, text, fontPx, sx, sy, deviceX, deviceY){
-  ctx.save();
-  ctx.scale(1 / sx, 1 / sy);
-  applySplashFont(ctx, fontPx);
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillStyle = SPLASH_HANDLE_COLOR;
-  ctx.fillText(text, deviceX * sx, deviceY * sy);
-  ctx.restore();
-}
-
-// paint solid white, then the logo centred, then the credit line near the bottom
-function paintSplash(ctx, logo, g){
-  ctx.fillStyle = SPLASH_BG;
-  ctx.fillRect(0, 0, g.canvasW, g.canvasH);
-  ctx.drawImage(logo, g.logoX, g.logoY, g.logoW, g.logoH);
-  drawSplashHandle(ctx, SPLASH_HANDLE, splashHandleBox(g).fontPx,
-                   g.screenW / g.canvasW, g.screenH / g.canvasH,
-                   g.handleCenterX, g.handleCenterY);
-}
-
-// iOS (including iPadOS, which reports as a Mac but has a touch screen) or an
-// already-installed window: the only places these tags do anything
-function isAppleHomeScreenTarget(nav){
-  const ua = nav.userAgent;
-  const iOS = /iP(hone|od|ad)/.test(ua) || (/Macintosh/.test(ua) && nav.maxTouchPoints > 1);
-  return iOS || isInstalledWindow();
-}
-let splashStarted = false;
-// Paint this device's launch image once per load and inject its link. Safe to
-// call at boot: it does nothing off iOS and nothing after the first call, and it
-// swallows its own errors, since a launch image is cosmetic and must never break
-// a start. A missing or unreadable file simply leaves the phone with whatever it
-// had before, which is its plain white default.
-function installStartupImage(src){
-  if (splashStarted) return;
-  splashStarted = true;
-  try {
-    if (!document.head || !isAppleHomeScreenTarget(navigator)) return;
-    const img = new Image();
-    img.onload = () => {
-      try {
-        const layout = splashLayout({
-          screenW: screen.width, screenH: screen.height,
-          dpr: window.devicePixelRatio || 1,
-          logoAspect: img.naturalWidth / img.naturalHeight || 1,
-        });
-        const canvas = document.createElement("canvas");
-        canvas.width = layout.canvasW; canvas.height = layout.canvasH;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        paintSplash(ctx, img, layout);
-        const link = document.createElement("link");
-        link.rel = "apple-touch-startup-image";
-        link.media = layout.media;
-        link.href = canvas.toDataURL("image/png");
-        document.head.appendChild(link);
-      } catch (e) {}
-    };
-    img.src = src;
-  } catch (e) {}
-}
+// The painter is m-splash.js, loaded with the other shared files ahead of this
+// script. The sign-in page loads the same file, because iOS takes the picture
+// from whichever page the icon is added from, and that is now the sign-in page.
+// It is called at the foot of the boot, after the first reading is asked for.
 
 // --- the curtain's rule ---
 const LOAD_MIN_HOLD_MS = 1000;   // held at least this long, however fast the read
@@ -3176,6 +3060,27 @@ function watchStartupQuiet(done){
   };
   requestAnimationFrame(step);
 }
+// THE WEB FACES ARRIVE AFTER THE FIRST PAINT. Their sheets are asked for off it
+// (the script before the shared files), so a board can be laid out in the
+// phone's own faces first and change face when they land. This answers once
+// they have: the sheets answered, loaded or refused; then two frames, so the
+// page has been laid out under the sheets' rules at least once, which is what
+// asks for the faces at all (a frame's callbacks run before its layout, hence
+// two); then document.fonts.ready, which answers once every face asked for has
+// arrived or failed. Asked once and shared, by the curtain below and by each
+// typing row's second fitting. Like the rest of this gate it has no clock: a
+// sheet or a face still on its way keeps the curtain, and one that fails is an
+// ending and lets it go.
+let webFacesAsked = null;
+function webFacesLanded(){
+  if (!webFacesAsked) webFacesAsked = (async () => {
+    try { await window.webFontSheets; } catch (e) {}
+    if (typeof requestAnimationFrame === "function")
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+    try { if (document.fonts && document.fonts.ready) await document.fonts.ready; } catch (e) {}
+  })();
+  return webFacesAsked;
+}
 // A live reading has been drawn. Wait for it to be finished arriving, then for
 // it to be finished MOVING, which are not the same instant: a card laid out is
 // still growing while its pictures decode and while the safe-area insets settle.
@@ -3197,6 +3102,11 @@ async function startupRendered(){
   if (typeof ComposeFormat === "object" && ComposeFormat) {
     try { await ComposeFormat.settled(); } catch (e) {}
   }
+  // the card's faces, waited for by name for the same reason: a board uncovered
+  // in the phone's own faces would change face under the reader when the web
+  // faces land. only after them does the stillness watch begin, so the frames
+  // it reads are frames of the board as it will stay
+  await webFacesLanded();
   await new Promise(r => requestAnimationFrame(() => r()));   // laid out and painted
   await new Promise(resolve => watchStartupQuiet(frames => { startupFrames = frames; resolve(); }));
   startupStill = true;
@@ -3519,8 +3429,9 @@ loadOps();
 drawCreatePending();
 poll();
 // the board is asked for first; the phone's launch image is painted for the NEXT
-// open and has nothing to do with this one
-installStartupImage(SPLASH_LOGO);
+// open and has nothing to do with this one. the painter is its own file, so a
+// copy of it that did not arrive costs the picture and never the boot
+if (typeof installStartupImage === "function") installStartupImage(SPLASH_LOGO);
 document.addEventListener("visibilitychange", () => {
   if (document.hidden){ clearTimeout(pollTimer); pollTimer = null; }
   else resume();

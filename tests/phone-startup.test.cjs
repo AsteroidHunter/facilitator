@@ -34,7 +34,7 @@ const CHROME = process.env.CHROME_PATH ||
 const SHOTS = process.env.M627_SHOTS || "/tmp/m627-startup-shots";
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
 const PAGE_FILES = ["card-markdown.js", "card-logic.js", "card-report.js", "card-tokens.css",
-                    "compose-format.js"];
+                    "compose-format.js", "m-splash.js"];
 // the vendored editor the composer's typed formatting is drawn with. it is
 // served on a route of its own rather than out of the map above, because the
 // startup gate has to be asked what it does while this one file is still on
