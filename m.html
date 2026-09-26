@@ -988,11 +988,11 @@
      internal id. State, age, agent label and actions remain the ordinary ones. */
   .trow.omni-ticket{background:#fff}
   .trow.omni-ticket .trowin{padding-left:7px}
-  /* the row's art stands as tall as its title's letters are set, the card's
-     own rule: the title's 15px as its font size and one em high at its natural
-     width, centred beside the one short line an Omni title makes */
-  .omni-art{display:block; flex:none; font-size:15px; width:auto; height:1em;
-    object-fit:contain; object-position:center}
+  /* the row's art shrinks by the card's own reduction, 66px to 24px or 4/11,
+     so the ticket and the card keep their proportions to each other: the old
+     44px height and 38px cap, both times 4/11, centred in the row as before */
+  .omni-art{display:block; flex:none; width:auto; height:calc(44px * 4 / 11);
+    max-width:calc(38px * 4 / 11); object-fit:contain; object-position:center}
   .box.omni-card{background:#fff !important}
   .box.omni-card .head{display:flex; align-items:center; gap:12px;
     padding-left:calc(var(--pad-x)*2/3)}
