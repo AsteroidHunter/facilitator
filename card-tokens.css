@@ -49,10 +49,16 @@
    a lane laid inside its box moves none of its words.
    --row-min is the typing row's own floor, written once because two rules
    read it: the field itself, and the sent box's cap, which has to know what
-   the bar takes out of the room before it can work out what is left */
+   the bar takes out of the room before it can work out what is left.
+   --chipoff is how far a section chip fades while the card already stands in
+   the section it names. it is the history arrows' own disabled fade on the same
+   bar, so everything switched off on the card reads alike, and it sits well
+   under the half fade a chip wears while the board has yet to answer a tap,
+   so off and waiting are never mistaken for each other */
 :root{
   --app-inset:6px;
   --cardbar-h:34px; --sq:4px; --press:10%; --row-min:44px; --sbar:9px;
+  --chipoff:.28;
   --gentle:cubic-bezier(.42,.06,.38,1);
   --sunk-deep:inset 0 3px 7px rgba(60,45,20,.22), inset 0 1px 2px rgba(60,45,20,.14);
   --raised-soft:0 2px 6px rgba(60,45,20,.11), 0 1px 2px rgba(60,45,20,.07);

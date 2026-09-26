@@ -243,15 +243,15 @@
   .box.cardswipe-in{z-index:3}
   body.carddrag .box.cardswipe{transition:none}
 
-  /* the card's own top bar: the reply history on the left, the defer chip and
-     the close cross on the right, over the hairline the desktop bar wears */
+  /* the card's own top bar: the reply history on the left, the sun, the defer
+     chip and the close cross on the right, over the hairline the desktop bar wears */
   .topbar{
     flex:none; display:flex; align-items:center; gap:9px; position:relative;
     height:var(--cardbar-h); padding:0 6px 0 calc(var(--pad-x)*2/3);
     background:var(--card); box-shadow:inset 0 -1px 0 var(--line);
   }
   /* the history control is also the bar's one flexible item, the thing that
-     holds the two chips against the right end, so it keeps its room on a
+     holds the three chips against the right end, so it keeps its room on a
      card with nothing older and only its marks go */
   .histctl{flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:0;
     font:11.5px var(--mono); color:var(--sub); white-space:nowrap; visibility:hidden}
@@ -264,18 +264,22 @@
   .histbtn.newer svg{transform:rotate(180deg)}
   .histpos{margin-left:4px}
   .histpos:empty{display:none}
-  /* the two chips wear the desktop's 16px mark on a 28px seat, the seat being
+  /* the three chips wear the desktop's 16px mark on a 28px seat, the seat being
      what a finger needs; the mark, the ink and the press are the desktop's */
-  .arcbtn, .xbtn{
+  .sunbtn, .arcbtn, .xbtn{
     flex:none; width:28px; height:28px; padding:0; border:none; border-radius:var(--sq);
     background:var(--card); color:#000; position:relative; cursor:pointer;
     display:inline-flex; align-items:center; justify-content:center;
   }
-  .arcbtn:active, .xbtn:active{background:color-mix(in srgb, #000 var(--press), var(--card))}
+  .sunbtn:active, .arcbtn:active, .xbtn:active{background:color-mix(in srgb, #000 var(--press), var(--card))}
   /* the board has not answered the last tap on this chip: the mark is lighter
      until it has. the seat, the press and the tap are all untouched, because a
      tap still on its way has to stay reversible by another tap */
   .box.flagwait .arcbtn{opacity:.5}
+  /* the chip naming the section the card is already in: lighter, with no
+     press, and it outranks the half fade above, since off is the lasting word */
+  .box :is(.sunbtn, .arcbtn, .xbtn)[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}
+  .box :is(.sunbtn, .arcbtn, .xbtn)[aria-disabled="true"]:active{background:var(--card)}
   .xbtn::before, .xbtn::after{
     content:""; position:absolute; left:50%; top:50%;
     width:9px; height:1.2px; background:#1e1e1e; border-radius:1px;
@@ -1380,11 +1384,13 @@ function makeBox(b){
   const arc = h("button", "arcbtn");
   arc.type = "button"; arc.title = "defer to the deferred tab"; arc.setAttribute("aria-label", "defer");
   arc.innerHTML = MOON_ICON;
-  arc.addEventListener("click", e => { e.stopPropagation(); toggleFlag(b.id, "park"); });
+  arc.addEventListener("click", e => { e.stopPropagation(); if (!chipOff(arc)) toggleFlag(b.id, "park"); });
   const x = h("button", "xbtn");
   x.type = "button"; x.title = "done (an empty card is removed instead)"; x.setAttribute("aria-label", "close");
-  x.addEventListener("click", e => { e.stopPropagation(); closeCard(b.id); });
-  topbar.append(histctl, arc, x);
+  x.addEventListener("click", e => { e.stopPropagation(); if (!chipOff(x)) closeCard(b.id); });
+  // the sun on the moon's left, so the three read in the order of the tabs
+  const sun = sunChip("sunbtn", b.id);
+  topbar.append(histctl, sun, arc, x);
   box.appendChild(topbar);
 
   const head = h("div", "head");
@@ -1535,7 +1541,7 @@ function makeBox(b){
     await attach(files, ta);
   });
 
-  els[b.id] = { box, body, reply, replyview, meta, ta, twin, send, tick, titleEl, arc, x, pendwrap, bottombar,
+  els[b.id] = { box, body, reply, replyview, meta, ta, twin, send, tick, titleEl, sun, arc, x, pendwrap, bottombar,
                 pend: null, pendRaw: "", histUp, histDown, histPos, clip, clipfile, field,
                 foldRun: 0, answFoldRun: 0,   // one run number per box, for a second press
                 // answ is null until the card shows a reply the board recorded a
@@ -1545,6 +1551,7 @@ function makeBox(b){
                 // written down under
                 answwrap, answ: null, answId: null, answKey: "answ:" + b.id };
   syncOmniCard(els[b.id], b);
+  paintSectionChips(els[b.id], b);
   // the two fades: the band the box and the bar stand in, and the band the
   // answer has scrolled away under the title
   watchBand(els[b.id]);
@@ -3250,6 +3257,7 @@ function apply(state){
     const cs = cardState(b);
     el.box.classList.toggle("done", cs === "done");
     el.box.classList.toggle("parked", cs === "parked");
+    paintSectionChips(el, b);
     syncPhoneHistory(b);
     // a note about a send that failed or was held stays until the card can
     // take another; any other note is the poll's to clear. a held send clears

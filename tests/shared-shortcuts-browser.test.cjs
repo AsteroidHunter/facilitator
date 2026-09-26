@@ -692,7 +692,8 @@ for (const { surface, route, action } of [
       assert.equal(await page.evaluate(() => activeOwner), "facilitator");
 
       // Opening the Deferred list is a deliberate selection; a second Control+L
-      // is still a destination, and the moon may reverse the park in place.
+      // is still a destination, and the sun may reverse the park in place. the
+      // document page never shows its cards and keeps its moon's old toggle
       await page.evaluate(id => {
         document.getElementById("tv-deferred").click();
         select(id);
@@ -706,7 +707,8 @@ for (const { surface, route, action } of [
         assert.equal((await savedBox(deferred)).parked, true);
         assert.equal(await shownId(page), deferred);
       }
-      await page.evaluate(id => document.getElementById("box-" + id).querySelector(".arcbtn").click(), deferred);
+      await page.evaluate(({ id, wake }) => document.getElementById("box-" + id).querySelector(wake).click(),
+        { id: deferred, wake: route === "/page" ? ".arcbtn" : ".sunbtn" });
       await page.waitForFunction(id => !els[id].box.classList.contains("parked"), { timeout: 5000 }, deferred);
       assert.equal(await shownId(page), deferred);
       assert.equal((await savedBox(deferred)).parked, false);
