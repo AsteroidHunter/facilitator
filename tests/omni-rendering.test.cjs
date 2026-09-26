@@ -95,6 +95,28 @@ for (const [name, size, open] of [["index.html", "17.5px", ["body.focus .box.sel
   });
 }
 
+// the row's art in the ticket list, by the card's rule: one em of the row
+// title's own font size, so on the page it is exactly as tall as the words
+// beside it. [page, the ticket title's font size]
+for (const [name, size] of [["index.html", "17px"], ["m.html", "15px"]]){
+  test(`${name} sizes the Omni ticket's art to the ticket title the way the card's is`, () => {
+    const html = source(name);
+    const title = /^\s*\.ttl\{([^}]*)\}/m.exec(html)[1];
+    assert.match(title, new RegExp(`font:500 ${size}/1\\.3`));
+    const art = /\.omni-art\{([^}]*)\}/.exec(html)[1];
+    const px = Number(/font-size:([\d.]+)px/.exec(art)[1]);
+    assert.equal(px + "px", size, `${name} sets the art's font size to the title's`);
+    assert.match(art, /width:auto; height:1em/);
+    assert.doesNotMatch(art, /height:(calc|[\d.]+px)|max-width/,
+      `${name} still sizes the art by the row rather than the title`);
+    // the same shape the card's art has, one em of its title at its natural width
+    assert.match(/\.omni-card-art\{([^}]*)\}/.exec(html)[1], /width:auto; height:1em/);
+    // the row keeps its white face and its 45 degree light
+    assert.match(html, /\.trow\.omni-ticket\{background:#fff\}/);
+    assert.match(html, /\.trow > \.omni-sweep\{--omni-dir:45deg; --omni-sun:56px; --omni-core:18px\}/);
+  });
+}
+
 test("a working Omni row wears the same sunlight while ordinary rows keep the white shimmer", () => {
   const html = source("index.html");
   assert.match(html, /\.trow\.working::after\{[^}]*rgba\(255,255,255,\.55\) 50%/);
