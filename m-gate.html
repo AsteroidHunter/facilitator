@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="facilitator">
 <meta name="theme-color" content="#ffffff">
 <link rel="manifest" href="/m-manifest.json">
@@ -21,10 +22,15 @@
     font-family:var(--sans); color:var(--ink); background:var(--card);
   }
   *{box-sizing:border-box}
+  /* the installed app runs full screen, under the clock and over the home
+     bar (the status bar meta above; an icon keeps whatever this page said when
+     it was added). so the page's own margin is added to the safe area on all
+     four sides, as the board page does, and both cards stay clear of them */
   body{
     margin:0; min-height:100svh; display:flex; flex-direction:column;
     align-items:center; justify-content:safe center;
-    padding:calc(22px + env(safe-area-inset-top)) 20px calc(22px + env(safe-area-inset-bottom));
+    padding:calc(22px + env(safe-area-inset-top, 0px)) calc(20px + env(safe-area-inset-right, 0px))
+            calc(22px + env(safe-area-inset-bottom, 0px)) calc(20px + env(safe-area-inset-left, 0px));
   }
   button,input{font:inherit}
   .gate{width:min(90%,306px); text-align:center}
@@ -115,7 +121,8 @@
   /* ---- the sign-in face: unchanged behaviour and layout ------------------- */
   body.login{
     display:grid; place-items:center; justify-content:normal;
-    padding:calc(24px + env(safe-area-inset-top)) 20px calc(24px + env(safe-area-inset-bottom));
+    padding:calc(24px + env(safe-area-inset-top, 0px)) calc(20px + env(safe-area-inset-right, 0px))
+            calc(24px + env(safe-area-inset-bottom, 0px)) calc(20px + env(safe-area-inset-left, 0px));
   }
   body.login .gate{width:min(100%,385px); margin:auto; transform:translateY(-12px)}
   body.login .identity{margin-bottom:28px}
@@ -184,7 +191,13 @@
     </form>
   </section>
 </main>
+<script src="/m-splash.js"></script>
 <script>
+  // the launch picture first, before the steps begin. iOS copies the one this
+  // page carries into the icon when it is added and never asks again, so it has
+  // to be in place before anyone reaches Add to Home Screen. it paints nothing
+  // off iOS, and a painter that did not arrive costs the picture and nothing else
+  if (typeof installStartupImage === "function") installStartupImage(SPLASH_LOGO);
   const installed = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const showLogin = () => { document.body.classList.add('login'); document.getElementById('password').focus(); };

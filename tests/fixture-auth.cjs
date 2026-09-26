@@ -6,8 +6,10 @@ const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '..');
 
+// m-splash.js is the launch picture's painter, which the gate page loads before
+// sign-in and the phone page loads after it, so a copied server carries it too.
 function copyBridgeFiles(dir) {
-  for (const name of ['bridge_auth.py', 'bridge_gate.py', 'm-gate.html'])
+  for (const name of ['bridge_auth.py', 'bridge_gate.py', 'm-gate.html', 'm-splash.js'])
     fs.copyFileSync(path.join(ROOT, name), path.join(dir, name));
 }
 

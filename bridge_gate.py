@@ -10,8 +10,12 @@ from urllib.parse import urlsplit
 import bridge_auth
 
 HERE = Path(__file__).resolve().parent
+# The launch picture's painter and its squid are public: the gate paints the
+# picture before sign-in, because iOS keeps the one on the page an icon is
+# added from. Neither file holds anything read from the board.
 PUBLIC_GET = frozenset({"/m-sw.js", "/m-icon-180.png",
-                        "/m-icon-192.png", "/m-icon-512.png", "/m-splash-squid.png"})
+                        "/m-icon-192.png", "/m-icon-512.png", "/m-splash-squid.png",
+                        "/m-splash.js"})
 
 
 def _gate_html():
