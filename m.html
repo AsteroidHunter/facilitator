@@ -15,7 +15,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="facilitator">
+<meta name="apple-mobile-web-app-title" content="Facilitator">
 <meta name="theme-color" content="#FFFFFF">
 <link rel="apple-touch-icon" href="/m-icon-180.png">
 <link rel="icon" href="/m-icon-192.png">
@@ -3189,13 +3189,22 @@ function apply(state){
   // it reads this tag rather than the manifest, so the board's title has to
   // reach it too or the install prompt shows a second, older name
   const appName = document.querySelector('meta[name="apple-mobile-web-app-title"]');
-  if (state.title && appName && appName.content !== state.title) appName.content = state.title;
+  const named = state.title ? appNameFor(state.title) : "";
+  if (named && appName && appName.content !== named) appName.content = named;
   if (pendingFocus && els[pendingFocus]){
     const id = pendingFocus; pendingFocus = null;
     select(id);
     editTitle(id);
   }
   endPhoneTrace(trace, { rev: state.rev }, null, true);
+}
+// the board's own default title is the tool's lowercase lane name, which the
+// board keeps as it is. under a home screen icon it is the app's name, so it
+// is written the way the gate and the manifest write it; any other title is
+// the owner's own words and goes through untouched. the server's _app_name
+// makes the same one exception for the manifest
+function appNameFor(title){
+  return title === "facilitator" ? "Facilitator" : title;
 }
 function validateOwners(state){
   validOwners = new Set(Object.keys(state.pwds || {}).filter(ow => ow !== "qchat"));
