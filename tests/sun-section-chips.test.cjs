@@ -229,7 +229,18 @@ for (const [name, make] of [["desktop large card", desktopLarge], ["desktop smal
     const size = svg => /viewBox="0 0 24 24" width="9" height="9"/.test(svg);
     assert.ok(size(el.arc.innerHTML), "the moon glyph changed size");
     assert.ok(size(el.sun.innerHTML), "the sun glyph is not the moon's size");
-    assert.match(el.sun.innerHTML, /<circle cx="12" cy="12" r="4.5">/, "the sun has no disc");
+    // the middle is a hollow ring: nothing fills it, and it is drawn by a stroke
+    // of the same weight and round ends as the rays
+    const svg = /<svg [^>]*>/.exec(el.sun.innerHTML)?.[0] || "";
+    const ring = /<circle [^>]*>/.exec(el.sun.innerHTML)?.[0] || "";
+    assert.match(ring, /cx="12" cy="12" r="3.3"/, "the sun has no ring in its middle");
+    assert.match(svg, /fill="none"/, "the sun's middle is filled");
+    assert.doesNotMatch(ring, /fill="(?!none")/, "the ring fills its own centre");
+    assert.doesNotMatch(el.sun.innerHTML, /fill="currentColor"/, "part of the sun is filled");
+    assert.match(svg, /stroke="currentColor"/, "the ring and rays carry no stroke");
+    assert.match(svg, /stroke-width="2.4"/, "the ring and rays are not one weight");
+    assert.match(svg, /stroke-linecap="round"/, "the rays do not end round");
+    assert.doesNotMatch(el.sun.innerHTML, /<(circle|path) [^>]*stroke/, "a part overrides the shared stroke");
     assert.equal((el.sun.innerHTML.match(/M/g) || []).length, 8, "the sun does not carry eight rays");
     if (surface.order) assert.deepEqual(surface.order(el), [el.sun, el.arc, el.x], "the chips are not sun, moon, cross");
   });
