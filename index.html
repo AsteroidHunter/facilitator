@@ -3780,12 +3780,8 @@
      while white remains the face through queued, working and reader states. */
   .trow.omni-ticket{background:#fff}
   .trow.omni-ticket .trowin{padding-left:8px}
-  /* the row's art shrinks by the open card's own reduction, 66px to 30px or
-     5/11, so the ticket and the card keep their proportions to each other.
-     its size is the old one scaled: row height less 8px and a 52px cap, both
-     times 5/11, at its natural width and centred in the row as before */
-  .omni-art{display:block; flex:none; width:auto; height:calc((100% - 8px) * 5 / 11);
-    max-width:calc(52px * 5 / 11); object-fit:contain; object-position:center}
+  .omni-art{display:block; flex:none; width:auto; height:calc(100% - 8px);
+    max-width:52px; object-fit:contain; object-position:center}
   .box.omni-card{background:#fff !important}
   .box.omni-card .num, .toc-entry.omni-card .tnum{display:none}
   /* the card's art stands exactly as tall as the title's letters are set: its
