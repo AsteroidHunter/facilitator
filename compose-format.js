@@ -584,6 +584,11 @@
                        "Shift-Ctrl-ArrowLeft", "Shift-Ctrl-ArrowRight"]
     .map(key => ({ key, run: () => true }));
 
+  // Keep Option/Alt with Up/Down available for native caret movement and
+  // selection. The stock bindings move or copy whole logical lines; exclude
+  // them without changing Left/Right word navigation.
+  const MOVES_TEXT = /^(Shift-)?Alt-Arrow(Up|Down)$/;
+
   // ---- the editor a field puts on ------------------------------------------
   function extensions(C, field) {
     const keys = [
@@ -591,8 +596,10 @@
       ...C.historyKeymap,
       // The editor's stock return bindings are not among the three things that
       // may answer a return in this row, so they are left out. Which of the
-      // three does answer it is decided in enterKey.
-      ...C.defaultKeymap.filter(binding => !/Enter/.test(binding.key || "")),
+      // three does answer it is decided in enterKey. The line moves and copies
+      // are left out as well; see MOVES_TEXT.
+      ...C.defaultKeymap.filter(binding =>
+        !/Enter/.test(binding.key || "") && !MOVES_TEXT.test(binding.key || "")),
     ];
     return [
       // The strike is the bundle's own GitHub one, two tildes on either side,
@@ -1153,5 +1160,8 @@
     // the pages use this to start the fetch early, so the row is already
     // wearing the editor by the time anybody types in it
     preload: bundle,
+    // the state a composer's editor is created with, so a check can read the
+    // keymap a composer really carries without a page around it
+    freshState,
   };
 });
