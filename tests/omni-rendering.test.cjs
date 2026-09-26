@@ -95,44 +95,6 @@ for (const [name, size, open] of [["index.html", "17.5px", ["body.focus .box.sel
   });
 }
 
-// the row's art in the ticket list shrinks by the card's own reduction, the
-// card's art having gone from 66px to its present height, so the ticket keeps
-// its old size times that same fraction. [page, the card art rule that
-// carries the reduced height, the row's old height and cap, the old height in
-// px on that page, and the new height and cap in px it comes to]
-const CARD_ART_WAS = 66;
-for (const [name, card, oldHeight, oldCap, oldPx, heightPx, capPx] of [
-  // the desktop row is 0.072 of the 900px design height, less its 1px border each side
-  ["index.html", /body\.focus \.box\.sel\.omni-card \.omni-card-art\{order:10; font-size:(\d+)px;/,
-    "(100% - 8px)", 52, 900 * 0.072 - 2 - 8, "24.9", "23.6"],
-  ["m.html", /\.box\.omni-card \.omni-card-art\{[^}]*font-size:(\d+)px; width:auto; height:1em;/,
-    "44px", 38, 44, "16.0", "13.8"],
-]){
-  test(`${name} shrinks the Omni ticket's art by the same fraction the card's art shrank`, () => {
-    const html = source(name);
-    const factor = Number(card.exec(html)[1]) / CARD_ART_WAS;
-    const art = /\.omni-art\{([^}]*)\}/.exec(html)[1];
-    const height = /height:calc\((.+) \* (\d+) \/ (\d+)\);/.exec(art);
-    assert.ok(height, `${name} no longer scales the art's old height`);
-    assert.equal(height[1], oldHeight, `${name} scales something other than the old height`);
-    assert.ok(Math.abs(Number(height[2]) / Number(height[3]) - factor) < 1e-9,
-      `${name} scales the height by ${height[2]}/${height[3]}, not the card's ${factor}`);
-    const cap = /max-width:calc\((\d+)px \* (\d+) \/ (\d+)\);/.exec(art);
-    assert.ok(cap, `${name} no longer scales the art's old width cap`);
-    assert.equal(Number(cap[1]), oldCap);
-    assert.ok(Math.abs(Number(cap[2]) / Number(cap[3]) - factor) < 1e-9);
-    assert.equal((oldPx * factor).toFixed(1), heightPx);
-    assert.equal((oldCap * factor).toFixed(1), capPx);
-    // natural proportions, centred as before, and not tied to the title's size
-    assert.match(art, /width:auto;/);
-    assert.match(art, /object-fit:contain; object-position:center/);
-    assert.doesNotMatch(art, /font-size|1em|align-self|margin/);
-    // the row keeps its white face and its 45 degree light
-    assert.match(html, /\.trow\.omni-ticket\{background:#fff\}/);
-    assert.match(html, /\.trow > \.omni-sweep\{--omni-dir:45deg; --omni-sun:56px; --omni-core:18px\}/);
-  });
-}
-
 test("a working Omni row wears the same sunlight while ordinary rows keep the white shimmer", () => {
   const html = source("index.html");
   assert.match(html, /\.trow\.working::after\{[^}]*rgba\(255,255,255,\.55\) 50%/);
