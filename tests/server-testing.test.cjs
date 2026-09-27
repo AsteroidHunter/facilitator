@@ -3,6 +3,8 @@
 // its own temp data and credentials, never the live board). Exercises eligibility,
 // the desktop and phone snapshots, clearing on feedback / done, the op-receipt
 // idempotency boundary, restart persistence, and that a mark touches nothing else.
+// Also the crease: a raised marker lowered by any path leaves the card creased,
+// in both snapshots and on disk, until the marker is raised again.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawn } = require("node:child_process");
@@ -245,4 +247,69 @@ test("a shelved awaiting-reader card can be marked and survives restart", async 
   assert.equal(restored.parked, true);
   assert.equal(restored.testing, true);
   assert.equal((await mstate()).boxes.find(b => b.id === id).testing, true);
+});
+
+// ---- the crease ----------------------------------------------------------------
+const both = async id => [await boxOf(id), (await mstate()).boxes.find(b => b.id === id)];
+
+test("a card is not creased until a raised marker is lowered", async () => {
+  for (const b of await both("0")) assert.equal(b.creased, false, "an old card came in creased");
+  const id = await makeYours("Never folded");
+  for (const b of await both(id)) assert.equal(b.creased, false, "a new card came in creased");
+  // lowering a marker that was never up is no unfold
+  const r = await post("/testing?box=" + id + "&v=0");
+  assert.equal(r.body.unchanged, true);
+  for (const b of await both(id)) assert.equal(b.creased, false, "a card that was never folded was creased");
+  await post("/close?box=" + id);
+  assert.equal((await boxOf(id)).creased, false, "closing a card that was never folded creased it");
+});
+
+test("unfolding leaves the card creased and touches nothing else; raising the marker again takes the crease away", async () => {
+  const id = await makeYours("Unfold me");
+  await post("/testing?box=" + id + "&v=1");
+  for (const b of await both(id)) assert.deepEqual([b.testing, b.creased], [true, false]);
+  const before = await boxOf(id);
+  const r = await post("/testing?box=" + id + "&v=0");
+  assert.equal(r.status, 200);
+  assert.equal(r.body.testing, false);
+  for (const b of await both(id)) assert.deepEqual([b.testing, b.creased], [false, true], "the unfolded card is not creased");
+  const after = await boxOf(id);
+  for (const k of ["replies", "seen", "ball", "state", "bucket", "done", "parked", "title", "pending"])
+    assert.deepEqual(after[k], before[k], `unfolding changed ${k}`);
+  // a second lowering is no change at all, and the crease stays
+  const rev = (await state()).rev;
+  assert.equal((await post("/testing?box=" + id + "&v=0")).body.unchanged, true);
+  assert.equal((await state()).rev, rev);
+  assert.equal((await boxOf(id)).creased, true);
+  // folded again: the fold lies over where the crease is drawn, so it goes
+  await post("/testing?box=" + id + "&v=1");
+  for (const b of await both(id)) assert.deepEqual([b.testing, b.creased], [true, false], "the refolded card kept its crease");
+});
+
+test("feedback, done and close each leave a marked card creased", async () => {
+  const feedback = await makeYours("Answered while folded");
+  await post("/testing?box=" + feedback + "&v=1");
+  await post("/send?box=" + feedback, "tried it, one more thing");
+  const done = await makeYours("Done while folded");
+  await post("/testing?box=" + done + "&v=1");
+  await post("/done?box=" + done + "&v=1");
+  const closed = await makeYours("Closed while folded");
+  await post("/testing?box=" + closed + "&v=1");
+  await post("/close?box=" + closed);
+  for (const [id, how] of [[feedback, "feedback"], [done, "done"], [closed, "close"]])
+    for (const b of await both(id)) assert.deepEqual([b.testing, b.creased], [false, true], `${how} left no crease`);
+  // brought back from done the ticket is still creased and still unfolded
+  await post("/done?box=" + closed + "&v=0");
+  assert.deepEqual([(await boxOf(closed)).testing, (await boxOf(closed)).creased], [false, true]);
+});
+
+test("the crease survives a server restart", async () => {
+  const id = await makeYours("Persistent crease");
+  await post("/testing?box=" + id + "&v=1");
+  await post("/testing?box=" + id + "&v=0");
+  const saved = JSON.parse(await readFile(path.join(fixtureDir, "state.json"), "utf8"));
+  assert.equal(saved.boxes.find(b => b.id === id).creased, true, "written to disk");
+  await stopServer();
+  await startServer();
+  for (const b of await both(id)) assert.deepEqual([b.testing, b.creased], [false, true], "restored after restart");
 });

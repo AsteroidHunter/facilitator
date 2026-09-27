@@ -13,6 +13,12 @@
 // the page asks the board for /testing v=0. checked here are the key's
 // recognition and reach, the corner's geometry, the request, each surface's
 // row click and each page's key wiring.
+//
+// once unfolded, the ticket keeps a crease: the board's creased flag
+// (server-testing.test.cjs) puts creased on the row, never beside the fold,
+// and one rule draws it where the fold was. checked here are the class on each
+// surface, the repaint, and the rule's place, layer and shape as each sheet
+// states them. how it looks is not checked; nothing here can see it.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const fs = require("node:fs");
@@ -348,4 +354,236 @@ test("the typed page answers control+u itself, from where nothing is typed or it
   await pageHelpers().unfoldTicket("m1");
   assert.deepEqual(asked(), ["/testing?box=m1&v=0 POST"]);
   assert.equal(named("poll").length, 1);
+});
+
+// ---- the crease ------------------------------------------------------------------
+for (const where of SURFACES) {
+  test(`${where}: an unfolded ticket wears the crease in every state, never beside the fold, and nothing else changes`, () => {
+    const pool = [
+      card({ id: "c1", testing: false, creased: true }),                     // unfolded, still the reader's turn
+      card({ id: "c2", testing: false, creased: false }),                    // never folded
+      card({ id: "c3", testing: true, creased: true }),                      // a reading holding both: the fold wins
+      card({ id: "c4", testing: false, creased: true, state: "working", ball: "me", writing: true }),
+      card({ id: "c5", testing: false, creased: true, state: "queued", ball: "me", pending: 1 }),
+    ];
+    const rows = PAINT[where](pool), flat = PAINT[where](pool.map(b => ({ ...b, creased: false })));
+    const want = { c1: true, c2: false, c3: false, c4: true, c5: true };
+    for (const [id, creased] of Object.entries(want)) {
+      const got = classes(rowOf(rows, id));
+      assert.equal(got.includes("creased"), creased, `${id} ${creased ? "lost" : "gained"} the crease`);
+      assert.ok(!(got.includes("creased") && got.includes("testc")), `${id} wears the crease beside the fold`);
+      // the crease is the one class it adds: state, seen, omni and fold are as they were
+      assert.deepEqual(got.filter(c => c !== "creased"), classes(rowOf(flat, id)), `${id} changed more than the crease`);
+    }
+    assert.ok(classes(rowOf(rows, "c4")).includes("working") && classes(rowOf(rows, "c5")).includes("queuedc"));
+    // closed while folded, the done ticket keeps its crease too
+    const done = classes(rowOf(PAINT[where]([closed({ creased: true })], "done"), "m1"));
+    assert.ok(done.includes("creased") && done.includes("donec"), "the done ticket lost its crease");
+  });
+}
+
+// the signature a list is repainted on, for one pool: the board and the typed
+// page keep it on the list they paint, the phone works it out before painting
+const SIG = {
+  desktop: pool => PAINT.desktop(pool)[0].parentElement.dataset.sig,
+  page: pool => PAINT.page(pool)[0].parentElement.dataset.sig,
+  phone: pool => {
+    const got = [], pane = new FakeElement("div");
+    const document = { getElementById: () => ({ querySelector: () => pane }) };
+    new Function("document", "paintViewTabs", "activeOwner", "TICKET_VIEWS", "viewPoolFor", "seenReplies",
+      "selectedId", "testReady", "tracePhone", "paintPhonePane", "syncSpinner", "endPhoneTrace",
+      "tikTravelIntent", "tikShownView", "curView", "moveTicketSheet", "Date",
+      `${functionSource(HTML.phone, "renderTickets", "setView")}\nreturn renderTickets;`,
+    )(document, noop, "lane", ["todo"], () => pool, {}, "none", testReady, noop, (p, b, n, sig) => got.push(sig),
+      noop, noop, null, "todo", () => "todo", noop, DateStub)({ agents: {} });
+    return got[0];
+  },
+};
+for (const where of SURFACES) {
+  test(`${where}: an unfold repaints the row, and so does the crease arriving on its own`, () => {
+    const folded = SIG[where]([card()]);
+    const unfolded = SIG[where]([card({ testing: false, creased: true })]);
+    const plain = SIG[where]([card({ testing: false })]);
+    assert.ok(folded && unfolded && plain, "a signature was not drawn");
+    assert.notEqual(unfolded, folded, "unfolding left the folded row standing");
+    assert.notEqual(unfolded, plain, "a crease arriving alone left the plain row standing");
+  });
+}
+
+// ---- a small reader for the sheets, as in ticket-test-fold.test.cjs -----------------
+function rulesOf(css) {
+  css = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const out = [], stack = [];
+  let buf = "";
+  for (let i = 0; i < css.length; i++) {
+    const c = css[i];
+    if (c === '"' || c === "'") {
+      const end = css.indexOf(c, i + 1);
+      buf += css.slice(i, end + 1);
+      i = end;
+    } else if (c === "{") { stack.push(buf.trim()); buf = ""; }
+    else if (c === "}") {
+      const sel = stack.pop();
+      if (sel && !sel.startsWith("@") && !stack.some(s => s.startsWith("@keyframes")))
+        out.push({ sel, sels: sel.split(",").map(x => x.trim().replace(/\s+/g, " ")), body: buf, at: stack.filter(s => s.startsWith("@")) });
+      buf = "";
+    } else buf += c;
+  }
+  return out;
+}
+function declsOf(body) {
+  const out = [];
+  let depth = 0, quote = null, cur = "";
+  for (const c of body) {
+    if (quote) { if (c === quote) quote = null; cur += c; continue; }
+    if (c === '"' || c === "'") quote = c;
+    if (c === "(") depth++;
+    if (c === ")") depth--;
+    if (c === ";" && depth === 0) { out.push(cur); cur = ""; } else cur += c;
+  }
+  out.push(cur);
+  return out.map(d => d.trim()).filter(Boolean).map(d => {
+    const at = d.indexOf(":");
+    return [d.slice(0, at).trim().toLowerCase(), d.slice(at + 1).trim().replace(/\s+/g, " ")];
+  });
+}
+function style(css, selector) {
+  const got = {};
+  for (const r of rulesOf(css)) if (!r.at.length && r.sels.includes(selector))
+    for (const [p, v] of declsOf(r.body)) got[p] = v;
+  return got;
+}
+function custom(css, name, rowSelectors) {
+  let v;
+  for (const sel of [":root", ...rowSelectors]) if (style(css, sel)[name] != null) v = style(css, sel)[name];
+  return v;
+}
+function args(value, name) {
+  const at = value.indexOf(name + "(");
+  assert.ok(at >= 0, `no ${name}() in ${value}`);
+  const out = [];
+  let depth = 0, cur = "";
+  for (const c of value.slice(at + name.length + 1)) {
+    if (c === "(") depth++;
+    if (c === ")") { if (depth === 0) break; depth--; }
+    if (c === "," && depth === 0) { out.push(cur.trim()); cur = ""; } else cur += c;
+  }
+  out.push(cur.trim());
+  return out;
+}
+// one length term as px: percentages of `whole` and var(--edge-drawn) worked out
+function measure(term, whole, drawn) {
+  const t = term.replace(/var\(--edge-drawn\)/g, drawn + "px")
+    .replace(/([\d.]+)%/g, (_, n) => String(Number(n) / 100 * whole) + "px")
+    .replace(/calc/g, "").replace(/px/g, "");
+  assert.match(t, /^[\d\s.+\-*/()]+$/, `an unexpected length term: ${term}`);
+  return Function(`return (${t});`)();
+}
+// a linear-gradient() as its direction and stops, each stop's colour with any
+// var() read off the rule's own declarations, and its place in px along a line
+// of the given length
+function gradient(decls, prop, length, drawn) {
+  const [direction, ...stops] = args(decls[prop], "linear-gradient");
+  return {
+    direction,
+    stops: stops.map(s => {
+      const m = /^(var\(--[\w-]+\)|#[0-9a-f]{3,8}|rgba?\([^)]*\))\s*(.*)$/i.exec(s);
+      assert.ok(m, `an unexpected gradient stop: ${s}`);
+      const name = /^var\((--[\w-]+)\)$/.exec(m[1]);
+      const colour = name ? decls[name[1]] : m[1];
+      assert.ok(colour, `${m[1]} is not set on the rule`);
+      return { colour: colour.replace(/\s+/g, ""), at: m[2] ? measure(m[2], length, drawn) : null };
+    }),
+  };
+}
+const rgba = v => {
+  const m = /^rgba?\(([^)]*)\)$/.exec(v);
+  assert.ok(m, `not an rgb colour: ${v}`);
+  const [r, g, b, a = 1] = m[1].split(",").map(Number);
+  return { rgb: [r, g, b], a };
+};
+const near = (a, b, what) => assert.ok(Math.abs(a - b) < 1e-6, `${what}: ${a} is not ${b}`);
+
+const styleOf = html => [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(m => m[1]).join("\n");
+const TOKENS = read("card-tokens.css");
+// each page's own sheet, then the shared one where the page links it
+const SHEETS = { desktop: styleOf(HTML.desktop) + "\n" + TOKENS, phone: styleOf(HTML.phone) + "\n" + TOKENS, page: styleOf(HTML.page) };
+const CREASE = ".trow.creased > .trowin::after";
+
+test("the crease is one layer nothing else draws on, laid on the square the fold lay on, inside the ticket's edge", () => {
+  for (const [where, css] of Object.entries(SHEETS)) {
+    const rules = rulesOf(css);
+    // no other rule touches the row's .trowin::after, so the crease never meets
+    // the working shimmer, the omni light or the fold, which draw elsewhere
+    for (const r of rules) if (/trowin::?after/.test(r.sel))
+      assert.deepEqual(r.sels, [CREASE], `${where}: ${r.sel} draws on the crease's layer`);
+    // the creased row names its fold's size and nothing more: it keeps the
+    // ticket's own fill, edge, shade and hidden overflow, which is what keeps
+    // the crease inside the ticket's edge and rounded corner
+    for (const r of rules) if (r.sels.includes(".trow.creased"))
+      for (const [p] of declsOf(r.body)) assert.equal(p, "--fold", `${where}: the creased row sets ${p}`);
+    assert.equal(style(css, ".trow").overflow, "hidden");
+    // the crease square is the fold's own, placed on the border box as the
+    // flap and the hole are
+    const layer = style(css, CREASE), flap = style(css, ".trow.testc::after");
+    assert.equal(layer.content, '""');
+    assert.equal(layer.position, "absolute");
+    assert.equal(layer["box-sizing"], "border-box");
+    assert.equal(layer["pointer-events"], "none", "the crease takes clicks meant for the row");
+    for (const p of ["top", "right", "width", "height"]) assert.equal(layer[p], flap[p], `${where}: the crease's ${p} is not the fold's`);
+    // paint and nothing else: no edge, shadow, cut, filter or lift of its own
+    for (const p of ["border", "border-left", "border-bottom", "box-shadow", "clip-path", "filter", "z-index", "transform", "opacity"])
+      assert.equal(layer[p], undefined, `${where}: the crease sets ${p}`);
+    // on every surface a creased row's square is its folded row's size
+    assert.equal(custom(css, "--fold", [".trow", ".trow.creased"]), custom(css, "--fold", [".trow", ".trow.testc"]),
+      `${where}: the crease's square is not the fold's size`);
+  }
+  assert.equal(custom(SHEETS.phone, "--fold", [".trow", ".trow.creased"]), "12px");
+  // the typed page does not load card-tokens.css and keeps its own copy
+  assert.deepEqual(style(SHEETS.page, CREASE), style(TOKENS, CREASE), "the typed page's crease drifted from card-tokens.css");
+});
+
+test("the crease is a line along the fold's crease, a shade on the folded side and a light on the ticket's", () => {
+  const layer = style(TOKENS, CREASE);
+  const hole = style(TOKENS, ".trow.testc > .trowin::before");
+  const foldCrease = /#([0-9a-f]{6})/i.exec(style(TOKENS, ".trow.testc::after").background)[1];
+  const creaseRgb = [0, 2, 4].map(i => parseInt(foldCrease.slice(i, i + 2), 16));
+  for (const fold of [16, 12]) for (const drawn of [1, .5, 2 / 3]) {
+    const diag = fold * Math.SQRT2, mid = diag / 2, at = `${fold}px at a ${drawn}px edge`;
+    // the hole's contact shade, the fold's own shade on the corner side
+    const contact = gradient(hole, "background", diag, drawn).stops;
+    const reach = contact[1].at - contact[0].at, deepest = rgba(contact[0].colour).a;
+    const { direction, stops } = gradient(layer, "background", diag, drawn);
+    assert.equal(direction, "to bottom left", "the crease does not run across the square from the corner");
+    for (let i = 0; i < stops.length; i++) {
+      assert.ok(stops[i].at >= 0 && stops[i].at <= diag, `${at}: a stop falls off the square`);
+      if (i) assert.ok(stops[i].at >= stops[i - 1].at, `${at}: the stops run backwards`);
+    }
+    // the line: the fold's crease colour, partly clear, solid from the crease
+    // for half a drawn edge and ramping in and out over half a drawn edge each
+    const line = stops.map((s, i) => [s, i]).filter(([s]) => s.colour === layer["--crease-line"].replace(/\s+/g, ""));
+    assert.equal(line.length, 2, `${at}: the line is not one solid run`);
+    const [[from, i0], [to, i1]] = line;
+    near(from.at, mid, `${at}: the line does not start on the crease`);
+    near(to.at - from.at, drawn / 2, `${at}: the line's solid part`);
+    near(from.at - stops[i0 - 1].at, drawn / 2, `${at}: the line's ramp in`);
+    near(stops[i1 + 1].at - to.at, drawn / 2, `${at}: the line's ramp out`);
+    const ink = rgba(from.colour);
+    assert.deepEqual(ink.rgb, creaseRgb, "the line is not the fold's crease colour");
+    assert.ok(ink.a > 0 && ink.a < 1, "the line is not quieter than the fold's crease");
+    // the folded side: the board's shade ink, no deeper than the hole's shade
+    // and gone within its reach
+    const before = stops.slice(0, i0);
+    assert.equal(rgba(before[0].colour).a, 0, `${at}: the shade has no soft start`);
+    for (const s of before) {
+      assert.deepEqual(rgba(s.colour).rgb, rgba(contact[0].colour).rgb, "the shade is not the board's shade ink");
+      assert.ok(rgba(s.colour).a <= deepest, "the shade is deeper than the fold's own");
+      assert.ok(s.at >= mid - reach - 1e-6, `${at}: the shade reaches past the fold's`);
+    }
+    // the ticket's side: white, gone within three drawn edges of the crease
+    const after = stops.slice(i1 + 1);
+    for (const s of after) assert.deepEqual(rgba(s.colour).rgb, [255, 255, 255], "the light is not white");
+    assert.equal(rgba(after.at(-1).colour).a, 0, `${at}: the light has no soft end`);
+    assert.ok(after.at(-1).at <= mid + 3 * drawn + 1e-6, `${at}: the light spreads wider than a hairline`);
+  }
 });
