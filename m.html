@@ -554,11 +554,14 @@
   .answwrap:empty{display:none}
   /* the measures: the desktop's type, which is already this page's sent size,
      on the desktop's line, and the air round the words taken in a little for
-     the narrower column */
+     the narrower column. the strip the arrow stands in is 32px, up from the
+     16px of air it had and the height of this page's old shut bar, so the 7px
+     arrow has 12.5px clear over it and under it */
   .box{
     --answ-font:400 15px/21px var(--inter); --answ-line:21px;
     --answ-pad-y:16px; --answ-pad-x:18px; --answ-round:18px;
     --answ-peek:calc(21px * 2.75); --answ-fade:calc(21px * .75);
+    --answ-strip:32px;
   }
 
   /* ---- the foot: the plus, the typing row, the send square ------------ */
