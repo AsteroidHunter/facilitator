@@ -1,0 +1,66 @@
+/* The home page's widgets (home-widgets.js): the token panel, its pill and its
+   two charts. Drawn from the board's own colours and faces in card-tokens.css,
+   so a page loads this sheet after that one. Nothing here reaches outside
+   .tk-panel, so the panel can be set down on any page that loads both. */
+
+/* the panel: one white rectangle on the paper, with the board's edge and the
+   7px corner of the things let into the board */
+.tk-panel{
+  background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
+  box-shadow:0 1px 3px rgba(60,45,20,.07);
+  padding:16px 20px 14px; color:var(--ink); font:400 12px/16px var(--sans);
+}
+.tk-head{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px}
+.tk-title{display:flex; align-items:baseline; gap:10px; min-width:0}
+.tk-name{font:600 14px/18px var(--sans); color:var(--ink)}
+.tk-what{color:var(--sub); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+
+/* the pill: the page switcher's small rounded rectangle on the paper, holding
+   two names; the one showing is seated in white the way the open project tab
+   is, and a press sinks the name with the ticket names' own shade */
+.tk-pill{flex:none; display:inline-flex; gap:2px; padding:2px; border-radius:7px;
+  background:color-mix(in srgb, var(--paper) 92%, #fff 8%);
+  border:var(--edge) solid var(--line)}
+.tk-opt{font:500 12px/16px var(--sans); color:var(--sub); background:transparent;
+  border:none; border-radius:5px; padding:3px 11px; cursor:pointer;
+  box-shadow:inset 0 0 0 rgba(60,45,20,0), inset 0 0 0 rgba(60,45,20,0);
+  transition:color .18s, background-color .18s, box-shadow .16s ease-out}
+.tk-opt:hover{color:var(--ink)}
+.tk-opt.on{color:var(--ink); background:var(--card); box-shadow:0 1px 2px rgba(60,45,20,.14)}
+.tk-opt:active{
+  box-shadow:inset 0 1.8px 4.2px rgba(60,45,20,.132), inset 0 .6px 1.2px rgba(60,45,20,.084);
+  transition:color .18s, box-shadow .08s ease-in}
+.tk-opt:focus-visible{outline:1.5px solid var(--accent); outline-offset:1px}
+
+/* the charts scale with the panel: each is one svg drawn to its own box and
+   stretched to the panel's width, so the squares stay square at any size */
+.tk-stage{position:relative; min-height:150px}
+.tk-chart svg{display:block; width:100%; height:auto; overflow:visible}
+.tk-axis{font:400 10px var(--sans); fill:var(--sub)}
+.tk-day{stroke:rgba(60,45,20,.05); stroke-width:.6px}
+.tk-day.hot{stroke:var(--ink); stroke-width:1px}
+.tk-grid{stroke:#EFEBE5; stroke-width:1px}
+.tk-path{stroke-width:2px; stroke-linejoin:round; stroke-linecap:round}
+.tk-guide{stroke:var(--line); stroke-width:1px}
+.tk-dot{stroke:#FFFFFF; stroke-width:1.5px}
+.tk-foot{display:flex; align-items:center; justify-content:space-between; gap:12px;
+  margin-top:10px; color:var(--sub)}
+.tk-sum b{color:var(--ink); font-weight:600}
+.tk-legend{display:inline-flex; align-items:center; gap:3px}
+.tk-legend i{display:inline-block; width:10px; height:10px; border-radius:2px;
+  box-shadow:inset 0 0 0 .6px rgba(60,45,20,.05)}
+.tk-legend i:first-of-type{margin-left:5px}
+.tk-legend i:last-of-type{margin-right:5px}
+
+/* the hover tip: ink on the paper, never in the pointer's way */
+.tk-tip{position:absolute; z-index:2; pointer-events:none; white-space:nowrap;
+  display:flex; flex-direction:column; padding:6px 9px; border-radius:5px;
+  background:var(--ink); color:#FFFFFF; font:400 11px/15px var(--sans);
+  box-shadow:0 2px 8px rgba(33,29,23,.22)}
+.tk-tip[hidden]{display:none}
+.tk-tip b{font-weight:600}
+.tk-tip span{color:rgba(255,255,255,.72)}
+
+.tk-wait{display:flex; align-items:center; justify-content:center; min-height:150px; color:var(--sub)}
+.tk-note{margin-top:8px; color:var(--sub)}
+.tk-note:empty{display:none}

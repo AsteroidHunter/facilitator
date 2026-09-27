@@ -82,7 +82,7 @@ async function board({ config } = {}) {
   assert.notEqual(patched, source, "test server port was not patched");
   fs.writeFileSync(path.join(dir, "server.py"), patched);
   copyBridgeFiles(dir);
-  for (const name of ["tokens.py", "m-manifest.json"])
+  for (const name of ["tokens.py", "m-manifest.json", "home-widgets.js", "home-widgets.css"])
     fs.copyFileSync(path.join(ROOT, name), path.join(dir, name));
   fs.writeFileSync(path.join(dir, "seed.json"), JSON.stringify({
     title: "Kettle Drum",
@@ -206,6 +206,14 @@ test("each day is the four kinds added up, every message and response counted on
   for (const secret of ["msg_one", "resp_two", "thread-one", "invented words", "no usage"])
     assert.ok(!cache.includes(secret), `${secret} reached the cache file`);
   assert.match(fs.readFileSync(path.join(ROOT, ".gitignore"), "utf8"), /^\/tokens-cache\.json$/m);
+
+  // and the board hands out the widgets that draw it, fetched when home opens
+  for (const [name, type] of [["home-widgets.js", /^application\/javascript/], ["home-widgets.css", /^text\/css/]]) {
+    const response = await fetch(b.origin + "/" + name);
+    assert.equal(response.status, 200, name);
+    assert.match(response.headers.get("content-type"), type);
+    assert.equal(await response.text(), fs.readFileSync(path.join(ROOT, name), "utf8"));
+  }
 });
 
 // ---- the cache -----------------------------------------------------------------------

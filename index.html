@@ -3807,9 +3807,25 @@
      editor is on */
   textarea.dropping, .cffield .cm-scroller.dropping{border-color:var(--accent) !important}
   body.focus .box.sel :is(textarea, .cffield .cm-scroller).dropping{background:var(--accent-soft)}
-  /* home, greyed out until it does something */
+  /* home: the house at the head of the bar opens the home page, a blank page
+     above every project holding the token panel and nothing else (its own
+     sheet, home-widgets.css). the house stands where a tab would and measures
+     what the greyed mark did, its larger hit area drawn outside its box. while
+     home is up the house is the one marked, no project tab is seated, the
+     board fades out the way a blank page's does, and any project tab brings
+     its board back */
   #homeico{display:none}
-  body.focus #homeico{display:flex; align-items:center; color:#C9BFAE}
+  body.focus #homeico{display:flex; align-items:center; position:relative;
+    padding:0; border:none; background:none; color:var(--sub); cursor:pointer;
+    transition:color .18s}
+  body.focus #homeico::after{content:""; position:absolute; inset:-6px}
+  body.focus #homeico:hover, body.focus.home #homeico{color:var(--ink)}
+  #home{display:none}
+  body.focus.home #home{display:block; position:fixed; z-index:5; left:50%;
+    transform:translateX(-50%); top:calc(var(--bar-h) + 7vh);
+    width:min(840px, calc(100vw - 64px))}
+  body.focus.home #stage{visibility:hidden; opacity:0; pointer-events:none}
+  body.focus.home #editbtn{visibility:hidden}
   /* on-canvas edit mode: the bar's pencil toggles it; boxes then drag with no
      keys held and wear small squares that snap-resize them */
   body.editmode :is(main, #clockbox, #rail, #tickets, #magic1, #magic2, #magic3, #magic4, #goalbox),
@@ -3960,7 +3976,7 @@
 <body class="focus">
 
 <div class="bar">
-  <span id="homeico" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></span>
+  <button id="homeico" type="button" title="Home" aria-label="Home" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></button>
   <span id="tabbar"></span>
   <span id="projnote"></span>
   <span class="name" id="boardname">facilitator</span>
@@ -4059,6 +4075,11 @@
     <button id="npstart">Open a new folder</button>
   </div>
 </div>
+
+<!-- the home page, opened by the house in the bar: blank but for the token
+     panel, which home-widgets.js builds into #homeplot the first time home
+     opens. like the landing above it stands outside the stage -->
+<section id="home" aria-label="Home"><div id="homeplot"></div></section>
 
 <!-- The page switcher remains mounted for its page handlers, though its desktop
      UI is hidden. The menu and deletion confirmation stay with that code. -->
@@ -4244,6 +4265,7 @@ document.addEventListener("click", () => {
 function setTab(owner){
   if (!ownerReady || !validActiveOwnerIds.has(owner)) return;
   if (LOCKED && owner !== LOCKED) return;
+  if (homeOpen) setHome(false);   // a project tab leaves home for its board
   if (draft) endDraft();   // an unfinished new tab disappears on switching away
   activeOwner = owner; localStorage.setItem("activeproj", owner);
   const pick = lastState && pickInRow(lastState, owner);
@@ -4399,7 +4421,7 @@ function renderTabs(st){
   // left has to go pale on the same paint that emptied the bar around it
   const alone = rowsOf(st).length < 2;
   for (const t of bar.querySelectorAll(".ptab:not(.draft)")){
-    t.classList.toggle("on", t.dataset.owner === activeOwner);
+    t.classList.toggle("on", t.dataset.owner === activeOwner && !homeOpen);
     const kill = t.querySelector(".ptabx");
     if (kill){
       kill.classList.toggle("off", alone);
@@ -4630,6 +4652,7 @@ function plusClick(){
     projNote("new projects need the server restart");
     return;
   }
+  if (homeOpen) setHome(false);
   draft = { screen: "home", from: activeOwner };
   activeOwner = DRAFT;   // never saved: a reload forgets the unfinished tab
   document.body.classList.add("choosing");
@@ -4717,6 +4740,85 @@ document.getElementById("npstart").addEventListener("click", async () => {
   } finally {
     if (draft) draft.picking = false;
   }
+});
+
+// ---- the home page ---------------------------------------------------------
+// The house at the head of the bar opens it: one blank page above every
+// project, holding the token panel (home-widgets.js) and nothing else. Being on
+// it is this browser's own, like the open tab, so a reload comes back to it.
+// Any project tab leaves it for that project's board, and so does the plus.
+// The counts are asked for when home opens and every few minutes while it
+// stays open and in view; the panel keeps its last drawing while it asks.
+const HOME_KEY = "homeopen";
+const HOME_EVERY = 5 * 60 * 1000;
+let homeOpen = false;
+let homePanel = null;
+let homeTimer = null;
+let homeLoad = null;
+// the panel's code and sheet, fetched the first time home opens and never on
+// boot, the way the file navigator's editor is: a board nobody opens home on
+// pays nothing for them. a server from before the files answers 404 and the
+// page says so instead of sitting there empty
+function homeBundle(){
+  if (window.TokenWidgets) return Promise.resolve(true);
+  if (homeLoad) return homeLoad;
+  if (!document.getElementById("homesheet")){
+    const sheet = document.createElement("link");
+    sheet.id = "homesheet";
+    sheet.rel = "stylesheet";
+    sheet.href = "/home-widgets.css";
+    document.head.append(sheet);
+  }
+  homeLoad = new Promise(res => {
+    const s = document.createElement("script");
+    s.src = "/home-widgets.js";
+    s.onload = () => res(!!window.TokenWidgets);
+    s.onerror = () => { homeLoad = null; s.remove(); res(false); };
+    document.head.append(s);
+  });
+  return homeLoad;
+}
+async function homeShow(){
+  const plot = document.getElementById("homeplot");
+  if (!homePanel){
+    if (!await homeBundle()){
+      if (homeOpen && !homePanel) plot.textContent = "The home page needs the server restart.";
+      return;
+    }
+    if (!homePanel) homePanel = TokenWidgets.panel(plot);
+  }
+  if (!homeOpen) return;
+  homePanel.refresh();
+  clearInterval(homeTimer);
+  homeTimer = setInterval(() => { if (!document.hidden) homePanel.refresh(); }, HOME_EVERY);
+}
+function setHome(on){
+  homeOpen = !!on;
+  try {
+    if (homeOpen) localStorage.setItem(HOME_KEY, "1");
+    else localStorage.removeItem(HOME_KEY);
+  } catch (err){}
+  document.body.classList.toggle("home", homeOpen);
+  document.getElementById("homeico").setAttribute("aria-pressed", String(homeOpen));
+  clearInterval(homeTimer);
+  homeTimer = null;
+  if (homeOpen){
+    // the board's own arranging and typing go with the board
+    if (editMode) setEditMode(false);
+    const at = document.activeElement;
+    if (at && at !== document.body && document.getElementById("stage").contains(at)) at.blur();
+    homeShow();
+  }
+  if (lastState) renderTabs(lastState);   // no project tab is seated while home is up
+}
+// the house is a place, like a tab: pressing it while home is up changes nothing
+document.getElementById("homeico").addEventListener("click", () => { if (!homeOpen) setHome(true); });
+// put back once the whole script has run, since leaving the board touches
+// state declared further down
+document.addEventListener("DOMContentLoaded", () => {
+  let wanted = false;
+  try { wanted = !!localStorage.getItem(HOME_KEY); } catch (err){}
+  if (FOCUS && wanted) setHome(true);
 });
 
 // ---- the project's pages ---------------------------------------------------
@@ -4807,7 +4909,7 @@ function onBoardPage(state){
 }
 // whether the board's own keys are live: a blank page has no cards to walk,
 // and the confirmation window owns the keyboard while it is up
-function boardKeysLive(){ return !pageWarn && !pageMenu && !qnOpen && onBoardPage(); }
+function boardKeysLive(){ return !pageWarn && !pageMenu && !qnOpen && !homeOpen && onBoardPage(); }
 
 async function addPage(){
   if (!ownerReady || draft || activeOwner === DRAFT || pageBusy) return;

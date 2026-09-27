@@ -135,6 +135,10 @@ Endpoints:
   GET  /compose-format.js   -> the composer's typed formatting: the setting,
                                and the editor layer the card pages put over a
                                composer while it is on
+  GET  /home-widgets.js, /home-widgets.css -> the home page's token panel: its
+                               heatmap and line chart, the pill that switches
+                               them, and their sheet, fetched by the board the
+                               first time its home page opens
   GET  /manifest.json, /sw.js -> what makes the board page installable as a Mac
                                app: its web app manifest, whose name the
                                installed app's bundle and dock icon are taken
@@ -5708,6 +5712,8 @@ ROUTES = [
     Route("/card-logic.js", _static("card-logic.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/compose-format.js", _static("compose-format.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/card-report.js", _static("card-report.js", "application/javascript; charset=utf-8"), methods=["GET"]),
+    Route("/home-widgets.js", _static("home-widgets.js", "application/javascript; charset=utf-8"), methods=["GET"]),
+    Route("/home-widgets.css", _static("home-widgets.css", "text/css; charset=utf-8"), methods=["GET"]),
     # the board page's own pair, beside index.html: the manifest Chrome installs
     # it from, and the worker whose scope has to be the root, which is why it is
     # served from the root rather than from a folder
