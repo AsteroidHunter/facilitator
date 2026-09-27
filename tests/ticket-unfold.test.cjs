@@ -8,6 +8,11 @@
 // this: every page closes a card with /close, the board lowers the marker there
 // (server-testing.test.cjs), and no surface draws the fold on a done card. the
 // tests below walk one folded card through that close on each surface.
+//
+// a click on the folded corner, or control+u on the selected card, unfolds it:
+// the page asks the board for /testing v=0. checked here are the key's
+// recognition and reach, the corner's geometry, the request, each surface's
+// row click and each page's key wiring.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const fs = require("node:fs");
@@ -95,7 +100,7 @@ function pageHelpers() {
   if (!html.includes("function unfoldTicket(")) return {};
   const src = functionSource(html, "foldHit", "awaitsYou");
   return new Function("getComputedStyle", "fetch", "poll", "MOCK", "encodeURIComponent",
-    `${src}; return { foldHit, onFold, unfoldTicket };`,
+    `${src}\nreturn { foldHit, onFold, unfoldTicket };`,
   )(sandbox.getComputedStyle, sandbox.fetch, sandbox.poll, false, encodeURIComponent);
 }
 
@@ -170,3 +175,177 @@ for (const where of SURFACES) {
     assert.ok(!classes(back).includes("testc"), "the card came back folded");
   });
 }
+
+// ---- a click on the folded corner, or control+u -----------------------------------
+const settle = () => new Promise(r => setImmediate(r));
+const asked = () => calls.filter(c => c[0] === "fetch").map(c => c[1] + " " + c[2]);
+const named = name => calls.filter(c => c[0] === name).map(c => c.slice(1));
+function key(k, modifiers = {}) {
+  return { key: k, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false,
+    defaultPrevented: false, isComposing: false, repeat: false, ...modifiers };
+}
+const resolve = (e, scope) => { const s = sandbox.cardShortcut(e, scope); return s && { action: s.action, value: s.value }; };
+
+test("control+u is the unfold key, with control alone and not composing, and only on the card pages", () => {
+  for (const k of ["u", "U"]) {
+    assert.deepEqual(resolve(key(k, { ctrlKey: true })), { action: "unfold", value: true });
+    assert.equal(resolve(key(k, { ctrlKey: true }), "mini"), null, "the small card took control+u");
+    for (const m of ["metaKey", "shiftKey", "altKey", "repeat", "isComposing", "defaultPrevented"])
+      assert.equal(resolve(key(k, { ctrlKey: true, [m]: true })), null, `control+${k} with ${m}`);
+    // a bare u is a letter being typed, and command+u is the editor's own
+    assert.equal(resolve(key(k)), null);
+    assert.equal(resolve(key(k, { metaKey: true })), null);
+  }
+  // the keys around it are the ones they were
+  assert.deepEqual(resolve(key("n", { ctrlKey: true })), { action: "destination", value: "doing" });
+  assert.deepEqual(resolve(key("l", { ctrlKey: true })), { action: "destination", value: "deferred" });
+  assert.deepEqual(resolve(key("s", { ctrlKey: true })), { action: "responseScroll", value: true });
+  assert.deepEqual(resolve(key("M", { ctrlKey: true, shiftKey: true })), { action: "diagnostic", value: true });
+});
+
+test("the folded corner is the row's top right --fold square, the flap and the cut corner together", () => {
+  const foldHit = logic("foldHit");
+  for (const fold of [16, 12]) {
+    for (const [x, y] of [[0, 0], [fold, 0], [0, fold], [fold, fold], [fold / 2, fold / 3], [fold / 3, fold / 2]])
+      assert.equal(foldHit(x, y, fold), true, `${x},${y} is off a ${fold}px fold`);
+    for (const [x, y] of [[fold + .5, 1], [1, fold + .5], [-.5, 1], [1, -.5], [fold * 2, fold * 2]])
+      assert.equal(foldHit(x, y, fold), false, `${x},${y} is on a ${fold}px fold`);
+  }
+  assert.equal(foldHit(0, 0, 0), false, "a row with no fold has a corner to click");
+  // measured on the row's border box, with the fold the row's own --fold
+  const onFold = logic("onFold");
+  const row = h("div", "trow testc");
+  const box = row.getBoundingClientRect();
+  foldPx = 12;
+  assert.equal(onFold(row, { clientX: box.right - 11, clientY: box.top + 11 }), true);
+  assert.equal(onFold(row, { clientX: box.right - 14, clientY: box.top + 2 }), false, "the phone's 12px fold reached 14px");
+  foldPx = 16;
+  assert.equal(onFold(row, { clientX: box.right - 14, clientY: box.top + 2 }), true);
+  assert.equal(onFold(h("div", "trow yours"), { clientX: box.right - 2, clientY: box.top + 2 }), false,
+    "a row that is not folded has a folded corner");
+});
+
+test("unfolding asks the board to lower the marker, then reads the board again", async () => {
+  calls.length = 0;
+  await logic("unfoldTicket")("m1");
+  assert.deepEqual(asked(), ["/testing?box=m1&v=0 POST"]);
+  assert.equal(named("poll").length, 1, "the page did not read the board after asking");
+  calls.length = 0;
+  await logic("unfoldTicket")("a b&c");
+  assert.deepEqual(asked(), ["/testing?box=a%20b%26c&v=0 POST"], "the card id was not encoded");
+});
+
+test("control+u unfolds the selected card only while it wears the fold, from where the section chords may come", async () => {
+  const unfoldSelected = logic("unfoldSelected");
+  const body = { closest: () => null };
+  const ta = { tagName: "TEXTAREA", closest: sel => (sel === ".cm-editor" ? null : ta) };
+  const title = { tagName: "INPUT", closest: sel => (sel === ".cm-editor" ? null : title) };
+  const el = { ta };
+  const press = target => ({ target, prevented: false, preventDefault() { this.prevented = true; } });
+  sandbox.lastState = { boxes: [card(), card({ id: "m2", testing: false })] };
+  for (const [target, where] of [[body, "the board"], [ta, "the card's own composer"]]) {
+    calls.length = 0;
+    const e = press(target);
+    assert.equal(unfoldSelected(e, "m1", el), true, `control+u from ${where} did nothing`);
+    assert.equal(e.prevented, true);
+    await settle();
+    assert.deepEqual(asked(), ["/testing?box=m1&v=0 POST"]);
+  }
+  calls.length = 0;
+  for (const [e, id, why] of [[press(title), "m1", "from a title being renamed"], [press(body), "m2", "on a card with no fold"],
+    [press(body), null, "with no card selected"], [press(body), "gone", "on a card the board no longer has"]]) {
+    assert.equal(unfoldSelected(e, id, el), false, `control+u acted ${why}`);
+    assert.equal(e.prevented, false, `control+u was cancelled ${why}`);
+  }
+  await settle();
+  assert.deepEqual(asked(), []);
+  delete sandbox.lastState;
+});
+
+// a click on a row, at a point measured from its top right corner
+function click(row, fromRight, fromTop) {
+  const box = row.getBoundingClientRect();
+  for (const fn of row.listeners.click || []) fn({ clientX: box.right - fromRight, clientY: box.top + fromTop });
+}
+for (const where of SURFACES) {
+  test(`${where}: a click on the folded corner unfolds the ticket and opens nothing; elsewhere it opens the card`, async () => {
+    foldPx = where === "phone" ? 12 : 16;
+    const rows = PAINT[where]([card(), card({ id: "m2", title: "Awaiting the reader", testing: false })]);
+    const folded = rowOf(rows, "m1"), plain = rowOf(rows, "m2");
+    assert.ok(classes(folded).includes("testc") && !classes(plain).includes("testc"));
+    calls.length = 0;
+    click(folded, 3, 3);
+    click(folded, foldPx, foldPx);
+    await settle();
+    assert.deepEqual(asked(), ["/testing?box=m1&v=0 POST", "/testing?box=m1&v=0 POST"]);
+    assert.deepEqual(named("select"), [], "a click on the fold opened the card");
+    assert.deepEqual(named("closeDrawer"), [], "a tap on the fold closed the drawer");
+    // the rest of the row, and the same corner of a ticket that is not folded,
+    // open the card the way they always did
+    calls.length = 0;
+    click(folded, ROW.w / 2, ROW.h / 2);
+    click(folded, foldPx + 2, 2);
+    click(plain, 3, 3);
+    await settle();
+    assert.deepEqual(asked(), [], "a click off the fold unfolded the ticket");
+    assert.deepEqual(named("select"), [["m1"], ["m1"], ["m2"]]);
+    if (where === "phone") assert.equal(named("closeDrawer").length, 3);
+  });
+}
+
+// the object a page hands its key table's actions to, built from the page's own
+// source with the names its unfold action reads
+function actionsOf(html, name, names, values) {
+  const start = html.indexOf(`const ${name} = {`);
+  const end = html.indexOf("\n};", start);
+  assert.ok(start >= 0 && end > start, `${name} was not found`);
+  return new Function(...names, `${html.slice(start, end + 3)} return ${name};`)(...values);
+}
+test("each card page hands control+u to its unfold action, for the selected card", () => {
+  const seen = [];
+  const unfoldSelected = (...a) => { seen.push(a); return true; };
+  const el = { ta: {} };
+  const e = key("u", { ctrlKey: true });
+  const desktop = mini => actionsOf(HTML.desktop, "boardShortcutActions",
+    ["miniFocused", "unfoldSelected", "selectedId", "els"], [mini, unfoldSelected, "m1", { m1: el }]);
+  assert.equal(sandbox.dispatchCardShortcut(e, desktop(false)), true);
+  assert.deepEqual(seen.splice(0), [[e, "m1", el]], "the board did not unfold its selected card");
+  sandbox.dispatchCardShortcut(e, desktop(true));
+  assert.deepEqual(seen.splice(0), [], "the board unfolded its card while the small card held the keys");
+  const phone = actionsOf(HTML.phone, "phoneShortcutActions",
+    ["unfoldSelected", "selectedId", "els"], [unfoldSelected, "m1", { m1: el }]);
+  assert.equal(sandbox.dispatchCardShortcut(e, phone), true);
+  assert.deepEqual(seen.splice(0), [[e, "m1", el]], "the phone did not unfold its selected card");
+});
+
+test("the typed page answers control+u itself, from where nothing is typed or its card's text box", async () => {
+  const html = HTML.page;
+  const start = html.indexOf('addEventListener("keydown", e => {\n  if (!FOCUS) return;');
+  const end = html.indexOf("\n});", start);
+  assert.ok(start >= 0 && end > start, "the typed page's key handler was not found");
+  const unfolds = [];
+  const ta = { tagName: "TEXTAREA" }, other = { tagName: "INPUT" }, body = { tagName: "BODY" };
+  const handler = (selectedId, boxes) => new Function("FOCUS", "lastState", "selectedId", "els", "testReady", "unfoldTicket",
+    `return ${html.slice(start + 'addEventListener("keydown", '.length, end + 2)};`,
+  )(true, { boxes }, selectedId, { m1: { ta } }, testReady, id => unfolds.push(id));
+  const press = (target, modifiers = { ctrlKey: true }) =>
+    ({ ...key("u", modifiers), target, prevented: false, preventDefault() { this.prevented = true; } });
+  for (const target of [body, ta]) {
+    const e = press(target);
+    handler("m1", [card()])(e);
+    assert.equal(e.prevented, true);
+  }
+  assert.deepEqual(unfolds.splice(0), ["m1", "m1"]);
+  handler("m1", [card()])(press(other));
+  handler("m1", [card({ testing: false })])(press(body));
+  handler("m1", [card()])(press(body, { ctrlKey: true, shiftKey: true }));
+  assert.deepEqual(unfolds, [], "control+u acted from another field, on a card with no fold, or with shift");
+  // the page's own copies of the corner and the request match the shared ones
+  for (const [name, next] of [["foldHit", "onFold"], ["onFold", "unfoldTicket"]])
+    assert.equal(functionSource(html, name, next), functionSource(read("card-logic.js"), name, next),
+      `the typed page's ${name} drifted from card-logic.js`);
+  calls.length = 0;
+  await pageHelpers().unfoldTicket("m1");
+  assert.deepEqual(asked(), ["/testing?box=m1&v=0 POST"]);
+  assert.equal(named("poll").length, 1);
+});

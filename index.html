@@ -9490,7 +9490,9 @@ function paintTicketPane(pane, pool, view, state, laneSig){
     inner.appendChild(meta);
     r.appendChild(inner);
     r.dataset.id = b.id;
-    r.addEventListener("click", () => select(b.id));
+    // a click on the folded corner unfolds the ticket and leaves the selection
+    // where it is; anywhere else on the row opens the card
+    r.addEventListener("click", e => { if (isTest && onFold(r, e)) unfoldTicket(b.id); else select(b.id); });
     pane.appendChild(r);
   }
   if (!pool.length) pane.appendChild(h("div", "tempty", view === "done" ? "no done chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here"));
@@ -9742,6 +9744,9 @@ const boardShortcutActions = {
     if (b?.bucket !== "meta") return;
     e.preventDefault();
     setCardDestination(selectedId, shortcut.value);
+  },
+  unfold(e){
+    if (!miniFocused) unfoldSelected(e, selectedId, selectedId && els[selectedId]);
   },
   sectionChord(e, shortcut){
     const el = selectedId && els[selectedId];

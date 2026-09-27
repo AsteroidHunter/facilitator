@@ -2366,7 +2366,12 @@ function paintPhonePane(pane, pool, view, sig, state){
     inner.appendChild(meta);
     r.appendChild(inner);
     r.dataset.id = b.id;
-    r.addEventListener("click", () => { select(b.id); closeDrawer(); });
+    // a tap on the folded corner unfolds the ticket and keeps the drawer open;
+    // anywhere else on the row opens the card
+    r.addEventListener("click", e => {
+      if (isTest && onFold(r, e)){ unfoldTicket(b.id); return; }
+      select(b.id); closeDrawer();
+    });
     pane.appendChild(r);
   }
   if (!pool.length) pane.appendChild(h("div", "tempty", view === "done" ? "no done chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here"));
@@ -3916,6 +3921,9 @@ const phoneShortcutActions = {
     if (b?.bucket !== "meta") return;
     e.preventDefault();
     setCardDestination(selectedId, shortcut.value);
+  },
+  unfold(e){
+    unfoldSelected(e, selectedId, selectedId && els[selectedId]);
   },
   sectionChord(e, shortcut){
     const el = selectedId && els[selectedId];

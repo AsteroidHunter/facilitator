@@ -2780,6 +2780,21 @@ function appendOmniRowArt(row, inner, b){
   return info;
 }
 function testReady(b){ return !!(b && b.testing) && queueState(b) === "yours"; }
+// unfolding the ready-to-test fold, in step with card-logic.js, which says why:
+// a click on the folded corner, or control+u on the selected card, asks the
+// board to lower the marker. the sandbox asks the board for nothing
+function foldHit(x, y, fold){ return fold > 0 && x >= 0 && y >= 0 && x <= fold && y <= fold; }
+function onFold(row, e){
+  if (!row || !row.classList.contains("testc")) return false;
+  const r = row.getBoundingClientRect();
+  const fold = parseFloat(getComputedStyle(row).getPropertyValue("--fold")) || 0;
+  return foldHit(r.right - e.clientX, e.clientY - r.top, fold);
+}
+function unfoldTicket(id){
+  if (MOCK) return Promise.resolve();
+  return fetch("/testing?box=" + encodeURIComponent(id) + "&v=0", { method: "POST" })
+    .catch(() => {}).then(() => poll());
+}
 // the strict await of the bar count and auto-select: pending vetoes it, and
 // so does work in flight, claimed or registered; green outranks the ball
 function awaitsYou(b){
@@ -2952,7 +2967,9 @@ function renderCarousel(state){
       inner.appendChild(meta);
       r.appendChild(inner);
       r.dataset.id = b.id;
-      r.addEventListener("click", () => select(b.id));
+      // a click on the folded corner unfolds the ticket and leaves the selection
+      // where it is; anywhere else on the row opens the card
+      r.addEventListener("click", e => { if (isTest && onFold(r, e)) unfoldTicket(b.id); else select(b.id); });
       tik.appendChild(r);
     }
     if (!pool.length) tik.appendChild(h("div", "tempty", view === "done" ? "no done chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here"));
@@ -3109,6 +3126,14 @@ addEventListener("keydown", e => {
   }
   const t = e.target;
   const typing = t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable);
+  if (e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey && !e.repeat && !e.isComposing &&
+      !e.defaultPrevented && (e.key === "u" || e.key === "U")){
+    // control+u: the selected card's ready-to-test ticket unfolds, from where
+    // nothing is typed or from that card's own text box, as on the board
+    const b = lastState?.boxes.find(x => x.id === selectedId);
+    if ((!typing || t === els[selectedId]?.ta) && testReady(b)){ e.preventDefault(); unfoldTicket(selectedId); }
+    return;
+  }
   if (typing){ if (e.key === "Escape") t.blur(); return; }
   if (e.altKey && e.shiftKey && e.key.startsWith("Arrow") && dragEnabled){
     // option+shift+arrows: resize the box under the mouse by one grid cell,
