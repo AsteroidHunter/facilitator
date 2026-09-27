@@ -423,49 +423,61 @@ body .box.sel .pendlist.rising.timed{
    so the caret still shows in the note, and over everything else the board
    draws. at phone width the card sits near the top, so a keyboard coming up
    from below covers none of it */
-.qn-veil{display:none; position:fixed; inset:0; z-index:90;
-  background:color-mix(in srgb, var(--ink) 26%, transparent)}
+/* the veil dims the board by a sixth of the board's ink: enough to say the
+   board is covered, light enough that the glass over it still reads as a light
+   pane rather than grey plastic. it fades in by its colour and never by its
+   opacity: anything with an opacity under one cuts off what a backdrop filter
+   inside it can see, so an opacity fade would leave the card's glass blurring a
+   flat veil, with the board gone, for as long as the fade ran */
+.qn-veil{display:none; position:fixed; inset:0; z-index:90; --qn-veil:16%;
+  background:color-mix(in srgb, var(--ink) var(--qn-veil), transparent)}
 .qn-veil.open{display:grid; place-items:center; animation:qnveilin .14s ease-out}
-@keyframes qnveilin{from{opacity:0}}
+@keyframes qnveilin{from{background-color:transparent}}
 /* the material, worn by the opened card and by the peek in the desktop's
-   corner alike, so the peek is a piece of the same card. it is the spotify
-   player's glass (#magic1.filled in index.html): the same 9px round, the same
-   grain, corner rim light and sheen in the same order, and the same nine line
-   edge and shadow stack, value for value, with the hairline ring read from
-   --qn-ring so the one warning below can change it and nothing else.
-   two things differ, both for the words. the player's face is an opaque tint
-   pinned near the page's own lightness, because an album colour has to blend
-   against it; a note has no album and must read as plain white, so the face is
-   white at .92, which leaves the translucency the owner asked for and still
-   lands the face at 250 of 255 over the veiled board, 16 to 1 against the
-   board's ink, and never under 14 to 1 even over the darkest ink the board has
-   (the player's own face gives 15). and a face that lets the board through
-   takes back the blur the player carried before its face went opaque, the
-   blur(16px) saturate(180%) the board's other glass still wears; the player's
-   third term, brightness(.98), is left off, since it only greys a face meant
-   to be white */
+   corner alike, so the peek is a piece of the same card. it is the board's own
+   glass in the spotify player's family (#magic1.filled in index.html), now with
+   the see-through half back: a light white tint that lets what is behind show
+   through, blurred and lifted, with the player's lighting over it.
+   from the spotify player, value for value at --qn-edge 1: the 9px round, the
+   grain, the corner rim light and the sheen in the same order, and the nine
+   line edge and shadow stack, with the hairline ring read from --qn-ring so the
+   one warning below can change it and nothing else.
+   the see-through half the player gave up when its face went opaque, and which
+   the board's chat glass (--c3-glass in index.html) still wears: a backdrop
+   blur(16px) saturate(180%), the numbers the player's own note records. the
+   player's third term, brightness(.98), is left off, since it only greys.
+   the face is where the note parts from both. the player's is an opaque tint,
+   the chat's a near clear .03 grey over a white canvas. a note floats over the
+   whole board, words and colours and all, so its face is white at .56: nearly
+   half of what is behind comes through, which is the glass, and the rest is
+   white enough that the words stay dark on light over anything (see the text
+   boost on .qn-card below for the numbers).
+   every value the owner may want to tune is a custom property here, so the
+   mock's sliders move exactly these: --qn-blur, --qn-sat, --qn-tint and
+   --qn-edge, the last scaling every white highlight in the lighting at once */
 .qn-glass{--qn-ring:#c7c7cc;
+  --qn-blur:16px; --qn-sat:180%; --qn-tint:.56; --qn-edge:1;
   border:none; border-radius:9px;
-  background-color:rgba(255,255,255,.92);
+  background-color:rgba(255,255,255,var(--qn-tint));
   background-image:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch' seed='4'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -.075 0 0 0 .0375'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E"),
-    radial-gradient(13px at 0 0, rgba(255,255,255,.60), rgba(255,255,255,0)),
-    radial-gradient(13px at 100% 0, rgba(255,255,255,.60), rgba(255,255,255,0)),
-    radial-gradient(11px at 0 100%, rgba(255,255,255,.32), rgba(255,255,255,0)),
-    radial-gradient(11px at 100% 100%, rgba(255,255,255,.32), rgba(255,255,255,0)),
+    radial-gradient(13px at 0 0, rgba(255,255,255,calc(.60 * var(--qn-edge))), rgba(255,255,255,0)),
+    radial-gradient(13px at 100% 0, rgba(255,255,255,calc(.60 * var(--qn-edge))), rgba(255,255,255,0)),
+    radial-gradient(11px at 0 100%, rgba(255,255,255,calc(.32 * var(--qn-edge))), rgba(255,255,255,0)),
+    radial-gradient(11px at 100% 100%, rgba(255,255,255,calc(.32 * var(--qn-edge))), rgba(255,255,255,0)),
     linear-gradient(145deg,
-      rgba(255,255,255,.28) 0%,
-      rgba(255,255,255,.11) 42%,
+      rgba(255,255,255,calc(.28 * var(--qn-edge))) 0%,
+      rgba(255,255,255,calc(.11 * var(--qn-edge))) 42%,
       rgba(255,255,255,0) 84%);
-  backdrop-filter:blur(16px) saturate(180%);
-  -webkit-backdrop-filter:blur(16px) saturate(180%);
+  backdrop-filter:blur(var(--qn-blur)) saturate(var(--qn-sat));
+  -webkit-backdrop-filter:blur(var(--qn-blur)) saturate(var(--qn-sat));
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,.9),
-    inset 0 -1px 0 rgba(255,255,255,.45),
+    inset 0 1px 0 rgba(255,255,255,calc(.9 * var(--qn-edge))),
+    inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
     inset 0 0 0 1px var(--qn-ring),
     inset 0 2px 0 rgba(0,0,0,.045),
-    inset 0 0 2px rgba(255,255,255,.35),
-    inset 0 12px 12px -6px rgba(255,255,255,.55),
+    inset 0 0 2px rgba(255,255,255,calc(.35 * var(--qn-edge))),
+    inset 0 12px 12px -6px rgba(255,255,255,calc(.55 * var(--qn-edge))),
     0 1px 2px -1px rgba(0,0,0,.18),
     0 1px 3px rgba(0,0,0,.07),
     0 8px 20px rgba(0,0,0,.06)}
@@ -476,16 +488,28 @@ body .box.sel .pendlist.rising.timed{
 /* four by three, 480 by 360 where there is room, and smaller in the same shape
    where there is not: never nearer than 16px to any edge of the window */
 .qn-card{box-sizing:border-box; display:flex; overflow:hidden; min-height:0;
+  position:relative; --qn-boost:.12;
   width:min(480px, calc(100vw - 32px), calc((100vh - 32px) * 4 / 3));
   width:min(480px, calc(100vw - 32px), calc((100dvh - 32px) * 4 / 3));
   aspect-ratio:4 / 3}
+/* the text boost: a little more white behind where the words are, feathered so
+   it never reads as a box, and stopping short of the edge so the rim stays the
+   clearest glass on the card. over the face's .56 it makes the middle of the
+   card white at about .61. worked in the web's own contrast rule, the board's
+   ink on the middle then stands at 14 to 1 over the veiled board, and at 6 to 1
+   even with nothing but black behind the note; the rim, without the boost, is
+   still 5 to 1 over black. a blur of the board is never that dark, so the
+   words read everywhere */
+.qn-card::before{content:""; position:absolute; inset:14px; border-radius:6px;
+  background:rgba(255,255,255,var(--qn-boost)); filter:blur(10px); pointer-events:none}
 /* the field is the whole card and wears nothing of its own: every rule a page
    gives its text boxes (a fill, a border, a focus ring, a floor and a cap) is
-   undone here, so the words sit straight on the glass. the air around them is
-   wide enough that no letter reaches the rim light */
+   undone here, so the words sit straight on the glass. it is lifted over the
+   boost by being positioned after it. the air around the words is wide enough
+   that no letter reaches the rim light */
 .qn-text{flex:1; box-sizing:border-box; width:100%; height:100%; min-width:0;
   min-height:0; max-height:none; margin:0; padding:22px 26px; overflow-y:auto;
-  resize:none; outline:none; border:none; border-radius:inherit;
+  position:relative; resize:none; outline:none; border:none; border-radius:inherit;
   background:transparent; box-shadow:none;
   font:15px/1.55 var(--sans); color:var(--ink)}
 .qn-text:focus{border:none; outline:none}
@@ -494,4 +518,15 @@ body .box.sel .pendlist.rising.timed{
 }
 @media (prefers-reduced-motion: reduce){
   .qn-veil.open{animation:none}
+}
+/* asked for less transparency, the note is a solid white card with the same
+   rim and shadow: nothing shows through and nothing is blurred */
+@media (prefers-reduced-transparency: reduce){
+  .qn-glass{background-color:#fff; backdrop-filter:none; -webkit-backdrop-filter:none}
+  .qn-card::before{display:none}
+}
+/* and a browser that cannot blur what is behind gets nearly solid white, since
+   an unblurred board through a half clear face would sit under the words */
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  .qn-glass{background-color:rgba(255,255,255,.94)}
 }
