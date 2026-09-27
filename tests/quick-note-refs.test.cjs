@@ -20,8 +20,7 @@ const sandbox = {
 sandbox.window = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync(path.resolve(__dirname, "..", "card-logic.js"), "utf8"), sandbox);
-const { quickNoteRef, quickNoteCard, quickNoteCardName, quickNoteAttachStep, quickNotesByCard,
-        quickNotesNewestFirst, quickNoteFirstLine, quickNoteNoticeText } = sandbox;
+const { quickNoteRef, quickNoteCard, quickNoteAttachStep, quickNotesByCard, quickNotesNewestFirst } = sandbox;
 
 const BOXES = [
   { id: "m12", title: "Rope ladder" },
@@ -70,13 +69,7 @@ test("a figure names the card the board numbers that way, and nothing else", () 
   assert.equal(quickNoteCard([{ id: "12", title: "seeded" }], "12").id, "12");
 });
 
-test("a card is named back by its figure, a standing card by its title", () => {
-  assert.equal(quickNoteCardName("m12", BOXES), "card 12");
-  assert.equal(quickNoteCardName("q", BOXES), "Quick chat");
-  assert.equal(quickNoteCardName("gone", BOXES), "gone");
-});
-
-test("typing a reference attaches, and a reference to a card that does not exist says so", () => {
+test("typing a reference attaches, and a reference to a card that does not exist is told apart", () => {
   assert.deepEqual({ ...quickNoteAttachStep("", "c12", null, BOXES) }, { attach: "m12" });
   assert.deepEqual({ ...quickNoteAttachStep("notes", "notes on card 5", null, BOXES) }, { attach: "m5" });
   assert.deepEqual({ ...quickNoteAttachStep("", "c99", null, BOXES) }, { missing: "99" });
@@ -92,7 +85,7 @@ test("a changed reference moves the note, a deleted one lets it go", () => {
 test("only a change in the reference acts", () => {
   // words typed around an unchanged reference ask nothing
   assert.equal(quickNoteAttachStep("c12", "c12 and more", "m12", BOXES), null);
-  // a note detached by hand while its words still name the card stays detached
+  // a note let go some other way while its words still name the card stays let go
   assert.equal(quickNoteAttachStep("c12", "c12 and more", null, BOXES), null);
   // a note attached some other way is not let go by words that never named it
   assert.equal(quickNoteAttachStep("plain words", "plainer words", "m5", BOXES), null);
@@ -115,11 +108,7 @@ test("the notes are listed newest first and grouped by the card they are on", ()
   assert.deepEqual({ ...quickNotesByCard(undefined) }, {});
 });
 
-test("a note goes by its first line with words, and the confirmation is plain words", () => {
-  assert.equal(quickNoteFirstLine("\n\n  buy rope  \nsecond"), "buy rope");
-  assert.equal(quickNoteFirstLine(""), "");
-  assert.equal(quickNoteNoticeText({ kind: "attached", card: "m12" }, BOXES), "attached to card 12");
-  assert.equal(quickNoteNoticeText({ kind: "detached", card: "m12" }, BOXES), "detached from card 12");
-  assert.equal(quickNoteNoticeText({ kind: "missing", num: "99" }, BOXES), "no card 99 on the board");
-  assert.equal(quickNoteNoticeText(null, BOXES), "");
+test("the helpers that only wrote words onto the note are gone with the words", () => {
+  for (const name of ["quickNoteCardName", "quickNoteFirstLine", "quickNoteNoticeText"])
+    assert.equal(typeof sandbox[name], "undefined", name + " is still defined");
 });

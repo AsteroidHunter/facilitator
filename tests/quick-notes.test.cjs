@@ -242,6 +242,11 @@ async function newSession(realm, store){
     schedule: (fn, ms) => setTimeout(fn, ms), cancel: id => clearTimeout(id),
   });
 }
+// a note a test made is taken away again through the route, since the note
+// itself no longer carries a way to delete one
+async function drop(id){
+  if (id) assert.equal((await post(`/quicknote/del?id=${id}`)).status, 200);
+}
 
 test("nothing typed is never stored, and a pause in the typing saves the note", async () => {
   const realm = logicRealm();
@@ -262,10 +267,10 @@ test("nothing typed is never stored, and a pause in the typing saves the note", 
   assert.equal(s.status, "saved");
   assert.equal(realm.ctx.localStorage.getItem("quicknote.current"), s.id);
   assert.equal((await listed()).length, count + 1, "typing made more than one note");
-  await s.remove();
+  await drop(s.id);
 });
 
-test("typing c, card or card and a space with a figure attaches the note, with a confirmation", async () => {
+test("typing c, card or card and a space with a figure attaches the note", async () => {
   const realm = logicRealm();
   const s = await newSession(realm);
   await s.open();
@@ -273,14 +278,11 @@ test("typing c, card or card and a space with a figure attaches the note, with a
   await s.flush();
   assert.equal((await noteOnBoard(s.id)).card, cardA);
   assert.equal(s.card, cardA);
-  assert.equal(s.notice.kind, "attached");
-  assert.equal(realm.ctx.quickNoteNoticeText(s.notice, (await board()).boxes), "attached to card " + figure(cardA));
-  // a figure no card carries says so and moves nothing
+  // a figure no card carries moves nothing
   s.input(words("check the rope card99999"));
   await s.flush();
-  assert.equal(s.notice.kind, "missing");
-  assert.equal(realm.ctx.quickNoteNoticeText(s.notice, []), "no card 99999 on the board");
   assert.equal((await noteOnBoard(s.id)).card, cardA);
+  assert.equal(s.status, "saved", "a figure no card carries was taken for a failure");
   // naming the other card moves it there
   s.input(words("check the roof card " + figure(cardB)));
   await s.flush();
@@ -289,27 +291,30 @@ test("typing c, card or card and a space with a figure attaches the note, with a
   s.input(words("check the roof"));
   await s.flush();
   assert.equal((await noteOnBoard(s.id)).card, null);
-  assert.equal(s.notice.kind, "detached");
   // a figure inside a word is never a reference
   s.input(words("check the roofc" + figure(cardA) + " and abc" + figure(cardB)));
   await s.flush();
   assert.equal((await noteOnBoard(s.id)).card, null, "a figure inside a word attached the note");
-  await s.remove();
+  await drop(s.id);
 });
 
-test("a note detached by hand stays detached while its words still name the card", async () => {
+test("a note attached some other way stays on its card until its words name one", async () => {
   const realm = logicRealm();
   const s = await newSession(realm);
   await s.open();
-  s.input(words("roof tiles, card" + figure(cardB)));
+  s.input(words("roof tiles"));
   await s.flush();
-  assert.equal((await noteOnBoard(s.id)).card, cardB);
-  await s.detach();
-  assert.equal((await noteOnBoard(s.id)).card, null);
-  s.input(words("roof tiles, card" + figure(cardB) + ", and the gutter"));
+  // the way an agent would attach it later, through the route
+  await post(`/quicknote/attach?id=${s.id}&card=${cardB}`);
+  await s.open();
+  assert.equal(s.card, cardB);
+  s.input(words("roof tiles, and the gutter"));
   await s.flush();
-  assert.equal((await noteOnBoard(s.id)).card, null, "the words took the note back after a hand detach");
-  await s.remove();
+  assert.equal((await noteOnBoard(s.id)).card, cardB, "words that never named a card let the note go");
+  s.input(words("roof tiles, and the gutter, c" + figure(cardA)));
+  await s.flush();
+  assert.equal((await noteOnBoard(s.id)).card, cardA);
+  await drop(s.id);
 });
 
 test("opening again returns to the note being written, in this page and after a reload", async () => {
@@ -335,32 +340,57 @@ test("opening again returns to the note being written, in this page and after a 
   await post(`/quicknote/save?id=${id}`, elsewhere);
   await again.open();
   assert.equal(again.text, elsewhere);
-  await again.remove();
+  await drop(again.id);
 });
 
-test("New starts a blank note, the earlier one stays, and the list is newest first", async () => {
+test("stepping: newer than the newest is a blank note, older walks back, and both ends hold", async () => {
   const realm = logicRealm();
   const s = await newSession(realm);
   await s.open();
-  s.input(words("the earlier note"));
+  s.input(words("the step's older note"));
   await s.flush();
-  const earlier = s.id;
-  await s.startNew();
+  const older = s.id;
+  // newer than the newest note is a blank one, which is how a new note starts
+  await s.step(-1);
   assert.equal(s.id, null);
   assert.equal(s.text, "");
   assert.equal(realm.ctx.localStorage.getItem("quicknote.current"), null);
-  s.input(words("the newer note"));
+  assert.ok(await noteOnBoard(older), "starting a new note took the earlier one away");
+  // and there is nothing newer than a blank note
+  await s.step(-1);
+  assert.equal(s.id, null);
+  s.input(words("the step's newer note"));
   await s.flush();
   const newer = s.id;
-  assert.notEqual(newer, earlier);
-  await s.load();
-  assert.deepEqual(Array.from(s.notes, n => n.id).slice(0, 2), [newer, earlier]);
-  await s.openNote(earlier);
-  assert.equal(s.id, earlier);
-  assert.equal(s.text, "the earlier note");
-  await s.remove();
+  assert.notEqual(newer, older);
+  assert.deepEqual(Array.from(s.notes, n => n.id).slice(0, 1), [older], "the list was not read fresh");
+  await s.step(1);
+  assert.equal(s.id, older, "one older than the newest is not the note before it");
+  assert.equal(s.text, "the step's older note");
+  await s.step(-1);
+  assert.equal(s.id, newer);
+  // past the oldest nothing moves
+  let last = null;
+  for (let i = 0; i < 40 && last !== s.id; i++){ last = s.id; await s.step(1); }
+  assert.equal(s.id, last, "stepping past the oldest note moved");
+  assert.equal(last, Array.from(s.notes, n => n.id).at(-1), "the walk did not end on the oldest note");
+  // a note emptied and stepped away from goes, like one emptied and put away
   await s.openNote(newer);
-  await s.remove();
+  s.input("");
+  await s.step(1);
+  assert.equal(await noteOnBoard(newer), undefined, "an emptied note was kept when stepped away from");
+  // and words that cannot be saved hold the note where it is
+  await s.openNote(older);
+  realm.line.down = true;
+  s.input(words("the step's older note, and more"));
+  await s.step(-1);
+  assert.equal(s.id, older, "a step walked away from words that were not saved");
+  assert.equal(s.text, "the step's older note, and more");
+  assert.equal(s.status, "failed");
+  realm.line.down = false;
+  await s.flush();
+  assert.equal((await noteOnBoard(older)).text, "the step's older note, and more");
+  await drop(older);
 });
 
 test("a note emptied and put away is removed rather than kept blank", async () => {
@@ -391,7 +421,7 @@ test("words that could not be saved are kept on screen and go with the next save
   await s.open();
   assert.equal(s.status, "saved");
   assert.equal((await noteOnBoard(s.id)).text, text);
-  await s.remove();
+  await drop(s.id);
 });
 
 // ---- the page's own wiring, lifted out of index.html -----------------------------
@@ -449,6 +479,8 @@ function smallDom(){
     getAttribute(k){ return k in this.attributes ? this.attributes[k] : null; }
     addEventListener(type, fn){ (this.listeners[type] = this.listeners[type] || []).push(fn); }
     getBoundingClientRect(){ return this.rect; }
+    // a glide that has already landed: what it was asked for is kept to read
+    animate(frames, timing){ this.glides = (this.glides || []).concat([{ frames, timing }]); return { finished: Promise.resolve() }; }
     setSelectionRange(a, b){ this.selectionStart = a; this.selectionEnd = b; }
     focus(){ if (doc.activeElement === this) return; doc.activeElement = this; fire(this, "focusin"); }
     blur(){ if (doc.activeElement === this) doc.activeElement = doc.body; }
@@ -484,25 +516,37 @@ async function quickNotePage(){
   const block = between(HTML, "// ---- the quick note ----", "\nrenameMagicLayouts();");
   vm.runInContext([
     "let lastState = null, qnOpen = false, editMode = false, pageWarn = null, pageMenu = null, p3Zoom = null;",
+    "let caretPlaced = 0, queueFatCaret = () => { caretPlaced++; };",
     "function onBoardPage(){ return true; }",
     keysLive[0],
     block,
     "globalThis.page = { quickNote, qnPeek, syncQuickNoteChip, boardKeysLive,",
-    "  get qnOpen(){ return qnOpen; }, set editMode(v){ editMode = v; }, set lastState(v){ lastState = v; } };",
+    "  get qnOpen(){ return qnOpen; }, get caretPlaced(){ return caretPlaced; },",
+    "  set editMode(v){ editMode = v; }, set lastState(v){ lastState = v; } };",
   ].join("\n"), realm.ctx, { filename: "index.html#quick-note" });
   realm.ctx.page.lastState = await board();
-  return { dom, page: realm.ctx.page };
+  return { dom, page: realm.ctx.page, line: realm.line };
 }
 const move = (dom, x, y, more = {}) => dom.fire(dom.doc.body, "pointermove",
   { pointerType: "mouse", buttons: 0, clientX: x, clientY: y, ...more });
 const veilOf = page => page.quickNote.root;
-const textareaOf = page => veilOf(page).children[0].children.find(n => n.tagName === "TEXTAREA");
+const cardOf = page => veilOf(page).children[0];
+const textareaOf = page => cardOf(page).children.find(n => n.tagName === "TEXTAREA");
+const chord = (dom, target, key) => dom.fire(target, "keydown",
+  { key, ctrlKey: true, shiftKey: true, metaKey: false, altKey: false, repeat: false,
+    isComposing: false, defaultPrevented: false });
+// every node under one, the one included
+const everyNode = node => [node, ...node.children.flatMap(everyNode)];
 
 test("the page's corner: the bottom right corner wakes the peek, and nothing else does", async () => {
   const { dom, page } = await quickNotePage();
   const out = () => page.qnPeek.classList.contains("out");
   assert.equal(out(), false, "the peek was out before the pointer went anywhere");
   assert.equal(page.qnPeek.parentNode, dom.doc.body);
+  // a piece of the note's card and nothing more: its glass, no words, nothing in it
+  assert.ok(page.qnPeek.classList.contains("qn-glass"), "the peek does not wear the note's glass");
+  assert.deepEqual(page.qnPeek.children, [], "the peek holds something");
+  assert.equal(page.qnPeek.textContent, "", "the peek carries words");
   move(dom, 1439, 899, { pointerType: "touch" });
   assert.equal(out(), false, "a touch woke the peek");
   move(dom, 1439, 899, { buttons: 1 });
@@ -523,18 +567,34 @@ test("the page's corner: the bottom right corner wakes the peek, and nothing els
   assert.equal(out(), false, "the peek stayed out after the pointer left it");
 });
 
-test("the page's overlay: a press on the peek opens the note, types, attaches and closes on Escape", async () => {
+test("the page's overlay: a press on the peek opens the note, types, attaches silently and closes on Escape", async () => {
   const { dom, page } = await quickNotePage();
+  const card = cardOf(page), ta = textareaOf(page), veil = veilOf(page);
+  // the card is the text area and nothing else: no title, no buttons, no
+  // status, no hint, no words of its own
+  assert.deepEqual(veil.children, [card]);
+  assert.deepEqual(card.children, [ta], "the note holds more than its text area");
+  assert.ok(card.classList.contains("qn-glass"), "the note does not wear the glass");
+  assert.equal(card.textContent, "", "the note carries words of its own");
+  assert.ok(!ta.placeholder, "the note shows a hint");
+  assert.ok(!everyNode(veil).some(n => n.tagName === "BUTTON"), "the note carries a button");
   move(dom, 1439, 899);
   await wait(50);
+  // the peek and the card stand where a browser would put them, so the glide
+  // from the one to the other can be measured
+  page.qnPeek.rect = { left: 1376, top: 852, width: 160, height: 120 };
+  card.rect = { left: 480, top: 270, width: 480, height: 360 };
   dom.fire(page.qnPeek, "click");
-  const veil = veilOf(page), ta = textareaOf(page);
   assert.ok(veil.classList.contains("open"), "the overlay did not open");
   assert.equal(page.qnOpen, true);
   assert.equal(page.boardKeysLive(), false, "the board's keys stayed live under the overlay");
   assert.equal(page.qnPeek.classList.contains("out"), false, "the peek stayed out over the open note");
+  assert.equal((card.glides || []).length, 1, "the note did not glide in from the peek");
+  // from the peek's centre (1456, 912) to the card's (720, 450), at a third of its size
+  assert.match(card.glides[0].frames[0].transform, /^translate\(736px, 462px\) scale\(0\.333/);
   await page.quickNote.session.flush();
   await wait(20);
+  assert.ok(page.caretPlaced >= 1, "the board's caret was not placed again once the note came to rest");
   assert.equal(dom.doc.activeElement, ta, "the note's field does not hold the keys");
   // typing goes to the board through the shared session, and names a card
   ta.value = words("the page's own note, card " + figure(cardA));
@@ -544,11 +604,10 @@ test("the page's overlay: a press on the peek opens the note, types, attaches an
   const id = page.quickNote.session.id;
   assert.ok(id, "typing in the page's overlay made no note");
   assert.equal((await noteOnBoard(id)).card, cardA);
-  const attachLine = veil.children[0].children.find(n => n.classList.contains("qn-attach"));
-  assert.equal(attachLine.hidden, false, "the overlay does not show the card the note is on");
-  assert.match(attachLine.textContent, new RegExp("on card " + figure(cardA)));
-  const notice = veil.children[0].children.find(n => n.classList.contains("qn-foot")).children[0];
-  assert.equal(notice.textContent, "attached to card " + figure(cardA));
+  // and says nothing about it: the card is still only its text area
+  assert.deepEqual(card.children, [ta], "attaching put something on the note");
+  assert.equal(card.textContent, "");
+  assert.equal(card.classList.contains("failed"), false);
   // Escape puts it away and goes no further than the note
   let reachedBoard = false;
   dom.win.listeners.keydown = [() => { reachedBoard = true; }];
@@ -620,72 +679,160 @@ test("the page's chip: a card with a note says so left of its section chips and 
   await post(`/quicknote/del?id=${made.id}`);
 });
 
-test("the page's overlay: Earlier lists the notes, a row opens one, New starts blank, Delete asks first", async () => {
+test("the page's overlay: control shift down starts a new note and up walks back, with nothing on screen", async () => {
   const { dom, page } = await quickNotePage();
   await page.quickNote.open();
-  const card = veilOf(page).children[0];
-  const [, , earlierBtn, newBtn] = card.children[0].children;
-  const ta = textareaOf(page), list = card.children.find(n => n.classList.contains("qn-list"));
-  const del = card.children.find(n => n.classList.contains("qn-foot")).children[1];
-  ta.value = words("the list's older note");
+  const ta = textareaOf(page), card = cardOf(page);
+  let reachedBoard = false;
+  dom.win.listeners.keydown = [() => { reachedBoard = true; }];
+  ta.value = words("the chord's older note");
   dom.fire(ta, "input");
   await page.quickNote.session.flush();
   const older = page.quickNote.session.id;
-  dom.fire(newBtn, "click");
+  // down from the newest note: a blank one, which is how a new note starts
+  const down = chord(dom, ta, "ArrowDown");
+  assert.equal(down.defaultPrevented, true, "the chord was left to the text area");
+  assert.equal(reachedBoard, false, "the chord reached the board's own reply history");
   await page.quickNote.session.flush();
   await wait(20);
-  assert.equal(ta.value, "", "New did not start a blank note");
+  assert.equal(ta.value, "", "control shift down did not start a blank note");
   assert.equal(page.quickNote.session.id, null);
-  ta.value = words("the list's newer note");
+  assert.ok(await noteOnBoard(older), "starting a new note took the earlier one away");
+  ta.value = words("the chord's newer note");
   dom.fire(ta, "input");
   await page.quickNote.session.flush();
   const newer = page.quickNote.session.id;
-  dom.fire(earlierBtn, "click");
-  await page.quickNote.session.flush();
-  await wait(50);
-  assert.equal(list.hidden, false, "Earlier did not show the list");
-  assert.equal(ta.hidden, true);
-  assert.equal(earlierBtn.textContent, "Back");
-  const rows = list.children.filter(n => n.classList.contains("qn-row"));
-  assert.deepEqual(rows.slice(0, 2).map(r => r.dataset.id), [newer, older], "the list is not newest first");
-  assert.equal(rows[0].children[0].textContent, "the list's newer note");
-  dom.fire(rows[1], "click");
+  assert.notEqual(newer, older);
+  // up: the next older note, and down again: back to the newer one
+  chord(dom, ta, "ArrowUp");
   await page.quickNote.session.flush();
   await wait(20);
-  assert.equal(list.hidden, true);
-  assert.equal(ta.value, "the list's older note", "a row did not open its note");
+  assert.equal(ta.value, "the chord's older note", "control shift up did not walk to the older note");
   assert.equal(page.quickNote.session.id, older);
-  // the first press only asks; the second deletes
-  dom.fire(del, "click");
-  assert.equal(del.textContent, "Delete this note?");
-  assert.ok(await noteOnBoard(older), "one press deleted the note");
-  dom.fire(del, "click");
+  chord(dom, ta, "ArrowDown");
   await page.quickNote.session.flush();
   await wait(20);
-  assert.equal(await noteOnBoard(older), undefined, "the second press did not delete the note");
-  assert.equal(ta.value, "");
-  assert.equal(del.textContent, "Delete");
+  assert.equal(ta.value, "the chord's newer note");
+  // the walk showed nothing: the card is its text area throughout
+  assert.deepEqual(card.children, [ta]);
+  assert.equal(card.textContent, "");
+  // a plain arrow is the caret's, not a step
+  const plain = dom.fire(ta, "keydown", { key: "ArrowUp", ctrlKey: false, shiftKey: false, metaKey: false, altKey: false });
+  assert.equal(plain.defaultPrevented, false, "a plain arrow was taken from the caret");
   page.quickNote.close();
   await page.quickNote.session.flush();
-  await post(`/quicknote/del?id=${newer}`);
+  await drop(older);
+  await drop(newer);
 });
 
-test("the page's sheets: the peek covers nothing at rest, the note sits under the caret, the phone size is drawn", () => {
+test("the page's overlay: words that could not be saved turn the rim red, on the note and the peek, until they are", async () => {
+  const { dom, page, line } = await quickNotePage();
+  await page.quickNote.open();
+  const ta = textareaOf(page), card = cardOf(page);
+  assert.equal(card.classList.contains("failed"), false);
+  line.down = true;
+  ta.value = words("typed while the page's board was away");
+  dom.fire(ta, "input");
+  await page.quickNote.session.flush();
+  assert.equal(card.classList.contains("failed"), true, "the note shows nothing when its words are not saved");
+  assert.equal(page.qnPeek.classList.contains("failed"), true, "the peek does not carry the warning");
+  // the warning is the rim and never words
+  assert.deepEqual(card.children, [ta]);
+  assert.equal(card.textContent, "");
+  // put away unsaved, the peek still says so
+  page.quickNote.close();
+  await page.quickNote.session.flush();
+  assert.equal(page.qnPeek.classList.contains("failed"), true, "the peek let go of unsaved words");
+  line.down = false;
+  await page.quickNote.open();
+  await page.quickNote.session.flush();
+  assert.equal(ta.value, "typed while the page's board was away", "the unsaved words were lost");
+  assert.equal(card.classList.contains("failed"), false, "the rim stayed red once the words were saved");
+  assert.equal(page.qnPeek.classList.contains("failed"), false);
+  const id = page.quickNote.session.id;
+  assert.equal((await noteOnBoard(id)).text, "typed while the page's board was away");
+  page.quickNote.close();
+  await page.quickNote.session.flush();
+  await drop(id);
+});
+
+test("the page's sheets: a four by three card of plain text, and the peek a small piece of it", () => {
+  // the peek: the card's own shape at a third of its size, hidden past the corner at rest
   const peek = between(HTML, "  .qnpeek{", "}");
+  assert.match(peek, /width:160px; height:120px/, "the peek is not a piece of the four by three card");
   assert.match(peek, /visibility:hidden/);
   assert.match(peek, /transform:translate\(100%, 100%\)/, "the peek is not wholly past the corner at rest");
   assert.match(peek, /z-index:85/);
-  const veil = between(TOKENS, ".qn-veil{", "}");
-  assert.match(veil, /position:fixed; inset:0; z-index:90/);
+  assert.match(between(HTML, "  .qnpeek.out{", "}"), /transform:translate\(40%, 40%\)/);
+  // the card: four by three, 480 by 360 where there is room, the same shape where there is not
+  const card = between(TOKENS, ".qn-card{", "}");
+  assert.match(card, /aspect-ratio:4 \/ 3/);
+  assert.match(card, /width:min\(480px, calc\(100vw - 32px\), calc\(\(100vh - 32px\) \* 4 \/ 3\)\)/);
+  // the field wears nothing of its own, so the words sit on the glass
+  const field = between(TOKENS, ".qn-text{", "}");
+  for (const rule of ["border:none", "outline:none", "background:transparent", "min-height:0", "max-height:none", "resize:none"])
+    assert.ok(field.includes(rule), "the note's field still wears a text box's " + rule.split(":")[0]);
+  // and nothing of the old chrome is left anywhere: no title, buttons, status,
+  // attach line, list, footer or hint
+  for (const gone of ["qn-head", "qn-name", "qn-btn", "qn-status", "qn-attach", "qn-detach", "qn-list",
+                      "qn-row", "qn-foot", "qn-notice", "qn-del", "qn-empty", "qnpeek-name", "qnpeek-line"])
+    assert.ok(!TOKENS.includes(gone) && !LOGIC.includes(gone) && !HTML.includes(gone), gone + " is still drawn");
+  const overlay = between(LOGIC, "function quickNoteOverlay(", "\n}\n");
+  assert.ok(!/placeholder|textContent|"Earlier"|"New"|"Delete"/.test(overlay), "the note still writes words of its own");
+  // the veil under the board's block caret, and the phone's card near the top
+  assert.match(between(TOKENS, ".qn-veil{", "}"), /position:fixed; inset:0; z-index:90/);
   assert.match(between(HTML, "  #fatcaret, #fatcaretlift{", "}"), /z-index:99/, "the block caret no longer stands over the note");
   assert.match(TOKENS, /\.qn-veil\.open\{display:grid; place-items:center/);
-  const phone = between(TOKENS, "@media (max-width:600px){\n  .qn-veil.open", "\n}\n");
-  assert.match(phone, /place-items:start center/);
-  assert.match(phone, /width:calc\(100vw - 20px\)/);
+  assert.match(between(TOKENS, "@media (max-width:600px){\n  .qn-veil.open", "\n}\n"), /place-items:start center/);
   // the board reads the notes off each reading and hands them to the chip
   assert.match(HTML, /const noteCards = quickNotesByCard\(state\.quicknotes\);/);
   assert.match(HTML, /syncQuickNoteChip\(el, noteCards\[b\.id\] \|\| \[\]\);/);
   assert.match(HTML, /function boardKeysLive\(\)\{ return !pageWarn && !pageMenu && !qnOpen && onBoardPage\(\); \}/);
+});
+
+test("the note's glass is the spotify player's, value for value, on a white face the words read on", () => {
+  const clean = css => css.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s+/g, " ").trim();
+  const value = (block, name) => {
+    // a declaration ends at its semicolon, or at the brace when it is the block's last
+    const m = new RegExp("(?:^|[;{ ])" + name + ":([^;}]+)[;}]").exec(block);
+    assert.ok(m, "no " + name + " in the block");
+    return m[1].trim();
+  };
+  const player = clean(between(HTML, "  #magic1.filled{", "@keyframes spappear"));
+  const glass = clean(between(TOKENS, ".qn-glass{", ".qn-glass.failed"));
+  // the edge and the shadow: the player's nine lines, the ring read from --qn-ring
+  assert.equal(value(glass, "box-shadow").replace("var(--qn-ring)", "#c7c7cc"), value(player, "box-shadow"),
+    "the note's edge and shadow are not the player's");
+  assert.equal(value(glass, "--qn-ring"), "#c7c7cc");
+  // the grain, the corner rim light and the sheen, in the player's order
+  assert.equal(value(glass, "background-image"), value(player, "background-image"),
+    "the note's surface layers are not the player's");
+  assert.equal(value(glass, "border-radius"), value(player, "border-radius"));
+  // the blur the player carried before its face went opaque, as its own note records it
+  assert.ok(HTML.includes("blur(16px) saturate(180%) brightness(.98)"), "the player's record of its blur is gone");
+  assert.equal(value(glass, "backdrop-filter"), "blur(16px) saturate(180%)");
+  assert.equal(value(glass, "-webkit-backdrop-filter"), "blur(16px) saturate(180%)");
+  // the one warning: the rim, and nothing else
+  assert.match(TOKENS, /\.qn-glass\.failed\{--qn-ring:var\(--must\)\}/);
+  // the face: white, a little translucent, and the words on it stay readable
+  // whatever the board behind shows. worked in the sRGB luminance the web
+  // contrast rule uses: the darkest thing behind the veil is the board's own
+  // ink, and the everyday thing is its paper under the veil's 26% of ink
+  const face = /rgba\(255,255,255,(\.\d+)\)/.exec(value(glass, "background-color"));
+  assert.ok(face, "the note's face is not white");
+  const alpha = Number(face[1]);
+  const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+  const ink = hex(/--ink:(#[0-9A-Fa-f]{6})/.exec(TOKENS)[1]);
+  const paper = hex(/--paper:(#[0-9A-Fa-f]{6})/.exec(TOKENS)[1]);
+  const veil = Number(/color-mix\(in srgb, var\(--ink\) (\d+)%, transparent\)/.exec(between(TOKENS, ".qn-veil{", "}"))[1]) / 100;
+  const over = (top, a, under) => top.map((c, i) => a * c + (1 - a) * under[i]);
+  const lum = rgb => rgb.map(c => { const s = c / 255; return s <= .04045 ? s / 12.92 : ((s + .055) / 1.055) ** 2.4; })
+                        .reduce((sum, c, i) => sum + c * [.2126, .7152, .0722][i], 0);
+  const contrast = (a, b) => (Math.max(lum(a), lum(b)) + .05) / (Math.min(lum(a), lum(b)) + .05);
+  const worst = contrast(over([255, 255, 255], alpha, ink), ink);
+  const everyday = contrast(over([255, 255, 255], alpha, over(ink, veil, paper)), ink);
+  assert.ok(worst >= 14, "the words fall under 14 to 1 over the darkest backdrop: " + worst.toFixed(2));
+  assert.ok(everyday >= 16, "the words fall under 16 to 1 over the veiled board: " + everyday.toFixed(2));
 });
 
 // ---- last: what the log and the transcript were told ------------------------------

@@ -372,63 +372,83 @@ body .box.sel .pendlist.rising.timed{
 .attachment-status:empty{display:none}
 
 /* ---- the quick note ------------------------------------------------------ */
-/* the note the owner jots down, opened as one card in the middle of the window
-   over a veil that covers the board: the owner chose that over a panel at the
-   side as the plainer of the two and the one the phone can show as it is. the
-   desktop opens it from its bottom right corner; the phone has no way in yet,
-   and the rules stand here so it can. the veil stands under the desktop's block
-   caret (99), so the caret still shows in the note, and over everything else
-   the board draws. at phone width the card takes the width and sits near the
-   top, so a keyboard coming up from below covers none of it */
+/* the note the owner jots down, opened as one plain card in the middle of the
+   window over a veil that covers the board: the owner chose that over a panel
+   at the side as the plainer of the two and the one the phone can show as it
+   is. the card carries nothing but the words and the caret. the desktop opens
+   it from its bottom right corner; the phone has no way in yet, and the rules
+   stand here so it can. the veil stands under the desktop's block caret (99),
+   so the caret still shows in the note, and over everything else the board
+   draws. at phone width the card sits near the top, so a keyboard coming up
+   from below covers none of it */
 .qn-veil{display:none; position:fixed; inset:0; z-index:90;
   background:color-mix(in srgb, var(--ink) 26%, transparent)}
 .qn-veil.open{display:grid; place-items:center; animation:qnveilin .14s ease-out}
 @keyframes qnveilin{from{opacity:0}}
-.qn-card{box-sizing:border-box; display:flex; flex-direction:column; gap:8px;
-  width:min(560px, calc(100vw - 48px)); max-height:calc(100vh - 48px);
-  padding:14px 16px 12px; background:var(--card);
-  border:var(--edge) solid var(--line); border-radius:7px;
-  box-shadow:0 8px 40px rgba(60,45,20,.24)}
-.qn-head{display:flex; align-items:center; gap:10px}
-.qn-name{font:500 14px var(--inter); color:var(--ink)}
-.qn-status{flex:1; min-width:0; font:11.5px var(--mono); color:var(--sub)}
-.qn-status.bad{color:var(--must)}
-.qn-btn{flex:none; font:12.5px var(--sans); color:var(--ink); background:var(--card);
-  border:var(--edge) solid var(--line); border-radius:var(--sq); padding:3px 10px; cursor:pointer}
-.qn-btn:hover{background:color-mix(in srgb, #000 var(--press), var(--card))}
-.qn-btn:focus-visible, .qn-row:focus-visible, .qn-detach:focus-visible{
-  outline:2px solid var(--accent); outline-offset:2px}
-.qn-attach{display:flex; align-items:center; gap:6px; min-width:0;
-  font:12px var(--mono); color:var(--accent)}
-.qn-attach-name{min-width:0; white-space:nowrap; overflow:hidden}
-.qn-detach{flex:none; width:18px; height:18px; padding:0; border:none; border-radius:var(--sq);
-  background:none; color:var(--sub); font:14px/1 var(--mono); cursor:pointer}
-.qn-detach:hover{color:var(--must); background:color-mix(in srgb, #000 var(--press), var(--card))}
-.qn-text{box-sizing:border-box; display:block; width:100%; height:min(46vh, 360px); margin:0;
-  resize:none; outline:none; padding:10px 12px;
-  font:15px/1.5 var(--sans); color:var(--ink); background:var(--card);
-  border:var(--edge) solid var(--line); border-radius:var(--sq)}
-.qn-text:focus{border-color:var(--accent)}
-.qn-list{height:min(46vh, 360px); overflow-y:auto; display:flex; flex-direction:column; gap:2px}
-.qn-row{display:flex; align-items:baseline; gap:10px; width:100%; text-align:left;
-  padding:7px 9px; border:none; border-radius:5px; background:none; cursor:pointer;
-  font:14px var(--sans); color:var(--ink)}
-.qn-row:hover{background:var(--accent-soft)}
-.qn-row.on{background:var(--paper)}
-.qn-row-text{flex:1; min-width:0; white-space:nowrap; overflow:hidden}
-.qn-row-card, .qn-row-age{flex:none; font:11.5px var(--mono); color:var(--sub)}
-.qn-empty{font:italic 13px var(--sans); color:var(--sub); padding:8px 9px}
-.qn-foot{display:flex; align-items:center; gap:10px; min-height:22px}
-.qn-notice{flex:1; min-width:0; font:12px var(--mono); color:var(--green)}
-.qn-notice.bad{color:var(--must)}
-.qn-del{color:var(--sub)}
-.qn-del.armed{color:#fff; background:var(--must); border-color:var(--must)}
-/* each of these sets its own display, which beats the hidden attribute */
-.qn-attach[hidden], .qn-text[hidden], .qn-list[hidden]{display:none}
+/* the material, worn by the opened card and by the peek in the desktop's
+   corner alike, so the peek is a piece of the same card. it is the spotify
+   player's glass (#magic1.filled in index.html): the same 9px round, the same
+   grain, corner rim light and sheen in the same order, and the same nine line
+   edge and shadow stack, value for value, with the hairline ring read from
+   --qn-ring so the one warning below can change it and nothing else.
+   two things differ, both for the words. the player's face is an opaque tint
+   pinned near the page's own lightness, because an album colour has to blend
+   against it; a note has no album and must read as plain white, so the face is
+   white at .92, which leaves the translucency the owner asked for and still
+   lands the face at 250 of 255 over the veiled board, 16 to 1 against the
+   board's ink, and never under 14 to 1 even over the darkest ink the board has
+   (the player's own face gives 15). and a face that lets the board through
+   takes back the blur the player carried before its face went opaque, the
+   blur(16px) saturate(180%) the board's other glass still wears; the player's
+   third term, brightness(.98), is left off, since it only greys a face meant
+   to be white */
+.qn-glass{--qn-ring:#c7c7cc;
+  border:none; border-radius:9px;
+  background-color:rgba(255,255,255,.92);
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch' seed='4'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -.075 0 0 0 .0375'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E"),
+    radial-gradient(13px at 0 0, rgba(255,255,255,.60), rgba(255,255,255,0)),
+    radial-gradient(13px at 100% 0, rgba(255,255,255,.60), rgba(255,255,255,0)),
+    radial-gradient(11px at 0 100%, rgba(255,255,255,.32), rgba(255,255,255,0)),
+    radial-gradient(11px at 100% 100%, rgba(255,255,255,.32), rgba(255,255,255,0)),
+    linear-gradient(145deg,
+      rgba(255,255,255,.28) 0%,
+      rgba(255,255,255,.11) 42%,
+      rgba(255,255,255,0) 84%);
+  backdrop-filter:blur(16px) saturate(180%);
+  -webkit-backdrop-filter:blur(16px) saturate(180%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.9),
+    inset 0 -1px 0 rgba(255,255,255,.45),
+    inset 0 0 0 1px var(--qn-ring),
+    inset 0 2px 0 rgba(0,0,0,.045),
+    inset 0 0 2px rgba(255,255,255,.35),
+    inset 0 12px 12px -6px rgba(255,255,255,.55),
+    0 1px 2px -1px rgba(0,0,0,.18),
+    0 1px 3px rgba(0,0,0,.07),
+    0 8px 20px rgba(0,0,0,.06)}
+/* the one warning the note has: words on it that could not be saved. the rim
+   turns the board's own warning red while that is so and goes back the moment
+   a save lands. no words, nothing that outlives the trouble */
+.qn-glass.failed{--qn-ring:var(--must)}
+/* four by three, 480 by 360 where there is room, and smaller in the same shape
+   where there is not: never nearer than 16px to any edge of the window */
+.qn-card{box-sizing:border-box; display:flex; overflow:hidden; min-height:0;
+  width:min(480px, calc(100vw - 32px), calc((100vh - 32px) * 4 / 3));
+  width:min(480px, calc(100vw - 32px), calc((100dvh - 32px) * 4 / 3));
+  aspect-ratio:4 / 3}
+/* the field is the whole card and wears nothing of its own: every rule a page
+   gives its text boxes (a fill, a border, a focus ring, a floor and a cap) is
+   undone here, so the words sit straight on the glass. the air around them is
+   wide enough that no letter reaches the rim light */
+.qn-text{flex:1; box-sizing:border-box; width:100%; height:100%; min-width:0;
+  min-height:0; max-height:none; margin:0; padding:22px 26px; overflow-y:auto;
+  resize:none; outline:none; border:none; border-radius:inherit;
+  background:transparent; box-shadow:none;
+  font:15px/1.55 var(--sans); color:var(--ink)}
+.qn-text:focus{border:none; outline:none}
 @media (max-width:600px){
   .qn-veil.open{place-items:start center; padding-top:max(10px, env(safe-area-inset-top))}
-  .qn-card{width:calc(100vw - 20px); max-height:calc(100dvh - 20px)}
-  .qn-text, .qn-list{height:min(38dvh, 320px)}
 }
 @media (prefers-reduced-motion: reduce){
   .qn-veil.open{animation:none}
