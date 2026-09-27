@@ -16,9 +16,13 @@
 //
 // once unfolded, the ticket keeps a crease: the board's creased flag
 // (server-testing.test.cjs) puts creased on the row, never beside the fold,
-// and one rule draws it where the fold was. checked here are the class on each
-// surface, the repaint, and the rule's place, layer and shape as each sheet
-// states them. how it looks is not checked; nothing here can see it.
+// and two layers draw it where the fold was. checked here are the class on
+// each surface, the repaint, and the layers as each sheet states them: where
+// they sit, that their images lie exactly on the fold's crease, the tones
+// across the crease on every ticket fill, the taper along it, the notches in
+// the edge, what each tuning number moves, and how the line and the ridge land
+// on device pixels at 1x, 2x and 3x. how it looks is not checked; nothing here
+// can see it.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const fs = require("node:fs");
@@ -458,132 +462,376 @@ function custom(css, name, rowSelectors) {
   for (const sel of [":root", ...rowSelectors]) if (style(css, sel)[name] != null) v = style(css, sel)[name];
   return v;
 }
-function args(value, name) {
-  const at = value.indexOf(name + "(");
-  assert.ok(at >= 0, `no ${name}() in ${value}`);
+// split a value at its top-level separators, keeping every (...) whole
+function splitTop(value, sep = ",") {
   const out = [];
   let depth = 0, cur = "";
-  for (const c of value.slice(at + name.length + 1)) {
+  for (const c of value) {
     if (c === "(") depth++;
-    if (c === ")") { if (depth === 0) break; depth--; }
-    if (c === "," && depth === 0) { out.push(cur.trim()); cur = ""; } else cur += c;
+    if (c === ")") depth--;
+    if (c === sep && depth === 0) { if (cur.trim()) out.push(cur.trim()); cur = ""; } else cur += c;
   }
-  out.push(cur.trim());
+  if (cur.trim()) out.push(cur.trim());
   return out;
 }
-// one length term as px: percentages of `whole` and var(--edge-drawn) worked out
-function measure(term, whole, drawn) {
-  const t = term.replace(/var\(--edge-drawn\)/g, drawn + "px")
-    .replace(/([\d.]+)%/g, (_, n) => String(Number(n) / 100 * whole) + "px")
-    .replace(/calc/g, "").replace(/px/g, "");
-  assert.match(t, /^[\d\s.+\-*/()]+$/, `an unexpected length term: ${term}`);
+// the inside of the first name(...) in a value, and where that call ends
+function inner(value, name) {
+  const at = value.indexOf(name + "(");
+  assert.ok(at >= 0, `no ${name}() in ${value}`);
+  let depth = 0;
+  for (let i = at + name.length; i < value.length; i++) {
+    if (value[i] === "(") depth++;
+    if (value[i] === ")" && --depth === 0) return { body: value.slice(at + name.length + 1, i), end: i + 1 };
+  }
+  assert.fail(`${name}() is not closed in ${value}`);
+}
+// a value as the browser works it out: every var() swapped for the value
+// given, then calc(), min(), px, and percentages of `whole`
+function evaluate(expr, vars, whole = 0) {
+  let t = String(expr);
+  for (let i = 0; i < 8 && t.includes("var(--"); i++)
+    t = t.replace(/var\((--[\w-]+)\)/g, (_, n) => { assert.ok(n in vars, `${n} has no value in ${expr}`); return "(" + vars[n] + ")"; });
+  t = t.replace(/(\d*\.?\d+)%/g, (_, n) => "(" + Number(n) / 100 * whole + ")")
+    .replace(/(\d)px\b/g, "$1").replace(/\bcalc\(/g, "(").replace(/\bmin\(/g, "Math.min(");
+  assert.match(t.replace(/Math\.min/g, ""), /^[\d\s.+\-*/(),e]+$/, `an unexpected value: ${expr}`);
   return Function(`return (${t});`)();
 }
-// a linear-gradient() as its direction and stops, each stop's colour with any
-// var() read off the rule's own declarations, and its place in px along a line
-// of the given length
-function gradient(decls, prop, length, drawn) {
-  const [direction, ...stops] = args(decls[prop], "linear-gradient");
-  return {
-    direction,
-    stops: stops.map(s => {
-      const m = /^(var\(--[\w-]+\)|#[0-9a-f]{3,8}|rgba?\([^)]*\))\s*(.*)$/i.exec(s);
-      assert.ok(m, `an unexpected gradient stop: ${s}`);
-      const name = /^var\((--[\w-]+)\)$/.exec(m[1]);
-      const colour = name ? decls[name[1]] : m[1];
-      assert.ok(colour, `${m[1]} is not set on the rule`);
-      return { colour: colour.replace(/\s+/g, ""), at: m[2] ? measure(m[2], length, drawn) : null };
-    }),
-  };
-}
-const rgba = v => {
-  const m = /^rgba?\(([^)]*)\)$/.exec(v);
-  assert.ok(m, `not an rgb colour: ${v}`);
-  const [r, g, b, a = 1] = m[1].split(",").map(Number);
-  return { rgb: [r, g, b], a };
+const HEX = h => {
+  h = h.replace("#", "");
+  if (h.length === 3) h = [...h].map(c => c + c).join("");
+  return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16));
 };
-const near = (a, b, what) => assert.ok(Math.abs(a - b) < 1e-6, `${what}: ${a} is not ${b}`);
+// a colour as its channels and its alpha, worked out
+function colourOf(c, vars) {
+  if (c === "transparent") return { rgb: [0, 0, 0], a: 0 };
+  if (c.startsWith("#")) return { rgb: HEX(c), a: 1 };
+  if (c.startsWith("rgb(")) {
+    const [chan, alpha] = inner(c, "rgb").body.split("/");
+    return { rgb: chan.trim().split(/\s+/).map(Number), a: alpha == null ? 1 : evaluate(alpha.trim(), vars) };
+  }
+  if (c.startsWith("color-mix(")) {
+    const [space, first, second] = splitTop(inner(c, "color-mix").body);
+    assert.equal(space, "in srgb");
+    assert.equal(second, "transparent", "the mix is not its colour thinned");
+    const [base, share] = splitTop(first, " ");
+    const name = /^var\((--[\w-]+)\)$/.exec(base);
+    return { rgb: HEX(name ? vars[name[1]] : base), a: evaluate(share, vars, 100) / 100, base };
+  }
+  assert.fail(`an unexpected colour: ${c}`);
+}
+// a gradient stop as its colour and the rest (its place)
+function stopOf(s, vars, length) {
+  let colour = s.split(/\s+/)[0];
+  for (const fn of ["rgb", "color-mix"]) if (s.startsWith(fn + "(")) colour = s.slice(0, inner(s, fn).end);
+  const at = s.slice(colour.length).trim();
+  return { ...colourOf(colour, vars), at: at ? evaluate(at, vars, length) : null };
+}
+// a linear-gradient() as its direction and stops, each placed in px along a
+// gradient line of the given length
+function linear(value, vars, length) {
+  const [direction, ...stops] = splitTop(inner(value, "linear-gradient").body);
+  return { direction, stops: stops.map(s => stopOf(s, vars, length)) };
+}
+// premultiplied colour at t px along a gradient line, as the browser mixes it:
+// a stop placed before the one ahead of it is moved up to it
+function sample(stops, t) {
+  const pm = s => [...s.rgb.map(v => v * s.a), s.a];
+  let last = -Infinity;
+  const pos = stops.map(s => (last = Math.max(last, s.at)));
+  if (t <= pos[0]) return pm(stops[0]);
+  for (let i = 1; i < stops.length; i++) if (t <= pos[i]) {
+    const f = pos[i] === pos[i - 1] ? 1 : (t - pos[i - 1]) / (pos[i] - pos[i - 1]);
+    const a = pm(stops[i - 1]), b = pm(stops[i]);
+    return a.map((v, k) => v + (b[k] - v) * f);
+  }
+  return pm(stops.at(-1));
+}
+// a premultiplied layer laid over a solid colour
+const over = (under, [r, g, b, a]) => under.map((v, k) => v * (1 - a) + [r, g, b][k]);
+const light = ([r, g, b]) => .299 * r + .587 * g + .114 * b;
+// "right Xpx top Ypx" as the two offsets
+function edgeOffsets(value) {
+  const m = /^right (-?[\d.]+)px top (-?[\d.]+)px$/.exec(value);
+  assert.ok(m, `not placed from the top right: ${value}`);
+  return { right: Number(m[1]), top: Number(m[2]) };
+}
 
 const styleOf = html => [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(m => m[1]).join("\n");
 const TOKENS = read("card-tokens.css");
 // each page's own sheet, then the shared one where the page links it
 const SHEETS = { desktop: styleOf(HTML.desktop) + "\n" + TOKENS, phone: styleOf(HTML.phone) + "\n" + TOKENS, page: styleOf(HTML.page) };
-const CREASE = ".trow.creased > .trowin::after";
+const PAPER = ".trow.creased > .trowin::before", HINGE = ".trow.creased > .trowin::after";
+const BOTH = ".trow.creased > .trowin::before, .trow.creased > .trowin::after";
+const TUNING = ["--crease-strength", "--crease-width", "--crease-raise", "--crease-light", "--crease-notch"];
+// every ticket fill the crease can lie on
+const FILLS = { plain: "#fff", "your turn": "#FFFBEB", working: "#F3FFF0", queued: "#F7F7F7" };
+const W = 300;   // a row's border box width; the crease is read from its top right
 
-test("the crease is one layer nothing else draws on, laid on the square the fold lay on, inside the ticket's edge", () => {
+// the crease on one sheet for one fold and one drawn edge, with any tuning
+// swapped in. d is px across the crease from the fold's diagonal, positive
+// toward the ticket and negative toward the corner's tip; s is px along it
+// from its middle, positive toward the right edge
+function creaseOf(css, fold, drawn, tune = {}) {
+  const row = style(css, ".trow.creased");
+  const vars = { "--fold": fold + "px", "--edge-drawn": drawn + "px", "--line": custom(css, "--line", []),
+    ...Object.fromEntries(TUNING.map(n => [n, row[n]])), ...tune };
+  const paper = style(css, PAPER), hinge = style(css, HINGE);
+  const box = evaluate(paper.width, vars);
+  const [topNotch, rightNotch, shade] = splitTop(paper["background-image"]);
+  const side = evaluate(splitTop(splitTop(paper["background-size"])[2], " ")[0], vars);
+  const across = side * Math.SQRT2;
+  const shades = linear(shade, vars, across), lines = linear(hinge["background-image"], vars, across);
+  const { body, end } = inner(hinge.mask, "linear-gradient");
+  const along = linear(hinge.mask.slice(0, end), vars, across);
+  const notch = r => {
+    const [shape, ...stops] = splitTop(inner(r, "radial-gradient").body);
+    const [size, place] = shape.split(" at ");
+    const [rx, ry] = splitTop(size, " ").map(v => evaluate(v, vars));
+    const [px, py] = splitTop(place, " ");
+    // the centre in the row's border box: the layer's left edge is W less its width
+    return { rx, ry, x: W - box + evaluate(px, vars, box), y: evaluate(py, vars, box), stops: stops.map(s => stopOf(s, vars, 1)) };
+  };
+  return {
+    vars, box, side, across, shades, lines, along, mask: hinge.mask.slice(end).trim(), body,
+    notches: [notch(topNotch), notch(rightNotch)],
+    paper: d => sample(shades.stops, across / 2 + d),
+    hinge: d => sample(lines.stops, across / 2 + d),
+    taper: s => sample(along.stops, across / 2 + s)[3],
+    // the two layers over one fill, at the middle of the crease's length
+    on: (fill, d, s = 0) => {
+      const h = sample(lines.stops, across / 2 + d), t = sample(along.stops, across / 2 + s)[3];
+      return over(over(HEX(fill), sample(shades.stops, across / 2 + d)), h.map(v => v * t));
+    },
+  };
+}
+
+test("the crease is two layers only the fold also uses, anchored where the fold's layers are, inside the ticket's edge", () => {
+  const allowed = [".trow.testc > .trowin::before", PAPER, HINGE];
   for (const [where, css] of Object.entries(SHEETS)) {
     const rules = rulesOf(css);
-    // no other rule touches the row's .trowin::after, so the crease never meets
-    // the working shimmer, the omni light or the fold, which draw elsewhere
-    for (const r of rules) if (/trowin::?after/.test(r.sel))
-      assert.deepEqual(r.sels, [CREASE], `${where}: ${r.sel} draws on the crease's layer`);
-    // the creased row names its fold's size and nothing more: it keeps the
-    // ticket's own fill, edge, shade and hidden overflow, which is what keeps
-    // the crease inside the ticket's edge and rounded corner
+    // the row's .trowin layers are the fold's contact shade and the crease's
+    // two, and nothing else's: never the working shimmer or the omni light,
+    // which draw on the row's own
+    for (const r of rules) for (const s of r.sels) if (/trowin::?(before|after)/.test(s))
+      assert.ok(allowed.includes(s), `${where}: ${s} draws on a layer the fold or the crease owns`);
+    // the creased row names its tuning (and on the typed page its fold) and
+    // nothing more: it keeps the ticket's own fill, edge, shade and hidden
+    // overflow, which is what keeps the crease inside the edge and the corner
     for (const r of rules) if (r.sels.includes(".trow.creased"))
-      for (const [p] of declsOf(r.body)) assert.equal(p, "--fold", `${where}: the creased row sets ${p}`);
+      for (const [p] of declsOf(r.body)) assert.ok(p === "--fold" || TUNING.includes(p), `${where}: the creased row sets ${p}`);
+    assert.deepEqual(Object.keys(style(css, ".trow.creased")).filter(p => p !== "--fold").sort(), [...TUNING].sort());
     assert.equal(style(css, ".trow").overflow, "hidden");
-    // the crease square is the fold's own, placed on the border box as the
-    // flap and the hole are
-    const layer = style(css, CREASE), flap = style(css, ".trow.testc::after");
-    assert.equal(layer.content, '""');
-    assert.equal(layer.position, "absolute");
-    assert.equal(layer["box-sizing"], "border-box");
-    assert.equal(layer["pointer-events"], "none", "the crease takes clicks meant for the row");
-    for (const p of ["top", "right", "width", "height"]) assert.equal(layer[p], flap[p], `${where}: the crease's ${p} is not the fold's`);
-    // paint and nothing else: no edge, shadow, cut, filter or lift of its own
-    for (const p of ["border", "border-left", "border-bottom", "box-shadow", "clip-path", "filter", "z-index", "transform", "opacity"])
-      assert.equal(layer[p], undefined, `${where}: the crease sets ${p}`);
+    const flap = style(css, ".trow.testc::after");
+    for (const sel of [PAPER, HINGE]) {
+      const layer = style(css, sel);
+      assert.equal(layer.content, '""');
+      assert.equal(layer.position, "absolute");
+      assert.equal(layer["box-sizing"], "border-box");
+      assert.equal(layer["pointer-events"], "none", "the crease takes clicks meant for the row");
+      assert.equal(layer["background-repeat"], "no-repeat");
+      // on the border box's top right, where the flap and the hole are, and
+      // 6px past the fold's square to the left and below
+      for (const p of ["top", "right"]) assert.equal(layer[p], flap[p], `${where}: the crease's ${p} is not the fold's`);
+      assert.equal(layer.width, "calc(var(--fold) + 6px)");
+      assert.equal(layer.height, "calc(var(--fold) + 6px)");
+      // paint and nothing else: no edge, shadow, cut, filter, blend or lift of its own
+      for (const p of ["border", "border-left", "border-bottom", "box-shadow", "clip-path", "filter", "z-index", "transform", "opacity", "mix-blend-mode"])
+        assert.equal(layer[p], undefined, `${where}: the crease sets ${p}`);
+    }
     // on every surface a creased row's square is its folded row's size
     assert.equal(custom(css, "--fold", [".trow", ".trow.creased"]), custom(css, "--fold", [".trow", ".trow.testc"]),
       `${where}: the crease's square is not the fold's size`);
   }
   assert.equal(custom(SHEETS.phone, "--fold", [".trow", ".trow.creased"]), "12px");
   // the typed page does not load card-tokens.css and keeps its own copy
-  assert.deepEqual(style(SHEETS.page, CREASE), style(TOKENS, CREASE), "the typed page's crease drifted from card-tokens.css");
+  for (const sel of [PAPER, HINGE])
+    assert.deepEqual(style(SHEETS.page, sel), style(TOKENS, sel), `the typed page's ${sel} drifted from card-tokens.css`);
+  const { "--fold": fold, ...tuning } = style(SHEETS.page, ".trow.creased");
+  assert.equal(fold, "16px");
+  assert.deepEqual(tuning, style(TOKENS, ".trow.creased"), "the typed page's crease tuning drifted from card-tokens.css");
 });
 
-test("the crease is a line along the fold's crease, a shade on the folded side and a light on the ticket's", () => {
-  const layer = style(TOKENS, CREASE);
-  const hole = style(TOKENS, ".trow.testc > .trowin::before");
-  const foldCrease = /#([0-9a-f]{6})/i.exec(style(TOKENS, ".trow.testc::after").background)[1];
-  const creaseRgb = [0, 2, 4].map(i => parseInt(foldCrease.slice(i, i + 2), 16));
-  for (const fold of [16, 12]) for (const drawn of [1, .5, 2 / 3]) {
-    const diag = fold * Math.SQRT2, mid = diag / 2, at = `${fold}px at a ${drawn}px edge`;
-    // the hole's contact shade, the fold's own shade on the corner side
-    const contact = gradient(hole, "background", diag, drawn).stops;
-    const reach = contact[1].at - contact[0].at, deepest = rgba(contact[0].colour).a;
-    const { direction, stops } = gradient(layer, "background", diag, drawn);
-    assert.equal(direction, "to bottom left", "the crease does not run across the square from the corner");
-    for (let i = 0; i < stops.length; i++) {
-      assert.ok(stops[i].at >= 0 && stops[i].at <= diag, `${at}: a stop falls off the square`);
-      if (i) assert.ok(stops[i].at >= stops[i - 1].at, `${at}: the stops run backwards`);
+test("every image of the crease lies on the fold's own crease, its centre the crease's middle, and covers its layer", () => {
+  const cut = style(TOKENS, ".trow.testc::before")["clip-path"];
+  const H = 64;
+  for (const [where, css] of Object.entries(SHEETS)) {
+    const paper = style(css, PAPER), hinge = style(css, HINGE);
+    assert.equal(hinge["-webkit-mask"], hinge.mask, `${where}: the prefixed mask is not the mask`);
+    const maskRest = hinge.mask.slice(inner(hinge.mask, "linear-gradient").end).trim();
+    const [maskPlace, maskSize] = maskRest.replace(/ no-repeat$/, "").split(" / ");
+    const images = {
+      "the paper's shades": [splitTop(paper["background-size"])[2], splitTop(paper["background-position"])[2]],
+      "the hinge": [hinge["background-size"], hinge["background-position"]],
+      "the taper": [maskSize, maskPlace],
+    };
+    assert.deepEqual(splitTop(paper["background-position"]).slice(0, 2), ["0 0", "0 0"], "the notches are not placed on the layer");
+    for (const fold of [16, 12]) {
+      const vars = { "--fold": fold + "px" };
+      // the fold's crease: the two points where its cut meets the top and the right edge
+      const [a, b] = splitTop(inner(cut, "polygon").body).slice(1, 3)
+        .map(p => splitTop(p, " ")).map(([x, y]) => [evaluate(x, vars, W), evaluate(y, vars, H)]);
+      assert.deepEqual([a, b], [[W - fold, 0], [W, fold]], "the fold's crease is not where it was");
+      const onCrease = ([x, y]) => Math.abs((b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0])) < 1e-9;
+      const box = evaluate(paper.width, vars);
+      for (const [what, [size, place]] of Object.entries(images)) {
+        const [w, h] = splitTop(size, " ").map(v => evaluate(v, vars));
+        assert.equal(w, h, `${what} is not square, so its diagonal is not at 45 degrees`);
+        const { right, top } = edgeOffsets(place);
+        const x1 = W - right, x0 = x1 - w, y0 = top, y1 = top + w;
+        assert.ok(onCrease([x0, y0]) && onCrease([x1, y1]), `${where}, ${fold}px: ${what}'s diagonal is not the fold's crease`);
+        assert.ok(Math.abs((x0 + x1) / 2 - (a[0] + b[0]) / 2) < 1e-9 && Math.abs((y0 + y1) / 2 - (a[1] + b[1]) / 2) < 1e-9,
+          `${where}, ${fold}px: ${what} is not centred on the crease's middle`);
+        assert.ok(x0 <= W - box && x1 >= W && y0 <= 0 && y1 >= box, `${where}, ${fold}px: ${what} leaves part of its layer bare`);
+      }
     }
-    // the line: the fold's crease colour, partly clear, solid from the crease
-    // for half a drawn edge and ramping in and out over half a drawn edge each
-    const line = stops.map((s, i) => [s, i]).filter(([s]) => s.colour === layer["--crease-line"].replace(/\s+/g, ""));
-    assert.equal(line.length, 2, `${at}: the line is not one solid run`);
-    const [[from, i0], [to, i1]] = line;
-    near(from.at, mid, `${at}: the line does not start on the crease`);
-    near(to.at - from.at, drawn / 2, `${at}: the line's solid part`);
-    near(from.at - stops[i0 - 1].at, drawn / 2, `${at}: the line's ramp in`);
-    near(stops[i1 + 1].at - to.at, drawn / 2, `${at}: the line's ramp out`);
-    const ink = rgba(from.colour);
-    assert.deepEqual(ink.rgb, creaseRgb, "the line is not the fold's crease colour");
-    assert.ok(ink.a > 0 && ink.a < 1, "the line is not quieter than the fold's crease");
-    // the folded side: the board's shade ink, no deeper than the hole's shade
-    // and gone within its reach
-    const before = stops.slice(0, i0);
-    assert.equal(rgba(before[0].colour).a, 0, `${at}: the shade has no soft start`);
-    for (const s of before) {
-      assert.deepEqual(rgba(s.colour).rgb, rgba(contact[0].colour).rgb, "the shade is not the board's shade ink");
-      assert.ok(rgba(s.colour).a <= deepest, "the shade is deeper than the fold's own");
-      assert.ok(s.at >= mid - reach - 1e-6, `${at}: the shade reaches past the fold's`);
-    }
-    // the ticket's side: white, gone within three drawn edges of the crease
-    const after = stops.slice(i1 + 1);
-    for (const s of after) assert.deepEqual(rgba(s.colour).rgb, [255, 255, 255], "the light is not white");
-    assert.equal(rgba(after.at(-1).colour).a, 0, `${at}: the light has no soft end`);
-    assert.ok(after.at(-1).at <= mid + 3 * drawn + 1e-6, `${at}: the light spreads wider than a hairline`);
   }
+});
+
+test("across the crease, on every ticket fill: the raised corner's tint, a shade into the valley, the line, a bright ridge, a soft fall, then the ticket untouched", () => {
+  const contact = Number(/rgba\(60,45,20,([\d.]+)\)/.exec(style(TOKENS, ".trow.testc > .trowin::before").background)[1]);
+  const foldInk = HEX(/#[0-9a-f]{6}/i.exec(style(TOKENS, ".trow.testc::after").background)[0]);
+  for (const fold of [16, 12]) for (const drawn of [1, .5, 2 / 3]) {
+    const c = creaseOf(TOKENS, fold, drawn), at = `${fold}px at a ${drawn.toFixed(2)}px edge`;
+    assert.equal(c.shades.direction, "to bottom left");
+    assert.equal(c.lines.direction, "to bottom left");
+    // the shades are the board's shade ink; the line is the fold's own crease
+    // colour, far quieter than the fold; the ridge is white
+    for (const s of c.shades.stops) assert.deepEqual(s.rgb, [60, 45, 20], `${at}: a shade is not the board's shade ink`);
+    for (const s of c.lines.stops) assert.ok([foldInk.join(), "255,255,255"].includes(s.rgb.join()), `${at}: the hinge wears ${s.rgb}`);
+    const ink = Math.max(...c.lines.stops.filter(s => s.rgb.join() === foldInk.join()).map(s => s.a));
+    assert.ok(ink > .2 && ink < .5, `${at}: the line's strength ${ink} is not a quiet crease`);
+    const alpha = d => c.paper(d)[3];
+    // the corner that was folded keeps a tint across the whole of it, from its
+    // tip (fold / sqrt 2 out) to the crease: paler at the tip, deepening into
+    // the valley, and fainter than the fold's own contact shade away from it
+    const tip = -fold / Math.SQRT2, valley = -drawn;
+    assert.ok(alpha(tip) > 0, `${at}: the corner's tip has no tint`);
+    for (let d = tip; d + .05 <= valley + 1e-9; d += .05) assert.ok(alpha(d + .05) >= alpha(d) - 1e-12, `${at}: the tint lightens toward the crease at ${d}`);
+    assert.ok(alpha(tip) < alpha(-fold * .3), `${at}: the tip is not paler than the rest of the corner`);
+    assert.ok(alpha(-fold * .3) < contact, `${at}: the raised corner is deeper than the fold's own shade`);
+    assert.ok(alpha(valley) > alpha(-fold * .3) * 1.8, `${at}: the valley does not fall into shade`);
+    // the fall past the ridge is gone within its reach, and the ticket past it is untouched
+    const reach = drawn * 2.5 + fold * .08;
+    for (const d of [reach + 1e-6, reach + 1, reach + 8]) {
+      assert.equal(alpha(d), 0, `${at}: the paper is shaded ${d}px out on the ticket's side`);
+      assert.equal(c.hinge(d)[3], 0, `${at}: the hinge reaches ${d}px out`);
+    }
+    // the layer runs 6px past the square, far enough that the fall near each
+    // end of the crease fades out before the layer's own edge could cut it
+    // square: at the first line under the top edge, the layer's left edge is
+    // (drawn + 6) / sqrt 2 out from the crease
+    assert.ok((drawn + (c.box - fold)) / Math.SQRT2 >= reach, `${at}: the fall is cut off by the layer's edge`);
+    for (const [name, fill] of Object.entries(FILLS)) {
+      const L = d => light(c.on(fill, d));
+      const base = light(HEX(fill)), line = L(0), ridge = L(drawn * 1.5), fall = L(drawn * 2.5 + .25);
+      // the line is the darkest place across the crease: nothing outside its
+      // drawn width, softened sides included, is as dark as its middle
+      for (let d = -fold; d <= reach + 1; d += .05)
+        if (Math.abs(d) > drawn + 1e-9) assert.ok(L(d) > line - 1e-9, `${at} on ${name}: ${d}px is darker than the line`);
+      // the ridge is brighter than the line and than the fall just past it: on
+      // a white ticket that is all a white ridge can be
+      assert.ok(ridge > line + 25, `${at} on ${name}: the ridge does not stand out from the line`);
+      assert.ok(ridge > fall + 3, `${at} on ${name}: the ridge does not stand out from the fall past it`);
+      // the corner reads darker than the ticket beside it, and the ticket
+      // past the fall is its own fill
+      assert.ok(L(-fold * .3) < base - 1.5, `${at} on ${name}: the raised corner has no tone of its own`);
+      assert.ok(Math.abs(L(reach + 1) - base) < 1e-9, `${at} on ${name}: the ticket past the crease is not its own fill`);
+    }
+  }
+});
+
+test("along the crease the line and the ridge taper toward both edges, and each edge is notched where the crease meets it", () => {
+  for (const fold of [16, 12]) for (const drawn of [1, .5, 2 / 3]) {
+    const c = creaseOf(TOKENS, fold, drawn), at = `${fold}px at a ${drawn.toFixed(2)}px edge`;
+    assert.equal(c.along.direction, "to bottom right", "the taper does not run along the crease");
+    for (const s of c.along.stops) assert.deepEqual(s.rgb, [0, 0, 0]);
+    // full over the middle half of the crease, down to .45 at its two ends,
+    // the same both ways: it tapers and never vanishes
+    const half = fold / Math.SQRT2;
+    assert.ok(Math.abs(c.taper(0) - 1) < 1e-9 && Math.abs(c.taper(half * .49) - 1) < 1e-9, `${at}: the middle is not full`);
+    for (const s of [half, -half]) assert.ok(Math.abs(c.taper(s) - .45) < 1e-9, `${at}: an end is not .45`);
+    for (let s = 0; s <= half; s += .1) {
+      assert.ok(Math.abs(c.taper(s) - c.taper(-s)) < 1e-9, `${at}: the taper is lopsided at ${s}`);
+      assert.ok(c.taper(s + .1) <= c.taper(s) + 1e-12, `${at}: the taper rises toward the end at ${s}`);
+    }
+    // the notches: one where the crease crosses the inside of the top edge,
+    // one where it crosses the inside of the right edge, each longer along its
+    // edge than across it and no more than a couple of drawn edges in size
+    const [top, right] = c.notches;
+    const onCrease = ({ x, y }) => Math.abs(y - (x - (W - fold))) < 1e-9;
+    assert.ok(Math.abs(top.x - (W - fold + drawn)) < 1e-9 && Math.abs(top.y - drawn) < 1e-9, `${at}: the top notch is off the edge`);
+    assert.ok(Math.abs(right.x - (W - drawn)) < 1e-9 && Math.abs(right.y - (fold - drawn)) < 1e-9, `${at}: the right notch is off the edge`);
+    assert.ok(onCrease(top) && onCrease(right), `${at}: a notch is not on the crease`);
+    assert.ok(top.rx > top.ry && right.ry > right.rx, `${at}: a notch does not lie along its edge`);
+    for (const n of [top, right]) {
+      assert.ok(Math.max(n.rx, n.ry) <= drawn * 2 + 1e-9, `${at}: a notch is wider than a kink`);
+      // in the edge's own grey, thinned, fading out
+      assert.equal(n.stops[0].base, "var(--line)", "a notch is not the edge's grey");
+      assert.deepEqual(n.stops[0].rgb, HEX("#CACACA"));
+      assert.ok(Math.abs(n.stops[0].a - .7) < 1e-9);
+      assert.equal(n.stops.at(-1).a, 0, "a notch does not fade out");
+    }
+  }
+});
+
+test("at 1x, 2x and 3x the line and the ridge land on device pixels without breaking up", () => {
+  // a gradient's colour is taken at pixel centres, and across a 45 degree line
+  // those lie 1/sqrt(2) of a device pixel apart. wherever the crease falls among
+  // them, some centre lands on the line at nearly its full strength and one on
+  // the ridge at its full light, at every width the mock offers
+  const part = (stops, rgb) => stops.map(s => ({ ...s, a: s.rgb.join() === rgb.join() ? s.a : 0, rgb }));
+  for (const [dppx, drawn] of [[1, 1], [2, .5], [3, 2 / 3]]) for (const width of [.5, 1, 2, 3]) {
+    const c = creaseOf(TOKENS, 16, drawn, { "--crease-width": String(width) });
+    const ink = part(c.lines.stops, [173, 157, 127]), lit = part(c.lines.stops, [255, 255, 255]);
+    const inkFull = Math.max(...ink.map(s => s.a)), litFull = Math.max(...lit.map(s => s.a));
+    const step = 1 / dppx / Math.SQRT2;
+    for (let k = 0; k < 24; k++) {
+      const centres = Array.from({ length: 121 }, (_, n) => (k / 24) * step + (n - 60) * step);
+      const at = `${dppx}x, width ${width}, offset ${(k / 24).toFixed(2)}`;
+      assert.ok(Math.max(...centres.map(d => sample(ink, c.across / 2 + d)[3])) >= inkFull * .75, `${at}: the line breaks up`);
+      assert.ok(Math.max(...centres.map(d => sample(lit, c.across / 2 + d)[3])) >= litFull * .999, `${at}: the ridge breaks up`);
+    }
+  }
+});
+
+test("the crease's five numbers each move their own part and nothing else", () => {
+  const base = creaseOf(TOKENS, 16, .5);
+  const tuned = tune => creaseOf(TOKENS, 16, .5, tune);
+  const grid = Array.from({ length: 400 }, (_, i) => -12 + i * .05);
+  const inkOf = c => Math.max(...c.lines.stops.filter(s => s.rgb[0] === 173).map(s => s.a));
+  const litOf = c => Math.max(...c.lines.stops.filter(s => s.rgb[0] === 255).map(s => s.a));
+  assert.deepEqual(TUNING.map(n => style(TOKENS, ".trow.creased")[n]), ["1", "1", "1", ".85", ".7"]);
+  // strength 0: no line, ridge, valley shade, fall or notch; the raised corner
+  // keeps its tint, which ends across the line's own width at the crease
+  const none = tuned({ "--crease-strength": "0" });
+  for (const d of grid) {
+    assert.equal(none.hinge(d)[3], 0, `a hinge is left at ${d}`);
+    if (d >= .5) assert.equal(none.paper(d)[3], 0, `a fall is left at ${d}`);
+    else assert.ok(none.paper(d)[3] <= .045 + 1e-12, `the valley keeps its shade at ${d}`);
+  }
+  assert.ok(Math.abs(none.paper(-1)[3] - .045) < 1e-9 && none.paper(0)[3] < .03, "the corner's tint does not end at the crease");
+  assert.ok(none.notches.every(n => n.stops[0].a === 0), "a notch is left");
+  // raise 0: the corner loses its tint, the valley keeps its shade
+  const flat = tuned({ "--crease-raise": "0" });
+  assert.equal(flat.paper(-16 * .4)[3], 0, "the corner keeps a tint");
+  assert.ok(flat.paper(-.5)[3] > .05, "the valley lost its shade with the corner's tint");
+  assert.deepEqual(flat.lines.stops, base.lines.stops, "raise moved the hinge");
+  // light 0: no ridge, the line as it was
+  const dim = tuned({ "--crease-light": "0" });
+  assert.equal(litOf(dim), 0);
+  assert.equal(inkOf(dim), inkOf(base));
+  assert.deepEqual(dim.shades.stops, base.shades.stops, "light moved the shades");
+  // width 2: the line's solid core is two drawn edges, the ridge still one
+  const wide = tuned({ "--crease-width": "2" });
+  const core = c => { const s = c.lines.stops; return s[2].at - s[1].at; };
+  const ridge = c => { const s = c.lines.stops; return s[4].at - s[3].at; };
+  assert.ok(Math.abs(core(base) - .5) < 1e-9 && Math.abs(core(wide) - 1) < 1e-9, "the line's width is not in drawn edges");
+  assert.ok(Math.abs(ridge(base) - .5) < 1e-9 && Math.abs(ridge(wide) - .5) < 1e-9, "the ridge's width moved with the line's");
+  // notch 0: no notch, all else as it was
+  const clean = tuned({ "--crease-notch": "0" });
+  assert.ok(clean.notches.every(n => n.stops[0].a === 0), "a notch is left");
+  assert.deepEqual(clean.lines.stops, base.lines.stops);
+  assert.deepEqual(clean.shades.stops, base.shades.stops);
+  // strength 2 cannot push a notch past the edge's own grey
+  assert.ok(tuned({ "--crease-strength": "2" }).notches.every(n => n.stops[0].a <= 1), "a notch is deeper than the edge");
 });
