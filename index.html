@@ -3829,10 +3829,18 @@
     transition:color .18s}
   body.focus #homeico::after{content:""; position:absolute; inset:-6px}
   body.focus #homeico:hover, body.focus.home #homeico{color:var(--ink)}
+  /* the home box is seated where the new-project landing is, centred across
+     the window and 44% down the room under the bar, which on the board's
+     1440 by 900 stage is the middle column the conversation card stands in.
+     582px is the charts' 540 units at one to one plus the panel's sides, about
+     582 by 410 in all; a narrower window gives it its width less 32px a side,
+     and a shorter one shrinks it until the whole box fits under the bar with
+     room to spare (160px is the panel's own 100 of heading, foot and padding
+     plus 30 above and below) */
   #home{display:none}
   body.focus.home #home{display:block; position:fixed; z-index:5; left:50%;
-    transform:translateX(-50%); top:calc(var(--bar-h) + 7vh);
-    width:min(840px, calc(100vw - 64px))}
+    top:calc(var(--bar-h) + (100vh - var(--bar-h)) * .44); transform:translate(-50%, -50%);
+    width:min(582px, calc(100vw - 64px), calc((100vh - var(--bar-h) - 160px) * 540 / 310 + 42px))}
   body.focus.home #stage{visibility:hidden; opacity:0; pointer-events:none}
   body.focus.home #editbtn{visibility:hidden}
   /* on-canvas edit mode: the bar's pencil toggles it; boxes then drag with no

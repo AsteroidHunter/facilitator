@@ -2,14 +2,17 @@
 // ways from one reading of GET /tokens/daily, and the panel that holds them.
 //
 //   heatmap  a year as 53 week columns of 7 day squares, Sunday on top, the way
-//            a contribution graph is drawn. One square per day of the last
+//            a contribution graph is drawn, but folded into two rows read like
+//            two lines of text: the older 26 weeks on top, the latest 27 under
+//            them, so the year fits a box that is taller than it is long
+//            without shrinking its squares. One square per day of the last
 //            365, a red-orange scale from light to deep by where the day
 //            falls among the year's active days (quartiles), a faint warm
-//            grey for a day with none, month names over the columns, a total
+//            grey for a day with none, month names over each row, a total
 //            for the year and a hover tip with the day and its count
-//   line     the same days as one line: each day's trailing 7-day average,
-//            since single days jump between nothing and a great deal. The
-//            tip names the day's own count beside the average
+//   line     the same days as one line in the same box: each day's trailing
+//            7-day average, since single days jump between nothing and a
+//            great deal. The tip names the day's own count beside the average
 //   panel    one rectangle holding one of the two at a time and a two-way
 //            pill to switch them; the choice is remembered in this browser
 //
@@ -19,9 +22,15 @@
 // models under it are plain data, which is what the tests hold them to.
 // Nothing here fetches except the panel, and only /tokens/daily.
 (function () {
-  const WEEKS = 53, CELL = 11, GAP = 3, STEP = CELL + GAP;
-  const LEFT = 30, TOP = 18;                    // room for the day and month names
-  const GRID_W = LEFT + WEEKS * STEP - GAP, GRID_H = TOP + 7 * STEP - GAP;
+  // the box both charts are drawn to, in its own units, which the panel shows
+  // at about one to one: 540 across and 310 down, the two rows of weeks and a
+  // band between them. home-widgets.css holds the same ratio for the wait
+  const WEEKS = 53, CELL = 16, GAP = 3, STEP = CELL + GAP;
+  const ROW_WEEKS = Math.ceil(WEEKS / 2);        // 27, the latest row; the older one holds 26
+  const SPLIT = WEEKS - ROW_WEEKS;               // the first week of the second row
+  const LEFT = 30, TOP = 18;                     // room for the day and month names
+  const ROW_H = TOP + 7 * STEP - GAP, ROW_GAP = 14;
+  const GRID_W = LEFT + ROW_WEEKS * STEP - GAP, GRID_H = 2 * ROW_H + ROW_GAP;
   // the scale: a warm grey for nothing, then four red-oranges, light to deep
   const PALETTE = ["#EEEAE4", "#FCD8C2", "#F7A67C", "#EC6B3C", "#C9401B"];
   const LINE = "#E0592B";
@@ -84,24 +93,33 @@
   }
 
   // ---- the heatmap ---------------------------------------------------------
+  // col is the week's place in the whole year, 0 to 52; band is the row of
+  // weeks it is drawn in, and at is its column within that row
   function heatmapModel(days) {
     const year = days.slice(-YEAR);
     const sc = scale(year.map(d => d.total));
     const lead = year.length ? parts(year[0].date).weekday : 0;
     const cells = year.map((d, i) => {
       const col = Math.floor((lead + i) / 7), row = (lead + i) % 7;
-      return { i, date: d.date, total: d.total, col, row, level: sc.level(d.total),
-               fill: sc.colour(d.total), x: LEFT + col * STEP, y: TOP + row * STEP };
+      const band = col < SPLIT ? 0 : 1, at = band ? col - SPLIT : col;
+      return { i, date: d.date, total: d.total, col, row, band, at, level: sc.level(d.total),
+               fill: sc.colour(d.total), x: LEFT + at * STEP, y: band * (ROW_H + ROW_GAP) + TOP + row * STEP };
     });
-    // a month is named over the column its first day falls in, and the
-    // partial month the year starts in only when the next name leaves room
+    // in each row a month is named over the column its first day falls in,
+    // and the partial month the row starts in only when the next name leaves
+    // room, so each row can be read without the one above it
     const months = [];
-    for (const c of cells) {
-      const p = parts(c.date);
-      if (p.d === 1 && c.col <= WEEKS - 2) months.push({ col: c.col, label: MONTHS[p.m - 1] });
+    for (const band of [0, 1]) {
+      const inRow = cells.filter(c => c.band === band);
+      if (!inRow.length) continue;
+      const width = band ? ROW_WEEKS : SPLIT;
+      const named = inRow.filter(c => parts(c.date).d === 1 && c.at <= width - 2)
+        .map(c => ({ band, at: c.at, label: MONTHS[parts(c.date).m - 1] }));
+      const first = parts(inRow[0].date);
+      if (first.d !== 1 && (!named.length || named[0].at >= 3))
+        named.unshift({ band, at: 0, label: MONTHS[first.m - 1] });
+      months.push(...named);
     }
-    if (cells.length && (!months.length || months[0].col >= 3) && parts(cells[0].date).d !== 1)
-      months.unshift({ col: 0, label: MONTHS[parts(cells[0].date).m - 1] });
     return { cells, months, weeks: WEEKS, cuts: sc.cuts,
              total: year.reduce((s, d) => s + (d.total || 0), 0) };
   }
@@ -109,12 +127,13 @@
     const out = [`<svg class="tk-heat" viewBox="0 0 ${GRID_W} ${GRID_H}" role="img" ` +
                  `aria-label="${esc(compact(model.total))} tokens in the last year, one square per day">`];
     for (const m of model.months)
-      out.push(`<text class="tk-axis" x="${LEFT + m.col * STEP}" y="${TOP - 7}">${m.label}</text>`);
-    for (const [row, name] of [[1, "Mon"], [3, "Wed"], [5, "Fri"]])
-      out.push(`<text class="tk-axis" x="0" y="${TOP + row * STEP + CELL - 2}">${name}</text>`);
+      out.push(`<text class="tk-axis" x="${LEFT + m.at * STEP}" y="${m.band * (ROW_H + ROW_GAP) + TOP - 7}">${m.label}</text>`);
+    for (const band of [0, 1])
+      for (const [row, name] of [[1, "Mon"], [3, "Wed"], [5, "Fri"]])
+        out.push(`<text class="tk-axis" x="0" y="${band * (ROW_H + ROW_GAP) + TOP + row * STEP + CELL - 4}">${name}</text>`);
     for (const c of model.cells)
       out.push(`<rect class="tk-day" data-i="${c.i}" x="${c.x}" y="${c.y}" width="${CELL}" ` +
-               `height="${CELL}" rx="2" fill="${c.fill}"/>`);
+               `height="${CELL}" rx="3" fill="${c.fill}"/>`);
     out.push("</svg>");
     return out.join("");
   }
@@ -141,7 +160,7 @@
   // the line is drawn to the heatmap's own box, so the panel holds still when
   // the pill switches between them
   const LW = GRID_W, LH = GRID_H;
-  const PAD = { left: 38, right: 6, top: 8, bottom: 17 };
+  const PAD = { left: 38, right: 6, top: 10, bottom: 20 };
   // the trailing mean over each day and the six before it; the first days of
   // a reading shorter than a week average what there is
   function rolling(values, n = AVG) {
@@ -192,7 +211,7 @@
       out.push(`<text class="tk-axis" x="${box.left - 6}" y="${y + 3}" text-anchor="end">${compact(t)}</text>`);
     }
     for (const m of model.months)
-      out.push(`<text class="tk-axis" x="${m.x}" y="${LH - 3}">${m.label}</text>`);
+      out.push(`<text class="tk-axis" x="${m.x}" y="${LH - 5}">${m.label}</text>`);
     if (points.length) {
       out.push(`<path class="tk-area" d="${path}L${points.at(-1).x} ${base}L${points[0].x} ${base}Z" fill="url(#${fade})"/>`);
       out.push(`<path class="tk-path" d="${path}" fill="none" stroke="${LINE}"/>`);
@@ -347,7 +366,7 @@
   }
 
   window.TokenWidgets = {
-    PALETTE, LINE, YEAR, WEEKS, FETCH_DAYS,
+    PALETTE, LINE, YEAR, WEEKS, FETCH_DAYS, BOX: { width: GRID_W, height: GRID_H },
     compact, longDay, scale, rolling, niceTop,
     heatmapModel, heatmapSvg, heatTip, drawHeatmap,
     lineModel, lineSvg, lineTip, drawLine,
