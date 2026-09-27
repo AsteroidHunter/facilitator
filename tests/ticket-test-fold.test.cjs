@@ -6,7 +6,10 @@
 // class is seen landing on the ready-to-test row alone and on no other; each
 // surface's stylesheet is read so testc is seen drawing the fold and nothing
 // else: no bluish fill, no edge of its own, a pure white underside, and every
-// line the fold draws at 0.8px. nothing here renders a pixel.
+// line the fold draws taken from the board's own edge settings, the free edges
+// as borders at --edge like a ticket's and the painted crease at --edge-drawn,
+// the width those borders are drawn at on each screen. nothing here renders a
+// pixel.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const fs = require("node:fs");
@@ -83,9 +86,33 @@ function custom(css, name, rowSelectors) {
   return v;
 }
 const px = v => { const m = /^(-?[\d.]+)px$/.exec(v || ""); return m ? Number(m[1]) : NaN; };
+// a length as written, a plain px or a calc() of them, worked out
+function lengthOf(v) {
+  if (v == null) return NaN;
+  const t = v.replace(/calc/g, "").replace(/px/g, "");
+  assert.match(t, /^[\d\s.+\-*/()]+$/, `an unexpected length: ${v}`);
+  return Function(`return (${t});`)();
+}
+// a custom property as a 1x, 2x and 3x screen each sees it: the plain :root
+// value, then every min-resolution step at or under that density, in sheet order
+function perResolution(css, name) {
+  const out = {};
+  for (const dppx of [1, 2, 3]) {
+    let v;
+    for (const r of rulesOf(css)) {
+      if (!r.sels.includes(":root")) continue;
+      const step = r.at.length ? /min-resolution:\s*([\d.]+)dppx/.exec(r.at.join(" ")) : null;
+      if (r.at.length && (!step || Number(step[1]) > dppx)) continue;
+      for (const [p, value] of declsOf(r.body)) if (p === name) v = value;
+    }
+    out[dppx] = lengthOf(v);
+  }
+  return out;
+}
 
-// a polygon() as numbers for one box: percentages of the box, var(--fold) and
-// var(--fold-edge) swapped for their lengths, the calc() arithmetic worked out
+// a polygon() as numbers for one box: percentages of the box, var(--fold),
+// var(--edge) and var(--edge-drawn) swapped for their lengths, the calc()
+// arithmetic worked out
 function polygon(value, box, lengths) {
   const inner = /polygon\(([\s\S]*)\)/.exec(value)[1];
   const parts = [];
@@ -97,7 +124,8 @@ function polygon(value, box, lengths) {
   }
   parts.push(cur.trim());
   const num = (term, whole) => {
-    let t = term.replace(/var\(--fold-edge\)/g, lengths.edge + "px").replace(/var\(--fold\)/g, lengths.fold + "px")
+    let t = term.replace(/var\(--edge-drawn\)/g, lengths.drawn + "px").replace(/var\(--edge\)/g, lengths.edge + "px")
+      .replace(/var\(--fold\)/g, lengths.fold + "px")
       .replace(/([\d.]+)%/g, (_, n) => String(Number(n) / 100 * whole) + "px")
       .replace(/calc/g, "").replace(/px/g, "");
     assert.match(t, /^[\d\s.+\-*/()]+$/, `an unexpected term in the polygon: ${term}`);
@@ -252,6 +280,7 @@ for (const [where, surface] of Object.entries(SURFACES)) {
     const css = surface.css;
     assert.doesNotMatch(css, /#EBEFFF/i, "the old bluish ready-to-test fill is still in the sheet");
     assert.doesNotMatch(css, /testc:not\(\.on\)/, "the old ready-to-test edge rule is still in the sheet");
+    assert.doesNotMatch(css, /--fold-edge/, "the fold still keeps an edge width of its own");
     const foldSelectors = [".trow.testc", ".trow.testc::before", ".trow.testc::after"];
     for (const r of rulesOf(css)) {
       if (!r.sel.includes("testc")) continue;
@@ -261,7 +290,7 @@ for (const [where, surface] of Object.entries(SURFACES)) {
         // on the row itself: only the cut and the fold's own measures. no
         // fill, no edge, no shade, no opacity: the row keeps its own look
         for (const [p] of declsOf(r.body))
-          assert.ok(p === "clip-path" || p === "--fold" || p === "--fold-edge", `the ready-to-test row sets ${p} on itself`);
+          assert.ok(p === "clip-path" || p === "--fold", `the ready-to-test row sets ${p} on itself`);
       }
     }
   });
@@ -269,7 +298,8 @@ for (const [where, surface] of Object.entries(SURFACES)) {
   test(`${where}: the corner is cut along the crease and the flap is its mirror, white, with the ticket's corner at the tip`, () => {
     const css = surface.css;
     const fold = px(custom(css, "--fold", [".trow", ".trow.testc"]));
-    const edge = px(custom(css, "--fold-edge", [".trow", ".trow.testc"]));
+    // the cut and the crease layer's triangle read no edge width; these only fill the evaluator
+    const edge = .8, drawn = 1;
     assert.equal(fold, surface.fold, `the fold is not ${surface.fold}px here`);
     // each layer's declarations, the rule the two share included
     const row = style(css, ".trow.testc");
@@ -280,7 +310,7 @@ for (const [where, surface] of Object.entries(SURFACES)) {
     // two share one crease whatever the row's edge width is
     assert.match(row["clip-path"], /\)\s*padding-box$/, "the cut is not measured on the padding box");
     const box = { w: 300, h: 64 };
-    const cut = polygon(row["clip-path"], box, { fold, edge });
+    const cut = polygon(row["clip-path"], box, { fold, edge, drawn });
     const w = box.w;
     // the crease runs from --fold in along the top edge to --fold down the right
     const onCrease = cut.filter(([x, y]) => Math.abs((x - y) - (w - fold)) < 1e-6);
@@ -309,7 +339,7 @@ for (const [where, surface] of Object.entries(SURFACES)) {
     // it is the mirror of the corner the cut takes: reflecting the cut corner
     // across the crease lands exactly on it
     const square = { w: fold, h: fold };
-    const tri = polygon(crease["clip-path"], square, { fold, edge }).map(([x, y]) => [x + w - fold, y]);
+    const tri = polygon(crease["clip-path"], square, { fold, edge, drawn }).map(([x, y]) => [x + w - fold, y]);
     const cutCorner = [[w - fold, 0], [w, 0], [w, fold]];
     const mirror = ([x, y]) => [y + (w - fold), x - (w - fold)];
     const key = pts => pts.map(p => p.map(n => n.toFixed(4)).join(",")).sort();
@@ -322,28 +352,47 @@ for (const [where, surface] of Object.entries(SURFACES)) {
     assert.match(flap["box-shadow"], /^0 1px 2px rgba\(60,45,20,\.16\)$/, "the flap's shade is not the thin one");
   });
 
-  test(`${where}: every line the fold draws is 0.8px, the ticket edge width`, () => {
+  test(`${where}: every line the fold draws is the ticket edge, read from the board's own edge settings`, () => {
     const css = surface.css;
     const fold = px(custom(css, "--fold", [".trow", ".trow.testc"]));
-    const edge = px(custom(css, "--fold-edge", [".trow", ".trow.testc"]));
-    assert.equal(edge, 0.8, "--fold-edge is not 0.8px");
     const flap = style(css, ".trow.testc::after");
-    // the two free edges: the edge width, in the edge grey, and no other side drawn
-    assert.equal(flap["border-left"], "var(--fold-edge) solid var(--line)");
-    assert.equal(flap["border-bottom"], "var(--fold-edge) solid var(--line)");
+    // the two free edges are borders asked for exactly what a ticket edge is
+    // asked for, so the browser snaps both to the same device pixel
+    const ticketEdge = style(css, ".trow").border;
+    assert.equal(ticketEdge, "var(--edge) solid var(--line)", "the ticket edge no longer reads --edge");
+    assert.equal(flap["border-left"], ticketEdge, "the flap's left edge is not the ticket edge");
+    assert.equal(flap["border-bottom"], ticketEdge, "the flap's bottom edge is not the ticket edge");
+    // no other side drawn, and no width of the fold's own anywhere in its rules
     for (const r of rulesOf(css)) if (r.sel.includes("testc"))
-      for (const [p, v] of declsOf(r.body)) if (p.startsWith("border") && p !== "border-bottom-left-radius")
-        assert.ok(p === "border-left" || p === "border-bottom", `the fold draws ${p}: ${v}`);
-    // the crease: the flap is clipped short of the diagonal by exactly the
-    // edge width, measured square to the crease, so one 0.8px band of the grey
-    // layer beneath shows along it
-    const flapClip = polygon(flap["clip-path"], { w: fold, h: fold }, { fold, edge });
-    const shifted = flapClip.filter(([x, y]) => Math.abs(y - x - edge * Math.SQRT2) < 1e-3);
-    assert.equal(shifted.length, 2, "the flap is not clipped along a line parallel to the crease");
-    near((shifted[0][1] - shifted[0][0]) / Math.SQRT2, edge, "the crease band's width");
-    assert.ok(!inside([fold / 2, fold / 2 + edge * Math.SQRT2 - 0.01], flapClip), "the flap covers the crease band");
-    assert.ok(inside([fold / 2 - 3, fold / 2 + 3], flapClip) && inside([-3, fold + 3], flapClip),
-      "the flap, or its shade beyond its free edges, is clipped away");
+      for (const [p, v] of declsOf(r.body)) {
+        if (p.startsWith("border") && p !== "border-bottom-left-radius")
+          assert.ok(p === "border-left" || p === "border-bottom", `the fold draws ${p}: ${v}`);
+        assert.doesNotMatch(v, /(^|[^\d])0?\.8px/, `the fold writes the edge width out itself: ${p}:${v}`);
+      }
+    // the shared settings as each screen sees them: --edge asked at 0.8px, and
+    // --edge-drawn the width chrome actually draws that border at. chrome
+    // floors a border to whole device pixels and never below one, so 0.8px is
+    // one device pixel at 1x (1px) and 2x (0.5px) and two at 3x (2/3px)
+    const edge = perResolution(css, "--edge"), drawn = perResolution(css, "--edge-drawn");
+    // the crease is paint, not a border, so it reads the drawn width and never the asked one
+    assert.match(flap["clip-path"], /var\(--edge-drawn\)/, "the crease does not read --edge-drawn");
+    assert.doesNotMatch(flap["clip-path"], /var\(--edge\)/, "the crease reads the asked width, which is never drawn");
+    for (const dppx of [1, 2, 3]) {
+      near(edge[dppx], .8, `--edge at ${dppx}x`);
+      const snapped = Math.max(1, Math.floor(edge[dppx] * dppx + 1e-9)) / dppx;
+      near(drawn[dppx], snapped, `--edge-drawn at ${dppx}x is not the width a ticket edge is drawn at`);
+      // the flap is clipped short of the diagonal by exactly that drawn width,
+      // measured square to the crease, so the band of the grey layer beneath
+      // that shows along it is as wide as the borders it meets
+      const e = drawn[dppx];
+      const flapClip = polygon(flap["clip-path"], { w: fold, h: fold }, { fold, edge: edge[dppx], drawn: e });
+      const shifted = flapClip.filter(([x, y]) => Math.abs(y - x - e * Math.SQRT2) < 1e-3);
+      assert.equal(shifted.length, 2, `at ${dppx}x the flap is not clipped along a line parallel to the crease`);
+      near((shifted[0][1] - shifted[0][0]) / Math.SQRT2, snapped, `at ${dppx}x the crease band is not the drawn edge width`);
+      assert.ok(!inside([fold / 2, fold / 2 + e * Math.SQRT2 - 0.01], flapClip), `at ${dppx}x the flap covers the crease band`);
+      assert.ok(inside([fold / 2 - 3, fold / 2 + 3], flapClip) && inside([-3, fold + 3], flapClip),
+        `at ${dppx}x the flap, or its shade beyond its free edges, is clipped away`);
+    }
   });
 
   test(`${where}: the other ticket states keep their own looks`, () => {
@@ -366,15 +415,22 @@ for (const [where, surface] of Object.entries(SURFACES)) {
     // its lift, with no ready-to-test exception left beside either
     const base = style(css, ".trow");
     assert.equal(base["border-radius"], "5px");
-    assert.match(base.border, /solid var\(--line\)$/);
+    assert.equal(base.border, "var(--edge) solid var(--line)");
     assert.equal(base["box-shadow"], "0 1px 4px rgba(60,45,20,.05)");
     assert.equal(base.overflow, "hidden");
     assert.equal(style(css, ".trow.on").transform, "translateY(-1px)");
   });
 }
 
-test("the typed page keeps its fold and its gate in step with the shared ones", () => {
+test("the typed page keeps its fold, its edge settings and its gate in step with the shared ones", () => {
   const page = SURFACES["the typed page"].css;
+  // the page does not load card-tokens.css, so the fold there reads the page's
+  // own copies of the edge settings; they must be the shared ones on every screen
+  for (const name of ["--edge", "--edge-drawn"]) {
+    const own = perResolution(styleOf(SURFACES["the typed page"].html), name);
+    assert.ok([1, 2, 3].every(d => Number.isFinite(own[d])), `the typed page has no ${name} of its own`);
+    assert.deepEqual(own, perResolution(TOKENS, name), `the typed page's ${name} drifted from card-tokens.css`);
+  }
   for (const sel of [".trow.testc::before", ".trow.testc::after"]) {
     const drawn = style(page, sel);
     assert.ok(Object.keys(drawn).length > 5, `${sel} is not on the typed page`);
