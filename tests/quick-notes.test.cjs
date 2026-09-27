@@ -790,49 +790,103 @@ test("the page's sheets: a four by three card of plain text, and the peek a smal
   assert.match(HTML, /function boardKeysLive\(\)\{ return !pageWarn && !pageMenu && !qnOpen && !homeOpen && onBoardPage\(\); \}/);
 });
 
-test("the note's glass is the spotify player's, value for value, on a white face the words read on", () => {
-  const clean = css => css.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s+/g, " ").trim();
-  const value = (block, name) => {
-    // a declaration ends at its semicolon, or at the brace when it is the block's last
-    const m = new RegExp("(?:^|[;{ ])" + name + ":([^;}]+)[;}]").exec(block);
-    assert.ok(m, "no " + name + " in the block");
-    return m[1].trim();
-  };
-  const player = clean(between(HTML, "  #magic1.filled{", "@keyframes spappear"));
-  const glass = clean(between(TOKENS, ".qn-glass{", ".qn-glass.failed"));
+// the note's sheet read the way a browser reads it: comments out, one space,
+// and a declaration ending at its semicolon or at the brace when it is last
+const cleanCss = css => css.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s+/g, " ").trim();
+const cssValue = (block, name) => {
+  const m = new RegExp("(?:^|[;{ ])" + name + ":([^;}]+)[;}]").exec(block);
+  assert.ok(m, "no " + name + " in the block");
+  return m[1].trim();
+};
+const glassSheet = () => cleanCss(between(TOKENS, ".qn-glass{", ".qn-glass.failed"));
+// the tuning properties at the values the board ships them at
+const shipped = glass => {
+  const vars = {};
+  for (const name of ["--qn-blur", "--qn-sat", "--qn-tint", "--qn-edge", "--qn-ring"]) vars[name] = cssValue(glass, name);
+  return text => text
+    .replace(/calc\(([\d.]+) \* var\(--qn-edge\)\)/g, (_, n) => {
+      assert.equal(vars["--qn-edge"], "1", "the edge ships at other than the player's own strength");
+      return n;
+    })
+    .replace(/var\((--qn-[a-z]+)\)/g, (_, name) => vars[name]);
+};
+
+test("the note's glass: the spotify player's lighting, value for value, over a face that lets the board through", () => {
+  const player = cleanCss(between(HTML, "  #magic1.filled{", "@keyframes spappear"));
+  const glass = glassSheet();
+  const resolve = shipped(glass);
   // the edge and the shadow: the player's nine lines, the ring read from --qn-ring
-  assert.equal(value(glass, "box-shadow").replace("var(--qn-ring)", "#c7c7cc"), value(player, "box-shadow"),
+  assert.equal(resolve(cssValue(glass, "box-shadow")), cssValue(player, "box-shadow"),
     "the note's edge and shadow are not the player's");
-  assert.equal(value(glass, "--qn-ring"), "#c7c7cc");
+  assert.equal(cssValue(glass, "--qn-ring"), "#c7c7cc");
   // the grain, the corner rim light and the sheen, in the player's order
-  assert.equal(value(glass, "background-image"), value(player, "background-image"),
+  assert.equal(resolve(cssValue(glass, "background-image")), cssValue(player, "background-image"),
     "the note's surface layers are not the player's");
-  assert.equal(value(glass, "border-radius"), value(player, "border-radius"));
-  // the blur the player carried before its face went opaque, as its own note records it
+  assert.equal(cssValue(glass, "border-radius"), cssValue(player, "border-radius"));
+  // the blur the player carried before its face went opaque, as its own note
+  // records it, and the board's chat glass still wears
   assert.ok(HTML.includes("blur(16px) saturate(180%) brightness(.98)"), "the player's record of its blur is gone");
-  assert.equal(value(glass, "backdrop-filter"), "blur(16px) saturate(180%)");
-  assert.equal(value(glass, "-webkit-backdrop-filter"), "blur(16px) saturate(180%)");
+  assert.match(HTML, /--c3-glass:rgba\(120,120,128,\.03\)/);
+  assert.equal(resolve(cssValue(glass, "backdrop-filter")), "blur(16px) saturate(180%)");
+  assert.equal(resolve(cssValue(glass, "-webkit-backdrop-filter")), "blur(16px) saturate(180%)");
+  // the face is glass and not a white card: a white tint that lets well over a
+  // third of what is behind come through
+  const tint = Number(resolve(cssValue(glass, "background-color")).match(/^rgba\(255,255,255,([\d.]+)\)$/)[1]);
+  assert.ok(tint <= .65, "the face is too white to be glass: " + tint);
+  assert.ok(tint >= .5, "the face is too clear for words to sit on: " + tint);
   // the one warning: the rim, and nothing else
   assert.match(TOKENS, /\.qn-glass\.failed\{--qn-ring:var\(--must\)\}/);
-  // the face: white, a little translucent, and the words on it stay readable
-  // whatever the board behind shows. worked in the sRGB luminance the web
-  // contrast rule uses: the darkest thing behind the veil is the board's own
-  // ink, and the everyday thing is its paper under the veil's 26% of ink
-  const face = /rgba\(255,255,255,(\.\d+)\)/.exec(value(glass, "background-color"));
-  assert.ok(face, "the note's face is not white");
-  const alpha = Number(face[1]);
+});
+
+test("the note's words stay dark on light over anything the board shows behind the glass", () => {
+  const glass = glassSheet();
+  const tint = Number(shipped(glass)(cssValue(glass, "background-color")).match(/,([\d.]+)\)$/)[1]);
+  const card = cleanCss(between(TOKENS, ".qn-card{", "}"));
+  const boost = Number(cssValue(card, "--qn-boost"));
+  const behindText = cleanCss(between(TOKENS, ".qn-card::before{", "}"));
+  assert.equal(cssValue(behindText, "background"), "rgba(255,255,255,var(--qn-boost))");
+  assert.match(cssValue(cleanCss(between(TOKENS, ".qn-text{", "}")), "position"), /relative/,
+    "the field is not lifted over the text boost");
+  const veilRule = cleanCss(between(TOKENS, ".qn-veil{", "}"));
+  const veil = Number(cssValue(veilRule, "--qn-veil").replace("%", "")) / 100;
   const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
   const ink = hex(/--ink:(#[0-9A-Fa-f]{6})/.exec(TOKENS)[1]);
   const paper = hex(/--paper:(#[0-9A-Fa-f]{6})/.exec(TOKENS)[1]);
-  const veil = Number(/color-mix\(in srgb, var\(--ink\) (\d+)%, transparent\)/.exec(between(TOKENS, ".qn-veil{", "}"))[1]) / 100;
   const over = (top, a, under) => top.map((c, i) => a * c + (1 - a) * under[i]);
   const lum = rgb => rgb.map(c => { const s = c / 255; return s <= .04045 ? s / 12.92 : ((s + .055) / 1.055) ** 2.4; })
                         .reduce((sum, c, i) => sum + c * [.2126, .7152, .0722][i], 0);
   const contrast = (a, b) => (Math.max(lum(a), lum(b)) + .05) / (Math.min(lum(a), lum(b)) + .05);
-  const worst = contrast(over([255, 255, 255], alpha, ink), ink);
-  const everyday = contrast(over([255, 255, 255], alpha, over(ink, veil, paper)), ink);
-  assert.ok(worst >= 14, "the words fall under 14 to 1 over the darkest backdrop: " + worst.toFixed(2));
-  assert.ok(everyday >= 16, "the words fall under 16 to 1 over the veiled board: " + everyday.toFixed(2));
+  // the middle of the card, where the words are, carries the face and the boost;
+  // the rim carries the face alone
+  const middle = 1 - (1 - tint) * (1 - boost);
+  const white = [255, 255, 255], black = [0, 0, 0];
+  const veiledBoard = over(ink, veil, paper);
+  const everyday = contrast(over(white, middle, veiledBoard), ink);
+  const overBlack = contrast(over(white, middle, black), ink);
+  const rimOverBlack = contrast(over(white, tint, black), ink);
+  assert.ok(everyday >= 14, "the words fall under 14 to 1 over the veiled board: " + everyday.toFixed(2));
+  assert.ok(overBlack >= 6, "the words fall under 6 to 1 with black behind the note: " + overBlack.toFixed(2));
+  assert.ok(rimOverBlack >= 4.5, "the rim falls under 4.5 to 1 with black behind it: " + rimOverBlack.toFixed(2));
+});
+
+test("the glass sees the board from its first frame, and turns solid when less transparency is asked for", () => {
+  // the veil fades by its colour: an opacity fade would cut the card's blur off
+  // from the board for as long as it ran
+  const fade = between(TOKENS, "@keyframes qnveilin{", "}}");
+  assert.ok(!/opacity/.test(fade), "the veil fades by opacity, which blinds the glass while it runs");
+  assert.match(fade, /background-color:transparent/);
+  // a reader who asks for less transparency gets a solid white card
+  const reduced = cleanCss(between(TOKENS, "@media (prefers-reduced-transparency: reduce){", "\n}\n"));
+  assert.match(reduced, /\.qn-glass\{background-color:#fff; backdrop-filter:none; -webkit-backdrop-filter:none\}/);
+  assert.match(reduced, /\.qn-card::before\{display:none\}/);
+  // and a browser that cannot blur gets a nearly solid face
+  const noBlur = cleanCss(between(TOKENS, "@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){", "\n}\n"));
+  assert.match(noBlur, /\.qn-glass\{background-color:rgba\(255,255,255,\.94\)\}/);
+  // the peek is the same glass: it wears the class, and nothing of its own
+  // paints over the material
+  const peek = between(HTML, "  .qnpeek{", "}");
+  assert.ok(!/background|box-shadow|border:/.test(peek), "the peek paints over the glass it wears");
+  assert.match(HTML, /h\("button", "qnpeek qn-glass"\)/);
 });
 
 // ---- last: what the log and the transcript were told ------------------------------
