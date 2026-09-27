@@ -2931,13 +2931,14 @@
   #magic2 .mpend::before{content:"\2191 " attr(data-label);
     display:flex; align-items:center; justify-content:center; align-self:stretch;
     height:20px; padding:0 10px; border-radius:4px;
-    /* grey rather than the large card's yellow: the app's own line grey with
-       its muted text, so no new colour comes in */
-    background:var(--line); color:var(--sub); font:11px var(--mono)}
+    /* grey rather than the large card's yellow, with the muted text. this fill
+       was the line grey's value and keeps it: the edges moved to a cool grey,
+       and a fill is not an edge, so the bar is not recoloured with them */
+    background:#E6DFD2; color:var(--sub); font:11px var(--mono)}
   #magic2 .mpend.open::before{content:"\2193 " attr(data-label); padding:0}
   #magic2 .mpend .mpending-message{display:none}
   #magic2 .mpend.open{border-radius:4px; padding:8px 10px;
-    background:linear-gradient(to bottom, rgba(230,223,210,0), var(--line) 20px)}
+    background:linear-gradient(to bottom, rgba(230,223,210,0), #E6DFD2 20px)}
   #magic2 .mpend.open .mpending-message{display:block; margin:0; text-align:right}
   #magic2 .mpend.open .mpending-message + .mpending-message{padding-top:6px}
   #magic2 .mpend.open .mpending-message .stamp{display:block; margin:0 0 2px;
@@ -2993,7 +2994,7 @@
   #magic2 .manswered::before{content:"\2193 " attr(data-label)}
   #magic2 .manswered.open::before{content:"\2191 " attr(data-label)}
   #magic2 .manswered.open{
-    background:linear-gradient(to top, rgba(230,223,210,0), var(--line) 20px);
+    background:linear-gradient(to top, rgba(230,223,210,0), #E6DFD2 20px);
     box-shadow:var(--raised-soft);
     /* several long messages are this box's own lane to scroll and never the
        reply's room to take */

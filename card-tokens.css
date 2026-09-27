@@ -8,7 +8,7 @@
 /* ---- the colours and the faces ------------------------------------------ */
 :root{
   --paper:#F5F4F1; --card:#FFFFFF; --ink:#211D17; --sub:#75695A;
-  --line:#E6DFD2; --line-strong:#D8CFBE;
+  --line:#DEDEDE; --line-strong:#D8CFBE;
   --accent:#432BFF; --accent-soft:#EEEBFF;
   --green:#2F6B3C; --green-bg:#EDF4E8; --green-line:#C4D9BB;
   --must:#A8442A; --must-bg:#F7EAE4;
