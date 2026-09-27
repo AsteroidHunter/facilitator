@@ -3412,27 +3412,28 @@
   body.focus #xcomposer .xcside{flex:none; display:flex; flex-direction:column;
     justify-content:space-between}
   /* the switch between the two: a tall narrow tab on the card itself, hugging
-     its bottom right corner right beside the bar, the owner's "tall rectangle
-     hugging the right bottom edge". it lives on the stage and the script seats
-     it off the card's own box (xcPlace), so it moves with the card and scales
-     with the board: its foot on the card's floor, one star cell out past the
-     card's right edge, six cells tall, which is the bar's row and the air under
-     it.
+     its right edge beside the bar, the owner's "tall rectangle hugging the right
+     bottom edge ... by the compose bar". it lives on the stage and the script
+     seats it off the card and the bar (xcSeat), so it moves with the card and
+     scales with the board: one star cell out past the card's right edge, its top
+     on the bar's hairline and its foot on the bar's floor, so it spans the bar
+     and grows with it, and stands the card's own bottom padding clear of the
+     card's bottom edge.
      it stands behind the card (-1 on the stage, under every box) and runs 7px in
-     under the card's right edge, the card's own corner, so the curve there is
-     filled rather than leaving a notch and the card's edge runs on unbroken
-     over it. that is also how it keeps off the card's own controls: the row,
-     the send square and the answered panel's arrow are all inside the card's
-     box and are painted over the tucked part, which stops some 30px short of
-     the square anyway, and the part that shows is wholly outside the card.
+     under the card's right edge, the card's own corner, so it reads as tucked
+     behind the card and the card's edge runs on unbroken over it. that is also
+     how it keeps off the card's own controls: the row, the send square and the
+     answered panel's arrow are all inside the card's box and are painted over
+     the tucked part, which stops some 30px short of the square anyway, and the
+     part that shows is wholly outside the card.
      it has no reason to know the note's corner any more: that corner is the
      window's, it wakes on the window's last 12px, and no card fitted to the
      wide board reaches there.
      at rest it is the card's white and edge on its three outer sides with a
      small control's shadow. while the right composer is chosen it wears the
-     one press shade, and it stays on the corner then, a cell clear of the box,
-     so the same press puts the box away. where there is no room for the box it
-     takes the chips' off fade */
+     one press shade and keeps the place the bar rested in, a cell clear of the
+     box, so the same press puts the box away. where there is no room for the
+     box it takes the chips' off fade */
   #xcswitch{display:none}
   body.focus #xcswitch{
     display:block; position:fixed; z-index:-1; padding:0; margin:0;
@@ -10629,7 +10630,7 @@ try {
 // ---- the right composer --------------------------------------------------------
 // two composers and one draft. the bar under the answer is the default; the
 // composer on the right is a box of its own standing right of the card, opened
-// and put away by the tall switch on the card's bottom right corner, beside the
+// and put away by the tall switch on the card's right edge, lined up with the
 // bar. the large card alone carries it: the small cards in magic box 2 keep
 // their one line of a composer. whichever of
 // the two holds the selected card's draft is that card's el.ta, el.send and
@@ -10660,11 +10661,13 @@ const XC_MIN_W = 16 * XC_CELL;            // under this across there is no room,
 const XC_MIN_H = 12 * XC_CELL;            // the box at rest, the sheet's twelve cells
 const XC_LIFT = 5 * XC_CELL;              // its foot stands this far above the card's floor
 const XC_TAB_W = XC_CELL;                 // the switch stands this far out past the card's right edge
-const XC_TAB_H = 6 * XC_CELL;             // and this tall from the card's floor: the bar's row and the air under it
 const XC_TUCK = 7;                        // and runs this far in under the card, the card's own 7px corner
 const XC_RUN_MS = 320;                    // the bar's run, the sheet's .32s; a safety net only
 const XC_HINT = "Push to production …";   // the sketch's own words
 let xcRoom = false;                       // the box has room beside the card right now
+let xcSeatAt = null;                      // the bar's top and foot over the card's floor, last read at rest
+let xcWatched = null;                     // the bar the switch is lined up with, watched while on show
+const xcWatch = window.ResizeObserver ? new ResizeObserver(() => xcSeat()) : null;
 
 // the box, built once and seated on the stage. its field wears the typed
 // formatting like the bar's does, with the bar's two keys
@@ -10756,17 +10759,15 @@ function switchComposer(side){
   return want;
 }
 
-// where the switch and the box stand, both read off the card wherever the
-// layout has put it (a drag, a pull on its edges, a tab's own arrangement) and
-// turned into the stage's own pixels, which is what both are placed in.
-// the switch: its foot on the card's floor, run in under the card's right edge
-// by the card's corner and standing one cell out past it, six cells tall.
-// the box: two cells off the card's right edge, 24 wide, its foot five cells
-// over the card's floor. it has to end inside the frame, where frameLimits says
-// the board may reach, and the board has to be the wide one: the portrait
-// column has no side, and the two pane view is exactly a window with no room
-// right of the card. anything under 16 cells across is no room at all, and the
-// bar stays
+// where the box stands, read off the card wherever the layout has put it (a
+// drag, a pull on its edges, a tab's own arrangement) and turned into the
+// stage's own pixels, which is what it is placed in: two cells off the card's
+// right edge, 24 wide, its foot five cells over the card's floor. it has to end
+// inside the frame, where frameLimits says the board may reach, and the board
+// has to be the wide one: the portrait column has no side, and the two pane
+// view is exactly a window with no room right of the card. anything under 16
+// cells across is no room at all, and the bar stays. the switch is seated in
+// the same breath (xcSeat)
 function xcPlace(){
   const card = document.querySelector("main");
   const stage = document.getElementById("stage");
@@ -10775,11 +10776,6 @@ function xcPlace(){
     const S = stageScale || 1;
     const sr = stage.getBoundingClientRect(), r = card.getBoundingClientRect();
     const edge = (r.right - sr.x) / S, base = (r.bottom - sr.y) / S;
-    const sw = xcSwitch.style;
-    sw.left = (edge - XC_TUCK) + "px";
-    sw.width = (XC_TUCK + XC_TAB_W) + "px";
-    sw.height = XC_TAB_H + "px";
-    sw.bottom = (STAGE_H - base) + "px";
     const left = edge + XC_GAP;
     const width = Math.min(XC_W, (frameLimits().right - sr.x) / S - left);
     const floor = base - XC_LIFT;
@@ -10795,8 +10791,63 @@ function xcPlace(){
   }
   const changed = room !== xcRoom;
   xcRoom = room;
+  xcSeat();
   xcPaint();
   if (changed) xcSync();
+}
+
+// the switch stands beside the bar, on the card's right edge at the bar's own
+// height: one cell out past the card's edge and 7px in under it, its top on the
+// bar's hairline and its foot on the bar's floor, so it spans the bar and grows
+// with it. the bar is read where it stands whenever it is at rest in the card
+// and kept as how far its two edges stand over the card's floor, so the switch
+// goes with a card that is dragged or resized. while the bar is away, with the
+// box open, or part way through its run, its own box says nothing about where
+// it rests, so the switch keeps the place the bar last rested in, which is
+// where the bar comes back to and where the press to close the box is found
+function xcSeat(){
+  const card = document.querySelector("main");
+  const stage = document.getElementById("stage");
+  if (!(FOCUS && respMode === "wide" && card && stage)) return;
+  const el = xcCard();
+  xcFollow(el);
+  const S = stageScale || 1;
+  const sr = stage.getBoundingClientRect(), r = card.getBoundingClientRect();
+  const edge = (r.right - sr.x) / S, base = (r.bottom - sr.y) / S;
+  if (el && !el.box.classList.contains("xcaway") && !el.bottombar._xcStop){
+    const b = el.bottombar.getBoundingClientRect();
+    if (b.height > 0) xcSeatAt = { top: base - (b.top - sr.y) / S, foot: base - (b.bottom - sr.y) / S };
+  }
+  const at = xcSeatAt || xcRestSeat(card);
+  const sw = xcSwitch.style;
+  sw.left = (edge - XC_TUCK) + "px";
+  sw.width = (XC_TUCK + XC_TAB_W) + "px";
+  sw.bottom = (STAGE_H - base + at.foot) + "px";
+  sw.height = (at.top - at.foot) + "px";
+}
+
+// the bar the switch is lined up with is watched while its card is on show. the
+// bar is pinned to the floor of the card's body, so only three things can move
+// its edges: its own size, which changes with every line it grows or loses in
+// either face of the field; the wrapper it stands in, which changes size when
+// the sent box above it opens or a note lands under it; and the card itself,
+// which xcPlace already follows. the answered panel is in the answer's own
+// scroller and cannot move it
+function xcFollow(el){
+  const bar = el ? el.bottombar : null;
+  if (!xcWatch || bar === xcWatched) return;
+  xcWatch.disconnect();
+  xcWatched = bar;
+  if (bar){ xcWatch.observe(bar); xcWatch.observe(el.pendwrap); }
+}
+
+// where the bar rests when there has been no bar to read yet: on the card's
+// own padding at its foot, the row's floor tall with its hairline over it
+function xcRestSeat(card){
+  const cs = getComputedStyle(card);
+  const line = parseFloat(cs.borderBottomWidth) || 0;
+  const foot = (parseFloat(cs.paddingBottom) || 0) + line;
+  return { foot, top: foot + (parseFloat(cs.getPropertyValue("--row-min")) || 0) + line };
 }
 
 // the card on show, if there is one: the switch hangs off it and the box holds its draft
@@ -10828,6 +10879,7 @@ function xcPaint(){
 // reader has asked for less motion. focus says a press asked for the typing to
 // go on in the composer it opened, unless the caret is in some other field
 function xcSync(opts = {}){
+  xcSeat();   // the bar read where it rests, before a move can take it away
   const want = xcWanted() && xcRoom && xcCard() ? selectedId : null;
   if (xc.host === want){ xcPaint(); return; }
   const run = !!opts.run && !xcStill();
@@ -10991,6 +11043,9 @@ function xcBar(el, away, run){
 }
 function xcLanded(el, end){
   if (end) el.replyview.scrollTop = el.replyview.scrollHeight;
+  // the bar is at rest again, and its last frame may have changed no size for
+  // the watch to hear, so the switch is lined up with it here
+  xcSeat();
   // the answer's room has changed, so its lines are snapped to it again
   if (el.box.classList.contains("sel")) snapCard();
 }

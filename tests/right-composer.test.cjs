@@ -249,16 +249,29 @@ function openPage(opts = {}){
   const uploads = [];
   const answers = opts.answers || {};
   const win = opts.window || { w: 1440, h: 900 };
+  // a resize watch that hears what the test says has changed size
+  const watches = [];
+  class ResizeObserver {
+    constructor(fn){ this.fn = fn; this.els = new Set(); watches.push(this); }
+    observe(el){ this.els.add(el); }
+    unobserve(el){ this.els.delete(el); }
+    disconnect(){ this.els.clear(); }
+  }
+  const resized = el => { for (const w of watches) if (w.els.has(el)) w.fn([{ target: el }]); };
   const sandbox = {
+    ResizeObserver,
     console, setTimeout, clearTimeout, setInterval, clearInterval,
     document: dom.doc, localStorage: store, navigator: {}, location: {},
     Element: dom.Element, Event: dom.Event, NodeFilter: { SHOW_TEXT: 4 },
     innerWidth: win.w, innerHeight: win.h,
     requestAnimationFrame: dom.raf, cancelAnimationFrame: dom.caf,
     matchMedia: q => ({ matches: media.reduce && /prefers-reduced-motion:\s*reduce/.test(q) }),
-    getComputedStyle: () => ({ lineHeight: "25.5px", paddingTop: "8px", paddingBottom: "8px",
-      borderLeftWidth: "1px", borderRightWidth: "1px", borderBottomWidth: "1px",
-      display: "block", marginBottom: "0px", getPropertyValue: () => "" }),
+    // the card's own measures where the page asks for them: its 19.8px foot
+    // padding (0.022 of 900), its 0.8px edge, and the row's 44px floor
+    getComputedStyle: () => ({ lineHeight: "25.5px", paddingTop: "8px", paddingBottom: "19.8px",
+      borderLeftWidth: "1px", borderRightWidth: "1px", borderBottomWidth: "0.8px",
+      display: "block", marginBottom: "0px",
+      getPropertyValue: name => (name === "--row-min" ? "44px" : "") }),
     addEventListener: (type, fn) => (dom.win.listeners[type] = dom.win.listeners[type] || []).push(fn),
     CardMarkdown: { ATTACHMENT_ACCEPT: "image/*", attachmentFile: file => ({ name: file.name }),
                     render: t => String(t) },
@@ -309,7 +322,8 @@ function openPage(opts = {}){
     "  set stageScale(v){ stageScale = v; } };",
   ].join("\n"), sandbox, { filename: "index.html#right-composer" });
   const page = sandbox.page;
-  return { dom, sandbox, page, store, media, calls, uploads, stage, main, frame,
+  return { dom, sandbox, page, store, media, calls, uploads, stage, main, frame, watches, resized,
+           scale: opts.scale || 1,
            // the first fit, which is where the board seats the box
            fit(){ page.xcPlace(); } };
 }
@@ -330,9 +344,21 @@ function addCard(p, id, opts = {}){
   const metaNote = el("span");
   meta.appendChild(metaNote);
   const bottombar = el("div"); bottombar.className = "bottombar";
-  bottombar.natural = 62;
+  // one line at rest: the row's 44px floor under its 0.8px hairline
+  bottombar.natural = 44.8;
   // the sheet's own rule: body.focus .box.sel.xcaway .bottombar{display:none}
   bottombar.gone = () => box.classes.has("xcaway");
+  // where a browser would report the bar: pinned to the floor of the card's
+  // body, which stands the card's 19.8px foot padding and its 0.8px edge over
+  // the card's bottom edge, lifted by anything laid under it in the wrapper,
+  // and as tall as it is, all at the stage's scale
+  bottombar.lift = 0;
+  bottombar.getBoundingClientRect = () => {
+    const c = p.main.rect, S = p.scale, hgt = bottombar.offsetHeight * S;
+    const bottom = c.bottom - (19.8 + 0.8 + bottombar.lift) * S;
+    return { left: c.left + 38.4 * S, right: c.right - 38.4 * S, top: bottom - hgt, bottom,
+             x: c.left + 38.4 * S, y: bottom - hgt, width: c.right - c.left - 76.8 * S, height: hgt };
+  };
   const clip = el("button"); clip.className = "clipbtn";
   const compose = el("div"); compose.className = "compose";
   const ta = el("textarea"); ta.clientHeight = 44;
@@ -616,7 +642,7 @@ test("the answer grows down on the bar's own eased run and shrinks back on it, t
   view.scrollTop = 300;   // part way down a long answer
   p.page.switchComposer("right");
   // the bar is pinned at its height and run to nothing, with its run on
-  assert.deepEqual(bar.style.heights, ["62px", "0px"], "the bar did not run from its height to nothing");
+  assert.deepEqual(bar.style.heights, ["44.8px", "0px"], "the bar did not run from its height to nothing");
   assert.ok(bar.classes.has("xcrun") && bar.classes.has("xcclip"), "the bar jumped instead of running");
   assert.equal(card.box.classes.has("xcaway"), false, "the bar went before its run was over");
   assert.equal(p.page.snaps, 0);
@@ -629,7 +655,7 @@ test("the answer grows down on the bar's own eased run and shrinks back on it, t
   // and back: up from nothing to the bar's own height, faded in on the same run
   p.page.switchComposer("bar");
   assert.equal(card.box.classes.has("xcaway"), false);
-  assert.deepEqual(bar.style.heights.slice(-2), ["0px", "62px"], "the bar did not come back up from nothing");
+  assert.deepEqual(bar.style.heights.slice(-2), ["0px", "44.8px"], "the bar did not come back up from nothing");
   assert.ok(bar.classes.has("xcrun"));
   assert.ok(bar.classLog.slice(-4).includes("-xcdim"), "the bar did not fade back in");
   landRun(card);
@@ -660,7 +686,7 @@ test("a second press part way through turns the run round from where it stands",
   const written = card.bottombar.style.heights.length;
   p.page.switchComposer("bar");
   // no fresh pin: the run in flight is simply handed the other end
-  assert.deepEqual(card.bottombar.style.heights.slice(written), ["62px"], "the run started over");
+  assert.deepEqual(card.bottombar.style.heights.slice(written), ["44.8px"], "the run started over");
   landRun(card);
   assert.equal(card.box.classes.has("xcaway"), false);
   assert.equal(card.bottombar.style.height, "");
@@ -755,7 +781,7 @@ test("the owner's layout: the box fits beside the card, over the navigator, clea
   // the file navigator filling the right from 973 to 1466. the scale and the
   // stage's origin are a fit of that window, estimated
   const S = .97, sx = 40, sy = 41;
-  const p = openPage({ window: { w: 1509, h: 943 }, layout: {
+  const p = openPage({ scale: S, window: { w: 1509, h: 943 }, layout: {
     stage: { left: sx, top: sy, right: sx + 1440 * S, bottom: sy + 900 * S },
     card: { left: 420, right: 925, top: 123, bottom: 847 },
     frame: { left: 6, right: 1503, top: 46, bottom: 937 } } });
@@ -772,12 +798,14 @@ test("the owner's layout: the box fits beside the card, over the navigator, clea
   const lim = { right: 1503 - 1 - 16, bottom: 937 - 1 - 16 };
   assert.ok(right <= lim.right, "the box runs past the frame's clear edge");
   assert.ok(foot <= lim.bottom && foot < 847, "the box's foot is below the card's");
-  // the switch hangs off the card's corner, its foot on the card's floor, a cell
-  // clear of the box and well clear of the owner's navigator at 973
+  // the switch stands on the card's edge beside the bar, where the bar rested
+  // before the box took its words, a cell clear of the box and well clear of
+  // the owner's navigator at 973
   const tab = switchRect(p, S);
   near(tab.left, 925 - 7 * S, "the switch's tuck under the card");
   near(tab.right, 925 + 1440 * 0.008 * S, "the switch's outer edge");
-  near(tab.bottom, 847, "the switch's foot");
+  near(tab.bottom, 847 - 20.6 * S, "the switch's foot is not the bar's floor");
+  near(tab.bottom - tab.top, 44.8 * S, "the switch is not the bar's height");
   assert.ok(tab.right < left, "the switch runs into the box");
   assert.ok(tab.right < 973, "the switch reaches the owner's navigator");
   // the box stands over the boxes the owner keeps there, under the edit handles
@@ -826,24 +854,26 @@ test("where the box cannot stand, the bar stays: two panes, the portrait column,
   assert.equal((fit.match(/xcPlace\(\);/g) || []).length, 2, "fitStage does not seat the box on both of its ways out");
 });
 
-test("the switch hugs the card's bottom right corner beside the bar, and moves and scales with the card", () => {
+test("the switch stands on the card's right edge beside the compose bar, spanning it, and moves and scales with the card", () => {
   const p = openPage();
   p.fit();
-  addCard(p, "m47");
+  const card = addCard(p, "m47");
   choose(p, "m47");
   const cell = 1440 * 0.008;
-  const st = p.page.xcSwitch.style;
-  // seated off the card's box: run 7px in under its right edge at 996.48, one
-  // cell out past it, six cells tall, its foot on the card's floor at 789.12
-  near(parseFloat(st.left), 996.48 - 7, "the switch's left");
-  near(parseFloat(st.width), 7 + cell, "the switch's width");
-  near(parseFloat(st.height), 6 * cell, "the switch's height");
-  near(parseFloat(st.bottom), 900 - 789.12, "the switch's foot");
-  let tab = switchRect(p), card = p.main.rect;
-  near(tab.bottom, card.bottom, "the switch's foot is not the card's floor");
-  // tall and narrow, and taller than the bar's row at rest and the air under it
-  assert.ok(tab.bottom - tab.top > 4 * (tab.right - card.right), "the switch is not a tall narrow tab");
-  assert.ok(tab.bottom - tab.top >= 44 + 19.8, "the switch is shorter than the bar beside it");
+  let tab = switchRect(p), bar = card.bottombar.getBoundingClientRect();
+  // one cell out past the card's right edge at 996.48, and 7px in under it
+  near(tab.left, 996.48 - 7, "the switch's tuck under the card");
+  near(tab.right, 996.48 + cell, "the switch's outer edge");
+  // its top on the bar's hairline and its foot on the bar's floor: the bar's
+  // own 44.8 at rest, one line
+  near(tab.top, bar.top, "the switch's top is not the bar's");
+  near(tab.bottom, bar.bottom, "the switch's foot is not the bar's");
+  near(tab.bottom - tab.top, 44.8, "the switch is not the bar's height");
+  // not at the card's very bottom: the card's 19.8 foot padding and its 0.8
+  // edge stand under it, as they stand under the bar
+  near(p.main.rect.bottom - tab.bottom, 20.6, "the switch is not lifted off the card's bottom edge");
+  // tall and narrow
+  assert.ok(tab.bottom - tab.top > 3.5 * (tab.right - p.main.rect.right), "the switch is not a tall narrow tab");
   // the sheet: behind the card and every box, no edge where it meets the card,
   // and no place of its own in the window any more
   const sw = rule("  body.focus #xcswitch");
@@ -852,25 +882,91 @@ test("the switch hugs the card's bottom right corner beside the bar, and moves a
   assert.match(sw, /border-radius:0 var\(--sq\) var\(--sq\) 0;/);
   assert.doesNotMatch(sw, /(?:^|[\s;])(right|bottom|left|top|width|height):/, "the sheet still places the switch itself");
   assert.doesNotMatch(HTML, /bottom:84px/, "the old dodge of the note's corner is still in the sheet");
-  // a drag of the card takes the switch with it
+  // a drag of the card takes the switch with it, still beside the bar; the
+  // card's own size watch is what hears it
   p.main.rect = { left: 300, right: 830, top: 80, bottom: 700 };
-  p.fit();
-  tab = switchRect(p);
+  p.resized(p.main);
+  tab = switchRect(p); bar = card.bottombar.getBoundingClientRect();
   near(tab.left, 830 - 7, "the switch stayed behind when the card moved");
-  near(tab.bottom, 700, "the switch's foot stayed behind when the card moved");
-  // a board scaled down: the same place on the stage, so it shrinks with the card
-  const q = openPage({ window: { w: 1200, h: 760 }, layout: {
+  near(tab.top, bar.top, "the switch left the bar when the card moved");
+  near(tab.bottom, bar.bottom, "the switch left the bar's floor when the card moved");
+  // a board scaled down: the same place on the stage, so it shrinks with the
+  // card. before any card is on show it stands where a bar at rest would, read
+  // off the card's own padding and the row's floor, and once the bar can be
+  // read it is the same place
+  const q = openPage({ scale: .8, window: { w: 1200, h: 760 }, layout: {
     stage: { left: 20, top: 41, right: 20 + 1440 * .8, bottom: 41 + 900 * .8 },
     card: { left: 20 + 466.56 * .8, right: 20 + 996.48 * .8, top: 41 + 63.36 * .8, bottom: 41 + 789.12 * .8 },
     frame: { left: 6, right: 1194, top: 46, bottom: 754 } } });
   q.page.stageScale = .8;
   q.fit();
-  near(parseFloat(q.page.xcSwitch.style.left), 996.48 - 7, "the switch was not placed in stage pixels");
+  const qs = q.page.xcSwitch.style;
+  near(parseFloat(qs.left), 996.48 - 7, "the switch was not placed in stage pixels");
+  near(parseFloat(qs.bottom), 900 - 789.12 + 20.6, "the rest place is not the bar's floor");
+  near(parseFloat(qs.height), 44.8, "the rest place is not the bar's height");
+  addCard(q, "m52");
+  choose(q, "m52");
+  near(parseFloat(qs.bottom), 900 - 789.12 + 20.6, "the scaled bar's floor was not read in stage pixels");
+  near(parseFloat(qs.height), 44.8, "the scaled bar's height was not read in stage pixels");
   assert.equal(q.page.xcSwitch.parentNode, q.stage, "the switch does not scale with the stage");
   // the large card alone carries it: the small cards' build never names it
   const mini = between(HTML, 'const compose = h("div", "mcompose");', "box.append(sun, arc, x, title, answwrap, reply, pend, compose);");
   assert.doesNotMatch(mini, /xcSwitch|switchComposer|xcswitch/, "the small cards carry the switch");
   assert.equal((HTML.match(/xcSwitch\.id = "xcswitch";/g) || []).length, 1, "there is more than one switch");
+});
+
+test("the switch tracks the bar: more lines, a note under it, the sent box and the answered panel above it, a card switch", () => {
+  const p = openPage();
+  p.fit();
+  const card = addCard(p, "m50");
+  choose(p, "m50");
+  const lined = (what, el = card) => {
+    const tab = switchRect(p), bar = el.bottombar.getBoundingClientRect();
+    near(tab.top, bar.top, what + ": the switch's top is off the bar's hairline");
+    near(tab.bottom, bar.bottom, what + ": the switch's foot is off the bar's floor");
+  };
+  lined("at rest");
+  // the watch is on the bar and on the wrapper it stands in
+  const watch = p.watches.find(w => w.els.has(card.bottombar));
+  assert.ok(watch, "the bar is not watched");
+  assert.ok(watch.els.has(card.pendwrap), "the wrapper the bar stands in is not watched");
+  // four lines typed: the row grows, the bar with it, and the watch hears the
+  // bar. the formatted editor grows the same bar, its scroller being the row,
+  // and it is the bar that is watched whichever face the field wears
+  card.bottombar.natural = 44.8 + 3 * 25.5;
+  p.resized(card.bottombar);
+  lined("four lines");
+  near(switchRect(p).bottom - switchRect(p).top, 44.8 + 3 * 25.5, "the switch did not grow with the bar");
+  // the sent box opening above the bar grows the wrapper and leaves the bar,
+  // and so the switch, where they are
+  const open = switchRect(p);
+  p.resized(card.pendwrap);
+  assert.deepEqual(switchRect(p), open, "the sent box moved the switch");
+  // a note landing under the bar lifts it, and the switch goes up with it
+  card.bottombar.lift = 30;
+  p.resized(card.pendwrap);
+  lined("a note under the bar");
+  card.bottombar.lift = 0;
+  p.resized(card.pendwrap);
+  lined("the note gone");
+  // the answered panel is in the answer's own scroller and moves nothing the
+  // switch stands by: the next poll still finds it on the bar
+  p.page.xcSync();
+  lined("the answered panel opened");
+  assert.ok(!watch.els.has(card.replyview), "the answer's scroller is watched for nothing");
+  // back to one line
+  card.bottombar.natural = 44.8;
+  p.resized(card.bottombar);
+  lined("one line again");
+  // another card: the switch lines up with that card's bar and the watch moves over
+  const other = addCard(p, "m51", { selected: false });
+  other.bottombar.natural = 70.3;
+  choose(p, "m51");
+  lined("the next card", other);
+  assert.ok(watch.els.has(other.bottombar) && !watch.els.has(card.bottombar), "the watch stayed on the last card's bar");
+  // the page's own hooks: the seat is read before any move and after every run
+  assert.match(between(HTML, "function xcSync(opts = {}){", "\n}\n"), /^\s*xcSeat\(\);/m);
+  assert.match(between(HTML, "function xcLanded(el, end){", "\n}\n"), /xcSeat\(\);/);
 });
 
 test("the switch keeps off the card's own controls: the row, the send square and the answered panel's arrow", () => {
@@ -897,25 +993,38 @@ test("the switch keeps off the card's own controls: the row, the send square and
   assert.ok(padX + padX * 2 / 3 - 7 >= 30, "the tucked part reaches the send square");
 });
 
-test("with the box open the switch stays on the card's corner, pressed, and the same press puts the box away", () => {
+test("with the box open the switch keeps the bar's place, pressed, and the same press puts the box away", () => {
   const p = openPage();
   p.fit();
-  addCard(p, "m49");
+  const card = addCard(p, "m49");
   assert.equal(p.page.xcSwitch.hidden, true, "the switch hangs off a card that is not there");
   choose(p, "m49");
   assert.equal(p.page.xcSwitch.hidden, false, "the switch is missing from the card on show");
+  card.bottombar.natural = 70.3;   // two lines of a draft when the box is opened
+  p.resized(card.bottombar);
+  const rest = switchRect(p);
   p.dom.fire(p.page.xcSwitch, "click");
   assert.equal(p.page.xc.host, "m49");
+  // the bar sinks away, and neither its run nor its absence moves the switch
+  p.resized(card.bottombar);
+  assert.deepEqual(switchRect(p), rest, "the switch followed the bar's run down");
+  landRun(card);
+  p.resized(card.bottombar);
+  assert.deepEqual(switchRect(p), rest, "the switch left the bar's place while the box is open");
   assert.equal(p.page.xcSwitch.hidden, false, "the switch went away with the box open");
   assert.equal(p.page.xcSwitch.getAttribute("aria-pressed"), "true");
   assert.equal(p.page.xcSwitch.getAttribute("aria-label"), "put the composer back under the card");
   // between the card and the box, a cell clear of the box's left edge
-  const tab = switchRect(p);
   const boxLeft = p.stage.rect.left + parseFloat(p.page.xc.root.style.left);
-  near(boxLeft - tab.right, 1440 * 0.008, "the air between the switch and the box");
+  near(boxLeft - rest.right, 1440 * 0.008, "the air between the switch and the box");
+  // the same press, and the bar comes back to where the switch was waiting
   p.dom.fire(p.page.xcSwitch, "click");
   assert.equal(p.page.xc.host, null, "the switch did not put the box away");
   assert.equal(p.page.xcSwitch.getAttribute("aria-pressed"), "false");
+  landRun(card);
+  const bar = card.bottombar.getBoundingClientRect(), tab = switchRect(p);
+  near(tab.top, bar.top, "the switch is off the bar once it is back");
+  near(tab.bottom, bar.bottom, "the switch's foot is off the bar once it is back");
 });
 
 test("the quick note's corner still wakes and opens, with the switch on the card", async () => {
