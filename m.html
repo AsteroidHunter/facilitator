@@ -709,19 +709,33 @@
   body.menudrag #drawer::after, body.menudrag #settings::after{transition:none}
   #tikhead{flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 8px 0; border-bottom:none}
   /* the drawer tabs reuse the project tabs for type and spacing, three equal
-     segments beside the plus, but they no longer draw the seated-tab shape: the
-     selected name sits in its own depressed pill and the two unselected names
-     stay bare, so top:0 seats the pill on the names' baseline and only colour
-     moves under a tap. */
+     segments beside the plus, but they no longer draw the seated-tab shape:
+     top:0 drops the lift a .ptab carries so all three names share one baseline.
+     like the board, the names read Doing, Deferred and Done at a pixel over the
+     .ptab's 13, and every name carries a clear edge on all four sides, the
+     selected one included, so a name measures the same selected or not and the
+     list below never moves. the ID-scoped border outranks .ptab.on's hairline. */
   #tikhead .tvb{flex:1; --seat:var(--card); height:auto; padding:calc(6px + 1px - var(--edge-drawn)) 0 5px;
-    top:0; transition:color .18s}
-  /* the selected name's depressed pill: white fill, the drawer's hairline and
-     the shared sunk shade, at the same depth as the recessed list well. the
-     seated-tab notches the .ptab rules would draw are struck. */
-  #tikhead .tvb.on{
-    color:var(--ink); background:var(--card);
-    border:var(--edge) solid var(--line); border-radius:7px;
-    box-shadow:var(--sunk-deep);
+    top:0; font-size:14px; border:var(--edge) solid transparent}
+  /* no selected pill, as on the board: the selected name wears no fill, border
+     or standing shade and shows selection by weight and ink alone, 700 over the
+     500 every name has (Plex Sans is asked for at 700 for this, see the font
+     sheets below). the thirds come from a zero basis, so the heavier name
+     widens none. the .ptab.on seat fill and notches are struck.
+     a press dips any name, selected or not: while it is held (:active, or
+     .pressed, which the script beside the tab taps sets from pointer and key
+     events) the --sunk-deep recipe at 0.6 depth eases in over 80ms and back out
+     over 160ms on release. the rest state is two clear zero-size inset layers so
+     the shade interpolates cleanly; the 7px radius only shapes that shade. */
+  #tikhead .tvb{
+    border-radius:7px;
+    box-shadow:inset 0 0 0 rgba(60,45,20,0), inset 0 0 0 rgba(60,45,20,0);
+    transition:color .18s, box-shadow .16s ease-out;
+  }
+  #tikhead .tvb.on{color:var(--ink); font-weight:700; background:transparent}
+  #tikhead .tvb:active, #tikhead .tvb.pressed{
+    box-shadow:inset 0 1.8px 4.2px rgba(60,45,20,.132), inset 0 .6px 1.2px rgba(60,45,20,.084);
+    transition:color .18s, box-shadow .08s ease-in;
   }
   #tikhead .tvb.on::before, #tikhead .tvb.on::after{display:none}
   /* the new-card plus is a phone-only affordance the board makes with a key. it
@@ -736,16 +750,17 @@
   .tikadd.pending{animation:tikpulse 1s ease-in-out infinite}
   @keyframes tikpulse{0%,100%{opacity:.25} 50%{opacity:.85}}
   .tiknote{font:italic 12.5px var(--sans); color:#7A2E1B; padding:8px 12px}
-  /* the list well: a recessed white rectangle set in a little from the drawer's
-     own edges, at the same depth as the pill above. it clips a horizontal sheet
-     of three sections and shows one at a time, so a tab change travels the sheet
-     across the well while the well and the pill above never move. */
+  /* the list: unlike the board, the phone draws no recessed well here. a boxed
+     inset inside a drawer this narrow read as a frame within a frame, so the
+     list has no fill, edge, rounding or sunk shade of its own and the rows sit
+     straight on the drawer, their sides in line with the names above through
+     the sections' own padding. it still clips a horizontal sheet of three
+     sections and shows one at a time, so a tab change travels the sheet across
+     it while the list and the names above never move. */
   #tiklist{flex:1; min-height:0; overflow:hidden;
-    position:relative; display:flex; flex-direction:column;
-    margin:7px 8px 8px;
-    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px; box-shadow:var(--sunk-deep)}
+    position:relative; display:flex; flex-direction:column}
   /* doing|deferred|done laid left to right, one section wide each; section i rests
-     at translateX(-i*100%) and the well clips all but the shown one */
+     at translateX(-i*100%) and the list clips all but the shown one */
   #tiksheet{flex:1; min-height:0; display:flex; flex-direction:row; will-change:transform}
   .tikpane{flex:0 0 100%; min-width:0; height:100%; overflow-y:auto; overflow-x:hidden;
     -webkit-overflow-scrolling:touch; display:flex; flex-direction:column; gap:6px; padding:10px 8px}
@@ -1052,9 +1067,9 @@
     <button id="tikadd" class="tikadd" type="button" title="new card" aria-label="new card">+</button>
   </div>
   <div id="tikhead">
-    <button id="tv-todo" class="ptab tvb on" type="button">doing</button>
-    <button id="tv-deferred" class="ptab tvb" type="button">deferred</button>
-    <button id="tv-done" class="ptab tvb" type="button">done</button>
+    <button id="tv-todo" class="ptab tvb on" type="button">Doing</button>
+    <button id="tv-deferred" class="ptab tvb" type="button">Deferred</button>
+    <button id="tv-done" class="ptab tvb" type="button">Done</button>
   </div>
   <div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div>
 </aside>
@@ -1087,7 +1102,7 @@
   // already in its own faces; a sheet that fails is an answer too, and the page
   // keeps the fallback faces its stacks name
   window.webFontSheets = Promise.all([
-    "https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap",
+    "https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap",
     "https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap",
   ].map(href => new Promise(settle => {
     const link = document.createElement("link");
@@ -2405,6 +2420,31 @@ function setView(v){
 document.getElementById("tv-todo").addEventListener("click", () => setView("todo"));
 document.getElementById("tv-deferred").addEventListener("click", () => setView("deferred"));
 document.getElementById("tv-done").addEventListener("click", () => setView("done"));
+// press feedback, as on the board: every name, selected or not, takes .pressed
+// while a finger, pointer or Enter/Space holds it, and the stylesheet eases a
+// modest inset shade in over 80ms and back out over 160ms. a phone tap is often
+// shorter than the press-in, so .pressed holds for at least those 80ms and the
+// dip still shows before it rises. selection stays with the tap handlers above
+{
+  const PRESS_MIN = 80;
+  for (const name of document.querySelectorAll("#tikhead .tvb")){
+    let since = 0, timer = 0;
+    const press = () => {
+      clearTimeout(timer);
+      since = performance.now();
+      name.classList.add("pressed");
+    };
+    const release = () => {
+      if (!name.classList.contains("pressed")) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => name.classList.remove("pressed"), Math.max(0, since + PRESS_MIN - performance.now()));
+    };
+    name.addEventListener("pointerdown", press);
+    for (const type of ["pointerup", "pointercancel", "pointerleave", "blur"]) name.addEventListener(type, release);
+    name.addEventListener("keydown", e => { if ((e.key === "Enter" || e.key === " ") && !e.repeat) press(); });
+    name.addEventListener("keyup", e => { if (e.key === "Enter" || e.key === " ") release(); });
+  }
+}
 document.getElementById("tikadd").addEventListener("click", createCard);
 
 // ---- the two menus, and the one motion they share --------------------------------

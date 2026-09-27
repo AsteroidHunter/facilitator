@@ -1,16 +1,13 @@
-// The selected list tab (doing, deferred, done) is a depressed pill on the
-// phone's card drawer, not a browser-style tab that flares open into the list.
-// Only the selected name carries the pill: white fill, the board's hairline on
-// all four sides, the board's one sunk shade, the 7px corner on all four
-// corners, and no bottom notch. The two unselected names stay bare. The list is
-// its own recessed well carrying that same sunk shade, so the pill and the well
-// read at one depth, and the head draws no seat line under the names.
+// The list tabs (Doing, Deferred, Done) are not browser-style tabs that flare
+// open into the list, and the selected one sits in no pill.
 // 20260922, m807: the Mac board dropped the pill. Its names read Doing, Deferred
 // and Done at 14px, the selected one at weight 700 in ink with no fill, border
 // or standing shade, the others at 500; any name dips into a 0.6-depth sunk
 // shade while pressed, for at least 80ms; the well's shade is --sunk-deep at
-// 90% depth; and selecting a name moves no name and not the well. Both surfaces
-// are driven headless here so a drift on either is caught.
+// 90% depth; and selecting a name moves no name and not the well.
+// The phone's card drawer follows the board's names and weight, at its own
+// sizes, and draws no recessed well: its rows sit straight on the drawer. Both
+// surfaces are driven headless here so a drift on either is caught.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawn } = require("node:child_process");
@@ -25,15 +22,6 @@ const CHROME = process.env.CHROME_PATH ||
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const DESK = { width: 1440, height: 900 };
 const PHONE = { width: 375, height: 812, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
-const LINE = "rgb(222, 222, 222)";   // var(--line), the board's own hairline
-const CARD = "rgb(255, 255, 255)";   // var(--card), the pill and well fill
-// the hairline is asked for at 0.8px. chrome may report that as written or as
-// the whole device pixels it draws (2/3px on this 3x phone), so the check is a
-// solid line in the line colour, visible and thinner than a whole css pixel
-const isHairline = border => {
-  const m = /^([\d.]+)px solid (rgb\([^)]*\))$/.exec(border);
-  return !!m && Number(m[1]) > 0 && Number(m[1]) < 1 && m[2] === LINE;
-};
 
 let browser;
 let child;
@@ -56,76 +44,6 @@ function freePort() {
 async function post(route, body) {
   const response = await fetch(origin + route, { method: "POST", body });
   return { status: response.status, body: await response.json() };
-}
-
-// the pill a selected tab draws, the well it sits over, and the head that holds
-// the names: their corners, borders on every side, fills, sunk shades and the
-// two notch pseudo-elements read off in one pass
-async function surfaces(page, tabSel, headSel, wellSel) {
-  return page.evaluate(sels => {
-    const box = el => {
-      if (!el) return null;
-      const cs = getComputedStyle(el);
-      const notch = which => getComputedStyle(el, which).display;
-      return {
-        radii: [cs.borderTopLeftRadius, cs.borderTopRightRadius,
-          cs.borderBottomRightRadius, cs.borderBottomLeftRadius],
-        borders: ["Top", "Right", "Bottom", "Left"].map(s =>
-          [cs["border" + s + "Width"], cs["border" + s + "Style"], cs["border" + s + "Color"]].join(" ")),
-        fill: cs.backgroundColor, shadow: cs.boxShadow,
-        before: notch("::before"), after: notch("::after"),
-        seatLine: [cs.borderBottomWidth, cs.borderBottomStyle].join(" "),
-      };
-    };
-    const head = document.querySelector(sels.head);
-    const bare = [...head.querySelectorAll(".tvb")].filter(t => !t.classList.contains("on"));
-    return {
-      pill: box(document.querySelector(sels.tab)),
-      well: box(document.querySelector(sels.well)),
-      headSeat: [getComputedStyle(head).borderBottomWidth, getComputedStyle(head).borderBottomStyle].join(" "),
-      bare: bare.map(box),
-    };
-  }, { tab: tabSel, head: headSel, well: wellSel });
-}
-
-// the check: the selected name is a depressed pill (four 7px corners, a full
-// hairline on every side, the sunk shade, a white fill, no notch), the two
-// unselected names are bare, the well carries the same sunk shade so the two
-// read at one depth, and the head draws no seat line
-async function assertPill(page, tabSel, headSel, wellSel, where) {
-  const s = await surfaces(page, tabSel, headSel, wellSel);
-  assert.ok(s.pill && s.well, `${where}: the selected pill and the list well are both on the page`);
-
-  // four 7px corners: a pill is a plain rounded rectangle, not a tab
-  for (const r of s.pill.radii) assert.equal(r, "7px", `${where}: a pill corner is not the board's 7px (${s.pill.radii})`);
-  // a full hairline on every side, the bottom one included, unlike the old tab
-  for (let i = 0; i < 4; i++)
-    assert.ok(isHairline(s.pill.borders[i]), `${where}: the pill's ${["top", "right", "bottom", "left"][i]} border is not the board's hairline (${s.pill.borders[i]})`);
-  assert.equal(s.pill.fill, CARD, `${where}: the pill is not filled white`);
-  assert.ok(s.pill.shadow.includes("inset"), `${where}: the pill carries no sunk shade`);
-  // no browser-tab notch on the pill
-  assert.equal(s.pill.before, "none", `${where}: the pill still draws a ::before notch`);
-  assert.equal(s.pill.after, "none", `${where}: the pill still draws a ::after notch`);
-
-  // the two unselected names are bare: no shade, no fill, no visible border
-  assert.equal(s.bare.length, 2, `${where}: there are not two unselected names`);
-  for (const b of s.bare) {
-    assert.equal(b.shadow, "none", `${where}: an unselected name carries a shade`);
-    assert.ok(b.fill === "rgba(0, 0, 0, 0)" || b.fill === "transparent", `${where}: an unselected name has a fill (${b.fill})`);
-    // a border is invisible when it has no width, no style, or a clear colour
-    for (const border of b.borders)
-      assert.ok(/^0px|\bnone\b|transparent|rgba\(0, 0, 0, 0\)/.test(border), `${where}: an unselected name has a visible border (${border})`);
-  }
-
-  // the well reads at the pill's depth: it carries the same sunk-shade string
-  assert.ok(s.well.shadow.includes("inset"), `${where}: the list well carries no sunk shade`);
-  assert.equal(s.well.shadow, s.pill.shadow, `${where}: the well and the pill do not read at one depth`);
-  assert.ok(isHairline(s.well.borders[0]), `${where}: the well's top border is not the board's hairline (${s.well.borders[0]})`);
-  assert.equal(s.well.radii[0], "7px", `${where}: the well's corner is not the board's 7px`);
-
-  // the head no longer draws a seat line under the names
-  assert.ok(/^0px|none$/.test(s.headSeat) || s.headSeat === "0px none",
-    `${where}: the head still draws a seat line under the names (${s.headSeat})`);
 }
 
 before(async () => {
@@ -329,7 +247,7 @@ test("the board's ticket names carry no pill, read by weight, and dip on press",
   }
 });
 
-test("the selected drawer tab is a depressed pill over a recessed well", async () => {
+test("the phone drawer's names carry no pill and its rows sit in no well", async () => {
   const page = await browser.newPage();
   const problems = [];
   page.on("pageerror", error => problems.push("pageerror: " + error.message));
@@ -347,7 +265,46 @@ test("the selected drawer tab is a depressed pill over a recessed well", async (
     await settle(600);
     await page.click("#tv-todo");
     await settle(300);
-    await assertPill(page, "#tikhead .tvb.on", "#tikhead", "#tiklist", "the phone drawer");
+
+    const ink = await page.evaluate(() => getComputedStyle(document.body).color);
+    const before = await boardTabs(page);
+    const wellBefore = await wellBox(page);
+    assert.deepEqual(before.map(t => t.label), ["Doing", "Deferred", "Done"]);
+    assert.deepEqual(before.map(t => t.on), [true, false, false]);
+    for (const t of before) {
+      assert.equal(t.size, "14px", `phone ${t.id} is not at 14px`);
+      assert.equal(t.weight, t.on ? "700" : "500", `phone ${t.id} has the wrong weight`);
+      assert.ok(t.fill === "rgba(0, 0, 0, 0)" || t.fill === "transparent", `phone ${t.id} has a fill (${t.fill})`);
+      for (const border of t.borders)
+        assert.ok(/^0px|transparent|rgba\(0, 0, 0, 0\)/.test(border), `phone ${t.id} has a visible border (${border})`);
+      assertShade(t.shadow, sunkAt(0), `phone ${t.id} carries a standing shade`);
+      assert.equal(t.before, "none", `phone ${t.id} draws a ::before notch`);
+      assert.equal(t.after, "none", `phone ${t.id} draws a ::after notch`);
+    }
+    assert.equal(before[0].color, ink, "the phone's selected name is not in ink");
+
+    // no well: the list paints no fill, edge, corner or shade of its own
+    const list = await page.evaluate(() => {
+      const cs = getComputedStyle(document.getElementById("tiklist"));
+      return {
+        fill: cs.backgroundColor, shadow: cs.boxShadow,
+        borders: ["Top", "Right", "Bottom", "Left"].map(s => cs["border" + s + "Width"]),
+        radius: cs.borderTopLeftRadius, margin: cs.margin,
+      };
+    });
+    assert.ok(list.fill === "rgba(0, 0, 0, 0)" || list.fill === "transparent", `the phone list is filled (${list.fill})`);
+    assert.equal(list.shadow, "none", "the phone list carries a sunk shade");
+    assert.deepEqual(list.borders, ["0px", "0px", "0px", "0px"], "the phone list draws an edge");
+    assert.equal(list.radius, "0px");
+    assert.equal(list.margin, "0px");
+
+    // selecting moves no name and not the list
+    await page.click("#tv-done");
+    await settle(400);
+    const after = await boardTabs(page);
+    assert.deepEqual(after.map(t => t.weight), ["500", "500", "700"]);
+    assert.deepEqual(after.map(t => t.rect), before.map(t => t.rect), "a phone name moved when the selection changed");
+    assert.deepEqual((await wellBox(page)).rect, wellBefore.rect, "the phone list moved when the selection changed");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
