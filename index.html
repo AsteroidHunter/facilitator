@@ -5259,13 +5259,20 @@ const MIN_CARD_H = 160;   // a card is never squeezed past being a card
 // re-seated on both so the foot is never a frame behind the window
 addEventListener("fullscreenchange", () => { fitStage(); seatPagePill(); });
 
-// a press anywhere on the large card, or the keyboard's focus landing in it,
-// selects the card on screen where it stands. in edit mode a press is a drag
+// the large card and what stands beside it for it: the composer box on its
+// right, which holds its draft while open, and the switch on its corner
+const CARD_PARTS = "main, #xcomposer, #xcswitch";
+// a press anywhere on the card, the box or the switch, or the keyboard's focus
+// landing in one of them, selects the card on screen where it stands. the box
+// and the switch are built further down, on the stage and not in the card, so
+// the page is listened to, first, before anything on them can stop the press.
+// in edit mode a press is a drag
 {
   const frame = document.querySelector("main");
-  const inCard = e => !editMode && (e.target === frame || !!e.target.closest?.("#sections"));
-  frame?.addEventListener("pointerdown", e => { if (inCard(e)) chooseShown(); });
-  frame?.addEventListener("focusin", e => { if (inCard(e)) chooseShown(); });
+  const inCard = e => !editMode &&
+    (e.target === frame || !!e.target.closest?.("#sections, #xcomposer, #xcswitch"));
+  for (const type of ["pointerdown", "focusin"])
+    document.addEventListener(type, e => { if (inCard(e)) chooseShown(); }, true);
 }
 
 // browsing: the card on screen was reached without being chosen, by the arrow
@@ -5279,19 +5286,13 @@ function setBrowsing(on){
 }
 
 // a click on a ticket, a chip or an outline entry, the caret carried along by
-// a step, a new card: the card is shown and selected, and so read. the hop a
-// close or a snooze makes to the next card keeps a browsing reader browsing,
-// since the board picked that card and the reader did not
+// a step, a new card: the card is shown and selected, and so read. opts.browse
+// shows it without selecting it (browse, below). the hop a close or a snooze
+// makes to the next card keeps a browsing reader browsing, since the board
+// picked that card and the reader did not
 function select(id, opts){
-  showCard(id, !(opts?.hop && browsing), opts);
-}
-// the arrow keys and a tab switch: the card is shown and its ticket marked,
-// and nothing is selected or read
-function browse(id){
-  showCard(id, false);
-}
-function showCard(id, chosen, opts){
   if (!els[id]) return;
+  const chosen = !opts?.browse && !(opts?.hop && browsing);
   cancelAutoNext();
   if (hist && hist.id !== id) histExit(hist.id);   // every card opens on its live reply
   selectedId = id; shownId = id; localStorage.setItem("selbox", id);
@@ -5310,6 +5311,8 @@ function showCard(id, chosen, opts){
   // home to its own bar and this card's comes in, before anything below ticks
   // or focuses the card's row
   xcSync();
+  // and it carries the caret across, which a card only browsed to never takes
+  dropBrowsedCaret();
   // the card is laid out again now that it wears .sel. a draft it kept while it
   // was hidden may carry a stale inline height, since the guarded autosize
   // skips the write on a display:none card, so re-measure the composer once
@@ -5335,6 +5338,19 @@ function showCard(id, chosen, opts){
   snapCard();
   requestAnimationFrame(snapCard);
 }
+// the arrow keys and a tab switch: the card is shown and its ticket marked,
+// and nothing is selected or read. the card already on screen and selected
+// stays so: a lane of one card, or a tab's own key, has nowhere else to go
+function browse(id){
+  if (id === shownId && !browsing) return;
+  select(id, { browse: true });
+}
+// a browsed card holds no caret. the composer on the right keeps its caret
+// across a card switch, so a browse that lands with it there lets it go
+function dropBrowsedCaret(){
+  const el = browsing && selectedId && els[selectedId];
+  if (el && ComposeFormat.focused(el.ta)) el.ta.blur();
+}
 
 // the browsed card on screen becomes the selected one where it stands: nothing
 // on it moves, it takes the drop shadow back and counts as read
@@ -5349,14 +5365,15 @@ function chooseShown(){
 }
 
 // Escape with nothing being typed: the card stays on screen, browsed, and
-// gives up its drop shadow. whatever held the focus inside it lets go, so the
-// Enter that selects it again is never a press on one of its buttons
+// gives up its drop shadow. whatever held the focus inside it, the composer on
+// its right or the switch on its corner lets go, so the Enter that selects it
+// again is never a press on one of their buttons
 function unselectShown(){
   const id = selectedId;
   if (browsing || !id || !els[id]) return;
   setBrowsing(true);
   const held = document.activeElement;
-  if (held && held !== document.body && document.querySelector("main")?.contains(held)) held.blur();
+  if (held && held !== document.body && held.closest?.(CARD_PARTS)) held.blur();
 }
 
 // the reader is in this card's composer, by a click, the caret landing there
@@ -5434,7 +5451,7 @@ function applySelection(state){
   // load and any fallback pick, still lands on a card that was display:none a
   // moment ago and has never been measured. nobody chose it, so it is shown
   // browsed, and nothing on it is read until the reader selects it
-  if (moved){ shownId = selectedId; setBrowsing(true); requestAnimationFrame(snapCard); }
+  if (moved){ shownId = selectedId; setBrowsing(true); dropBrowsedCaret(); requestAnimationFrame(snapCard); }
 }
 
 function statusOf(b){
@@ -10064,16 +10081,18 @@ const boardShortcutActions = {
     const ow = owners[shortcut.value];
     if (ow){ e.preventDefault(); setTab(ow); }
   },
-  // the first Escape leaves the composer, or any field; the next one unselects
-  // the card, which stays on screen browsed. a key something else answered
-  // first, a menu, a picture, the quick note or the settings panel, never gets
-  // this far, and neither does one held down to repeat. the card has to be the
-  // one holding the keys, as control+s asks
+  // the first Escape leaves the composer, the bar or the box on the right
+  // alike, or any field; the next one unselects the card, which stays on
+  // screen browsed, the box still open with its draft. a key something else
+  // answered first, a menu, a picture, the quick note or the settings panel,
+  // never gets this far, and neither does one held down to repeat. the card
+  // has to be the one holding the keys, as control+s asks
   escape(e){
     if (boardShortcutTyping(e.target)) e.target.blur();
     else if (!e.defaultPrevented && !e.repeat && boardResponseCard()) unselectShown();
   },
-  // Enter selects the card on screen and puts the caret in its composer. a
+  // Enter selects the card on screen and puts the caret in its composer, which
+  // is the box on the right while the box holds the card's draft (el.ta). a
   // press on a button, a link or anything else that takes Enter is its own,
   // and a new tab choosing its folder has no card on screen to select
   enter(e){
@@ -10670,6 +10689,10 @@ xc.ta.addEventListener("input", () => {
   cancelAutoNext();
   xcTick();
 });
+// while the box holds a card's draft it is that card's composer, so a click
+// into it or a key typed there reads the card the way the bar does. it holds
+// one card's draft and then another's, so the card is named when it is used
+readOnCompose(xc.ta, () => xc.host, id => useCard(id));
 wireAttachmentTransfer(xc.ta, xcAttach);
 xc.ta.addEventListener("keydown", e => { if (xc.host) composerEnter(e, xc.host); });
 // both controls swallow the press while the box has the caret, as the bar's do

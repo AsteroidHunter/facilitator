@@ -1,11 +1,12 @@
 // browsing cards without selecting them, and what counts as reading one,
 // checked without a browser. the desktop board's own selection code, its key
-// table and the large card's click wiring are cut out of index.html as written
-// and run over a small document, with the card logic the pages load. the
-// phone and the small card share the two read rules in card-logic.js; they are
-// run here on their own, and each surface's wiring of them is read off its
-// page. nothing here renders a pixel: how the browsed ticket and the settled
-// card look is only checked as the stylesheet states it.
+// table, the large card's click wiring and the whole right composer block are
+// cut out of index.html as written and run together over a small document,
+// with the card logic the pages load, so the two work on one card as they do
+// on the board. the phone and the small card share the two read rules in
+// card-logic.js; they are run here on their own, and each surface's wiring of
+// them is read off its page. nothing here renders a pixel: how the browsed
+// ticket and the settled card look is only checked as the stylesheet states it.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const fs = require("node:fs");
@@ -53,17 +54,53 @@ function matches(node, selector) {
     return node.tagName === one.toUpperCase();
   });
 }
+// an element: classes, attributes, a textarea's value and selection, a style,
+// a box a test may set, listeners of its own, and focus. focus says focus on
+// the element and focusin to the document, as a browser does
 class Node {
   constructor(doc, tag, { id = "", cls = [], attrs = {}, parent = null } = {}) {
     this.doc = doc;
-    this.tagName = tag.toUpperCase();
+    this.tagName = String(tag).toUpperCase();
     this.id = id;
     this.classList = classes(cls);
-    this.attrs = attrs;
-    this.parentNode = parent;
+    this.attrs = { ...attrs };
+    this.parentNode = null;
+    this.children = [];
     this.dataset = {};
     this.listeners = {};
     this.focusCalls = [];
+    this.style = { setProperty(k, v) { this[k] = String(v); } };
+    this.rect = null;
+    this.scrollTop = 0; this.scrollHeight = 0; this.clientHeight = 0;
+    this._value = ""; this.selectionStart = 0; this.selectionEnd = 0; this.selectionDirection = "none";
+    if (parent) parent.appendChild(this);
+  }
+  get className() { return this.classList.names.join(" "); }
+  set className(v) { this.classList = classes(String(v).split(/\s+/).filter(Boolean)); }
+  get value() { return this._value; }
+  set value(v) {
+    this._value = v == null ? "" : String(v);
+    this.selectionStart = this.selectionEnd = this._value.length;
+  }
+  setSelectionRange(a, b, dir) { this.selectionStart = a; this.selectionEnd = b ?? a; this.selectionDirection = dir || "forward"; }
+  setAttribute(k, v) { this.attrs[k] = String(v); }
+  getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
+  removeAttribute(k) { delete this.attrs[k]; }
+  appendChild(child) {
+    child.remove();
+    child.parentNode = this;
+    this.children.push(child);
+    return child;
+  }
+  append(...nodes) { for (const n of nodes) this.appendChild(n); }
+  remove() {
+    if (this.parentNode) this.parentNode.children = this.parentNode.children.filter(c => c !== this);
+    this.parentNode = null;
+  }
+  get offsetWidth() { return 0; }
+  getBoundingClientRect() {
+    const r = this.rect || { left: 0, top: 0, right: 0, bottom: 0 };
+    return { ...r, x: r.left, y: r.top, width: r.right - r.left, height: r.bottom - r.top };
   }
   closest(selector) {
     for (let n = this; n; n = n.parentNode) if (matches(n, selector)) return n;
@@ -74,9 +111,17 @@ class Node {
     return false;
   }
   addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
+  removeEventListener(type, fn) { this.listeners[type] = (this.listeners[type] || []).filter(f => f !== fn); }
   fire(type, event = {}) { for (const fn of this.listeners[type] || []) fn({ target: this, ...event }); }
-  focus(opts) { this.focusCalls.push(opts); this.doc.activeElement = this; this.fire("focus"); }
+  focus(opts) {
+    this.focusCalls.push(opts);
+    if (this.doc.activeElement === this) return;
+    this.doc.activeElement = this;
+    this.fire("focus");
+    this.doc.fire("focusin", this);
+  }
   blur() { if (this.doc.activeElement === this) this.doc.activeElement = this.doc.body; }
+  click() { this.fire("click"); }
   scrollIntoView() {}
 }
 
@@ -87,49 +132,73 @@ function card(id, extra) {
            replies: 1, seen: 0, agentTs: 1, ts: 1, pending: 0, done: false, parked: false, ...extra };
 }
 
-// the board with its three cards drawn and none shown yet. every read mark the
-// page sends is recorded, as the board would receive it
+// the board with its three cards drawn and none shown yet, the right composer
+// built beside the card and closed. every read mark the page sends is
+// recorded, as the board would receive it
 function desktop() {
   const seen = [];
-  const doc = { visibilityState: "visible" };
+  const doc = { visibilityState: "visible", listeners: {} };
+  // what the page hangs on the document, and an event sent there
+  doc.addEventListener = (type, fn) => (doc.listeners[type] ||= []).push(fn);
+  doc.fire = (type, target, event = {}) => {
+    for (const fn of doc.listeners[type] || []) fn({ type, target, ...event });
+  };
   const body = new Node(doc, "body");
   doc.body = body;
   doc.activeElement = body;
-  const main = new Node(doc, "main", { parent: body });
+  // the stage, with the card where the default layout draws it and room to
+  // its right, the way a browser would report them
+  const stage = new Node(doc, "div", { id: "stage", parent: body });
+  stage.rect = { left: 0, top: 41, right: 1440, bottom: 941 };
+  const main = new Node(doc, "main", { parent: stage });
+  main.rect = { left: 466.56, right: 996.48, top: 104.36, bottom: 830.12 };
   const sections = new Node(doc, "div", { id: "sections", parent: main });
   const list = new Node(doc, "div", { id: "tiklist", parent: body });
   const els = {}, rows = [];
-  for (const id of CARDS) {
-    const box = new Node(doc, "div", { cls: ["box"], parent: sections });
-    const compose = new Node(doc, "div", { cls: ["compose"], parent: box });
-    const ta = new Node(doc, "textarea", { parent: compose });
-    const chip = new Node(doc, "button", { cls: ["xbtn"], parent: box });
+  // a card as makeBox builds its parts: the reply, the bar with its row, a
+  // chip, and the bar's own three kept as el.bar for the right composer
+  const addCard = (id, parent = sections) => {
+    const box = new Node(doc, "div", { cls: ["box"], parent });
     const reply = new Node(doc, "div", { cls: ["replyview"], parent: box });
-    els[id] = { box, ta, chip, reply, toc: { classList: classes() }, tick() {} };
+    const chip = new Node(doc, "button", { cls: ["xbtn"], parent: box });
+    const bottombar = new Node(doc, "div", { cls: ["bottombar"], parent: box });
+    const compose = new Node(doc, "div", { cls: ["compose"], parent: bottombar });
+    const ta = new Node(doc, "textarea", { parent: compose });
+    const send = new Node(doc, "button", { cls: ["sendbtn"], parent: compose });
+    const tick = () => {};
+    els[id] = { box, ta, send, tick, chip, reply, replyview: reply, bottombar,
+                bar: { ta, send, tick }, toc: { classList: classes() } };
     const row = new Node(doc, "div", { cls: ["trow", "yours"], parent: list });
     row.dataset.id = id;
     rows.push(row);
-  }
+    return els[id];
+  };
+  for (const id of CARDS) addCard(id);
+  const all = node => node.children.flatMap(c => [c, ...all(c)]);
   doc.querySelector = selector => {
     if (selector === "main") return main;
     if (selector === "#tiklist .trow.on") return rows.find(r => r.classList.contains("on")) || null;
     return null;
   };
   doc.querySelectorAll = selector => (selector === "#tiklist .trow" ? rows : []);
-  doc.getElementById = () => null;
+  doc.getElementById = id => all(body).find(n => n.id === id) || null;
+  doc.createElement = tag => new Node(doc, tag);
   const store = new Map();
   const state = { boxes: CARDS.map(id => card(id)) };
   const noop = () => {};
   const sandbox = {
     console, Date, Promise, setTimeout, clearTimeout, setInterval, clearInterval,
-    document: doc, requestAnimationFrame: noop, scrollTo: noop,
+    document: doc, requestAnimationFrame: noop, cancelAnimationFrame: noop, scrollTo: noop,
+    addEventListener: noop, matchMedia: () => ({ matches: false }),
     localStorage: { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)),
                     removeItem: k => store.delete(k) },
     fetch: (url, opts) => {
       if (url === "/seen") seen.push(JSON.parse(opts.body));
       return Promise.resolve({ ok: true, json: async () => ({}) });
     },
-    ComposeFormat: { focused: ta => doc.activeElement === ta },
+    // the formatter's plain face: the field is the textarea itself
+    ComposeFormat: { attach: () => ({}), focused: ta => doc.activeElement === ta },
+    CardMarkdown: { ATTACHMENT_ACCEPT: "image/*" },
     els, lastState: state, lastSel: {}, selectedId: null, shownId: null, browsing: false,
     FOCUS: true, activeOwner: "lane", draft: null, DRAFT: "__draft__", editMode: false,
     miniFocused: false, p3Zoom: null, boardKeysLive: () => true,
@@ -138,6 +207,11 @@ function desktop() {
     // what setTab asks of the rest of the board
     ownerReady: true, validActiveOwnerIds: new Set(["lane", "other"]), LOCKED: null, endDraft: noop,
     applySavedLayout: noop, panelPoll: noop, chatPoll: noop, fileNavPoll: noop, apply: noop,
+    // what the right composer asks of the rest of the board
+    STAGE_W: 1440, STAGE_H: 900, PLUS_ICON: "<svg plus></svg>", SEND_ICON: "<svg send></svg>",
+    respMode: "wide", stageScale: 1, dragging: null, sizing: null, queueFatCaret: noop,
+    frameLimits: () => ({ left: 6, top: 46, right: 1434, bottom: 894 }),
+    arrowAgainFor: () => false, composerEnter: noop, composerArrow: noop,
   };
   sandbox.window = sandbox; sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
@@ -146,7 +220,7 @@ function desktop() {
   vm.runInContext("viewPool = state => state.boxes.filter(b => b.owner === activeOwner && !b.done && !b.parked);", sandbox);
   const html = HTML.desktop;
   const parts = [
-    block(html, "{\n  const frame = document.querySelector(\"main\");"),
+    between(html, "const CARD_PARTS = ", "\n// browsing: the card on screen"),
     between(html, "function setBrowsing(on){", "\nfunction updatePwd("),
     between(html, "function nav(dx, dy, opts){", "\n// keep a valid selection"),
     between(html, "function applySelection(state){", "\nfunction statusOf("),
@@ -154,6 +228,7 @@ function desktop() {
     block(html, "function deselect(){"),
     between(html, "function boardResponseCard(){", "\n// the grid compass") +
       between(html, "const boardShortcutTyping = cardShortcutEditing;", "\naddEventListener(\"keydown\", e => {\n  if (!FOCUS) return;"),
+    between(html, "// ---- the right composer ----", "// the copy button on fenced blocks"),
   ];
   for (const part of parts) vm.runInContext(part, sandbox, { filename: "index.html" });
   sandbox.seenSync(state);
@@ -168,19 +243,26 @@ function desktop() {
     return e;
   };
   return {
-    sandbox, doc, body, main, els, rows, state, seen, get, press,
+    sandbox, doc, body, main, els, rows, state, seen, get, press, store, addCard,
+    xc: get("xc"), xcSwitch: get("xcSwitch"),
     shown: () => get("selectedId"),
     browsing: () => get("browsing"),
     row: id => rows.find(r => r.dataset.id === id),
+    // a pointer pressed on a node, as the page's own listener on the document hears it
+    pressOn: node => doc.fire("pointerdown", node),
     settle: () => new Promise(r => setImmediate(r)),
   };
 }
 
 // a board as it stands after its first reading: the card it opened on shown
-// and nothing chosen
-function loaded() {
+// and nothing chosen. right opens the page with the right composer chosen, and
+// the page's first fit seats the box
+function loaded({ right = false } = {}) {
   const d = desktop();
+  if (right) d.store.set("composer.right", "1");
   d.get("applySelection")(d.state);
+  d.get("xcPlace")();
+  if (right) assert.equal(d.xc.host, "a", "the box did not open on the card on show");
   return d;
 }
 
@@ -340,22 +422,26 @@ test("a click on a ticket, or a press or the focus in the large card, selects an
   const d = loaded();
   d.press("ArrowRight");
   // anywhere on the card: its reply, its frame
-  d.main.fire("pointerdown", { target: d.els.b.reply });
+  d.pressOn(d.els.b.reply);
   assert.equal(d.browsing(), false, "a press in the card left it browsed");
   assert.deepEqual(d.seen, [{ b: 1 }]);
   d.press("Escape");
-  d.main.fire("pointerdown", { target: d.main });
+  d.pressOn(d.main);
   assert.equal(d.browsing(), false, "a press on the card's frame left it browsed");
   // the keyboard's focus landing in it
   d.press("Escape");
-  d.main.fire("focusin", { target: d.els.b.chip });
+  d.els.b.chip.focus();
   assert.equal(d.browsing(), false, "the focus landing in the card left it browsed");
   // in edit mode a press is a drag
   d.press("Escape");
   d.sandbox.editMode = true;
-  d.main.fire("pointerdown", { target: d.els.b.reply });
+  d.pressOn(d.els.b.reply);
   assert.equal(d.browsing(), true, "a drag in edit mode selected the card");
   d.sandbox.editMode = false;
+  // and a press anywhere else on the board is no press on the card
+  d.pressOn(d.row("a"));
+  d.pressOn(d.body);
+  assert.equal(d.browsing(), true, "a press off the card selected it");
   // a ticket's click is select(), as it always was
   d.get("select")("c");
   assert.equal(d.shown(), "c");
@@ -385,6 +471,13 @@ test("the step that carries the caret selects, a tab switch browses, and the hop
   d.get("setTab")("lane");
   assert.equal(d.shown(), "b", "the lane did not come back to its card");
   assert.equal(d.browsing(), true);
+  // the tab's own key on a card already selected leaves it selected
+  d.press("Enter");
+  d.get("setTab")("lane");
+  assert.equal(d.browsing(), false, "browsing to the selected card on screen unselected it");
+  assert.equal(d.doc.activeElement, d.els.b.ta, "browsing to the selected card on screen dropped its caret");
+  d.press("Escape", { target: d.els.b.ta });
+  d.press("Escape");
   // the hop after a close or a snooze: a browsed card hops to a browsed card
   d.seen.length = 0;
   d.sandbox.selectNextDoing("b");
@@ -418,10 +511,150 @@ test("the keys that act on the card act on the browsed one", () => {
   assert.equal(d.browsing(), true, "control+u selected the card");
 });
 
+// ---- with the right composer open ------------------------------------------------------
+// the box beside the card holds the card's draft and is its el.ta while it does.
+// everything above holds with it open: these walk the same paths through it
+
+test("with the right composer open, browsing moves the draft to the box but not the caret, and reads nothing", () => {
+  const d = loaded({ right: true });
+  d.els.b.bar.ta.value = "the second card's draft";
+  d.press("ArrowRight");
+  assert.equal(d.shown(), "b");
+  assert.equal(d.browsing(), true);
+  assert.equal(d.xc.host, "b", "the box did not follow the card browsed to");
+  assert.equal(d.els.b.ta, d.xc.ta, "the browsed card's composer is not the box");
+  assert.equal(d.xc.ta.value, "the second card's draft");
+  assert.equal(d.els.a.ta, d.els.a.bar.ta, "the card left behind did not get its bar back");
+  assert.ok(d.xc.root.classList.contains("open"));
+  assert.equal(d.doc.activeElement, d.body, "browsing put the caret in the box");
+  assert.deepEqual(d.seen, []);
+});
+
+test("with the right composer open, Enter selects the card and puts the caret in the box", () => {
+  const d = loaded({ right: true });
+  d.press("ArrowRight");
+  d.press("Enter");
+  assert.equal(d.browsing(), false);
+  assert.equal(d.doc.activeElement, d.xc.ta, "the caret went somewhere other than the box");
+  assert.equal(d.els.b.bar.ta.focusCalls.length, 0, "the caret went to the bar the box stands in for");
+  assert.deepEqual(d.seen, [{ b: 1 }]);
+});
+
+test("a click into the box, a key typed there or a press on it or its switch reads and selects its card", () => {
+  const d = loaded({ right: true });
+  d.press("ArrowRight");
+  // a click into the box's field
+  d.xc.ta.focus();
+  assert.equal(d.browsing(), false, "the caret in the box left the card browsed");
+  assert.deepEqual(d.seen, [{ b: 1 }]);
+  d.press("Escape", { target: d.xc.ta });
+  d.press("Escape");
+  assert.equal(d.browsing(), true);
+  // a reply lands; the formatter's own input, with the caret nowhere near,
+  // reads nothing, and the reader's click and keys do
+  d.state.boxes.find(x => x.id === "b").replies = 2;
+  d.sandbox.seenSync(d.state);
+  d.xc.ta.fire("input");
+  assert.deepEqual(d.seen, [{ b: 1 }], "the formatter's input read the card");
+  d.xc.ta.focus();
+  assert.deepEqual(d.seen, [{ b: 1 }, { b: 2 }]);
+  d.state.boxes.find(x => x.id === "b").replies = 3;
+  d.sandbox.seenSync(d.state);
+  d.xc.ta.fire("input");
+  assert.deepEqual(d.seen, [{ b: 1 }, { b: 2 }, { b: 3 }], "typing in the box did not read the reply");
+  // a press anywhere on the box or on the switch selects, the way the card does
+  for (const [where, node] of [["the box", d.xc.page], ["the switch", d.xcSwitch]]) {
+    d.press("Escape", { target: d.xc.ta });
+    d.press("Escape");
+    assert.equal(d.browsing(), true);
+    d.pressOn(node);
+    assert.equal(d.browsing(), false, `a press on ${where} left the card browsed`);
+  }
+});
+
+test("Escape with the right composer open: the box's caret first, then the selection, and the box stays", () => {
+  const d = loaded({ right: true });
+  d.press("Enter");
+  assert.equal(d.doc.activeElement, d.xc.ta);
+  d.press("Escape", { target: d.xc.ta });
+  assert.equal(d.doc.activeElement, d.body, "the first Escape left the caret in the box");
+  assert.equal(d.browsing(), false, "the first Escape unselected the card");
+  d.press("Escape");
+  assert.equal(d.browsing(), true, "the second Escape left the card selected");
+  assert.equal(d.xc.host, "a", "unselecting took the draft out of the box");
+  assert.ok(d.xc.root.classList.contains("open"), "unselecting shut the box");
+  // the switch, and the box's own buttons, let go too, so Enter selects
+  // rather than pressing them
+  for (const node of [d.xcSwitch, d.xc.send]) {
+    d.press("Enter");
+    node.focus();
+    d.press("Escape", { target: node });
+    assert.equal(d.browsing(), true);
+    assert.equal(d.doc.activeElement, d.body, "a button beside the card kept the focus");
+  }
+  d.press("Enter");
+  assert.equal(d.doc.activeElement, d.xc.ta);
+});
+
+test("a browse never carries the caret into the box; the step that carries it selects", () => {
+  const d = loaded({ right: true });
+  d.press("Enter");
+  d.xc.ta.value = "half a thought";
+  d.seen.length = 0;
+  // control+shift+right from the box: the caret goes on with the box, which is
+  // using the next card
+  d.press("ArrowRight", { ctrlKey: true, shiftKey: true, target: d.xc.ta });
+  assert.equal(d.shown(), "b");
+  assert.equal(d.browsing(), false);
+  assert.equal(d.doc.activeElement, d.xc.ta);
+  assert.equal(d.els.a.bar.ta.value, "half a thought", "the first card's draft did not go home");
+  assert.deepEqual(d.seen, [{ b: 1 }]);
+  // a tab's key while typing in the box: the tab's card is browsed, its draft
+  // comes into the box and the caret does not come with it
+  d.addCard("o1");
+  d.state.boxes.push(card("o1", { owner: "other" }));
+  d.sandbox.seenSync(d.state);
+  d.seen.length = 0;
+  d.get("setTab")("other");
+  assert.equal(d.shown(), "o1");
+  assert.equal(d.browsing(), true);
+  assert.equal(d.xc.host, "o1");
+  assert.notEqual(d.doc.activeElement, d.xc.ta, "the caret came along to a card only browsed to");
+  assert.deepEqual(d.seen, [], "a tab switch read the tab's card");
+});
+
+test("a reply landing while the caret is in the box is read at once, and waits on a hidden page", () => {
+  const d = loaded({ right: true });
+  // the page's own line from apply(), run in the page with the card's parts
+  const line = /\n    (readOnArrival\(el, b, [^\n]*\);)\n/.exec(between(HTML.desktop, "function apply(state){", "\n// ---- the clock"))[1];
+  const arrive = vm.runInContext(`(el, b) => { ${line} }`, d.sandbox);
+  const land = replies => {
+    const b = d.state.boxes.find(x => x.id === "a");
+    b.replies = replies;
+    d.sandbox.seenSync(d.state);
+    arrive(d.els.a, b);
+  };
+  land(1);   // the first drawing
+  d.press("Enter");
+  assert.equal(d.els.a.ta, d.xc.ta);
+  d.seen.length = 0;
+  land(2);
+  assert.deepEqual(d.seen, [{ a: 2 }], "a reply landing with the caret in the box stayed unread");
+  d.doc.visibilityState = "hidden";
+  land(3);
+  assert.deepEqual(d.seen, [{ a: 2 }], "a hidden page read the reply");
+  d.doc.visibilityState = "visible";
+  // browsed, with no caret in the box: it waits for the reader
+  d.press("Escape", { target: d.xc.ta });
+  d.press("Escape");
+  land(4);
+  assert.deepEqual(d.seen, [{ a: 2 }], "a browsed card read the reply");
+});
+
 // ---- the two read rules, shared by every surface --------------------------------------
 function logic({ visible = true } = {}) {
   const seen = [];
-  const doc = { visibilityState: visible ? "visible" : "hidden", activeElement: null };
+  const doc = { visibilityState: visible ? "visible" : "hidden", activeElement: null, fire() {} };
   const sandbox = {
     console, Date, Promise, setTimeout, clearTimeout, setInterval, clearInterval,
     document: doc,
@@ -517,9 +750,15 @@ test("every composer is wired to the read rule after its formatter, on every sur
   assert.match(mini, /\n      readOnCompose\(ta, b\.id\);\n/, "the small card's composer");
   const phone = between(HTML.phone, "  const field = ComposeFormat.attach(ta, {", "  ta.addEventListener(\"keydown\", e => {");
   assert.match(phone, /\n  readOnCompose\(ta, b\.id\);\n/, "the phone's composer");
+  // the right composer's box, built once with its formatter, reads whichever
+  // card's draft it holds when it is used
+  const right = between(HTML.desktop, "// ---- the right composer ----", "// the copy button on fenced blocks");
+  assert.ok(right.indexOf("const field = ComposeFormat.attach(ta,") < right.indexOf("readOnCompose(xc.ta,"),
+    "the box is wired before its formatter");
+  assert.match(right, /\nreadOnCompose\(xc\.ta, \(\) => xc\.host, id => useCard\(id\)\);\n/, "the right composer's box");
   // and nothing else on those surfaces marks a card read on focus or input
   for (const [name, html] of Object.entries(HTML))
-    assert.equal((html.match(/readOnCompose\(/g) || []).length, name === "desktop" ? 2 : 1, name);
+    assert.equal((html.match(/readOnCompose\(/g) || []).length, name === "desktop" ? 3 : 1, name);
 });
 
 test("every surface asks the arrival rule for the card it is using, after the counts came in", () => {
