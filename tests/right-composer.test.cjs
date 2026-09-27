@@ -891,9 +891,8 @@ test("the switch stands on the card's right edge beside the compose bar, spannin
   near(tab.top, bar.top, "the switch left the bar when the card moved");
   near(tab.bottom, bar.bottom, "the switch left the bar's floor when the card moved");
   // a board scaled down: the same place on the stage, so it shrinks with the
-  // card. before any card is on show it stands where a bar at rest would, read
-  // off the card's own padding and the row's floor, and once the bar can be
-  // read it is the same place
+  // card. before any card is on show there is no bar to line up with and the
+  // switch is not on show either: only its place along the card's edge is set
   const q = openPage({ scale: .8, window: { w: 1200, h: 760 }, layout: {
     stage: { left: 20, top: 41, right: 20 + 1440 * .8, bottom: 41 + 900 * .8 },
     card: { left: 20 + 466.56 * .8, right: 20 + 996.48 * .8, top: 41 + 63.36 * .8, bottom: 41 + 789.12 * .8 },
@@ -902,8 +901,16 @@ test("the switch stands on the card's right edge beside the compose bar, spannin
   q.fit();
   const qs = q.page.xcSwitch.style;
   near(parseFloat(qs.left), 996.48 - 7, "the switch was not placed in stage pixels");
-  near(parseFloat(qs.bottom), 900 - 789.12 + 20.6, "the rest place is not the bar's floor");
-  near(parseFloat(qs.height), 44.8, "the rest place is not the bar's height");
+  assert.equal(q.page.xcSwitch.hidden, true, "the switch shows with no card on show");
+  assert.equal(qs.height, "", "the switch was given a height with no bar to read");
+  // a card with no bar at all, the way a test or a half built card may stand,
+  // leaves the switch where it was rather than stopping the sync
+  q.page.els.bare = { box: q.dom.doc.createElement("article") };
+  q.page.els.bare.box.className = "box sel";
+  q.page.selectedId = "bare";
+  q.page.xcSync();
+  assert.equal(qs.height, "", "a card with no bar gave the switch a height");
+  delete q.page.els.bare;
   addCard(q, "m52");
   choose(q, "m52");
   near(parseFloat(qs.bottom), 900 - 789.12 + 20.6, "the scaled bar's floor was not read in stage pixels");
