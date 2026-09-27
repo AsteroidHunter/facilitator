@@ -37,7 +37,6 @@
        thirds the desktop uses */
     --pad-x:18px;
     --sp-xs:4px; --sp-s:8px; --sp-x:10px;
-    --pend-bar:32px;
     --titleair:calc(var(--pad-x)*2/3);
     /* the menus' motion, taken from the drawer this page's menus are drawn
        from: one run of 550ms, an ease in and out on a tap and an ease out on
@@ -411,133 +410,44 @@
   }
   .box.histview .replyview{opacity:.8}
 
-  /* ---- the sent box, folded to a bar, opened to the run ------------------- */
+  /* ---- the foot: the sent panel over the typing row ------------------------ */
   .pendwrap{position:absolute; left:0; right:0; bottom:0;
     display:flex; flex-direction:column; background:var(--card)}
   .meta{margin:0 calc(var(--pad-x)*2/3); font:11.5px var(--mono); color:var(--sub); background:var(--card)}
   .meta:empty{display:none}
-  .pendlist{
-    display:flex; flex-direction:column; flex:none; position:relative;
-    margin:0 calc(var(--pad-x)*2/3) var(--sp-s);
-    font:15px/1.5 var(--sans); color:var(--ink);
-    /* a tap folds the box, but its sent words are real text a long press may
-       pick out and copy; the tap yields to a live pick in its handler so the
-       box never folds out from under a selection */
-    cursor:pointer; user-select:text; -webkit-user-select:text;
-  }
-  .pendhead{
-    display:flex; align-items:center; justify-content:center; align-self:stretch; flex:none;
-    height:var(--pend-bar); padding:0 12px; border-radius:7px;
-    box-shadow:var(--sunk-deep); background:var(--card);
-    box-sizing:border-box; border:var(--edge) solid var(--line);
-  }
+  /* the history arrows' chevron */
   .chev{display:block; flex:none}
-  .pendbody{display:none}
-  .pendlist.open{
-    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
-    padding:12px 12px 10px; box-shadow:var(--sunk-deep); overflow:hidden;
-    max-height:38vh; max-height:calc(var(--vvh, 100vh) * .38);
+  /* what has been sent and not answered yet: the panel over the answer
+     (card-tokens.css), in a seat of its own at the foot. the seat is the
+     answer's column, the same two side measures the panel over the answer
+     stands in, so the two panels are one width with one right edge, and the
+     small step under it is the step the old box left before the row. the seat
+     is the card's white, like the whole of the foot, so it covers the answer
+     the panel rises over while the answer's band holds still for the run.
+     open, a long batch stops so the whole panel stands in the old box's room,
+     under two fifths of the screen above the keyboard, and scrolls inside */
+  .sentwrap{
+    display:flex; flex-direction:column; flex:none;
+    padding:0 calc(var(--pad-x)*5/3 - var(--sbar)) var(--sp-s) calc(var(--pad-x)*2/3);
+    background:var(--card);
   }
-  .pendlist.open .pendhead{display:none}
-  .pendlist.open .pendbody{
-    display:flex; flex-direction:column; flex:1 1 auto; min-height:0; position:relative;
-  }
-  .pendlist.open .chevtop{position:absolute; left:0; top:3px; transform:rotate(180deg)}
-  /* the fold's one run, the card page's own: the box's height and padding and
-     the column inside it move over one length on one curve, so they start and
-     settle together and neither can finish first. the column's two ends are the
-     class below, and the distance is how far the box's words travel up into it */
-  .box.sel{--pend-move:.33s; --pend-rise:calc(15px*1.5 + var(--sp-s))}
-  .pendlist.motion{
-    overflow:hidden;
-    transition:height var(--pend-move) var(--gentle),
-               padding-top var(--pend-move) var(--gentle),
-               padding-bottom var(--pend-move) var(--gentle);
-  }
-  /* for the length of the fold the lane is shorter than its rows. clipped rather
-     than scrolled it draws no bar over the run, and the stable gutter it keeps
-     means the rows do not shift when the bar returns on the settled box */
-  .pendlist.motion .pendscroll{overflow:hidden}
-  /* strength travels with the column and is the quicker of the two, so it is
-     spent before the box lands. it is part of the run rather than an animation
-     of its own: a press that turns a run around carries the words on from the
-     strength they have, where an animation would begin them again at nothing */
-  .pendlist.motion .pendbody{
-    transition:transform var(--pend-move) var(--gentle), opacity .22s ease-out;
-  }
-  .pendlist.offseat .pendbody{transform:translate3d(0, var(--pend-rise), 0); opacity:0}
-  .pendstamp{flex:none; text-align:right; font:12px var(--mono); color:var(--sub); padding:0 0 var(--sp-s); min-height:1.2em}
-  /* no bar is drawn on the lane, so the rows keep one x with no gutter held for
-     one; while the box folds it is clipped instead, in the motion rule below, so
-     nothing draws over the run */
-  .pendscroll{flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain}
-  .pendmsg + .pendmsg{padding-top:var(--sp-s)}
-  /* one bubble per message: a filled, rounded block around the whole message,
-     as wide as its longest line, capped at four fifths of the box and pushed
-     right by the automatic margin, so its right end holds where it always
-     stood. the words are left aligned inside it, so a list, a code block and a
-     short line under a long paragraph all start on one left edge, and every
-     block inside keeps its formatting. the fill and the tail's mask are the
-     shared tokens in card-tokens.css; the corner is 18px because the tail's
-     path is drawn for an 18px corner; the air inside is this page's own
-     --sp-s by --sp-x */
-  .pendmsg .pendcontent{
-    position:relative; margin:0 0 0 auto; text-align:left; white-space:pre-wrap;
-    width:fit-content; max-width:80%; overflow-wrap:break-word;
-    background:var(--bubble-fill); border-radius:18px;
-    /* the air over and under the words is not one number: at 15px on a 22.5px
-       line the font's tallest glyph stands 4.9px under the line's top and its
-       deepest descender only 3.3px over the bottom, so equal padding left 1.6px
-       more air over the ink than under it. the bottom takes half and the top
-       gives it up, so the ink has the same air either side, measured from the
-       first line's tallest glyph and the last line's deepest, and the bubble's
-       height is unchanged. the Mac page writes its own split for its own type */
-    padding:calc(var(--sp-s) - .75px) var(--sp-x) calc(var(--sp-s) + .75px);
-  }
-  /* a list's last item keeps its own 2px bottom margin under the list's zeroed
-     one, which inside a padded bubble is 2px more air under a message ending
-     in a list than under one ending in a paragraph. gone, so the air under
-     the ink is one number whatever the message ends in */
-  .pendmsg .pendcontent li:last-child{margin-bottom:0}
-  /* the tail, the hook Messages hangs under the last bubble of a run. every
-     message in one of these boxes is the sender's, so a box is one run and its
-     last row carries the hook; every bubble before it is the plain round box.
-     a pseudo-element of the bubble itself, masked out of the bubble's own fill,
-     spanning the bubble and hanging 7px under it; absolute, so it adds no gap.
-     on this page a box's run goes on into the unsent holder under the confirmed
-     rows, so a row waiting there is the run's last, and the confirmed row above
-     it gives the hook up for as long as the holder has a row in it */
-  .pendmsg:last-child .pendcontent::after{
-    content:"";
-    position:absolute; left:0; right:0; bottom:-7px; height:25px;
-    background:var(--bubble-fill);
-    pointer-events:none;
-    -webkit-mask:var(--bubble-tail) right 0 / 24px 25px no-repeat;
-    mask:var(--bubble-tail) right 0 / 24px 25px no-repeat;
-  }
-  .pendslide:has(+ .pendlocal .pendmsg) .pendmsg:last-child .pendcontent::after{content:none}
-  /* the delivery word's seat is under the bubble's straight bottom edge. its
-     right end steps in by the corner's own radius, 18px, where the edge stops
-     being straight: the corner's arc begins there, and on the last bubble the
-     hook's underside leaves the edge just past it and runs down to its tip
-     7.7px in. so the word stands under the flat edge, clear of the curve and
-     of the hook. it starts 7px down, clearing a hook that reaches 6.9px under.
-     Read takes the same seat under its own bubble */
-  .rcpt{display:block; text-align:right; font:10.5px/1.35 var(--mono); color:var(--sub); padding:7px 18px 0}
-  .rcpt:empty{display:none}
+  .sentwrap:empty{display:none}
+  .box{--sent-cap:calc(var(--vvh, 100vh) * .38 - var(--answ-pad-y) - var(--answ-strip))}
   /* a message the board has not confirmed yet: drawn the moment it is sent, a
-     shade lighter, its receipt saying so, and kept on the card until the board
-     has it. one it could not be given stays too, in the ink the unreachable
-     note wears, and a tap puts the words back in the typing row */
-  .pendlocal{display:flex; flex-direction:column}
-  .pendlocal .pendmsg{padding-top:var(--sp-s)}
-  .pendmsg.pending .pendcontent{opacity:.6}
-  .pendmsg.pending .rcpt{color:#8F7B4A}
-  .pendmsg.failed .rcpt{color:#7A2E1B}
+     shade lighter, with a short line under its words saying where it stands,
+     and kept on the card until the board has it. one it could not be given
+     stays too, its line in the ink the unreachable note wears, and a tap puts
+     the words back in the typing row. the line stands right under the words,
+     so the block before it gives up its own step */
+  .answnote{display:block; margin-top:4px; font:10.5px/1.35 var(--mono); color:var(--sub); white-space:normal}
+  .answmsg > :has(+ .answnote){margin-bottom:0}
+  .answmsg.pending > :not(.answnote){opacity:.6}
+  .answmsg.pending .answnote{color:#8F7B4A}
+  .answmsg.failed .answnote{color:#7A2E1B}
   /* a message the board never confirmed and the phone stopped resending: kept
-     as it was typed, its receipt saying only what is known */
-  .pendmsg.unsure .pendcontent{opacity:.72}
-  .pendmsg.unsure .rcpt{color:#6B5A2E}
+     as it was typed, its line saying only what is known */
+  .answmsg.unsure > :not(.answnote){opacity:.72}
+  .answmsg.unsure .answnote{color:#6B5A2E}
 
   /* ---- the messages the answer on the card was given ---------------------- */
   /* the desktop card's panel, drawn from the shared sheet (card-tokens.css) at
@@ -545,8 +455,8 @@
      the panel rides up out of view with the answer under it, and it spans the
      answer's own column, written as the same two side measures the answer's
      words stand in, so the panel's right edge is the right edge of the
-     answer's lines. the small step under it is the one the sent box leaves
-     under itself. an empty seat takes no room */
+     answer's lines. the small step under it is the one the sent panel's seat
+     leaves under it. an empty seat takes no room */
   .answwrap{
     display:flex; flex-direction:column; flex:none;
     padding:0 calc(var(--pad-x)*5/3 - var(--sbar)) var(--sp-s) calc(var(--pad-x)*2/3);
@@ -569,12 +479,6 @@
     display:flex; align-items:flex-end; gap:var(--sp-s); flex:none;
     margin:0 calc(var(--pad-x)*2/3); border-top:var(--edge) solid var(--line); background:var(--card);
   }
-  /* the white over the step under the sent box, and it is hung on there being a
-     box to leave one: the answer now runs on behind the bar, and without this
-     the words would show through the step between the box and the typing row.
-     on a card with no box there is no step, and painting one there would land
-     the card's white on the foot of the answer's own fade */
-  .pendwrap:has(.pendlist) .bottombar{box-shadow:0 calc(var(--sp-s) * -1) 0 var(--card)}
   .clipbtn{
     flex:none; width:28px; height:var(--row-min); padding:0; border:none;
     background:none; border-radius:var(--sq); color:var(--ink);
@@ -1240,11 +1144,11 @@ function boxBand(reply, wrap){
   return Math.max(0, Math.round(b));
 }
 // a ResizeObserver and not a hook on each send: it delivers after layout and
-// before paint on every frame the wrapper's height changes, which is every frame
-// of the box's arrival and of a fold, so the ramp's top edge and the box's top
-// edge are the same line on every frame rather than one frame behind it
+// before paint on every frame the wrapper's height changes, a sent panel coming
+// or going, the row growing, the keyboard, so the ramp's top edge and the
+// panel's top edge are the same line on every frame rather than one frame behind it
 function watchBand(el){
-  // --boxband is what the sent box and the typing row cover at the foot of the
+  // --boxband is what the sent panel and the typing row cover at the foot of the
   // answer. it is written on the CARD and the answer inherits it, so every rule
   // that reads --boxband reads the number it always read.
   // it is written only when it changes. it feeds the size of the very element
@@ -1252,11 +1156,14 @@ function watchBand(el){
   // every fire, even of the value already held, keeps the observer firing on its
   // own writes, which the browser gives up on as a loop through a whole keyboard
   // run. deduped, the writes converge in a frame and the loop never starts.
+  // while the sent panel runs, the band is held at one end of the run rather
+  // than following it (sentBand in card-logic.js), so a run writes it once
   let lastBand = null;
   const write = () => {
-    const band = boxBand(el.replyview, el.pendwrap);
+    const band = sentBand(el, boxBand(el.replyview, el.pendwrap));
     if (band !== lastBand){ lastBand = band; el.box.style.setProperty("--boxband", band + "px"); }
   };
+  el.bandWrite = write;
   // the write resizes the very element this observer watches (the answer's
   // run-out off --boxband), so running it inside the observer leaves a resize
   // the observer never delivers, which the browser reports as a loop through a
@@ -1364,6 +1271,9 @@ function makeBox(b){
   const answwrap = h("div", "answwrap");
   const pendwrap = h("div", "pendwrap");
   const meta = h("div", "meta");
+  // and the seat of the panel of what has been sent and not answered, over the
+  // row, empty and taking no room until something is sent
+  const sentwrap = h("div", "sentwrap");
   const bottombar = h("div", "bottombar");
   const clipfile = h("input", "clipfile");
   clipfile.type = "file";
@@ -1388,9 +1298,9 @@ function makeBox(b){
   twin.rows = 1; twin.tabIndex = -1; twin.readOnly = true; twin.setAttribute("aria-hidden", "true");
   compose.append(ta, send, twin);
   bottombar.append(clipfile, clip, compose);
-  pendwrap.append(meta, bottombar);
+  pendwrap.append(meta, sentwrap, bottombar);
   // the column: the scroller holding the answered panel over the answer, and laid
-  // over the answer at the card's floor the sent box and the typing row
+  // over the answer at the card's floor the sent panel and the typing row
   replyview.append(answwrap, reply);
   body.append(replyview, pendwrap);
   // the clip box the body lifts inside: the body rises under the card header on
@@ -1437,6 +1347,9 @@ function makeBox(b){
   };
   ta.addEventListener("input", () => {
     clearPhoneEnterAgain();
+    // the moment of the last key, which is what holds a new answer back while
+    // the reader is typing (turnHolding in card-logic.js)
+    noteTyping(ta);
     tick(true);
   });
   ta.addEventListener("focus", () => {
@@ -1495,24 +1408,33 @@ function makeBox(b){
     await attach(files, ta);
   });
 
-  els[b.id] = { box, body, reply, replyview, meta, ta, twin, send, tick, titleEl, sun, arc, x, pendwrap, bottombar,
-                pend: null, pendRaw: "", histUp, histDown, histPos, clip, clipfile, field,
-                foldRun: 0,   // the sent box's run number, for a second press
+  const card = els[b.id] = { box, body, reply, replyview, meta, ta, twin, send, tick, titleEl, sun, arc, x, pendwrap, bottombar,
+                histUp, histDown, histPos, clip, clipfile, field,
                 // answ is null until the card shows a reply the board recorded a
                 // batch for, and null again the moment it shows one it did not.
                 // answId is the name of the reply the panel is drawn for, which
                 // is what a poll compares against
-                answwrap, answ: null, answId: null };
+                answwrap, answ: null, answId: null,
+                // sent is null until something is sent and null again the moment
+                // the answer to it lands. sentTexts is what the board has
+                // confirmed of it; what it has not confirmed yet is this phone's
+                // own and is drawn after it (drawSent)
+                sentwrap, sent: null, sentKey: "", sentTexts: [] };
+  // the sent panel's room: the band it holds still for a run is written again
+  // once the run has landed, which no size the band's watch sees changes
+  card.sentRoom = () => card.bandWrite && card.bandWrite();
   syncOmniCard(els[b.id], b);
   paintSectionChips(els[b.id], b);
-  // the two fades: the band the box and the bar stand in, and the band the
-  // answer has scrolled away under the title
+  // the two fades: the band the sent panel and the bar stand in, and the band
+  // the answer has scrolled away under the title
   watchBand(els[b.id]);
   watchRise(replyview);
+  // and the reader's own scrolling of the answer, which holds a page turn back
+  watchReading(els[b.id]);
   return els[b.id];
 }
 
-// ---- the sent box --------------------------------------------------------------
+// ---- the sent panel ------------------------------------------------------------
 // true when a live selection touches el, so copying a sent line never triggers a
 // fold or a row action. intersectsNode catches a cross-boundary pick whose
 // commonAncestorContainer sits outside el; collapsed/empty give false.
@@ -1525,31 +1447,62 @@ function boxHasSelection(el){
   }
   return false;
 }
-// arrive is what tells a send from a poll, exactly as it does on the desktop: a
-// send is an arrival being watched, so the box rises into the room the answer
-// gives up and then fades in where it stands. a poll bringing messages that were
-// already sent, on a first load or from another window, has no arrival to show
-// and mounts the box plainly
-function growPend(el, arrive){
-  const pend = h("div", "pendlist" + (arrive ? " rising" : ""));
-  pend.innerHTML = '<div class="pendhead">' + chevSVG("chevmid") + "</div>" +
-    '<div class="pendbody">' + chevSVG("chevtop") + '<div class="pendstamp"></div>' +
-    '<div class="pendscroll"><div class="pendslide"></div><div class="pendlocal"></div></div></div>';
-  pend.addEventListener("click", () => {
-    if (boxHasSelection(pend)) return;
-    foldStrip(el, pend, "foldRun", foldWants(pend), pendBottom);
-  });
-  el.pendwrap.insertBefore(pend, el.bottombar);
-  el.pend = pend;
-  if (arrive) risePend(el, pend);
-  return pend;
+// the panel itself, its arrival, its fold and the page turn that takes it up to
+// the head of the card when the answer lands are the desktop's own, shared in
+// card-logic.js, and so is the whole of the panel of answered messages above
+// the answer. what is this page's own is what the panel is drawn from: the
+// messages the board has confirmed, and after them this phone's own that it
+// has not confirmed yet, each with a line under its words saying where it
+// stands. arrive is what tells a send from a reading, as it does on the desktop
+function sentOf(el, id){
+  const batch = sentBatch(el.sentTexts);
+  for (const op of localSends(id))
+    batch.push({ text: op.text, op: op.id, state: op.state, note: opNote(op) });
+  return batch;
 }
-
-// the arrival's two beats (risePend), the rows, the delivery words, the run
-// stamp and the poll's own pass over the box (syncPend) are shared with the
-// desktop: card-logic.js. so is the whole of the panel of answered messages
-// above the answer: which reply it belongs to, what that reply was given, how
-// it is built, and the tap that opens it and cuts it back
+function drawSent(el, id, arrive){
+  syncSent(el, sentOf(el, id), arrive);
+  const panel = el.sent;
+  if (!panel) return;
+  // the tap on a message this phone could not send, which takes it back. it is
+  // heard before the panel's own tap, so taking words back never folds the panel
+  if (!panel.opPress){
+    panel.opPress = true;
+    panel.addEventListener("click", e => sentPress(e), true);
+  }
+  // a message newly refused, or whose fate is newly unknown, says so under its
+  // words, and a panel cut above that line is opened once so the line is read
+  const warn = localSends(id).filter(o => o.state === "failed" || o.state === "unsure").map(o => o.id).join(",");
+  if (warn && warn !== el.sentWarned && panel.classList.contains("more") && !panel.classList.contains("open"))
+    openAnswered(panel, true);
+  el.sentWarned = warn;
+}
+// what the line under an unconfirmed message says
+function opNote(op){
+  return op.state === "failed" ? "Not sent, tap to take the words back"
+    : op.state === "unsure" ? (op.armed ? "Tap again to take the words back; it may already have gone" : "Could not confirm it was sent")
+    : op.waiting ? "Not sent yet, retrying" : "Sending";
+}
+// a not-sent message gives the words back on a tap. an unsure one is the
+// reader's to decide: the first tap arms it and says the message may already
+// have gone, and only a second tap within a few seconds takes the words back;
+// nothing is ever resent for it on its own. picking out its words is a copy
+function sentPress(e){
+  const row = e.target && e.target.closest && e.target.closest(".answmsg[data-op]");
+  if (!row || boxHasSelection(row)) return;
+  const op = ops.find(o => o.id === row.dataset.op);
+  if (!op) return;
+  if (op.state === "failed"){ e.stopPropagation(); takeBack(op); return; }
+  if (op.state !== "unsure") return;
+  e.stopPropagation();
+  if (op.armed){ takeBack(op); return; }
+  op.armed = true;
+  drawOpState(op);
+  setTimeout(() => { if (op.armed){ op.armed = false; drawOpState(op); } }, 5000);
+}
+// a new answer held back while the reader was busy is shown by drawing the
+// reading this page already holds, since the board has nothing newer to say
+turnAgain = () => { if (lastState) apply(lastState); };
 
 // ---- sending, closing, parking, naming ------------------------------------------
 // what the cross on the card does, and what the key that stands for it does: the
@@ -1674,7 +1627,6 @@ const RETRY_MIN_MS = 1500, RETRY_MAX_MS = 30000;
 const OP_STATES = new Set(["pending", "unsure", "failed"]);
 let ops = [];                                // in the order they were asked
 const createDiagnostics = new Map();         // transient timing tokens; never persisted
-const opRows = {};                           // op id -> its row on the card, while it is unconfirmed
 const opSleepers = new Set();                // the retry sleeps a wake ends early
 const opWorkers = {};                        // lane -> the loop working that lane's operations
 let opsStarted = false;                      // the loops start after the first reading, which reconciles first
@@ -1837,8 +1789,6 @@ function applyOp(op, result){
   op.state = "applied";
   ops = ops.filter(o => o !== op);
   saveOps();
-  const row = opRows[op.id];
-  if (row){ row.remove(); delete opRows[op.id]; }
   try {
     if (op.kind === "send") landSend(op, result); else landCreate(op, result);
     // A concurrent poll can have inserted the card before this response lands.
@@ -1885,7 +1835,7 @@ function markUnsure(op, why){
     drawerNote("Could not confirm the card was made; it will show here if it was");
   } else {
     const el = els[op.box];
-    if (el) drawLocalRows(el, localSends(op.box));
+    if (el) drawSent(el, op.box);
   }
   saveOps();
 }
@@ -1907,25 +1857,20 @@ function failOp(op, why, by){
     drawerNote("The card could not be made: " + why);
   } else {
     const el = els[op.box];
-    if (el) drawLocalRows(el, localSends(op.box));
+    if (el) drawSent(el, op.box);
   }
   saveOps();
 }
-// a confirmed send: the row moves from the unsent rows to the delivered ones,
-// exactly the row the board's next reading would draw, so that reading finds
-// it there and adds nothing. sendGuard is the moment it landed: a reading asked
+// a confirmed send: the message moves from this phone's own to the confirmed
+// ones, exactly the list the board's next reading would draw, so that reading
+// finds it there and adds nothing. the message keeps its place in the panel and
+// only its line goes. sendGuard is the moment it landed: a reading asked
 // before it knows nothing of it and may not take it away
 function landSend(op, result){
   const el = els[op.box];
   if (!el) return;
-  const pend = el.pend || growPend(el, true);
-  const row = pendRow(op.text);
-  if (pend.classList.contains("open")) row.classList.add("pop");
-  pend.querySelector(".pendslide").appendChild(row);
-  stampRcpts(pend);
-  if (!pend.querySelector(".pendstamp").textContent) stampRun(pend, [op.ts / 1000]);
-  pendBottom(pend);
-  el.pendRaw = el.pendRaw ? el.pendRaw + "\n\n" + op.text : op.text;
+  el.sentTexts = [...el.sentTexts, op.text];
+  drawSent(el, op.box);
   el.sendGuard = Date.now();
   if (el.meta.textContent.indexOf("send ") === 0) el.meta.textContent = "";
   if (op.reopen) undone(op.box);   // the message is in; the flip rides behind it
@@ -1958,71 +1903,20 @@ function landCreate(op, result){
 function takeBack(op){
   ops = ops.filter(o => o !== op);
   saveOps();
-  const row = opRows[op.id];
-  if (row){ row.remove(); delete opRows[op.id]; }
   const el = els[op.box];
   if (!el) return;
   el.ta.value = el.ta.value.trim() ? el.ta.value.trimEnd() + "\n\n" + op.text : op.text;
   el.tick();
-  drawLocalRows(el, localSends(op.box));
+  drawSent(el, op.box);
   // taking one back makes room: a send held for want of it may go now
   if (el.meta.textContent.indexOf("send held") === 0 && ops.length < OPS_MAX) el.meta.textContent = "";
 }
-// the unsent rows of one card, after the delivered ones: one row per
-// operation, its receipt saying where it stands
-function drawLocalRows(el, local){
-  if (!local.length){
-    if (el.pend){
-      el.pend.querySelector(".pendlocal").textContent = "";
-      if (!el.pend.querySelector(".pendslide").children.length) dropPend(el);
-    }
-    return;
-  }
-  const pend = el.pend || growPend(el, true);
-  const holder = pend.querySelector(".pendlocal");
-  const want = new Set(local.map(o => o.id));
-  for (const row of [...holder.children]){
-    if (!want.has(row.dataset.op)){ row.remove(); delete opRows[row.dataset.op]; }
-  }
-  for (const op of local){
-    let row = opRows[op.id];
-    if (!row || row.parentNode !== holder){
-      row = pendRow(op.text);
-      row.dataset.op = op.id;
-      // a not-sent row gives the words back on a tap. an unsure row is the reader's to
-      // decide: the first tap arms it and says the message may already have
-      // gone, and only a second tap within a few seconds takes the words back;
-      // nothing is ever resent for it on its own
-      row.addEventListener("click", e => {
-        // selecting/copying the row's words must not take the message back; a
-        // live pick on the row leaves the tap to the fold guard above
-        if (boxHasSelection(row)) return;
-        if (op.state === "failed"){ e.stopPropagation(); takeBack(op); return; }
-        if (op.state !== "unsure") return;
-        e.stopPropagation();
-        if (op.armed){ takeBack(op); return; }
-        op.armed = true;
-        drawOpState(op);
-        setTimeout(() => { if (op.armed){ op.armed = false; drawOpState(op); } }, 5000);
-      });
-      holder.appendChild(row);
-      opRows[op.id] = row;
-    }
-    drawOpState(op);
-  }
-  if (!pend.querySelector(".pendstamp").textContent) stampRun(pend, [local[0].ts / 1000]);
-}
+// an operation's state changed: the line under its message says so. the panel
+// keeps the message's block and changes only its dress and its line
 function drawOpState(op){
   if (op.kind === "create"){ drawCreatePending(); return; }
-  const row = opRows[op.id];
-  if (!row) return;
-  row.classList.toggle("pending", op.state === "pending");
-  row.classList.toggle("unsure", op.state === "unsure");
-  row.classList.toggle("failed", op.state === "failed");
-  row.querySelector(".rcpt").textContent =
-    op.state === "failed" ? "Not sent, tap to take the words back"
-    : op.state === "unsure" ? (op.armed ? "Tap again to take the words back; it may already have gone" : "Could not confirm it was sent")
-    : op.waiting ? "Not sent yet, retrying" : "Sending";
+  const el = els[op.box];
+  if (el) drawSent(el, op.box);
 }
 function drawCreatePending(){
   const plus = document.getElementById("tikadd");
@@ -2039,8 +1933,8 @@ function drawerNote(text){
 }
 
 // ---- sending and making ------------------------------------------------------------
-// the tap is answered on the tap: the row lands in the box now, marked as on
-// its way, and the operation loop behind it sees it home. the desktop waits
+// the tap is answered on the tap: the message lands in the sent panel now, marked
+// as on its way, and the operation loop behind it sees it home. the desktop waits
 // for the server before it draws the line because the server is on the same
 // machine and answers in a millisecond; here that wait is a second of nothing
 // happening under a finger
@@ -2063,10 +1957,8 @@ function doSend(id, opts){
   op.advance = opts.advance !== false;
   el.ta.value = "";
   el.tick();          // the square goes with the words, and the row falls back to one line
-  const pend = el.pend || growPend(el, true);
-  drawLocalRows(el, localSends(id));
-  if (pend.classList.contains("open")) opRows[op.id]?.classList.add("pop");
-  pendBottom(pend);
+  // an arrival: the panel comes in, or the message comes into it, cut to its preview
+  drawSent(el, id, true);
   if (hist && hist.id === id) histExit(id);   // a send lands you back on the live reply
   runOps(laneOf(op));
   endPhoneTrace(trace, { op: op.id, box: id }, null, true);
@@ -3046,8 +2938,10 @@ function apply(state){
       // card, so the card takes it with it: without this the editor and the
       // removed card stay reachable for the rest of the page's life
       els[id].field?.detach();
-      // and the watch on its panel's size goes with it
+      // and the watches on its two panels' sizes go with it
       dropAnswered(els[id], null);
+      els[id].sentRoom = null;
+      dropSent(els[id]);
       els[id].box.remove(); delete els[id];
     }
   }
@@ -3056,7 +2950,14 @@ function apply(state){
     if (!els[b.id]) makeBox(b);
     const el = els[b.id];
     const rawReply = replyFull(b);
-    if (el.reply.dataset.raw !== rawReply){
+    // a new answer on the card on show turns the page, as it does on the desktop
+    // (card-logic.js): the sheet over the page the reader was on is laid before
+    // anything of the new one is drawn, and turnGo below glides it. while the
+    // reader is busy with the card the new answer is held back, and this pass
+    // leaves the answer and both panels exactly as they stand
+    const turn = el.reply.dataset.raw !== rawReply ? turnBegin(el, b) : null;
+    const held = turn === TURN_HELD;
+    if (!held && el.reply.dataset.raw !== rawReply){
       el.reply.dataset.raw = rawReply;
       delete histCache[b.id];
       if (hist && hist.id === b.id) histExit(b.id);
@@ -3070,21 +2971,25 @@ function apply(state){
     if (!el.titleEl.isContentEditable && !el.omniSweep && el.titleEl.textContent !== omniCardTitle(b.title))
       el.titleEl.textContent = omniCardTitle(b.title);
     syncOmniCard(el, b);
-    const pt = (b.pendingTexts || []).join("\n\n");
-    // the line a send has just drawn is not the poll's to take away. a state
+    // the message a send has just drawn is not the poll's to take away. a state
     // fetched before the server had that message knows nothing about it, and the
-    // pass over the box would read the shorter list as the run being claimed and
-    // clear the box in view. el.sendGuard is the moment the send landed,
+    // pass over the panel would read the shorter list as the run being answered
+    // and clear the panel in view. el.sendGuard is the moment the send landed,
     // and stands at the end of time while one is still in flight
     const stale = (state.fetchedAt || 0) < (el.sendGuard || 0);
-    if (!stale) syncPendPhone(el, b, pt);
+    if (!held && !stale) syncSentPhone(el, b);
     // and the panel over the answer: the reply the card is showing, and the
     // messages the board recorded that reply was given. while an older page is
     // on show the stepper owns that panel, so the poll leaves it alone and
     // histExit is what hands it back to the live reply. the pass compares the
     // reply's own name, so a poll carrying the same reply again touches no dom
     // at all and nothing near the typing row moves
-    if (!(hist && hist.id === b.id)) syncAnswered(el, liveAnswered(b));
+    if (!held){
+      el.liveMeta = liveAnswered(b);
+      if (!(hist && hist.id === b.id)) syncAnswered(el, el.liveMeta);
+    }
+    // the new page stands under the sheet: the glide and the print
+    turnGo(el, turn);
     const cs = cardState(b);
     el.box.classList.toggle("done", cs === "done");
     el.box.classList.toggle("parked", cs === "parked");
@@ -3146,24 +3051,13 @@ function goToBox(id){
   select(id);
   apply(lastState);
 }
-// the poll's pass over one card's sent box: the delivered rows are the
-// board's and the shared pass draws them; the unsent rows are this phone's
-// and are drawn after them, so a box with nothing delivered yet still stands
-// for what is on its way
-function syncPendPhone(el, b, pt){
-  const texts = b.pendingTexts || [], stamps = b.pendingStamps || [];
-  const local = localSends(b.id);
-  if (el.pendRaw !== pt){
-    if (texts.length) syncPend(el, texts, stamps);
-    else if (!local.length) dropPend(el);
-    else {
-      const pend = el.pend || growPend(el, false);
-      pend.querySelector(".pendslide").textContent = "";
-      stampRun(pend, []);
-      el.pendRaw = "";
-    }
-  }
-  drawLocalRows(el, local);
+// the poll's pass over one card's sent panel: the confirmed messages are the
+// board's, and this phone's own unconfirmed ones are drawn after them, so a panel
+// with nothing confirmed yet still stands for what is on its way. a pass
+// bringing the same again touches no dom at all
+function syncSentPhone(el, b){
+  el.sentTexts = b.pendingTexts || [];
+  drawSent(el, b.id);
 }
 
 // ---- reading the board -------------------------------------------------------------
@@ -3190,10 +3084,19 @@ let drewBoard = false;
 let createRevFloor = null;
 let lastGood = 0;                     // when the board last answered
 let pollAgain = false, pollTimer = null, pollGap = POLL_MS;
+// a timed reading that falls due while a panel on the card runs, or a page turns,
+// is put off a moment and not dropped (cardsMoving in card-logic.js): a reading
+// that brings a change has to be drawn, since the revision it carries is only
+// ever handed over once
+const RUN_WAIT_MS = 250;
 function schedulePoll(ms){
   clearTimeout(pollTimer); pollTimer = null;
   if (document.hidden) return;   // a hidden page reads nothing; the resume reads at once
-  pollTimer = setTimeout(() => { pollTimer = null; poll(); }, ms);
+  pollTimer = setTimeout(() => {
+    pollTimer = null;
+    if (cardsMoving()){ schedulePoll(RUN_WAIT_MS); return; }
+    poll();
+  }, ms);
 }
 function linkStatus(){
   const bar = document.getElementById("offline");
@@ -3784,7 +3687,7 @@ function stepCard(dir, focus){
 // scale are the only animated values.
 {
   const EDGE = 28, START = 10, COMMIT = 0.22, DEPTH = 0.035, GAP = 16, RUN_MS = 240;
-  const blocked = "button,input,textarea,a,[contenteditable],[role='textbox'],.cm-editor,.pendscroll";
+  const blocked = "button,input,textarea,a,[contenteditable],[role='textbox'],.cm-editor,.answered.sent.open";
   let drag = null, finishTimer = null;
   const reduced = () => !!(matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
   const clear = () => {

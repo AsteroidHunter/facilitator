@@ -49,8 +49,8 @@
    top of the desktop window already owns that name and the two are different
    heights.
    --sq is the rounding every control on the card wears, the board's own 4px
-   inner corner; the 7px belongs to the things let INTO the card, the pane,
-   the sent box and the worktree list. --press is the one press shade, a tenth
+   inner corner; the 7px belongs to the things let INTO the card, the pane
+   and the worktree list. --press is the one press shade, a tenth
    of black mixed into whatever fill a control is wearing, so a control can
    never carry a stale hover hex. --gentle is the one curve the card's timed
    things are drawn on: its handles stay inside the unit box, so nothing it
@@ -58,15 +58,16 @@
    --sunk-deep is the one depth on the card, the pane's own warm ink and
    nothing else drawn. it hangs off the top inside edge the way every sunk
    thing here does, since the light the board is drawn under comes from above.
-   the sent box is set with it and so is the plus button's press seat, so the
-   two read as let into the same surface.
+   the plus button's press seat is set with it, so it reads as let into the
+   card's surface.
    --sbar is the slim scrollbar's lane, the one width every scroller on the
    board is drawn to. two places read it: the rules that paint the bar, and
    the answer's own right padding, which has to give back exactly this much so
    a lane laid inside its box moves none of its words.
    --row-min is the typing row's own floor, written once because two rules
-   read it: the field itself, and the sent box's cap, which has to know what
-   the bar takes out of the room before it can work out what is left.
+   read it: the field itself, and the sent panel's cap on the desktop card,
+   which has to know what the bar takes out of the room before it can work out
+   what is left.
    --chipoff is how far a section chip fades while the card already stands in
    the section it names. it is the history arrows' own disabled fade on the same
    bar, so everything switched off on the card reads alike, and it sits well
@@ -80,22 +81,14 @@
   --sunk-deep:inset 0 3px 7px rgba(60,45,20,.22), inset 0 1px 2px rgba(60,45,20,.14);
 }
 
-/* ---- the sent bubble ----------------------------------------------------- */
-/* Each message in the card's sent box is one bubble. Each page draws it by its
-   own rules at its own air; what the two pages share stands here once.
-   --bubble-fill is the bubble's tint and the tail's paint, and the fill of the
-   panel of answered messages below as well, so the owner's words wear one grey
+/* ---- the owner's grey ---------------------------------------------------- */
+/* --bubble-fill is the grey the owner's own words stand on: the panel of the
+   messages an answer was given, over the answer, and the panel of the messages
+   still waiting for one, at the card's foot, so the owner's words wear one grey
    wherever they stand. it is the one value meant to be changed later, so it is
-   written here and nowhere else.
-   --bubble-tail is the tail's mask: a 24 by 25 image holding the measured path
-   of the hook Messages hangs under the last bubble of a run. Each page paints
-   it in the bubble's own fill at the right end of a box that spans the bubble
-   and hangs 7px under it. The path's closing run sweeps through an 18px corner
-   from the inside, so the bubble's corner is 18px on both pages and the two
-   paints share no seam. */
+   written here and nowhere else. */
 :root{
   --bubble-fill:#F3F3F3;
-  --bubble-tail:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 25'%3E%3Cpath d='M0 16V18H2C5 18 11.8 22.6 14.8 24.3Q15.6 24.9 16.4 23.9C16.5 22.4 14.65 20.5 14.65 19V17.6C14.65 16.3 16.2 14.7 17.6 13.5L12 10H0Z'/%3E%3C/svg%3E");
 }
 
 /* ---- the ready-to-test fold ---------------------------------------------- */
@@ -223,7 +216,7 @@
 
 /* ---- card prose ---------------------------------------------------------- */
 /* Every place that renders card prose carries cardmd. Keeping the complete
-   subset here gives the full card, pending rows, document and mini card the
+   subset here gives the full card, both message panels, document and mini card the
    same visual vocabulary instead of relying on a surface-specific selector. */
 .cardmd{overflow-wrap:anywhere}
 .cardmd p{margin:0 0 9px}
@@ -290,50 +283,64 @@
    to a little under the whole column, which is where the drawing stops it.
    --answ-move is the one length it opens and cuts back in, the same on every
    surface: the old answered box's --pend-move, 330ms, on the card's --gentle
-   curve, so the panel folds exactly as that box did */
+   curve, so the panel folds exactly as that box did.
+   --answ-come and --answ-rise are the arrival a send gives the panel of sent
+   messages, further down */
 .answered{
   position:relative; box-sizing:border-box;
   width:fit-content; max-width:86%; margin-left:auto;
   padding:var(--answ-pad-y) var(--answ-pad-x);
   background:var(--bubble-fill); border-radius:var(--answ-round);
   font:var(--answ-font); color:var(--ink); text-align:left;
-  --answ-move:.33s;
+  --answ-move:.33s; --answ-come:.26s; --answ-rise:6px;
 }
 /* the cut. a batch longer than the preview shows its first lines and dissolves
    into the panel's own grey over the last of them, the way the drawing's third
    line fades, and an opened panel shows the whole batch in place, pushing the
    answer down rather than lying over it.
-   how deep it dissolves is a length the browser is told the type of, so it can
-   be run like the height is: opening, the dissolve firms up to nothing as the
-   cut goes down, and cutting back it deepens again as the cut comes up. a
-   browser that cannot run it simply lands it at the far end.
+   the dissolve is a strip of the panel's own grey, --answ-fade deep, laid over
+   the foot of the cut and drawn once. on a flat grey panel it reads exactly as
+   the words dissolving into the grey, and all it ever does is fade: whole while
+   a long batch stands cut, gone while it stands open. --answ-shade is that
+   strength, which the sheet gives and the script holds inline for the length
+   of a run only. no mask is drawn anywhere on the panel, so no frame of a run
+   has a dissolve to draw again.
    --answ-stop is written by the script and by nothing else: the foot of the
    last line with text, when the preview's own cut would otherwise land in
    blank, a paragraph break or the air round a hairline, or when a batch that
    fits ends on a blank tail. without it the cut is the surface's own preview */
-@property --answ-cut{syntax:"<length>"; inherits:false; initial-value:0px}
-.answclip{max-height:var(--answ-stop, var(--answ-peek)); overflow:hidden; --answ-cut:0px}
-.answered.more:not(.open) .answclip{--answ-cut:var(--answ-fade)}
-.answered.more:not(.open) .answclip,
-.answered.motion .answclip{
-  -webkit-mask-image:linear-gradient(to bottom, #000 calc(100% - var(--answ-cut)), transparent);
-  mask-image:linear-gradient(to bottom, #000 calc(100% - var(--answ-cut)), transparent);
+.answclip{position:relative; max-height:var(--answ-stop, var(--answ-peek)); overflow:hidden; --answ-shade:0}
+.answered.more:not(.open) .answclip{--answ-shade:1}
+.answclip::after{
+  content:""; position:absolute; left:0; right:0; bottom:0; height:var(--answ-fade);
+  background:linear-gradient(to bottom, transparent, var(--bubble-fill));
+  opacity:var(--answ-shade); pointer-events:none;
 }
 .answered.open .answclip{max-height:none}
 /* the run, the old box's fold carried over: its height moves over one length on
    one curve whose handles stay inside the unit box, so nothing overshoots and
    there is nothing to spring back from. for the length of the run the script
    writes the two ends inline, so the preview's cap stands aside, and the cut
-   stays clipped, the edge the words slide under both ways */
+   stays clipped, the edge the words slide under both ways. the dissolve fades
+   out opening and back in cutting back, on the same length and curve.
+   what moves is handed a layer of its own for the length of the run, the way
+   the old box handed its column one: the column of messages, whose words the
+   moving cut uncovers, the strip at the foot, which rides the cut's edge, and
+   the answer the panel over it pushes down. each is then drawn once and moved,
+   not drawn again on every frame. the hint is worn only while a run is on, so
+   nothing holds a layer at rest */
 .answered.motion .answclip{
   max-height:none;
-  transition:height var(--answ-move) var(--gentle), --answ-cut var(--answ-move) var(--gentle);
+  transition:height var(--answ-move) var(--gentle);
 }
+.answered.motion .answclip::after{transition:opacity var(--answ-move) var(--gentle)}
+.answered.motion .answstack, .answered.motion .answfoot,
+.replyview:has(> .answwrap .answered.motion) > .reply{will-change:transform}
 /* only a panel with more to show takes a press, so a short batch is plain
    words and not a control. its own air at the foot gives way to the strip */
 .answered.more{cursor:pointer; padding-bottom:0}
-/* one message is one block of the card's prose, its spaces kept as typed the
-   way the sent rows keep them, and a long word broken where it has to be so it
+/* one message is one block of the card's prose, its spaces kept as they were
+   typed, and a long word broken where it has to be so it
    cannot run past the panel. a paragraph break inside a message is one blank
    line of the panel's type, as the drawing leaves it, and one message is told
    from the next by a hairline standing in the middle of that same blank line */
@@ -364,47 +371,57 @@
 }
 .answered.open .answchev{transform:rotate(180deg)}
 
-/* ---- the sent box's arrival ---------------------------------------------- */
-/* the dress the desktop's risePend puts on the sent box as it comes in. the
-   selectors seat it on .box.sel, which both pages give the card on show, and
-   not on the desktop's body.focus, which the phone never wears: the desktop is
-   always in focus mode, so the two are the same seat there. the plain body in
-   front keeps the weight the desktop's rules had, so they still outrank the
-   fold's own motion dress there. the phone does not run this yet; the rules
-   stand here so it can.
-   the box's arrival, and every line's after it. the chat panel's sent message
-   motion grows a bubble out of one of its own corners, which is right for a
-   small bubble and wrong at this size: a bar as wide as the card, scaled from
-   its corner, reads as a thing flying in from the lower left instead of a
-   thing appearing. so the corner, the scale and the lift are all dropped and
-   what is left is strength alone. the bar occupies its full seat from the
-   first frame and only becomes visible, which is what appearing in place
-   means. 220ms is about the shortest a fade can be and still be seen as a
-   fade rather than as a thing that was suddenly there, and the bar arriving at
-   the foot of the card is the one event here that nothing announces. the curve
-   stays an ease out and does not join the fold's family: a fade covers no
-   distance, so a slow start is not a soft start on it */
-@keyframes pendfade{from{opacity:0}}
-body .box.sel .pendlist.appear{animation:pendfade .22s ease-out}
-/* the very first arrival, in two beats: the answer gives up the
-   room before anything at all is drawn in it, and only then does the bar come
-   up in the cleared room.
-   beat one is this pair of rules. the strip is mounted at no height and grown
-   to its own folded height on the card's gentle curve. nothing about the
-   answer is animated and nothing is kept in step by hand: the answer is the
-   one item that can give or take room, so every pixel the strip claims comes
-   off the answer in the same frame. invisible, clipped and untouchable while
-   it rises: what the eye is meant to read in beat one is the text yielding,
-   not a bar wiping into view, and a box already half its height would
-   otherwise be open to a click before it had arrived. the timing lives in the
-   second rule alone so the first can be worn while the start height is pinned,
-   without pinning it becoming a run of its own in the wrong direction.
-   the band under the box travels with the box, so what the answer gives up is
-   one continuous amount rather than a band landing whole on the first frame */
-body .box.sel .pendlist.rising{overflow:hidden; opacity:0; pointer-events:none}
-body .box.sel .pendlist.rising.timed{
-  transition:height .26s var(--gentle), margin-bottom .26s var(--gentle);
-}
+/* ---- the messages waiting for a reply ------------------------------------ */
+/* the same panel at the foot of the card, over the row the reader types in,
+   holding what has been sent and not answered yet. it is the panel above to the
+   letter: the same grey, the same cut to a preview with the same dissolve and
+   arrow, the same run to open it and cut it back. what is its own is its seat,
+   which each page gives it, how far it may open, and how it comes in.
+   open, a long batch stops at --sent-cap, which each large card writes as the
+   room the panel may take over the answer, and the rest scrolls inside the cut.
+   a surface that writes none gives the panel a seat that scrolls instead.
+   a send lands the panel cut to its preview, and it comes in the way the words
+   leave the row they were typed in: a short rise out of it and a fade, over
+   --answ-come on the card's gentle curve. a message sent into a panel already
+   standing comes in the same way on its own. both are strength and a
+   transform, so an arrival lays nothing out and draws nothing again */
+.answered.sent.open .answclip{max-height:var(--sent-cap, none); overflow-y:auto; overscroll-behavior:contain}
+@keyframes answarrive{from{opacity:0; transform:translate3d(0, var(--answ-rise), 0)}}
+.answered.arrive, .answmsg.arrive{animation:answarrive var(--answ-come) var(--gentle)}
+
+/* ---- the page turn and the print ----------------------------------------- */
+/* the answer to the sent panel's messages lands on the card on show and the card
+   turns to a new page (card-logic.js says how and when). the page the reader
+   was on is a still picture on this sheet, laid over the card's column from
+   the top of its body down to the foot of the sent panel's seat, in the card's
+   own white so the new page drawn under it cannot show through. the picture
+   moves on one transform over --turn-glide, 560ms on the card's gentle curve,
+   and its layer is its own for the whole of the glide. what leaves the top
+   passes under a fade in the white above the answer, where nothing stands at
+   rest, so the first frame of the glide is the page exactly as it was.
+   the print that follows brings the new answer's blocks in from the top, each
+   rising --print-rise over --print-move from nothing, fifty milliseconds apart
+   and all of them under way by the ninth. the answer stands unseen while the
+   sheet glides over it. a reader who asked for no motion gets neither: the
+   script swaps the page as it always did */
+:root{--turn-glide:.56s; --print-move:.38s; --print-rise:6px}
+.turnsheet{position:absolute; left:0; right:0; top:0; z-index:1; overflow:hidden;
+  background:var(--card); pointer-events:none}
+.turnsheet::before{content:""; position:absolute; left:0; right:0; top:0; z-index:1;
+  height:var(--titleair, 0px); background:linear-gradient(to bottom, var(--card), transparent)}
+.turnpage{position:absolute; left:0; right:0; top:0; bottom:0; will-change:transform}
+.turnpage.gliding{transition:transform var(--turn-glide) var(--gentle)}
+@keyframes cardprint{from{opacity:0; transform:translate3d(0, var(--print-rise), 0)}}
+.printwait{opacity:0}
+.printing > *{animation:cardprint var(--print-move) var(--gentle) backwards}
+.printing > :nth-child(2){animation-delay:50ms}
+.printing > :nth-child(3){animation-delay:100ms}
+.printing > :nth-child(4){animation-delay:150ms}
+.printing > :nth-child(5){animation-delay:200ms}
+.printing > :nth-child(6){animation-delay:250ms}
+.printing > :nth-child(7){animation-delay:300ms}
+.printing > :nth-child(8){animation-delay:350ms}
+.printing > :nth-child(n+9){animation-delay:400ms}
 
 .cardmd .attachment{display:block; max-width:100%; margin:8px 0; overflow-wrap:anywhere}
 .cardmd .attachment audio, .cardmd .attachment video{display:block; width:100%; max-width:100%; max-height:420px; border-radius:6px}

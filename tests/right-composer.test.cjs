@@ -226,16 +226,10 @@ function curView(){ return "todo"; }
 function jumpNextYellow(){}
 function boxDone(){ return false; }
 function histExit(){}
-function pendRow(text){ return h("div", "pendmsg", text); }
-function stampRcpts(){}
-function stampRun(){}
-function pendBottom(){}
-function growPend(el){
-  const pend = h("div", "pendlist");
-  pend.append(h("div", "pendslide"), h("div", "pendstamp"));
-  el.pend = pend;
-  return pend;
-}
+// the panel of sent messages is card-logic.js's own and is proven in
+// answered-panel.test.cjs; this stand-in lays nothing out, so here the panel
+// only has to take what a send hands it
+function syncSent(el, batch){ el.sent = el.sent || h("div", "answered sent"); el.sentBatch = batch; }
 `;
 
 // a whole page: the dom, the window the page sees, the stage with the card on
@@ -343,6 +337,8 @@ function addCard(p, id, opts = {}){
   const meta = el("div"); meta.className = "meta";
   const metaNote = el("span");
   meta.appendChild(metaNote);
+  // the seat of the panel of sent messages, over the bar, as makeBox builds it
+  const sentwrap = el("div"); sentwrap.className = "sentwrap";
   const bottombar = el("div"); bottombar.className = "bottombar";
   // one line at rest: the row's 44px floor under its 0.8px hairline
   bottombar.natural = 44.8;
@@ -365,7 +361,7 @@ function addCard(p, id, opts = {}){
   const send = el("button"); send.className = "sendbtn";
   compose.append(ta, send);
   bottombar.append(clip, compose);
-  pendwrap.append(meta, bottombar);
+  pendwrap.append(meta, sentwrap, bottombar);
   body.append(replyview, pendwrap);
   box.appendChild(body);
   p.main.appendChild(box);
@@ -376,7 +372,8 @@ function addCard(p, id, opts = {}){
   };
   ta.addEventListener("input", () => { sandbox.cancelAutoNext(); tick(); sandbox.xcCarry(id); });
   ta.addEventListener("keydown", e => sandbox.composerEnter(e, id));
-  page.els[id] = { box, replyview, meta, metaNote, pend: null, pendRaw: "", ta, send, tick, field,
+  page.els[id] = { box, replyview, meta, metaNote, ta, send, tick, field,
+                   sentwrap, sent: null, sentKey: "", sentTexts: [],
                    pendwrap, bottombar, clip, bar: { ta, send, tick } };
   return page.els[id];
 }
@@ -611,7 +608,11 @@ test("a send from the box is a send from the bar: same enter, same arrow, same r
   assert.deepEqual(sent.map(c => c.url), ["/send?box=m38", "/send?box=m38", "/send?box=m38"]);
   assert.deepEqual(sent.map(c => c.init.body), ["from the bar", "from the box", "by the arrow"]);
   assert.ok(sent.every(c => c.init.method === "POST"));
-  assert.equal(card.pendRaw, "from the bar\n\nfrom the box\n\nby the arrow", "the sent box did not take all three");
+  assert.equal(card.sentTexts.join("\n\n"), "from the bar\n\nfrom the box\n\nby the arrow", "the sent panel did not take all three");
+  assert.ok(card.sent, "no sent panel stands at the card's foot");
+  assert.deepEqual(card.sentBatch.map(m => m.text), ["from the bar", "from the box", "by the arrow"],
+    "the sent panel was not handed all three");
+  assert.doesNotMatch(card.metaNote.textContent, /send failed/, "a send from the box failed to land in the sent panel");
 });
 
 test("a send that fails from the box keeps its words in the box and frees the square", async () => {
@@ -917,7 +918,7 @@ test("the switch stands on the card's right edge beside the compose bar, spannin
   near(parseFloat(qs.height), 44.8, "the scaled bar's height was not read in stage pixels");
   assert.equal(q.page.xcSwitch.parentNode, q.stage, "the switch does not scale with the stage");
   // the large card alone carries it: the small cards' build never names it
-  const mini = between(HTML, 'const compose = h("div", "mcompose");', "box.append(sun, arc, x, title, answwrap, reply, pend, compose);");
+  const mini = between(HTML, 'const compose = h("div", "mcompose");', "box.append(sun, arc, x, title, answwrap, reply, sentwrap, compose);");
   assert.doesNotMatch(mini, /xcSwitch|switchComposer|xcswitch/, "the small cards carry the switch");
   assert.equal((HTML.match(/xcSwitch\.id = "xcswitch";/g) || []).length, 1, "there is more than one switch");
 });

@@ -844,7 +844,7 @@ test("a reply landing while the caret is in the composer is read at once, and on
 test("every composer is wired to the read rule after its formatter, on every surface", () => {
   const desktopBox = between(HTML.desktop, "    const field = ComposeFormat.attach(ta, { newline: e => e.shiftKey });", "    ta.addEventListener(\"keydown\", e => composerEnter(e, b.id));");
   assert.match(desktopBox, /\n    readOnCompose\(ta, b\.id, useCard\);\n/, "the large card's composer");
-  const mini = between(HTML.desktop, "      ComposeFormat.attach(ta, { newline: e => e.shiftKey });", "      box.append(sun, arc, x, title, answwrap, reply, pend, compose);");
+  const mini = between(HTML.desktop, "      ComposeFormat.attach(ta, { newline: e => e.shiftKey });", "      box.append(sun, arc, x, title, answwrap, reply, sentwrap, compose);");
   assert.match(mini, /\n      readOnCompose\(ta, b\.id\);\n/, "the small card's composer");
   const phone = between(HTML.phone, "  const field = ComposeFormat.attach(ta, {", "  ta.addEventListener(\"keydown\", e => {");
   assert.match(phone, /\n  readOnCompose\(ta, b\.id\);\n/, "the phone's composer");

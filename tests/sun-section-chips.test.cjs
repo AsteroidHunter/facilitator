@@ -568,7 +568,7 @@ test("the small card seats the round yellow sun one seat left of the moon", asyn
   }
   assert.match(sun, /background:#F7E187/);
   // the entry the pass paints carries all three chips, and only doing cards are listed
-  assert.match(html, /miniEls\[b\.id\] = \{ box, title, reply, pend, ta, sun, arc, x,/);
+  assert.match(html, /miniEls\[b\.id\] = \{ box, title, reply, ta, sun, arc, x,/);
   const pick = vm.runInNewContext(`(state => { ${between(html, "  const cards = state.boxes.filter(", ");")} return cards; })`);
   const listed = pick({ boxes: Object.keys(CARDS).map(card) }).map(b => b.id);
   assert.deepEqual(listed, ["m1"], "the small card lists a card outside doing");
