@@ -338,6 +338,19 @@ Endpoints:
                                for the page's folder chooser; empty P means the
                                home directory; hidden folders are excluded and
                                paths outside the home directory are refused
+  GET  /tokens/daily?days=N -> the tokens the local coding agents spent per
+                               day, what the home page's charts draw: the last
+                               N days (1 to 3660, 365 when absent) ending today,
+                               oldest first, every day present, each {date,
+                               total, input, cache_write, cache_read, output,
+                               claude, codex}, then the range's total, its
+                               kinds, each tool's share, and whether each
+                               tool's log folder was found. Counted from the
+                               logs Claude Code and Codex already write under
+                               the home folder by tokens.py beside this file,
+                               which says what counts; run.config.json's
+                               token_logs names other folders. Only counts
+                               come back, and missing logs are zeros
   GET  /pickdir             -> the system folder chooser on the desktop this
                                server runs in: blocks until a folder is chosen,
                                then {"path": "..."}; a dismissed chooser answers
@@ -3582,6 +3595,36 @@ def _get_log(q: Query, _):
     return 200, {"lines": lines}
 
 
+# the token counter is its own file beside this one, loaded the first time the
+# home page asks, so a board nobody opens the home page on never reads a log.
+# its counts are kept in tokens-cache.json beside state.json (gitignored), so a
+# restart reads only what the logs gained while the board was down
+TOKENS_CACHE = HERE / "tokens-cache.json"
+TOKENS_MAX_DAYS = 3660
+_token_ledger = None
+_token_ledger_lock = threading.Lock()
+
+
+def _get_tokens_daily(q: Query, _):
+    days = q.one("days", "365")
+    if not re.fullmatch(r"[0-9]{1,4}", days) or not 1 <= int(days) <= TOKENS_MAX_DAYS:
+        return 400, {"error": f"days must be a whole number from 1 to {TOKENS_MAX_DAYS}"}
+    import tokens
+    try:
+        cfg = json.loads((HERE / "run.config.json").read_text())
+    except Exception:
+        cfg = {}
+    folders = tokens.roots(cfg)
+    global _token_ledger
+    with _token_ledger_lock:
+        # the folders are read fresh like every other config key, and a change
+        # to them starts a ledger over them from the same cache
+        if _token_ledger is None or _token_ledger.roots != folders:
+            _token_ledger = tokens.TokenLedger(folders, TOKENS_CACHE)
+        ledger = _token_ledger
+    return 200, ledger.daily(int(days))
+
+
 def _get_dirs(q: Query, _):
     # the page's folder chooser: one folder's subdirectories, rooted at
     # and fenced to the user's home; hidden folders stay out of sight
@@ -5651,6 +5694,7 @@ ROUTES = [
     Route("/thread", _endpoint(_get_thread), methods=["GET"]),
     Route("/history", _endpoint(_get_history), methods=["GET"]),
     Route("/log", _endpoint(_get_log), methods=["GET"]),
+    Route("/tokens/daily", _endpoint(_get_tokens_daily), methods=["GET"]),
     Route("/dirs", _endpoint(_get_dirs), methods=["GET"]),
     Route("/pickdir", _endpoint(_get_pickdir), methods=["GET"]),
     Route("/uploads/{rest:path}", _endpoint(_get_upload), methods=["GET"]),
