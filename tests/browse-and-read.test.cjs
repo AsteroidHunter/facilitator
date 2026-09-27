@@ -145,7 +145,11 @@ function desktop() {
   };
   const body = new Node(doc, "body");
   doc.body = body;
+  doc.head = new Node(doc, "head");
   doc.activeElement = body;
+  // the house in the bar and the home page it opens, both outside the stage
+  const homeico = new Node(doc, "button", { id: "homeico", parent: body });
+  new Node(doc, "div", { id: "homeplot", parent: new Node(doc, "section", { id: "home", parent: body }) });
   // the stage, with the card where the default layout draws it and room to
   // its right, the way a browser would report them
   const stage = new Node(doc, "div", { id: "stage", parent: body });
@@ -186,10 +190,12 @@ function desktop() {
   const store = new Map();
   const state = { boxes: CARDS.map(id => card(id)) };
   const noop = () => {};
+  // what the page hangs on the window: the board's own keydown listener among them
+  const win = {};
   const sandbox = {
     console, Date, Promise, setTimeout, clearTimeout, setInterval, clearInterval,
     document: doc, requestAnimationFrame: noop, cancelAnimationFrame: noop, scrollTo: noop,
-    addEventListener: noop, matchMedia: () => ({ matches: false }),
+    addEventListener: (type, fn) => (win[type] ||= []).push(fn), matchMedia: () => ({ matches: false }),
     localStorage: { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)),
                     removeItem: k => store.delete(k) },
     fetch: (url, opts) => {
@@ -200,8 +206,10 @@ function desktop() {
     ComposeFormat: { attach: () => ({}), focused: ta => doc.activeElement === ta },
     CardMarkdown: { ATTACHMENT_ACCEPT: "image/*" },
     els, lastState: state, lastSel: {}, selectedId: null, shownId: null, browsing: false,
-    FOCUS: true, activeOwner: "lane", draft: null, DRAFT: "__draft__", editMode: false,
-    miniFocused: false, p3Zoom: null, boardKeysLive: () => true,
+    FOCUS: true, activeOwner: "lane", draft: null, DRAFT: "__draft__", editMode: false, setEditMode: noop,
+    miniFocused: false, p3Zoom: null,
+    // what the board's own boardKeysLive asks, beside the home page's homeOpen
+    pageWarn: null, pageMenu: null, qnOpen: false, onBoardPage: () => true,
     cancelAutoNext: noop, histExit: noop, syncDesktopHistoryAvailability: noop, updatePwd: noop,
     snapCard: noop, renderTabs: noop, rowsOf: () => ["lane"],
     // what setTab asks of the rest of the board
@@ -220,6 +228,9 @@ function desktop() {
   vm.runInContext("viewPool = state => state.boxes.filter(b => b.owner === activeOwner && !b.done && !b.parked);", sandbox);
   const html = HTML.desktop;
   const parts = [
+    // the home page, the board's key guard and the board's key listener
+    between(html, "// ---- the home page ----", "// ---- the project's pages ----"),
+    /^function boardKeysLive\(\)\{.*\}$/m.exec(html)[0],
     between(html, "const CARD_PARTS = ", "\n// browsing: the card on screen"),
     between(html, "function setBrowsing(on){", "\nfunction updatePwd("),
     between(html, "function nav(dx, dy, opts){", "\n// keep a valid selection"),
@@ -228,22 +239,23 @@ function desktop() {
     block(html, "function deselect(){"),
     between(html, "function boardResponseCard(){", "\n// the grid compass") +
       between(html, "const boardShortcutTyping = cardShortcutEditing;", "\naddEventListener(\"keydown\", e => {\n  if (!FOCUS) return;"),
+    between(html, "addEventListener(\"keydown\", e => {\n  if (!FOCUS) return;", "\n});\n") + "\n});\n",
     between(html, "// ---- the right composer ----", "// the copy button on fenced blocks"),
   ];
   for (const part of parts) vm.runInContext(part, sandbox, { filename: "index.html" });
   sandbox.seenSync(state);
   const get = name => vm.runInContext(name, sandbox);
-  const actions = get("boardShortcutActions");
-  // a key pressed the way the board's own listener hands it on
+  assert.equal((win.keydown || []).length, 1, "the board's key listener was not the one hung");
+  // a key pressed on the page, through the board's own listener
   const press = (key, { target = body, ...extra } = {}) => {
     const e = { key, target, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false,
                 repeat: false, isComposing: false, defaultPrevented: false, ...extra,
                 preventDefault() { e.defaultPrevented = true; } };
-    sandbox.dispatchCardShortcut(e, actions);
+    for (const fn of win.keydown) fn(e);
     return e;
   };
   return {
-    sandbox, doc, body, main, els, rows, state, seen, get, press, store, addCard,
+    sandbox, doc, body, main, els, rows, state, seen, get, press, store, addCard, homeico,
     xc: get("xc"), xcSwitch: get("xcSwitch"),
     shown: () => get("selectedId"),
     browsing: () => get("browsing"),
@@ -625,15 +637,8 @@ test("a browse never carries the caret into the box; the step that carries it se
 
 test("a reply landing while the caret is in the box is read at once, and waits on a hidden page", () => {
   const d = loaded({ right: true });
-  // the page's own line from apply(), run in the page with the card's parts
-  const line = /\n    (readOnArrival\(el, b, [^\n]*\);)\n/.exec(between(HTML.desktop, "function apply(state){", "\n// ---- the clock"))[1];
-  const arrive = vm.runInContext(`(el, b) => { ${line} }`, d.sandbox);
-  const land = replies => {
-    const b = d.state.boxes.find(x => x.id === "a");
-    b.replies = replies;
-    d.sandbox.seenSync(d.state);
-    arrive(d.els.a, b);
-  };
+  const arrive = arrivalOf(d);
+  const land = replies => arrive("a", replies);
   land(1);   // the first drawing
   d.press("Enter");
   assert.equal(d.els.a.ta, d.xc.ta);
@@ -649,6 +654,99 @@ test("a reply landing while the caret is in the box is read at once, and waits o
   d.press("Escape");
   land(4);
   assert.deepEqual(d.seen, [{ a: 2 }], "a browsed card read the reply");
+});
+
+// ---- with the home page ----------------------------------------------------------------
+// the house opens a page above every project and hides the board under it. the
+// page's own home block runs here: the house, setHome, and a tab leaving home
+
+// the page's own arrival line from apply(), run in the page with a card's parts
+function arrivalOf(d) {
+  const line = /\n    (readOnArrival\(el, b, [^\n]*\);)\n/.exec(between(HTML.desktop, "function apply(state){", "\n// ---- the clock"))[1];
+  const arrive = vm.runInContext(`(el, b) => { ${line} }`, d.sandbox);
+  return (id, replies) => {
+    const b = d.state.boxes.find(x => x.id === id);
+    b.replies = replies;
+    d.sandbox.seenSync(d.state);
+    arrive(d.els[id], b);
+  };
+}
+
+test("going home unselects the card, and nothing on the board is selected or read while home is up", () => {
+  for (const right of [false, true]) {
+    const d = loaded({ right });
+    const land = arrivalOf(d);
+    land("a", 1);   // the first drawing
+    d.press("Enter");
+    assert.equal(d.doc.activeElement, d.els.a.ta, "the caret is not in the card's composer");
+    d.seen.length = 0;
+    d.homeico.click();
+    assert.equal(d.get("homeOpen"), true, "the house did not open home");
+    assert.ok(d.body.classList.contains("home"));
+    assert.equal(d.browsing(), true, "the card stayed selected under the home page");
+    assert.equal(d.doc.activeElement, d.body, "the caret stayed in the card under the home page");
+    // a reply landing on the card under home waits
+    land("a", 2);
+    assert.deepEqual(d.seen, [], "a reply landing under the home page was read");
+    // the board's keys are off: no browsing, no Enter, no Escape
+    for (const key of ["ArrowRight", "Enter", "Escape"]) d.press(key);
+    assert.equal(d.shown(), "a", "an arrow browsed the board under the home page");
+    assert.equal(d.browsing(), true, "Enter selected a card under the home page");
+    // and should anything reach the card or its composer, it neither selects
+    // nor reads: a press, the focus, the composer's own use
+    d.pressOn(d.els.a.reply);
+    d.els.a.chip.focus();
+    d.get("useCard")("a");
+    if (right) { d.xc.ta.focus(); d.xc.ta.fire("input"); }
+    assert.equal(d.browsing(), true, "the card was selected under the home page");
+    assert.deepEqual(d.seen, [], `the card was read under the home page${right ? " with the box open" : ""}`);
+  }
+});
+
+test("leaving home through a tab shows the card browsed, and it is read when selected", () => {
+  const d = loaded();
+  d.press("Enter");
+  d.homeico.click();
+  d.state.boxes.find(x => x.id === "a").replies = 2;
+  d.sandbox.seenSync(d.state);
+  d.seen.length = 0;
+  // back through the same tab, as through another: browsed, nothing read
+  d.get("setTab")("lane");
+  assert.equal(d.get("homeOpen"), false, "the tab did not leave home");
+  assert.ok(!d.body.classList.contains("home"));
+  assert.equal(d.shown(), "a");
+  assert.equal(d.browsing(), true, "the card came back selected from home");
+  assert.deepEqual(d.seen, [], "coming back from home read the card");
+  d.press("ArrowRight");
+  assert.equal(d.shown(), "b", "the arrows did not browse once home was left");
+  d.press("ArrowLeft");
+  d.press("Enter");
+  assert.equal(d.browsing(), false);
+  assert.deepEqual(d.seen, [{ a: 2 }]);
+});
+
+test("a board reloaded onto the home page shows its card browsed and reads nothing", () => {
+  const d = desktop();
+  d.store.set("homeopen", "1");
+  for (const fn of d.doc.listeners.DOMContentLoaded) fn();
+  assert.equal(d.get("homeOpen"), true, "the reload did not come back to home");
+  d.get("applySelection")(d.state);
+  d.get("xcPlace")();
+  assert.equal(d.browsing(), true);
+  assert.deepEqual(d.seen, []);
+});
+
+test("the browsing look is drawn only on the board, which the home page hides", () => {
+  const css = HTML.desktop;
+  // the two browsing rules paint the ticket and the card frame alone
+  const rules = css.match(/^[^\n{]*\.browsing[^\n{]*\{/gm) || [];
+  assert.deepEqual(rules.map(r => r.trim()),
+    ["body.focus.minifocus main, body.focus.browsing main{", "body.browsing .trow.on{"]);
+  // both stand on the stage, and home hides the stage
+  const at = marker => { const i = css.indexOf(marker); assert.ok(i >= 0, marker); return i; };
+  assert.ok(at('<div id="stage">') < at('<div id="tickets">') && at('<div id="tickets">') < at("\n<main>"));
+  assert.ok(at("\n</main>\n</div>\n") < at('<section id="home"'), "the home page is inside the stage");
+  assert.match(css, /body\.focus\.home #stage\{visibility:hidden; opacity:0; pointer-events:none\}/);
 });
 
 // ---- the two read rules, shared by every surface --------------------------------------
