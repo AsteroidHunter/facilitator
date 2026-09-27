@@ -95,57 +95,81 @@
 
 /* ---- the ready-to-test fold ---------------------------------------------- */
 /* a ticket whose card holds a delivered change for the reader to try folds its
-   top right corner over, and the fold is the whole marker: the row keeps its
+   top right corner over, and the fold is the whole marker: the ticket keeps its
    own fill, edge and shade, so it reads as the ticket it is with one corner
    turned down. the page's renderer puts testc on the row; nothing here decides
-   when.
+   when. the fold is the approved stack B corner, with a white underside.
    the corner is cut off along the crease, --fold in along the top edge and
    --fold down the right one, and the flap lies on the face as the cut corner's
-   exact mirror across that crease, so the flap's tip carries the ticket's own
-   5px corner. the cut and the flap are both measured on the row's padding box,
-   the box the flap is positioned in, so the cut and the crease fall on one line
-   whatever width the row's own edge is drawn at. the cut reaches 40px past the
-   row on its other sides so the row's shade, the selected row's deep one
-   included, is only lost beyond the crease.
+   exact mirror across that crease, its tip the ticket's own rounded corner.
+   everything is placed on the row's border box, so the flap's edges start
+   exactly where the ticket's top and right edges stop.
+   the row's shade has to follow the cut round the crease: cut off along a
+   straight line instead, the selected row's deep lift shade shows a hard slice
+   where the corner went. a filter runs before a clip on the same element, so
+   the row cannot cut itself and then shade what is left. so the row stops
+   painting itself: its edge goes clear, its box-shadow becomes the same shade
+   as a drop-shadow filter, and ::before paints the ticket, cut, for the filter
+   to shade. the row keeps its fill but paints it only under its own glyphs
+   (background-clip:text), where ::before already covers it, so ::before can
+   inherit whatever fill the row's state gives it. overflow is visible because
+   ::before and the flap sit over the row's edge, outside its padding box.
    --fold is the flap's side: 16px on the desktop row, where it clears the age
    in the row's top right. the phone's shorter row sets its own beside its rows.
-   every line the fold draws is the ticket edge itself, so it keeps no width of
-   its own: the flap's two free edges are borders asked for --edge, like every
-   ticket edge, and snap to the same device pixels; the crease is not a border
-   but paint, the grey triangle under the flap left showing because the flap is
-   clipped short of the diagonal, and that gap is --edge-drawn measured square
-   to the crease, the width the borders beside it are actually drawn at, so on
-   any screen the crease is the same hairline as the edges it meets: one device
-   pixel on a standard or 2x screen, two on a 3x phone, as they are.
-   the underside is pure white, the same white as a white face, so nothing about
-   the fold rests on its colour. it reads by three things: the cut, where the
-   row's own edge turns down the crease; the crease and the two free edges drawn
-   in the board's edge grey; and a thin shade the flap casts on the face just
-   under its free edges, from the board's one light overhead. that shade is a
-   soft blur rather than a line, so it has no edge to match.
-   a ready-to-test row is never a working row, so these two never meet the
-   working shimmer that also draws in ::after */
+   the flap's two free edges are the ticket edge folded over, so they are
+   borders asked for --edge in the ticket's grey. the crease is paint: the
+   flap's face is the crease colour for half of --edge-drawn from the crease
+   and white one --edge-drawn later, so the line is one drawn edge wide, the
+   clip keeps its outer side sharp and the ramp softens its inner side the way
+   a device pixel would. the crease colour is the mock's crease line over its
+   crease, darker than an edge, because the crease is what shows the fold; the
+   white just inside it is the mock's lit line.
+   the underside is pure white. besides the crease, the fold reads by the flap's
+   two cast shadows, the mock's own, a tight one and a faint soft one, moved a
+   little down and left so they hug the free edges only, and by a faint contact
+   shade in the hole along the crease, drawn by the row's .trowin::before since
+   the row's own two pseudo elements are the ticket and the flap.
+   a ready-to-test row is never a working row, so these never meet the working
+   shimmer that also draws in ::after */
 :root{--fold:16px}
 .trow.testc{
-  clip-path:polygon(-40px -40px, calc(100% - var(--fold) - 40px) -40px,
-    calc(100% + 40px) calc(var(--fold) + 40px),
-    calc(100% + 40px) calc(100% + 40px), -40px calc(100% + 40px)) padding-box;
+  -webkit-background-clip:text; background-clip:text;
+  border-color:transparent; box-shadow:none; overflow:visible;
+  filter:drop-shadow(0 1px 4px rgba(60,45,20,.05));
 }
-.trow.testc::before, .trow.testc::after{
-  content:""; position:absolute; top:0; right:0; box-sizing:border-box;
-  width:var(--fold); height:var(--fold); border-bottom-left-radius:5px;
-  pointer-events:none;
+.trow.testc.on{box-shadow:none;
+  filter:drop-shadow(0 1px 3px rgba(60,45,20,.10)) drop-shadow(0 2px 18px rgba(60,45,20,.18))}
+.trow.testc::before, .trow.testc::after, .trow.testc > .trowin::before{
+  content:""; position:absolute; box-sizing:border-box; pointer-events:none;
 }
-.trow.testc::before{background:var(--line); clip-path:polygon(0 0, 100% 100%, 0 100%)}
+/* the ticket as the row would paint it, on the border box: the row's edge is
+   drawn --edge-drawn wide, so that far out from the padding box */
+.trow.testc::before{
+  z-index:-1; inset:calc(-1 * var(--edge-drawn));
+  background-color:inherit; border:var(--edge) solid var(--line); border-radius:inherit;
+  clip-path:polygon(0 0, calc(100% - var(--fold)) 0, 100% var(--fold), 100% 100%, 0 100%);
+}
+/* the flap and the hole: the border box's top right --fold square, the flap
+   below its diagonal and the hole above it */
+.trow.testc::after, .trow.testc > .trowin::before{
+  top:calc(-1 * var(--edge-drawn)); right:calc(-1 * var(--edge-drawn));
+  width:var(--fold); height:var(--fold);
+}
 .trow.testc::after{
-  background:#ffffff;
-  border-left:var(--edge) solid var(--line);
-  border-bottom:var(--edge) solid var(--line);
-  box-shadow:0 1px 2px rgba(60,45,20,.16);
-  clip-path:polygon(-6px calc(var(--edge-drawn) * 1.41421 - 6px),
-    calc(100% + 6px - var(--edge-drawn) * 1.41421) calc(100% + 6px),
-    -6px calc(100% + 6px));
+  border-left:var(--edge) solid var(--line); border-bottom:var(--edge) solid var(--line);
+  border-bottom-left-radius:inherit;
+  background:linear-gradient(to bottom left, #AD9D7F calc(50% + var(--edge-drawn) / 2),
+    #ffffff calc(50% + var(--edge-drawn) * 1.5));
+  box-shadow:-.25px .5px 1.1px rgba(60,45,20,.22), -.4px .9px 2.2px rgba(60,45,20,.08);
+  clip-path:polygon(-6px 0, 0 0, 100% 100%, 100% calc(100% + 6px), -6px calc(100% + 6px));
 }
+.trow.testc > .trowin::before{
+  background:linear-gradient(to top right, rgba(60,45,20,.08) 50%, rgba(60,45,20,0) 62%);
+  clip-path:polygon(0 0, 100% 0, 100% 100%);
+}
+/* the omni light used to be kept to the row's rounded shape by the row's own
+   overflow, which a ready-to-test row now leaves visible */
+.trow.testc > .omni-sweep{border-radius:inherit; overflow:hidden}
 
 /* ---- no scrollbars, only scrolling --------------------------------------- */
 /* Every scroller hides its bar and keeps its scroll: wheel, trackpad and touch
