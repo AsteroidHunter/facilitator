@@ -55,12 +55,6 @@
    thing here does, since the light the board is drawn under comes from above.
    the sent box is set with it and so is the plus button's press seat, so the
    two read as let into the same surface.
-   --raised-soft is the other side of that one light: a surface raised OUT of
-   the card rather than let into it casts its shade below and to the right of
-   itself instead of hanging it off its top inside edge. the box that stands
-   over the answer wore it and wears no shade at all now, on either page; the
-   small card's own box over its reply is what is left wearing this, and it
-   stays written once here beside the depth it answers to.
    --sbar is the slim scrollbar's lane, the one width every scroller on the
    board is drawn to. two places read it: the rules that paint the bar, and
    the answer's own right padding, which has to give back exactly this much so
@@ -79,14 +73,15 @@
   --chipoff:.28;
   --gentle:cubic-bezier(.42,.06,.38,1);
   --sunk-deep:inset 0 3px 7px rgba(60,45,20,.22), inset 0 1px 2px rgba(60,45,20,.14);
-  --raised-soft:0 2px 6px rgba(60,45,20,.11), 0 1px 2px rgba(60,45,20,.07);
 }
 
 /* ---- the sent bubble ----------------------------------------------------- */
-/* Each message in the card's two sent boxes is one bubble. Each page draws it
-   by its own rules at its own air; what the two pages share stands here once.
-   --bubble-fill is the bubble's tint and the tail's paint, the one value meant
-   to be changed later, so it is written here and nowhere else.
+/* Each message in the card's sent box is one bubble. Each page draws it by its
+   own rules at its own air; what the two pages share stands here once.
+   --bubble-fill is the bubble's tint and the tail's paint, and the fill of the
+   panel of answered messages below as well, so the owner's words wear one grey
+   wherever they stand. it is the one value meant to be changed later, so it is
+   written here and nowhere else.
    --bubble-tail is the tail's mask: a 24 by 25 image holding the measured path
    of the hook Messages hangs under the last bubble of a run. Each page paints
    it in the bubble's own fill at the right end of a box that spans the bubble
@@ -208,6 +203,64 @@
 .cardmd th{font-weight:650; background:var(--paper)}
 .cardmd .md-align-center{text-align:center}.cardmd .md-align-right{text-align:right}
 .cardmd hr{height:0; margin:13px 0; border:0; border-top:var(--edge) solid var(--line)}
+
+/* ---- the messages the answer was given ---------------------------------- */
+/* One plain panel over the answer, holding the owner's messages that answer
+   was given, drawn alike on every surface that shows it: the desktop card, the
+   phone card and the small card. It is a single block of the bubble's grey with
+   rounded corners and nothing else, no frame, no shade, no bubble inside it, no
+   time and no label, which is the owner's drawing of it. Each surface types its
+   own measures on the card it draws, the way the spacing tokens are each
+   page's own, and these rules read those and nothing more:
+   --answ-font and --answ-line are its type and one line of it. the drawing
+     sets it in the title's face, a size under the answer and on a closer line;
+   --answ-pad-y and --answ-pad-x are the air inside it, --answ-round its corner;
+   --answ-peek is how much of a long batch shows before it is opened, and
+     --answ-fade how deep the cut dissolves.
+   It hugs the right end of the column it stands in, the side the owner's own
+   words stand on everywhere on the card, and is as wide as its longest line up
+   to a little under the whole column, which is where the drawing stops it */
+.answered{
+  position:relative; box-sizing:border-box;
+  width:fit-content; max-width:86%; margin-left:auto;
+  padding:var(--answ-pad-y) var(--answ-pad-x);
+  background:var(--bubble-fill); border-radius:var(--answ-round);
+  font:var(--answ-font); color:var(--ink); text-align:left;
+}
+/* the cut. a batch longer than the preview shows its first lines and dissolves
+   into the panel's own grey over the last of them, the way the drawing's third
+   line fades, and an opened panel shows the whole batch in place, pushing the
+   answer down rather than lying over it */
+.answclip{max-height:var(--answ-peek); overflow:hidden}
+.answered.open .answclip{max-height:none}
+.answered.more:not(.open) .answclip{
+  -webkit-mask-image:linear-gradient(to bottom, #000 calc(100% - var(--answ-fade)), transparent);
+  mask-image:linear-gradient(to bottom, #000 calc(100% - var(--answ-fade)), transparent);
+}
+/* only a panel with more to show takes a press, so a short batch is plain
+   words and not a control */
+.answered.more{cursor:pointer}
+/* one message is one block of the card's prose, its spaces kept as typed the
+   way the sent rows keep them, and a long word broken where it has to be so it
+   cannot run past the panel. a paragraph break inside a message is one blank
+   line of the panel's type, as the drawing leaves it, and one message is told
+   from the next by a hairline standing in the middle of that same blank line */
+.answmsg{white-space:pre-wrap; overflow-wrap:break-word}
+.answmsg p, .answmsg ul, .answmsg ol{margin-bottom:var(--answ-line)}
+.answmsg + .answmsg{
+  margin-top:calc(var(--answ-line) / 2 - .5px);
+  padding-top:calc(var(--answ-line) / 2 - .5px);
+  border-top:1px solid var(--line);
+}
+/* the arrow: only under a batch that is cut, centred in the panel's own air at
+   its foot, in the words' ink. an opened panel carries none, since the drawing
+   shows none, and a second press anywhere on it cuts it back */
+.answchev{
+  display:none; position:absolute; left:50%; margin-left:-5.5px;
+  bottom:calc((var(--answ-pad-y) - 7px) / 2);
+  color:var(--ink); pointer-events:none;
+}
+.answered.more:not(.open) .answchev{display:block}
 
 /* ---- the sent box's arrival ---------------------------------------------- */
 /* the dress the desktop's risePend puts on the sent box as it comes in. the

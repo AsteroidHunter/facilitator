@@ -1,12 +1,14 @@
-// Each sent message in the two boxes on the card is one bubble: a rounded,
-// filled block around the whole message, as wide as its longest line, capped at
-// four fifths of the lane, hugging the right edge, with the words left aligned
+// Each sent message in the card's sent box is one bubble: a rounded, filled
+// block around the whole message, as wide as its longest line, capped at four
+// fifths of the lane, hugging the right edge, with the words left aligned
 // inside it so a list, a code block and a short line under a long paragraph all
-// start on one left edge. The last bubble in a box carries the tail and no
+// start on one left edge. The last bubble in the box carries the tail and no
 // other does; Delivered and Read sit under the bubble's straight bottom edge,
-// in from the corner. Both pages, both boxes. The measures are printed before
-// they are asserted, so one run records the numbers whether it passes or fails.
-// Every card, message and answer here is invented.
+// in from the corner. Both pages. The messages a reply was given stand in a
+// plain panel over the answer now, with no bubbles, and are held to that by
+// answered-panel.test.cjs. The measures are printed before they are asserted,
+// so one run records the numbers whether it passes or fails. Every card,
+// message and answer here is invented.
 const assert = require("node:assert/strict");
 const { after, before, describe, test } = require("node:test");
 const { spawn } = require("node:child_process");
@@ -79,7 +81,7 @@ before(async () => {
     await pause(25);
   }
   cardId = (await api("/create?owner=facilitator", "Invented card for the bubbles")).id;
-  // the two messages the reply answers: they end up in the box above the answer
+  // the two messages the reply answers: they end up in the panel over the answer
   await api(`/send?box=${cardId}`, MIXED);
   await api(`/send?box=${cardId}`, SECOND);
   await claim();
@@ -119,16 +121,15 @@ async function openPage(kind){
   await page.evaluate(() => document.fonts.ready);
   return page;
 }
-// both strips opened by hand, and left alone until each run has stopped
+// the sent box opened by hand, and left alone until its run has stopped
 async function openBoxes(page){
-  for (const seat of [".pendwrap-answered", ".pendwrap"]) {
-    await page.click(`#box-${cardId} ${seat} .pendlist`);
-    await page.waitForFunction((id, seat) => {
-      const strip = document.querySelector(`#box-${id} ${seat} .pendlist`);
-      return strip.classList.contains("open") &&
-        ["motion", "opening", "closing"].every(name => !strip.classList.contains(name));
-    }, {}, cardId, seat);
-  }
+  const seat = ".pendwrap";
+  await page.click(`#box-${cardId} ${seat} .pendlist`);
+  await page.waitForFunction((id, seat) => {
+    const strip = document.querySelector(`#box-${id} ${seat} .pendlist`);
+    return strip.classList.contains("open") &&
+      ["motion", "opening", "closing"].every(name => !strip.classList.contains(name));
+  }, {}, cardId, seat);
   await pause(120);
 }
 // one box: the lane, the header row, the page's own two air tokens resolved in
@@ -220,7 +221,7 @@ for (const kind of ["desktop", "phone"]) {
     before(async () => {
       page = await openPage(kind);
       await openBoxes(page);
-      boxes = { top:await measure(page, ".pendwrap-answered"), bottom:await measure(page, ".pendwrap") };
+      boxes = { bottom:await measure(page, ".pendwrap") };
       console.log(`  ${kind} :: ${JSON.stringify(boxes)}`);
       if (SHOTS) { await mkdir(SHOTS, {recursive:true}); await page.screenshot({path:path.join(SHOTS, `${kind}-bubbles.png`)}); }
     });
@@ -313,12 +314,6 @@ for (const kind of ["desktop", "phone"]) {
     });
 
     test("Delivered and Read sit under the bubble's straight bottom edge, in from the corner", () => {
-      // the box above the answer carries no delivery word: everything in it has
-      // been answered
-      for (const row of boxes.top.rows) {
-        assert.equal(row.rcpt.text, "", `the top box carries a delivery word: ${JSON.stringify(row.rcpt)}`);
-        assert.equal(row.rcpt.display, "none");
-      }
       const [read, delivered] = boxes.bottom.rows;
       assert.equal(read.rcpt.text, "Read");
       assert.equal(delivered.rcpt.text, "Delivered");

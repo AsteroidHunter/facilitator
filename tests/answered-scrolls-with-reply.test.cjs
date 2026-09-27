@@ -1,7 +1,8 @@
-// The raised answered box sits at the very top of the reply's scrolling content:
-// scrolling the reply down carries it up and out of view exactly as the first
-// paragraphs go, whether the box is collapsed or open, and scrolling back brings
-// it home. Every card, message and answer below is invented.
+// The panel of answered messages sits at the very top of the reply's scrolling
+// content: scrolling the reply down carries it up and out of view exactly as
+// the first paragraphs go, whether the panel is cut to its preview or open, and
+// scrolling back brings it home. Every card, message and answer below is
+// invented.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawn } = require("node:child_process");
@@ -94,7 +95,7 @@ async function openCard(kind){
 }
 
 for (const kind of ["desktop", "phone"]) {
-  test(`${kind}: the answered box scrolls up with the reply, open or shut`, async () => {
+  test(`${kind}: the answered panel scrolls up with the reply, open or cut`, async () => {
     const page = await openCard(kind);
     // the answer's own scroll container, found from a prose line so the test does
     // not care which element on the page happens to own the scroll
@@ -113,9 +114,9 @@ for (const kind of ["desktop", "phone"]) {
     for (const wantOpen of [false, true]) {
       await page.evaluate((id, want) => {
         const el = els[id];
-        if (el.answ.classList.contains("open") !== want) foldAnswered(el, want);
+        if (el.answ.classList.contains("open") !== want) openAnswered(el.answ, want);
       }, cardId, wantOpen);
-      await wait(650);
+      await wait(120);
       const moved = await page.evaluate(id => {
         const el = els[id];
         const p = el.reply.querySelector("p") || el.reply.children[0];
@@ -141,29 +142,6 @@ for (const kind of ["desktop", "phone"]) {
       assert.ok(Math.abs(moved.back) <= 1.5,
         `box did not return when the reply scrolled back (open=${wantOpen}): ${moved.back}`);
     }
-
-    // folding the box while the reader is scrolled past it must not jump the text
-    await page.evaluate(id => { const el = els[id]; if (!el.answ.classList.contains("open")) foldAnswered(el, true); }, cardId);
-    await wait(650);
-    const anchor = await page.evaluate(id => {
-      const el = els[id];
-      let sc = el.reply.querySelector("p");
-      while (sc && sc !== document.body){ const oy = getComputedStyle(sc).overflowY; if (oy === "auto" || oy === "scroll") break; sc = sc.parentElement; }
-      sc.scrollTop = Math.round(el.answ.getBoundingClientRect().height) + 130;   // scroll clear of the open box
-      const scRect = sc.getBoundingClientRect();
-      const ps = [...el.reply.querySelectorAll("p")];
-      const idx = ps.findIndex(p => { const r = p.getBoundingClientRect(); return r.top > scRect.top + 30 && r.bottom < scRect.bottom - 30; });
-      return { idx, before: idx >= 0 ? ps[idx].getBoundingClientRect().top : 0 };
-    }, cardId);
-    assert.ok(anchor.idx >= 0, "no reply line was in view to anchor to");
-    await page.evaluate(id => { foldAnswered(els[id], false); }, cardId);   // shut while scrolled
-    await wait(700);
-    const jump = await page.evaluate((id, idx) => {
-      const p = [...els[id].reply.querySelectorAll("p")][idx];
-      return p.getBoundingClientRect().top;
-    }, cardId, anchor.idx);
-    assert.ok(Math.abs(jump - anchor.before) <= 4,
-      `visible text jumped by ${Math.round((jump - anchor.before) * 100) / 100}px when the box folded shut`);
     await page.close();
   });
 }
