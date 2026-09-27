@@ -1960,6 +1960,9 @@ function makeBox(b, i, state){
   noteDoing("card");
     const entry = h("div", "toc-entry");
     entry.appendChild(h("span", "tage"));
+    // the outline shows the card's id as its number, the number quick notes
+    // attach by: a change here has to be carried into the quick note system as
+    // well (see the note on ticketNum in this file for the code that depends on it)
     entry.appendChild(h("span", "tnum", (b.id === "0" || b.id === "t0") ? "•" : b.id));
     entry.appendChild(h("span", "tdot"));
     entry.appendChild(h("span", "ttitle", b.title));
@@ -1985,6 +1988,8 @@ function makeBox(b, i, state){
       poll();
     });
     head.appendChild(x);
+    // the card's own number, the one quick notes attach by; see the note on
+    // ticketNum in this file before changing it
     head.appendChild(h("span", "num", b.id));
     const titleEl = h("span", "title", b.title);
     titleEl.tabIndex = 0;
@@ -2725,6 +2730,11 @@ function queueState(b){ return b.parked ? cardState({ ...b, parked: false, state
 // The visible row number and the durable ready-to-test display gate: kept here
 // in step with card-logic.js, which the board and phone share but this typed
 // page does not load.
+// this page has no quick note of its own, but the numbering is the one quick
+// notes attach by, so a change to it has to be carried into the quick note
+// system as well: card-logic.js ticketNum, quickNoteRef and QUICK_NOTE_REF (the
+// "card N" / "cN" parser) and quickNoteCard; server.py _post_quicknote_new and
+// _post_quicknote_attach; index.html syncQuickNoteChip (the note chip)
 function ticketNum(id){
   const s = String(id == null ? "" : id);
   const m = /^m(\d+)$/.exec(s);

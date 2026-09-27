@@ -414,6 +414,15 @@ function queueState(b){ return b.parked ? cardState({ ...b, parked: false, state
 // card made on the board) shows its digits, an already-numeric seeded id shows
 // as it is, and a purely non-numeric standing id shows none. The number is a
 // plain figure with no # prefix.
+// quick notes read card numbers through this function, so a change to the
+// numbering has to be carried into the quick note system as well: in this
+// file quickNoteRef and QUICK_NOTE_REF (the "card N", "cardN" and "cN" parser),
+// quickNoteCard (figure to card), quickNoteAttachStep and the attachStep inside
+// quickNoteSession (which card a note attaches to) and quickNotesByCard (the
+// chip's grouping); in server.py _post_quicknote_new and _post_quicknote_attach
+// (the attach routes, which take a card id) and _remove_empty_meta_box (frees a
+// removed card's notes); in index.html syncQuickNoteChip (the note chip); and
+// the tests quick-note-refs.test.cjs and quick-notes.test.cjs
 function ticketNum(id){
   const s = String(id == null ? "" : id);
   const m = /^m(\d+)$/.exec(s);
@@ -2366,7 +2375,13 @@ function syncSpinner(){
 // word of its own. a letter, digit or underscore on either side makes it part of
 // a longer word (abc12, c12b, discard 5) and a dot then a digit part of a longer
 // number (c1.2), and neither is read as a card. there is no lookbehind in it, so
-// an older phone engine can still read this file
+// an older phone engine can still read this file.
+// the number is the board's card numbering, which is defined elsewhere: ids are
+// made in server.py _create_box_record (m plus the next_bid counter kept in
+// _migrate, and seeded ids as written in _seed_state), and the figure shown for
+// an id is ticketNum in this file (copied in page.html). when that numbering
+// changes, this parser, quickNoteCard below, the attach routes in server.py and
+// index.html syncQuickNoteChip have to change with it
 const QUICK_NOTE_REF = /(^|[^\p{L}\p{N}_])(?:card[ \t\u00a0]*|c)(\d+)(?![\p{L}\p{N}_]|\.\d)/iu;
 function quickNoteRef(text){
   const m = QUICK_NOTE_REF.exec(String(text == null ? "" : text));

@@ -5722,6 +5722,11 @@ function makeBox(b, i, state){
   noteDoing("card");
     const entry = h("div", "toc-entry");
     entry.appendChild(h("span", "tage"));
+    // the outline shows the card's id as its number. a change to how cards are
+    // numbered has to be carried into the quick note system as well: card-logic.js
+    // ticketNum, quickNoteRef and QUICK_NOTE_REF (the "card N" / "cN" parser) and
+    // quickNoteCard; server.py _post_quicknote_new and _post_quicknote_attach; and
+    // syncQuickNoteChip near the end of this file (the note chip)
     entry.appendChild(h("span", "tnum", (b.id === "0" || b.id === "t0") ? "•" : b.id));
     entry.appendChild(h("span", "tdot"));
     entry.appendChild(h("span", "ttitle", b.title));
@@ -5809,6 +5814,9 @@ function makeBox(b, i, state){
       poll();
     });
     topbar.appendChild(x);   // the cross is an item of the bar now, not a pinned corner
+    // the card's own number, its id; the same number the quick note's "card N" /
+    // "cN" names. a change to the numbering has to be carried into the quick
+    // note system as well: see the note on the outline's number above
     head.appendChild(h("span", "num", b.id));
     const titleEl = h("span", "title", omniCardTitle(b.title));   // Omni Card #N on the card itself
     titleEl.tabIndex = 0;
