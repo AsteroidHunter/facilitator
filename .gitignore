@@ -12,6 +12,10 @@
 # machine-local lane config: names real project directories
 /run.config.json
 
+# the home page's token counts, per log file, made by tokens.py on first need
+/tokens-cache.json
+/tokens-cache.json.tmp
+
 # real seed content: private discussion topics, never committed
 /seed.json
 
