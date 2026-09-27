@@ -1049,10 +1049,16 @@ function markSeen(id){
 // it counts as read. use is the page's own way of saying so, markSeen unless
 // the page does more. the input is asked about the caret, because the
 // formatter also says input when it puts its editor on or takes it off, which
-// it does to every card on load, and that is nobody reading anything
+// it does to every card on load, and that is nobody reading anything. id is
+// the card, or for a composer that holds one card's draft and then another's
+// the question that names the card at that moment, with nothing when it holds none
 function readOnCompose(ta, id, use = markSeen){
-  ta.addEventListener("focus", () => use(id));
-  ta.addEventListener("input", () => { if (ComposeFormat.focused(ta)) use(id); });
+  const read = () => {
+    const card = typeof id === "function" ? id() : id;
+    if (card) use(card);
+  };
+  ta.addEventListener("focus", read);
+  ta.addEventListener("input", () => { if (ComposeFormat.focused(ta)) read(); });
 }
 // a reply that lands while the reader's caret is in that card's composer, on
 // a page that is on screen, is read the moment it lands: the reader is in the
