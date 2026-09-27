@@ -195,7 +195,7 @@
   /* ---- the card pane ------------------------------------------------------ */
   main{
     flex:1 1 auto; min-height:0; margin-top:var(--sp-s);
-    background:var(--card); border:1px solid var(--line-strong); border-radius:7px;
+    background:var(--card); border:1px solid var(--line); border-radius:7px;
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
     display:flex; flex-direction:column; overflow:hidden; position:relative;
     /* the keyboard's whole visible motion. the card's own bottom edge comes up
@@ -234,7 +234,7 @@
   main.cardswiping{background:transparent; border-color:transparent; box-shadow:none; overflow:visible}
   .box.cardswipe{
     display:flex; position:absolute; inset:-1px; z-index:2;
-    background:var(--card); border:1px solid var(--line-strong); border-radius:7px;
+    background:var(--card); border:1px solid var(--line); border-radius:7px;
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
     overflow:hidden; --replyfade:22px; --replyair:3.5px; --boxleft:calc(var(--pad-x)*2/3);
     transform:translate3d(var(--card-swipe-x, 0px), 0, 0) scale(var(--card-swipe-z, 1));
@@ -839,7 +839,7 @@
   .trow.yours{background:#FFFBEB; border-color:#E8DCAE}
   .trow.queuedc{background:#F7F7F7; border-color:#CDD4DE}
   .trow.donec{opacity:.55}
-  .trow.on{border-color:var(--line-strong); transform:translateY(-1px); z-index:1;
+  .trow.on{border-color:var(--line); transform:translateY(-1px); z-index:1;
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
   /* the ready-to-test fill: a distinct cool wash whose neutral hairline steps
      aside for the selected border. background sits after .trow.on so the marker

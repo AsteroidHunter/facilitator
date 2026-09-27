@@ -8,6 +8,9 @@
 /* ---- the colours and the faces ------------------------------------------ */
 :root{
   --paper:#F5F4F1; --card:#FFFFFF; --ink:#211D17; --sub:#75695A;
+  /* every edge on the board reads --line, the strong ones included, so they
+     are all one grey. --line-strong is not an edge any more: it is only the
+     faint ink and small fills, the placeholder names, dots and rails */
   --line:#DEDEDE; --line-strong:#D8CFBE;
   --accent:#432BFF; --accent-soft:#EEEBFF;
   --green:#2F6B3C; --green-bg:#EDF4E8; --green-line:#C4D9BB;
@@ -129,13 +132,13 @@
 .cardmd .codeblockwrap:hover .copybtn{opacity:1; pointer-events:auto}
 .cardmd .codeblockwrap .copybtn:hover{color:var(--ink)}
 .cardmd blockquote{margin:0 0 9px 2px; padding:2px 0 2px 12px;
-  border-left:3px solid var(--line-strong); color:var(--sub)}
+  border-left:3px solid var(--line); color:var(--sub)}
 .cardmd .tablewrap{max-width:100%; overflow-x:auto; margin:0 0 9px}
 .cardmd table{width:100%; border-collapse:collapse; font:inherit}
 .cardmd th, .cardmd td{padding:5px 7px; border:1px solid var(--line); text-align:left}
 .cardmd th{font-weight:650; background:var(--paper)}
 .cardmd .md-align-center{text-align:center}.cardmd .md-align-right{text-align:right}
-.cardmd hr{height:0; margin:13px 0; border:0; border-top:1px solid var(--line-strong)}
+.cardmd hr{height:0; margin:13px 0; border:0; border-top:1px solid var(--line)}
 
 /* ---- the sent box's arrival ---------------------------------------------- */
 /* the dress the desktop's risePend puts on the sent box as it comes in. the
