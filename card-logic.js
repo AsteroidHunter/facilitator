@@ -1508,39 +1508,117 @@ function settleAnswered(panel){
   clip.style.removeProperty("--answ-cut");
 }
 
-// whether the batch runs past the preview. an open panel shows everything and
-// so cannot say, and neither can one part way through a run: each keeps the
-// word it was opened under, since only a batch that ran past could be opened at
-// all. a panel that is not laid out measures nothing and says nothing, and the
-// observer asks again once it is. answers whether the word changed, which is
-// the strip at the foot coming or going and so a change in the panel's height
+// what counts as something to read. a line or a paragraph holding nothing but
+// spaces, breaks or the invisible joiners a paste brings along is blank, and so
+// is the air a paragraph break or the hairline between two messages leaves: a
+// blank line of the panel's type, which is exactly what a cut can land in.
+// the joiners are named by their code points so none of them sits unseen in
+// this file: zero width space, non joiner and joiner, the word joiner and the
+// byte order mark
+const ANSWERED_JOINERS = String.fromCharCode(0x200b, 0x200c, 0x200d, 0x2060, 0xfeff);
+const ANSWERED_BLANK = new RegExp("^[\\s" + ANSWERED_JOINERS + "]*$");
+const ANSWERED_TAIL = new RegExp("[\\s" + ANSWERED_JOINERS + "]+$");
+// the things in a message that are seen without being text
+const ANSWERED_SEEN = new Set(["IMG", "VIDEO", "AUDIO", "CANVAS", "IFRAME", "HR"]);
+
+// a message as the panel shows it: its words with any blank tail taken off, so
+// a message that ends on empty lines ends on its last line with text
+function answeredText(m){
+  return ((m && m.text) || "").replace(ANSWERED_TAIL, "");
+}
+
+// where the batch has ink: one box per line of text that has something on it,
+// and one per picture, player or rule, each measured down from the top of the
+// column of messages and stood on the whole line it sits in rather than on its
+// letters alone, so the boxes meet where the lines do
+function answeredInk(stack){
+  const top = stack.getBoundingClientRect().top;
+  const range = document.createRange();
+  const boxes = [];
+  const walk = node => {
+    for (const child of node.childNodes){
+      if (child.nodeType === 3){
+        if (ANSWERED_BLANK.test(child.textContent)) continue;
+        const line = parseFloat(getComputedStyle(child.parentNode).lineHeight) || 0;
+        range.selectNodeContents(child);
+        for (const r of range.getClientRects()){
+          if (!r.height) continue;
+          const spare = line > r.height ? (line - r.height) / 2 : 0;
+          boxes.push({ top: r.top - top - spare, bottom: r.bottom - top + spare });
+        }
+      } else if (child.nodeType === 1){
+        if (ANSWERED_SEEN.has(child.tagName.toUpperCase())){
+          const r = child.getBoundingClientRect();
+          if (r.height) boxes.push({ top: r.top - top, bottom: r.bottom - top });
+        } else walk(child);
+      }
+    }
+  };
+  walk(stack);
+  return boxes;
+}
+
+// whether the batch has text past the preview, and where the preview ends.
+// the sheet cuts a long batch two and three quarter lines down, so the third
+// line is seen dissolving. that cut is kept only while a line of text really
+// runs through it with at least half of itself showing: when it lands in blank,
+// a paragraph break, the air round the hairline between two messages or a line
+// with nothing on it, the preview is stopped at the foot of the last line that
+// has text instead, and it is that line the cut dissolves. a batch with no text
+// past the cut is no long batch at all, however tall its blank tail: it gets no
+// strip, no arrow and no fade, and it stands exactly as tall as its text.
+// an open panel shows everything and so cannot say, and neither can one part
+// way through a run: each keeps the word it was opened under. a panel that is
+// not laid out measures nothing and says nothing, and the observer asks again
+// once it is. answers whether the panel's height changed with it: the strip
+// coming or going, or the preview stopping somewhere else
 function fitAnswered(panel){
   if (panel.classList.contains("open") || panel.classList.contains("motion")) return false;
   const clip = panel.querySelector(".answclip");
-  if (!clip || !clip.clientHeight) return false;
-  const more = clip.scrollHeight > clip.clientHeight + 1;
-  if (more === panel.classList.contains("more")) return false;
+  if (!clip) return false;
+  const had = clip.style.getPropertyValue("--answ-stop");
+  const long = panel.classList.contains("more");
+  clip.style.removeProperty("--answ-stop");   // read the cut the sheet gives
+  const cut = clip.clientHeight;
+  if (!cut){
+    if (had) clip.style.setProperty("--answ-stop", had);
+    return false;
+  }
+  const line = parseFloat(getComputedStyle(clip).lineHeight) || 0;
+  const ink = answeredInk(clip.querySelector(".answstack"));
+  const end = ink.reduce((low, box) => Math.max(low, box.bottom), 0);
+  const more = end > cut + 1;
+  let stop = 0;
+  if (more){
+    const through = ink.some(box => box.bottom > cut + 1 && box.top <= cut - line / 2);
+    if (!through) stop = ink.reduce((low, box) => box.bottom <= cut + 1 ? Math.max(low, box.bottom) : low, 0);
+  } else if (end && end < cut - 1) stop = end;
+  if (stop) clip.style.setProperty("--answ-stop", Math.round(stop * 100) / 100 + "px");
   panel.classList.toggle("more", more);
-  return true;
+  return more !== long || clip.style.getPropertyValue("--answ-stop") !== had;
 }
 
 // one message is one block of the card's own prose: the same markdown, the same
 // attachment markup and the same wrapping the sent rows below are drawn in, and
 // nothing around it. the hairline the sheet draws between two blocks is the
-// whole of what tells one message from the next. another batch starts cut to
-// the preview again, and is measured for it; a run still going on the batch it
-// replaces is finished where it stands
+// whole of what tells one message from the next, so a message with nothing to
+// read in it adds no block, or it would stand as an empty hairline. another
+// batch starts cut to the preview again, and is measured for it; a run still
+// going on the batch it replaces is finished where it stands
 function fillAnswered(panel, batch){
   const stack = panel.querySelector(".answstack");
   stack.textContent = "";
   for (const m of batch){
+    const text = answeredText(m);
+    if (ANSWERED_BLANK.test(text)) continue;
     const msg = h("div", "answmsg cardmd");
-    msg.innerHTML = fmt((m && m.text) || "");
+    msg.innerHTML = fmt(text);
     stack.appendChild(msg);
   }
   panel.answRun = (panel.answRun || 0) + 1;
   settleAnswered(panel);
   panel.classList.remove("open", "more");
+  panel.querySelector(".answclip").style.removeProperty("--answ-stop");
   fitAnswered(panel);
 }
 
@@ -1564,11 +1642,12 @@ function dropAnswered(el, room){
 // back in between two pages of the history.
 // room is who to tell once the panel's height has changed: the page's own
 // answeredRoomChanged unless the caller names another, and the small card
-// names nobody
+// names nobody. a batch whose every message is blank has nothing to show and
+// shows no panel, the way an empty batch does
 function syncAnswered(el, meta, room = answeredRoomChanged){
   if (!el || !el.answwrap) return;
   const batch = answeredBatch(meta);
-  if (!batch || !batch.length){ dropAnswered(el, room); return; }
+  if (!batch || !batch.some(m => !ANSWERED_BLANK.test(answeredText(m)))){ dropAnswered(el, room); return; }
   if (el.answ && el.answId === meta.id) return;
   if (!el.answ){
     el.answ = answeredPanel(room);

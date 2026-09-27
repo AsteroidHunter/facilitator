@@ -264,9 +264,13 @@
    how deep it dissolves is a length the browser is told the type of, so it can
    be run like the height is: opening, the dissolve firms up to nothing as the
    cut goes down, and cutting back it deepens again as the cut comes up. a
-   browser that cannot run it simply lands it at the far end */
+   browser that cannot run it simply lands it at the far end.
+   --answ-stop is written by the script and by nothing else: the foot of the
+   last line with text, when the preview's own cut would otherwise land in
+   blank, a paragraph break or the air round a hairline, or when a batch that
+   fits ends on a blank tail. without it the cut is the surface's own preview */
 @property --answ-cut{syntax:"<length>"; inherits:false; initial-value:0px}
-.answclip{max-height:var(--answ-peek); overflow:hidden; --answ-cut:0px}
+.answclip{max-height:var(--answ-stop, var(--answ-peek)); overflow:hidden; --answ-cut:0px}
 .answered.more:not(.open) .answclip{--answ-cut:var(--answ-fade)}
 .answered.more:not(.open) .answclip,
 .answered.motion .answclip{
