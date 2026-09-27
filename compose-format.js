@@ -433,7 +433,7 @@
       },
       // the same bar the card's own quoted prose is drawn with
       ".cf-quote": {
-        borderLeft: "3px solid var(--line-strong, #D8CFBE)",
+        borderLeft: "3px solid var(--line, #DEDEDE)",
         paddingLeft: QUOTE_PAD, color: "var(--sub, #75695A)",
       },
       // a quoted list is both, and one padding cannot be two: the bar's own

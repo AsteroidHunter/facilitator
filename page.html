@@ -12,6 +12,7 @@
 <style>
   :root{
     --paper:#F5F4F1; --card:#FFFFFF; --ink:#211D17; --sub:#75695A;
+    /* every edge reads --line; --line-strong is only faint ink and small fills */
     --line:#DEDEDE; --line-strong:#D8CFBE;
     --accent:#432BFF; --accent-soft:#EEEBFF;
     --green:#2F6B3C; --green-bg:#EDF4E8; --green-line:#C4D9BB;
@@ -68,7 +69,7 @@
   }
   .endbtn:hover{border-color:var(--must); color:var(--must)}
   .endbtn.arm{border-color:var(--must); color:#fff; background:var(--must)}
-  #bgpick{width:24px; height:20px; padding:0; border:1px solid var(--line-strong);
+  #bgpick{width:24px; height:20px; padding:0; border:1px solid var(--line);
     border-radius:4px; background:none; cursor:pointer; flex:none}
   #bgpick::-webkit-color-swatch-wrapper{padding:2px}
   #bgpick::-webkit-color-swatch{border:none; border-radius:2px}
@@ -149,7 +150,7 @@
   body.focus .box.sel .arcbtn:hover{background:#F2B072}
   .addrow{margin:2px 0 14px}
   .addbtn{font:12.5px var(--mono); color:var(--sub); background:none; cursor:pointer;
-    border:1px dashed var(--line-strong); border-radius:9px; padding:7px 14px; transition:.2s}
+    border:1px dashed var(--line); border-radius:9px; padding:7px 14px; transition:.2s}
   .addbtn:hover{color:var(--accent); border-color:var(--accent)}
   .addinput{font:14px var(--sans); color:var(--ink); background:var(--card);
     border:1px solid var(--accent); border-radius:9px; padding:8px 11px; width:60%; outline:none}
@@ -164,7 +165,7 @@
     animation:rise .45s cubic-bezier(.2,.7,.3,1) both;
   }
   @keyframes rise{from{opacity:0; transform:translateY(6px)}}
-  .box:focus-within{border-color:var(--line-strong); box-shadow:0 2px 14px rgba(60,45,20,.05)}
+  .box:focus-within{border-color:var(--line); box-shadow:0 2px 14px rgba(60,45,20,.05)}
   .head{display:flex; align-items:center; gap:10px; padding:12px 14px 0; cursor:default}
   .num{font:500 11px var(--mono); color:var(--sub); background:var(--paper);
        border:1px solid var(--line); border-radius:6px; padding:2px 7px; flex:none}
@@ -370,7 +371,7 @@
     max-width:none; margin:0; overflow:hidden;
     position:fixed; left:var(--frame-x); width:var(--frame-w);
     top:calc(var(--oy) + var(--ch)*var(--frame-y)); height:calc(var(--ch)*var(--frame-h));
-    border:1px solid var(--line-strong); background:#fff; border-radius:7px;
+    border:1px solid var(--line); background:#fff; border-radius:7px;
     box-shadow:0 2px 18px rgba(60,45,20,.06);
     padding:calc(var(--ch)*0.022) var(--pad-x);
     display:flex; flex-direction:column; align-items:stretch;
@@ -514,7 +515,7 @@
   .chip.more{background:var(--paper); display:flex; align-items:center;
     justify-content:center; font:9px var(--mono); color:var(--sub)}
   .chip{width:2.6vw; min-width:20px; height:calc(var(--ch)*0.030);
-    border:1px solid var(--line-strong); border-radius:0; cursor:pointer;
+    border:1px solid var(--line); border-radius:0; cursor:pointer;
     animation:chippop .18s ease-out}
   .chip:hover{border-color:var(--ink)}
   .chip.g{background:#E3FFDB}
@@ -551,7 +552,7 @@
     cursor:pointer; overflow:hidden;
     transition:border-color .3s, background-color .3s;
   }
-  .trow:hover{border-color:var(--line-strong)}
+  .trow:hover{border-color:var(--line)}
   .trowin{display:flex; align-items:center; gap:var(--sp-x); height:100%;
     padding:0 var(--sp-x)}
   .trow.seen .ttl{color:#847A6B}   /* read but still awaiting: the title relaxes */
@@ -577,7 +578,7 @@
      selected border; the fill sits after .trow.match below so the marker wins it */
   .trow.testc:not(.on){border-color:#CDD4DE}
   .trow.on{
-    border-color:var(--line-strong);
+    border-color:var(--line);
     /* the selected row rises off the list: the chat frame's own shadow shape,
        inked deeper so it reads at a glance, plus a one-pixel lift. z-index
        keeps the spread from sliding under the neighbour below. colors stay */
@@ -590,7 +591,7 @@
     border-right:1px solid var(--line)}
   .trow.on .tt{font-weight:600}
   /* magic stubs, contents to be explained */
-  #magic1, #magic2{position:fixed; border:1px dashed var(--line-strong); border-radius:7px;
+  #magic1, #magic2{position:fixed; border:1px dashed var(--line); border-radius:7px;
     background:#fff;
     display:flex; align-items:center; justify-content:center;
     font:400 12.5px var(--mono); color:#B4AA99; letter-spacing:.04em}
@@ -695,7 +696,7 @@
   .todorow:hover{background:var(--accent-soft)}
   .todorow.sel{background:var(--accent-soft)}
   .tdot{width:11px; height:11px; border-radius:50%; flex:none; cursor:pointer;
-    border:1px solid var(--line-strong); background:#E9ECEF}
+    border:1px solid var(--line); background:#E9ECEF}
   .todorow.done .tdot{background:#59D624; border-color:#3E9C1B}
   .todorow.ongoing .tdot{background:#FFD43B; border-color:#C9A21E}
   .tdtext{flex:1; min-width:0; font:400 13.5px/1.35 var(--sans); color:var(--ink);
@@ -732,7 +733,7 @@
   #rail-line > .dotk.goal{position:absolute; right:0; left:auto;
     top:calc(50% - max(9px, 0.72vw)/2); border-radius:0}   /* square, at the line's very end */
   .dotk{width:max(9px, 0.72vw); height:max(9px, 0.72vw); border-radius:50%;
-    border:1px solid var(--line-strong);
+    border:1px solid var(--line);
     background:var(--paper); cursor:pointer; flex:none; transition:transform .15s}
   .dotk:hover{transform:scale(1.35)}
   .dotk.done{background:#59D624; border-color:#3E9C1B}
@@ -954,7 +955,7 @@
   .codeblockwrap .copybtn:hover{color:var(--ink)}
   .reply blockquote, .pendlist blockquote{
     margin:0 0 9px 2px; padding:2px 0 2px 12px;   /* same 9px rhythm as paragraphs */
-    border-left:3px solid var(--line-strong); color:var(--sub);
+    border-left:3px solid var(--line); color:var(--sub);
   }
   .reply blockquote:last-child{margin-bottom:0}
   /* Shared card prose styles. Main replies, pending messages, document replies
@@ -996,13 +997,13 @@
   .cardmd .codeblockwrap:hover .copybtn{opacity:1; pointer-events:auto}
   .cardmd .codeblockwrap .copybtn:hover{color:var(--ink)}
   .cardmd blockquote{margin:0 0 9px 2px; padding:2px 0 2px 12px;
-    border-left:3px solid var(--line-strong); color:var(--sub)}
+    border-left:3px solid var(--line); color:var(--sub)}
   .cardmd .tablewrap{max-width:100%; overflow-x:auto; margin:0 0 9px}
   .cardmd table{width:100%; border-collapse:collapse; font:inherit}
   .cardmd th, .cardmd td{padding:5px 7px; border:1px solid var(--line); text-align:left}
   .cardmd th{font-weight:650; background:var(--paper)}
   .cardmd .md-align-center{text-align:center}.cardmd .md-align-right{text-align:right}
-  .cardmd hr{height:0; margin:13px 0; border:0; border-top:1px solid var(--line-strong)}
+  .cardmd hr{height:0; margin:13px 0; border:0; border-top:1px solid var(--line)}
   textarea.dropping{border-color:var(--accent) !important}
   body.focus .box.sel textarea.dropping{background:var(--accent-soft)}
   /* home, greyed out until it does something */
@@ -1084,7 +1085,7 @@
   /* progress: one pastel green fill, done over done plus doing, and the rest
      of the run left empty inside the hairline */
   #docbar{flex:1 1 auto; min-width:120px; max-width:520px; height:10px;
-    border:1px solid var(--line-strong); background:transparent; display:flex}
+    border:1px solid var(--line); background:transparent; display:flex}
   #docdone{width:0; background:var(--green-line)}
   /* the goal the board view already shows, quiet and small. no goal draws
      nothing at all, and a long one clips on the line rather than dotting off */
