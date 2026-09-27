@@ -178,6 +178,21 @@ test("marking done clears the marker; v=0 clears safely too", async () => {
   assert.equal(cleared.body.testing, false);
 });
 
+// the cross, backspace and the done keys on every page post /close, never /done,
+// so this is the path by which marking a folded card done unfolds it
+test("closing a marked card marks it done and clears the marker in both snapshots", async () => {
+  const id = await makeYours("Close clears");
+  await post("/testing?box=" + id + "&v=1");
+  assert.equal((await boxOf(id)).testing, true);
+  assert.equal((await post("/close?box=" + id)).status, 200);
+  const closed = await boxOf(id);
+  assert.equal(closed.done, true, "a card with a reply is marked done, not removed");
+  assert.equal(closed.testing, false, "closing lowered the marker");
+  assert.equal((await mstate()).boxes.find(x => x.id === id).testing, false);
+  await post("/done?box=" + id + "&v=0");   // back to doing, and still not marked
+  assert.equal((await boxOf(id)).testing, false);
+});
+
 test("an unknown card is refused", async () => {
   const r = await post("/testing?box=no-such-box&v=1");
   assert.equal(r.status, 400);
