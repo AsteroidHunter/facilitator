@@ -453,7 +453,7 @@ for (const [where, surface] of Object.entries(SURFACES)) {
     assert.equal(across.stops.length, 2, "the underside carries a wash besides the crease");
     const crease = across.stops[0].colour;
     assert.equal(crease.toUpperCase(), "#AD9D7F", "the crease is not the approved mock's crease line");
-    assert.ok(luma(crease) < luma("#DEDEDE") - 40, "the crease is not clearly darker than an edge, so it cannot show the fold");
+    assert.ok(luma(crease) < luma("#CACACA") - 40, "the crease is not clearly darker than an edge, so it cannot show the fold");
 
     // the flap's cast shadow is the mock's: a tight one and a faint soft one,
     // moved a little down and left so they hug the free edges, and thin: no

@@ -10,8 +10,13 @@
   --paper:#F5F4F1; --card:#FFFFFF; --ink:#211D17; --sub:#75695A;
   /* every edge on the board reads --line, the strong ones included, so they
      are all one grey. --line-strong is not an edge any more: it is only the
-     faint ink and small fills, the placeholder names, dots and rails */
-  --line:#DEDEDE; --line-strong:#D8CFBE;
+     faint ink and small fills, the placeholder names, dots and rails.
+     the grey is as deep as it is because of the width below: on a 2x screen
+     chrome draws the 0.8px edge as one device pixel, half of what was asked,
+     so the line carries in that one pixel the grey a 0.8px line of the old,
+     lighter #DEDEDE would have spread over 1.6. white less #DEDEDE is 33
+     levels, times 1.6 is about 53, and white less 53 is #CACACA */
+  --line:#CACACA; --line-strong:#D8CFBE;
   --accent:#432BFF; --accent-soft:#EEEBFF;
   --green:#2F6B3C; --green-bg:#EDF4E8; --green-line:#C4D9BB;
   --must:#A8442A; --must-bg:#F7EAE4;
