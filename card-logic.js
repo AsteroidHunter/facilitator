@@ -2200,3 +2200,456 @@ function syncSpinner(){
     clearInterval(spinTimer); spinTimer = null;
   }
 }
+
+// ---- quick notes ------------------------------------------------------------------
+// a quick note is plain text the owner jots down without leaving what they are
+// doing. it stands alone unless its words name a card: "card 12", "card12" or
+// "c12" attaches it to the card the board numbers 12, the way a date typed into
+// a task is picked out of its words. kept here, where both pages can reach it,
+// is everything that is not the desktop's pointer corner or its card chip:
+// reading a reference out of the text, finding the card it names, what an edit
+// does to the attachment, the session that saves as the owner types, and the
+// overlay itself, so the phone can open the same element once it has a way in.
+
+// the reference: card, card and a space, or c, then the number, standing as a
+// word of its own. a letter, digit or underscore on either side makes it part of
+// a longer word (abc12, c12b, discard 5) and a dot then a digit part of a longer
+// number (c1.2), and neither is read as a card. there is no lookbehind in it, so
+// an older phone engine can still read this file
+const QUICK_NOTE_REF = /(^|[^\p{L}\p{N}_])(?:card[ \t\u00a0]*|c)(\d+)(?![\p{L}\p{N}_]|\.\d)/iu;
+function quickNoteRef(text){
+  const m = QUICK_NOTE_REF.exec(String(text == null ? "" : text));
+  return m ? m[2] : null;
+}
+// the card the board numbers num: the figure ticketNum reads off a card's id,
+// m12 for a card made on the board and a seeded numeric id as it is. ids are
+// never reused, so two cards share a figure only when a seeded 12 and a made m12
+// both stand, and then the one made on the board is the one meant
+function quickNoteCard(boxes, num){
+  const want = String(num == null ? "" : num);
+  if (!want) return null;
+  let found = null;
+  for (const b of boxes || []){
+    if (ticketNum(b.id) !== want) continue;
+    if (b.id === "m" + want) return b;
+    if (!found) found = b;
+  }
+  return found;
+}
+// a card named back to the owner: by its figure when it has one, by its title
+// when it is a standing card with none
+function quickNoteCardName(id, boxes){
+  const num = ticketNum(id);
+  if (num) return "card " + num;
+  const b = (boxes || []).find(x => x.id === id);
+  return b ? String(b.title || id) : String(id == null ? "" : id);
+}
+// what one saved edit asks of the note's attachment. before and after are the
+// note's words when the attachment was last read and now, card the card it is
+// attached to. only a change in the reference acts, so a note detached by hand
+// while its words still name a card stays detached, and a note attached some
+// other way is left where it is until its words name a card of their own:
+//   {attach: id}    the words name a card the note is not attached to yet
+//   {detach: true}  the reference that attached it has been deleted
+//   {missing: "N"}  the words name a figure no card on the board carries
+//   null            nothing to do
+// the first reference in the words is the one that counts
+function quickNoteAttachStep(before, after, card, boxes){
+  const was = quickNoteRef(before), now = quickNoteRef(after);
+  if (now === was) return null;
+  if (now == null){
+    const left = quickNoteCard(boxes, was);
+    return left && left.id === card ? { detach: true } : null;
+  }
+  const hit = quickNoteCard(boxes, now);
+  if (!hit) return { missing: now };
+  return hit.id === card ? null : { attach: hit.id };
+}
+// the list the way it is read: the note touched last on top
+function quickNotesNewestFirst(notes){
+  const seq = n => Number(String((n && n.id) || "").slice(2)) || 0;
+  return (notes || []).filter(Boolean).slice()
+    .sort((a, b) => (b.updated || 0) - (a.updated || 0) || seq(b) - seq(a));
+}
+// card id to the notes attached to it, newest first
+function quickNotesByCard(notes){
+  const out = {};
+  for (const n of quickNotesNewestFirst(notes)){
+    if (!n.card) continue;
+    (out[n.card] || (out[n.card] = [])).push(n);
+  }
+  return out;
+}
+// the words a note goes by in a list: its first line that has any. no dots are
+// added to a long one; the list cuts it at its own edge, as the board does
+function quickNoteFirstLine(text){
+  const line = String(text == null ? "" : text).split("\n").find(l => l.trim()) || "";
+  return line.trim().slice(0, 200);
+}
+// the confirmation under the note, in plain words
+function quickNoteNoticeText(notice, boxes){
+  if (!notice) return "";
+  if (notice.kind === "missing") return "no card " + notice.num + " on the board";
+  const name = quickNoteCardName(notice.card, boxes);
+  return notice.kind === "attached" ? "attached to " + name : "detached from " + name;
+}
+
+const QUICK_NOTE_KEY = "quicknote.current";   // the note being written, per browser
+const QUICK_NOTE_SAVE_MS = 600;               // a pause in the typing this long saves it
+// the note being written, saved as the owner types. one request is out at a
+// time and each save sends the words as they are by then, so a slow answer can
+// never put older words over newer ones. the first save is the one that makes
+// the note, so a note nobody typed in is never stored, and a note emptied and
+// put away is removed rather than kept blank. words that could not be saved are
+// never overwritten from the board: they stay on screen and go again with the
+// next save. deps: fetch, storage (a localStorage), boxes() (the cards the
+// board holds now), schedule(fn, ms) and cancel(id) (a timer)
+function quickNoteSession(deps){
+  const s = { id: null, text: "", saved: "", card: null, status: "", notice: null,
+              notes: [], onChange: null };
+  let readFrom = "", timer = null, chain = Promise.resolve(), seq = 0;
+  const changed = () => { if (typeof s.onChange === "function") s.onChange(s); };
+  const recall = () => { try { return deps.storage.getItem(QUICK_NOTE_KEY); } catch (e){ return null; } };
+  const remember = id => {
+    try {
+      if (id) deps.storage.setItem(QUICK_NOTE_KEY, id);
+      else deps.storage.removeItem(QUICK_NOTE_KEY);
+    } catch (e){}
+  };
+  // one step at a time, in the order asked; a step that throws never stops the
+  // ones queued behind it
+  const run = step => (chain = chain.then(step).catch(() => {}));
+  const unsaved = () => (s.id == null ? s.text.trim() !== "" : s.text !== s.saved);
+  const notice = n => { s.notice = { ...n, seq: ++seq }; };
+  async function post(url, body){
+    const init = { method: "POST" };
+    if (body != null) init.body = body;
+    const r = await deps.fetch(url, init);
+    const data = await r.json().catch(() => null);
+    if (!r.ok || !data || !data.ok) throw new Error((data && data.error) || "status " + r.status);
+    return data;
+  }
+  async function load(){
+    const r = await deps.fetch("/quicknotes", { cache: "no-store" });
+    const data = await r.json().catch(() => null);
+    if (!r.ok || !data || !Array.isArray(data.notes)) throw new Error("status " + r.status);
+    s.notes = quickNotesNewestFirst(data.notes);
+  }
+  function show(note){
+    s.id = note ? note.id : null;
+    s.text = s.saved = readFrom = note ? String(note.text || "") : "";
+    s.card = note ? note.card || null : null;
+    s.notice = null;
+    remember(s.id);
+  }
+  async function attachStep(text){
+    const step = quickNoteAttachStep(readFrom, text, s.card, deps.boxes());
+    if (step && !step.missing){
+      const card = step.attach || null, was = s.card;
+      await post("/quicknote/attach?id=" + encodeURIComponent(s.id) +
+                 (card ? "&card=" + encodeURIComponent(card) : ""));
+      s.card = card;
+      notice(card ? { kind: "attached", card } : { kind: "detached", card: was });
+    } else if (step) notice({ kind: "missing", num: step.missing });
+    // read only once acted on, so an attach that failed is tried again next save
+    readFrom = text;
+  }
+  async function saveNow(){
+    if (timer != null){ deps.cancel(timer); timer = null; }
+    const text = s.text;
+    try {
+      if (s.id == null){
+        if (!text.trim()) return;
+        s.status = "saving"; changed();
+        const made = await post("/quicknote/new", text);
+        s.id = made.note.id;
+        remember(s.id);
+      } else if (text !== s.saved){
+        s.status = "saving"; changed();
+        await post("/quicknote/save?id=" + encodeURIComponent(s.id), text);
+      }
+      s.saved = text;
+      await attachStep(text);
+      s.status = "saved";
+    } catch (e){
+      s.status = "failed";
+    }
+    changed();
+  }
+  async function dropIfEmpty(){
+    if (s.id == null || s.text.trim() || unsaved()) return;
+    const id = s.id;
+    await post("/quicknote/del?id=" + encodeURIComponent(id));
+    s.notes = s.notes.filter(n => n.id !== id);
+    show(null);
+    s.status = "";
+  }
+  s.input = text => {
+    s.text = String(text == null ? "" : text);
+    if (timer != null) deps.cancel(timer);
+    timer = deps.schedule(() => { timer = null; run(saveNow); }, QUICK_NOTE_SAVE_MS);
+  };
+  s.flush = () => run(saveNow);
+  s.load = () => run(async () => { try { await load(); } catch (e){} changed(); });
+  // opening: words still waiting go first, then the list is read fresh and the
+  // note being written is shown as the board holds it now, which is what lets
+  // someone else's later edit to it be seen rather than written over
+  s.open = () => run(async () => {
+    await saveNow();
+    try { await load(); } catch (e){ s.status = "failed"; changed(); return; }
+    if (!unsaved()){
+      const want = s.id || recall();
+      show((want && s.notes.find(n => n.id === want)) || null);
+    }
+    changed();
+  });
+  s.openNote = id => run(async () => {
+    await saveNow();
+    if (unsaved()){ changed(); return; }
+    if (id !== s.id){ try { await dropIfEmpty(); } catch (e){} }
+    try { await load(); } catch (e){ s.status = "failed"; changed(); return; }
+    const note = s.notes.find(n => n.id === id);
+    if (note) show(note);
+    changed();
+  });
+  s.startNew = () => run(async () => {
+    await saveNow();
+    if (unsaved()){ changed(); return; }
+    try { await dropIfEmpty(); } catch (e){}
+    show(null);
+    s.status = "";
+    changed();
+  });
+  s.close = () => run(async () => {
+    await saveNow();
+    try { await dropIfEmpty(); } catch (e){}
+    changed();
+  });
+  // detaching by hand leaves the words alone, and since only a change in the
+  // reference acts, the card they still name does not take the note back
+  s.detach = () => run(async () => {
+    if (s.id == null || !s.card) return;
+    const was = s.card;
+    try {
+      await post("/quicknote/attach?id=" + encodeURIComponent(s.id));
+      s.card = null;
+      notice({ kind: "detached", card: was });
+    } catch (e){ s.status = "failed"; }
+    changed();
+  });
+  s.remove = () => run(async () => {
+    if (timer != null){ deps.cancel(timer); timer = null; }
+    if (s.id != null){
+      const id = s.id;
+      try { await post("/quicknote/del?id=" + encodeURIComponent(id)); }
+      catch (e){ s.status = "failed"; changed(); return; }
+      s.notes = s.notes.filter(n => n.id !== id);
+    }
+    show(null);
+    s.status = "";
+    changed();
+  });
+  return s;
+}
+
+// the overlay: one card in the middle of the window over a veil that covers the
+// board, built once into host by the page that shows it. what comes back opens
+// it, on the note being written or on one note by id, pulled out of the
+// rectangle it was pressed from when one is given; closes it; and says whether
+// it is open. opts carries what the session needs, plus onOpen and onClose for
+// the page's own bookkeeping, its keys above all. nothing runs until a page
+// calls this
+function quickNoteOverlay(host, opts){
+  const session = quickNoteSession(opts);
+  const veil = h("div", "qn-veil");
+  veil.setAttribute("aria-hidden", "true");
+  const card = h("div", "qn-card");
+  card.setAttribute("role", "dialog");
+  card.setAttribute("aria-modal", "true");
+  card.setAttribute("aria-label", "Quick note");
+  const status = h("span", "qn-status");
+  const listBtn = h("button", "qn-btn", "Earlier");
+  const newBtn = h("button", "qn-btn", "New");
+  listBtn.type = "button";
+  newBtn.type = "button";
+  const head = h("div", "qn-head");
+  head.append(h("span", "qn-name", "Quick note"), status, listBtn, newBtn);
+  const attach = h("div", "qn-attach");
+  const attachName = h("span", "qn-attach-name");
+  const detach = h("button", "qn-detach", "×");
+  detach.type = "button";
+  detach.title = "detach from the card";
+  detach.setAttribute("aria-label", "detach from the card");
+  attach.append(attachName, detach);
+  attach.hidden = true;
+  const ta = h("textarea", "qn-text");
+  ta.placeholder = "A quick note. Typing c12 attaches it to card 12.";
+  const list = h("div", "qn-list");
+  list.hidden = true;
+  const notice = h("span", "qn-notice");
+  const del = h("button", "qn-btn qn-del", "Delete");
+  del.type = "button";
+  const foot = h("div", "qn-foot");
+  foot.append(notice, del);
+  card.append(head, attach, ta, list, foot);
+  veil.appendChild(card);
+  host.appendChild(veil);
+
+  let open = false, back = null, noticeTimer = null, armed = null, shownSeq = 0, downOutside = false;
+  const boxes = () => opts.boxes() || [];
+  function drawList(){
+    list.textContent = "";
+    if (!session.notes.length){ list.appendChild(h("div", "qn-empty", "no notes yet")); return; }
+    for (const n of session.notes){
+      const row = h("button", "qn-row" + (n.id === session.id ? " on" : ""));
+      row.type = "button";
+      row.dataset.id = n.id;
+      const words = n.id === session.id ? session.text : n.text;
+      row.append(h("span", "qn-row-text", quickNoteFirstLine(words) || "empty note"),
+                 h("span", "qn-row-card", n.card ? quickNoteCardName(n.card, boxes()) : ""),
+                 h("span", "qn-row-age", shortAge(n.updated)));
+      row.addEventListener("click", () => pick(n.id));
+      list.appendChild(row);
+    }
+  }
+  function render(){
+    status.textContent = { saving: "saving", saved: "saved", failed: "not saved" }[session.status] || "";
+    status.classList.toggle("bad", session.status === "failed");
+    attach.hidden = !session.card;
+    if (session.card){
+      const b = boxes().find(x => x.id === session.card);
+      const name = quickNoteCardName(session.card, boxes());
+      attachName.textContent = "on " + name + (b && name !== b.title ? ", " + b.title : "");
+    }
+    const n = session.notice;
+    if (n && n.seq !== shownSeq){
+      shownSeq = n.seq;
+      notice.textContent = quickNoteNoticeText(n, boxes());
+      notice.classList.toggle("bad", n.kind === "missing");
+      if (noticeTimer != null) opts.cancel(noticeTimer);
+      noticeTimer = opts.schedule(() => { noticeTimer = null; notice.textContent = ""; }, 4000);
+    }
+    if (!list.hidden) drawList();
+  }
+  session.onChange = () => { if (open) render(); if (opts.onChange) opts.onChange(session); };
+  function showList(on){
+    list.hidden = !on;
+    ta.hidden = on;
+    listBtn.textContent = on ? "Back" : "Earlier";
+    if (on) drawList();
+  }
+  function caretEnd(){
+    if (ta.hidden) return;
+    ta.focus();
+    const end = ta.value.length;
+    if (typeof ta.setSelectionRange === "function") ta.setSelectionRange(end, end);
+  }
+  // a switch of note puts the board's words in the field; the field takes no
+  // typing while that is under way, so nothing typed can land in the gap
+  async function settle(step){
+    ta.readOnly = true;
+    await step;
+    ta.readOnly = false;
+    if (ta.value !== session.text) ta.value = session.text;
+    render();
+  }
+  function disarm(){
+    if (armed != null) opts.cancel(armed);
+    armed = null;
+    del.textContent = "Delete";
+    del.classList.remove("armed");
+  }
+  async function pick(id){
+    showList(false);
+    await settle(session.openNote(id));
+    caretEnd();
+  }
+  // the pull from where it was pressed into the middle, as one short glide
+  function pull(from){
+    if (!from || typeof card.animate !== "function") return;
+    if (typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const to = card.getBoundingClientRect();
+    if (!to.width || !to.height) return;
+    const dx = (from.left + from.width / 2) - (to.left + to.width / 2);
+    const dy = (from.top + from.height / 2) - (to.top + to.height / 2);
+    const scale = Math.min(1, Math.max(.2, from.width / to.width));
+    card.animate([{ transform: "translate(" + dx + "px, " + dy + "px) scale(" + scale + ")", opacity: .6 },
+                  { transform: "none", opacity: 1 }],
+                 { duration: 220, easing: "cubic-bezier(.42,.06,.38,1)" });
+  }
+  async function openOverlay(id, from){
+    if (!open){
+      open = true;
+      back = document.activeElement;
+      disarm();
+      showList(false);
+      ta.value = session.text;
+      veil.classList.add("open");
+      veil.setAttribute("aria-hidden", "false");
+      pull(from);
+      ta.focus();
+      if (opts.onOpen) opts.onOpen();
+    }
+    await settle(id ? session.openNote(id) : session.open());
+    if (open) caretEnd();
+  }
+  function close(){
+    if (!open) return Promise.resolve();
+    open = false;
+    disarm();
+    veil.classList.remove("open");
+    veil.setAttribute("aria-hidden", "true");
+    if (opts.onClose) opts.onClose();
+    const to = back;
+    back = null;
+    if (to && to.isConnected && typeof to.focus === "function") to.focus({ preventScroll: true });
+    else if (card.contains(document.activeElement)) document.activeElement.blur();
+    return session.close();
+  }
+
+  ta.addEventListener("input", () => session.input(ta.value));
+  listBtn.addEventListener("click", async () => {
+    if (!list.hidden){ showList(false); caretEnd(); return; }
+    showList(true);
+    await session.flush();
+    await session.load();
+  });
+  newBtn.addEventListener("click", async () => {
+    showList(false);
+    await settle(session.startNew());
+    caretEnd();
+  });
+  detach.addEventListener("click", () => { session.detach(); caretEnd(); });
+  // two presses: the first asks, the second deletes, and the question lapses
+  // on its own, so one stray press never takes a note away
+  del.addEventListener("click", async () => {
+    if (armed == null){
+      del.textContent = "Delete this note?";
+      del.classList.add("armed");
+      armed = opts.schedule(disarm, 3000);
+      return;
+    }
+    disarm();
+    showList(false);
+    await settle(session.remove());
+    caretEnd();
+  });
+  // the keys are the note's own while it is open: Escape puts it away, and no
+  // key goes on to the board it covers
+  veil.addEventListener("keydown", e => {
+    e.stopPropagation();
+    if (e.key === "Escape"){ e.preventDefault(); close(); }
+  });
+  // a press that starts and ends on the veil, outside the card, puts it away;
+  // a selection dragged out of the card and let go on the veil does not
+  veil.addEventListener("pointerdown", e => { downOutside = e.target === veil; });
+  veil.addEventListener("click", e => {
+    if (downOutside && e.target === veil) close();
+    downOutside = false;
+  });
+  // and focus cannot wander onto the board behind it
+  document.addEventListener("focusin", e => {
+    if (open && !card.contains(e.target)) (ta.hidden ? listBtn : ta).focus();
+  });
+  return { open: openOverlay, close, isOpen: () => open, session, root: veil };
+}
