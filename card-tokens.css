@@ -114,18 +114,23 @@
    included, is only lost beyond the crease.
    --fold is the flap's side: 16px on the desktop row, where it clears the age
    in the row's top right. the phone's shorter row sets its own beside its rows.
-   --fold-edge is every line the fold draws, the flap's two free edges and the
-   crease, at the 0.8px every ticket edge is drawn at.
+   every line the fold draws is the ticket edge itself, so it keeps no width of
+   its own: the flap's two free edges are borders asked for --edge, like every
+   ticket edge, and snap to the same device pixels; the crease is not a border
+   but paint, the grey triangle under the flap left showing because the flap is
+   clipped short of the diagonal, and that gap is --edge-drawn measured square
+   to the crease, the width the borders beside it are actually drawn at, so on
+   any screen the crease is the same hairline as the edges it meets: one device
+   pixel on a standard or 2x screen, two on a 3x phone, as they are.
    the underside is pure white, the same white as a white face, so nothing about
    the fold rests on its colour. it reads by three things: the cut, where the
    row's own edge turns down the crease; the crease and the two free edges drawn
    in the board's edge grey; and a thin shade the flap casts on the face just
-   under its free edges, from the board's one light overhead. the crease is the
-   grey triangle under the flap, left showing because the flap is clipped one
-   line's width short of the diagonal, so it is exactly one line wide.
+   under its free edges, from the board's one light overhead. that shade is a
+   soft blur rather than a line, so it has no edge to match.
    a ready-to-test row is never a working row, so these two never meet the
    working shimmer that also draws in ::after */
-:root{--fold:16px; --fold-edge:0.8px}
+:root{--fold:16px}
 .trow.testc{
   clip-path:polygon(-40px -40px, calc(100% - var(--fold) - 40px) -40px,
     calc(100% + 40px) calc(var(--fold) + 40px),
@@ -139,11 +144,11 @@
 .trow.testc::before{background:var(--line); clip-path:polygon(0 0, 100% 100%, 0 100%)}
 .trow.testc::after{
   background:#ffffff;
-  border-left:var(--fold-edge) solid var(--line);
-  border-bottom:var(--fold-edge) solid var(--line);
+  border-left:var(--edge) solid var(--line);
+  border-bottom:var(--edge) solid var(--line);
   box-shadow:0 1px 2px rgba(60,45,20,.16);
-  clip-path:polygon(-6px calc(var(--fold-edge) * 1.41421 - 6px),
-    calc(100% + 6px - var(--fold-edge) * 1.41421) calc(100% + 6px),
+  clip-path:polygon(-6px calc(var(--edge-drawn) * 1.41421 - 6px),
+    calc(100% + 6px - var(--edge-drawn) * 1.41421) calc(100% + 6px),
     -6px calc(100% + 6px));
 }
 

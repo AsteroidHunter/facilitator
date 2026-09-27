@@ -852,8 +852,10 @@
   /* a ready-to-test row wears no fill or edge of its own: its whole marker is
      the folded top right corner, drawn for this page and the desktop alike in
      card-tokens.css. this row is 52px to the desktop's 64.8, and a 16px flap
-     here would lie over the top of the age's last letter, so the phone folds
-     12px: the desktop's fold scaled to this row, rounded down to clear the age */
+     here would lie up to 3px over the top of the age's last letter when it is
+     a d or an h, and touch an m or a w, so the phone folds 12px: the desktop's
+     fold scaled to this row, rounded down, which stays over 2.5px clear of all
+     four */
   .trow.testc{--fold:12px}
   /* ---- the settings, on the panel off the right edge ---------------------- */
   /* the header, its mark on the left in the line the card's own marks are drawn
