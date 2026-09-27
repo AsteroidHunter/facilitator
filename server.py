@@ -1576,6 +1576,13 @@ def _seed_state() -> dict:
     seed = json.loads(SEED_PATH.read_text()) if SEED_PATH.exists() else {}
     return {
         "title": seed.get("title", "facilitator"),
+        # seeded ids are kept as written, and a numeric one is shown as its own
+        # card number (ticketNum in card-logic.js). quick notes attach by that
+        # number, so a change to how seeded ids are numbered has to be carried
+        # into the quick note system as well: card-logic.js quickNoteRef and
+        # quickNoteCard (which also settles a seeded 12 against a made m12),
+        # _post_quicknote_new and _post_quicknote_attach in this file, and
+        # index.html syncQuickNoteChip
         "boxes": [
             {
                 "id": it["id"], "bucket": it["bucket"], "title": it["title"],
@@ -1857,7 +1864,12 @@ def _migrate() -> None:
     for b in _state["boxes"]:
         if b.get("owner"):
             _register_owner(b["owner"])
-    # monotonic box-id counter: count-based ids collided after a deletion
+    # monotonic box-id counter: count-based ids collided after a deletion.
+    # it is the source of every card number, so a change to it has to be carried
+    # into the quick note system too: card-logic.js quickNoteRef and quickNoteCard
+    # (the "card N" / "cN" parser and its lookup), _post_quicknote_new and
+    # _post_quicknote_attach in this file (the attach routes) and index.html
+    # syncQuickNoteChip (the note chip); _create_box_record lists them in full
     _state.setdefault("next_bid", 1 + max(
         [int(b["id"][1:]) for b in _state["boxes"]
          if b["id"].startswith("m") and b["id"][1:].isdigit()] or [0]))
@@ -4574,6 +4586,13 @@ def _entered_title(owner: str, text: str) -> str:
 
 def _create_box_record(owner: str, title: str) -> dict:
     """Install one ordinary data-contract card; callers save and notify."""
+    # the card's number is made here: m plus the counter, and the pages show the
+    # figure after the m (ticketNum in card-logic.js). quick notes attach by that
+    # figure, so a change to the numbering has to be carried into the quick note
+    # system as well: card-logic.js quickNoteRef and QUICK_NOTE_REF (the
+    # "card N" / "cN" parser), quickNoteCard and quickNoteAttachStep; in this
+    # file _post_quicknote_new and _post_quicknote_attach (the attach routes)
+    # and _remove_empty_meta_box; index.html syncQuickNoteChip (the note chip)
     bid_new = f"m{_state['next_bid']}"  # never reused, even after deletes
     _state["next_bid"] += 1
     # keep each meta section grouped: insert after its last same-owner meta box
