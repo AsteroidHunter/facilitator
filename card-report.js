@@ -17,6 +17,7 @@
   const FIELD = 500;   // characters kept of any one string, as the route does
   const TICK = 1000;   // how often the freeze watchdog is due
   const LATE = 2000;   // a tick later than this means the thread was blocked
+  const ASLEEP = 10000; // the wall clock this far ahead of the page's own means sleep
 
   let page = null;                 // "board", "phone" or "page"; null until started
   let doing = "idle";              // the one word the page last said it was doing
@@ -121,15 +122,38 @@
   // phone page runs in Safari, which is the surface where a freeze is least
   // reproducible. It cannot say what blocked the thread, only that something
   // did, for how long, and what the page thought it was doing at the time.
+  //
+  // lateness is read off performance.now, which a clock change cannot move and
+  // which on a Mac stops while the machine sleeps. The wall clock keeps going
+  // through sleep, so a tick where it ran well ahead of performance.now spans
+  // a sleep with the page still visible, when no page event fires at all
   function watchFreeze() {
-    let due = Date.now() + TICK;
+    let due = 0, wall = 0;
+    let away = false;   // hidden since the last tick and not shown again since
+    function restart() {
+      due = performance.now() + TICK;
+      wall = Date.now() + TICK;
+      away = false;
+    }
+    restart();
+    // a hidden page's timers are throttled by the browser on purpose: that is
+    // not a freeze, and reporting it would drown the ones that are. The count
+    // starts again when the page is shown, so the time away is never counted
+    document.addEventListener("visibilitychange", function () {
+      if (document.hidden) away = true;
+      else restart();
+    });
+    addEventListener("pagehide", function () { away = true; });
+    addEventListener("pageshow", restart);
     setInterval(function () {
-      const now = Date.now();
+      const now = performance.now();
       const late = now - due;
+      const slept = (Date.now() - wall) - late;
+      const skip = away || document.hidden || slept > ASLEEP;
       due = now + TICK;
-      // a hidden page's timers are throttled by the browser on purpose: that is
-      // not a freeze, and reporting it would drown the ones that are
-      if (late > LATE && !document.hidden) {
+      wall = Date.now() + TICK;
+      away = false;
+      if (late > LATE && !skip) {
         add("slow", { message: "the main thread was blocked", late: late,
                       doing: doing, file: "", line: 0 });
         if (incidents) incidents.freeze(late);
