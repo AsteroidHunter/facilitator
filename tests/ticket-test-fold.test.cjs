@@ -5,11 +5,13 @@
 // each surface's real row painter is run over a pool of cards so the testc
 // class is seen landing on the ready-to-test row alone and on no other; each
 // surface's stylesheet is read so testc is seen drawing the fold and nothing
-// else: no bluish fill, no edge of its own, a pure white underside, and every
-// line the fold draws taken from the board's own edge settings, the free edges
-// as borders at --edge like a ticket's and the painted crease at --edge-drawn,
-// the width those borders are drawn at on each screen. nothing here renders a
-// pixel.
+// else: no bluish fill, the ticket's own fill, edge and shades handed to a cut
+// face and a drop-shadow that follows the cut, the flap the exact mirror of
+// the cut corner with a pure white underside, the approved mock's crease and
+// thin cast shadows, and every line the fold draws taken from the board's own
+// edge settings, the free edges as borders at --edge like a ticket's and the
+// painted crease at --edge-drawn, the width those borders are drawn at on each
+// screen. nothing here renders a pixel.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const fs = require("node:fs");
@@ -110,9 +112,58 @@ function perResolution(css, name) {
   return out;
 }
 
-// a polygon() as numbers for one box: percentages of the box, var(--fold),
+// one length term as a number of px: percentages of `whole`, var(--fold),
 // var(--edge) and var(--edge-drawn) swapped for their lengths, the calc()
 // arithmetic worked out
+function measure(term, whole, lengths) {
+  const t = term.replace(/var\(--edge-drawn\)/g, lengths.drawn + "px").replace(/var\(--edge\)/g, lengths.edge + "px")
+    .replace(/var\(--fold\)/g, lengths.fold + "px")
+    .replace(/([\d.]+)%/g, (_, n) => String(Number(n) / 100 * whole) + "px")
+    .replace(/calc/g, "").replace(/px/g, "");
+  assert.match(t, /^[\d\s.+\-*/()]+$/, `an unexpected length term: ${term}`);
+  return Function(`return (${t});`)();
+}
+// split a function's arguments at its top-level commas
+function args(value, name) {
+  const at = value.indexOf(name + "(");
+  assert.ok(at >= 0, `no ${name}() in ${value}`);
+  const out = [];
+  let depth = 0, cur = "";
+  for (const c of value.slice(at + name.length + 1)) {
+    if (c === "(") depth++;
+    if (c === ")") { if (depth === 0) break; depth--; }
+    if (c === "," && depth === 0) { out.push(cur.trim()); cur = ""; } else cur += c;
+  }
+  out.push(cur.trim());
+  return out;
+}
+// a linear-gradient() as its direction and its stops, each stop's colour and
+// its place as px along the gradient line of the given length
+function gradient(value, length, lengths) {
+  const [direction, ...stops] = args(value, "linear-gradient");
+  return {
+    direction,
+    stops: stops.map(s => {
+      const m = /^(#[0-9a-f]{3,8}|rgba?\([^)]*\))\s*(.*)$/i.exec(s);
+      assert.ok(m, `an unexpected gradient stop: ${s}`);
+      return { colour: m[1], at: m[2] ? measure(m[2], length, lengths) : null };
+    }),
+  };
+}
+// a box-shadow or a run of drop-shadow() filters as [x, y, blur, colour] layers
+function shades(value) {
+  const layers = value.startsWith("drop-shadow(")
+    ? [...value.matchAll(/drop-shadow\(([^()]*\([^()]*\)[^()]*|[^()]*)\)/g)].map(m => m[1])
+    : value.split(/,(?![^(]*\))/);
+  return layers.map(l => {
+    const colour = /rgba?\([^)]*\)/.exec(l)[0];
+    const [x, y, blur] = l.replace(colour, "").trim().split(/\s+/).map(n => px(n === "0" ? "0px" : n));
+    return [x, y, blur, colour.replace(/\s+/g, "")];
+  });
+}
+const luma = hex => { const n = parseInt(hex.slice(1), 16); return .299 * (n >> 16) + .587 * ((n >> 8) & 255) + .114 * (n & 255); };
+
+// a polygon() as numbers for one box, each term worked out by measure()
 function polygon(value, box, lengths) {
   const inner = /polygon\(([\s\S]*)\)/.exec(value)[1];
   const parts = [];
@@ -123,14 +174,7 @@ function polygon(value, box, lengths) {
     if (c === "," && depth === 0) { parts.push(cur.trim()); cur = ""; } else cur += c;
   }
   parts.push(cur.trim());
-  const num = (term, whole) => {
-    let t = term.replace(/var\(--edge-drawn\)/g, lengths.drawn + "px").replace(/var\(--edge\)/g, lengths.edge + "px")
-      .replace(/var\(--fold\)/g, lengths.fold + "px")
-      .replace(/([\d.]+)%/g, (_, n) => String(Number(n) / 100 * whole) + "px")
-      .replace(/calc/g, "").replace(/px/g, "");
-    assert.match(t, /^[\d\s.+\-*/()]+$/, `an unexpected term in the polygon: ${term}`);
-    return Function(`return (${t});`)();
-  };
+  const num = (term, whole) => measure(term, whole, lengths);
   return parts.map(p => {
     const terms = [];
     let d = 0, c = "";
@@ -281,17 +325,59 @@ for (const [where, surface] of Object.entries(SURFACES)) {
     assert.doesNotMatch(css, /#EBEFFF/i, "the old bluish ready-to-test fill is still in the sheet");
     assert.doesNotMatch(css, /testc:not\(\.on\)/, "the old ready-to-test edge rule is still in the sheet");
     assert.doesNotMatch(css, /--fold-edge/, "the fold still keeps an edge width of its own");
-    const foldSelectors = [".trow.testc", ".trow.testc::before", ".trow.testc::after"];
-    for (const r of rulesOf(css)) {
+    const foldSelectors = [".trow.testc", ".trow.testc.on", ".trow.testc::before", ".trow.testc::after",
+      ".trow.testc > .trowin::before", ".trow.testc > .omni-sweep"];
+    // what the row itself may say: it hands its edge and shade to the face
+    // and the filter and keeps its fill, so it never sets a fill, an opacity
+    // or a colour of its own
+    const rowMay = ["--fold", "-webkit-background-clip", "background-clip", "border-color", "box-shadow", "overflow", "filter"];
+    const rules = rulesOf(css);
+    for (const r of rules) {
       if (!r.sel.includes("testc")) continue;
       assert.deepEqual(r.at, [], `a ready-to-test rule sits inside ${r.at.join(" ")}`);
       for (const s of r.sels) assert.ok(foldSelectors.includes(s), `testc is used by a rule that is not the fold: ${r.sel}`);
-      if (r.sels.includes(".trow.testc")) {
-        // on the row itself: only the cut and the fold's own measures. no
-        // fill, no edge, no shade, no opacity: the row keeps its own look
-        for (const [p] of declsOf(r.body))
-          assert.ok(p === "clip-path" || p === "--fold", `the ready-to-test row sets ${p} on itself`);
-      }
+      if (r.sels.includes(".trow.testc") || r.sels.includes(".trow.testc.on"))
+        for (const [p] of declsOf(r.body)) assert.ok(rowMay.includes(p), `the ready-to-test row sets ${p} on itself`);
+    }
+    const row = style(css, ".trow.testc");
+    assert.equal(row["background-clip"], "text");
+    assert.equal(row["-webkit-background-clip"], "text");
+    assert.equal(row["border-color"], "transparent");
+    assert.equal(row["box-shadow"], "none");
+    assert.equal(row.overflow, "visible");
+    assert.equal(row["clip-path"], undefined, "the row cuts itself, which cuts its shade along the crease's line");
+    // the row's hand-over only works if it comes after every rule of the same
+    // weight that sets a row's fill, edge or shade, the omni face's shorthand
+    // included, since that shorthand puts the fill's clip back
+    const lastOf = pred => rules.reduce((at, r, i) => (pred(r) ? i : at), -1);
+    const handOver = lastOf(r => r.sels.includes(".trow.testc") && /background-clip/.test(r.body));
+    for (const sel of [".trow:hover", ".trow.working", ".trow.yours", ".trow.queuedc", ".trow.match", ".trow.on", ".trow.omni-ticket"]) {
+      const at = lastOf(r => !r.at.length && r.sels.includes(sel));
+      assert.ok(at < handOver, `${sel} comes after the ready-to-test row's hand-over and would win`);
+    }
+  });
+
+  test(`${where}: the row's shade is a drop-shadow of the cut ticket, the ticket's own two shades`, () => {
+    const css = surface.css;
+    // a filter runs before a clip on one element, so the shade follows the cut
+    // only because the cut is on ::before and the filter on the row
+    const row = style(css, ".trow.testc"), on = style(css, ".trow.testc.on");
+    const key = layers => layers.map(l => l.join(" ")).sort();
+    assert.deepEqual(key(shades(row.filter)), key(shades(style(css, ".trow")["box-shadow"])),
+      "the ready-to-test row's shade is not the ticket's own");
+    assert.equal(on["box-shadow"], "none");
+    assert.deepEqual(key(shades(on.filter)), key(shades(style(css, ".trow.on")["box-shadow"])),
+      "the selected ready-to-test row's lift is not the selected ticket's own");
+    // the face paints under the row's words, which needs the row to be its
+    // own stacking context: its filter makes it one
+    const face = style(css, ".trow.testc::before");
+    assert.equal(face["z-index"], "-1");
+    assert.notEqual(row.filter, "none");
+    assert.notEqual(on.filter, "none");
+    if (surface.tokens) {
+      const sweep = style(css, ".trow.testc > .omni-sweep");
+      assert.equal(sweep["border-radius"], "inherit");
+      assert.equal(sweep.overflow, "hidden", "the omni light is no longer kept to the rounded ticket");
     }
   });
 
@@ -301,55 +387,91 @@ for (const [where, surface] of Object.entries(SURFACES)) {
     // the cut and the crease layer's triangle read no edge width; these only fill the evaluator
     const edge = .8, drawn = 1;
     assert.equal(fold, surface.fold, `the fold is not ${surface.fold}px here`);
-    // each layer's declarations, the rule the two share included
-    const row = style(css, ".trow.testc");
-    const crease = style(css, ".trow.testc::before");
+    // each layer's declarations, the rule the layers share included
+    const face = style(css, ".trow.testc::before");
     const flap = style(css, ".trow.testc::after");
+    const hole = style(css, ".trow.testc > .trowin::before");
+    const ticket = style(css, ".trow");
 
-    // the cut, measured on the padding box the flap is positioned in, so the
-    // two share one crease whatever the row's edge width is
-    assert.match(row["clip-path"], /\)\s*padding-box$/, "the cut is not measured on the padding box");
-    const box = { w: 300, h: 64 };
-    const cut = polygon(row["clip-path"], box, { fold, edge, drawn });
-    const w = box.w;
-    // the crease runs from --fold in along the top edge to --fold down the right
-    const onCrease = cut.filter(([x, y]) => Math.abs((x - y) - (w - fold)) < 1e-6);
-    assert.equal(onCrease.length, 2, "the cut has no single crease line");
-    assert.ok(!inside([w - 1, 1], cut) && !inside([w - fold / 2 + 0.5, fold / 2 - 0.5], cut), "the corner is not cut away");
-    assert.ok(inside([w - fold - 0.5, 0.5], cut) && inside([w - 0.5, fold + 0.5], cut), "the cut reaches past the crease");
-    assert.ok(inside([2, box.h - 2], cut) && inside([2, 2], cut) && inside([w - 2, box.h - 2], cut), "the cut takes more than the corner");
-    // the selected row's lift shade (0 2px 18px) survives everywhere but beyond the crease
-    assert.ok(inside([-20, box.h + 20], cut) && inside([w + 20, box.h + 20], cut) && inside([-20, -20], cut),
-      "the cut clips the row's shade away from the crease");
-
-    // both layers are one --fold square in the top right of the padding box
-    for (const layer of [crease, flap]) {
+    // all three are placed on the border box: the row's edge is drawn
+    // --edge-drawn wide, so that far out from the padding box they are placed from
+    for (const layer of [face, flap, hole]) {
       assert.equal(layer.content, '""');
       assert.equal(layer.position, "absolute");
-      assert.equal(layer.top, "0");
-      assert.equal(layer.right, "0");
       assert.equal(layer["box-sizing"], "border-box");
+      assert.equal(layer["pointer-events"], "none");
+    }
+    assert.equal(face.inset, "calc(-1 * var(--edge-drawn))");
+    for (const layer of [flap, hole]) {
+      assert.equal(layer.top, "calc(-1 * var(--edge-drawn))");
+      assert.equal(layer.right, "calc(-1 * var(--edge-drawn))");
       assert.equal(layer.width, "var(--fold)");
       assert.equal(layer.height, "var(--fold)");
-      assert.equal(layer["pointer-events"], "none");
-      // the ticket's own corner at the flap's tip: the mirror of the corner cut away
-      assert.equal(layer["border-bottom-left-radius"], style(css, ".trow")["border-radius"], "the tip is not the ticket's corner");
     }
-    // the crease layer is the triangle on the flap's side of the diagonal, and
-    // it is the mirror of the corner the cut takes: reflecting the cut corner
-    // across the crease lands exactly on it
-    const square = { w: fold, h: fold };
-    const tri = polygon(crease["clip-path"], square, { fold, edge, drawn }).map(([x, y]) => [x + w - fold, y]);
-    const cutCorner = [[w - fold, 0], [w, 0], [w, fold]];
-    const mirror = ([x, y]) => [y + (w - fold), x - (w - fold)];
-    const key = pts => pts.map(p => p.map(n => n.toFixed(4)).join(",")).sort();
-    assert.deepEqual(key(cutCorner.map(mirror)), key(tri), "the flap is not the cut corner's mirror across the crease");
+    // the face is the ticket as the row would paint it: the fill the row's
+    // state gives it, the ticket's edge and its corners
+    assert.equal(face["background-color"], "inherit", "the face does not take the row's own fill");
+    assert.equal(face.border, ticket.border, "the face's edge is not the ticket's");
+    assert.equal(face["border-radius"], "inherit");
+    assert.equal(ticket["border-radius"], "5px");
 
-    // the backside is pure white, with no gradient or wash laid over it
-    assert.equal(flap.background, "#ffffff", "the flap's underside is not #ffffff");
-    assert.equal(crease.background, "var(--line)", "the crease is not drawn in the ticket edge grey");
-    // a thin soft shade under the free edges, from the light overhead
-    assert.match(flap["box-shadow"], /^0 1px 2px rgba\(60,45,20,\.16\)$/, "the flap's shade is not the thin one");
+    // the cut, on the face: only the corner beyond the crease goes; the other
+    // corners are the rectangle's own, so the ticket's rounding keeps them
+    const box = { w: 300, h: 64 }, w = box.w, L = { fold, edge, drawn };
+    const cut = polygon(face["clip-path"], box, L);
+    const onCrease = cut.filter(([x, y]) => Math.abs((x - y) - (w - fold)) < 1e-6);
+    assert.equal(onCrease.length, 2, "the cut has no single crease line");
+    const key = pts => pts.map(p => p.map(n => n.toFixed(4)).join(",")).sort();
+    assert.deepEqual(key(cut), key([[0, 0], [w - fold, 0], [w, fold], [w, box.h], [0, box.h]]), "the cut takes more than the corner");
+
+    // the flap is the corner the cut takes, reflected across the crease, and
+    // the hole is exactly the corner: every point of the corner square is on
+    // one side or the other, checked on a grid kept off the diagonal
+    const flapClip = polygon(flap["clip-path"], { w: fold, h: fold }, L);
+    const holeClip = polygon(hole["clip-path"], { w: fold, h: fold }, L);
+    const mirror = ([x, y]) => [y + (w - fold), x - (w - fold)];
+    const toSquare = ([x, y]) => [x - (w - fold), y];
+    for (let i = 0; i < 16; i++) for (let j = 0; j < 16; j++) {
+      const p = [w - fold + (i + .37) * fold / 16, (j + .61) * fold / 16];
+      const gone = !inside(p, cut);
+      assert.equal(inside(toSquare(mirror(p)), flapClip), gone, `the flap is not the mirror of the cut at ${p}`);
+      assert.equal(inside(toSquare(p), holeClip), gone, `the hole is not the cut corner at ${p}`);
+    }
+    // the flap's outer side is the crease itself, so the clip keeps it sharp
+    const k = flapClip.findIndex(([x, y]) => Math.abs(x) < 1e-6 && Math.abs(y) < 1e-6);
+    const next = flapClip[(k + 1) % flapClip.length];
+    assert.ok(k >= 0 && Math.abs(next[0] - fold) < 1e-6 && Math.abs(next[1] - fold) < 1e-6,
+      "the flap is not cut exactly on the crease");
+    // the ticket's own corner at the flap's tip: the mirror of the rounded corner cut away
+    assert.equal(flap["border-bottom-left-radius"], "inherit", "the tip is not the ticket's corner");
+
+    // the underside, across the flap from the crease to its tip: it ends pure
+    // white, and the only other colour is the crease line at the crease
+    const across = gradient(flap.background, fold * Math.SQRT2, { fold, edge, drawn });
+    assert.equal(across.direction, "to bottom left", "the flap's face does not run from the crease to the tip");
+    assert.equal(across.stops.at(-1).colour.toLowerCase(), "#ffffff", "the flap's underside is not #ffffff");
+    assert.equal(across.stops.length, 2, "the underside carries a wash besides the crease");
+    const crease = across.stops[0].colour;
+    assert.equal(crease.toUpperCase(), "#AD9D7F", "the crease is not the approved mock's crease line");
+    assert.ok(luma(crease) < luma("#DEDEDE") - 40, "the crease is not clearly darker than an edge, so it cannot show the fold");
+
+    // the flap's cast shadow is the mock's: a tight one and a faint soft one,
+    // moved a little down and left so they hug the free edges, and thin: no
+    // layer reaches more than about 3px past the edge it hugs
+    const cast = shades(flap["box-shadow"]);
+    assert.deepEqual(cast.map(l => l.join(" ")),
+      ["-0.25 0.5 1.1 rgba(60,45,20,.22)", "-0.4 0.9 2.2 rgba(60,45,20,.08)"], "the flap's shadow is not the mock's pair");
+    for (const [x, y, blur] of cast) {
+      assert.ok(x < 0 && y > 0 && Math.abs(x) < y, "a flap shadow does not fall down and a little left");
+      assert.ok(y + blur <= 3.1, "a flap shadow spreads wider than a thin one");
+    }
+    // the hole's contact shade starts at the crease and is gone within an
+    // eighth of the diagonal, faint throughout
+    const contact = gradient(hole.background, fold * Math.SQRT2, { fold, edge, drawn });
+    assert.equal(contact.direction, "to top right");
+    assert.deepEqual(contact.stops.map(s => s.colour), ["rgba(60,45,20,.08)", "rgba(60,45,20,0)"]);
+    near(contact.stops[0].at, fold * Math.SQRT2 / 2, "the contact shade does not start at the crease");
+    assert.ok(contact.stops[1].at - contact.stops[0].at <= fold * Math.SQRT2 / 8, "the contact shade reaches too far");
   });
 
   test(`${where}: every line the fold draws is the ticket edge, read from the board's own edge settings`, () => {
@@ -362,11 +484,13 @@ for (const [where, surface] of Object.entries(SURFACES)) {
     assert.equal(ticketEdge, "var(--edge) solid var(--line)", "the ticket edge no longer reads --edge");
     assert.equal(flap["border-left"], ticketEdge, "the flap's left edge is not the ticket edge");
     assert.equal(flap["border-bottom"], ticketEdge, "the flap's bottom edge is not the ticket edge");
+    assert.equal(style(css, ".trow.testc::before").border, ticketEdge, "the face's edge is not the ticket edge");
     // no other side drawn, and no width of the fold's own anywhere in its rules
     for (const r of rulesOf(css)) if (r.sel.includes("testc"))
       for (const [p, v] of declsOf(r.body)) {
-        if (p.startsWith("border") && p !== "border-bottom-left-radius")
-          assert.ok(p === "border-left" || p === "border-bottom", `the fold draws ${p}: ${v}`);
+        if (p.startsWith("border") && !p.endsWith("radius") && p !== "border-color")
+          assert.ok(p === "border-left" || p === "border-bottom" || (p === "border" && r.sels.includes(".trow.testc::before")),
+            `the fold draws ${p}: ${v}`);
         assert.doesNotMatch(v, /(^|[^\d])0?\.8px/, `the fold writes the edge width out itself: ${p}:${v}`);
       }
     // the shared settings as each screen sees them: --edge asked at 0.8px, and
@@ -375,23 +499,21 @@ for (const [where, surface] of Object.entries(SURFACES)) {
     // one device pixel at 1x (1px) and 2x (0.5px) and two at 3x (2/3px)
     const edge = perResolution(css, "--edge"), drawn = perResolution(css, "--edge-drawn");
     // the crease is paint, not a border, so it reads the drawn width and never the asked one
-    assert.match(flap["clip-path"], /var\(--edge-drawn\)/, "the crease does not read --edge-drawn");
-    assert.doesNotMatch(flap["clip-path"], /var\(--edge\)/, "the crease reads the asked width, which is never drawn");
+    assert.match(flap.background, /var\(--edge-drawn\)/, "the crease does not read --edge-drawn");
+    assert.doesNotMatch(flap.background, /var\(--edge\)/, "the crease reads the asked width, which is never drawn");
     for (const dppx of [1, 2, 3]) {
       near(edge[dppx], .8, `--edge at ${dppx}x`);
       const snapped = Math.max(1, Math.floor(edge[dppx] * dppx + 1e-9)) / dppx;
       near(drawn[dppx], snapped, `--edge-drawn at ${dppx}x is not the width a ticket edge is drawn at`);
-      // the flap is clipped short of the diagonal by exactly that drawn width,
-      // measured square to the crease, so the band of the grey layer beneath
-      // that shows along it is as wide as the borders it meets
-      const e = drawn[dppx];
-      const flapClip = polygon(flap["clip-path"], { w: fold, h: fold }, { fold, edge: edge[dppx], drawn: e });
-      const shifted = flapClip.filter(([x, y]) => Math.abs(y - x - e * Math.SQRT2) < 1e-3);
-      assert.equal(shifted.length, 2, `at ${dppx}x the flap is not clipped along a line parallel to the crease`);
-      near((shifted[0][1] - shifted[0][0]) / Math.SQRT2, snapped, `at ${dppx}x the crease band is not the drawn edge width`);
-      assert.ok(!inside([fold / 2, fold / 2 + e * Math.SQRT2 - 0.01], flapClip), `at ${dppx}x the flap covers the crease band`);
-      assert.ok(inside([fold / 2 - 3, fold / 2 + 3], flapClip) && inside([-3, fold + 3], flapClip),
-        `at ${dppx}x the flap, or its shade beyond its free edges, is clipped away`);
+      // from the crease, which the flap's clip keeps sharp, the face is the
+      // crease colour for half a drawn edge and then ramps to white over one
+      // more, the way a device pixel softens an edge: the line it draws is
+      // exactly one drawn edge wide, the width of the borders it meets
+      const e = drawn[dppx], diag = fold * Math.SQRT2;
+      const [line, white] = gradient(flap.background, diag, { fold, edge: edge[dppx], drawn: e }).stops;
+      near(line.at - diag / 2, snapped / 2, `at ${dppx}x the crease's solid part`);
+      near(white.at - line.at, snapped, `at ${dppx}x the crease's soft inner side`);
+      near((line.at - diag / 2) + (white.at - line.at) / 2, snapped, `at ${dppx}x the crease is not one drawn edge wide`);
     }
   });
 
@@ -431,12 +553,15 @@ test("the typed page keeps its fold, its edge settings and its gate in step with
     assert.ok([1, 2, 3].every(d => Number.isFinite(own[d])), `the typed page has no ${name} of its own`);
     assert.deepEqual(own, perResolution(TOKENS, name), `the typed page's ${name} drifted from card-tokens.css`);
   }
-  for (const sel of [".trow.testc::before", ".trow.testc::after"]) {
+  for (const sel of [".trow.testc::before", ".trow.testc::after", ".trow.testc > .trowin::before", ".trow.testc.on"]) {
     const drawn = style(page, sel);
-    assert.ok(Object.keys(drawn).length > 5, `${sel} is not on the typed page`);
+    assert.ok(Object.keys(drawn).length > 1, `${sel} is not on the typed page`);
     assert.deepEqual(drawn, style(TOKENS, sel), `${sel} drifted from card-tokens.css`);
   }
-  assert.equal(style(page, ".trow.testc")["clip-path"], style(TOKENS, ".trow.testc")["clip-path"], "the cut drifted from card-tokens.css");
+  // the row's hand-over, less the page's own --fold (the shared one is on :root)
+  const { "--fold": fold, ...row } = style(page, ".trow.testc");
+  assert.equal(fold, "16px");
+  assert.deepEqual(row, style(TOKENS, ".trow.testc"), "the row's hand-over drifted from card-tokens.css");
   const gate = /function testReady\(b\)\{[^\n]*\}/;
   assert.equal(gate.exec(SURFACES["the typed page"].html)[0], gate.exec(read("card-logic.js"))[0],
     "the typed page's ready-to-test gate drifted from card-logic.js");

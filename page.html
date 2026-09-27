@@ -581,35 +581,8 @@
   .trow.yours{background:#FFFBEB; border-color:var(--line)}
   .trow.queuedc{background:#F7F7F7; border-color:var(--line)}
   .trow.donec{opacity:.55}
-  /* the ready-to-test fold, kept in step with the board's and the phone's in
-     card-tokens.css, which this page does not load; the reasons are written
-     there. the row keeps its own fill, edge and shade, and the fold is the
-     whole marker: the corner cut off along the crease, --fold in along the top
-     edge and down the right, and a pure white flap lying on the face as the cut
-     corner's mirror, with the ticket's 5px corner at its tip. every line the
-     fold draws is the ticket edge itself, read from this page's own copies at
-     the top of the sheet: the flap's two free edges are borders at --edge, and
-     the crease, which is paint, is --edge-drawn wide. this row matches the
-     board's, so the flap is the board's 16px, which clears the age */
-  .trow.testc{--fold:16px;
-    clip-path:polygon(-40px -40px, calc(100% - var(--fold) - 40px) -40px,
-      calc(100% + 40px) calc(var(--fold) + 40px),
-      calc(100% + 40px) calc(100% + 40px), -40px calc(100% + 40px)) padding-box}
-  .trow.testc::before, .trow.testc::after{
-    content:""; position:absolute; top:0; right:0; box-sizing:border-box;
-    width:var(--fold); height:var(--fold); border-bottom-left-radius:5px;
-    pointer-events:none;
-  }
-  .trow.testc::before{background:var(--line); clip-path:polygon(0 0, 100% 100%, 0 100%)}
-  .trow.testc::after{
-    background:#ffffff;
-    border-left:var(--edge) solid var(--line);
-    border-bottom:var(--edge) solid var(--line);
-    box-shadow:0 1px 2px rgba(60,45,20,.16);
-    clip-path:polygon(-6px calc(var(--edge-drawn) * 1.41421 - 6px),
-      calc(100% + 6px - var(--edge-drawn) * 1.41421) calc(100% + 6px),
-      -6px calc(100% + 6px));
-  }
+  /* the ready-to-test fold is at the end of this sheet, after every rule that
+     sets a row's fill, edge or shade, since it takes those over */
   .trow.on{
     border-color:var(--line);
     /* the selected row rises off the list: the chat frame's own shadow shape,
@@ -1246,6 +1219,46 @@
   body.focus .box.sel.omni-card .omni-card-art{order:10; width:46px; height:66px;
     margin-left:calc(var(--pad-x)*2/3)}
   body.focus .box.sel.omni-card .title{flex:1 1 0; padding-left:0}
+  /* the ready-to-test fold, kept in step with the board's and the phone's in
+     card-tokens.css, which this page does not load; the reasons are written
+     there. it sits last because it takes over the row's fill, edge and shade:
+     the row paints its fill only under its glyphs and its edge clear, ::before
+     paints the ticket on the border box with the corner cut, the row's
+     drop-shadow filter shades that cut shape, and the flap and the hole's
+     contact shade fill the corner. the free edges are borders at --edge and the
+     crease is --edge-drawn wide, read from this page's own copies at the top of
+     the sheet. this row matches the board's, so the flap is the board's 16px,
+     which clears the age */
+  .trow.testc{--fold:16px;
+    -webkit-background-clip:text; background-clip:text;
+    border-color:transparent; box-shadow:none; overflow:visible;
+    filter:drop-shadow(0 1px 4px rgba(60,45,20,.05))}
+  .trow.testc.on{box-shadow:none;
+    filter:drop-shadow(0 1px 3px rgba(60,45,20,.10)) drop-shadow(0 2px 18px rgba(60,45,20,.18))}
+  .trow.testc::before, .trow.testc::after, .trow.testc > .trowin::before{
+    content:""; position:absolute; box-sizing:border-box; pointer-events:none;
+  }
+  .trow.testc::before{
+    z-index:-1; inset:calc(-1 * var(--edge-drawn));
+    background-color:inherit; border:var(--edge) solid var(--line); border-radius:inherit;
+    clip-path:polygon(0 0, calc(100% - var(--fold)) 0, 100% var(--fold), 100% 100%, 0 100%);
+  }
+  .trow.testc::after, .trow.testc > .trowin::before{
+    top:calc(-1 * var(--edge-drawn)); right:calc(-1 * var(--edge-drawn));
+    width:var(--fold); height:var(--fold);
+  }
+  .trow.testc::after{
+    border-left:var(--edge) solid var(--line); border-bottom:var(--edge) solid var(--line);
+    border-bottom-left-radius:inherit;
+    background:linear-gradient(to bottom left, #AD9D7F calc(50% + var(--edge-drawn) / 2),
+      #ffffff calc(50% + var(--edge-drawn) * 1.5));
+    box-shadow:-.25px .5px 1.1px rgba(60,45,20,.22), -.4px .9px 2.2px rgba(60,45,20,.08);
+    clip-path:polygon(-6px 0, 0 0, 100% 100%, 100% calc(100% + 6px), -6px calc(100% + 6px));
+  }
+  .trow.testc > .trowin::before{
+    background:linear-gradient(to top right, rgba(60,45,20,.08) 50%, rgba(60,45,20,0) 62%);
+    clip-path:polygon(0 0, 100% 0, 100% 100%);
+  }
 </style>
 </head>
 <body class="focus">
