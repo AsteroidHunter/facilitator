@@ -185,12 +185,12 @@
   #offline{
     display:none; flex:none; margin-top:var(--sp-s);
     padding:9px 12px; font:13px var(--sans); color:#7A2E1B;
-    background:#FAE9E2; border:1px solid #E8C4B4; border-radius:7px;
+    background:#FAE9E2; border:1px solid var(--line); border-radius:7px;
   }
   body.offline #offline{display:block}
   /* the milder note: the board has missed a reading or two and the page is
      asking again, which is not yet a board that is gone */
-  #offline.stale{color:#6B5A2E; background:#F6F1E4; border-color:#E4D9BC}
+  #offline.stale{color:#6B5A2E; background:#F6F1E4; border-color:var(--line)}
 
   /* ---- the card pane ------------------------------------------------------ */
   main{
@@ -835,17 +835,17 @@
   .tmeta .teng{font:400 10.5px var(--mono); color:#B4AA99}
   .tnum{font:inherit; font-weight:400; color:#C1C1C1; margin-right:.45em}
   .tempty{font:italic 12.5px var(--sans); color:#B4AA99; padding:8px 12px}
-  .trow.working{background:#F3FFF0; border-color:#C4D9BB}
-  .trow.yours{background:#FFFBEB; border-color:#E8DCAE}
-  .trow.queuedc{background:#F7F7F7; border-color:#CDD4DE}
+  .trow.working{background:#F3FFF0; border-color:var(--line)}
+  .trow.yours{background:#FFFBEB; border-color:var(--line)}
+  .trow.queuedc{background:#F7F7F7; border-color:var(--line)}
   .trow.donec{opacity:.55}
   .trow.on{border-color:var(--line); transform:translateY(-1px); z-index:1;
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
-  /* the ready-to-test fill: a distinct cool wash whose neutral hairline steps
-     aside for the selected border. background sits after .trow.on so the marker
-     wins the fill on any row. */
+  /* the ready-to-test fill: a distinct cool wash. its edge is the one plain
+     line every ticket wears, so the state reads by its fill alone. background
+     sits after .trow.on so the marker wins the fill on any row. */
   .trow.testc{background:#EBEFFF}
-  .trow.testc:not(.on){border-color:#CDD4DE}
+  .trow.testc:not(.on){border-color:var(--line)}
   /* ---- the settings, on the panel off the right edge ---------------------- */
   /* the header, its mark on the left in the line the card's own marks are drawn
      in, and the card title's face and weight, which is the one heading face on

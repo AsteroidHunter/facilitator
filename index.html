@@ -337,7 +337,7 @@
   .sendbtn:disabled{opacity:.35; cursor:default; transform:none}
 
   /* ---- waiting state (sent, agent hasn't replied yet) ------------------- */
-  .box.waiting{background:#FBF6E8; border-color:#E7DCC0}
+  .box.waiting{background:#FBF6E8; border-color:var(--line)}
   .box.waiting .head{cursor:pointer; padding-bottom:12px}
   .box.waiting .body{display:none}
   .box.waiting.peek .head{padding-bottom:0}
@@ -351,18 +351,18 @@
 
 
   /* ---- done state ------------------------------------------------------- */
-  .box.done{background:var(--green-bg); border-color:var(--green-line)}
+  .box.done{background:var(--green-bg); border-color:var(--line)}
   .box.done .title{color:var(--green)}
-  .box.done .num{background:transparent; border-color:var(--green-line); color:var(--green)}
+  .box.done .num{background:transparent; border-color:var(--line); color:var(--green)}
   .box.done .head{cursor:pointer; padding-bottom:12px}
   .box.done .body{display:none}
   .box.done.peek .head{padding-bottom:0}
   .box.done.peek .body{display:block}
 
   /* ---- parked (later) state --------------------------------------------- */
-  .box.parked{background:var(--later-bg); border-color:#CDD4DE}
+  .box.parked{background:var(--later-bg); border-color:var(--line)}
   .box.parked .title{color:var(--later)}
-  .box.parked .num{background:transparent; border-color:#CDD4DE; color:var(--later)}
+  .box.parked .num{background:transparent; border-color:var(--line); color:var(--later)}
   .box.parked .head{cursor:pointer; padding-bottom:12px}
   .box.parked .body{display:none}
   .box.parked.peek .head{padding-bottom:0}
@@ -374,7 +374,7 @@
   #offline{
     display:none; position:sticky; top:45px; z-index:9;
     padding:9px 20px; font:13px var(--sans); color:#7A2E1B;
-    background:#FAE9E2; border-bottom:1px solid #E8C4B4;
+    background:#FAE9E2; border-bottom:1px solid var(--line);
   }
   body.offline #offline{display:block}
   body.offline .dot{background:#C0442A !important; animation:none}
@@ -1873,16 +1873,15 @@
   .trow .tt{flex:1; min-width:0; font:500 12.5px/1.25 var(--sans); color:var(--ink);
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   .trow .ta{flex:none; font:10px var(--mono); color:var(--sub)}
-  .trow.working{background:#F3FFF0; border-color:#C4D9BB}
-  .trow.yours{background:#FFFBEB; border-color:#E8DCAE}
-  .trow.queuedc{background:#F7F7F7; border-color:#CDD4DE}
+  .trow.working{background:#F3FFF0; border-color:var(--line)}
+  .trow.yours{background:#FFFBEB; border-color:var(--line)}
+  .trow.queuedc{background:#F7F7F7; border-color:var(--line)}
   .trow.donec{opacity:.55}
   /* the ready-to-test fill: a distinct cool wash for a card whose delivered
-     change is available for the reader to try. The neutral hairline is the same
-     cool line the queued/parked rows carry, and it steps aside for the selected
-     border so selection still reads. background sits after .trow.match below so
-     the marker wins the fill. */
-  .trow.testc:not(.on){border-color:#CDD4DE}
+     change is available for the reader to try. every ticket edge is the one
+     plain line, so a state reads by its fill alone and this edge is that line
+     too. background sits after .trow.match below so the marker wins the fill. */
+  .trow.testc:not(.on){border-color:var(--line)}
   .trow.on{
     border-color:var(--line);
     /* the selected row rises off the list: the chat frame's own shadow shape,
@@ -2883,7 +2882,7 @@
      app's own greys, nothing new brought in */
   /* a message of yours is sent and unanswered: the card stays put and takes the
      same pastel green the cards themselves use, so nothing new is introduced */
-  #magic2 .mbox.mwait{background:var(--green-bg); border-color:var(--green-line)}
+  #magic2 .mbox.mwait{background:var(--green-bg); border-color:var(--line)}
   #magic2 .mtitle{font:625 15px/1.25 var(--inter); color:var(--ink);
     margin-top:8px; padding-right:71px; flex:none; cursor:text}
   #magic2 .mtitle[contenteditable]{outline:none}
@@ -3092,7 +3091,7 @@
   .tdot{width:11px; height:11px; border-radius:50%; flex:none; cursor:pointer;
     border:1px solid var(--line); background:#E9ECEF}
   /* selecting a task highlights its chats in the left box */
-  .trow.match{background:var(--accent-soft); border-color:#C9C2F2}
+  .trow.match{background:var(--accent-soft); border-color:var(--line)}
   /* the ready-to-test fill wins over every state and the task-match wash, so a
      card marked ready stays recognizable whichever list it sits in */
   .trow.testc{background:#EBEFFF}
@@ -3137,9 +3136,9 @@
   .ccard .ct{font:500 12px/1.3 var(--sans); color:var(--ink);
     display:-webkit-box; -webkit-line-clamp:5; -webkit-box-orient:vertical; overflow:hidden}
   .ccard .ca{margin-top:auto; font:10.5px var(--mono); color:var(--sub)}
-  .ccard.you{background:#FBF3D9; border-color:#E0C879}   /* agent addressed: yours */
-  .ccard.wait{background:var(--green-bg); border-color:var(--green-line)}  /* answered: theirs */
-  .ccard.donec{background:var(--green-bg); border-color:var(--green-line); opacity:.7}
+  .ccard.you{background:#FBF3D9; border-color:var(--line)}   /* agent addressed: yours */
+  .ccard.wait{background:var(--green-bg); border-color:var(--line)}  /* answered: theirs */
+  .ccard.donec{background:var(--green-bg); border-color:var(--line); opacity:.7}
   /* the working shimmer, kept identical to the owner's iterated version: a
      full width soft wash crossing the row, transform driven, only while green */
   .trow.working::after{
@@ -3692,7 +3691,7 @@
   body.focus .name{display:none}
   body.focus #offline{
     position:fixed; left:14px; bottom:12px; top:auto; transform:none;
-    z-index:20; border:1px solid #E8C4B4; max-width:40ch; border-radius:0;
+    z-index:20; border:1px solid var(--line); max-width:40ch; border-radius:0;
     font-size:12px; padding:7px 12px;
   }
   /* auto side margins center a shot narrower than the column; one wider than
