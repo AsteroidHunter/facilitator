@@ -1058,6 +1058,47 @@ function pickInRow(state, owner){
       || row[0];
 }
 
+// ---- resizing a box on the board --------------------------------------------------
+// the smallest and largest a box may be dragged to, in whole grid cells (one
+// cell is the star pitch, 11.52 stage pixels; the stage is 125 by 78 cells).
+// the conversation card starts at 46 by 63, the ticket list at 31 by 37, the
+// spotify box at about 24 by 12 and the clock sizes itself to about 18 by 9.
+// a box not named here keeps the plain two-cell floor and no ceiling. these are
+// starting numbers, meant to be tuned
+const RESIZE_LIMITS = {
+  main:     { minW: 30, maxW: 70, minH: 40, maxH: 76 },   // the conversation card
+  tickets:  { minW: 22, maxW: 46, minH: 16, maxH: 63 },   // no taller than the card starts
+  magic1:   { minW: 16, maxW: 40, minH: 8,  maxH: 24 },   // the spotify box
+  clockbox: { minW: 14, maxW: 34, minH: 7,  maxH: 16 },
+};
+// one step of an edge-handle drag, as pure arithmetic: s is the box when the
+// grab began (left, top, w, h and the snapped far edges right and bottom, all
+// in stage pixels), dir the handle ("nw", "e" and so on), dx and dy the pull.
+// sizes stay whole cells; a west or north pull moves the origin to a star line
+// and keeps the far edge pinned. only the axes the handle pulls are held to the
+// limits, so a saved size outside them stays put until that edge is dragged
+function clampResize(s, dir, dx, dy, grid, lim){
+  const onStar = v => Math.round((v - grid / 2) / grid) * grid + grid / 2;
+  const floor = 2 * grid;
+  const minW = Math.max(floor, lim ? lim.minW * grid : 0), maxW = lim ? lim.maxW * grid : Infinity;
+  const minH = Math.max(floor, lim ? lim.minH * grid : 0), maxH = lim ? lim.maxH * grid : Infinity;
+  const out = {};
+  let w = Math.max(floor, Math.round(s.w / grid) * grid);
+  let h = Math.max(floor, Math.round(s.h / grid) * grid);
+  if (dir.includes("e")) w = Math.min(maxW, Math.max(minW, Math.round((s.w + dx) / grid) * grid));
+  if (dir.includes("s")) h = Math.min(maxH, Math.max(minH, Math.round((s.h + dy) / grid) * grid));
+  if (dir.includes("w")){
+    out.left = Math.min(Math.max(grid / 2, s.right - maxW, onStar(s.left + dx)), s.right - minW);
+    w = s.right - out.left;
+  }
+  if (dir.includes("n")){
+    out.top = Math.min(Math.max(grid / 2, s.bottom - maxH, onStar(s.top + dy)), s.bottom - minH);
+    h = s.bottom - out.top;
+  }
+  out.w = w; out.h = h;
+  return out;
+}
+
 // ---- times ------------------------------------------------------------------------
 const MONTHS3 = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
