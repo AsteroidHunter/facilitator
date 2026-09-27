@@ -98,6 +98,55 @@
   --bubble-tail:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 25'%3E%3Cpath d='M0 16V18H2C5 18 11.8 22.6 14.8 24.3Q15.6 24.9 16.4 23.9C16.5 22.4 14.65 20.5 14.65 19V17.6C14.65 16.3 16.2 14.7 17.6 13.5L12 10H0Z'/%3E%3C/svg%3E");
 }
 
+/* ---- the ready-to-test fold ---------------------------------------------- */
+/* a ticket whose card holds a delivered change for the reader to try folds its
+   top right corner over, and the fold is the whole marker: the row keeps its
+   own fill, edge and shade, so it reads as the ticket it is with one corner
+   turned down. the page's renderer puts testc on the row; nothing here decides
+   when.
+   the corner is cut off along the crease, --fold in along the top edge and
+   --fold down the right one, and the flap lies on the face as the cut corner's
+   exact mirror across that crease, so the flap's tip carries the ticket's own
+   5px corner. the cut and the flap are both measured on the row's padding box,
+   the box the flap is positioned in, so the cut and the crease fall on one line
+   whatever width the row's own edge is drawn at. the cut reaches 40px past the
+   row on its other sides so the row's shade, the selected row's deep one
+   included, is only lost beyond the crease.
+   --fold is the flap's side: 16px on the desktop row, where it clears the age
+   in the row's top right. the phone's shorter row sets its own beside its rows.
+   --fold-edge is every line the fold draws, the flap's two free edges and the
+   crease, at the 0.8px every ticket edge is drawn at.
+   the underside is pure white, the same white as a white face, so nothing about
+   the fold rests on its colour. it reads by three things: the cut, where the
+   row's own edge turns down the crease; the crease and the two free edges drawn
+   in the board's edge grey; and a thin shade the flap casts on the face just
+   under its free edges, from the board's one light overhead. the crease is the
+   grey triangle under the flap, left showing because the flap is clipped one
+   line's width short of the diagonal, so it is exactly one line wide.
+   a ready-to-test row is never a working row, so these two never meet the
+   working shimmer that also draws in ::after */
+:root{--fold:16px; --fold-edge:0.8px}
+.trow.testc{
+  clip-path:polygon(-40px -40px, calc(100% - var(--fold) - 40px) -40px,
+    calc(100% + 40px) calc(var(--fold) + 40px),
+    calc(100% + 40px) calc(100% + 40px), -40px calc(100% + 40px)) padding-box;
+}
+.trow.testc::before, .trow.testc::after{
+  content:""; position:absolute; top:0; right:0; box-sizing:border-box;
+  width:var(--fold); height:var(--fold); border-bottom-left-radius:5px;
+  pointer-events:none;
+}
+.trow.testc::before{background:var(--line); clip-path:polygon(0 0, 100% 100%, 0 100%)}
+.trow.testc::after{
+  background:#ffffff;
+  border-left:var(--fold-edge) solid var(--line);
+  border-bottom:var(--fold-edge) solid var(--line);
+  box-shadow:0 1px 2px rgba(60,45,20,.16);
+  clip-path:polygon(-6px calc(var(--fold-edge) * 1.41421 - 6px),
+    calc(100% + 6px - var(--fold-edge) * 1.41421) calc(100% + 6px),
+    -6px calc(100% + 6px));
+}
+
 /* ---- no scrollbars, only scrolling --------------------------------------- */
 /* Every scroller hides its bar and keeps its scroll: wheel, trackpad and touch
    still move the content, and no lane or gutter is drawn for a bar. Written once
