@@ -1332,15 +1332,19 @@ def bridge_action(args):
 
 def show_qr(url):
     """The address as a code the phone camera reads, block characters two
-    module rows per line. On a terminal the modules are painted black on white
-    whatever the theme, so the code is never inverted; piped, the bare
-    characters are printed. The encoded private address is never printed."""
+    module rows per line. On a terminal the modules are painted in the fixed
+    256-colour cube's true black (16) on its true white (231), which colour
+    themes do not restyle, so the code is black on white whatever the theme;
+    piped, the bare characters are printed. The encoded private address is
+    never printed."""
     sys.path.insert(0, str(HERE))
     import qr
     lines = qr.render(qr.encode(url))
     tty = sys.stdout.isatty()
     for line in lines:
-        body = ("\x1b[30;107m" + line + "\x1b[0m") if tty else line
+        # palette black and bright white (30;107) are theme slots that dark
+        # themes draw as grey, which phone cameras struggle to read
+        body = ("\x1b[38;5;16;48;5;231m" + line + "\x1b[0m") if tty else line
         print("  " + body)
 
 
