@@ -502,7 +502,7 @@ test("escape puts the caret out of the row and leaves the words in it", async ()
     const after = await page.evaluate(() => ({
       tag: document.activeElement.tagName,
       text: document.querySelector("article.box.sel textarea").value,
-      sent: document.querySelectorAll("article.box.sel .pendmsg").length,
+      sent: document.querySelectorAll("article.box.sel .sentwrap .answmsg").length,
     }));
     assert.equal(after.tag, "BODY", "escape did not let go of the row");
     assert.equal(after.text, "half a thought", "escape lost the words in the row");
@@ -989,7 +989,7 @@ test("phone double Enter waits for delivery, rejects held repeats, and cancels o
     await page.evaluate(() => window.__sendReplies.shift()(400));
     await page.waitForFunction(id => localSends(id).some(op => op.state === "failed"), { timeout: 3000 }, from);
     assert.equal(await shownId(page), from, "a refused send moved away from its failure");
-    assert.match(await page.evaluate(id => els[id].pend.textContent, from), /not sent/i);
+    assert.match(await page.evaluate(id => els[id].sent.textContent, from), /not sent/i);
     assert.deepEqual(problems.filter(problem => !/status of 400 \(Bad Request\)/.test(problem)), []);
   } finally {
     await page.close();

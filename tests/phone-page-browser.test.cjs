@@ -181,7 +181,7 @@ test("the card fills the phone with thin margins, tabs on top, prose through the
     const prose = await page.evaluate(() => {
       const box = document.querySelector("article.box.sel");
       const reply = box.querySelector(".reply");
-      const pend = box.querySelector(".pendmsg .pendcontent");
+      const pend = box.querySelector(".sentwrap .answmsg");
       return {
         sharedRenderer: typeof window.CardMarkdown?.render === "function",
         replyMatchesRenderer: (() => {
@@ -196,8 +196,7 @@ test("the card fills the phone with thin margins, tabs on top, prose through the
         bold: reply.querySelector("b")?.textContent,
         listItems: reply.querySelectorAll("li").length,
         pendIsCardmd: pend?.classList.contains("cardmd"),
-        pendBold: pend?.querySelector("b")?.textContent,
-        pendWord: box.querySelector(".pendmsg .rcpt")?.textContent,
+        pendBold: box.querySelector(".sentwrap .answmsg b")?.textContent,
         title: box.querySelector(".title").textContent,
         replyFont: getComputedStyle(reply).fontSize,
         titleFamily: getComputedStyle(box.querySelector(".title")).fontFamily,
@@ -213,20 +212,24 @@ test("the card fills the phone with thin margins, tabs on top, prose through the
     assert.equal(prose.listItems, 2);
     assert.equal(prose.pendIsCardmd, true, "sent messages do not go through the shared renderer");
     assert.equal(prose.pendBold, "second");
-    assert.equal(prose.pendWord, "Delivered");
     assert.equal(prose.title, "Phone page renders the shared markdown");
     assert.equal(prose.replyFont, "17px");
     assert.match(prose.titleFamily, /Inter/);
     await page.screenshot({ path: path.join(SHOTS, "test-phone-card.png") });
 
-    await page.evaluate(() => document.querySelector("article.box.sel .pendhead").click());
+    // the sent panel stands cut to its preview, and a long one opens on a tap
+    const sentPanel = await page.evaluate(() => {
+      const panel = document.querySelector("article.box.sel .sentwrap .answered");
+      const shut = !panel.classList.contains("open");
+      const long = panel.classList.contains("more");
+      panel.click();
+      return { shut, long };
+    });
     await settle();
-    const open = await page.evaluate(() => ({
-      open: document.querySelector("article.box.sel .pendlist").classList.contains("open"),
-      stamp: document.querySelector("article.box.sel .pendstamp").textContent,
-    }));
-    assert.equal(open.open, true);
-    assert.match(open.stamp, /\d{1,2}:\d{2} (AM|PM)$/);
+    const open = await page.evaluate(() =>
+      document.querySelector("article.box.sel .sentwrap .answered").classList.contains("open"));
+    assert.equal(sentPanel.shut, true, "the sent panel was not cut to its preview");
+    assert.equal(open, sentPanel.long, "a long sent panel did not open on a tap, or a short one took one");
     await page.screenshot({ path: path.join(SHOTS, "test-phone-card-sent-open.png") });
     assert.deepEqual(problems, []);
   } finally {
@@ -481,7 +484,7 @@ test("phone navigation waits for send confirmation, respects manual moves, and s
     await page.evaluate(() => window.__sendReplies.shift()(400));
     await page.waitForFunction(() => localSends("nav-a").some(op => op.state === "failed"));
     assert.equal(await page.evaluate(() => selectedId), "nav-a");
-    assert.match(await page.evaluate(() => els["nav-a"].pend.textContent), /not sent/i);
+    assert.match(await page.evaluate(() => els["nav-a"].sent.textContent), /not sent/i);
 
     // A lost first response retries under the same operation id and advances only on recovery.
     await page.evaluate(() => {
@@ -605,7 +608,7 @@ test("the composer sends through /send, the plus attaches a picture, the cross c
     assert.deepEqual(saved.pendingTexts, ["A message typed on the phone"]);
     const afterSend = await page.evaluate(() => ({
       field: document.querySelector("article.box.sel textarea").value,
-      rows: [...document.querySelectorAll("article.box.sel .pendmsg .pendcontent")].map(r => r.textContent),
+      rows: [...document.querySelectorAll("article.box.sel .sentwrap .answmsg")].map(r => r.textContent),
     }));
     assert.equal(afterSend.field, "");
     assert.deepEqual(afterSend.rows, ["A message typed on the phone"]);

@@ -660,11 +660,11 @@ test("a keyboard cycle over an open sent box drives no resize-observer loop", as
   for (let n = 1; n <= 15; n++) await api(`/send?box=${id}`, `Sent line ${n} in the box that keys its height off the viewport.`);
   const { page, problems } = await openPhone(`/m?box=${id}`, { fake: true, roWatch: true });
   try {
-    await page.waitForSelector(`#box-${id}.sel .pendlist`, { timeout: 5000 });
-    // open the sent box so its capped height reads off the viewport height, then
+    await page.waitForSelector(`#box-${id}.sel .sentwrap .answered`, { timeout: 5000 });
+    // open the sent panel so its capped height reads off the viewport height, then
     // start the count clean
     await page.evaluate(() => {
-      const pend = document.querySelector("article.box.sel .pendlist");
+      const pend = document.querySelector("article.box.sel .sentwrap .answered");
       if (!pend.classList.contains("open")) pend.click();
     });
     await settle(450);

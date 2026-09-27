@@ -122,7 +122,7 @@ async function open(width, height){
   await page.evaluate(id => select(id), cardId);
   await page.waitForFunction(id => {
     const el = els[id];
-    return el?.answ && el?.pend && !el.answ.classList.contains("rising") && !el.pend.classList.contains("rising");
+    return el?.answ && el?.sent && !el.answ.classList.contains("motion") && !el.sent.classList.contains("motion");
   }, {}, cardId);
   await page.evaluate(() => document.fonts.ready);
   await wait(350);
@@ -138,7 +138,7 @@ async function geometry(page, label){
     const firstInk = [...range.getClientRects()].find(rect => rect.height > 2);
     const answerBottom = el.answwrap.getBoundingClientRect().bottom;
     const visibleAnswerBottom = el.answ.getBoundingClientRect().bottom;
-    const pendingTop = el.pend.getBoundingClientRect().top;
+    const pendingTop = el.sent.getBoundingClientRect().top;
     const cs = getComputedStyle(el.reply);
     const topGap = firstInk.top - answerBottom;
     const bottomGap = parseFloat(cs.marginBottom);

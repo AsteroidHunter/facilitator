@@ -255,8 +255,9 @@ test("index main and mini card prose have real DOM and style parity", async () =
         pending: 1, pendingTexts: [source], pendingStamps: [0],
       }] });
       const mini = miniRoot.querySelector(".mreply");
-      const miniPending = miniRoot.querySelector(".mpending-message");
-      miniPending.closest(".mpend").classList.add("open");
+      // the sent message stands in the small card's sent panel, shown whether
+      // the panel is cut or open
+      const miniPending = miniRoot.querySelector(".sentwrap .answmsg");
 
       const selectors = ["a", ".inlinecode", ".codeblock", ".shot", "blockquote",
         "ul", "h1", ".tablewrap", "table", "td", "hr"];
@@ -590,8 +591,10 @@ test("every pending surface calls the shared formatter", async () => {
   const index = await readFile(path.join(ROOT, "index.html"), "utf8");
   const logic = await readFile(path.join(ROOT, "card-logic.js"), "utf8");
   const page = await readFile(path.join(ROOT, "page.html"), "utf8");
-  assert.match(logic, /h\("div", "pendcontent cardmd"\)[\s\S]*?content\.innerHTML = fmt\(text\)/);
-  assert.match(index, /class="mpending-message cardmd"[^\n]+fmt\(t\)/);
+  // both message panels, on every card that loads the shared logic, are drawn
+  // by the one stacking pass, and the small card's sent messages go through it
+  assert.match(logic, /h\("div", "answmsg cardmd"\)[\s\S]*?msg\.innerHTML = fmt\(text\)/);
+  assert.match(index, /syncSent\(el, sentBatch\(el\.sentTexts\)\);/);
   assert.match(page, /h\("div", "pending-message cardmd"\)[\s\S]*?content\.innerHTML = fmt\(text\)/);
   assert.match(page, /class="pending-message cardmd"[^\n]+fmt\(t\)/);
   assert.match(page, /class="docpending-message"[^\n]+fmt\(t\)/);

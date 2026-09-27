@@ -87,7 +87,7 @@ async function openCard(kind){
   await page.evaluate(id => select(id), cardId);
   await page.waitForFunction(id => {
     const el = els[id];
-    return el?.answ && el?.pend && !el.answ.classList.contains("rising") && !el.pend.classList.contains("rising");
+    return el?.answ && el?.sent && !el.answ.classList.contains("motion") && !el.sent.classList.contains("motion");
   }, {}, cardId);
   await page.evaluate(() => document.fonts && document.fonts.ready);
   await wait(400);
