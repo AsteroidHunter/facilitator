@@ -167,6 +167,10 @@ same stale-write guard and never overwrites a binary or creates a new file.
 
 `spotify_client_id` in `run.config.json` is the client id magic box 1 signs into Spotify with; make an app at the Spotify developer dashboard (https://developer.spotify.com/dashboard) to get one, and leave the key empty until you do.
 
+## The home page
+
+The house at the left end of the tab bar opens the home page: a blank page above every project holding one panel, the tokens Claude Code and Codex have spent on this machine, as a year heatmap or a line of 7-day averages, switched by the pill in its corner. Any project tab goes back to that project's board. The counts come from `GET /tokens/daily`, which `tokens.py` reads out of the logs both tools already write (`~/.claude/projects`, `~/.codex/sessions` and `~/.codex/archived_sessions`, or wherever `CLAUDE_CONFIG_DIR` and `CODEX_HOME` put them). A day's total is fresh input, cache writes, cache reads and output added up, each message counted once; `tokens.py` says why. Only counts ever leave it, kept in the gitignored `tokens-cache.json` beside `state.json` so a request reads only what the logs gained, and a log the tools later clear away keeps its counts there. `token_logs` in `run.config.json` names other folders, `{"claude": "~/elsewhere", "codex": []}`, where an empty list turns a tool off.
+
 ## Seeding a board
 
 A first-ever start (no `state.json`) reads `seed.json` beside the server: the board title plus opening boxes (see `seed.example.json` for the shape). `seed.json` is gitignored because real discussion content is private and never ships in this repo; the example holds invented content only. To start a new project's board: copy the example to `seed.json`, fill in real items, run the server.

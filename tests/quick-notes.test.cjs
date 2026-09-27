@@ -515,7 +515,7 @@ async function quickNotePage(){
   assert.ok(keysLive, "boardKeysLive is gone from index.html");
   const block = between(HTML, "// ---- the quick note ----", "\nrenameMagicLayouts();");
   vm.runInContext([
-    "let lastState = null, qnOpen = false, editMode = false, pageWarn = null, pageMenu = null, p3Zoom = null;",
+    "let lastState = null, qnOpen = false, editMode = false, pageWarn = null, pageMenu = null, p3Zoom = null, homeOpen = false;",
     "let caretPlaced = 0, queueFatCaret = () => { caretPlaced++; };",
     "function onBoardPage(){ return true; }",
     keysLive[0],
@@ -787,7 +787,7 @@ test("the page's sheets: a four by three card of plain text, and the peek a smal
   // the board reads the notes off each reading and hands them to the chip
   assert.match(HTML, /const noteCards = quickNotesByCard\(state\.quicknotes\);/);
   assert.match(HTML, /syncQuickNoteChip\(el, noteCards\[b\.id\] \|\| \[\]\);/);
-  assert.match(HTML, /function boardKeysLive\(\)\{ return !pageWarn && !pageMenu && !qnOpen && onBoardPage\(\); \}/);
+  assert.match(HTML, /function boardKeysLive\(\)\{ return !pageWarn && !pageMenu && !qnOpen && !homeOpen && onBoardPage\(\); \}/);
 });
 
 test("the note's glass is the spotify player's, value for value, on a white face the words read on", () => {
