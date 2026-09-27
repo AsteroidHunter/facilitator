@@ -130,10 +130,10 @@ async function openPhone(route, viewport = PHONE, seedOps = null, initialRule = 
 function rows(page) {
   return page.evaluate(() => ({
     field: document.querySelector("article.box.sel textarea").value,
-    delivered: [...document.querySelectorAll("article.box.sel .pendslide .pendmsg")].map(r => ({
-      text: r.dataset.text, rcpt: r.querySelector(".rcpt").textContent })),
-    local: [...document.querySelectorAll("article.box.sel .pendlocal .pendmsg")].map(r => ({
-      text: r.dataset.text, op: r.dataset.op, rcpt: r.querySelector(".rcpt").textContent,
+    delivered: [...document.querySelectorAll("article.box.sel .sentwrap .answmsg:not([data-op])")].map(r => ({
+      text: r.dataset.text, rcpt: r.querySelector(".answnote")?.textContent || "" })),
+    local: [...document.querySelectorAll("article.box.sel .sentwrap .answmsg[data-op]")].map(r => ({
+      text: r.dataset.text, op: r.dataset.op, rcpt: r.querySelector(".answnote")?.textContent || "",
       pending: r.classList.contains("pending"), failed: r.classList.contains("failed") })),
     stored: JSON.parse(localStorage.getItem("pendops") || "[]"),
   }));
@@ -279,10 +279,12 @@ test("a send shows as on its way at once and lands once however many times Enter
     await page.screenshot({ path: path.join(SHOTS, "send-pending.png") });
 
     await page.waitForFunction(() =>
-      document.querySelectorAll("article.box.sel .pendslide .pendmsg").length === 1 &&
-      !document.querySelector("article.box.sel .pendlocal .pendmsg"), { timeout: 5000 });
+      document.querySelectorAll("article.box.sel .sentwrap .answmsg:not([data-op])").length === 1 &&
+      !document.querySelector("article.box.sel .sentwrap .answmsg[data-op]"), { timeout: 5000 });
     const landed = await rows(page);
-    assert.deepEqual(landed.delivered, [{ text: "Sent from the phone", rcpt: "Delivered" }]);
+    // confirmed, the message keeps its words and loses its line; the panel
+    // carries no delivery words
+    assert.deepEqual(landed.delivered, [{ text: "Sent from the phone", rcpt: "" }]);
     assert.equal(landed.stored.length, 0);
     const sends = page.seen.filter(r => r.path === "/send");
     assert.equal(sends.length, 1, `Enter three times sent ${sends.length} requests`);
@@ -310,15 +312,15 @@ test("a reply lost on the way is retried under the same id, and the message land
     await page.type("article.box.sel textarea", "Reply lost on the way");
     await page.keyboard.press("Enter");
     await page.waitForFunction(() =>
-      document.querySelector("article.box.sel .pendlocal .pendmsg .rcpt")?.textContent === "Not sent yet, retrying", { timeout: 5000 });
+      document.querySelector("article.box.sel .sentwrap .answmsg[data-op] .answnote")?.textContent === "Not sent yet, retrying", { timeout: 5000 });
     const retrying = await rows(page);
     assert.equal(retrying.local[0].text, "Reply lost on the way");
     assert.equal(retrying.field, "", "the words went back to the row while the send was still being retried");
     await page.screenshot({ path: path.join(SHOTS, "send-retrying.png") });
 
     await page.waitForFunction(() =>
-      document.querySelector("article.box.sel .pendslide .pendmsg .rcpt")?.textContent === "Delivered" &&
-      !document.querySelector("article.box.sel .pendlocal .pendmsg"), { timeout: 10000 });
+      !!document.querySelector("article.box.sel .sentwrap .answmsg:not([data-op])") &&
+      !document.querySelector("article.box.sel .sentwrap .answmsg[data-op]"), { timeout: 10000 });
     page.rule = () => null;
     const sends = page.seen.filter(r => r.path === "/send");
     assert.equal(sends.length, 2, `the lost reply led to ${sends.length} sends`);
@@ -343,7 +345,7 @@ test("with the board unreachable the words stay on the card, survive a reload, a
     await page.type("article.box.sel textarea", "Kept through a reload");
     await page.keyboard.press("Enter");
     await page.waitForFunction(() =>
-      document.querySelector("article.box.sel .pendlocal .pendmsg .rcpt")?.textContent === "Not sent yet, retrying", { timeout: 5000 });
+      document.querySelector("article.box.sel .sentwrap .answmsg[data-op] .answnote")?.textContent === "Not sent yet, retrying", { timeout: 5000 });
     const before = await rows(page);
     assert.equal(before.stored.length, 1);
     assert.equal(before.stored[0].text, "Kept through a reload");
@@ -351,7 +353,7 @@ test("with the board unreachable the words stay on the card, survive a reload, a
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => lastState !== null, { timeout: 5000 });
-    await page.waitForSelector("#box-0.sel .pendlocal .pendmsg", { timeout: 5000 });
+    await page.waitForSelector("#box-0.sel .sentwrap .answmsg[data-op]", { timeout: 5000 });
     const restored = await rows(page);
     assert.equal(restored.local.length, 1, "the unsent message did not come back after the reload");
     assert.equal(restored.local[0].text, "Kept through a reload");
@@ -362,8 +364,8 @@ test("with the board unreachable the words stay on the card, survive a reload, a
     page.rule = () => null;
     await page.evaluate(() => resume());
     await page.waitForFunction(() =>
-      document.querySelector("article.box.sel .pendslide .pendmsg .rcpt")?.textContent === "Delivered" &&
-      !document.querySelector("article.box.sel .pendlocal .pendmsg"), { timeout: 10000 });
+      !!document.querySelector("article.box.sel .sentwrap .answmsg:not([data-op])") &&
+      !document.querySelector("article.box.sel .sentwrap .answmsg[data-op]"), { timeout: 10000 });
     assert.deepEqual(await pendingOn("0"), ["Kept through a reload"]);
     assert.equal((await rows(page)).stored.length, 0);
     const sent = page.seen.filter(r => r.path === "/send" && r.at > (page.seen.find(r => r.path === "/m/state") || {}).at);
@@ -388,13 +390,13 @@ test("waking reconciles a send that landed while the phone was away, without a s
     await page.type("article.box.sel textarea", "Landed while away");
     await page.keyboard.press("Enter");
     await page.waitForFunction(() =>
-      document.querySelector("article.box.sel .pendlocal .pendmsg .rcpt")?.textContent === "Not sent yet, retrying", { timeout: 5000 });
+      document.querySelector("article.box.sel .sentwrap .answmsg[data-op] .answnote")?.textContent === "Not sent yet, retrying", { timeout: 5000 });
     assert.deepEqual(await pendingOn("0"), ["Landed while away"], "the lost-reply send did not reach the board");
 
     await page.evaluate(() => resume());
     await page.waitForFunction(() =>
-      document.querySelector("article.box.sel .pendslide .pendmsg .rcpt")?.textContent === "Delivered" &&
-      !document.querySelector("article.box.sel .pendlocal .pendmsg"), { timeout: 8000 });
+      !!document.querySelector("article.box.sel .sentwrap .answmsg:not([data-op])") &&
+      !document.querySelector("article.box.sel .sentwrap .answmsg[data-op]"), { timeout: 8000 });
     assert.equal(page.answers.filter(a => a.path === "/send" && a.status === 200).length, 0,
       "a send got through: the reconciliation was not what confirmed the message");
     const asked = page.seen.filter(r => r.path === "/m/state" && /ops=/.test(r.search));
@@ -470,22 +472,22 @@ test("a bare text-plain 503 from the global cap is handled: the phone reconnects
     await page.keyboard.press("Enter");
     // the send is on this phone, marked as on its way, and the board has nothing
     await page.waitForFunction(() =>
-      document.querySelector("article.box.sel .pendlocal .pendmsg .rcpt")?.textContent === "Not sent yet, retrying", { timeout: 6000 });
+      document.querySelector("article.box.sel .sentwrap .answmsg[data-op] .answnote")?.textContent === "Not sent yet, retrying", { timeout: 6000 });
     assert.deepEqual(await pendingOn("0"), [], "a send got through the 503");
     // the reading of the board is refused too, so the reconnecting note shows;
     // the phone never tried to read the text/plain body as JSON
     await page.waitForFunction(() => document.body.classList.contains("offline"), { timeout: 12000 });
     const note = await page.evaluate(() => document.getElementById("offline").textContent);
     assert.ok(/Reconnecting to the board|not answering/.test(note), note);
-    const rowText = await page.evaluate(() => document.querySelector("article.box.sel .pendlocal .pendmsg").dataset.text);
+    const rowText = await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answmsg[data-op]").dataset.text);
     assert.equal(rowText, "Sent into an overloaded board", "the words were lost under the 503");
 
     // the load clears: one wake, the message lands exactly once, the note goes
     page.rule = () => null;
     await page.evaluate(() => resume());
     await page.waitForFunction(() =>
-      document.querySelector("article.box.sel .pendslide .pendmsg .rcpt")?.textContent === "Delivered" &&
-      !document.querySelector("article.box.sel .pendlocal .pendmsg") &&
+      !!document.querySelector("article.box.sel .sentwrap .answmsg:not([data-op])") &&
+      !document.querySelector("article.box.sel .sentwrap .answmsg[data-op]") &&
       !document.body.classList.contains("offline"), { timeout: 10000 });
     assert.deepEqual(await pendingOn("0"), ["Sent into an overloaded board"]);
     assert.equal((await rows(page)).stored.length, 0);
@@ -511,7 +513,7 @@ for (const kept of ["pending", "failed"]) {
     const { page, problems } = await openPhone("/m?box=0", PHONE, fiftyKept(kept), r => r.path === "/send" ? { act: "abort" } : null);
     try {
       await page.waitForSelector("#box-0.sel", { timeout: 5000 });
-      await page.waitForFunction(() => document.querySelectorAll("article.box.sel .pendlocal .pendmsg").length === 50, { timeout: 5000 });
+      await page.waitForFunction(() => document.querySelectorAll("article.box.sel .sentwrap .answmsg[data-op]").length === 50, { timeout: 5000 });
       await page.type("article.box.sel textarea", "the fifty-first");
       await page.keyboard.press("Enter");
       // the page is still answering, the words are still in the row, nothing was minted
@@ -533,7 +535,7 @@ for (const kept of ["pending", "failed"]) {
       await page.screenshot({ path: path.join(SHOTS, `held-${kept}.png`) });
       // taking one back makes room, and the held words then go on their own next Enter
       if (kept === "failed") {
-        await page.evaluate(() => document.querySelector("article.box.sel .pendlocal .pendmsg.failed").click());
+        await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answmsg[data-op].failed").click());
         assert.equal(await page.evaluate(() => ops.length), 49);
         assert.equal(await page.evaluate(() => document.querySelector("article.box.sel .meta").textContent), "", "the held note did not clear once there was room");
         await page.evaluate(() => { const ta = document.querySelector("article.box.sel textarea"); ta.value = "the fifty-first"; ta.dispatchEvent(new Event("input")); });
@@ -564,7 +566,7 @@ test("a send whose reply was lost, then a sleep past the horizon: nothing more i
     await page.type("article.box.sel textarea", "Landed, then the phone slept");
     await page.keyboard.press("Enter");
     await page.waitForFunction(() =>
-      document.querySelector("article.box.sel .pendlocal .pendmsg .rcpt")?.textContent === "Not sent yet, retrying", { timeout: 6000 });
+      document.querySelector("article.box.sel .sentwrap .answmsg[data-op] .answnote")?.textContent === "Not sent yet, retrying", { timeout: 6000 });
     assert.deepEqual(await pendingOn("0"), ["Landed, then the phone slept"], "the first try did not reach the board");
     // half a day passes on the phone's clock
     const opId = await page.evaluate(() => {
@@ -575,7 +577,7 @@ test("a send whose reply was lost, then a sleep past the horizon: nothing more i
       return op.id;
     });
     await page.waitForFunction(() =>
-      document.querySelector("article.box.sel .pendlocal .pendmsg .rcpt")?.textContent === "Could not confirm it was sent", { timeout: 6000 });
+      document.querySelector("article.box.sel .sentwrap .answmsg[data-op] .answnote")?.textContent === "Could not confirm it was sent", { timeout: 6000 });
     const sendsAtHorizon = page.seen.filter(r => r.path === "/send").length;
     const unsure = await rows(page);
     assert.equal(unsure.local[0].text, "Landed, then the phone slept", "the words left the card");
@@ -590,8 +592,8 @@ test("a send whose reply was lost, then a sleep past the horizon: nothing more i
     page.rule = r => r.path === "/send" ? { act: "abort" } : null;
     await page.evaluate(() => resume());
     await page.waitForFunction(() =>
-      document.querySelector("article.box.sel .pendslide .pendmsg .rcpt")?.textContent === "Delivered" &&
-      !document.querySelector("article.box.sel .pendlocal .pendmsg"), { timeout: 8000 });
+      !!document.querySelector("article.box.sel .sentwrap .answmsg:not([data-op])") &&
+      !document.querySelector("article.box.sel .sentwrap .answmsg[data-op]"), { timeout: 8000 });
     const asked = page.seen.filter(r => r.path === "/m/state" && r.search.includes(opId));
     assert.ok(asked.length >= 1, "no reading asked the board about the unsure operation");
     assert.equal(page.seen.filter(r => r.path === "/send").length, sendsAtHorizon, "the reconciliation sent again");
@@ -614,7 +616,7 @@ test("an unsure send the board has no receipt of is settled as not sent inside t
       await page.type("article.box.sel textarea", words);
       await page.keyboard.press("Enter");
     }
-    await page.waitForFunction(() => document.querySelectorAll("article.box.sel .pendlocal .pendmsg").length === 2, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelectorAll("article.box.sel .sentwrap .answmsg[data-op]").length === 2, { timeout: 5000 });
     // the first is half a day old, the second older than the window where
     // "unknown" still proves anything
     await page.evaluate(() => {
@@ -625,14 +627,14 @@ test("an unsure send the board has no receipt of is settled as not sent inside t
       wakeOps();
     });
     await page.waitForFunction(() =>
-      [...document.querySelectorAll("article.box.sel .pendlocal .pendmsg .rcpt")].every(r => r.textContent === "Could not confirm it was sent"), { timeout: 6000 });
+      [...document.querySelectorAll("article.box.sel .sentwrap .answmsg[data-op] .answnote")].every(r => r.textContent === "Could not confirm it was sent"), { timeout: 6000 });
     assert.deepEqual(await pendingOn("0"), []);
 
     // the board answers readings again, with no receipt for either
     page.rule = r => r.path === "/send" ? { act: "abort" } : null;
     await page.evaluate(() => resume());
     await page.waitForFunction(() =>
-      document.querySelectorAll("article.box.sel .pendlocal .pendmsg.failed").length === 1, { timeout: 8000 });
+      document.querySelectorAll("article.box.sel .sentwrap .answmsg[data-op].failed").length === 1, { timeout: 8000 });
     const settled = await rows(page);
     assert.deepEqual(settled.local.map(r => [r.text, r.rcpt]), [
       ["Never reached the board", "Not sent, tap to take the words back"],
@@ -643,16 +645,16 @@ test("an unsure send the board has no receipt of is settled as not sent inside t
 
     // the not-sent one gives its words back on one tap; the unsure one needs
     // two, says so in between, and stands down if the second never comes
-    await page.evaluate(() => document.querySelector("article.box.sel .pendlocal .pendmsg.failed").click());
+    await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answmsg[data-op].failed").click());
     assert.equal(await page.evaluate(() => document.querySelector("article.box.sel textarea").value), "Never reached the board");
     await page.evaluate(() => { const ta = document.querySelector("article.box.sel textarea"); ta.value = ""; ta.dispatchEvent(new Event("input")); });
-    await page.evaluate(() => document.querySelector("article.box.sel .pendlocal .pendmsg.unsure").click());
-    assert.equal(await page.evaluate(() => document.querySelector("article.box.sel .pendlocal .pendmsg.unsure .rcpt").textContent),
+    await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answmsg[data-op].unsure").click());
+    assert.equal(await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answmsg[data-op].unsure .answnote").textContent),
       "Tap again to take the words back; it may already have gone");
     await settle(5500);
-    assert.equal(await page.evaluate(() => document.querySelector("article.box.sel .pendlocal .pendmsg.unsure .rcpt").textContent),
+    assert.equal(await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answmsg[data-op].unsure .answnote").textContent),
       "Could not confirm it was sent", "the armed row did not stand down");
-    await page.evaluate(() => { const row = document.querySelector("article.box.sel .pendlocal .pendmsg.unsure"); row.click(); row.click(); });
+    await page.evaluate(() => { const row = document.querySelector("article.box.sel .sentwrap .answmsg[data-op].unsure"); row.click(); row.click(); });
     assert.equal(await page.evaluate(() => document.querySelector("article.box.sel textarea").value), "Older than the window");
     assert.equal(await page.evaluate(() => ops.length), 0);
     assert.equal(page.seen.filter(r => r.path === "/send").length, sendsSoFar, "taking the words back sent something on its own");
@@ -674,7 +676,7 @@ test("with fifty unsure sends kept, the readings go round past the first batch, 
     // the one at the back is settled by its receipt within a few readings,
     // although the first reading can ask about only thirty-two
     await page.waitForFunction(() => !ops.some(o => o.id === "kept-unsure-45") &&
-      [...document.querySelectorAll("article.box.sel .pendslide .pendmsg")].some(r => r.dataset.text === "kept 45"), { timeout: 8000 });
+      [...document.querySelectorAll("article.box.sel .sentwrap .answmsg:not([data-op])")].some(r => r.dataset.text === "kept 45"), { timeout: 8000 });
     // and every kept id has been asked about by then
     const askedAll = await page.evaluate(() => ops.every(o => o.asked > 0));
     assert.equal(askedAll, true, "an operation beyond the first batch was never asked about");
@@ -708,7 +710,7 @@ test("a record an earlier page marked failed for a timeout is loaded as unsure a
     // the timeout one is asked about and lands from the board's receipt; the
     // refused one is left exactly as the board decided
     await page.waitForFunction(() => !ops.some(o => o.id === "old-page-timeout-01") &&
-      [...document.querySelectorAll("article.box.sel .pendslide .pendmsg")].some(r => r.dataset.text === "gave up too soon"), { timeout: 8000 });
+      [...document.querySelectorAll("article.box.sel .sentwrap .answmsg:not([data-op])")].some(r => r.dataset.text === "gave up too soon"), { timeout: 8000 });
     const left = await rows(page);
     assert.deepEqual(left.local.map(r => [r.text, r.rcpt, r.failed]), [["refused by the board", "Not sent, tap to take the words back", true]]);
     assert.equal(page.seen.filter(r => r.path === "/send").length, 0, "a loaded record was sent again on its own");

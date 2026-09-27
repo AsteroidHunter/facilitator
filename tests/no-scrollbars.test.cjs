@@ -147,15 +147,15 @@ async function openPage(cfg){
     await page.evaluate(id => select(id), cardId);
     await page.waitForFunction(id => {
       const el = els[id];
-      return el?.answ && el?.pend && !el.answ.classList.contains("rising") && !el.pend.classList.contains("rising");
+      return el?.answ && el?.sent && !el.answ.classList.contains("motion") && !el.sent.classList.contains("motion");
     }, {}, cardId);
-    // open the sent box so its lane is live, not folded to nothing. the
-    // answered messages over the reply are a plain panel with no lane of its own
+    // open the sent panel so its lane is live, not cut to its preview. the
+    // answered messages over the reply open uncapped and have no lane of their own
     const open = await page.evaluate(id => {
-      const p = els[id].pend;
+      const p = els[id].sent;
       return !!(p && p.classList.contains("open"));
     }, cardId);
-    if (!open){ try { await page.click(`#box-${cardId} .pendwrap .pendlist`); } catch {} await wait(650); }
+    if (!open){ try { await page.click(`#box-${cardId} .sentwrap .answered`); } catch {} await wait(650); }
   }
   await page.evaluate(() => document.fonts && document.fonts.ready);
   await wait(350);
@@ -235,7 +235,7 @@ test("the reply, a sent lane, the compose field and the ticket list all still sc
   const reply = await stillScrolls(page, `#box-${cardId} .replyview`);
   assert.ok(reply.found && reply.overflows && reply.moved > 40,
     `the reply scroller did not move: ${JSON.stringify(reply)}`);
-  const lane = await stillScrolls(page, `#box-${cardId} .pendwrap .pendlist .pendscroll`);
+  const lane = await stillScrolls(page, `#box-${cardId} .sentwrap .answered.open .answclip`);
   assert.ok(lane.found && lane.overflows && lane.moved > 40,
     `a sent-message lane did not move: ${JSON.stringify(lane)}`);
   const compose = await stillScrolls(page, `#box-${cardId} textarea`, { longText:true });

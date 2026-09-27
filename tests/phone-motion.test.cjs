@@ -387,7 +387,7 @@ test("the answer dissolves under the title as it scrolls and into the sent box a
 
   const { page, problems } = await openPhone(`/m?box=${id}`);
   try {
-    await page.waitForSelector(`#box-${id}.sel .pendlist`, { timeout: 5000 });
+    await page.waitForSelector(`#box-${id}.sel .sentwrap .answered`, { timeout: 5000 });
     await settle(300);
     const rest = await page.evaluate(() => {
       const box = document.querySelector("article.box.sel");
@@ -441,7 +441,7 @@ test("the answer dissolves under the title as it scrolls and into the sent box a
   }
 });
 
-test("the sent line lands on the tap, the box rises into it, and the poll reconciles", async () => {
+test("the sent line lands on the tap, the panel comes up with it cut, and the poll reconciles", async () => {
   // the seeded card is put out of the doing view so nothing else is waiting on
   // him and the send stays on the card it was sent from, which is the card this
   // test watches. the move to the next card has its own test below
@@ -458,62 +458,48 @@ test("the sent line lands on the tap, the box rises into it, and the poll reconc
     const atOnce = await page.evaluate(() => {
       document.querySelector("article.box.sel .sendbtn").click();
       const box = document.querySelector("article.box.sel");
-      const pend = box.querySelector(".pendlist");
+      const panel = box.querySelector(".sentwrap .answered");
       return {
-        rows: [...box.querySelectorAll(".pendmsg")].map(r => r.dataset.text),
-        rising: pend.classList.contains("rising"),
-        timed: pend.classList.contains("timed"),
-        height: pend.style.height,
-        moving: getComputedStyle(pend).transitionProperty,
+        rows: [...box.querySelectorAll(".sentwrap .answmsg")].map(r => r.dataset.text),
+        arriving: panel.classList.contains("arrive"),
+        open: panel.classList.contains("open"),
+        animation: getComputedStyle(panel).animationName,
         field: box.querySelector("textarea").value,
         square: box.querySelector(".sendbtn").classList.contains("show"),
       };
     });
     assert.deepEqual(atOnce.rows, ["Landed before the server answered"], "the line waited on the server");
-    assert.equal(atOnce.rising, true, "the box did not arrive on the shared rising dress");
-    assert.equal(atOnce.timed, true, "the arrival was not put on the clock");
-    assert.match(atOnce.moving, /height/, "the arrival is not a timed run");
-    assert.notEqual(atOnce.height, "0px", "the box was left at no height");
+    assert.equal(atOnce.arriving, true, "the panel did not come in on the shared arrival");
+    assert.equal(atOnce.animation, "answarrive", "the arrival is not the shared rise and fade");
+    assert.equal(atOnce.open, false, "the send landed the panel open");
     assert.equal(atOnce.field, "", "the words were left in the row he types on");
     assert.equal(atOnce.square, false, "the send square stayed up with nothing to send");
-    // a burst over the arrival: the room opening under the answer, then the box
-    // coming up in it
+    // a burst over the arrival: the panel coming up out of the row
     await shot(page, "send-mid-1");
     await settle(120);
     await shot(page, "send-mid-2");
     await settle(140);
     await shot(page, "send-mid-3");
 
-    // the box is still on its way up a beat later, and standing on its own at the end
-    const mid = await page.evaluate(() => {
-      const pend = document.querySelector("article.box.sel .pendlist");
-      return { height: pend.getBoundingClientRect().height, rising: pend.classList.contains("rising") };
-    });
-    assert.ok(mid.height > 0, "the box never left the floor");
     await settle(500);
     const settled = await page.evaluate(() => {
-      const pend = document.querySelector("article.box.sel .pendlist");
-      const cs = getComputedStyle(pend);
+      const panel = document.querySelector("article.box.sel .sentwrap .answered");
+      const cs = getComputedStyle(panel);
       return {
-        classes: pend.className,
-        inlineHeight: pend.style.height,
-        height: Math.round(pend.getBoundingClientRect().height),
-        bar: Math.round(parseFloat(cs.getPropertyValue("--pend-bar"))),
+        classes: panel.className,
         opacity: cs.opacity,
-        rows: [...document.querySelectorAll("article.box.sel .pendmsg")].map(r => r.dataset.text),
-        word: document.querySelector("article.box.sel .pendmsg .rcpt").textContent,
+        transform: cs.transform,
+        rows: [...document.querySelectorAll("article.box.sel .sentwrap .answmsg")].map(r => r.dataset.text),
+        line: document.querySelector("article.box.sel .sentwrap .answnote"),
       };
     });
-    assert.equal(settled.classes, "pendlist", "the arrival left its dress on the box");
-    assert.equal(settled.inlineHeight, "", "the arrival left an inline height on the box");
+    assert.equal(settled.classes, "answered sent", "the arrival left its dress on the panel");
     assert.equal(settled.opacity, "1");
-    assert.ok(Math.abs(settled.height - settled.bar) <= 2, `the box did not land on its own folded height (${settled.height})`);
+    assert.equal(settled.transform, "none");
     assert.deepEqual(settled.rows, ["Landed before the server answered"], "the poll doubled the sent line");
-    assert.equal(settled.word, "Delivered");
+    assert.equal(settled.line, null, "a confirmed message kept the line an unconfirmed one wears");
     const saved = await (await fetch(origin + "/state")).json();
     assert.deepEqual(saved.boxes.find(b => b.id === id).pendingTexts, ["Landed before the server answered"]);
-    const stamp = await page.evaluate(() => document.querySelector("article.box.sel .pendstamp").textContent);
-    assert.match(stamp, /\d{1,2}:\d{2} (AM|PM)$/, "the run's time was not taken over by the server's");
     await shot(page, "send-settled");
     assert.equal(await page.evaluate(() => selectedId), id, "the send left the card it was sent from");
     assert.deepEqual(problems, []);
