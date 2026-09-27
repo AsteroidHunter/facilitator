@@ -1263,17 +1263,51 @@
   /* the crease an unfolded ticket keeps, kept in step with card-tokens.css,
      where its look is explained. this sheet has no --fold on :root, so the
      creased row carries the board's 16px itself, as the folded row does */
-  .trow.creased{--fold:16px}
-  .trow.creased > .trowin::after{
-    --crease-line:rgba(173,157,127,.55); --crease-shade:rgba(60,45,20,.05); --crease-lit:rgba(255,255,255,.9);
+  .trow.creased{--fold:16px;
+    --crease-strength:1; --crease-width:1; --crease-raise:1; --crease-light:.85; --crease-notch:.7}
+  .trow.creased > .trowin::before, .trow.creased > .trowin::after{
     content:""; position:absolute; box-sizing:border-box; pointer-events:none;
     top:calc(-1 * var(--edge-drawn)); right:calc(-1 * var(--edge-drawn));
-    width:var(--fold); height:var(--fold);
-    background:linear-gradient(to bottom left,
-      rgba(60,45,20,0) 38%, var(--crease-shade) calc(50% - var(--edge-drawn) / 2),
-      var(--crease-line) 50%, var(--crease-line) calc(50% + var(--edge-drawn) / 2),
-      var(--crease-lit) calc(50% + var(--edge-drawn)), var(--crease-lit) calc(50% + var(--edge-drawn) * 1.5),
-      rgba(255,255,255,0) calc(50% + var(--edge-drawn) * 2.5));
+    width:calc(var(--fold) + 6px); height:calc(var(--fold) + 6px);
+    background-repeat:no-repeat;
+  }
+  .trow.creased > .trowin::before{
+    background-image:
+      radial-gradient(calc(var(--edge-drawn) * 2) calc(var(--edge-drawn) * 1.25)
+        at calc(100% - var(--fold) + var(--edge-drawn)) var(--edge-drawn),
+        color-mix(in srgb, var(--line) calc(min(1, var(--crease-notch) * var(--crease-strength)) * 100%), transparent) 30%,
+        transparent),
+      radial-gradient(calc(var(--edge-drawn) * 1.25) calc(var(--edge-drawn) * 2)
+        at calc(100% - var(--edge-drawn)) calc(var(--fold) - var(--edge-drawn)),
+        color-mix(in srgb, var(--line) calc(min(1, var(--crease-notch) * var(--crease-strength)) * 100%), transparent) 30%,
+        transparent),
+      linear-gradient(to bottom left,
+        rgb(60 45 20 / calc(.025 * var(--crease-raise))) calc(50% - var(--fold) * .7071),
+        rgb(60 45 20 / calc(.045 * var(--crease-raise))) calc(50% - var(--fold) * .16),
+        rgb(60 45 20 / calc(.045 * var(--crease-raise) + .07 * var(--crease-strength)))
+          calc(50% - var(--edge-drawn) * (var(--crease-width) + 1) / 2),
+        rgb(60 45 20 / calc(.07 * var(--crease-strength))) calc(50% + var(--edge-drawn) * (var(--crease-width) + 1) / 2),
+        rgb(60 45 20 / calc(.05 * var(--crease-strength))) calc(50% + var(--edge-drawn) * (var(--crease-width) / 2 + 2)),
+        rgb(60 45 20 / 0) calc(50% + var(--edge-drawn) * (var(--crease-width) / 2 + 2) + var(--fold) * .08));
+    background-size:auto, auto, calc(var(--fold) + 12px) calc(var(--fold) + 12px);
+    background-position:0 0, 0 0, right -6px top -6px;
+  }
+  .trow.creased > .trowin::after{
+    background-image:linear-gradient(to bottom left,
+      rgb(173 157 127 / 0) calc(50% - var(--edge-drawn) * (var(--crease-width) + 1) / 2),
+      rgb(173 157 127 / calc(.34 * var(--crease-strength))) calc(50% - var(--edge-drawn) * var(--crease-width) / 2),
+      rgb(173 157 127 / calc(.34 * var(--crease-strength))) calc(50% + var(--edge-drawn) * var(--crease-width) / 2),
+      rgb(255 255 255 / calc(var(--crease-light) * var(--crease-strength))) calc(50% + var(--edge-drawn) * (var(--crease-width) + 1) / 2),
+      rgb(255 255 255 / calc(var(--crease-light) * var(--crease-strength))) calc(50% + var(--edge-drawn) * (var(--crease-width) / 2 + 1.5)),
+      rgb(255 255 255 / 0) calc(50% + var(--edge-drawn) * (var(--crease-width) / 2 + 2)));
+    background-size:calc(var(--fold) + 12px) calc(var(--fold) + 12px);
+    background-position:right -6px top -6px;
+    -webkit-mask:linear-gradient(to bottom right, rgb(0 0 0 / .45) calc(50% - var(--fold) * .7071),
+        #000 calc(50% - var(--fold) * .35), #000 calc(50% + var(--fold) * .35), rgb(0 0 0 / .45) calc(50% + var(--fold) * .7071))
+      right -6px top -6px / calc(var(--fold) + 12px) calc(var(--fold) + 12px) no-repeat;
+    mask:linear-gradient(to bottom right, rgb(0 0 0 / .45) calc(50% - var(--fold) * .7071),
+        #000 calc(50% - var(--fold) * .35), #000 calc(50% + var(--fold) * .35), rgb(0 0 0 / .45) calc(50% + var(--fold) * .7071))
+      right -6px top -6px / calc(var(--fold) + 12px) calc(var(--fold) + 12px) no-repeat;
   }
 </style>
 </head>

@@ -171,39 +171,103 @@
 
 /* ---- the crease an unfolded ticket keeps ----------------------------------- */
 /* once the fold is lowered, by a click on the corner, control+u, a reply or a
-   close, the ticket keeps a crease where the fold was, the way paper remembers
-   a dog-ear. the board keeps it per card until the marker is raised again; the
-   page's renderer puts creased on the row, never beside testc, and nothing here
-   decides when.
-   it is paint only, on the one layer no row state uses, the row's
-   .trowin::after, laid on the border box's top right --fold square exactly
-   where the flap and the hole lay, so its line runs along the fold's own
-   crease. the row's overflow keeps it inside the ticket's edge and corner.
-   read across the square from the corner, as the fold's layers are:
-   the corner side is the part that was folded. it never quite lies flat again
-   and tips a hair away from the light, which comes from above here as it does
-   everywhere on the board, so it takes a faint shade deepening into the
-   crease: the hole's contact shade, weaker, over the same reach.
-   the line is the crease itself, one drawn edge wide, in the fold's crease
-   colour at a little over half strength, so at rest it is about as quiet as
-   the ticket's edge and far quieter than the fold it stands for. each side
-   ramps over half a drawn edge, the way a device pixel softens a line, since a
-   hard stop on a diagonal steps.
-   the ticket side of the line catches the light: a white hairline, fading
-   out. on a white ticket it cannot show and the crease reads by its line and
-   shade alone, as a crease does on white paper; on a tinted row it lifts the
-   lip of the groove.
-   the three colours are the look's whole tuning, named at the top of the rule */
-.trow.creased > .trowin::after{
-  --crease-line:rgba(173,157,127,.55); --crease-shade:rgba(60,45,20,.05); --crease-lit:rgba(255,255,255,.9);
+   close, the ticket keeps a crease where the fold was. the board keeps it per
+   card until the marker is raised again; the page's renderer puts creased on
+   the row, never beside testc, and nothing here decides when.
+   a crease is not a drawn line. it is two planes of paper meeting at a hinge
+   of crushed fibres, and it reads by the tones on either side of that hinge.
+   the corner was folded over onto the face, so seen from the front the hinge
+   is a valley, and a released crease never lies quite flat again: it springs
+   back toward its fold, so the corner sits a hair raised toward the reader.
+   the light comes from above, as it does everywhere on the board, so, read
+   across the crease from the corner's tip to the ticket:
+   - the raised corner faces a little away from the light and keeps a faint
+     tint, deepest near the hinge and paler toward its tip, where the paper
+     settles back;
+   - the valley's upper wall, on the corner's side, falls into shade;
+   - the hinge is a sharp line, in the fold's own crease colour but far
+     quieter than the fold;
+   - the valley's lower wall, on the ticket's side, faces the light: a thin
+     bright ridge right beside the line. on a white ticket white cannot show,
+     so the ridge reads by the darker tones on both sides of it;
+   - past the ridge the paper settles back down, a soft shade fading out.
+   the line and the ridge taper toward the two edges, where the fold was
+   pressed least, and where the hinge meets the ticket's edge the edge kinks:
+   a small notch in the edge's own grey on the inside of the edge line.
+   two layers draw it, anchored on the border box's top right the way the
+   fold's layers are: .trowin::before is the paper (the tint, the shades and
+   the two notches) and .trowin::after is the hinge (the line and the ridge,
+   with the taper as a mask). the fold draws its contact shade on
+   .trowin::before too, but a row is never folded and creased at once. each
+   layer is the --fold square and 6px more to the left and below, so a shade
+   that runs past the crease's ends is not cut off square: the shades and the
+   mask are square images 12px wider than the fold, set 6px out past the top
+   and the right, so each image's diagonal lies exactly on the fold's crease
+   and its centre is the crease's middle. the row's own hidden overflow keeps
+   every part inside the ticket's edge and rounded corner.
+   the widths that have to meet the screen's pixels read --edge-drawn. a
+   gradient is not snapped: its colour is taken at pixel centres, which across
+   a 45 degree line lie about 0.7 of a device pixel apart, so a line and a
+   ridge one drawn edge wide always catch at least one full sample and never
+   break up. the soft reaches are read off --fold, so the phone's smaller fold
+   keeps the same proportions.
+   the five numbers on the creased row are the whole of the tuning: strength
+   scales the hinge, its shades and the notches; width is the line's width in
+   drawn edges; raise is the raised corner's tint; light is the ridge; notch is
+   the kink in the edge. the crease mock's sliders move exactly these */
+.trow.creased{--crease-strength:1; --crease-width:1; --crease-raise:1; --crease-light:.85; --crease-notch:.7}
+.trow.creased > .trowin::before, .trow.creased > .trowin::after{
   content:""; position:absolute; box-sizing:border-box; pointer-events:none;
   top:calc(-1 * var(--edge-drawn)); right:calc(-1 * var(--edge-drawn));
-  width:var(--fold); height:var(--fold);
-  background:linear-gradient(to bottom left,
-    rgba(60,45,20,0) 38%, var(--crease-shade) calc(50% - var(--edge-drawn) / 2),
-    var(--crease-line) 50%, var(--crease-line) calc(50% + var(--edge-drawn) / 2),
-    var(--crease-lit) calc(50% + var(--edge-drawn)), var(--crease-lit) calc(50% + var(--edge-drawn) * 1.5),
-    rgba(255,255,255,0) calc(50% + var(--edge-drawn) * 2.5));
+  width:calc(var(--fold) + 6px); height:calc(var(--fold) + 6px);
+  background-repeat:no-repeat;
+}
+/* the paper: the two notches, centred where the crease crosses the inside of
+   the top edge and of the right edge, then the tint and the shades across the
+   crease, from the corner's tip (--fold / sqrt(2) out from the crease) to the
+   soft fall past the ridge. the corner's tint ends under the line, so the
+   corner and the ticket meet at the crease itself */
+.trow.creased > .trowin::before{
+  background-image:
+    radial-gradient(calc(var(--edge-drawn) * 2) calc(var(--edge-drawn) * 1.25)
+      at calc(100% - var(--fold) + var(--edge-drawn)) var(--edge-drawn),
+      color-mix(in srgb, var(--line) calc(min(1, var(--crease-notch) * var(--crease-strength)) * 100%), transparent) 30%,
+      transparent),
+    radial-gradient(calc(var(--edge-drawn) * 1.25) calc(var(--edge-drawn) * 2)
+      at calc(100% - var(--edge-drawn)) calc(var(--fold) - var(--edge-drawn)),
+      color-mix(in srgb, var(--line) calc(min(1, var(--crease-notch) * var(--crease-strength)) * 100%), transparent) 30%,
+      transparent),
+    linear-gradient(to bottom left,
+      rgb(60 45 20 / calc(.025 * var(--crease-raise))) calc(50% - var(--fold) * .7071),
+      rgb(60 45 20 / calc(.045 * var(--crease-raise))) calc(50% - var(--fold) * .16),
+      rgb(60 45 20 / calc(.045 * var(--crease-raise) + .07 * var(--crease-strength)))
+        calc(50% - var(--edge-drawn) * (var(--crease-width) + 1) / 2),
+      rgb(60 45 20 / calc(.07 * var(--crease-strength))) calc(50% + var(--edge-drawn) * (var(--crease-width) + 1) / 2),
+      rgb(60 45 20 / calc(.05 * var(--crease-strength))) calc(50% + var(--edge-drawn) * (var(--crease-width) / 2 + 2)),
+      rgb(60 45 20 / 0) calc(50% + var(--edge-drawn) * (var(--crease-width) / 2 + 2) + var(--fold) * .08));
+  background-size:auto, auto, calc(var(--fold) + 12px) calc(var(--fold) + 12px);
+  background-position:0 0, 0 0, right -6px top -6px;
+}
+/* the hinge: the line, centred on the crease, --crease-width drawn edges wide
+   with half a drawn edge of softening either side, then the ridge on the
+   lit side, one drawn edge wide. the mask runs along the crease from end to
+   end: full over its middle half, down to .45 at the two edges */
+.trow.creased > .trowin::after{
+  background-image:linear-gradient(to bottom left,
+    rgb(173 157 127 / 0) calc(50% - var(--edge-drawn) * (var(--crease-width) + 1) / 2),
+    rgb(173 157 127 / calc(.34 * var(--crease-strength))) calc(50% - var(--edge-drawn) * var(--crease-width) / 2),
+    rgb(173 157 127 / calc(.34 * var(--crease-strength))) calc(50% + var(--edge-drawn) * var(--crease-width) / 2),
+    rgb(255 255 255 / calc(var(--crease-light) * var(--crease-strength))) calc(50% + var(--edge-drawn) * (var(--crease-width) + 1) / 2),
+    rgb(255 255 255 / calc(var(--crease-light) * var(--crease-strength))) calc(50% + var(--edge-drawn) * (var(--crease-width) / 2 + 1.5)),
+    rgb(255 255 255 / 0) calc(50% + var(--edge-drawn) * (var(--crease-width) / 2 + 2)));
+  background-size:calc(var(--fold) + 12px) calc(var(--fold) + 12px);
+  background-position:right -6px top -6px;
+  -webkit-mask:linear-gradient(to bottom right, rgb(0 0 0 / .45) calc(50% - var(--fold) * .7071),
+      #000 calc(50% - var(--fold) * .35), #000 calc(50% + var(--fold) * .35), rgb(0 0 0 / .45) calc(50% + var(--fold) * .7071))
+    right -6px top -6px / calc(var(--fold) + 12px) calc(var(--fold) + 12px) no-repeat;
+  mask:linear-gradient(to bottom right, rgb(0 0 0 / .45) calc(50% - var(--fold) * .7071),
+      #000 calc(50% - var(--fold) * .35), #000 calc(50% + var(--fold) * .35), rgb(0 0 0 / .45) calc(50% + var(--fold) * .7071))
+    right -6px top -6px / calc(var(--fold) + 12px) calc(var(--fold) + 12px) no-repeat;
 }
 
 /* ---- no scrollbars, only scrolling --------------------------------------- */
