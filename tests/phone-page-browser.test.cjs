@@ -541,7 +541,7 @@ test("a pull from the left edge brings in the card list with the desktop's three
     });
     assert.equal(drawer.open, true, "the pull did not open the drawer");
     assert.equal(drawer.left, 0);
-    assert.deepEqual(drawer.labels, ["doing", "deferred", "done"], "labels differ from the desktop list, or carry counts");
+    assert.deepEqual(drawer.labels, ["Doing", "Deferred", "Done"], "labels differ from the desktop list, or carry counts");
     const titles = drawer.rows.map(r => r.title);
     assert.ok(titles.includes("Working on the phone"));
     assert.ok(!titles.includes("Parked on the phone") && !titles.includes("Done on the phone"), "doing shows parked or done cards");

@@ -36,9 +36,10 @@ const BOARD_SECRETS = ["m874 launch fixture board", "An invented private card ti
                        "Invented private context that no signed-out page may show"];
 const SHEET_LINK = '<link rel="stylesheet" href="/card-tokens.css">';
 // the two web font sheets the page asked for in its head before this change,
-// word for word: moving them must not change which faces the page is set in
+// word for word: moving them must not change which faces the page is set in.
+// Plex Sans is also asked for at 700 now, for the drawer's selected tab name
 const WEB_FONT_SHEETS = [
-  "https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap",
+  "https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap",
   "https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap",
 ];
 const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 " +
