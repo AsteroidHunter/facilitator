@@ -1,6 +1,7 @@
 // the home page and its token widgets, with no browser. home-widgets.js is run
 // in a sandbox and held to what it draws: one square per day of the year in 53
-// week columns of 7, a red-orange scale light to deep over a faint warm grey,
+// week columns of 7, folded into two rows so the box is taller than it is long,
+// a red-orange scale light to deep over a faint warm grey,
 // a line of trailing 7-day averages, and one pill that switches the panel
 // between the two. then index.html's own home block is lifted out of the page
 // and driven through a small DOM: the house opens home, the widgets are
@@ -134,16 +135,64 @@ test("the heatmap draws one square per day of the year in 53 week columns of 7",
     });
     assert.equal(model.total, days.slice(-365).reduce((s, d) => s + d.total, 0),
                  "the year's total leaves out the six days fetched for the line");
-    // month names over their columns, left to right, never crowded or off the grid
-    assert.ok(model.months.length >= 11);
-    for (let i = 1; i < model.months.length; i++)
-      assert.ok(model.months[i].col - model.months[i - 1].col >= 3, "month names stand apart");
-    assert.ok(model.months.every(m => m.col >= 0 && m.col <= 51));
+    // the weeks fold into two rows read like lines of text: the older 26 on
+    // top, the latest 27 under them, both starting at the left edge
+    const top = model.cells.filter(c => c.band === 0), low = model.cells.filter(c => c.band === 1);
+    assert.equal(new Set(top.map(c => c.col)).size, 26);
+    assert.equal(new Set(low.map(c => c.col)).size, 27);
+    assert.ok(top.every(c => c.col <= 25 && c.at === c.col), "the older half is weeks 0 to 25");
+    assert.ok(low.every(c => c.col >= 26 && c.at === c.col - 26), "the latest half is weeks 26 to 52");
+    assert.equal(Math.min(...low.map(c => c.x)), Math.min(...top.map(c => c.x)), "both rows start at the left");
+    assert.ok(Math.min(...low.map(c => c.y)) - Math.max(...top.map(c => c.y)) > 16 + 3,
+              "the latest row stands clear below the older one");
+    for (const c of model.cells) {
+      assert.equal(c.x, 30 + c.at * 19);
+      assert.equal(c.y, c.band * (18 + 7 * 19 - 3 + 14) + 18 + c.row * 19);
+    }
+    assert.equal(model.cells.at(-1).band, 1, "today is on the lower row");
+    // month names over their columns in each row, left to right, never crowded
+    // or off the row, and a name within each row's first three weeks
+    assert.ok(model.months.length >= 12);
+    for (const band of [0, 1]) {
+      const row = model.months.filter(m => m.band === band);
+      assert.ok(row[0].at <= 2, `row ${band} opens with a month name`);
+      for (let i = 1; i < row.length; i++) assert.ok(row[i].at - row[i - 1].at >= 3, "month names stand apart");
+      assert.ok(row.every(m => m.at >= 0 && m.at <= (band ? 25 : 24)), "no name hangs off the end of its row");
+    }
     const svg = W.heatmapSvg(model);
     assert.equal((svg.match(/<rect class="tk-day"/g) || []).length, 365);
-    assert.match(svg, /viewBox="0 0 769 113"/);
-    for (const name of ["Mon", "Wed", "Fri"]) assert.ok(svg.includes(`>${name}</text>`));
+    assert.equal((svg.match(/width="16" height="16" rx="3"/g) || []).length, 365, "16 unit squares");
+    assert.match(svg, /viewBox="0 0 540 310"/);
+    for (const name of ["Mon", "Wed", "Fri"])
+      assert.equal(svg.split(`>${name}</text>`).length - 1, 2, `${name} beside both rows`);
+    // every square and label lies inside the box
+    for (const m of svg.matchAll(/<(?:rect|text)[^>]* x="([\d.]+)" y="([\d.]+)"/g)) {
+      assert.ok(Number(m[1]) >= 0 && Number(m[1]) < 540 && Number(m[2]) >= 0 && Number(m[2]) <= 310, m[0]);
+    }
   }
+});
+
+test("the box is taller and narrower than the one-row year, and the page seats it in the middle", () => {
+  const { W } = widgets();
+  // the charts' own box: 540 by 310, where the one-row year was 769 by 113
+  assert.deepEqual({ ...W.BOX }, { width: 540, height: 310 });
+  assert.ok(W.BOX.width / W.BOX.height < 1.8, "under 1.8 to 1, where the one-row year was 6.8 to 1");
+  // the page shows it near one to one: 582px across with the panel's sides,
+  // which leaves the whole box about 582 by 410 against the 840 by 216 it was
+  const rule = /body\.focus\.home #home\{([^}]*)\}/.exec(HTML)[1];
+  assert.match(rule, /width:min\(582px, calc\(100vw - 64px\), calc\(\(100vh - var\(--bar-h\) - 160px\) \* 540 \/ 310 \+ 42px\)\)/);
+  assert.match(rule, /top:calc\(var\(--bar-h\) \+ \(100vh - var\(--bar-h\)\) \* \.44\); transform:translate\(-50%, -50%\)/);
+  assert.match(HTML, /body\.choosing #newproj\{[^}]*top:calc\(41px \+ \(100vh - 41px\)\*\.44\)/,
+               "the same seat as the new-project landing");
+  // the wait holds the chart's shape and the foot under it, so the centred box
+  // never moves when the counts arrive
+  const css = read("home-widgets.css");
+  const wait = /\.tk-wait\{([^}]*)\}/.exec(css)[1];
+  assert.match(wait, /aspect-ratio:540 \/ 310/);
+  assert.match(wait, /margin-bottom:26px/);
+  assert.match(/\.tk-foot\{([^}]*)\}/.exec(css)[1], /margin-top:10px/);
+  assert.match(/\.tk-panel\{([^}]*)\}/.exec(css)[1], /font:400 12px\/16px/, "a 16px foot line, 26px with its margin");
+  assert.doesNotMatch(css, /min-height:150px/);
 });
 
 test("the colour scale runs light to deep red-orange, and a day with nothing is a faint warm grey", () => {
@@ -212,7 +261,7 @@ test("the line is each day's trailing seven-day average over the same year", () 
   const low = half.points.find(p => p.avg === 1e6);
   assert.ok(Math.abs(low.y - (half.box.top + half.box.h / 2)) < 0.1, "half the axis is half the height");
   const svg = W.lineSvg(model);
-  assert.match(svg, /viewBox="0 0 769 113"/, "the heatmap's own box, so the panel holds still on a switch");
+  assert.match(svg, /viewBox="0 0 540 310"/, "the heatmap's own box, so the panel holds still on a switch");
   const path = /class="tk-path" d="([^"]+)"/.exec(svg)[1];
   assert.equal((path.match(/[ML]/g) || []).length, 365);
   assert.ok(svg.includes(`stroke="${W.LINE}"`));

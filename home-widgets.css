@@ -32,9 +32,10 @@
   transition:color .18s, box-shadow .08s ease-in}
 .tk-opt:focus-visible{outline:1.5px solid var(--accent); outline-offset:1px}
 
-/* the charts scale with the panel: each is one svg drawn to its own box and
-   stretched to the panel's width, so the squares stay square at any size */
-.tk-stage{position:relative; min-height:150px}
+/* the charts scale with the panel: both are one svg drawn to the same 540 by
+   310 box (home-widgets.js) and stretched to the panel's width, so the squares
+   stay square at any size and the panel holds still when the pill switches */
+.tk-stage{position:relative}
 .tk-chart svg{display:block; width:100%; height:auto; overflow:visible}
 .tk-axis{font:400 10px var(--sans); fill:var(--sub)}
 .tk-day{stroke:rgba(60,45,20,.05); stroke-width:.6px}
@@ -61,6 +62,9 @@
 .tk-tip b{font-weight:600}
 .tk-tip span{color:rgba(255,255,255,.72)}
 
-.tk-wait{display:flex; align-items:center; justify-content:center; min-height:150px; color:var(--sub)}
+/* the wait takes the chart's own box and the foot's 26px under it, so the
+   panel is its finished size from the first frame and never moves on arrival */
+.tk-wait{display:flex; align-items:center; justify-content:center;
+  aspect-ratio:540 / 310; margin-bottom:26px; color:var(--sub)}
 .tk-note{margin-top:8px; color:var(--sub)}
 .tk-note:empty{display:none}
