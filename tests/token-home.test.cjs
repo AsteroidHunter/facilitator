@@ -389,10 +389,48 @@ test("counts read short and the tips name the day", () => {
                  [5_214_000_000, "5.21B"], [120e9, "120B"], [3e12, "3T"]];
   for (const [n, want] of cases) assert.equal(W.compact(n), want, String(n));
   assert.equal(W.longDay("2026-09-27"), "Sun, Sep 27, 2026");
+  // a square is one day, and its tip says so
   assert.equal(W.heatTip({ date: "2026-09-23", total: 48_210_000 }),
-               "<b>48.2M tokens</b><span>Wed, Sep 23, 2026</span>");
-  assert.equal(W.heatTip({ date: "2026-09-23", total: 0 }), "<b>No tokens</b><span>Wed, Sep 23, 2026</span>");
-  assert.match(W.lineTip({ date: "2026-09-23", total: 3e6, avg: 1.5e6 }), /3M tokens.*Wed, Sep 23, 2026.*1\.5M a day, 7-day average/);
+               "<b>48.2M tokens that day</b><span>Wed, Sep 23, 2026</span>");
+  assert.equal(W.heatTip({ date: "2026-09-23", total: 0 }), "<b>No tokens that day</b><span>Wed, Sep 23, 2026</span>");
+  // the headline a size up from the lines under it
+  const css = read("home-widgets.css");
+  assert.match(css, /\.tk-tip\{[^}]*font:400 11px\/15px var\(--sans\)/);
+  assert.match(css, /\.tk-tip b\{font-weight:600; font-size:12px; line-height:16px\}/);
+});
+
+test("the line's tip leads with the average the dot shows, and no number on the line view passes its axis", () => {
+  const { W } = widgets();
+  // the owner's reading: Monday, Sep 21 alone was 1.35B, and its week averaged 616M a day
+  const days = daysEnding("2026-09-27", 371,
+    k => (k >= 358 && k <= 363 ? 493_666_667 : k === 364 ? 1.35e9 : 0));
+  const model = W.lineModel(days);
+  assert.equal(model.top, 1e9, "the axis tops out at 1B, as in the owner's picture");
+  assert.match(W.linePin(model), />1B<\/text>/);
+  const p = model.points.find(x => x.date === "2026-09-21");
+  assert.equal(W.lineTip(p), "<b>616M a day, 7-day average</b>" +
+    "<span>1.35B on Mon, Sep 21 alone</span><span>Averaged over Sep 15 to Sep 21, 2026</span>");
+  assert.ok(Math.abs(p.y - model.yAt(p.avg)) < 0.1, "the dot stands at the headline's number");
+  // on every day of the year the headline is the line's own value, which never
+  // passes the axis top; a day's own count, which can, only ever appears named
+  // as that one day, under the headline
+  for (const q of model.points) {
+    const tip = W.lineTip(q);
+    assert.equal(/^<b>([^<]*)<\/b>/.exec(tip)[1], `${W.compact(q.avg)} a day, 7-day average`);
+    assert.ok(q.avg <= model.top, `${q.date} stands above the axis`);
+    assert.equal(q.span, 7, "every day of the year averages a whole week");
+    assert.ok(tip.indexOf(`<span>${W.compact(q.total)} on `) > tip.indexOf("</b>"));
+    assert.ok(tip.includes(" alone</span>"));
+  }
+  assert.ok(model.points.some(q => q.total > model.top), "the reading has a day above the axis to be careful of");
+  // a week that crosses the new year names both years
+  assert.match(W.lineTip(W.lineModel(daysEnding("2026-01-02", 371)).points.at(-1)),
+               /Averaged over Dec 27, 2025 to Jan 2, 2026<\/span>$/);
+  // where a reading begins, the average says how few days it holds
+  const short = W.lineModel(daysEnding("2026-09-27", 3, () => 3e6));
+  assert.equal(W.lineTip(short.points[0]),
+               "<b>3M a day, 1-day average</b><span>3M on Fri, Sep 25 alone</span><span>Averaged over Sep 25, 2026</span>");
+  assert.match(W.lineTip(short.points[2]), /^<b>3M a day, 3-day average<\/b>.*Averaged over Sep 25 to Sep 27, 2026/);
 });
 
 // ---- the panel -----------------------------------------------------------------------------

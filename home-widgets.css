@@ -79,7 +79,9 @@
   background:var(--ink); color:#FFFFFF; font:400 11px/15px var(--sans);
   box-shadow:0 2px 8px rgba(33,29,23,.22)}
 .tk-tip[hidden]{display:none}
-.tk-tip b{font-weight:600}
+/* the headline a size up from the lines under it, so the number the chart
+   shows reads first and the rest reads as detail */
+.tk-tip b{font-weight:600; font-size:12px; line-height:16px}
 .tk-tip span{color:rgba(255,255,255,.72)}
 
 /* the wait takes the view's height and the foot's 26px under it, so the
