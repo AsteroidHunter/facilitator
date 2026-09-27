@@ -10728,9 +10728,9 @@ xc.page.addEventListener("transitionend", e => {
   if (e.target === xc.page && e.propertyName === "transform") xcTick();
 });
 
-// the switch, a tab on the card's own bottom right corner beside the bar. it is
-// on the stage, so it scales with the board, and xcPlace seats it off the card's
-// box wherever the card stands (the sheet says why it stands behind the card).
+// the switch, a tab on the card's right edge lined up with the bar. it is on
+// the stage, so it scales with the board, and xcSeat seats it off the card and
+// the bar wherever they stand (the sheet says why it stands behind the card).
 // the press keeps the caret where it is, the way the send square and the plus
 // do, so the words cross with the caret in them
 const xcSwitch = h("button");
@@ -10804,7 +10804,10 @@ function xcPlace(){
 // goes with a card that is dragged or resized. while the bar is away, with the
 // box open, or part way through its run, its own box says nothing about where
 // it rests, so the switch keeps the place the bar last rested in, which is
-// where the bar comes back to and where the press to close the box is found
+// where the bar comes back to and where the press to close the box is found.
+// before any bar has been read there is nothing to line up with, and nothing
+// to see either: the switch only shows while a card is on show, and the first
+// sync with a card on show reads its bar before anything can take it away
 function xcSeat(){
   const card = document.querySelector("main");
   const stage = document.getElementById("stage");
@@ -10814,16 +10817,17 @@ function xcSeat(){
   const S = stageScale || 1;
   const sr = stage.getBoundingClientRect(), r = card.getBoundingClientRect();
   const edge = (r.right - sr.x) / S, base = (r.bottom - sr.y) / S;
-  if (el && !el.box.classList.contains("xcaway") && !el.bottombar._xcStop){
-    const b = el.bottombar.getBoundingClientRect();
+  const bar = el && el.bottombar;
+  if (bar && !el.box.classList.contains("xcaway") && !bar._xcStop){
+    const b = bar.getBoundingClientRect();
     if (b.height > 0) xcSeatAt = { top: base - (b.top - sr.y) / S, foot: base - (b.bottom - sr.y) / S };
   }
-  const at = xcSeatAt || xcRestSeat(card);
   const sw = xcSwitch.style;
   sw.left = (edge - XC_TUCK) + "px";
   sw.width = (XC_TUCK + XC_TAB_W) + "px";
-  sw.bottom = (STAGE_H - base + at.foot) + "px";
-  sw.height = (at.top - at.foot) + "px";
+  if (!xcSeatAt) return;
+  sw.bottom = (STAGE_H - base + xcSeatAt.foot) + "px";
+  sw.height = (xcSeatAt.top - xcSeatAt.foot) + "px";
 }
 
 // the bar the switch is lined up with is watched while its card is on show. the
@@ -10834,20 +10838,11 @@ function xcSeat(){
 // which xcPlace already follows. the answered panel is in the answer's own
 // scroller and cannot move it
 function xcFollow(el){
-  const bar = el ? el.bottombar : null;
+  const bar = (el && el.bottombar) || null;
   if (!xcWatch || bar === xcWatched) return;
   xcWatch.disconnect();
   xcWatched = bar;
   if (bar){ xcWatch.observe(bar); xcWatch.observe(el.pendwrap); }
-}
-
-// where the bar rests when there has been no bar to read yet: on the card's
-// own padding at its foot, the row's floor tall with its hairline over it
-function xcRestSeat(card){
-  const cs = getComputedStyle(card);
-  const line = parseFloat(cs.borderBottomWidth) || 0;
-  const foot = (parseFloat(cs.paddingBottom) || 0) + line;
-  return { foot, top: foot + (parseFloat(cs.getPropertyValue("--row-min")) || 0) + line };
 }
 
 // the card on show, if there is one: the switch hangs off it and the box holds its draft
