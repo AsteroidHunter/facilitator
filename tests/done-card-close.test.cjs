@@ -208,18 +208,28 @@ test("concurrent send and close serialize without deleting accepted content", as
   }
 });
 
+// what matters is who decides between removing a card and marking it done: the
+// server, from its current record, and never a page from what it last drew.
+// so every page that can close a card is held to that, however many close
+// paths it has: each close is one POST to /close naming the card and nothing
+// else, no page reaches the destructive /delete or classifies content itself,
+// and /done is only ever asked to reopen. the number of close paths is left
+// free, since a new key or button that closes a card is one more path through
+// /close and not a second way of deciding
+const CLOSE_CALL = /fetch\("\/close\?box=" \+ encodeURIComponent\([\w.]+\), \{ method: "POST" \}\)/g;
+const REOPEN_CALL = /^\/done\?box=" \+ encodeURIComponent\([\w.]+\) \+ "&v=0", \{ method: "POST" \}\)/;
 test("every browser close path delegates classification to close", async () => {
-  for (const [name, expectedCloseCalls] of [["index.html", 3], ["page.html", 2]]) {
+  for (const name of ["index.html", "page.html", "m.html"]) {
     const source = await readFile(path.join(ROOT, name), "utf8");
-    assert.equal((source.match(/fetch\("\/close\?box="/g) || []).length, expectedCloseCalls,
-      `${name} does not have exactly one /close call per close action`);
+    const closes = source.match(/\/close\?box=/g) || [];
+    assert.ok(closes.length >= 1, `${name} has no close path left to check`);
+    assert.equal((source.match(CLOSE_CALL) || []).length, closes.length,
+      `${name} has a /close call that is not one POST naming the card alone`);
     assert.equal(source.includes("hasContent"), false,
       `${name} still classifies content from a render snapshot`);
     assert.equal(source.includes("/delete?box="), false,
       `${name} still exposes the destructive endpoint as a close action`);
-    const doneCalls = source.match(/\/done\?box=/g) || [];
-    assert.equal(doneCalls.length, 1, `${name} has a duplicated direct /done close path`);
-    assert.match(source, /\/done\?box=.*&v=0/,
-      `${name}'s only direct /done call is not the reopen action`);
+    for (const call of source.match(/\/done\?box=[^\n]*/g) || [])
+      assert.match(call, REOPEN_CALL, `${name} closes a card through /done directly: ${call}`);
   }
 });

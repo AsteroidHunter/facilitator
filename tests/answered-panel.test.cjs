@@ -25,9 +25,23 @@ const markdown = require("../card-markdown.js");
 // ---- the stand-in dom ---------------------------------------------------------
 // just enough of an element for the panel: classes, attributes, children, a
 // click, inline style with a record of every height written, and an innerHTML
-// that builds the child elements its tags name so the panel's own markup can
-// be walked. text is kept only as the html string
+// that builds the child elements its tags name, and the text between them as
+// text nodes, so the panel's own markup and its words can be walked. a text
+// node reports whatever line boxes a test lays it out on (rects), and an
+// element can be given a box of its own (rect), the way a picture has one
 const VOID = new Set(["br", "img", "hr", "input", "source", "wbr"]);
+function textNode(text) {
+  const node = {
+    nodeType: 3, textContent: text, parentNode: null, rects: [],
+    remove() {
+      const parent = node.parentNode;
+      if (!parent) return;
+      parent.childNodes.splice(parent.childNodes.indexOf(node), 1);
+      node.parentNode = null;
+    },
+  };
+  return node;
+}
 function inlineStyle() {
   const props = {};
   return {
@@ -44,26 +58,35 @@ function inlineStyle() {
 }
 // the height a browser would report for a node. the cut stands at whatever is
 // written inline, else at its full batch while open or running, else at the
-// preview the test says it is cut to. midRun stands for a run caught part way,
-// so it only holds while a run has its height written in
+// stop the script wrote, else at the preview the test says the sheet cuts it
+// to. midRun stands for a run caught part way, so it only holds while a run
+// has its height written in
 function laidOutHeight(node) {
   if (node.midRun != null && node.style.height) return node.midRun;
   if (node.style.height) return parseFloat(node.style.height);
   const panel = node.parentNode;
   if (node.classList.contains("answclip") && panel &&
       (panel.classList.contains("open") || panel.classList.contains("motion"))) return node.scrollHeight;
+  const stop = node.style.getPropertyValue("--answ-stop");
+  if (stop) return parseFloat(stop);
   return node.clientHeight;
 }
 function element(tag) {
   const classes = new Set();
   const attrs = new Map();
   const listeners = {};
+  const nodes = [];
   let html = "";
   const el = {
-    tagName: String(tag).toUpperCase(),
-    children: [], parentNode: null, dataset: {}, style: inlineStyle(), id: "",
-    clientHeight: 0, scrollHeight: 0, scrollTop: 0, offsetWidth: 0, midRun: null,
-    getBoundingClientRect() { return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: laidOutHeight(el) }; },
+    tagName: String(tag).toUpperCase(), nodeType: 1,
+    parentNode: null, dataset: {}, style: inlineStyle(), id: "",
+    clientHeight: 0, scrollHeight: 0, scrollTop: 0, offsetWidth: 0, midRun: null, rect: null,
+    get childNodes() { return nodes; },
+    get children() { return nodes.filter(node => node.nodeType === 1); },
+    getBoundingClientRect() {
+      if (el.rect) return { ...el.rect, left: 0, right: 0, width: 0, height: el.rect.bottom - el.rect.top };
+      return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: laidOutHeight(el) };
+    },
     removeEventListener(type, fn) { listeners[type] = (listeners[type] || []).filter(f => f !== fn); },
     listening(type) { return (listeners[type] || []).length; },
     get className() { return [...classes].join(" "); },
@@ -88,15 +111,15 @@ function element(tag) {
     fire(type, event) { for (const fn of listeners[type] || []) fn(event); },
     appendChild(node) {
       node.remove();
-      el.children.push(node);
+      nodes.push(node);
       node.parentNode = el;
       return node;
     },
-    append(...nodes) { for (const node of nodes) el.appendChild(node); },
+    append(...added) { for (const node of added) el.appendChild(node); },
     remove() {
       const parent = el.parentNode;
       if (!parent) return;
-      parent.children.splice(parent.children.indexOf(el), 1);
+      parent.childNodes.splice(parent.childNodes.indexOf(el), 1);
       el.parentNode = null;
     },
     get textContent() { return html; },
@@ -115,10 +138,19 @@ function element(tag) {
     },
   };
   function clear() {
-    for (const child of el.children) child.parentNode = null;
-    el.children = [];
+    for (const child of nodes) child.parentNode = null;
+    nodes.length = 0;
   }
   return el;
+}
+// every text node under a node, in document order
+function textsOf(node) {
+  const out = [];
+  for (const child of node.childNodes) {
+    if (child.nodeType === 3) out.push(child);
+    else out.push(...textsOf(child));
+  }
+  return out;
 }
 // every element under a node, depth first, in document order
 function all(node) {
@@ -134,12 +166,15 @@ function matches(node, selector) {
     return cls.every(name => node.classList.contains(name));
   });
 }
-// the tags of an html string, nested as written; the text between them is
-// dropped, since the html string itself is what the tests compare
+// the tags of an html string, nested as written, and the text between them as
+// text nodes where it falls
 function build(parent, html) {
   const stack = [parent];
   const tags = /<(\/?)([a-zA-Z][\w-]*)((?:[^>"']|"[^"]*"|'[^']*')*?)(\/?)>/g;
+  let last = 0;
   for (let m = tags.exec(html); m; m = tags.exec(html)) {
+    if (m.index > last) stack[stack.length - 1].appendChild(textNode(html.slice(last, m.index)));
+    last = tags.lastIndex;
     const [, closing, tag, attrs, selfClosing] = m;
     if (closing) { if (stack.length > 1) stack.pop(); continue; }
     const node = element(tag);
@@ -148,6 +183,7 @@ function build(parent, html) {
     stack[stack.length - 1].appendChild(node);
     if (!selfClosing && !VOID.has(tag.toLowerCase())) stack.push(node);
   }
+  if (last < html.length) stack[stack.length - 1].appendChild(textNode(html.slice(last)));
 }
 
 // a size watch the test drives by hand, standing in for the browser's
@@ -176,8 +212,17 @@ function sandbox() {
   let seq = 0;
   const context = vm.createContext({
     Date, Promise, console,
-    document: { createElement: element },
+    // a range reports the line boxes the test laid its text node out on
+    document: {
+      createElement: element,
+      createRange: () => ({
+        node: null,
+        selectNodeContents(node) { this.node = node; },
+        getClientRects() { return this.node ? this.node.rects : []; },
+      }),
+    },
     CardMarkdown: markdown,
+    line: 21,   // the panel's line, the desktop's own unless a test says otherwise
     ResizeObserver: FakeResizeObserver,
     setTimeout: (fn, ms) => { counts.timers++; timers.set(++seq, { fn, ms }); return seq; },
     clearTimeout: id => { timers.delete(id); },
@@ -185,8 +230,10 @@ function sandbox() {
     stillness: false,
     matchMedia: query => ({ matches: /prefers-reduced-motion: reduce/.test(query) && context.stillness }),
     // the dissolve the sheet gives the cut: its depth while a long batch stands
-    // cut, and nothing otherwise, unless the run has written it inline
+    // cut, and nothing otherwise, unless the run has written it inline. every
+    // node stands on the panel's one line
     getComputedStyle: node => ({
+      get lineHeight() { return context.line + "px"; },
       getPropertyValue(name) {
         const inline = node.style.getPropertyValue(name);
         if (inline) return inline;
@@ -216,13 +263,38 @@ function landRun(panel) {
   const clip = panel.querySelector(".answclip");
   clip.fire("transitionend", { target: clip, propertyName: "height" });
 }
-// a long batch laid out: cut at a 58px preview over a 240px batch, and the
-// size watch telling the panel so
+// lays the batch's words out the way a browser reports them: the nth text node
+// of the column, in document order, stands on a line starting at tops[n], and
+// its letters fill six sevenths of that line in the middle of it, the way the
+// panel's face stands in its line. a null top leaves a node unlaid. with no
+// tops given, every text node takes the next line down with no gaps
+function layText(panel, line = 21, tops = null) {
+  const texts = textsOf(panel.querySelector(".answstack"));
+  const glyph = line * 6 / 7;
+  texts.forEach((node, i) => {
+    const top = tops ? tops[i] : i * line;
+    node.rects = top == null ? [] :
+      [{ top: top + (line - glyph) / 2, bottom: top + (line + glyph) / 2, height: glyph }];
+  });
+  return texts;
+}
+// a long batch laid out: its words on line after line, the sheet cutting it at
+// a 58px preview over its 240px whole, and the size watch telling the panel so
 function layOutLong(panel, watch) {
   const clip = panel.querySelector(".answclip");
+  layText(panel);
   clip.clientHeight = 58; clip.scrollHeight = 240;
   watch.fire();
   return clip;
+}
+// a batch laid out by hand: the words on the tops given, the sheet's cut and the
+// batch's whole height, and the watch telling the panel
+function layOut(panel, watch, { tops, cut, whole, line = 21 }) {
+  const clip = panel.querySelector(".answclip");
+  const texts = layText(panel, line, tops);
+  clip.clientHeight = cut; clip.scrollHeight = whole;
+  watch.fire();
+  return { clip, texts };
 }
 
 // a card as both pages build it: the scroller holding the empty seat over the
@@ -521,15 +593,161 @@ test("a batch that fits the preview is shown whole and takes no press", () => {
   assert.equal(panel.classList.contains("open"), false, "a short batch took a press");
 });
 
+// ---- blank lines --------------------------------------------------------------------
+// the invisible characters a paste brings along, named by code point so none of
+// them sits unseen in this file: a zero width space and a word joiner
+const ZWSP = String.fromCharCode(0x200b);
+const JOINER = String.fromCharCode(0x2060);
+const stopOf = panel => panel.querySelector(".answclip").style.getPropertyValue("--answ-stop");
+
+test("a message's blank tail is taken off before it is drawn, and a blank message draws nothing", () => {
+  const { context } = sandbox();
+  const el = card("c1");
+  const batch = [
+    { text: "Invented line one\nInvented line two\n\n\n", ts: 1 },
+    { text: "Invented line one\nInvented line two\n" + ZWSP, ts: 2 },
+    { text: "Invented paragraph\n\n" + ZWSP, ts: 3 },
+    { text: "Invented tail with spaces \t \n  \n" + JOINER + "\n" + ZWSP, ts: 4 },
+    { text: "   \n" + ZWSP + "\n\n", ts: 5 },
+  ];
+  // left as typed, the renderer would draw the invisible tails as blank lines
+  assert.notEqual(markdown.render(batch[1].text), markdown.render("Invented line one\nInvented line two"),
+    "the renderer no longer draws a zero width tail, so this case proves nothing");
+  context.syncAnswered(el, context.liveAnswered(liveBox(batch)));
+  assert.deepEqual(blocks(el.answ).map(b => b.html), [
+    markdown.render("Invented line one\nInvented line two"),
+    markdown.render("Invented line one\nInvented line two"),
+    markdown.render("Invented paragraph"),
+    markdown.render("Invented tail with spaces"),
+  ], "a blank tail was drawn, or a blank message added a block and its hairline");
+  for (const b of blocks(el.answ))
+    assert.ok(!b.html.includes(ZWSP) && !b.html.includes(JOINER), `an invisible tail survived: ${JSON.stringify(b.html)}`);
+  // a batch whose every message is blank has nothing to show
+  context.syncAnswered(el, context.liveAnswered({ ...liveBox([batch[4], { text: "\n\n", ts: 6 }]), replyId: "reply-blank" }));
+  assert.equal(el.answ, null, "a batch of blank messages still shows a panel");
+});
+
+test("in the history, an older batch's blank tails are taken off the same way", async () => {
+  const { context, run } = sandbox();
+  const el = card("c1");
+  el.reply.dataset.raw = "The invented live answer.";
+  const live = liveBox();
+  context.els = { c1: el };
+  context.selectedId = "c1";
+  context.lastState = { boxes: [live] };
+  const older = [
+    { id: "reply-blank", ts: 1, answered: [{ text: "  \n" + ZWSP, ts: 1 }] },
+    { id: "reply-tail", ts: 2, answered: [
+      { text: "\n\n", ts: 2 },
+      { text: "Invented older line\n" + ZWSP + "\n\n", ts: 3 },
+    ] },
+  ];
+  run(`histCache.c1 = Promise.resolve(Object.assign(
+    ["The invented first answer.", "The invented second answer."], { meta: ${JSON.stringify(older)} }))`);
+  context.syncAnswered(el, context.liveAnswered(live));
+  await context.histStep("c1", 1);
+  assert.equal(el.answId, "reply-tail");
+  assert.deepEqual(blocks(el.answ).map(b => b.html), [markdown.render("Invented older line")],
+    "an older batch kept its blank tail or its blank message");
+  await context.histStep("c1", 1);
+  assert.equal(el.answ, null, "an older batch of blank messages still shows a panel");
+  await context.histStep("c1", -1);
+  await context.histStep("c1", -1);
+  assert.deepEqual(blocks(el.answ).map(b => b.html), LIVE.map(m => markdown.render(m.text)),
+    "live does not show the live batch again");
+});
+
+test("a batch with no text past the cut has no strip and no fade, and stands exactly as tall as its text", () => {
+  const { context } = sandbox();
+  // the owner's case: two lines of text and a third that is blank
+  const el = card("c1");
+  context.syncAnswered(el, context.liveAnswered(liveBox([{ text: "Invented line one\nInvented line two\n" + ZWSP, ts: 1 }])));
+  const two = layOut(el.answ, FakeResizeObserver.made[0], { tops: [0, 21], cut: 42, whole: 42 });
+  assert.equal(two.texts.length, 2, "the blank third line was drawn");
+  assert.equal(el.answ.classList.contains("more"), false, "two lines of text were taken for a long batch");
+  assert.equal(stopOf(el.answ), "", "a batch that ends on its text was stopped short");
+  // and a batch whose drawing still ends on a blank band past its text: the
+  // band is not text, so it hides nothing and the panel stops at the text
+  const band = card("c2");
+  context.syncAnswered(band, context.liveAnswered({ ...liveBox([{ text: "Invented line one\nInvented line two", ts: 1 }]), id: "c2", replyId: "reply-band" }));
+  const { clip } = layOut(band.answ, FakeResizeObserver.made[1], { tops: [0, 21], cut: 57.75, whole: 84 });
+  assert.equal(band.answ.classList.contains("more"), false, "a blank band was taken for hidden text");
+  assert.equal(stopOf(band.answ), "42px", "the panel did not stop at its last line of text");
+  assert.equal(clip.getBoundingClientRect().height, 42, "the panel is taller than its text");
+  band.answ.fire("click", { target: band.answ });
+  assert.equal(band.answ.classList.contains("open"), false, "a batch with nothing hidden took a press");
+});
+
+test("a cut that lands in blank stops at the foot of the last line with text", () => {
+  const cases = [
+    ["a paragraph break", [{ text: "Invented line a\nInvented line b\n\nInvented line c", ts: 1 }], [0, 21, 63], 84],
+    ["the gap between two messages", [{ text: "Invented line a\nInvented line b", ts: 1 }, { text: "Invented line c", ts: 2 }], [0, 21, 63], 84],
+    ["a line with nothing on it but an invisible joiner",
+      [{ text: "Invented line a\nInvented line b\n" + ZWSP + "\nInvented line d", ts: 1 }], [0, 21, 42, 63], 84],
+    ["a line that shows under half of itself", [{ text: "Invented line a\nInvented line b", ts: 1 }, { text: "Invented line c", ts: 2 }], [0, 21, 52], 73],
+  ];
+  for (const [what, batch, tops, whole] of cases) {
+    const { context } = sandbox();
+    const el = card("c1");
+    context.syncAnswered(el, context.liveAnswered(liveBox(batch)));
+    layOut(el.answ, FakeResizeObserver.made[0], { tops, cut: 57.75, whole });
+    assert.equal(el.answ.classList.contains("more"), true, `${what}: the text past the cut was not marked`);
+    assert.equal(stopOf(el.answ), "42px", `${what}: the preview did not stop at the last line with text`);
+  }
+});
+
+test("a line of text through the cut keeps the cut, and so does a picture", () => {
+  const { context } = sandbox();
+  const el = card("c1");
+  context.syncAnswered(el, context.liveAnswered(liveBox([{ text: "Invented line a\nInvented line b\nInvented line c\nInvented line d", ts: 1 }])));
+  layOut(el.answ, FakeResizeObserver.made[0], { tops: [0, 21, 42, 63], cut: 57.75, whole: 84 });
+  assert.equal(el.answ.classList.contains("more"), true);
+  assert.equal(stopOf(el.answ), "", "a line dissolving through the cut was stopped short");
+  // a picture has no text in it, but it is still something to see
+  const pic = card("c2");
+  context.syncAnswered(pic, context.liveAnswered({ ...liveBox([{ text: "Invented line a", ts: 1 }, { text: "Invented caption", ts: 2 }]), id: "c2", replyId: "reply-pic" }));
+  const img = element("img");
+  img.rect = { top: 30, bottom: 130 };
+  pic.answ.querySelectorAll(".answmsg")[1].appendChild(img);
+  layOut(pic.answ, FakeResizeObserver.made[1], { tops: [0, null], cut: 57.75, whole: 130 });
+  assert.equal(pic.answ.classList.contains("more"), true, "a picture past the cut was not counted");
+  assert.equal(stopOf(pic.answ), "", "a picture through the cut was taken for blank");
+});
+
+test("the small card's shorter preview stops the same way on its own line", () => {
+  const { context } = sandbox();
+  context.line = 17;
+  const mini = card("m1");
+  context.syncAnswered(mini, context.liveAnswered({ ...liveBox([{ text: "Invented line a", ts: 1 }, { text: "Invented line b", ts: 2 }]), id: "m1" }), null);
+  layOut(mini.answ, FakeResizeObserver.made[0], { tops: [0, 34], cut: 29.75, whole: 51, line: 17 });
+  assert.equal(mini.answ.classList.contains("more"), true);
+  assert.equal(stopOf(mini.answ), "17px", "the small card's preview did not stop at its last line with text");
+});
+
+test("a stopped preview opens from its stop and cuts back to it on the fold's run", () => {
+  const { context, run } = sandbox();
+  run("answeredRoomChanged = roomSpy");
+  const el = card("c1");
+  context.syncAnswered(el, context.liveAnswered(liveBox([{ text: "Invented line a\nInvented line b", ts: 1 }, { text: "Invented line c", ts: 2 }])));
+  const { clip } = layOut(el.answ, FakeResizeObserver.made[0], { tops: [0, 21, 63], cut: 57.75, whole: 84 });
+  el.answ.fire("click", { target: el.answ });
+  landRun(el.answ);
+  el.answ.fire("click", { target: el.answ });
+  assert.deepEqual(clip.style.heights, ["42px", "84px", "84px", "42px"],
+    "the run did not open from the stop, or did not cut back to it");
+  landRun(el.answ);
+  assert.equal(stopOf(el.answ), "42px", "the cut back panel lost its stop");
+});
+
 test("the small card draws the same panel and tells nobody when it opens", () => {
   const { context, counts, run } = sandbox();
   run("answeredRoomChanged = roomSpy");
   const mini = card("m1");
   context.syncAnswered(mini, context.liveAnswered({ ...liveBox(), id: "m1" }), null);
   assert.equal(mini.answ.className, "answered");
-  const clip = mini.answ.querySelector(".answclip");
-  clip.clientHeight = 30; clip.scrollHeight = 200;
-  FakeResizeObserver.made[0].fire();
+  // the small card's own 17px line, cut at a line and three quarters
+  context.line = 17;
+  const { clip } = layOut(mini.answ, FakeResizeObserver.made[0], { tops: null, cut: 30, whole: 200, line: 17 });
   mini.answ.fire("click", { target: mini.answ });
   assert.equal(mini.answ.classList.contains("open"), true);
   assert.equal(mini.answ.classList.contains("motion"), true, "the small card's panel did not run");
@@ -585,7 +803,8 @@ test("the sheet draws one grey panel with no frame, hairlines between messages a
   assert.match(panel, /margin-left:auto/, "the panel does not hug the right end of its column");
   assert.match(panel, /font:var\(--answ-font\)/);
   assert.ok(!/border:|box-shadow|outline/.test(panel), "the panel wears a frame or a shade");
-  assert.match(rule(TOKENS, ".answclip"), /max-height:var\(--answ-peek\); overflow:hidden/);
+  assert.match(rule(TOKENS, ".answclip"), /max-height:var\(--answ-stop, var\(--answ-peek\)\); overflow:hidden/,
+    "the cut does not take the script's stop before the surface's preview");
   assert.match(rule(TOKENS, ".answered.open .answclip"), /max-height:none/);
   assert.match(rule(TOKENS, ".answered.more:not(.open) .answclip"), /--answ-cut:var\(--answ-fade\)/,
     "a cut batch does not dissolve by the surface's own depth");
