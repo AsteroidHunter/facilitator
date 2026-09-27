@@ -149,15 +149,13 @@ async function openPage(cfg){
       const el = els[id];
       return el?.answ && el?.pend && !el.answ.classList.contains("rising") && !el.pend.classList.contains("rising");
     }, {}, cardId);
-    // open both sent boxes so their lanes are live, not folded to nothing
-    for (const which of ["answ", "pend"]){
-      const lane = `#box-${cardId} ${which === "answ" ? ".pendwrap-answered" : ".pendwrap"} .pendlist`;
-      const open = await page.evaluate((id, w) => {
-        const p = w === "answ" ? els[id].answ : els[id].pend;
-        return !!(p && p.classList.contains("open"));
-      }, cardId, which);
-      if (!open){ try { await page.click(lane); } catch {} await wait(650); }
-    }
+    // open the sent box so its lane is live, not folded to nothing. the
+    // answered messages over the reply are a plain panel with no lane of its own
+    const open = await page.evaluate(id => {
+      const p = els[id].pend;
+      return !!(p && p.classList.contains("open"));
+    }, cardId);
+    if (!open){ try { await page.click(`#box-${cardId} .pendwrap .pendlist`); } catch {} await wait(650); }
   }
   await page.evaluate(() => document.fonts && document.fonts.ready);
   await wait(350);

@@ -95,16 +95,17 @@ async function openCard(kind){
   await wait(350);
   return page;
 }
-function laneSelector(which){ return (which === "answ" ? ".pendwrap-answered" : ".pendwrap") + " .pendlist"; }
-async function boxOpen(page, which){
-  return page.evaluate((id, which) => {
-    const el = els[id]; const p = which === "answ" ? el.answ : el.pend;
+// the answered messages over the reply are a plain panel now, with no lane and
+// no fold run of its own, so the sent box is the one box here that folds
+const LANE = ".pendwrap .pendlist";
+async function boxOpen(page){
+  return page.evaluate(id => {
+    const p = els[id].pend;
     return !!(p && p.classList.contains("open"));
-  }, cardId, which);
+  }, cardId);
 }
-function readLane(id, which){
-  const el = els[id];
-  const pend = which === "answ" ? el.answ : el.pend;
+function readLane(id){
+  const pend = els[id].pend;
   const lane = pend.querySelector(".pendscroll");
   const rows = pend.querySelectorAll(".pendmsg");
   const row = rows[rows.length - 1];
@@ -120,38 +121,36 @@ function readLane(id, which){
 }
 
 for (const kind of ["desktop", "phone"]) {
-  for (const which of ["answ", "pend"]) {
-    test(`${kind}: the ${which === "answ" ? "answered" : "waiting"} box shows no scrollbar while it folds and never shifts its rows`, async () => {
-      const page = await openCard(kind);
-      const selector = `#box-${cardId} ${laneSelector(which)}`;
-      if (await boxOpen(page, which)) { await page.click(selector); await wait(700); }
+  test(`${kind}: the waiting box shows no scrollbar while it folds and never shifts its rows`, async () => {
+    const page = await openCard(kind);
+    const selector = `#box-${cardId} ${LANE}`;
+    if (await boxOpen(page)) { await page.click(selector); await wait(700); }
 
-      await page.click(selector);   // fold open
-      // sample partway through the run, where the lane is shorter than its rows
-      let motion = null;
-      for (let t = 0; t < 6 && !motion; t++) {
-        await wait(t === 0 ? 70 : 35);
-        const s = await page.evaluate(readLane, cardId, which);
-        if (s.motion && s.overflows) motion = s;
-      }
-      assert.ok(motion, "did not catch the fold mid-motion with the lane overflowing");
-      // the lane must not present a scrollbar for the length of the motion
-      assert.equal(motion.overflowY, "hidden",
-        `a scrollbar shows while the box folds: overflow-y is ${motion.overflowY}`);
+    await page.click(selector);   // fold open
+    // sample partway through the run, where the lane is shorter than its rows
+    let motion = null;
+    for (let t = 0; t < 6 && !motion; t++) {
+      await wait(t === 0 ? 70 : 35);
+      const s = await page.evaluate(readLane, cardId);
+      if (s.motion && s.overflows) motion = s;
+    }
+    assert.ok(motion, "did not catch the fold mid-motion with the lane overflowing");
+    // the lane must not present a scrollbar for the length of the motion
+    assert.equal(motion.overflowY, "hidden",
+      `a scrollbar shows while the box folds: overflow-y is ${motion.overflowY}`);
 
-      await wait(700);
-      const settled = await page.evaluate(readLane, cardId, which);
-      // settled and genuinely scrolling, the lane hides its bar and reserves no
-      // gutter for one, and the rows still sit at one x through the fold
-      assert.ok(settled.overflows, "the box did not stay tall enough to scroll when settled");
-      assert.equal(settled.scrollbarWidth, "none",
-        `the settled lane still shows a bar: scrollbar-width is ${settled.scrollbarWidth}`);
-      assert.equal(settled.gutter, 0,
-        `the settled lane still holds a gutter: ${settled.gutter}px`);
-      assert.ok(motion.rowRight != null && settled.rowRight != null &&
-        Math.abs(settled.rowRight - motion.rowRight) <= 0.5,
-        `rows slid sideways: motion ${motion.rowRight} settled ${settled.rowRight}`);
-      await page.close();
-    });
-  }
+    await wait(700);
+    const settled = await page.evaluate(readLane, cardId);
+    // settled and genuinely scrolling, the lane hides its bar and reserves no
+    // gutter for one, and the rows still sit at one x through the fold
+    assert.ok(settled.overflows, "the box did not stay tall enough to scroll when settled");
+    assert.equal(settled.scrollbarWidth, "none",
+      `the settled lane still shows a bar: scrollbar-width is ${settled.scrollbarWidth}`);
+    assert.equal(settled.gutter, 0,
+      `the settled lane still holds a gutter: ${settled.gutter}px`);
+    assert.ok(motion.rowRight != null && settled.rowRight != null &&
+      Math.abs(settled.rowRight - motion.rowRight) <= 0.5,
+      `rows slid sideways: motion ${motion.rowRight} settled ${settled.rowRight}`);
+    await page.close();
+  });
 }

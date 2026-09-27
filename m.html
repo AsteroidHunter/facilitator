@@ -325,15 +325,17 @@
   .body{display:flex; flex-direction:column; flex:1 1 0; min-height:0;
     padding:var(--titleair) 0 0; position:relative; overflow:clip}
   /* the answer's own scroller: it owns the scroll, the touch inertia and the
-     clear air under it, and the answered box rides inside it above the answer
-     prose so the box leaves under the title as the reader scrolls */
+     clear air under it, and the panel of answered messages rides inside it
+     above the answer prose so the panel leaves under the title as the reader
+     scrolls */
   .replyview{
     display:flex; flex-direction:column;
     flex:1 1 auto; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
     overscroll-behavior:contain;
     margin-bottom:var(--replyair);
-    /* the box's fold is held by hand (holdAnswerScroll); the browser's own scroll
-       anchoring is off so the two do not both give the box's travel to the scroll */
+    /* the browser's own scroll anchoring is off, so a panel opened while the
+       reader is scrolled part way past it grows down into the answer rather
+       than sliding up under the title away from the tap */
     overflow-anchor:none;
   }
   /* the answer prose is a block inside the scroller now; it does not shrink so it
@@ -444,8 +446,7 @@
   /* the fold's one run, the card page's own: the box's height and padding and
      the column inside it move over one length on one curve, so they start and
      settle together and neither can finish first. the column's two ends are the
-     class below, and the sign of the distance says which way a box's words
-     travel -- up out of the box below, down into the box above */
+     class below, and the distance is how far the box's words travel up into it */
   .box.sel{--pend-move:.33s; --pend-rise:calc(15px*1.5 + var(--sp-s))}
   .pendlist.motion{
     overflow:hidden;
@@ -515,11 +516,6 @@
     mask:var(--bubble-tail) right 0 / 24px 25px no-repeat;
   }
   .pendslide:has(+ .pendlocal .pendmsg) .pendmsg:last-child .pendcontent::after{content:none}
-  /* the 7px the tail hangs into. under the box by the composer the delivery
-     word's seat holds that room; the box above the answer carries no word, so
-     its last row would end on the bubble's edge and the lane would cut the
-     hook there. a last row with nothing under it keeps the room itself */
-  .pendmsg:last-child:has(> .rcpt:empty){padding-bottom:7px}
   /* the delivery word's seat is under the bubble's straight bottom edge. its
      right end steps in by the corner's own radius, 18px, where the edge stops
      being straight: the corner's arc begins there, and on the last bubble the
@@ -543,104 +539,27 @@
   .pendmsg.unsure .pendcontent{opacity:.72}
   .pendmsg.unsure .rcpt{color:#6B5A2E}
 
-  /* ---- the answered box: what the answer on the card was given ------------- */
-  /* the sent box drawn again over the answer instead of under it: the same
-     strip, the same shut bar, the same lane, the same rows, the same tap to
-     fold and the same run under that tap. two things about it are its own. it stands out
-     of the card rather than being let into it, so it wears no shade either way
-     up, and its arrows point the other way: shut, down at the answer it opens toward; open,
-     the corner arrow turned over by the rule the box below already carries, up
-     at the title it shuts toward.
-     the wrapper stands in the card's column rather than pinned to its floor, so
-     the room it takes is room the answer does not have, and it is the one item
-     in that column allowed to give way: it shrinks under its own content and
-     hands what it cannot show to its own lane to scroll */
-  /* the two measures this card's column is shared out by, the desktop card's
-     own two at phone size.
-     --answ-open is what the box must have to be worth opening at all: its own
-     step under it, the open dress's padding over and under, the run stamp's
-     line with the corner arrow on it, and one sent row under that.
-     --answ-keep is what the answer keeps whatever the box does: one of its own
-     lines and the ramp its foot dissolves into. one line here and two on the
-     desktop, because the desktop snaps its answer to whole lines and spends the
-     remainder as air at its head; this page snaps nothing, so the line stands
-     at the top of the band */
-  .box.sel{
-    --answ-open:calc(var(--sp-s) + 12px + 10px + 12px*1.4 + var(--sp-s) + 15px*1.5);
-    --answ-keep:calc(17px*1.55 + var(--replyfade));
-  }
-  /* the box's room in the card's column, and the whole of how a short card is
-     shared out. it is the one item in that column that gives way, and it gives
-     way between two ends it may never pass.
-     it never goes below the shut bar and the step under it. that floor is the
-     point: the bar is the box's only control once it is folded, and a bar
-     squeezed to a sliver is a control that cannot be seen or hit. it holds on
-     the smallest phone in the hand, with the box below open or shut.
-     and it never takes more than the answer can spare: everything standing over
-     the sent box and the typing row, less the answer's own line. --boxband
-     is what that box and that row take, measured by the script below and
-     written on the card so this rule and the answer's own both read it.
-     what the box cannot show at either end, its own lane scrolls */
-  /* the wrapper is a block in the answer's own scroller now, so it takes only the
-     height its strip holds and rides up out of view with the answer under it. it
-     does not shrink, and its strip caps itself when open */
-  .pendwrap-answered{
+  /* ---- the messages the answer on the card was given ---------------------- */
+  /* the desktop card's panel, drawn from the shared sheet (card-tokens.css) at
+     phone size. the seat is the first block in the answer's own scroller, so
+     the panel rides up out of view with the answer under it, and it spans the
+     answer's own column, written as the same two side measures the answer's
+     words stand in, so the panel's right edge is the right edge of the
+     answer's lines. the small step under it is the one the sent box leaves
+     under itself. an empty seat takes no room */
+  .answwrap{
     display:flex; flex-direction:column; flex:none;
+    padding:0 calc(var(--pad-x)*5/3 - var(--sbar)) var(--sp-s) calc(var(--pad-x)*2/3);
   }
-  .pendwrap-answered:empty{display:none}
-  /* and the other half of the share-out. the sent box is laid OVER the answer
-     and takes no room in the column, so nothing in the column can hold it back:
-     on a card carrying both boxes it has to leave the rest of the card what the
-     rest of the card needs, or the box above it would be shrunk under its own
-     floor and the answer would lose its line. this is the state with the
-     keyboard up above all, where the card is half of what it is at rest and
-     this box's own cap is measured against the window rather than the card.
-     so on those cards it may have everything except three things it may not
-     touch: the typing row with its step and the answer's clear air
-     (--footband, measured), the answer's own reserved line, and the box above
-     at its own floor -- the shut bar when that box is folded, its open floor
-     when it is not.
-     it never grows past the cap it already had, since that cap is inside the
-     min(): with the keyboard down the 38 of the window is still what binds and
-     nothing about this box changes. a card with the sent box alone is matched
-     by neither rule and keeps exactly the behaviour it has always had.
-     the fallback beside --cardroom is a length no card can reach rather than a
-     percentage, since a percentage would be measured against this box's own
-     wrapper, which has no height of its own: a card the script has not read yet
-     keeps its own cap and gives up nothing */
-  .box.sel.hasansw .pendwrap .pendlist.open{
-    max-height:min(
-      calc(var(--vvh, 100vh) * .38),
-      calc(var(--cardroom, 9999px) - var(--footband, 0px) - var(--answ-keep)
-           - var(--pend-bar) - var(--sp-s))
-    );
+  .answwrap:empty{display:none}
+  /* the measures: the desktop's type, which is already this page's sent size,
+     on the desktop's line, and the air round the words taken in a little for
+     the narrower column */
+  .box{
+    --answ-font:400 15px/21px var(--inter); --answ-line:21px;
+    --answ-pad-y:16px; --answ-pad-x:18px; --answ-round:18px;
+    --answ-peek:calc(21px * 2.75); --answ-fade:calc(21px * .75);
   }
-  .box.sel.hasansw:has(.pendwrap-answered .pendlist.open) .pendwrap .pendlist.open{
-    max-height:min(
-      calc(var(--vvh, 100vh) * .38),
-      calc(var(--cardroom, 9999px) - var(--footband, 0px) - var(--answ-keep) - var(--answ-open))
-    );
-  }
-  /* the strip is exactly the room its wrapper holds, shut and open both, which
-     is what makes the answer start under the BOX and not under part of it: the
-     wrapper gives way when the card runs short, and the strip is flex:none in
-     the rule above, so without this it would stand at its own height and print
-     its words over the top of the answer. no overflow is set here: open,
-     mid-fold and arriving each clip by their own rule */
-  .pendwrap-answered .pendlist{
-    flex:1 1 auto; min-height:0;
-    --pend-rise:calc((15px*1.5 + var(--sp-s)) * -1);   /* its words travel down */
-  }
-  /* and no shade of its own, either way up. the raised pair it used to cast
-     around itself is off; none rather than nothing written at all, because
-     nothing written at all would hand the strip and its shut bar the sunk pair
-     the box below wears, and a box let INTO the card is what this one is not */
-  .pendwrap-answered .pendlist.open,
-  .pendwrap-answered .pendlist:not(.open) .pendhead{box-shadow:none}
-  /* the answer needs no floor of its own: it takes whatever the column has
-     left, and what it has left is settled by the box above, which may not take
-     the answer's own line and the ramp under it. one rule decides the share, so
-     neither can push the column past the card */
 
   /* ---- the foot: the plus, the typing row, the send square ------------ */
   .bottombar{
@@ -1306,52 +1225,25 @@ function boxBand(reply, wrap){
 // of the box's arrival and of a fold, so the ramp's top edge and the box's top
 // edge are the same line on every frame rather than one frame behind it
 function watchBand(el){
-  // three numbers, read in one pass because they are one reading of the card:
-  // any two of them out of step would share the card's room out wrongly. all
-  // three are written on the CARD and no longer on the answer, because the box
-  // standing over the answer has to read them too and a property written on a
-  // sibling cannot be read. the answer inherits them and every rule that read
-  // --boxband reads the number it always read.
-  //
-  // --boxband  what the sent box and the typing row cover at the foot of
-  //            the answer.
-  // --cardroom the room the card's body actually holds, which is what the two
-  //            boxes and the answer are shared out of. measured rather than
-  //            written as a percentage, so it is right while the keyboard has
-  //            the card at half the height it has at rest.
-  // --footband what stands UNDER the sent box: the typing row, the step
-  //            over it and the answer's clear air. the band less the sent box
-  //            itself, so it does not move when that box folds, which is what
-  //            lets that box's own share be worked out from it without the two
-  //            chasing each other.
-  // each of the three is written only when it changes. these feed the size of the
-  // very elements this observer watches (the box's cap off --cardroom, the
-  // answer's run-out off --boxband), so a write on every fire, even of the value
-  // already held, keeps the observer firing on its own writes, which the browser
-  // gives up on as a loop through a whole keyboard run. deduped, the writes
-  // converge in a frame and the loop never starts.
-  let lastBand = null, lastRoom = null, lastFoot = null;
+  // --boxband is what the sent box and the typing row cover at the foot of the
+  // answer. it is written on the CARD and the answer inherits it, so every rule
+  // that reads --boxband reads the number it always read.
+  // it is written only when it changes. it feeds the size of the very element
+  // this observer watches (the answer's run-out off --boxband), so a write on
+  // every fire, even of the value already held, keeps the observer firing on its
+  // own writes, which the browser gives up on as a loop through a whole keyboard
+  // run. deduped, the writes converge in a frame and the loop never starts.
+  let lastBand = null;
   const write = () => {
-    const body = el.replyview.parentElement;
     const band = boxBand(el.replyview, el.pendwrap);
-    const own = el.pend ? el.pend.getBoundingClientRect().height : 0;
-    let room = 0;
-    if (body){
-      const cs = getComputedStyle(body);
-      room = body.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
-    }
-    const roomPx = Math.max(0, Math.round(room));
-    const footPx = Math.max(0, Math.round(band - own));
     if (band !== lastBand){ lastBand = band; el.box.style.setProperty("--boxband", band + "px"); }
-    if (roomPx !== lastRoom){ lastRoom = roomPx; el.box.style.setProperty("--cardroom", roomPx + "px"); }
-    if (footPx !== lastFoot){ lastFoot = footPx; el.box.style.setProperty("--footband", footPx + "px"); }
   };
-  // the write resizes the very elements this observer watches (the box's cap off
-  // --cardroom and --footband, the answer's run-out off --boxband), so running it
-  // inside the observer leaves a resize the observer never delivers, which the
-  // browser reports as a loop through a whole keyboard run. it is coalesced onto
-  // the next frame instead: one write a frame, outside the observer's own
-  // delivery, so nothing loops, and the dedupe above settles it once sizes hold
+  // the write resizes the very element this observer watches (the answer's
+  // run-out off --boxband), so running it inside the observer leaves a resize
+  // the observer never delivers, which the browser reports as a loop through a
+  // whole keyboard run. it is coalesced onto the next frame instead: one write a
+  // frame, outside the observer's own delivery, so nothing loops, and the dedupe
+  // above settles it once sizes hold
   let scheduled = false;
   const schedule = () => {
     if (scheduled) return;
@@ -1446,11 +1338,11 @@ function makeBox(b){
   const reply = h("div", "reply cardmd");
   reply.dataset.raw = replyFull(b);
   reply.innerHTML = fmt(reply.dataset.raw);
-  // the seat the box holding what this answer was given is mounted into. it is
+  // the seat the panel holding what this answer was given is mounted into. it is
   // built with the card and stands empty until the board has a batch to show
-  // for the reply the card is showing, so the strip is never inserted between
-  // the title and the answer on the frame it arrives
-  const answwrap = h("div", "pendwrap-answered");
+  // for the reply the card is showing, so nothing is ever inserted between the
+  // title and the answer on the frame the panel arrives
+  const answwrap = h("div", "answwrap");
   const pendwrap = h("div", "pendwrap");
   const meta = h("div", "meta");
   const bottombar = h("div", "bottombar");
@@ -1478,7 +1370,7 @@ function makeBox(b){
   compose.append(ta, send, twin);
   bottombar.append(clipfile, clip, compose);
   pendwrap.append(meta, bottombar);
-  // the column: the scroller holding the answered box over the answer, and laid
+  // the column: the scroller holding the answered panel over the answer, and laid
   // over the answer at the card's floor the sent box and the typing row
   replyview.append(answwrap, reply);
   body.append(replyview, pendwrap);
@@ -1526,7 +1418,6 @@ function makeBox(b){
   };
   ta.addEventListener("input", () => {
     clearPhoneEnterAgain();
-    if (b.id === selectedId) protectAnsweredVisit(els[b.id]);
     tick(true);
   });
   ta.addEventListener("focus", () => {
@@ -1585,13 +1476,12 @@ function makeBox(b){
 
   els[b.id] = { box, body, reply, replyview, meta, ta, twin, send, tick, titleEl, sun, arc, x, pendwrap, bottombar,
                 pend: null, pendRaw: "", histUp, histDown, histPos, clip, clipfile, field,
-                foldRun: 0, answFoldRun: 0,   // one run number per box, for a second press
+                foldRun: 0,   // the sent box's run number, for a second press
                 // answ is null until the card shows a reply the board recorded a
                 // batch for, and null again the moment it shows one it did not.
-                // answId is the name of the reply the box is drawn for, which is
-                // what a poll compares against and what a chosen fold is
-                // written down under
-                answwrap, answ: null, answId: null, answKey: "answ:" + b.id };
+                // answId is the name of the reply the panel is drawn for, which
+                // is what a poll compares against
+                answwrap, answ: null, answId: null };
   syncOmniCard(els[b.id], b);
   paintSectionChips(els[b.id], b);
   // the two fades: the band the box and the bar stand in, and the band the
@@ -1634,44 +1524,11 @@ function growPend(el, arrive){
   return pend;
 }
 
-// the box that stands ABOVE the answer, holding the messages that answer was
-// given. it is built on the same beat as the box below, mounted into a wrapper
-// that has stood empty in the card's column since the card was made, and folded
-// the way this page folds its own sent box: a tap on the strip, and the card's
-// one run under it, the box and the words it holds moving together.
-// arrive tells a reply that has just landed on the card in view from a
-// card being drawn or a page being stepped back to
-function growAnswered(el, arrive){
-  const pend = answeredStrip();
-  // the dress the arrival's first beat is worn in, the sent box's own: mounted
-  // at no height, invisible and clipped while the answer gives up the room, and
-  // the floor the sheet holds for the shut bar is held off for exactly as long
-  // as the strip wears it. growPend puts it on the same way
-  if (arrive) pend.classList.add("rising");
-  pend.addEventListener("click", () => {
-    if (boxHasSelection(pend)) return;
-    foldAnswered(el, foldWants(pend), true);
-  });
-  el.answwrap.appendChild(pend);
-  el.answ = pend;
-  if (arrive) risePend(el, pend);
-  return pend;
-}
-// manual is the tap of a hand as against the minute's own clock: only the
-// hand is written down, and what is written down outlasts the clock, the poll,
-// the card being left and the page being loaded again
-function foldAnswered(el, open, manual){
-  if (!el || !el.answ) return;
-  if (manual) answeredChose(el, open);
-  holdAnswerScroll(el);   // the box rides in the scroller: hold the visible line while it folds
-  // the batch's beginning, or where it was left, on the card's one fold run
-  foldStrip(el, el.answ, "answFoldRun", open, answeredPlace);
-}
 // the arrival's two beats (risePend), the rows, the delivery words, the run
 // stamp and the poll's own pass over the box (syncPend) are shared with the
-// desktop: card-logic.js. so is everything the box above the answer knows about
-// which reply it belongs to, what that reply was given, the minute it stays
-// shut for and the reader's own word about it
+// desktop: card-logic.js. so is the whole of the panel of answered messages
+// above the answer: which reply it belongs to, what that reply was given, how
+// it is built, and the tap that opens it and cuts it back
 
 // ---- sending, closing, parking, naming ------------------------------------------
 // what the cross on the card does, and what the key that stands for it does: the
@@ -2253,7 +2110,6 @@ function syncSelectedHistory(){
 function select(id){
   const trace = tracePhone("begin", "select", { box: id });
   if (!els[id]){ endPhoneTrace(trace, { box: id }); return; }
-  const leaving = selectedId && selectedId !== id ? els[selectedId] : null;
   cancelAutoNext();
   if (hist && hist.id !== id) histExit(hist.id);
   selectedId = id; localStorage.setItem("selbox", id);
@@ -2262,7 +2118,6 @@ function select(id){
   if (b) lastSel[b.owner] = id;
   syncPhoneHistory(b);
   for (const k of Object.keys(els)) els[k].box.classList.toggle("sel", k === id);
-  releaseAnsweredVisit(leaving);
   document.getElementById("pane").classList.remove("blank");
   for (const r of document.querySelectorAll("#tiklist .trow")){
     r.classList.toggle("on", r.dataset.id === id);
@@ -2273,10 +2128,8 @@ function select(id){
 }
 function deselect(){
   cancelAutoNext();
-  const leaving = selectedId && els[selectedId];
   selectedId = null; localStorage.removeItem("selbox");
   for (const k of Object.keys(els)) els[k].box.classList.remove("sel");
-  releaseAnsweredVisit(leaving);
   document.getElementById("pane").classList.add("blank");
   for (const r of document.querySelectorAll("#tiklist .trow")) r.classList.remove("on");
 }
@@ -3138,8 +2991,8 @@ function apply(state){
       // card, so the card takes it with it: without this the editor and the
       // removed card stay reachable for the rest of the page's life
       els[id].field?.detach();
-      // and a minute still to run on a card that is going belongs to nothing
-      clearAnsweredClock(els[id].answKey);
+      // and the watch on its panel's size goes with it
+      dropAnswered(els[id], null);
       els[id].box.remove(); delete els[id];
     }
   }
@@ -3167,14 +3020,13 @@ function apply(state){
     // and stands at the end of time while one is still in flight
     const stale = (state.fetchedAt || 0) < (el.sendGuard || 0);
     if (!stale) syncPendPhone(el, b, pt);
-    // and the box over the answer: the reply the card is showing, and the
+    // and the panel over the answer: the reply the card is showing, and the
     // messages the board recorded that reply was given. while an older page is
-    // on show the stepper owns that box, so the poll leaves it alone and
+    // on show the stepper owns that panel, so the poll leaves it alone and
     // histExit is what hands it back to the live reply. the pass compares the
     // reply's own name, so a poll carrying the same reply again touches no dom
     // at all and nothing near the typing row moves
-    if (!(hist && hist.id === b.id))
-      syncAnswered(el, liveAnswered(b), { arrive: drewBoard && b.id === selectedId });
+    if (!(hist && hist.id === b.id)) syncAnswered(el, liveAnswered(b));
     const cs = cardState(b);
     el.box.classList.toggle("done", cs === "done");
     el.box.classList.toggle("parked", cs === "parked");
