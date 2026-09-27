@@ -1533,10 +1533,11 @@ function growPend(el, arrive){
 // ---- sending, closing, parking, naming ------------------------------------------
 // what the cross on the card does, and what the key that stands for it does: the
 // card is closed and the next one still open takes the screen, so the screen is
-// never left holding a card that has just gone
-async function closeCard(id){
+// never left holding a card that has just gone. hop is false only for backspace
+// on a card already done, where the cross stands faded and nothing moves
+async function closeCard(id, hop = true){
   await fetch("/close?box=" + encodeURIComponent(id), { method: "POST" }).catch(() => {});
-  selectNextDoing(id);
+  if (hop) selectNextDoing(id);
   poll();
 }
 function undone(id){
@@ -3862,7 +3863,8 @@ const phoneShortcutActions = {
     const b = lastState?.boxes.find(x => x.id === selectedId);
     if (b?.bucket === "meta"){
       e.preventDefault();
-      closeCard(selectedId);
+      // a done card is still sent the close it always was, but stays on screen
+      closeCard(selectedId, !chipOff(els[selectedId]?.x));
     }
   },
   destination(e, shortcut){

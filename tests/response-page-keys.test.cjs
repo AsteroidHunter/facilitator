@@ -666,8 +666,10 @@ const SECTIONS = [
 const sectionChord = ({ code, shifted }, over = {}) => ({ key: shifted, code, ctrlKey: true, shiftKey: true, ...over });
 const sectionAlone = ({ code, key }, over = {}) => ({ key, code, ctrlKey: false, ...over });
 
+// hops records the shared hop to the next doing card (selectNextDoing), and the
+// phone's closeCard records whether it was asked to hop, its default being yes
 async function sectionPage(name) {
-  const moves = [], requests = [];
+  const moves = [], requests = [], hops = [];
   const f = await page(name, calls => ({
     FOCUS: true, boardKeysLive: () => true, miniFocused: false, p3Zoom: null,
     lastState: { boxes: [{ id: "c1", bucket: "meta" }, { id: "c2", bucket: "meta" }] },
@@ -675,12 +677,16 @@ async function sectionPage(name) {
     sectionKeyMove: (id, section, el, close) => { moves.push({ id, section, el, close }); return true; },
     nav: dir => calls.push(["nav", dir]),
     stepCard: dir => calls.push(["step", dir]),
-    closeCard: id => calls.push(["closeCard", id]),
+    closeCard: (id, hop) => calls.push(["closeCard", id, hop !== false]),
+    selectNextDoing: id => hops.push(id),
     poll() {},
     fetch: (url, init) => { requests.push([url, init && init.method]); return Promise.resolve({}); },
   }));
-  return { ...f, moves, requests };
+  return { ...f, moves, requests, hops };
 }
+const settle = async () => { for (let i = 0; i < 6; i++) await new Promise(resolve => setImmediate(resolve)); };
+// the cross faded, the way the page paints a card already done
+const fadedCross = () => ({ getAttribute: name => (name === "aria-disabled" ? "true" : null) });
 
 for (const name of ["index.html", "m.html"]) {
   test(`${name} control+shift with [, ] and \\ moves the selected card from its composer, the response and the page`, async () => {
@@ -774,21 +780,48 @@ for (const name of ["index.html", "m.html"]) {
     assert.equal(back.defaultPrevented, true);
     // and backspace in the composer is the composer's
     assert.equal(f.press({ key: "Backspace", code: "Backspace", ctrlKey: false }, f.a.parts.content).defaultPrevented, false);
-    const closed = name === "index.html" ? [] : [["closeCard", "c1"]];
+    await settle();
+    const closed = name === "index.html" ? [] : [["closeCard", "c1", true]];
     assert.deepEqual(f.calls, [[step, -1], [step, 1], ["destination", "c1", "doing"],
                                ["destination", "c1", "deferred"], ...closed]);
-    if (name === "index.html") assert.deepEqual(f.requests, [["/close?box=c1", "POST"]]);
+    if (name === "index.html") {
+      assert.deepEqual(f.requests, [["/close?box=c1", "POST"]]);
+      // backspace now hops to the next doing card, once the close has answered
+      assert.deepEqual(f.hops, ["c1"]);
+    }
     assert.deepEqual(f.moves, []);
   });
 
-  test(`${name} done is the page's own close`, async () => {
+  test(`${name} backspace and delete hop only where the cross would, and still close a done card`, async () => {
+    for (const key of ["Backspace", "Delete"]) {
+      const live = await sectionPage(name);
+      live.press({ key, code: key, ctrlKey: false }, live.doc.body);
+      await settle();
+      const done = await sectionPage(name);
+      done.a.el.x = fadedCross();
+      assert.equal(done.press({ key, code: key, ctrlKey: false }, done.doc.body).defaultPrevented, true);
+      await settle();
+      if (name === "index.html") {
+        assert.deepEqual([live.requests, live.hops], [[["/close?box=c1", "POST"]], ["c1"]], `${key} on a live card`);
+        assert.deepEqual([done.requests, done.hops], [[["/close?box=c1", "POST"]], []], `${key} on a done card`);
+      } else {
+        assert.deepEqual(live.calls, [["closeCard", "c1", true]], `${key} on a live card`);
+        assert.deepEqual(done.calls, [["closeCard", "c1", false]], `${key} on a done card`);
+      }
+    }
+  });
+
+  test(`${name} done is the page's own close, and it hops`, async () => {
     const f = await sectionPage(name);
     f.press(sectionAlone(SECTIONS[2]), f.doc.body);
     const [move] = f.moves;
     assert.equal(move.section, "done");
     move.close("c1");
-    if (name === "index.html") assert.deepEqual(f.requests, [["/close?box=c1", "POST"]], "not backspace's close");
-    else assert.deepEqual(f.calls, [["closeCard", "c1"]], "not the cross's close");
+    await settle();
+    if (name === "index.html") {
+      assert.deepEqual(f.requests, [["/close?box=c1", "POST"]], "not the cross's close");
+      assert.deepEqual(f.hops, ["c1"], "the done key did not hop");
+    } else assert.deepEqual(f.calls, [["closeCard", "c1", true]], "not the cross's close");
   });
 }
 
