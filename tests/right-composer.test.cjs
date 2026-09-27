@@ -610,7 +610,8 @@ test("a send from the box is a send from the bar: same enter, same arrow, same r
   assert.ok(sent.every(c => c.init.method === "POST"));
   assert.equal(card.sentTexts.join("\n\n"), "from the bar\n\nfrom the box\n\nby the arrow", "the sent panel did not take all three");
   assert.ok(card.sent, "no sent panel stands at the card's foot");
-  assert.deepEqual(card.sentBatch.map(m => m.text), ["from the bar", "from the box", "by the arrow"],
+  // read out into this side's own array: the batch was built inside the page's sandbox
+  assert.deepEqual(Array.from(card.sentBatch, m => m.text), ["from the bar", "from the box", "by the arrow"],
     "the sent panel was not handed all three");
   assert.doesNotMatch(card.metaNote.textContent, /send failed/, "a send from the box failed to land in the sent panel");
 });
