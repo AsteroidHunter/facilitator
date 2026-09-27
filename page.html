@@ -581,9 +581,34 @@
   .trow.yours{background:#FFFBEB; border-color:var(--line)}
   .trow.queuedc{background:#F7F7F7; border-color:var(--line)}
   .trow.donec{opacity:.55}
-  /* the ready-to-test edge is the one plain line every ticket wears, so the
-     state reads by its fill; the fill sits after .trow.match below so the marker wins it */
-  .trow.testc:not(.on){border-color:var(--line)}
+  /* the ready-to-test fold, kept in step with the board's and the phone's in
+     card-tokens.css, which this page does not load; the reasons are written
+     there. the row keeps its own fill, edge and shade, and the fold is the
+     whole marker: the corner cut off along the crease, --fold in along the top
+     edge and down the right, and a pure white flap lying on the face as the cut
+     corner's mirror, with the ticket's 5px corner at its tip. every line the
+     fold draws, the crease and the flap's two free edges, is --fold-edge, the
+     0.8px of every ticket edge. this row matches the board's, so the flap is
+     the board's 16px, which clears the age */
+  .trow.testc{--fold:16px; --fold-edge:0.8px;
+    clip-path:polygon(-40px -40px, calc(100% - var(--fold) - 40px) -40px,
+      calc(100% + 40px) calc(var(--fold) + 40px),
+      calc(100% + 40px) calc(100% + 40px), -40px calc(100% + 40px)) padding-box}
+  .trow.testc::before, .trow.testc::after{
+    content:""; position:absolute; top:0; right:0; box-sizing:border-box;
+    width:var(--fold); height:var(--fold); border-bottom-left-radius:5px;
+    pointer-events:none;
+  }
+  .trow.testc::before{background:var(--line); clip-path:polygon(0 0, 100% 100%, 0 100%)}
+  .trow.testc::after{
+    background:#ffffff;
+    border-left:var(--fold-edge) solid var(--line);
+    border-bottom:var(--fold-edge) solid var(--line);
+    box-shadow:0 1px 2px rgba(60,45,20,.16);
+    clip-path:polygon(-6px calc(var(--fold-edge) * 1.41421 - 6px),
+      calc(100% + 6px - var(--fold-edge) * 1.41421) calc(100% + 6px),
+      -6px calc(100% + 6px));
+  }
   .trow.on{
     border-color:var(--line);
     /* the selected row rises off the list: the chat frame's own shadow shape,
@@ -719,8 +744,6 @@
   #todoadd::placeholder{color:#B4AA99}
   /* selecting a task highlights its chats in the left box */
   .trow.match{background:var(--accent-soft); border-color:var(--line)}
-  /* the ready-to-test fill wins over every state and the task-match wash */
-  .trow.testc{background:#EBEFFF}
   /* ---- the rail: started date, dotted track, red goal dot --------------- */
   body.focus #rail{
     position:fixed;

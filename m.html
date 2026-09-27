@@ -849,11 +849,12 @@
   .trow.donec{opacity:.55}
   .trow.on{border-color:var(--line); transform:translateY(-1px); z-index:1;
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
-  /* the ready-to-test fill: a distinct cool wash. its edge is the one plain
-     line every ticket wears, so the state reads by its fill alone. background
-     sits after .trow.on so the marker wins the fill on any row. */
-  .trow.testc{background:#EBEFFF}
-  .trow.testc:not(.on){border-color:var(--line)}
+  /* a ready-to-test row wears no fill or edge of its own: its whole marker is
+     the folded top right corner, drawn for this page and the desktop alike in
+     card-tokens.css. this row is 52px to the desktop's 64.8, and a 16px flap
+     here would lie over the top of the age's last letter, so the phone folds
+     12px: the desktop's fold scaled to this row, rounded down to clear the age */
+  .trow.testc{--fold:12px}
   /* ---- the settings, on the panel off the right edge ---------------------- */
   /* the header, its mark on the left in the line the card's own marks are drawn
      in, and the card title's face and weight, which is the one heading face on

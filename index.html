@@ -1885,11 +1885,9 @@
   .trow.yours{background:#FFFBEB; border-color:var(--line)}
   .trow.queuedc{background:#F7F7F7; border-color:var(--line)}
   .trow.donec{opacity:.55}
-  /* the ready-to-test fill: a distinct cool wash for a card whose delivered
-     change is available for the reader to try. every ticket edge is the one
-     plain line, so a state reads by its fill alone and this edge is that line
-     too. background sits after .trow.match below so the marker wins the fill. */
-  .trow.testc:not(.on){border-color:var(--line)}
+  /* a ready-to-test row wears no fill or edge of its own: its whole marker is
+     the folded top right corner, drawn for this page and the phone alike in
+     card-tokens.css, at the 16px that clears this row's age */
   .trow.on{
     border-color:var(--line);
     /* the selected row rises off the list: the chat frame's own shadow shape,
@@ -3111,9 +3109,6 @@
     border:var(--edge) solid var(--line); background:#E9ECEF}
   /* selecting a task highlights its chats in the left box */
   .trow.match{background:var(--accent-soft); border-color:var(--line)}
-  /* the ready-to-test fill wins over every state and the task-match wash, so a
-     card marked ready stays recognizable whichever list it sits in */
-  .trow.testc{background:#EBEFFF}
   /* ---- the rail: started date, dotted track, red goal dot --------------- */
   body.focus #rail{
     position:fixed;
