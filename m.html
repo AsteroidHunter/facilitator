@@ -1446,6 +1446,8 @@ function makeBox(b){
       endPhoneTrace(trace, { box: b.id }, null, true);
     });
   });
+  // a tap into the row or a key typed there is using the card, so it is read
+  readOnCompose(ta, b.id);
   ta.addEventListener("mousedown", e => takeFocusTap(e, ta));
   // enter sends and shift enter makes a new line, the desktop composer's pair,
   // and only while the on-screen keyboard is down. a phone puts that keyboard
@@ -3060,6 +3062,9 @@ function apply(state){
       if (hist && hist.id === b.id) histExit(b.id);
       else el.reply.innerHTML = fmt(rawReply);
     }
+    // a reply landing on the open card while the caret is in its row is read as
+    // it lands, unless the drawer is covering the card
+    readOnArrival(el, b, b.id === selectedId && !drawerOpen());
     // the card reads its own name, Omni Card #N for an Omni ticket; an Omni
     // sweep in flight writes it itself
     if (!el.titleEl.isContentEditable && !el.omniSweep && el.titleEl.textContent !== omniCardTitle(b.title))

@@ -79,6 +79,14 @@ const CARD_SHORTCUT_DEFINITIONS = [
     action: "escape", mini: false,
     match: e => e.key === "Escape" ? true : null,
   },
+  // Enter alone selects the card on screen and puts the caret in its
+  // composer. only the desktop board answers it, and only where nothing is
+  // being typed; the composers take their own Enter before it gets here
+  {
+    action: "enter", mini: false,
+    match: e => e.key === "Enter" && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey &&
+      !e.repeat && !e.isComposing && !e.defaultPrevented ? true : null,
+  },
   {
     action: "close", mini: false,
     match: e => e.key === "Backspace" || e.key === "Delete" ? true : null,
@@ -1037,6 +1045,29 @@ function setSeenMany(marks){
 function markSeen(id){
   if (seenTotals[id] != null) setSeenMany({ [id]: seenTotals[id] });
 }
+// a click into a card's composer, or a key typed there, is using the card, so
+// it counts as read. use is the page's own way of saying so, markSeen unless
+// the page does more. the input is asked about the caret, because the
+// formatter also says input when it puts its editor on or takes it off, which
+// it does to every card on load, and that is nobody reading anything
+function readOnCompose(ta, id, use = markSeen){
+  ta.addEventListener("focus", () => use(id));
+  ta.addEventListener("input", () => { if (ComposeFormat.focused(ta)) use(id); });
+}
+// a reply that lands while the reader's caret is in that card's composer, on
+// a page that is on screen, is read the moment it lands: the reader is in the
+// card. inUse is the page's word that this is the card being used. el.replyCount
+// is the count this page last drew, so a first drawing or a reload has nothing
+// to compare with and marks nothing. called after seenSync, so the mark covers
+// the reply that just came
+function readOnArrival(el, b, inUse){
+  const was = el.replyCount, now = b.replies || 0;
+  el.replyCount = now;
+  if (was == null || now <= was || !inUse) return false;
+  if (document.visibilityState !== "visible" || !ComposeFormat.focused(el.ta)) return false;
+  markSeen(b.id);
+  return true;
+}
 
 // does this lane still hold a reply the reader has not opened? this is the left
 // list's own seen test, card by card, so the tab and the row can never
@@ -1867,10 +1898,12 @@ function setCardDestination(id, destination){
 }
 
 // Closing a card and snoozing the card on screen use the same Doing fallback.
+// the hop says so to select, and the desktop keeps a card it only browsed to
+// browsed on the card it lands on
 function selectNextDoing(id){
   const doing = lastState ? poolOf(lastState).filter(b =>
     !b.done && !b.parked && b.id !== id && b.id !== "0" && b.id !== "t0") : [];
-  if (doing.length) select(doing[0].id); else deselect();
+  if (doing.length) select(doing[0].id, { hop: true }); else deselect();
 }
 
 // ---- the three section chips ---------------------------------------------------
