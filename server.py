@@ -258,7 +258,35 @@ Endpoints:
                                below zero; an unknown box or a bad count is a
                                400 with nothing stored at all. Answers the
                                stored counts for the ids it was given
-  POST /clientlog           -> body = {"page": "board"|"phone"|"page",
+  GET  /quicknotes          -> {notes, rev}: every quick note, oldest first, each
+                               {id, text, created, updated, card}. A quick note
+                               is plain text the owner jots down from the
+                               board's corner; card is the id of the card it is
+                               attached to, or null while it stands alone. /state
+                               carries the same list without the text, which is
+                               enough for a card to show it has a note; the text
+                               itself travels only on these routes
+  POST /quicknote/new[?card=ID] -> body = the note's text, kept as typed and
+                               never stripped. Makes a note, ids qn1, qn2...
+                               never reused, attached to card ID when one is
+                               named; an unknown card is a 400 with nothing
+                               stored. Answers {ok, note, rev}
+  POST /quicknote/save?id=N -> body = the note's whole new text, as typed.
+                               Replaces the text and moves updated; the same
+                               text again changes nothing and saves nothing.
+                               Answers {ok, note, rev}; an unknown id is a 400
+  POST /quicknote/attach?id=N[&card=ID] -> attaches note N to card ID, or, with
+                               no card, detaches it so it stands alone again. An
+                               unknown note or card is a 400 with nothing
+                               stored. Answers {ok, note, rev}
+  POST /quicknote/del?id=N  -> removes note N for good. Answers {ok, id, rev}.
+                               No quick note route writes a note's text to the
+                               log or the transcript: the log line names the
+                               note, its card and its length. They are served on
+                               the local port like every route here, and the
+                               phone bridge hands a signed-in session through to
+                               them exactly as it does to every other route
+  POST /clientlog          -> body = {"page": "board"|"phone"|"page",
                                "reports": [...]}: what a page noticed and has no
                                other way to say. One report per thrown error,
                                rejected promise, failed request, failed render
@@ -2016,6 +2044,16 @@ def _migrate() -> None:
             b.setdefault("reply_id", "")
             b.setdefault("reply_ts", 0)
     _state.setdefault("next_reply_id", 1)
+    # quick notes (2026-09-26): the owner's jotted notes, each standing alone or
+    # attached to one card. a board from before them simply has none, and the
+    # id counter is never reused, like the box and page counters, so a stale
+    # page holding a deleted note's id can never land on a newer note
+    if not isinstance(_state.get("quicknotes"), list):
+        _state["quicknotes"] = []
+    _state.setdefault("next_qnid", 1 + max(
+        [int(n["id"][2:]) for n in _state["quicknotes"]
+         if isinstance(n, dict) and str(n.get("id", "")).startswith("qn")
+         and str(n["id"])[2:].isdigit()] or [0]))
     _save()
 
 
@@ -2256,6 +2294,11 @@ def _remove_empty_meta_box(box: dict) -> str:
     if _state["busy"][ow] == bid:
         _state["busy"][ow] = None
         _state["claimed"][ow] = []
+    # a quick note attached to the card that is going stands alone again,
+    # rather than naming a card the board no longer has
+    for note in _state.get("quicknotes", []):
+        if note.get("card") == bid:
+            note["card"] = None
     _log("delete", bid, box["title"])
     return "deleted"
 
@@ -3198,6 +3241,10 @@ def _ui_state() -> dict:
         # draws them. A lane with an empty list has had all of its pages
         # removed; a lane absent from the map has never been migrated
         "pages": st.get("pages", {}),
+        # the quick notes without their words: enough for a card to show that a
+        # note is attached to it. the words travel only on the note routes, so
+        # a reading taken every second never carries them
+        "quicknotes": [_quicknote_meta(n) for n in st.get("quicknotes", [])],
         "listenerGap": {ow: round(time.time() - _last_wait.get(ow, 0.0), 1) for ow in OWNERS},
         # the row tag's truth: the lane's last stated agent name, and alive
         # meaning connected now, seen within the steal window, or holding a card
@@ -4952,6 +4999,106 @@ def _post_seen(q: Query, text: str):
         return 200, {"ok": True, "seen": out}
 
 
+# ---- quick notes ------------------------------------------------------------------
+# a few lines the owner jots down without leaving what they are doing: plain
+# text, standing alone unless it names a card, and then attached to that card.
+# one record per note in state.json under quicknotes, oldest first:
+#   id       qn1, qn2...: never reused, like the box and page counters
+#   text     the whole note as typed, unstripped, since its own blank lines and
+#            indents are part of it the way they are part of a file
+#   created  when it was first saved
+#   updated  when its text or its card last changed
+#   card     the id of the card it is attached to, or None while it stands alone
+# a note attached to a card is the record that card's scratchpad is meant to
+# grow from: the scratchpad is the card's newest attached note, found through
+# the card field and drawn beside the card, and whoever keeps it current, the
+# owner or later an agent, writes it through the same save route.
+# the text is never written anywhere but state.json: no transcript row and no
+# log line carries it, only the note's id, its card and its length. and no
+# note route wakes the agents' long polls, since nothing they wait on is a note
+# and an autosave would otherwise wake every one of them as the owner types
+def _quicknote(nid: str) -> dict | None:
+    return next((n for n in _state.get("quicknotes", []) if n.get("id") == nid), None)
+
+
+def _quicknote_meta(note: dict) -> dict:
+    """what /state carries of one note: never its text"""
+    return {"id": note["id"], "card": note.get("card"),
+            "created": note.get("created", 0), "updated": note.get("updated", 0)}
+
+
+def _quicknote_text(raw: bytes) -> str:
+    # kept as typed, where every other text route strips its body
+    return raw.decode("utf-8", "replace")
+
+
+def _get_quicknotes(q: Query, _):
+    with _lock:
+        return 200, *_snapshot({"notes": _state.get("quicknotes", []), "rev": _state.get("rev", 0)})
+
+
+def _post_quicknote_new(q: Query, raw: bytes):
+    text = _quicknote_text(raw)
+    card = q.one("card") or None
+    with _lock:
+        if card is not None and _box(card) is None:
+            return 400, {"error": "unknown card"}
+        nid = f"qn{_state['next_qnid']}"
+        _state["next_qnid"] += 1
+        now = time.time()
+        note = {"id": nid, "text": text, "created": now, "updated": now, "card": card}
+        _state["quicknotes"].append(note)
+        _save()
+        # written once the save has landed, so a note the board could not keep
+        # is never said to exist
+        _info("quicknote+", card or "", note=nid, length=len(text))
+        return 200, {"ok": True, "note": note, "rev": _state["rev"]}
+
+
+def _post_quicknote_save(q: Query, raw: bytes):
+    text = _quicknote_text(raw)
+    with _lock:
+        note = _quicknote(q.one("id"))
+        if note is None:
+            return 400, {"error": "unknown note"}
+        if note["text"] != text:
+            note["text"] = text
+            note["updated"] = time.time()
+            _save()
+            # an autosave lands every pause in the typing, which is noise at the
+            # default level and worth seeing only while hunting
+            _debug("quicknote", note.get("card") or "", note=note["id"], length=len(text))
+        return 200, {"ok": True, "note": note, "rev": _state["rev"]}
+
+
+def _post_quicknote_attach(q: Query, text: str):
+    card = q.one("card") or None
+    with _lock:
+        note = _quicknote(q.one("id"))
+        if note is None:
+            return 400, {"error": "unknown note"}
+        if card is not None and _box(card) is None:
+            return 400, {"error": "unknown card"}
+        was = note.get("card")
+        if was != card:
+            note["card"] = card
+            note["updated"] = time.time()
+            _save()
+            _info("quicknote@", card or was or "", note=note["id"], attached=card is not None)
+        return 200, {"ok": True, "note": note, "rev": _state["rev"]}
+
+
+def _post_quicknote_del(q: Query, text: str):
+    with _lock:
+        note = _quicknote(q.one("id"))
+        if note is None:
+            return 400, {"error": "unknown note"}
+        _state["quicknotes"].remove(note)
+        _save()
+        _info("quicknote-", note.get("card") or "", note=note["id"])
+        return 200, {"ok": True, "id": note["id"], "rev": _state["rev"]}
+
+
 def _post_pause(q: Query, text: str):
     with _lock:
         _state["paused"] = q.one("v", "1") == "1"
@@ -5517,6 +5664,11 @@ ROUTES = [
     Route("/push/unsubscribe", _state_endpoint(_post_push_unsubscribe, "text"), methods=["POST"]),
     Route("/tabs", _state_endpoint(_post_tabs, "text"), methods=["POST"]),
     Route("/seen", _state_endpoint(_post_seen, "text"), methods=["POST"]),
+    Route("/quicknotes", _endpoint(_get_quicknotes), methods=["GET"]),
+    Route("/quicknote/new", _state_endpoint(_post_quicknote_new, "raw", MAX_TEXT_BODY, "note too large"), methods=["POST"]),
+    Route("/quicknote/save", _state_endpoint(_post_quicknote_save, "raw", MAX_TEXT_BODY, "note too large"), methods=["POST"]),
+    Route("/quicknote/attach", _state_endpoint(_post_quicknote_attach, "text"), methods=["POST"]),
+    Route("/quicknote/del", _state_endpoint(_post_quicknote_del, "text"), methods=["POST"]),
     Route("/pause", _state_endpoint(_post_pause, "text"), methods=["POST"]),
     Route("/end", _state_endpoint(_post_end, "text"), methods=["POST"]),
 ]
