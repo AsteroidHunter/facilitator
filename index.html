@@ -1389,11 +1389,14 @@
      at 15 on a 21 line, a size under the answer's 18, and about a line of air
      round the words. a long batch shows two and three quarter lines before it
      is opened, so the third line is seen dissolving, and the cut fades over
-     that last three quarters */
+     that last three quarters. the strip the arrow stands in is 36px, up from
+     the 20px of air it had, so the 7px arrow has 14.5px clear over it and under
+     it, a little taller than the old box's own shut bar */
   body.focus .box.sel{
     --answ-font:400 15px/21px var(--inter); --answ-line:21px;
     --answ-pad-y:20px; --answ-pad-x:21px; --answ-round:18px;
     --answ-peek:calc(21px * 2.75); --answ-fade:calc(21px * .75);
+    --answ-strip:36px;
   }
   /* the bar: the button, one step, and the row. the step is the strip's own
      small one, the same air the sent box leaves under itself, so the gap beside
@@ -2865,17 +2868,22 @@
      the measures are the large card's carried down to this card's 12px type,
      and the preview is a line shorter, one and three quarters, because the
      whole card is only a few lines tall and a long batch shut must not take
-     the reply's room */
+     the reply's room. the arrow's strip is 24px, up from the 11px of air it
+     had, so the 7px arrow has 8.5px clear over it and under it */
   #magic2 .mbox{
     --answ-font:400 12px/17px var(--inter); --answ-line:17px;
     --answ-pad-y:11px; --answ-pad-x:12px; --answ-round:12px;
     --answ-peek:calc(17px * 1.75); --answ-fade:calc(17px * .75);
+    --answ-strip:24px;
   }
   #magic2 .answwrap{display:flex; flex-direction:column; flex:none; margin:6px 0}
   #magic2 .answwrap:empty{display:none}
   /* opened, a long batch is the seat's own lane to scroll and never the reply's
-     room to take: it stops at two fifths of the card */
-  #magic2 .answwrap:has(.answered.open){flex:0 1 auto; min-height:0; max-height:40%; overflow-y:auto}
+     room to take: it stops at two fifths of the card. the cap holds for the
+     whole of a run too, in both directions, so cutting back does not stand the
+     seat at the batch's full height for the first frame of it */
+  #magic2 .answwrap:has(.answered.open),
+  #magic2 .answwrap:has(.answered.motion){flex:0 1 auto; min-height:0; max-height:40%; overflow-y:auto}
   /* the small card's column, shared out. .mpend above is flex:none and grows to
      whatever it holds, which is right while nothing else stands over the reply
      and wrong the moment the panel does: the two together would push the reply
@@ -5492,12 +5500,13 @@ function snapCard(){
   if (pend && (pend.classList.contains("open") || pend.classList.contains("motion") ||
                pend.classList.contains("rising"))) return;
   // and the panel of answered messages above the answer, on the same rule the
-  // box below is read by: while it stands open the answer keeps the phase it
-  // was snapped to with the panel cut, so opening moves the answer down by the
-  // panel's growth and nothing more, and cutting it back always brings the
-  // answer back to the same line
+  // box below is read by: while it stands open, or moves, the answer keeps the
+  // phase it was snapped to with the panel cut, so opening moves the answer
+  // down by the panel's growth on the panel's own curve and nothing more, and
+  // cutting it back always brings the answer back to the same line. the panel
+  // says so itself once its run has landed
   const answ = el.answ;
-  if (answ && answ.classList.contains("open")) return;
+  if (answ && (answ.classList.contains("open") || answ.classList.contains("motion"))) return;
   // the snap reads the answer at its own top, the state every gap is measured in.
   // a card scrolled down is left as it stands: the line grid it was snapped to at
   // the top rides with the scroll, so re-snapping against the scrolled lines would

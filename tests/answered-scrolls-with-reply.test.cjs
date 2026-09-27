@@ -116,7 +116,7 @@ for (const kind of ["desktop", "phone"]) {
         const el = els[id];
         if (el.answ.classList.contains("open") !== want) openAnswered(el.answ, want);
       }, cardId, wantOpen);
-      await wait(120);
+      await wait(650);   // the fold's run and the timer behind it, landed
       const moved = await page.evaluate(id => {
         const el = els[id];
         const p = el.reply.querySelector("p") || el.reply.children[0];

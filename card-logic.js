@@ -1359,11 +1359,13 @@ function syncPend(el, texts, stamps){
 // it, no time and no label. the messages stand in it one under another in the
 // order they were sent, with a hairline between one message and the next. a
 // batch taller than the panel's preview is shown cut to its first lines, fading
-// out over a small arrow, and a click or a tap anywhere on it shows the whole
-// batch in place; another cuts it back. a batch that fits the preview is simply
-// shown whole, with no arrow and nothing to press. the desktop card, the phone
-// card and the small card all build it here and draw it from the one set of
-// rules in card-tokens.css, each at its own size.
+// out over a strip at the panel's foot that carries a small arrow pointing down,
+// and a click or a tap anywhere on it opens the whole batch in place, on the old
+// answered box's own fold run, with the arrow turning to point up; another cuts
+// it back the same way. a batch that fits the preview is simply shown whole,
+// with no strip, no arrow and nothing to press. the desktop card, the phone card
+// and the small card all build it here and draw it from the one set of rules in
+// card-tokens.css, each at its own size.
 
 // what the board recorded one reply was given, or nothing when it recorded
 // none. an empty list is an answer and not a silence: it says that reply was
@@ -1399,23 +1401,26 @@ function histAnswered(list, step){
   return { id: one.id, answered: Array.isArray(one.answered) ? one.answered : null };
 }
 
-// the panel's one arrow, centred under a cut batch and pointing down at the
-// rest of it. a path and not a font glyph, so its weight holds at any scale; it
-// is the sent box's own chevron turned over
+// the panel's one arrow, centred in the strip at the panel's foot. it points
+// down at the rest of a cut batch, and the sheet turns it over to point up
+// while the batch stands open. a path and not a font glyph, so its weight holds
+// at any scale; it is the sent box's own chevron turned over
 const ANSWERED_CHEV = '<svg class="answchev" width="11" height="7" viewBox="0 0 11 7"' +
   ' fill="none" aria-hidden="true"><path d="M1 1.35 5.5 5.65 10 1.35" stroke="currentColor"' +
   ' stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 // the panel's markup, built here so no surface can drift from another: the cut,
-// the column of messages inside it, and the arrow. room is who the surface
-// wants told when the panel changes its own height, which only an opening or a
-// cutting back does: the desktop card re-snaps the answer's lines on it, and
+// the column of messages inside it, and the strip at the foot that carries the
+// arrow. room is who the surface wants told once the panel has changed its own
+// height and stopped: the desktop card re-snaps the answer's lines on it, and
 // the small card has nobody to tell
 function answeredPanel(room){
   const panel = h("div", "answered");
-  panel.innerHTML = '<div class="answclip"><div class="answstack"></div></div>' + ANSWERED_CHEV;
+  panel.innerHTML = '<div class="answclip"><div class="answstack"></div></div>' +
+    '<div class="answfoot">' + ANSWERED_CHEV + "</div>";
   panel.setAttribute("role", "group");
   panel.setAttribute("aria-label", "your messages that the reply below answers");
+  panel.answRoom = room || null;
   panel.addEventListener("click", e => {
     // a batch shown whole has nothing more to show
     if (!panel.classList.contains("more")) return;
@@ -1423,44 +1428,108 @@ function answeredPanel(room){
     // ends picking out some of the words is a copy rather than a request
     if (e.target && e.target.closest && e.target.closest("a, button, audio, video")) return;
     if (boxHasSelection(panel)) return;
+    // the class is the way the run is heading, so a press that catches a run
+    // turns it round rather than repeating it
     openAnswered(panel, !panel.classList.contains("open"));
-    if (room) room();
   });
   // whether a batch runs past the preview can only be read off a panel that is
   // laid out, and a card that is not on screen is not. so it is read again
   // whenever the column of messages changes size: the card coming on screen,
-  // the window being resized, a picture in a message landing
+  // the window being resized, a picture in a message landing. the strip comes
+  // and goes with the answer, so a change in it is a change in the room
   if (typeof ResizeObserver !== "undefined"){
-    panel.answWatch = new ResizeObserver(() => fitAnswered(panel));
+    panel.answWatch = new ResizeObserver(() => {
+      if (fitAnswered(panel) && panel.answRoom) panel.answRoom();
+    });
     panel.answWatch.observe(panel.querySelector(".answstack"));
   }
   return panel;
 }
 
-// open shows the whole batch in place and shut cuts it back to the preview. the
-// fade and the arrow are the sheet's, worn off the classes alone
+// the open and the cut back, run the way the old answered box ran its fold,
+// which is the card's one fold: the height carries the change, over the sheet's
+// --answ-move (the old --pend-move, 330ms) on the card's --gentle curve, with
+// the edge clipped as it goes. the far end is measured on the real destination
+// before the run starts, so the height the run stops on is the height the sheet
+// gives anyway and taking the inline numbers off at the end moves nothing. a
+// press that catches a run freezes it where it stands and aims it back from
+// there, every run is numbered so a finish that belongs to an interrupted run
+// changes nothing, and two ends can finish one: the transition, and a timer
+// behind it for a run with nothing to transition. whoever wants to know about
+// the room is told once, when the run has landed, and never on a frame of it.
+// what the old box also moved, its column of rows sliding onto its seat and
+// fading in, is not copied: here the first lines are already on screen when
+// the batch is cut, and the words being read are not the thing to move. the
+// dissolve at the cut firms up and deepens over the same run instead.
+// motion the reader has asked not to see is a plain flip, as the old fold's was
 function openAnswered(panel, open){
+  const clip = panel.querySelector(".answclip");
+  const mine = panel.answRun = (panel.answRun || 0) + 1;
+  // where the run starts: whatever the cut stands at now, mid run included
+  const from = clip.getBoundingClientRect().height;
+  const cutFrom = getComputedStyle(clip).getPropertyValue("--answ-cut");
+  settleAnswered(panel);
   panel.classList.toggle("open", open);
   // the column may have been resized while it stood open
   if (!open) fitAnswered(panel);
+  const still = typeof matchMedia === "function" &&
+    matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (still || !from){
+    if (panel.answRoom) panel.answRoom();
+    return;
+  }
+  const to = clip.getBoundingClientRect().height;
+  const cutTo = getComputedStyle(clip).getPropertyValue("--answ-cut");
+  clip.style.height = from + "px";
+  clip.style.setProperty("--answ-cut", cutFrom);
+  void clip.offsetWidth;   // the start values land untimed
+  panel.classList.add("motion");
+  clip.style.height = to + "px";
+  clip.style.setProperty("--answ-cut", cutTo);
+  const done = e => {
+    if (e && (e.target !== clip || e.propertyName !== "height")) return;
+    clip.removeEventListener("transitionend", done);
+    clearTimeout(timer);
+    if (mine !== panel.answRun) return;   // a newer run owns the panel now
+    settleAnswered(panel);
+    if (!open) fitAnswered(panel);
+    if (panel.answRoom) panel.answRoom();
+  };
+  clip.addEventListener("transitionend", done);
+  const timer = setTimeout(done, FOLD_TIMER_MS);
+}
+
+// the run's own dress taken off: the timing and the inline ends, so the panel
+// stands at the height the sheet gives it
+function settleAnswered(panel){
+  const clip = panel.querySelector(".answclip");
+  panel.classList.remove("motion");
+  clip.style.height = "";
+  clip.style.removeProperty("--answ-cut");
 }
 
 // whether the batch runs past the preview. an open panel shows everything and
-// so cannot say: it keeps the word it was opened under, since only a batch
-// that ran past could be opened at all. a panel that is not laid out measures
-// nothing and says nothing, and the observer asks again once it is
+// so cannot say, and neither can one part way through a run: each keeps the
+// word it was opened under, since only a batch that ran past could be opened at
+// all. a panel that is not laid out measures nothing and says nothing, and the
+// observer asks again once it is. answers whether the word changed, which is
+// the strip at the foot coming or going and so a change in the panel's height
 function fitAnswered(panel){
-  if (panel.classList.contains("open")) return;
+  if (panel.classList.contains("open") || panel.classList.contains("motion")) return false;
   const clip = panel.querySelector(".answclip");
-  if (!clip || !clip.clientHeight) return;
-  panel.classList.toggle("more", clip.scrollHeight > clip.clientHeight + 1);
+  if (!clip || !clip.clientHeight) return false;
+  const more = clip.scrollHeight > clip.clientHeight + 1;
+  if (more === panel.classList.contains("more")) return false;
+  panel.classList.toggle("more", more);
+  return true;
 }
 
 // one message is one block of the card's own prose: the same markdown, the same
 // attachment markup and the same wrapping the sent rows below are drawn in, and
 // nothing around it. the hairline the sheet draws between two blocks is the
 // whole of what tells one message from the next. another batch starts cut to
-// the preview again, and is measured for it
+// the preview again, and is measured for it; a run still going on the batch it
+// replaces is finished where it stands
 function fillAnswered(panel, batch){
   const stack = panel.querySelector(".answstack");
   stack.textContent = "";
@@ -1469,12 +1538,15 @@ function fillAnswered(panel, batch){
     msg.innerHTML = fmt((m && m.text) || "");
     stack.appendChild(msg);
   }
+  panel.answRun = (panel.answRun || 0) + 1;
+  settleAnswered(panel);
   panel.classList.remove("open", "more");
   fitAnswered(panel);
 }
 
 function dropAnswered(el, room){
   if (!el || !el.answ) return;
+  el.answ.answRun = (el.answ.answRun || 0) + 1;   // a run still going lands on nothing
   if (el.answ.answWatch) el.answ.answWatch.disconnect();
   el.answ.remove();
   el.answ = null;
