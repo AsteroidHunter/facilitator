@@ -25,7 +25,7 @@ const CHROME = process.env.CHROME_PATH ||
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const DESK = { width: 1440, height: 900 };
 const PHONE = { width: 375, height: 812, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
-const LINE = "rgb(230, 223, 210)";   // var(--line), the board's own hairline
+const LINE = "rgb(222, 222, 222)";   // var(--line), the board's own hairline
 const CARD = "rgb(255, 255, 255)";   // var(--card), the pill and well fill
 
 let browser;
