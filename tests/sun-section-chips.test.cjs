@@ -180,7 +180,7 @@ async function desktopMini() {
 async function phone() {
   const html = await readFile(path.join(ROOT, "m.html"), "utf8");
   const icon = between(html, "const MOON_ICON = ", "</svg>';");
-  const close = between(html, "async function closeCard(id){", "  poll();\n}");
+  const close = between(html, "async function closeCard(id, hop = true){", "  poll();\n}");
   const build = between(html, '  const arc = h("button", "arcbtn");', "  topbar.append(histctl, sun, arc, x);");
   const paint = between(html, '    const cs = cardState(b);\n    el.box.classList.toggle("done", cs === "done");',
     "    paintSectionChips(el, b);");
@@ -367,6 +367,9 @@ function pressSection(surface, id, el, section, prevent) {
     "desktop small card": "function miniSectionMove(e, section){",
     "phone card": "function phoneSectionMove(e, section){",
   }[surface.name];
+  // the large card's done is its keyboard close, declared just above the move
+  if (surface.name === "desktop large card")
+    vm.runInContext(between(surface.html, "async function boardCloseCard(id, hop){", "\n}"), ctx);
   vm.runInContext(between(surface.html, move, "\n}"), ctx);
   ctx.miniFocused = false;
   ctx.selectedId = id;
@@ -376,6 +379,168 @@ function pressSection(surface, id, el, section, prevent) {
   const fn = /function (\w+)/.exec(move)[1];
   ctx[fn](event, section);
 }
+
+// ---- the hop to the next doing card ---------------------------------------------------
+// a key that takes the selected card out of doing lands on the same card its
+// chip lands on, through the chip's own selectNextDoing, and a key that moves a
+// card into doing, or changes nothing, stays. every key is a real key event sent
+// through the page's own action table, cut out of the page as written
+const HOP_KEYS = {
+  doing: {
+    "control+shift+[": { key: "{", code: "BracketLeft", ctrlKey: true, shiftKey: true },
+    "[": { key: "[", code: "BracketLeft" },
+    "control+n": { key: "n", code: "KeyN", ctrlKey: true },
+  },
+  deferred: {
+    "control+shift+]": { key: "}", code: "BracketRight", ctrlKey: true, shiftKey: true },
+    "]": { key: "]", code: "BracketRight" },
+    "control+l": { key: "l", code: "KeyL", ctrlKey: true },
+  },
+  done: {
+    "control+shift+\\": { key: "|", code: "Backslash", ctrlKey: true, shiftKey: true },
+    "\\": { key: "\\", code: "Backslash" },
+    backspace: { key: "Backspace", code: "Backspace" },
+    delete: { key: "Delete", code: "Delete" },
+  },
+};
+const HOP_CHIP = { doing: "sun", deferred: "arc", done: "x" };
+// the page's own key handling: its action table and what it calls, from the
+// first line to the table's end, and the scope its listener dispatches in
+const TABLES = {
+  "desktop large card": { from: "async function boardCloseCard(id, hop){", to: "const boardShortcutActions = {",
+                          table: "boardShortcutActions", scope: "card" },
+  "desktop small card": { from: "const miniShortcutActions = {", to: "function miniSectionMove(e, section){",
+                          table: "miniShortcutActions", scope: "mini" },
+  "phone card": { from: "function phoneSectionMove(e, section){", to: "const phoneShortcutActions = {",
+                  table: "phoneShortcutActions", scope: "card" },
+};
+function keyTable(surface) {
+  const { from, to, table } = TABLES[surface.name];
+  const start = surface.html.indexOf(from);
+  const at = surface.html.indexOf(to, start);
+  const end = surface.html.indexOf("\n}", at + to.length) + 2;
+  assert.ok(start >= 0 && at >= start && end > at, `${surface.name}: key table not found`);
+  // the small card's table closes with "};" and its move follows it
+  vm.runInContext(surface.html.slice(start, end), surface.env.ctx);
+  return vm.runInContext(table, surface.env.ctx);
+}
+
+// one surface with a card of the given kind selected in the doing view, a
+// second doing card to land on, and every selection recorded. selected names
+// the large card's selection, which the small card's own card is not
+async function hopWorld(make, kind, selected) {
+  const surface = await make();
+  const { ctx } = surface.env;
+  const state = board(ctx);
+  state.boxes.push({ ...card("doing"), id: "m5", title: "the other doing card" });
+  const el = surface.mount(card(kind));
+  const landed = [];
+  ctx.select = id => landed.push(id);
+  ctx.deselect = () => landed.push(null);
+  ctx.miniFocused = surface.name === "desktop small card";
+  ctx.selectedId = selected || CARDS[kind].id;
+  ctx.miniId = CARDS[kind].id;
+  ctx.miniEls = { [CARDS[kind].id]: el };
+  return { surface, ctx, el, landed };
+}
+
+async function byChip(make, kind, section, selected) {
+  const w = await hopWorld(make, kind, selected);
+  w.el[HOP_CHIP[section]].click();
+  await flush();
+  return { requests: w.surface.env.requests.map(asked), landed: w.landed };
+}
+
+async function byKey(make, kind, keyEvent, selected) {
+  const w = await hopWorld(make, kind, selected);
+  const actions = keyTable(w.surface);
+  const e = { target: w.ctx.document.body, altKey: false, metaKey: false, ctrlKey: false, shiftKey: false,
+              repeat: false, isComposing: false, defaultPrevented: false, ...keyEvent,
+              preventDefault() { e.defaultPrevented = true; }, stopPropagation() {} };
+  w.ctx.dispatchCardShortcut(e, actions, TABLES[w.surface.name].scope);
+  await flush();
+  return { requests: w.surface.env.requests.map(asked), landed: w.landed };
+}
+
+for (const [name, make] of [["desktop large card", desktopLarge], ["phone card", phone]]) {
+  test(`${name}: a key taking the card out of doing hops exactly where its chip hops, and a key into doing stays`, async () => {
+    for (const kind of Object.keys(CARDS)) {
+      for (const [section, keys] of Object.entries(HOP_KEYS)) {
+        const chip = await byChip(make, kind, section);
+        // where the chip hops: out of doing to deferred, and a done that is not already done
+        const hops = (section === "deferred" && kind === "doing") ||
+          (section === "done" && (kind === "doing" || kind === "deferred"));
+        assert.equal(chip.landed.length, hops ? 1 : 0, `${HOP_CHIP[section]} on a ${kind} card`);
+        if (hops) assert.ok(["m1", "m5"].includes(chip.landed[0]) && chip.landed[0] !== CARDS[kind].id,
+          `${HOP_CHIP[section]} on a ${kind} card landed on ${chip.landed[0]}`);
+        for (const [keyName, keyEvent] of Object.entries(keys)) {
+          const key = await byKey(make, kind, keyEvent);
+          const what = `${keyName} on a ${kind} card`;
+          assert.deepEqual(key.landed, chip.landed, `${what} did not land where the ${HOP_CHIP[section]} lands`);
+          if (keyName === "backspace" || keyName === "delete") {
+            // backspace still sends its close to a done card, as it always did
+            assert.deepEqual(key.requests, [{ path: "/close", box: CARDS[kind].id, v: null, method: "POST" }], what);
+          } else if (keyName !== "control+n") {
+            assert.deepEqual(key.requests, chip.requests, `${what} asked something other than its chip`);
+          }
+        }
+      }
+    }
+  });
+
+  test(`${name}: outside the doing view the keys hop exactly where the chips do, and typed keys hop nothing`, async () => {
+    // the moon's own rule, which every deferred key shares: only a doing card
+    // looked at in doing hops. the cross, and so every done key, hops wherever
+    // it closes a card. both read the same view the page is showing
+    const inDeferredView = async () => {
+      const surface = await make();
+      surface.env.ctx.setTicketViewOf(surface.env.ctx.activeOwner, "deferred");
+      assert.equal(surface.env.ctx.curView(), "deferred");
+      return surface;
+    };
+    for (const [section, keys] of [["deferred", HOP_KEYS.deferred], ["done", HOP_KEYS.done]]) {
+      const chip = await byChip(inDeferredView, "doing", section);
+      assert.equal(chip.landed.length, section === "done" ? 1 : 0, `${HOP_CHIP[section]} outside the doing view`);
+      for (const [keyName, keyEvent] of Object.entries(keys)) {
+        const key = await byKey(inDeferredView, "doing", keyEvent);
+        assert.deepEqual(key.landed, chip.landed, `${keyName} outside the doing view`);
+      }
+    }
+    // a key alone typed in a field is text, and moves and hops nothing
+    const typed = await hopWorld(make, "doing");
+    const actions = keyTable(typed.surface);
+    const field = { closest: () => field };
+    for (const key of ["]", "\\"]) {
+      const e = { target: field, key, code: key === "]" ? "BracketRight" : "Backslash", ctrlKey: false,
+                  metaKey: false, shiftKey: false, altKey: false, repeat: false, isComposing: false,
+                  defaultPrevented: false, preventDefault() { e.defaultPrevented = true; }, stopPropagation() {} };
+      typed.ctx.dispatchCardShortcut(e, actions);
+      assert.equal(e.defaultPrevented, false, key);
+    }
+    await flush();
+    assert.deepEqual(typed.landed, []);
+    assert.deepEqual(typed.surface.env.requests, []);
+  });
+}
+
+// the small card's chips never hop: its cross closes and polls, and its moon
+// parks through setFlag, whose hop belongs to the large card's own selection.
+// its keys do the same, and never move the large card's selection either
+test("desktop small card: its section keys land exactly where its chips land, which is nowhere", async () => {
+  for (const kind of Object.keys(CARDS)) {
+    for (const section of ["doing", "deferred", "done"]) {
+      const chip = await byChip(desktopMini, kind, section, "m9");
+      for (const [keyName, keyEvent] of Object.entries(HOP_KEYS[section])) {
+        // control+n, control+l and backspace are not the small card's keys
+        if (!/^(control\+shift\+.|.)$/.test(keyName)) continue;
+        const key = await byKey(desktopMini, kind, keyEvent, "m9");
+        assert.deepEqual(key.landed, chip.landed, `${keyName} on a small ${kind} card`);
+        assert.deepEqual(key.landed, [], `${keyName} on a small ${kind} card hopped`);
+        assert.deepEqual(key.requests, chip.requests, `${keyName} on a small ${kind} card`);
+      }
+    }
+  }
+});
 
 // ---- where each surface draws its chips ---------------------------------------------------
 test("the desktop bar lays the chips out sun, moon, cross", async () => {
