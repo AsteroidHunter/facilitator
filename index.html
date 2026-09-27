@@ -5274,6 +5274,10 @@ const CARD_PARTS = "main, #xcomposer, #xcswitch";
   for (const type of ["pointerdown", "focusin"])
     document.addEventListener(type, e => { if (inCard(e)) chooseShown(); }, true);
 }
+// the house leaves the board for the home page the way another tab does: the
+// card on screen is no longer selected, so coming back through a tab shows it
+// browsed, and a reply that landed meanwhile waits until the reader selects it
+document.getElementById("homeico")?.addEventListener("click", () => unselectShown());
 
 // browsing: the card on screen was reached without being chosen, by the arrow
 // keys, a tab switch, a load or a fallback pick. selectedId still names it, so
@@ -5353,10 +5357,11 @@ function dropBrowsedCaret(){
 }
 
 // the browsed card on screen becomes the selected one where it stands: nothing
-// on it moves, it takes the drop shadow back and counts as read
+// on it moves, it takes the drop shadow back and counts as read. while the
+// home page is up the board is not on screen, so nothing on it is selected
 function chooseShown(){
   const id = selectedId;
-  if (!browsing || !id || !els[id]) return;
+  if (homeOpen || !browsing || !id || !els[id]) return;
   setBrowsing(false);
   markSeen(id);
   if (lastState) renderTabs(lastState);
@@ -5380,6 +5385,7 @@ function unselectShown(){
 // or a key typed: the card on screen is selected if it was only browsed, and
 // the card counts as read
 function useCard(id){
+  if (homeOpen) return;   // nor read, while the home page covers the board
   if (id === selectedId) chooseShown();
   markSeen(id);
 }
