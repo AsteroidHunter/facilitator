@@ -652,3 +652,202 @@ for (const name of ["index.html", "m.html"]) {
     assert.deepEqual(f.calls, [["destination", "c1", "doing"], ["destination", "c1", "deferred"]]);
   });
 }
+
+// ---- the section keys through each page's own action table -----------------------
+// control+shift+[, ] and \ move the selected card while typing in its composer
+// and while typing nothing; [, ] and \ alone only while typing nothing. the
+// move itself (the chip's own request, and nothing where it is faded) is
+// sun-section-chips' to prove; here it is who is asked, for what, and when
+const SECTIONS = [
+  { code: "BracketLeft", key: "[", shifted: "{", section: "doing" },
+  { code: "BracketRight", key: "]", shifted: "}", section: "deferred" },
+  { code: "Backslash", key: "\\", shifted: "|", section: "done" },
+];
+const sectionChord = ({ code, shifted }, over = {}) => ({ key: shifted, code, ctrlKey: true, shiftKey: true, ...over });
+const sectionAlone = ({ code, key }, over = {}) => ({ key, code, ctrlKey: false, ...over });
+
+async function sectionPage(name) {
+  const moves = [], requests = [];
+  const f = await page(name, calls => ({
+    FOCUS: true, boardKeysLive: () => true, miniFocused: false, p3Zoom: null,
+    lastState: { boxes: [{ id: "c1", bucket: "meta" }, { id: "c2", bucket: "meta" }] },
+    setCardDestination: (id, where) => calls.push(["destination", id, where]),
+    sectionKeyMove: (id, section, el, close) => { moves.push({ id, section, el, close }); return true; },
+    nav: dir => calls.push(["nav", dir]),
+    stepCard: dir => calls.push(["step", dir]),
+    closeCard: id => calls.push(["closeCard", id]),
+    poll() {},
+    fetch: (url, init) => { requests.push([url, init && init.method]); return Promise.resolve({}); },
+  }));
+  return { ...f, moves, requests };
+}
+
+for (const name of ["index.html", "m.html"]) {
+  test(`${name} control+shift with [, ] and \\ moves the selected card from its composer, the response and the page`, async () => {
+    const f = await sectionPage(name);
+    const from = { composer: f.a.parts.content, textarea: f.a.parts.ta, reply: f.a.parts.reply, page: f.doc.body };
+    for (const [where, target] of Object.entries(from)) {
+      for (const keys of SECTIONS) {
+        const before = f.moves.length;
+        // the editor has already cancelled the chord on its way when it came from the composer
+        const cancelled = where === "composer" ? { defaultPrevented: true } : {};
+        const e = f.press(sectionChord(keys, cancelled), target);
+        assert.equal(e.defaultPrevented, true, `${where} ${keys.code}`);
+        assert.equal(f.moves.length, before + 1, `${where} ${keys.code} moved nothing`);
+        const move = f.moves.at(-1);
+        assert.deepEqual([move.id, move.section], ["c1", keys.section], `${where} ${keys.code}`);
+        assert.equal(move.el, f.a.el, "the move was not handed the selected card's own chips");
+      }
+    }
+    assert.deepEqual(f.calls, [], "a section chord reached another command");
+  });
+
+  test(`${name} a title, another field and another card's composer keep the section chord`, async () => {
+    const f = await sectionPage(name);
+    const others = { title: f.a.parts.title, navigator: f.mdnav, search: f.search,
+                     otherComposer: f.b.parts.content, otherTextarea: f.b.parts.ta };
+    for (const [where, target] of Object.entries(others)) {
+      for (const keys of SECTIONS) {
+        assert.equal(f.press(sectionChord(keys), target).defaultPrevented, false, `${where} ${keys.code}`);
+      }
+    }
+    assert.deepEqual(f.moves, []);
+  });
+
+  test(`${name} [, ] and \\ alone move the card only while nothing is typed`, async () => {
+    const f = await sectionPage(name);
+    const typing = { composer: f.a.parts.content, textarea: f.a.parts.ta, title: f.a.parts.title,
+                     navigator: f.mdnav, search: f.search };
+    for (const [where, target] of Object.entries(typing)) {
+      for (const keys of SECTIONS) {
+        assert.equal(f.press(sectionAlone(keys), target).defaultPrevented, false, `${where} ${keys.key}`);
+      }
+    }
+    assert.deepEqual(f.moves, [], "a key alone moved the card while typing");
+    for (const target of [f.doc.body, f.a.parts.reply]) {
+      for (const keys of SECTIONS) {
+        assert.equal(f.press(sectionAlone(keys), target).defaultPrevented, true, keys.key);
+      }
+    }
+    assert.deepEqual(f.moves.map(m => [m.id, m.section]),
+      [["c1", "doing"], ["c1", "deferred"], ["c1", "done"], ["c1", "doing"], ["c1", "deferred"], ["c1", "done"]]);
+  });
+
+  test(`${name} held and composing section keys do nothing`, async () => {
+    const f = await sectionPage(name);
+    for (const over of [{ repeat: true }, { isComposing: true }]) {
+      for (const keys of SECTIONS) {
+        f.press(sectionChord(keys, over), f.a.parts.content);
+        f.press(sectionChord(keys, over), f.doc.body);
+        f.press(sectionAlone(keys, over), f.doc.body);
+      }
+    }
+    assert.deepEqual(f.moves, []);
+  });
+
+  test(`${name} section keys leave a card that is not a board card alone, and nothing is selected`, async () => {
+    const f = await sectionPage(name);
+    f.context.lastState = { boxes: [{ id: "c1", bucket: "lane" }] };
+    for (const keys of SECTIONS) {
+      assert.equal(f.press(sectionChord(keys), f.doc.body).defaultPrevented, false);
+      assert.equal(f.press(sectionAlone(keys), f.doc.body).defaultPrevented, false);
+    }
+    f.context.lastState = { boxes: [{ id: "c1", bucket: "meta" }] };
+    f.context.selectedId = null;
+    for (const keys of SECTIONS) {
+      f.press(sectionChord(keys), f.doc.body);
+      f.press(sectionAlone(keys), f.doc.body);
+    }
+    assert.deepEqual(f.moves, []);
+  });
+
+  test(`${name} command+shift+[ and ], control+n, control+l and backspace are unchanged beside the section keys`, async () => {
+    const f = await sectionPage(name);
+    const step = name === "index.html" ? "nav" : "step";
+    f.press({ key: "{", code: "BracketLeft", ctrlKey: false, metaKey: true, shiftKey: true }, f.a.parts.content);
+    f.press({ key: "}", code: "BracketRight", ctrlKey: false, metaKey: true, shiftKey: true }, f.doc.body);
+    f.press({ key: "n", code: "KeyN" }, f.doc.body);
+    f.press({ key: "l", code: "KeyL" }, f.doc.body);
+    // still nothing while typing
+    f.press({ key: "n", code: "KeyN" }, f.a.parts.content);
+    const back = f.press({ key: "Backspace", code: "Backspace", ctrlKey: false }, f.doc.body);
+    assert.equal(back.defaultPrevented, true);
+    // and backspace in the composer is the composer's
+    assert.equal(f.press({ key: "Backspace", code: "Backspace", ctrlKey: false }, f.a.parts.content).defaultPrevented, false);
+    const closed = name === "index.html" ? [] : [["closeCard", "c1"]];
+    assert.deepEqual(f.calls, [[step, -1], [step, 1], ["destination", "c1", "doing"],
+                               ["destination", "c1", "deferred"], ...closed]);
+    if (name === "index.html") assert.deepEqual(f.requests, [["/close?box=c1", "POST"]]);
+    assert.deepEqual(f.moves, []);
+  });
+
+  test(`${name} done is the page's own close`, async () => {
+    const f = await sectionPage(name);
+    f.press(sectionAlone(SECTIONS[2]), f.doc.body);
+    const [move] = f.moves;
+    assert.equal(move.section, "done");
+    move.close("c1");
+    if (name === "index.html") assert.deepEqual(f.requests, [["/close?box=c1", "POST"]], "not backspace's close");
+    else assert.deepEqual(f.calls, [["closeCard", "c1"]], "not the cross's close");
+  });
+}
+
+test("index.html the large card leaves the section keys to the small card while it holds the keys", async () => {
+  const f = await sectionPage("index.html");
+  f.context.miniFocused = true;
+  for (const keys of SECTIONS) {
+    assert.equal(f.press(sectionChord(keys), f.doc.body).defaultPrevented, false);
+    assert.equal(f.press(sectionAlone(keys), f.doc.body).defaultPrevented, false);
+  }
+  assert.deepEqual(f.moves, []);
+});
+
+// the small card's capture table, run as written: the keys move the card it
+// shows, and are stopped before its composer's editor sees them
+test("index.html the small card's section keys move its own card and stop there", async () => {
+  const text = await readFile(path.join(ROOT, "index.html"), "utf8");
+  const start = text.indexOf("const miniShortcutActions = {");
+  const fnAt = text.indexOf("function miniSectionMove(e, section){", start);
+  const end = text.indexOf("\n}", fnAt) + 2;
+  assert.ok(start >= 0 && fnAt > start && end > fnAt);
+  const w = world();
+  const moves = [], requests = [];
+  const l = await logic({
+    miniId: "c1", miniEls: { c1: w.a.el, c2: w.b.el },
+    lastState: { boxes: [{ id: "c1", bucket: "meta" }] },
+    miniCreate() {}, miniStep() {}, poll() {},
+    sectionKeyMove: (id, section, el, close) => { moves.push({ id, section, el, close }); return true; },
+    fetch: (url, init) => { requests.push([url, init && init.method]); return Promise.resolve({}); },
+  });
+  vm.runInContext(text.slice(start, end), l.context);
+  const actions = vm.runInContext("miniShortcutActions", l.context);
+  const send = (over, target) => {
+    const e = chord(target, over);
+    e.stopped = false;
+    e.stopPropagation = () => { e.stopped = true; };
+    l.dispatch(e, actions, "mini");
+    return e;
+  };
+  for (const keys of SECTIONS) {
+    for (const target of [w.a.parts.content, w.a.parts.ta, w.doc.body]) {
+      const e = send(sectionChord(keys), target);
+      assert.ok(e.defaultPrevented && e.stopped, `${keys.code} chord was not taken from the small card`);
+    }
+    // alone, only where nothing is typed
+    for (const target of [w.a.parts.content, w.a.parts.title]) {
+      const e = send(sectionAlone(keys), target);
+      assert.ok(!e.defaultPrevented && !e.stopped, `${keys.key} alone was taken while typing`);
+    }
+    const e = send(sectionAlone(keys), w.doc.body);
+    assert.ok(e.defaultPrevented && e.stopped);
+    // another field keeps the chord
+    assert.equal(send(sectionChord(keys), w.search).defaultPrevented, false);
+    assert.equal(send(sectionChord(keys), w.a.parts.title).defaultPrevented, false);
+  }
+  assert.equal(moves.length, 12);
+  for (const move of moves) assert.equal(move.el, w.a.el);
+  assert.deepEqual(moves.map(m => m.section),
+    ["doing", "doing", "doing", "doing", "deferred", "deferred", "deferred", "deferred", "done", "done", "done", "done"]);
+  moves[0].close("c1");
+  assert.deepEqual(requests, [["/close?box=c1", "POST"]], "not the small cross's close");
+});

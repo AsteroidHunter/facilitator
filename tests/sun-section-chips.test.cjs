@@ -223,7 +223,7 @@ for (const [name, make] of [["desktop large card", desktopLarge], ["desktop smal
     board(surface.env.ctx);
     const el = surface.mount(card("deferred"));
     assert.equal(el.sun.tagName, "BUTTON");
-    assert.equal(el.sun.title, "move to doing");
+    assert.equal(el.sun.title, "move to doing\nControl + Shift + [, or [ when not typing");
     assert.equal(el.sun.getAttribute("aria-label"), "move to doing");
     // the same inline svg approach at the same glyph size as the moon beside it
     const size = svg => /viewBox="0 0 24 24" width="9" height="9"/.test(svg);
@@ -328,6 +328,53 @@ for (const [name, make] of [["desktop large card", desktopLarge], ["desktop smal
         [{ ...want, box: CARDS[kind].id, method: "POST" }], `${chip} on a ${kind} card`);
     }
   });
+
+  // the section keys run through the surface's own move, cut out of its page:
+  // each asks the board exactly what that section's chip asks, which is
+  // nothing where the chip is faded
+  test(`${name}: each section key asks what its chip asks, and nothing where the chip is faded`, async () => {
+    const CHIP = { doing: "sun", deferred: "arc", done: "x" };
+    const requestsOf = async (kind, act) => {
+      const surface = await make();
+      board(surface.env.ctx);
+      const el = surface.mount(card(kind));
+      act(surface, el);
+      await flush();
+      return surface.env.requests.map(asked);
+    };
+    for (const kind of Object.keys(CARDS)) {
+      for (const section of ["doing", "deferred", "done"]) {
+        const chip = CHIP[section];
+        const byChip = await requestsOf(kind, (surface, el) => el[chip].click());
+        let prevented = false;
+        const byKey = await requestsOf(kind, (surface, el) =>
+          pressSection(surface, CARDS[kind].id, el, section, () => { prevented = true; }));
+        assert.deepEqual(byKey, byChip, `${section} key on a ${kind} card`);
+        assert.equal(prevented, true, `${section} key on a ${kind} card left the key to the page`);
+        if (EXPECTED_OFF[kind][chip]) assert.deepEqual(byKey, [], `${section} key on a ${kind} card sent something`);
+        else assert.notDeepEqual(byKey, [], `${section} key on a ${kind} card sent nothing`);
+      }
+    }
+  });
+}
+
+// one key press through a surface's own section move, with the surface's
+// selected card set the way its page sets it
+function pressSection(surface, id, el, section, prevent) {
+  const { ctx } = surface.env;
+  const move = {
+    "desktop large card": "function boardSectionMove(e, section){",
+    "desktop small card": "function miniSectionMove(e, section){",
+    "phone card": "function phoneSectionMove(e, section){",
+  }[surface.name];
+  vm.runInContext(between(surface.html, move, "\n}"), ctx);
+  ctx.miniFocused = false;
+  ctx.selectedId = id;
+  ctx.miniId = id;
+  ctx.miniEls = { [id]: el };
+  const event = { preventDefault: prevent, stopPropagation() {} };
+  const fn = /function (\w+)/.exec(move)[1];
+  ctx[fn](event, section);
 }
 
 // ---- where each surface draws its chips ---------------------------------------------------

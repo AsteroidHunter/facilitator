@@ -1313,11 +1313,11 @@ function makeBox(b){
   histUp.addEventListener("click", () => histStep(b.id, 1));
   histDown.addEventListener("click", () => histStep(b.id, -1));
   const arc = h("button", "arcbtn");
-  arc.type = "button"; arc.title = "defer to the deferred tab"; arc.setAttribute("aria-label", "defer");
+  arc.type = "button"; arc.title = "defer to the deferred tab\n" + SECTION_KEY_HINTS.deferred; arc.setAttribute("aria-label", "defer");
   arc.innerHTML = MOON_ICON;
   arc.addEventListener("click", e => { e.stopPropagation(); if (!chipOff(arc)) toggleFlag(b.id, "park"); });
   const x = h("button", "xbtn");
-  x.type = "button"; x.title = "done (an empty card is removed instead)"; x.setAttribute("aria-label", "close");
+  x.type = "button"; x.title = "done (an empty card is removed instead)\n" + SECTION_KEY_HINTS.done; x.setAttribute("aria-label", "close");
   x.addEventListener("click", e => { e.stopPropagation(); if (!chipOff(x)) closeCard(b.id); });
   // the sun on the moon's left, so the three read in the order of the tabs
   const sun = sunChip("sunbtn", b.id);
@@ -3815,6 +3815,17 @@ function phoneResponseCard(){
   return { id: selectedId, owner: activeOwner, el };
 }
 
+// the section keys' one path: a meta card, as control+n and backspace ask,
+// moved the way its own chip would move it, and done closed the way the cross
+// and backspace close it. the key is cancelled even where the chip is faded
+function phoneSectionMove(e, section){
+  if (!selectedId) return;
+  const b = lastState?.boxes.find(x => x.id === selectedId);
+  if (b?.bucket !== "meta") return;
+  e.preventDefault();
+  sectionKeyMove(selectedId, section, els[selectedId], closeCard);
+}
+
 const phoneShortcutTyping = cardShortcutEditing;
 const phoneShortcutActions = {
   diagnostic(e){
@@ -3860,6 +3871,15 @@ const phoneShortcutActions = {
     if (b?.bucket !== "meta") return;
     e.preventDefault();
     setCardDestination(selectedId, shortcut.value);
+  },
+  sectionChord(e, shortcut){
+    const el = selectedId && els[selectedId];
+    if (!el || !sectionChordSource(e.target, el)) return;
+    phoneSectionMove(e, shortcut.value);
+  },
+  sectionKey(e, shortcut){
+    if (phoneShortcutTyping(e.target)) return;
+    phoneSectionMove(e, shortcut.value);
   },
   responseScroll(e){
     responseScrollKey(e, phoneResponseCard);
