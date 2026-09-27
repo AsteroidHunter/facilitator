@@ -59,12 +59,12 @@
     padding:10px 20px;
     background:color-mix(in srgb, var(--paper) 84%, transparent);
     backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
-    border-bottom:1px solid var(--line);
+    border-bottom:var(--edge) solid var(--line);
   }
   .bar .name{font:600 15px var(--serif); letter-spacing:.01em}
   .bar .name em{font-style:italic; font-weight:400; color:var(--sub)}
   @keyframes pulse{50%{opacity:.35}}
-  #bgpick{width:24px; height:20px; padding:0; border:1px solid var(--line);
+  #bgpick{width:24px; height:20px; padding:0; border:var(--edge) solid var(--line);
     border-radius:4px; background:none; cursor:pointer; flex:none}
   #bgpick::-webkit-color-swatch-wrapper{padding:2px}
   #bgpick::-webkit-color-swatch{border:none; border-radius:2px}
@@ -91,7 +91,7 @@
   /* seated under the mark by the script, and drawn above the board rather than
      inside the bar's own layer */
   #setpanel{display:none; position:fixed; z-index:40; width:264px; padding:11px 13px;
-    background:var(--card); border:1px solid var(--line); border-radius:7px;
+    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
   body.setopen #setpanel{display:block}
   #setpanel .setrow{display:flex; gap:8px; align-items:flex-start;
@@ -113,9 +113,9 @@
      a single unbroken stroke from its top corner to its bottom one. it carries
      no fill and takes no pointer, so nothing beneath it moves or stops
      answering.
-     1px is the thinnest line the board draws anywhere: it is the weight of a
-     card's border and of the bar's own bottom, so the boundary reads as the same
-     ink rather than a second, fainter one.
+     --edge is the weight every edge line is drawn at: a card's border and the
+     bar's own bottom, so the boundary reads as the same ink rather than a
+     second, fainter one.
      the air is the same on all four sides. #stage keeps its own top at --bar-h,
      which this does not touch, so every region on the canvas stays on the exact
      pixel it was placed on.
@@ -145,8 +145,12 @@
     /* the bar keeps the 1px so that nothing in it moves, and gives up the ink.
        drawn by the bar, that line runs the bar's full width and shoots 7px past
        each of the boundary's top corners, leaving a stub hanging in the air over
-       the arc. the boundary's own top line stops where its corners turn */
-    border-bottom-color:transparent;
+       the arc. the boundary's own top line stops where its corners turn.
+       the width stays a full 1px on purpose while the edge is thinner: the
+       border here is only room, and room that shrank with the edge would move
+       every tab and label in the bar by a fraction. the boundary's line is laid
+       on the bottom of this row instead, at the edge's drawn width */
+    border-bottom-color:transparent; border-bottom-width:1px;
   }
   /* the bar's restatement of the boundary's top row. same box as #appframe to
      the pixel, so the two are the same rectangle and cannot drift: the same
@@ -157,8 +161,8 @@
      right; first in the bar, so every tab paints over it */
   body.focus .bar::before{
     content:""; position:absolute; pointer-events:none;
-    top:calc(var(--bar-h) - 2px); left:0; right:0; height:8px;
-    border:1px solid var(--line); border-bottom:none;
+    top:calc(var(--bar-h) - 1px - var(--edge-drawn)); left:0; right:0; height:8px;
+    border:var(--edge) solid var(--line); border-bottom:none;
     border-radius:7px 7px 0 0;
     clip-path:inset(0 0 7px 0);
   }
@@ -168,13 +172,15 @@
     /* the top line is laid on the very pixel the bar's own bottom border
        occupies, so the two are one line and not two: the tab still meets that
        line the way it was fitted to, and the box still has a real top edge for
-       its corners to turn into */
-    top:calc(var(--app-inset) + var(--bar-h) - 2px);
+       its corners to turn into. the bar's row is 1px and the line is the edge's
+       drawn width, so the line takes the bottom of the row, where the tab's
+       foot and its notches land */
+    top:calc(var(--app-inset) + var(--bar-h) - 1px - var(--edge-drawn));
     left:var(--app-inset); right:var(--app-inset); bottom:var(--app-inset);
     /* one closed rounded rectangle, all four sides and all four corners: a
        corner needs both of its edges to turn into, and rounding a box with no
        top left the arcs hooking into nothing */
-    border:1px solid var(--line);
+    border:var(--edge) solid var(--line);
     border-radius:7px;
     /* under the bar, not over it. over it, this top line was painted across the
        seated tab's mouth and shut it: that was the bar seen under the tab */
@@ -189,7 +195,7 @@
   :root{--tocw:238px}
   #toc{
     position:fixed; left:0; top:45px; bottom:0; width:var(--tocw); overflow-y:auto;
-    padding:18px 10px 30px 14px; border-right:1px solid var(--line);
+    padding:18px 10px 30px 14px; border-right:var(--edge) solid var(--line);
     background:color-mix(in srgb, var(--paper) 92%, #fff 8%);
   }
   #tocgrip{position:fixed; left:calc(var(--tocw) - 3px); top:45px; bottom:0; width:7px;
@@ -217,7 +223,7 @@
   .lede{font:15px/1.5 var(--sans); color:var(--sub); margin:4px 2px 26px; max-width:56ch}
   .bucket{margin:34px 0 12px; display:flex; align-items:baseline; gap:10px}
   .bucket h2{font:italic 500 24px var(--serif); margin:0; letter-spacing:.01em}
-  .bucket .rule{flex:1; height:1px; background:var(--line); transform:translateY(-4px)}
+  .bucket .rule{flex:1; height:var(--edge-drawn); background:var(--line); transform:translateY(-4px)}
   .bucket .tag{font:11px var(--mono); letter-spacing:.08em; text-transform:uppercase; padding:2px 9px; border-radius:99px}
   .bucket.toolmeta .tag, .bucket.triagemeta .tag{color:var(--accent); background:var(--accent-soft)}
   .bucket.now   .tag{color:var(--accent); background:var(--accent-soft)}
@@ -235,7 +241,7 @@
      its fill are written there with the cross it stands beside */
   .addrow{margin:2px 0 14px}
   .addbtn{font:12.5px var(--mono); color:var(--sub); background:none; cursor:pointer;
-    border:1px dashed var(--line); border-radius:9px; padding:7px 14px; transition:.2s}
+    border:var(--edge) dashed var(--line); border-radius:9px; padding:7px 14px; transition:.2s}
   .addbtn:hover{color:var(--accent); border-color:var(--accent)}
   .addinput{font:14px var(--sans); color:var(--ink); background:var(--card);
     border:1px solid var(--accent); border-radius:9px; padding:8px 11px; width:60%; outline:none}
@@ -244,7 +250,7 @@
 
   /* ---- box -------------------------------------------------------------- */
   .box{
-    background:var(--card); border:1px solid var(--line); border-radius:7px;
+    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
     margin:0 0 14px; overflow:hidden;
     transition:border-color .35s, background .45s, box-shadow .25s;
     animation:rise .45s cubic-bezier(.2,.7,.3,1) both;
@@ -253,7 +259,7 @@
   .box:focus-within{border-color:var(--line); box-shadow:0 2px 14px rgba(60,45,20,.05)}
   .head{display:flex; align-items:center; gap:10px; padding:12px 14px 0; cursor:default}
   .num{font:500 11px var(--mono); color:var(--sub); background:var(--paper);
-       border:1px solid var(--line); border-radius:6px; padding:2px 7px; flex:none}
+       border:var(--edge) solid var(--line); border-radius:6px; padding:2px 7px; flex:none}
   .title{font:625 17.5px/1.25 var(--inter); flex:1; min-width:0}
   .title[contenteditable]{outline:none}
   .title[contenteditable]:empty::before{content:"Chat Name"; color:var(--line-strong)}
@@ -273,7 +279,7 @@
   .compose{display:flex; gap:8px; margin-top:9px; align-items:flex-end}
   textarea{
     flex:1; resize:none; font:14.5px/1.45 var(--sans); color:var(--ink);
-    background:var(--paper); border:1px solid var(--line); border-radius:9px;
+    background:var(--paper); border:var(--edge) solid var(--line); border-radius:9px;
     padding:8px 11px; min-height:38px; max-height:170px; outline:none; transition:border-color .2s;
   }
   textarea:focus{border-color:var(--accent)}
@@ -288,7 +294,7 @@
      by the script that puts the editor on */
   .cffield{flex:1; min-width:0; font:14.5px/1.45 var(--sans); color:var(--ink)}
   :is(.compose, .mcompose) .cffield .cm-scroller{
-    background:var(--paper); border:1px solid var(--line); border-radius:9px;
+    background:var(--paper); border:var(--edge) solid var(--line); border-radius:9px;
     padding:8px 11px; min-height:38px; max-height:170px; overflow-y:auto;
     transition:border-color .2s;
   }
@@ -374,7 +380,7 @@
   #offline{
     display:none; position:sticky; top:45px; z-index:9;
     padding:9px 20px; font:13px var(--sans); color:#7A2E1B;
-    background:#FAE9E2; border-bottom:1px solid var(--line);
+    background:#FAE9E2; border-bottom:var(--edge) solid var(--line);
   }
   body.offline #offline{display:block}
   body.offline .dot{background:#C0442A !important; animation:none}
@@ -467,7 +473,7 @@
     max-width:none; margin:0; overflow:hidden;
     position:fixed; left:var(--frame-x); width:var(--frame-w);
     top:calc(var(--oy) + var(--ch)*var(--frame-y)); height:calc(var(--ch)*var(--frame-h));
-    border:1px solid var(--line); background:#fff; border-radius:7px;
+    border:var(--edge) solid var(--line); background:#fff; border-radius:7px;
     /* raised while it holds the keys, the same lift the small card gets. it
        settles back the moment magic box 2 is clicked into, so exactly one of
        the two is ever standing up */
@@ -517,8 +523,10 @@
        ink, the same --line the composer draws its top edge in. an inset shadow
        and not a border-bottom on purpose, since a border would take a pixel out
        of the 34px content box and lift both buttons off their 9px seat. a white
-       bar over a white card needs the line most of all */
-    box-shadow:inset 0 -1px 0 var(--line);
+       bar over a white card needs the line most of all. a shadow is not
+       snapped the way a border is, so it is given the edge's drawn width and
+       not the asked-for one, to be as thick as the card's border around it */
+    box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line);
   }
   /* the reply-history control takes the bar's flexible left-hand room whether
      its marks are showing or not. the fixed room means the defer and close
@@ -596,7 +604,7 @@
   body.focus .box.sel .wtmenu{
     position:absolute; left:var(--pad-x); top:100%; margin-top:6px; z-index:5;
     display:none; min-width:150px; padding:4px;
-    background:var(--card); border:1px solid var(--line); border-radius:7px;
+    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
   }
   body.focus .box.sel .wtmenu.open{display:block}
@@ -898,7 +906,7 @@
        back, and the arrow cannot step by a pixel when the dress changes */
     --strip-line:0px;
   }
-  body.focus .box.sel .pendlist.open{--strip-line:1px}
+  body.focus .box.sel .pendlist.open{--strip-line:var(--edge-drawn)}
   /* the shut bar. the same 32.4px click target the old one had, the pane's own
      7px rounding, and the deep inset shade off its top inside edge the way a
      recessed surface sits under light, so the box reads sunk INTO the card.
@@ -911,7 +919,7 @@
     border-radius:7px;
     box-shadow:var(--sunk-deep);
     background:var(--card);
-    box-sizing:border-box; border:1px solid var(--line);
+    box-sizing:border-box; border:var(--edge) solid var(--line);
   }
   /* the chevron: two strokes meeting at a point, no stem, drawn as a path and
      not a font glyph so the weight stays 1.5px at any device scale. there are
@@ -981,7 +989,7 @@
      pulled left slides under the border the way a phone thread does */
   body.focus .box.sel .pendlist.open{
     background:var(--card);
-    border:1px solid var(--line);
+    border:var(--edge) solid var(--line);
     border-radius:7px; padding:16px 12px 10px;
     box-shadow:var(--sunk-deep);
     overflow:hidden;
@@ -1529,7 +1537,7 @@
   body.focus .box.sel .bottombar{
     display:flex; align-items:flex-end; gap:var(--sp-s); flex:none;
     margin:0 calc(var(--pad-x)*2/3) 0 calc(var(--pad-x)*2/3);
-    border-top:1px solid var(--line);
+    border-top:var(--edge) solid var(--line);
     background:var(--card);
   }
   /* the white over the step, and it is hung on there being a sent box to leave
@@ -1718,7 +1726,7 @@
   body.focus .box.sel .clipbtn::before{
     content:""; position:absolute; z-index:-1;
     left:0; right:0; top:50%; aspect-ratio:1; transform:translateY(-50%);
-    border-radius:var(--sq); border:1px solid var(--line);
+    border-radius:var(--sq); border:var(--edge) solid var(--line);
     background:color-mix(in srgb, #000 var(--press), var(--paper));
     box-shadow:var(--sunk-deep);
     opacity:0;
@@ -1762,7 +1770,7 @@
   .chip.more{background:var(--paper); display:flex; align-items:center;
     justify-content:center; font:9px var(--mono); color:var(--sub)}
   .chip{width:2.6vw; min-width:20px; height:calc(var(--ch)*0.030);
-    border:1px solid var(--line); border-radius:0; cursor:pointer;
+    border:var(--edge) solid var(--line); border-radius:0; cursor:pointer;
     animation:chippop .18s ease-out}
   .chip:hover{border-color:var(--ink)}
   .chip.g{background:#E3FFDB}
@@ -1834,7 +1842,7 @@
      holder sideways. each section below handles its own vertical scrolling. */
   #tiklist{position:relative; flex:1; min-height:0; overflow:clip;
     display:flex; flex-direction:column;
-    background:var(--card); border:1px solid var(--line); border-radius:7px;
+    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
     box-shadow:inset 0 2.7px 6.3px rgba(60,45,20,.198), inset 0 .9px 1.8px rgba(60,45,20,.126)}
   /* #tiksheet is doing|deferred|done laid left to right, one section wide each.
      section i rests at translateX(-i*100%); the well clips all but the shown one. */
@@ -1849,7 +1857,7 @@
      card-tokens.css hides every bar, so none is styled or slimmed here. */
   .trow{
     position:relative; flex:none; height:calc(var(--ch)*0.072);
-    border:1px solid var(--line); border-radius:5px; background:#fff;
+    border:var(--edge) solid var(--line); border-radius:5px; background:#fff;
     box-shadow:0 1px 4px rgba(60,45,20,.05);
     display:flex; flex-direction:column;
     cursor:pointer; overflow:hidden;
@@ -1893,10 +1901,10 @@
   /* past capacity the panel contains itself: internal scroll, no overhang */
   body.focus #tickets.scroll{overflow-y:auto; overflow-x:hidden}
   #tickets.scroll .trow.on{width:auto; margin-right:0.6vw;
-    border-right:1px solid var(--line)}
+    border-right:var(--edge) solid var(--line)}
   .trow.on .tt{font-weight:600}
   /* magic stubs, contents to be explained */
-  #magic1, #magic2, #magic3, #magic4{position:fixed; border:1px dashed var(--line); border-radius:7px;
+  #magic1, #magic2, #magic3, #magic4{position:fixed; border:var(--edge) dashed var(--line); border-radius:7px;
     background:#fff;
     display:flex; align-items:center; justify-content:center;
     font:400 12.5px var(--mono); color:#B4AA99; letter-spacing:.04em}
@@ -1918,7 +1926,7 @@
      it takes the same face a card has, so nothing new is introduced; empty, it
      carries the two marks for what belongs in it, drawn in the board's own ink
      like the spotify mark on the player */
-  #magic3.filled{border:1px solid var(--line); background:var(--card);
+  #magic3.filled{border:var(--edge) solid var(--line); background:var(--card);
     padding:6px; overflow:hidden}
   #magic3 .p3img{width:100%; height:100%; object-fit:contain; display:block}
   #magic3 .p3stub{display:flex; align-items:center; justify-content:center; gap:8px;
@@ -1963,7 +1971,7 @@
        itself off it so the same air sits above the pill at one line and at the
        five line cap alike */
     --c3-field-h:39px;
-    border:1px solid var(--line); background:var(--c3-canvas);
+    border:var(--edge) solid var(--line); background:var(--c3-canvas);
     padding:0; overflow:hidden;
     /* the stub rule centres its one line of text. a thread wants the whole
        height of the box as a column, the same reset the player makes */
@@ -2237,7 +2245,7 @@
      and both wear a head row of the same height, so nothing under it moves
      when one becomes the other */
   :is(#magic3, #magic4).fnavpanel{
-    border:1px solid var(--line); background:var(--card); padding:0; overflow:hidden;
+    border:var(--edge) solid var(--line); background:var(--card); padding:0; overflow:hidden;
     /* the stub rule centres its one line of text; a panel wants the whole
        height of the box as a column, the same reset the chat makes */
     flex-direction:column; align-items:stretch; justify-content:flex-start;
@@ -2252,17 +2260,24 @@
      flares 7px past its own edge, and at 8px that flare would land on the
      panel's own border with nothing between them */
   :is(#magic3, #magic4) .fnavhead{flex:none; display:flex; align-items:flex-end; gap:4px;
-    padding:6px 12px 0; border-bottom:1px solid var(--line)}
+    padding:calc(6px + 1px - var(--edge-drawn)) 12px 0; border-bottom:var(--edge) solid var(--line)}
   /* the folder tabs ARE the project tabs: every .ptab rule up top applies here
      unchanged, the 7px top corners and the browser-style bottom notches with
-     them, and only three things are said again. the seat, because the surface
+     them, and only four things are said again. the seat, because the surface
      under this head is the panel's own white and not the board's paper; height
-     auto over the bar's fixed 38, so the padding below can set the height; and
+     auto over the bar's fixed 38, so the padding below can set the height;
      that padding, which is the 6 and 5 the segments in here used to carry, so
-     the head is exactly as tall as it was and the editor under it never moved */
-  :is(#magic3, #magic4) .fnavtab{--seat:var(--card); height:auto; padding:6px 13px 5px}
+     the head is exactly as tall as it was and the editor under it never moved;
+     and the drop. up top a tab drops a full 1px because the bar keeps a full
+     1px row, but the line under this head is the edge itself, so a tab here
+     drops by the edge's drawn width and its foot lands on that line. the tab's
+     top border and the head's bottom line are the edge now, and what the two
+     gave up comes back as padding over the label and over the head, so the
+     label and the editor stay exactly where they were */
+  :is(#magic3, #magic4) .fnavtab{--seat:var(--card); height:auto;
+    padding:calc(6px + 1px - var(--edge-drawn)) 13px 5px; top:var(--edge-drawn)}
   :is(#magic3, #magic4) .fnavnav{flex:none; display:flex; align-items:center; gap:3px;
-    min-width:0; padding:5px 7px 4px; border-bottom:1px solid var(--line);
+    min-width:0; padding:5px 7px 4px; border-bottom:var(--edge) solid var(--line);
     font:11px var(--mono); color:var(--sub)}
   :is(#magic3, #magic4) .fnavnav[hidden]{display:none}
   :is(#magic3, #magic4) .fnavup, :is(#magic3, #magic4) .fnavcrumb{
@@ -2306,7 +2321,7 @@
      padding and its 16px line. written down so the two states are exactly as
      tall as each other and the editor never shifts under the switch */
   :is(#magic3, #magic4) .fnavbar{display:none; flex:none; align-items:center; gap:6px;
-    height:33px; padding:0 8px; border-bottom:1px solid var(--line)}
+    height:33px; padding:0 8px; border-bottom:var(--edge) solid var(--line)}
   /* the three open states all replace the file list with the bar and one body:
      the editor, the image preview, or the not-editable info card */
   :is(#magic3, #magic4):is(.editing, .previewing, .unopenable) .fnavhead,
@@ -2340,7 +2355,7 @@
      editor keeps the whole box until there is something to say */
   :is(#magic3, #magic4) .fnavnote{flex:none; font:10.5px/1.35 var(--mono); color:var(--sub);
     padding:0 9px; overflow:hidden}
-  :is(#magic3, #magic4) .fnavnote:not(:empty){padding:4px 9px 5px; border-top:1px solid var(--line)}
+  :is(#magic3, #magic4) .fnavnote:not(:empty){padding:4px 9px 5px; border-top:var(--edge) solid var(--line)}
   :is(#magic3, #magic4) .fnavnote.bad{color:var(--must)}
   :is(#magic3, #magic4) .fnavedit{display:none; flex:1; min-height:0; overflow:hidden}
   /* the image preview and the info card, sharing the editor's slot. the image
@@ -2351,7 +2366,7 @@
   :is(#magic3, #magic4) .fnavfig{flex:1; min-height:0; display:flex; align-items:center;
     justify-content:center; overflow:hidden}
   :is(#magic3, #magic4) .fnavimg{max-width:100%; max-height:100%; object-fit:contain;
-    border:1px solid var(--line); border-radius:4px; background:#fff}
+    border:var(--edge) solid var(--line); border-radius:4px; background:#fff}
   :is(#magic3, #magic4) .fnavmeta{flex:none; text-align:center}
   :is(#magic3, #magic4) .fnavmetaname{font:11.5px var(--mono); color:var(--ink);
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
@@ -2442,13 +2457,13 @@
   :is(#magic3, #magic4) .cm-table-widget{margin:6px 0; overflow-x:auto}
   :is(#magic3, #magic4) .cm-table-widget table{border-collapse:collapse; width:100%; font:12.5px/1.45 var(--sans)}
   :is(#magic3, #magic4) .cm-table-widget th, :is(#magic3, #magic4) .cm-table-widget td{
-    border:1px solid var(--line); padding:4px 7px; text-align:left; color:var(--ink)}
+    border:var(--edge) solid var(--line); padding:4px 7px; text-align:left; color:var(--ink)}
   :is(#magic3, #magic4) .cm-table-widget th{background:var(--paper); font-weight:600; color:var(--sub)}
   /* a fenced block: the board's paper inside the panel's hairline, at the 7px
      corner every surface let into a card carries. the pack's copy button is
      turned off where the extension is made rather than hidden here, so nothing
      ever draws it */
-  :is(#magic3, #magic4) .cm-codeblock-widget{background:var(--paper); border:1px solid var(--line);
+  :is(#magic3, #magic4) .cm-codeblock-widget{background:var(--paper); border:var(--edge) solid var(--line);
     border-radius:7px; margin:6px 0; padding:7px 9px}
   :is(#magic3, #magic4) .cm-codeblock-widget pre, :is(#magic3, #magic4) .cm-codeblock-widget code{
     font:12px/1.5 var(--mono); color:var(--ink); background:none; margin:0}
@@ -2546,10 +2561,14 @@
      are taken off the line, and the line itself becomes one hairline with
      10px of air over and under it. background-clip keeps the ink inside the
      1px content box, so the air stays air */
-  :is(#magic3, #magic4) .md-hr{height:1px; padding:10px 0; font-size:0; line-height:0;
+  :is(#magic3, #magic4) .md-hr{height:var(--edge-drawn);
+    padding:calc(10px + (1px - var(--edge-drawn)) / 2) 0; font-size:0; line-height:0;
     /* content-box on purpose: this page sets border-box on everything, and
        under it a 1px box with 10px of padding has no content box left at all
-       and the rule paints nothing */
+       and the rule paints nothing. the rule is the edge's drawn width, never
+       under a device pixel so it cannot drop out, and what it gives up goes
+       back into the air around it, so the line stays 21px tall and no text
+       under it moves */
     box-sizing:content-box; background:var(--line); background-clip:content-box}
   /* the yaml block at the head of every one of the files, drawn as a block of
      properties rather than as body text: the board's paper behind it, the file
@@ -2586,7 +2605,7 @@
     border:none; background:none}
   #magic2 .mlist{height:100%; padding:0;
     display:flex; flex-direction:column}
-  #magic2 .mbox{background:var(--card); border:1px solid var(--line);
+  #magic2 .mbox{background:var(--card); border:var(--edge) solid var(--line);
     border-radius:7px; padding:9px 11px; display:flex; flex-direction:column;
     flex:1; min-height:0; position:relative; transition:box-shadow .2s}
   #magic2 .mbox.off{display:none}
@@ -2944,7 +2963,7 @@
     font:9.5px/1.35 var(--mono); color:var(--sub); text-align:right}
   /* a line, not a box, exactly as the large card's composer is drawn */
   #magic2 .mcompose{display:flex; gap:var(--sp-x); align-items:flex-end; flex:none;
-    border-top:1px solid var(--line); margin-top:var(--sp-xs); padding-bottom:0}
+    border-top:var(--edge) solid var(--line); margin-top:var(--sp-xs); padding-bottom:0}
   #magic2 .mcompose textarea{flex:1; resize:none; background:transparent;
     border:none; box-shadow:none; outline:none; color:var(--ink);
     font:12px/1.5 var(--sans); padding:var(--sp-s) 4px; margin:0 -4px;
@@ -3004,25 +3023,25 @@
   body.focus #wsl{
     display:none;   /* absent from the ui_3 drawing; workspace data lives on */
     position:fixed;
-    background:var(--card); border:1px solid var(--line); border-radius:0;
+    background:var(--card); border:var(--edge) solid var(--line); border-radius:0;
     display:flex; flex-direction:column; gap:5px; padding:6px 0 6px 6px;
     overflow-y:auto;
   }
   .wsrow{
     font:500 12.5px var(--sans); color:var(--sub); background:var(--card);
-    border:1px solid var(--line); border-radius:0; padding:5px 10px;
+    border:var(--edge) solid var(--line); border-radius:0; padding:5px 10px;
     cursor:pointer; user-select:none; margin-right:4px;
   }
   .wsrow.on{
     color:var(--ink); background:var(--paper);
-    border-right:none; margin-right:-1px;   /* opens into the canvas, as drawn */
+    border-right:none; margin-right:calc(-1 * var(--edge-drawn));   /* opens into the canvas, as drawn */
   }
   /* quick chat: x 4.1%, y 49..88.1% */
   body.focus #qchat{
     display:none;   /* absent from the ui_3 drawing; the lane stays live */
     position:fixed;
     display:flex; flex-direction:column; min-height:0;
-    background:#fff; border:1px solid var(--line); border-radius:0;
+    background:#fff; border:var(--edge) solid var(--line); border-radius:0;
   }
   .paneh{font:11px var(--mono); letter-spacing:.09em; text-transform:uppercase;
     color:var(--sub); padding:10px 12px 6px}
@@ -3058,7 +3077,7 @@
     background:var(--accent); color:#fff; font-size:16px; font-weight:700;
     cursor:pointer; padding:0; align-self:flex-end}
   /* ---- the trio: rail, goal box, task box share one visual family ------- */
-  .trio{border:1px solid var(--line); border-radius:0; background:transparent}
+  .trio{border:var(--edge) solid var(--line); border-radius:0; background:transparent}
   #goalbox{
     position:fixed; left:var(--goal-x); width:var(--goal-w);
     overflow:hidden;
@@ -3084,12 +3103,12 @@
   #taskbox .trio-edit:nth-of-type(2){right:22px}
   .trio-edit:hover{color:var(--accent)}
   .trio input{flex:1; font:inherit; color:inherit; background:#fff;
-    border:1px solid var(--line); border-radius:0; padding:4px 6px; outline:none}
+    border:var(--edge) solid var(--line); border-radius:0; padding:4px 6px; outline:none}
   #togglstub{display:none}   /* magic box 2 takes this region; toggl comes later */
   /* the to-do box that used to sit in this region is gone; magic box 2 holds it
      now. the dot class below stays because the outline entries share it */
   .tdot{width:11px; height:11px; border-radius:50%; flex:none; cursor:pointer;
-    border:1px solid var(--line); background:#E9ECEF}
+    border:var(--edge) solid var(--line); background:#E9ECEF}
   /* selecting a task highlights its chats in the left box */
   .trow.match{background:var(--accent-soft); border-color:var(--line)}
   /* the ready-to-test fill wins over every state and the task-match wash, so a
@@ -3114,7 +3133,7 @@
   #rail-line > .dotk.goal{position:absolute; right:0; left:auto;
     top:calc(50% - max(9px, 0.72vw)/2); border-radius:0}   /* square, at the line's very end */
   .dotk{width:max(9px, 0.72vw); height:max(9px, 0.72vw); border-radius:50%;
-    border:1px solid var(--line);
+    border:var(--edge) solid var(--line);
     background:var(--paper); cursor:pointer; flex:none; transition:transform .15s}
   .dotk:hover{transform:scale(1.35)}
   .dotk.done{background:#59D624; border-color:#3E9C1B}
@@ -3130,7 +3149,7 @@
   body.focus #carousel{display:none}   /* its cards became the left ticket rows */
   .ccard{
     flex:0 0 var(--pane-w); min-width:64px; height:100%; position:relative; overflow:hidden;
-    border:1px solid var(--line); border-radius:0; background:var(--card);
+    border:var(--edge) solid var(--line); border-radius:0; background:var(--card);
     cursor:pointer; padding:9px 10px; display:flex; flex-direction:column;
   }
   .ccard .ct{font:500 12px/1.3 var(--sans); color:var(--ink);
@@ -3186,7 +3205,7 @@
   body.focus #respnav{
     position:fixed; top:50%; transform:translateY(-50%); z-index:13;
     width:34px; height:34px; padding:0; border-radius:50%;
-    border:1px solid var(--line); background:color-mix(in srgb, var(--paper) 92%, #fff 8%);
+    border:var(--edge) solid var(--line); background:color-mix(in srgb, var(--paper) 92%, #fff 8%);
     box-shadow:0 1px 4px rgba(60,45,20,.14); cursor:pointer;
     font:400 20px/1 var(--sans); color:var(--ink);
     display:flex; align-items:center; justify-content:center;
@@ -3212,7 +3231,7 @@
      not a full-bleed sheet pinned under the bar. edge to edge with its top on
      --bar-h, the card's own top border landed on the row the seated project tab
      opens onto, so the selected tab read as holding the card and the #appframe
-     boundary was hidden behind the white sheet. it keeps its own 1px border and
+     boundary was hidden behind the white sheet. it keeps its own edge and
      7px corners now (the base focus rule) and is inset from the frame's boundary
      by --app-inset on every side, so a strip of board paper shows between the
      frame and the card and the seated tab opens onto that workspace paper rather
@@ -3258,7 +3277,7 @@
     display:flex; align-items:center; justify-content:center;
     position:fixed; left:8px; top:6px; z-index:15;
     width:30px; height:30px; padding:0; border-radius:7px;
-    border:1px solid var(--line); color:var(--ink); cursor:pointer;
+    border:var(--edge) solid var(--line); color:var(--ink); cursor:pointer;
     background:color-mix(in srgb, var(--paper) 92%, #fff 8%);
   }
   body[data-resp-mode="portrait"] #respdrawerbtn:hover{border-color:var(--ink)}
@@ -3299,7 +3318,7 @@
        rectangle standing on the paper rather than a capsule */
     border-radius:7px;
     background:color-mix(in srgb, var(--paper) 92%, #fff 8%);
-    border:1px solid var(--line);
+    border:var(--edge) solid var(--line);
     box-shadow:0 1px 3px rgba(60,45,20,.07);
   }
   body.focus #pagepill.off{display:none}
@@ -3327,7 +3346,7 @@
      bullet as an outline with nothing inside it */
   #pagepill .pdot{
     flex:none; width:var(--mark); height:var(--mark); padding:0; border-radius:50%;
-    background:none; border:1px solid var(--line); cursor:pointer;
+    background:none; border:var(--edge) solid var(--line); cursor:pointer;
     position:relative; opacity:1; margin-left:0;
     transition:border-color .18s, background-color .18s,
                width .24s cubic-bezier(0.25, 1, 0.5, 1),
@@ -3349,7 +3368,7 @@
   #pagemenu{display:none}
   body.focus #pagemenu.on{
     display:block; position:fixed; z-index:45; min-width:126px;
-    background:var(--card); border:1px solid var(--line); border-radius:7px;
+    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
     box-shadow:0 4px 16px rgba(60,45,20,.16); padding:4px; overflow:hidden;
   }
   #pagemenu .pagemenuitem{
@@ -3371,7 +3390,7 @@
   }
   @keyframes pagewarnin{from{opacity:0}}
   #pagewarnbox{
-    background:var(--card); border:1px solid var(--line); border-radius:7px;
+    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
     box-shadow:0 8px 40px rgba(60,45,20,.24);
     padding:22px 24px 18px; width:min(420px, calc(100vw - 48px));
   }
@@ -3380,7 +3399,7 @@
   #pagewarnrow{display:flex; justify-content:flex-end; gap:8px; margin-top:20px}
   #pagewarnrow button{
     font:13px var(--sans); border-radius:5px; padding:6px 14px; cursor:pointer;
-    border:1px solid var(--line); background:var(--card); color:var(--ink);
+    border:var(--edge) solid var(--line); background:var(--card); color:var(--ink);
   }
   #pagewarnrow button:hover{background:#FAF7F1}
   #pagewarnyes{border-color:var(--must); background:var(--must); color:#fff}
@@ -3434,10 +3453,13 @@
      the pixel what they measured before */
   .ptab{
     font:500 13px/16px var(--sans); color:var(--sub);
-    background:transparent; border:1px solid transparent; border-bottom:none;
+    background:transparent; border:var(--edge) solid transparent; border-bottom:none;
     border-radius:7px 7px 0 0; cursor:pointer; user-select:none;
     position:relative; top:1px;
-    height:38px; padding:0 16px 5px;
+    /* the top border is room and is now the edge's width, so what it gave up
+       comes back as padding: the content box, and the label centred in it,
+       measure what they did */
+    height:38px; padding:calc(1px - var(--edge-drawn)) 16px 5px;
     /* the surface the seated tab opens into, named once here so the fill and
        both notches read it from one place. up here that surface is the canvas
        under the bar, which is the board's paper. the file navigator's folder
@@ -3483,6 +3505,10 @@
      the bite and paints nothing, and the near edge is two pixels deep in the
      tab where the gradient's own paper meets the tab's paper, so neither edge
      of this box is ever a seam, whatever fraction the tab lands on.
+     the ink ring is the edge's drawn width, the outer part of that 7 to 8 band,
+     so it is exactly as thick as the border it runs into and the line it runs
+     off into. the offsets and the box stay as they are: the ring still ends on
+     8, which is the tab's outer edge and the bar's bottom.
      both notches are out of flow and take no pointer, so an armed, hovered,
      dragged or resting tab still measures exactly what it always did. the three
      states listed are the three that draw the seated shape; a resting tab has
@@ -3495,12 +3521,12 @@
   :is(.ptab.on, .ptab.dragging, .ptab.draft)::before{
     left:-8px;
     background:radial-gradient(circle 8px at 0 0,
-      transparent 0 7px, var(--line) 7px 8px, var(--seat) 8px);
+      transparent 0 calc(8px - var(--edge-drawn)), var(--line) calc(8px - var(--edge-drawn)) 8px, var(--seat) 8px);
   }
   :is(.ptab.on, .ptab.dragging, .ptab.draft)::after{
     right:-8px;
     background:radial-gradient(circle 8px at 100% 0,
-      transparent 0 7px, var(--line) 7px 8px, var(--seat) 8px);
+      transparent 0 calc(8px - var(--edge-drawn)), var(--line) calc(8px - var(--edge-drawn)) 8px, var(--seat) 8px);
   }
   /* a lane still holding a reply the reader has not opened says so with weight alone,
      the way a mail client does: no dot, no count, no colour. selection is a
@@ -3691,7 +3717,7 @@
   body.focus .name{display:none}
   body.focus #offline{
     position:fixed; left:14px; bottom:12px; top:auto; transform:none;
-    z-index:20; border:1px solid var(--line); max-width:40ch; border-radius:0;
+    z-index:20; border:var(--edge) solid var(--line); max-width:40ch; border-radius:0;
     font-size:12px; padding:7px 12px;
   }
   /* auto side margins center a shot narrower than the column; one wider than

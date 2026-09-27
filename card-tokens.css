@@ -23,6 +23,21 @@
   --inter:"Inter", -apple-system, sans-serif;   /* card titles and the new-project landing */
 }
 
+/* ---- the edge's width ------------------------------------------------------ */
+/* --edge is the width every edge line is asked for, on every border that wears
+   --line. chrome does not draw it as asked: a border is snapped to whole device
+   pixels and never under one, so 0.8px comes out as one device pixel, which is
+   1px on a standard screen, 0.5px on a 2x screen and 2/3px on a 3x phone.
+   --edge-drawn is that drawn width. anything that is not a border but has to
+   meet one reads it: an offset that tucks under an edge, a hairline painted as
+   a gradient, a shadow or a thin box. those are not snapped, so given 0.8px
+   they would stand a fraction off the border beside them, and a painted line
+   thinner than a device pixel can break up or drop out. the three steps are
+   exact on 1x, 2x and 3x screens and within a device pixel between them */
+:root{--edge:.8px; --edge-drawn:1px}
+@media (min-resolution:2dppx){:root{--edge-drawn:.5px}}
+@media (min-resolution:3dppx){:root{--edge-drawn:calc(2px / 3)}}
+
 /* ---- the card's own constants ------------------------------------------- */
 /* --app-inset is the thin margin the app frame keeps from the window's edge.
    --cardbar-h is the card's top bar, and not --bar-h: the status bar at the
@@ -135,10 +150,10 @@
   border-left:3px solid var(--line); color:var(--sub)}
 .cardmd .tablewrap{max-width:100%; overflow-x:auto; margin:0 0 9px}
 .cardmd table{width:100%; border-collapse:collapse; font:inherit}
-.cardmd th, .cardmd td{padding:5px 7px; border:1px solid var(--line); text-align:left}
+.cardmd th, .cardmd td{padding:5px 7px; border:var(--edge) solid var(--line); text-align:left}
 .cardmd th{font-weight:650; background:var(--paper)}
 .cardmd .md-align-center{text-align:center}.cardmd .md-align-right{text-align:right}
-.cardmd hr{height:0; margin:13px 0; border:0; border-top:1px solid var(--line)}
+.cardmd hr{height:0; margin:13px 0; border:0; border-top:var(--edge) solid var(--line)}
 
 /* ---- the sent box's arrival ---------------------------------------------- */
 /* the dress the desktop's risePend puts on the sent box as it comes in. the

@@ -525,7 +525,9 @@ test("in portrait the selected project tab seats on the workspace frame, not on 
     assert.ok(g.cardBottomInset > 2, `the card must be inset above the frame's bottom line (b=${g.cardBottomInset})`);
     // it keeps its own full border and rounded corners, so it reads as a
     // contained object rather than a full-bleed sheet
-    assert.ok(g.cardBorderTop >= 1 && g.cardBorderLeft >= 1 && g.cardBorderRight >= 1,
+    // the edge is asked for at 0.8px, and chrome may report it as written or as
+    // the whole pixel it draws here, so a full border is any visible width
+    assert.ok(g.cardBorderTop > 0 && g.cardBorderLeft > 0 && g.cardBorderRight > 0,
       "the card keeps its full border in portrait");
     assert.ok(g.cardRadius >= 4, "the card keeps its rounded corners in portrait");
     // content and composer stay reachable within the window

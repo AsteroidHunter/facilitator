@@ -23,7 +23,12 @@
     --sans:"IBM Plex Sans", -apple-system, sans-serif;
     --mono:"IBM Plex Mono", ui-monospace, monospace;
     --inter:"Inter", -apple-system, sans-serif;   /* the new-project landing only */
+    /* the edge's asked width and the width chrome draws for it, the same pair
+       and the same reasons as in card-tokens.css */
+    --edge:.8px; --edge-drawn:1px;
   }
+  @media (min-resolution:2dppx){:root{--edge-drawn:.5px}}
+  @media (min-resolution:3dppx){:root{--edge-drawn:calc(2px / 3)}}
   *{box-sizing:border-box}
   /* Every scroller hides its bar and keeps its scroll: wheel, trackpad and touch
      still move the content, and no lane or gutter is drawn for a bar. Written once
@@ -53,7 +58,7 @@
     padding:10px 20px;
     background:color-mix(in srgb, var(--paper) 84%, transparent);
     backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
-    border-bottom:1px solid var(--line);
+    border-bottom:var(--edge) solid var(--line);
   }
   .bar .name{font:600 15px var(--serif); letter-spacing:.01em}
   .bar .name em{font-style:italic; font-weight:400; color:var(--sub)}
@@ -64,12 +69,12 @@
   .prog{font:12px var(--mono); color:var(--sub); white-space:nowrap}
   .prog b{color:var(--green); font-weight:500}
   .endbtn{
-    font:12px var(--mono); color:var(--sub); background:none; border:1px solid var(--line);
+    font:12px var(--mono); color:var(--sub); background:none; border:var(--edge) solid var(--line);
     border-radius:99px; padding:4px 12px; cursor:pointer; transition:.2s;
   }
   .endbtn:hover{border-color:var(--must); color:var(--must)}
   .endbtn.arm{border-color:var(--must); color:#fff; background:var(--must)}
-  #bgpick{width:24px; height:20px; padding:0; border:1px solid var(--line);
+  #bgpick{width:24px; height:20px; padding:0; border:var(--edge) solid var(--line);
     border-radius:4px; background:none; cursor:pointer; flex:none}
   #bgpick::-webkit-color-swatch-wrapper{padding:2px}
   #bgpick::-webkit-color-swatch{border:none; border-radius:2px}
@@ -81,7 +86,7 @@
   /* seated under the mark by the script, and drawn above the board rather than
      inside the bar's own layer */
   #setpanel{display:none; position:fixed; z-index:40; width:264px; padding:11px 13px;
-    background:#fff; border:1px solid var(--line); border-radius:7px;
+    background:#fff; border:var(--edge) solid var(--line); border-radius:7px;
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
   body.setopen #setpanel{display:block}
   #setpanel .setrow{display:flex; gap:8px; align-items:flex-start;
@@ -105,7 +110,7 @@
   :root{--tocw:238px}
   #toc{
     position:fixed; left:0; top:45px; bottom:0; width:var(--tocw); overflow-y:auto;
-    padding:18px 10px 30px 14px; border-right:1px solid var(--line);
+    padding:18px 10px 30px 14px; border-right:var(--edge) solid var(--line);
     background:color-mix(in srgb, var(--paper) 92%, #fff 8%);
   }
   #tocgrip{position:fixed; left:calc(var(--tocw) - 3px); top:45px; bottom:0; width:7px;
@@ -133,7 +138,7 @@
   .lede{font:15px/1.5 var(--sans); color:var(--sub); margin:4px 2px 26px; max-width:56ch}
   .bucket{margin:34px 0 12px; display:flex; align-items:baseline; gap:10px}
   .bucket h2{font:italic 500 24px var(--serif); margin:0; letter-spacing:.01em}
-  .bucket .rule{flex:1; height:1px; background:var(--line); transform:translateY(-4px)}
+  .bucket .rule{flex:1; height:var(--edge-drawn); background:var(--line); transform:translateY(-4px)}
   .bucket .tag{font:11px var(--mono); letter-spacing:.08em; text-transform:uppercase; padding:2px 9px; border-radius:99px}
   .bucket.toolmeta .tag, .bucket.triagemeta .tag{color:var(--accent); background:var(--accent-soft)}
   .bucket.now   .tag{color:var(--accent); background:var(--accent-soft)}
@@ -150,7 +155,7 @@
   body.focus .box.sel .arcbtn:hover{background:#F2B072}
   .addrow{margin:2px 0 14px}
   .addbtn{font:12.5px var(--mono); color:var(--sub); background:none; cursor:pointer;
-    border:1px dashed var(--line); border-radius:9px; padding:7px 14px; transition:.2s}
+    border:var(--edge) dashed var(--line); border-radius:9px; padding:7px 14px; transition:.2s}
   .addbtn:hover{color:var(--accent); border-color:var(--accent)}
   .addinput{font:14px var(--sans); color:var(--ink); background:var(--card);
     border:1px solid var(--accent); border-radius:9px; padding:8px 11px; width:60%; outline:none}
@@ -159,7 +164,7 @@
 
   /* ---- box -------------------------------------------------------------- */
   .box{
-    background:var(--card); border:1px solid var(--line); border-radius:7px;
+    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
     margin:0 0 14px; overflow:hidden;
     transition:border-color .35s, background .45s, box-shadow .25s;
     animation:rise .45s cubic-bezier(.2,.7,.3,1) both;
@@ -168,13 +173,13 @@
   .box:focus-within{border-color:var(--line); box-shadow:0 2px 14px rgba(60,45,20,.05)}
   .head{display:flex; align-items:center; gap:10px; padding:12px 14px 0; cursor:default}
   .num{font:500 11px var(--mono); color:var(--sub); background:var(--paper);
-       border:1px solid var(--line); border-radius:6px; padding:2px 7px; flex:none}
+       border:var(--edge) solid var(--line); border-radius:6px; padding:2px 7px; flex:none}
   .title{font:500 17.5px/1.25 var(--serif); flex:1; min-width:0}
   .title[contenteditable]{outline:none}
   .title[contenteditable]:empty::before{content:"Chat Name"; color:var(--line-strong)}
   .donebtn, .parkbtn{
     flex:none; font:12px var(--mono); color:var(--sub); background:none; cursor:pointer;
-    border:1px solid var(--line); border-radius:99px; padding:3px 11px; transition:.2s;
+    border:var(--edge) solid var(--line); border-radius:99px; padding:3px 11px; transition:.2s;
   }
   .donebtn:hover{border-color:var(--green); color:var(--green)}
   .parkbtn:hover{border-color:var(--later); color:var(--later)}
@@ -199,7 +204,7 @@
   .compose{display:flex; gap:8px; margin-top:9px; align-items:flex-end}
   textarea{
     flex:1; resize:none; font:14.5px/1.45 var(--sans); color:var(--ink);
-    background:var(--paper); border:1px solid var(--line); border-radius:9px;
+    background:var(--paper); border:var(--edge) solid var(--line); border-radius:9px;
     padding:8px 11px; min-height:38px; max-height:170px; outline:none; transition:border-color .2s;
   }
   textarea:focus{border-color:var(--accent)}
@@ -265,7 +270,7 @@
   #offline{
     display:none; position:sticky; top:45px; z-index:9;
     padding:9px 20px; font:13px var(--sans); color:#7A2E1B;
-    background:#FAE9E2; border-bottom:1px solid var(--line);
+    background:#FAE9E2; border-bottom:var(--edge) solid var(--line);
   }
   body.offline #offline{display:block}
   body.offline .dot{background:#C0442A !important; animation:none}
@@ -296,7 +301,7 @@
   .box.parked .parkbtn{background:var(--later); color:#fff}
   .ctx{
     font-style:normal; color:#3A3563;
-    background:var(--accent-soft); border:1px solid var(--line);
+    background:var(--accent-soft); border:var(--edge) solid var(--line);
     border-radius:4px; padding:7px 11px; margin:9px 14px 0;
   }
   /* state labels wear small drawn brackets instead of pill fills */
@@ -371,7 +376,7 @@
     max-width:none; margin:0; overflow:hidden;
     position:fixed; left:var(--frame-x); width:var(--frame-w);
     top:calc(var(--oy) + var(--ch)*var(--frame-y)); height:calc(var(--ch)*var(--frame-h));
-    border:1px solid var(--line); background:#fff; border-radius:7px;
+    border:var(--edge) solid var(--line); background:#fff; border-radius:7px;
     box-shadow:0 2px 18px rgba(60,45,20,.06);
     padding:calc(var(--ch)*0.022) var(--pad-x);
     display:flex; flex-direction:column; align-items:stretch;
@@ -422,7 +427,7 @@
   body.focus .box.sel .parkbtn:hover{color:var(--later)}
   body.focus .box.sel .ctx{
     display:block !important; margin:18px 0 0; padding:13px 16px;
-    background:#FAFAF7; border:1px solid var(--line); border-radius:5px;
+    background:#FAFAF7; border:var(--edge) solid var(--line); border-radius:5px;
     color:var(--ink); font-size:17px; line-height:1.55; box-shadow:none;
   }
   body.focus .box.sel .ctx:empty{display:none !important}
@@ -488,7 +493,7 @@
   }
   body.focus .box.sel .pendlist:empty + .compose{margin-top:auto}
   body.focus .box.sel .compose{padding-bottom:0; gap:var(--sp-x);
-    border-top:1px solid var(--line); margin-top:var(--sp-xs)}
+    border-top:var(--edge) solid var(--line); margin-top:var(--sp-xs)}
   body.focus .box.sel textarea{
     background:transparent; border:none !important; box-shadow:none;
     /* the side padding paired with equal negative margin keeps the text flush
@@ -515,7 +520,7 @@
   .chip.more{background:var(--paper); display:flex; align-items:center;
     justify-content:center; font:9px var(--mono); color:var(--sub)}
   .chip{width:2.6vw; min-width:20px; height:calc(var(--ch)*0.030);
-    border:1px solid var(--line); border-radius:0; cursor:pointer;
+    border:var(--edge) solid var(--line); border-radius:0; cursor:pointer;
     animation:chippop .18s ease-out}
   .chip:hover{border-color:var(--ink)}
   .chip.g{background:#E3FFDB}
@@ -527,16 +532,18 @@
     position:fixed; left:var(--tik-x); width:var(--tik-w);
     top:calc(var(--oy) + var(--ch)*var(--tik-y));
     height:calc(var(--ch)*var(--tik-h));
-    background:#fff; border:1px solid var(--line); border-radius:7px;
+    background:#fff; border:var(--edge) solid var(--line); border-radius:7px;
     box-shadow:0 1px 10px rgba(60,45,20,.04);
     display:flex; flex-direction:column; overflow:hidden;
   }
-  #tikhead{flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 8px 0; border-bottom:1px solid var(--line)}
+  #tikhead{flex:none; display:flex; align-items:flex-end; gap:4px;
+    padding:calc(6px + 1px - var(--edge-drawn)) 8px 0; border-bottom:var(--edge) solid var(--line)}
   /* same seated-tab shape as the project tabs up top; the active one's
      bottom opens into the list, so its fill matches the list's white */
   .tvb{flex:1; font:500 13px/16px var(--sans); color:var(--sub); background:transparent;
-    border:1px solid transparent; border-bottom:none; border-radius:0;
-    padding:6px 0 5px; cursor:pointer; user-select:none; position:relative; top:1px}
+    border:var(--edge) solid transparent; border-bottom:none; border-radius:0;
+    padding:calc(6px + 1px - var(--edge-drawn)) 0 5px; cursor:pointer; user-select:none;
+    position:relative; top:var(--edge-drawn)}
   .tvb:hover{color:var(--ink)}
   .tvb.on{color:var(--ink); background:var(--card); border-color:var(--line)}
   #tiklist{flex:1; overflow-y:auto; display:flex; flex-direction:column;
@@ -546,7 +553,7 @@
      for one: the page-wide rule above hides every bar, so none is styled here. */
   .trow{
     position:relative; flex:none; height:calc(var(--ch)*0.072);
-    border:1px solid var(--line); border-radius:5px; background:#fff;
+    border:var(--edge) solid var(--line); border-radius:5px; background:#fff;
     box-shadow:0 1px 4px rgba(60,45,20,.05);
     display:flex; flex-direction:column;
     cursor:pointer; overflow:hidden;
@@ -588,10 +595,10 @@
   /* past capacity the panel contains itself: internal scroll, no overhang */
   body.focus #tickets.scroll{overflow-y:auto; overflow-x:hidden}
   #tickets.scroll .trow.on{width:auto; margin-right:0.6vw;
-    border-right:1px solid var(--line)}
+    border-right:var(--edge) solid var(--line)}
   .trow.on .tt{font-weight:600}
   /* magic stubs, contents to be explained */
-  #magic1, #magic2{position:fixed; border:1px dashed var(--line); border-radius:7px;
+  #magic1, #magic2{position:fixed; border:var(--edge) dashed var(--line); border-radius:7px;
     background:#fff;
     display:flex; align-items:center; justify-content:center;
     font:400 12.5px var(--mono); color:#B4AA99; letter-spacing:.04em}
@@ -604,25 +611,25 @@
   body.focus #wsl{
     display:none;   /* absent from the ui_3 drawing; workspace data lives on */
     position:fixed;
-    background:var(--card); border:1px solid var(--line); border-radius:0;
+    background:var(--card); border:var(--edge) solid var(--line); border-radius:0;
     display:flex; flex-direction:column; gap:5px; padding:6px 0 6px 6px;
     overflow-y:auto;
   }
   .wsrow{
     font:500 12.5px var(--sans); color:var(--sub); background:var(--card);
-    border:1px solid var(--line); border-radius:0; padding:5px 10px;
+    border:var(--edge) solid var(--line); border-radius:0; padding:5px 10px;
     cursor:pointer; user-select:none; margin-right:4px;
   }
   .wsrow.on{
     color:var(--ink); background:var(--paper);
-    border-right:none; margin-right:-1px;   /* opens into the canvas, as drawn */
+    border-right:none; margin-right:calc(-1 * var(--edge-drawn));   /* opens into the canvas, as drawn */
   }
   /* quick chat: x 4.1%, y 49..88.1% */
   body.focus #qchat{
     display:none;   /* absent from the ui_3 drawing; the lane stays live */
     position:fixed;
     display:flex; flex-direction:column; min-height:0;
-    background:#fff; border:1px solid var(--line); border-radius:0;
+    background:#fff; border:var(--edge) solid var(--line); border-radius:0;
   }
   .paneh{font:11px var(--mono); letter-spacing:.09em; text-transform:uppercase;
     color:var(--sub); padding:10px 12px 6px}
@@ -654,7 +661,7 @@
     background:var(--accent); color:#fff; font-size:16px; font-weight:700;
     cursor:pointer; padding:0; align-self:flex-end}
   /* ---- the trio: rail, goal box, task box share one visual family ------- */
-  .trio{border:1px solid var(--line); border-radius:0; background:transparent}
+  .trio{border:var(--edge) solid var(--line); border-radius:0; background:transparent}
   #goalbox{
     position:fixed; left:var(--goal-x); width:var(--goal-w);
     overflow:hidden;
@@ -680,13 +687,13 @@
   #taskbox .trio-edit:nth-of-type(2){right:22px}
   .trio-edit:hover{color:var(--accent)}
   .trio input{flex:1; font:inherit; color:inherit; background:#fff;
-    border:1px solid var(--line); border-radius:0; padding:4px 6px; outline:none}
+    border:var(--edge) solid var(--line); border-radius:0; padding:4px 6px; outline:none}
   #togglstub{display:none}   /* the to-do box takes this region; toggl comes later */
   #todobox{display:none}
   body.focus #todobox{
     position:fixed; left:var(--tg-x); width:var(--tg-w);
     top:calc(var(--oy) + var(--ch)*var(--tg-y)); height:calc(var(--ch)*var(--tg-h));
-    background:#fff; border:1px solid var(--line); border-radius:7px;
+    background:#fff; border:var(--edge) solid var(--line); border-radius:7px;
     box-shadow:0 1px 10px rgba(60,45,20,.04);
     display:flex; flex-direction:column; overflow:hidden;
   }
@@ -696,7 +703,7 @@
   .todorow:hover{background:var(--accent-soft)}
   .todorow.sel{background:var(--accent-soft)}
   .tdot{width:11px; height:11px; border-radius:50%; flex:none; cursor:pointer;
-    border:1px solid var(--line); background:#E9ECEF}
+    border:var(--edge) solid var(--line); background:#E9ECEF}
   .todorow.done .tdot{background:#59D624; border-color:#3E9C1B}
   .todorow.ongoing .tdot{background:#FFD43B; border-color:#C9A21E}
   .tdtext{flex:1; min-width:0; font:400 13.5px/1.35 var(--sans); color:var(--ink);
@@ -706,7 +713,7 @@
     border:none; cursor:pointer; padding:0 2px}
   .todorow:hover .tdx{color:#B4AA99}
   .tdx:hover{color:var(--must) !important}
-  #todoadd{border:none; border-top:1px solid var(--line); outline:none;
+  #todoadd{border:none; border-top:var(--edge) solid var(--line); outline:none;
     font:400 13.5px var(--sans); color:var(--ink); background:var(--paper);
     padding:var(--sp-s) var(--sp-x)}
   #todoadd::placeholder{color:#B4AA99}
@@ -733,7 +740,7 @@
   #rail-line > .dotk.goal{position:absolute; right:0; left:auto;
     top:calc(50% - max(9px, 0.72vw)/2); border-radius:0}   /* square, at the line's very end */
   .dotk{width:max(9px, 0.72vw); height:max(9px, 0.72vw); border-radius:50%;
-    border:1px solid var(--line);
+    border:var(--edge) solid var(--line);
     background:var(--paper); cursor:pointer; flex:none; transition:transform .15s}
   .dotk:hover{transform:scale(1.35)}
   .dotk.done{background:#59D624; border-color:#3E9C1B}
@@ -749,7 +756,7 @@
   body.focus #carousel{display:none}   /* its cards became the left ticket rows */
   .ccard{
     flex:0 0 var(--pane-w); min-width:64px; height:100%; position:relative; overflow:hidden;
-    border:1px solid var(--line); border-radius:0; background:var(--card);
+    border:var(--edge) solid var(--line); border-radius:0; background:var(--card);
     cursor:pointer; padding:9px 10px; display:flex; flex-direction:column;
   }
   .ccard .ct{font:500 12px/1.3 var(--sans); color:var(--ink);
@@ -818,10 +825,12 @@
      into the canvas */
   .ptab{
     font:500 13px/16px var(--sans); color:var(--sub);
-    background:transparent; border:1px solid transparent; border-bottom:none;
+    background:transparent; border:var(--edge) solid transparent; border-bottom:none;
     border-radius:0; cursor:pointer; user-select:none;
-    position:relative; top:1px;
-    height:38px; padding:0 16px 5px;
+    position:relative; top:var(--edge-drawn);
+    /* the top border is room at the edge's width; the padding gives back what
+       it no longer takes, so the label sits where it did */
+    height:38px; padding:calc(1px - var(--edge-drawn)) 16px 5px;
   }
   .ptab:hover{color:var(--ink)}
   .ptab.on{color:var(--ink); background:var(--paper); border-color:var(--line)}
@@ -906,7 +915,7 @@
   body.focus .name{display:none}
   body.focus #offline{
     position:fixed; left:14px; bottom:12px; top:auto; transform:none;
-    z-index:20; border:1px solid var(--line); max-width:40ch; border-radius:0;
+    z-index:20; border:var(--edge) solid var(--line); max-width:40ch; border-radius:0;
     font-size:12px; padding:7px 12px;
   }
   /* auto side margins center a shot narrower than the column; one wider than
@@ -1000,10 +1009,10 @@
     border-left:3px solid var(--line); color:var(--sub)}
   .cardmd .tablewrap{max-width:100%; overflow-x:auto; margin:0 0 9px}
   .cardmd table{width:100%; border-collapse:collapse; font:inherit}
-  .cardmd th, .cardmd td{padding:5px 7px; border:1px solid var(--line); text-align:left}
+  .cardmd th, .cardmd td{padding:5px 7px; border:var(--edge) solid var(--line); text-align:left}
   .cardmd th{font-weight:650; background:var(--paper)}
   .cardmd .md-align-center{text-align:center}.cardmd .md-align-right{text-align:right}
-  .cardmd hr{height:0; margin:13px 0; border:0; border-top:1px solid var(--line)}
+  .cardmd hr{height:0; margin:13px 0; border:0; border-top:var(--edge) solid var(--line)}
   textarea.dropping{border-color:var(--accent) !important}
   body.focus .box.sel textarea.dropping{background:var(--accent-soft)}
   /* home, greyed out until it does something */
@@ -1085,7 +1094,7 @@
   /* progress: one pastel green fill, done over done plus doing, and the rest
      of the run left empty inside the hairline */
   #docbar{flex:1 1 auto; min-width:120px; max-width:520px; height:10px;
-    border:1px solid var(--line); background:transparent; display:flex}
+    border:var(--edge) solid var(--line); background:transparent; display:flex}
   #docdone{width:0; background:var(--green-line)}
   /* the goal the board view already shows, quiet and small. no goal draws
      nothing at all, and a long one clips on the line rather than dotting off */
