@@ -94,6 +94,17 @@ const CARD_SHORTCUT_DEFINITIONS = [
       (e.key === "n" || e.key === "N" || e.key === "l" || e.key === "L")
       ? ((e.key === "l" || e.key === "L") ? "deferred" : "doing") : null,
   },
+  // control+u unfolds the selected card's ticket while it wears the
+  // ready-to-test fold, as a click on the folded corner does. nothing on this
+  // mac, in chrome or in either shape of the composer answers control+u, so,
+  // like control+s, it works from the card's own composer as well as anywhere
+  // nothing is being typed
+  {
+    action: "unfold", mini: false,
+    match: e => e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey &&
+      !e.repeat && !e.isComposing && !e.defaultPrevented &&
+      (e.key === "u" || e.key === "U") ? true : null,
+  },
   // control+shift+[, ] and \ move the selected card to Doing, Deferred and
   // Done, typing or not. macOS text boxes give these chords no meaning and the
   // composer's editor is told to leave them to the page (PAGE_CHORDS in
@@ -757,6 +768,36 @@ function omniSweepEnd(el){
 // reader, so a card that returns to work, queues or is done keeps its own
 // colour. A parked card that still awaits the reader qualifies through queueState.
 function testReady(b){ return !!(b && b.testing) && queueState(b) === "yours"; }
+// ---- unfolding the ready-to-test fold ------------------------------------------
+// the fold is the whole of the marker, so unfolding a ticket is lowering it: the
+// page asks the board for /testing v=0, the route the agent lowers it by, and
+// draws what the board answers. two ways ask it, a click on the folded corner
+// and control+u on the selected card, and only while the ticket wears the fold.
+// the folded corner is the top right --fold square of the row's border box, the
+// flap and the cut corner beside it together. x is measured in from the row's
+// right edge and y down from its top
+function foldHit(x, y, fold){ return fold > 0 && x >= 0 && y >= 0 && x <= fold && y <= fold; }
+function onFold(row, e){
+  if (!row || !row.classList.contains("testc")) return false;
+  const r = row.getBoundingClientRect();
+  const fold = parseFloat(getComputedStyle(row).getPropertyValue("--fold")) || 0;
+  return foldHit(r.right - e.clientX, e.clientY - r.top, fold);
+}
+function unfoldTicket(id){
+  return fetch("/testing?box=" + encodeURIComponent(id) + "&v=0", { method: "POST" })
+    .catch(() => {}).then(() => poll());
+}
+// control+u's one path on either page: the selected card, when the key comes
+// from where the section chords may come from and the card wears the fold.
+// true means the board was asked
+function unfoldSelected(e, id, el){
+  if (!id || !el || !sectionChordSource(e.target, el)) return false;
+  const b = lastState?.boxes.find(x => x.id === id);
+  if (!testReady(b)) return false;
+  e.preventDefault();
+  unfoldTicket(id);
+  return true;
+}
 // the strict await of the bar count and auto-select: pending vetoes it, and
 // so does work in flight, claimed or registered; green outranks the ball
 function awaitsYou(b){
