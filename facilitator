@@ -99,19 +99,25 @@ def cmd_password(args, *, installer=False):
         return
     import getpass
     print("Choose a strong password to log into your Facilitator phone app.")
-    print("Use at least 11 characters, with a letter, a number and a symbol.\n")
+    print("Use at least 11 characters, with a letter, a number and a symbol.")
+    # every group after the intro opens with one blank line, so the prompt pair
+    # stays together and nothing doubles up or trails at the end
     while True:
+        print()
         first = getpass.getpass("App password (input hidden): ")
         try:
             bridge_auth.validate_password(first)
         except ValueError as error:
+            print()
             print(error)
             continue
         second = getpass.getpass("Confirm app password (input hidden): ")
         if first != second:
+            print()
             print("The passwords did not match. Try both entries again.")
             continue
         bridge_auth.set_password(first)
+        print()
         print("App password confirmed. Existing phone sessions were signed out." if not installer
               else "App password confirmed.")
         return
