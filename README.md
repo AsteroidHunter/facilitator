@@ -15,7 +15,9 @@ then use `facilitator run`, `facilitator restart`, `facilitator status`, or
 start while the old unguarded Serve target remains. Then run
 `facilitator bridge on` to get the QR code for the password-gated phone page.
 Remove the installation with `facilitator uninstall` (or `./uninstall.sh`);
-`--wipe` also removes board data and bridge credentials.
+`--wipe` also removes board data and bridge credentials. It asks first whether
+to keep your card attachments and keeps them unless you answer no;
+`--keep-attachments` or `--remove-attachments` answers without asking.
 
 ## License
 
