@@ -11167,20 +11167,18 @@ addEventListener("pointermove", e => {
   const s = sizing;
   const dx = (e.clientX - s.px) / stageScale, dy = (e.clientY - s.py) / stageScale;
   // widths and heights stay whole cells, never under two; a west or north
-  // pull moves the origin to a star line and keeps the far edge pinned
-  let w = Math.max(2 * GRID, Math.round((s.w + (s.dir.includes("e") ? dx : 0)) / GRID) * GRID);
-  let h = Math.max(2 * GRID, Math.round((s.h + (s.dir.includes("s") ? dy : 0)) / GRID) * GRID);
-  if (s.dir.includes("w")){
-    const left = Math.min(Math.max(GRID / 2, onStar(s.left + dx)), s.right - 2 * GRID);
-    w = s.right - left;
-    s.el.style.left = left + "px";
-    s.x = left;
+  // pull moves the origin to a star line and keeps the far edge pinned. the
+  // card, the tickets, the spotify box and the clock also stop at their own
+  // smallest and largest size (RESIZE_LIMITS in card-logic.js)
+  const fit = clampResize(s, s.dir, dx, dy, GRID, RESIZE_LIMITS[regionId(s.el)]);
+  const w = fit.w, h = fit.h;
+  if (fit.left != null){
+    s.el.style.left = fit.left + "px";
+    s.x = fit.left;
   }
-  if (s.dir.includes("n")){
-    const top = Math.min(Math.max(GRID / 2, onStar(s.top + dy)), s.bottom - 2 * GRID);
-    h = s.bottom - top;
-    s.el.style.top = top + "px";
-    s.y = top;
+  if (fit.top != null){
+    s.el.style.top = fit.top + "px";
+    s.y = fit.top;
   }
   s.el.style.width = w + "px";
   s.el.style.height = h + "px";
