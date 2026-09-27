@@ -482,7 +482,9 @@
     padding:calc(var(--ch)*0.022) var(--pad-x);
     display:flex; flex-direction:column; align-items:stretch;
   }
-  body.focus.minifocus main{box-shadow:0 2px 18px rgba(60,45,20,.06)}
+  /* and it settles the same way while the card on screen is only browsed to
+     with the arrow keys and not selected: the selected card alone stands up */
+  body.focus.minifocus main, body.focus.browsing main{box-shadow:0 2px 18px rgba(60,45,20,.06)}
   body.focus #sections{width:100%; max-width:100%; flex:1; display:flex; flex-direction:column}
   body.focus #sections > div:not(.bucket){display:contents}
   body.focus .bucket, body.focus .addrow{display:none}
@@ -1803,6 +1805,13 @@
   #tickets.scroll .trow.on{width:auto; margin-right:0.6vw;
     border-right:var(--edge) solid var(--line)}
   .trow.on .tt{font-weight:600}
+  /* a ticket browsed to and not selected keeps its place in the list: no lift
+     and no shade, only the resting one every row has, and the pale ring the
+     board already marks a chosen dot with. the resting shade is drawn the way
+     a folded row draws its own, as a filter, so this one rule serves a folded
+     row and a plain one alike */
+  body.browsing .trow.on{transform:none; box-shadow:none;
+    filter:drop-shadow(0 1px 4px rgba(60,45,20,.05)); outline:2px solid var(--accent-soft)}
   /* magic stubs, contents to be explained */
   #magic1, #magic2, #magic3, #magic4{position:fixed; border:var(--edge) dashed var(--line); border-radius:7px;
     background:#fff;
@@ -4141,6 +4150,7 @@ const FOCUS = document.body.classList.contains("focus");
 let selectedId = localStorage.getItem("selbox") || null;
 let shownId = null;   // the card the page is actually showing, so a selection
                       // that changed without a click can be noticed
+let browsing = false; // the card on screen is only browsed to, not selected: see setBrowsing
 const lastSel = {};   // owner -> the card you were on when you left its row
 
 // project tabs: one owner shown at a time; ?project=owner locks a pulled-out
@@ -4269,7 +4279,9 @@ function setTab(owner){
   if (draft) endDraft();   // an unfinished new tab disappears on switching away
   activeOwner = owner; localStorage.setItem("activeproj", owner);
   const pick = lastState && pickInRow(lastState, owner);
-  if (pick) select(pick.id);
+  // the tab's card is shown, not selected: switching tabs is looking, the way
+  // the arrow keys are, so it marks nothing read
+  if (pick) browse(pick.id);
   else deselect();   // a lane with no cards shows plain paper, never another lane's card
   applySavedLayout();
   panelPoll();   // magic box 3 carries this tab's picture, not the last tab's
@@ -4291,6 +4303,7 @@ function setTab(owner){
 function deselect(){
   cancelAutoNext();
   selectedId = null; shownId = null; localStorage.removeItem("selbox");
+  setBrowsing(false);   // no card on screen, so none is browsed either
   for (const k of Object.keys(els)){
     els[k].box.classList.remove("sel");
     els[k].toc.classList.remove("t-sel");
@@ -5246,16 +5259,48 @@ const MIN_CARD_H = 160;   // a card is never squeezed past being a card
 // re-seated on both so the foot is never a frame behind the window
 addEventListener("fullscreenchange", () => { fitStage(); seatPagePill(); });
 
+// a press anywhere on the large card, or the keyboard's focus landing in it,
+// selects the card on screen where it stands. in edit mode a press is a drag
+{
+  const frame = document.querySelector("main");
+  const inCard = e => !editMode && (e.target === frame || !!e.target.closest?.("#sections"));
+  frame?.addEventListener("pointerdown", e => { if (inCard(e)) chooseShown(); });
+  frame?.addEventListener("focusin", e => { if (inCard(e)) chooseShown(); });
+}
+
+// browsing: the card on screen was reached without being chosen, by the arrow
+// keys, a tab switch, a load or a fallback pick. selectedId still names it, so
+// every key that acts on the card acts on it, but it is not selected: neither
+// it nor its ticket wears the drop shadow, and nothing on it counts as read. a
+// click on its ticket or into it, or Enter, selects it; Escape puts it back
+function setBrowsing(on){
+  browsing = on;
+  document.body.classList.toggle("browsing", on);
+}
+
+// a click on a ticket, a chip or an outline entry, the caret carried along by
+// a step, a new card: the card is shown and selected, and so read. the hop a
+// close or a snooze makes to the next card keeps a browsing reader browsing,
+// since the board picked that card and the reader did not
 function select(id, opts){
+  showCard(id, !(opts?.hop && browsing), opts);
+}
+// the arrow keys and a tab switch: the card is shown and its ticket marked,
+// and nothing is selected or read
+function browse(id){
+  showCard(id, false);
+}
+function showCard(id, chosen, opts){
   if (!els[id]) return;
   cancelAutoNext();
   if (hist && hist.id !== id) histExit(hist.id);   // every card opens on its live reply
   selectedId = id; shownId = id; localStorage.setItem("selbox", id);
-  markSeen(id);
+  setBrowsing(!chosen);
+  if (chosen) markSeen(id);
   const b = lastState?.boxes.find(x => x.id === id);
   if (b) lastSel[b.owner] = id;
-  // that card is read now, so its tab drops its bold on the click, not up to
-  // a poll later. the bar itself is only rebuilt when its lanes change
+  // a chosen card is read now, so its tab drops its bold on the click, not up
+  // to a poll later. the bar itself is only rebuilt when its lanes change
   if (lastState) renderTabs(lastState);
   for (const k of Object.keys(els)){
     els[k].box.classList.toggle("sel", k === id);
@@ -5278,10 +5323,10 @@ function select(id, opts){
   // and bring the chosen row into the panel's view in the same breath
   for (const r of document.querySelectorAll("#tiklist .trow")){
     r.classList.toggle("on", r.dataset.id === id);
-    if (r.dataset.id === id && r.classList.contains("yours")) r.classList.add("seen");
+    if (chosen && r.dataset.id === id && r.classList.contains("yours")) r.classList.add("seen");
   }
   document.querySelector("#tiklist .trow.on")?.scrollIntoView({ block: "nearest" });
-  if (opts?.focus) els[id].ta.focus({ preventScroll: true });
+  if (chosen && opts?.focus) els[id].ta.focus({ preventScroll: true });
   updatePwd();
   scrollTo({ top: 0, behavior: "instant" });
   // a card switch is a new answer of a new length in the same room, so the phase
@@ -5289,6 +5334,37 @@ function select(id, opts){
   // frame, since the card was display:none until the line above
   snapCard();
   requestAnimationFrame(snapCard);
+}
+
+// the browsed card on screen becomes the selected one where it stands: nothing
+// on it moves, it takes the drop shadow back and counts as read
+function chooseShown(){
+  const id = selectedId;
+  if (!browsing || !id || !els[id]) return;
+  setBrowsing(false);
+  markSeen(id);
+  if (lastState) renderTabs(lastState);
+  for (const r of document.querySelectorAll("#tiklist .trow"))
+    if (r.dataset.id === id && r.classList.contains("yours")) r.classList.add("seen");
+}
+
+// Escape with nothing being typed: the card stays on screen, browsed, and
+// gives up its drop shadow. whatever held the focus inside it lets go, so the
+// Enter that selects it again is never a press on one of its buttons
+function unselectShown(){
+  const id = selectedId;
+  if (browsing || !id || !els[id]) return;
+  setBrowsing(true);
+  const held = document.activeElement;
+  if (held && held !== document.body && document.querySelector("main")?.contains(held)) held.blur();
+}
+
+// the reader is in this card's composer, by a click, the caret landing there
+// or a key typed: the card on screen is selected if it was only browsed, and
+// the card counts as read
+function useCard(id){
+  if (id === selectedId) chooseShown();
+  markSeen(id);
 }
 
 function updatePwd(st){
@@ -5322,7 +5398,10 @@ function nav(dx, dy, opts){
     if (!pool.length) return;
     const i = pool.findIndex(b => b.id === selectedId);
     const pick = pool[(i + dx + pool.length) % pool.length];
-    if (pick) select(pick.id, opts);
+    // a step that carries the caret into the next card's composer selects that
+    // card, since the caret there is using it; a plain arrow only browses
+    if (pick && opts?.focus) select(pick.id, opts);
+    else if (pick) browse(pick.id);
   }
 }
 
@@ -5353,8 +5432,9 @@ function applySelection(state){
   updatePwd(state);
   // a selection that arrived without going through select(), which is the first
   // load and any fallback pick, still lands on a card that was display:none a
-  // moment ago and has never been measured
-  if (moved){ shownId = selectedId; requestAnimationFrame(snapCard); }
+  // moment ago and has never been measured. nobody chose it, so it is shown
+  // browsed, and nothing on it is read until the reader selects it
+  if (moved){ shownId = selectedId; setBrowsing(true); requestAnimationFrame(snapCard); }
 }
 
 function statusOf(b){
@@ -6183,6 +6263,8 @@ function makeBox(b, i, state){
       // card's draft is carried on into it (xcCarry, the right composer)
       xcCarry(b.id);
     });
+    // a click into the composer or a key typed there is using the card
+    readOnCompose(ta, b.id, useCard);
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(tick);
     tick();
     wireAttachmentTransfer(ta);
@@ -6589,6 +6671,9 @@ function apply(state){
       delete histCache[b.id];
       setDesktopHistoryAvailability(b.id, olderReplies(b) > 0);
     }
+    // a reply landing on the selected card while the caret is in its composer
+    // is read as it lands
+    readOnArrival(el, b, b.id === selectedId && !browsing);
     // the card reads its own name, Omni Card #N for an Omni ticket, and the
     // outline keeps the stored title. an Omni sweep in flight writes both itself
     if (!el.titleEl.isContentEditable && !el.omniSweep){
@@ -9597,6 +9682,8 @@ function renderMiniCards(state){
       ta.addEventListener("input", () => {
         ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px";
       });
+      // reading and typing here count for the card as they do on the large one
+      readOnCompose(ta, b.id);
       box.append(sun, arc, x, title, answwrap, reply, pend, compose);
       el = miniEls[b.id] = { box, title, reply, pend, ta, sun, arc, x,
                              answwrap, answ: null, answId: null };
@@ -9605,6 +9692,7 @@ function renderMiniCards(state){
     // one card at a time; the rest stay built so their half-typed messages
     // survive a walk away and back
     el.box.classList.toggle("off", b.id !== miniId);
+    readOnArrival(el, b, b.id === miniId);
     if (!el.title.isContentEditable && el.title.textContent !== (b.title || "")){
       el.title.textContent = b.title || "";
     }
@@ -9976,8 +10064,24 @@ const boardShortcutActions = {
     const ow = owners[shortcut.value];
     if (ow){ e.preventDefault(); setTab(ow); }
   },
+  // the first Escape leaves the composer, or any field; the next one unselects
+  // the card, which stays on screen browsed. a key something else answered
+  // first, a menu, a picture, the quick note or the settings panel, never gets
+  // this far, and neither does one held down to repeat. the card has to be the
+  // one holding the keys, as control+s asks
   escape(e){
     if (boardShortcutTyping(e.target)) e.target.blur();
+    else if (!e.defaultPrevented && !e.repeat && boardResponseCard()) unselectShown();
+  },
+  // Enter selects the card on screen and puts the caret in its composer. a
+  // press on a button, a link or anything else that takes Enter is its own,
+  // and a new tab choosing its folder has no card on screen to select
+  enter(e){
+    if (draft || boardShortcutTyping(e.target) || !boardResponseCard()) return;
+    if (e.target.closest?.("button, a, select, summary, [role], [tabindex]")) return;
+    e.preventDefault();
+    chooseShown();
+    els[selectedId].ta.focus({ preventScroll: true });
   },
   close(e){
     if (boardShortcutTyping(e.target) || !selectedId) return;
@@ -11176,7 +11280,11 @@ document.getElementById("editbtn").addEventListener("click", () => setEditMode(!
   document.addEventListener("click", e => {
     if (isOpen() && !wrap.contains(e.target) && !panel.contains(e.target)) shut();
   });
-  document.addEventListener("keydown", e => { if (e.key === "Escape") shut(); });
+  // an Escape that shuts the panel is spent on it: the board's own Escape,
+  // which hears the key after this, leaves the card selected
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && isOpen()){ e.preventDefault(); shut(); }
+  });
   addEventListener("resize", () => { if (isOpen()) seat(); });
 }
 // the editor the typed formatting is drawn with is fetched once, early, so the
