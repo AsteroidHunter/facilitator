@@ -9,7 +9,8 @@
 //            for the year and a hover tip with the day and its count
 //   line     the same days as one line: each day's trailing 7-day average,
 //            since single days jump between nothing and a great deal. The
-//            tip names the day's own count beside the average
+//            tip leads with that average, the number the dot stands at, and
+//            names the day's own count under it, smaller, as that day alone
 //   panel    one rectangle holding one of the two at a time and a two-way
 //            pill to switch them; the choice is remembered in this browser
 //   view     both charts are drawn at their own size, one unit to a pixel,
@@ -66,6 +67,18 @@
   function longDay(date) {
     const p = parts(date);
     return `${WEEKDAYS[p.weekday]}, ${MONTHS[p.m - 1]} ${p.d}, ${p.y}`;
+  }
+  function shortDay(date) {
+    const p = parts(date);
+    return `${WEEKDAYS[p.weekday]}, ${MONTHS[p.m - 1]} ${p.d}`;
+  }
+  // "Sep 15 to Sep 21, 2026", the first year named too when the two differ,
+  // and one day on its own as just that day
+  function dayRange(from, to) {
+    const a = parts(from), b = parts(to);
+    const last = `${MONTHS[b.m - 1]} ${b.d}, ${b.y}`;
+    if (from === to) return last;
+    return `${MONTHS[a.m - 1]} ${a.d}${a.y !== b.y ? ", " + a.y : ""} to ${last}`;
   }
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   const r1 = n => Math.round(n * 10) / 10;
@@ -138,10 +151,11 @@
     return `<span class="tk-legend">Less${PALETTE.map(c =>
       `<i style="background:${c}"></i>`).join("")}More</span>`;
   }
+  // a square is one day, and its tip says so
   function heatTip(cell) {
     return cell.total > 0
-      ? `<b>${esc(compact(cell.total))} tokens</b><span>${esc(longDay(cell.date))}</span>`
-      : `<b>No tokens</b><span>${esc(longDay(cell.date))}</span>`;
+      ? `<b>${esc(compact(cell.total))} tokens that day</b><span>${esc(longDay(cell.date))}</span>`
+      : `<b>No tokens that day</b><span>${esc(longDay(cell.date))}</span>`;
   }
   function drawHeatmap(el, days, spot) {
     const model = heatmapModel(days);
@@ -186,8 +200,14 @@
     const n = shown.length;
     const xAt = i => PAD.left + (n > 1 ? i * w / (n - 1) : w / 2);
     const yAt = v => PAD.top + h - (v / top) * h;
-    const points = shown.map((d, i) => ({ i, date: d.date, total: d.total || 0, avg: avg[i],
-                                          x: r1(xAt(i)), y: r1(yAt(avg[i])) }));
+    // each point also knows the days its average was taken over: the day
+    // itself and the six before it, fewer only where the reading begins
+    const lead = days.length - n;
+    const points = shown.map((d, i) => {
+      const first = Math.max(0, lead + i - AVG + 1);
+      return { i, date: d.date, total: d.total || 0, avg: avg[i], from: days[first].date,
+               span: lead + i - first + 1, x: r1(xAt(i)), y: r1(yAt(avg[i])) };
+    });
     const months = points.filter(p => parts(p.date).d === 1 && p.x < LW - PAD.right - 16)
       .map(p => ({ x: p.x, label: MONTHS[parts(p.date).m - 1] }));
     return { points, months, top, ticks: [0, top / 2, top], yAt, box: { ...PAD, w, h } };
@@ -228,9 +248,14 @@
     out.push("</svg>");
     return out.join("");
   }
+  // the tip leads with what the line and its dot show, the average, which can
+  // never pass the top of the axis. The day's own count comes second, smaller
+  // and named as that one day, since a single busy day can stand well above
+  // the line; then the days the average was taken over
   function lineTip(p) {
-    return `<b>${esc(compact(p.total))} tokens</b><span>${esc(longDay(p.date))}</span>` +
-           `<span>${esc(compact(p.avg))} a day, 7-day average</span>`;
+    return `<b>${esc(compact(p.avg))} a day, ${p.span}-day average</b>` +
+           `<span>${esc(compact(p.total))} on ${esc(shortDay(p.date))} alone</span>` +
+           `<span>Averaged over ${esc(dayRange(p.from, p.date))}</span>`;
   }
   function drawLine(el, days, spot) {
     const model = lineModel(days);
