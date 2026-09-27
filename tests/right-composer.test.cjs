@@ -367,6 +367,14 @@ const sends = p => p.calls.filter(c => c.url.startsWith("/send"));
 const landRun = el => el.bottombar.dispatchEvent({ type: "transitionend", propertyName: "height",
   target: el.bottombar, preventDefault(){}, stopPropagation(){} });
 const near = (a, b, what) => assert.ok(Math.abs(a - b) < 1e-6, what + ": " + a + " is not " + b);
+// the switch's box in the window, from where the page seated it on the stage
+function switchRect(p, S = 1){
+  const st = p.page.xcSwitch.style, sr = p.stage.rect;
+  const left = sr.left + parseFloat(st.left) * S;
+  const bottom = sr.top + (900 - parseFloat(st.bottom)) * S;
+  return { left, right: left + parseFloat(st.width) * S,
+           top: bottom - parseFloat(st.height) * S, bottom };
+}
 
 // ---- the sheet, read as text -------------------------------------------------------
 const rule = selector => {
@@ -384,7 +392,7 @@ test("the switch opens the box on the right and puts it away, and a reload keeps
   choose(p, "m31");
   const { page } = p;
   const sw = page.xcSwitch, root = page.xc.root;
-  assert.equal(sw.parentNode, p.dom.doc.body, "the switch is not the window's own");
+  assert.equal(sw.parentNode, p.stage, "the switch does not stand on the stage with the card");
   assert.equal(root.parentNode, p.stage, "the box does not stand on the stage");
   assert.equal(page.xcRoom, true, "the default card left no room right of it");
   assert.equal(sw.hidden, false);
@@ -764,11 +772,15 @@ test("the owner's layout: the box fits beside the card, over the navigator, clea
   const lim = { right: 1503 - 1 - 16, bottom: 937 - 1 - 16 };
   assert.ok(right <= lim.right, "the box runs past the frame's clear edge");
   assert.ok(foot <= lim.bottom && foot < 847, "the box's foot is below the card's");
-  // the switch, 7px in from the window's right edge and 12 wide
-  const switchLeft = 1509 - 7 - 12;
-  assert.ok(right < switchLeft, "the box reaches the switch");
-  assert.ok(1466 < switchLeft, "the owner's navigator reaches under the switch");
-  // it stands over the boxes the owner keeps there, under the edit handles
+  // the switch hangs off the card's corner, its foot on the card's floor, a cell
+  // clear of the box and well clear of the owner's navigator at 973
+  const tab = switchRect(p, S);
+  near(tab.left, 925 - 7 * S, "the switch's tuck under the card");
+  near(tab.right, 925 + 1440 * 0.008 * S, "the switch's outer edge");
+  near(tab.bottom, 847, "the switch's foot");
+  assert.ok(tab.right < left, "the switch runs into the box");
+  assert.ok(tab.right < 973, "the switch reaches the owner's navigator");
+  // the box stands over the boxes the owner keeps there, under the edit handles
   assert.match(rule("  body.focus #xcomposer"), /position:fixed; z-index:6;/);
   assert.match(HTML, /#edithandles\{[^}]*z-index:30/);
 });
@@ -804,7 +816,7 @@ test("where the box cannot stand, the bar stays: two panes, the portrait column,
   assert.equal(p.page.xcRoom, false);
   assert.equal(p.page.xc.host, null);
   assert.equal(p.page.xcSwitch.getAttribute("aria-disabled"), "true");
-  assert.match(p.page.xcSwitch.title, /no room/);
+  assert.match(p.page.xcSwitch.getAttribute("title"), /no room/);
   p.dom.fire(p.page.xcSwitch, "click");
   assert.equal(p.store.getItem("composer.right"), "1", "a press on the switch with no room changed the choice");
   // and the sheet takes both away in the two modes whatever the script says
@@ -814,7 +826,99 @@ test("where the box cannot stand, the bar stays: two panes, the portrait column,
   assert.equal((fit.match(/xcPlace\(\);/g) || []).length, 2, "fitStage does not seat the box on both of its ways out");
 });
 
-test("the quick note's corner still wakes and opens, beside the switch", async () => {
+test("the switch hugs the card's bottom right corner beside the bar, and moves and scales with the card", () => {
+  const p = openPage();
+  p.fit();
+  addCard(p, "m47");
+  choose(p, "m47");
+  const cell = 1440 * 0.008;
+  const st = p.page.xcSwitch.style;
+  // seated off the card's box: run 7px in under its right edge at 996.48, one
+  // cell out past it, six cells tall, its foot on the card's floor at 789.12
+  near(parseFloat(st.left), 996.48 - 7, "the switch's left");
+  near(parseFloat(st.width), 7 + cell, "the switch's width");
+  near(parseFloat(st.height), 6 * cell, "the switch's height");
+  near(parseFloat(st.bottom), 900 - 789.12, "the switch's foot");
+  let tab = switchRect(p), card = p.main.rect;
+  near(tab.bottom, card.bottom, "the switch's foot is not the card's floor");
+  // tall and narrow, and taller than the bar's row at rest and the air under it
+  assert.ok(tab.bottom - tab.top > 4 * (tab.right - card.right), "the switch is not a tall narrow tab");
+  assert.ok(tab.bottom - tab.top >= 44 + 19.8, "the switch is shorter than the bar beside it");
+  // the sheet: behind the card and every box, no edge where it meets the card,
+  // and no place of its own in the window any more
+  const sw = rule("  body.focus #xcswitch");
+  assert.match(sw, /position:fixed; z-index:-1;/, "the switch does not stand behind the card");
+  assert.match(sw, /border-left:none;/);
+  assert.match(sw, /border-radius:0 var\(--sq\) var\(--sq\) 0;/);
+  assert.doesNotMatch(sw, /(?:^|[\s;])(right|bottom|left|top|width|height):/, "the sheet still places the switch itself");
+  assert.doesNotMatch(HTML, /bottom:84px/, "the old dodge of the note's corner is still in the sheet");
+  // a drag of the card takes the switch with it
+  p.main.rect = { left: 300, right: 830, top: 80, bottom: 700 };
+  p.fit();
+  tab = switchRect(p);
+  near(tab.left, 830 - 7, "the switch stayed behind when the card moved");
+  near(tab.bottom, 700, "the switch's foot stayed behind when the card moved");
+  // a board scaled down: the same place on the stage, so it shrinks with the card
+  const q = openPage({ window: { w: 1200, h: 760 }, layout: {
+    stage: { left: 20, top: 41, right: 20 + 1440 * .8, bottom: 41 + 900 * .8 },
+    card: { left: 20 + 466.56 * .8, right: 20 + 996.48 * .8, top: 41 + 63.36 * .8, bottom: 41 + 789.12 * .8 },
+    frame: { left: 6, right: 1194, top: 46, bottom: 754 } } });
+  q.page.stageScale = .8;
+  q.fit();
+  near(parseFloat(q.page.xcSwitch.style.left), 996.48 - 7, "the switch was not placed in stage pixels");
+  assert.equal(q.page.xcSwitch.parentNode, q.stage, "the switch does not scale with the stage");
+  // the large card alone carries it: the small cards' build never names it
+  const mini = between(HTML, 'const compose = h("div", "mcompose");', "box.append(sun, arc, x, title, answwrap, reply, pend, compose);");
+  assert.doesNotMatch(mini, /xcSwitch|switchComposer|xcswitch/, "the small cards carry the switch");
+  assert.equal((HTML.match(/xcSwitch\.id = "xcswitch";/g) || []).length, 1, "there is more than one switch");
+});
+
+test("the switch keeps off the card's own controls: the row, the send square and the answered panel's arrow", () => {
+  const p = openPage();
+  p.fit();
+  const card = addCard(p, "m48");
+  choose(p, "m48");
+  const tab = switchRect(p), box = p.main.rect;
+  // the part that shows stands wholly outside the card's box
+  near(tab.left + 7, box.right, "the switch shows inside the card");
+  // and nothing of the card can paint outside its own box to meet it: the card
+  // clips what it holds, and every control named is held inside it
+  assert.match(rule("  body.focus main"), /overflow:hidden;/, "the card no longer clips what it holds");
+  for (const node of [card.ta, card.send, card.clip]) assert.ok(p.main.contains(node), "a control stands outside the card");
+  assert.match(between(HTML, "function makeBox(b, i, state){", "\n}\n"),
+    /replyview\.append\(answwrap, reply\);\s*body\.append\(replyview, pendwrap\);/,
+    "the answered panel is no longer inside the card's body");
+  // the tucked part is under the card, painted over by it, and stops well short
+  // of the send square, which stands the card's side padding and the bar's own
+  // margin in from the card's edge
+  const padX = 1440 * 0.016;
+  assert.match(rule("  body.focus main"), /padding:calc\(var\(--ch\)\*0\.022\) var\(--pad-x\);/);
+  assert.match(rule("  body.focus .box.sel .bottombar"), /margin:0 calc\(var\(--pad-x\)\*2\/3\) 0 calc\(var\(--pad-x\)\*2\/3\);/);
+  assert.ok(padX + padX * 2 / 3 - 7 >= 30, "the tucked part reaches the send square");
+});
+
+test("with the box open the switch stays on the card's corner, pressed, and the same press puts the box away", () => {
+  const p = openPage();
+  p.fit();
+  addCard(p, "m49");
+  assert.equal(p.page.xcSwitch.hidden, true, "the switch hangs off a card that is not there");
+  choose(p, "m49");
+  assert.equal(p.page.xcSwitch.hidden, false, "the switch is missing from the card on show");
+  p.dom.fire(p.page.xcSwitch, "click");
+  assert.equal(p.page.xc.host, "m49");
+  assert.equal(p.page.xcSwitch.hidden, false, "the switch went away with the box open");
+  assert.equal(p.page.xcSwitch.getAttribute("aria-pressed"), "true");
+  assert.equal(p.page.xcSwitch.getAttribute("aria-label"), "put the composer back under the card");
+  // between the card and the box, a cell clear of the box's left edge
+  const tab = switchRect(p);
+  const boxLeft = p.stage.rect.left + parseFloat(p.page.xc.root.style.left);
+  near(boxLeft - tab.right, 1440 * 0.008, "the air between the switch and the box");
+  p.dom.fire(p.page.xcSwitch, "click");
+  assert.equal(p.page.xc.host, null, "the switch did not put the box away");
+  assert.equal(p.page.xcSwitch.getAttribute("aria-pressed"), "false");
+});
+
+test("the quick note's corner still wakes and opens, with the switch on the card", async () => {
   const p = openPage({ note: true });
   p.fit();
   addCard(p, "m45");
@@ -824,24 +928,26 @@ test("the quick note's corner still wakes and opens, beside the switch", async (
   const move = (x, y, target = dom.doc.body) => dom.fire(target, "pointermove",
     { pointerType: "mouse", buttons: 0, clientX: x, clientY: y });
   const out = () => page.qnPeek.classes.has("out");
-  // the switch's box in the window, off the sheet: 7px in, 12 wide, 84 up, 88 tall
-  const sw = rule("  body.focus #xcswitch");
-  assert.match(sw, /right:calc\(var\(--app-inset\) \+ var\(--edge-drawn\)\); bottom:84px;/);
-  assert.match(sw, /width:12px; height:88px;/);
-  assert.match(sw, /border-right:none;/, "the switch draws its own right edge over the frame's");
   const W = 1440, H = 900;
-  const box = { left: W - 7 - 12, right: W - 7, top: H - 84 - 88, bottom: H - 84 };
-  // the peek's piece when out: 60% of its 160 by 120, in the corner
+  // the peek's piece when out: 60% of its 160 by 120, in the window's corner
   assert.match(rule("  .qnpeek"), /width:160px; height:120px;/);
   assert.match(rule("  .qnpeek.out"), /transform:translate\(40%, 40%\)/);
   const peek = { left: W - 160 * .6, top: H - 120 * .6 };
-  assert.ok(box.bottom <= peek.top - 12, "the switch comes within 12px of the peek");
   const corner = Number(/const QN_CORNER = (\d+);/.exec(HTML)[1]);
-  assert.ok(box.bottom < H - corner, "the switch reaches the corner that wakes the note");
-  // inside the room the board keeps clear inside the frame
-  assert.ok(12 <= Number(FRAME[0].match(/\d+/)[0]), "the switch is wider than the frame's clear strip");
+  // the switch hangs off the card, nowhere near the window's corner
+  const box = switchRect(p);
+  assert.ok(box.right < peek.left || box.bottom < peek.top, "the switch meets the peek");
+  // and cannot meet the square that wakes the note wherever the card is put: a
+  // card hard in the frame's clear corner still leaves the switch above it
+  p.main.rect = { left: 890, right: 1440 - 7 - 16, top: 150, bottom: 900 - 7 - 16 };
+  p.fit();
+  const far = switchRect(p);
+  assert.ok(far.bottom < H - corner, "a card in the corner puts the switch on the note's wake square");
+  assert.ok(far.right < W - 7, "a card in the corner puts the switch past the frame");
+  p.main.rect = { left: 466.56, right: 996.48, top: 41 + 63.36, bottom: 41 + 789.12 };
+  p.fit();
   // a pointer all over the switch never wakes the note
-  for (const [x, y] of [[box.left, box.top], [box.right - 1, box.bottom - 1], [W - 10, box.bottom - 2]]){
+  for (const [x, y] of [[box.left + 8, box.top], [box.right - 1, box.bottom - 1], [box.right - 2, box.top + 30]]){
     move(x, y, page.xcSwitch);
     assert.equal(out(), false, "the switch woke the note at " + x + "," + y);
   }
