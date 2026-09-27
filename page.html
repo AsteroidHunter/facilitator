@@ -1260,6 +1260,21 @@
     background:linear-gradient(to top right, rgba(60,45,20,.08) 50%, rgba(60,45,20,0) 62%);
     clip-path:polygon(0 0, 100% 0, 100% 100%);
   }
+  /* the crease an unfolded ticket keeps, kept in step with card-tokens.css,
+     where its look is explained. this sheet has no --fold on :root, so the
+     creased row carries the board's 16px itself, as the folded row does */
+  .trow.creased{--fold:16px}
+  .trow.creased > .trowin::after{
+    --crease-line:rgba(173,157,127,.55); --crease-shade:rgba(60,45,20,.05); --crease-lit:rgba(255,255,255,.9);
+    content:""; position:absolute; box-sizing:border-box; pointer-events:none;
+    top:calc(-1 * var(--edge-drawn)); right:calc(-1 * var(--edge-drawn));
+    width:var(--fold); height:var(--fold);
+    background:linear-gradient(to bottom left,
+      rgba(60,45,20,0) 38%, var(--crease-shade) calc(50% - var(--edge-drawn) / 2),
+      var(--crease-line) 50%, var(--crease-line) calc(50% + var(--edge-drawn) / 2),
+      var(--crease-lit) calc(50% + var(--edge-drawn)), var(--crease-lit) calc(50% + var(--edge-drawn) * 1.5),
+      rgba(255,255,255,0) calc(50% + var(--edge-drawn) * 2.5));
+  }
 </style>
 </head>
 <body class="focus">
@@ -2925,9 +2940,9 @@ function renderCarousel(state){
               pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
                       ((seenReplies[b.id] || 0) >= (b.agentTs || 0) ? "r" : "") +
                       (b.id === selectedId ? "!" : "") + (b.task || "") + b.title +
-                      // the marker rides the signature so a mark or a clear
-                      // repaints the row
-                      (testReady(b) ? "T" : "") +
+                      // the marker and the crease ride the signature so a mark,
+                      // a clear or an unfold repaints the row
+                      (testReady(b) ? "T" : b.creased ? "C" : "") +
                       Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",") +
               "|" + selectedTask;
   if (tik.dataset.sig !== sig){
@@ -2948,13 +2963,16 @@ function renderCarousel(state){
       const isYours = s === "yours" || (s === "new" && b.ball === "you");
       const isMatch = selectedTask && b.task === selectedTask;
       const isTest = testReady(b);
+      // the crease an unfolded ticket keeps, never beside the fold itself
+      const isCrease = !isTest && !!b.creased;
       const r = h("div", "trow" + (b.id === selectedId ? " on" : "") + (busy ? " working" : "") +
                   (s === "yours" && seenTs >= (b.agentTs || 0) ? " seen" : "") +
                   (isYours ? " yours" : "") +
                   (s === "queued" || (s === "new" && b.ball !== "you") ? " queuedc" : "") +
                   (s === "done" ? " donec" : "") +
                   (isMatch ? " match" : "") +
-                  (isTest ? " testc" : ""));
+                  (isTest ? " testc" : "") +
+                  (isCrease ? " creased" : ""));
       const inner = h("div", "trowin");
       const omni = appendOmniRowArt(r, inner, b);
       const ttl = h("div", "ttl", b.title);

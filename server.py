@@ -73,6 +73,11 @@ Endpoints:
                                no job runs), so it can never mark active, queued
                                or done work. v=0 always clears. The reader
                                answering the card, and close/done, clear it too.
+                               The pages send v=0 when the reader unfolds the
+                               ticket. Clearing a raised marker, by any of
+                               these, leaves the card creased (a second flag
+                               both states carry as creased), and v=1 takes
+                               the crease away again.
                                It adds no reply, consumes no claim and moves no card
   POST /park?box=ID&v=1|0   -> park a box to Later / bring it back
   POST /context?box=ID      -> body = the box's two-line context strip (agent-kept)
@@ -1945,6 +1950,9 @@ def _migrate() -> None:
         # agent sets once a delivered change is actually available for the
         # reader to try. Cards written before it default off.
         b.setdefault("testing", False)
+        # the crease its ticket keeps once that marker is lowered (2026-09-27).
+        # Cards written before it were never unfolded, so they default off.
+        b.setdefault("creased", False)
     # the card state machine (2026-08-26): boxes written before it carry the
     # old scattered flags. bg and bg_ts collapse into hb; a fresh heartbeat
     # keeps its green (deferred if a turn was recorded under the flag), a dead
@@ -2288,10 +2296,21 @@ def _box_has_content(box: dict) -> bool:
             bool(box.get("pending")))
 
 
+def _lower_testing(box: dict) -> None:
+    """Lower the ready-to-test marker. A marker that was up leaves the card
+    creased: its ticket was folded and is now unfolded, whether the reader
+    unfolded it, answered the card or closed it, or the agent lowered it, so the
+    pages draw a lasting crease where the fold was until the marker is raised
+    again. Lowering a marker that was already down leaves the crease as it was."""
+    if box.get("testing"):
+        box["creased"] = True
+    box["testing"] = False
+
+
 def _mark_box_done(box: dict) -> str:
     box["done"] = True
     box["parked"] = False
-    box["testing"] = False   # a closed card is not awaiting a test
+    _lower_testing(box)   # a closed card is not awaiting a test
     _log("done", box["id"], "")
     return "done"
 
@@ -3100,6 +3119,8 @@ def _phone_box(b: dict) -> dict:
         # the ready-to-test marker, a durable per-card flag; the page paints it
         # only while the card is actually awaiting the reader
         "testing": bool(b.get("testing", False)),
+        # the crease a ticket keeps once that marker is lowered
+        "creased": bool(b.get("creased", False)),
     }
 
 
@@ -3215,6 +3236,8 @@ def _ui_state() -> dict:
                 # the ready-to-test marker, a durable per-card flag; the page
                 # paints it only while the card is actually awaiting the reader
                 "testing": bool(b.get("testing", False)),
+                # the crease a ticket keeps once that marker is lowered
+                "creased": bool(b.get("creased", False)),
                 "queuePos": qpos.get(b["id"], 0),
             }
             for b in st["boxes"]
@@ -4098,7 +4121,7 @@ def _post_send(q: Query, text: str):
         # so any earlier "ready to try" no longer stands. This sits past the op
         # receipt above, so a deduplicated retry of an already-accepted send
         # returns without reaching here and cannot clear a later fresh marker.
-        box["testing"] = False
+        _lower_testing(box)
         box["ball"] = "me"  # the message is sent: the ball is in the agent's court
         # the message queues the card; a beating flag keeps its green,
         # and a deferred turn dies here, since the reader has read and
@@ -4292,7 +4315,7 @@ def _post_done(q: Query, text: str):
         box["done"] = q.one("v", "1") == "1"
         if box["done"]:
             box["parked"] = False
-            box["testing"] = False   # a done card is not awaiting a test
+            _lower_testing(box)   # a done card is not awaiting a test
         _log("done" if box["done"] else "undone", bid, "")
         _save()
         _notify()
@@ -4345,6 +4368,9 @@ def _post_testing(q: Query, text: str):
     # route touches only the flag: it adds no reply or history row, consumes no
     # claim, marks nothing seen and moves no card. The reader answering the card,
     # and the card being closed or marked done, lower the flag on their own paths.
+    # The pages lower it here when the reader unfolds the ticket. Lowering leaves
+    # the card creased (see _lower_testing) and raising takes the crease away,
+    # since the fold lies over the place the crease is drawn.
     bid = q.one("box")
     want = q.one("v", "1") == "1"
     with _lock:
@@ -4359,7 +4385,11 @@ def _post_testing(q: Query, text: str):
         if held == want:
             # already in the asked-for state: no revision and no notice
             return 200, {"ok": True, "testing": want, "unchanged": True}
-        box["testing"] = want
+        if want:
+            box["testing"] = True
+            box["creased"] = False
+        else:
+            _lower_testing(box)
         _log("testmark" if want else "testclear", bid, "")
         _save()
         _notify()
@@ -4607,6 +4637,7 @@ def _create_box_record(owner: str, title: str) -> dict:
         "state": "new", "hb": 0,
         "ball": "me", "ts": time.time(), "owner": owner,
         "ws": ws0, "task": None, "agent_ts": 0, "seen": 0, "testing": False,
+        "creased": False,
     }
     _state["boxes"].insert(idx, made)
     return made

@@ -176,6 +176,43 @@
    overflow, which a ready-to-test row now leaves visible */
 .trow.testc > .omni-sweep{border-radius:inherit; overflow:hidden}
 
+/* ---- the crease an unfolded ticket keeps ----------------------------------- */
+/* once the fold is lowered, by a click on the corner, control+u, a reply or a
+   close, the ticket keeps a crease where the fold was, the way paper remembers
+   a dog-ear. the board keeps it per card until the marker is raised again; the
+   page's renderer puts creased on the row, never beside testc, and nothing here
+   decides when.
+   it is paint only, on the one layer no row state uses, the row's
+   .trowin::after, laid on the border box's top right --fold square exactly
+   where the flap and the hole lay, so its line runs along the fold's own
+   crease. the row's overflow keeps it inside the ticket's edge and corner.
+   read across the square from the corner, as the fold's layers are:
+   the corner side is the part that was folded. it never quite lies flat again
+   and tips a hair away from the light, which comes from above here as it does
+   everywhere on the board, so it takes a faint shade deepening into the
+   crease: the hole's contact shade, weaker, over the same reach.
+   the line is the crease itself, one drawn edge wide, in the fold's crease
+   colour at a little over half strength, so at rest it is about as quiet as
+   the ticket's edge and far quieter than the fold it stands for. each side
+   ramps over half a drawn edge, the way a device pixel softens a line, since a
+   hard stop on a diagonal steps.
+   the ticket side of the line catches the light: a white hairline, fading
+   out. on a white ticket it cannot show and the crease reads by its line and
+   shade alone, as a crease does on white paper; on a tinted row it lifts the
+   lip of the groove.
+   the three colours are the look's whole tuning, named at the top of the rule */
+.trow.creased > .trowin::after{
+  --crease-line:rgba(173,157,127,.55); --crease-shade:rgba(60,45,20,.05); --crease-lit:rgba(255,255,255,.9);
+  content:""; position:absolute; box-sizing:border-box; pointer-events:none;
+  top:calc(-1 * var(--edge-drawn)); right:calc(-1 * var(--edge-drawn));
+  width:var(--fold); height:var(--fold);
+  background:linear-gradient(to bottom left,
+    rgba(60,45,20,0) 38%, var(--crease-shade) calc(50% - var(--edge-drawn) / 2),
+    var(--crease-line) 50%, var(--crease-line) calc(50% + var(--edge-drawn) / 2),
+    var(--crease-lit) calc(50% + var(--edge-drawn)), var(--crease-lit) calc(50% + var(--edge-drawn) * 1.5),
+    rgba(255,255,255,0) calc(50% + var(--edge-drawn) * 2.5));
+}
+
 /* ---- no scrollbars, only scrolling --------------------------------------- */
 /* Every scroller hides its bar and keeps its scroll: wheel, trackpad and touch
    still move the content, and no lane or gutter is drawn for a bar. Written once
