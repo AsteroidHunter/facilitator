@@ -856,515 +856,47 @@
   body.focus .box.sel .replyview{
     padding-bottom:calc(var(--boxband, 0px) + var(--replyfade));
   }
-  /* ---- the sent-and-waiting box ------------------------------------------- */
-  /* the card starts with no box at all. the board only carries a sent strip
-     while a send is unanswered, so the first send builds one and the
-     reply landing takes it away again.
-     the box is the answer's twin in width: it starts where the answer's first
-     letter starts and ends where the answer's own right margin used to end, and
-     both edges are written as the same thirds of --pad-x the answer is written
-     in, so the two are one column by construction.
-     the strip is what the shut bar's arrow is pinned to, and not the bar
-     itself: the bar is the whole box while the box is shut and nothing at all
-     while it is open, whereas the strip's bottom edge is the one edge that
-     stands still through every frame of a fold */
-  .pendlist{display:none}
+  /* ---- the messages waiting for a reply ------------------------------------ */
+  /* the card starts with no panel at the foot at all. the board only carries
+     sent messages while they are unanswered, so the first send brings the
+     panel in and the answer landing takes it away again, up to the head of the
+     new page. the panel is the one over the answer (card-tokens.css), and what
+     is this card's own is its seat and how far it may open.
+     the seat is the answer's own column, written as the same two side measures
+     the panel over the answer stands in, so the two panels are one width with
+     one right edge by construction, and it leaves the small step the old box
+     left under itself before the row the reader types in. it is the card's own
+     opaque white, edge to edge: at rest the answer's band already ends at its
+     top edge, and while the panel runs the band is held still (sentBand in
+     card-logic.js), so the white is what covers the answer the panel rises over */
+  body.focus .box.sel .sentwrap{
+    display:flex; flex-direction:column; flex:none;
+    padding:0 calc(var(--pad-x)*5/3 - var(--sbar)) var(--sp-s) calc(var(--pad-x)*2/3);
+    background:var(--card);
+  }
+  body.focus .box.sel .sentwrap:empty{display:none}
   body.focus .box.sel{
     --boxleft:calc(var(--pad-x)*2/3);
-    /* the shut bar's own height, half a left ticket row, written once because
-       two rules read it: the bar itself and the seat of the arrow standing in
-       the middle of it */
-    --pend-bar:calc(var(--ch)*0.072/2);      /* 32.39px */
-    /* half the card, the one number the open box is measured against. it is
+    /* half the card, the one number the open panel is measured against. it is
        not typed in: it is the pane's own height rule cut in two, so a pane
-       drawn at another size still stops its box on its own middle line */
+       drawn at another size still stops its panel on its own middle line */
     --pend-cap:calc(var(--ch)*var(--frame-h)/2);   /* 362.88px */
-    /* what stands under the box: the bar's own hairline, the typing row at
+    /* what stands under the panel: the bar's own hairline, the typing row at
        rest, and the step between the two. the row is counted at rest on
        purpose, since a composer grown to several lines pushes the pair past
        the middle line, which is right: what is being typed is
        the one thing on the card allowed to */
     --under-bar:calc(1px + var(--row-min) + var(--sp-s));
-    /* the arrow trade, and its wait, so it ends on the frame the run stamp
-       reaches its seat: the wait is the cluster's travel less the trade */
-    --chevfade:.18s; --chevwait:calc(0.38s - var(--chevfade));
+    /* how tall the opened batch may stand: half the card, less what stands
+       under the panel and the panel's own air, strip and step, so the whole
+       panel still stops on the middle line. the rest scrolls inside it */
+    --sent-cap:calc(var(--pend-cap) - var(--under-bar) - var(--answ-pad-y) - var(--answ-strip) - var(--sp-s));
   }
-  body.focus .box.sel .pendlist{
-    display:flex; flex-direction:column; flex:none; gap:var(--sp-s);
-    position:relative;
-    margin:0 calc(var(--pad-x)*2/3) var(--sp-s) var(--boxleft);
-    /* the sent lines take the same step up the answer took, and the line stays
-       at 1.5 of the type. this rule sets the rows and nothing else: the
-       delivery words, the run stamp and the pulled times each write their own
-       size in mono below, so the sent words stay the plainly larger thing */
-    font:16px/1.5 var(--sans); color:var(--ink);
-    /* the box is click-to-fold, so the bar keeps the hand, but its sent words
-       are real text a reader may pick out and copy: the pick is allowed here
-       and reconciled with the fold and the pull in wirePend */
-    cursor:pointer; user-select:text; -webkit-user-select:text;
-    /* the hairline the arrow's seat has to reckon with. an absolute seat is
-       measured from inside the border, and the two dresses do not wear their
-       hairline in the same place: shut it is on the bar, open it is on the
-       strip. so the strip names the pixel it is wearing and the seat gives it
-       back, and the arrow cannot step by a pixel when the dress changes */
-    --strip-line:0px;
-  }
-  body.focus .box.sel .pendlist.open{--strip-line:var(--edge-drawn)}
-  /* the shut bar. the same 32.4px click target the old one had, the pane's own
-     7px rounding, and the deep inset shade off its top inside edge the way a
-     recessed surface sits under light, so the box reads sunk INTO the card.
-     box-sizing is written out on purpose so the hairline cannot add 2px to the
-     32.4 and push the whole strip up off its row. neither arrow is laid in this
-     bar by its padding: both are pinned, each to its own seat */
-  body.focus .box.sel .pendhead{
-    display:flex; align-items:center; align-self:stretch; flex:none;
-    height:var(--pend-bar); padding:0 12px;
-    border-radius:7px;
-    box-shadow:var(--sunk-deep);
-    background:var(--card);
-    box-sizing:border-box; border:var(--edge) solid var(--line);
-  }
-  /* the chevron: two strokes meeting at a point, no stem, drawn as a path and
-     not a font glyph so the weight stays 1.5px at any device scale. there are
-     two of them, one nailed to each seat, and neither ever travels. the middle
-     of the shut bar carries the one pointing up; the open box's top left
-     corner, inside the box's own padding, carries the one pointing down.
-     opening dissolves the first into the second and shutting dissolves it back,
-     so what the eye reads is an arrow leaving one place and arriving at
-     another rather than an arrow sliding between them. both seats are fixed in
-     x, so there is no horizontal travel on any frame either way.
-     neither may take a press: they lie over the box, and the shut bar's one
-     lies over the foot of the lane while the box is open, so an arrow that
-     swallowed a pointer would cut a hole in the strip's own click and in the
-     pull that starts on the rows beneath it */
-  body.focus .box.sel .chev{
-    display:block; position:absolute; pointer-events:none;
-    /* the crossfade, quick and inside the fold's own family: both arrows are
-       drawn on the one curve, so what the leaving one gives up the arriving one
-       takes in the same instant and the pair's strength neither dips to nothing
-       nor doubles. the wait is worn by the shut dress alone, which is the dress
-       a shutting run is heading into, so the exchange sits at the head of an
-       opening and at the tail of a shutting */
-    transition:opacity var(--chevfade) var(--gentle) var(--chevwait);
-  }
-  /* the shut bar's seat: the middle of that bar, measured up from the strip's
-     bottom edge rather than down from its top. the bottom edge is the one that
-     holds still while the box grows and shrinks, so the arrow fades out on the
-     exact spot it was standing on and fades back in on the spot the bar is
-     about to land on. nothing about it moves in either axis, ever */
-  body.focus .box.sel .chevmid{
-    left:50%; margin-left:-5.5px;                        /* half its own 11px */
-    bottom:calc((var(--pend-bar) - 7px)/2 - var(--strip-line));
-  }
-  /* the open box's seat: the top left corner, inside the box's own padding, on
-     the very line the run stamp is printed on. it is pinned inside the body and
-     not on the strip, so it rides the top of the box's content exactly as the
-     stamp does, on every frame of a run and not only on the last one.
-     the two numbers are what make the tangency. the whole part of the drop is
-     given to the pin, where chrome's rounding to a whole pixel reaches it and
-     does no harm, and the last 0.27 is given to the transform, which is applied
-     after that rounding and keeps its fraction; written as one 2.73 the arrow
-     stood most of a pixel clear of the print at some window sizes and level
-     with it at others. the arrow is a stroked diagonal with round ends and no
-     flat horizontal edge, so standing it off the pixel grid costs it nothing */
-  body.focus .box.sel .chevtop{
-    left:0; top:3px; transition-delay:0s;
-    transform:translateY(-0.27px) rotate(180deg);
-    opacity:0;
-  }
-  /* the exchange is read off the fold's own mark and not off the open class.
-     the open class is worn for the whole of a shutting run as well, so an arrow
-     that read it would hold the corner all the way down and jump back to the
-     middle on the last frame. this mark is turned at the head of every run */
-  body.focus .box.sel .pendlist.foldopen .chevmid{opacity:0; transition-delay:0s}
-  body.focus .box.sel .pendlist.foldopen .chevtop{opacity:1; transition-delay:var(--chevwait)}
-  /* folded, the rows are simply not there and the bar stands alone */
-  body.focus .box.sel .pendbody{display:none}
-  /* open, the whole strip is the box: the container takes the fill, the
-     hairline, the rounding and the sunk shade, so the header line and the rows
-     sit inside one box together. the header hands its own dress to the
-     container so no frame sits inside a frame.
-     the cap is half the card. under it the box still shrinks, and min-height:0
-     lets it go below its own content, so a card with less to spare cannot be
-     forced open past what it has and everything the cap declines to take goes
-     back to the answer.
-     the rail the drag uncovers is cut at the box's own inside edge, so a row
-     pulled left slides under the border the way a phone thread does */
-  body.focus .box.sel .pendlist.open{
-    background:var(--card);
-    border:var(--edge) solid var(--line);
-    border-radius:7px; padding:16px 12px 10px;
-    box-shadow:var(--sunk-deep);
-    overflow:hidden;
-    flex:0 1 auto; min-height:0;
-    max-height:calc(var(--pend-cap) - var(--under-bar));
-    /* the strip's own step between its two children goes with the bar, for the
-       same reason the bar goes: a step under a line of no height is a band of
-       white with nothing in it */
-    gap:0;
-  }
-  /* open, the bar is nothing at all. its whole job is the shut state: the click
-     target, the fill, the hairline, the rounding, the sunk shade and the arrow
-     in its middle. open, the strip wears all of that and the arrow has moved to
-     the corner, so what the bar had left was its height, and that height was a
-     band of white between the top of the box and the run stamp with nothing
-     printed in it. it is kept in the tree because the arrow that fades out on a
-     fold is still its child, and because the shut state needs it back whole */
-  body.focus .box.sel .pendlist.open .pendhead{
-    padding:0; border:none; background:none; border-radius:0; box-shadow:none;
-    height:0;
-  }
-  /* open, the body is a column of two: the run stamp, which holds still on the
-     top line with the corner arrow tangent to it, and the lane of rows */
-  body.focus .box.sel .pendlist.open .pendbody{
-    display:flex; flex-direction:column; flex:1 1 auto; min-height:0;
-    position:relative; touch-action:pan-y;
-  }
-  /* the lane. min-height:0 is what makes it scroll rather than push the box
-     open: without it a flex child refuses to go under its content and the rows
-     would shove the composer out of the pane.
-     20260828: the top edge used to carry a 48px alpha ramp so a row leaving the
-     lane dissolved upward under the time instead of being cut on the edge. it
-     is gone. the lane is only about three lines deep, so 48px of
-     ramp reached the first sent line and washed it out where it stood rather
-     than only while it was leaving, and that is what was seen. the two other
-     ramps on this card, the one on the answer above the typing row and the one
-     under the title, are separate rules and are untouched */
-  body.focus .box.sel .pendscroll{
-    flex:1 1 auto; min-height:0;
-    overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain;
-    /* no bar is drawn on the lane, so the rows keep one x with no gutter held
-       for one; while the box folds the lane is clipped instead, in the motion
-       rule below, so nothing draws over the run */
-  }
-  /* the run's one time tag, in the chat panel's own run stamp manner: small,
-     muted, one for the whole run instead of one over every line. it is on
-     the right edge, so the tag ends on the same inside edge the lines below it
-     end on. it sits outside the sliding column, so the drag never moves it. the
-     room under it is the strip's own step and not a number of its own: the
-     stamp and the arrow share the top line, and the first row stands off that
-     line by the same amount every row below it stands off the row above it */
-  body.focus .box.sel .pendstamp{
-    flex:none;
-    text-align:right; font:12px var(--mono); color:var(--sub);
-    padding:0 0 var(--sp-s);
-  }
-  /* the column that slides. the drag writes --dx on the strip and both the
-     column and the times read it: the column goes left by it, each time goes
-     right by the same amount, so the times hold still at the box's right edge
-     while the words slide off them */
-  body.focus .box.sel .pendslide{transform:translateX(calc(var(--dx, 0px) * -1))}
-  body.focus .box.sel .pendlist:not(.drag) .pendslide,
-  body.focus .box.sel .pendlist:not(.drag) .ptime{
-    transition:transform .22s cubic-bezier(.22,1,.36,1), opacity .18s ease;
-  }
-  body.focus .box.sel .pendmsg + .pendmsg{padding-top:var(--sp-s)}
-  /* one bubble per message: a filled, rounded block around the whole message,
-     as wide as its longest line, capped at four fifths of the box so a long
-     paragraph wraps rather than running the whole way across, and pushed right
-     by an automatic margin, so its RIGHT end holds at the box's edge, where the
-     delivery word under the row and the time a drag brings up are both pinned.
-     the words are left aligned inside it, so a list, a code block and a short
-     line under a long paragraph all start on one left edge; every block inside
-     keeps its own width, which is the bubble's, and its own formatting.
-     the fill and the tail's mask are the shared tokens in card-tokens.css. the
-     corner is 18px because the tail's path is drawn for an 18px corner. the air
-     inside is the small step by the side one, this page's own --sp-s by --sp-x,
-     and the step between two bubbles is the row step above */
-  body.focus .box.sel .pendmsg .pendcontent{
-    position:relative; margin:0;
-    text-align:left; white-space:pre-wrap;
-    width:fit-content; max-width:80%; margin-left:auto;
-    background:var(--bubble-fill); border-radius:18px;
-    /* the air over and under the words is not one number. the font's ink
-       stands low in its line: at 16px on a 24px line the tallest glyph's top
-       is 6.2px under the line's top and the deepest descender's foot only
-       2.6px over its bottom, so equal padding left 3.5px more air over the ink
-       than under it. the bottom takes half of that and the top gives it up, so
-       the ink has the same air either side, measured from the first line's
-       tallest glyph and the last line's deepest, and the bubble's height is
-       what it was. the phone page writes its own split for its own type */
-    padding:calc(var(--sp-s) - 1.75px) var(--sp-x) calc(var(--sp-s) + 1.75px);
-    /* a web address is one word with nothing in it a line may break at, so it
-       ran straight past the cap and the lane cut it off, and the reader could not read
-       the end of it. this lets a word that cannot fit break where it has to.
-       it only ever fires on a word too long for the line, so nothing that
-       already wrapped between words moves. the break lands on the cap's own
-       edge, which is the same edge every other line breaks on, so a broken
-       address still sits square against the right end with the rest of them */
-    overflow-wrap:break-word;
-  }
-  /* a list's last item keeps its own 2px bottom margin under the list's zeroed
-     one, which inside a padded bubble is 2px more air under a message that
-     ends in a list than under one that ends in a paragraph. gone, so the air
-     under the ink is one number whatever the message ends in */
-  body.focus .box.sel .pendmsg .pendcontent li:last-child{margin-bottom:0}
-  /* the tail, the hook Messages hangs under the last bubble of a run. every
-     message in one of these boxes is the sender's, so a box is one run and its
-     last row carries the hook; every bubble before it is the plain round box.
-     it is a pseudo-element of the bubble itself, so it moves with the bubble as
-     one object, and it is a mask over the bubble's own fill rather than paper
-     painted over a squared corner, so it is right over any paper. the box spans
-     the bubble and hangs 7px under it; the mask cuts the hook out at the right
-     end and leaves the rest empty. absolute, so it adds no gap between bubbles */
-  body.focus .box.sel .pendmsg:last-child .pendcontent::after{
-    content:"";
-    position:absolute; left:0; right:0; bottom:-7px; height:25px;
-    background:var(--bubble-fill);
-    pointer-events:none;
-    -webkit-mask:var(--bubble-tail) right 0 / 24px 25px no-repeat;
-    mask:var(--bubble-tail) right 0 / 24px 25px no-repeat;
-  }
-  /* the delivery word under a line, written the way the chat panel writes Read
-     and Delivered under its own sent bubbles: right aligned, muted, and clearly
-     quieter than the words above it. one of each on screen, ever: reading runs
-     in order, so if a line has been read the ones before it have been read too,
-     and a Read under every one of them says the same thing down the column. a
-     line with no word under it gives its room back, since a word under every
-     older line would read as a ragged column.
-     its seat is under the bubble's straight bottom edge. the word's right end
-     steps in from the bubble's right edge by the corner's own radius, 18px,
-     which is where the bottom edge stops being straight: the corner's arc
-     begins there, and on the last bubble the hook's underside leaves the edge
-     just past it and runs down to its tip 7.7px in. so the whole word stands
-     under the flat edge, clear of the curve and of the hook, and not tucked
-     under the tip where a 4px inset had put it. it starts 7px down, which
-     clears a hook that reaches 6.9px under the bubble. Read under the bubble
-     before the last takes the same seat, so the two read as one column */
-  body.focus .box.sel .rcpt{
-    display:block; text-align:right;
-    font:10.5px/1.35 var(--mono); color:var(--sub);
-    padding:7px 18px 0;
-  }
-  body.focus .box.sel .rcpt:empty{display:none}
-  /* each line's own send time, lying under its own message until the drag frees
-     the room. it is centred on the message it belongs to, so the times come up
-     on the rows they name */
-  body.focus .box.sel .ptime{
-    position:absolute; right:0; top:50%;
-    transform:translate(var(--dx, 0px), -50%);
-    opacity:var(--rv, 0);
-    font:10.5px/1.35 var(--mono); color:var(--sub);
-    white-space:nowrap; pointer-events:none;
-  }
-
-  /* ---- the box's motion --------------------------------------------------- */
-  /* the box's arrival, the pendfade keyframes and the appear dress, is shared
-     with the phone page and lives in card-tokens.css with its reasons */
-  /* the one length a fold moves in: the box's height and padding and the column
-     inside it run this long, on this curve, both ways, so the two are one event
-     with one progress and neither can finish first */
-  body.focus .box.sel{
-    --pend-move:.33s;
-    /* the distance: far enough that the travel cannot be missed. it
-       is one sent line and the step under it, written as the sent type's own
-       line box plus that step rather than as a number, so what the eye reads is
-       the column coming up by one whole row. ten pixels stood here before, under
-       half a row, and nine tenths of it was spent before the run was half over,
-       which is a distance no eye can catch */
-    --pend-rise:calc(16px*1.5 + var(--sp-s));   /* 32.55px */
-  }
-  /* the rise is a heavy weight falling on a spring, gravity pulling upward. it
-     leaves its start at rest and gathers speed for the first two thirds of the
-     way; the spring meets it with a third of the travel left and takes the
-     weight off it, easing it down onto the seat. it never passes the seat and
-     never comes back off it: a heavy thing settles onto a spring rather than
-     springing off one. these numbers are that motion worked out step by step and
-     sampled every one percent, so the timing function is linear and the
-     keyframes carry the physics themselves. every step is a fraction of the
-     travel between one and zero and the fractions only ever fall, so the column
-     provably cannot overshoot and has nothing to spring back from */
-  @keyframes pendrise{
-    0%{transform:translate3d(0, calc(var(--pend-rise) * 1.0000), 0)}
-    1%{transform:translate3d(0, calc(var(--pend-rise) * 0.9997), 0)}
-    2%{transform:translate3d(0, calc(var(--pend-rise) * 0.9989), 0)}
-    3%{transform:translate3d(0, calc(var(--pend-rise) * 0.9975), 0)}
-    4%{transform:translate3d(0, calc(var(--pend-rise) * 0.9956), 0)}
-    5%{transform:translate3d(0, calc(var(--pend-rise) * 0.9931), 0)}
-    6%{transform:translate3d(0, calc(var(--pend-rise) * 0.9900), 0)}
-    7%{transform:translate3d(0, calc(var(--pend-rise) * 0.9864), 0)}
-    8%{transform:translate3d(0, calc(var(--pend-rise) * 0.9822), 0)}
-    9%{transform:translate3d(0, calc(var(--pend-rise) * 0.9775), 0)}
-    10%{transform:translate3d(0, calc(var(--pend-rise) * 0.9722), 0)}
-    11%{transform:translate3d(0, calc(var(--pend-rise) * 0.9664), 0)}
-    12%{transform:translate3d(0, calc(var(--pend-rise) * 0.9600), 0)}
-    13%{transform:translate3d(0, calc(var(--pend-rise) * 0.9531), 0)}
-    14%{transform:translate3d(0, calc(var(--pend-rise) * 0.9456), 0)}
-    15%{transform:translate3d(0, calc(var(--pend-rise) * 0.9375), 0)}
-    16%{transform:translate3d(0, calc(var(--pend-rise) * 0.9289), 0)}
-    17%{transform:translate3d(0, calc(var(--pend-rise) * 0.9198), 0)}
-    18%{transform:translate3d(0, calc(var(--pend-rise) * 0.9101), 0)}
-    19%{transform:translate3d(0, calc(var(--pend-rise) * 0.8998), 0)}
-    20%{transform:translate3d(0, calc(var(--pend-rise) * 0.8890), 0)}
-    21%{transform:translate3d(0, calc(var(--pend-rise) * 0.8776), 0)}
-    22%{transform:translate3d(0, calc(var(--pend-rise) * 0.8656), 0)}
-    23%{transform:translate3d(0, calc(var(--pend-rise) * 0.8531), 0)}
-    24%{transform:translate3d(0, calc(var(--pend-rise) * 0.8401), 0)}
-    25%{transform:translate3d(0, calc(var(--pend-rise) * 0.8265), 0)}
-    26%{transform:translate3d(0, calc(var(--pend-rise) * 0.8123), 0)}
-    27%{transform:translate3d(0, calc(var(--pend-rise) * 0.7976), 0)}
-    28%{transform:translate3d(0, calc(var(--pend-rise) * 0.7823), 0)}
-    29%{transform:translate3d(0, calc(var(--pend-rise) * 0.7665), 0)}
-    30%{transform:translate3d(0, calc(var(--pend-rise) * 0.7501), 0)}
-    31%{transform:translate3d(0, calc(var(--pend-rise) * 0.7332), 0)}
-    32%{transform:translate3d(0, calc(var(--pend-rise) * 0.7157), 0)}
-    33%{transform:translate3d(0, calc(var(--pend-rise) * 0.6977), 0)}
-    34%{transform:translate3d(0, calc(var(--pend-rise) * 0.6791), 0)}
-    35%{transform:translate3d(0, calc(var(--pend-rise) * 0.6599), 0)}
-    36%{transform:translate3d(0, calc(var(--pend-rise) * 0.6402), 0)}
-    37%{transform:translate3d(0, calc(var(--pend-rise) * 0.6199), 0)}
-    38%{transform:translate3d(0, calc(var(--pend-rise) * 0.5991), 0)}
-    39%{transform:translate3d(0, calc(var(--pend-rise) * 0.5777), 0)}
-    40%{transform:translate3d(0, calc(var(--pend-rise) * 0.5558), 0)}
-    41%{transform:translate3d(0, calc(var(--pend-rise) * 0.5333), 0)}
-    42%{transform:translate3d(0, calc(var(--pend-rise) * 0.5103), 0)}
-    43%{transform:translate3d(0, calc(var(--pend-rise) * 0.4867), 0)}
-    44%{transform:translate3d(0, calc(var(--pend-rise) * 0.4625), 0)}
-    45%{transform:translate3d(0, calc(var(--pend-rise) * 0.4378), 0)}
-    46%{transform:translate3d(0, calc(var(--pend-rise) * 0.4126), 0)}
-    47%{transform:translate3d(0, calc(var(--pend-rise) * 0.3867), 0)}
-    48%{transform:translate3d(0, calc(var(--pend-rise) * 0.3604), 0)}
-    49%{transform:translate3d(0, calc(var(--pend-rise) * 0.3339), 0)}
-    50%{transform:translate3d(0, calc(var(--pend-rise) * 0.3092), 0)}
-    51%{transform:translate3d(0, calc(var(--pend-rise) * 0.2864), 0)}
-    52%{transform:translate3d(0, calc(var(--pend-rise) * 0.2652), 0)}
-    53%{transform:translate3d(0, calc(var(--pend-rise) * 0.2456), 0)}
-    54%{transform:translate3d(0, calc(var(--pend-rise) * 0.2275), 0)}
-    55%{transform:translate3d(0, calc(var(--pend-rise) * 0.2107), 0)}
-    56%{transform:translate3d(0, calc(var(--pend-rise) * 0.1951), 0)}
-    57%{transform:translate3d(0, calc(var(--pend-rise) * 0.1807), 0)}
-    58%{transform:translate3d(0, calc(var(--pend-rise) * 0.1673), 0)}
-    59%{transform:translate3d(0, calc(var(--pend-rise) * 0.1550), 0)}
-    60%{transform:translate3d(0, calc(var(--pend-rise) * 0.1435), 0)}
-    61%{transform:translate3d(0, calc(var(--pend-rise) * 0.1329), 0)}
-    62%{transform:translate3d(0, calc(var(--pend-rise) * 0.1231), 0)}
-    63%{transform:translate3d(0, calc(var(--pend-rise) * 0.1140), 0)}
-    64%{transform:translate3d(0, calc(var(--pend-rise) * 0.1056), 0)}
-    65%{transform:translate3d(0, calc(var(--pend-rise) * 0.0978), 0)}
-    66%{transform:translate3d(0, calc(var(--pend-rise) * 0.0906), 0)}
-    67%{transform:translate3d(0, calc(var(--pend-rise) * 0.0839), 0)}
-    68%{transform:translate3d(0, calc(var(--pend-rise) * 0.0777), 0)}
-    69%{transform:translate3d(0, calc(var(--pend-rise) * 0.0719), 0)}
-    70%{transform:translate3d(0, calc(var(--pend-rise) * 0.0666), 0)}
-    71%{transform:translate3d(0, calc(var(--pend-rise) * 0.0617), 0)}
-    72%{transform:translate3d(0, calc(var(--pend-rise) * 0.0571), 0)}
-    73%{transform:translate3d(0, calc(var(--pend-rise) * 0.0529), 0)}
-    74%{transform:translate3d(0, calc(var(--pend-rise) * 0.0490), 0)}
-    75%{transform:translate3d(0, calc(var(--pend-rise) * 0.0454), 0)}
-    76%{transform:translate3d(0, calc(var(--pend-rise) * 0.0420), 0)}
-    77%{transform:translate3d(0, calc(var(--pend-rise) * 0.0389), 0)}
-    78%{transform:translate3d(0, calc(var(--pend-rise) * 0.0360), 0)}
-    79%{transform:translate3d(0, calc(var(--pend-rise) * 0.0334), 0)}
-    80%{transform:translate3d(0, calc(var(--pend-rise) * 0.0309), 0)}
-    81%{transform:translate3d(0, calc(var(--pend-rise) * 0.0286), 0)}
-    82%{transform:translate3d(0, calc(var(--pend-rise) * 0.0265), 0)}
-    83%{transform:translate3d(0, calc(var(--pend-rise) * 0.0246), 0)}
-    84%{transform:translate3d(0, calc(var(--pend-rise) * 0.0227), 0)}
-    85%{transform:translate3d(0, calc(var(--pend-rise) * 0.0211), 0)}
-    86%{transform:translate3d(0, calc(var(--pend-rise) * 0.0195), 0)}
-    87%{transform:translate3d(0, calc(var(--pend-rise) * 0.0181), 0)}
-    88%{transform:translate3d(0, calc(var(--pend-rise) * 0.0167), 0)}
-    89%{transform:translate3d(0, calc(var(--pend-rise) * 0.0155), 0)}
-    90%{transform:translate3d(0, calc(var(--pend-rise) * 0.0143), 0)}
-    91%{transform:translate3d(0, calc(var(--pend-rise) * 0.0133), 0)}
-    92%{transform:translate3d(0, calc(var(--pend-rise) * 0.0123), 0)}
-    93%{transform:translate3d(0, calc(var(--pend-rise) * 0.0114), 0)}
-    94%{transform:translate3d(0, calc(var(--pend-rise) * 0.0106), 0)}
-    95%{transform:translate3d(0, calc(var(--pend-rise) * 0.0098), 0)}
-    96%{transform:translate3d(0, calc(var(--pend-rise) * 0.0091), 0)}
-    97%{transform:translate3d(0, calc(var(--pend-rise) * 0.0084), 0)}
-    98%{transform:translate3d(0, calc(var(--pend-rise) * 0.0078), 0)}
-    99%{transform:translate3d(0, calc(var(--pend-rise) * 0.0072), 0)}
-    100%{transform:translate3d(0, calc(var(--pend-rise) * 0.0000), 0)}
-  }
-  /* the cluster is handed its own layer for the length of a run. without it the
-     column is repainted every frame against a box whose height is changing under
-     it, and the travel reads as steps rather than a glide; with it the rise is
-     one texture moved by the compositor and the height change beneath cannot
-     roughen it. the hint is worn only while a run is on, so nothing holds a
-     layer at rest */
-  body.focus .box.sel .pendlist.opening .pendbody,
-  body.focus .box.sel .pendlist.closing .pendbody{
-    will-change:transform, opacity; backface-visibility:hidden;
-  }
-  /* what rises is the box's whole content column: the run stamp, the corner
-     arrow standing on the stamp's line, and the lane of rows under both. they
-     are moved together because they are one thing, and moving the column itself
-     is the only way they cannot drift apart by a frame or a pixel.
-     strength is the quicker of the two on purpose, 240ms against the 330. a
-     column that faded for the whole run would reach full ink on the same frame
-     it stopped moving, and the eye would be handed the arriving and the settling
-     at once; landed early, the last stretch of the travel is carried at full
-     strength, so what ends the run is plainly a seat being taken. only the
-     strength is an animation of its own now: the travel is the run above */
-  body.focus .box.sel .pendlist.opening .pendbody{
-    animation:pendfade .24s var(--gentle);
-  }
-  /* the shutting is the opening run backwards: the column goes back down the
-     same distance on the same curve, so the stamp travels with the edge that is
-     coming down instead of standing on it. the dimming is the shorter of the
-     two, so the column is at nothing while the box still has a little way to
-     fall and the run ends on an empty box coming down onto the bar, where the
-     bar's own arrow blooms into the middle of it as it lands.
-     both are held at their far end. without that the column would flash back to
-     full ink and its own seat on the frame the animation ran out, which is a
-     frame or two before the class comes off */
-  @keyframes penddim{to{opacity:0}}
-  body.focus .box.sel .pendlist.closing .pendbody{
-    animation:penddim .3s var(--gentle) forwards;
-  }
-  /* the open and the shut: gentle both ways rather than sudden.
-     the box's own height carries the change, from the folded bar up to whatever
-     the cap allows and back down again. the top and bottom padding travel with
-     it, on the same curve and the same time, because the open dress holds the
-     chevron ten pixels lower than the folded bar does and a padding that landed
-     in one step would drop the chevron on the last frame. the js measures the
-     far end on the real destination layout before the run starts, so the height
-     the run stops on is the height the css would have given anyway and taking
-     the inline numbers off at the end moves nothing.
-     the curve's handles both stay inside the unit box, so nothing can overshoot
-     and there is nothing to spring back from, which is what the box's own inside
-     edges need: a box that went past its cap and came back would show its rows
-     sliding under the border twice */
-  body.focus .box.sel .pendlist.motion{
-    overflow:hidden;
-    transition:height var(--pend-move) var(--gentle),
-               padding-top var(--pend-move) var(--gentle),
-               padding-bottom var(--pend-move) var(--gentle);
-  }
-  /* for the length of the fold the lane is shorter than its rows. clipped rather
-     than scrolled it draws no bar over the run, and the stable gutter it keeps
-     means the rows do not shift when the bar returns on the settled box */
-  body.focus .box.sel .pendlist.motion .pendscroll{overflow:hidden}
-  /* and the column travels on that same run: one length, one curve, and a
-     transition rather than an animation, so a second click carries the column
-     on from where it stands instead of starting it over from its far end */
-  body.focus .box.sel .pendlist.motion .pendbody{
-    transition:transform var(--pend-move) var(--gentle);
-  }
-  body.focus .box.sel .pendlist.offseat .pendbody{
-    transform:translate3d(0, var(--pend-rise), 0);
-  }
-  /* a line arriving in a box that already stands: it came into being
-     where it stood, and it is to rise into that place instead. nothing new is
-     drawn for it. the sheet already owns a rise, and that motion is written as
-     multiples of one property, so handing the row a smaller value of that
-     property runs the same physics over a shorter distance. the distance is the
-     step that stands between one sent row and the next, so what the eye reads is
-     a line coming up by the height of the air between two lines. the length is
-     the fade's own, because this is one event: a rise that outlived the strength
-     it arrives at would leave the row settling after it had finished appearing */
-  body.focus .box.sel .pendmsg.pop{
-    --pend-rise:var(--sp-s);
-    animation:pendrise .22s linear, pendfade .22s ease-out;
-  }
-  /* the very first arrival, in two beats: beat one is the rising
-     dress, shared with the phone page in card-tokens.css with its reasons, and
-     risePend in card-logic.js hands it the two ends and the handover */
-  /* ---- the foot of the card: the sent box, the bar and the row ------------ */
+  /* ---- the foot of the card: the sent panel, the bar and the row ---------- */
   /* the wrapper is laid over the answer at the card's floor rather than under
      it in the column, which is what lets the answer run on beneath it. the sent
-     box is put in here on the first send, before the bar */
+     panel's seat stands in it over the bar, empty and taking no room until
+     something has been sent */
   body.focus .box.sel .pendwrap{
     position:absolute; left:0; right:0; bottom:0;
     display:flex; flex-direction:column; pointer-events:auto;
@@ -1379,8 +911,8 @@
      file re-measures against. it spans the answer's own column, written as the
      same two side measures the answer's words stand in, so the panel's right
      edge is the right edge of the answer's lines. the small step under it is
-     the one the sent box leaves under itself, kept inside the seat so the snap
-     counts it. a card the board has recorded nothing for has an empty seat,
+     the one the sent panel's seat leaves under it, kept inside the seat so the
+     snap counts it. a card the board has recorded nothing for has an empty seat,
      and an empty seat takes no room */
   body.focus .box.sel .answwrap{
     display:flex; flex-direction:column; flex:none;
@@ -1401,7 +933,7 @@
     --answ-strip:36px;
   }
   /* the bar: the button, one step, and the row. the step is the strip's own
-     small one, the same air the sent box leaves under itself, so the gap beside
+     small one, the same air the sent panel's seat leaves under it, so the gap beside
      the button and the gap above it are one measure.
      the bar stands its two on a common floor and does not centre them on one
      another: centred, a 44px button beside a row grown to ten lines
@@ -1416,40 +948,20 @@
      words start.
      the row's own fill covers the answer behind it, and it is the card's own
      white, so nothing new is painted and the answer under it is simply not on
-     show. the shade that used to stand above the bar has moved to its own rule
-     below, because it is only wanted some of the time */
+     show. the white over the step above the bar is the sent panel's own seat,
+     which is only there while something is sent: on a card with nothing sent
+     there is no step, and no white may land on the foot of the answer's fade */
   body.focus .box.sel .bottombar{
     display:flex; align-items:flex-end; gap:var(--sp-s); flex:none;
     margin:0 calc(var(--pad-x)*2/3) 0 calc(var(--pad-x)*2/3);
     border-top:var(--edge) solid var(--line);
     background:var(--card);
   }
-  /* the white over the step, and it is hung on there being a sent box to leave
-     one. the shade is the bar's own fill carried a step up, the step being the
-     air the box leaves under itself, so the gap between the two is the card's
-     white and never the answer showing through it.
-     on a card with no box there is no step and nothing to fill, and this same
-     white was landing on the foot of the answer's fade instead. it looked
-     weird and sharp rather than a progressive fade. the
-     fade ends on the cut, which is 3.5px above the bar, and the shade began a
-     whole step above the bar, so it painted over the last 5.05px of the ramp
-     and stopped the words dead while they still carried a fifth of their ink. a
-     straight line across the letters where the dissolve should have finished.
-     measured off the mask itself, alpha fell 0.149 between two device rows
-     there; the fade under the title, kept gentle, never falls more
-     than 0.024 between two rows, and with this gated the fade above the bar
-     falls 0.024 too. the two edges are one curve again, which is what they were
-     always written to be: the same four stops off the same two numbers.
-     :has and not a class, because the script already puts the box into this
-     wrapper and takes it out again, so there is nothing else to keep in step */
-  body.focus .box.sel .pendwrap:has(.pendlist) .bottombar{
-    box-shadow:0 calc(var(--sp-s) * -1) 0 var(--card);
-  }
   /* the bar stepping aside for the composer on the right (the right composer,
      further down this sheet and in the script). xcaway is the card whose draft
      the box holds: its bar is gone and the wrapper at the floor is left with
-     the sent box alone, so the band the answer's ramp is cut on falls to the
-     floor and the answer runs on to the foot of the card.
+     the sent panel's seat alone, so the band the answer's ramp is cut on falls
+     to the floor and the answer runs on to the foot of the card.
      the run between the two is the bar's own height eased to nothing, or back,
      on the card's one curve. the script pins the far end, and the resize
      watch on the wrapper redraws the band on every frame of it, so the answer
@@ -2850,26 +2362,6 @@
   #magic2 .mreply p{margin:0 0 9px}
   #magic2 .mreply p:last-child{margin-bottom:0}
   #magic2 .mreply ul, #magic2 .mreply ol{margin:0 0 9px; padding-left:22px}
-  /* sent and unanswered: the same fold-open bar the large card carries, at the
-     small card's size. the arrow flips with the fold, a click opens the list */
-  #magic2 .mpend{display:flex; flex-direction:column; flex:none; gap:4px;
-    font:12px/1.45 var(--sans); color:var(--ink); cursor:pointer; user-select:none}
-  #magic2 .mpend:empty{display:none}
-  #magic2 .mpend::before{content:"\2191 " attr(data-label);
-    display:flex; align-items:center; justify-content:center; align-self:stretch;
-    height:20px; padding:0 10px; border-radius:4px;
-    /* grey rather than the large card's yellow, with the muted text. this fill
-       was the line grey's value and keeps it: the edges moved to a cool grey,
-       and a fill is not an edge, so the bar is not recoloured with them */
-    background:#E6DFD2; color:var(--sub); font:11px var(--mono)}
-  #magic2 .mpend.open::before{content:"\2193 " attr(data-label); padding:0}
-  #magic2 .mpend .mpending-message{display:none}
-  #magic2 .mpend.open{border-radius:4px; padding:8px 10px;
-    background:linear-gradient(to bottom, rgba(230,223,210,0), #E6DFD2 20px)}
-  #magic2 .mpend.open .mpending-message{display:block; margin:0; text-align:right}
-  #magic2 .mpend.open .mpending-message + .mpending-message{padding-top:6px}
-  #magic2 .mpend.open .mpending-message .stamp{display:block; margin:0 0 2px;
-    font:9.5px/1.35 var(--mono); color:var(--sub); text-align:right}
   /* a line, not a box, exactly as the large card's composer is drawn */
   #magic2 .mcompose{display:flex; gap:var(--sp-x); align-items:flex-end; flex:none;
     border-top:var(--edge) solid var(--line); margin-top:var(--sp-xs); padding-bottom:0}
@@ -2913,20 +2405,21 @@
      seat at the batch's full height for the first frame of it */
   #magic2 .answwrap:has(.answered.open),
   #magic2 .answwrap:has(.answered.motion){flex:0 1 auto; min-height:0; max-height:40%; overflow-y:auto}
-  /* the small card's column, shared out. .mpend above is flex:none and grows to
-     whatever it holds, which is right while nothing else stands over the reply
-     and wrong the moment the panel does: the two together would push the reply
-     and the row the reader types on out through the foot of the card. so on a
-     card carrying the panel the opened sent list gives way, the reply keeps a
-     whole first line, and what the list cannot show it scrolls. a card with no
-     panel is not touched by any of this and keeps exactly the behaviour it had.
-     the list's shut bar is 20px, the small card's own; open, the dress adds 8
-     over and 10 under, and the page is drawn border-box, so 38 is that bar with
-     its own dress on, and the list never goes under it */
-  #magic2 .mbox:has(.answered) .mpend.open{flex:0 1 auto; min-height:38px; max-height:40%; overflow-y:auto}
-  /* and the reply keeps its first line whole: its own step over it and one line
-     of its own type under that, which border-box counts together */
+  /* and what the small card has sent and not had answered: the same panel again,
+     in a seat of its own between the reply and the row it was typed in, the
+     answered panel's seat turned over. it opens in its seat the same way, as a
+     lane of its own at two fifths of the card, so the two together can never
+     push the reply and the row out through the card's foot */
+  #magic2 .sentwrap{display:flex; flex-direction:column; flex:none; margin:6px 0 0}
+  #magic2 .sentwrap:empty{display:none}
+  #magic2 .sentwrap:has(.answered.open),
+  #magic2 .sentwrap:has(.answered.motion){flex:0 1 auto; min-height:0; max-height:40%; overflow-y:auto}
+  /* the reply keeps its first line whole under a panel: its own step over it and
+     one line of its own type under that, which border-box counts together */
   #magic2 .mbox:has(.answered) .mreply{min-height:calc(var(--sp-m) + 12px*1.55)}
+  /* the reply the panel over it pushes down is handed a layer of its own while
+     the panel runs, as the large card's is (card-tokens.css) */
+  #magic2 .mbox:has(.answwrap .answered.motion) .mreply{will-change:transform}
   /* workspaces: a sharp panel at x 4.2%, y 28.4..46.7%, rows flush right,
      the active row's right border open into the canvas */
   body.focus #wsl{
@@ -3764,22 +3257,22 @@
   }
   /* auto side margins center a shot narrower than the column; one wider than
      the column is capped by max-width and the auto margins fall to zero */
-  .reply .shot, .pendlist .shot{display:block; max-width:100%; border-radius:6px; margin:8px auto}
-  .reply a, .pendlist a{color:inherit; text-decoration:underline; text-underline-offset:2px}
+  .reply .shot{display:block; max-width:100%; border-radius:6px; margin:8px auto}
+  .reply a{color:inherit; text-decoration:underline; text-underline-offset:2px}
   /* a row of images written on one line: the columns come from that line's
      own count (data-n), capped at four so a long line keeps usable width.
      each cell caps its shot, so none is blown up past its size */
-  .reply .shotgrid, .pendlist .shotgrid{
+  .reply .shotgrid{
     display:grid; grid-template-columns:repeat(2, 1fr); gap:8px;
     margin:8px 0 9px; align-items:start;   /* same 9px rhythm as a paragraph */
   }
-  .reply .shotgrid[data-n="3"], .pendlist .shotgrid[data-n="3"]{grid-template-columns:repeat(3, 1fr)}
-  .reply .shotgrid[data-n="4"], .pendlist .shotgrid[data-n="4"]{grid-template-columns:repeat(4, 1fr)}
-  .reply .shotgrid .shot, .pendlist .shotgrid .shot{margin:0 auto}
+  .reply .shotgrid[data-n="3"]{grid-template-columns:repeat(3, 1fr)}
+  .reply .shotgrid[data-n="4"]{grid-template-columns:repeat(4, 1fr)}
+  .reply .shotgrid .shot{margin:0 auto}
   /* inline code keeps the surrounding card text size and line height while
      changing only its face to mono. pre-wrap preserves command spacing while
      still allowing a long span to wrap */
-  .reply .inlinecode, .pendlist .inlinecode{
+  .reply .inlinecode{
     font-family:var(--mono); font-size:inherit; line-height:inherit;
     color:var(--ink); background:var(--paper);
     border-radius:var(--sq); padding:1px 4px; white-space:pre-wrap;
@@ -3788,7 +3281,7 @@
      child of a scroller rides the scrolled content, so the button lives one
      level up and stays pinned to the visible corner while the code scrolls */
   .codeblockwrap{position:relative; margin:0 0 9px}
-  .reply .codeblock, .pendlist .codeblock{
+  .reply .codeblock{
     margin:0; padding:10px 12px; border-radius:8px;           /* same 9px rhythm */
     background:#EFF1F4; border:0;   /* clean cool grey; the beige read as mud */
     font:12.5px/1.5 var(--mono); color:var(--ink);
@@ -3806,7 +3299,7 @@
   }
   .codeblockwrap:hover .copybtn{opacity:1; pointer-events:auto}
   .codeblockwrap .copybtn:hover{color:var(--ink)}
-  .reply blockquote, .pendlist blockquote{
+  .reply blockquote{
     margin:0 0 9px 2px; padding:2px 0 2px 12px;   /* same 9px rhythm as paragraphs */
     border-left:3px solid var(--line); color:var(--sub);
   }
@@ -5477,79 +4970,34 @@ function statusOf(b){
   return s === "done" ? "done" : s === "parked" ? "later" : "now";
 }
 
-// ---- the sent-and-waiting box ---------------------------------------------
-// the card carries no box at rest. the first send grows one, every send after
-// it drops a line into the box that already stands, folded or open as the reader last
-// left it, and the reply landing takes the box away with the pending list it
-// was drawn from. that is the board's own rule for the strip, unchanged.
-//
-// this is the one place the mock had to be left behind. the mock owns its rows
-// and never redraws them; the board's rows come off the server on every poll,
-// and the card used to write pend.innerHTML whole whenever the text changed.
-// that is fine for a bar with nothing in it and fatal here: it would throw away
-// the open class, both arrows, the lane's own scroll and any run in flight, on
-// the very frame a second send landed. so the rows are reconciled instead. the
-// server's pending list only ever grows until the agent claims it and clears it
-// whole, so a list that still begins with the rows on screen is appended to,
-// and only a list that has actually changed underneath is rebuilt.
+// ---- the two message panels -------------------------------------------------
+// the panel of messages the answer was given, over the answer, and the panel of
+// messages sent and not answered yet, at the card's foot, are one panel, built,
+// cut, opened and filled in card-logic.js for this page and the phone alike, and
+// so is the page turn that takes the one up to the other when an answer lands.
+// what the desktop tells them: either panel taking or giving back its room
+// re-snaps the answer's lines against it (the sent panel's own word is sentRoom,
+// below, since its band is the card's own), and a new answer held back while the
+// reader was busy is shown by asking the board again
+answeredRoomChanged = snapCard;
+turnAgain = () => poll();
+
+// the chevron the top-bar history buttons draw, the phone page's same path and
+// dimensions
 const CHEV_PATH = '<path d="M1 5.5 5.5 1.5 10 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>';
-// one glyph for the middle of the shut bar and one for the open box's corner,
-// each nailed to its own seat by the css and neither ever moved: a fold trades
-// their strength and nothing else. the corner one is the same path turned over
-// by the css rather than drawn again here
-function chevSVG(seat){
-  return '<svg class="chev ' + seat + '" width="11" height="7" viewBox="0 0 11 7"' +
-         ' fill="none" aria-hidden="true">' + CHEV_PATH + "</svg>";
-}
-// The top-bar history buttons use the phone page's same path and dimensions.
-// Their own class keeps the sent-box chevrons' absolute seats and fold fade
-// separate from these fixed controls.
 function historyChevronSVG(){
   return '<svg class="histchev" width="11" height="7" viewBox="0 0 11 7"' +
          ' fill="none" aria-hidden="true">' + CHEV_PATH + "</svg>";
 }
 
-// the box, built on the first send and never before it, and built folded: the
-// slim bar is all that arrives. the corner arrow is built inside the body and
-// not on the bar, so it rides the top of the box's own content column on every
-// frame of an opening exactly as the run stamp does, and the two stay tangent
-// all the way up rather than only at the end.
-// arrive is what tells a send from a poll. a send is an arrival the reader is watching,
-// so the box rises into the room the answer gives up; a poll bringing messages
-// that were already sent, on this page's first load or from another window, has
-// no arrival to show and mounts the box plainly
-function growPend(el, arrive){
-  const pend = h("div", "pendlist" + (arrive ? " rising" : ""));
-  pend.innerHTML = '<div class="pendhead">' + chevSVG("chevmid") + "</div>" +
-    '<div class="pendbody">' + chevSVG("chevtop") +
-    '<div class="pendstamp"></div>' +
-    '<div class="pendscroll"><div class="pendslide"></div></div></div>';
-  // always mounted directly over the bar the reader types on, which stands on the card
-  // itself, so the box lands on the card under the answer
-  el.pendwrap.insertBefore(pend, el.bottombar);
-  el.pend = pend;
-  wirePend(el, pend);
-  // the box arriving is the one thing that changes the card's RESTING geometry
-  // after it is built: the wrapper is 40.94px taller from now on, so the answer's
-  // room is that much shorter and the phase the snap set has to be set again. an
-  // arrival re-snaps when it lands, not while it is still rising
-  if (arrive) risePend(el, pend); else snapCard();
-  return pend;
+// the sent panel's room on one card: the band the answer is cut to is written
+// again, since a run holds it still (sentBand) and a run that lands changes no
+// size the band's watch would see, and the answer's lines are snapped against it
+function sentRoom(el){
+  if (el.bandWrite) el.bandWrite();
+  snapCard();
 }
 
-// the first arrival's two beats (risePend), the rows, the delivery words, the
-// run stamp and the poll's own pass over the box (syncPend) are shared with the
-// phone page in card-logic.js, and so is the whole of the panel of answered
-// messages above the answer. what the desktop tells them: the rows carry the
-// time a drag reveals, and the sent box or the panel taking or giving back its
-// room re-snaps the answer's lines against it
-pendTimes = true;
-pendRoomChanged = snapCard;
-answeredRoomChanged = snapCard;
-
-// the strip's fold and the leftward pull, the phone gesture the chat panel
-// names but does not carry. a pull that moved is not a click, so the fold is
-// skipped for it and the box stays open.
 // true when a live selection touches el. intersectsNode catches a cross-boundary
 // pick whose commonAncestorContainer sits outside el; collapsed/empty give false.
 function boxHasSelection(el){
@@ -5560,146 +5008,6 @@ function boxHasSelection(el){
     if (!r.collapsed && r.intersectsNode(el)) return true;
   }
   return false;
-}
-function wirePend(el, strip){
-  const area = strip.querySelector(".pendbody");
-  const REVEAL = 64;   // how far left the column can be pulled
-  const LEAD = 24;     // room freed before a time starts to come up
-  let id = null, x0 = 0, y0 = 0, moved = false;
-
-  function set(dx){
-    strip.style.setProperty("--dx", dx + "px");
-    const rv = (dx - LEAD) / (REVEAL - LEAD);
-    strip.style.setProperty("--rv", Math.max(0, Math.min(1, rv)).toFixed(3));
-  }
-  // every fresh press clears the last gesture's verdict, so a pull that ended
-  // without a click cannot swallow the next real one
-  strip.addEventListener("pointerdown", () => { moved = false; }, true);
-  area.addEventListener("pointerdown", e => {
-    // a mouse press starts a text selection, not the leftward pull: the pull is
-    // the phone's gesture, so it stays on touch and pen and a mouse drag is left
-    // to pick out the sent words rather than capture the pointer away from them
-    if (e.pointerType === "mouse") return;
-    if (!strip.classList.contains("open") || id !== null) return;
-    id = e.pointerId; x0 = e.clientX; y0 = e.clientY;
-    area.setPointerCapture(id);
-  });
-  area.addEventListener("pointermove", e => {
-    if (e.pointerId !== id) return;
-    const dx = x0 - e.clientX;
-    if (!moved && (Math.abs(dx) > 3 || Math.abs(e.clientY - y0) > 3)){
-      moved = true; strip.classList.add("drag");   // the finger leads, untimed
-    }
-    if (moved) set(Math.max(0, Math.min(REVEAL, dx)));
-  });
-  function release(e){
-    if (e.pointerId !== id) return;
-    if (area.hasPointerCapture(id)) area.releasePointerCapture(id);
-    id = null;
-    strip.classList.remove("drag");   // the transition comes back, and springs
-    set(0);
-  }
-  area.addEventListener("pointerup", release);
-  area.addEventListener("pointercancel", release);
-
-  strip.addEventListener("click", () => {
-    if (moved) return;
-    // a drag-release click that touched the box is a copy, not a fold
-    if (boxHasSelection(strip)) return;
-    foldPend(el, !strip.classList.contains("open"));
-  });
-}
-
-// the run of the fold. the css carries the curve and the time; this only hands
-// it the two ends. the far end is measured on the real destination state, with
-// the inline numbers off, so the height the run stops on is the height the
-// destination would have held anyway: the last frame and the settled box are the
-// same box and nothing snaps when the numbers come off.
-// shutting is the one that needs care. the rows are display:none the moment the
-// open class leaves, so the class is put back for the length of the run and
-// taken off on the last frame instead: the box shuts with its rows still in it,
-// which is the whole of what is wanted.
-// every run is numbered, so a second click mid flight cannot be answered by a
-// finish that belongs to the run it interrupted.
-// a send never touches any of this: the first send builds the box and the slim
-// bar alone comes up, and every send after it drops a line into the box that
-// already stands. only a click on the bar opens it
-const PEND_MOTION = 430;   // the fallback timer behind the fold's one run
-function foldPend(el, open){ foldBox(el, el.pend, "foldRun", open); }
-function foldBox(el, pend, runKey, open){
-  if (!pend) return;
-  const mine = ++el[runKey];
-  const from = pend.getBoundingClientRect().height;
-  const padFrom = padPair(pend);
-  // the column is frozen and re-aimed exactly as the height is, so a run caught
-  // mid flight carries on from where the words stand
-  const body = pend.querySelector(".pendbody");
-  const held = getComputedStyle(body).transform;
-  // a run caught mid flight is frozen where it stands and re-aimed from there,
-  // so a fast second click turns the box around rather than teleporting it
-  pend.classList.remove("motion", "opening", "closing", "offseat");
-  pend.style.height = "";
-  pend.style.paddingTop = "";
-  pend.style.paddingBottom = "";
-  body.style.transform = "";
-  pend.classList.toggle("open", open);
-  if (open) pendBottom(pend);   // the box opens on its newest line
-  const to = pend.getBoundingClientRect().height;
-  const padTo = padPair(pend);
-  if (!open) pend.classList.add("open");
-  pend.style.height = from + "px";
-  pend.style.paddingTop = padFrom[0];
-  pend.style.paddingBottom = padFrom[1];
-  if (held && held !== "none") body.style.transform = held;
-  else pend.classList.toggle("offseat", open);
-  void pend.offsetWidth;   // the start values land before the run begins
-  pend.classList.add("motion");
-  // the arrows' exchange and the content column's own travel, both turned on in
-  // the same step the height is aimed in, so every timed thing in the run is
-  // armed on one frame and they cannot start a frame apart. the mark is turned
-  // either way, and the column has a dress for each direction: up onto its seat
-  // while the box grows, back down while it falls
-  pend.classList.toggle("foldopen", open);
-  pend.classList.add(open ? "opening" : "closing");
-  pend.style.height = to + "px";
-  pend.style.paddingTop = padTo[0];
-  pend.style.paddingBottom = padTo[1];
-  body.style.transform = "";   // the class below is the column's own far end
-  pend.classList.toggle("offseat", !open);
-
-  const done = e => {
-    if (e && (e.target !== pend || e.propertyName !== "height")) return;
-    pend.removeEventListener("transitionend", done);
-    clearTimeout(timer);
-    if (mine !== el[runKey]) return;   // a newer fold owns the box now
-    pend.classList.remove("motion");
-    pend.style.height = "";
-    pend.style.paddingTop = "";
-    pend.style.paddingBottom = "";
-    pend.classList.remove("offseat");   // untimed now: the column is at its seat
-    body.style.transform = "";
-    pend.classList.toggle("open", open);
-    if (open) pendBottom(pend);
-    // the box has landed; the weight may still be settling on its spring, so
-    // its class is let go only when that motion is actually over
-    setTimeout(() => {
-      if (mine !== el[runKey]) return;
-      pend.classList.remove("opening", "closing");
-    }, 40);
-  };
-  // two ends can finish a run: the transition itself, and a timer for the case
-  // where the two ends are already the same height and the browser has nothing
-  // to transition, which fires no event at all
-  pend.addEventListener("transitionend", done);
-  const timer = setTimeout(done, PEND_MOTION + 40);
-}
-// both paddings, read as a pair. the open dress is not symmetric, 16 over and 10
-// under, so a run driven from the top value alone would hold the bottom 6px too
-// deep for its whole length and give the 6px back on the frame the inline styles
-// come off, which is a shove in the lane exactly where the newest line sits
-function padPair(pend){
-  const cs = getComputedStyle(pend);
-  return [cs.paddingTop, cs.paddingBottom];
 }
 
 // ---- the fade, the snap and the title's air --------------------------------
@@ -5730,20 +5038,26 @@ function boxBand(reply, wrap){
 
 // the ramp's own top edge, written on the answer as --boxband. a ResizeObserver
 // and not a timer or a hook on each send: it delivers after layout and before
-// paint on every frame the wrapper's height changes, which is every frame of a
-// fold, of the first arrival and of a window resize, so the ramp's top edge and
-// the box's top edge are the same line on every frame rather than one frame
-// behind it. writing the property cannot start a loop: it feeds a mask, and a
-// mask changes what is painted, never what is measured
+// paint on every frame the wrapper's height changes, a sent panel arriving or
+// leaving, the row growing, a window resize, so the ramp's top edge and the
+// panel's top edge are the same line on every frame rather than one frame
+// behind it
 function watchBand(el){
-  // --boxband is what the sent box and the row the reader types on cover at the
+  // --boxband is what the sent panel and the row the reader types on cover at the
   // foot of the answer: the depth the answer's own ramp is cut to. it is written
   // on the CARD and the answer inherits it, so every rule that reads --boxband
   // reads the number it always read.
+  // while the sent panel runs, the band is held at one end of the run rather
+  // than following the panel (sentBand in card-logic.js), and a band that has
+  // not changed is not written again, so a run writes it once and the answer's
+  // fades and run-out are not redrawn and laid out again on its every frame
   const write = () => {
-    const band = boxBand(el.replyview, el.pendwrap);
+    const band = sentBand(el, boxBand(el.replyview, el.pendwrap));
+    if (band === el.bandAt) return;
+    el.bandAt = band;
     el.box.style.setProperty("--boxband", band + "px");
   };
+  el.bandWrite = write;
   if (window.ResizeObserver){
     const ro = new ResizeObserver(write);
     ro.observe(el.pendwrap);
@@ -5828,18 +5142,18 @@ function watchRise(node){
 // mean anything.
 // the mock has four moments to run at, because nothing else on its page can
 // change. here the answer's room also changes when the reader switches cards, when a new
-// reply lands, and when the box arrives or leaves, so those call it too.
-// a fold does NOT call it, and neither does a send once the box exists. opening
-// and folding are reversible and return the box to the same resting height, so
-// there is nothing to re-snap for; and re-snapping mid fold would slide the
-// answer's lines under the reader while the box moves
+// reply lands, and when the sent panel arrives, takes a message or leaves, so
+// those call it too. a panel that is open or running does not let it run:
+// re-snapping mid fold would slide the answer's lines under the reader while the
+// panel moves, and a panel cut back returns to the height it was snapped against
 function snapCard(){
   if (!FOCUS) return;
   const el = els[selectedId];
   if (!el || !el.box.classList.contains("sel")) return;
-  const pend = el.pend;
-  if (pend && (pend.classList.contains("open") || pend.classList.contains("motion") ||
-               pend.classList.contains("rising"))) return;
+  // the sent panel at the foot is read the old box's way: open, or moving, it
+  // leaves the answer's phase alone, and says so itself once its run has landed
+  const sent = el.sent;
+  if (sent && (sent.classList.contains("open") || sent.classList.contains("motion"))) return;
   // and the panel of answered messages above the answer, on the same rule the
   // box below is read by: while it stands open, or moves, the answer keeps the
   // phase it was snapped to with the panel cut, so opening moves the answer
@@ -6208,10 +5522,10 @@ function makeBox(b, i, state){
     const metaNote = h("span");
     meta.append(metaNote);
     // the foot of the card: one wrapper laid over the answer, holding the send
-    // failure note, the sent box once there is one, and the bar. the sent box
-    // is not built here; the card starts with none at all and the first send
-    // grows one in, which is how the board has always carried it
+    // failure note, the seat of the panel of sent messages, and the bar. the
+    // seat stands empty and takes no room until something is sent
     const pendwrap = h("div", "pendwrap");
+    const sentwrap = h("div", "sentwrap");
     const bottombar = h("div", "bottombar");
     const clipfile = h("input", "clipfile");
     clipfile.type = "file";
@@ -6233,9 +5547,9 @@ function makeBox(b, i, state){
     send.innerHTML = SEND_ICON;
     compose.append(ta, send);
     bottombar.append(clipfile, clip, compose);
-    pendwrap.append(meta, bottombar);
+    pendwrap.append(meta, sentwrap, bottombar);
     // the column: the scroller holding the answered panel over the answer, and laid
-    // over the answer at the card's floor the sent box and the row the reader types in
+    // over the answer at the card's floor the sent panel and the row the reader types in
     replyview.append(answwrap, reply);
     body.append(replyview, pendwrap);
     box.appendChild(body);
@@ -6291,6 +5605,9 @@ function makeBox(b, i, state){
     ta.addEventListener("input", () => {
       cancelAutoNext();
       tick();
+      // the moment of the last key, which is what holds a new answer back
+      // while the reader is typing (turnHolding in card-logic.js)
+      noteTyping(ta);
       // an upload that lands here while the composer on the right holds this
       // card's draft is carried on into it (xcCarry, the right composer)
       xcCarry(b.id);
@@ -6358,10 +5675,8 @@ function makeBox(b, i, state){
     });
     */
 
-    // pend is null until the first send builds the box, and null again the
-    // moment the reply lands and empties the pending list
     els[b.id] = { box, reply, replyview, meta, metaNote, histctl, histPos, histUp, histDown,
-                  pend: null, pendRaw: "", foldRun: 0, ta, send, wstat, toc: entry, sec,
+                  ta, send, wstat, toc: entry, sec,
                   titleEl, tocTitle: entry.querySelector(".ttitle"), sun, arc, x,
                   topbar, branch, bname, wtpick, wtmenu, hasWt: false, hasHistory,
                   historyVersion: null,
@@ -6370,20 +5685,28 @@ function makeBox(b, i, state){
                   // not. answId is the name of the reply the panel is drawn for,
                   // which is what a poll compares against
                   answwrap, answ: null, answId: null,
+                  // sent is null until something is sent and null again the moment
+                  // the answer to it lands. sentTexts is what it was drawn from,
+                  // which a send adds to before the board's next reading says so
+                  sentwrap, sent: null, sentKey: "", sentTexts: [],
                   pendwrap, bottombar, clip, clipfile, tick, field,
                   // ta, send and tick above name the row the card's draft is
                   // typed in right now, which is this bar unless the composer on
                   // the right holds it; the bar's own three are kept here
                   bar: { ta, send, tick } };
+    const sentCard = els[b.id];
+    sentCard.sentRoom = () => sentRoom(sentCard);
     syncOmniCard(els[b.id], b);
     paintSectionChips(els[b.id], b);
-    // the ramp's top edge follows the wrapper from the card's first frame, box
-    // or no box, so it is armed here and not when a box is built
+    // the ramp's top edge follows the wrapper from the card's first frame, panel
+    // or no panel, so it is armed here and not when a panel is built
     watchBand(els[b.id]);
     // and the ramps at the head of the two things that scroll on this card: the
     // answer under the title, and the row the reader types in under the bar's hairline
     watchRise(replyview);
     watchRise(ta);
+    // and the reader's own scrolling of the answer, which holds a page turn back
+    watchReading(els[b.id]);
 
     // explicit focus ring: title -> text -> attach -> send -> cross -> moon -> sun -> (wrap)
     const ring = [titleEl, ta, clip, send, x, arc, sun];
@@ -6520,11 +5843,6 @@ function composerEnter(e, id){
 
 // jumpNextYellow and stampText live in card-logic.js, shared with the phone page
 
-function stampHTML(ts){
-  const s = stampText(ts);   // digits, letters and punctuation only; nothing to escape
-  return s ? '<span class="stamp">' + s + "</span>" : "";
-}
-
 // writing to a done or parked card takes it back to doing. /send clears parked
 // on the server for every sender. The done flag is read here before the send
 // and flipped after the message is in, so a flip that fails can never eat it
@@ -6555,21 +5873,15 @@ async function doSend(id, opts){
       el.ta.value = "";   // the send button clears only after the server has it
       el.tick();           // the square goes with the words, and the row falls back to one line
     }
-    // the line lands in the box now and not a poll later. the first send builds
-    // the box, folded, and every send after it drops a line into the box that
-    // already stands, folded or open as the reader last left it: a send never touches
-    // the fold. the client clock stamps it and the poll's server time takes
-    // over. the raw is pre-marked as current so the redraw behind this brings
-    // nothing it does not already hold
-    const pend = el.pend || growPend(el, true);
-    const row = pendRow(text, Date.now() / 1000);
-    if (pend.classList.contains("open")) row.classList.add("pop");
-    pend.querySelector(".pendslide").appendChild(row);
-    stampRcpts(pend);
-    if (!pend.querySelector(".pendstamp").textContent)
-      stampRun(pend, [Date.now() / 1000]);
-    pendBottom(pend);
-    el.pendRaw = el.pendRaw ? el.pendRaw + "\n\n" + text : text;
+    // the message lands in the sent panel now and not a poll later, and lands it
+    // cut to its preview: the first send brings the panel in, and every send
+    // after it comes into the panel already standing, cutting it back if it
+    // stood open. the list is marked as the one on screen, so the reading behind
+    // this brings nothing it does not already hold, and a reading asked for
+    // before the board had it may not take it away again
+    el.sentTexts = [...el.sentTexts, text];
+    el.sendGuard = Date.now();
+    syncSent(el, sentBatch(el.sentTexts), true);
     if (hist && hist.id === id) histExit(id);   // a send lands you back on the live reply
     if (reopen) undone(id);   // the message is in; the flip rides behind it
     poll();
@@ -6641,8 +5953,10 @@ function apply(state){
       // card, so the card takes it with it: without this the editor and the
       // removed card stay reachable for the rest of the page's life
       els[id].field?.detach();
-      // and the watch on its panel's size goes with it
+      // and the watches on its two panels' sizes go with it
       dropAnswered(els[id], null);
+      els[id].sentRoom = null;
+      dropSent(els[id]);
       els[id].box.remove(); els[id].toc.remove(); delete els[id];
     }
   }
@@ -6683,7 +5997,14 @@ function apply(state){
     const el = els[b.id];
     if (!el) continue;
     const rawReply = replyFull(b);
-    if (el.reply.dataset.raw !== rawReply){
+    // a new answer on the card on show turns the page (card-logic.js): the sheet
+    // over the page the reader was on is laid here, before anything of the new
+    // one is drawn, and turnGo below glides it once the new page stands under
+    // it. while the reader is busy with the card the new answer is held back,
+    // and this pass leaves the answer and both panels exactly as they stand
+    const turn = el.reply.dataset.raw !== rawReply ? turnBegin(el, b) : null;
+    const held = turn === TURN_HELD;
+    if (!held && el.reply.dataset.raw !== rawReply){
       el.reply.dataset.raw = rawReply;
       delete histCache[b.id];   // a fresh reply outdates the cached history
       if (hist && hist.id === b.id) histExit(b.id);   // and snaps a history view back to live
@@ -6732,17 +6053,26 @@ function apply(state){
       if (!hasWt) shutWtMenu(el.wtpick, el.wtmenu);
     }
     */
-    // the sent box, reconciled rather than redrawn: see syncPend. the guard is
-    // the joined text, so a poll that brings nothing new touches no dom at all
-    const pt = (b.pendingTexts || []).join("\n\n");
-    if (el.pendRaw !== pt) syncPend(el, b.pendingTexts, b.pendingStamps);
+    // the sent panel, drawn from what the board still holds unanswered. a pass
+    // bringing the same list touches no dom at all, and a reading asked for
+    // before this page's own last send landed knows nothing of it and may not
+    // take it away
+    if (!held && (state.fetchedAt || 0) >= (el.sendGuard || 0)){
+      el.sentTexts = b.pendingTexts || [];
+      syncSent(el, sentBatch(el.sentTexts));
+    }
     // and the panel over the answer: the reply the card is showing, and the
     // messages the board recorded that reply was given. while an older page is
     // on show the stepper owns that panel, so the poll leaves it alone and
     // histExit is what hands it back to the live reply. the pass compares the
     // reply's own name, so a poll carrying the same reply again touches no dom
     // at all and nothing near the composer moves
-    if (!(hist && hist.id === b.id)) syncAnswered(el, liveAnswered(b));
+    if (!held){
+      el.liveMeta = liveAnswered(b);
+      if (!(hist && hist.id === b.id)) syncAnswered(el, el.liveMeta);
+    }
+    // the new page stands under the sheet: the glide and the print
+    turnGo(el, turn);
     const cs = cardState(b);   // one state: box color, left tab, and toc all read it
     el.box.classList.toggle("done", cs === "done");
     el.box.classList.toggle("parked", cs === "parked");
@@ -9682,8 +9012,9 @@ function renderMiniCards(state){
       // reply alone and carries no stepper, so this is always the live reply's
       // own batch
       const answwrap = h("div", "answwrap");
-      const pend = h("div", "mpend");
-      pend.addEventListener("click", () => pend.classList.toggle("open"));
+      // and the seat for the panel of what has been sent and not answered, the
+      // large card's sent panel at this card's size, over the row
+      const sentwrap = h("div", "sentwrap");
       const compose = h("div", "mcompose");
       const ta = h("textarea");
       ta.rows = 1;
@@ -9701,7 +9032,18 @@ function renderMiniCards(state){
           // no marker at all, so the agent can tell the two apart and the
           // server can hold a small card answer to a small card's worth of room
           const r = await fetch("/send?box=" + encodeURIComponent(b.id) + "&via=mini", { method: "POST", body: text });
-          if (r.ok){ ta.value = ""; ta.style.height = "auto"; poll(); }
+          if (r.ok){
+            ta.value = ""; ta.style.height = "auto";
+            // the message comes into the sent panel now, cut to its preview,
+            // the way it does on the large card
+            const own = miniEls[b.id];
+            if (own){
+              own.sentTexts = [...own.sentTexts, text];
+              own.sendGuard = Date.now();
+              syncSent(own, sentBatch(own.sentTexts), true);
+            }
+            poll();
+          }
         } catch (e) {} finally { send.disabled = false; }
       };
       send.addEventListener("click", fire);
@@ -9716,9 +9058,10 @@ function renderMiniCards(state){
       });
       // reading and typing here count for the card as they do on the large one
       readOnCompose(ta, b.id);
-      box.append(sun, arc, x, title, answwrap, reply, pend, compose);
-      el = miniEls[b.id] = { box, title, reply, pend, ta, sun, arc, x,
-                             answwrap, answ: null, answId: null };
+      box.append(sun, arc, x, title, answwrap, reply, sentwrap, compose);
+      el = miniEls[b.id] = { box, title, reply, ta, sun, arc, x,
+                             answwrap, answ: null, answId: null,
+                             sentwrap, sent: null, sentKey: "", sentTexts: [] };
       list.appendChild(box);
     }
     // one card at a time; the rest stay built so their half-typed messages
@@ -9729,22 +9072,22 @@ function renderMiniCards(state){
       el.title.textContent = b.title || "";
     }
     // The short variant is a state field, not punctuation hidden in the text.
+    // a new one on the card on show is printed in, the large card's print with
+    // no glide: this card has no room for a page to turn in
     const shortReply = replyShort(b);
     if (el.reply.dataset.raw !== shortReply){
+      const shown = el.reply.dataset.raw !== undefined && b.id === miniId;
       el.reply.dataset.raw = shortReply;
       el.reply.innerHTML = fmt(shortReply);
+      if (shown) printReply(el);
     }
-    // the large card's own pass, told to answer to nobody: the small card has
-    // no answer to re-snap when its panel opens or is cut back
+    // the large card's own passes, told to answer to nobody: the small card has
+    // no answer to re-snap when a panel opens or is cut back. a reading asked
+    // for before this card's own last send landed may not take it away
     syncAnswered(el, liveAnswered(b), null);
-    const pt = (b.pendingTexts || []).join("\n\n");
-    if (el.pend.dataset.raw !== pt){
-      el.pend.dataset.raw = pt;
-      const stamps = b.pendingStamps || [];
-      el.pend.innerHTML = (b.pendingTexts || [])
-        .map((t, i) => '<div class="mpending-message cardmd">' + stampHTML(stamps[i]) + fmt(t) + "</div>").join("");
-      el.pend.dataset.label = "Sent messages (" + el.pend.children.length + ")";
-      if (!el.pend.children.length) el.pend.classList.remove("open");
+    if ((state.fetchedAt || 0) >= (el.sendGuard || 0)){
+      el.sentTexts = b.pendingTexts || [];
+      syncSent(el, sentBatch(el.sentTexts));
     }
     el.box.classList.toggle("mwait", !!b.pending);
     paintSectionChips(el, b);
@@ -9754,8 +9097,9 @@ function renderMiniCards(state){
       // the small card's row is held by the formatter too, and this card's
       // handle is the one the formatter keeps for its field
       ComposeFormat.fieldOf(miniEls[id].ta)?.detach();
-      // and the watch on its panel's size goes with it
+      // and the watches on its two panels' sizes go with it
       dropAnswered(miniEls[id], null);
+      dropSent(miniEls[id]);
       miniEls[id].box.remove(); delete miniEls[id];
     }
   }
@@ -10704,6 +10048,9 @@ const xc = (() => {
 })();
 xc.ta.addEventListener("input", () => {
   cancelAutoNext();
+  // while the box holds a card's draft it is that card's el.ta, so a key here
+  // holds a new answer on that card back the way a key in its bar does
+  noteTyping(xc.ta);
   xcTick();
 });
 // while the box holds a card's draft it is that card's composer, so a click
@@ -12391,7 +11738,10 @@ renameMagicLayouts();
 syncLayoutsOnce();
 seedHiddenOnce();
 applySavedLayout();
-poll(); setInterval(poll, 1200);
+// the timed refresh waits out a panel's run or a page turn (cardsMoving in
+// card-logic.js): the tick that lands inside one is skipped, and the next one
+// catches up. a refresh asked for by a send or a click still goes at once
+poll(); setInterval(() => { if (!cardsMoving()) poll(); }, 1200);
 
 // ---- installing this board as an app of its own -------------------------------
 // The worker keeps nothing at all, and sw.js says why it is here: Chrome asked

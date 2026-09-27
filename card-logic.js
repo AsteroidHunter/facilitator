@@ -3,7 +3,7 @@
 // Each page loads it after card-markdown.js and before its own script. The
 // functions here read the names each page declares itself: els (box id to the
 // card's parts), lastState, selectedId, activeOwner, lastSel, and the page's own
-// poll, select, growPend and boxHasSelection. The chosen list view is the other way round: it is
+// poll, select, boxBand and boxHasSelection. The chosen list view is the other way round: it is
 // held here, one per project, and each page reads it through curView(). Nothing
 // here runs on load.
 
@@ -16,18 +16,19 @@ let poolScope = null;
 // the name and moves on to the composer, or back to the sun chip with shift,
 // and Escape hands focus back to the composer. the phone has no keyboard path
 let keyboardTitle = false;
-// pendTimes: the desktop's sent rows each carry the time a drag reveals; a page
-// without that gesture leaves its rows bare
-let pendTimes = false;
-// pendRoomChanged: what a page does once the sent box has taken its room or
-// given it back. the desktop re-snaps the answer's lines against the box
-let pendRoomChanged = null;
-// answeredRoomChanged: the same, for the panel that stands ABOVE the answer
-// holding the messages that answer was given. it rides at the head of the
-// answer's own scroller rather than being laid over the answer, so the room it
-// takes is room the answer does not have, and the desktop re-snaps its lines
-// against it whenever the panel arrives, leaves, or is opened or cut back
+// answeredRoomChanged: what a page does once the panel that stands ABOVE the
+// answer, holding the messages that answer was given, has taken its room or
+// given it back. it rides at the head of the answer's own scroller rather than
+// being laid over the answer, so the room it takes is room the answer does not
+// have, and the desktop re-snaps its lines against it whenever the panel
+// arrives, leaves, or is opened or cut back. the panel of sent messages at the
+// foot is told per card instead (el.sentRoom), since its room is a measure
+// each card keeps for itself
 let answeredRoomChanged = null;
+// turnAgain: how a page draws its cards again from the board, once a new answer
+// it held back while the reader was busy can be shown. the desktop asks the
+// board; the phone draws the reading it already holds
+let turnAgain = null;
 
 // ---- the card pages' keyboard commands ------------------------------------------
 // Recognition is shared; listeners, state guards, cancellation and effects stay
@@ -1241,239 +1242,6 @@ function seatSquare(ta, square){
   square.style.marginBottom = (hgt - mid - square.offsetHeight / 2) + "px";
 }
 
-// ---- the sent-and-waiting box -----------------------------------------------------
-// the box itself is each page's own to build (growPend): the desktop wires the
-// fold gesture over it and the phone a plain tap. what stands below is the box's
-// arrival, its rows, the delivery words, the run stamp and the poll's own pass
-// over it, which the two pages share.
-//
-// the two beats of the first arrival. the css carries the curve, the 260ms and
-// the dress; this hands it the two ends and the handover.
-// the far end is measured on the mounted strip while it still stands at its own
-// height and before any clock is armed, so the number the run lands on is the
-// number the strip holds once the inline height comes off and the handover moves
-// nothing. the strip is never painted at that height: the reading, the pinning
-// to nothing and the arming all happen inside this one step. the start value is
-// pinned while the strip wears the untimed dress and only then is the timing put
-// on, or pinning it would itself become a run, from the far end down to nothing,
-// in front of the one that matters.
-// rows sent while it rises land in a body that is display:none folded, so they
-// add nothing to the height and the measured end stays true
-const PEND_RISE_MS = 260;   // the number the css rule carries
-function risePend(el, pend){
-  const to = pend.getBoundingClientRect().height;
-  const gap = getComputedStyle(pend).marginBottom;   // the band under the box,
-  // read rather than typed here, so it travels with the box on one run
-  pend.style.height = "0px";
-  pend.style.marginBottom = "0px";
-  void pend.offsetWidth;            // the start values land untimed
-  pend.classList.add("timed");
-  pend.style.height = to + "px";
-  pend.style.marginBottom = gap;
-  const land = e => {
-    if (e && (e.target !== pend || e.propertyName !== "height")) return;
-    pend.removeEventListener("transitionend", land);
-    clearTimeout(timer);
-    // beat two. the room is standing clear and the height it was held at is the
-    // height it holds on its own, so the inline numbers, the clipping and the
-    // timing all come off in one step and nothing shifts by a pixel; what is
-    // left is the strength alone
-    pend.style.height = "";
-    pend.style.marginBottom = "";
-    pend.classList.remove("rising", "timed");
-    pend.classList.add("appear");
-    pend.addEventListener("animationend", function off(ev){
-      if (ev.target !== pend) return;
-      pend.removeEventListener("animationend", off);
-      pend.classList.remove("appear");   // so a later reflow cannot replay it
-    });
-    if (pendRoomChanged) pendRoomChanged();   // the box has taken its room; the answer ends against it again
-  };
-  // two ends can finish the run, the transition and a timer behind it, for the
-  // same reason the fold carries both
-  pend.addEventListener("transitionend", land);
-  const timer = setTimeout(land, PEND_RISE_MS + 40);
-}
-
-function dropPend(el){
-  if (!el.pend) return;
-  el.pend.remove();
-  el.pend = null;
-  el.pendRaw = "";
-  if (pendRoomChanged) pendRoomChanged();   // the room the box held is the answer's again
-}
-
-// what a press means now. a run wears the open class through a shutting as well,
-// so the class on its own reads a box that is shutting as one to shut again; the
-// direction the run is going is the answer for as long as it is going
-function foldWants(pend){
-  if (pend.classList.contains("closing")) return true;
-  if (pend.classList.contains("opening")) return false;
-  return !pend.classList.contains("open");
-}
-
-// the fold's one run, the card's own: the box's height and padding and the
-// column inside it move over one length on one curve, so they start and settle
-// together, and a press that catches a run freezes it where it stands and
-// re-aims from there rather than starting it over. the page hands in its run
-// counter and the rule its lane opens on; the sheet holds the length, the curve
-// and the travel. motion the reader has asked not to see is a plain flip.
-const FOLD_TIMER_MS = 430;   // behind the sheet's run, for a fold with nothing to transition
-function foldStrip(el, pend, runKey, open, place){
-  if (!pend) return;
-  const mine = ++el[runKey];
-  const body = pend.querySelector(".pendbody");
-  const settle = () => {
-    pend.classList.remove("motion", "opening", "closing", "offseat");
-    pend.style.height = "";
-    pend.style.paddingTop = "";
-    pend.style.paddingBottom = "";
-    body.style.transform = "";
-    body.style.opacity = "";
-  };
-  if (window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches){
-    settle();
-    pend.classList.toggle("open", open);
-    if (open) place(pend);
-    return;
-  }
-  const was = getComputedStyle(body);
-  const held = was.transform, heldFade = was.opacity;
-  const from = pend.getBoundingClientRect().height;
-  const csFrom = getComputedStyle(pend);
-  const padFrom = [csFrom.paddingTop, csFrom.paddingBottom];
-  settle();
-  pend.classList.toggle("open", open);
-  if (open) place(pend);
-  const to = pend.getBoundingClientRect().height;
-  const csTo = getComputedStyle(pend);
-  const padTo = [csTo.paddingTop, csTo.paddingBottom];
-  if (!open) pend.classList.add("open");   // it shuts with its rows still in it
-  pend.style.height = from + "px";
-  pend.style.paddingTop = padFrom[0];
-  pend.style.paddingBottom = padFrom[1];
-  if (held && held !== "none"){ body.style.transform = held; body.style.opacity = heldFade; }
-  else pend.classList.toggle("offseat", open);
-  void pend.offsetWidth;   // the start values land untimed
-  pend.classList.add("motion");
-  pend.classList.add(open ? "opening" : "closing");
-  pend.style.height = to + "px";
-  pend.style.paddingTop = padTo[0];
-  pend.style.paddingBottom = padTo[1];
-  body.style.transform = "";
-  body.style.opacity = "";   // the class below is the column's own far end
-  pend.classList.toggle("offseat", !open);
-  const done = e => {
-    if (e && (e.target !== pend || e.propertyName !== "height")) return;
-    pend.removeEventListener("transitionend", done);
-    clearTimeout(timer);
-    if (mine !== el[runKey]) return;   // a newer fold owns the box now
-    pend.classList.remove("motion");
-    pend.style.height = "";
-    pend.style.paddingTop = "";
-    pend.style.paddingBottom = "";
-    pend.classList.remove("offseat");
-    body.style.transform = "";
-    body.style.opacity = "";
-    pend.classList.toggle("open", open);
-    if (open) place(pend);
-    setTimeout(() => {
-      if (mine !== el[runKey]) return;
-      pend.classList.remove("opening", "closing");
-    }, 40);
-  };
-  pend.addEventListener("transitionend", done);
-  const timer = setTimeout(done, FOLD_TIMER_MS);
-}
-
-// one row: the words, the time that comes up on a drag where the page keeps
-// one, and the delivery word. the time goes in FRONT of the words: it is
-// positioned absolutely, so its place in the order draws nothing differently,
-// and standing last it would be the bubble's last child, leaving the last
-// block of prose its own bottom margin inside the bubble's air, which the
-// card prose rules zero on the last child alone
-function pendRow(text, ts){
-  const row = h("div", "pendmsg");
-  row.dataset.text = text;
-  const content = h("div", "pendcontent cardmd");
-  content.innerHTML = fmt(text);
-  if (pendTimes){
-    const t = h("span", "ptime", stampText(ts));
-    content.prepend(t);
-  }
-  row.append(content, h("span", "rcpt"));
-  row.addEventListener("animationend", () => row.classList.remove("pop"));
-  return row;
-}
-
-// the delivery words: one of each on screen, ever. the newest line
-// carries Delivered, the line before it carries Read and stands for the whole
-// run behind it, and the rest carry nothing. the pass runs over the entire
-// column rather than editing the two rows that changed, so the pair cannot
-// drift onto the wrong lines however long the run gets.
-// the board has no per message read receipt to draw on, so the pair is
-// positional, which is what the design asks for
-function stampRcpts(pend){
-  const rows = pend.querySelector(".pendslide").children, n = rows.length;
-  for (let i = 0; i < n; i++){
-    const want = i === n - 1 ? "Delivered" : i === n - 2 ? "Read" : "";
-    const r = rows[i].querySelector(".rcpt");
-    if (r.textContent !== want) r.textContent = want;
-  }
-}
-
-// newest at the foot. the lane is pinned to its own bottom after a line lands
-// and again the moment the box is opened, so the thing last sent is the thing
-// on screen. a folded box has a lane with no height, and setting the top of a
-// lane that cannot scroll is simply nothing
-function pendBottom(pend){
-  const lane = pend.querySelector(".pendscroll");
-  if (lane) lane.scrollTop = lane.scrollHeight;
-}
-
-// the run's one time tag: the first send of the run, since that is when the run
-// being waited on began. an entry queued before the server recorded times
-// carries none, and the tag is simply blank rather than wrong
-function stampRun(pend, stamps){
-  const s = pend.querySelector(".pendstamp");
-  const want = stampText(stamps && stamps[0]);
-  if (s.textContent !== want) s.textContent = want;
-}
-
-// the poll's own pass over the box. it is the only thing that may add or remove
-// rows on a redraw, and it adds nothing a send has already put there
-function syncPend(el, texts, stamps){
-  texts = texts || []; stamps = stamps || [];
-  if (!texts.length){ dropPend(el); return; }
-  const pend = el.pend || growPend(el, false);
-  const slide = pend.querySelector(".pendslide");
-  const have = [...slide.children];
-  // a list that still begins with what is on screen only grows; anything else
-  // is a list that changed underneath and is drawn again
-  const grows = texts.length >= have.length &&
-                have.every((row, i) => row.dataset.text === texts[i]);
-  if (!grows){
-    slide.textContent = "";
-    texts.forEach((t, i) => slide.appendChild(pendRow(t, stamps[i])));
-  } else {
-    // the times come from the server now, so an optimistic row's client clock
-    // is corrected in place without touching anything else about the row
-    have.forEach((row, i) => {
-      const t = row.querySelector(".ptime"), want = stampText(stamps[i]);
-      if (t && t.textContent !== want) t.textContent = want;
-    });
-    for (let i = have.length; i < texts.length; i++){
-      const row = pendRow(texts[i], stamps[i]);
-      if (pend.classList.contains("open")) row.classList.add("pop");
-      slide.appendChild(row);
-    }
-    if (texts.length > have.length) pendBottom(pend);
-  }
-  stampRcpts(pend);
-  stampRun(pend, stamps);
-  el.pendRaw = texts.join("\n\n");
-}
-
 // ---- the messages the answer was given ------------------------------------------
 // the plain grey panel between the card's title and the completed answer under
 // it. it holds exactly the messages THAT answer was given, which is a fact only
@@ -1493,7 +1261,9 @@ function syncPend(el, texts, stamps){
 // it back the same way. a batch that fits the preview is simply shown whole,
 // with no strip, no arrow and nothing to press. the desktop card, the phone card
 // and the small card all build it here and draw it from the one set of rules in
-// card-tokens.css, each at its own size.
+// card-tokens.css, each at its own size. the messages sent and still waiting
+// for an answer stand at the foot of the card in this very panel (see the
+// messages waiting for a reply, below), so the two read as one thing.
 
 // what the board recorded one reply was given, or nothing when it recorded
 // none. an empty list is an answer and not a silence: it says that reply was
@@ -1532,7 +1302,7 @@ function histAnswered(list, step){
 // the panel's one arrow, centred in the strip at the panel's foot. it points
 // down at the rest of a cut batch, and the sheet turns it over to point up
 // while the batch stands open. a path and not a font glyph, so its weight holds
-// at any scale; it is the sent box's own chevron turned over
+// at any scale; it is the chevron the old sent box drew, turned over
 const ANSWERED_CHEV = '<svg class="answchev" width="11" height="7" viewBox="0 0 11 7"' +
   ' fill="none" aria-hidden="true"><path d="M1 1.35 5.5 5.65 10 1.35" stroke="currentColor"' +
   ' stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -1587,16 +1357,32 @@ function answeredPanel(room){
 // the room is told once, when the run has landed, and never on a frame of it.
 // what the old box also moved, its column of rows sliding onto its seat and
 // fading in, is not copied: here the first lines are already on screen when
-// the batch is cut, and the words being read are not the thing to move. the
-// dissolve at the cut firms up and deepens over the same run instead.
+// the batch is cut, and the words being read are not the thing to move.
+// the dissolve at the cut is a strip of the panel's grey drawn once over the
+// foot of the cut, and the run only fades it: out as the batch opens, back in as
+// it is cut. its strength is held inline where it stood while the far end is
+// measured, the way the height is, so a press that catches a run turns the
+// fade round from where it stands as well. nothing in a run is a mask, so no
+// frame of it has a dissolve to draw again.
+// change, when given, is what the caller changes in the panel after the run's
+// start is read and before its far end is: a send puts its message into an open
+// sent panel as it cuts it back, so the run starts from what was on screen.
+// the two ends stay on the panel for the length of the run (answSpan), for a
+// page that has to hold one of its own measures still while the panel moves.
 // motion the reader has asked not to see is a plain flip, as the old fold's was
-function openAnswered(panel, open){
+const FOLD_TIMER_MS = 430;   // behind the sheet's run, for a fold with nothing to transition
+function openAnswered(panel, open, change){
   const clip = panel.querySelector(".answclip");
   const mine = panel.answRun = (panel.answRun || 0) + 1;
-  // where the run starts: whatever the cut stands at now, mid run included
+  // where the run starts: whatever the cut and its dissolve stand at now, mid
+  // run included
   const from = clip.getBoundingClientRect().height;
-  const cutFrom = getComputedStyle(clip).getPropertyValue("--answ-cut");
+  const shadeFrom = answeredShade(panel);
   settleAnswered(panel);
+  if (change) change();
+  // a cut always shows the head of the batch, so a panel that was scrolled
+  // while it stood open goes back to its first line as it is cut back
+  if (!open) clip.scrollTop = 0;
   panel.classList.toggle("open", open);
   // the column may have been resized while it stood open
   if (!open) fitAnswered(panel);
@@ -1607,13 +1393,14 @@ function openAnswered(panel, open){
     return;
   }
   const to = clip.getBoundingClientRect().height;
-  const cutTo = getComputedStyle(clip).getPropertyValue("--answ-cut");
+  const shadeTo = panel.classList.contains("more") && !open ? "1" : "0";
   clip.style.height = from + "px";
-  clip.style.setProperty("--answ-cut", cutFrom);
+  clip.style.setProperty("--answ-shade", shadeFrom);
   void clip.offsetWidth;   // the start values land untimed
+  panel.answSpan = { from, to, band: null };
   panel.classList.add("motion");
   clip.style.height = to + "px";
-  clip.style.setProperty("--answ-cut", cutTo);
+  clip.style.setProperty("--answ-shade", shadeTo);
   const done = e => {
     if (e && (e.target !== clip || e.propertyName !== "height")) return;
     clip.removeEventListener("transitionend", done);
@@ -1628,12 +1415,23 @@ function openAnswered(panel, open){
 }
 
 // the run's own dress taken off: the timing and the inline ends, so the panel
-// stands at the height the sheet gives it
+// stands at the height and the dissolve the sheet gives it
 function settleAnswered(panel){
   const clip = panel.querySelector(".answclip");
   panel.classList.remove("motion");
+  panel.answSpan = null;
   clip.style.height = "";
-  clip.style.removeProperty("--answ-cut");
+  clip.style.removeProperty("--answ-shade");
+}
+
+// the strength the dissolve stands at now. the strip itself says, and a run
+// caught part way reports the strength it has reached; where nothing can be
+// read off it, the sheet's own word for the panel as it stands is the answer
+function answeredShade(panel){
+  const clip = panel.querySelector(".answclip");
+  const now = parseFloat(getComputedStyle(clip, "::after").opacity);
+  if (!isNaN(now)) return String(now);
+  return panel.classList.contains("more") && !panel.classList.contains("open") ? "1" : "0";
 }
 
 // what counts as something to read. a line or a paragraph holding nothing but
@@ -1727,26 +1525,54 @@ function fitAnswered(panel){
 }
 
 // one message is one block of the card's own prose: the same markdown, the same
-// attachment markup and the same wrapping the sent rows below are drawn in, and
-// nothing around it. the hairline the sheet draws between two blocks is the
-// whole of what tells one message from the next, so a message with nothing to
-// read in it adds no block, or it would stand as an empty hairline. another
-// batch starts cut to the preview again, and is measured for it; a run still
-// going on the batch it replaces is finished where it stands
-function fillAnswered(panel, batch){
+// attachment markup and the same wrapping the answer is drawn in, and nothing
+// around it. the hairline the sheet draws between two blocks is the whole of
+// what tells one message from the next, so a message with nothing to read in it
+// adds no block, or it would stand as an empty hairline.
+// the blocks already standing are kept for as long as they hold the same words
+// in the same place, so a pass that only adds a message, or only changes the
+// note under one, draws nothing above it again and leaves a pick of those
+// words alone. a message may carry a short note under its words and a state
+// the page dresses it in: the phone says so of a message the board has not
+// confirmed yet
+const ANSWERED_STATES = ["pending", "unsure", "failed"];
+function stackAnswered(panel, batch){
   const stack = panel.querySelector(".answstack");
-  stack.textContent = "";
-  for (const m of batch){
-    const text = answeredText(m);
-    if (ANSWERED_BLANK.test(text)) continue;
-    const msg = h("div", "answmsg cardmd");
-    msg.innerHTML = fmt(text);
-    stack.appendChild(msg);
-  }
+  const want = batch.filter(m => !ANSWERED_BLANK.test(answeredText(m)));
+  const have = [...stack.children];
+  let keep = 0;
+  while (keep < have.length && keep < want.length && have[keep].dataset.text === answeredText(want[keep])) keep++;
+  for (let i = have.length - 1; i >= keep; i--) have[i].remove();
+  want.forEach((m, i) => {
+    let msg = have[i];
+    if (i >= keep){
+      const text = answeredText(m);
+      msg = h("div", "answmsg cardmd");
+      msg.dataset.text = text;
+      msg.innerHTML = fmt(text);
+      stack.appendChild(msg);
+    }
+    for (const state of ANSWERED_STATES) msg.classList.toggle(state, m.state === state);
+    if (m.op) msg.dataset.op = m.op;
+    else delete msg.dataset.op;
+    let note = msg.querySelector(".answnote");
+    if (m.note){
+      if (!note){ note = h("div", "answnote"); msg.appendChild(note); }
+      if (note.textContent !== m.note) note.textContent = m.note;
+    } else if (note) note.remove();
+  });
+}
+
+// another batch starts cut to the preview again, and is measured for it; a run
+// still going on the batch it replaces is finished where it stands
+function fillAnswered(panel, batch){
+  stackAnswered(panel, batch);
   panel.answRun = (panel.answRun || 0) + 1;
   settleAnswered(panel);
   panel.classList.remove("open", "more");
-  panel.querySelector(".answclip").style.removeProperty("--answ-stop");
+  const clip = panel.querySelector(".answclip");
+  clip.style.removeProperty("--answ-stop");
+  clip.scrollTop = 0;
   fitAnswered(panel);
 }
 
@@ -1784,6 +1610,319 @@ function syncAnswered(el, meta, room = answeredRoomChanged){
   el.answId = meta.id;
   fillAnswered(el.answ, batch);
   if (room) room();
+}
+
+// ---- the messages waiting for a reply -------------------------------------------------
+// what has been sent on a card and not answered yet stands at the card's foot,
+// over the row the reader types in, in the very panel the answer's messages
+// stand in at its head: built by answeredPanel, filled by stackAnswered, cut to
+// its preview by fitAnswered and opened and cut back by openAnswered, so the two
+// cannot drift apart. what a page gives it is a seat of its own (el.sentwrap)
+// and, on a large card, who to tell once it has taken or given back room
+// (el.sentRoom). the board keeps a sent message on the card until the answer to
+// it lands, and in that same reading it takes the message off here and hands it
+// to the panel over the new answer, which is the page turn further down.
+//
+// a send the reader has just made on this page is an arrival (arrive): the panel
+// comes up out of the row the words were typed in, or the new message comes
+// into the panel already standing, and a panel standing open is cut back to its
+// preview on the fold's own run, so what has just been sent always stands cut.
+// a reading that brings messages sent somewhere else, or a first load, is no
+// arrival: it moves nothing and leaves the panel open or cut as it stands
+const SENT_ARRIVE_MS = 260;   // the sheet's --answ-come
+function sentBatch(texts){ return (texts || []).map(text => ({ text })); }
+
+function syncSent(el, batch, arrive){
+  if (!el || !el.sentwrap) return;
+  const shown = (batch || []).filter(m => !ANSWERED_BLANK.test(answeredText(m)));
+  if (!shown.length){ dropSent(el); return; }
+  // what the panel is drawn from: the words, and the state and note of each. a
+  // pass bringing the same again touches no dom at all
+  const key = JSON.stringify(shown.map(m => [answeredText(m), m.state || "", m.note || ""]));
+  if (el.sent && el.sentKey === key) return;
+  el.sentKey = key;
+  const room = el.sentRoom || null;
+  let panel = el.sent;
+  if (!panel){
+    panel = el.sent = answeredPanel(room);
+    panel.classList.add("sent");
+    panel.setAttribute("aria-label", "your messages waiting for a reply");
+    el.sentwrap.appendChild(panel);
+    stackAnswered(panel, shown);
+    fitAnswered(panel);
+    if (arrive) arriveSent(panel);
+    if (room) room();
+    return;
+  }
+  const had = panel.querySelector(".answstack").children.length;
+  if (arrive && panel.classList.contains("open")){
+    // the run tells the room itself once it has landed
+    openAnswered(panel, false, () => stackAnswered(panel, shown));
+  } else {
+    stackAnswered(panel, shown);
+    fitAnswered(panel);
+    if (room) room();
+  }
+  if (arrive) [...panel.querySelector(".answstack").children].slice(had).forEach(arriveSent);
+}
+
+// the arrival's dress, taken off again by the clock rather than by the end of
+// the animation, so a reader who has asked for no motion, whose page runs none,
+// is not left holding it
+function arriveSent(node){
+  node.classList.add("arrive");
+  setTimeout(() => node.classList.remove("arrive"), SENT_ARRIVE_MS + 60);
+}
+
+function dropSent(el){
+  if (!el || !el.sent) return;
+  el.sent.answRun = (el.sent.answRun || 0) + 1;   // a run still going lands on nothing
+  if (el.sent.answWatch) el.sent.answWatch.disconnect();
+  el.sent.remove();
+  el.sent = null;
+  el.sentKey = "";
+  if (el.sentRoom) el.sentRoom();
+}
+
+// the band the answer is cut to while the sent panel at the foot runs. the panel
+// stands over the answer on an opaque seat, so for the length of a run the band
+// is held at the lower of the run's two ends rather than following the panel on
+// every frame: opening, the seat rises over words at full ink and the band
+// follows once it has landed; cutting back, the words under the seat are put
+// back at the start and are uncovered as it comes down. held, the answer's
+// fades and its run-out are not drawn and laid out again on every frame of the
+// run. band is what the page measured; what comes back is what it should write
+function sentBand(el, band){
+  const span = el && el.sent && el.sent.answSpan;
+  if (!span) return band;
+  if (span.band == null){
+    const now = el.sent.querySelector(".answclip").getBoundingClientRect().height;
+    span.band = Math.max(0, Math.round(band - (now - Math.min(span.from, span.to))));
+  }
+  return span.band;
+}
+
+// ---- the board's refresh and the card's own motion ------------------------------------
+// a panel's run and the glide of a page turn are the card's own motion, and the
+// board's timed refresh waits them out. a refresh is a whole pass over every
+// card on the page's one thread, and one landing inside a third of a second of
+// motion costs that motion frames it never gets back. only the timed refresh
+// waits, and only until the motion is over; a refresh asked for by something the
+// reader did goes at once
+function cardsMoving(){
+  return typeof document !== "undefined" && typeof document.querySelector === "function" &&
+    !!document.querySelector(".answered.motion, .turnsheet");
+}
+
+// ---- the page turn -----------------------------------------------------------------------
+// the answer to what stands in the sent panel lands on the card on show, and the
+// card turns to a new page. first, what the reader was looking at, the answer
+// they were on and the sent panel under it, glides up together as one sheet,
+// eased on the card's gentle curve, until the sent panel stands where the panel
+// of answered messages stands at the head of a card: which is what it now is,
+// since the board hands those same messages to the new answer. only then is the
+// new answer printed under it: its blocks come in one after another from the
+// top, each a short fade with a small rise, so the words appear rather than
+// being typed out letter by letter.
+//
+// the glide moves a picture and not the card. the page the reader was on is
+// copied into a sheet laid over the card's column (the answer as it stood, at
+// its scroll and with its fades, and the sent panel on its seat), the card under
+// the sheet is drawn as the new page at once, and only the sheet's content
+// moves, on one transform, so no frame of the glide lays anything out or draws
+// anything again. it goes up by exactly the distance from where the sent panel
+// stood to where the new page's own panel stands, so when the sheet is taken
+// away the panel under it is on the same pixels.
+//
+// the reader is never moved while busy with the card. a new answer is held
+// back, the page left exactly as it was, while the reader is reading (the answer
+// was scrolled in the last three seconds, words in it are picked out, or an older
+// page of its history is on show) or typing (a key went into the row in the last
+// two seconds), and the card looks again every half second; the page turns
+// once the card has been left still. a card that is not on show has nothing to
+// turn and simply shows the new page, and so does a card whose reader asked for
+// no motion. a progress note is not an answer and turns nothing
+const TURN_GLIDE_MS = 560;    // the sheet's --turn-glide
+const PRINT_MS = 780;         // the sheet's print: the last blocks start at 400ms and take 380
+const READ_QUIET_MS = 3000;   // this long after the reader last scrolled the answer
+const TYPE_QUIET_MS = 2000;   // this long after the last key into the row
+const HOLD_LOOK_MS = 500;     // how often a held card looks again
+const TURN_HELD = "held";
+
+// the reader's own scrolling of the answer, which is what says they are reading
+// it. the page's own moves of the scroll, a history step or a turn, are marked
+// quiet as they are made, so they are not taken for the reader's
+function watchReading(el){
+  el.replyview.addEventListener("scroll", () => {
+    if (Date.now() - (el.quietScroll || 0) > 200) el.readAt = Date.now();
+  }, { passive: true });
+}
+function scrollCardTop(el){
+  el.quietScroll = Date.now();
+  (el.replyview || el.reply).scrollTop = 0;
+}
+// and a key into a row, which is what says the reader is typing. each page calls
+// it from its rows' input: the card's own bar, the phone's row, and the desktop's
+// composer on the right while it holds a card's draft, which is then that card's
+// el.ta. the formatter also says input when it puts its editor on or takes it
+// off, to every card on load, and that is nobody typing, so only a row holding
+// the caret counts, the way readOnCompose counts it
+function noteTyping(ta){
+  if (typeof ComposeFormat === "object" && ComposeFormat && ComposeFormat.focused(ta)) ta.typedAt = Date.now();
+}
+
+function stillMotion(){
+  return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+// the card on show: the one its page shows, whether chosen or only browsed to,
+// laid out, and not hidden under something the page lays over its whole board,
+// the way the desktop's home page hides the stage
+function cardOnShow(el){
+  if (!el.box.classList.contains("sel") || !el.replyview || !el.replyview.getBoundingClientRect().height) return false;
+  return getComputedStyle(el.box).visibility !== "hidden";
+}
+
+// whether the reader is busy with the card on show
+function turnHolding(el, id){
+  if (!cardOnShow(el)) return false;
+  if (hist && hist.id === id) return true;
+  const now = Date.now();
+  if (now - (el.readAt || 0) < READ_QUIET_MS) return true;
+  if (el.ta && now - (el.ta.typedAt || 0) < TYPE_QUIET_MS) return true;
+  if (el.replyview && typeof boxHasSelection === "function" && boxHasSelection(el.replyview)) return true;
+  // and a sent panel part way through its own run is let finish it
+  if (el.sent && el.sent.classList.contains("motion")) return true;
+  return false;
+}
+
+// a held card looks again on its own clock, since a page that reads the board by
+// its revision is handed nothing new to draw while the board stands still. once
+// the reader has let the card be, the page draws its cards again and the turn runs
+function turnHold(el, id){
+  if (el.turnHeld) return;
+  const look = () => {
+    if (turnHolding(el, id)){ el.turnHeld = setTimeout(look, HOLD_LOOK_MS); return; }
+    el.turnHeld = null;
+    if (turnAgain) turnAgain();
+  };
+  el.turnHeld = setTimeout(look, HOLD_LOOK_MS);
+}
+
+// called by the page's pass over a card whose answer has changed, before it
+// draws anything of the new one. it answers TURN_HELD when the new answer is to
+// wait, and the page then leaves the answer and both panels as they stand; a
+// turn, which the page hands to turnGo once it has drawn the new page; or
+// nothing, for the plain swap the card always had
+function turnBegin(el, b){
+  if (el.turning) turnEnd(el);   // a turn still going lands at once
+  if (!b || b.replyKind !== "agent" || !cardOnShow(el)) return null;
+  if (stillMotion()) return null;
+  if (turnHolding(el, b.id)){ turnHold(el, b.id); return TURN_HELD; }
+  if (el.turnHeld){ clearTimeout(el.turnHeld); el.turnHeld = null; }
+  const turn = { mode: "print" };
+  if (el.sent && el.sentwrap && el.sentwrap.getBoundingClientRect().height) turnSheet(el, turn);
+  // the new page opens at its head
+  scrollCardTop(el);
+  return turn;
+}
+
+// the still picture of the page the reader was on, over the card's column
+function turnSheet(el, turn){
+  const view = el.replyview, seat = el.sentwrap, body = view.parentElement;
+  // a sent panel caught open, or part way through a run, is cut to its preview
+  // where it stands, since what glides up is what stands at the head of the new page
+  const sent = el.sent;
+  if (sent.classList.contains("open") || sent.classList.contains("motion")){
+    sent.answRun = (sent.answRun || 0) + 1;
+    settleAnswered(sent);
+    sent.querySelector(".answclip").scrollTop = 0;
+    sent.classList.remove("open");
+    fitAnswered(sent);
+  }
+  const at = body.getBoundingClientRect(), vr = view.getBoundingClientRect(), sr = seat.getBoundingClientRect();
+  const place = (node, r) => {
+    node.style.position = "absolute";
+    node.style.top = (r.top - at.top) + "px";
+    node.style.left = (r.left - at.left) + "px";
+    node.style.width = r.width + "px";
+    node.style.margin = "0";
+  };
+  const sheet = h("div", "turnsheet");
+  sheet.setAttribute("aria-hidden", "true");
+  sheet.style.height = (sr.bottom - at.top) + "px";
+  const page = h("div", "turnpage");
+  const was = view.cloneNode(true);
+  place(was, vr);
+  was.style.height = vr.height + "px";
+  // the copy's foot stays cut where the reader saw it cut, whatever the card's
+  // own band does under the sheet once the new page is drawn
+  was.style.setProperty("--boxband", (typeof boxBand === "function" ? boxBand(view, el.pendwrap) : 0) + "px");
+  const card = seat.cloneNode(true);
+  place(card, sr);
+  // a copy is a still picture: nothing in it may start arriving or printing again
+  for (const copy of [was, card])
+    for (const node of [copy, ...copy.querySelectorAll(".arrive, .printing, .printwait")])
+      node.classList.remove("arrive", "printing", "printwait");
+  page.append(was, card);
+  sheet.appendChild(page);
+  body.appendChild(sheet);
+  was.scrollTop = view.scrollTop;
+  Object.assign(turn, { mode: "glide", sheet, page, from: sr.top });
+  el.turning = turn;
+  // a sheet never outlives its glide, whatever becomes of the pass that laid it
+  turn.timer = setTimeout(() => { if (el.turning === turn) turnEnd(el); }, TURN_GLIDE_MS + 80);
+}
+
+// called once the page has drawn the new page under the sheet: the glide, then
+// the print, or the print alone
+function turnGo(el, turn){
+  if (!turn || turn === TURN_HELD) return;
+  if (turn.mode !== "glide"){ printReply(el); return; }
+  // where the new page's own panel stands: the panel the sent messages have
+  // just become. a new page with no panel at its head has nowhere to glide to,
+  // and is shown and printed as it stands
+  const dest = el.answ && el.answwrap ? el.answwrap.getBoundingClientRect().top : null;
+  const lift = dest == null ? 0 : turn.from - dest;
+  if (!(lift > 1)){ turnEnd(el); return; }
+  el.reply.classList.add("printwait");
+  void turn.page.offsetWidth;   // the sheet stands as the reader left it before it moves
+  turn.page.classList.add("gliding");
+  turn.page.style.transform = "translate3d(0, " + (-lift) + "px, 0)";
+  clearTimeout(turn.timer);
+  const done = e => {
+    if (e && (e.target !== turn.page || e.propertyName !== "transform")) return;
+    turn.page.removeEventListener("transitionend", done);
+    if (el.turning === turn) turnEnd(el);
+  };
+  turn.page.addEventListener("transitionend", done);
+  turn.timer = setTimeout(done, TURN_GLIDE_MS + 80);
+}
+
+function turnEnd(el){
+  const turn = el.turning;
+  if (!turn) return;
+  el.turning = null;
+  clearTimeout(turn.timer);
+  if (turn.sheet) turn.sheet.remove();
+  printReply(el);
+}
+
+// the print: the answer's blocks come in one after another from the top, each a
+// fade with a small rise (the sheet's cardprint), fifty milliseconds apart and
+// all of them under way by the ninth. only strength and a transform are drawn,
+// so the answer's layout is final from the first frame and nothing under it
+// moves. the small card prints its short answer the same way when it changes
+function printReply(el){
+  const reply = el && el.reply;
+  if (!reply) return;
+  reply.classList.remove("printwait");
+  if (stillMotion()) return;
+  reply.classList.remove("printing");
+  void reply.offsetWidth;   // a print still going starts again from its first block
+  reply.classList.add("printing");
+  clearTimeout(el.printTimer);
+  el.printTimer = setTimeout(() => reply.classList.remove("printing"), PRINT_MS + 60);
 }
 
 // ---- sending, parking, naming ---------------------------------------------------------
@@ -2430,12 +2569,14 @@ function histExit(id){
   el.histDown.disabled = true;
   if (was){
     el.reply.innerHTML = fmt(el.reply.dataset.raw);
-    (el.replyview || el.reply).scrollTop = 0;   // the answer's own scroller back to its top
+    scrollCardTop(el);   // the answer's own scroller back to its top
     // back on the live reply, so the panel over it is the live reply's own batch
     // again. the card is read out of the state the page is holding rather than
     // remembered from the step away, so a reply that landed while an older page
-    // was being read is the one that comes back
-    syncAnswered(el, liveAnswered(stateBoxOf(id)));
+    // was being read is the one that comes back. while a new answer is held back
+    // for the reader, the live page is still the one the card last drew, and so
+    // is its batch, until the page turn brings the new one
+    syncAnswered(el, el.turnHeld && el.liveMeta !== undefined ? el.liveMeta : liveAnswered(stateBoxOf(id)));
   }
 }
 
@@ -2450,7 +2591,7 @@ async function histStep(id, dir){   // +1 steps older, -1 steps back toward live
   hist = { id, step };
   const el = els[id];
   el.reply.innerHTML = fmt(list[list.length - step]);
-  (el.replyview || el.reply).scrollTop = 0;   // the answer's own scroller back to its top
+  scrollCardTop(el);   // the answer's own scroller back to its top
   // this page's own batch, so an older answer is read with the messages it was
   // actually given and never with the live card's
   syncAnswered(el, histAnswered(list, step));
