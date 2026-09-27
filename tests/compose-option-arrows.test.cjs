@@ -235,6 +235,57 @@ for (const platform of Object.keys(PLATFORMS)) {
   });
 }
 
+// Control with Shift and [, ] or \ moves the card to doing, deferred or done.
+// The editor reaches Control+Shift+[ under the name Shift-Ctrl-[ (the key's
+// unshifted character, as its handler looks a shifted bracket up), so that is
+// the name claimed. A claimed chord runs a binding that takes it and changes
+// nothing, so the editor keeps it from its own commands and the text, and the
+// event goes on to the page.
+const SECTION_CHORDS = ["[", "]", "\\"].map(key => ({ key, ctrl: true, shift: true }));
+
+for (const platform of Object.keys(PLATFORMS)) {
+  test(`${platform}: the composer claims Control+Shift with [, ] and \\ for the page and changes no text`, () => {
+    const { C, api } = load(platform);
+    const composer = resolve(composerState(C, api), C, platform);
+    const stock = resolve(stockState(C), C, platform);
+    const page = composer.get(chordName({ key: "ArrowUp", ctrl: true, shift: true })).runs[0];
+    for (const chord of SECTION_CHORDS) {
+      const name = chordName(chord);
+      const entry = composer.get(name);
+      assert.ok(entry, `${name} is not claimed in the composer`);
+      const first = entry.runs[0];
+      assert.ok(!(stock.get(name)?.runs || []).includes(first), `${name} first reaches a stock command`);
+      assert.equal(first.toString(), page.toString(), `${name} is not claimed the way the arrow chords are`);
+      const result = press(composerState(C, api), C, platform, chord);
+      assert.equal(result.outcome, "ran", `${name} was not taken`);
+      assert.deepEqual(result.reached, [first], `${name} ran on past the page's claim`);
+      assert.equal(result.text, TEXT, `${name} changed the message`);
+    }
+  });
+
+  test(`${platform}: Command+Shift+[ and ] and the unshifted Control brackets are not claimed for the page`, () => {
+    const { C, api } = load(platform);
+    const composer = resolve(composerState(C, api), C, platform);
+    const stock = resolve(stockState(C), C, platform);
+    for (const chord of [{ key: "[", meta: true, shift: true }, { key: "]", meta: true, shift: true },
+                         { key: "[", ctrl: true }, { key: "]", ctrl: true }, { key: "\\", ctrl: true }]) {
+      const name = chordName(chord);
+      assert.deepEqual(composer.get(name)?.runs || [], stock.get(name)?.runs || [], `${name} changed in the composer`);
+    }
+  });
+}
+
+// what the claim takes from the stock keymap: nothing on a Mac, and the
+// matching bracket jump on control+shift+\ elsewhere
+test("the stock keymap binds none of the three chords on a Mac and only control+shift+\\ elsewhere", () => {
+  for (const platform of Object.keys(PLATFORMS)) {
+    const { C } = load(platform);
+    const stock = resolve(stockState(C), C, platform);
+    const bound = SECTION_CHORDS.map(chordName).filter(name => stock.has(name));
+    assert.deepEqual(bound, platform === "mac" ? [] : ["Ctrl-Shift-\\"], platform);
+  }
+});
+
 test("mac: Option with Left or Right is the stock word jump and its selecting form", () => {
   const { C, api } = load("mac");
   const composer = resolve(composerState(C, api), C, "mac");

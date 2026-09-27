@@ -576,12 +576,17 @@
     // line that has neither
   }
 
-  // ---- the four chords the page owns and the editor must not ---------------
+  // ---- the chords the page owns and the editor must not ---------------------
   // Reserve these page shortcuts before the editor's Mac/iOS selection
   // bindings. Returning true prevents editor handling while the event still
   // bubbles to card/history listeners. Command keeps its editor selection.
+  // Control+Shift with [, ] or \ moves the card to doing, deferred or done.
+  // The editor reaches a shifted bracket under its unshifted name, and outside
+  // a Mac its stock keymap has control+shift+\ for the matching bracket, which
+  // this shadows; they are claimed so no editor update can take them either.
   const PAGE_CHORDS = ["Shift-Ctrl-ArrowUp", "Shift-Ctrl-ArrowDown",
-                       "Shift-Ctrl-ArrowLeft", "Shift-Ctrl-ArrowRight"]
+                       "Shift-Ctrl-ArrowLeft", "Shift-Ctrl-ArrowRight",
+                       "Shift-Ctrl-[", "Shift-Ctrl-]", "Shift-Ctrl-\\"]
     .map(key => ({ key, run: () => true }));
 
   // Keep Option/Alt with Up/Down available for native caret movement and

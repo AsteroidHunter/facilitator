@@ -94,6 +94,23 @@ const CARD_SHORTCUT_DEFINITIONS = [
       (e.key === "n" || e.key === "N" || e.key === "l" || e.key === "L")
       ? ((e.key === "l" || e.key === "L") ? "deferred" : "doing") : null,
   },
+  // control+shift+[, ] and \ move the selected card to Doing, Deferred and
+  // Done, typing or not. macOS text boxes give these chords no meaning and the
+  // composer's editor is told to leave them to the page (PAGE_CHORDS in
+  // compose-format.js), which cancels them on the way, so an event already
+  // cancelled still counts here. command+shift+[ and ] stay card steps above
+  {
+    action: "sectionChord", mini: true,
+    match: e => e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey &&
+      !e.repeat && !e.isComposing ? sectionChordOf(e) : null,
+  },
+  // the same three keys alone do the same, but only while nothing is being
+  // typed, which each page checks against where the key landed
+  {
+    action: "sectionKey", mini: true,
+    match: e => !e.ctrlKey && !e.metaKey && !e.repeat && !e.isComposing &&
+      !e.defaultPrevented ? sectionKeyOf(e) : null,
+  },
   // control+s scrolls the selected card's response while held: down, or up
   // when a tap is followed at once by a hold. A held key's repeats are
   // recognized too, so the page can keep them from the editor and the browser,
@@ -131,6 +148,39 @@ function dispatchCardShortcut(event, actions, scope = "card"){
 function cardShortcutEditing(target){
   return !!target && typeof target.closest === "function" &&
     !!target.closest("textarea, input, [contenteditable], [role='textbox'], .cm-editor");
+}
+
+// ---- the three section keys ------------------------------------------------------
+// The chord is read off the physical key first, since shift turns e.key into
+// {, } or | and control can leave it unusual, and off the character when the
+// event names no such key. A key alone is read off the character it types, so
+// a layout whose bracket key types a letter never moves a card.
+const SECTION_KEY_CODES = new Map([["BracketLeft", "doing"], ["BracketRight", "deferred"], ["Backslash", "done"]]);
+const SECTION_KEY_CHARS = new Map([["[", "doing"], ["]", "deferred"], ["\\", "done"]]);
+const SECTION_KEY_SHIFTED = new Map([["{", "doing"], ["}", "deferred"], ["|", "done"]]);
+
+function sectionChordOf(e){
+  return SECTION_KEY_CODES.get(e.code) || SECTION_KEY_CHARS.get(e.key) ||
+    SECTION_KEY_SHIFTED.get(e.key) || null;
+}
+function sectionKeyOf(e){ return SECTION_KEY_CHARS.get(e.key) || null; }
+
+// what each section's chip names in its tooltip, so the keys are written once
+const SECTION_KEY_HINTS = {
+  doing: "Control + Shift + [, or [ when not typing",
+  deferred: "Control + Shift + ], or ] when not typing",
+  done: "Control + Shift + \\, or \\ when not typing",
+};
+
+// Where the chord may come from: anywhere nothing is being typed, and the
+// card's own composer in either shape (its textarea, or the editor that holds
+// it). A title being renamed and every other field keep the chord.
+function sectionChordSource(target, el){
+  if (!cardShortcutEditing(target)) return true;
+  if (!el || !el.ta) return false;
+  if (target === el.ta) return true;
+  const editor = target.closest(".cm-editor");
+  return !!editor && editor.contains(el.ta);
 }
 
 // ---- scrolling the response with control+s ---------------------------------------
@@ -1609,7 +1659,7 @@ function chipOff(chip){ return !!chip && chip.getAttribute("aria-disabled") === 
 function sunChip(cls, id){
   const sun = h("button", cls);
   sun.type = "button";
-  sun.title = "move to doing";
+  sun.title = "move to doing\n" + SECTION_KEY_HINTS.doing;
   sun.setAttribute("aria-label", "move to doing");
   sun.innerHTML = SUN_ICON;
   sun.addEventListener("click", e => { e.stopPropagation(); if (!chipOff(sun)) wakeCard(id); });
@@ -1638,6 +1688,21 @@ function wakeCard(id){
   const b = typeof lastState === "undefined" ? null : lastState?.boxes.find(x => x.id === id);
   if (b && b.parked && !flagHolds[flagKey(id, "park")] && !flagShown(id, "park")) setFlag(id, "park", false);
   return setCardDestination(id, "doing");
+}
+
+// a section key asks what that section's chip on the card's face would ask,
+// and nothing while that chip stands faded because the card is already there.
+// deferred only ever parks, where the moon's tap could also unpark, and done
+// is the page's own close, handed in, since each surface closes its own way.
+// true means a move was asked for
+const SECTION_KEY_CHIPS = { doing: "sun", deferred: "arc", done: "x" };
+function sectionKeyMove(id, section, el, close){
+  const chip = el && el[SECTION_KEY_CHIPS[section]];
+  if (!chip || chipOff(chip)) return false;
+  if (section === "doing") wakeCard(id);
+  else if (section === "deferred") setCardDestination(id, "deferred");
+  else close(id);
+  return true;
 }
 
 // one card's wanted state, true on screen at once and asked of the board after.
