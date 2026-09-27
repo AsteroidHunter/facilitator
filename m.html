@@ -149,16 +149,20 @@
     flex:none; height:39px; overflow-x:auto; overflow-y:hidden;
     scrollbar-width:none;
     /* the bar's bottom line is its last pixel row, painted as background so a
-       seated tab's paper can stand on it and open into the canvas below */
-    background:linear-gradient(to top, var(--line) 1px, transparent 1px);
+       seated tab's paper can stand on it and open into the canvas below. it is
+       painted, not a border, so it takes the edge's drawn width to match the
+       tab's own border beside it */
+    background:linear-gradient(to top, var(--line) var(--edge-drawn), transparent var(--edge-drawn));
   }
   .bar::-webkit-scrollbar{display:none}
   #tabbar{display:flex; align-items:flex-end; gap:4px; height:39px; padding:0 10px; width:max-content; min-width:100%}
   .ptab{
     flex:none; font:500 13px/16px var(--sans); color:var(--sub);
-    background:transparent; border:1px solid transparent; border-bottom:none;
+    background:transparent; border:var(--edge) solid transparent; border-bottom:none;
     border-radius:7px 7px 0 0; cursor:pointer; user-select:none; -webkit-user-select:none;
-    position:relative; height:39px; padding:0 16px 6px;
+    /* the top border is room at the edge's width; the padding gives back what
+       it no longer takes, so the label sits where it did */
+    position:relative; height:39px; padding:calc(1px - var(--edge-drawn)) 16px 6px;
     --seat:var(--paper);
   }
   .ptab.on{color:var(--ink); background:var(--seat); border-color:var(--line)}
@@ -174,18 +178,20 @@
   }
   .ptab.on::before{
     left:-8px;
-    background:radial-gradient(circle 8px at 0 0, transparent 0 7px, var(--line) 7px 8px, var(--seat) 8px);
+    background:radial-gradient(circle 8px at 0 0, transparent 0 calc(8px - var(--edge-drawn)),
+      var(--line) calc(8px - var(--edge-drawn)) 8px, var(--seat) 8px);
   }
   .ptab.on::after{
     right:-8px;
-    background:radial-gradient(circle 8px at 100% 0, transparent 0 7px, var(--line) 7px 8px, var(--seat) 8px);
+    background:radial-gradient(circle 8px at 100% 0, transparent 0 calc(8px - var(--edge-drawn)),
+      var(--line) calc(8px - var(--edge-drawn)) 8px, var(--seat) 8px);
   }
 
   /* ---- the server unreachable note, the board's own --------------------- */
   #offline{
     display:none; flex:none; margin-top:var(--sp-s);
     padding:9px 12px; font:13px var(--sans); color:#7A2E1B;
-    background:#FAE9E2; border:1px solid var(--line); border-radius:7px;
+    background:#FAE9E2; border:var(--edge) solid var(--line); border-radius:7px;
   }
   body.offline #offline{display:block}
   /* the milder note: the board has missed a reading or two and the page is
@@ -195,7 +201,7 @@
   /* ---- the card pane ------------------------------------------------------ */
   main{
     flex:1 1 auto; min-height:0; margin-top:var(--sp-s);
-    background:var(--card); border:1px solid var(--line); border-radius:7px;
+    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
     display:flex; flex-direction:column; overflow:hidden; position:relative;
     /* the keyboard's whole visible motion. the card's own bottom edge comes up
@@ -230,11 +236,12 @@
   /* While swiping, the complete card surfaces move. The stationary pane keeps
      its layout but gives up its fill and outline, exposing paper between the
      two independently clipped cards. Their borders replace the pane's border
-     without changing the content's resting dimensions. */
+     without changing the content's resting dimensions. the pull out is the
+     pane's edge as drawn, so each card's edge lands on the pane's own. */
   main.cardswiping{background:transparent; border-color:transparent; box-shadow:none; overflow:visible}
   .box.cardswipe{
-    display:flex; position:absolute; inset:-1px; z-index:2;
-    background:var(--card); border:1px solid var(--line); border-radius:7px;
+    display:flex; position:absolute; inset:calc(-1 * var(--edge-drawn)); z-index:2;
+    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
     overflow:hidden; --replyfade:22px; --replyair:3.5px; --boxleft:calc(var(--pad-x)*2/3);
     transform:translate3d(var(--card-swipe-x, 0px), 0, 0) scale(var(--card-swipe-z, 1));
@@ -249,7 +256,7 @@
   .topbar{
     flex:none; display:flex; align-items:center; gap:9px; position:relative;
     height:var(--cardbar-h); padding:0 6px 0 calc(var(--pad-x)*2/3);
-    background:var(--card); box-shadow:inset 0 -1px 0 var(--line);
+    background:var(--card); box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line);
   }
   /* the history control is also the bar's one flexible item, the thing that
      holds the three chips against the right end, so it keeps its room on a
@@ -420,12 +427,12 @@
     display:flex; align-items:center; justify-content:center; align-self:stretch; flex:none;
     height:var(--pend-bar); padding:0 12px; border-radius:7px;
     box-shadow:var(--sunk-deep); background:var(--card);
-    box-sizing:border-box; border:1px solid var(--line);
+    box-sizing:border-box; border:var(--edge) solid var(--line);
   }
   .chev{display:block; flex:none}
   .pendbody{display:none}
   .pendlist.open{
-    background:var(--card); border:1px solid var(--line); border-radius:7px;
+    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
     padding:12px 12px 10px; box-shadow:var(--sunk-deep); overflow:hidden;
     max-height:38vh; max-height:calc(var(--vvh, 100vh) * .38);
   }
@@ -638,7 +645,7 @@
   /* ---- the foot: the plus, the typing row, the send square ------------ */
   .bottombar{
     display:flex; align-items:flex-end; gap:var(--sp-s); flex:none;
-    margin:0 calc(var(--pad-x)*2/3); border-top:1px solid var(--line); background:var(--card);
+    margin:0 calc(var(--pad-x)*2/3); border-top:var(--edge) solid var(--line); background:var(--card);
   }
   /* the white over the step under the sent box, and it is hung on there being a
      box to leave one: the answer now runs on behind the bar, and without this
@@ -654,7 +661,7 @@
   }
   .clipbtn::before{
     content:""; position:absolute; z-index:-1; left:0; right:0; top:50%; aspect-ratio:1;
-    transform:translateY(-50%); border-radius:var(--sq); border:1px solid var(--line);
+    transform:translateY(-50%); border-radius:var(--sq); border:var(--edge) solid var(--line);
     background:color-mix(in srgb, #000 var(--press), var(--paper));
     box-shadow:var(--sunk-deep); opacity:0; transition:opacity .11s var(--gentle);
   }
@@ -765,15 +772,15 @@
   #drawer.live, #settings.live{visibility:visible; --menuwait:0s}
   /* the two exposed corners are a little rounder than the board's small inset
      panels. the two at the screen edge stay square. each shade layer is pulled
-     the 1px out that the menu's own edge line takes, so the shade starts exactly
-     where the menu ends */
-  #drawer{--shift:-100%; left:0; border-right:1px solid var(--line);
+     out by the width the menu's own edge line is drawn at, so the shade starts
+     exactly where the menu ends */
+  #drawer{--shift:-100%; left:0; border-right:var(--edge) solid var(--line);
     border-radius:0 12px 12px 0}
-  #drawer::after{left:0; right:-1px;
+  #drawer::after{left:0; right:calc(-1 * var(--edge-drawn));
     box-shadow:2px 0 6px rgba(0,0,0,.10), 10px 0 26px rgba(0,0,0,.20)}
-  #settings{--shift:100%; right:0; border-left:1px solid var(--line);
+  #settings{--shift:100%; right:0; border-left:var(--edge) solid var(--line);
     border-radius:12px 0 0 12px}
-  #settings::after{left:-1px; right:0;
+  #settings::after{left:calc(-1 * var(--edge-drawn)); right:0;
     box-shadow:-2px 0 6px rgba(0,0,0,.10), -10px 0 26px rgba(0,0,0,.20)}
   /* a finger is followed frame by frame, so the moving layers are not timed */
   body.menudrag #scrim, body.menudrag #page, body.menudrag #drawer, body.menudrag #settings,
@@ -784,13 +791,14 @@
      selected name sits in its own depressed pill and the two unselected names
      stay bare, so top:0 seats the pill on the names' baseline and only colour
      moves under a tap. */
-  #tikhead .tvb{flex:1; --seat:var(--card); height:auto; padding:6px 0 5px; top:0; transition:color .18s}
+  #tikhead .tvb{flex:1; --seat:var(--card); height:auto; padding:calc(6px + 1px - var(--edge-drawn)) 0 5px;
+    top:0; transition:color .18s}
   /* the selected name's depressed pill: white fill, the drawer's hairline and
      the shared sunk shade, at the same depth as the recessed list well. the
      seated-tab notches the .ptab rules would draw are struck. */
   #tikhead .tvb.on{
     color:var(--ink); background:var(--card);
-    border:1px solid var(--line); border-radius:7px;
+    border:var(--edge) solid var(--line); border-radius:7px;
     box-shadow:var(--sunk-deep);
   }
   #tikhead .tvb.on::before, #tikhead .tvb.on::after{display:none}
@@ -813,7 +821,7 @@
   #tiklist{flex:1; min-height:0; overflow:hidden;
     position:relative; display:flex; flex-direction:column;
     margin:7px 8px 8px;
-    background:var(--card); border:1px solid var(--line); border-radius:7px; box-shadow:var(--sunk-deep)}
+    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px; box-shadow:var(--sunk-deep)}
   /* doing|deferred|done laid left to right, one section wide each; section i rests
      at translateX(-i*100%) and the well clips all but the shown one */
   #tiksheet{flex:1; min-height:0; display:flex; flex-direction:row; will-change:transform}
@@ -821,7 +829,7 @@
     -webkit-overflow-scrolling:touch; display:flex; flex-direction:column; gap:6px; padding:10px 8px}
   .trow{
     position:relative; flex:none; height:52px;
-    border:1px solid var(--line); border-radius:5px; background:#fff;
+    border:var(--edge) solid var(--line); border-radius:5px; background:#fff;
     box-shadow:0 1px 4px rgba(60,45,20,.05);
     display:flex; flex-direction:column; cursor:pointer; overflow:hidden;
     transition:border-color .3s, background-color .3s;
@@ -852,7 +860,7 @@
      the board */
   #sethead{
     flex:none; display:flex; align-items:center; gap:var(--sp-s);
-    padding:14px 12px 11px; border-bottom:1px solid var(--line);
+    padding:14px 12px 11px; border-bottom:var(--edge) solid var(--line);
     font:625 17px/1.25 var(--inter); color:var(--ink);
   }
   #setmark{flex:none; display:block; color:var(--sub)}
@@ -883,11 +891,11 @@
   #setgroup .setrow input{margin:2px 0 0; flex:none; width:16px; height:16px;
     accent-color:var(--accent)}
   #setgroup .sethelp{margin:8px 0 16px 24px; font:12px/1.5 var(--sans); color:var(--sub)}
-  #diagnostics{margin-top:16px; border-top:1px solid var(--line); padding-top:16px}
+  #diagnostics{margin-top:16px; border-top:var(--edge) solid var(--line); padding-top:16px}
   #diagnostichelp, #diagnosticstatus{font:12px/1.5 var(--sans); color:var(--sub); margin:8px 0 0}
   #diagnosticstatus:empty{display:none}
   #diagnostictoast{position:fixed; z-index:30; top:48px; left:12px; right:12px;
-    padding:10px 12px; background:var(--paper); border:1px solid var(--line);
+    padding:10px 12px; background:var(--paper); border:var(--edge) solid var(--line);
     border-radius:var(--sq); font:13px/1.4 var(--sans); color:var(--ink); pointer-events:none}
   #diagnostictoast:empty{display:none}
 

@@ -19,8 +19,13 @@
     --inter:"Inter",-apple-system,sans-serif;
     --mono:"IBM Plex Mono",ui-monospace,monospace;
     --sq:4px;
+    /* the edge's asked width and the width chrome draws for it, the same pair
+       and the same reasons as the app's card-tokens.css */
+    --edge:.8px; --edge-drawn:1px;
     font-family:var(--sans); color:var(--ink); background:var(--card);
   }
+  @media (min-resolution:2dppx){:root{--edge-drawn:.5px}}
+  @media (min-resolution:3dppx){:root{--edge-drawn:calc(2px / 3)}}
   *{box-sizing:border-box}
   /* the installed app runs full screen, under the clock and over the home
      bar (the status bar meta above; an icon keeps whatever this page said when
@@ -49,7 +54,7 @@
 
   /* ---- the card: the same outline, top bar and foot the app draws --------- */
   .card{
-    background:var(--card); border:1px solid var(--line); border-radius:7px;
+    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
     text-align:left; overflow:hidden;
   }
@@ -58,7 +63,7 @@
      only here, so it takes no taps */
   .topbar{
     display:flex; align-items:center; gap:9px; height:34px; padding:0 8px 0 14px;
-    background:var(--card); box-shadow:inset 0 -1px 0 var(--line);
+    background:var(--card); box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line);
     pointer-events:none;
   }
   .histctl{flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:0; color:var(--sub)}
@@ -100,7 +105,7 @@
   /* greyed, faded and inert: it shows the app's composer without offering one */
   .bottombar{
     display:flex; align-items:center; gap:8px; margin:9px 0 0; padding-top:5px;
-    border-top:1px solid var(--line); opacity:.5; pointer-events:none; user-select:none;
+    border-top:var(--edge) solid var(--line); opacity:.5; pointer-events:none; user-select:none;
   }
   .clipbtn{flex:none; width:28px; height:26px; display:grid; place-items:center; color:var(--ink)}
   .compose{flex:1 1 auto; min-width:0; display:flex; gap:10px; align-items:center}
@@ -132,10 +137,10 @@
     padding-bottom:20px; border-color:var(--line); border-radius:8px;
     box-shadow:0 9px 30px #211d170d;
   }
-  .card-heading{font:625 16px/1.3 var(--inter); padding:15px 18px; border-bottom:1px solid var(--line)}
+  .card-heading{font:625 16px/1.3 var(--inter); padding:15px 18px; border-bottom:var(--edge) solid var(--line)}
   .login-copy{padding:18px 18px 8px; margin:0; font-size:15px}
   .password{display:block; width:calc(100% - 36px); margin:8px 18px 12px; padding:11px 12px;
-    border:1px solid var(--line); border-radius:6px; background:#fff; color:var(--ink); font-size:16px}
+    border:var(--edge) solid var(--line); border-radius:6px; background:#fff; color:var(--ink); font-size:16px}
   .password:focus{outline:2px solid var(--must); outline-offset:1px}
   .connect{margin-left:18px; padding:9px 17px; border:0; border-radius:5px; background:var(--must); color:#fff; cursor:pointer}
   .connect:disabled{opacity:.55}

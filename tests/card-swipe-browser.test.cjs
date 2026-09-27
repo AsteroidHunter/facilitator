@@ -151,7 +151,10 @@ function distinct(frame){
   assert.equal(frame.paneShadow,"none");
   assert.ok(frame.gap>=12,`card surfaces have no clear gap: ${frame.gap}`);
   for(const face of frame.faces){
-    assert.equal(face.fill,"rgb(255, 255, 255)"); assert.equal(face.border,"1px");
+    // the edge is asked for at 0.8px; chrome may report it as written or as the
+    // whole device pixels it draws on this 3x phone, so it is a visible line under 1px
+    assert.equal(face.fill,"rgb(255, 255, 255)");
+    assert.ok(parseFloat(face.border)>0 && parseFloat(face.border)<1,`card edge is not the hairline: ${face.border}`);
     assert.notEqual(face.borderColor,"rgba(0, 0, 0, 0)"); assert.equal(face.radius,"7px");
     assert.notEqual(face.shadow,"none"); assert.equal(face.overflow,"hidden");
     assert.ok(face.replyLength>400,"empty fixture cannot prove the moving card surface");

@@ -27,6 +27,13 @@ const DESK = { width: 1440, height: 900 };
 const PHONE = { width: 375, height: 812, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
 const LINE = "rgb(222, 222, 222)";   // var(--line), the board's own hairline
 const CARD = "rgb(255, 255, 255)";   // var(--card), the pill and well fill
+// the hairline is asked for at 0.8px. chrome may report that as written or as
+// the whole device pixels it draws (2/3px on this 3x phone), so the check is a
+// solid line in the line colour, visible and thinner than a whole css pixel
+const isHairline = border => {
+  const m = /^([\d.]+)px solid (rgb\([^)]*\))$/.exec(border);
+  return !!m && Number(m[1]) > 0 && Number(m[1]) < 1 && m[2] === LINE;
+};
 
 let browser;
 let child;
@@ -93,7 +100,7 @@ async function assertPill(page, tabSel, headSel, wellSel, where) {
   for (const r of s.pill.radii) assert.equal(r, "7px", `${where}: a pill corner is not the board's 7px (${s.pill.radii})`);
   // a full hairline on every side, the bottom one included, unlike the old tab
   for (let i = 0; i < 4; i++)
-    assert.equal(s.pill.borders[i], `1px solid ${LINE}`, `${where}: the pill's ${["top", "right", "bottom", "left"][i]} border is not the board's hairline`);
+    assert.ok(isHairline(s.pill.borders[i]), `${where}: the pill's ${["top", "right", "bottom", "left"][i]} border is not the board's hairline (${s.pill.borders[i]})`);
   assert.equal(s.pill.fill, CARD, `${where}: the pill is not filled white`);
   assert.ok(s.pill.shadow.includes("inset"), `${where}: the pill carries no sunk shade`);
   // no browser-tab notch on the pill
@@ -113,7 +120,7 @@ async function assertPill(page, tabSel, headSel, wellSel, where) {
   // the well reads at the pill's depth: it carries the same sunk-shade string
   assert.ok(s.well.shadow.includes("inset"), `${where}: the list well carries no sunk shade`);
   assert.equal(s.well.shadow, s.pill.shadow, `${where}: the well and the pill do not read at one depth`);
-  assert.equal(s.well.borders[0], `1px solid ${LINE}`, `${where}: the well's top border is not the board's hairline`);
+  assert.ok(isHairline(s.well.borders[0]), `${where}: the well's top border is not the board's hairline (${s.well.borders[0]})`);
   assert.equal(s.well.radii[0], "7px", `${where}: the well's corner is not the board's 7px`);
 
   // the head no longer draws a seat line under the names
