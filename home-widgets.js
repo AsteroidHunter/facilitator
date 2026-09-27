@@ -2,19 +2,25 @@
 // ways from one reading of GET /tokens/daily, and the panel that holds them.
 //
 //   heatmap  a year as 53 week columns of 7 day squares, Sunday on top, the way
-//            a contribution graph is drawn, but folded into two rows read like
-//            two lines of text: the older 26 weeks on top, the latest 27 under
-//            them, so the year fits a box that is taller than it is long
-//            without shrinking its squares. One square per day of the last
+//            a contribution graph is drawn. One square per day of the last
 //            365, a red-orange scale from light to deep by where the day
 //            falls among the year's active days (quartiles), a faint warm
-//            grey for a day with none, month names over each row, a total
+//            grey for a day with none, month names over the columns, a total
 //            for the year and a hover tip with the day and its count
-//   line     the same days as one line in the same box: each day's trailing
-//            7-day average, since single days jump between nothing and a
-//            great deal. The tip names the day's own count beside the average
+//   line     the same days as one line: each day's trailing 7-day average,
+//            since single days jump between nothing and a great deal. The
+//            tip names the day's own count beside the average
 //   panel    one rectangle holding one of the two at a time and a two-way
 //            pill to switch them; the choice is remembered in this browser
+//   view     both charts are drawn at their own size, one unit to a pixel,
+//            never stretched or squeezed to the panel. A panel narrower than
+//            a chart shows it through a view that scrolls sideways the native
+//            way (trackpad, shift and the wheel), opening on the latest weeks
+//            at the right end. The axis names on the left stay put while the
+//            chart passes under them, and a soft fade marks each side with
+//            more to see; no scrollbar, like every scroller on the board. Each
+//            chart keeps its own place while the page is open, and one left
+//            at its latest end stays there as new days arrive
 //
 // Each widget is a function of (element, days) that draws into the element
 // it is given and owns nothing outside it, so either can later sit in a shared
@@ -22,15 +28,9 @@
 // models under it are plain data, which is what the tests hold them to.
 // Nothing here fetches except the panel, and only /tokens/daily.
 (function () {
-  // the box both charts are drawn to, in its own units, which the panel shows
-  // at about one to one: 540 across and 310 down, the two rows of weeks and a
-  // band between them. home-widgets.css holds the same ratio for the wait
-  const WEEKS = 53, CELL = 16, GAP = 3, STEP = CELL + GAP;
-  const ROW_WEEKS = Math.ceil(WEEKS / 2);        // 27, the latest row; the older one holds 26
-  const SPLIT = WEEKS - ROW_WEEKS;               // the first week of the second row
-  const LEFT = 30, TOP = 18;                     // room for the day and month names
-  const ROW_H = TOP + 7 * STEP - GAP, ROW_GAP = 14;
-  const GRID_W = LEFT + ROW_WEEKS * STEP - GAP, GRID_H = 2 * ROW_H + ROW_GAP;
+  const WEEKS = 53, CELL = 11, GAP = 3, STEP = CELL + GAP;
+  const LEFT = 30, TOP = 18;                    // room for the day and month names
+  const GRID_W = LEFT + WEEKS * STEP - GAP, GRID_H = TOP + 7 * STEP - GAP;
   // the scale: a warm grey for nothing, then four red-oranges, light to deep
   const PALETTE = ["#EEEAE4", "#FCD8C2", "#F7A67C", "#EC6B3C", "#C9401B"];
   const LINE = "#E0592B";
@@ -93,47 +93,44 @@
   }
 
   // ---- the heatmap ---------------------------------------------------------
-  // col is the week's place in the whole year, 0 to 52; band is the row of
-  // weeks it is drawn in, and at is its column within that row
   function heatmapModel(days) {
     const year = days.slice(-YEAR);
     const sc = scale(year.map(d => d.total));
     const lead = year.length ? parts(year[0].date).weekday : 0;
     const cells = year.map((d, i) => {
       const col = Math.floor((lead + i) / 7), row = (lead + i) % 7;
-      const band = col < SPLIT ? 0 : 1, at = band ? col - SPLIT : col;
-      return { i, date: d.date, total: d.total, col, row, band, at, level: sc.level(d.total),
-               fill: sc.colour(d.total), x: LEFT + at * STEP, y: band * (ROW_H + ROW_GAP) + TOP + row * STEP };
+      return { i, date: d.date, total: d.total, col, row, level: sc.level(d.total),
+               fill: sc.colour(d.total), x: LEFT + col * STEP, y: TOP + row * STEP };
     });
-    // in each row a month is named over the column its first day falls in,
-    // and the partial month the row starts in only when the next name leaves
-    // room, so each row can be read without the one above it
+    // a month is named over the column its first day falls in, and the
+    // partial month the year starts in only when the next name leaves room
     const months = [];
-    for (const band of [0, 1]) {
-      const inRow = cells.filter(c => c.band === band);
-      if (!inRow.length) continue;
-      const width = band ? ROW_WEEKS : SPLIT;
-      const named = inRow.filter(c => parts(c.date).d === 1 && c.at <= width - 2)
-        .map(c => ({ band, at: c.at, label: MONTHS[parts(c.date).m - 1] }));
-      const first = parts(inRow[0].date);
-      if (first.d !== 1 && (!named.length || named[0].at >= 3))
-        named.unshift({ band, at: 0, label: MONTHS[first.m - 1] });
-      months.push(...named);
+    for (const c of cells) {
+      const p = parts(c.date);
+      if (p.d === 1 && c.col <= WEEKS - 2) months.push({ col: c.col, label: MONTHS[p.m - 1] });
     }
+    if (cells.length && (!months.length || months[0].col >= 3) && parts(cells[0].date).d !== 1)
+      months.unshift({ col: 0, label: MONTHS[parts(cells[0].date).m - 1] });
     return { cells, months, weeks: WEEKS, cuts: sc.cuts,
              total: year.reduce((s, d) => s + (d.total || 0), 0) };
   }
+  // the chart as first drawn, at its own size. The day names are drawn apart
+  // (heatPin) into the same place, where they stay while the chart scrolls
   function heatmapSvg(model) {
-    const out = [`<svg class="tk-heat" viewBox="0 0 ${GRID_W} ${GRID_H}" role="img" ` +
-                 `aria-label="${esc(compact(model.total))} tokens in the last year, one square per day">`];
+    const out = [`<svg class="tk-heat" width="${GRID_W}" height="${GRID_H}" viewBox="0 0 ${GRID_W} ${GRID_H}" ` +
+                 `role="img" aria-label="${esc(compact(model.total))} tokens in the last year, one square per day">`];
     for (const m of model.months)
-      out.push(`<text class="tk-axis" x="${LEFT + m.at * STEP}" y="${m.band * (ROW_H + ROW_GAP) + TOP - 7}">${m.label}</text>`);
-    for (const band of [0, 1])
-      for (const [row, name] of [[1, "Mon"], [3, "Wed"], [5, "Fri"]])
-        out.push(`<text class="tk-axis" x="0" y="${band * (ROW_H + ROW_GAP) + TOP + row * STEP + CELL - 4}">${name}</text>`);
+      out.push(`<text class="tk-axis" x="${LEFT + m.col * STEP}" y="${TOP - 7}">${m.label}</text>`);
     for (const c of model.cells)
       out.push(`<rect class="tk-day" data-i="${c.i}" x="${c.x}" y="${c.y}" width="${CELL}" ` +
-               `height="${CELL}" rx="3" fill="${c.fill}"/>`);
+               `height="${CELL}" rx="2" fill="${c.fill}"/>`);
+    out.push("</svg>");
+    return out.join("");
+  }
+  function heatPin() {
+    const out = [`<svg width="${LEFT}" height="${GRID_H}" viewBox="0 0 ${LEFT} ${GRID_H}" aria-hidden="true">`];
+    for (const [row, name] of [[1, "Mon"], [3, "Wed"], [5, "Fri"]])
+      out.push(`<text class="tk-axis" x="0" y="${TOP + row * STEP + CELL - 2}">${name}</text>`);
     out.push("</svg>");
     return out.join("");
   }
@@ -146,12 +143,13 @@
       ? `<b>${esc(compact(cell.total))} tokens</b><span>${esc(longDay(cell.date))}</span>`
       : `<b>No tokens</b><span>${esc(longDay(cell.date))}</span>`;
   }
-  function drawHeatmap(el, days) {
+  function drawHeatmap(el, days, spot) {
     const model = heatmapModel(days);
     el.tkModel = { kind: "heatmap", model };
-    el.innerHTML = `<div class="tk-chart">${heatmapSvg(model)}</div>` +
+    el.innerHTML = viewHtml(heatmapSvg(model), heatPin(), LEFT) +
       `<div class="tk-foot"><span class="tk-sum"><b>${esc(compact(model.total))}</b> tokens in the last year</span>` +
       `${legendHtml()}</div><div class="tk-tip" hidden></div>`;
+    seat(el, spot);
     wire(el);
     return model;
   }
@@ -160,7 +158,7 @@
   // the line is drawn to the heatmap's own box, so the panel holds still when
   // the pill switches between them
   const LW = GRID_W, LH = GRID_H;
-  const PAD = { left: 38, right: 6, top: 10, bottom: 20 };
+  const PAD = { left: 38, right: 6, top: 8, bottom: 17 };
   // the trailing mean over each day and the six before it; the first days of
   // a reading shorter than a week average what there is
   function rolling(values, n = AVG) {
@@ -200,7 +198,7 @@
     const base = box.top + box.h;
     const path = points.map((p, i) => (i ? "L" : "M") + p.x + " " + p.y).join("");
     const fade = "tk-fade-" + (++fades);
-    const out = [`<svg class="tk-line" viewBox="0 0 ${LW} ${LH}" role="img" ` +
+    const out = [`<svg class="tk-line" width="${LW}" height="${LH}" viewBox="0 0 ${LW} ${LH}" role="img" ` +
                  `aria-label="tokens per day, 7-day average, over the last year">`,
                  `<defs><linearGradient id="${fade}" x1="0" y1="0" x2="0" y2="1">` +
                  `<stop offset="0" stop-color="${LINE}" stop-opacity=".2"/>` +
@@ -208,10 +206,9 @@
     for (const t of model.ticks) {
       const y = r1(model.yAt(t));
       out.push(`<line class="tk-grid" x1="${box.left}" x2="${box.left + box.w}" y1="${y}" y2="${y}"/>`);
-      out.push(`<text class="tk-axis" x="${box.left - 6}" y="${y + 3}" text-anchor="end">${compact(t)}</text>`);
     }
     for (const m of model.months)
-      out.push(`<text class="tk-axis" x="${m.x}" y="${LH - 5}">${m.label}</text>`);
+      out.push(`<text class="tk-axis" x="${m.x}" y="${LH - 3}">${m.label}</text>`);
     if (points.length) {
       out.push(`<path class="tk-area" d="${path}L${points.at(-1).x} ${base}L${points[0].x} ${base}Z" fill="url(#${fade})"/>`);
       out.push(`<path class="tk-path" d="${path}" fill="none" stroke="${LINE}"/>`);
@@ -222,18 +219,66 @@
     out.push("</svg>");
     return out.join("");
   }
+  // the count names up the left, drawn apart into the place they held, where
+  // they stay while the line scrolls
+  function linePin(model) {
+    const out = [`<svg width="${PAD.left}" height="${LH}" viewBox="0 0 ${PAD.left} ${LH}" aria-hidden="true">`];
+    for (const t of model.ticks)
+      out.push(`<text class="tk-axis" x="${PAD.left - 6}" y="${r1(model.yAt(t)) + 3}" text-anchor="end">${compact(t)}</text>`);
+    out.push("</svg>");
+    return out.join("");
+  }
   function lineTip(p) {
     return `<b>${esc(compact(p.total))} tokens</b><span>${esc(longDay(p.date))}</span>` +
            `<span>${esc(compact(p.avg))} a day, 7-day average</span>`;
   }
-  function drawLine(el, days) {
+  function drawLine(el, days, spot) {
     const model = lineModel(days);
     el.tkModel = { kind: "line", model };
-    el.innerHTML = `<div class="tk-chart">${lineSvg(model)}</div>` +
+    el.innerHTML = viewHtml(lineSvg(model), linePin(model), PAD.left) +
       `<div class="tk-foot"><span class="tk-sum">Tokens per day, 7-day average</span></div>` +
       `<div class="tk-tip" hidden></div>`;
+    seat(el, spot);
     wire(el);
     return model;
+  }
+
+  // ---- the view ------------------------------------------------------------
+  // the chart in a lane that scrolls sideways, its axis names pinned over the
+  // lane's left edge. The view around the lane is taller than the chart and
+  // holds it in the middle, so the panel keeps one height for both charts
+  function viewHtml(chart, pin, pinWidth) {
+    return `<div class="tk-view"><div class="tk-lane">` +
+      `<div class="tk-scroll"><div class="tk-chart">${chart}</div></div>` +
+      `<div class="tk-pin" style="width:${pinWidth}px">${pin}</div>` +
+      `</div></div>`;
+  }
+  // where a chart's view stands: at its latest end, or a place scrolled back to
+  const latest = () => ({ end: true, left: 0 });
+  // put a freshly drawn chart's view where it stood, the latest end the first
+  // time, and follow it from then on. A view at its end stays at the end when
+  // a redraw brings a new day; one scrolled back keeps its place. The fades
+  // name the sides that have more: more-left once the chart has moved under
+  // the pinned names, more-right until the latest end is in view
+  function seat(el, spot) {
+    const lane = el.querySelector && el.querySelector(".tk-lane");
+    const box = el.querySelector && el.querySelector(".tk-scroll");
+    if (!lane || !box) return;
+    spot = spot || latest();
+    const mark = () => {
+      const room = box.scrollWidth - box.clientWidth;
+      lane.classList.toggle("more-left", room > 0 && box.scrollLeft > 1);
+      lane.classList.toggle("more-right", room > 0 && box.scrollLeft < room - 1);
+    };
+    const room = box.scrollWidth - box.clientWidth;
+    box.scrollLeft = spot.end ? Math.max(room, 0) : Math.min(spot.left, Math.max(room, 0));
+    mark();
+    box.addEventListener("scroll", () => {
+      const room = box.scrollWidth - box.clientWidth;
+      spot.left = box.scrollLeft;
+      spot.end = box.scrollLeft >= room - 1;
+      mark();
+    }, { passive: true });
   }
 
   // ---- the hover tip -------------------------------------------------------
@@ -261,6 +306,9 @@
   function hover(el, e) {
     const drawn = el.tkModel, tip = el.querySelector(".tk-tip");
     if (!drawn || !tip) return;
+    // what has scrolled under the pinned names is out of sight, so not hovered
+    const pin = el.querySelector(".tk-pin");
+    if (pin && e.clientX < pin.getBoundingClientRect().right) return unhover(el);
     if (drawn.kind === "heatmap") {
       const sq = e.target.closest && e.target.closest(".tk-day");
       if (!sq) return unhover(el);
@@ -331,6 +379,9 @@
     root.appendChild(box);
 
     let view = readView(store);
+    // where each chart's view stands, its own for each, so the pill never
+    // moves the other chart and a redraw never moves the one on show
+    const spots = { heatmap: latest(), line: latest() };
     let data = null;
     function draw() {
       for (const [key] of VIEWS) {
@@ -338,7 +389,7 @@
         buttons[key].setAttribute("aria-pressed", String(key === view));
       }
       if (!data) return;
-      (view === "line" ? drawLine : drawHeatmap)(stage, data.days || []);
+      (view === "line" ? drawLine : drawHeatmap)(stage, data.days || [], spots[view]);
       const found = data.found || {};
       note.textContent = found.claude || found.codex ? ""
         : "No Claude Code or Codex logs were found on this machine.";
@@ -366,10 +417,10 @@
   }
 
   window.TokenWidgets = {
-    PALETTE, LINE, YEAR, WEEKS, FETCH_DAYS, BOX: { width: GRID_W, height: GRID_H },
+    PALETTE, LINE, YEAR, WEEKS, FETCH_DAYS, CHART: { width: GRID_W, height: GRID_H },
     compact, longDay, scale, rolling, niceTop,
-    heatmapModel, heatmapSvg, heatTip, drawHeatmap,
-    lineModel, lineSvg, lineTip, drawLine,
-    panel,
+    heatmapModel, heatmapSvg, heatPin, heatTip, drawHeatmap,
+    lineModel, lineSvg, linePin, lineTip, drawLine,
+    viewHtml, seat, panel,
   };
 })();
