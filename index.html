@@ -481,6 +481,10 @@
     transition:box-shadow .2s;
     padding:calc(var(--ch)*0.022) var(--pad-x);
     display:flex; flex-direction:column; align-items:stretch;
+    /* one step over the stage's boxes, which it already painted over by coming
+       after them. the step is for the composer on the right, which swings out
+       from behind the card and still has to stand over the boxes beside it */
+    z-index:1;
   }
   /* and it settles the same way while the card on screen is only browsed to
      with the arrow keys and not selected: the selected card alone stands up */
@@ -2850,40 +2854,57 @@
      right edge on the star grid, two cells out, 24 wide, its foot five cells
      above the card's floor, and hands it --xc-max, the room from that foot up to
      the card's top, so a long draft grows it upward and never past the card.
-     it lives on the stage, so it scales with the board, and stands over the
-     boxes (6, under the edit handles at 30), since boards that keep boxes on
-     the right would otherwise cover it. the outer box is the seat and the depth
-     the page turns in and paints nothing; the page inside it is what is seen.
-     the way in: the page swings out of the card's side like a leaf of a book
-     turned over onto the right. it hinges on its own left edge, starts nearly
-     edge on and tipped toward the reader, and lays itself flat while it comes
-     up out of nothing, in 340ms on the card's one curve; going away it folds
-     back the same way. transform and opacity only, and at rest the page wears
-     no transform at all, so its words are drawn flat and sharp. the fade is
-     shorter than the swing on the way in and held back on the way out, so the
-     page is seen for most of its turn. still is the same change with no run,
-     for a load, a card switch or a window that lost the room */
+     it lives on the stage, so it scales with the board. it keeps the stage's
+     own level and comes after every box in the page's order, so it stands over
+     the boxes on the right (the owner's navigator among them), and the card,
+     one step up (main, 1), stands over it: that is what lets it hide behind the
+     card. the outer box is the moving assembly, the page and the arm that holds
+     it; the page inside it is what is seen.
+     the way in, off the owner's second order: the box hangs from an arm, the
+     line in the owner's sketch that joins the card to the box, and the arm's
+     end on the card is its pivot, on the card's right edge at the foot of the
+     switch. the script puts the pivot (--xc-pivot-x, --xc-pivot-y, measured
+     from the box's own left edge and foot) and lays the arm. at rest the whole
+     assembly is turned 86 degrees up and back about the pivot, which stands the
+     box on end behind the card, where the card covers it (83 is the least that
+     hides the box's far corner; 86 leaves that corner 16px inside the card's
+     edge). a press swings it down clockwise into its place in 520ms, landing a
+     few degrees past level and settling back, the way a hinged part comes to
+     rest; a second press swings it back up anticlockwise in 440ms on the card's
+     one curve until the card covers it again. transform and opacity only: the
+     assembly turns about the pivot, and on the way down it fades in over the
+     first 200ms, so a box made tall by a long draft is never seen reaching past
+     the card's far side while it is still behind it. on the way up it goes out
+     only at the end, already behind the card. at rest it wears no transform,
+     so its words are drawn flat and sharp. still is the same change with no
+     run, for a load, a card switch or a window that lost the room */
   #xcomposer{display:none}
   body.focus #xcomposer{
-    display:block; position:fixed; z-index:6;
-    perspective:1200px; perspective-origin:0 50%;
-    visibility:hidden; pointer-events:none;
-    transition:visibility 0s linear .34s;
+    display:block; position:fixed;
+    visibility:hidden; pointer-events:none; opacity:0;
+    transform-origin:var(--xc-pivot-x, 0px) calc(100% + var(--xc-pivot-y, 0px));
+    transform:rotate(-86deg);
+    transition:transform .44s var(--gentle), opacity .12s linear .32s, visibility 0s linear .44s;
   }
-  body.focus #xcomposer.open{visibility:visible; pointer-events:auto; transition:visibility 0s}
+  body.focus #xcomposer.open{
+    visibility:visible; pointer-events:auto; opacity:1; transform:none;
+    transition:transform .52s cubic-bezier(.32, 1.32, .52, 1), opacity .2s linear, visibility 0s;
+  }
   body.focus #xcomposer .xcpage{
     display:flex; align-items:stretch; gap:var(--sp-s);
     padding:var(--sp-xs) var(--sp-xs) var(--sp-xs) calc(var(--pad-x)*2/3 - 4px);
     background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
-    transform-origin:0 50%; transform:rotateY(-72deg); opacity:0;
-    transition:transform .34s var(--gentle), opacity .2s var(--gentle) .14s;
   }
-  body.focus #xcomposer.open .xcpage{
-    transform:none; opacity:1;
-    transition:transform .34s var(--gentle), opacity .2s var(--gentle);
-  }
-  body.focus #xcomposer.still, body.focus #xcomposer.still .xcpage{transition:none}
+  /* the arm: one hairline in the card's edge ink, from the pivot on the card's
+     edge to the box's foot a quarter of the way along it, so it climbs from
+     under the card to the box the way the owner drew it. it is part of the
+     assembly and turns with it. its length and slant come from where the card
+     and the box stand, so the script lays it; it starts a few pixels back under
+     the card, so it leaves the card's edge with no seam */
+  body.focus #xcomposer .xcarm{position:absolute; height:0; pointer-events:none;
+    border-top:var(--edge) solid var(--line); transform-origin:0 0}
+  body.focus #xcomposer.still{transition:none}
   /* the field: the bar's bare row made tall. twelve star cells at rest, the
      sketch's height, and the room --xc-max leaves at most, then it scrolls. the
      side padding gives the block caret room exactly as the bar's row does */
@@ -2904,47 +2925,56 @@
      script seats it on the last line of type, the way the bar seats its own */
   body.focus #xcomposer .xcside{flex:none; display:flex; flex-direction:column;
     justify-content:space-between}
-  /* the switch between the two: a tall narrow tab on the card itself, hugging
-     its right edge beside the bar, the owner's "tall rectangle hugging the right
-     bottom edge ... by the compose bar". it lives on the stage and the script
-     seats it off the card and the bar (xcSeat), so it moves with the card and
-     scales with the board: one star cell out past the card's right edge, its top
-     on the bar's hairline and its foot on the bar's floor, so it spans the bar
-     and grows with it, and stands the card's own bottom padding clear of the
-     card's bottom edge.
-     it stands behind the card (-1 on the stage, under every box) and runs 7px in
-     under the card's right edge, the card's own corner, so it reads as tucked
-     behind the card and the card's edge runs on unbroken over it. that is also
-     how it keeps off the card's own controls: the row, the send square and the
-     answered panel's arrow are all inside the card's box and are painted over
-     the tucked part, which stops some 30px short of the square anyway, and the
-     part that shows is wholly outside the card.
-     it has no reason to know the note's corner any more: that corner is the
-     window's, it wakes on the window's last 12px, and no card fitted to the
-     wide board reaches there.
-     at rest it is the card's white and edge on its three outer sides with a
-     small control's shadow. while the right composer is chosen it wears the
-     one press shade and keeps the place the bar rested in, a cell clear of the
-     box, so the same press puts the box away. where there is no room for the
-     box it takes the chips' off fade */
+  /* the switch between the two: a button built into the card's right edge
+     beside the bar, the way a button on the edge of a camera or a game boy is
+     part of its body. it is the old tab turned inward, the owner's "mirror
+     invert the current button and make it a part of the card": one star cell
+     wide inside the card's right edge, its top on the bar's hairline and its
+     foot on the bar's floor, so it spans the bar and grows with it, the card's
+     own bottom padding clear of the card's bottom edge. it lives on the stage
+     and the script seats it off the card and the bar (xcSeat), so it moves with
+     the card and scales with the board; it stands one step over the card (2).
+     its right side lies on the card's own edge line, so that side reads as the
+     card's edge and the button as let into it: the card's edge ink on its other
+     three sides, rounded only on the two corners inside the card. it keeps off
+     the card's own controls by where it stands: in the card's side padding,
+     which holds nothing, 27.7px clear of the send square's right edge (the
+     card's 0.8 edge, its 23.04 of padding and the bar's 15.36 of margin, less
+     its own 11.52),
+     and the row, the square and the answered panel's arrow are all further in.
+     no drop shadow. at rest it is raised a little from the card's surface: the
+     card's white face falling off a few shades toward its foot, with a light
+     line along its top and a shaded one along its foot, lit from above like
+     every sunk thing on the board. pressed it goes into the card: the board's
+     press seat, the pressed paper fill and the sunk inset the plus button and
+     the sent box are set with, in the plus's own 110ms. a press holds it down
+     for as long as the pointer does, and while the right composer is chosen it
+     stays down, a latched button, so the same press puts the box away and it
+     comes back up. where there is no room for the box it takes the chips' off
+     fade and does not press. the keyboard's focus ring is the board's own.
+     it has no reason to know the note's corner: that corner is the window's, it
+     wakes on the window's last 12px, and no card fitted to the wide board
+     reaches there */
   #xcswitch{display:none}
   body.focus #xcswitch{
-    display:block; position:fixed; z-index:-1; padding:0; margin:0;
-    background:var(--card); border:var(--edge) solid var(--line); border-left:none;
-    border-radius:0 var(--sq) var(--sq) 0;
-    box-shadow:0 1px 4px rgba(60,45,20,.14); cursor:pointer;
+    display:block; position:fixed; z-index:2; padding:0; margin:0; cursor:pointer;
+    border:var(--edge) solid var(--line); border-radius:var(--sq) 0 0 var(--sq);
+    background:linear-gradient(to bottom, var(--card), color-mix(in srgb, #000 4%, var(--card)));
+    box-shadow:inset 0 1px 0 var(--card), inset 0 -1px 0 color-mix(in srgb, #000 9%, var(--card));
+    transition:box-shadow .11s var(--gentle);
   }
-  body.focus #xcswitch:hover{border-color:var(--ink)}
-  body.focus #xcswitch[aria-pressed="true"]{background:color-mix(in srgb, #000 var(--press), var(--card))}
+  body.focus #xcswitch:not([aria-disabled="true"]):active,
+  body.focus #xcswitch[aria-pressed="true"]{
+    background:color-mix(in srgb, #000 var(--press), var(--paper)); box-shadow:var(--sunk-deep);
+  }
+  body.focus #xcswitch:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
   body.focus #xcswitch[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}
-  body.focus #xcswitch[aria-disabled="true"]:hover{border-color:var(--line)}
   body.focus #xcswitch[hidden]{display:none}
   body.choosing :is(#xcswitch, #xcomposer),
   body:is([data-resp-mode="portrait"], [data-resp-mode="twopane"]) :is(#xcswitch, #xcomposer){display:none !important}
   @media (prefers-reduced-motion: reduce){
-    body.focus #xcomposer, body.focus #xcomposer .xcpage,
+    body.focus #xcomposer, body.focus #xcswitch,
     body.focus .box.sel .bottombar.xcrun{transition:none}
-    body.focus #xcomposer .xcpage{transform:none}
   }
 
   /* a blank page: the project is still the project, but its board is not on
@@ -9972,10 +10002,11 @@ try {
 
 // ---- the right composer --------------------------------------------------------
 // two composers and one draft. the bar under the answer is the default; the
-// composer on the right is a box of its own standing right of the card, opened
-// and put away by the tall switch on the card's right edge, lined up with the
-// bar. the large card alone carries it: the small cards in magic box 2 keep
-// their one line of a composer. whichever of
+// composer on the right is a box of its own standing right of the card, hung
+// from an arm that pivots on the card's edge, swung down from behind the card
+// and back up by the button built into the card's right edge beside the bar.
+// the large card alone carries it: the small cards in magic box 2 keep their
+// one line of a composer. whichever of
 // the two holds the selected card's draft is that card's el.ta, el.send and
 // el.tick for as long as it holds it, so enter, the arrow, doSend, the title's
 // hand back to the row and the section chords all run the bar's own code
@@ -10003,8 +10034,9 @@ const XC_W = 24 * XC_CELL;                // the box's width, about half the car
 const XC_MIN_W = 16 * XC_CELL;            // under this across there is no room, and the bar stays
 const XC_MIN_H = 12 * XC_CELL;            // the box at rest, the sheet's twelve cells
 const XC_LIFT = 5 * XC_CELL;              // its foot stands this far above the card's floor
-const XC_TAB_W = XC_CELL;                 // the switch stands this far out past the card's right edge
-const XC_TUCK = 7;                        // and runs this far in under the card, the card's own 7px corner
+const XC_TAB_W = XC_CELL;                 // the switch's width, inside the card's right edge
+const XC_ARM_AT = 6 * XC_CELL;            // the arm meets the box's foot this far along it, a quarter
+const XC_ARM_BACK = 3;                    // and starts this far back under the card, so it leaves the edge whole
 const XC_RUN_MS = 320;                    // the bar's run, the sheet's .32s; a safety net only
 const XC_HINT = "Push to production …";   // the sketch's own words
 let xcRoom = false;                       // the box has room beside the card right now
@@ -10012,12 +10044,14 @@ let xcSeatAt = null;                      // the bar's top and foot over the car
 let xcWatched = null;                     // the bar the switch is lined up with, watched while on show
 const xcWatch = window.ResizeObserver ? new ResizeObserver(() => xcSeat()) : null;
 
-// the box, built once and seated on the stage. its field wears the typed
-// formatting like the bar's does, with the bar's two keys
+// the box, built once and seated on the stage with the arm it hangs from. its
+// field wears the typed formatting like the bar's does, with the bar's two keys
 const xc = (() => {
   const root = h("div");
   root.id = "xcomposer";
   root.setAttribute("aria-hidden", "true");
+  const arm = h("div", "xcarm");
+  arm.setAttribute("aria-hidden", "true");
   const page = h("div", "xcpage");
   const clipfile = h("input", "clipfile");
   clipfile.type = "file";
@@ -10040,10 +10074,11 @@ const xc = (() => {
   send.innerHTML = SEND_ICON;
   side.append(clip, send);
   page.append(clipfile, ta, side);
-  root.appendChild(page);
+  // the arm first, so the box is drawn over the end of it
+  root.append(arm, page);
   document.getElementById("stage").appendChild(root);
   const field = ComposeFormat.attach(ta, { newline: e => e.shiftKey, placeholder: () => XC_HINT });
-  return { root, page, ta, send, clip, clipfile, field, host: null };
+  return { root, arm, page, ta, send, clip, clipfile, field, host: null };
 })();
 xc.ta.addEventListener("input", () => {
   cancelAutoNext();
@@ -10068,15 +10103,15 @@ xc.clipfile.addEventListener("change", () => {
   xc.clipfile.value = "";   // so the same file picked twice fires twice
   xcAttach(files);
 });
-// the square is seated off the field's box, which reads true only once the page
-// has stopped turning
-xc.page.addEventListener("transitionend", e => {
-  if (e.target === xc.page && e.propertyName === "transform") xcTick();
+// the square is seated off the field's box, which reads true only once the box
+// has stopped swinging
+xc.root.addEventListener("transitionend", e => {
+  if (e.target === xc.root && e.propertyName === "transform") xcTick();
 });
 
-// the switch, a tab on the card's right edge lined up with the bar. it is on
-// the stage, so it scales with the board, and xcSeat seats it off the card and
-// the bar wherever they stand (the sheet says why it stands behind the card).
+// the switch, a button built into the card's right edge beside the bar. it is
+// on the stage, so it scales with the board, and xcSeat seats it off the card
+// and the bar wherever they stand (the sheet says how it reads as the card's).
 // the press keeps the caret where it is, the way the send square and the plus
 // do, so the words cross with the caret in them
 const xcSwitch = h("button");
@@ -10142,10 +10177,11 @@ function xcPlace(){
   if (changed) xcSync();
 }
 
-// the switch stands beside the bar, on the card's right edge at the bar's own
-// height: one cell out past the card's edge and 7px in under it, its top on the
-// bar's hairline and its foot on the bar's floor, so it spans the bar and grows
-// with it. the bar is read where it stands whenever it is at rest in the card
+// the switch stands beside the bar, in the card's right edge at the bar's own
+// height: one cell wide inside the card's edge, its top on the bar's hairline
+// and its foot on the bar's floor, so it spans the bar and grows with it. the
+// pivot the box swings about sits at its foot (xcHinge). the bar is read where
+// it stands whenever it is at rest in the card
 // and kept as how far its two edges stand over the card's floor, so the switch
 // goes with a card that is dragged or resized. while the bar is away, with the
 // box open, or part way through its run, its own box says nothing about where
@@ -10169,11 +10205,33 @@ function xcSeat(){
     if (b.height > 0) xcSeatAt = { top: base - (b.top - sr.y) / S, foot: base - (b.bottom - sr.y) / S };
   }
   const sw = xcSwitch.style;
-  sw.left = (edge - XC_TUCK) + "px";
-  sw.width = (XC_TUCK + XC_TAB_W) + "px";
+  sw.left = (edge - XC_TAB_W) + "px";
+  sw.width = XC_TAB_W + "px";
   if (!xcSeatAt) return;
   sw.bottom = (STAGE_H - base + xcSeatAt.foot) + "px";
   sw.height = (xcSeatAt.top - xcSeatAt.foot) + "px";
+  xcHinge(xcSeatAt.foot);
+}
+
+// the pivot the box swings about and the arm it hangs from. the pivot is on the
+// card's right edge at the switch's foot. the box stands two cells off that edge
+// with its foot XC_LIFT over the card's floor, so seen from the box's own left
+// edge and foot the pivot is XC_GAP to the left and the rest of XC_LIFT below,
+// wherever the card stands and whatever its size. never less than a cell below,
+// so a note lifting the bar can never bring the pivot up level with the box.
+// the arm runs from the pivot to the box's foot, XC_ARM_AT along it, and starts
+// XC_ARM_BACK back along its own line, under the card
+function xcHinge(foot){
+  const below = Math.max(XC_CELL, XC_LIFT - foot);
+  const root = xc.root.style;
+  root.setProperty("--xc-pivot-x", -XC_GAP + "px");
+  root.setProperty("--xc-pivot-y", below + "px");
+  const run = XC_GAP + XC_ARM_AT, rise = -below;
+  const arm = xc.arm.style;
+  arm.left = -XC_GAP + "px";
+  arm.top = "calc(100% + " + below + "px)";
+  arm.width = (Math.hypot(run, rise) + XC_ARM_BACK) + "px";
+  arm.transform = "rotate(" + Math.atan2(rise, run) + "rad) translateX(" + -XC_ARM_BACK + "px)";
 }
 
 // the bar the switch is lined up with is watched while its card is on show. the
@@ -10314,7 +10372,8 @@ function xcTick(){
   seatSquare(ta, xc.send);
 }
 
-// the box coming and going: the page's turn on a press, at once otherwise
+// the box coming and going: its swing out from behind the card on a press, and
+// back up behind it, at once otherwise
 function xcShow(open, run){
   const root = xc.root;
   root.setAttribute("aria-hidden", open ? "false" : "true");
