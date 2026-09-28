@@ -856,9 +856,11 @@
      below the element's own height, so a short answer gains no travel and still
      does not scroll. and while there is text left below, this padding is simply
      out of sight past the foot of the words, where the ramp goes on doing its
-     old job of saying keep going */
+     old job of saying keep going.
+     --answ-slack is the room the panel over the answer holds while it is cut
+     back, so the reader's scroll is never pulled (holdSlack in card-logic.js) */
   body.focus .box.sel .replyview{
-    padding-bottom:calc(var(--boxband, 0px) + var(--replyfade));
+    padding-bottom:calc(var(--boxband, 0px) + var(--replyfade) + var(--answ-slack, 0px));
   }
   /* ---- the messages waiting for a reply ------------------------------------ */
   /* the card starts with no panel at the foot at all. the board only carries
