@@ -200,11 +200,6 @@
   #tabrow .bar{flex:1 1 auto; min-width:0}
   #homeico{margin-left:10px; padding-left:12px; padding-right:12px; z-index:1}
   #homeico svg{display:block}
-  /* the gear at the far end of the row opens the settings, and is the house's
-     own kind of mark: a tab's height, a 15px line mark in place of a name, and
-     the same gap and reach, on the right */
-  #setico{margin-right:10px; padding-left:12px; padding-right:12px; z-index:1}
-  #setico svg{display:block}
   /* once the tabs are scrolled off their start they pass under the house's
      edge through a short fade, the way a chart passes under its pinned names,
      rather than being cut off beside it. at rest there is none, so a seated
@@ -994,7 +989,6 @@
   <div id="tabrow">
     <button id="homeico" class="ptab" type="button" title="Home" aria-label="Home" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></button>
     <div class="bar"><span id="tabbar"></span></div>
-    <button id="setico" class="ptab" type="button" title="Settings" aria-label="Settings" aria-haspopup="dialog"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-1 1.47V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.6 1.6 0 0 0 4.6 15a1.6 1.6 0 0 0-1.47-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 8.9a1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.6 1.6 0 0 0 8.88 4.6H9a1.6 1.6 0 0 0 1-1.47V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77V9a1.6 1.6 0 0 0 1.47 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.47 1z"/></svg></button>
   </div>
   <div id="offline"></div>
   <main id="pane" class="blank">
@@ -2518,7 +2512,6 @@ const menus = [drawer, settings];   // the left one first: the drag reads the si
 const settingsView = settingsPage(settings, document.getElementById("setsrc"), {
   close: () => hideMenu(settings),
 });
-document.getElementById("setico").addEventListener("click", () => showMenu(settings));
 for (const panel of menus) panel.addEventListener("transitionend", e => {
   if (e.target === panel && e.propertyName === "transform")
     tracePhone("note", "drawer", { side: panel.dataset.side, phase: "end", shown: panel.classList.contains("open") });

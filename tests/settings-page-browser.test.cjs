@@ -110,8 +110,15 @@ async function openMac(page) {
   await settle(200);
 }
 
+// the phone opens its settings the way it always did, with a pull from the right edge
 async function openPhone(page) {
-  await page.tap("#setico");
+  const from = PHONE.width - 6, y = 500;
+  await page.touchscreen.touchStart(from, y);
+  for (let step = 1; step <= 8; step++) {
+    await page.touchscreen.touchMove(from - 30 * step, y);
+    await settle(16);
+  }
+  await page.touchscreen.touchEnd();
   await page.waitForSelector("#settings.open", { timeout: 5000 });
   await settle(700);
 }
@@ -422,10 +429,12 @@ test("the same page changes layout when the window does", async () => {
 
 // ---- the phone app ------------------------------------------------------------------
 
-test("phone: the gear opens the page over the screen with the list of sections", async () => {
+test("phone: a pull from the right edge opens the page over the screen with the list of sections", async () => {
   const { page, problems } = await open("/m", PHONE);
   try {
     assert.equal(await page.evaluate(() => document.querySelectorAll(".sp-page").length), 1);
+    assert.deepEqual(await page.evaluate(() => [...document.getElementById("tabrow").children].map(one => one.id || one.className)),
+      ["homeico", "bar"], "the tab row holds something besides the house and the tabs");
     await openPhone(page);
     const box = await cover(page, "#settings");
     assert.ok(box.left <= 0 && box.right >= box.width && box.top <= 0 && box.bottom >= box.height,
