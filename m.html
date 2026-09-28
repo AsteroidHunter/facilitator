@@ -7,7 +7,8 @@
 <!-- the phone page. the same board, drawn for a phone: the project tabs across
      the top, one card filling the screen with the app's thin margins on all
      four sides, the card list in a menu pulled in from the left edge and the
-     settings in one pulled in from the right.
+     settings in one pulled in from the right, and the board's home page, which
+     the house at the head of the tabs opens.
      nothing else. the card is the desktop card at phone size: the same top
      bar, title, answer, sent box, composer and buttons, in the same colours
      and faces, read straight out of index.html rather than redrawn -->
@@ -185,6 +186,26 @@
     background:radial-gradient(circle 8px at 100% 0, transparent 0 calc(8px - var(--edge-drawn)),
       var(--line) calc(8px - var(--edge-drawn)) 8px, var(--seat) 8px);
   }
+  /* the house at the head of the row opens the home page, as on the board. it
+     stands outside the scroller, so it stays at the left end however far the
+     tabs are scrolled, and is a tab in every other way: the same height, type
+     and seat, the board's house mark in place of a name, and the one seated
+     while home is up. the row paints the bar's bottom line under it too, and it
+     is lifted over the scroller beside it so its seat's right notch is drawn
+     over that line rather than under it */
+  #tabrow{
+    flex:none; display:flex; align-items:flex-end;
+    background:linear-gradient(to top, var(--line) var(--edge-drawn), transparent var(--edge-drawn));
+  }
+  #tabrow .bar{flex:1 1 auto; min-width:0}
+  #homeico{margin-left:10px; padding-left:12px; padding-right:12px; z-index:1}
+  #homeico svg{display:block}
+  /* once the tabs are scrolled off their start they pass under the house's
+     edge through a short fade, the way a chart passes under its pinned names,
+     rather than being cut off beside it. at rest there is none, so a seated
+     first tab keeps its notch */
+  #tabrow.scrolled .bar{-webkit-mask-image:linear-gradient(to right, transparent, #000 14px);
+    mask-image:linear-gradient(to right, transparent, #000 14px)}
 
   /* ---- the server unreachable note, the board's own --------------------- */
   #offline{
@@ -249,6 +270,40 @@
   }
   .box.cardswipe-in{z-index:3}
   body.carddrag .box.cardswipe{transition:none}
+
+  /* ---- the home page ------------------------------------------------------ */
+  /* a blank page above every project holding the token panel and nothing else,
+     the board's own (home-widgets.css, fetched the first time home opens). it
+     takes the card's place under the tabs: the card stays laid out, only out of
+     sight, so its answer's place and its row's words are as they were left when
+     a tab brings it back. the pane gives up its fill, edge and shade the way it
+     does under a swipe, and the page is pulled out by the edge's drawn width
+     the same way, so the panel's edge lands on the card's own and the panel
+     spans the screen within the app's thin margins */
+  #home{display:none}
+  body.home main{background:transparent; border-color:transparent; box-shadow:none; overflow:visible}
+  /* every part of the card, the history arrows too, which set their own */
+  body.home #cards, body.home #cards *, body.home #empty{visibility:hidden}
+  body.home #home{display:block; position:absolute; inset:calc(-1 * var(--edge-drawn)); z-index:4;
+    overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain}
+  /* the charts keep their own size and scroll sideways inside the panel, as on
+     the board. the panel's sides are set so the lane they scroll in starts and
+     ends clear of the 28px strips at the screen's edges the menus are pulled
+     from, the app's 6px margin and these 22px, so a sideways swipe on a chart
+     only ever moves the chart */
+  #home .tk-panel{padding-left:22px; padding-right:22px}
+  /* the heading's two lines, the name beside the pill and what it counts under
+     both, since at phone width the one line would cut the words short */
+  #home .tk-head{display:grid; grid-template-columns:1fr auto; grid-template-areas:"name pill" "what what";
+    column-gap:12px; row-gap:2px; align-items:center}
+  #home .tk-title{display:contents}
+  #home .tk-name{grid-area:name}
+  #home .tk-what{grid-area:what}
+  #home .tk-pill{grid-area:pill}
+  /* the pill is drawn as the board draws it; a finger's reach is taken above
+     and below each name, where nothing else can be pressed */
+  #home .tk-opt{position:relative}
+  #home .tk-opt::after{content:""; position:absolute; left:0; right:0; top:-9px; bottom:-9px}
 
   /* the card's own top bar: the reply history on the left, the sun, the defer
      chip and the close cross on the right, over the hairline the desktop bar wears */
@@ -959,11 +1014,17 @@
 </script>
 
 <div id="page">
-  <div class="bar"><span id="tabbar"></span></div>
+  <div id="tabrow">
+    <button id="homeico" class="ptab" type="button" title="Home" aria-label="Home" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></button>
+    <div class="bar"><span id="tabbar"></span></div>
+  </div>
   <div id="offline"></div>
   <main id="pane" class="blank">
     <div id="empty">no cards on this tab yet</div>
     <div id="cards"></div>
+    <!-- the home page, opened by the house: blank but for the token panel,
+         which home-widgets.js builds into #homeplot the first time home opens -->
+    <section id="home" aria-label="Home"><div id="homeplot"></div></section>
   </main>
 </div>
 <div id="scrim"></div>
@@ -1048,7 +1109,7 @@ document.getElementById("signout").addEventListener("click", async () => {
       for (const notification of notifications || [])
         if (notification.tag?.startsWith("facilitator-")) notification.close();
     } catch (_) {}
-    try { for (const key of ["pendops", "selbox", "activeproj"]) localStorage.removeItem(key); } catch (_) {}
+    try { for (const key of ["pendops", "selbox", "activeproj", "homeopen"]) localStorage.removeItem(key); } catch (_) {}
     try { for (const key of await caches.keys()) if (key.startsWith("facilitator-m-")) await caches.delete(key); } catch (_) {}
     location.replace("/m");
   } catch (_) {
@@ -1122,6 +1183,7 @@ let validOwners = new Set();
 const lastSel = {};             // owner -> the card that was open when that tab was left
 let pendingFocus = null;        // a card just made: name it as soon as it is drawn
 let wantBox = new URLSearchParams(location.search).get("box");   // a notification opened the page on this card
+let homeOpen = false;           // the house's page is up over the card (the home page, below)
 
 // the card's helpers, the one state a card's colour and place come from, the
 // lanes and the times are shared with the desktop: card-logic.js
@@ -2032,7 +2094,8 @@ function select(id){
   cancelAutoNext();
   if (hist && hist.id !== id) histExit(hist.id);
   selectedId = id; localStorage.setItem("selbox", id);
-  markSeen(id);
+  // shown is read, but not while the home page covers the card
+  if (!homeOpen) markSeen(id);
   const b = lastState?.boxes.find(x => x.id === id);
   if (b) lastSel[b.owner] = id;
   syncPhoneHistory(b);
@@ -2040,7 +2103,7 @@ function select(id){
   document.getElementById("pane").classList.remove("blank");
   for (const r of document.querySelectorAll("#tiklist .trow")){
     r.classList.toggle("on", r.dataset.id === id);
-    if (r.dataset.id === id && r.classList.contains("yours")) r.classList.add("seen");
+    if (r.dataset.id === id && r.classList.contains("yours") && !homeOpen) r.classList.add("seen");
   }
   if (lastState) renderTabs(lastState);
   endPhoneTrace(trace, { box: id }, null, true);
@@ -2103,13 +2166,18 @@ function renderTabs(st){
       const lbl = h("span", "plabel", labelOf(st, ow));
       lbl.dataset.label = lbl.textContent;
       t.appendChild(lbl);
-      t.addEventListener("click", () => { if (!tabCarried) setTab(ow); });
+      t.addEventListener("click", () => {
+        if (tabCarried) return;
+        if (homeOpen) setHome(false);   // a project tab leaves home for its board
+        setTab(ow);
+      });
       bar.appendChild(t);
     }
     lane.scrollLeft = at;
   }
+  // no project tab is seated while home is up: the house is
   for (const t of bar.querySelectorAll(".ptab")){
-    t.classList.toggle("on", t.dataset.owner === activeOwner);
+    t.classList.toggle("on", t.dataset.owner === activeOwner && !homeOpen);
     t.classList.toggle("unread", laneUnread(st, t.dataset.owner));
   }
   if (tabShown !== activeOwner){
@@ -2235,6 +2303,94 @@ function applySelection(state){
   document.getElementById("pane").classList.remove("blank");
 }
 
+// ---- the home page ---------------------------------------------------------
+// The house at the head of the tab row opens it, as on the board: one blank
+// page above every project, holding the token panel (home-widgets.js) and
+// nothing else. Being on it is this phone's own, like the open tab, so a reopen
+// comes back to it. A tap on any project tab leaves it for that project's
+// board, and so do a card picked in the drawer, a card just made and a
+// notification's card. While it is up no tab is seated, the card is out of
+// sight and marks nothing read, and the board's keys are off. The counts are
+// asked for when it opens and every few minutes while it stays open and in view.
+const HOME_KEY = "homeopen";
+const HOME_EVERY = 5 * 60 * 1000;
+const house = document.getElementById("homeico");
+let homePanel = null;
+let homeTimer = null;
+let homeLoad = null;
+// the panel's code and sheet, fetched the first time home opens and never on
+// boot, as the board does: a phone nobody opens home on pays nothing for them.
+// they come from the server this page came from, so one that cannot be had is
+// a board that cannot be reached right now, and a press on the house asks again
+function homeBundle(){
+  if (window.TokenWidgets) return Promise.resolve(true);
+  if (homeLoad) return homeLoad;
+  if (!document.getElementById("homesheet")){
+    const sheet = document.createElement("link");
+    sheet.id = "homesheet";
+    sheet.rel = "stylesheet";
+    sheet.href = "/home-widgets.css";
+    document.head.append(sheet);
+  }
+  homeLoad = new Promise(res => {
+    const s = document.createElement("script");
+    s.src = "/home-widgets.js";
+    s.onload = () => res(!!window.TokenWidgets);
+    s.onerror = () => { homeLoad = null; s.remove(); res(false); };
+    document.head.append(s);
+  });
+  return homeLoad;
+}
+async function homeShow(){
+  const plot = document.getElementById("homeplot");
+  if (!homePanel){
+    if (!await homeBundle()){
+      if (homeOpen && !homePanel) plot.textContent = "The home page could not be loaded. Tap the house to try again.";
+      return;
+    }
+    if (!homePanel) homePanel = TokenWidgets.panel(plot);
+  }
+  if (!homeOpen) return;
+  homePanel.refresh();
+  clearInterval(homeTimer);
+  homeTimer = setInterval(() => { if (!document.hidden) homePanel.refresh(); }, HOME_EVERY);
+}
+function setHome(on){
+  homeOpen = !!on;
+  try {
+    if (homeOpen) localStorage.setItem(HOME_KEY, "1");
+    else localStorage.removeItem(HOME_KEY);
+  } catch (err){}
+  document.body.classList.toggle("home", homeOpen);
+  house.classList.toggle("on", homeOpen);
+  house.setAttribute("aria-pressed", String(homeOpen));
+  clearInterval(homeTimer);
+  homeTimer = null;
+  if (homeOpen){
+    dismissEditor();   // the card's typing goes with the card, and its keyboard
+    homeShow();
+  }
+  if (lastState) renderTabs(lastState);
+}
+// the house is a place, like a tab: pressing it while home is up changes
+// nothing, unless the panel could not be loaded, when it asks again
+house.addEventListener("click", () => {
+  if (!homeOpen) setHome(true);
+  else if (!homePanel) homeShow();
+});
+// the tabs' fade under the house, worn only while they are scrolled off their start
+{
+  const row = document.getElementById("tabrow"), lane = row.querySelector(".bar");
+  lane.addEventListener("scroll", () => row.classList.toggle("scrolled", lane.scrollLeft > 0), { passive: true });
+}
+// put back once the whole script has run, as the board does, unless a
+// notification opened the page on a card, which is shown on its board
+document.addEventListener("DOMContentLoaded", () => {
+  let wanted = false;
+  try { wanted = !!localStorage.getItem(HOME_KEY); } catch (err){}
+  if (wanted && !wantBox) setHome(true);
+});
+
 // ---- the drawer's list, the desktop's ticket panel ----------------------------------
 // one section of the drawer's sheet: its rows, its own scroll kept across a
 // rebuild. a tap selects the card and closes the drawer, so selection never
@@ -2270,6 +2426,7 @@ function paintPhonePane(pane, pool, view, sig, state){
     // anywhere else on the row opens the card
     r.addEventListener("click", e => {
       if (isTest && onFold(r, e)){ unfoldTicket(b.id); return; }
+      if (homeOpen) setHome(false);   // a card picked from home is shown on its board
       select(b.id); closeDrawer();
     });
     pane.appendChild(r);
@@ -3027,6 +3184,7 @@ function apply(state){
   if (named && appName && appName.content !== named) appName.content = named;
   if (pendingFocus && els[pendingFocus]){
     const id = pendingFocus; pendingFocus = null;
+    if (homeOpen) setHome(false);   // a card just made is named on its board
     select(id);
     editTitle(id);
   }
@@ -3049,6 +3207,7 @@ function validateOwners(state){
 }
 // a card asked for by a notification: its tab first, then the card itself
 function goToBox(id){
+  if (homeOpen) setHome(false);   // a notification's card is shown on its board
   if (!lastState) { wantBox = id; return; }
   const b = lastState.boxes.find(x => x.id === id);
   if (!b) { wantBox = id; lastRev = null; return; }
@@ -3962,8 +4121,12 @@ const phoneShortcutActions = {
   },
 };
 
+// while the home page is up the board's keys are off, as on the board: there is
+// no card on screen to walk, close or move. the diagnostic save still answers
+const homeShortcutActions = { diagnostic: phoneShortcutActions.diagnostic };
+
 addEventListener("keydown", e => {
-  dispatchCardShortcut(e, phoneShortcutActions);
+  dispatchCardShortcut(e, homeOpen ? homeShortcutActions : phoneShortcutActions);
 });
 // releases, other keys, a lost window and a hidden page stop the response scroll
 listenResponseScroll();

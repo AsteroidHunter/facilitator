@@ -127,10 +127,10 @@ const PAINT = {
   phone: (pool, view = "todo") => {
     const paint = new Function("queueState", "cardState", "h", "seenReplies", "shortAge",
       "SPIN_FRAMES", "spinFrame", "selectedId", "testReady", "appendOmniRowArt",
-      "select", "closeDrawer", "onFold", "unfoldTicket",
+      "select", "closeDrawer", "onFold", "unfoldTicket", "homeOpen", "setHome",
       `${functionSource(HTML.phone, "paintPhonePane", "renderTickets")}; return paintPhonePane;`,
     )(queueState, cardState, h, {}, () => "5m", SPIN, 0, "none", testReady, appendOmniRowArt,
-      record("select"), record("closeDrawer"), logic("onFold"), logic("unfoldTicket"));
+      record("select"), record("closeDrawer"), logic("onFold"), logic("unfoldTicket"), false, record("setHome"));
     const pane = new FakeElement("div");
     paint(pane, pool, view, "sig", { agents: {} });
     return pane.children;

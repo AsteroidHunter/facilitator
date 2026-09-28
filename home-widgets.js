@@ -6,7 +6,8 @@
 //            365, a red-orange scale from light to deep by where the day
 //            falls among the year's active days (quartiles), a faint warm
 //            grey for a day with none, month names over the columns, a total
-//            for the year and a hover tip with the day and its count
+//            for the year and a tip with the day and its count, shown on
+//            hover, or on a phone on a tap
 //   line     the same days as one line: each day's trailing 7-day average,
 //            since single days jump between nothing and a great deal. The
 //            tip leads with that average, the number the dot stands at, and
@@ -312,12 +313,21 @@
 
   // ---- the hover tip -------------------------------------------------------
   // wired once per element and read from whatever it last drew, so drawing
-  // again never stacks a second set of listeners
+  // again never stacks a second set of listeners. a mouse or a pen hovers. a
+  // finger has no hover, so on a phone a tap shows the tip for the day under
+  // it, and the next touch, a swipe of the chart or a tap anywhere else, takes
+  // it away. a tap is a touch the browser let go of without taking it for a
+  // scroll, which it ends with a cancel instead
   function wire(el) {
     if (el.tkWired || !el.addEventListener) return;
     el.tkWired = true;
-    el.addEventListener("pointermove", e => hover(el, e));
-    el.addEventListener("pointerleave", () => unhover(el));
+    const finger = e => e.pointerType === "touch";
+    el.addEventListener("pointermove", e => { if (!finger(e)) hover(el, e); });
+    el.addEventListener("pointerleave", e => { if (!finger(e)) unhover(el); });
+    el.addEventListener("pointerup", e => { if (finger(e)) hover(el, e); });
+    const doc = el.ownerDocument;
+    if (doc && doc.addEventListener)
+      doc.addEventListener("pointerdown", e => { if (finger(e)) unhover(el); }, { capture: true, passive: true });
   }
   function unhover(el) {
     const tip = el.querySelector(".tk-tip");
