@@ -436,7 +436,7 @@ test("the switch opens the box on the right and puts it away, and a reload keeps
   assert.equal(q.page.xc.root.classes.has("open"), true, "a reload lost the choice");
   assert.equal(q.page.xc.host, "m31");
   assert.equal(q.page.xcSwitch.getAttribute("aria-pressed"), "true");
-  assert.ok(q.page.xc.root.classLog.includes("+still"), "a reload turned the page in instead of standing it there");
+  assert.ok(q.page.xc.root.classLog.includes("+still"), "a reload swung the box in instead of standing it there");
   assert.equal(card.box.classes.has("xcaway"), true, "a reload left the bar under the answer");
   assert.deepEqual(card.bottombar.style.heights, [], "a reload ran the bar");
   // and the press again puts it away and forgets the choice
@@ -704,36 +704,164 @@ test("reduced motion: the box stands in and the bar steps aside at once", async 
   assert.equal(card.box.classes.has("xcaway"), true, "the bar ran under reduced motion");
   assert.deepEqual(card.bottombar.style.heights, [], "a height was run under reduced motion");
   assert.ok(!card.bottombar.classLog.includes("+xcrun"));
-  assert.ok(p.page.xc.root.classLog.includes("+still"), "the page turned under reduced motion");
+  assert.ok(p.page.xc.root.classLog.includes("+still"), "the box swung under reduced motion");
   assert.equal(p.page.xc.ta.value, "still words");
   p.page.switchComposer("bar");
   assert.equal(card.box.classes.has("xcaway"), false);
   assert.deepEqual(card.bottombar.style.heights, []);
   assert.equal(card.bar.ta.value, "still words");
-  // and the sheet takes every run away under reduced motion, the page's tilt too
+  // and the sheet takes every run away under reduced motion: the swing, the
+  // button's press and the bar's run
   const quiet = HTML.slice(HTML.indexOf("  body:is([data-resp-mode=\"portrait\"], [data-resp-mode=\"twopane\"]) :is(#xcswitch, #xcomposer)"));
   const block = between(quiet, "@media (prefers-reduced-motion: reduce){", "\n  }\n");
-  assert.match(block, /body\.focus #xcomposer, body\.focus #xcomposer \.xcpage,\s*body\.focus \.box\.sel \.bottombar\.xcrun\{transition:none\}/);
-  assert.match(block, /body\.focus #xcomposer \.xcpage\{transform:none\}/);
+  assert.match(block, /body\.focus #xcomposer, body\.focus #xcswitch,\s*body\.focus \.box\.sel \.bottombar\.xcrun\{transition:none\}/);
 });
 
-test("the page's turn is transform and opacity only, quick, and flat at rest", () => {
-  const page = rule("  body.focus #xcomposer .xcpage");
-  const open = rule("  body.focus #xcomposer.open .xcpage");
-  for (const r of [page, open]){
-    const runs = /transition:([^;]+);/.exec(r)[1].split(",").map(s => s.trim());
-    for (const run of runs){
-      const [prop, dur, , delay] = run.split(/\s+/);
-      assert.ok(["transform", "opacity"].includes(prop), "the turn runs " + prop);
-      const total = parseFloat(dur) * 1000 + (delay ? parseFloat(delay) * 1000 : 0);
-      assert.ok(total >= 200 && total <= 400, "a leg of the turn runs " + total + "ms");
-    }
-    assert.doesNotMatch(r, /filter|blur|mask|height/, "the turn animates something heavy");
+// a list of values split on its own commas and not on those inside brackets,
+// however deep; and the runs one rule's transition lists
+function topLevel(list){
+  const out = [];
+  let depth = 0, at = 0;
+  for (let i = 0; i < list.length; i++){
+    if (list[i] === "(") depth++;
+    else if (list[i] === ")") depth--;
+    else if (list[i] === "," && !depth){ out.push(list.slice(at, i).trim()); at = i + 1; }
   }
-  assert.match(page, /transform-origin:0 50%; transform:rotateY\(-72deg\); opacity:0;/);
-  assert.match(open, /transform:none; opacity:1;/, "the page keeps a transform at rest");
-  assert.match(rule("  body.focus #xcomposer"), /perspective:1200px; perspective-origin:0 50%;/);
-  assert.match(rule("  body.focus #xcomposer.still, body.focus #xcomposer.still .xcpage"), /transition:none/);
+  out.push(list.slice(at).trim());
+  return out;
+}
+const runsOf = r => topLevel(/transition:([^;]+);/.exec(r)[1]);
+
+test("the swing is transform and opacity only, 400 to 600ms, clockwise down with a slight settle and back up", () => {
+  const tucked = rule("  body.focus #xcomposer");
+  const open = rule("  body.focus #xcomposer.open");
+  // at rest the assembly is turned 86 degrees anticlockwise about the pivot,
+  // and open it wears no transform: from -86 to 0 is clockwise, the way down
+  assert.match(tucked, /transform-origin:var\(--xc-pivot-x, 0px\) calc\(100% \+ var\(--xc-pivot-y, 0px\)\);/,
+    "the assembly does not turn about the pivot");
+  const angle = Number(/transform:rotate\((-?\d+)deg\)/.exec(tucked)[1]);
+  assert.ok(angle <= -70 && angle >= -90, "the box is not tucked at 70 to 90 degrees: " + angle);
+  assert.match(open, /transform:none;/, "the box keeps a transform at rest");
+  assert.match(tucked, /visibility:hidden; pointer-events:none; opacity:0;/);
+  assert.match(open, /visibility:visible; pointer-events:auto; opacity:1;/);
+  for (const [name, r] of [["up", tucked], ["down", open]]){
+    for (const run of runsOf(r)){
+      const [prop, dur] = run.split(/\s+/);
+      assert.ok(["transform", "opacity", "visibility"].includes(prop), "the swing " + name + " runs " + prop);
+      if (prop === "transform"){
+        const ms = parseFloat(dur) * 1000;
+        assert.ok(ms >= 400 && ms <= 600, "the swing " + name + " runs " + ms + "ms");
+      }
+    }
+    assert.doesNotMatch(r, /filter|blur|mask|height|perspective/, "the swing animates something heavy");
+  }
+  // down: a curve that lands a little past level and settles back, a few
+  // percent and no more; up: the card's own curve, with no overshoot
+  const down = runsOf(open).find(s => s.startsWith("transform"));
+  const [, , y1, , y2] = /cubic-bezier\(([\d.]+), ([\d.]+), ([\d.]+), ([\d.]+)\)/.exec(down).map(Number);
+  assert.ok(y1 > 1 && y1 <= 1.4 && y2 === 1, "the swing down does not settle, or settles too far: " + down);
+  assert.equal(runsOf(tucked).find(s => s.startsWith("transform")), "transform .44s var(--gentle)");
+  // the fade comes in over the first part of the way down, and goes out only
+  // at the end of the way up, when the card already covers the box
+  assert.equal(runsOf(open).find(s => s.startsWith("opacity")), "opacity .2s linear");
+  assert.equal(runsOf(tucked).find(s => s.startsWith("opacity")), "opacity .12s linear .32s");
+  assert.match(rule("  body.focus #xcomposer.still"), /transition:none/);
+  // the box itself never turns: only the assembly does
+  assert.doesNotMatch(rule("  body.focus #xcomposer .xcpage"), /transform|transition/);
+  // the square is seated again once the swing has landed
+  assert.match(RIGHT, /xc\.root\.addEventListener\("transitionend", e => \{\s*if \(e\.target === xc\.root && e\.propertyName === "transform"\) xcTick\(\);/);
+});
+
+test("the box hangs from an arm on a pivot at the card's edge, and at rest the card covers it", () => {
+  const p = openPage();
+  p.fit();
+  addCard(p, "m53");
+  choose(p, "m53");
+  const cell = 1440 * 0.008, st = p.page.xc.root.style;
+  // the box, where it stands open: its left edge and its foot at rest height
+  const box = { left: parseFloat(st.left), right: parseFloat(st.left) + parseFloat(st.width),
+                bottom: 900 - parseFloat(st.bottom) };
+  box.top = box.bottom - 12 * cell;
+  // the pivot, seen from the box's left edge and foot, is two cells left and
+  // the rest of the box's lift below: on the card's right edge at the switch's foot
+  near(parseFloat(st.getPropertyValue("--xc-pivot-x")), -2 * cell, "the pivot's reach");
+  near(parseFloat(st.getPropertyValue("--xc-pivot-y")), 5 * cell - 20.6, "the pivot's drop");
+  const pivot = { x: box.left - 2 * cell, y: box.bottom + 5 * cell - 20.6 };
+  near(pivot.x, 996.48, "the pivot is not on the card's right edge");
+  near(pivot.y + 41, switchRect(p).bottom, "the pivot is not at the switch's foot");
+  // the arm: part of the assembly, drawn under the box, from just under the
+  // card's edge to the box's foot a quarter of the way along it, in the edge ink
+  const arm = p.page.xc.arm;
+  assert.equal(arm.parentNode, p.page.xc.root, "the arm does not move with the box");
+  assert.deepEqual(p.page.xc.root.children.map(n => n.className), ["xcarm", "xcpage"]);
+  assert.match(rule("  body.focus #xcomposer .xcarm"), /border-top:var\(--edge\) solid var\(--line\); transform-origin:0 0/);
+  const run = 2 * cell + 6 * cell, rise = -(5 * cell - 20.6);
+  near(parseFloat(arm.style.left), -2 * cell, "the arm does not start at the pivot");
+  const drop = /^calc\(100% \+ ([\d.]+)px\)$/.exec(arm.style.top);
+  assert.ok(drop, "the arm is not hung from the box's foot: " + arm.style.top);
+  near(Number(drop[1]), 5 * cell - 20.6, "the arm does not start at the pivot's drop");
+  near(parseFloat(arm.style.width), Math.hypot(run, rise) + 3, "the arm's length");
+  const turn = Number(/rotate\((-?[\d.e-]+)rad\)/.exec(arm.style.transform)[1]);
+  near(turn, Math.atan2(rise, run), "the arm's slant");
+  assert.match(arm.style.transform, /translateX\(-3px\)$/, "the arm does not start under the card");
+  const end = { x: pivot.x + Math.cos(turn) * (parseFloat(arm.style.width) - 3),
+                y: pivot.y + Math.sin(turn) * (parseFloat(arm.style.width) - 3) };
+  near(end.x, box.left + 6 * cell, "the arm does not meet the box a quarter along");
+  near(end.y, box.bottom, "the arm does not meet the box's foot");
+  // tucked: every corner of the box and the arm's far end, turned about the
+  // pivot by the sheet's angle, lie inside the card, which stands over them;
+  // the pivot itself is the hinge on the card's edge
+  const angle = Number(/transform:rotate\((-?\d+)deg\)/.exec(rule("  body.focus #xcomposer"))[1]) * Math.PI / 180;
+  const card = { left: 466.56, right: 996.48, top: 63.36, bottom: 789.12 };
+  const turned = (q, a) => ({
+    x: pivot.x + (q.x - pivot.x) * Math.cos(a) - (q.y - pivot.y) * Math.sin(a),
+    y: pivot.y + (q.x - pivot.x) * Math.sin(a) + (q.y - pivot.y) * Math.cos(a) });
+  const parts = [{ x: box.left, y: box.top }, { x: box.right, y: box.top }, { x: box.right, y: box.bottom },
+                 { x: box.left, y: box.bottom }, end];
+  for (const q of parts.map(q => turned(q, angle))){
+    assert.ok(q.x < card.right - 10 && q.x > card.left && q.y > card.top && q.y < card.bottom,
+      "a part of the tucked box stands out past the card at " + q.x.toFixed(1) + "," + q.y.toFixed(1));
+  }
+  // and the angle is not idle: at 80 degrees the box's far corner would show
+  assert.ok(turned(parts[2], -80 * Math.PI / 180).x > card.right, "a smaller tuck would already hide the box");
+  // the card stands over the box and the button over the card: the box keeps
+  // the stage's own level after every box on it, the card is one step up, the
+  // button two
+  assert.doesNotMatch(rule("  body.focus #xcomposer"), /z-index/, "the box does not keep the stage's own level");
+  assert.match(rule("  body.focus main"), /z-index:1;/, "the card does not stand over the box");
+  assert.match(rule("  body.focus #xcswitch"), /z-index:2;/, "the button is not on the card");
+  assert.ok(p.stage.children.indexOf(p.page.xc.root) > p.stage.children.indexOf(p.main),
+    "the box does not come after the card's neighbours on the stage");
+});
+
+test("the button is built into the card: raised at rest, pressed in when pressed or latched, no drop shadow, a focus ring", () => {
+  const sw = rule("  body.focus #xcswitch");
+  // the card's edge ink on all four sides, the right one lying on the card's
+  // own edge; rounded only on the two corners inside the card
+  assert.match(sw, /border:var\(--edge\) solid var\(--line\); border-radius:var\(--sq\) 0 0 var\(--sq\);/);
+  // raised: the card's white falling off toward its foot, a light line on top
+  // and a shaded one along the foot, all drawn inside it: no drop shadow
+  assert.match(sw, /background:linear-gradient\(to bottom, var\(--card\), color-mix\(in srgb, #000 4%, var\(--card\)\)\);/);
+  const shadows = topLevel(/box-shadow:([^;]+);/.exec(sw)[1]);
+  assert.ok(shadows.length >= 2 && shadows.every(s => s.startsWith("inset")), "the button casts a shadow: " + shadows);
+  // pressed, and latched while the box is chosen: the board's press seat
+  const pressed = rule('  body.focus #xcswitch:not([aria-disabled="true"]):active,\n  body.focus #xcswitch[aria-pressed="true"]');
+  assert.match(pressed, /background:color-mix\(in srgb, #000 var\(--press\), var\(--paper\)\); box-shadow:var\(--sunk-deep\);/);
+  const TOKENS = readFileSync(path.join(ROOT, "card-tokens.css"), "utf8");
+  assert.match(TOKENS, /--sunk-deep:inset [^;]*inset [^;]*;/, "the press seat is not an inset");
+  assert.match(sw, /transition:box-shadow \.11s var\(--gentle\);/, "the press is not the plus's own 110ms");
+  assert.match(rule("  body.focus #xcswitch:focus-visible"), /outline:2px solid var\(--accent\); outline-offset:2px/);
+  assert.match(rule('  body.focus #xcswitch[aria-disabled="true"]'), /opacity:var\(--chipoff\)/);
+  // and the page latches it: pressed while the box is chosen, up again after
+  const p = openPage();
+  p.fit();
+  addCard(p, "m54");
+  choose(p, "m54");
+  assert.equal(p.page.xcSwitch.getAttribute("aria-pressed"), "false");
+  p.dom.fire(p.page.xcSwitch, "click");
+  assert.equal(p.page.xcSwitch.getAttribute("aria-pressed"), "true", "the button did not stay down");
+  p.dom.fire(p.page.xcSwitch, "click");
+  assert.equal(p.page.xcSwitch.getAttribute("aria-pressed"), "false", "the button did not come back up");
 });
 
 test("the box wears the card's own look: white, the edge, the 7px corner, the raised shadow, the bar's type", () => {
@@ -800,18 +928,20 @@ test("the owner's layout: the box fits beside the card, over the navigator, clea
   const lim = { right: 1503 - 1 - 16, bottom: 937 - 1 - 16 };
   assert.ok(right <= lim.right, "the box runs past the frame's clear edge");
   assert.ok(foot <= lim.bottom && foot < 847, "the box's foot is below the card's");
-  // the switch stands on the card's edge beside the bar, where the bar rested
-  // before the box took its words, a cell clear of the box and well clear of
-  // the owner's navigator at 973
+  // the button stands in the card's right edge beside the bar, where the bar
+  // rested before the box took its words, clear of the box and of the owner's
+  // navigator at 973
   const tab = switchRect(p, S);
-  near(tab.left, 925 - 7 * S, "the switch's tuck under the card");
-  near(tab.right, 925 + 1440 * 0.008 * S, "the switch's outer edge");
+  near(tab.left, 925 - 1440 * 0.008 * S, "the button's inner edge");
+  near(tab.right, 925, "the button's outer side is not the card's edge");
   near(tab.bottom, 847 - 20.6 * S, "the switch's foot is not the bar's floor");
   near(tab.bottom - tab.top, 44.8 * S, "the switch is not the bar's height");
   assert.ok(tab.right < left, "the switch runs into the box");
   assert.ok(tab.right < 973, "the switch reaches the owner's navigator");
-  // the box stands over the boxes the owner keeps there, under the edit handles
-  assert.match(rule("  body.focus #xcomposer"), /position:fixed; z-index:6;/);
+  // the box stands over the boxes the owner keeps there, by keeping the stage's
+  // own level after them, under the card one step up and the edit handles
+  assert.doesNotMatch(rule("  body.focus #xcomposer"), /z-index/);
+  assert.match(rule("  body.focus main"), /z-index:1;/);
   assert.match(HTML, /#edithandles\{[^}]*z-index:30/);
 });
 
@@ -856,16 +986,17 @@ test("where the box cannot stand, the bar stays: two panes, the portrait column,
   assert.equal((fit.match(/xcPlace\(\);/g) || []).length, 2, "fitStage does not seat the box on both of its ways out");
 });
 
-test("the switch stands on the card's right edge beside the compose bar, spanning it, and moves and scales with the card", () => {
+test("the button stands in the card's right edge beside the compose bar, spanning it, and moves and scales with the card", () => {
   const p = openPage();
   p.fit();
   const card = addCard(p, "m47");
   choose(p, "m47");
   const cell = 1440 * 0.008;
   let tab = switchRect(p), bar = card.bottombar.getBoundingClientRect();
-  // one cell out past the card's right edge at 996.48, and 7px in under it
-  near(tab.left, 996.48 - 7, "the switch's tuck under the card");
-  near(tab.right, 996.48 + cell, "the switch's outer edge");
+  // one cell wide inside the card's right edge at 996.48, its outer side on
+  // the card's own edge: the old tab turned inward
+  near(tab.left, 996.48 - cell, "the button's inner edge");
+  near(tab.right, 996.48, "the button's outer side is not the card's edge");
   // its top on the bar's hairline and its foot on the bar's floor: the bar's
   // own 44.8 at rest, one line
   near(tab.top, bar.top, "the switch's top is not the bar's");
@@ -875,21 +1006,20 @@ test("the switch stands on the card's right edge beside the compose bar, spannin
   // edge stand under it, as they stand under the bar
   near(p.main.rect.bottom - tab.bottom, 20.6, "the switch is not lifted off the card's bottom edge");
   // tall and narrow
-  assert.ok(tab.bottom - tab.top > 3.5 * (tab.right - p.main.rect.right), "the switch is not a tall narrow tab");
-  // the sheet: behind the card and every box, no edge where it meets the card,
-  // and no place of its own in the window any more
+  assert.ok(tab.bottom - tab.top > 3.5 * (tab.right - tab.left), "the button is not a tall narrow rectangle");
+  // the sheet: on the card, rounded only inside it, and no place of its own in
+  // the window any more
   const sw = rule("  body.focus #xcswitch");
-  assert.match(sw, /position:fixed; z-index:-1;/, "the switch does not stand behind the card");
-  assert.match(sw, /border-left:none;/);
-  assert.match(sw, /border-radius:0 var\(--sq\) var\(--sq\) 0;/);
-  assert.doesNotMatch(sw, /(?:^|[\s;])(right|bottom|left|top|width|height):/, "the sheet still places the switch itself");
+  assert.match(sw, /position:fixed; z-index:2;/, "the button does not stand on the card");
+  assert.match(sw, /border-radius:var\(--sq\) 0 0 var\(--sq\);/);
+  assert.doesNotMatch(sw, /(?:^|[\s;])(right|bottom|left|top|width|height):/, "the sheet still places the button itself");
   assert.doesNotMatch(HTML, /bottom:84px/, "the old dodge of the note's corner is still in the sheet");
   // a drag of the card takes the switch with it, still beside the bar; the
   // card's own size watch is what hears it
   p.main.rect = { left: 300, right: 830, top: 80, bottom: 700 };
   p.resized(p.main);
   tab = switchRect(p); bar = card.bottombar.getBoundingClientRect();
-  near(tab.left, 830 - 7, "the switch stayed behind when the card moved");
+  near(tab.left, 830 - cell, "the button stayed behind when the card moved");
   near(tab.top, bar.top, "the switch left the bar when the card moved");
   near(tab.bottom, bar.bottom, "the switch left the bar's floor when the card moved");
   // a board scaled down: the same place on the stage, so it shrinks with the
@@ -902,7 +1032,7 @@ test("the switch stands on the card's right edge beside the compose bar, spannin
   q.page.stageScale = .8;
   q.fit();
   const qs = q.page.xcSwitch.style;
-  near(parseFloat(qs.left), 996.48 - 7, "the switch was not placed in stage pixels");
+  near(parseFloat(qs.left), 996.48 - cell, "the button was not placed in stage pixels");
   assert.equal(q.page.xcSwitch.hidden, true, "the switch shows with no card on show");
   assert.equal(qs.height, "", "the switch was given a height with no bar to read");
   // a card with no bar at all, the way a test or a half built card may stand,
@@ -978,28 +1108,31 @@ test("the switch tracks the bar: more lines, a note under it, the sent box and t
   assert.match(between(HTML, "function xcLanded(el, end){", "\n}\n"), /xcSeat\(\);/);
 });
 
-test("the switch keeps off the card's own controls: the row, the send square and the answered panel's arrow", () => {
+test("the button keeps off the card's own controls: the row, the send square and the answered panel's arrow", () => {
   const p = openPage();
   p.fit();
   const card = addCard(p, "m48");
   choose(p, "m48");
-  const tab = switchRect(p), box = p.main.rect;
-  // the part that shows stands wholly outside the card's box
-  near(tab.left + 7, box.right, "the switch shows inside the card");
-  // and nothing of the card can paint outside its own box to meet it: the card
-  // clips what it holds, and every control named is held inside it
-  assert.match(rule("  body.focus main"), /overflow:hidden;/, "the card no longer clips what it holds");
-  for (const node of [card.ta, card.send, card.clip]) assert.ok(p.main.contains(node), "a control stands outside the card");
-  assert.match(between(HTML, "function makeBox(b, i, state){", "\n}\n"),
-    /replyview\.append\(answwrap, reply\);\s*body\.append\(replyview, pendwrap\);/,
-    "the answered panel is no longer inside the card's body");
-  // the tucked part is under the card, painted over by it, and stops well short
-  // of the send square, which stands the card's side padding and the bar's own
-  // margin in from the card's edge
+  const tab = switchRect(p), box = p.main.rect, bar = card.bottombar.getBoundingClientRect();
+  // the button stands wholly inside the card's box, in its right padding
+  assert.ok(tab.left > box.left && tab.right <= box.right + 1e-6, "the button stands outside the card");
+  // the row, the send square and the plus are all in the bar, and the bar ends
+  // the card's edge, its side padding and the bar's own margin in from the
+  // card's edge: 0.8 + 23.04 + 15.36. the button is one cell wide, so more than
+  // two cells of the card's white stand between it and the send square
   const padX = 1440 * 0.016;
   assert.match(rule("  body.focus main"), /padding:calc\(var\(--ch\)\*0\.022\) var\(--pad-x\);/);
   assert.match(rule("  body.focus .box.sel .bottombar"), /margin:0 calc\(var\(--pad-x\)\*2\/3\) 0 calc\(var\(--pad-x\)\*2\/3\);/);
-  assert.ok(padX + padX * 2 / 3 - 7 >= 30, "the tucked part reaches the send square");
+  const squareRight = box.right - 0.8 - padX - padX * 2 / 3;
+  near(bar.right, box.right - 38.4, "the test bar no longer ends where the page's does");
+  assert.ok(tab.left - squareRight > 2 * 1440 * 0.008, "the button crowds the send square");
+  for (const node of [card.ta, card.send, card.clip]) assert.ok(p.main.contains(node), "a control stands outside the card");
+  // the answered panel and its arrow are further in still, inside the card's
+  // body over the answer, and the card clips what it holds
+  assert.match(between(HTML, "function makeBox(b, i, state){", "\n}\n"),
+    /replyview\.append\(answwrap, reply\);\s*body\.append\(replyview, pendwrap\);/,
+    "the answered panel is no longer inside the card's body");
+  assert.match(rule("  body.focus main"), /overflow:hidden;/, "the card no longer clips what it holds");
 });
 
 test("with the box open the switch keeps the bar's place, pressed, and the same press puts the box away", () => {
@@ -1023,9 +1156,9 @@ test("with the box open the switch keeps the bar's place, pressed, and the same 
   assert.equal(p.page.xcSwitch.hidden, false, "the switch went away with the box open");
   assert.equal(p.page.xcSwitch.getAttribute("aria-pressed"), "true");
   assert.equal(p.page.xcSwitch.getAttribute("aria-label"), "put the composer back under the card");
-  // between the card and the box, a cell clear of the box's left edge
+  // on the card's edge, the box's two cells of air beyond it
   const boxLeft = p.stage.rect.left + parseFloat(p.page.xc.root.style.left);
-  near(boxLeft - rest.right, 1440 * 0.008, "the air between the switch and the box");
+  near(boxLeft - rest.right, 2 * 1440 * 0.008, "the air between the button and the box");
   // the same press, and the bar comes back to where the switch was waiting
   p.dom.fire(p.page.xcSwitch, "click");
   assert.equal(p.page.xc.host, null, "the switch did not put the box away");
