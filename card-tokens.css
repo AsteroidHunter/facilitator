@@ -540,7 +540,7 @@
    board, and at 7 to 1 even with nothing but black behind the note; the rim,
    without the boost, is still 5 to 1 over black. a blur of the board is never
    that dark, so the words read everywhere */
-.qn-card::before{content:""; position:absolute; inset:14px; border-radius:6px;
+.qn-card::before, .sp-page::before{content:""; position:absolute; inset:14px; border-radius:6px;
   background:rgba(255,255,255,var(--qn-boost)); filter:blur(10px); pointer-events:none}
 /* the field is the whole card and wears nothing of its own: every rule a page
    gives its text boxes (a fill, a border, a focus ring, a floor and a cap) is
@@ -563,10 +563,90 @@
    rim and shadow: nothing shows through and nothing is blurred */
 @media (prefers-reduced-transparency: reduce){
   .qn-glass{background-color:#fff; backdrop-filter:none; -webkit-backdrop-filter:none}
-  .qn-card::before{display:none}
+  .qn-card::before, .sp-page::before{display:none}
 }
 /* and a browser that cannot blur what is behind gets nearly solid white, since
    an unblurred board through a half clear face would sit under the words */
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
   .qn-glass{background-color:rgba(255,255,255,.94)}
+}
+
+/* ---- the settings page --------------------------------------------------- */
+/* the board's own choices, on one page that covers the whole window and is
+   drawn in the quick note's glass, so the board is seen blurred through it.
+   the desktop board seats it in a veil of its own (.sp-veil) and the phone
+   seats it as its right hand menu; the page itself is the same on both.
+   wide, a column of sections stands on the left and the chosen section's
+   settings on the right. narrow, which is the width the board already turns to
+   its single column at, only the list of sections shows, a tap shows one
+   section, and the back mark on the bar above goes back to the list */
+.sp-page{box-sizing:border-box; display:flex; flex-direction:column; min-height:0;
+  border-radius:0; --qn-boost:.22; color:var(--ink); font:14px/1.4 var(--sans)}
+.sp-veil.open{display:block}
+.sp-veil .sp-page{position:absolute; inset:0}
+.sp-head, .sp-body{position:relative}
+.sp-head{flex:none; display:flex; align-items:center; gap:8px;
+  padding:calc(14px + env(safe-area-inset-top, 0px)) 20px 12px;
+  border-bottom:var(--edge) solid var(--line)}
+.sp-title{flex:1; min-width:0; margin:0; font:625 17px/1.25 var(--inter); color:var(--ink)}
+/* the marks on the bar are the tab bar's own: 15px, the sub ink, no box, and
+   the accent under a pointer. the padding is only the room a finger needs, and
+   the margin takes it back so the mark stands on the page's own margin */
+.sp-icon{flex:none; display:flex; padding:8px; border:none; background:none;
+  color:var(--sub); cursor:pointer; transition:color .18s}
+.sp-icon:hover{color:var(--accent)}
+.sp-icon[hidden]{display:none}
+.sp-icon svg{display:block}
+.sp-back{margin:-8px 0 -8px -8px}
+.sp-close{margin:-8px -8px -8px 0}
+.sp-body{flex:1; min-height:0; display:grid; grid-template-columns:260px minmax(0, 1fr)}
+.sp-list{display:flex; flex-direction:column; gap:2px; padding:16px 12px; overflow-y:auto;
+  border-right:var(--edge) solid var(--line)}
+/* a section is a borderless button on the page: the press shade under a pointer,
+   and the board's own soft accent tint on the one that is chosen */
+.sp-item{display:flex; align-items:center; justify-content:space-between; gap:8px;
+  width:100%; padding:9px 12px; border:none; border-radius:var(--sq); background:none;
+  color:var(--ink); font:500 14px/1.3 var(--sans); text-align:left; cursor:pointer}
+.sp-item:hover{background:color-mix(in srgb, #000 var(--press), transparent)}
+.sp-item.on{background:var(--accent-soft); color:var(--accent)}
+.sp-next{display:none; flex:none; color:var(--sub)}
+.sp-next svg{display:block}
+.sp-panes{overflow-y:auto; padding:24px 32px 40px}
+.sp-pane{display:none; max-width:560px}
+.sp-pane.on{display:block}
+.sp-panehead{margin:0 0 6px; font:625 15px/1.25 var(--inter); color:var(--ink)}
+/* a choice is a row: its words on the left with one line under them saying what
+   it does, and the control on the right */
+.sp-pane .setrow{display:flex; align-items:center; justify-content:space-between; gap:20px;
+  padding:14px 0; border-top:var(--edge) solid var(--line)}
+.sp-pane .setlabel{display:flex; flex-direction:column; gap:3px; min-width:0;
+  font:14px/1.35 var(--sans); color:var(--ink); cursor:pointer}
+.sp-pane .sethelp{margin:0; font:12px/1.5 var(--sans); color:var(--sub)}
+.sp-pane .sethelp:empty{display:none}
+.sp-pane .setrow input[type="checkbox"]{flex:none; width:16px; height:16px; margin:0;
+  accent-color:var(--accent); cursor:pointer}
+/* an action is a button with the words that go with it under it. it is the
+   card's own kind of control, no border and the card's white for a fill, with
+   the board's one press shade mixed into that fill */
+.sp-pane .setact{display:flex; flex-direction:column; align-items:flex-start; gap:8px;
+  padding:14px 0; border-top:var(--edge) solid var(--line)}
+.sp-btn{font:500 14px/1.2 var(--sans); color:var(--ink); background:var(--card);
+  border:none; border-radius:var(--sq); padding:9px 14px; cursor:pointer}
+.sp-btn:hover, .sp-btn:active{background:color-mix(in srgb, #000 var(--press), var(--card))}
+.sp-btn:disabled{opacity:.6; cursor:default}
+.sp-btn:disabled:hover{background:var(--card)}
+@media (max-width:989px){
+  .sp-body{grid-template-columns:minmax(0, 1fr)}
+  .sp-list{gap:0; padding:0; border-right:none}
+  .sp-item{padding:15px 20px; border-radius:0; font-size:15px;
+    border-bottom:var(--edge) solid var(--line)}
+  .sp-item.on{background:none; color:var(--ink)}
+  .sp-item.on:hover{background:color-mix(in srgb, #000 var(--press), transparent)}
+  .sp-next{display:block}
+  .sp-panes{padding:0 20px 32px}
+  .sp-pane{max-width:none}
+  .sp-panehead{display:none}
+  .sp-panehead + .setrow, .sp-panehead + .setact{border-top:none}
+  .sp-page[data-view="list"] .sp-panes{display:none}
+  .sp-page[data-view="pane"] .sp-list{display:none}
 }
