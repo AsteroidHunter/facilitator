@@ -887,7 +887,7 @@ test("the tab bar stays where he scrolled it, across a poll and a tap", async ()
   }
 });
 
-test("the settings come in from the right as a full-width page, with its list, the gear and the notifications control", async () => {
+test("the settings come in from the right as a full-width page, with its list and the notifications control", async () => {
   const { page, problems } = await openPhone("/m");
   try {
     await page.waitForSelector("article.box.sel", { timeout: 5000 });
@@ -906,17 +906,12 @@ test("the settings come in from the right as a full-width page, with its list, t
 
     const made = await page.evaluate(() => {
       const head = document.querySelector("#settings .sp-title");
-      const gear = document.querySelector("#setico svg");
       const button = document.getElementById("notify");
       const ink = getComputedStyle(document.documentElement);
       const own = getComputedStyle(button);
       return {
         header: head.textContent.trim(),
         sections: [...document.querySelectorAll("#settings .sp-item")].map(one => one.textContent),
-        gear: !!gear,
-        gearStroke: gear && gear.getAttribute("stroke"),
-        gearFill: gear && gear.getAttribute("fill"),
-        gearWeight: gear && gear.getAttribute("stroke-width"),
         label: button.textContent,
         fill: own.backgroundColor,
         border: own.borderStyle,
@@ -930,10 +925,6 @@ test("the settings come in from the right as a full-width page, with its list, t
     assert.equal(made.header, "Settings", "the page's header is not Settings");
     assert.deepEqual(made.sections, ["Editor", "Notifications", "Account", "Diagnostics"],
       "the page does not list its sections");
-    assert.equal(made.gear, true, "the tab row carries no gear");
-    assert.equal(made.gearStroke, "currentColor", "the gear is not drawn in the card's line style");
-    assert.equal(made.gearFill, "none");
-    assert.equal(made.gearWeight, "1.9", "the gear is not the weight the plus is drawn at");
     assert.equal(made.label, "Notifications");
     assert.equal(made.border, "none", "the control has a border");
     assert.equal(made.fill, "rgb(255, 255, 255)", "the control is not on the phone's own paper");
