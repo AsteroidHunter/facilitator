@@ -298,14 +298,18 @@
    surface: the old answered box's --pend-move, 330ms, on the card's --gentle
    curve, so the panel folds exactly as that box did.
    --answ-come and --answ-rise are the arrival a send gives the panel of sent
-   messages, further down */
+   messages, further down.
+   --answ-fill is the grey it is drawn in, the bubble's grey unless the panel
+   holds only messages no agent has received yet (the delivery marks, further
+   down), and --answ-tag the room the quiet mark under its foot stands in */
 .answered{
   position:relative; box-sizing:border-box;
   width:fit-content; max-width:86%; margin-left:auto;
   padding:var(--answ-pad-y) var(--answ-pad-x);
-  background:var(--bubble-fill); border-radius:var(--answ-round);
+  background:var(--answ-fill); border-radius:var(--answ-round);
   font:var(--answ-font); color:var(--ink); text-align:left;
   --answ-move:.33s; --answ-come:.26s; --answ-rise:6px;
+  --answ-fill:var(--bubble-fill); --answ-tag:17px;
 }
 /* the cut. a batch longer than the preview shows its first lines and dissolves
    into the panel's own grey over the last of them, the way the drawing's third
@@ -326,7 +330,7 @@
 .answered.more:not(.open) .answclip{--answ-shade:1}
 .answclip::after{
   content:""; position:absolute; left:0; right:0; bottom:0; height:var(--answ-fade);
-  background:linear-gradient(to bottom, transparent, var(--bubble-fill));
+  background:linear-gradient(to bottom, transparent, var(--answ-fill));
   opacity:var(--answ-shade); pointer-events:none;
 }
 .answered.open .answclip{max-height:none}
@@ -402,21 +406,45 @@
 @keyframes answarrive{from{opacity:0; transform:translate3d(0, var(--answ-rise), 0)}}
 .answered.arrive, .answmsg.arrive{animation:answarrive var(--answ-come) var(--gentle)}
 
+/* ---- the delivery marks -------------------------------------------------- */
+/* where a sent message stands with the agent, from the board's own record
+   (card-logic.js names the stages). a message no agent has received yet is
+   drawn faded: its words at half strength, and while every message in the
+   panel is still waiting, the panel's grey too, mixed halfway to the card's
+   white, and the dissolve at the cut with it. delivered, it takes its full ink;
+   the words come up over the fold's own length, and only their strength
+   changes. a line the phone writes under a message of its own stays at full
+   strength, since it is what says how the sending is going.
+   the one mark a panel carries, Delivered or Read, stands under its foot at the
+   right, in the card's quiet mono, stepped in by the corner's own radius so it
+   sits under the straight edge. the panel keeps room for it under itself, so
+   nothing stands on it */
+.answered.undelivered{--answ-fill:color-mix(in srgb, var(--bubble-fill) 50%, var(--card, #fff))}
+.answmsg > *{transition:opacity var(--answ-move) var(--gentle)}
+.answmsg.undelivered > :not(.answnote){opacity:.5}
+.answered[data-tag]{margin-bottom:var(--answ-tag)}
+.answered[data-tag]::after{
+  content:attr(data-tag); position:absolute; top:100%; right:var(--answ-round);
+  padding-top:3px; font:10.5px/1.35 var(--mono); color:var(--sub);
+  white-space:nowrap; pointer-events:none;
+}
+
 /* ---- the page turn and the print ----------------------------------------- */
 /* the answer to the sent panel's messages lands on the card on show and the card
-   turns to a new page (card-logic.js says how and when). the page the reader
-   was on is a still picture on this sheet, laid over the card's column from
-   the top of its body down to the foot of the sent panel's seat, in the card's
-   own white so the new page drawn under it cannot show through. the picture
-   moves on one transform over --turn-glide, 560ms on the card's gentle curve,
-   and its layer is its own for the whole of the glide. what leaves the top
-   passes under a fade in the white above the answer, where nothing stands at
-   rest, so the first frame of the glide is the page exactly as it was.
-   the print that follows brings the new answer's blocks in from the top, each
-   rising --print-rise over --print-move from nothing, fifty milliseconds apart
-   and all of them under way by the ninth. the answer stands unseen while the
-   sheet glides over it. a reader who asked for no motion gets neither: the
-   script swaps the page as it always did */
+   turns to a new page in one motion (card-logic.js says how and when). the page
+   the reader was on is a still picture on this sheet, laid over the card's
+   column down to the foot of the sent panel's seat, in the card's own white so
+   the new page drawn under it cannot show through, and the new page is a second
+   picture under the first, waiting a glide's length further down. both move on
+   one transform over --turn-glide, 560ms on the card's gentle curve, on a layer
+   of their own for the whole of the glide, so the new answer comes up under the
+   sent messages as they rise. what leaves the top passes under a fade in the
+   white above the answer, where nothing stands at rest, so the first frame of
+   the glide is the page exactly as it was.
+   the print is for a new answer with nothing to glide with: its blocks come in
+   from the top, each rising --print-rise over --print-move from nothing, fifty
+   milliseconds apart and all of them under way by the ninth. a reader who asked
+   for no motion gets neither: the script swaps the page as it always did */
 :root{--turn-glide:.56s; --print-move:.38s; --print-rise:6px}
 .turnsheet{position:absolute; left:0; right:0; top:0; z-index:1; overflow:hidden;
   background:var(--card); pointer-events:none}
@@ -425,7 +453,6 @@
 .turnpage{position:absolute; left:0; right:0; top:0; bottom:0; will-change:transform}
 .turnpage.gliding{transition:transform var(--turn-glide) var(--gentle)}
 @keyframes cardprint{from{opacity:0; transform:translate3d(0, var(--print-rise), 0)}}
-.printwait{opacity:0}
 .printing > *{animation:cardprint var(--print-move) var(--gentle) backwards}
 .printing > :nth-child(2){animation-delay:50ms}
 .printing > :nth-child(3){animation-delay:100ms}

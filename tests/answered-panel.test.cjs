@@ -96,10 +96,14 @@ function element(tag) {
       const copy = element(tag);
       copy.className = el.className;
       Object.assign(copy.dataset, el.dataset);
-      if (deep) for (const child of nodes)
-        copy.appendChild(child.nodeType === 3 ? textNode(child.textContent) : child.cloneNode(true));
+      if (deep) {
+        for (const child of nodes)
+          copy.appendChild(child.nodeType === 3 ? textNode(child.textContent) : child.cloneNode(true));
+        copy.keepMarkup(html);
+      }
       return copy;
     },
+    keepMarkup(value) { html = value; },
     removeEventListener(type, fn) { listeners[type] = (listeners[type] || []).filter(f => f !== fn); },
     listening(type) { return (listeners[type] || []).length; },
     get className() { return [...classes].join(" "); },
@@ -129,6 +133,13 @@ function element(tag) {
       return node;
     },
     append(...added) { for (const node of added) el.appendChild(node); },
+    prepend(...added) {
+      for (const node of [...added].reverse()) {
+        node.remove();
+        nodes.unshift(node);
+        node.parentNode = el;
+      }
+    },
     remove() {
       const parent = el.parentNode;
       if (!parent) return;
@@ -835,7 +846,8 @@ function rules(css, selector) {
 
 test("the sheet draws one grey panel with no frame, hairlines between messages and an arrow only when long", () => {
   const panel = rule(TOKENS, ".answered");
-  assert.match(panel, /background:var\(--bubble-fill\)/, "the panel is not the bubble's grey");
+  assert.match(panel, /background:var\(--answ-fill\)/, "the panel is not drawn in its own fill");
+  assert.match(panel, /--answ-fill:var\(--bubble-fill\)/, "the panel's fill is not the bubble's grey");
   assert.match(panel, /border-radius:var\(--answ-round\)/);
   assert.match(panel, /margin-left:auto/, "the panel does not hug the right end of its column");
   assert.match(panel, /font:var\(--answ-font\)/);
@@ -848,7 +860,7 @@ test("the sheet draws one grey panel with no frame, hairlines between messages a
   const strip = rule(TOKENS, ".answclip::after");
   assert.match(strip, /position:absolute; left:0; right:0; bottom:0; height:var\(--answ-fade\);/,
     "the dissolve is not a strip the surface's own depth over the foot of the cut");
-  assert.match(strip, /background:linear-gradient\(to bottom, transparent, var\(--bubble-fill\)\);/,
+  assert.match(strip, /background:linear-gradient\(to bottom, transparent, var\(--answ-fill\)\);/,
     "the dissolve is not the panel's own grey");
   assert.match(strip, /opacity:var\(--answ-shade\)/, "the strip's strength is not the one the run holds");
   assert.match(rule(TOKENS, ".answclip"), /position:relative;.*--answ-shade:0/);
@@ -947,7 +959,7 @@ function fullCard(id) {
   body.appendChild(pendwrap);
   el.box.appendChild(body);
   el.box.classList.add("sel");
-  return Object.assign(el, { body, pendwrap, sentwrap, sent: null, sentKey: "", sentTexts: [], ta: element("textarea") });
+  return Object.assign(el, { body, pendwrap, sentwrap, sent: null, sentKey: "", sentItems: [], ta: element("textarea") });
 }
 const SENT = ["Invented first sent message.", "Invented second sent message with **emphasis**."];
 
@@ -1108,8 +1120,8 @@ function turningCard(context) {
 }
 const NEXT = { id: "c1", replyKind: "agent", replyId: "reply-next", answered: SENT.map(text => ({ text })) };
 
-test("a new answer turns the page: the old page glides up first, and only then is the answer printed", () => {
-  const { context, run, pending, ring } = sandbox();
+test("a new answer turns the page in one motion: it rides up under the sent messages, and nothing fades in after", () => {
+  const { context, run, pending } = sandbox();
   context.boxBand = () => 64;
   const el = turningCard(context);
   const turn = context.turnBegin(el, NEXT);
@@ -1119,6 +1131,7 @@ test("a new answer turns the page: the old page glides up first, and only then i
   const sheet = el.body.querySelector(".turnsheet");
   assert.ok(sheet && sheet.parentNode === el.body, "no still picture was laid over the card");
   assert.equal(sheet.getAttribute("aria-hidden"), "true");
+  assert.equal(sheet.style.top, "0px");
   assert.equal(sheet.style.height, "690px", "the picture does not reach down to the foot of the seat");
   const page = sheet.querySelector(".turnpage");
   assert.deepEqual(page.children.map(node => node.className), ["replyview", "sentwrap"],
@@ -1141,26 +1154,34 @@ test("a new answer turns the page: the old page glides up first, and only then i
   assert.deepEqual(blocks(el.answ).map(b => b.html), SENT.map(text => markdown.render(text)),
     "the sent messages did not become the panel at the head of the new page");
   context.turnGo(el, turn);
-  // first the glide: one transform, up by exactly the distance from the seat to
-  // the new page's own panel, and the new answer not shown yet
+  // the new page is pictured too, under the old picture and a glide's length
+  // further down: its panel exactly behind the old sent panel, and the new
+  // answer already in it, just under
+  assert.deepEqual(page.children.map(node => node.className), ["replyview", "replyview", "sentwrap"],
+    "the new page is not pictured under the old one");
+  const now = page.children[0];
+  assert.notEqual(now, was);
+  assert.equal(now.style.top, "600px", "the new page's panel does not wait behind the old sent panel");
+  assert.equal(now.querySelector(".reply").innerHTML, markdown.render("The invented new answer."),
+    "the new answer is not in place in the picture that glides");
+  assert.equal(now.querySelector(".answered").dataset.tag, "Read", "the new page's panel does not say read");
+  // one glide: one transform, up by exactly the distance from the seat to the
+  // new page's own panel, carrying the old page out and the new one in
   assert.equal(page.classList.contains("gliding"), true, "the picture does not glide");
   assert.equal(page.style.transform, "translate3d(0, -580px, 0)",
     "the glide does not carry the sent panel onto the new page's own panel");
-  assert.equal(el.reply.classList.contains("printwait"), true, "the new answer shows under the glide");
-  assert.equal(el.reply.classList.contains("printing"), false, "the answer was printed before the page had turned");
+  assert.equal(el.reply.classList.contains("printing"), false, "the answer is faded in beside the glide");
   assert.equal(pending().at(-1).ms, run("TURN_GLIDE_MS") + 80, "no timer stands behind the glide");
   // an end that is not the transform's is not the glide's end
   page.fire("transitionend", { target: page, propertyName: "opacity" });
   assert.equal(sheet.parentNode, el.body, "another transition ended the glide");
-  // then the print, once the page has turned
+  // landed: the pictures go, the new page stands where they stood, and nothing
+  // is faded in after
   page.fire("transitionend", { target: page, propertyName: "transform" });
   assert.equal(sheet.parentNode, null, "the picture outlived the glide");
   assert.equal(el.turning, null);
-  assert.equal(el.reply.classList.contains("printwait"), false);
-  assert.equal(el.reply.classList.contains("printing"), true, "the answer was not printed once the page had turned");
-  assert.equal(pending().at(-1).ms, run("PRINT_MS") + 60);
-  ring();
-  assert.equal(el.reply.classList.contains("printing"), false, "the print's dress stayed on");
+  assert.equal(el.reply.classList.contains("printing"), false, "the answer was faded in after the glide");
+  assert.ok(pending().every(t => t.ms !== run("PRINT_MS") + 60), "a print was armed after the glide");
   assert.equal(run("TURN_GLIDE_MS"), 560);
 });
 
@@ -1173,7 +1194,7 @@ test("a glide that never ends is landed by its timer, and a new page with no pan
   context.turnGo(el, turn);
   ring();
   assert.equal(el.body.querySelector(".turnsheet"), null, "the timer did not land the glide");
-  assert.equal(el.reply.classList.contains("printing"), true);
+  assert.equal(el.reply.classList.contains("printing"), false, "a glide was followed by a print");
   // a page whose answer was given nothing has no panel to glide to
   const bare = sandbox();
   const other = turningCard(bare.context);
@@ -1272,9 +1293,7 @@ test("a progress note, a card not on show, or a reader who asked for no motion t
   assert.equal(context.turnBegin(el, NEXT), null, "a new answer moved against the setting");
   assert.equal(el.body.querySelector(".turnsheet"), null);
   // and a print is the answer shown at once
-  el.reply.classList.add("printwait");
   context.printReply(el);
-  assert.equal(el.reply.classList.contains("printwait"), false, "the answer stayed hidden");
   assert.equal(el.reply.classList.contains("printing"), false, "the answer was printed against the setting");
   // the sent panel opens and cuts back as a plain flip too
   const { context: still } = sandbox();
@@ -1378,8 +1397,8 @@ test("both pages seat the sent panel at the foot and hand the turn a pass that d
   }
   // the sends: the desktop lands the message after the board has it, the phone
   // at once with its line, and both as an arrival
-  assert.match(DESKTOP, /syncSent\(el, sentBatch\(el\.sentTexts\), true\);/);
-  assert.match(DESKTOP, /syncSent\(own, sentBatch\(own\.sentTexts\), true\);/);
+  assert.match(DESKTOP, /el\.sentItems = \[\.\.\.el\.sentItems, \{ text, stage: "sent" \}\];[\s\S]{0,80}syncSent\(el, el\.sentItems, true\);/);
+  assert.match(DESKTOP, /own\.sentItems = \[\.\.\.own\.sentItems, \{ text, stage: "sent" \}\];[\s\S]{0,80}syncSent\(own, own\.sentItems, true\);/);
   assert.match(PHONE, /drawSent\(el, id, true\);/);
   assert.match(PHONE, /panel\.addEventListener\("click", e => sentPress\(e\), true\);/,
     "the phone's tap to take words back is not heard before the panel's own");
@@ -1436,4 +1455,140 @@ test("the turn keeps to the composer the reader is in, the right one included, a
     const between = text.slice(text.lastIndexOf("\n", read), read);
     assert.ok(!/held/.test(between), `${where} keeps the read rule from an answer that is held back`);
   }
+});
+
+// ---- the delivery marks ------------------------------------------------------------------
+const stagesOf = panel => panel.querySelector(".answstack").children.map(node => node.classList.contains("undelivered"));
+
+test("the sent panel reads the board's own record: faded until delivered, then Delivered, then Read", () => {
+  const { context, counts } = sandbox();
+  const el = fullCard("c1");
+  el.sentRoom = context.roomSpy;
+  // on the board, and no agent has received it: the panel and the words faded, no mark
+  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }], true);
+  const panel = el.sent;
+  assert.equal(panel.classList.contains("undelivered"), true, "a message nobody has received is not faded");
+  assert.deepEqual(stagesOf(panel), [true]);
+  assert.equal(panel.dataset.tag, undefined, "a message nobody has received carries a mark");
+  assert.equal(panel.getAttribute("aria-label"), "your messages waiting for a reply");
+  // the agent confirmed the claim: full ink, and Delivered under the panel. a
+  // message sent after it waits faded on its own, and the panel's grey is back
+  const first = panel.querySelector(".answmsg");
+  const rooms = counts.rooms;
+  context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }, { text: "Invented two.", stage: "sent" }]);
+  assert.equal(panel.querySelector(".answmsg"), first, "a change of stage drew the message again");
+  assert.equal(panel.classList.contains("undelivered"), false, "the panel stayed faded with a message delivered");
+  assert.deepEqual(stagesOf(panel), [false, true], "the message not yet delivered is not faded on its own");
+  assert.equal(panel.dataset.tag, "Delivered");
+  assert.equal(panel.getAttribute("aria-label"), "your messages waiting for a reply, delivered");
+  assert.ok(counts.rooms > rooms, "the card was not told the mark took its room");
+  // the mark names the newest message that has got anywhere
+  context.syncSent(el, [{ text: "Invented one.", stage: "read" }, { text: "Invented two.", stage: "delivered" }]);
+  assert.equal(panel.dataset.tag, "Delivered", "a later message still only delivered was called read");
+  context.syncSent(el, [{ text: "Invented one.", stage: "read" }, { text: "Invented two.", stage: "read" }]);
+  assert.equal(panel.dataset.tag, "Read");
+  assert.equal(panel.getAttribute("aria-label"), "your messages waiting for a reply, read");
+  // the phone's own message, not yet on the board: faded, with its own line
+  const phone = fullCard("c2");
+  context.syncSent(phone, [{ text: "Invented from the phone.", stage: "local", state: "pending", note: "Sending", op: "op-1" }], true);
+  assert.equal(phone.sent.classList.contains("undelivered"), true);
+  const row = phone.sent.querySelector(".answmsg");
+  assert.equal(row.classList.contains("pending"), true);
+  assert.equal(row.querySelector(".answnote").textContent, "Sending", "the phone's own line was lost");
+  // a board too old to say leaves the panel as it always was
+  const old = fullCard("c3");
+  context.syncSent(old, context.sentBatch(["Invented unmarked."]));
+  assert.equal(old.sent.classList.contains("undelivered"), false);
+  assert.equal(old.sent.dataset.tag, undefined);
+  // the panel over an answer says Read: the answer under it is the proof
+  context.syncAnswered(el, context.liveAnswered(liveBox()));
+  assert.equal(el.answ.dataset.tag, "Read", "the panel over an answer does not say read");
+});
+
+test("the panel's list is the board's reading: a note's messages first, read, then the queue where it stands", () => {
+  const { context } = sandbox();
+  const list = context.sentFrom({ notedTexts: ["Invented noted."], pendingTexts: ["Invented queued.", "Invented later."],
+    pendingStates: ["delivered", "sent"] });
+  assert.deepEqual(JSON.parse(JSON.stringify(list)), [
+    { text: "Invented noted.", stage: "read" },
+    { text: "Invented queued.", stage: "delivered" },
+    { text: "Invented later.", stage: "sent" },
+  ]);
+  // an older board with no record leaves every stage blank
+  assert.deepEqual(JSON.parse(JSON.stringify(context.sentFrom({ pendingTexts: ["Invented bare."] }))),
+    [{ text: "Invented bare.", stage: "" }]);
+  // the pages draw from it on every reading, and a send lands as sent
+  assert.match(DESKTOP, /el\.sentItems = sentFrom\(b\);\s*syncSent\(el, el\.sentItems\);/);
+  assert.match(PHONE, /el\.sentItems = sentFrom\(b\);\s*drawSent\(el, b\.id\);/);
+  assert.match(PHONE, /el\.sentItems = \[\.\.\.el\.sentItems, \{ text: op\.text, stage: "sent" \}\];/);
+  assert.match(PHONE, /batch\.push\(\{ text: op\.text, op: op\.id, state: op\.state, note: opNote\(op\), stage: "local" \}\);/,
+    "the phone's own messages are not marked as not yet on the board");
+  // and the sheet draws the stages: faded words and grey, the one quiet mark in its room
+  assert.match(rule(TOKENS, ".answered.undelivered"), /--answ-fill:color-mix\(in srgb, var\(--bubble-fill\) 50%, var\(--card, #fff\)\)/);
+  assert.match(rule(TOKENS, ".answmsg.undelivered > :not(.answnote)"), /opacity:\.5/);
+  assert.match(rule(TOKENS, ".answmsg > *"), /transition:opacity var\(--answ-move\) var\(--gentle\)/);
+  assert.match(rule(TOKENS, ".answered[data-tag]"), /margin-bottom:var\(--answ-tag\)/);
+  const mark = rule(TOKENS, ".answered[data-tag]::after");
+  assert.match(mark, /content:attr\(data-tag\); position:absolute; top:100%; right:var\(--answ-round\);/);
+  assert.match(mark, /font:10\.5px\/1\.35 var\(--mono\); color:var\(--sub\);/);
+  assert.match(mark, /pointer-events:none/);
+});
+
+test("the small card turns the same way, its three pieces pictured and carried up in one glide", () => {
+  const { context, run } = sandbox();
+  // the small card: its panel over the answer, its answer, its sent panel, one column in the card
+  const box = element("div");
+  box.className = "mbox";
+  const answwrap = element("div"); answwrap.className = "answwrap";
+  const reply = element("div"); reply.className = "mreply cardmd";
+  const sentwrap = element("div"); sentwrap.className = "sentwrap";
+  box.append(answwrap, reply, sentwrap);
+  const el = { box, reply, answwrap, answ: null, answId: null, sentwrap, sent: null, sentKey: "", sentItems: [],
+               ta: element("textarea") };
+  context.syncSent(el, [{ text: SENT[0], stage: "delivered" }], true);
+  box.rect = { top: 0, bottom: 400 };
+  reply.rect = { top: 40, bottom: 300 };
+  sentwrap.rect = { top: 300, bottom: 360 };
+  reply.scrollTop = 12;
+  // a card only held in the list and not the one on show turns nothing
+  box.classList.add("off");
+  assert.equal(context.turnBegin(el, NEXT), null, "a small card not on show turned");
+  box.classList.remove("off");
+  // typing in its own row holds the answer back
+  el.ta.typedAt = Date.now();
+  assert.equal(context.turnBegin(el, NEXT), run("TURN_HELD"), "typing in the small card did not hold the answer");
+  el.ta.typedAt = 0;
+  const turn = context.turnBegin(el, NEXT);
+  assert.equal(turn.mode, "glide", "the small card did not glide");
+  const sheet = box.querySelector(".turnsheet");
+  assert.ok(sheet && sheet.parentNode === box, "the small card's picture is not over its column");
+  assert.equal(sheet.style.top, "40px", "the picture does not start at the card's first piece");
+  assert.equal(sheet.style.height, "320px");
+  const page = sheet.querySelector(".turnpage");
+  assert.deepEqual(page.children.map(node => node.className), ["mreply cardmd", "sentwrap"],
+    "the small card's picture is not its answer and its sent panel");
+  assert.equal(page.children[0].scrollTop, 12, "the picture is not at the reader's scroll");
+  // the new page under it: the sent messages as the panel over the answer, and the answer
+  reply.innerHTML = markdown.render("Invented short answer.");
+  context.syncSent(el, []);
+  context.syncAnswered(el, context.liveAnswered(NEXT), null);
+  answwrap.rect = { top: 40, bottom: 100 };
+  reply.rect = { top: 100, bottom: 300 };
+  context.turnGo(el, turn);
+  assert.deepEqual(page.children.map(node => node.className), ["answwrap", "mreply cardmd", "mreply cardmd", "sentwrap"]);
+  assert.equal(page.children[0].style.top, "260px", "the new panel does not wait behind the old sent panel");
+  assert.equal(page.children[1].style.top, "320px", "the new answer is not in place under the new panel");
+  assert.equal(page.style.transform, "translate3d(0, -260px, 0)");
+  page.fire("transitionend", { target: page, propertyName: "transform" });
+  assert.equal(box.querySelector(".turnsheet"), null);
+  assert.equal(reply.classList.contains("printing"), false, "the small card faded its answer in after the glide");
+  // and the page hands its small cards the same turn around the same passes
+  const mini = DESKTOP.slice(DESKTOP.indexOf("function renderMiniCards(state){"));
+  const ask = mini.indexOf("? turnBegin(el, b) : null;");
+  const go = mini.indexOf("turnGo(el, turn);");
+  assert.ok(ask > 0 && go > mini.indexOf("syncSent(el, el.sentItems);") && go > ask,
+    "the small card does not lay its picture first and glide once its new page is drawn");
+  assert.match(mini, /watchReading\(el\);/);
+  assert.match(mini, /noteTyping\(ta\);/);
+  assert.match(DESKTOP, /#magic2 \.turnsheet\{background:inherit\}/);
 });

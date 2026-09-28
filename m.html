@@ -1417,10 +1417,11 @@ function makeBox(b){
                 // is what a poll compares against
                 answwrap, answ: null, answId: null,
                 // sent is null until something is sent and null again the moment
-                // the answer to it lands. sentTexts is what the board has
-                // confirmed of it; what it has not confirmed yet is this phone's
-                // own and is drawn after it (drawSent)
-                sentwrap, sent: null, sentKey: "", sentTexts: [] };
+                // the answer to it lands. sentItems is what the board has
+                // confirmed of it, each message with where it stands with the
+                // agent; what it has not confirmed yet is this phone's own and
+                // is drawn after it (drawSent)
+                sentwrap, sent: null, sentKey: "", sentItems: [] };
   // the sent panel's room: the band it holds still for a run is written again
   // once the run has landed, which no size the band's watch sees changes
   card.sentRoom = () => card.bandWrite && card.bandWrite();
@@ -1452,13 +1453,15 @@ function boxHasSelection(el){
 // the head of the card when the answer lands are the desktop's own, shared in
 // card-logic.js, and so is the whole of the panel of answered messages above
 // the answer. what is this page's own is what the panel is drawn from: the
-// messages the board has confirmed, and after them this phone's own that it
-// has not confirmed yet, each with a line under its words saying where it
+// messages the board has confirmed, each where it stands with the agent (sent,
+// delivered or read, the board's own record), and after them this phone's own
+// that the board has not confirmed yet, faded like a message no agent has
+// received and each with a line under its words saying where the sending
 // stands. arrive is what tells a send from a reading, as it does on the desktop
 function sentOf(el, id){
-  const batch = sentBatch(el.sentTexts);
+  const batch = el.sentItems.slice();
   for (const op of localSends(id))
-    batch.push({ text: op.text, op: op.id, state: op.state, note: opNote(op) });
+    batch.push({ text: op.text, op: op.id, state: op.state, note: opNote(op), stage: "local" });
   return batch;
 }
 function drawSent(el, id, arrive){
@@ -1870,7 +1873,8 @@ function failOp(op, why, by){
 function landSend(op, result){
   const el = els[op.box];
   if (!el) return;
-  el.sentTexts = [...el.sentTexts, op.text];
+  // on the board now, and no agent has received it yet: sent, until a reading says more
+  el.sentItems = [...el.sentItems, { text: op.text, stage: "sent" }];
   drawSent(el, op.box);
   el.sendGuard = Date.now();
   if (el.meta.textContent.indexOf("send ") === 0) el.meta.textContent = "";
@@ -3057,7 +3061,7 @@ function goToBox(id){
 // with nothing confirmed yet still stands for what is on its way. a pass
 // bringing the same again touches no dom at all
 function syncSentPhone(el, b){
-  el.sentTexts = b.pendingTexts || [];
+  el.sentItems = sentFrom(b);
   drawSent(el, b.id);
 }
 

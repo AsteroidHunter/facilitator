@@ -1542,7 +1542,9 @@ function fitAnswered(panel){
 // note under one, draws nothing above it again and leaves a pick of those
 // words alone. a message may carry a short note under its words and a state
 // the page dresses it in: the phone says so of a message the board has not
-// confirmed yet
+// confirmed yet. and a sent message carries its stage with the agent (see the
+// delivery marks further down): one that no agent has received yet is drawn
+// faded, and takes its full ink once it is delivered
 const ANSWERED_STATES = ["pending", "unsure", "failed"];
 function stackAnswered(panel, batch){
   const stack = panel.querySelector(".answstack");
@@ -1561,6 +1563,7 @@ function stackAnswered(panel, batch){
       stack.appendChild(msg);
     }
     for (const state of ANSWERED_STATES) msg.classList.toggle(state, m.state === state);
+    msg.classList.toggle("undelivered", sentUndelivered(m));
     if (m.op) msg.dataset.op = m.op;
     else delete msg.dataset.op;
     let note = msg.querySelector(".answnote");
@@ -1613,6 +1616,10 @@ function syncAnswered(el, meta, room = answeredRoomChanged){
   if (el.answ && el.answId === meta.id) return;
   if (!el.answ){
     el.answ = answeredPanel(room);
+    // every message here has been answered by the reply under it, which is the
+    // board's one proof that the agent read it: the panel says so, quietly,
+    // under its foot (the delivery marks, below)
+    el.answ.dataset.tag = SENT_TAGS.read;
     el.answwrap.appendChild(el.answ);
   }
   el.answId = meta.id;
@@ -1640,13 +1647,55 @@ function syncAnswered(el, meta, room = answeredRoomChanged){
 const SENT_ARRIVE_MS = 260;   // the sheet's --answ-come
 function sentBatch(texts){ return (texts || []).map(text => ({ text })); }
 
+// ---- the delivery marks ------------------------------------------------------------------
+// where each sent message stands with the agent, from the board's own record of
+// it (pendingStates and notedTexts on a reading, server.py's _pending_states):
+//   local      this phone has not had the board confirm it yet. the phone's own
+//              line under the words says how that is going (Sending, Not sent
+//              yet, retrying, and the rest)
+//   sent       on the board, and no agent has confirmed receiving it: drawn
+//              faded, the panel's grey and the words both, while every message
+//              in the panel is still only sent, and the words alone when an
+//              older message in it has been delivered
+//   delivered  the agent's listener confirmed the claim carrying it
+//   read       the agent has written back since it received it: a progress
+//              note over its claim, a note that took it toward the answer still
+//              to come, or the answer itself. the board cannot see inside an
+//              agent, so read here means written back about, and a message read
+//              but not yet written about stays delivered
+// the panel carries one quiet mark under its foot, the way a chat marks the
+// newest message that has got anywhere: Delivered or Read for the newest
+// message in it that is at least delivered, and nothing while none is. the
+// panel over an answer always reads Read, since the answer under it is the
+// board's proof. a message with no stage (a board too old to say) is drawn as
+// it always was and marks nothing
+const SENT_TAGS = { delivered: "Delivered", read: "Read" };
+function sentUndelivered(m){ return m.stage === "sent" || m.stage === "local"; }
+// the panel's list, out of the board's reading of a card: what a note has
+// already taken toward the answer to come, which is read, then the queued
+// messages, each where it stands
+function sentFrom(b){
+  const noted = ((b && b.notedTexts) || []).map(text => ({ text, stage: "read" }));
+  const texts = (b && b.pendingTexts) || [], states = (b && b.pendingStates) || [];
+  return noted.concat(texts.map((text, i) => ({ text, stage: states[i] || "" })));
+}
+// the panel's one mark, and whether every message in it is still undelivered
+function sentMarks(panel, shown){
+  const got = [...shown].reverse().find(m => SENT_TAGS[m.stage]);
+  const tag = got ? SENT_TAGS[got.stage] : "";
+  if (tag) panel.dataset.tag = tag;
+  else delete panel.dataset.tag;
+  panel.classList.toggle("undelivered", shown.every(sentUndelivered));
+  panel.setAttribute("aria-label", "your messages waiting for a reply" + (tag ? ", " + tag.toLowerCase() : ""));
+}
+
 function syncSent(el, batch, arrive){
   if (!el || !el.sentwrap) return;
   const shown = (batch || []).filter(m => !ANSWERED_BLANK.test(answeredText(m)));
   if (!shown.length){ dropSent(el); return; }
-  // what the panel is drawn from: the words, and the state and note of each. a
-  // pass bringing the same again touches no dom at all
-  const key = JSON.stringify(shown.map(m => [answeredText(m), m.state || "", m.note || ""]));
+  // what the panel is drawn from: the words, and the state, the note and the
+  // stage with the agent of each. a pass bringing the same again touches no dom
+  const key = JSON.stringify(shown.map(m => [answeredText(m), m.state || "", m.note || "", m.stage || ""]));
   if (el.sent && el.sentKey === key) return;
   el.sentKey = key;
   const room = el.sentRoom || null;
@@ -1654,14 +1703,15 @@ function syncSent(el, batch, arrive){
   if (!panel){
     panel = el.sent = answeredPanel(room);
     panel.classList.add("sent");
-    panel.setAttribute("aria-label", "your messages waiting for a reply");
     el.sentwrap.appendChild(panel);
     stackAnswered(panel, shown);
+    sentMarks(panel, shown);
     fitAnswered(panel);
     if (arrive) arriveSent(panel);
     if (room) room();
     return;
   }
+  sentMarks(panel, shown);
   const had = panel.querySelector(".answstack").children.length;
   if (arrive && panel.classList.contains("open")){
     // the run tells the room itself once it has landed
@@ -1724,23 +1774,28 @@ function cardsMoving(){
 
 // ---- the page turn -----------------------------------------------------------------------
 // the answer to what stands in the sent panel lands on the card on show, and the
-// card turns to a new page. first, what the reader was looking at, the answer
-// they were on and the sent panel under it, glides up together as one sheet,
-// eased on the card's gentle curve, until the sent panel stands where the panel
-// of answered messages stands at the head of a card: which is what it now is,
-// since the board hands those same messages to the new answer. only then is the
-// new answer printed under it: its blocks come in one after another from the
-// top, each a short fade with a small rise, so the words appear rather than
-// being typed out letter by letter.
+// card turns to a new page in one motion. what the reader was looking at, the
+// answer they were on and the sent panel under it, glides up, eased on the
+// card's gentle curve, and the new answer rides up with it, already in place
+// under the sent messages: the sent panel is carried up to where the panel of
+// answered messages stands at the head of a card, which is what it now is, since
+// the board hands those same messages to the new answer, and the answer arrives
+// under it as it goes. nothing is faded in after the glide; the answer is there
+// the whole way up.
 //
-// the glide moves a picture and not the card. the page the reader was on is
+// the glide moves pictures and not the card. the page the reader was on is
 // copied into a sheet laid over the card's column (the answer as it stood, at
 // its scroll and with its fades, and the sent panel on its seat), the card under
-// the sheet is drawn as the new page at once, and only the sheet's content
-// moves, on one transform, so no frame of the glide lays anything out or draws
-// anything again. it goes up by exactly the distance from where the sent panel
-// stood to where the new page's own panel stands, so when the sheet is taken
-// away the panel under it is on the same pixels.
+// the sheet is drawn as the new page at once, and the new page is copied into
+// the sheet too, under the old, one glide's length further down, so its panel
+// stands exactly behind the old sent panel and its answer just under it. then
+// only the sheet's content moves, on one transform, so no frame of the glide lays
+// anything out or draws anything again. it goes up by exactly the distance from
+// where the sent panel stood to where the new page's own panel stands, so when
+// the sheet is taken away the new page under it is on the same pixels as its
+// copy. the large card pictures its answer's scroller and the sent panel's
+// seat; the small card, which keeps its panel, its answer and its sent panel as
+// three pieces of one column, pictures the three.
 //
 // the reader is never moved while busy with the card. a new answer is held
 // back, the page left exactly as it was, while the reader is reading (the answer
@@ -1749,7 +1804,9 @@ function cardsMoving(){
 // two seconds), and the card looks again every half second; the page turns
 // once the card has been left still. a card that is not on show has nothing to
 // turn and simply shows the new page, and so does a card whose reader asked for
-// no motion. a progress note is not an answer and turns nothing
+// no motion. a new answer with no sent panel standing has nothing to glide and
+// is printed in place instead (printReply). a progress note is not an answer and
+// turns nothing
 const TURN_GLIDE_MS = 560;    // the sheet's --turn-glide
 const PRINT_MS = 780;         // the sheet's print: the last blocks start at 400ms and take 380
 const READ_QUIET_MS = 3000;   // this long after the reader last scrolled the answer
@@ -1761,7 +1818,7 @@ const TURN_HELD = "held";
 // it. the page's own moves of the scroll, a history step or a turn, are marked
 // quiet as they are made, so they are not taken for the reader's
 function watchReading(el){
-  el.replyview.addEventListener("scroll", () => {
+  (el.replyview || el.reply).addEventListener("scroll", () => {
     if (Date.now() - (el.quietScroll || 0) > 200) el.readAt = Date.now();
   }, { passive: true });
 }
@@ -1783,11 +1840,15 @@ function stillMotion(){
   return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-// the card on show: the one its page shows, whether chosen or only browsed to,
-// laid out, and not hidden under something the page lays over its whole board,
-// the way the desktop's home page hides the stage
+// the card on show: the one its page shows, whether chosen or only browsed to
+// (a large card wears sel; the small cards show one and set the rest off), laid
+// out, and not hidden under something the page lays over its whole board, the
+// way the desktop's home page hides the stage
 function cardOnShow(el){
-  if (!el.box.classList.contains("sel") || !el.replyview || !el.replyview.getBoundingClientRect().height) return false;
+  const view = el.replyview || el.reply;
+  if (!view || el.box.classList.contains("off")) return false;
+  if (el.replyview && !el.box.classList.contains("sel")) return false;
+  if (!view.getBoundingClientRect().height) return false;
   return getComputedStyle(el.box).visibility !== "hidden";
 }
 
@@ -1798,7 +1859,7 @@ function turnHolding(el, id){
   const now = Date.now();
   if (now - (el.readAt || 0) < READ_QUIET_MS) return true;
   if (el.ta && now - (el.ta.typedAt || 0) < TYPE_QUIET_MS) return true;
-  if (el.replyview && typeof boxHasSelection === "function" && boxHasSelection(el.replyview)) return true;
+  if (typeof boxHasSelection === "function" && boxHasSelection(el.replyview || el.reply)) return true;
   // and a sent panel part way through its own run is let finish it
   if (el.sent && el.sent.classList.contains("motion")) return true;
   return false;
@@ -1835,9 +1896,39 @@ function turnBegin(el, b){
   return turn;
 }
 
-// the still picture of the page the reader was on, over the card's column
+// the pieces of a card's column a turn pictures: where the sheet goes, what the
+// page the reader was on is made of, and what the new page is made of
+function turnParts(el){
+  if (el.replyview)
+    return { region: el.replyview.parentElement, before: [el.replyview, el.sentwrap], after: [el.replyview] };
+  return { region: el.box, before: [el.answwrap, el.reply, el.sentwrap], after: [el.answwrap, el.reply] };
+}
+
+// one still picture of one piece, laid in the sheet where the piece stands, shift
+// further down. the answer's scroller keeps the depth its foot is cut to, and a
+// picture never starts arriving or printing again
+function turnPicture(el, node, turn, shift){
+  const r = node.getBoundingClientRect();
+  const copy = node.cloneNode(true);
+  copy.style.position = "absolute";
+  copy.style.top = (r.top + shift - turn.top) + "px";
+  copy.style.left = (r.left - turn.left) + "px";
+  copy.style.width = r.width + "px";
+  copy.style.height = r.height + "px";
+  copy.style.margin = "0";
+  if (node === el.replyview)
+    copy.style.setProperty("--boxband", (typeof boxBand === "function" ? boxBand(node, el.pendwrap) : 0) + "px");
+  for (const one of [copy, ...copy.querySelectorAll(".arrive, .printing")])
+    one.classList.remove("arrive", "printing");
+  return copy;
+}
+
+// the still picture of the page the reader was on, over the card's column: from
+// the head of the card's body on a large card, where a fade in the white over
+// the answer takes what leaves, and from the first piece down on a small one,
+// to the foot of the sent panel's seat either way
 function turnSheet(el, turn){
-  const view = el.replyview, seat = el.sentwrap, body = view.parentElement;
+  const parts = turnParts(el);
   // a sent panel caught open, or part way through a run, is cut to its preview
   // where it stands, since what glides up is what stands at the head of the new page
   const sent = el.sent;
@@ -1848,42 +1939,29 @@ function turnSheet(el, turn){
     sent.classList.remove("open");
     fitAnswered(sent);
   }
-  const at = body.getBoundingClientRect(), vr = view.getBoundingClientRect(), sr = seat.getBoundingClientRect();
-  const place = (node, r) => {
-    node.style.position = "absolute";
-    node.style.top = (r.top - at.top) + "px";
-    node.style.left = (r.left - at.left) + "px";
-    node.style.width = r.width + "px";
-    node.style.margin = "0";
-  };
+  const at = parts.region.getBoundingClientRect(), sr = el.sentwrap.getBoundingClientRect();
+  const shown = parts.before.filter(node => node && node.getBoundingClientRect().height);
+  const top = el.replyview ? at.top : Math.min(...shown.map(node => node.getBoundingClientRect().top));
+  Object.assign(turn, { mode: "glide", top, left: at.left, from: sr.top });
   const sheet = h("div", "turnsheet");
   sheet.setAttribute("aria-hidden", "true");
-  sheet.style.height = (sr.bottom - at.top) + "px";
+  sheet.style.top = (top - at.top) + "px";
+  sheet.style.height = (sr.bottom - top) + "px";
   const page = h("div", "turnpage");
-  const was = view.cloneNode(true);
-  place(was, vr);
-  was.style.height = vr.height + "px";
-  // the copy's foot stays cut where the reader saw it cut, whatever the card's
-  // own band does under the sheet once the new page is drawn
-  was.style.setProperty("--boxband", (typeof boxBand === "function" ? boxBand(view, el.pendwrap) : 0) + "px");
-  const card = seat.cloneNode(true);
-  place(card, sr);
-  // a copy is a still picture: nothing in it may start arriving or printing again
-  for (const copy of [was, card])
-    for (const node of [copy, ...copy.querySelectorAll(".arrive, .printing, .printwait")])
-      node.classList.remove("arrive", "printing", "printwait");
-  page.append(was, card);
+  const pictures = shown.map(node => [node, turnPicture(el, node, turn, 0)]);
+  page.append(...pictures.map(([, copy]) => copy));
   sheet.appendChild(page);
-  body.appendChild(sheet);
-  was.scrollTop = view.scrollTop;
-  Object.assign(turn, { mode: "glide", sheet, page, from: sr.top });
+  parts.region.appendChild(sheet);
+  // each picture of a scroller stands at the scroll the reader left it at
+  for (const [node, copy] of pictures) if (node.scrollTop) copy.scrollTop = node.scrollTop;
+  Object.assign(turn, { sheet, page, region: parts.region });
   el.turning = turn;
   // a sheet never outlives its glide, whatever becomes of the pass that laid it
   turn.timer = setTimeout(() => { if (el.turning === turn) turnEnd(el); }, TURN_GLIDE_MS + 80);
 }
 
-// called once the page has drawn the new page under the sheet: the glide, then
-// the print, or the print alone
+// called once the page has drawn the new page under the sheet: the glide, which
+// brings the new answer up with it, or the print alone where nothing glides
 function turnGo(el, turn){
   if (!turn || turn === TURN_HELD) return;
   if (turn.mode !== "glide"){ printReply(el); return; }
@@ -1892,8 +1970,13 @@ function turnGo(el, turn){
   // and is shown and printed as it stands
   const dest = el.answ && el.answwrap ? el.answwrap.getBoundingClientRect().top : null;
   const lift = dest == null ? 0 : turn.from - dest;
-  if (!(lift > 1)){ turnEnd(el); return; }
-  el.reply.classList.add("printwait");
+  if (!(lift > 1)){ turnEnd(el); printReply(el); return; }
+  // the new page, pictured a glide's length further down and under the picture
+  // of the old one, so its panel waits behind the old sent panel and its answer
+  // stands just under it, and all of it comes up on the one transform
+  const fresh = turnParts(el).after.filter(node => node && node.getBoundingClientRect().height)
+    .map(node => turnPicture(el, node, turn, lift));
+  turn.page.prepend(...fresh);
   void turn.page.offsetWidth;   // the sheet stands as the reader left it before it moves
   turn.page.classList.add("gliding");
   turn.page.style.transform = "translate3d(0, " + (-lift) + "px, 0)";
@@ -1907,24 +1990,24 @@ function turnGo(el, turn){
   turn.timer = setTimeout(done, TURN_GLIDE_MS + 80);
 }
 
+// the glide has landed, or is cut short by a newer answer: the pictures go, and
+// the new page they were copied from stands where they stood
 function turnEnd(el){
   const turn = el.turning;
   if (!turn) return;
   el.turning = null;
   clearTimeout(turn.timer);
   if (turn.sheet) turn.sheet.remove();
-  printReply(el);
 }
 
-// the print: the answer's blocks come in one after another from the top, each a
-// fade with a small rise (the sheet's cardprint), fifty milliseconds apart and
-// all of them under way by the ninth. only strength and a transform are drawn,
-// so the answer's layout is final from the first frame and nothing under it
-// moves. the small card prints its short answer the same way when it changes
+// the print, for a new answer that has nothing to glide with: its blocks come in
+// one after another from the top, each a fade with a small rise (the sheet's
+// cardprint), fifty milliseconds apart and all of them under way by the ninth.
+// only strength and a transform are drawn, so the answer's layout is final from
+// the first frame and nothing under it moves
 function printReply(el){
   const reply = el && el.reply;
   if (!reply) return;
-  reply.classList.remove("printwait");
   if (stillMotion()) return;
   reply.classList.remove("printing");
   void reply.offsetWidth;   // a print still going starts again from its first block

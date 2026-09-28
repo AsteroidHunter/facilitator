@@ -594,7 +594,7 @@ test("every pending surface calls the shared formatter", async () => {
   // both message panels, on every card that loads the shared logic, are drawn
   // by the one stacking pass, and the small card's sent messages go through it
   assert.match(logic, /h\("div", "answmsg cardmd"\)[\s\S]*?msg\.innerHTML = fmt\(text\)/);
-  assert.match(index, /syncSent\(el, sentBatch\(el\.sentTexts\)\);/);
+  assert.match(index, /el\.sentItems = sentFrom\(b\);\s*syncSent\(el, el\.sentItems\);/);
   assert.match(page, /h\("div", "pending-message cardmd"\)[\s\S]*?content\.innerHTML = fmt\(text\)/);
   assert.match(page, /class="pending-message cardmd"[^\n]+fmt\(t\)/);
   assert.match(page, /class="docpending-message"[^\n]+fmt\(t\)/);

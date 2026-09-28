@@ -373,7 +373,7 @@ function addCard(p, id, opts = {}){
   ta.addEventListener("input", () => { sandbox.cancelAutoNext(); tick(); sandbox.xcCarry(id); });
   ta.addEventListener("keydown", e => sandbox.composerEnter(e, id));
   page.els[id] = { box, replyview, meta, metaNote, ta, send, tick, field,
-                   sentwrap, sent: null, sentKey: "", sentTexts: [],
+                   sentwrap, sent: null, sentKey: "", sentItems: [],
                    pendwrap, bottombar, clip, bar: { ta, send, tick } };
   return page.els[id];
 }
@@ -608,7 +608,9 @@ test("a send from the box is a send from the bar: same enter, same arrow, same r
   assert.deepEqual(sent.map(c => c.url), ["/send?box=m38", "/send?box=m38", "/send?box=m38"]);
   assert.deepEqual(sent.map(c => c.init.body), ["from the bar", "from the box", "by the arrow"]);
   assert.ok(sent.every(c => c.init.method === "POST"));
-  assert.equal(card.sentTexts.join("\n\n"), "from the bar\n\nfrom the box\n\nby the arrow", "the sent panel did not take all three");
+  assert.equal(card.sentItems.map(m => m.text).join("\n\n"), "from the bar\n\nfrom the box\n\nby the arrow",
+    "the sent panel did not take all three");
+  assert.ok(card.sentItems.every(m => m.stage === "sent"), "a send was not marked as on the board and not yet delivered");
   assert.ok(card.sent, "no sent panel stands at the card's foot");
   // read out into this side's own array: the batch was built inside the page's sandbox
   assert.deepEqual(Array.from(card.sentBatch, m => m.text), ["from the bar", "from the box", "by the arrow"],
