@@ -3,7 +3,9 @@
 // messages that reply was given, and a server started on it on a free port
 // pair. Every word on a card is drawn one at a time from this repo's own docs,
 // so the text reads like the board's and compresses no better than it: a
-// drawn word never brings the phrase it stood in along with it.
+// drawn word never brings the phrase it stood in along with it. The same seed
+// makes the same board only while those docs stay as they are, so exact byte
+// counts move a little whenever the docs change.
 //
 // Nothing here reads the real board or its state file; the board lives in a
 // temp folder that the caller removes.

@@ -219,9 +219,12 @@ test("the page takes only the changed cards and draws the board a whole reading 
     expect(got);
     return got;
   };
+  // the byte ceilings below are far under a whole board (about 210 KB
+  // compressed) and loose on purpose: a card's words come from the docs, so
+  // its exact size moves when they do
   await step("one card renamed", () => post("/title?box=m650", "Renamed on the phone test"), got => {
     assert.deepEqual(got.cards, ["m650"]);
-    assert.ok(got.bytes < 2000, `a one card change took ${got.bytes} bytes`);
+    assert.ok(got.bytes < 4000, `a one card change took ${got.bytes} bytes`);
   });
   await step("a message sent", () => post("/send?box=m651&op=lean-send-0001", "A message to one card"), got => {
     assert.deepEqual(got.cards, ["m651"]);
@@ -231,7 +234,7 @@ test("the page takes only the changed cards and draws the board a whole reading 
     assert.deepEqual(got.cards, [made.id]);
     assert.equal(typeof got.after[made.id], "string", "the new card came without its place");
     assert.equal(got.ids, false);
-    assert.ok(got.bytes < 2000, `a new card took ${got.bytes} bytes`);
+    assert.ok(got.bytes < 4000, `a new card took ${got.bytes} bytes`);
   });
   const three = [];
   await step("three new cards, two of them one after the other", async () => {
