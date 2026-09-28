@@ -300,7 +300,14 @@ function sandbox() {
     timers.delete(id);
     timer.fn();
   };
-  return { context, counts, run, pending, ring };
+  // the newest timer waiting for this many ms, let go
+  const ringFor = ms => {
+    const found = [...timers].filter(([, timer]) => timer.ms === ms).pop();
+    assert.ok(found, `no timer waits ${ms}ms`);
+    timers.delete(found[0]);
+    found[1].fn();
+  };
+  return { context, counts, run, pending, ring, ringFor };
 }
 // the end of the height's transition on a panel's cut, as a browser fires it
 function landRun(panel) {
@@ -1121,9 +1128,9 @@ test("a message the phone has not had confirmed carries its state and a line, an
 // a card on show with a sent panel standing, laid out the way a browser would
 // report it: the card's body, the answer's view under the title, scrolled a
 // little, and the seat at the foot
-function turningCard(context) {
+function turningCard(context, batch = context.sentBatch(SENT)) {
   const el = fullCard("c1");
-  context.syncSent(el, context.sentBatch(SENT), true);
+  context.syncSent(el, batch, true);
   el.body.rect = { top: 100, bottom: 900 };
   el.replyview.rect = { top: 120, bottom: 900 };
   el.sentwrap.rect = { top: 700, bottom: 790 };
@@ -1353,19 +1360,22 @@ test("every new motion is a transform or a fade, and nothing in a run is a mask"
   const part = TOKENS.slice(from, to);
   assert.ok(from > 0 && to > from);
   assert.ok(!/mask/.test(part.replace(/\/\*[\s\S]*?\*\//g, "")), "a panel or the turn still draws a mask");
-  assert.ok(!/@property/.test(TOKENS), "a custom property is still run");
+  // the one registered property is the panel's grey, so that it can run with the words
+  assert.deepEqual([...TOKENS.matchAll(/@property (--[a-z-]+)/g)].map(m => m[1]), ["--answ-fill"], "a custom property is still run");
   assert.ok(!/--answ-cut/.test(TOKENS + LOGIC), "the old run dissolve is still there");
   assert.ok(!/blur|filter/.test(part.replace(/\/\*[\s\S]*?\*\//g, "")), "a panel or the turn draws a blur");
   // every transition there: the fold's own height run, carried over as it was,
   // and otherwise strength and transforms alone, but for the one top margin a
   // panel over the answer is held down by while it is cut off its top, which
-  // has to keep step with that height run on every frame
+  // has to keep step with that height run on every frame, the bottom margin
+  // that is the room for the mark, and the panel's grey
   const transitions = [...part.matchAll(/transition:([^;}]+)/g)].map(m => m[1].trim());
   for (const t of transitions)
     for (const one of t.split(","))
-      assert.ok(/^(height|opacity|transform|margin-top) /.test(one.trim()), `a run moves something other than height, strength or a transform: ${one}`);
+      assert.ok(/^(height|opacity|transform|margin-top|margin-bottom|--answ-fill) /.test(one.trim()), `a run moves something other than height, strength or a transform: ${one}`);
   assert.equal(transitions.filter(t => t.startsWith("height")).length, 1, "a new run changes a height");
   assert.equal(transitions.filter(t => /margin-top/.test(t)).length, 1, "a margin moves somewhere other than the panel's own run");
+  assert.equal(transitions.filter(t => /margin-bottom/.test(t)).length, 2, "the room for the mark runs somewhere other than the panel");
   assert.match(rule(TOKENS, ".answered.motion"),
     /transition:transform var\(--answ-move\) var\(--gentle\), margin-top var\(--answ-move\) var\(--gentle\)/,
     "the panel's top margin does not run on the cut's own length and curve");
@@ -1523,6 +1533,188 @@ test("the sent panel reads the board's own record: faded until delivered, then D
   // the panel over an answer says Read: the answer under it is the proof
   context.syncAnswered(el, context.liveAnswered(liveBox()));
   assert.equal(el.answ.dataset.tag, "Read", "the panel over an answer does not say read");
+  assert.equal(el.answ.dataset.mark, "Read", "the panel over an answer is not drawn with its word");
+});
+
+// the mark's own motion: the record (data-tag), the word on show (data-mark), and
+// the two classes the sheet draws the run by
+const markOf = panel => [panel.dataset.tag, panel.dataset.mark, panel.classList.contains("markin"), panel.classList.contains("markout")];
+
+test("a mark comes in on a panel that is standing, and the card is told of its room once the run has landed", () => {
+  const { context, counts, run, pending, ringFor } = sandbox();
+  const el = fullCard("c1");
+  el.sentRoom = context.roomSpy;
+  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }], true);
+  const panel = el.sent;
+  panel.isConnected = true;
+  assert.deepEqual(markOf(panel), [undefined, undefined, false, false]);
+  assert.equal(run("MARK_IN_MS"), 330, "the mark does not come in over the fold's run");
+  assert.equal(run("MARK_OUT_MS"), 165, "the mark does not go out over half of it");
+  // delivered: the word is on show and comes in at once, over the run
+  context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }]);
+  assert.deepEqual(markOf(panel), ["Delivered", "Delivered", true, false], "the mark did not come in");
+  assert.ok(pending().some(t => t.ms === 350), "no clock ends the mark's run");
+  // the room's own run ends with the mark's: the card is told once, after
+  const rooms = counts.rooms;
+  ringFor(350);
+  assert.equal(panel.classList.contains("markin"), false, "the mark's dress outlived its run");
+  assert.equal(counts.rooms, rooms + 1, "the card was not told once the room had opened");
+  // the same word again does nothing
+  const runs = () => pending().filter(t => t.ms === 165 || t.ms === 350).length;
+  const armed = runs();
+  context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }, { text: "Invented two.", stage: "sent" }]);
+  assert.deepEqual(markOf(panel), ["Delivered", "Delivered", false, false], "the same word ran again");
+  assert.equal(runs(), armed, "the same word armed a run");
+});
+
+test("a mark giving way to the next goes out, is swapped while it is not seen, and comes in: two words are never on show", () => {
+  const { context, counts, pending, ringFor } = sandbox();
+  const el = fullCard("c1");
+  el.sentRoom = context.roomSpy;
+  // a panel drawn already marked shows its word at once and runs nothing
+  context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }], true);
+  const panel = el.sent;
+  panel.isConnected = true;
+  assert.deepEqual(markOf(panel), ["Delivered", "Delivered", false, false], "a panel drawn marked ran a mark in");
+  assert.ok(!pending().some(t => t.ms === 165 || t.ms === 350), "a panel drawn marked armed a run");
+  // the agent read it: the record says Read at once, and the word on show is
+  // still the old one while it fades out
+  context.syncSent(el, [{ text: "Invented one.", stage: "read" }]);
+  assert.deepEqual(markOf(panel), ["Read", "Delivered", false, true], "the old word was not faded out first");
+  const rooms = counts.rooms;
+  ringFor(165);
+  assert.deepEqual(markOf(panel), ["Read", "Read", true, false], "the new word did not come in when the old had gone");
+  ringFor(350);
+  assert.deepEqual(markOf(panel), ["Read", "Read", false, false]);
+  assert.equal(counts.rooms, rooms, "a word for a word moved the room");
+  // a word that goes with none after it: faded out, then the room closes with it
+  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }]);
+  assert.deepEqual(markOf(panel), [undefined, "Read", false, true]);
+  const closing = counts.rooms;
+  ringFor(165);
+  assert.deepEqual(markOf(panel), [undefined, undefined, false, false], "a word with nothing after it was left on show");
+  ringFor(350);
+  assert.equal(counts.rooms, closing + 1, "the card was not told the room closed");
+});
+
+test("a change that lands while a mark is going out is not started again, and the last word is the one that lands", () => {
+  const { context, pending, ringFor } = sandbox();
+  const el = fullCard("c1");
+  context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }], true);
+  const panel = el.sent;
+  context.syncSent(el, [{ text: "Invented one.", stage: "read" }]);
+  assert.equal(pending().filter(t => t.ms === 165).length, 1);
+  // the record moves again before the swap: no second run is armed, and the word
+  // that lands is the record's when the swap is made
+  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }]);
+  assert.equal(pending().filter(t => t.ms === 165).length, 1, "a second fade out was armed");
+  assert.deepEqual(markOf(panel), [undefined, "Delivered", false, true]);
+  ringFor(165);
+  assert.deepEqual(markOf(panel), [undefined, undefined, false, false], "an old target was swapped in");
+  // a word still coming in when the next change has swapped it again: the clock
+  // of the run before leaves the dress of the run that is on
+  const { context: again, pending: waiting, ringFor: letGo } = sandbox();
+  const two = fullCard("c1");
+  again.syncSent(two, [{ text: "Invented one.", stage: "delivered" }], true);
+  again.syncSent(two, [{ text: "Invented one.", stage: "read" }]);
+  letGo(165);
+  again.syncSent(two, [{ text: "Invented one.", stage: "delivered" }]);
+  letGo(165);
+  const clocks = waiting().filter(t => t.ms === 350);
+  assert.equal(clocks.length, 2, "each run has its own clock");
+  clocks[0].fn();
+  assert.equal(two.sent.classList.contains("markin"), true, "an older run's clock took the newer run's dress off");
+  clocks[1].fn();
+  assert.equal(two.sent.classList.contains("markin"), false);
+});
+
+test("a reader who asked for no motion, or a panel that was not standing, is given the word at once", () => {
+  const { context, pending } = sandbox();
+  context.stillness = true;
+  const el = fullCard("c1");
+  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }], true);
+  context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }]);
+  assert.deepEqual(markOf(el.sent), ["Delivered", "Delivered", false, false], "the mark ran against the setting");
+  context.syncSent(el, [{ text: "Invented one.", stage: "read" }]);
+  assert.deepEqual(markOf(el.sent), ["Read", "Read", false, false], "the mark was swapped with a run against the setting");
+  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }]);
+  assert.deepEqual(markOf(el.sent), [undefined, undefined, false, false]);
+  assert.ok(!pending().some(t => t.ms === 165 || t.ms === 350), "a clock stands behind a mark that did not run");
+  // the panel over an answer is drawn with its word, and a page that draws it again keeps it
+  const { context: live } = sandbox();
+  const card = fullCard("c2");
+  live.syncAnswered(card, live.liveAnswered(liveBox()));
+  assert.deepEqual(markOf(card.answ), ["Read", "Read", false, false], "the panel over an answer ran its word in");
+  live.syncAnswered(card, live.liveAnswered(liveBox()));
+  assert.deepEqual(markOf(card.answ), ["Read", "Read", false, false]);
+  // and the timed refresh waits out a mark's run as it does a panel's
+  live.moving = [".answered.markin"];
+  assert.equal(live.cardsMoving(), true, "a mark coming in did not hold the refresh");
+  live.moving = [".answered.markout"];
+  assert.equal(live.cardsMoving(), true, "a mark going out did not hold the refresh");
+});
+
+test("the page turn flips the sent panel's mark on the way up and holds the new panel's mark out, so no two words are drawn together", () => {
+  const { context, run, ringFor } = sandbox();
+  const delivered = SENT.map(text => ({ text, stage: "delivered" }));
+  const el = turningCard(context, delivered);
+  ringFor(run("SENT_ARRIVE_MS") + 60);
+  // the panel was in the middle of a change when the reader's reply came: the
+  // picture is taken as still, without the classes that move
+  context.syncSent(el, SENT.map(text => ({ text, stage: "read" })));
+  assert.equal(el.sent.classList.contains("markout"), true);
+  const turn = context.turnBegin(el, NEXT);
+  const page = el.body.querySelector(".turnpage");
+  const old = page.querySelector(".answered.sent");
+  assert.equal(old.classList.contains("markout") || old.classList.contains("markin"), false,
+    "the picture of the panel carried a mark's motion in");
+  assert.equal(old.dataset.mark, "Delivered");
+  el.reply.dataset.raw = "The invented new answer.";
+  el.reply.innerHTML = markdown.render(el.reply.dataset.raw);
+  context.syncSent(el, context.sentBatch([]));
+  el.answwrap.rect = { top: 120, bottom: 200 };
+  context.syncAnswered(el, context.liveAnswered(NEXT));
+  context.turnGo(el, turn);
+  // the new page's panel stands behind the old, and holds its word out
+  const fresh = page.children[0].querySelector(".answered");
+  assert.equal(fresh.dataset.mark, "Read");
+  assert.equal(fresh.classList.contains("markout"), true, "the new page's mark is drawn under the old panel's");
+  // the old panel turns its own word to Read on the way up
+  assert.deepEqual(markOf(old), ["Read", "Delivered", false, true], "the old panel's mark did not go out");
+  ringFor(165);
+  assert.deepEqual(markOf(old), ["Read", "Read", true, false], "the old panel's mark did not come in as Read");
+  assert.equal(fresh.classList.contains("markout"), true, "the new page's mark was let out during the glide");
+  // the panel that stays is the card's own, and was never held out
+  assert.deepEqual(markOf(el.answ), ["Read", "Read", false, false]);
+  // one that was still faded when the reply landed takes its full ink up with it
+  const other = sandbox();
+  const faded = turningCard(other.context, SENT.map(text => ({ text, stage: "sent" })));
+  const held = other.context.turnBegin(faded, NEXT);
+  const picture = faded.body.querySelector(".turnpage").querySelector(".answered.sent");
+  assert.equal(picture.classList.contains("undelivered"), true);
+  assert.equal(picture.querySelectorAll(".undelivered").length > 1, true, "the picture's messages were not faded");
+  faded.reply.innerHTML = markdown.render("The invented new answer.");
+  other.context.syncSent(faded, other.context.sentBatch([]));
+  faded.answwrap.rect = { top: 120, bottom: 200 };
+  other.context.syncAnswered(faded, other.context.liveAnswered(NEXT));
+  other.context.turnGo(faded, held);
+  assert.equal(picture.querySelectorAll(".undelivered").length, 0, "the picture stayed faded on its way to the new page");
+  assert.deepEqual(markOf(picture), ["Read", "Read", true, false], "no mark came in on the panel that had none");
+});
+
+test("both pages draw the marks from the shared files alone, and the sheet runs them on the fold's own curve and length", () => {
+  assert.ok(!/data-mark|data-tag|markin|markout/.test(DESKTOP + PHONE), "a page draws a mark of its own");
+  assert.match(TOKENS, /@property --answ-fill\{syntax:"<color>"; inherits:true; initial-value:transparent\}/,
+    "the panel's grey cannot run without being a colour");
+  assert.ok(rules(TOKENS, ".answered").some(one => /transition:margin-bottom var\(--answ-move\) var\(--gentle\), --answ-fill var\(--answ-move\) var\(--gentle\)/.test(one)),
+    "the room and the grey do not run on the fold's length and curve");
+  assert.match(rule(TOKENS, ".answered.motion"), /margin-bottom var\(--answ-move\) var\(--gentle\),\s*--answ-fill var\(--answ-move\) var\(--gentle\)/,
+    "a run in progress dropped the room's and the grey's own run");
+  const props = [...keyframes(TOKENS, "markin").matchAll(/([a-z-]+):/g)].map(m => m[1]);
+  assert.deepEqual([...new Set(props)].sort(), ["opacity", "transform"], "the mark comes in on more than strength and a transform");
+  assert.match(rule(TOKENS, ".answered.markin::after"), /animation:markin var\(--answ-move\) var\(--gentle\) backwards/);
+  assert.match(rule(TOKENS, ".answered.markout::after"), /opacity:0; transition:opacity calc\(var\(--answ-move\) \/ 2\) var\(--gentle\)/);
+  assert.match(TOKENS, /--answ-move:\.33s/, "the fold's run is not the length the mark's clocks are set for");
 });
 
 test("the panel's list is the board's reading: a note's messages first, read, then the queue where it stands", () => {
@@ -1547,9 +1739,9 @@ test("the panel's list is the board's reading: a note's messages first, read, th
   assert.match(rule(TOKENS, ".answered.undelivered"), /--answ-fill:color-mix\(in srgb, var\(--bubble-fill\) 50%, var\(--card, #fff\)\)/);
   assert.match(rule(TOKENS, ".answmsg.undelivered > :not(.answnote)"), /opacity:\.5/);
   assert.match(rule(TOKENS, ".answmsg > *"), /transition:opacity var\(--answ-move\) var\(--gentle\)/);
-  assert.match(rule(TOKENS, ".answered[data-tag]"), /margin-bottom:var\(--answ-tag\)/);
-  const mark = rule(TOKENS, ".answered[data-tag]::after");
-  assert.match(mark, /content:attr\(data-tag\); position:absolute; top:100%; right:var\(--answ-round\);/);
+  assert.match(rule(TOKENS, ".answered[data-mark]"), /margin-bottom:var\(--answ-tag\)/);
+  const mark = rule(TOKENS, ".answered[data-mark]::after");
+  assert.match(mark, /content:attr\(data-mark\); position:absolute; top:100%; right:var\(--answ-round\);/);
   assert.match(mark, /font:10\.5px\/1\.35 var\(--mono\); color:var\(--sub\);/);
   assert.match(mark, /pointer-events:none/);
 });

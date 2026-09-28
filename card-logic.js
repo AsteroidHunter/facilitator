@@ -1739,7 +1739,7 @@ function syncAnswered(el, meta, room = answeredRoomChanged){
     // every message here has been answered by the reply under it, which is the
     // board's one proof that the agent read it: the panel says so, quietly,
     // under its foot (the delivery marks, below)
-    el.answ.dataset.tag = SENT_TAGS.read;
+    setMark(el.answ, SENT_TAGS.read);
     // on a large card the panel rides at the head of the answer's own
     // scroller, whose scroll a cut back must leave where the reader has it
     el.answ.answView = el.replyview || null;
@@ -1802,12 +1802,52 @@ function sentFrom(b){
   const texts = (b && b.pendingTexts) || [], states = (b && b.pendingStates) || [];
   return noted.concat(texts.map((text, i) => ({ text, stage: states[i] || "" })));
 }
-// the panel's one mark, and whether every message in it is still undelivered
-function sentMarks(panel, shown){
-  const got = [...shown].reverse().find(m => SENT_TAGS[m.stage]);
-  const tag = got ? SENT_TAGS[got.stage] : "";
+// the mark's own motion, which the sheet draws (card-tokens.css): a word comes
+// in over the fold's run (--answ-move), and one giving way to another goes out
+// over half of it first. data-tag is where the board's record has the panel,
+// data-mark the word on show, and they part only for the length of a change.
+// a panel drawn with its mark, or a reader who asked for no motion, is given the
+// word at once; the change of a panel already standing is the one that moves.
+// a change that lands while another is going is not started again: the swap
+// under way reads the record when it lands. clocks end it, since a page that
+// runs no transitions never says so
+const MARK_OUT_MS = 165;   // half the sheet's --answ-move
+const MARK_IN_MS = 330;    // the sheet's --answ-move
+function setMark(panel, tag, live){
   if (tag) panel.dataset.tag = tag;
   else delete panel.dataset.tag;
+  if (panel.classList.contains("markout")) return;
+  const shown = panel.dataset.mark || "";
+  if (tag === shown) return;
+  if (!live || stillMotion()){ showMark(panel, tag, false); return; }
+  if (!shown){ showMark(panel, tag, true); return; }
+  panel.classList.add("markout");
+  setTimeout(() => {
+    panel.classList.remove("markout");
+    showMark(panel, panel.dataset.tag || "", true);
+  }, MARK_OUT_MS);
+}
+function showMark(panel, tag, comes){
+  const roomMoves = !panel.dataset.mark !== !tag;
+  const run = panel.markRun = (panel.markRun || 0) + 1;
+  panel.classList.remove("markin");
+  if (tag) panel.dataset.mark = tag;
+  else delete panel.dataset.mark;
+  if (!comes) return;
+  if (tag) panel.classList.add("markin");
+  // the room under the foot opens or closes on the same run, and whoever wants
+  // to know about the room is told once it has stopped
+  setTimeout(() => {
+    if (panel.markRun === run) panel.classList.remove("markin");
+    if (roomMoves && panel.isConnected && panel.answRoom) panel.answRoom();
+  }, MARK_IN_MS + 20);
+}
+// the panel's one mark, and whether every message in it is still undelivered.
+// live is a panel that was standing before this reading
+function sentMarks(panel, shown, live){
+  const got = [...shown].reverse().find(m => SENT_TAGS[m.stage]);
+  const tag = got ? SENT_TAGS[got.stage] : "";
+  setMark(panel, tag, live);
   panel.classList.toggle("undelivered", shown.every(sentUndelivered));
   panel.setAttribute("aria-label", "your messages waiting for a reply" + (tag ? ", " + tag.toLowerCase() : ""));
 }
@@ -1834,7 +1874,7 @@ function syncSent(el, batch, arrive){
     if (room) room();
     return;
   }
-  sentMarks(panel, shown);
+  sentMarks(panel, shown, true);
   const had = panel.querySelector(".answstack").children.length;
   if (arrive && panel.classList.contains("open")){
     // the run tells the room itself once it has landed
@@ -1892,7 +1932,7 @@ function sentBand(el, band){
 // reader did goes at once
 function cardsMoving(){
   return typeof document !== "undefined" && typeof document.querySelector === "function" &&
-    !!document.querySelector(".answered.motion, .turnsheet");
+    !!document.querySelector(".answered.motion, .answered.markin, .answered.markout, .turnsheet");
 }
 
 // ---- the page turn -----------------------------------------------------------------------
@@ -2041,8 +2081,8 @@ function turnPicture(el, node, turn, shift){
   copy.style.margin = "0";
   if (node === el.replyview)
     copy.style.setProperty("--boxband", (typeof boxBand === "function" ? boxBand(node, el.pendwrap) : 0) + "px");
-  for (const one of [copy, ...copy.querySelectorAll(".arrive, .printing")])
-    one.classList.remove("arrive", "printing");
+  for (const one of [copy, ...copy.querySelectorAll(".arrive, .printing, .markin, .markout")])
+    one.classList.remove("arrive", "printing", "markin", "markout");
   return copy;
 }
 
@@ -2099,10 +2139,22 @@ function turnGo(el, turn){
   // stands just under it, and all of it comes up on the one transform
   const fresh = turnParts(el).after.filter(node => node && node.getBoundingClientRect().height)
     .map(node => turnPicture(el, node, turn, lift));
+  // its panel stands exactly behind the sent panel, whose own mark turns on the
+  // way up, so its mark is held out and the two words are never drawn together
+  for (const copy of fresh)
+    for (const one of copy.querySelectorAll(".answered")) one.classList.add("markout");
   turn.page.prepend(...fresh);
   void turn.page.offsetWidth;   // the sheet stands as the reader left it before it moves
   turn.page.classList.add("gliding");
   turn.page.style.transform = "translate3d(0, " + (-lift) + "px, 0)";
+  // the sent panel is on its way to being the panel over the answer, which reads
+  // Read: its mark turns on the way up, and a panel still faded takes its full
+  // grey and ink with it, so the swap when the sheet goes is not one
+  const rising = turn.page.querySelector(".answered.sent");
+  if (rising){
+    setMark(rising, SENT_TAGS.read, true);
+    for (const one of [rising, ...rising.querySelectorAll(".undelivered")]) one.classList.remove("undelivered");
+  }
   clearTimeout(turn.timer);
   const done = e => {
     if (e && (e.target !== turn.page || e.propertyName !== "transform")) return;

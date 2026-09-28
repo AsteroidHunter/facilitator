@@ -314,7 +314,10 @@
    that is neither a height, a strength nor a transform, because it has to keep
    step with the cut's height on every frame to the pixel, and a transform runs
    on a clock of its own apart from the layout */
-.answered.motion{transition:transform var(--answ-move) var(--gentle), margin-top var(--answ-move) var(--gentle)}
+.answered.motion{
+  transition:transform var(--answ-move) var(--gentle), margin-top var(--answ-move) var(--gentle),
+    margin-bottom var(--answ-move) var(--gentle), --answ-fill var(--answ-move) var(--gentle);
+}
 .answered.motion .answstack{transition:transform var(--answ-move) var(--gentle)}
 .answered.motion .answstack, .answered.motion .answfoot,
 .replyview:has(> .answwrap .answered.motion) > .reply{will-change:transform}
@@ -382,16 +385,30 @@
    the one mark a panel carries, Delivered or Read, stands under its foot at the
    right, in the card's quiet mono, stepped in by the corner's own radius so it
    sits under the straight edge. the panel keeps room for it under itself, so
-   nothing stands on it */
+   nothing stands on it.
+   the panel takes its delivery on the fold's own run: the grey firms up with the
+   words, the room for the mark opens under the foot on the same curve, and the
+   mark comes in with a short rise and a fade. a mark giving way to the next one
+   fades out over half of that and the next comes in, so the two words are never
+   on screen together (card-logic.js swaps the word between the two and says
+   which is on show in data-mark; data-tag is where the board's record has it).
+   the grey is a registered colour so that it can run at all. a page that
+   builds the panel already marked draws it as it is: nothing here moves until
+   the mark changes on a panel that is standing */
+@property --answ-fill{syntax:"<color>"; inherits:true; initial-value:transparent}
+@keyframes markin{from{opacity:0; transform:translate3d(0, calc(var(--answ-rise) / 2), 0)}}
+.answered{transition:margin-bottom var(--answ-move) var(--gentle), --answ-fill var(--answ-move) var(--gentle)}
 .answered.undelivered{--answ-fill:color-mix(in srgb, var(--bubble-fill) 50%, var(--card, #fff))}
 .answmsg > *{transition:opacity var(--answ-move) var(--gentle)}
 .answmsg.undelivered > :not(.answnote){opacity:.5}
-.answered[data-tag]{margin-bottom:var(--answ-tag)}
-.answered[data-tag]::after{
-  content:attr(data-tag); position:absolute; top:100%; right:var(--answ-round);
+.answered[data-mark]{margin-bottom:var(--answ-tag)}
+.answered[data-mark]::after{
+  content:attr(data-mark); position:absolute; top:100%; right:var(--answ-round);
   padding-top:3px; font:10.5px/1.35 var(--mono); color:var(--sub);
   white-space:nowrap; pointer-events:none;
 }
+.answered.markin::after{animation:markin var(--answ-move) var(--gentle) backwards}
+.answered.markout::after{opacity:0; transition:opacity calc(var(--answ-move) / 2) var(--gentle)}
 
 /* ---- the page turn and the print ----------------------------------------- */
 /* the answer to the sent panel's messages lands on the card on show and the card
