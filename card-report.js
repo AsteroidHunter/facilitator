@@ -20,6 +20,8 @@
   const ASLEEP = 10000; // the wall clock this far ahead of the page's own means sleep
 
   let page = null;                 // "board", "phone" or "page"; null until started
+  let client = "other";            // the kind of window this page is open in
+  let windowId = "";               // 16 random hex characters, new on every page load
   let doing = "idle";              // the one word the page last said it was doing
   let freezes = 0;                 // lateness is an event, not a kind: each is its own
   let incidents = null;            // the phone's recent history, only in memory
@@ -27,6 +29,26 @@
 
   function cut(text) {
     return String(text == null ? "" : text).slice(0, FIELD);
+  }
+
+  // which kind of window this is, as one short word. The user agent is read
+  // here and never sent: Electron adds its own token, the Tauri app is the bare
+  // system WebKit view (no Version or Safari token, which the Safari browser has),
+  // and a touch screen on a Mac user agent is an iPad. Anything else is "other"
+  function clientOf(agent, touchPoints) {
+    const ua = String(agent || "");
+    if (/\b(iPhone|iPad|iPod|Android)\b/.test(ua) || (/Macintosh/.test(ua) && touchPoints > 1)) return "phone";
+    if (/Electron\//.test(ua)) return "electron";
+    if (/Chrome\//.test(ua)) return /\b(Edg|OPR)\//.test(ua) ? "other" : "chrome";
+    if (/Safari\//.test(ua)) return "safari";
+    if (/Macintosh/.test(ua) && /AppleWebKit\//.test(ua)) return "tauri";
+    return "other";
+  }
+
+  // the batch as the route reads it: which page, which kind of window, and which
+  // load of it, so lines from two windows showing the same page can be told apart
+  function batchOf(reports) {
+    return JSON.stringify({ page: page, client: client, window: windowId, reports: reports });
   }
 
   // the card open right now. Each page declares selectedId itself, so this is
@@ -93,8 +115,7 @@
     for (const report of queued.values()) reports.push(report);
     queued.clear();
     try {
-      navigator.sendBeacon("/clientlog", new Blob(
-        [JSON.stringify({ page: page, reports: reports })], { type: "application/json" }));
+      navigator.sendBeacon("/clientlog", new Blob([batchOf(reports)], { type: "application/json" }));
     } catch (e) {
       // the page is going away and there is nowhere left to say so
     }
@@ -166,6 +187,8 @@
   window.startReporter = function (name) {
     if (page) return;
     page = name;
+    client = clientOf(navigator.userAgent, navigator.maxTouchPoints);
+    windowId = Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
     if (name === "phone") {
       try {
         incidents = phoneHistory(window.fetch);
@@ -285,7 +308,7 @@
     let ring = [], lost = 0, sparseLost = 0, suppressed = 0, seq = 0, generation = 0;
     const important = [], work = [], life = [], pollBuckets = [], observerBuckets = [];
     let collecting = null, worker = "unknown", activeRequest = null;
-    const session = Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+    const session = windowId;
     let lastResume = -Infinity, lastAuto = -Infinity, attempts = [];
     const stuck = new Map();   // card -> when its last no-scroll save was made
     let viewport = null, viewportTimer = null, viewportAt = -Infinity, viewportKey = "";
@@ -509,7 +532,7 @@
     function fitReport(report, maxBytes, maxEvents) {
       let body;
       for (;;) {
-        body = JSON.stringify({ page: "phone", reports: [report] });
+        body = batchOf([report]);
         if ((body.length <= maxBytes && report.events.length <= maxEvents) ||
             report.events.length <= 1) return body;
         const lastPost = [...report.events].reverse().find(e => e.at > 0 && e.event !== "mark");

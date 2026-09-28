@@ -91,10 +91,11 @@ async function settleReports() {
 
 // a page in its own browsing context, so one test's storage is never the next
 // test's starting point
-async function open(route, viewport) {
+async function open(route, viewport, agent) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   if (viewport) await page.setViewport(viewport);
+  if (agent) await page.setUserAgent(agent);
   await page.goto(origin + route, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => typeof startReporter === "function", { timeout: 5000 });
   // the tests count the same events the reporter does, so a case can wait for
@@ -321,6 +322,96 @@ test("the page view outside the sandbox reports like the other two", async () =>
     assert.equal(thrown.page, "page");
   } finally {
     await context.close();
+  }
+});
+
+// ---- which window sent it -----------------------------------------------------
+// Every line names the kind of window and carries an id made once per page
+// load. The three agents are what the built apps and a phone report.
+
+const APP_AGENTS = {
+  electron: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) FacilitatorElectron/0.2.246 Chrome/152.0.7977.130 Electron/44.4.5 Safari/537.36",
+  tauri: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)",
+  phone: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+};
+
+// the browser prefixes a throw's message, and some lines have no message at all
+const saying = text => report => typeof report.message === "string" && report.message.includes(text);
+
+test("a line from a Chrome window says chrome and carries an id for that page load", async () => {
+  await settleReports();
+  const { page, context } = await open("/");
+  try {
+    await throwInPage(page, "which window threw this");
+    await hide(page);
+    const fresh = await newReports(report => /which window threw this/.test(report.message));
+    const thrown = fresh.find(report => /which window threw this/.test(report.message));
+    assert.equal(thrown.client, "chrome");
+    assert.match(thrown.window, /^[a-f0-9]{16}$/);
+    assert.ok(!JSON.stringify(thrown).includes("Mozilla"), "the user agent reached the file");
+  } finally {
+    await context.close();
+  }
+});
+
+test("one page load keeps one id across batches, and a second load has its own", async () => {
+  await settleReports();
+  const first = await open("/");
+  const second = await open("/");
+  try {
+    await throwInPage(first.page, "load one, batch one");
+    await hide(first.page);
+    await throwInPage(first.page, "load one, batch two");
+    await hide(first.page);
+    await throwInPage(second.page, "load two, batch one");
+    await hide(second.page);
+    const fresh = await newReports(report => /load (one|two), batch/.test(report.message), 3);
+    const idOf = message => fresh.find(saying(message)).window;
+    assert.equal(idOf("load one, batch one"), idOf("load one, batch two"), "one load changed its id");
+    assert.notEqual(idOf("load one, batch one"), idOf("load two, batch one"), "two loads shared an id");
+  } finally {
+    await first.context.close();
+    await second.context.close();
+  }
+});
+
+for (const [name, agent] of Object.entries(APP_AGENTS)) {
+  test(`a page whose user agent is the ${name}'s says ${name}, and the phone page says the same`, async () => {
+    for (const [route, viewport, pageName] of [["/", null, "board"], ["/m", PHONE, "phone"]]) {
+      await settleReports();
+      const message = `thrown under the ${name} agent on ${pageName}`;
+      const { page, context } = await open(route, viewport, agent);
+      try {
+        await throwInPage(page, message);
+        await hide(page);
+        const fresh = await newReports(saying(message));
+        const thrown = fresh.find(saying(message));
+        assert.equal(thrown.page, pageName);
+        assert.equal(thrown.client, name);
+        assert.match(thrown.window, /^[a-f0-9]{16}$/);
+      } finally {
+        await context.close();
+      }
+    }
+  });
+}
+
+test("the page view and the phone page, in Chrome, say chrome and carry an id", async () => {
+  for (const [route, viewport, pageName] of [["/page", null, "page"], ["/m", PHONE, "phone"]]) {
+    await settleReports();
+    const message = `${pageName} in chrome names its window`;
+    const { page, context } = await open(route, viewport);
+    try {
+      await throwInPage(page, message);
+      await hide(page);
+      const fresh = await newReports(saying(message));
+      const thrown = fresh.find(saying(message));
+      assert.equal(thrown.page, pageName);
+      assert.equal(thrown.client, "chrome");
+      assert.match(thrown.window, /^[a-f0-9]{16}$/);
+    } finally {
+      await context.close();
+    }
   }
 });
 
