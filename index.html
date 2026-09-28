@@ -68,36 +68,26 @@
     border-radius:4px; background:none; cursor:pointer; flex:none}
   #bgpick::-webkit-color-swatch-wrapper{padding:2px}
   #bgpick::-webkit-color-swatch{border:none; border-radius:2px}
-  #editbtn{font:13px var(--mono); color:var(--accent); background:var(--accent-soft);
-    border:none; border-radius:4px; padding:3px 9px; cursor:pointer; transition:.2s; flex:none;
+  /* the pen is a mark like the gear beside it: 15px, the sub ink, no box, the
+     accent under a pointer and while the layout is being edited */
+  #editbtn{display:flex; align-items:center; padding:2px; border:none; background:none;
+    color:var(--sub); cursor:pointer; transition:color .2s; flex:none;
     margin-left:auto}   /* holds the right edge now the status row is gone */
-  #editbtn:hover{background:#E2DCFC}
-  body.editmode #editbtn{background:var(--accent); color:#fff}
-  /* the install control, in the edit button's own dress so the bar stays one
-     row of controls: the same face, size, colours, corner and padding, and no
-     margin of its own, since the button before it already holds the right edge.
-     It is hidden except while Chrome is offering to install the board */
+  #editbtn:hover, body.editmode #editbtn{color:var(--accent)}
+  /* the install control, in the soft tint the edit button used to wear: the same
+     face, size, colours, corner and padding, and no margin of its own, since the
+     button before it already holds the right edge. It is hidden except while
+     Chrome is offering to install the board */
   #installbtn{font:13px var(--mono); color:var(--accent); background:var(--accent-soft);
     border:none; border-radius:4px; padding:3px 9px; cursor:pointer; transition:.2s; flex:none}
   #installbtn:hover{background:#E2DCFC}
   /* ---- settings ----------------------------------------------------------
-     the board's own choices, opened off the bar. it holds what the phone's
-     settings panel holds for this browser and is drawn in the bar's own
-     scale: one mark, and one panel of plain rows under it */
-  #setwrap{position:relative; flex:none; display:flex; align-items:center}
-  #setbtn{display:flex; align-items:center; padding:2px; border:none;
+     the board's own choices, opened off the bar by one mark onto a page that
+     covers the whole window (the settings page in card-tokens.css). the swatch
+     is the background colour's control, which sits on that page */
+  #setbtn{display:flex; align-items:center; padding:2px; border:none; flex:none;
     background:none; color:var(--sub); cursor:pointer; transition:color .2s}
-  #setbtn:hover, #setwrap.open #setbtn{color:var(--accent)}
-  /* seated under the mark by the script, and drawn above the board rather than
-     inside the bar's own layer */
-  #setpanel{display:none; position:fixed; z-index:40; width:264px; padding:11px 13px;
-    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
-    box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
-  body.setopen #setpanel{display:block}
-  #setpanel .setrow{display:flex; gap:8px; align-items:flex-start;
-    font:13px/1.4 var(--sans); color:var(--ink); cursor:pointer}
-  #setpanel .setrow input{margin:2px 0 0; flex:none; accent-color:var(--accent)}
-  #setpanel .sethelp{margin:5px 0 0 22px; font:11.5px/1.45 var(--mono); color:var(--sub)}
+  #setbtn:hover, body.setopen #setbtn{color:var(--accent)}
 
   /* ---- the app's enclosure ----------------------------------------------- */
   /* every outer edge of the app carries the cards' own 7px curve, so the shell
@@ -3530,21 +3520,29 @@
   <span id="tabbar"></span>
   <span id="projnote"></span>
   <span class="name" id="boardname">facilitator</span>
-  <button id="editbtn" title="edit layout">✎</button>
+  <button id="editbtn" type="button" title="edit layout" aria-label="edit layout" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></button>
   <button id="installbtn" type="button" hidden>Install app</button>
-  <input type="color" id="bgpick" title="background color (temporary)" value="#F5F4F1">
-  <span id="setwrap">
-    <button id="setbtn" type="button" title="settings" aria-label="settings" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-1 1.47V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.6 1.6 0 0 0 4.6 15a1.6 1.6 0 0 0-1.47-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 8.9a1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.6 1.6 0 0 0 8.88 4.6H9a1.6 1.6 0 0 0 1-1.47V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77V9a1.6 1.6 0 0 0 1.47 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.47 1z"/></svg></button>
-  </span>
+  <button id="setbtn" type="button" title="settings" aria-label="settings" aria-haspopup="dialog" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-1 1.47V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.6 1.6 0 0 0 4.6 15a1.6 1.6 0 0 0-1.47-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 8.9a1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.6 1.6 0 0 0 8.88 4.6H9a1.6 1.6 0 0 0 1-1.47V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77V9a1.6 1.6 0 0 0 1.47 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.47 1z"/></svg></button>
 </div>
 
-<!-- the settings panel hangs from the mark in the bar but stands outside it:
-     the bar paints on a layer of its own and anything inside it is bound to that
-     layer, so a panel kept in there is drawn under the board it opens over. it
-     is seated under the mark by the script that opens it. -->
-<div id="setpanel" role="group" aria-label="settings">
-  <label class="setrow"><input type="checkbox" id="setformat"><span>Format text while typing</span></label>
-  <p class="sethelp">Bold, italic, strikethrough, quotes and bullets are drawn in the composer as you type. The message is still sent as Markdown.</p>
+<!-- the settings, one group to a section: the page in card-logic.js builds the
+     full-screen settings page from these and moves each group into its pane,
+     so every control keeps its id and its wiring below -->
+<div id="setsrc" hidden>
+  <div data-section="appearance" data-label="Appearance">
+    <div class="setrow">
+      <label class="setlabel" for="bgpick"><span>Background colour</span>
+        <small class="sethelp">The colour behind the board, kept in this browser.</small></label>
+      <input type="color" id="bgpick" value="#F5F4F1">
+    </div>
+  </div>
+  <div data-section="editor" data-label="Editor">
+    <div class="setrow">
+      <label class="setlabel" for="setformat"><span>Format text while typing</span>
+        <small class="sethelp">Bold, italic, strikethrough, quotes and bullets are drawn in the composer as you type. The message is still sent as Markdown.</small></label>
+      <input type="checkbox" id="setformat">
+    </div>
+  </div>
 </div>
 
 <div id="appframe" aria-hidden="true"></div>
@@ -4393,6 +4391,9 @@ let pageBusy = false;    // one create or one delete at a time
 // the quick note's overlay is up: it covers the board, so the board's keys are
 // off until it is put away (see the quick note, near the end of this script)
 let qnOpen = false;
+// the settings page is up, and covers the board the same way (see settings, near
+// the end of this script)
+let setOpen = false;
 // a page this browser has just made, held until a reading of the board is new
 // enough to speak for it. Without a hold, a reading already in flight when the
 // page was made comes back without it, the row falls back to the first page,
@@ -4463,7 +4464,7 @@ function onBoardPage(state){
 }
 // whether the board's own keys are live: a blank page has no cards to walk,
 // and the confirmation window owns the keyboard while it is up
-function boardKeysLive(){ return !pageWarn && !pageMenu && !qnOpen && !homeOpen && onBoardPage(); }
+function boardKeysLive(){ return !pageWarn && !pageMenu && !qnOpen && !setOpen && !homeOpen && onBoardPage(); }
 
 async function addPage(){
   if (!ownerReady || draft || activeOwner === DRAFT || pageBusy) return;
@@ -9492,7 +9493,7 @@ const boardShortcutActions = {
   // the first Escape leaves the composer, the bar or the box on the right
   // alike, or any field; the next one unselects the card, which stays on
   // screen browsed, the box still open with its draft. a key something else
-  // answered first, a menu, a picture, the quick note or the settings panel,
+  // answered first, a menu, a picture, the quick note or the settings page,
   // never gets this far, and neither does one held down to repeat. the card
   // has to be the one holding the keys, as control+s asks
   escape(e){
@@ -10740,6 +10741,7 @@ function setEditMode(on){
   if (on && !onBoardPage()) return;   // no board on this page, nothing to arrange
   editMode = on;
   document.body.classList.toggle("editmode", on);
+  document.getElementById("editbtn").setAttribute("aria-pressed", on ? "true" : "false");
   if (on){
     buildHandles();
     trackHandles();
@@ -10755,49 +10757,32 @@ function setEditMode(on){
 document.getElementById("editbtn").addEventListener("click", () => setEditMode(!editMode));
 
 // ---- settings --------------------------------------------------------------
-// the board's own choices for this browser, one panel off the bar. it opens on
-// the mark, closes on the next click outside it or on escape, and every row in
-// it writes straight through to the thing it names
+// the board's own choices for this browser, on one page over the whole window,
+// opened by the mark on the bar. the page itself is the shared one in
+// card-logic.js, built from the groups in #setsrc. it puts itself away from its
+// own close mark and on escape, and an Escape it spends is not heard by the
+// board, which leaves the card selected. every control in it writes straight
+// through to the thing it names
 {
-  const wrap = document.getElementById("setwrap");
   const btn = document.getElementById("setbtn");
-  const panel = document.getElementById("setpanel");
   const format = document.getElementById("setformat");
-  const isOpen = () => document.body.classList.contains("setopen");
-  // the panel stands outside the bar, so it is seated under the mark rather
-  // than hung off it: the mark's own box is where it belongs, and reading that
-  // box means no number here has to know what else is in the bar
-  const seat = () => {
-    const at = btn.getBoundingClientRect();
-    const room = document.documentElement.clientWidth;
-    panel.style.top = Math.round(at.bottom + 9) + "px";
-    panel.style.right = Math.max(6, Math.round(room - at.right)) + "px";
-  };
-  const shut = () => {
-    document.body.classList.remove("setopen");
-    wrap.classList.remove("open");
-    btn.setAttribute("aria-expanded", "false");
-  };
+  const view = settingsOverlay(document.body, document.getElementById("setsrc"), {
+    onOpen(){
+      setOpen = true;
+      document.body.classList.add("setopen");
+      btn.setAttribute("aria-expanded", "true");
+      format.checked = ComposeFormat.enabled();
+    },
+    onClose(){
+      setOpen = false;
+      document.body.classList.remove("setopen");
+      btn.setAttribute("aria-expanded", "false");
+    },
+  });
   format.checked = ComposeFormat.enabled();
   format.addEventListener("change", () => ComposeFormat.setEnabled(format.checked));
   ComposeFormat.onChange(on => { format.checked = on; });
-  btn.addEventListener("click", e => {
-    e.stopPropagation();
-    const open = !isOpen();
-    document.body.classList.toggle("setopen", open);
-    wrap.classList.toggle("open", open);
-    btn.setAttribute("aria-expanded", open ? "true" : "false");
-    if (open){ format.checked = ComposeFormat.enabled(); seat(); }
-  });
-  document.addEventListener("click", e => {
-    if (isOpen() && !wrap.contains(e.target) && !panel.contains(e.target)) shut();
-  });
-  // an Escape that shuts the panel is spent on it: the board's own Escape,
-  // which hears the key after this, leaves the card selected
-  document.addEventListener("keydown", e => {
-    if (e.key === "Escape" && isOpen()){ e.preventDefault(); shut(); }
-  });
-  addEventListener("resize", () => { if (isOpen()) seat(); });
+  btn.addEventListener("click", () => view.open());
 }
 // the editor the typed formatting is drawn with is fetched once, early, so the
 // row is already wearing it by the time anybody types in it
@@ -11753,7 +11738,7 @@ qnPeek.setAttribute("aria-label", "open a quick note");
 document.body.appendChild(qnPeek);
 let qnPeekOut = false, qnPeekTimer = null;
 function qnCornerLive(){
-  return !qnOpen && !editMode && !pageWarn && !pageMenu && !p3Zoom &&
+  return !qnOpen && !setOpen && !editMode && !pageWarn && !pageMenu && !p3Zoom &&
          !document.body.classList.contains("dragging");
 }
 function qnPeekShow(){

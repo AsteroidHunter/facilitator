@@ -515,7 +515,7 @@ async function quickNotePage(){
   assert.ok(keysLive, "boardKeysLive is gone from index.html");
   const block = between(HTML, "// ---- the quick note ----", "\nrenameMagicLayouts();");
   vm.runInContext([
-    "let lastState = null, qnOpen = false, editMode = false, pageWarn = null, pageMenu = null, p3Zoom = null, homeOpen = false;",
+    "let lastState = null, qnOpen = false, setOpen = false, editMode = false, pageWarn = null, pageMenu = null, p3Zoom = null, homeOpen = false;",
     "let caretPlaced = 0, queueFatCaret = () => { caretPlaced++; };",
     "function onBoardPage(){ return true; }",
     keysLive[0],
@@ -787,7 +787,7 @@ test("the page's sheets: a four by three card of plain text, and the peek a smal
   // the board reads the notes off each reading and hands them to the chip
   assert.match(HTML, /const noteCards = quickNotesByCard\(state\.quicknotes\);/);
   assert.match(HTML, /syncQuickNoteChip\(el, noteCards\[b\.id\] \|\| \[\]\);/);
-  assert.match(HTML, /function boardKeysLive\(\)\{ return !pageWarn && !pageMenu && !qnOpen && !homeOpen && onBoardPage\(\); \}/);
+  assert.match(HTML, /function boardKeysLive\(\)\{ return !pageWarn && !pageMenu && !qnOpen && !setOpen && !homeOpen && onBoardPage\(\); \}/);
 });
 
 // the note's sheet read the way a browser reads it: comments out, one space,
@@ -852,7 +852,8 @@ test("the note's words stay dark on light over anything the board shows behind t
   const tint = Number(shipped(glass)(cssValue(glass, "background-color")).match(/,([\d.]+)\)$/)[1]);
   const card = cleanCss(between(TOKENS, ".qn-card{", "}"));
   const boost = Number(cssValue(card, "--qn-boost"));
-  const behindText = cleanCss(between(TOKENS, ".qn-card::before{", "}"));
+  // the settings page is the same glass and takes the same boost, from the same rule
+  const behindText = cleanCss(between(TOKENS, ".qn-card::before, .sp-page::before{", "}"));
   assert.equal(cssValue(behindText, "background"), "rgba(255,255,255,var(--qn-boost))");
   assert.match(cssValue(cleanCss(between(TOKENS, ".qn-text{", "}")), "position"), /relative/,
     "the field is not lifted over the text boost");
@@ -887,7 +888,7 @@ test("the glass sees the board from its first frame, and turns solid when less t
   // a reader who asks for less transparency gets a solid white card
   const reduced = cleanCss(between(TOKENS, "@media (prefers-reduced-transparency: reduce){", "\n}\n"));
   assert.match(reduced, /\.qn-glass\{background-color:#fff; backdrop-filter:none; -webkit-backdrop-filter:none\}/);
-  assert.match(reduced, /\.qn-card::before\{display:none\}/);
+  assert.match(reduced, /\.qn-card::before, \.sp-page::before\{display:none\}/);
   // and a browser that cannot blur gets a nearly solid face
   const noBlur = cleanCss(between(TOKENS, "@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){", "\n}\n"));
   assert.match(noBlur, /\.qn-glass\{background-color:rgba\(255,255,255,\.94\)\}/);

@@ -685,38 +685,39 @@ test("the board's own file navigator and the card row keep separate words and se
   }
 });
 
-test("the board's settings panel opens over the board, works and closes", async () => {
+test("the board's settings page opens over the whole window, works and closes", async () => {
   await clearLane();
-  const id = await card("Settings panel", "A reply to answer.");
+  const id = await card("Settings page", "A reply to answer.");
   const { page, problems } = await open("/", DESKTOP);
   try {
     await pickDesktopCard(page, id);
     await editorOn(page);
     await page.click("#setbtn");
     await settle(250);
+    await page.click('.sp-item[data-section="editor"]');
+    await settle(100);
     const out = await page.evaluate(() => {
-      const panel = document.getElementById("setpanel");
+      const view = document.querySelector(".sp-page");
       const mark = document.getElementById("setbtn");
-      const rect = panel.getBoundingClientRect();
-      const markRect = mark.getBoundingClientRect();
+      const rect = view.getBoundingClientRect();
       const middle = document.elementFromPoint(Math.round(rect.left + rect.width / 2),
                                                Math.round(rect.top + rect.height / 2));
       return {
         open: document.body.classList.contains("setopen"),
-        shown: getComputedStyle(panel).display,
-        onTop: !!middle && panel.contains(middle),
-        underTheMark: Math.abs(rect.right - markRect.right) <= 1 && rect.top > markRect.bottom,
-        insideTheWindow: rect.left >= 0 && rect.right <= document.documentElement.clientWidth,
-        label: panel.querySelector(".setrow span").textContent,
+        shown: getComputedStyle(view.closest(".sp-veil")).display,
+        onTop: !!middle && view.contains(middle),
+        coversTheWindow: rect.left === 0 && rect.top === 0
+          && rect.right === document.documentElement.clientWidth
+          && rect.bottom === document.documentElement.clientHeight,
+        label: view.querySelector(".sp-pane.on .setrow span").textContent,
         checked: document.getElementById("setformat").checked,
         expanded: mark.getAttribute("aria-expanded"),
       };
     });
-    assert.equal(out.open, true, "the mark did not open the panel");
+    assert.equal(out.open, true, "the mark did not open the page");
     assert.equal(out.shown, "block");
-    assert.equal(out.onTop, true, "the panel was drawn under the board it opens over");
-    assert.equal(out.underTheMark, true, "the panel was not seated under its own mark");
-    assert.equal(out.insideTheWindow, true, "the panel hung off the side of the window");
+    assert.equal(out.onTop, true, "the page was drawn under the board it opens over");
+    assert.equal(out.coversTheWindow, true, "the page did not cover the whole window");
     assert.equal(out.label, "Format text while typing");
     assert.equal(out.checked, true);
     assert.equal(out.expanded, "true");
@@ -726,23 +727,24 @@ test("the board's settings panel opens over the board, works and closes", async 
     await page.click("#setformat");
     await settle(250);
     assert.equal(await page.evaluate(() => ComposeFormat.enabled()), false,
-      "the panel's mark did not turn the setting off");
-    await page.waitForFunction(() => document.querySelectorAll(".cffield").length === 0,
-      { timeout: 10000 });
+      "the page's mark did not turn the setting off");
     await page.click("#setformat");
-    await editorOn(page);
+    await settle(250);
+    assert.equal(await page.evaluate(() => ComposeFormat.enabled()), true);
 
-    // and it closes on a click outside it, and on escape
-    await page.mouse.click(700, 500);
+    // and it closes on the close mark, and on escape, and hands the focus back to its mark
+    await page.click(".sp-close");
     await settle(200);
     assert.equal(await page.evaluate(() => document.body.classList.contains("setopen")), false,
-      "a click on the board left the panel open");
+      "the close mark left the page open");
+    assert.equal(await page.evaluate(() => document.activeElement.id), "setbtn");
     await page.click("#setbtn");
     await settle(200);
     await page.keyboard.press("Escape");
     await settle(200);
     assert.equal(await page.evaluate(() => document.body.classList.contains("setopen")), false,
-      "escape left the panel open");
+      "escape left the page open");
+    await editorOn(page);
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
