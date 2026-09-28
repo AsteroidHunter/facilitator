@@ -209,7 +209,7 @@ function desktop() {
     FOCUS: true, activeOwner: "lane", draft: null, DRAFT: "__draft__", editMode: false, setEditMode: noop,
     miniFocused: false, p3Zoom: null,
     // what the board's own boardKeysLive asks, beside the home page's homeOpen
-    pageWarn: null, pageMenu: null, qnOpen: false, onBoardPage: () => true,
+    pageWarn: null, pageMenu: null, qnOpen: false, setOpen: false, onBoardPage: () => true,
     cancelAutoNext: noop, histExit: noop, syncDesktopHistoryAvailability: noop, updatePwd: noop,
     snapCard: noop, renderTabs: noop, rowsOf: () => ["lane"],
     // what setTab asks of the rest of the board
@@ -358,7 +358,7 @@ test("Enter is left alone on a button, while typing, in the small card or with a
     ["already answered", () => d.press("Enter", { defaultPrevented: true })],
     ["with the small card holding the keys", () => { d.sandbox.miniFocused = true; const e = d.press("Enter"); d.sandbox.miniFocused = false; return e; }],
     ["with a picture open", () => { d.sandbox.p3Zoom = {}; const e = d.press("Enter"); d.sandbox.p3Zoom = null; return e; }],
-    ["with the settings panel open", () => { d.body.classList.add("setopen"); const e = d.press("Enter"); d.body.classList.remove("setopen"); return e; }],
+    ["with the settings page open", () => { d.sandbox.setOpen = true; d.body.classList.add("setopen"); const e = d.press("Enter"); d.sandbox.setOpen = false; d.body.classList.remove("setopen"); return e; }],
     ["on a new tab choosing its folder", () => { d.sandbox.draft = { screen: "home" }; const e = d.press("Enter"); d.sandbox.draft = null; return e; }],
   ];
   for (const [name, run] of cases) {
@@ -410,9 +410,10 @@ test("Escape leaves the card selected when something else answered it or holds t
     run();
     assert.equal(d.browsing(), false, `Escape ${name} unselected the card`);
   }
-  // the settings panel shuts on Escape before the board hears the key, so it
-  // says the key is spent; the menu, the picture and the quick note already do
-  assert.match(HTML.desktop, /document\.addEventListener\("keydown", e => \{\n    if \(e\.key === "Escape" && isOpen\(\)\)\{ e\.preventDefault\(\); shut\(\); \}\n  \}\);/);
+  // the settings page shuts on Escape before the board hears the key, so it
+  // says the key is spent and lets no key past it; the menu, the picture and the
+  // quick note already do
+  assert.match(LOGIC, /veil\.addEventListener\("keydown", e => \{\n    e\.stopPropagation\(\);\n    if \(e\.key === "Escape"\)\{ e\.preventDefault\(\); close\(\); \}\n  \}\);/);
   assert.match(HTML.desktop, /if \(e\.key !== "Escape" \|\| !pageMenu\) return;\n  e\.preventDefault\(\); e\.stopPropagation\(\);/);
   assert.match(HTML.desktop, /if \(e\.key !== "Escape" \|\| !p3Zoom\) return;\n  e\.preventDefault\(\); e\.stopPropagation\(\);/);
   assert.match(LOGIC, /e\.stopPropagation\(\);\n    if \(e\.key === "Escape"\)\{ e\.preventDefault\(\); close\(\); return; \}/);

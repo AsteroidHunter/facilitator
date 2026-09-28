@@ -212,7 +212,7 @@ const KEYS = HTML.match(/^function boardKeysLive\(\)\{.*\}$/m);
 const PRELUDE = `
 let FOCUS = true, respMode = "wide", stageScale = 1, selectedId = null, lastState = null;
 let activeOwner = "tools", dragging = null, sizing = null;
-let qnOpen = false, editMode = false, pageWarn = null, pageMenu = null, p3Zoom = null;
+let qnOpen = false, setOpen = false, editMode = false, pageWarn = null, pageMenu = null, p3Zoom = null;
 const els = {};
 const STAGE_W = 1440, STAGE_H = 900;
 const PLUS_ICON = "<svg plus></svg>", SEND_ICON = "<svg send></svg>";
