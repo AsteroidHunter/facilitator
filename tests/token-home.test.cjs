@@ -249,18 +249,25 @@ test("the line is each day's trailing seven-day average over the same year", () 
   const low = half.points.find(p => p.avg === 1e6);
   assert.ok(Math.abs(low.y - (half.box.top + half.box.h / 2)) < 0.1, "half the axis is half the height");
   const svg = W.lineSvg(model);
-  // its first proportions, at its own size: the heatmap's 769 by 113, one unit a pixel
-  assert.match(svg, /<svg class="tk-line" width="769" height="113" viewBox="0 0 769 113"/);
-  assert.deepEqual({ ...model.box }, { left: 38, right: 6, top: 8, bottom: 17, w: 725, h: 88 });
+  // at its own size, one unit a pixel: the heatmap's 769 across and the view's
+  // whole 192 down, so the plot is 158 tall rather than the heatmap strip's 88
+  assert.match(svg, /<svg class="tk-line" width="769" height="192" viewBox="0 0 769 192"/);
+  assert.deepEqual({ ...model.box }, { left: 46, right: 8, top: 10, bottom: 24, w: 715, h: 158 });
+  // its names a size up from the heatmap's, and every month name inside the chart
+  assert.ok(model.months.length >= 11);
+  assert.ok(model.months.every(m => m.x >= 46 && m.x + 22 <= 769 - 8));
+  assert.equal((svg.match(/<text class="tk-axis line"/g) || []).length, model.months.length);
+  assert.match(svg, /<circle class="tk-dot" r="5"/);
   const path = /class="tk-path" d="([^"]+)"/.exec(svg)[1];
   assert.equal((path.match(/[ML]/g) || []).length, 365);
   assert.ok(svg.includes(`stroke="${W.LINE}"`));
   assert.ok(hsl(W.LINE).h >= 8 && hsl(W.LINE).h <= 30, "the same warm colour");
   // the count names are drawn apart into the place they held, to stay put while the line scrolls
   const pin = W.linePin(model);
-  assert.match(pin, /^<svg width="38" height="113" viewBox="0 0 38 113"/);
+  assert.match(pin, /^<svg width="46" height="192" viewBox="0 0 46 192"/);
   for (const label of ["0", "500K", "1M"]) {
-    assert.ok(pin.includes(`>${label}</text>`));
+    assert.ok(pin.includes(`text-anchor="end">${label}</text>`));
+    assert.match(pin, new RegExp(`<text class="tk-axis line"[^>]*>${label}</text>`));
     assert.ok(!svg.includes(`>${label}</text>`), `${label} would scroll away with the line`);
   }
   // a year of nothing still draws, flat on the floor
@@ -308,9 +315,9 @@ test("the view opens a chart on its latest weeks, keeps a place scrolled back to
   view = el.querySelector(".tk-scroll"); lane = el.querySelector(".tk-lane");
   assert.equal(view.scrollLeft, 0);
   assert.ok(!lane.classList.contains("more-left") && !lane.classList.contains("more-right"));
-  // the line's view is the same, its count names pinned in their own 38px
+  // the line's view is the same, its count names pinned in their own 46px
   assert.match(el.innerHTML, /<svg class="tk-line" width="769"/);
-  assert.match(el.innerHTML, /<div class="tk-pin" style="width:38px"><svg width="38"/);
+  assert.match(el.innerHTML, /<div class="tk-pin" style="width:46px"><svg width="46"/);
 });
 
 test("each chart keeps its own place when the pill switches, and a refresh keeps it", async () => {
@@ -376,6 +383,13 @@ test("the box is narrower than the charts and taller than before, and scrolls th
   assert.match(home, /transform:translate\(-50%, -50%\)/);
   assert.match(rule(".tk-view"), /height:192px/);
   assert.match(rule(".tk-panel"), /padding:16px 20px 14px/);
+  // the line fills the view top to bottom, as wide as the heatmap so both
+  // scroll alike; the heatmap keeps its strip, its 10px names and its place
+  assert.deepEqual({ ...W.LINE_CHART }, { width: 769, height: 192 });
+  assert.match(rule(".tk-axis"), /font:400 10px var\(--sans\)/);
+  assert.match(rule(".tk-axis.line"), /font-size:12px/);
+  assert.match(rule(".tk-path"), /stroke-width:2\.5px/);
+  assert.ok(582 - 42 < W.LINE_CHART.width, "the line scrolls too rather than shrink");
   const height = 16 + 14 + 41.6 + 192 + 26 + 1.6;
   assert.ok(height > 223 && 582 < 840 && 582 / height < 2.05, "taller and narrower than the first box");
   assert.ok(582 - 42 < W.CHART.width, "the view is narrower than the charts, so they scroll rather than shrink");

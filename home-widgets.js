@@ -14,7 +14,8 @@
 //   panel    one rectangle holding one of the two at a time and a two-way
 //            pill to switch them; the choice is remembered in this browser
 //   view     both charts are drawn at their own size, one unit to a pixel,
-//            never stretched or squeezed to the panel. A panel narrower than
+//            never stretched or squeezed to the panel: the heatmap as its
+//            short strip, the line as tall as the view. A panel narrower than
 //            a chart shows it through a view that scrolls sideways the native
 //            way (trackpad, shift and the wheel), opening on the latest weeks
 //            at the right end. The axis names on the left stay put while the
@@ -169,10 +170,13 @@
   }
 
   // ---- the line ------------------------------------------------------------
-  // the line is drawn to the heatmap's own box, so the panel holds still when
-  // the pill switches between them
-  const LW = GRID_W, LH = GRID_H;
-  const PAD = { left: 38, right: 6, top: 8, bottom: 17 };
+  // the line is as wide as the heatmap, so both scroll the same way, and as
+  // tall as the whole view (home-widgets.css), which the heatmap sits in the
+  // middle of: the panel holds still when the pill switches between them, and
+  // the line reads at a glance instead of in the heatmap's short strip
+  const VIEW_H = 192;
+  const LW = GRID_W, LH = VIEW_H;
+  const PAD = { left: 46, right: 8, top: 10, bottom: 24 };
   // the trailing mean over each day and the six before it; the first days of
   // a reading shorter than a week average what there is
   function rolling(values, n = AVG) {
@@ -208,7 +212,7 @@
       return { i, date: d.date, total: d.total || 0, avg: avg[i], from: days[first].date,
                span: lead + i - first + 1, x: r1(xAt(i)), y: r1(yAt(avg[i])) };
     });
-    const months = points.filter(p => parts(p.date).d === 1 && p.x < LW - PAD.right - 16)
+    const months = points.filter(p => parts(p.date).d === 1 && p.x < LW - PAD.right - 22)
       .map(p => ({ x: p.x, label: MONTHS[parts(p.date).m - 1] }));
     return { points, months, top, ticks: [0, top / 2, top], yAt, box: { ...PAD, w, h } };
   }
@@ -228,13 +232,13 @@
       out.push(`<line class="tk-grid" x1="${box.left}" x2="${box.left + box.w}" y1="${y}" y2="${y}"/>`);
     }
     for (const m of model.months)
-      out.push(`<text class="tk-axis" x="${m.x}" y="${LH - 3}">${m.label}</text>`);
+      out.push(`<text class="tk-axis line" x="${m.x}" y="${LH - 5}">${m.label}</text>`);
     if (points.length) {
       out.push(`<path class="tk-area" d="${path}L${points.at(-1).x} ${base}L${points[0].x} ${base}Z" fill="url(#${fade})"/>`);
       out.push(`<path class="tk-path" d="${path}" fill="none" stroke="${LINE}"/>`);
     }
     out.push(`<line class="tk-guide" x1="0" x2="0" y1="${box.top}" y2="${base}" visibility="hidden"/>`);
-    out.push(`<circle class="tk-dot" r="3.5" cx="0" cy="0" fill="${LINE}" visibility="hidden"/>`);
+    out.push(`<circle class="tk-dot" r="5" cx="0" cy="0" fill="${LINE}" visibility="hidden"/>`);
     out.push(`<rect class="tk-hit" x="${box.left}" y="${box.top}" width="${box.w}" height="${box.h}" fill="transparent"/>`);
     out.push("</svg>");
     return out.join("");
@@ -244,7 +248,7 @@
   function linePin(model) {
     const out = [`<svg width="${PAD.left}" height="${LH}" viewBox="0 0 ${PAD.left} ${LH}" aria-hidden="true">`];
     for (const t of model.ticks)
-      out.push(`<text class="tk-axis" x="${PAD.left - 6}" y="${r1(model.yAt(t)) + 3}" text-anchor="end">${compact(t)}</text>`);
+      out.push(`<text class="tk-axis line" x="${PAD.left - 8}" y="${r1(model.yAt(t)) + 4}" text-anchor="end">${compact(t)}</text>`);
     out.push("</svg>");
     return out.join("");
   }
@@ -443,6 +447,7 @@
 
   window.TokenWidgets = {
     PALETTE, LINE, YEAR, WEEKS, FETCH_DAYS, CHART: { width: GRID_W, height: GRID_H },
+    LINE_CHART: { width: LW, height: LH },
     compact, longDay, scale, rolling, niceTop,
     heatmapModel, heatmapSvg, heatPin, heatTip, drawHeatmap,
     lineModel, lineSvg, linePin, lineTip, drawLine,
