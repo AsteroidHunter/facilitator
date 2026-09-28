@@ -3222,3 +3222,160 @@ function quickNoteOverlay(host, opts){
   });
   return { open: openOverlay, close, isOpen: () => open, session, root: veil };
 }
+
+// ---- the settings page ---------------------------------------------------------
+// the board's own choices on one full-screen page, the same one on the desktop
+// board and on the phone. each page keeps its controls in the markup, grouped
+// under one element per section carrying data-section and data-label, so every
+// control keeps its id and its own wiring; this builds the page around them and
+// moves each group into its pane. nothing here reads or writes a setting.
+// the width it turns from a column of sections beside the settings to a list
+// that opens one section at a time is 989px, the board's own single column width
+const SETTINGS_NARROW = "(max-width: 989px)";
+const SETTINGS_MARKS = {
+  back: '<path d="M15 5l-7 7 7 7"/>',
+  next: '<path d="M9 5l7 7-7 7"/>',
+  close: '<path d="M6 6l12 12M18 6L6 18"/>',
+};
+function settingsMark(name){
+  const svg = h("span");
+  svg.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" ' +
+    'stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    SETTINGS_MARKS[name] + '</svg>';
+  return svg.firstChild;
+}
+
+// fills root, which becomes the page, from source, the element holding the
+// section groups. opts.close puts the whole page away. what comes back moves
+// between the list and one section, and says where it stands
+function settingsPage(root, source, opts){
+  const narrow = matchMedia(SETTINGS_NARROW);
+  root.classList.add("qn-glass", "sp-page");
+  root.setAttribute("role", "dialog");
+  root.setAttribute("aria-modal", "true");
+  root.setAttribute("aria-label", "Settings");
+
+  const back = h("button", "sp-icon sp-back");
+  back.type = "button";
+  back.setAttribute("aria-label", "Back to settings");
+  back.appendChild(settingsMark("back"));
+  const title = h("h2", "sp-title", "Settings");
+  const close = h("button", "sp-icon sp-close");
+  close.type = "button";
+  close.setAttribute("aria-label", "Close settings");
+  close.appendChild(settingsMark("close"));
+  close.addEventListener("click", () => opts.close());
+  const head = h("div", "sp-head");
+  head.append(back, title, close);
+
+  const list = h("nav", "sp-list");
+  list.setAttribute("aria-label", "Settings sections");
+  const panes = h("div", "sp-panes");
+  const sections = [...source.querySelectorAll(":scope > [data-section]")].map(group => {
+    const id = group.dataset.section, label = group.dataset.label;
+    const item = h("button", "sp-item");
+    item.type = "button";
+    item.dataset.section = id;
+    item.append(h("span", "", label));
+    const next = h("span", "sp-next");
+    next.appendChild(settingsMark("next"));
+    item.appendChild(next);
+    const pane = h("section", "sp-pane");
+    pane.id = "settings-" + id;
+    pane.setAttribute("aria-label", label);
+    pane.appendChild(h("h3", "sp-panehead", label));
+    pane.append(...group.childNodes);
+    list.appendChild(item);
+    panes.appendChild(pane);
+    return { id, label, item, pane };
+  });
+  source.remove();
+  const body = h("div", "sp-body");
+  body.append(list, panes);
+  root.replaceChildren(head, body);
+
+  let current = sections[0], view = "list";
+  function paint(){
+    const detail = narrow.matches && view === "pane";
+    root.dataset.view = view;
+    back.hidden = !detail;
+    title.textContent = detail ? current.label : "Settings";
+    for (const s of sections){
+      const on = s === current;
+      s.item.classList.toggle("on", on);
+      s.pane.classList.toggle("on", on);
+      if (on && !narrow.matches) s.item.setAttribute("aria-current", "true");
+      else s.item.removeAttribute("aria-current");
+    }
+  }
+  function show(id){
+    const next = sections.find(s => s.id === id);
+    if (!next) return;
+    current = next;
+    view = "pane";
+    panes.scrollTop = 0;
+    paint();
+    if (narrow.matches) back.focus({ preventScroll: true });
+  }
+  function toList(){
+    view = "list";
+    paint();
+    if (narrow.matches) current.item.focus({ preventScroll: true });
+  }
+  for (const s of sections) s.item.addEventListener("click", () => show(s.id));
+  back.addEventListener("click", toList);
+  if (typeof narrow.addEventListener === "function") narrow.addEventListener("change", paint);
+  paint();
+  return {
+    show, list: toList, root,
+    section: () => current.id,
+    inDetail: () => narrow.matches && view === "pane",
+    // it opens on the list; where the list is not alone, the section last seen shows beside it
+    reset(){ view = "list"; panes.scrollTop = 0; paint(); },
+    focus(){ current.item.focus({ preventScroll: true }); },
+  };
+}
+
+// the desktop's seat for the page: a veil over the whole window, the same one
+// the quick note opens over, with the page filling it. Escape puts the whole
+// page away from either view, and no key goes on to the board it covers. opts
+// carries onOpen and onClose for the page's own bookkeeping
+function settingsOverlay(host, source, opts){
+  const veil = h("div", "qn-veil sp-veil");
+  veil.setAttribute("aria-hidden", "true");
+  const seat = h("div");
+  veil.appendChild(seat);
+  host.appendChild(veil);
+  let open = false, back = null;
+  const page = settingsPage(seat, source, { close });
+  function openOverlay(){
+    if (open) return;
+    open = true;
+    back = document.activeElement;
+    page.reset();
+    veil.classList.add("open");
+    veil.setAttribute("aria-hidden", "false");
+    if (opts.onOpen) opts.onOpen();
+    page.focus();
+  }
+  function close(){
+    if (!open) return;
+    open = false;
+    veil.classList.remove("open");
+    veil.setAttribute("aria-hidden", "true");
+    if (opts.onClose) opts.onClose();
+    const to = back;
+    back = null;
+    if (to && to.isConnected && typeof to.focus === "function") to.focus({ preventScroll: true });
+    else if (seat.contains(document.activeElement)) document.activeElement.blur();
+  }
+  veil.addEventListener("keydown", e => {
+    e.stopPropagation();
+    if (e.key === "Escape"){ e.preventDefault(); close(); }
+  });
+  // and focus cannot wander onto the board behind it
+  document.addEventListener("focusin", e => {
+    if (open && !seat.contains(e.target)) page.focus();
+  });
+  return { open: openOverlay, close, isOpen: () => open, page, root: veil };
+}
