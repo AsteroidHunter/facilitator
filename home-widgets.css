@@ -32,10 +32,11 @@
   transition:color .18s, box-shadow .08s ease-in}
 .tk-opt:focus-visible{outline:1.5px solid var(--accent); outline-offset:1px}
 
-/* the charts keep their own size, one unit to a pixel (769 by 113 both), and
-   are never stretched or squeezed to the panel. the view around them is 192px
-   tall and holds the chart in its middle, so the panel is one height for both
-   charts; a panel narrower than the chart scrolls it sideways the native way,
+/* the charts keep their own size, one unit to a pixel (the heatmap 769 by
+   113, the line 769 by 192), and are never stretched or squeezed to the
+   panel. the view around them is 192px tall, the line's own height, and holds
+   the heatmap in its middle, so the panel is one height for both charts; a
+   panel narrower than the chart scrolls it sideways the native way,
    with no bar (the board's own rule in card-tokens.css) and no motion of its
    own. overscroll stays in the lane, so a swipe past either end never pages
    the window back */
@@ -58,12 +59,14 @@
 .tk-lane::after{right:0; background:linear-gradient(to left, var(--card), rgba(255,255,255,0))}
 .tk-lane.more-left .tk-pin::after, .tk-lane.more-right::after{opacity:1}
 .tk-axis{font:400 10px var(--sans); fill:var(--sub)}
+/* the line's counts and months at the panel's own 12px, read without leaning in */
+.tk-axis.line{font-size:12px}
 .tk-day{stroke:rgba(60,45,20,.05); stroke-width:.6px}
 .tk-day.hot{stroke:var(--ink); stroke-width:1px}
 .tk-grid{stroke:#EFEBE5; stroke-width:1px}
-.tk-path{stroke-width:2px; stroke-linejoin:round; stroke-linecap:round}
+.tk-path{stroke-width:2.5px; stroke-linejoin:round; stroke-linecap:round}
 .tk-guide{stroke:var(--line); stroke-width:1px}
-.tk-dot{stroke:#FFFFFF; stroke-width:1.5px}
+.tk-dot{stroke:#FFFFFF; stroke-width:2px}
 .tk-foot{display:flex; align-items:center; justify-content:space-between; gap:12px;
   margin-top:10px; color:var(--sub)}
 .tk-sum b{color:var(--ink); font-weight:600}
