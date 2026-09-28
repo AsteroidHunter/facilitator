@@ -799,17 +799,26 @@ const cssValue = (block, name) => {
   return m[1].trim();
 };
 const glassSheet = () => cleanCss(between(TOKENS, ".qn-glass{", ".qn-glass.failed"));
-// the tuning properties at the values the board ships them at
+// the tuning properties at the values the board ships them at. every white in
+// the lighting is the player's own value times --qn-edge, so it is read at an
+// edge of one, which is the player's own strength, to be set against the player
 const shipped = glass => {
   const vars = {};
   for (const name of ["--qn-blur", "--qn-sat", "--qn-tint", "--qn-edge", "--qn-ring"]) vars[name] = cssValue(glass, name);
   return text => text
-    .replace(/calc\(([\d.]+) \* var\(--qn-edge\)\)/g, (_, n) => {
-      assert.equal(vars["--qn-edge"], "1", "the edge ships at other than the player's own strength");
-      return n;
-    })
+    .replace(/calc\(([\d.]+) \* var\(--qn-edge\)\)/g, (_, n) => n)
     .replace(/var\((--qn-[a-z]+)\)/g, (_, name) => vars[name]);
 };
+
+test("the note's glass ships at the values the owner tuned in the mock", () => {
+  const glass = glassSheet();
+  assert.equal(cssValue(glass, "--qn-blur"), "15px");
+  assert.equal(cssValue(glass, "--qn-sat"), "200%");
+  assert.equal(cssValue(glass, "--qn-tint"), ".56");
+  assert.equal(cssValue(glass, "--qn-edge"), "2");
+  assert.equal(cssValue(cleanCss(between(TOKENS, ".qn-card{", "}")), "--qn-boost"), ".22");
+  assert.equal(cssValue(cleanCss(between(TOKENS, ".qn-veil{", "}")), "--qn-veil"), "25%");
+});
 
 test("the note's glass: the spotify player's lighting, value for value, over a face that lets the board through", () => {
   const player = cleanCss(between(HTML, "  #magic1.filled{", "@keyframes spappear"));
@@ -824,11 +833,11 @@ test("the note's glass: the spotify player's lighting, value for value, over a f
     "the note's surface layers are not the player's");
   assert.equal(cssValue(glass, "border-radius"), cssValue(player, "border-radius"));
   // the blur the player carried before its face went opaque, as its own note
-  // records it, and the board's chat glass still wears
+  // records it and the board's chat glass still wears, as the owner tuned it
   assert.ok(HTML.includes("blur(16px) saturate(180%) brightness(.98)"), "the player's record of its blur is gone");
   assert.match(HTML, /--c3-glass:rgba\(120,120,128,\.03\)/);
-  assert.equal(resolve(cssValue(glass, "backdrop-filter")), "blur(16px) saturate(180%)");
-  assert.equal(resolve(cssValue(glass, "-webkit-backdrop-filter")), "blur(16px) saturate(180%)");
+  assert.equal(resolve(cssValue(glass, "backdrop-filter")), "blur(15px) saturate(200%)");
+  assert.equal(resolve(cssValue(glass, "-webkit-backdrop-filter")), "blur(15px) saturate(200%)");
   // the face is glass and not a white card: a white tint that lets well over a
   // third of what is behind come through
   const tint = Number(resolve(cssValue(glass, "background-color")).match(/^rgba\(255,255,255,([\d.]+)\)$/)[1]);
@@ -864,8 +873,8 @@ test("the note's words stay dark on light over anything the board shows behind t
   const everyday = contrast(over(white, middle, veiledBoard), ink);
   const overBlack = contrast(over(white, middle, black), ink);
   const rimOverBlack = contrast(over(white, tint, black), ink);
-  assert.ok(everyday >= 14, "the words fall under 14 to 1 over the veiled board: " + everyday.toFixed(2));
-  assert.ok(overBlack >= 6, "the words fall under 6 to 1 with black behind the note: " + overBlack.toFixed(2));
+  assert.ok(everyday >= 13, "the words fall under 13 to 1 over the veiled board: " + everyday.toFixed(2));
+  assert.ok(overBlack >= 7, "the words fall under 7 to 1 with black behind the note: " + overBlack.toFixed(2));
   assert.ok(rimOverBlack >= 4.5, "the rim falls under 4.5 to 1 with black behind it: " + rimOverBlack.toFixed(2));
 });
 

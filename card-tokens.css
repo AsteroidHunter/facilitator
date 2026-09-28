@@ -504,13 +504,13 @@
    so the caret still shows in the note, and over everything else the board
    draws. at phone width the card sits near the top, so a keyboard coming up
    from below covers none of it */
-/* the veil dims the board by a sixth of the board's ink: enough to say the
-   board is covered, light enough that the glass over it still reads as a light
-   pane rather than grey plastic. it fades in by its colour and never by its
+/* the veil dims the board by a quarter of the board's ink, the owner's own
+   setting from the tuning mock: enough to say the board is covered, and the
+   glass over it still reads as a light pane. it fades in by its colour and never by its
    opacity: anything with an opacity under one cuts off what a backdrop filter
    inside it can see, so an opacity fade would leave the card's glass blurring a
    flat veil, with the board gone, for as long as the fade ran */
-.qn-veil{display:none; position:fixed; inset:0; z-index:90; --qn-veil:16%;
+.qn-veil{display:none; position:fixed; inset:0; z-index:90; --qn-veil:25%;
   background:color-mix(in srgb, var(--ink) var(--qn-veil), transparent)}
 .qn-veil.open{display:grid; place-items:center; animation:qnveilin .14s ease-out}
 @keyframes qnveilin{from{background-color:transparent}}
@@ -525,8 +525,10 @@
    one warning below can change it and nothing else.
    the see-through half the player gave up when its face went opaque, and which
    the board's chat glass (--c3-glass in index.html) still wears: a backdrop
-   blur(16px) saturate(180%), the numbers the player's own note records. the
-   player's third term, brightness(.98), is left off, since it only greys.
+   blur(16px) saturate(180%), the numbers the player's own note records, which
+   the owner then tuned in the mock to blur 15px and saturate 200%, with the
+   lighting at twice the player's strength (--qn-edge 2). the player's third
+   term, brightness(.98), is left off, since it only greys.
    the face is where the note parts from both. the player's is an opaque tint,
    the chat's a near clear .03 grey over a white canvas. a note floats over the
    whole board, words and colours and all, so its face is white at .56: nearly
@@ -537,7 +539,7 @@
    mock's sliders move exactly these: --qn-blur, --qn-sat, --qn-tint and
    --qn-edge, the last scaling every white highlight in the lighting at once */
 .qn-glass{--qn-ring:#c7c7cc;
-  --qn-blur:16px; --qn-sat:180%; --qn-tint:.56; --qn-edge:1;
+  --qn-blur:15px; --qn-sat:200%; --qn-tint:.56; --qn-edge:2;
   border:none; border-radius:9px;
   background-color:rgba(255,255,255,var(--qn-tint));
   background-image:
@@ -569,18 +571,18 @@
 /* four by three, 480 by 360 where there is room, and smaller in the same shape
    where there is not: never nearer than 16px to any edge of the window */
 .qn-card{box-sizing:border-box; display:flex; overflow:hidden; min-height:0;
-  position:relative; --qn-boost:.12;
+  position:relative; --qn-boost:.22;
   width:min(480px, calc(100vw - 32px), calc((100vh - 32px) * 4 / 3));
   width:min(480px, calc(100vw - 32px), calc((100dvh - 32px) * 4 / 3));
   aspect-ratio:4 / 3}
 /* the text boost: a little more white behind where the words are, feathered so
    it never reads as a box, and stopping short of the edge so the rim stays the
-   clearest glass on the card. over the face's .56 it makes the middle of the
-   card white at about .61. worked in the web's own contrast rule, the board's
-   ink on the middle then stands at 14 to 1 over the veiled board, and at 6 to 1
-   even with nothing but black behind the note; the rim, without the boost, is
-   still 5 to 1 over black. a blur of the board is never that dark, so the
-   words read everywhere */
+   clearest glass on the card. at the owner's .22 over the face's .56 it makes
+   the middle of the card white at about .66. worked in the web's own contrast
+   rule, the board's ink on the middle then stands at 13 to 1 over the veiled
+   board, and at 7 to 1 even with nothing but black behind the note; the rim,
+   without the boost, is still 5 to 1 over black. a blur of the board is never
+   that dark, so the words read everywhere */
 .qn-card::before{content:""; position:absolute; inset:14px; border-radius:6px;
   background:rgba(255,255,255,var(--qn-boost)); filter:blur(10px); pointer-events:none}
 /* the field is the whole card and wears nothing of its own: every rule a page
