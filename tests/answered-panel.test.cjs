@@ -1350,12 +1350,18 @@ test("every new motion is a transform or a fade, and nothing in a run is a mask"
   assert.ok(!/--answ-cut/.test(TOKENS + LOGIC), "the old run dissolve is still there");
   assert.ok(!/blur|filter/.test(part.replace(/\/\*[\s\S]*?\*\//g, "")), "a panel or the turn draws a blur");
   // every transition there: the fold's own height run, carried over as it was,
-  // and otherwise strength and transforms alone
+  // and otherwise strength and transforms alone, but for the one top margin a
+  // panel over the answer is held down by while it is cut off its top, which
+  // has to keep step with that height run on every frame
   const transitions = [...part.matchAll(/transition:([^;}]+)/g)].map(m => m[1].trim());
   for (const t of transitions)
     for (const one of t.split(","))
-      assert.ok(/^(height|opacity|transform) /.test(one.trim()), `a run moves something other than height, strength or a transform: ${one}`);
+      assert.ok(/^(height|opacity|transform|margin-top) /.test(one.trim()), `a run moves something other than height, strength or a transform: ${one}`);
   assert.equal(transitions.filter(t => t.startsWith("height")).length, 1, "a new run changes a height");
+  assert.equal(transitions.filter(t => /margin-top/.test(t)).length, 1, "a margin moves somewhere other than the panel's own run");
+  assert.match(rule(TOKENS, ".answered.motion"),
+    /transition:transform var\(--answ-move\) var\(--gentle\), margin-top var\(--answ-move\) var\(--gentle\)/,
+    "the panel's top margin does not run on the cut's own length and curve");
   // the arrival and the print are strength and a transform, and the glide a transform
   for (const name of ["answarrive", "cardprint"]) {
     const block = keyframes(TOKENS, name);
@@ -1602,19 +1608,31 @@ test("the small card turns the same way, its three pieces pictured and carried u
 
 // ---- cutting back without moving the view --------------------------------------------------
 // the answer's scroller as a browser keeps it: its content is the answer (base)
-// and the panel over it, plus whatever room is held at its foot, and whenever
-// the page is laid out a scroll past the new end is pulled back to it. the cut
-// is laid out, and so pulls the scroll, whenever the panel reads how tall its
-// preview stands, which is what the old cut back did before its run
-function scrollingView(view, clip, base, height) {
+// under the panel, the panel's cut and the top margin it is held down by, plus
+// whatever room is held at its foot, and whenever the page is laid out a scroll
+// past the new end is pulled back to it. the cut is laid out, and so pulls the
+// scroll, whenever the panel reads how tall its preview stands. every scroll a
+// layout leaves is kept (seen), so a pull inside a press shows even when the
+// script writes the scroll back before the press is over. under is where the
+// answer under the panel stands in the view: the reader's words, which a cut
+// back must not move. a run caught part way stands its cut at clip.midRun and
+// its margin at panel.midDrop
+function scrollingView(view, clip, panel, base, height) {
   let top = 0;
   let laying = false;
+  const seen = [];
   const slack = () => parseFloat(view.style.getPropertyValue("--answ-slack")) || 0;
+  const margin = () => {
+    const inline = panel.style.getPropertyValue("margin-top");
+    if (!inline) return 0;
+    return panel.midDrop != null ? panel.midDrop : parseFloat(inline) || 0;
+  };
   Object.defineProperty(view, "scrollHeight", { configurable: true,
-    get: () => base + clip.getBoundingClientRect().height + slack() });
+    get: () => base + clip.getBoundingClientRect().height + margin() + slack() });
   const layout = () => {
     const max = Math.max(0, view.scrollHeight - view.clientHeight);
     if (top > max) top = max;
+    seen.push(top);
   };
   Object.defineProperty(view, "scrollTop", { configurable: true,
     get: () => top, set: value => { top = Math.max(0, value); layout(); } });
@@ -1625,11 +1643,21 @@ function scrollingView(view, clip, base, height) {
       if (!laying) { laying = true; layout(); laying = false; }
       return cut;
     } });
-  return { layout, slack };
+  const under = () => clip.getBoundingClientRect().height + margin() - top;
+  return { layout, slack, seen, under };
+}
+// the panel's top margin as a browser reports it: where a run caught part way
+// has it (midDrop), else what is written
+function reportMargins(context) {
+  const computed = context.getComputedStyle;
+  context.getComputedStyle = (node, pseudo) => Object.assign(computed(node, pseudo), {
+    marginTop: node.midDrop != null ? node.midDrop + "px" : node.style.getPropertyValue("margin-top") || "0px",
+  });
 }
 
-test("cutting a panel back leaves the reader's view where it is, before, during and after the run", () => {
+test("cutting a panel back leaves the answer under it where it is, before, during and after the run", () => {
   const { context } = sandbox();
+  reportMargins(context);
   const el = card("c1");
   context.syncAnswered(el, context.liveAnswered(liveBox()));
   const panel = el.answ;
@@ -1637,57 +1665,159 @@ test("cutting a panel back leaves the reader's view where it is, before, during 
   const clip = layOutLong(panel, FakeResizeObserver.made[0]);
   panel.fire("click", { target: panel });
   landRun(panel);
-  // the reader has read the opened batch and the answer under it to the end:
-  // 600 of answer under a 240 batch, a 400 view, so scrolled 440 down
-  const view = scrollingView(el.replyview, clip, 600, 400);
+  // the phone's case: a batch opened taller than the view, its arrow reached by
+  // scrolling the panel's head out of sight. 600 of answer under a 240 batch,
+  // a 400 view, scrolled 440 down
+  const view = scrollingView(el.replyview, clip, panel, 600, 400);
   el.replyview.scrollTop = 440;
-  assert.equal(el.replyview.scrollTop, 440);
-  // cut back: the panel shrinks from 240 to its 58 preview, in place
+  assert.equal(view.under(), -200);
+  view.seen.length = 0;
+  // cut back: the 182 it takes comes off the panel's top, so the arrow and the
+  // answer under it hold still while the panel's head comes down
   panel.fire("click", { target: panel });
   assert.equal(panel.classList.contains("motion"), true, "the cut back did not run");
-  assert.deepEqual(clip.style.heights.slice(-2), ["240px", "58px"], "the run is not the panel shrinking in place");
-  assert.equal(el.replyview.scrollTop, 440, "the view was pulled before the panel began to shrink");
-  assert.ok(view.slack() >= 182, "no room was held for what the cut takes away");
-  // every frame of the run is laid out at the cut's height, and still nothing moves
+  assert.deepEqual(clip.style.heights.slice(-2), ["240px", "58px"], "the run is not the panel's cut shrinking");
+  assert.equal(panel.style.getPropertyValue("margin-top"), "182px", "the panel is not held down while its cut comes up");
+  assert.deepEqual([...new Set(view.seen)], [440], "the view was pulled while the press was handled");
+  assert.equal(view.slack(), 0, "room was held under an answer that did not need it");
+  assert.equal(view.under(), -200, "the answer under the panel moved as the cut began");
+  // a frame part way: the cut half come up, the margin half grown, and still
+  // nothing the reader is looking at moves
+  clip.midRun = 149; panel.midDrop = 91;
   view.layout();
   assert.equal(el.replyview.scrollTop, 440, "the view was pulled while the panel shrank");
-  // landed: the view has not moved, and the room it stands on is kept, no more
+  assert.equal(view.under(), -200, "the answer under the panel moved while the panel shrank");
+  // landed: the margin comes off and the scroll goes up by as much, in one step
+  clip.midRun = null; panel.midDrop = null;
   landRun(panel);
+  assert.equal(panel.style.getPropertyValue("margin-top"), "", "the margin was left on the panel");
+  assert.equal(el.replyview.scrollTop, 258, "the scroll was not given the drop back");
+  assert.equal(view.under(), -200, "the answer under the panel moved as the panel landed");
+  assert.equal(view.slack(), 0, "room was left held once the panel had landed");
+
+  // a panel whose head is on screen has no scroll above it: it is cut from its
+  // foot as ever, and the answer under it comes up
+  panel.fire("click", { target: panel });
+  landRun(panel);
+  el.replyview.scrollTop = 0;
+  panel.fire("click", { target: panel });
+  assert.equal(panel.style.getPropertyValue("margin-top"), "", "a panel standing whole on screen was held down");
+  landRun(panel);
+  assert.equal(el.replyview.scrollTop, 0);
+  assert.equal(view.under(), 58);
+
+  // a press that catches the cut part way turns it round where it stands: the
+  // scroll is given what the margin stood at, and the answer under it stays
+  panel.fire("click", { target: panel });
+  landRun(panel);
+  el.replyview.scrollTop = 440;
+  panel.fire("click", { target: panel });
+  clip.midRun = 149; panel.midDrop = 91;
   view.layout();
-  assert.equal(el.replyview.scrollTop, 440, "the view was pulled once the panel had landed");
-  assert.equal(view.slack(), 182, "the room held is not exactly what the view stands on");
-  // the reader scrolls up off it, and it goes as they do, moving nothing
-  el.replyview.scrollTop = 300;
-  el.replyview.fire("scroll");
-  assert.equal(view.slack(), 42);
-  el.replyview.scrollTop = 200;
-  el.replyview.fire("scroll");
-  assert.equal(view.slack(), 0, "room nobody stands on was kept");
-  assert.equal(el.replyview.style.getPropertyValue("--answ-slack"), "");
-  // a reader nowhere near the end keeps no room at all once the panel lands
+  view.seen.length = 0;
   panel.fire("click", { target: panel });
+  assert.equal(panel.classList.contains("open"), true, "the second press did not turn the run round");
+  assert.equal(el.replyview.scrollTop, 349, "the scroll was not given back what the margin stood at");
+  assert.equal(panel.style.getPropertyValue("margin-top"), "", "the opening run kept the cut's margin");
+  assert.equal(clip.style.heights.at(-2), "149px", "the opening run did not start where the cut stood");
+  assert.equal(view.under(), -200, "the answer under the panel jumped as the run turned round");
+  assert.ok(view.seen.every(at => at === 440 || at === 349), "the view was pulled while the run turned round");
+  clip.midRun = null; panel.midDrop = null;
   landRun(panel);
-  el.replyview.scrollTop = 100;
-  panel.fire("click", { target: panel });
-  assert.equal(el.replyview.scrollTop, 100);
-  landRun(panel);
-  assert.equal(el.replyview.scrollTop, 100);
-  assert.equal(view.slack(), 0, "room was kept below a view that never needed it");
-  // with no motion asked for, the flip holds the view too
+
+  // an answer too short to stand the view on while the cut takes more than the
+  // drop gives back: 100 of answer under the 240 batch in a 300 view, scrolled
+  // 40 to its end. 40 comes off the top, room is held so the view is never
+  // pulled, and on landing the room goes with nothing moving
+  const short = sandbox();
+  reportMargins(short.context);
+  const brief = card("c3");
+  short.context.syncAnswered(brief, short.context.liveAnswered({ ...liveBox(), id: "c3" }));
+  const briefClip = layOutLong(brief.answ, FakeResizeObserver.made[0]);
+  brief.answ.fire("click", { target: brief.answ });
+  landRun(brief.answ);
+  const briefView = scrollingView(brief.replyview, briefClip, brief.answ, 100, 300);
+  brief.replyview.scrollTop = 40;
+  assert.equal(brief.replyview.scrollTop, 40);
+  briefView.seen.length = 0;
+  brief.answ.fire("click", { target: brief.answ });
+  assert.equal(brief.answ.style.getPropertyValue("margin-top"), "40px");
+  assert.equal(briefView.slack(), 142, "the room held is not what the run needs");
+  assert.deepEqual([...new Set(briefView.seen)], [40], "the short answer's view was pulled while the press was handled");
+  briefClip.midRun = 58; brief.answ.midDrop = 40;
+  briefView.layout();
+  assert.equal(brief.replyview.scrollTop, 40, "the short answer's view was pulled by the end of the run");
+  assert.equal(briefView.under(), 58);
+  briefClip.midRun = null; brief.answ.midDrop = null;
+  landRun(brief.answ);
+  assert.equal(brief.replyview.scrollTop, 0);
+  assert.equal(briefView.under(), 58, "the short answer jumped as the panel landed");
+  assert.equal(briefView.slack(), 0, "room was kept under a view standing at its top");
+
+  // the phone's keyboard, put away by the press: the view grows while the run
+  // goes, as far as the window under its top, and the room held covers it. 100
+  // of answer under the 240 batch in a 150 view with the keyboard up, scrolled
+  // 190 to its end, the view's top 100 down a 450 window
+  const typing = sandbox();
+  reportMargins(typing.context);
+  typing.context.innerHeight = 450;
+  const row = card("c4");
+  typing.context.syncAnswered(row, typing.context.liveAnswered({ ...liveBox(), id: "c4" }));
+  const rowClip = layOutLong(row.answ, FakeResizeObserver.made[0]);
+  row.answ.fire("click", { target: row.answ });
+  landRun(row.answ);
+  const rowView = scrollingView(row.replyview, rowClip, row.answ, 100, 150);
+  row.replyview.rect = { top: 100, bottom: 250 };
+  row.replyview.scrollTop = 190;
+  assert.equal(rowView.under(), 50);
+  row.answ.fire("click", { target: row.answ });
+  assert.equal(rowView.slack(), 200, "no room was held for the view to grow into");
+  // part way, the keyboard is gone and the view stands 350 tall
+  row.replyview.clientHeight = 350;
+  rowClip.midRun = 120; row.answ.midDrop = 120;
+  rowView.layout();
+  assert.equal(row.replyview.scrollTop, 190, "the view was pulled as it grew");
+  assert.equal(rowView.under(), 50, "the answer under the panel moved as the view grew");
+  rowClip.midRun = null; row.answ.midDrop = null;
+  landRun(row.answ);
+  assert.equal(row.replyview.scrollTop, 8);
+  assert.equal(rowView.under(), 50, "the answer jumped as the panel landed with the keyboard gone");
+  assert.equal(rowView.slack(), 200, "the room the grown view stands on was let go under it");
+  row.replyview.scrollTop = 0;
+  row.replyview.fire("scroll");
+  assert.equal(rowView.slack(), 0, "room was kept once the reader had scrolled off it");
+
+  // with no motion asked for, the flip keeps the answer under the panel too
   const still = sandbox();
   still.context.stillness = true;
   const flat = card("c2");
   still.context.syncAnswered(flat, still.context.liveAnswered({ ...liveBox(), id: "c2" }));
   const flatClip = layOutLong(flat.answ, FakeResizeObserver.made[0]);
   flat.answ.fire("click", { target: flat.answ });
-  const flatView = scrollingView(flat.replyview, flatClip, 600, 400);
+  const flatView = scrollingView(flat.replyview, flatClip, flat.answ, 600, 400);
   flat.replyview.scrollTop = 440;
   flat.answ.fire("click", { target: flat.answ });
   assert.equal(flat.answ.classList.contains("open"), false);
   assert.equal(flat.answ.classList.contains("motion"), false, "a run went against the setting");
-  flatView.layout();
-  assert.equal(flat.replyview.scrollTop, 440, "the plain flip pulled the view");
-  assert.equal(flatView.slack(), 182);
+  assert.equal(flat.replyview.scrollTop, 258);
+  assert.equal(flatView.under(), -200, "the plain flip moved the answer under the panel");
+  assert.equal(flatView.slack(), 0);
+});
+
+test("the room a cut back holds is a spacer under the answer, never the scroller's own padding", () => {
+  // the answer's scroller is a flex item, which cannot stand shorter than its
+  // padding: room held in it pushed the scroller past the card, and the band
+  // the fade over the typing row is cut to, read off the scroller's foot, grew
+  // with it and masked the answer out
+  for (const [where, css, spacer] of [["the phone", PHONE, "\n  .replyview::after{"],
+      ["the desktop", DESKTOP, "\n  body.focus .box.sel .replyview::after{"]]) {
+    assert.doesNotMatch(css, /padding-bottom:[^;}]*--answ-slack/, `${where} still holds the room in the scroller's padding`);
+    const at = css.indexOf(spacer);
+    assert.ok(at > 0, `${where} has no spacer for the held room`);
+    assert.match(css.slice(at, css.indexOf("}", at) + 1), /content:""; flex:none; height:var\(--answ-slack, 0px\)/);
+  }
+  assert.match(PHONE, /padding-bottom:calc\(var\(--boxband, 0px\) \+ var\(--replyfade\)\);/);
+  assert.match(DESKTOP, /padding-bottom:calc\(var\(--boxband, 0px\) \+ var\(--replyfade\)\);/);
 });
 
 test("a panel whose own lane was scrolled comes down to its head on the run, not in a jump first", () => {
@@ -1726,10 +1856,7 @@ test("a panel whose own lane was scrolled comes down to its head on the run, not
     "the small card's panel jumped to its head instead of travelling there");
   landRun(mini.answ);
   assert.equal(miniClip.style.height, "");
-  // the sheet runs the travel on the fold's own length and curve, and both
-  // large pages hand the held room to the answer's run-out
-  assert.match(rule(TOKENS, ".answered.motion, .answered.motion .answstack"),
-    /transition:transform var\(--answ-move\) var\(--gentle\)/);
-  assert.match(DESKTOP, /padding-bottom:calc\(var\(--boxband, 0px\) \+ var\(--replyfade\) \+ var\(--answ-slack, 0px\)\);/);
-  assert.match(PHONE, /padding-bottom:calc\(var\(--boxband, 0px\) \+ var\(--replyfade\) \+ var\(--answ-slack, 0px\)\);/);
+  // the sheet runs the travel on the fold's own length and curve
+  assert.match(rule(TOKENS, ".answered.motion"), /transition:transform var\(--answ-move\) var\(--gentle\)/);
+  assert.match(rule(TOKENS, ".answered.motion .answstack"), /transition:transform var\(--answ-move\) var\(--gentle\)/);
 });
