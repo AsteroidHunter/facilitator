@@ -673,7 +673,7 @@ test("a message's blank tail is taken off before it is drawn, and a blank messag
     markdown.render("Invented line one\nInvented line two"),
     markdown.render("Invented paragraph"),
     markdown.render("Invented tail with spaces"),
-  ], "a blank tail was drawn, or a blank message added a block and its hairline");
+  ], "a blank tail was drawn, or a blank message added a block and its blank line");
   for (const b of blocks(el.answ))
     assert.ok(!b.html.includes(ZWSP) && !b.html.includes(JOINER), `an invisible tail survived: ${JSON.stringify(b.html)}`);
   // a batch whose every message is blank has nothing to show
@@ -851,7 +851,7 @@ function rules(css, selector) {
   return out;
 }
 
-test("the sheet draws one grey panel with no frame, hairlines between messages and an arrow only when long", () => {
+test("the sheet draws one grey panel with no frame, a blank line between messages and an arrow only when long", () => {
   const panel = rule(TOKENS, ".answered");
   assert.match(panel, /background:var\(--answ-fill\)/, "the panel is not drawn in its own fill");
   assert.match(panel, /--answ-fill:var\(--bubble-fill\)/, "the panel's fill is not the bubble's grey");
@@ -873,10 +873,12 @@ test("the sheet draws one grey panel with no frame, hairlines between messages a
   assert.match(rule(TOKENS, ".answclip"), /position:relative;.*--answ-shade:0/);
   assert.match(rule(TOKENS, ".answered.more:not(.open) .answclip"), /--answ-shade:1/,
     "a cut batch does not dissolve");
-  const hairline = rule(TOKENS, ".answmsg + .answmsg");
-  assert.match(hairline, /border-top:0px solid var\(--line\)/, "two messages are not split by a hairline");
-  assert.match(hairline, /margin-top:calc\(var\(--answ-line\) \/ 2 - \.5px\)/);
-  assert.match(hairline, /padding-top:calc\(var\(--answ-line\) \/ 2 - \.5px\)/);
+  // one message from the next: a whole blank line of the panel's type, half
+  // over the message's edge and half under it, and no rule drawn in it
+  const between = rule(TOKENS, ".answmsg + .answmsg");
+  assert.ok(!/border/.test(between), "two messages are split by a rule");
+  assert.match(between, /margin-top:calc\(var\(--answ-line\) \/ 2\);/);
+  assert.match(between, /padding-top:calc\(var\(--answ-line\) \/ 2\);/);
   assert.match(rule(TOKENS, ".answmsg p, .answmsg ul, .answmsg ol"), /margin-bottom:var\(--answ-line\)/);
   assert.match(rule(TOKENS, ".answfoot"), /display:none/, "the strip shows on a batch that fits");
   assert.match(rule(TOKENS, ".answered.more .answfoot"), /display:flex/, "a long batch has no strip");
@@ -936,6 +938,11 @@ test("each surface types the panel's measures and seats it in the answer's colum
     const body = css.slice(at, css.indexOf("}", at));
     for (const name of measures) assert.ok(body.includes(name + ":"), `${where} leaves ${name} unset`);
     assert.match(body, /var\(--inter\)/, `${where} does not set the panel in the title's face`);
+    // the cut and its dissolve are counted in the surface's own line
+    const line = /--answ-line:([\d.]+)px/.exec(body)[1];
+    for (const name of ["--answ-peek", "--answ-fade"])
+      assert.match(body, new RegExp(name + ":calc\\(" + line.replace(".", "\\.") + "px \\* "),
+        `${where}'s ${name} is not counted in its own ${line}px line`);
   }
   // the large card's seat stands in the answer's own column on both pages
   const column = "padding:0 calc(var(--pad-x)*5/3 - var(--sbar)) var(--sp-s) calc(var(--pad-x)*2/3);";

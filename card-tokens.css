@@ -274,8 +274,9 @@
    has a dissolve to draw again.
    --answ-stop is written by the script and by nothing else: the foot of the
    last line with text, when the preview's own cut would otherwise land in
-   blank, a paragraph break or the air round a hairline, or when a batch that
-   fits ends on a blank tail. without it the cut is the surface's own preview */
+   blank, a paragraph break or the air between two messages, or when a batch
+   that fits ends on a blank tail. without it the cut is the surface's own
+   preview */
 .answclip{position:relative; max-height:var(--answ-stop, var(--answ-peek)); overflow:hidden; --answ-shade:0}
 .answered.more:not(.open) .answclip{--answ-shade:1}
 .answclip::after{
@@ -328,9 +329,8 @@
 .answmsg{white-space:pre-wrap; overflow-wrap:break-word}
 .answmsg p, .answmsg ul, .answmsg ol{margin-bottom:var(--answ-line)}
 .answmsg + .answmsg{
-  margin-top:calc(var(--answ-line) / 2 - .5px);
-  padding-top:calc(var(--answ-line) / 2 - .5px);
-  border-top:0px solid var(--line);
+  margin-top:calc(var(--answ-line) / 2);
+  padding-top:calc(var(--answ-line) / 2);
 }
 /* the strip at the foot of a long batch, the grey the arrow stands in: its own
    height, taller than the panel's air, with the arrow centred in it so it has
