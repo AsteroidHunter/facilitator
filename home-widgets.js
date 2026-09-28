@@ -442,7 +442,7 @@
     let asking = null;
     function refresh() {
       if (asking) return asking;
-      if (!data) { stage.textContent = ""; stage.appendChild(el("div", "tk-wait", "Counting tokens…")); }
+      if (!data) { stage.textContent = ""; stage.appendChild(el("div", "tk-wait", "Counting tokens")); }
       asking = Promise.resolve().then(load).then(answer => {
         data = answer;
         draw();
