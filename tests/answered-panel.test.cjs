@@ -874,7 +874,7 @@ test("the sheet draws one grey panel with no frame, hairlines between messages a
   assert.match(rule(TOKENS, ".answered.more:not(.open) .answclip"), /--answ-shade:1/,
     "a cut batch does not dissolve");
   const hairline = rule(TOKENS, ".answmsg + .answmsg");
-  assert.match(hairline, /border-top:1px solid var\(--line\)/, "two messages are not split by a hairline");
+  assert.match(hairline, /border-top:0px solid var\(--line\)/, "two messages are not split by a hairline");
   assert.match(hairline, /margin-top:calc\(var\(--answ-line\) \/ 2 - \.5px\)/);
   assert.match(hairline, /padding-top:calc\(var\(--answ-line\) \/ 2 - \.5px\)/);
   assert.match(rule(TOKENS, ".answmsg p, .answmsg ul, .answmsg ol"), /margin-bottom:var\(--answ-line\)/);

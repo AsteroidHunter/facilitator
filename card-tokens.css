@@ -324,13 +324,13 @@
    typed, and a long word broken where it has to be so it
    cannot run past the panel. a paragraph break inside a message is one blank
    line of the panel's type, as the drawing leaves it, and one message is told
-   from the next by a hairline standing in the middle of that same blank line */
+   from the next by that same blank line alone */
 .answmsg{white-space:pre-wrap; overflow-wrap:break-word}
 .answmsg p, .answmsg ul, .answmsg ol{margin-bottom:var(--answ-line)}
 .answmsg + .answmsg{
   margin-top:calc(var(--answ-line) / 2 - .5px);
   padding-top:calc(var(--answ-line) / 2 - .5px);
-  border-top:1px solid var(--line);
+  border-top:0px solid var(--line);
 }
 /* the strip at the foot of a long batch, the grey the arrow stands in: its own
    height, taller than the panel's air, with the arrow centred in it so it has
