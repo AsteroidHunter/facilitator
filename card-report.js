@@ -266,6 +266,8 @@
     const v5Fields = new Set(["top", "range", "view", "edge", "hist", "focus", "lag", "dir",
       "far", "wait", "moved", "same", "prevented", "by"]);
     const v5Parts = new Set(["taken", "reply-swap"]);
+    // the board read's wait for headers and its download, timed on the phone's link
+    const networkParts = new Set(["fetch-headers", "json"]);
     const routineProblems = new Set(["ResizeObserver loop limit exceeded",
       "ResizeObserver loop completed with undelivered notifications."]);
     const legacyEvents = new Set(["create", "select", "focus", "send", "operation", "request",
@@ -418,7 +420,10 @@
       }
       note(token.event, { ...detail, phase: "end", seq: token.seq, ms, serverMs });
       const stable = token.visible && !document.hidden && token.generation === generation;
-      if (stable && ms >= (token.event === "request" ? REQUEST_SLOW : UI_SLOW)) {
+      // waiting on the network is not a slow screen: these steps stay in the
+      // history, and a whole read that is slow still saves as slow-request
+      const waited = token.event === "phase" && networkParts.has(token.detail.part);
+      if (stable && !waited && ms >= (token.event === "request" ? REQUEST_SLOW : UI_SLOW)) {
         automatic(token.event === "request" ? "slow-request" : "slow-ui");
       }
       if (stable && token.event === "request" && (detail?.status >= 400 || detail?.outcome === "retry")) automatic("problem");

@@ -326,6 +326,44 @@ test("UI and request thresholds have a cooldown, while a manual marker can follo
   assert.equal(f.calls.length, 4);
 });
 
+test("a board read's network wait is not a slow screen and leaves the recorder free for a freeze", async () => {
+  const f = fixture(); f.history.capability(5);
+  const server = { headers: { get: () => "3" } };
+  const read = (start, headersMs, downloadMs) => {
+    f.now(start);
+    const request = f.history.begin("request", { route: "/m/state" });
+    const headers = f.history.begin("phase", { action: "state", part: "fetch-headers" });
+    f.now(start + headersMs);
+    f.history.end(headers, { action: "state", part: "fetch-headers", status: 200 }, server);
+    const json = f.history.begin("phase", { action: "state", part: "json" });
+    f.now(start + headersMs + downloadMs);
+    f.history.end(json, { action: "state", part: "json", changed: true, bytes: 795792 });
+    f.history.end(request, { route: "/m/state", status: 200, rev: 7 }, server);
+  };
+  // headers after 700 ms and an 800 KB download over 1.2 s: an ordinary wait
+  read(1000, 700, 1200);
+  await f.run();
+  assert.equal(f.calls.length, 0);
+  // so a freeze right after is not refused behind a network save
+  f.now(5000); f.history.freeze(3000);
+  f.now(25000); await f.run();
+  assert.deepEqual(f.calls.map(c => c.reports[0].reason), ["freeze"]);
+  const frozen = latest(f).events;
+  assert.ok(frozen.some(e => e.part === "fetch-headers" && e.phase === "end" && e.ms === 700));
+  assert.ok(frozen.some(e => e.part === "json" && e.phase === "end" && e.ms === 1200 && e.bytes === 795792));
+  // a slow screen step is still a slow screen
+  f.now(60000);
+  const apply = f.history.begin("phase", { action: "state", part: "apply" });
+  f.now(60400); f.history.end(apply, { action: "state", part: "apply", changed: true });
+  f.now(81000); await f.run();
+  assert.equal(latest(f).reason, "slow-ui");
+  // and a whole read past two seconds is still saved, as the slow request it is
+  read(120000, 2400, 300);
+  f.now(143000); await f.run();
+  assert.deepEqual(f.calls.map(c => c.reports[0].reason), ["freeze", "slow-ui", "slow-request"]);
+  assert.equal(latest(f).suppressed, 0);
+});
+
 test("render invariants distinguish an unnamed card from a missing rendered title", async () => {
   const f = fixture();
   const good = { known: true, present: true, shown: true, title: true, titled: false, emptyTitle: true, editing: false };
