@@ -460,11 +460,17 @@
     /* the run-out the scroll needs under its last word: the band the box takes
        plus the ramp, handed back as padding so the last line can rise onto the
        top of the ramp where the ink is still full. padding counts inside the
-       scrollable height, so an answer that already fits gains no travel.
-       --answ-slack is the room a panel over the answer holds while it is cut
-       back, so the reader's scroll is never pulled (holdSlack in card-logic.js) */
-    padding-bottom:calc(var(--boxband, 0px) + var(--replyfade) + var(--answ-slack, 0px));
+       scrollable height, so an answer that already fits gains no travel */
+    padding-bottom:calc(var(--boxband, 0px) + var(--replyfade));
   }
+  /* the room a panel over the answer holds under it while it is cut back, so
+     the reader's scroll is never pulled (holdSlack in card-logic.js): a spacer
+     at the foot of the scroller's content and never the scroller's padding.
+     the scroller is a flex item, which cannot stand shorter than its own
+     padding, so room held there once pushed the scroller down past the card,
+     and --boxband, read off the scroller's foot, grew with it and masked the
+     answer out */
+  .replyview::after{content:""; flex:none; height:var(--answ-slack, 0px)}
   .box.histview .replyview{opacity:.8}
 
   /* ---- the foot: the sent panel over the typing row ------------------------ */

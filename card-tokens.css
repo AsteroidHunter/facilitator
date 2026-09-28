@@ -305,8 +305,16 @@
    head as it is cut back, on the same run: the script holds the words where the
    reader left them with a transform and lets it go, so they travel rather than
    jump. the column moves in the sent panel's cut, the whole panel in a small
-   card's seat */
-.answered.motion, .answered.motion .answstack{transition:transform var(--answ-move) var(--gentle)}
+   card's seat.
+   and a panel over the answer whose head is scrolled out of sight is cut back
+   off its top: the script holds it down by a top margin that grows on the same
+   run and curve as the cut shrinks, so the arrow pressed and the answer under
+   it stand still (openAnswered in card-logic.js). it is the one thing in a run
+   that is neither a height, a strength nor a transform, because it has to keep
+   step with the cut's height on every frame to the pixel, and a transform runs
+   on a clock of its own apart from the layout */
+.answered.motion{transition:transform var(--answ-move) var(--gentle), margin-top var(--answ-move) var(--gentle)}
+.answered.motion .answstack{transition:transform var(--answ-move) var(--gentle)}
 .answered.motion .answstack, .answered.motion .answfoot,
 .replyview:has(> .answwrap .answered.motion) > .reply{will-change:transform}
 /* only a panel with more to show takes a press, so a short batch is plain
