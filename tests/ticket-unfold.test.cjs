@@ -16,13 +16,15 @@
 //
 // once unfolded, the ticket keeps a crease: the board's creased flag
 // (server-testing.test.cjs) puts creased on the row, never beside the fold,
-// and two layers draw it where the fold was. checked here are the class on
-// each surface, the repaint, and the layers as each sheet states them: where
-// they sit, that their images lie exactly on the fold's crease, the tones
-// across the crease on every ticket fill, the taper along it, the notches in
-// the edge, what each tuning number moves, and how the line and the ridge land
-// on device pixels at 1x, 2x and 3x. how it looks is not checked; nothing here
-// can see it.
+// with one of three marks read off the card's id, and one layer draws it where
+// the fold was: an image baked by tools/bake-crease.cjs from
+// tools/crease-decal.js. checked here are the classes on each surface, the
+// repaint, the layer as each sheet states it, that every baked image is the
+// generator's own pixels at every size, and those pixels over a ticket against
+// what the owner's photograph of a real crease measures: the groove's darkness
+// and how it changes along the crease, where it lies, the ends, the corner's
+// own tone, the fall on the ticket's side, the nicks in the edge and the rim
+// beside the line. numbers are checked; how it looks to the owner is not.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const fs = require("node:fs");
@@ -110,7 +112,7 @@ function pageHelpers() {
   if (!html.includes("function unfoldTicket(")) return {};
   const src = functionSource(html, "foldHit", "awaitsYou");
   return new Function("getComputedStyle", "fetch", "poll", "MOCK", "encodeURIComponent",
-    `${src}\nreturn { foldHit, onFold, unfoldTicket };`,
+    `${src}\nreturn { foldHit, onFold, unfoldTicket, creaseVariant };`,
   )(sandbox.getComputedStyle, sandbox.fetch, sandbox.poll, false, encodeURIComponent);
 }
 
@@ -120,10 +122,10 @@ const PAINT = {
   desktop: (pool, view = "todo") => {
     const paint = new Function("Date", "queueState", "cardState", "h", "seenReplies", "shortAge",
       "SPIN_FRAMES", "spinFrame", "curView", "selectedId", "selectedTask", "testReady", "appendOmniRowArt",
-      "select", "onFold", "unfoldTicket",
+      "select", "onFold", "unfoldTicket", "creaseVariant",
       `${functionSource(HTML.desktop, "paintTicketPane", "renderCarousel")}; return paintTicketPane;`,
     )(DateStub, queueState, cardState, h, {}, () => "5m", SPIN, 0, () => view, "none", null, testReady,
-      appendOmniRowArt, record("select"), logic("onFold"), logic("unfoldTicket"));
+      appendOmniRowArt, record("select"), logic("onFold"), logic("unfoldTicket"), logic("creaseVariant"));
     const pane = new FakeElement("div");
     paint(pane, pool, view, { agents: {} }, "lane");
     return pane.children;
@@ -131,10 +133,10 @@ const PAINT = {
   phone: (pool, view = "todo") => {
     const paint = new Function("queueState", "cardState", "h", "seenReplies", "shortAge",
       "SPIN_FRAMES", "spinFrame", "selectedId", "testReady", "appendOmniRowArt",
-      "select", "closeDrawer", "onFold", "unfoldTicket",
+      "select", "closeDrawer", "onFold", "unfoldTicket", "creaseVariant",
       `${functionSource(HTML.phone, "paintPhonePane", "renderTickets")}; return paintPhonePane;`,
     )(queueState, cardState, h, {}, () => "5m", SPIN, 0, "none", testReady, appendOmniRowArt,
-      record("select"), record("closeDrawer"), logic("onFold"), logic("unfoldTicket"));
+      record("select"), record("closeDrawer"), logic("onFold"), logic("unfoldTicket"), logic("creaseVariant"));
     const pane = new FakeElement("div");
     paint(pane, pool, view, "sig", { agents: {} });
     return pane.children;
@@ -146,11 +148,11 @@ const PAINT = {
     const render = new Function("document", "Date", "curWs", "poolOf", "viewFilter", "queueState",
       "cardState", "h", "seenReplies", "shortAge", "syncSpinner", "SPIN_FRAMES", "spinFrame", "activeOwner",
       "curView", "paintViewTabs", "selectedId", "selectedTask", "testReady", "appendOmniRowArt",
-      "select", "onFold", "unfoldTicket",
+      "select", "onFold", "unfoldTicket", "creaseVariant",
       `${functionSource(HTML.page, "renderCarousel", "ord")}; return renderCarousel;`,
     )(document, DateStub, () => null, state => state.boxes, () => true, queueState, cardState, h, {},
       () => "5m", noop, SPIN, 0, "lane", () => view, noop, "none", null, testReady, appendOmniRowArt,
-      record("select"), own.onFold, own.unfoldTicket);
+      record("select"), own.onFold, own.unfoldTicket, own.creaseVariant);
     render({ agents: {}, boxes: pool });
     return tiklist.children;
   },
@@ -372,12 +374,17 @@ for (const where of SURFACES) {
     ];
     const rows = PAINT[where](pool), flat = PAINT[where](pool.map(b => ({ ...b, creased: false })));
     const want = { c1: true, c2: false, c3: false, c4: true, c5: true };
+    const variant = where === "page" ? pageHelpers().creaseVariant : logic("creaseVariant");
     for (const [id, creased] of Object.entries(want)) {
       const got = classes(rowOf(rows, id));
       assert.equal(got.includes("creased"), creased, `${id} ${creased ? "lost" : "gained"} the crease`);
       assert.ok(!(got.includes("creased") && got.includes("testc")), `${id} wears the crease beside the fold`);
-      // the crease is the one class it adds: state, seen, omni and fold are as they were
-      assert.deepEqual(got.filter(c => c !== "creased"), classes(rowOf(flat, id)), `${id} changed more than the crease`);
+      // beside it, the one mark of the three its id picks, and no other
+      const marks = got.filter(c => /^crease-\d$/.test(c));
+      assert.deepEqual(marks, creased ? ["crease-" + variant(id)] : [], `${id} wears the wrong crease mark`);
+      // the crease and its mark are all it adds: state, seen, omni and fold are as they were
+      assert.deepEqual(got.filter(c => c !== "creased" && !marks.includes(c)), classes(rowOf(flat, id)),
+        `${id} changed more than the crease`);
     }
     assert.ok(classes(rowOf(rows, "c4")).includes("working") && classes(rowOf(rows, "c5")).includes("queuedc"));
     // closed while folded, the done ticket keeps its crease too
@@ -474,364 +481,242 @@ function splitTop(value, sep = ",") {
   if (cur.trim()) out.push(cur.trim());
   return out;
 }
-// the inside of the first name(...) in a value, and where that call ends
+// the inside of the first name(...) in a value
 function inner(value, name) {
   const at = value.indexOf(name + "(");
-  assert.ok(at >= 0, `no ${name}() in ${value}`);
+  assert.ok(at >= 0, `no ${name}() in ${value.slice(0, 80)}`);
   let depth = 0;
   for (let i = at + name.length; i < value.length; i++) {
     if (value[i] === "(") depth++;
-    if (value[i] === ")" && --depth === 0) return { body: value.slice(at + name.length + 1, i), end: i + 1 };
+    if (value[i] === ")" && --depth === 0) return value.slice(at + name.length + 1, i);
   }
-  assert.fail(`${name}() is not closed in ${value}`);
+  assert.fail(`${name}() is not closed`);
 }
-// a value as the browser works it out: every var() swapped for the value
-// given, then calc(), min(), px, and percentages of `whole`
-function evaluate(expr, vars, whole = 0) {
-  let t = String(expr);
-  for (let i = 0; i < 8 && t.includes("var(--"); i++)
-    t = t.replace(/var\((--[\w-]+)\)/g, (_, n) => { assert.ok(n in vars, `${n} has no value in ${expr}`); return "(" + vars[n] + ")"; });
-  t = t.replace(/(\d*\.?\d+)%/g, (_, n) => "(" + Number(n) / 100 * whole + ")")
-    .replace(/(\d)px\b/g, "$1").replace(/\bcalc\(/g, "(").replace(/\bmin\(/g, "Math.min(");
-  assert.match(t.replace(/Math\.min/g, ""), /^[\d\s.+\-*/(),e]+$/, `an unexpected value: ${expr}`);
-  return Function(`return (${t});`)();
-}
-const HEX = h => {
-  h = h.replace("#", "");
-  if (h.length === 3) h = [...h].map(c => c + c).join("");
-  return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16));
-};
-// a colour as its channels and its alpha, worked out
-function colourOf(c, vars) {
-  if (c === "transparent") return { rgb: [0, 0, 0], a: 0 };
-  if (c.startsWith("#")) return { rgb: HEX(c), a: 1 };
-  if (c.startsWith("rgb(")) {
-    const [chan, alpha] = inner(c, "rgb").body.split("/");
-    return { rgb: chan.trim().split(/\s+/).map(Number), a: alpha == null ? 1 : evaluate(alpha.trim(), vars) };
-  }
-  if (c.startsWith("color-mix(")) {
-    const [space, first, second] = splitTop(inner(c, "color-mix").body);
-    assert.equal(space, "in srgb");
-    assert.equal(second, "transparent", "the mix is not its colour thinned");
-    const [base, share] = splitTop(first, " ");
-    const name = /^var\((--[\w-]+)\)$/.exec(base);
-    return { rgb: HEX(name ? vars[name[1]] : base), a: evaluate(share, vars, 100) / 100, base };
-  }
-  assert.fail(`an unexpected colour: ${c}`);
-}
-// a gradient stop as its colour and the rest (its place)
-function stopOf(s, vars, length) {
-  let colour = s.split(/\s+/)[0];
-  for (const fn of ["rgb", "color-mix"]) if (s.startsWith(fn + "(")) colour = s.slice(0, inner(s, fn).end);
-  const at = s.slice(colour.length).trim();
-  return { ...colourOf(colour, vars), at: at ? evaluate(at, vars, length) : null };
-}
-// a linear-gradient() as its direction and stops, each placed in px along a
-// gradient line of the given length
-function linear(value, vars, length) {
-  const [direction, ...stops] = splitTop(inner(value, "linear-gradient").body);
-  return { direction, stops: stops.map(s => stopOf(s, vars, length)) };
-}
-// premultiplied colour at t px along a gradient line, as the browser mixes it:
-// a stop placed before the one ahead of it is moved up to it
-function sample(stops, t) {
-  const pm = s => [...s.rgb.map(v => v * s.a), s.a];
-  let last = -Infinity;
-  const pos = stops.map(s => (last = Math.max(last, s.at)));
-  if (t <= pos[0]) return pm(stops[0]);
-  for (let i = 1; i < stops.length; i++) if (t <= pos[i]) {
-    const f = pos[i] === pos[i - 1] ? 1 : (t - pos[i - 1]) / (pos[i] - pos[i - 1]);
-    const a = pm(stops[i - 1]), b = pm(stops[i]);
-    return a.map((v, k) => v + (b[k] - v) * f);
-  }
-  return pm(stops.at(-1));
-}
-// a premultiplied layer laid over a solid colour
-const over = (under, [r, g, b, a]) => under.map((v, k) => v * (1 - a) + [r, g, b][k]);
-const light = ([r, g, b]) => .299 * r + .587 * g + .114 * b;
-// "right Xpx top Ypx" as the two offsets
-function edgeOffsets(value) {
-  const m = /^right (-?[\d.]+)px top (-?[\d.]+)px$/.exec(value);
-  assert.ok(m, `not placed from the top right: ${value}`);
-  return { right: Number(m[1]), top: Number(m[2]) };
+// a function's own text, from its name to its closing brace
+function fnText(src, name) {
+  const start = src.indexOf(`function ${name}(`);
+  assert.ok(start >= 0, `${name} was not found`);
+  return src.slice(start, src.indexOf("\n}", start) + 2);
 }
 
 const styleOf = html => [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(m => m[1]).join("\n");
 const TOKENS = read("card-tokens.css");
 // each page's own sheet, then the shared one where the page links it
 const SHEETS = { desktop: styleOf(HTML.desktop) + "\n" + TOKENS, phone: styleOf(HTML.phone) + "\n" + TOKENS, page: styleOf(HTML.page) };
-const PAPER = ".trow.creased > .trowin::before", HINGE = ".trow.creased > .trowin::after";
-const BOTH = ".trow.creased > .trowin::before, .trow.creased > .trowin::after";
-const TUNING = ["--crease-strength", "--crease-width", "--crease-raise", "--crease-light", "--crease-notch"];
-// every ticket fill the crease can lie on
-const FILLS = { plain: "#fff", "your turn": "#FFFBEB", working: "#F3FFF0", queued: "#F7F7F7" };
-const W = 300;   // a row's border box width; the crease is read from its top right
+const LAYER = ".trow.creased > .trowin::after";
+const MARKS = [2, 3].map(v => `.trow.creased.crease-${v} > .trowin::after`);
+const D = require(path.join(ROOT, "tools", "crease-decal.js"));
+const { START, END } = require(path.join(ROOT, "tools", "bake-crease.cjs"));
 
-// the crease on one sheet for one fold and one drawn edge, with any tuning
-// swapped in. d is px across the crease from the fold's diagonal, positive
-// toward the ticket and negative toward the corner's tip; s is px along it
-// from its middle, positive toward the right edge
-function creaseOf(css, fold, drawn, tune = {}) {
-  const row = style(css, ".trow.creased");
-  const vars = { "--fold": fold + "px", "--edge-drawn": drawn + "px", "--line": custom(css, "--line", []),
-    ...Object.fromEntries(TUNING.map(n => [n, row[n]])), ...tune };
-  const paper = style(css, PAPER), hinge = style(css, HINGE);
-  const box = evaluate(paper.width, vars);
-  const [topNotch, rightNotch, shade] = splitTop(paper["background-image"]);
-  const side = evaluate(splitTop(splitTop(paper["background-size"])[2], " ")[0], vars);
-  const across = side * Math.SQRT2;
-  const shades = linear(shade, vars, across), lines = linear(hinge["background-image"], vars, across);
-  const { body, end } = inner(hinge.mask, "linear-gradient");
-  const along = linear(hinge.mask.slice(0, end), vars, across);
-  const notch = r => {
-    const [shape, ...stops] = splitTop(inner(r, "radial-gradient").body);
-    const [size, place] = shape.split(" at ");
-    const [rx, ry] = splitTop(size, " ").map(v => evaluate(v, vars));
-    const [px, py] = splitTop(place, " ");
-    // the centre in the row's border box: the layer's left edge is W less its width
-    return { rx, ry, x: W - box + evaluate(px, vars, box), y: evaluate(py, vars, box), stops: stops.map(s => stopOf(s, vars, 1)) };
-  };
-  return {
-    vars, box, side, across, shades, lines, along, mask: hinge.mask.slice(end).trim(), body,
-    notches: [notch(topNotch), notch(rightNotch)],
-    paper: d => sample(shades.stops, across / 2 + d),
-    hinge: d => sample(lines.stops, across / 2 + d),
-    taper: s => sample(along.stops, across / 2 + s)[3],
-    // the two layers over one fill, at the middle of the crease's length
-    on: (fill, d, s = 0) => {
-      const h = sample(lines.stops, across / 2 + d), t = sample(along.stops, across / 2 + s)[3];
-      return over(over(HEX(fill), sample(shades.stops, across / 2 + d)), h.map(v => v * t));
-    },
-  };
+// ---- png in: enough of a decoder for the baked images (8 bit rgba, not interlaced)
+const zlib = require("node:zlib");
+function unpng(buf) {
+  assert.deepEqual([...buf.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10], "not a png");
+  let at = 8, width = 0, height = 0;
+  const idat = [];
+  while (at < buf.length) {
+    const len = buf.readUInt32BE(at), kind = buf.toString("ascii", at + 4, at + 8), data = buf.subarray(at + 8, at + 8 + len);
+    if (kind === "IHDR") {
+      width = data.readUInt32BE(0); height = data.readUInt32BE(4);
+      assert.deepEqual([data[8], data[9], data[12]], [8, 6, 0], "not 8 bit rgba, or interlaced");
+    }
+    if (kind === "IDAT") idat.push(data);
+    at += 12 + len;
+  }
+  const raw = zlib.inflateSync(Buffer.concat(idat)), stride = width * 4, rgba = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    const f = raw[y * (stride + 1)];
+    for (let i = 0; i < stride; i++) {
+      const x = raw[y * (stride + 1) + 1 + i], a = i >= 4 ? rgba[y * stride + i - 4] : 0;
+      const b = y ? rgba[(y - 1) * stride + i] : 0, c = i >= 4 && y ? rgba[(y - 1) * stride + i - 4] : 0;
+      const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+      rgba[y * stride + i] = (x + [0, a, b, (a + b) >> 1, pa <= pb && pa <= pc ? a : pb <= pc ? b : c][f]) & 255;
+    }
+  }
+  return { width, height, rgba };
 }
+// a sheet's baked block: every --crease-<fold>-<mark> as its images by density,
+// and the block's other names
+function decalsOf(css) {
+  const a = css.indexOf(START), b = css.indexOf(END);
+  assert.ok(a >= 0 && b > a, "no crease decal block");
+  const vars = style(css.slice(a, b + END.length), ":root"), images = {};
+  for (const [name, value] of Object.entries(vars)) {
+    if (!/^--crease-\d+-\d$/.test(name)) continue;
+    images[name] = splitTop(inner(value, "image-set")).map(entry => {
+      const u = /^url\("data:image\/png;base64,([A-Za-z0-9+/=]+)"\) (\d)x$/.exec(entry);
+      assert.ok(u, `an unexpected image in ${name}`);
+      return { scale: Number(u[2]), bytes: Buffer.from(u[1], "base64"), png: unpng(Buffer.from(u[1], "base64")) };
+    });
+  }
+  return { vars, images };
+}
+const imageOf = (decals, fold, mark, scale) => decals.images[`--crease-${fold}-${mark}`].find(e => e.scale === scale).png;
 
-test("the crease is two layers only the fold also uses, anchored where the fold's layers are, inside the ticket's edge", () => {
-  const allowed = [".trow.testc > .trowin::before", PAPER, HINGE];
+// an image over one ticket fill, as the eye gets it: each pixel inside the
+// ticket (under the top edge, left of the right edge) with its lightness as a
+// % of the fill's own, s its distance from the fold's crease (+ toward the
+// corner) and t its place along the crease from its top end, in css px
+function looks(img, fold, scale, edge, fill = [255, 255, 255]) {
+  const lum = ([r, g, b]) => .2126 * r + .7152 * g + .0722 * b, base = lum(fill), pts = [];
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+    const cx = (x + .5) / scale, cy = (y + .5) / scale;
+    if (cy < edge || cx > fold + 6 - edge) continue;
+    const o = (y * img.width + x) * 4, a = img.rgba[o + 3] / 255;
+    const c = fill.map((f, k) => f * (1 - a) + img.rgba[o + k] * a);
+    pts.push({ s: ((cx - 6) - cy) / Math.SQRT2, t: ((cx - 6) + cy) / Math.SQRT2, v: 100 * lum(c) / base, cx, cy, c });
+  }
+  // along the crease, the darkest pixel within 1px of it, a css px at a time
+  const along = [];
+  for (let t = 0; t + 1 <= fold * Math.SQRT2; t += 1) {
+    const near = pts.filter(p => p.t >= t && p.t < t + 1 && Math.abs(p.s) <= 1);
+    if (near.length) along.push(near.reduce((m, p) => (p.v < m.v ? p : m)));
+  }
+  const mean = f => { const q = pts.filter(f); return q.reduce((s, p) => s + p.v, 0) / q.length; };
+  return { pts, along, mean };
+}
+const avg = a => a.reduce((s, v) => s + v, 0) / a.length;
+
+test("the crease is one image on one layer, anchored where the fold's layers are, inside the ticket's edge", () => {
+  const allowed = [".trow.testc > .trowin::before", LAYER, ...MARKS];
   for (const [where, css] of Object.entries(SHEETS)) {
     const rules = rulesOf(css);
-    // the row's .trowin layers are the fold's contact shade and the crease's
-    // two, and nothing else's: never the working shimmer or the omni light,
-    // which draw on the row's own
+    // the row's .trowin layers are the fold's contact shade and the crease, and
+    // nothing else's: never the working shimmer or the omni light, which draw on
+    // the row's own
     for (const r of rules) for (const s of r.sels) if (/trowin::?(before|after)/.test(s))
       assert.ok(allowed.includes(s), `${where}: ${s} draws on a layer the fold or the crease owns`);
-    // the creased row names its tuning (and on the typed page its fold) and
-    // nothing more: it keeps the ticket's own fill, edge, shade and hidden
+    // the creased row keeps the ticket's own fill, edge, shade and hidden
     // overflow, which is what keeps the crease inside the edge and the corner
     for (const r of rules) if (r.sels.includes(".trow.creased"))
-      for (const [p] of declsOf(r.body)) assert.ok(p === "--fold" || TUNING.includes(p), `${where}: the creased row sets ${p}`);
-    assert.deepEqual(Object.keys(style(css, ".trow.creased")).filter(p => p !== "--fold").sort(), [...TUNING].sort());
+      for (const [p] of declsOf(r.body)) assert.equal(p, "--fold", `${where}: the creased row sets ${p}`);
     assert.equal(style(css, ".trow").overflow, "hidden");
-    const flap = style(css, ".trow.testc::after");
-    for (const sel of [PAPER, HINGE]) {
-      const layer = style(css, sel);
-      assert.equal(layer.content, '""');
-      assert.equal(layer.position, "absolute");
-      assert.equal(layer["box-sizing"], "border-box");
-      assert.equal(layer["pointer-events"], "none", "the crease takes clicks meant for the row");
-      assert.equal(layer["background-repeat"], "no-repeat");
-      // on the border box's top right, where the flap and the hole are, and
-      // 6px past the fold's square to the left and below
-      for (const p of ["top", "right"]) assert.equal(layer[p], flap[p], `${where}: the crease's ${p} is not the fold's`);
-      assert.equal(layer.width, "calc(var(--fold) + 6px)");
-      assert.equal(layer.height, "calc(var(--fold) + 6px)");
-      // paint and nothing else: no edge, shadow, cut, filter, blend or lift of its own
-      for (const p of ["border", "border-left", "border-bottom", "box-shadow", "clip-path", "filter", "z-index", "transform", "opacity", "mix-blend-mode"])
-        assert.equal(layer[p], undefined, `${where}: the crease sets ${p}`);
-    }
+    const layer = style(css, LAYER), flap = style(css, ".trow.testc::after");
+    assert.equal(layer.content, '""');
+    assert.equal(layer.position, "absolute");
+    assert.equal(layer["pointer-events"], "none", "the crease takes clicks meant for the row");
+    // on the border box's top right, where the flap and the hole are, and 6px
+    // past the fold's square to the left and below: the generator's own box,
+    // whose crease runs from 6px in along the top to --fold down the right edge
+    for (const p of ["top", "right"]) assert.equal(layer[p], flap[p], `${where}: the crease's ${p} is not the fold's`);
+    assert.equal(layer.width, "calc(var(--fold) + 6px)");
+    assert.equal(layer.height, "calc(var(--fold) + 6px)");
+    // one image, filling the layer, drawn as it is
+    assert.equal(layer.background, "no-repeat 0 0 / 100% 100%");
+    assert.equal(layer["background-image"], "var(--crease-1)");
+    MARKS.forEach((sel, i) => assert.deepEqual(style(css, sel), { "background-image": `var(--crease-${i + 2})` }));
+    for (const p of ["border", "box-shadow", "clip-path", "filter", "mix-blend-mode", "mask", "-webkit-mask",
+      "opacity", "transform", "z-index", "animation", "transition"])
+      assert.equal(layer[p], undefined, `${where}: the crease sets ${p}`);
     // on every surface a creased row's square is its folded row's size
     assert.equal(custom(css, "--fold", [".trow", ".trow.creased"]), custom(css, "--fold", [".trow", ".trow.testc"]),
       `${where}: the crease's square is not the fold's size`);
   }
   assert.equal(custom(SHEETS.phone, "--fold", [".trow", ".trow.creased"]), "12px");
   // the typed page does not load card-tokens.css and keeps its own copy
-  for (const sel of [PAPER, HINGE])
+  for (const sel of [LAYER, ...MARKS])
     assert.deepEqual(style(SHEETS.page, sel), style(TOKENS, sel), `the typed page's ${sel} drifted from card-tokens.css`);
-  const { "--fold": fold, ...tuning } = style(SHEETS.page, ".trow.creased");
-  assert.equal(fold, "16px");
-  assert.deepEqual(tuning, style(TOKENS, ".trow.creased"), "the typed page's crease tuning drifted from card-tokens.css");
+  assert.deepEqual(style(SHEETS.page, ".trow.creased"), { "--fold": "16px" });
 });
 
-test("every image of the crease lies on the fold's own crease, its centre the crease's middle, and covers its layer", () => {
-  const cut = style(TOKENS, ".trow.testc::before")["clip-path"];
-  const H = 64;
-  for (const [where, css] of Object.entries(SHEETS)) {
-    const paper = style(css, PAPER), hinge = style(css, HINGE);
-    assert.equal(hinge["-webkit-mask"], hinge.mask, `${where}: the prefixed mask is not the mask`);
-    const maskRest = hinge.mask.slice(inner(hinge.mask, "linear-gradient").end).trim();
-    const [maskPlace, maskSize] = maskRest.replace(/ no-repeat$/, "").split(" / ");
-    const images = {
-      "the paper's shades": [splitTop(paper["background-size"])[2], splitTop(paper["background-position"])[2]],
-      "the hinge": [hinge["background-size"], hinge["background-position"]],
-      "the taper": [maskSize, maskPlace],
-    };
-    assert.deepEqual(splitTop(paper["background-position"]).slice(0, 2), ["0 0", "0 0"], "the notches are not placed on the layer");
-    for (const fold of [16, 12]) {
-      const vars = { "--fold": fold + "px" };
-      // the fold's crease: the two points where its cut meets the top and the right edge
-      const [a, b] = splitTop(inner(cut, "polygon").body).slice(1, 3)
-        .map(p => splitTop(p, " ")).map(([x, y]) => [evaluate(x, vars, W), evaluate(y, vars, H)]);
-      assert.deepEqual([a, b], [[W - fold, 0], [W, fold]], "the fold's crease is not where it was");
-      const onCrease = ([x, y]) => Math.abs((b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0])) < 1e-9;
-      const box = evaluate(paper.width, vars);
-      for (const [what, [size, place]] of Object.entries(images)) {
-        const [w, h] = splitTop(size, " ").map(v => evaluate(v, vars));
-        assert.equal(w, h, `${what} is not square, so its diagonal is not at 45 degrees`);
-        const { right, top } = edgeOffsets(place);
-        const x1 = W - right, x0 = x1 - w, y0 = top, y1 = top + w;
-        assert.ok(onCrease([x0, y0]) && onCrease([x1, y1]), `${where}, ${fold}px: ${what}'s diagonal is not the fold's crease`);
-        assert.ok(Math.abs((x0 + x1) / 2 - (a[0] + b[0]) / 2) < 1e-9 && Math.abs((y0 + y1) / 2 - (a[1] + b[1]) / 2) < 1e-9,
-          `${where}, ${fold}px: ${what} is not centred on the crease's middle`);
-        assert.ok(x0 <= W - box && x1 >= W && y0 <= 0 && y1 >= box, `${where}, ${fold}px: ${what} leaves part of its layer bare`);
-      }
+test("the images are the generator's own pixels: three marks at every size a screen draws them at", () => {
+  const tokens = decalsOf(TOKENS), page = decalsOf(styleOf(HTML.page));
+  const names = folds => folds.flatMap(f => D.SEEDS.map((_, i) => `--crease-${f}-${i + 1}`)).sort();
+  assert.deepEqual(Object.keys(tokens.images).sort(), names([16, 12]));
+  for (const set of D.SETS) D.SEEDS.forEach((seed, i) => {
+    const name = `--crease-${set.fold}-${i + 1}`, want = D.render({ ...set, seed });
+    const entry = tokens.images[name].find(e => e.scale === set.scale);
+    assert.ok(entry, `${name} has no ${set.scale}x image`);
+    assert.equal(want.size, Math.round((set.fold + 6) * set.scale), "an image is not its layer at that density");
+    assert.deepEqual([entry.png.width, entry.png.height], [want.size, want.size]);
+    assert.ok(Buffer.from(entry.png.rgba).equals(Buffer.from(want.rgba)), `${name} at ${set.scale}x is not the generator's`);
+  });
+  for (const fold of [16, 12]) for (const i of [1, 2, 3])
+    assert.deepEqual(tokens.images[`--crease-${fold}-${i}`].map(e => e.scale),
+      D.SETS.filter(s => s.fold === fold).map(s => s.scale), `--crease-${fold}-${i} is not drawn at its screens' densities`);
+  // unless a page says otherwise the desktop's marks are drawn; the phone draws its 12px ones
+  const phoneRow = style(styleOf(HTML.phone), ".trow");
+  for (const i of [1, 2, 3]) {
+    assert.equal(tokens.vars[`--crease-${i}`], `var(--crease-16-${i})`);
+    assert.equal(phoneRow[`--crease-${i}`], `var(--crease-12-${i})`, "the phone does not draw its 12px marks");
+  }
+  // the typed page carries the desktop's marks, pixel for pixel the same
+  assert.deepEqual(Object.keys(page.images).sort(), names([16]));
+  for (const name of names([16])) {
+    assert.deepEqual(page.images[name].map(e => e.scale), tokens.images[name].map(e => e.scale));
+    page.images[name].forEach((e, k) => assert.ok(Buffer.from(e.png.rgba).equals(Buffer.from(tokens.images[name][k].png.rgba)),
+      `the typed page's ${name} drifted from card-tokens.css`));
+  }
+  for (const i of [1, 2, 3]) assert.equal(page.vars[`--crease-${i}`], `var(--crease-16-${i})`);
+  // three marks, each its own
+  const marks = [1, 2, 3].map(i => Buffer.from(imageOf(tokens, 16, i, 2).rgba));
+  assert.ok(!marks[0].equals(marks[1]) && !marks[1].equals(marks[2]) && !marks[0].equals(marks[2]), "two marks are the same");
+  // small, and read once: every image under 2KB, all of them under 16KB
+  const all = Object.values(tokens.images).flat();
+  for (const e of all) assert.ok(e.bytes.length < 2048, `an image is ${e.bytes.length} bytes`);
+  assert.ok(all.reduce((s, e) => s + e.bytes.length, 0) < 16384);
+});
+
+// the numbers below come from the owner's second photograph, decoded and
+// measured off the decoded photograph:
+// its long crease's groove averages 70% of the paper's lightness, 56% in its
+// darkest quarter, swinging between 36% and 90% along it; its dog-eared
+// corner's crease runs dark right into the sheet's edge, beside a corner that
+// is a plane of its own, darker toward its tip
+test("on a white ticket the crease reads as the photographs' creases do, at the desktop's 2x and the phone's 3x", () => {
+  const tokens = decalsOf(TOKENS);
+  for (const [fold, scale, edge] of [[16, 2, .5], [12, 3, 2 / 3]]) for (const mark of [1, 2, 3]) {
+    const at = `${fold}px at ${scale}x, mark ${mark}`;
+    const w = looks(imageOf(tokens, fold, mark, scale), fold, scale, edge);
+    const line = w.along.map(p => p.v);
+    // the groove: as dark on the whole as a pressed, clean crease can be beside
+    // the photographs' (70%), and never the same all along: it swings by ten
+    // points or more, the way the photographs' does and a drawn line does not
+    assert.ok(avg(line) >= 65 && avg(line) <= 85, `${at}: the groove averages ${avg(line).toFixed(1)}%`);
+    assert.ok(Math.max(...line) - Math.min(...line) >= 10, `${at}: the groove is the same all along`);
+    // no taper: it runs dark right into both edges
+    assert.ok(Math.min(...line.slice(0, 2)) <= 80 && Math.min(...line.slice(-2)) <= 85, `${at}: the groove fades at an edge`);
+    // it lies where the fold's crease was: at every place, its darkest point is
+    // within a pixel of the fold's diagonal, for all its wander
+    for (const p of w.along) assert.ok(Math.abs(p.s) <= .9, `${at}: the groove strays ${p.s.toFixed(2)}px off the fold's crease`);
+    // the corner is a plane of its own: a few points under the ticket, and
+    // darker toward its tip, where it curls
+    const near = w.mean(p => p.s > 1.5 && p.s < 4), far = w.mean(p => p.s > 7);
+    assert.ok(near >= 92 && near <= 97.5, `${at}: the corner near the crease is ${near.toFixed(1)}%`);
+    assert.ok(far < near - 1, `${at}: the corner is not darker toward its tip`);
+    // the ticket's side: a faint fall just past the line, then the ticket's own white
+    const fall = w.mean(p => p.s < -1.5 && p.s > -3);
+    assert.ok(fall >= 96 && fall < 99.8, `${at}: the fall past the line is ${fall.toFixed(1)}%`);
+    for (const p of w.pts.filter(q => q.s < -6)) assert.equal(p.v, 100, `${at}: the ticket is marked ${-p.s.toFixed(1)}px from the crease`);
+    // nothing darker than the photographs' groove at its darkest quarter
+    assert.ok(Math.min(...w.pts.map(p => p.v)) >= 56, `${at}: a pixel is darker than any groove in the photographs`);
+    // the edge kinks where the crease meets it: the pixels just inside the top
+    // edge and the right edge, at the crease, are dark
+    const nick = (x, y) => Math.min(...w.pts.filter(p => Math.hypot(p.cx - x, p.cy - y) <= .6).map(p => p.v));
+    assert.ok(nick(6 + edge, edge + .25) <= 80, `${at}: no nick in the top edge`);
+    assert.ok(nick(fold + 6 - edge - .25, fold - edge) <= 80, `${at}: no nick in the right edge`);
+    // the groove's lit wall is a rim right beside the line, as in the
+    // photograph's dog-ear. a near-white ticket leaves a highlight almost no
+    // room, so the rim is the ticket's own lightness left clear between the
+    // dark line and the fall past it, on white and on the your-turn yellow alike
+    for (const fill of [[255, 255, 255], [255, 251, 235]]) {
+      const y = looks(imageOf(tokens, fold, mark, scale), fold, scale, edge, fill);
+      const rim = y.pts.filter(p => p.s < 0 && p.s > -1.5).reduce((m, p) => (p.v > m.v ? p : m));
+      assert.ok(rim.v >= 99.9, `${at}: no clear rim beside the line on ${fill}`);
+      assert.ok(rim.v > y.mean(p => p.s < -1.5 && p.s > -3) + 1, `${at}: the rim is no lighter than the fall past it on ${fill}`);
     }
   }
 });
 
-test("across the crease, on every ticket fill: the raised corner's tint, a shade into the valley, the line, a bright ridge, a soft fall, then the ticket untouched", () => {
-  const contact = Number(/rgba\(60,45,20,([\d.]+)\)/.exec(style(TOKENS, ".trow.testc > .trowin::before").background)[1]);
-  const foldInk = HEX(/#[0-9a-f]{6}/i.exec(style(TOKENS, ".trow.testc::after").background)[0]);
-  for (const fold of [16, 12]) for (const drawn of [1, .5, 2 / 3]) {
-    const c = creaseOf(TOKENS, fold, drawn), at = `${fold}px at a ${drawn.toFixed(2)}px edge`;
-    assert.equal(c.shades.direction, "to bottom left");
-    assert.equal(c.lines.direction, "to bottom left");
-    // the shades are the board's shade ink; the line is the fold's own crease
-    // colour, far quieter than the fold; the ridge is white
-    for (const s of c.shades.stops) assert.deepEqual(s.rgb, [60, 45, 20], `${at}: a shade is not the board's shade ink`);
-    for (const s of c.lines.stops) assert.ok([foldInk.join(), "255,255,255"].includes(s.rgb.join()), `${at}: the hinge wears ${s.rgb}`);
-    const ink = Math.max(...c.lines.stops.filter(s => s.rgb.join() === foldInk.join()).map(s => s.a));
-    assert.ok(ink > .2 && ink < .5, `${at}: the line's strength ${ink} is not a quiet crease`);
-    const alpha = d => c.paper(d)[3];
-    // the corner that was folded keeps a tint across the whole of it, from its
-    // tip (fold / sqrt 2 out) to the crease: paler at the tip, deepening into
-    // the valley, and fainter than the fold's own contact shade away from it
-    const tip = -fold / Math.SQRT2, valley = -drawn;
-    assert.ok(alpha(tip) > 0, `${at}: the corner's tip has no tint`);
-    for (let d = tip; d + .05 <= valley + 1e-9; d += .05) assert.ok(alpha(d + .05) >= alpha(d) - 1e-12, `${at}: the tint lightens toward the crease at ${d}`);
-    assert.ok(alpha(tip) < alpha(-fold * .3), `${at}: the tip is not paler than the rest of the corner`);
-    assert.ok(alpha(-fold * .3) < contact, `${at}: the raised corner is deeper than the fold's own shade`);
-    assert.ok(alpha(valley) > alpha(-fold * .3) * 1.8, `${at}: the valley does not fall into shade`);
-    // the fall past the ridge is gone within its reach, and the ticket past it is untouched
-    const reach = drawn * 2.5 + fold * .08;
-    for (const d of [reach + 1e-6, reach + 1, reach + 8]) {
-      assert.equal(alpha(d), 0, `${at}: the paper is shaded ${d}px out on the ticket's side`);
-      assert.equal(c.hinge(d)[3], 0, `${at}: the hinge reaches ${d}px out`);
-    }
-    // the layer runs 6px past the square, far enough that the fall near each
-    // end of the crease fades out before the layer's own edge could cut it
-    // square: at the first line under the top edge, the layer's left edge is
-    // (drawn + 6) / sqrt 2 out from the crease
-    assert.ok((drawn + (c.box - fold)) / Math.SQRT2 >= reach, `${at}: the fall is cut off by the layer's edge`);
-    for (const [name, fill] of Object.entries(FILLS)) {
-      const L = d => light(c.on(fill, d));
-      const base = light(HEX(fill)), line = L(0), ridge = L(drawn * 1.5), fall = L(drawn * 2.5 + .25);
-      // the line is the darkest place across the crease: nothing outside its
-      // drawn width, softened sides included, is as dark as its middle
-      for (let d = -fold; d <= reach + 1; d += .05)
-        if (Math.abs(d) > drawn + 1e-9) assert.ok(L(d) > line - 1e-9, `${at} on ${name}: ${d}px is darker than the line`);
-      // the ridge is brighter than the line and than the fall just past it: on
-      // a white ticket that is all a white ridge can be
-      assert.ok(ridge > line + 25, `${at} on ${name}: the ridge does not stand out from the line`);
-      assert.ok(ridge > fall + 3, `${at} on ${name}: the ridge does not stand out from the fall past it`);
-      // the corner reads darker than the ticket beside it, and the ticket
-      // past the fall is its own fill
-      assert.ok(L(-fold * .3) < base - 1.5, `${at} on ${name}: the raised corner has no tone of its own`);
-      assert.ok(Math.abs(L(reach + 1) - base) < 1e-9, `${at} on ${name}: the ticket past the crease is not its own fill`);
-    }
-  }
-});
-
-test("along the crease the line and the ridge taper toward both edges, and each edge is notched where the crease meets it", () => {
-  for (const fold of [16, 12]) for (const drawn of [1, .5, 2 / 3]) {
-    const c = creaseOf(TOKENS, fold, drawn), at = `${fold}px at a ${drawn.toFixed(2)}px edge`;
-    assert.equal(c.along.direction, "to bottom right", "the taper does not run along the crease");
-    for (const s of c.along.stops) assert.deepEqual(s.rgb, [0, 0, 0]);
-    // full over the middle half of the crease, down to .45 at its two ends,
-    // the same both ways: it tapers and never vanishes
-    const half = fold / Math.SQRT2;
-    assert.ok(Math.abs(c.taper(0) - 1) < 1e-9 && Math.abs(c.taper(half * .49) - 1) < 1e-9, `${at}: the middle is not full`);
-    for (const s of [half, -half]) assert.ok(Math.abs(c.taper(s) - .45) < 1e-9, `${at}: an end is not .45`);
-    for (let s = 0; s <= half; s += .1) {
-      assert.ok(Math.abs(c.taper(s) - c.taper(-s)) < 1e-9, `${at}: the taper is lopsided at ${s}`);
-      assert.ok(c.taper(s + .1) <= c.taper(s) + 1e-12, `${at}: the taper rises toward the end at ${s}`);
-    }
-    // the notches: one where the crease crosses the inside of the top edge,
-    // one where it crosses the inside of the right edge, each longer along its
-    // edge than across it and no more than a couple of drawn edges in size
-    const [top, right] = c.notches;
-    const onCrease = ({ x, y }) => Math.abs(y - (x - (W - fold))) < 1e-9;
-    assert.ok(Math.abs(top.x - (W - fold + drawn)) < 1e-9 && Math.abs(top.y - drawn) < 1e-9, `${at}: the top notch is off the edge`);
-    assert.ok(Math.abs(right.x - (W - drawn)) < 1e-9 && Math.abs(right.y - (fold - drawn)) < 1e-9, `${at}: the right notch is off the edge`);
-    assert.ok(onCrease(top) && onCrease(right), `${at}: a notch is not on the crease`);
-    assert.ok(top.rx > top.ry && right.ry > right.rx, `${at}: a notch does not lie along its edge`);
-    for (const n of [top, right]) {
-      assert.ok(Math.max(n.rx, n.ry) <= drawn * 2 + 1e-9, `${at}: a notch is wider than a kink`);
-      // in the edge's own grey, thinned, fading out
-      assert.equal(n.stops[0].base, "var(--line)", "a notch is not the edge's grey");
-      assert.deepEqual(n.stops[0].rgb, HEX("#CACACA"));
-      assert.ok(Math.abs(n.stops[0].a - .7) < 1e-9);
-      assert.equal(n.stops.at(-1).a, 0, "a notch does not fade out");
-    }
-  }
-});
-
-test("at 1x, 2x and 3x the line and the ridge land on device pixels without breaking up", () => {
-  // a gradient's colour is taken at pixel centres, and across a 45 degree line
-  // those lie 1/sqrt(2) of a device pixel apart. wherever the crease falls among
-  // them, some centre lands on the line at nearly its full strength and one on
-  // the ridge at its full light, at every width the mock offers
-  const part = (stops, rgb) => stops.map(s => ({ ...s, a: s.rgb.join() === rgb.join() ? s.a : 0, rgb }));
-  for (const [dppx, drawn] of [[1, 1], [2, .5], [3, 2 / 3]]) for (const width of [.5, 1, 2, 3]) {
-    const c = creaseOf(TOKENS, 16, drawn, { "--crease-width": String(width) });
-    const ink = part(c.lines.stops, [173, 157, 127]), lit = part(c.lines.stops, [255, 255, 255]);
-    const inkFull = Math.max(...ink.map(s => s.a)), litFull = Math.max(...lit.map(s => s.a));
-    const step = 1 / dppx / Math.SQRT2;
-    for (let k = 0; k < 24; k++) {
-      const centres = Array.from({ length: 121 }, (_, n) => (k / 24) * step + (n - 60) * step);
-      const at = `${dppx}x, width ${width}, offset ${(k / 24).toFixed(2)}`;
-      assert.ok(Math.max(...centres.map(d => sample(ink, c.across / 2 + d)[3])) >= inkFull * .75, `${at}: the line breaks up`);
-      assert.ok(Math.max(...centres.map(d => sample(lit, c.across / 2 + d)[3])) >= litFull * .999, `${at}: the ridge breaks up`);
-    }
-  }
-});
-
-test("the crease's five numbers each move their own part and nothing else", () => {
-  const base = creaseOf(TOKENS, 16, .5);
-  const tuned = tune => creaseOf(TOKENS, 16, .5, tune);
-  const grid = Array.from({ length: 400 }, (_, i) => -12 + i * .05);
-  const inkOf = c => Math.max(...c.lines.stops.filter(s => s.rgb[0] === 173).map(s => s.a));
-  const litOf = c => Math.max(...c.lines.stops.filter(s => s.rgb[0] === 255).map(s => s.a));
-  assert.deepEqual(TUNING.map(n => style(TOKENS, ".trow.creased")[n]), ["1", "1", "1", ".85", ".7"]);
-  // strength 0: no line, ridge, valley shade, fall or notch; the raised corner
-  // keeps its tint, which ends across the line's own width at the crease
-  const none = tuned({ "--crease-strength": "0" });
-  for (const d of grid) {
-    assert.equal(none.hinge(d)[3], 0, `a hinge is left at ${d}`);
-    if (d >= .5) assert.equal(none.paper(d)[3], 0, `a fall is left at ${d}`);
-    else assert.ok(none.paper(d)[3] <= .045 + 1e-12, `the valley keeps its shade at ${d}`);
-  }
-  assert.ok(Math.abs(none.paper(-1)[3] - .045) < 1e-9 && none.paper(0)[3] < .03, "the corner's tint does not end at the crease");
-  assert.ok(none.notches.every(n => n.stops[0].a === 0), "a notch is left");
-  // raise 0: the corner loses its tint, the valley keeps its shade
-  const flat = tuned({ "--crease-raise": "0" });
-  assert.equal(flat.paper(-16 * .4)[3], 0, "the corner keeps a tint");
-  assert.ok(flat.paper(-.5)[3] > .05, "the valley lost its shade with the corner's tint");
-  assert.deepEqual(flat.lines.stops, base.lines.stops, "raise moved the hinge");
-  // light 0: no ridge, the line as it was
-  const dim = tuned({ "--crease-light": "0" });
-  assert.equal(litOf(dim), 0);
-  assert.equal(inkOf(dim), inkOf(base));
-  assert.deepEqual(dim.shades.stops, base.shades.stops, "light moved the shades");
-  // width 2: the line's solid core is two drawn edges, the ridge still one
-  const wide = tuned({ "--crease-width": "2" });
-  const core = c => { const s = c.lines.stops; return s[2].at - s[1].at; };
-  const ridge = c => { const s = c.lines.stops; return s[4].at - s[3].at; };
-  assert.ok(Math.abs(core(base) - .5) < 1e-9 && Math.abs(core(wide) - 1) < 1e-9, "the line's width is not in drawn edges");
-  assert.ok(Math.abs(ridge(base) - .5) < 1e-9 && Math.abs(ridge(wide) - .5) < 1e-9, "the ridge's width moved with the line's");
-  // notch 0: no notch, all else as it was
-  const clean = tuned({ "--crease-notch": "0" });
-  assert.ok(clean.notches.every(n => n.stops[0].a === 0), "a notch is left");
-  assert.deepEqual(clean.lines.stops, base.lines.stops);
-  assert.deepEqual(clean.shades.stops, base.shades.stops);
-  // strength 2 cannot push a notch past the edge's own grey
-  assert.ok(tuned({ "--crease-strength": "2" }).notches.every(n => n.stops[0].a <= 1), "a notch is deeper than the edge");
+test("a creased ticket's mark is read off its card's id: it keeps it through a reorder, and its neighbour differs", () => {
+  const variant = logic("creaseVariant");
+  const ids = Array.from({ length: 60 }, (_, i) => "m" + (600 + i));
+  const got = ids.map(variant);
+  assert.ok(got.every(n => [1, 2, 3].includes(n)));
+  assert.deepEqual([...ids].reverse().map(variant), [...got].reverse(), "the mark moved with the list's order");
+  for (let i = 1; i < got.length; i++) assert.notEqual(got[i], got[i - 1], `${ids[i]} wears its neighbour's mark`);
+  assert.equal(new Set(got).size, 3);
+  assert.equal(variant(null), variant(""));
+  // the typed page's copy is card-logic.js's
+  assert.equal(fnText(HTML.page, "creaseVariant"), fnText(read("card-logic.js"), "creaseVariant"));
 });

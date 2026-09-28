@@ -173,102 +173,51 @@
 /* once the fold is lowered, by a click on the corner, control+u, a reply or a
    close, the ticket keeps a crease where the fold was. the board keeps it per
    card until the marker is raised again; the page's renderer puts creased on
-   the row, never beside testc, and nothing here decides when.
-   a crease is not a drawn line. it is two planes of paper meeting at a hinge
-   of crushed fibres, and it reads by the tones on either side of that hinge.
-   the corner was folded over onto the face, so seen from the front the hinge
-   is a valley, and a released crease never lies quite flat again: it springs
-   back toward its fold, so the corner sits a hair raised toward the reader.
-   the light comes from above, as it does everywhere on the board, so, read
-   across the crease from the corner's tip to the ticket:
-   - the raised corner faces a little away from the light and keeps a faint
-     tint, deepest near the hinge and paler toward its tip, where the paper
-     settles back;
-   - the valley's upper wall, on the corner's side, falls into shade;
-   - the hinge is a sharp line, in the fold's own crease colour but far
-     quieter than the fold;
-   - the valley's lower wall, on the ticket's side, faces the light: a thin
-     bright ridge right beside the line. on a white ticket white cannot show,
-     so the ridge reads by the darker tones on both sides of it;
-   - past the ridge the paper settles back down, a soft shade fading out.
-   the line and the ridge taper toward the two edges, where the fold was
-   pressed least, and where the hinge meets the ticket's edge the edge kinks:
-   a small notch in the edge's own grey on the inside of the edge line.
-   two layers draw it, anchored on the border box's top right the way the
-   fold's layers are: .trowin::before is the paper (the tint, the shades and
-   the two notches) and .trowin::after is the hinge (the line and the ridge,
-   with the taper as a mask). the fold draws its contact shade on
-   .trowin::before too, but a row is never folded and creased at once. each
-   layer is the --fold square and 6px more to the left and below, so a shade
-   that runs past the crease's ends is not cut off square: the shades and the
-   mask are square images 12px wider than the fold, set 6px out past the top
-   and the right, so each image's diagonal lies exactly on the fold's crease
-   and its centre is the crease's middle. the row's own hidden overflow keeps
-   every part inside the ticket's edge and rounded corner.
-   the widths that have to meet the screen's pixels read --edge-drawn. a
-   gradient is not snapped: its colour is taken at pixel centres, which across
-   a 45 degree line lie about 0.7 of a device pixel apart, so a line and a
-   ridge one drawn edge wide always catch at least one full sample and never
-   break up. the soft reaches are read off --fold, so the phone's smaller fold
-   keeps the same proportions.
-   the five numbers on the creased row are the whole of the tuning: strength
-   scales the hinge, its shades and the notches; width is the line's width in
-   drawn edges; raise is the raised corner's tint; light is the ridge; notch is
-   the kink in the edge. the crease mock's sliders move exactly these */
-.trow.creased{--crease-strength:1; --crease-width:1; --crease-raise:1; --crease-light:.85; --crease-notch:.7}
-.trow.creased > .trowin::before, .trow.creased > .trowin::after{
-  content:""; position:absolute; box-sizing:border-box; pointer-events:none;
+   the row, never beside testc, and nothing here decides when. it also puts one
+   of crease-1, crease-2 or crease-3 beside it, chosen from the card's id
+   (creaseVariant in card-logic.js), so a mark stays with its card when the
+   list reorders and neighbouring tickets do not wear the same one.
+   the crease is an image, not paint. a gradient draws the same thing all along
+   its line, which is exactly what a drawn line is, and the two painted creases
+   before this one read as lines. the owner's photographs of real creases
+   change all along their length: a groove of crushed fibre whose darkness
+   swings by tens of percent, thins and thickens, wanders, doubles for a
+   stretch and runs at full strength into a nick in the edge, beside a corner
+   that has become a plane of its own, shaded, since a pressed fold never lies
+   flat again. tools/crease-decal.js builds that paper as a height map, lights
+   it from above as everything on the board is lit, and turns it into ink;
+   tools/bake-crease.cjs bakes three seeds of it for the desktop's 16px fold
+   (1x and 2x screens) and the phone's 12px (2x and 3x) into the block below.
+   the numbers are the generator's, and the crease mock is where they are tuned.
+   one layer draws it, the row's .trowin::after (the fold draws on
+   .trowin::before, and a row is never folded and creased at once), anchored
+   on the border box's top right the way the fold's layers are: the --fold
+   square and 6px more to the left and below, the crease running from 6px in
+   along the top to --fold down the right edge, exactly where the fold's crease
+   ran. the image fills the layer, and the row's own hidden overflow keeps it
+   inside the ticket's edge and rounded corner. it is drawn as it is, with no
+   filter, blend or mask, so every engine paints the same pixels, for the cost
+   of one decode */
+.trow.creased > .trowin::after{
+  content:""; position:absolute; pointer-events:none;
   top:calc(-1 * var(--edge-drawn)); right:calc(-1 * var(--edge-drawn));
   width:calc(var(--fold) + 6px); height:calc(var(--fold) + 6px);
-  background-repeat:no-repeat;
+  background:no-repeat 0 0 / 100% 100%;
+  background-image:var(--crease-1);
 }
-/* the paper: the two notches, centred where the crease crosses the inside of
-   the top edge and of the right edge, then the tint and the shades across the
-   crease, from the corner's tip (--fold / sqrt(2) out from the crease) to the
-   soft fall past the ridge. the corner's tint ends under the line, so the
-   corner and the ticket meet at the crease itself */
-.trow.creased > .trowin::before{
-  background-image:
-    radial-gradient(calc(var(--edge-drawn) * 2) calc(var(--edge-drawn) * 1.25)
-      at calc(100% - var(--fold) + var(--edge-drawn)) var(--edge-drawn),
-      color-mix(in srgb, var(--line) calc(min(1, var(--crease-notch) * var(--crease-strength)) * 100%), transparent) 30%,
-      transparent),
-    radial-gradient(calc(var(--edge-drawn) * 1.25) calc(var(--edge-drawn) * 2)
-      at calc(100% - var(--edge-drawn)) calc(var(--fold) - var(--edge-drawn)),
-      color-mix(in srgb, var(--line) calc(min(1, var(--crease-notch) * var(--crease-strength)) * 100%), transparent) 30%,
-      transparent),
-    linear-gradient(to bottom left,
-      rgb(60 45 20 / calc(.025 * var(--crease-raise))) calc(50% - var(--fold) * .7071),
-      rgb(60 45 20 / calc(.045 * var(--crease-raise))) calc(50% - var(--fold) * .16),
-      rgb(60 45 20 / calc(.045 * var(--crease-raise) + .07 * var(--crease-strength)))
-        calc(50% - var(--edge-drawn) * (var(--crease-width) + 1) / 2),
-      rgb(60 45 20 / calc(.07 * var(--crease-strength))) calc(50% + var(--edge-drawn) * (var(--crease-width) + 1) / 2),
-      rgb(60 45 20 / calc(.05 * var(--crease-strength))) calc(50% + var(--edge-drawn) * (var(--crease-width) / 2 + 2)),
-      rgb(60 45 20 / 0) calc(50% + var(--edge-drawn) * (var(--crease-width) / 2 + 2) + var(--fold) * .08));
-  background-size:auto, auto, calc(var(--fold) + 12px) calc(var(--fold) + 12px);
-  background-position:0 0, 0 0, right -6px top -6px;
+.trow.creased.crease-2 > .trowin::after{background-image:var(--crease-2)}
+.trow.creased.crease-3 > .trowin::after{background-image:var(--crease-3)}
+/* crease decals: written by tools/bake-crease.cjs from tools/crease-decal.js, not by hand */
+:root{
+  --crease-16-1:image-set(url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABYAAAAWCAYAAADEtGw7AAABqUlEQVR42rWUPUvEQBCGZ5Ocx6kgqCgo2FhYiaAggo2VtYU/QH+Zf8BfIGinoIWNjaCl5wcWNn5w+djznXNGhjXR04sDD5lkN28m786u29lac0QUgRjQ3v5Buru9mSDdAA+gDZyMd+kj9B0mMeOx5M5B2E7USSloAR68A/f6YRFXES0okVzHnb3xoJC8AV7BCRgH0yAHmczzKiDouzrmVVjFC4GjCVvecD0HM2DKVKi25EJh7nt2qRU2Qr86YASsgxvx3QUf0apdaAVVVM55E7yAYzAHJsWSbjDXyftRlXCZ+BB4BofybF6EMuN9x1pTJVzmeUu6pS0Luih/Y1uQ1JrvhMsqZ/EOFvUI10ewAsbKOusnYSuuK97EBoohfoH8CqyCCdNuPC8t64qqsN2i7ZZKjy+Da/kL6rfissp71aNqhsVOTcd82SD9iuvveljC3ZJBnHfpGZgFo9xyv7EijMhskgLiBT40jHwJ3Eb09/CGGKINiPNGugQLgwiTaS8mgjifL098vgxiRWiLHqO8oHldwhSefAnVF97kcZ3CVrxbt/CneET/E/4dg2iq3xBeHogAAAAASUVORK5CYII=") 1x, url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAAEaklEQVR42tVYWW4TQRCt7rGTsCZAEEgJ+xYkEBEfiE8kJL754ABwDO6CxAU4Qa6AQEhIEPZF7OQDUFjtmaZqeG1Vyj12YowztPRke6Zn5nXNq1fVdpcvnnX0Z3iGU5+BUTDy6zcWGjLhyqUL0/wxz8gYTxlLjBbmZrjWq2vjcOozPoPM8+zvTM0L8Vy8eTyoES9qMNE2CHxgnGecYxxiTGOOXmAw5DTIEjDIFMhwKZ/hE2TtQ+XiJpMmjrQcv8q4hgccAOmGuZ4SRFPEnYm6Ju0Uj87wZtUWZCItpIXQI8Z9HN/H2AbS9l4yV95OrhbiMTcz0bZvKj473qO8j6fuES8oUtFm0qJpgobv49wsY1JFuq2IhsRCbGRdxXP196AloW/Yi7TMH2PSAfJ4zHgokmHsZ0xhXm6iaqOuz8ff7QRBm4iuKsJVpLU8JNLy/QWwCZqeNJmeKQlEnRYq+rl5G84seoX2U4T7kY43Ld2DScs9nkDXE4zDSMRmIl+8SezCnHNqEblaTFxQXkWYethdhzDcI4c8HkAiWxhHGdsNQY2UhsmQDeYNlOhFWJO2D9TZLpoukIiPEekNxqdzQ0TLRUc8VwvyicWEfoRT8ggp4kjEFpxDor0R8tiBOS1EKSW3lHuQSTofKx0NQLpQ0QjK8GOktTz2g7w3ZArjFJZ8YZym0iVogEQkeLQkWgvFZZFxi/EGxLdDKmRcQWtV3sIvIDeWV17juPmhNQ6XelWqKuWqYRpDH3IKFfEd4yVjGXN9QgbBOMeKauxp7SMkCoHO/qYi+ouJS7S+MsYZR4ApU8qpR/+RKQ93gxCuco9grEosL+rvHmMB0Z1hHGfswiJcRSLH3kKXdz+IJPrJI1Pny8aFoxz7EDl/Ej79k/GM8RbfXY8Or9M/e/q7UeUewUTaIRnl+E1Axhz8eqspMrZcd3z8byO8mkTU5VY0PSZkeBF7+PMMYyfjOZqoT6YSetv4exrO6BVpXRUnpJTj+EfGHTjHXsYx1TjZVrfT3Q0rwquNdNR1aXmMH5DDHJJxCX22jjTpqDdouCMk9nfBEPfQ83ck6DuO+neQ34fKKN3fF7ufk3t6Gv4IiT1iqjKGKBMm/xnlXFxjM4hPKlvryOxfEO63wygjjjL+Db+bkMEivHoam4EtJun8sDW8Fq+Or/knyngpGSTlaYa4yHvIYzn24J7+/QiJaLfVHq6BZke4jGMHcxfdnjRLu1XTRKOIMPX5B8ipDi5ubqXYBBSVGSSgVMQfnkY7QsVxD5uTpqmhyvlz+PUOEJ8YNWHq4SD6v48MpNvqPzxplg6OWhIpeViP1hVO/FocRazuhNidp/UbVXtF3V42se1axp+Qr9eTcNUmQPcfGTQtQ4rL7fWUBPX5F9PpbRdHOR+VDw/q1XrbFRMxr0uEqeJPcL0JLReQ3Vl8RfNzs1TT0UW+3H/VlHRIEe9sGGtI2qUO6h0u1Vwe3YT/B9Ku18kaOUi3hlOjjtHO+k2oG2m32ol1kcdvxsZAAF2Ul+0AAAAASUVORK5CYII=") 2x);
+  --crease-16-2:image-set(url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABYAAAAWCAYAAADEtGw7AAABn0lEQVR42rWUwS7GQBDHZ7ctEREHThwIcRRO8j2Bs4MH4Mm8gCdwcnEQiXASXISbBAcEbbf1n2aGyabSz6c2+afbdPY30//OrtvZGjgi8lAK8bzY2z8Iu9ub65hn0A19D4318q7zSt45PoFqB7BdkIhyKEADSXgpi72JdSahrk21AM1cy8IgyiToBHqCJs03ja3NX6iUUXiT1cJrzQ5brqSiVUlYiVwLtIBKMl7F8FLmGbzm56PErsgve/muf5HLmqCcGNwG58pfoSPoHVqSCssWe5w1nTrgjZ+whBedQm/Qsu5+1B26iV674qdhW5HhXJ2HPWzJInQOfRh7kq6K2yonAHlhQIILPK+hNWg6imW/i66K48q1V0vAKySaw3wDOjMb3FTvabhhW5GrTwBNAb/D/FC6ZcacwDAsOLYliDVjgD/IQVqApqSXfwVWeB3BM8DZhmNoFhofBRzb0vSuwF9kQ+ehiVHAOtrgz5jfciv+BUzRxeXE83uufNh26xq2FSvA877AFt5cUCn1NyqbpE8wmauU/gPcnLy+wV+H6BN+iq6BCEh9cAAAAABJRU5ErkJggg==") 1x, url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAAEhUlEQVR42tVYy24URxStqp4ZJ4RHTIgwCg8BCRBFQWSXLRuyzYIPCJ/CPv/AD/AFrNkgJRFSpAAhETJ2FBTMw4kx2NPdxbmjU9ad6+ppY8Z2p6Sjnp6u6jp9+ta5t9r/8P233jmXEAj5LS0C1Y2btyoci2tXrwxw/BKYA54Ci8BrNTbdJ3J8oc6DuZaup/9rwvG8MONHLfAkIQ2KeiCIFiS+huMV4DJwFDgJfKQmdmZi/dupe3rzAHre6Da3DVGDUlKTrtRE0qdP0hGkf8TxOvAcOA6cBvaZezh13zpz39RPzksiqvl8ZvwYYUs6N7ko7an0Ko73gGfAZ8ApYKAm9kqZYJRyinzJY8yor8WUPkPp7xHDjfI3xLRMVoK0xwPM4vfXwH7gIbBEEnasNw+h76dVDYasN28khky8tIWHhEaP4fESxzvAT+x/IF3LxGVt/vPqft68gUpBr6mQU9i+vpBRejQx3eMDYB1qH8PxCPtIfL/KCKFXv174Tcpv4hRcc4smDGpjVz0uxDVO9A8wA3wDnKPaUalkY9Oph8+5VIrboY7zSYRdi+WlhRh4w3V6899U+hTdw64J10CuNIvQ+vIIk0KibSFaSyzoyeIWn9OnnwDzwIqKV2eIhIwjeZNYNq733NZaNK/QmdUt6ANvgGWGyZCkRbEFZsTaPKTPxGtyhmDm9u9COEc6Gs9dwSIc3Q9hsqRicI79FrkQo8mKLpParTgbbzW4d2sxE9daASHoQVzUfgH8DvwFHAZOMGSczV6ZdF0okj1dU2w1htssT8fiGgiLW9RQuqRbnCXh/4DHDJtKEWlKLsH0icFtr8VMrk+vegZEJYYdiMtk/wK/AX8Ckhm/Ymz3MgVPzITf2NvcrsJbSS7rIBzozeLZy0zjFxk6D2iBpVEzmISSbK81cWxHae2dA5BM6fU141qU/pkkv2B5+mGmXtFNp+j6fRXO+bQ3hXd6gJIhUjONi9If0z0WaIk5f9ZO4YKbTrPuodNxn0iKFyAuGfEXJpTzVHtGpeJaZT0delMj7BqqstoUPYm0FE5LrPKesKY+wzLVVmu6SvTTJDxpdVfKRQbcCNRU+jbwB/ApU/ohkzTG1sm0CeeUrjI1tbhGn7uXVwyPx7Q78eyDZoNasrgqd4KwViUXHukYQLrHxbhOB5EF+Ina3FqXcDtF2L7KmNtQknSh9ol3gUcke0Qll41CaycJ53y6yvh1qqkjPyP8ypI0kR4o16h3mnBTwWQLcyGdvLpkGn/KBXiYtjga23O713I19dimAKRrpnQpUef5/yzHig0Og9vdFid86dFZsuJCnGcNfYx1dX+3CU/a3EYVHimm39DuVml5R/eCcNtGIPl0YHJZ5kZAytS5vSLctiPXSktdLWS/E9J7SbjtK5PnR8ge/5fdysNplZfTKE9dZk+XSlSxu+F2NqG7lRU3VXvMiK4rCjd9sNHno5Ap7t5fdJcuHHcdbmMPMZK546THtl/eXu1QiGRDo7C9Oqx2nnCHSXtnvoT/L5QuJl3sIumirUPXSPutduyKe7wFOYM4a0X599EAAAAASUVORK5CYII=") 2x);
+  --crease-16-3:image-set(url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABYAAAAWCAYAAADEtGw7AAABpUlEQVR42q2UPU7DQBCFd+0kEnQIhSARCgqo6GjCBVJTcAA4GRcIF6CGgoCoaXIAJEAICkhir3ljvbGGVUJC8EhPXq93vxm//fFnJz3vnBM1oAQqLgZXk/PTfgftPnQDPfObRGraMq9p+uQ9F0YJojJ2ekCbgD+hPYSOoTUoEKZjM/YV7M/ZJ/DUo2JnwpvsBQcfQGPold80Ev6lznPmzxuJ+xkKCzoRlY/4fmSS2uRarbal6nEMVnigxBZ5/4C2oH0DSCkda+0Js8COH7VymfwGXXKhumZMiObpRkjnga0t8myxmmtoHWpDn9CXGWNt8ovA1vMW+++hDWiX1YXI70K3m1sAr/ymFZLoAdqEts32C3bbLgJbSzJTuVhwB3Uob6ouflu8efA8gg/pd9ssXJlkWXBsiyNcEj1Ce7Ql4zj/F3BceblwOEAveN7S8x0mnsRHetnw5oBMAZdjPMVh6vFIjxK3WlhbmgCWf4AEUvk7dLhqxXHlDbYzwHMk6v4X7MxW0/tcfM/rAM+EJ66eUM+n3HLVRV0XXO9mXyfYwrO6wdXt9g1dQaMn/5UVCAAAAABJRU5ErkJggg==") 1x, url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAAEhElEQVR42s1Z25IURRDNqp5dJEAMQC4Bi6yCQoSi+IT6AfDKgx+gr/6UP+CjT3yBL4YYykWXixggwgOEgCK7PVVmjqeG7DRrZtzZS1fEie6dvtSp0yezsmrDZxc/CvRvk2NUkL8zriXG2pdfXRp8/un5RT7/mPEu4w7je8Yj3FueI3PUv0fcW+5vcC0YDqT6H5Z3DfBjIZfoZbMvkXtbxheMvYzLjKOMZ4y/GX+qd+nO9PsyOtf3WbGC88z4fYEVpgkkG3VNBpNY5dFoWeljfPgE5H9grIB4UB1pdbUo5e+BIjpQ6ifzlcaEo1EhKySokdSnjEy0ELgLO6wx3mMcxnOt/oTaUrhm+8lK+VY9PzRfQwa0YAlThXDSxJk0sdJyz22QFlvskBeqd2hVc+XradWTIqv77FjLI0zGN1k9OPazKM2kX4Dw14wHjNdAvHHIapLR6TspVZPpe3zNepicQPGCopBpmfSIBA9gDx8P4venUD07WUAHUjBZw8sqndiKNLllx3OdyGaiq/DnE8YuxgXGh4xXDdlcIebFjrVjW2JgGmFLOpnPFWCPEjQlON5iLMMeNl0WsmUw9p3ZBF5nMAOarWXjNXLypvz+I5T+gHGc8ZzxK2MVA2mMf1ubZx0bdCwxK2GPdDDBm9nPQvA6Ky6TyPuMJYYE5n08E41iwZscTB7v+DrS/2ue10hlDjlvmLjk6O8w+73BOAR1W6j9AufJ8XUNtB7CZPycHT+P1GfS9zEDPofS+/HsqsGwkjqjc57jOsl6QUhQcQFBKHn6IR+vQtFCunEmhmziolYqzKUwOcSLRUrmEF//zsefoOQypvBXTJGUnTTn9bVuwl494M6GsMdvfLyB54T064xFVVwFk+JsH6XOGM5DuFbEdKZiBGJEsXQD1yTl7QPhWrHVqRLLPfMSnoW0KB1QLP0Ce8i1Y6g9giGbnTiplpfzEk9mas2GdADpFVR2yyoQg7PayXY2jBtI1n7aoSnExR5Jkb6F4FvGIqBxMgPZPL2RCtfskWzdAXuIn3/GlL0EezSVKXpcmm40YarU0aQ6XQBpIXITWMSMuA9WCc5Sa3Q+rR6ep4UJdXSxi6i7E4vZk0hdd7AKH5oJKW6mwjStJIV/d2J6ljx9j7GbcQKezqiBO5kjbjLZmj1K5D9ha8hK+y94+hquvck4gIHpxenaYAsUDk45qjdVCFsHf7C3V1AsvcN4GwuAB/hN3tFstiWmFUsSgMXbO5j4GlbipTQ9gdXLnpIlNjPoZlnQFsFkG6xspkjGaHkgki3OMI4wHmPl8ijS1rVcydWkStJS4MsAxNffYoLZC7UPbKXCVFlVRG/1zIRbDEQsdAq+pkhb37JTdyRdd2AaH0BpGdQVxjnZuxvQ9jRvxzSatNegnhbSorTk6W+2wxKTAtGr2JIOykjb2/IUi5QNl8USlNut8KS9abtRMypZm8vX79LZ00vU05bNZk0cFc09JF1bNb/8l0DPSAenkO8S7inp/3i8sXf12NM+4Z6Tzk3tSl9JN5Mu9pF0mOWmHk0u9A9TsTZapWke3AAAAABJRU5ErkJggg==") 2x);
+  --crease-12-1:image-set(url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACQAAAAkCAYAAADhAJiYAAADPUlEQVR42s1X22oUQRDt7pnNmvUShShRxAsKIsbLk/goCj774AfoZ/gvgj/gF/gJ4pM+hMQbUVFRUVG8ZXdmPDWeXspKb3YSxt0UHHovPdNnTlWf6vE3r1/y7m8EwKuxAkqguHvvfi4Tbt24No/hApABz4GPQJ9zM14b1LUxvBrjGs6sV3+PFzuOGp6L5CAy4ALvgavAZeAEMM85+gEqs7iGU2t59QARWUiQsTeVBTsg5aCU/H4buMMbHCep3FzvEkRSxLxRLQTD2sIZpYSULPgEWOLvR4F9JGXvJXNF3UIRDZybGbWymDIb8UZlSi2QkppyrKEl/ncYmFNKDRSRKkHUKjNMeUiQ2YiUzJ8BqYrpewqsSEqBY8BeziuMKlY1/X/8PkgRGkdKp0+Uks+rxE7W1Jx66izON7uwVOoVWs0UoXGkIrF694GU3OMZ62oHcFIVug5rCZWpqzCqhlKkUpaQc/cVTN8yU9gDFoCuSZNGqobcRgpZUvaGerdITZUsdFHpIfAB2EMEVTOFSX1mFCs8nNo1CG+cNZgnq+uA6ZNUSurOA7uAFyS4ppTNze4a+lPumkVl3Dj+pttNxjYi339x3gFglul8R+Jeqb7OIJsqtFFPWqcUP+8GTgGLVEdIveXnKtHTqiY11LTQdTpFdY/0fWNNPeKc07SFXsI8hwa6WYWsUvaE4NXTdklO0ncQOEvjfMW6+prYcT53W4soeWnIaWK/qVJAkQuBn8AZtplZkvqkji/VOB/aTPpK474xJfVJgbvvDS1hhW4uKTwktqFV32rKmlpCn6bZIeE1qNXjCWGRaX0JvAa+y5w2CI0jJU7epxLREAsQ24/xIq1hlcp9aYtQipRXDbVWB8RmqIps/b4itUCVltskNE6pWFd1m+BJwTOF54AjwOfg2g1b6Prc45m2LvufYzrFFh7EYm+bUMo0U50+nqk8e6DMuyIn0P9BqMkJUZ8+A2vqB/C47RpqWleZ6mMlVRLCnUkQGvXKY1tN3ZhzN7moEm8eehd27HvZJEmNIhpyN/nQpGxzdsFNJ+xr+/AkOi1CKROtx9xNNyoz+uCmH//svtxtjxgW+nYhNCRVb7kJuvXY+AMSU3hT9EFIFQAAAABJRU5ErkJggg==") 2x, url("data:image/png;base64,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") 3x);
+  --crease-12-2:image-set(url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACQAAAAkCAYAAADhAJiYAAADSUlEQVR42s2XzY4MURTHz71dmtEMIgzim4lIbCwkLG1mbeEBeAl7e+/gBTyBFQvbSZCQEUN8BDGIDIbp6a7rfzr/qpy+blW3mZ7uuck/t6q76tSvzte95W5cu+xEpJCn9FhHgLp3793vYm7cvD7XxHweOgQtQe+h3+bewk7g/Q1z7qP/iv+L33OV5wWFcqq4yRGkQbBVzHPQVWgGOg61jGExNuJjMTZdBFg+1xtPWKiuMaTXbCNUANQdzLehb9BR6CS0w7yI9UAwv1u7xXV63qGCmLeKoULCuHrK0VMrmJ9DX6B99JIYw854w0feEQPX4VxGxCGHpMKlVTmlxjqAcgCcwvFeaBfUhn7wIRLd6yJIa0/Mdd7Lv2NQ+DR0GcOn3vqE45/QNHSYcBLlo82T3HjRm8TvwaaAJDKSCqFjTq3S2BLz6Ap0gWHMTLhCAiSV5FIFZN2Zqr6el4rqg9agr5B66wB0GtptEjePUsCOPi/WAcmAliCmJWj4XmF+CL0m1AloZyInUy9ZVtsgoCoo+8YamibAckBpLj1lw1SoU/RUbK+beLlg+9B6oWxpN9kSFOox9A7az17VSiR6nupNwwJVVV/fm8JLPXuA+oPpCfSWCa5QUyY0IepH+aAqGwYqJJaZjM1T+5Qm+jOGT6GORZ4KUX659QDVtQQXVZ9CqTcWoA8M31nC+SjkruwBiU497Eh1dLtyF6FoMly6EJ9hi1iEPvMaP2wf+h9PxeotyCz7jEvKIlvCNJvnEf7XV7mZbGyEaAsRe67NsHmEcYVQej5LKfRHroNuox4a1BJyVl7OytNnLUMvoHlu7GbZ1VtFXm0kh+pyKl4mersDhmgNkIEhuwgdhN4QdHmUQJLYB9nVvG2gNGw5wLTyLrGrK9RLL6MdoSbptR0IdwjboT0A1BA+UhBCnRs1UAqka3aFuhirhzTBv9Nrv5hT2tVnRh2yqvDZzZitzi6rUEFvYX7gZfNGqKhC+0nkzZ5Ke9X8ZnqozlOxI7QKdc68bP4IFb3KQjaKhB+Hh+rWv/iLJGQy3hESnz99K/64gVLrX9/2YxJAcQMVs0NwkwKKocoP0UkCpaDCpIHiRHdetsYoobYKUAnVK7cxN8fa8RcJP492UJ4qMwAAAABJRU5ErkJggg==") 2x, url("data:image/png;base64,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") 3x);
+  --crease-12-3:image-set(url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACQAAAAkCAYAAADhAJiYAAADWklEQVR42s1YTWsUQRCt6Z41ARGMCgrGqCRCQBBvfpzFswd/gF48+BP8M/4Br168efEmRgQRNcbgiiAa8DPJZqfbqvG11pYzs2x2J2vBY2bSM92vX310bbIb1y5m9Nvk6hTkOWIsMHbu3nuQ37x+dR/fX2KcZawznjI28G76jsxV/93h3fS+x1iJHANp8UB/LVOQD+XdPuM2Y46xwjjO+M7YwjWqhSMNWlqjMO8NiJGxQtRAwqsxIRtYJZmQWKkTfLnMOMh4wngFwlpdrY7edHrOlUfKe2d2ERUCdhOU1I6JpAW6UOmTIh9AqjBuK12OMbtOVMr1LSGqIRQ0MSZFrJS885Jxn/GWcYAxa9TJ1HxV6mvVys1Yl1n3kZHcKdIFk5K/eSY4i3iSgP8C6A1qMqTcZNcKjupNZ1hQO00TSsbJfY/xA2SuMC4grtLOnYFX8/6TUE2ENKloCP1JAJDS5E8zluFCX+G6aDJrIExyGm5VZcGpST3GJJ42GRIDiygDrxnbNWmelNKJM1ShuuzTxEoVOJ42kfqPGB8ZJxFXuUp1j+cOvg3WC01BXRfomZo8M0FeTooadQ4LrzI+YHFdd+wGy2dHo1mTUinIPRProlhKsC8wjmIDfSTBNu5tsmSjEtLEgiGYgVSAC0WVZ4irecZhfNszKPR8bpdkqEJuggodJlUenExKYuk5FEmkvCm2A+VkHIWoglhyYQ5SEQG+hvtTjGOqopNR2I0a1E1BnpkKnNqLGdwfYZzBmBw1n83J71L7MY7FmqDXx82WOljFXUsoCRF91I4qqjQuoSr3aVJSCno47yS43+O9RWRfAaWSq7NxXUY13aHuEIVUSGmPg3gBpHpw30Y69xxNxqr6qBQfHj2U3HeYnGTcG1T1GQT6XDqCJqVQU9eZlOozGY+uQELlKxNdglLizneMb47asWiKZ4b6lDrHnyC1CqU6cOOhNhSyStmYCurs8yApSt1iPGxLIRpSzfOkGLrOdYztdy2TqXKfzsayojMpceMdxuM2XTasJOguMgV8bNtlTYex/uUq7utPsjDuVilv3FrktHcWK5r9YA9oR3tr1n2FCXaX095bNIoN/MPB0XSsNtBzmp5V/d6bKiHbS4VJdIwTJ+ZXXnTp/PI8/S/2C2DmgaE2fJA4AAAAAElFTkSuQmCC") 2x, url("data:image/png;base64,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") 3x);
+  --crease-1:var(--crease-16-1); --crease-2:var(--crease-16-2); --crease-3:var(--crease-16-3);
 }
-/* the hinge: the line, centred on the crease, --crease-width drawn edges wide
-   with half a drawn edge of softening either side, then the ridge on the
-   lit side, one drawn edge wide. the mask runs along the crease from end to
-   end: full over its middle half, down to .45 at the two edges */
-.trow.creased > .trowin::after{
-  background-image:linear-gradient(to bottom left,
-    rgb(173 157 127 / 0) calc(50% - var(--edge-drawn) * (var(--crease-width) + 1) / 2),
-    rgb(173 157 127 / calc(.34 * var(--crease-strength))) calc(50% - var(--edge-drawn) * var(--crease-width) / 2),
-    rgb(173 157 127 / calc(.34 * var(--crease-strength))) calc(50% + var(--edge-drawn) * var(--crease-width) / 2),
-    rgb(255 255 255 / calc(var(--crease-light) * var(--crease-strength))) calc(50% + var(--edge-drawn) * (var(--crease-width) + 1) / 2),
-    rgb(255 255 255 / calc(var(--crease-light) * var(--crease-strength))) calc(50% + var(--edge-drawn) * (var(--crease-width) / 2 + 1.5)),
-    rgb(255 255 255 / 0) calc(50% + var(--edge-drawn) * (var(--crease-width) / 2 + 2)));
-  background-size:calc(var(--fold) + 12px) calc(var(--fold) + 12px);
-  background-position:right -6px top -6px;
-  -webkit-mask:linear-gradient(to bottom right, rgb(0 0 0 / .45) calc(50% - var(--fold) * .7071),
-      #000 calc(50% - var(--fold) * .35), #000 calc(50% + var(--fold) * .35), rgb(0 0 0 / .45) calc(50% + var(--fold) * .7071))
-    right -6px top -6px / calc(var(--fold) + 12px) calc(var(--fold) + 12px) no-repeat;
-  mask:linear-gradient(to bottom right, rgb(0 0 0 / .45) calc(50% - var(--fold) * .7071),
-      #000 calc(50% - var(--fold) * .35), #000 calc(50% + var(--fold) * .35), rgb(0 0 0 / .45) calc(50% + var(--fold) * .7071))
-    right -6px top -6px / calc(var(--fold) + 12px) calc(var(--fold) + 12px) no-repeat;
-}
+/* end of the crease decals */
 
 /* ---- no scrollbars, only scrolling --------------------------------------- */
 /* Every scroller hides its bar and keeps its scroll: wheel, trackpad and touch

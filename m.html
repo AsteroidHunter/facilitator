@@ -697,8 +697,9 @@
      a d or an h, and touch an m or a w, so the phone folds 12px: the desktop's
      fold scaled to this row, rounded down, which stays over 2.5px clear of all
      four. it is set on every row, so the crease an unfolded row keeps lies on
-     the same 12px square, where that row's fold was */
-  .trow{--fold:12px}
+     the same 12px square, where that row's fold was, and the crease's images
+     are the ones card-tokens.css bakes for a 12px fold */
+  .trow{--fold:12px; --crease-1:var(--crease-12-1); --crease-2:var(--crease-12-2); --crease-3:var(--crease-12-3)}
   /* ---- the settings, on the panel off the right edge ---------------------- */
   /* the header, its mark on the left in the line the card's own marks are drawn
      in, and the card title's face and weight, which is the one heading face on
@@ -2252,7 +2253,7 @@ function paintPhonePane(pane, pool, view, sig, state){
                 (s === "queued" || (s === "new" && b.ball !== "you") ? " queuedc" : "") +
                 (s === "done" ? " donec" : "") +
                 (isTest ? " testc" : "") +
-                (isCrease ? " creased" : ""));
+                (isCrease ? " creased crease-" + creaseVariant(b.id) : ""));
     const inner = h("div", "trowin");
     const omni = appendOmniRowArt(r, inner, b);
     const ttl = h("div", "ttl", b.title);

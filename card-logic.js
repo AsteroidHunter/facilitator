@@ -807,6 +807,14 @@ function unfoldSelected(e, id, el){
   unfoldTicket(id);
   return true;
 }
+// which of the crease's three baked marks a creased ticket wears (crease-1, 2
+// or 3 in card-tokens.css): read off the card's id, so the mark stays with its
+// card when the list reorders, and cards numbered one after another differ
+function creaseVariant(id){
+  let h = 0;
+  for (const ch of String(id == null ? "" : id)) h = (Math.imul(h, 31) + ch.charCodeAt(0)) >>> 0;
+  return 1 + h % 3;
+}
 // the strict await of the bar count and auto-select: pending vetoes it, and
 // so does work in flight, claimed or registered; green outranks the ball
 function awaitsYou(b){
