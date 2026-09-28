@@ -372,8 +372,12 @@ test("the phone's bar looks like nothing until a press is held on it", async () 
       tabs.map(t => t.getAttribute("style") || "").filter(Boolean));
     assert.deepEqual(await dressed(), [], "a tab wore something at rest");
     // a plain tap is still a tap: it switches tabs and moves nothing
-    const spot = await page.$eval('#tabbar .ptab[data-owner="pastureland"]',
-      t => { const r = t.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+    // on the part of the tab the bar shows: the gear takes the row's far end
+    const spot = await page.$eval('#tabbar .ptab[data-owner="pastureland"]', t => {
+      const r = t.getBoundingClientRect(), bar = document.querySelector(".bar").getBoundingClientRect();
+      const left = Math.max(r.left, bar.left), right = Math.min(r.right, bar.right);
+      return { x: (left + right) / 2, y: r.y + r.height / 2 };
+    });
     await page.touchscreen.tap(spot.x, spot.y);
     await settle(400);
     assert.equal(await page.evaluate(() => activeOwner), "pastureland");
