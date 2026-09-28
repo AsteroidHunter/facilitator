@@ -2424,6 +2424,9 @@
   /* the reply the panel over it pushes down is handed a layer of its own while
      the panel runs, as the large card's is (card-tokens.css) */
   #magic2 .mbox:has(.answwrap .answered.motion) .mreply{will-change:transform}
+  /* a page turn's still pictures stand on the card's own fill, which is the
+     waiting green while something is sent and unanswered, and white after */
+  #magic2 .turnsheet{background:inherit}
   /* workspaces: a sharp panel at x 4.2%, y 28.4..46.7%, rows flush right,
      the active row's right border open into the canvas */
   body.focus #wsl{
@@ -5715,9 +5718,10 @@ function makeBox(b, i, state){
                   // which is what a poll compares against
                   answwrap, answ: null, answId: null,
                   // sent is null until something is sent and null again the moment
-                  // the answer to it lands. sentTexts is what it was drawn from,
-                  // which a send adds to before the board's next reading says so
-                  sentwrap, sent: null, sentKey: "", sentTexts: [],
+                  // the answer to it lands. sentItems is what it was drawn from,
+                  // each message with where it stands with the agent, which a
+                  // send adds to before the board's next reading says so
+                  sentwrap, sent: null, sentKey: "", sentItems: [],
                   pendwrap, bottombar, clip, clipfile, tick, field,
                   // ta, send and tick above name the row the card's draft is
                   // typed in right now, which is this bar unless the composer on
@@ -5907,10 +5911,12 @@ async function doSend(id, opts){
     // after it comes into the panel already standing, cutting it back if it
     // stood open. the list is marked as the one on screen, so the reading behind
     // this brings nothing it does not already hold, and a reading asked for
-    // before the board had it may not take it away again
-    el.sentTexts = [...el.sentTexts, text];
+    // before the board had it may not take it away again. the board has it and
+    // no agent has received it yet, so it stands as sent, faded, until the
+    // board says otherwise
+    el.sentItems = [...el.sentItems, { text, stage: "sent" }];
     el.sendGuard = Date.now();
-    syncSent(el, sentBatch(el.sentTexts), true);
+    syncSent(el, el.sentItems, true);
     if (hist && hist.id === id) histExit(id);   // a send lands you back on the live reply
     if (reopen) undone(id);   // the message is in; the flip rides behind it
     poll();
@@ -6082,13 +6088,14 @@ function apply(state){
       if (!hasWt) shutWtMenu(el.wtpick, el.wtmenu);
     }
     */
-    // the sent panel, drawn from what the board still holds unanswered. a pass
+    // the sent panel, drawn from what the board still holds unanswered and
+    // where each of those messages stands with the agent (sentFrom). a pass
     // bringing the same list touches no dom at all, and a reading asked for
     // before this page's own last send landed knows nothing of it and may not
     // take it away
     if (!held && (state.fetchedAt || 0) >= (el.sendGuard || 0)){
-      el.sentTexts = b.pendingTexts || [];
-      syncSent(el, sentBatch(el.sentTexts));
+      el.sentItems = sentFrom(b);
+      syncSent(el, el.sentItems);
     }
     // and the panel over the answer: the reply the card is showing, and the
     // messages the board recorded that reply was given. while an older page is
@@ -9063,13 +9070,13 @@ function renderMiniCards(state){
           const r = await fetch("/send?box=" + encodeURIComponent(b.id) + "&via=mini", { method: "POST", body: text });
           if (r.ok){
             ta.value = ""; ta.style.height = "auto";
-            // the message comes into the sent panel now, cut to its preview,
-            // the way it does on the large card
+            // the message comes into the sent panel now, cut to its preview and
+            // faded until an agent receives it, the way it does on the large card
             const own = miniEls[b.id];
             if (own){
-              own.sentTexts = [...own.sentTexts, text];
+              own.sentItems = [...own.sentItems, { text, stage: "sent" }];
               own.sendGuard = Date.now();
-              syncSent(own, sentBatch(own.sentTexts), true);
+              syncSent(own, own.sentItems, true);
             }
             poll();
           }
@@ -9084,13 +9091,17 @@ function renderMiniCards(state){
       ta.addEventListener("keyup", e => e.stopPropagation());
       ta.addEventListener("input", () => {
         ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px";
+        // a key here holds a new answer on this card back, as on the large one
+        noteTyping(ta);
       });
       // reading and typing here count for the card as they do on the large one
       readOnCompose(ta, b.id);
       box.append(sun, arc, x, title, answwrap, reply, sentwrap, compose);
       el = miniEls[b.id] = { box, title, reply, ta, sun, arc, x,
                              answwrap, answ: null, answId: null,
-                             sentwrap, sent: null, sentKey: "", sentTexts: [] };
+                             sentwrap, sent: null, sentKey: "", sentItems: [] };
+      // and the reader's own scrolling of its answer, which holds a turn back too
+      watchReading(el);
       list.appendChild(box);
     }
     // one card at a time; the rest stay built so their half-typed messages
@@ -9101,23 +9112,28 @@ function renderMiniCards(state){
       el.title.textContent = b.title || "";
     }
     // The short variant is a state field, not punctuation hidden in the text.
-    // a new one on the card on show is printed in, the large card's print with
-    // no glide: this card has no room for a page to turn in
+    // a new one on the card on show turns the page as the large card's does
+    // (turnBegin in card-logic.js): the sent panel rises to the head of the card
+    // with the new answer under it, in one glide, or the answer is printed in
+    // place when nothing was sent. it waits while the reader is busy with the
+    // card, and a card built just now has nothing to turn from
     const shortReply = replyShort(b);
-    if (el.reply.dataset.raw !== shortReply){
-      const shown = el.reply.dataset.raw !== undefined && b.id === miniId;
+    const turn = el.reply.dataset.raw !== undefined && el.reply.dataset.raw !== shortReply
+      ? turnBegin(el, b) : null;
+    const held = turn === TURN_HELD;
+    if (!held && el.reply.dataset.raw !== shortReply){
       el.reply.dataset.raw = shortReply;
       el.reply.innerHTML = fmt(shortReply);
-      if (shown) printReply(el);
     }
     // the large card's own passes, told to answer to nobody: the small card has
     // no answer to re-snap when a panel opens or is cut back. a reading asked
     // for before this card's own last send landed may not take it away
-    syncAnswered(el, liveAnswered(b), null);
-    if ((state.fetchedAt || 0) >= (el.sendGuard || 0)){
-      el.sentTexts = b.pendingTexts || [];
-      syncSent(el, sentBatch(el.sentTexts));
+    if (!held) syncAnswered(el, liveAnswered(b), null);
+    if (!held && (state.fetchedAt || 0) >= (el.sendGuard || 0)){
+      el.sentItems = sentFrom(b);
+      syncSent(el, el.sentItems);
     }
+    turnGo(el, turn);
     el.box.classList.toggle("mwait", !!b.pending);
     paintSectionChips(el, b);
   }
