@@ -1260,28 +1260,6 @@
     background:linear-gradient(to top right, rgba(60,45,20,.08) 50%, rgba(60,45,20,0) 62%);
     clip-path:polygon(0 0, 100% 0, 100% 100%);
   }
-  /* the crease an unfolded ticket keeps, kept in step with card-tokens.css,
-     where its look is explained; its images are the same bake. this sheet has
-     no --fold on :root, so the creased row carries the board's 16px itself, as
-     the folded row does */
-  .trow.creased{--fold:16px}
-  .trow.creased > .trowin::after{
-    content:""; position:absolute; pointer-events:none;
-    top:calc(-1 * var(--edge-drawn)); right:calc(-1 * var(--edge-drawn));
-    width:calc(var(--fold) + 6px); height:calc(var(--fold) + 6px);
-    background:no-repeat 0 0 / 100% 100%;
-    background-image:var(--crease-1);
-  }
-  .trow.creased.crease-2 > .trowin::after{background-image:var(--crease-2)}
-  .trow.creased.crease-3 > .trowin::after{background-image:var(--crease-3)}
-  /* crease decals: written by tools/bake-crease.cjs from tools/crease-decal.js, not by hand */
-  :root{
-    --crease-16-1:image-set(url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABYAAAAWCAYAAADEtGw7AAABqUlEQVR42rWUPUvEQBCGZ5Ocx6kgqCgo2FhYiaAggo2VtYU/QH+Zf8BfIGinoIWNjaCl5wcWNn5w+djznXNGhjXR04sDD5lkN28m786u29lac0QUgRjQ3v5Buru9mSDdAA+gDZyMd+kj9B0mMeOx5M5B2E7USSloAR68A/f6YRFXES0okVzHnb3xoJC8AV7BCRgH0yAHmczzKiDouzrmVVjFC4GjCVvecD0HM2DKVKi25EJh7nt2qRU2Qr86YASsgxvx3QUf0apdaAVVVM55E7yAYzAHJsWSbjDXyftRlXCZ+BB4BofybF6EMuN9x1pTJVzmeUu6pS0Luih/Y1uQ1JrvhMsqZ/EOFvUI10ewAsbKOusnYSuuK97EBoohfoH8CqyCCdNuPC8t64qqsN2i7ZZKjy+Da/kL6rfissp71aNqhsVOTcd82SD9iuvveljC3ZJBnHfpGZgFo9xyv7EijMhskgLiBT40jHwJ3Eb09/CGGKINiPNGugQLgwiTaS8mgjifL098vgxiRWiLHqO8oHldwhSefAnVF97kcZ3CVrxbt/CneET/E/4dg2iq3xBeHogAAAAASUVORK5CYII=") 1x, url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAAEaklEQVR42tVYWW4TQRCt7rGTsCZAEEgJ+xYkEBEfiE8kJL754ABwDO6CxAU4Qa6AQEhIEPZF7OQDUFjtmaZqeG1Vyj12YowztPRke6Zn5nXNq1fVdpcvnnX0Z3iGU5+BUTDy6zcWGjLhyqUL0/wxz8gYTxlLjBbmZrjWq2vjcOozPoPM8+zvTM0L8Vy8eTyoES9qMNE2CHxgnGecYxxiTGOOXmAw5DTIEjDIFMhwKZ/hE2TtQ+XiJpMmjrQcv8q4hgccAOmGuZ4SRFPEnYm6Ju0Uj87wZtUWZCItpIXQI8Z9HN/H2AbS9l4yV95OrhbiMTcz0bZvKj473qO8j6fuES8oUtFm0qJpgobv49wsY1JFuq2IhsRCbGRdxXP196AloW/Yi7TMH2PSAfJ4zHgokmHsZ0xhXm6iaqOuz8ff7QRBm4iuKsJVpLU8JNLy/QWwCZqeNJmeKQlEnRYq+rl5G84seoX2U4T7kY43Ld2DScs9nkDXE4zDSMRmIl+8SezCnHNqEblaTFxQXkWYethdhzDcI4c8HkAiWxhHGdsNQY2UhsmQDeYNlOhFWJO2D9TZLpoukIiPEekNxqdzQ0TLRUc8VwvyicWEfoRT8ggp4kjEFpxDor0R8tiBOS1EKSW3lHuQSTofKx0NQLpQ0QjK8GOktTz2g7w3ZArjFJZ8YZym0iVogEQkeLQkWgvFZZFxi/EGxLdDKmRcQWtV3sIvIDeWV17juPmhNQ6XelWqKuWqYRpDH3IKFfEd4yVjGXN9QgbBOMeKauxp7SMkCoHO/qYi+ouJS7S+MsYZR4ApU8qpR/+RKQ93gxCuco9grEosL+rvHmMB0Z1hHGfswiJcRSLH3kKXdz+IJPrJI1Pny8aFoxz7EDl/Ej79k/GM8RbfXY8Or9M/e/q7UeUewUTaIRnl+E1Axhz8eqspMrZcd3z8byO8mkTU5VY0PSZkeBF7+PMMYyfjOZqoT6YSetv4exrO6BVpXRUnpJTj+EfGHTjHXsYx1TjZVrfT3Q0rwquNdNR1aXmMH5DDHJJxCX22jjTpqDdouCMk9nfBEPfQ83ck6DuO+neQ34fKKN3fF7ufk3t6Gv4IiT1iqjKGKBMm/xnlXFxjM4hPKlvryOxfEO63wygjjjL+Db+bkMEivHoam4EtJun8sDW8Fq+Or/knyngpGSTlaYa4yHvIYzn24J7+/QiJaLfVHq6BZke4jGMHcxfdnjRLu1XTRKOIMPX5B8ipDi5ubqXYBBSVGSSgVMQfnkY7QsVxD5uTpqmhyvlz+PUOEJ8YNWHq4SD6v48MpNvqPzxplg6OWhIpeViP1hVO/FocRazuhNidp/UbVXtF3V42se1axp+Qr9eTcNUmQPcfGTQtQ4rL7fWUBPX5F9PpbRdHOR+VDw/q1XrbFRMxr0uEqeJPcL0JLReQ3Vl8RfNzs1TT0UW+3H/VlHRIEe9sGGtI2qUO6h0u1Vwe3YT/B9Ku18kaOUi3hlOjjtHO+k2oG2m32ol1kcdvxsZAAF2Ul+0AAAAASUVORK5CYII=") 2x);
-    --crease-16-2:image-set(url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABYAAAAWCAYAAADEtGw7AAABn0lEQVR42rWUwS7GQBDHZ7ctEREHThwIcRRO8j2Bs4MH4Mm8gCdwcnEQiXASXISbBAcEbbf1n2aGyabSz6c2+afbdPY30//OrtvZGjgi8lAK8bzY2z8Iu9ub65hn0A19D4318q7zSt45PoFqB7BdkIhyKEADSXgpi72JdSahrk21AM1cy8IgyiToBHqCJs03ja3NX6iUUXiT1cJrzQ5brqSiVUlYiVwLtIBKMl7F8FLmGbzm56PErsgve/muf5HLmqCcGNwG58pfoSPoHVqSCssWe5w1nTrgjZ+whBedQm/Qsu5+1B26iV674qdhW5HhXJ2HPWzJInQOfRh7kq6K2yonAHlhQIILPK+hNWg6imW/i66K48q1V0vAKySaw3wDOjMb3FTvabhhW5GrTwBNAb/D/FC6ZcacwDAsOLYliDVjgD/IQVqApqSXfwVWeB3BM8DZhmNoFhofBRzb0vSuwF9kQ+ehiVHAOtrgz5jfciv+BUzRxeXE83uufNh26xq2FSvA877AFt5cUCn1NyqbpE8wmauU/gPcnLy+wV+H6BN+iq6BCEh9cAAAAABJRU5ErkJggg==") 1x, url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAAEhUlEQVR42tVYy24URxStqp4ZJ4RHTIgwCg8BCRBFQWSXLRuyzYIPCJ/CPv/AD/AFrNkgJRFSpAAhETJ2FBTMw4kx2NPdxbmjU9ad6+ppY8Z2p6Sjnp6u6jp9+ta5t9r/8P233jmXEAj5LS0C1Y2btyoci2tXrwxw/BKYA54Ci8BrNTbdJ3J8oc6DuZaup/9rwvG8MONHLfAkIQ2KeiCIFiS+huMV4DJwFDgJfKQmdmZi/dupe3rzAHre6Da3DVGDUlKTrtRE0qdP0hGkf8TxOvAcOA6cBvaZezh13zpz39RPzksiqvl8ZvwYYUs6N7ko7an0Ko73gGfAZ8ApYKAm9kqZYJRyinzJY8yor8WUPkPp7xHDjfI3xLRMVoK0xwPM4vfXwH7gIbBEEnasNw+h76dVDYasN28khky8tIWHhEaP4fESxzvAT+x/IF3LxGVt/vPqft68gUpBr6mQU9i+vpBRejQx3eMDYB1qH8PxCPtIfL/KCKFXv174Tcpv4hRcc4smDGpjVz0uxDVO9A8wA3wDnKPaUalkY9Oph8+5VIrboY7zSYRdi+WlhRh4w3V6899U+hTdw64J10CuNIvQ+vIIk0KibSFaSyzoyeIWn9OnnwDzwIqKV2eIhIwjeZNYNq733NZaNK/QmdUt6ANvgGWGyZCkRbEFZsTaPKTPxGtyhmDm9u9COEc6Gs9dwSIc3Q9hsqRicI79FrkQo8mKLpParTgbbzW4d2sxE9daASHoQVzUfgH8DvwFHAZOMGSczV6ZdF0okj1dU2w1htssT8fiGgiLW9RQuqRbnCXh/4DHDJtKEWlKLsH0icFtr8VMrk+vegZEJYYdiMtk/wK/AX8Ckhm/Ymz3MgVPzITf2NvcrsJbSS7rIBzozeLZy0zjFxk6D2iBpVEzmISSbK81cWxHae2dA5BM6fU141qU/pkkv2B5+mGmXtFNp+j6fRXO+bQ3hXd6gJIhUjONi9If0z0WaIk5f9ZO4YKbTrPuodNxn0iKFyAuGfEXJpTzVHtGpeJaZT0delMj7BqqstoUPYm0FE5LrPKesKY+wzLVVmu6SvTTJDxpdVfKRQbcCNRU+jbwB/ApU/ohkzTG1sm0CeeUrjI1tbhGn7uXVwyPx7Q78eyDZoNasrgqd4KwViUXHukYQLrHxbhOB5EF+Ina3FqXcDtF2L7KmNtQknSh9ol3gUcke0Qll41CaycJ53y6yvh1qqkjPyP8ypI0kR4o16h3mnBTwWQLcyGdvLpkGn/KBXiYtjga23O713I19dimAKRrpnQpUef5/yzHig0Og9vdFid86dFZsuJCnGcNfYx1dX+3CU/a3EYVHimm39DuVml5R/eCcNtGIPl0YHJZ5kZAytS5vSLctiPXSktdLWS/E9J7SbjtK5PnR8ge/5fdysNplZfTKE9dZk+XSlSxu+F2NqG7lRU3VXvMiK4rCjd9sNHno5Ap7t5fdJcuHHcdbmMPMZK546THtl/eXu1QiGRDo7C9Oqx2nnCHSXtnvoT/L5QuJl3sIumirUPXSPutduyKe7wFOYM4a0X599EAAAAASUVORK5CYII=") 2x);
-    --crease-16-3:image-set(url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABYAAAAWCAYAAADEtGw7AAABpUlEQVR42q2UPU7DQBCFd+0kEnQIhSARCgqo6GjCBVJTcAA4GRcIF6CGgoCoaXIAJEAICkhir3ljvbGGVUJC8EhPXq93vxm//fFnJz3vnBM1oAQqLgZXk/PTfgftPnQDPfObRGraMq9p+uQ9F0YJojJ2ekCbgD+hPYSOoTUoEKZjM/YV7M/ZJ/DUo2JnwpvsBQcfQGPold80Ev6lznPmzxuJ+xkKCzoRlY/4fmSS2uRarbal6nEMVnigxBZ5/4C2oH0DSCkda+0Js8COH7VymfwGXXKhumZMiObpRkjnga0t8myxmmtoHWpDn9CXGWNt8ovA1vMW+++hDWiX1YXI70K3m1sAr/ymFZLoAdqEts32C3bbLgJbSzJTuVhwB3Uob6ouflu8efA8gg/pd9ssXJlkWXBsiyNcEj1Ce7Ql4zj/F3BceblwOEAveN7S8x0mnsRHetnw5oBMAZdjPMVh6vFIjxK3WlhbmgCWf4AEUvk7dLhqxXHlDbYzwHMk6v4X7MxW0/tcfM/rAM+EJ66eUM+n3HLVRV0XXO9mXyfYwrO6wdXt9g1dQaMn/5UVCAAAAABJRU5ErkJggg==") 1x, url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAAEhElEQVR42s1Z25IURRDNqp5dJEAMQC4Bi6yCQoSi+IT6AfDKgx+gr/6UP+CjT3yBL4YYykWXixggwgOEgCK7PVVmjqeG7DRrZtzZS1fEie6dvtSp0yezsmrDZxc/CvRvk2NUkL8zriXG2pdfXRp8/un5RT7/mPEu4w7je8Yj3FueI3PUv0fcW+5vcC0YDqT6H5Z3DfBjIZfoZbMvkXtbxheMvYzLjKOMZ4y/GX+qd+nO9PsyOtf3WbGC88z4fYEVpgkkG3VNBpNY5dFoWeljfPgE5H9grIB4UB1pdbUo5e+BIjpQ6ifzlcaEo1EhKySokdSnjEy0ELgLO6wx3mMcxnOt/oTaUrhm+8lK+VY9PzRfQwa0YAlThXDSxJk0sdJyz22QFlvskBeqd2hVc+XradWTIqv77FjLI0zGN1k9OPazKM2kX4Dw14wHjNdAvHHIapLR6TspVZPpe3zNepicQPGCopBpmfSIBA9gDx8P4venUD07WUAHUjBZw8sqndiKNLllx3OdyGaiq/DnE8YuxgXGh4xXDdlcIebFjrVjW2JgGmFLOpnPFWCPEjQlON5iLMMeNl0WsmUw9p3ZBF5nMAOarWXjNXLypvz+I5T+gHGc8ZzxK2MVA2mMf1ubZx0bdCwxK2GPdDDBm9nPQvA6Ky6TyPuMJYYE5n08E41iwZscTB7v+DrS/2ue10hlDjlvmLjk6O8w+73BOAR1W6j9AufJ8XUNtB7CZPycHT+P1GfS9zEDPofS+/HsqsGwkjqjc57jOsl6QUhQcQFBKHn6IR+vQtFCunEmhmziolYqzKUwOcSLRUrmEF//zsefoOQypvBXTJGUnTTn9bVuwl494M6GsMdvfLyB54T064xFVVwFk+JsH6XOGM5DuFbEdKZiBGJEsXQD1yTl7QPhWrHVqRLLPfMSnoW0KB1QLP0Ce8i1Y6g9giGbnTiplpfzEk9mas2GdADpFVR2yyoQg7PayXY2jBtI1n7aoSnExR5Jkb6F4FvGIqBxMgPZPL2RCtfskWzdAXuIn3/GlL0EezSVKXpcmm40YarU0aQ6XQBpIXITWMSMuA9WCc5Sa3Q+rR6ep4UJdXSxi6i7E4vZk0hdd7AKH5oJKW6mwjStJIV/d2J6ljx9j7GbcQKezqiBO5kjbjLZmj1K5D9ha8hK+y94+hquvck4gIHpxenaYAsUDk45qjdVCFsHf7C3V1AsvcN4GwuAB/hN3tFstiWmFUsSgMXbO5j4GlbipTQ9gdXLnpIlNjPoZlnQFsFkG6xspkjGaHkgki3OMI4wHmPl8ijS1rVcydWkStJS4MsAxNffYoLZC7UPbKXCVFlVRG/1zIRbDEQsdAq+pkhb37JTdyRdd2AaH0BpGdQVxjnZuxvQ9jRvxzSatNegnhbSorTk6W+2wxKTAtGr2JIOykjb2/IUi5QNl8USlNut8KS9abtRMypZm8vX79LZ00vU05bNZk0cFc09JF1bNb/8l0DPSAenkO8S7inp/3i8sXf12NM+4Z6Tzk3tSl9JN5Mu9pF0mOWmHk0u9A9TsTZapWke3AAAAABJRU5ErkJggg==") 2x);
-    --crease-1:var(--crease-16-1); --crease-2:var(--crease-16-2); --crease-3:var(--crease-16-3);
-  }
-  /* end of the crease decals */
 </style>
 </head>
 <body class="focus">
@@ -2817,13 +2795,6 @@ function unfoldTicket(id){
   return fetch("/testing?box=" + encodeURIComponent(id) + "&v=0", { method: "POST" })
     .catch(() => {}).then(() => poll());
 }
-// which of the crease's three baked marks a creased ticket wears, in step with
-// card-logic.js, which says why
-function creaseVariant(id){
-  let h = 0;
-  for (const ch of String(id == null ? "" : id)) h = (Math.imul(h, 31) + ch.charCodeAt(0)) >>> 0;
-  return 1 + h % 3;
-}
 // the strict await of the bar count and auto-select: pending vetoes it, and
 // so does work in flight, claimed or registered; green outranks the ball
 function awaitsYou(b){
@@ -2954,9 +2925,9 @@ function renderCarousel(state){
               pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
                       ((seenReplies[b.id] || 0) >= (b.agentTs || 0) ? "r" : "") +
                       (b.id === selectedId ? "!" : "") + (b.task || "") + b.title +
-                      // the marker and the crease ride the signature so a mark,
-                      // a clear or an unfold repaints the row
-                      (testReady(b) ? "T" : b.creased ? "C" : "") +
+                      // the marker rides the signature so a mark or a clear
+                      // repaints the row
+                      (testReady(b) ? "T" : "") +
                       Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",") +
               "|" + selectedTask;
   if (tik.dataset.sig !== sig){
@@ -2977,16 +2948,13 @@ function renderCarousel(state){
       const isYours = s === "yours" || (s === "new" && b.ball === "you");
       const isMatch = selectedTask && b.task === selectedTask;
       const isTest = testReady(b);
-      // the crease an unfolded ticket keeps, never beside the fold itself
-      const isCrease = !isTest && !!b.creased;
       const r = h("div", "trow" + (b.id === selectedId ? " on" : "") + (busy ? " working" : "") +
                   (s === "yours" && seenTs >= (b.agentTs || 0) ? " seen" : "") +
                   (isYours ? " yours" : "") +
                   (s === "queued" || (s === "new" && b.ball !== "you") ? " queuedc" : "") +
                   (s === "done" ? " donec" : "") +
                   (isMatch ? " match" : "") +
-                  (isTest ? " testc" : "") +
-                  (isCrease ? " creased crease-" + creaseVariant(b.id) : ""));
+                  (isTest ? " testc" : ""));
       const inner = h("div", "trowin");
       const omni = appendOmniRowArt(r, inner, b);
       const ttl = h("div", "ttl", b.title);
