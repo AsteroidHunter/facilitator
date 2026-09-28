@@ -2454,7 +2454,7 @@ scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu
     else { panel = null; return; }
     live = true; decided = false; x0 = x; y0 = y; at = opening ? 0 : 1;
   };
-  const move = (x, y, e) => {
+  const move = (x, y) => {
     if (!live) return;
     const dx = x - x0;
     if (!decided){
@@ -2466,7 +2466,6 @@ scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu
       tracePhone("note", "drawer", { side: panel.dataset.side, phase: "start" });
       document.body.classList.add("menudrag");
     }
-    if (e && e.cancelable) e.preventDefault();
     const w = menuWidth(panel), d = menuSign(panel) * dx;
     at = Math.max(0, Math.min(1, (opening ? d : w + d) / w));
     paintMenu(panel, at);
@@ -2478,14 +2477,21 @@ scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu
     // let go past the middle and it opens, before it and it goes back
     runMenu(panel, at > 0.5 ? 1 : 0, "var(--drawer-drag)");
   };
+  // every listener here is passive, the mouse ones too. they sit on the whole
+  // document, and one that may cancel a touch (on the phone a mouse listener
+  // counts too) makes the phone hold every pan under it, the answer's scroll
+  // included, until the page has answered the touch. on a busy page the answer
+  // then stands still under the finger, and a swipe made in a long stall is
+  // lost. nothing here needs cancelling: the phone does not pan the answer for
+  // a finger going sideways
   document.addEventListener("touchstart", e => { const t = e.touches[0]; if (t) start(t.clientX, t.clientY); }, { passive: true });
-  document.addEventListener("touchmove", e => { const t = e.touches[0]; if (t) move(t.clientX, t.clientY, e); }, { passive: false });
-  document.addEventListener("touchend", end);
-  document.addEventListener("touchcancel", end);
+  document.addEventListener("touchmove", e => { const t = e.touches[0]; if (t) move(t.clientX, t.clientY); }, { passive: true });
+  document.addEventListener("touchend", end, { passive: true });
+  document.addEventListener("touchcancel", end, { passive: true });
   // a mouse pulls it too, for the desktop browser that opens this page
-  document.addEventListener("mousedown", e => { if (e.button === 0) start(e.clientX, e.clientY); });
-  document.addEventListener("mousemove", e => move(e.clientX, e.clientY, null));
-  document.addEventListener("mouseup", end);
+  document.addEventListener("mousedown", e => { if (e.button === 0) start(e.clientX, e.clientY); }, { passive: true });
+  document.addEventListener("mousemove", e => move(e.clientX, e.clientY), { passive: true });
+  document.addEventListener("mouseup", end, { passive: true });
 }
 
 // Keep only the start, first intended move, and end of a gesture. Coordinates
@@ -2679,7 +2685,7 @@ scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu
   document.addEventListener("pointerdown", e => {
     if (e.pointerType !== "mouse") return;
     if (e.target.closest?.(".trow")) tracePhone("note", "input", { action: "card", part: "touch", box: selectedId });
-  }, true);
+  }, { capture: true, passive: true });
 }
 
 // ---- the startup curtain, and the launch image the phone keeps -----------------------
@@ -3793,7 +3799,9 @@ function stepCard(dir, focus){
 // horizontal intent is unambiguous, leaving vertical scrolling alone, and it
 // never starts at an edge, on a control, or in an editor where the same motion
 // selects text. Each complete card moves across the fixed stage; x and uniform
-// scale are the only animated values.
+// scale are the only animated values. Its listeners are passive, like the
+// drawer pull's: they cover the answer, and one that may cancel would make the
+// phone wait on the page before letting the answer scroll.
 {
   const EDGE = 28, START = 10, COMMIT = 0.22, DEPTH = 0.035, GAP = 16, RUN_MS = 240;
   const blocked = "button,input,textarea,a,[contenteditable],[role='textbox'],.cm-editor,.answered.sent.open";
@@ -3865,14 +3873,13 @@ function stepCard(dir, focus){
       drag.decided=beginMotion(dx);
       if (!drag.decided){ clear(); return; }
     }
-    if (e.cancelable) e.preventDefault();
     paint(Math.max(-drag.width, Math.min(drag.width, dx)));
-  }, { passive:false });
+  }, { passive:true });
   document.getElementById("cards").addEventListener("touchend", () => {
     if (!drag) return;
     settle(drag.decided && Math.abs(drag.dx) >= drag.width * COMMIT);
-  });
-  document.getElementById("cards").addEventListener("touchcancel", () => settle(false));
+  }, { passive:true });
+  document.getElementById("cards").addEventListener("touchcancel", () => settle(false), { passive:true });
 }
 
 // the card whose response control+s may scroll, or null. A drawer out
