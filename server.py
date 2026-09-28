@@ -384,7 +384,9 @@ Endpoints:
   POST /dismiss?box=ID      -> drop the box's queued messages unanswered (they
                                stay in the transcript)
   POST /progress?box=ID     -> interim note while holding a claim; keeps the
-                               card green and resets the steal timer, no release
+                               card green and resets the steal timer, no release.
+                               The messages the claim holds at that moment are
+                               read from then on (pendingStates on /state)
   POST /end                 -> ask the agent to wrap up once the queue drains
   POST /pause?v=1|0         -> pause / resume both listeners (laptop-close mode):
                                while paused /wait returns {"paused":true} at once
@@ -2534,6 +2536,58 @@ def _handed_record(m: dict) -> dict:
     return rec
 
 
+def _pending_states(b: dict) -> list:
+    """Where each of the card's queued messages stands with the agent, one entry
+    per pending message in the same order, which is what the pages' sent panel
+    draws its delivery marks from. Read only; callers hold _lock.
+
+      "sent"       on the board, and no agent has confirmed receiving it: not yet
+                   handed over, or handed over in a claim nobody has acked yet
+      "delivered"  in the claim the lane's agent holds, and that claim was
+                   confirmed through /ack. A message /fresh folds into a
+                   confirmed claim counts from the moment it is handed over:
+                   /fresh has no receipt of its own and nothing is ever handed
+                   over twice
+      "read"       the agent has written back since it was handed over: a
+                   /progress note posted while its claim held it. The board
+                   cannot see inside an agent, so read means written back about,
+                   never merely opened; a message read and not yet written about
+                   stays delivered
+
+    All three belong to the claim in force. A claim that ends without an
+    answer (dismissed, stolen back, never acked) leaves its messages waiting to
+    be handed over again, and they are sent again until the next claim is
+    confirmed. What a /note consumed has left the queue and is noted instead
+    (_noted_texts); what a /reply answered is the reply's own batch."""
+    ow = b.get("owner", "facilitator")
+    rec = (_state.get("ack") or {}).get(ow) or {}
+    held = _state["busy"].get(ow) == b["id"] and rec.get("box") == b["id"]
+    claimed = set(_state["claimed"].get(ow) or []) if held else set()
+    read = set(rec.get("read") or []) if held else set()
+    out = []
+    for m in b["pending"]:
+        mid = m.get("mid")
+        if mid in claimed and mid in read:
+            out.append("read")
+        elif mid in claimed and rec.get("confirmed"):
+            out.append("delivered")
+        else:
+            out.append("sent")
+    return out
+
+
+def _noted_texts(b: dict) -> list:
+    """The messages a /note has already consumed toward the completed reply still
+    to come, in the order they were handed over. They were delivered and written
+    back about, so read, and they are no longer queued; the completed reply
+    takes them as part of its batch. Empty while the association is unknown.
+    Callers hold _lock."""
+    if b.get("batch_gap"):
+        return []
+    batch = b.get("batch")
+    return [rec.get("text", "") for rec in batch] if isinstance(batch, list) else []
+
+
 def _hand_over(b: dict, messages: list) -> None:
     """A claim: these messages, and only these, are what the agent is holding on
     this card now. Callers hold _lock and save in the same held stretch.
@@ -3120,6 +3174,10 @@ def _phone_box(b: dict) -> dict:
         # the operation id each queued message was sent under, or null for a
         # message that came without one: the phone matches its own rows by it
         "pendingOps": [m.get("op") for m in b["pending"]],
+        # where each queued message stands with the agent, and what a note has
+        # already taken toward the answer still to come (_pending_states)
+        "pendingStates": _pending_states(b),
+        "notedTexts": _noted_texts(b),
         "agentTs": b.get("agent_ts", 0), "seen": b.get("seen", 0), "turnTs": b.get("turn_ts", 0),
         # the card's last COMPLETED reply: its own name, when it was completed,
         # and the messages it was given, which is what the box above the answer
@@ -3216,6 +3274,12 @@ def _ui_state() -> dict:
                 # entries queued before times were recorded, which the
                 # page shows unstamped
                 "pendingStamps": [m.get("ts", 0) for m in b["pending"]],
+                # where each queued message stands with the agent, one entry per
+                # pendingTexts entry: sent, delivered or read, and the messages a
+                # note has already taken toward the answer still to come, which
+                # are read and no longer queued (_pending_states, _noted_texts)
+                "pendingStates": _pending_states(b),
+                "notedTexts": _noted_texts(b),
                 "ws": b.get("ws"), "task": b.get("task"),
                 # the card's own worktree, empty for a card that has never
                 # been moved; the bar reads the lane's standing branch then
@@ -4962,6 +5026,13 @@ def _post_progress(q: Query, text: str):  # interim note during a build: keeps
         box["reply_kind"] = "progress"   # interim words, not a page of the history
         box["ts"] = time.time()
         _state["busy_ts"][ow] = time.time()   # resets the 15-min steal
+        # the agent has written back about everything its claim holds so far, so
+        # those messages are read (_pending_states). a message /fresh folds in
+        # after this is delivered and not read until the next note. the record
+        # belongs to this claim and goes with it
+        rec = _state.get("ack", {}).get(ow)
+        if rec and rec.get("box") == bid:
+            rec["read"] = list(_state["claimed"][ow])
         _log("progress", bid, text, reply_full=text, reply_short=text,
              reply_variants_version=REPLY_VARIANTS_VERSION)
         _save()
