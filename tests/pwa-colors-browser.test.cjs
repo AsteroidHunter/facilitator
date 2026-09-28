@@ -132,9 +132,14 @@ function unified(state){
   assert.ok(state.tabBefore.includes(state.pageFill)&&state.tabAfter.includes(state.pageFill));
   assert.equal(state.cardFill,"rgb(255, 255, 255)","card's intentional white changed");
   assert.equal(state.drawerFill,"rgb(255, 255, 255)","drawer's intentional white changed");
-  assert.equal(state.scrimFill,"rgba(33, 29, 23, 0.18)","drawer dimming changed");
-  const seam=state.pixels.abovePage.map((v,i)=>Math.abs(v-state.pixels.insidePage[i]));
-  assert.ok(Math.max(...seam)<=1,`top seam in ${state.name}: ${JSON.stringify(state.pixels)}`);
+  // the settings page is the quick note's glass, so the board behind it takes the quick note's own veil (25% of the ink)
+  if(state.name.startsWith("settings"))assert.equal(state.scrimFill,"color(srgb 0.129412 0.113725 0.0901961 / 0.25)","settings dimming changed");
+  else assert.equal(state.scrimFill,"rgba(33, 29, 23, 0.18)","drawer dimming changed");
+  // the settings page covers the whole screen, so the strip of canvas above the receding page is behind its glass
+  if(!state.name.startsWith("settings")){
+    const seam=state.pixels.abovePage.map((v,i)=>Math.abs(v-state.pixels.insidePage[i]));
+    assert.ok(Math.max(...seam)<=1,`top seam in ${state.name}: ${JSON.stringify(state.pixels)}`);
+  }
   if(state.name.endsWith("normal")||state.name.endsWith("closed")){
     for(const key of ["tab","strip","canvas"]){
       const pixel=state.pixels[key];assert.ok(pixel.every(v=>Math.abs(v-255)<=1),`${state.name} ${key} differs: ${pixel}`);
