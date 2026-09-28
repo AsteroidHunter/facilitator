@@ -1253,7 +1253,7 @@ function seatSquare(ta, square){
 //
 // the panel is one block and nothing else: no frame around it, no bubble inside
 // it, no time and no label. the messages stand in it one under another in the
-// order they were sent, with a hairline between one message and the next. a
+// order they were sent, with a blank line between one message and the next. a
 // batch taller than the panel's preview is shown cut to its first lines, fading
 // out over a strip at the panel's foot that carries a small arrow pointing down,
 // and a click or a tap anywhere on it opens the whole batch in place, on the old
@@ -1563,7 +1563,7 @@ function answeredShade(panel){
 
 // what counts as something to read. a line or a paragraph holding nothing but
 // spaces, breaks or the invisible joiners a paste brings along is blank, and so
-// is the air a paragraph break or the hairline between two messages leaves: a
+// is the air a paragraph break leaves and the air between two messages: a
 // blank line of the panel's type, which is exactly what a cut can land in.
 // the joiners are named by their code points so none of them sits unseen in
 // this file: zero width space, non joiner and joiner, the word joiner and the
@@ -1615,9 +1615,9 @@ function answeredInk(stack){
 // the sheet cuts a long batch two and three quarter lines down, so the third
 // line is seen dissolving. that cut is kept only while a line of text really
 // runs through it with at least half of itself showing: when it lands in blank,
-// a paragraph break, the air round the hairline between two messages or a line
-// with nothing on it, the preview is stopped at the foot of the last line that
-// has text instead, and it is that line the cut dissolves. a batch with no text
+// a paragraph break, the air between two messages or a line with nothing on
+// it, the preview is stopped at the foot of the last line that has text
+// instead, and it is that line the cut dissolves. a batch with no text
 // past the cut is no long batch at all, however tall its blank tail: it gets no
 // strip, no arrow and no fade, and it stands exactly as tall as its text.
 // an open panel shows everything and so cannot say, and neither can one part
@@ -1653,9 +1653,9 @@ function fitAnswered(panel){
 
 // one message is one block of the card's own prose: the same markdown, the same
 // attachment markup and the same wrapping the answer is drawn in, and nothing
-// around it. the hairline the sheet draws between two blocks is the whole of
-// what tells one message from the next, so a message with nothing to read in it
-// adds no block, or it would stand as an empty hairline.
+// around it. the blank line the sheet leaves between two blocks is the whole
+// of what tells one message from the next, so a message with nothing to read in
+// it adds no block, or it would stand as a second blank line.
 // the blocks already standing are kept for as long as they hold the same words
 // in the same place, so a pass that only adds a message, or only changes the
 // note under one, draws nothing above it again and leaves a pick of those
