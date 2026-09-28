@@ -77,7 +77,7 @@ function boardState({ cards = 705, seed = 912, dir } = {}){
       reply_kind: "agent", reply_id: "r" + n.toString(16).padStart(6, "0"), reply_ts: ts + 300,
       answered: Array.from({ length: between(1, 2) }, (_, k) => ({ text: pick(between(4, 24)).join(" "), ts: ts + 60 * k })),
       state: "yours", hb: 0, ball: "you", ts, owner: lane(), agent_ts: ts + 300,
-      seen: done ? replies : replies - 1, turn_ts: ts + 300, testing: false, creased: false,
+      seen: done ? replies : replies - 1, turn_ts: ts + 300, testing: false,
     });
   }
   const projects = LANES.slice(1).map(([id]) => ({ id, name: id, dir: path.join(dir || "/tmp", id) }));

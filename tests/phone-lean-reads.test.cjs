@@ -47,8 +47,8 @@ before(async () => {
        `            _state["boxes"].remove(box)\n` +
        `            _state["boxes"].append(box)\n` +
        `        _log("title", bid, box["title"])`],
-      [`        "creased": bool(b.get("creased", False)),\n    }\n\n\ndef _live_section`,
-       `        "creased": bool(b.get("creased", False)),\n` +
+      [`        "testing": bool(b.get("testing", False)),\n    }\n\n\ndef _live_section`,
+       `        "testing": bool(b.get("testing", False)),\n` +
        `        "probe": (HERE / "probe.txt").read_text() if b["id"] == "m1" and (HERE / "probe.txt").exists() else "",\n` +
        `    }\n\n\ndef _live_section`],
     ],
