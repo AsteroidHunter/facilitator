@@ -147,3 +147,41 @@ test("an upright drag over the card is left to the answer's own scroll", () => {
   assert.ok(!w.body.classList.contains("carddrag"));
   assert.deepEqual(w.calls, []);
 });
+
+// An older reply that would not scroll (Sep 24). From Sep 14 to Sep 26 the
+// answered box rode at the top of the answer with a scrolling lane of its own,
+// and a swipe that began on the opened box moved only that lane, or nothing
+// once the lane was at its end. The panel riding there now clips its batch and
+// opens in place; only the sent panel at the card's foot scrolls inside itself.
+// Every class the riding panel is built from is read out of answeredPanel, and
+// no rule may let one of them scroll up and down unless it is the sent panel's.
+const LOGIC = readFileSync(path.join(__dirname, "..", "card-logic.js"), "utf8");
+const SHEETS = readFileSync(path.join(__dirname, "..", "card-tokens.css"), "utf8") +
+  [...HTML.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(m => m[1]).join("\n");
+function scrollsUpright(body) {
+  let y = null;
+  for (const part of body.split(";")) {
+    const [prop, ...rest] = part.split(":"), value = rest.join(":").trim().split(/\s+/);
+    if (prop.trim() === "overflow") y = value.at(-1);
+    if (prop.trim() === "overflow-y") y = value[0];
+  }
+  return y === "auto" || y === "scroll";
+}
+test("nothing in the answered panel over the answer scrolls up and down on its own", () => {
+  const start = LOGIC.indexOf("function answeredPanel(room){");
+  assert.ok(start >= 0, "answeredPanel moved");
+  const markup = LOGIC.slice(start, LOGIC.indexOf("\n}\n", start));
+  const names = ["answered", "answwrap", ...[...markup.matchAll(/class="([^"]+)"/g)].flatMap(m => m[1].split(/\s+/))];
+  assert.ok(names.includes("answclip") && names.includes("answstack"));
+  const css = SHEETS.replace(/\/\*[\s\S]*?\*\//g, "");
+  const riding = [], sent = [];
+  for (const [, selector, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    if (!scrollsUpright(body)) continue;
+    for (const part of selector.split(",").map(s => s.trim())) {
+      if (!names.some(n => new RegExp("\\." + n + "(?![\\w-])").test(part))) continue;
+      (/\.sent(?![\w-])/.test(part) ? sent : riding).push(part);
+    }
+  }
+  assert.deepEqual(riding, []);
+  assert.ok(sent.length >= 1, "the sent panel's own lane is where the scan expects it");
+});
