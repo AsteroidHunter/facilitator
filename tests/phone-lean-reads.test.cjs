@@ -376,6 +376,57 @@ test("a reading that keeps arriving is waited for, and one that stops is given u
   assert.deepEqual(p.problems, []);
 });
 
+// where a sent message stands with the agent (pendingStates) moves on its own:
+// the ack changes nothing else on the card, and /fresh folds a message into a
+// confirmed claim the same way. Each is a save, so the revision moves, and the
+// card's fingerprint is of everything the phone is sent, those states included,
+// so the lean reading brings the card. Walked here through a whole claim with
+// the page's own reading code, and once more by a page that skipped the steps
+// between and takes them in one reading
+test("a message's delivery state alone reaches the phone in a lean reading", async () => {
+  // nothing else queued in any lane, so the claim below takes this card
+  for (const b of (await whole()).boxes) if (b.pending) await post(`/dismiss?box=${b.id}`);
+  const p = page(), late = page();
+  await p.read();
+  const target = p.lastState.boxes.find(b => b.owner === "facilitator" && !b.done && !b.parked).id;
+  const mine = () => plain(p.lastState.boxes.find(b => b.id === target));
+  const moved = (before, after) => Object.keys(after).filter(k => JSON.stringify(after[k]) !== JSON.stringify(before[k]));
+  const step = async (label, change, states) => {
+    const before = mine();
+    await change();
+    const got = await p.read();
+    assert.equal(got.lean, true, `${label}: not a lean reading`);
+    assert.deepEqual(got.cards, [target], `${label}: the card did not come, or others came with it`);
+    await sameAsWhole(p, label);
+    assert.deepEqual(mine().pendingStates, states, `${label}: the phone shows the wrong delivery state`);
+    return moved(before, mine());
+  };
+  await step("a message sent", () => post(`/send?box=${target}`, "Invented message for the marks"), ["sent"]);
+  await late.read();
+  let token;
+  await step("the message handed over, not yet confirmed", async () => {
+    const got = (await get("/wait?owner=facilitator&timeout=3&agent=marks")).body;
+    assert.equal(got.box, target, JSON.stringify(got));
+    token = got.ack;
+  }, ["sent"]);
+  const acked = await step("the claim confirmed", () => post(`/ack?owner=facilitator&token=${token}`), ["delivered"]);
+  assert.deepEqual(acked, ["pendingStates"], "the ack moved more than the message's state, so this is not the state alone");
+  // a page that last read before the hand-over takes the hand-over and the ack in one reading
+  const caught = await late.read();
+  assert.equal(caught.lean, true);
+  assert.deepEqual(caught.cards, [target]);
+  await sameAsWhole(late, "a page that skipped the steps between");
+  assert.deepEqual(plain(late.lastState.boxes.find(b => b.id === target).pendingStates), ["delivered"]);
+  await step("a progress note over the claim", () => post(`/progress?box=${target}`, "Invented progress note"), ["read"]);
+  await step("a second message while the claim is held", () => post(`/send?box=${target}`, "Invented second message"), ["read", "sent"]);
+  const folded = await step("the second message folded into the confirmed claim", () => get("/fresh?owner=facilitator"),
+    ["read", "delivered"]);
+  assert.ok(folded.includes("pendingStates"), `the fold did not move the states: ${folded}`);
+  await step("the answer lands", () => post(`/reply?box=${target}`, "Invented answer"), []);
+  assert.deepEqual(p.problems, []);
+  assert.deepEqual(late.problems, []);
+});
+
 // one phone reads m1 one way, a second phone reads it the other way at the
 // same revision, and then it goes back, still with no save: a heartbeat going
 // quiet and then beating again. The second phone holds words the board no
