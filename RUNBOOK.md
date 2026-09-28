@@ -74,7 +74,7 @@ Follow the current host's permission rules and the user's authorization in this 
 Three dated files in `facilitator-internal/logs`, the sibling folder beside this repo, so nothing here is ever committed:
 
 - `server-YYYYMMDD.log`: what the board did. Start and stop with the reason it stopped, every refusal it sent, every push outcome with the service's own words, board events, unusually slow phone command/state requests, a save that failed, and every crash.
-- `client-YYYYMMDD.jsonl`: what the three pages reported: a thrown error, a rejected promise, a request that failed, a card that would not draw, a timer that ran more than two seconds late, and a saved phone incident history.
+- `client-YYYYMMDD.jsonl`: what the three pages reported: a thrown error, a rejected promise, a request that failed, a card that would not draw, a timer that ran more than two seconds late, and a saved phone incident history. Every line carries `client`, the kind of window that sent it (`chrome`, `electron`, `tauri`, `safari`, `phone` or `other`, worked out by the page from its user agent, which is never sent or stored), and `window`, 16 random hex characters made once per page load (the phone's incident `session` is the same id). The route refuses any other value, and a page loaded before the server was updated sends neither until it is reloaded.
 - `bridge-YYYYMMDD.log`: the tailnet share going up and coming down, and what ended it.
 
 Each file caps at 5 MB and rolls, thirty of each kind are kept and older ones are deleted, so the folder cannot pass about 150 MB whatever goes wrong. One line is one event, as JSON:

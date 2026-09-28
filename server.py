@@ -308,8 +308,12 @@ Endpoints:
                                phone bridge hands a signed-in session through to
                                them exactly as it does to every other route
   POST /clientlog          -> body = {"page": "board"|"phone"|"page",
+                               "client": "chrome"|"electron"|"tauri"|"safari"|
+                               "phone"|"other", "window": 16 hex characters,
                                "reports": [...]}: what a page noticed and has no
-                               other way to say. One report per thrown error,
+                               other way to say. Client and window name the kind
+                               of window and the page load that sent it, and are
+                               kept on every line. One report per thrown error,
                                rejected promise, failed request, failed render
                                or timer that ran late, each carrying its kind,
                                its message, where it happened, the card that was
@@ -865,6 +869,11 @@ def _log_file() -> Path:
 # cycle has fresh counters every time and only the server's cap is a cap.
 CLIENT_PAGES = ("board", "phone", "page")
 CLIENT_KINDS = ("error", "rejection", "fetch", "render", "slow", "incident")
+# the kind of window a page is open in, and its id for one page load: the same
+# page in the Chrome window, the Electron app and the Tauri app is otherwise
+# indistinguishable. Only these names and 16 hex characters are ever kept
+CLIENT_NAMES = ("chrome", "electron", "tauri", "safari", "phone", "other")
+CLIENT_WINDOW_ID = re.compile(r"[a-f0-9]{16}", re.ASCII)
 CLIENT_MAX_BODY = 16 * 1024   # bytes in one batch
 CLIENT_MAX_REPORTS = 20       # reports in one batch
 CLIENT_MAX_CHARS = 500        # characters of any one string a report carries
@@ -1063,7 +1072,24 @@ def _client_fields(report: dict) -> dict:
     return out
 
 
-def _client_batch(page: str, reports: list) -> tuple:
+def _client_who(batch: dict):
+    """Which window sent a batch: its kind and its id for this page load. A page
+    opened before the board was updated sends neither, so each may be missing,
+    but neither may be anything else. None when one is not what a page sends."""
+    who = {}
+    if "client" in batch:
+        if batch["client"] not in CLIENT_NAMES:
+            return None
+        who["client"] = batch["client"]
+    if "window" in batch:
+        value = batch["window"]
+        if not isinstance(value, str) or not CLIENT_WINDOW_ID.fullmatch(value):
+            return None
+        who["window"] = value
+    return who
+
+
+def _client_batch(page: str, reports: list, who: dict) -> tuple:
     """One batch to the client file, under the per key per minute cap: how many
     were written and how many were dropped. What the cap drops is counted and
     said, so a file missing lines says how many are missing rather than quietly
@@ -1089,14 +1115,14 @@ def _client_batch(page: str, reports: list) -> tuple:
             fields = _client_fields(report)
             if report["kind"] == "incident":
                 record = CLIENT_LOGGER.makeRecord(CLIENT_LOGGER.name, logging.INFO, "", 0, "incident", (), None,
-                                                  extra={"box": report["box"], "fields": {"page": page, **fields}})
+                                                  extra={"box": report["box"], "fields": {"page": page, **who, **fields}})
                 _client_file.emit_confirmed(record)
             else:
-                _client_event(report["kind"], str(report.get("box") or "")[:64], page=page, **fields)
+                _client_event(report["kind"], str(report.get("box") or "")[:64], page=page, **who, **fields)
             window[1] += 1
             written += 1
     for count, sample in lost.values():
-        _client_event("dropped", str(sample.get("box") or "")[:64], page=page,
+        _client_event("dropped", str(sample.get("box") or "")[:64], page=page, **who,
                       report=sample["kind"], message=str(sample.get("message") or "")[:CLIENT_MAX_CHARS],
                       line=sample.get("line") if isinstance(sample.get("line"), int) else None,
                       dropped=count)
@@ -4244,7 +4270,8 @@ def _post_clientlog(q: Query, raw: bytes):
         batch = None
     page = batch.get("page") if isinstance(batch, dict) else None
     reports = batch.get("reports") if isinstance(batch, dict) else None
-    if (page not in CLIENT_PAGES or not isinstance(reports, list) or not reports
+    who = _client_who(batch) if isinstance(batch, dict) else None
+    if (page not in CLIENT_PAGES or who is None or not isinstance(reports, list) or not reports
             or not all(isinstance(r, dict) and r.get("kind") in CLIENT_KINDS
                        for r in reports)):
         # nothing of a batch this board cannot read is stored, the way
@@ -4255,7 +4282,7 @@ def _post_clientlog(q: Query, raw: bytes):
     if any(r["kind"] == "incident" and not _incident_valid(page, r) for r in reports):
         return 400, {"error": "bad incident history"}
     try:
-        written, dropped = _client_batch(page, reports)
+        written, dropped = _client_batch(page, reports, who)
     except OSError:
         return 503, {"error": "the diagnostic log could not be written"}
     return 200, {"ok": True, "written": written, "dropped": dropped}
