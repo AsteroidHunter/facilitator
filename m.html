@@ -698,10 +698,8 @@
      here would lie up to 3px over the top of the age's last letter when it is
      a d or an h, and touch an m or a w, so the phone folds 12px: the desktop's
      fold scaled to this row, rounded down, which stays over 2.5px clear of all
-     four. it is set on every row, so the crease an unfolded row keeps lies on
-     the same 12px square, where that row's fold was, and the crease's images
-     are the ones card-tokens.css bakes for a 12px fold */
-  .trow{--fold:12px; --crease-1:var(--crease-12-1); --crease-2:var(--crease-12-2); --crease-3:var(--crease-12-3)}
+     four */
+  .trow.testc{--fold:12px}
   /* ---- the settings, on the panel off the right edge ---------------------- */
   /* the header, its mark on the left in the line the card's own marks are drawn
      in, and the card title's face and weight, which is the one heading face on
@@ -2251,15 +2249,12 @@ function paintPhonePane(pane, pool, view, sig, state){
     const read = seenReplies[b.id] || 0;
     const isYours = s === "yours" || (s === "new" && b.ball === "you");
     const isTest = testReady(b);
-    // the crease an unfolded ticket keeps, never beside the fold itself
-    const isCrease = !isTest && !!b.creased;
     const r = h("div", "trow" + (b.id === selectedId ? " on" : "") + (busy ? " working" : "") +
                 (s === "yours" && read >= (b.replies || 0) ? " seen" : "") +
                 (isYours ? " yours" : "") +
                 (s === "queued" || (s === "new" && b.ball !== "you") ? " queuedc" : "") +
                 (s === "done" ? " donec" : "") +
-                (isTest ? " testc" : "") +
-                (isCrease ? " creased crease-" + creaseVariant(b.id) : ""));
+                (isTest ? " testc" : ""));
     const inner = h("div", "trowin");
     const omni = appendOmniRowArt(r, inner, b);
     const ttl = h("div", "ttl", b.title);
@@ -2297,9 +2292,9 @@ function renderTickets(state, action = "state"){
                 pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
                         ((seenReplies[b.id] || 0) >= (b.replies || 0) ? "r" : "") +
                         (b.id === selectedId ? "!" : "") + b.title +
-                        // the marker and the crease ride the signature so a
-                        // mark, a clear or an unfold repaints the row
-                        (testReady(b) ? "T" : b.creased ? "C" : "") +
+                        // the marker rides the signature so a mark or a clear
+                        // repaints the row
+                        (testReady(b) ? "T" : "") +
                         Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",");
     if (pane.dataset.sig !== sig) jobs.push({ pane, pool, name, sig });
   }

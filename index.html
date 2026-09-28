@@ -1308,8 +1308,7 @@
   .trow.donec{opacity:.55}
   /* a ready-to-test row wears no fill or edge of its own: its whole marker is
      the folded top right corner, drawn for this page and the phone alike in
-     card-tokens.css, at the 16px that clears this row's age. the crease an
-     unfolded row keeps is drawn there too, on the same 16px square */
+     card-tokens.css, at the 16px that clears this row's age */
   .trow.on{
     border-color:var(--line);
     /* the selected row rises off the list: the chat frame's own shadow shape,
@@ -9206,9 +9205,9 @@ function paintTicketPane(pane, pool, view, state, laneSig){
               pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
                       ((seenReplies[b.id] || 0) >= (b.replies || 0) ? "r" : "") +
                       (b.id === selectedId ? "!" : "") + (b.task || "") + b.title +
-                      // the marker and the crease ride the signature so a mark,
-                      // a clear or an unfold repaints the row
-                      (testReady(b) ? "T" : b.creased ? "C" : "") +
+                      // the marker rides the signature so a mark or a clear
+                      // repaints the row
+                      (testReady(b) ? "T" : "") +
                       Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",") +
               "|" + selectedTask;
   if (pane.dataset.sig === sig) return;
@@ -9229,16 +9228,13 @@ function paintTicketPane(pane, pool, view, state, laneSig){
     const isYours = s === "yours" || (s === "new" && b.ball === "you");
     const isMatch = selectedTask && b.task === selectedTask;
     const isTest = testReady(b);
-    // the crease an unfolded ticket keeps, never beside the fold itself
-    const isCrease = !isTest && !!b.creased;
     const r = h("div", "trow" + (b.id === selectedId ? " on" : "") + (busy ? " working" : "") +
                 (s === "yours" && read >= (b.replies || 0) ? " seen" : "") +
                 (isYours ? " yours" : "") +
                 (s === "queued" || (s === "new" && b.ball !== "you") ? " queuedc" : "") +
                 (s === "done" ? " donec" : "") +
                 (isMatch ? " match" : "") +
-                (isTest ? " testc" : "") +
-                (isCrease ? " creased crease-" + creaseVariant(b.id) : ""));
+                (isTest ? " testc" : ""));
     const inner = h("div", "trowin");
     const omni = appendOmniRowArt(r, inner, b);
     const ttl = h("div", "ttl", b.title);
