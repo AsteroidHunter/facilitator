@@ -48,6 +48,13 @@ function inlineStyle() {
   const props = {};
   return {
     heights: [],
+    // every transform written, in order, the way heights are kept
+    transforms: [],
+    get transform() { return props.transform || ""; },
+    set transform(value) {
+      if (value) props.transform = String(value); else delete props.transform;
+      this.transforms.push(String(value));
+    },
     setProperty(name, value) { props[name] = String(value); },
     removeProperty(name) { delete props[name]; },
     getPropertyValue(name) { return props[name] || ""; },
@@ -1591,4 +1598,138 @@ test("the small card turns the same way, its three pieces pictured and carried u
   assert.match(mini, /watchReading\(el\);/);
   assert.match(mini, /noteTyping\(ta\);/);
   assert.match(DESKTOP, /#magic2 \.turnsheet\{background:inherit\}/);
+});
+
+// ---- cutting back without moving the view --------------------------------------------------
+// the answer's scroller as a browser keeps it: its content is the answer (base)
+// and the panel over it, plus whatever room is held at its foot, and whenever
+// the page is laid out a scroll past the new end is pulled back to it. the cut
+// is laid out, and so pulls the scroll, whenever the panel reads how tall its
+// preview stands, which is what the old cut back did before its run
+function scrollingView(view, clip, base, height) {
+  let top = 0;
+  let laying = false;
+  const slack = () => parseFloat(view.style.getPropertyValue("--answ-slack")) || 0;
+  Object.defineProperty(view, "scrollHeight", { configurable: true,
+    get: () => base + clip.getBoundingClientRect().height + slack() });
+  const layout = () => {
+    const max = Math.max(0, view.scrollHeight - view.clientHeight);
+    if (top > max) top = max;
+  };
+  Object.defineProperty(view, "scrollTop", { configurable: true,
+    get: () => top, set: value => { top = Math.max(0, value); layout(); } });
+  view.clientHeight = height;
+  const cut = clip.clientHeight;
+  Object.defineProperty(clip, "clientHeight", { configurable: true,
+    get: () => {
+      if (!laying) { laying = true; layout(); laying = false; }
+      return cut;
+    } });
+  return { layout, slack };
+}
+
+test("cutting a panel back leaves the reader's view where it is, before, during and after the run", () => {
+  const { context } = sandbox();
+  const el = card("c1");
+  context.syncAnswered(el, context.liveAnswered(liveBox()));
+  const panel = el.answ;
+  assert.equal(panel.answView, el.replyview, "the panel does not know the scroller it rides in");
+  const clip = layOutLong(panel, FakeResizeObserver.made[0]);
+  panel.fire("click", { target: panel });
+  landRun(panel);
+  // the reader has read the opened batch and the answer under it to the end:
+  // 600 of answer under a 240 batch, a 400 view, so scrolled 440 down
+  const view = scrollingView(el.replyview, clip, 600, 400);
+  el.replyview.scrollTop = 440;
+  assert.equal(el.replyview.scrollTop, 440);
+  // cut back: the panel shrinks from 240 to its 58 preview, in place
+  panel.fire("click", { target: panel });
+  assert.equal(panel.classList.contains("motion"), true, "the cut back did not run");
+  assert.deepEqual(clip.style.heights.slice(-2), ["240px", "58px"], "the run is not the panel shrinking in place");
+  assert.equal(el.replyview.scrollTop, 440, "the view was pulled before the panel began to shrink");
+  assert.ok(view.slack() >= 182, "no room was held for what the cut takes away");
+  // every frame of the run is laid out at the cut's height, and still nothing moves
+  view.layout();
+  assert.equal(el.replyview.scrollTop, 440, "the view was pulled while the panel shrank");
+  // landed: the view has not moved, and the room it stands on is kept, no more
+  landRun(panel);
+  view.layout();
+  assert.equal(el.replyview.scrollTop, 440, "the view was pulled once the panel had landed");
+  assert.equal(view.slack(), 182, "the room held is not exactly what the view stands on");
+  // the reader scrolls up off it, and it goes as they do, moving nothing
+  el.replyview.scrollTop = 300;
+  el.replyview.fire("scroll");
+  assert.equal(view.slack(), 42);
+  el.replyview.scrollTop = 200;
+  el.replyview.fire("scroll");
+  assert.equal(view.slack(), 0, "room nobody stands on was kept");
+  assert.equal(el.replyview.style.getPropertyValue("--answ-slack"), "");
+  // a reader nowhere near the end keeps no room at all once the panel lands
+  panel.fire("click", { target: panel });
+  landRun(panel);
+  el.replyview.scrollTop = 100;
+  panel.fire("click", { target: panel });
+  assert.equal(el.replyview.scrollTop, 100);
+  landRun(panel);
+  assert.equal(el.replyview.scrollTop, 100);
+  assert.equal(view.slack(), 0, "room was kept below a view that never needed it");
+  // with no motion asked for, the flip holds the view too
+  const still = sandbox();
+  still.context.stillness = true;
+  const flat = card("c2");
+  still.context.syncAnswered(flat, still.context.liveAnswered({ ...liveBox(), id: "c2" }));
+  const flatClip = layOutLong(flat.answ, FakeResizeObserver.made[0]);
+  flat.answ.fire("click", { target: flat.answ });
+  const flatView = scrollingView(flat.replyview, flatClip, 600, 400);
+  flat.replyview.scrollTop = 440;
+  flat.answ.fire("click", { target: flat.answ });
+  assert.equal(flat.answ.classList.contains("open"), false);
+  assert.equal(flat.answ.classList.contains("motion"), false, "a run went against the setting");
+  flatView.layout();
+  assert.equal(flat.replyview.scrollTop, 440, "the plain flip pulled the view");
+  assert.equal(flatView.slack(), 182);
+});
+
+test("a panel whose own lane was scrolled comes down to its head on the run, not in a jump first", () => {
+  const { context } = sandbox();
+  // the large cards' sent panel: the opened batch scrolls inside its own cut
+  const el = fullCard("c1");
+  context.syncSent(el, context.sentBatch(LIVE.map(m => m.text)));
+  const panel = el.sent;
+  const clip = layOutLong(panel, FakeResizeObserver.made[0]);
+  panel.fire("click", { target: panel });
+  landRun(panel);
+  clip.scrollTop = 90;
+  const stack = panel.querySelector(".answstack");
+  panel.fire("click", { target: panel });
+  assert.equal(clip.scrollTop, 0, "the cut does not end on the head of the batch");
+  assert.deepEqual(stack.style.transforms, ["translate3d(0, -90px, 0)", ""],
+    "the words jumped to the head of the batch instead of travelling there on the run");
+  assert.equal(panel.classList.contains("motion"), true);
+  landRun(panel);
+  assert.equal(stack.style.transform, "", "the words were left moved once the run had landed");
+  // the small card's panel: the opened batch scrolls in the panel's seat, and
+  // the card has no scroller of the answer's that the panel rides in
+  const mbox = element("div");
+  const mini = { box: mbox, answwrap: element("div"), reply: element("div"), answ: null, answId: null };
+  mini.answwrap.className = "answwrap";
+  mbox.append(mini.answwrap, mini.reply);
+  context.syncAnswered(mini, context.liveAnswered({ ...liveBox(), id: "m1" }), null);
+  const miniClip = layOutLong(mini.answ, FakeResizeObserver.made[1]);
+  assert.equal(mini.answ.answView, null, "a small card's panel took a scroller it does not ride in");
+  mini.answ.fire("click", { target: mini.answ });
+  landRun(mini.answ);
+  mini.answwrap.scrollTop = 50;
+  mini.answ.fire("click", { target: mini.answ });
+  assert.equal(mini.answwrap.scrollTop, 0);
+  assert.deepEqual(mini.answ.style.transforms, ["translate3d(0, -50px, 0)", ""],
+    "the small card's panel jumped to its head instead of travelling there");
+  landRun(mini.answ);
+  assert.equal(miniClip.style.height, "");
+  // the sheet runs the travel on the fold's own length and curve, and both
+  // large pages hand the held room to the answer's run-out
+  assert.match(rule(TOKENS, ".answered.motion, .answered.motion .answstack"),
+    /transition:transform var\(--answ-move\) var\(--gentle\)/);
+  assert.match(DESKTOP, /padding-bottom:calc\(var\(--boxband, 0px\) \+ var\(--replyfade\) \+ var\(--answ-slack, 0px\)\);/);
+  assert.match(PHONE, /padding-bottom:calc\(var\(--boxband, 0px\) \+ var\(--replyfade\) \+ var\(--answ-slack, 0px\)\);/);
 });

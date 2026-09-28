@@ -1377,7 +1377,23 @@ function answeredPanel(room){
 // sent panel as it cuts it back, so the run starts from what was on screen.
 // the two ends stay on the panel for the length of the run (answSpan), for a
 // page that has to hold one of its own measures still while the panel moves.
-// motion the reader has asked not to see is a plain flip, as the old fold's was
+//
+// cutting back never moves the reader's view, before, during or after the run.
+// what it once did: the open class came off and the cut was measured at once,
+// and that one layout made the answer's scroller shorter by everything the cut
+// was about to take away, so a reader scrolled near the answer's end had the
+// scroll pulled up on the spot by the browser, the whole view jumping, and only
+// then did the panel shrink. now, when the panel rides in the answer's scroller
+// (answView), room under the answer is held for exactly what the cut takes
+// (holdSlack) before anything is measured, the scroll is put back where the
+// reader had it, and the panel shrinks in place: what stands above it stays put
+// and only what is below it comes up. the held room is let go as soon as it
+// stands below the view, and never while the reader is looking at it
+// (trimSlack). a panel whose own lane was scrolled while it stood open (the
+// sent panel's cut, or a small card's seat) comes down to the head of its batch
+// over the same run, on a transform, rather than jumping there first.
+// motion the reader has asked not to see is a plain flip, as the old fold's was,
+// and the view is held for it too
 const FOLD_TIMER_MS = 430;   // behind the sheet's run, for a fold with nothing to transition
 function openAnswered(panel, open, change){
   const clip = panel.querySelector(".answclip");
@@ -1386,29 +1402,47 @@ function openAnswered(panel, open, change){
   // run included
   const from = clip.getBoundingClientRect().height;
   const shadeFrom = answeredShade(panel);
+  // cutting back: where the reader has the answer, and how far the batch's own
+  // lane is scrolled, both read before anything is laid out again
+  const view = !open && panel.answView ? panel.answView : null;
+  const at = view ? view.scrollTop : 0;
+  const kept = view ? heldSlack(view) : 0;   // room an earlier cut back still holds
+  const lane = open ? null : answeredLane(panel);
+  const off = lane ? lane.scrollTop : 0;
+  if (view) holdSlack(view, kept + from);   // room enough that no layout below can pull the scroll
   settleAnswered(panel);
   if (change) change();
-  // a cut always shows the head of the batch, so a panel that was scrolled
-  // while it stood open goes back to its first line as it is cut back
-  if (!open) clip.scrollTop = 0;
+  // a cut always shows the head of the batch, so a lane that was scrolled while
+  // the panel stood open starts there; the run below carries the words down
+  // to it rather than the lane jumping
+  if (lane) lane.scrollTop = 0;
   panel.classList.toggle("open", open);
   // the column may have been resized while it stood open
   if (!open) fitAnswered(panel);
   const still = typeof matchMedia === "function" &&
     matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (still || !from){
+    if (view){ view.scrollTop = at; trimSlack(view); }
     if (panel.answRoom) panel.answRoom();
     return;
   }
   const to = clip.getBoundingClientRect().height;
+  // what the cut takes, on top of any room still held, kept under the answer
+  // for the run, and the reader put back where they were, in the same step,
+  // before any frame is drawn
+  if (view){ holdSlack(view, kept + Math.max(0, from - to)); view.scrollTop = at; }
   const shadeTo = panel.classList.contains("more") && !open ? "1" : "0";
+  // the words the lane had scrolled up, held where the reader saw them
+  const words = lane === clip ? panel.querySelector(".answstack") : lane ? panel : null;
   clip.style.height = from + "px";
   clip.style.setProperty("--answ-shade", shadeFrom);
+  if (words && off) words.style.transform = "translate3d(0, " + (-off) + "px, 0)";
   void clip.offsetWidth;   // the start values land untimed
   panel.answSpan = { from, to, band: null };
   panel.classList.add("motion");
   clip.style.height = to + "px";
   clip.style.setProperty("--answ-shade", shadeTo);
+  if (words && off) words.style.transform = "";   // and down to the batch's head on the run
   const done = e => {
     if (e && (e.target !== clip || e.propertyName !== "height")) return;
     clip.removeEventListener("transitionend", done);
@@ -1416,6 +1450,7 @@ function openAnswered(panel, open, change){
     if (mine !== panel.answRun) return;   // a newer run owns the panel now
     settleAnswered(panel);
     if (!open) fitAnswered(panel);
+    if (view) trimSlack(view);
     if (panel.answRoom) panel.answRoom();
   };
   clip.addEventListener("transitionend", done);
@@ -1430,6 +1465,49 @@ function settleAnswered(panel){
   panel.answSpan = null;
   clip.style.height = "";
   clip.style.removeProperty("--answ-shade");
+  // and the hold a scrolled lane's words were given, if a run was cut short on it
+  for (const node of [panel, panel.querySelector(".answstack")])
+    if (node.style.transform) node.style.transform = "";
+}
+
+// the lane a panel's batch scrolls in while it stands open, if it has been
+// scrolled: the cut itself where the page caps the opened batch (the large
+// cards' sent panel), or the seat the panel stands in where the seat is capped
+// instead (the small card). a panel riding in the answer's own scroller has no
+// lane of its own; that scroller is its view
+function answeredLane(panel){
+  const clip = panel.querySelector(".answclip");
+  if (clip.scrollTop > 0) return clip;
+  const seat = panel.parentNode;
+  if (seat && seat !== panel.answView && seat.scrollTop > 0) return seat;
+  return null;
+}
+
+// the room held under the answer while a panel over it is cut back, written on
+// the answer's scroller as --answ-slack, which each page adds to the run-out at
+// the scroller's foot
+function heldSlack(view){
+  return parseFloat(view.style.getPropertyValue("--answ-slack")) || 0;
+}
+function holdSlack(view, held){
+  if (held > 0) view.style.setProperty("--answ-slack", Math.ceil(held) + "px");
+  else view.style.removeProperty("--answ-slack");
+  if (!view.answSlackWatch){
+    view.answSlackWatch = true;
+    view.addEventListener("scroll", () => trimSlack(view), { passive: true });
+  }
+}
+// and let go of all of it the view is not standing on. the room is at the very
+// foot of the scroller, so whatever of it lies below the view goes without a
+// pixel on screen moving; what the view does stand on stays until the reader
+// scrolls up off it, and goes as they do
+function trimSlack(view){
+  const held = heldSlack(view);
+  if (!held) return;
+  const need = Math.max(0, Math.ceil(view.scrollTop + view.clientHeight - (view.scrollHeight - held)));
+  if (need >= held) return;
+  if (need) view.style.setProperty("--answ-slack", need + "px");
+  else view.style.removeProperty("--answ-slack");
 }
 
 // the strength the dissolve stands at now. the strip itself says, and a run
@@ -1620,6 +1698,9 @@ function syncAnswered(el, meta, room = answeredRoomChanged){
     // board's one proof that the agent read it: the panel says so, quietly,
     // under its foot (the delivery marks, below)
     el.answ.dataset.tag = SENT_TAGS.read;
+    // on a large card the panel rides at the head of the answer's own
+    // scroller, whose scroll a cut back must leave where the reader has it
+    el.answ.answView = el.replyview || null;
     el.answwrap.appendChild(el.answ);
   }
   el.answId = meta.id;
