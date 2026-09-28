@@ -14,16 +14,31 @@ Endpoints:
   GET  /page                -> page.html, the same lanes drawn as one typed page
   GET  /state               -> full UI state (page polls this), with rev, the
                                board's revision: every saved change moves it
-  GET  /m/state[?since=R][&ops=A,B] -> what the phone reads: {rev, changed,
-                               live, ...}. With since naming the revision the
-                               phone already holds and nothing saved since,
-                               only rev, changed:false and the live section
-                               (who is listening) come back; otherwise the
-                               cards with the fields the phone draws, the
-                               title, the tabs and the lanes as well. ops
-                               names up to 32 operation ids and each is
-                               answered {status: applied|unknown, result} in
-                               the same reading
+  GET  /m/state[?since=R][&delta=E][&ops=A,B] -> what the phone reads: {rev,
+                               changed, live, ...}. With since naming the
+                               revision the phone already holds and nothing
+                               saved since, only rev, changed:false and the
+                               live section (who is listening) come back;
+                               otherwise the cards with the fields the phone
+                               draws, the title, the tabs and the lanes as
+                               well, and epoch, this server run's name for its
+                               readings. delta names the epoch of the reading
+                               the phone holds: when it is this run's and the
+                               board still remembers the cards it sent at R
+                               (its last PHONE_KEPT readings), the answer has
+                               delta:R and only the cards that differ from
+                               that reading, with gone (ids no longer on the
+                               board), after (each new card's id mapped to the
+                               id before it, "" for the first), count (cards on
+                               the board) and, only when those cannot rebuild
+                               the order, ids (the whole order). Without delta,
+                               or with one that cannot be built on, every card
+                               comes, as it always did. An answer of
+                               PHONE_GZIP_MIN bytes or more is gzip compressed
+                               when Accept-Encoding takes gzip. ops names up
+                               to 32 operation ids and each is answered
+                               {status: applied|unknown, result} in the same
+                               reading
   GET  /op?id=OP            -> one operation id's receipt: {status, kind, box,
                                result, rev}; status unknown for an id the board
                                holds no receipt of. A receipt is kept well past
@@ -497,6 +512,7 @@ import asyncio
 import base64
 import contextlib
 import fcntl
+import gzip
 import hashlib
 import json
 import logging
@@ -3159,6 +3175,27 @@ def _op_status(op: str) -> dict:
 # something has, the cards with the fields the phone draws and none of the
 # rest. The live section rides on every answer because it is not part of the
 # saved state and so never moves the revision.
+#
+# Those fields for 700 cards are about 800 KB, and every save sent all of it
+# again, over a link that takes seconds for it. So the board remembers, for its
+# last PHONE_KEPT readings, a fingerprint of each card exactly as it was sent,
+# and a phone that names a reading this run made gets only the cards whose
+# fingerprint has moved since. The fingerprint is of the bytes sent and not of
+# the saved card, so no change the phone would see can be missed whatever made
+# it. A card read twice at one revision that did not read the same both times
+# (a heartbeat going quiet moves no revision) is sent to every phone holding
+# that revision. A restart forgets the readings, and a phone holding one from
+# before it gets the whole board.
+
+PHONE_KEPT = 32          # readings whose cards are remembered, the newest kept
+PHONE_GZIP_MIN = 256     # a shorter answer goes as it is: gzip saves little on it
+# this run's name for its readings: a phone names it back beside the revision
+# it holds, and a reading made by any other run is never built on
+PHONE_EPOCH = secrets.token_hex(4)
+# rev -> (the card ids in board order, {id: fingerprint, or None once the card
+# has read two ways at that revision}), or None for a revision never built on
+_phone_kept: dict = {}
+
 
 def _phone_box(b: dict) -> dict:
     ow = b.get("owner", "facilitator")
@@ -3211,31 +3248,131 @@ def _live_section() -> dict:
     }
 
 
-def _phone_state(since: int | None, ops: list[str]) -> dict:
-    """Callers hold _lock and have swept the clocks."""
+def _phone_state(since: int | None, ops: list[str], epoch: str = "") -> bytes:
+    """The reading, as the bytes that are sent. Callers hold _lock and have
+    swept the clocks. epoch is the run the phone's held reading came from,
+    named by a phone that can take the changed cards alone."""
     rev = _state.get("rev", 0)
     out = {"rev": rev, "changed": since is None or since != rev, "now": time.time(), "incidentSchema": INCIDENT_SCHEMA,
            "live": _live_section()}
+    cards: list[str] = []
     if out["changed"]:
         qpos, seen = {}, {ow: 0 for ow in OWNERS}
         for i in _state["inbox"]:
             ow = (_box(i) or {}).get("owner", "facilitator")
             seen[ow] += 1
             qpos[i] = seen[ow]
-        boxes = []
+        ids, texts, marks = [], [], {}
         for b in _state["boxes"]:
             one = _phone_box(b)
             one["queuePos"] = qpos.get(b["id"], 0)
-            boxes.append(one)
+            text = json.dumps(one)
+            ids.append(b["id"])
+            texts.append(text)
+            marks[b["id"]] = hashlib.blake2b(text.encode(), digest_size=16).digest()
+        base = _phone_kept.get(since) if epoch == PHONE_EPOCH else None
+        _phone_keep(rev, ids, marks)
         out.update({
             "title": _state.get("title", "facilitator"),
             "tabs": _state.get("tabs", {"order": [], "closed": []}),
             "pwds": _lane_pwds(), "projects": _state.get("projects", []),
-            "paused": _state.get("paused", False), "boxes": boxes,
+            "paused": _state.get("paused", False), "epoch": PHONE_EPOCH,
         })
+        if base is None:
+            cards = texts
+        else:
+            out.update(_phone_delta(since, base, ids))
+            cards = [t for i, t in zip(ids, texts) if base[1].get(i) != marks[i]]
     if ops:
         out["ops"] = {op: _op_status(op) for op in ops if _op_id_ok(op)}
+    body = json.dumps(out)
+    if out["changed"]:
+        # the cards are JSON already, made once for their fingerprints, and go in
+        # as the last field exactly as json.dumps would have written them
+        body = body[:-1] + ', "boxes": [' + ", ".join(cards) + "]}"
+    return body.encode()
+
+
+def _phone_keep(rev: int, ids: list[str], marks: dict) -> None:
+    """What was sent at this revision, kept for the phones that come to hold it.
+    Read again at the same revision, a card that no longer reads the same is
+    marked as unknown there, so every phone holding that revision is sent it;
+    the board's order cannot move without a save, but if it ever did, nothing
+    would be built on that revision again."""
+    if rev not in _phone_kept:
+        _phone_kept[rev] = (ids, marks)
+        while len(_phone_kept) > PHONE_KEPT:
+            del _phone_kept[next(iter(_phone_kept))]
+        return
+    kept = _phone_kept[rev]
+    if kept is None:
+        return
+    if kept[0] != ids:
+        _phone_kept[rev] = None
+        return
+    for i, mark in marks.items():
+        if kept[1][i] != mark:
+            kept[1][i] = None
+
+
+def _phone_delta(since: int, base: tuple, ids: list[str]) -> dict:
+    """Everything but the cards a phone holding the reading at since needs: the
+    ids gone since, where each new card sits, and the count it checks its board
+    by. The page's own rebuild (mergeReading in m.html) is played here first,
+    and when it would not come out in the board's order the whole order is sent
+    instead."""
+    held, held_marks = base
+    now = set(ids)
+    out = {"delta": since, "count": len(ids)}
+    gone = [i for i in held if i not in now]
+    if gone:
+        out["gone"] = gone
+    after, prev = {}, ""
+    for i in ids:
+        if i not in held_marks:
+            after[i] = prev
+        prev = i
+    order = [i for i in held if i in now]
+    for i, before in after.items():
+        order.insert(order.index(before) + 1 if before else 0, i)
+    if order != ids:
+        out["ids"] = ids
+    elif after:
+        out["after"] = after
     return out
+
+
+def _takes_gzip(accept: str) -> bool:
+    """Whether an Accept-Encoding header takes gzip: named with a weight above
+    zero, or not named and covered by a * above zero. A request with no such
+    header takes the bytes as they are."""
+    star = False
+    for part in accept.split(","):
+        name, *params = [p.strip() for p in part.split(";")]
+        weight = 1.0
+        for p in params:
+            key, _, value = p.partition("=")
+            if key.strip().lower() == "q":
+                try:
+                    weight = float(value)
+                except ValueError:
+                    weight = 0.0
+        if name.lower() == "gzip":
+            return weight > 0
+        if name == "*":
+            star = weight > 0
+    return star
+
+
+def _phone_answer(body: bytes, gzip_ok: bool) -> Response:
+    """The phone's reading, gzip compressed when the phone takes it and it is
+    long enough to be worth it. Vary says the bytes depend on what was
+    accepted, so nothing between the board and the phone keeps one for another."""
+    headers = {"Cache-Control": "no-store", "Vary": "Accept-Encoding"}
+    if gzip_ok and len(body) >= PHONE_GZIP_MIN:
+        body = gzip.compress(body, compresslevel=6, mtime=0)
+        headers["Content-Encoding"] = "gzip"
+    return Response(body, status_code=200, media_type="application/json", headers=headers)
 
 
 def _ui_state() -> dict:
@@ -3391,10 +3528,12 @@ def _ui_state() -> dict:
 
 class Query(dict):
     """The query string parsed the way it always was, plus the raw string for
-    the one route that has to tell a blank value from an absent one, and the
-    request path for the routes that read a name out of it."""
+    the one route that has to tell a blank value from an absent one, the
+    request path for the routes that read a name out of it, and the encodings
+    the caller takes, for the one route whose answer is compressed."""
     raw: str = ""
     path: str = ""
+    accept_encoding: str = ""
 
     def one(self, name: str, default: str = "") -> str:
         values = self.get(name)
@@ -3455,9 +3594,16 @@ def _get_phone_state(q: Query, _):
     except ValueError:
         return 400, {"error": "bad revision"}
     ops = [op for op in q.one("ops").split(",") if op][:OP_ASK_MAX]
-    with _lock:
-        _sweep_clocks()
-        return 200, *_snapshot(_phone_state(since, ops))
+    # the reading is made under the lock as one transaction, as a stateful
+    # route's always is; compressing it, the longest step on a whole board,
+    # waits until the lock is let go
+    body = _run_state_request(_phone_reading, since, ops, q.one("delta"))
+    return _phone_answer(body, _takes_gzip(q.accept_encoding))
+
+
+def _phone_reading(since: int | None, ops: list[str], epoch: str) -> bytes:
+    _sweep_clocks()
+    return _phone_state(since, ops, epoch)
 
 
 def _get_op(q: Query, _):
@@ -5303,6 +5449,8 @@ def _query(scope: dict) -> Query:
     q = Query(parse_qs(raw))
     q.raw = raw
     q.path = scope.get("path", "")
+    q.accept_encoding = next((v.decode("latin-1") for k, v in scope.get("headers") or ()
+                              if k == b"accept-encoding"), "")
     return q
 
 
@@ -5760,7 +5908,9 @@ ROUTES = [
     Route("/", _endpoint(_get_root), methods=["GET"]),
     Route("/page", _endpoint(_get_page), methods=["GET"]),
     Route("/state", _state_endpoint(_get_state), methods=["GET"]),
-    Route("/m/state", _state_endpoint(_get_phone_state), methods=["GET"]),
+    # stateful all the same: the route takes its reading through
+    # _run_state_request itself, so the compression runs outside the lock
+    Route("/m/state", _endpoint(_get_phone_state), methods=["GET"]),
     Route("/op", _endpoint(_get_op), methods=["GET"]),
     Route("/worktrees", _endpoint(_get_worktrees), methods=["GET"]),
     Route("/unread", _endpoint(_get_unread), methods=["GET"]),

@@ -3069,15 +3069,24 @@ function syncSentPhone(el, b){
 // one reading at a time, each with a deadline, spaced POLL_MS apart while the
 // page is on screen and further apart while the board is not answering. the
 // reading names the revision this page holds, so a board that has not changed
-// answers in a few hundred bytes, and it asks after every operation still
+// answers in a few hundred bytes, and one that has sends only the cards that
+// changed since (mergeReading), and it asks after every operation still
 // pending, so on waking what landed while the phone slept is drawn from the
 // board's receipts and what did not is sent again. the note under the tabs
 // says plainly when the board has stopped answering, and since when; what is
 // on screen then is the last reading, not the board
 const POLL_MS = 1200, POLL_DEADLINE_MS = 8000, POLL_BACKOFF_MAX_MS = 15000;
+// the deadline is on the answer starting. a body that has started is slow and
+// not lost for as long as it keeps arriving, and is given up only after this
+// long with nothing more of it (readingText)
+const POLL_STALL_MS = 8000;
 const STALE_AFTER = 2;                // missed readings before the note shows
 const OFFLINE_AFTER_MS = 30000;       // this long without an answer and the note says the board is gone
 let lastRev = null;                   // the revision lastState is of; null before the first reading
+// the cards of the reading last drawn, exactly as the board sent them, with its
+// revision and the server run that made it (mergeReading). null holds nothing,
+// and the next reading that brings cards brings all of them
+let servedCards = null;
 // a whole reading has been through the pass over the cards without throwing.
 // held apart from lastState, because a reading can be held and still never have
 // reached the screen, and the startup curtain answers to the drawing rather than
@@ -3134,6 +3143,78 @@ function poll(){
   });
   return pollRun;
 }
+// a promise given ms to settle. past that the fetch it belongs to is called
+// off and the reading fails, as a reading the board never answered does
+function within(promise, ms, abort){
+  let timer = null;
+  const late = new Promise((_, reject) => {
+    timer = setTimeout(() => { abort.abort(); reject(new Error("nothing came from the board for " + ms + " ms")); }, ms);
+  });
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+}
+// the body of a reading, taken in as it arrives: a download that keeps
+// arriving is waited for however slow it is, and one that brings nothing for
+// POLL_STALL_MS is lost. a browser that cannot hand the body over in pieces
+// reads it whole, on the one clock
+async function readingText(r, abort){
+  const reader = r.body && typeof r.body.getReader === "function" && typeof TextDecoder === "function"
+    ? r.body.getReader() : null;
+  if (!reader) return within(r.text(), POLL_STALL_MS, abort);
+  const decoder = new TextDecoder();
+  let text = "";
+  for (;;){
+    const piece = await within(reader.read(), POLL_STALL_MS, abort);
+    if (piece.done) return text + decoder.decode();
+    text += decoder.decode(piece.value, { stream: true });
+  }
+}
+// THE CARDS A READING BRINGS, LAID OVER THE ONES THIS PAGE HOLDS.
+//
+// A whole reading brings every card. A lean one, which the board sends only to
+// a page that named the reading it holds (delta in the query, and the answer's
+// delta is that revision), brings the cards that changed since then and no
+// others: the ids gone since (gone), where each new card sits (after, its id
+// to the id before it, "" for the first), how many cards there are (count),
+// and the whole order (ids) only when the rest cannot rebuild it. The board
+// plays this same rebuild before it answers (server.py _phone_delta).
+//
+// The page is handed a fresh copy of every card, as a whole reading always
+// handed it fresh cards: a pass writes into its cards (a tap held on a card,
+// holdFlags) and knows a new reading's card by its being a new object, and the
+// cards kept here, as the board sent them, never see those writes. null when a
+// lean reading does not fit what is held: none of it is drawn, and the whole
+// board is asked for again
+function mergeReading(held, data){
+  const list = Array.isArray(data.boxes) ? data.boxes : [];
+  const epoch = typeof data.epoch === "string" ? data.epoch : null;
+  if (data.delta == null){
+    const cards = new Map(), order = [];
+    for (const b of list){ cards.set(b?.id, b); order.push(b?.id); }
+    // a board holding one id twice is drawn as it comes and never built on
+    return { rev: data.rev, epoch: cards.size === order.length ? epoch : null, cards, order,
+             boxes: Array.isArray(data.boxes) ? list.map(b => b && typeof b === "object" ? { ...b } : b) : data.boxes };
+  }
+  if (!held || data.delta !== held.rev || epoch === null || epoch !== held.epoch) return null;
+  if (!Number.isSafeInteger(data.count) || !list.every(b => b && typeof b === "object")) return null;
+  const gone = new Set(Array.isArray(data.gone) ? data.gone : []);
+  const after = data.after && typeof data.after === "object" ? data.after : {};
+  const cards = new Map(held.cards);
+  for (const id of gone) cards.delete(id);
+  let order = held.order.filter(id => !gone.has(id));
+  for (const b of list){
+    cards.set(b.id, b);
+    if (Array.isArray(data.ids) || !Object.prototype.hasOwnProperty.call(after, b.id)) continue;
+    const before = after[b.id];
+    const at = before === "" ? 0 : order.indexOf(before) + 1;
+    if (at === 0 && before !== "") return null;
+    order.splice(at, 0, b.id);
+  }
+  if (Array.isArray(data.ids)) order = data.ids.slice();
+  const count = data.count;
+  if (order.length !== count || cards.size !== count || new Set(order).size !== count ||
+      !order.every(id => cards.has(id))) return null;
+  return { rev: data.rev, epoch, cards, order, boxes: order.map(id => ({ ...cards.get(id) })) };
+}
 // the fetch and the render each get their own try, as on the board: the note
 // is for a server that did not answer, and a card that will not draw is
 // reported instead of being dressed up as one
@@ -3147,15 +3228,22 @@ async function readBoard(){
   let response = null;
   try {
     const query = ["since=" + (lastRev == null ? "" : lastRev)];
+    // holding the cards of the reading it names, the page can take only the
+    // ones that changed since. a board that does not know the word sends all of
+    // them, as it always did
+    if (lastRev != null && servedCards && servedCards.rev === lastRev && servedCards.epoch)
+      query.push("delta=" + encodeURIComponent(servedCards.epoch));
     const waiting = askIds();
     if (waiting.length) query.push("ops=" + waiting.map(encodeURIComponent).join(","));
     const headersTrace = tracePhone("begin", "phase", { action: "state", part: "fetch-headers" });
-    const r = await fetch("/m/state?" + query.join("&"), { cache: "no-store", signal: AbortSignal.timeout(POLL_DEADLINE_MS) });
+    const abort = new AbortController();
+    const r = await within(fetch("/m/state?" + query.join("&"), { cache: "no-store", signal: abort.signal }),
+      POLL_DEADLINE_MS, abort);
     endPhoneTrace(headersTrace, { action: "state", part: "fetch-headers", status: r.status }, r);
     response = r;
     if (!r.ok) throw new Error("status " + r.status);
     const jsonTrace = tracePhone("begin", "phase", { action: "state", part: "json" });
-    data = await r.json();
+    data = JSON.parse(await readingText(r, abort));
     const declaredSize = r.headers.get("Content-Length");
     const size = declaredSize === null ? NaN : Number(declaredSize);
     endPhoneTrace(jsonTrace, { action: "state", part: "json", changed: !!data.changed,
@@ -3188,9 +3276,21 @@ async function readBoard(){
         reconcileOps(data.ops);
         endPhoneTrace(reconcileTrace, { action: "state", part: "reconcile" });
       }
+      const served = data.changed ? mergeReading(servedCards, data) : null;
+      if (data.changed && !served){
+        // a lean reading that does not fit the cards held, which the board's
+        // own check should make impossible: none of it is drawn, it is written
+        // down, and the whole board is asked for at once
+        servedCards = null;
+        lastRev = null;
+        pollAgain = true;
+        throw new Error("a reading of the changed cards did not fit the cards held");
+      }
       if (data.changed){
-        const state = { ...data, ...(data.live || {}), fetchedAt: asked };
+        const state = { ...data, ...(data.live || {}), boxes: served.boxes, fetchedAt: asked };
         delete state.live; delete state.ops;
+        // and the reading's own bookkeeping, which is no part of the board
+        delete state.epoch; delete state.delta; delete state.gone; delete state.after; delete state.ids; delete state.count;
         validateOwners(state);
         // A REVISION IS ONLY HELD ONCE IT HAS BEEN DRAWN.
         //
@@ -3220,10 +3320,12 @@ async function readBoard(){
           const applyTrace = tracePhone("begin", "phase", { action: "state", part: "apply" });
           apply(state);
           endPhoneTrace(applyTrace, { action: "state", part: "apply", changed: true });
+          servedCards = served;
           drewBoard = true;   // a whole reading reached the screen
         } catch (e) {
           lastState = heldState;
           lastRev = null;
+          servedCards = null;
           throw e;            // reported by the one handler below, as before
         }
       } else if (lastState){
