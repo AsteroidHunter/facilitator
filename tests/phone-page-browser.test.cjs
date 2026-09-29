@@ -622,10 +622,12 @@ test("the composer sends through /send, the plus attaches a picture, the cross c
     const upload = page.waitForResponse(r => new URL(r.url()).pathname === "/upload");
     await clip.uploadFile(picture);
     assert.equal((await upload).status(), 200);
-    await page.waitForFunction(() => document.querySelector("article.box.sel textarea").value.includes("/uploads/"), { timeout: 3000 });
-    const field = await page.evaluate(() => document.querySelector("article.box.sel textarea").value);
-    assert.match(field, /^\/uploads\/\d+-phone-shot\.png\n$/, "the picture's address did not join the message the way the desktop does");
-    const url = field.trim();
+    // the picture waits in the tray over the row, uploaded, and the row is left alone
+    await page.waitForFunction(id => els[id].trayItems[0]?.state === "done", { timeout: 3000 }, id);
+    const url = await page.evaluate(id => els[id].trayItems[0].url, id);
+    assert.match(url, /^\/uploads\/\d+-phone-shot\.png$/, "the picture did not land in the tray");
+    assert.equal(await page.evaluate(() => document.querySelector("article.box.sel textarea").value), "",
+      "the picture's address was typed into the row");
     uploaded.push(path.basename(url));
     const served = await fetch(origin + url);
     assert.equal(served.status, 200);

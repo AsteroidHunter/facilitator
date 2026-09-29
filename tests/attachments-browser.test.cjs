@@ -220,7 +220,9 @@ test("legacy uploaded images still resolve and lane panels remain image-only", a
   assert.equal((await fetch(origin + "/laneimg/facilitator/lane.pdf")).status, 404);
 });
 
-for (const phone of [false, true]) {
+// the desktop puts an upload's address into the row; the phone keeps its files
+// in the tray over the row (tests below this loop)
+for (const phone of [false]) {
   test(`${phone ? "phone" : "desktop"} picker, paste and drop preserve the draft and send raw upload URLs`, async () => {
     const { page, id } = await openCard(phone);
     try {
@@ -297,6 +299,91 @@ for (const phone of [false, true]) {
     } finally { await closePage(page); }
   });
 }
+
+// the tray's files, once none is still on its way
+async function trayLanded(page, id, count) {
+  await page.waitForFunction((id, count) => els[id].trayItems.length === count &&
+    els[id].trayItems.every(it => !["up", "queued", "wait"].includes(it.state)), { timeout: 20000 }, id, count);
+  return page.evaluate(id => els[id].trayItems.map(it => ({ name: it.name, state: it.state, url: it.url || "" })), id);
+}
+
+test("phone picker, paste and drop put files in the tray, keep the draft, and send them with the words", async () => {
+  const { page, id } = await openCard(true);
+  try {
+    await page.evaluate(id => {
+      const ta = els[id].ta;
+      ta.value = "Keep this draft  "; ta.focus(); ta.setSelectionRange(2, 6, "backward");
+      ta.dispatchEvent(new Event("input"));
+    }, id);
+    const filename = path.join(outer, "Picked report.docx");
+    await writeFile(filename, DOCX);
+    const chooser = page.waitForFileChooser();
+    await page.click(`#box-${id} .clipbtn`);
+    await (await chooser).accept([filename]);
+    await transfer(page, id, "drop", "dropped.mp4", "video/mp4", [...MP4]);
+    await transfer(page, id, "paste", "pasted.wav", "audio/wav", [...WAV]);
+    const items = await trayLanded(page, id, 3);
+    assert.deepEqual(items.map(it => [it.name, it.state]),
+      [["Picked report.docx", "done"], ["dropped.mp4", "done"], ["pasted.wav", "done"]]);
+    const kept = await page.evaluate(id => ({ text: els[id].ta.value, start: els[id].ta.selectionStart, end: els[id].ta.selectionEnd }), id);
+    assert.equal(kept.text, "Keep this draft  ", "a file went into the row");
+    assert.deepEqual([kept.start, kept.end], [2, 6]);
+    const sent = page.waitForResponse(response => new URL(response.url()).pathname === "/send" && new URL(response.url()).searchParams.get("box") === id);
+    await page.waitForFunction(id => els[id].send.classList.contains("show"), {}, id);
+    await page.click(`#box-${id} .sendbtn`);
+    assert.equal((await sent).status(), 200);
+    await page.waitForFunction(id => els[id].ta.value === "" && els[id].trayItems.length === 0, {}, id);
+    const thread = await (await fetch(origin + "/thread?box=" + id)).json();
+    assert.equal(thread.messages.filter(m => m.kind === "user").at(-1).text,
+      items.map(it => it.url).join("\n") + "\n\nKeep this draft");
+  } finally { await closePage(page); }
+});
+
+test("phone accepts 33 MiB and exactly 100 MiB in the tray without touching the draft", async t => {
+  const { page, id } = await openCard(true);
+  try {
+    for (const size of [33 * 1024 * 1024, 100 * 1024 * 1024]) {
+      const result = await page.evaluate(async ({ id, size }) => {
+        const ta = els[id].ta;
+        ta.value = "Keep this larger draft"; ta.setSelectionRange(2, 6);
+        // Printable bytes keep intercepted request data within the debugger's message limit.
+        const bytes = new Uint8Array(size).fill(65); bytes[size - 1] = 13;
+        bytes.set([37, 80, 68, 70, 45]);   // %PDF-
+        trayAdd(id, [new File([bytes], `accepted-${size}.pdf`, { type: "application/pdf" })]);
+        const it = els[id].trayItems.at(-1);
+        await new Promise(resolve => { const t = setInterval(() => { if (!["up", "queued"].includes(it.state)) { clearInterval(t); resolve(); } }, 50); });
+        return { state: it.state, url: it.url, text: ta.value, start: ta.selectionStart, end: ta.selectionEnd };
+      }, { id, size });
+      assert.equal(result.state, "done");
+      assert.match(result.url, new RegExp(`^/uploads/\\d+-accepted-${size}\\.pdf$`));
+      assert.equal(result.text, "Keep this larger draft");
+      assert.deepEqual([result.start, result.end], [2, 6]);
+      const response = await fetch(origin + result.url, { headers: { Range: `bytes=${size - 1}-` } });
+      assert.equal(response.status, 206);
+      assert.equal(response.headers.get("content-range"), `bytes ${size - 1}-${size - 1}/${size}`);
+      assert.deepEqual(Buffer.from(await response.arrayBuffer()), Buffer.from([13]));
+      t.diagnostic(`${size} bytes uploaded through the tray; draft, selection and stored byte length preserved`);
+    }
+  } finally { await closePage(page); }
+});
+
+test("phone refuses unsupported, empty and oversized files in the tray before any upload", async () => {
+  const { page, id } = await openCard(true);
+  try {
+    let uploads = 0;
+    page.on("request", request => { if (new URL(request.url()).pathname === "/upload") uploads++; });
+    await page.evaluate(id => { els[id].ta.value = "Still here"; }, id);
+    await transfer(page, id, "drop", "unsupported.html", "text/html");
+    await page.waitForFunction(id => els[id].trayNote?.textContent.includes("Unsupported"), {}, id);
+    await transfer(page, id, "drop", "empty.pdf", "application/pdf", []);
+    await page.waitForFunction(id => els[id].trayNote.textContent.includes("empty"), {}, id);
+    await page.evaluate(id => trayAdd(id, [new File([new Uint8Array(100 * 1024 * 1024 + 1)], "huge.pdf", { type: "application/pdf" })]), id);
+    assert.match(await page.evaluate(id => els[id].trayNote.textContent, id), /100 MiB/);
+    assert.deepEqual(await page.evaluate(id => els[id].trayItems.map(it => it.state), id), ["refused", "refused", "refused"]);
+    assert.equal(await page.evaluate(id => els[id].ta.value, id), "Still here");
+    assert.equal(uploads, 0, "invalid files must be refused before upload");
+  } finally { await closePage(page); }
+});
 
 test("document and media markup is bounded, escaped and playable in the owned browser", async () => {
   const page = await openPage("/");
@@ -387,8 +474,38 @@ test("chat stages mixed files and retries only incomplete uploads before sending
   } finally { await closePage(page); }
 });
 
-test("a failed card upload keeps the draft and succeeds when the file is selected again", async () => {
+test("phone: an upload that did not get through keeps the draft and the file, and a tap tries it again", async () => {
   const { page, id } = await openCard(true);
+  try {
+    await page.evaluate(() => {
+      // the first upload goes to a port nobody answers on: the connection drops
+      const open = XMLHttpRequest.prototype.open;
+      let cut = false;
+      XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+        if (!cut && String(url).startsWith("/upload?")) { cut = true; url = "http://127.0.0.1:9/upload"; }
+        return open.call(this, method, url, ...rest);
+      };
+    });
+    await page.evaluate(id => {
+      els[id].ta.value = "Draft before upload";
+      trayAdd(id, [new File(["%PDF-1.4 fixture"], "retry.pdf", { type: "application/pdf" })]);
+    }, id);
+    await page.waitForFunction(id => els[id].trayItems[0].state === "failed", { timeout: 10000 }, id);
+    const failed = await page.evaluate(id => ({ text: els[id].ta.value, note: els[id].trayNote.textContent,
+      mark: getComputedStyle(els[id].trayItems[0].sq.querySelector(".tsqbang")).display }), id);
+    assert.equal(failed.text, "Draft before upload");
+    assert.match(failed.note, /retry\.pdf did not upload: the connection dropped\. Tap it to try again\./);
+    assert.equal(failed.mark, "block");
+    await page.click(`#box-${id} .tsq .tsqface`);
+    const [item] = await trayLanded(page, id, 1);
+    assert.equal(item.state, "done");
+    assert.match(item.url, /^\/uploads\/\d+-retry\.pdf$/);
+    assert.equal(await page.evaluate(id => els[id].trayNote.textContent, id), "");
+  } finally { await closePage(page); }
+});
+
+test("a failed card upload keeps the draft and succeeds when the file is selected again", async () => {
+  const { page, id } = await openCard(false);
   try {
     const result = await page.evaluate(async id => {
       const ta = els[id].ta, realFetch = window.fetch;
