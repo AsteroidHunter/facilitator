@@ -19,6 +19,17 @@ WAV.write("RIFF", 0); WAV.writeUInt32LE(WAV.length - 8, 4); WAV.write("WAVEfmt "
 WAV.writeUInt32LE(16, 16); WAV.writeUInt16LE(1, 20); WAV.writeUInt16LE(1, 22);
 WAV.writeUInt32LE(8000, 24); WAV.writeUInt32LE(8000, 28); WAV.writeUInt16LE(1, 32); WAV.writeUInt16LE(8, 34);
 WAV.write("data", 36); WAV.writeUInt32LE(8000, 40); WAV.fill(128, 44);
+// the server reads what a file is from its first bytes, so every fixture starts
+// the way a real file of its kind does
+const MP4 = Buffer.concat([Buffer.from("00000018", "hex"), Buffer.from("ftypmp42"), Buffer.from(" invented video")]);
+const DOCX = Buffer.concat([Buffer.from("504b0304", "hex"), Buffer.from(" invented document")]);
+const HEADS = { jpg: "ffd8ffe0", jpeg: "ffd8ffe0", webp: "52494646000000005745425056503820", svg: "3c737667",
+  mp4: "0000001866747970", m4v: "0000001866747970", mov: "0000001466747970", m4a: "0000001c66747970",
+  webm: "1a45dfa3", weba: "1a45dfa3", ogv: "4f676753", ogg: "4f676753", oga: "4f676753", opus: "4f676753",
+  mp3: "494433", aac: "fff1", pdf: "255044462d", doc: "d0cf11e0a1b11ae1", docx: "504b0304" };
+const fixtureBytes = ext => ext === "png" ? PNG : ext === "gif" ? GIF : ext === "wav" ? WAV
+  : Buffer.concat([Buffer.from(HEADS[ext], "hex"), Buffer.from(" fixture " + ext)]);
+const pdfOf = size => { const bytes = Buffer.alloc(size, 13); bytes.write("%PDF-"); return bytes; };
 let outer, app, origin, child, browser;
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -140,7 +151,7 @@ test("type policy uses extensions, MIME fallback and the 100 MiB size limit", ()
 
 test("every allowed type uploads and retrieves exact bytes with its declared content type", async () => {
   for (const [ext, info] of Object.entries(markdown.ATTACHMENT_TYPES)) {
-    const bytes = ext === "png" ? PNG : ext === "gif" ? GIF : ext === "wav" ? WAV : Buffer.from("fixture " + ext);
+    const bytes = fixtureBytes(ext);
     const url = await upload("Fixture file." + ext.toUpperCase(), bytes);
     assert.match(url, /^\/uploads\/\d+-Fixture%20file\./);
     const response = await fetch(origin + url);
@@ -186,7 +197,7 @@ test("server keeps the 100 MiB boundary and refuses unsupported, empty and escap
   assert.equal(streamed, 413);
   t.diagnostic(`${cap + 1} bytes refused with HTTP 413, both declared and chunked`);
   for (const size of [33 * 1024 * 1024, cap]) {
-    const url = await upload(`boundary-${size}.pdf`, Buffer.alloc(size, 13));
+    const url = await upload(`boundary-${size}.pdf`, pdfOf(size));
     const response = await fetch(origin + url, { headers: { Range: `bytes=${size - 1}-` } });
     assert.equal(response.status, 206);
     assert.equal(response.headers.get("content-range"), `bytes ${size - 1}-${size - 1}/${size}`);
@@ -219,7 +230,7 @@ for (const phone of [false, true]) {
         ta.dispatchEvent(new Event("input"));
       }, id);
       const filename = path.join(outer, "Picked report.docx");
-      await writeFile(filename, Buffer.from("PK invented document"));
+      await writeFile(filename, DOCX);
       const chooser = page.waitForFileChooser();
       await page.click(`#box-${id} .clipbtn`);
       await (await chooser).accept([filename]);
@@ -227,7 +238,7 @@ for (const phone of [false, true]) {
       const selected = await page.evaluate(id => ({ text: els[id].ta.value, start: els[id].ta.selectionStart, end: els[id].ta.selectionEnd }), id);
       assert.ok(selected.text.startsWith("Keep this draft  \n"));
       assert.deepEqual([selected.start, selected.end], [2, 6]);
-      await transfer(page, id, "drop", "dropped.mp4", "video/mp4");
+      await transfer(page, id, "drop", "dropped.mp4", "video/mp4", [...MP4]);
       await page.waitForFunction(id => els[id].ta.value.includes(".mp4"), {}, id);
       await transfer(page, id, "paste", "pasted.wav", "audio/wav", [...WAV]);
       await page.waitForFunction(id => els[id].ta.value.includes(".wav"), {}, id);
@@ -252,6 +263,7 @@ for (const phone of [false, true]) {
           ta.value = "Keep this larger draft"; ta.setSelectionRange(2, 6);
           // Printable bytes keep intercepted request data within the debugger's message limit.
           const bytes = new Uint8Array(size).fill(65); bytes[size - 1] = 13;
+          bytes.set([37, 80, 68, 70, 45]);   // %PDF-
           await attach([new File([bytes], `accepted-${size}.pdf`, { type: "application/pdf" })], ta);
           return { text: ta.value, start: ta.selectionStart, end: ta.selectionEnd,
             notice: els[id].box.querySelector(".attachment-status").textContent };
@@ -337,7 +349,7 @@ test("chat stages mixed files and retries only incomplete uploads before sending
   try {
     await page.evaluate(() => { activeOwner = C3_LANE; chatBuild(); c3Out = []; c3Msgs = []; c3Sig = ""; chatDraw(true); });
     const filename = path.join(outer, "chat-video.mp4");
-    await writeFile(filename, Buffer.from("Invented video upload"));
+    await writeFile(filename, MP4);
     const chooser = page.waitForFileChooser();
     await page.click("#magic3 .c3attach");
     await (await chooser).accept([filename]);
@@ -381,7 +393,7 @@ test("a failed card upload keeps the draft and succeeds when the file is selecte
     const result = await page.evaluate(async id => {
       const ta = els[id].ta, realFetch = window.fetch;
       ta.value = "Draft before upload";
-      const file = new File(["%PDF fixture"], "retry.pdf", { type: "application/pdf" });
+      const file = new File(["%PDF-1.4 fixture"], "retry.pdf", { type: "application/pdf" });
       window.fetch = async url => String(url).startsWith("/upload?")
         ? new Response(JSON.stringify({ error: "Fixture upload unavailable" }), { status: 503 }) : realFetch(url);
       await attach([file], ta);
@@ -443,7 +455,7 @@ for (const phone of [false, true]) {
   test(`${phone ? "phone" : "desktop"} attachment replies fit the card and expose filename, open and download links`, async () => {
     const id = await createCard("Files in a reply");
     const pdf = await upload("Meeting report.pdf", PDF);
-    const doc = await upload("A long document filename that wraps inside the phone card.docx", Buffer.from("PK fixture"));
+    const doc = await upload("A long document filename that wraps inside the phone card.docx", DOCX);
     const audio = await upload("Voice memo.wav", WAV);
     const gif = await upload("Animated image.gif", GIF);
     assert.equal((await post("/reply?box=" + id, ["Files for review:", pdf, doc, audio, gif].join("\n\n"))).status, 200);
