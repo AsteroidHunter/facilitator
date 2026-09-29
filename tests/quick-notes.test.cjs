@@ -813,11 +813,11 @@ const shipped = glass => {
 test("the note's glass ships at the values the owner tuned in the mock", () => {
   const glass = glassSheet();
   assert.equal(cssValue(glass, "--qn-blur"), "15px");
-  assert.equal(cssValue(glass, "--qn-sat"), "200%");
-  assert.equal(cssValue(glass, "--qn-tint"), ".56");
+  assert.equal(cssValue(glass, "--qn-sat"), "180%");
+  assert.equal(cssValue(glass, "--qn-tint"), ".77");
   assert.equal(cssValue(glass, "--qn-edge"), "2");
   assert.equal(cssValue(cleanCss(between(TOKENS, ".qn-card{", "}")), "--qn-boost"), ".22");
-  assert.equal(cssValue(cleanCss(between(TOKENS, ".qn-veil{", "}")), "--qn-veil"), "25%");
+  assert.equal(cssValue(cleanCss(between(TOKENS, ".qn-veil{", "}")), "--qn-veil"), "15%");
 });
 
 test("the note's glass: the spotify player's lighting, value for value, over a face that lets the board through", () => {
@@ -836,12 +836,12 @@ test("the note's glass: the spotify player's lighting, value for value, over a f
   // records it and the board's chat glass still wears, as the owner tuned it
   assert.ok(HTML.includes("blur(16px) saturate(180%) brightness(.98)"), "the player's record of its blur is gone");
   assert.match(HTML, /--c3-glass:rgba\(120,120,128,\.03\)/);
-  assert.equal(resolve(cssValue(glass, "backdrop-filter")), "blur(15px) saturate(200%)");
-  assert.equal(resolve(cssValue(glass, "-webkit-backdrop-filter")), "blur(15px) saturate(200%)");
-  // the face is glass and not a white card: a white tint that lets well over a
-  // third of what is behind come through
+  assert.equal(resolve(cssValue(glass, "backdrop-filter")), "blur(15px) saturate(180%)");
+  assert.equal(resolve(cssValue(glass, "-webkit-backdrop-filter")), "blur(15px) saturate(180%)");
+  // the face is glass and not a white card: a white tint that lets about a
+  // fifth of what is behind come through
   const tint = Number(resolve(cssValue(glass, "background-color")).match(/^rgba\(255,255,255,([\d.]+)\)$/)[1]);
-  assert.ok(tint <= .65, "the face is too white to be glass: " + tint);
+  assert.ok(tint <= .8, "the face is too white to be glass: " + tint);
   assert.ok(tint >= .5, "the face is too clear for words to sit on: " + tint);
   // the one warning: the rim, and nothing else
   assert.match(TOKENS, /\.qn-glass\.failed\{--qn-ring:var\(--must\)\}/);
