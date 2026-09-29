@@ -1813,13 +1813,14 @@ function trayRelease(el){
   doSend(el.trayCard, { advance: hold.advance });
 }
 
-// the message's text: the pictures on one line, so two to four of them stand as
-// the card's grid, every other file on a line of its own, then the words
+// the message's text: the pictures on one line and in a paragraph of their
+// own, which is what makes two to four of them stand as the card's grid, then
+// every other file on a line of its own, then the words
 function trayMessage(el, typed){
   const done = el.trayItems.filter(it => it.state === "done");
   const pics = done.filter(it => it.kind === "image").map(it => it.url).join(" ");
-  const files = [pics, ...done.filter(it => it.kind !== "image").map(it => it.url)].filter(Boolean).join("\n");
-  return [files, typed].filter(Boolean).join("\n\n");
+  const files = done.filter(it => it.kind !== "image").map(it => it.url).join("\n");
+  return [pics, files, typed].filter(Boolean).join("\n\n");
 }
 // the files that went with a message leave the tray; one that did not upload
 // stays, so nothing picked is lost without a word
