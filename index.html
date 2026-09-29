@@ -3134,8 +3134,8 @@
   .ptab.draft{color:var(--ink); background:var(--seat); border-color:var(--line);
     font-style:italic}
   /* closing a project tab: no bare cross under a moving pointer, and no mark
-     waiting on the tab either. a pointer that simply rests on one tab for five
-     unbroken seconds opens a band on that tab's right, and the cross lives in
+     waiting on the tab either. a pointer that simply rests on one tab for two and
+     a half unbroken seconds opens a band on that tab's right, and the cross lives in
      that band and nowhere else. skimming the bar opens nothing, so a mis-aimed
      click can never throw a project out, and a tab nobody is resting on carries
      no mark at all: it is its label plus its own 16px on each side and nothing
@@ -4010,10 +4010,10 @@ function tabKillMark(ow){
 }
 // the dwell. one timer for the whole bar, so one tab is armed by construction
 // and moving from tab to tab can never add up: the new tab clears whatever the
-// old one had counted and starts its own five seconds from zero. leaving a tab
-// throws its count away, so nothing short of five unbroken seconds on one tab
-// opens anything
-const TAB_DWELL = 5000;
+// old one had counted and starts its own two and a half seconds from zero.
+// leaving a tab throws its count away, so nothing short of two and a half
+// unbroken seconds on one tab opens anything
+const TAB_DWELL = 2500;
 let tabArm = null;   // { el, timer } the tab counting, or the tab already armed
 function disarmTab(){
   if (!tabArm) return;
