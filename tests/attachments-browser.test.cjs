@@ -474,7 +474,7 @@ test("chat stages mixed files and retries only incomplete uploads before sending
   } finally { await closePage(page); }
 });
 
-test("phone: an upload that did not get through keeps the draft and the file, and a tap tries it again", async () => {
+test("phone: an upload that did not get through keeps the draft and the file, and is tried again on its own", async () => {
   const { page, id } = await openCard(true);
   try {
     await page.evaluate(() => {
@@ -490,17 +490,15 @@ test("phone: an upload that did not get through keeps the draft and the file, an
       els[id].ta.value = "Draft before upload";
       trayAdd(id, [new File(["%PDF-1.4 fixture"], "retry.pdf", { type: "application/pdf" })]);
     }, id);
-    await page.waitForFunction(id => els[id].trayItems[0].state === "failed", { timeout: 10000 }, id);
-    const failed = await page.evaluate(id => ({ text: els[id].ta.value, note: els[id].trayNote.textContent,
-      mark: getComputedStyle(els[id].trayItems[0].sq.querySelector(".tsqbang")).display }), id);
-    assert.equal(failed.text, "Draft before upload");
-    assert.match(failed.note, /retry\.pdf did not upload: the connection dropped\. Tap it to try again\./);
-    assert.equal(failed.mark, "block");
-    await page.click(`#box-${id} .tsq .tsqface`);
+    await page.waitForFunction(id => els[id].trayItems[0].state === "wait", { timeout: 10000 }, id);
+    const waiting = await page.evaluate(id => ({ text: els[id].ta.value, note: els[id].trayNote.textContent }), id);
+    assert.equal(waiting.text, "Draft before upload");
+    assert.match(waiting.note, /retry\.pdf: the connection dropped\. Trying again, 2 of 5\./);
     const [item] = await trayLanded(page, id, 1);
     assert.equal(item.state, "done");
     assert.match(item.url, /^\/uploads\/\d+-retry\.pdf$/);
     assert.equal(await page.evaluate(id => els[id].trayNote.textContent, id), "");
+    assert.equal(await page.evaluate(id => els[id].ta.value, id), "Draft before upload");
   } finally { await closePage(page); }
 });
 

@@ -686,6 +686,9 @@
   .traynote{flex-basis:100%; margin-top:-2px; font:10.5px/1.35 var(--mono); color:var(--sub)}
   .traynote:empty{display:none}
   .traynote .bad{display:block; color:#7A2E1B}
+  /* a try that did not get through and is being tried again: the colour the
+     sent panel gives a message still being retried */
+  .traynote .again{display:block; color:#8F7B4A}
   /* a picture in a sent message is capped on the phone, so one photo does not
      take the whole panel */
   .sentwrap .cardmd .shot, .answwrap .cardmd .shot{max-height:180px; width:auto; margin-left:0}
@@ -1574,14 +1577,23 @@ function makeBox(b){
 // at a time in the order they were picked. the square carries the upload's ring
 // and the line under the squares says how far it has got. a file the board
 // refuses says why in the board's own words and is not tried again; one that did
-// not get through wears a mark and is tried again with a tap. the message carries
+// not get through is tried again on its own a few times, then wears a mark and
+// waits for a tap. the message carries
 // the files the way the board keeps them, as /uploads lines ahead of the words,
 // and a send pressed while a file is still on its way waits for it in the row:
 // nothing goes without its files, and nothing leaves the row before it can go.
 // the tray moves on one beat, 400ms on a curve that leaves fast and settles
 // slowly: a square slides a short way in from the left as it arrives, one taken
 // out shrinks and fades while the rest close the gap, and the tray eases shut
-// under the last one
+// under the last one.
+// a try that did not get through, which says nothing about the file, is tried
+// again on its own, on the same backoff the messages use, a few times, and at
+// once when the app comes back to the screen or back online. before a file is
+// sent again the board is asked whether the last try landed after all, under
+// the file's operation id, so a reply lost on the way never costs the phone the
+// whole file again, and never leaves a second copy on the board
+const TRAY_TRIES = 5;                 // tries in a round before the file waits for a tap
+const TRAY_QUIET_MS = 75000;          // no progress this long and the try is given up
 const TRAY_MS = 400;
 const TRAY_EASE = "cubic-bezier(.22,1,.36,1)";
 const TRAY_SLIDE_PX = 18;             // a short hop beside a 64px square, with no visible origin
@@ -1714,36 +1726,67 @@ function trayPump(el){
   if (next) trayUpload(el, next);
 }
 
-// an XMLHttpRequest and not a fetch: it is the one way a page can hear how
-// much of a body has gone. the operation id names this file's upload, so the
-// board can tell a second try of it from a new file
 function trayUpload(el, it){
   it.state = "up"; it.sent = 0; it.measured = false; it.tries++;
+  if (it.posted) trayAsk(el, it);
+  else trayPost(el, it);
+}
+
+// the board is asked whether the file's last try landed after all: its
+// receipt answers with the stored file, and only a board with no record of it
+// is sent the file again
+async function trayAsk(el, it){
+  trayDraw(el);
+  let answer = null, body = null;
+  try {
+    answer = await fetch("/upload?op=" + encodeURIComponent(it.key), { signal: AbortSignal.timeout(8000) });
+    body = await answer.json();
+  } catch (e) {}
+  if (it.gone || it.state !== "up" || it.xhr) return;
+  if (answer && answer.ok && body && body.url) trayLanded(el, it, 200, body);
+  else if (answer && answer.ok && body && body.arriving) trayLanded(el, it, 409, null);
+  else if (answer && answer.status === 404) trayPost(el, it);
+  else trayLanded(el, it, answer ? answer.status : 0, body);
+}
+
+// an XMLHttpRequest and not a fetch: it is the one way a page can hear how
+// much of a body has gone. the operation id names this file's upload, so the
+// board can tell a second try of it from a new file. once progress has been
+// heard, a try that hears none for TRAY_QUIET_MS is given up, since a link can
+// die without either end being told
+function trayPost(el, it){
   const xhr = new XMLHttpRequest();
   it.xhr = xhr;
+  it.posted = true;
   xhr.open("POST", "/upload?name=" + encodeURIComponent(it.name) + "&op=" + encodeURIComponent(it.key));
+  const landed = (status, body) => {
+    if (it.xhr !== xhr) return;
+    it.xhr = null;
+    clearTimeout(it.quiet);
+    trayLanded(el, it, status, body);
+  };
   xhr.upload.onprogress = e => {
     if (it.xhr !== xhr) return;
     it.sent = e.loaded;
     if (e.lengthComputable && e.total) it.total = e.total;
     it.measured = true;
+    clearTimeout(it.quiet);
+    it.quiet = setTimeout(() => { if (it.xhr === xhr){ xhr.abort(); landed(0, { quiet: true }); } }, TRAY_QUIET_MS);
     trayDraw(el);
   };
-  const landed = status => {
-    if (it.xhr !== xhr) return;
-    it.xhr = null;
+  xhr.onload = () => {
     let body = null;
     try { body = JSON.parse(xhr.responseText); } catch (e) {}
-    trayLanded(el, it, status, body);
+    landed(xhr.status, body);
   };
-  xhr.onload = () => landed(xhr.status);
-  xhr.onerror = () => landed(0);
+  xhr.onerror = () => landed(0, null);
   xhr.send(it.file);
   trayDraw(el);
 }
 
-// how a try ended: stored, refused for good in the board's own words, or not
-// got through, which says nothing about the file and is worth another try
+// how a try ended: stored; refused for good, in the board's own words; or not
+// got through, which says nothing about the file and is tried again on the
+// messages' backoff until the round's tries are spent, then waits for a tap
 function trayLanded(el, it, status, body){
   if (it.gone) return;
   if (status === 200 && body && body.url){
@@ -1752,24 +1795,48 @@ function trayLanded(el, it, status, body){
     it.state = "refused";
     it.why = status === 401 ? "Signed out. Sign in again to attach files." : (body && body.error) || ("The board refused it (" + status + ").");
   } else {
-    it.state = "failed";
-    it.why = !status ? "the connection dropped" : status === 408 ? "the upload stopped arriving"
+    it.why = body && body.quiet ? "the upload stopped moving" : !status ? "the connection dropped"
+      : status === 408 ? "the upload stopped arriving" : status === 409 ? "the board was still taking the last try"
       : status === 429 || status === 503 ? "the board was busy" : "the board answered " + status;
+    if (it.tries < TRAY_TRIES){
+      it.state = "wait";
+      clearTimeout(it.timer);
+      it.timer = setTimeout(() => trayAgain(el, it), backoffMs(it.tries));
+    } else it.state = "failed";
   }
   trayDraw(el);
   el.tick();
   trayRelease(el);
   trayPump(el);
 }
+function trayAgain(el, it){
+  clearTimeout(it.timer);
+  if (it.gone || it.state !== "wait") return;
+  it.state = "queued";
+  trayDraw(el);
+  trayPump(el);
+}
 
-// a tap on a file that did not get through tries it again
+// a tap on a file that did not get through starts another round of tries; a
+// tap on one waiting out its backoff tries it now
 function trayRetry(el, it){
-  if (it.state !== "failed" || it.gone) return;
+  if (it.gone) return;
+  if (it.state === "wait"){ trayAgain(el, it); return; }
+  if (it.state !== "failed") return;
   it.state = "queued"; it.tries = 0; el.trayHeld = "";
   trayDraw(el);
   el.tick();
   trayPump(el);
 }
+// the app is on screen again, or the network is back: every file waiting out
+// a backoff is tried now, as the messages are
+function trayWake(){
+  for (const el of Object.values(els))
+    for (const it of el.trayItems || []) if (it.state === "wait") trayAgain(el, it);
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) trayWake(); });
+window.addEventListener("pageshow", trayWake);
+window.addEventListener("online", trayWake);
 
 // the cross: the file leaves the tray, and an upload of it still going is let go
 function trayRemove(el, it){
@@ -1786,6 +1853,7 @@ function trayRemove(el, it){
 function trayForget(it){
   it.gone = true;
   clearTimeout(it.timer);
+  clearTimeout(it.quiet);
   if (it.xhr){ const xhr = it.xhr; it.xhr = null; xhr.abort(); }
 }
 
@@ -1887,7 +1955,7 @@ function trayDraw(el){
     for (const state of ["up", "queued", "wait", "done", "failed", "refused"])
       it.sq.classList.toggle(state, it.state === state);
     it.sq.classList.toggle("indet", it.state === "up" && !it.measured);
-    it.sq.classList.toggle("tappable", it.state === "failed");
+    it.sq.classList.toggle("tappable", it.state === "failed" || it.state === "wait");
     const measured = it.state === "done" || (it.state === "up" && it.measured);
     it.arc.style.strokeDashoffset = !measured ? ""
       : String(TRAY_RING * (1 - (it.total ? Math.min(1, it.sent / it.total) : 0)));
@@ -1895,10 +1963,11 @@ function trayDraw(el){
   }
   const note = el.trayNote;
   if (!note) return;
-  const bad = [];
+  const bad = [], again = [];
   for (const it of el.trayItems){
     if (it.state === "refused") bad.push(it.name + ": " + it.why);
     else if (it.state === "failed") bad.push(it.name + " did not upload: " + it.why + ". Tap it to try again.");
+    else if (it.state === "wait") again.push(it.name + ": " + it.why + ". Trying again, " + (it.tries + 1) + " of " + TRAY_TRIES + ".");
   }
   if (el.trayHeld) bad.push(el.trayHeld);
   const moving = el.trayItems.filter(trayMoving);
@@ -1910,10 +1979,11 @@ function trayDraw(el){
       ", " + traySize(sent, total) + " of " + traySize(total);
     if (el.trayHold) line += moving.length === 1 ? ". Sends when it finishes" : ". Sends when they finish";
   }
-  const key = bad.join("\n") + "\n" + line;
+  const key = bad.join("\n") + "\n" + again.join("\n") + "\n" + line;
   if (note.dataset.key === key) return;
   note.dataset.key = key;
-  note.replaceChildren(...bad.map(text => h("span", "bad", text)), ...(line ? [document.createTextNode(line)] : []));
+  note.replaceChildren(...bad.map(text => h("span", "bad", text)), ...again.map(text => h("span", "again", text)),
+    ...(line ? [document.createTextNode(line)] : []));
 }
 function trayWords(it){
   return it.state === "done" ? "uploaded" : it.state === "refused" ? "not attached" : it.state === "failed" ? "not uploaded"
