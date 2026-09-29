@@ -1818,16 +1818,18 @@ test("the small card turns the same way, its three pieces pictured and carried u
 
 // ---- cutting back the way it opened ----------------------------------------------------------
 // the answer's scroller as a browser keeps it: its content is the panel's cut at
-// the head of it, the answer (base) under it and whatever room is held at its
-// foot, and whenever the page is laid out a scroll past the new end is pulled
-// back to it (pulled). the cut is laid out, and so pulls the scroll, whenever the
-// panel reads how tall its preview stands. every scroll a layout leaves is kept
-// (seen) and every scroll the script writes (writes), so a pull inside a press
-// shows even when the script writes the scroll back before the press is over.
-// head is where the panel's own head stands on the screen and foot where its foot
-// does, which is where the answer under the panel stands too. a run caught part
-// way stands its cut at clip.midRun
-function scrollingView(view, clip, base, height) {
+// the head of it (seat down from the start of the content), the answer (base)
+// under it and whatever room is held at its foot, and whenever the page is laid
+// out a scroll past the new end is pulled back to it (pulled). the cut is laid
+// out, and so pulls the scroll, whenever the panel reads how tall its preview
+// stands. every scroll a layout leaves is kept (seen) and every scroll the
+// script writes (writes), so a pull inside a press shows even when the script
+// writes the scroll back before the press is over. the view's top is at 0 on
+// the screen unless a test puts it elsewhere, and the panel reports where its
+// own head stands. head is where the panel's head stands on the screen, foot
+// where its foot does, which is where the answer under the panel stands too,
+// both from the view's top. a run caught part way stands its cut at clip.midRun
+function scrollingView(view, clip, base, height, seat = 0) {
   let top = 0;
   let laying = false;
   const seen = [];
@@ -1850,9 +1852,14 @@ function scrollingView(view, clip, base, height) {
       if (!laying) { laying = true; layout(); laying = false; }
       return cut;
     } });
-  const foot = () => clip.getBoundingClientRect().height - top;
-  const head = () => 0 - top;
-  return { layout, slack, seen, pulled, writes, foot, head };
+  clip.parentNode.getBoundingClientRect = () => {
+    const at = (view.rect ? view.rect.top : 0) + seat - top;
+    const tall = clip.getBoundingClientRect().height;
+    return { top: at, bottom: at + tall, left: 0, right: 0, width: 0, height: tall };
+  };
+  const foot = () => seat + clip.getBoundingClientRect().height - top;
+  const head = () => seat - top;
+  return { layout, slack, seen, pulled, writes, foot, head, seat, top: () => top };
 }
 // a run played the way a browser plays it: at each height the transition has the
 // cut at, the layout it leaves, then the frame's own callbacks, then what the
@@ -1874,256 +1881,295 @@ function cutBack(panel, clip, from) {
   clip.midRun = from;
   panel.fire("click", { target: panel });
 }
-// a cut played from its press to its landing over the heights given, checked for
-// what the reader sees: the panel's head where it was on the screen, the view not
-// scrolled by anyone, never pulled and never written, and the foot, with the
-// answer under it, coming up by exactly what the cut comes up by
+// a card whose panel has been opened, standing in a scroller as the test says: base
+// of answer under the 240 batch, a view height tall, the panel seat down from the
+// start of the content
+function openedCard(base, height, seat = 0) {
+  const s = sandbox();
+  const el = card("c1");
+  s.context.syncAnswered(el, s.context.liveAnswered(liveBox()));
+  const clip = layOutLong(el.answ, FakeResizeObserver.made[0]);
+  el.answ.fire("click", { target: el.answ });
+  landRun(el.answ);
+  return { ...s, el, panel: el.answ, clip, view: scrollingView(el.replyview, clip, base, height, seat) };
+}
+// a cut played from its press over the heights given, checked for what the reader
+// sees. the part of the panel above the view's top (hidden) is given up first: the
+// scroll goes back on every frame by what the cut has taken so far, no further
+// than the hidden part, so the foot and the answer under it stay where they stand
+// until the hidden part is used up and come up by the rest of the cut, and the
+// panel's head is never scrolled into sight. the press writes the scroll once, the
+// frames once each, and the browser never pulls it
 function cutOnScreen(view, panel, clip, frame, from, heights, where) {
-  const at = view.head();
-  const scroll = 0 - at;
+  const scroll = view.top();
+  const hidden = Math.floor(Math.max(0, 0 - view.head()));
+  const scrolls = heights.map(h => scroll - Math.max(0, Math.min(hidden, from - h)));
   view.writes.length = 0;
   view.pulled.length = 0;
   cutBack(panel, clip, from);
   assert.equal(panel.classList.contains("motion"), true, `${where}: the cut back did not run`);
   assert.deepEqual(view.writes, [scroll], `${where}: the press did more to the scroll than put the reader back where they were`);
   const frames = playRun(view, clip, frame, heights);
-  assert.deepEqual(frames.map(f => f.scroll), heights.map(() => scroll), `${where}: the view scrolled during the run`);
-  assert.deepEqual(frames.map(f => f.head), heights.map(() => at), `${where}: the panel's head moved on the screen`);
-  assert.deepEqual(frames.map(f => f.foot), heights.map(h => h + at), `${where}: the foot did not come up with the cut`);
-  for (let i = 1; i < frames.length; i++)
-    assert.equal(frames[i - 1].foot - frames[i].foot, frames[i - 1].cut - frames[i].cut,
-      `${where}: the foot and the cut did not move by the same step`);
+  assert.deepEqual(frames.map(f => f.scroll), scrolls, `${where}: the scroll did not go back by what the cut had taken, up to the hidden part`);
+  assert.deepEqual(frames.map(f => f.foot), heights.map((h, i) => view.seat + h - scrolls[i]),
+    `${where}: the foot did not come up by what the cut takes past the hidden part`);
+  assert.deepEqual(frames.map(f => f.head), scrolls.map(s => view.seat - s), `${where}: the panel's head is not where the scroll leaves it`);
+  if (hidden > 0)
+    assert.ok(frames.every(f => f.head <= 0), `${where}: the panel's head came into sight during the run`);
   assert.deepEqual(view.pulled, [], `${where}: the browser pulled the view during the run`);
-  assert.deepEqual(view.writes, [scroll], `${where}: the scroll was written during the run`);
+  assert.deepEqual(view.writes, hidden > 0 ? [scroll, ...scrolls] : [scroll],
+    `${where}: the scroll was written other than once for the press and once for each frame of a followed run`);
   return frames;
 }
 
-test("cutting a panel back is the opening run backwards on the screen: the head stays put, the foot and the answer under it come up, and the view never moves", () => {
-  const { context, frame, waiting } = sandbox();
-  const el = card("c1");
-  context.syncAnswered(el, context.liveAnswered(liveBox()));
-  const panel = el.answ;
+test("a cut back with more of the panel above the view than the cut takes off scrolls the view back with the cut, so the answer stays where it stands", () => {
+  const { el, panel, clip, view, frame, waiting } = openedCard(400, 400);
   assert.equal(panel.answView, el.replyview, "the panel does not know the scroller it rides in");
-  const clip = layOutLong(panel, FakeResizeObserver.made[0]);
-  panel.fire("click", { target: panel });
-  landRun(panel);
-  // the phone's case: a batch opened taller than the view, its arrow reached by
-  // scrolling the panel's head out of sight. 600 of answer under a 240 batch, a
-  // 400 view, scrolled 440 down. the head stands 440 above the view's top, the
-  // foot 200 above it, and the cut takes 182 off the answer's length
-  const view = scrollingView(el.replyview, clip, 600, 400);
-  el.replyview.scrollTop = 440;
-  assert.equal(view.foot(), -200);
-  assert.equal(view.head(), -440);
+  // 400 of answer under a 240 batch in a 400 view, scrolled 200 down: the head
+  // stands 200 above the view's top, the foot 40 below it, and the cut takes 182
+  // off the batch, which is less than the 200 hidden
+  el.replyview.scrollTop = 200;
+  assert.equal(view.head(), -200);
+  assert.equal(view.foot(), 40);
   view.seen.length = 0;
   view.pulled.length = 0;
   view.writes.length = 0;
   cutBack(panel, clip, 240);
   assert.equal(panel.classList.contains("motion"), true, "the cut back did not run");
   assert.deepEqual(clip.style.heights.slice(-2), ["240px", "58px"], "the run is not the panel's cut shrinking");
-  // nothing is moved by the press itself: the view is where it was, and room is
-  // held under the answer for exactly what the cut takes, so no layout of the run
-  // can pull the scroll. the panel is not held down by anything, and no frame of
-  // the run is asked for
-  assert.deepEqual([...new Set(view.seen)], [440], "the view was pulled while the press was handled");
-  assert.equal(view.slack(), 182, "the room held is not what the run needs");
+  // the press itself moves nothing: the view is where it was, room is held under
+  // the answer for what the cut takes so no layout of the run pulls the scroll,
+  // and the view is asked to follow the cut on its frames
+  assert.deepEqual([...new Set(view.seen)], [200], "the view was pulled while the press was handled");
+  assert.deepEqual(view.writes, [200], "the press did more to the scroll than put the reader back where they were");
+  assert.equal(view.slack(), 142, "the room held is not what the run needs");
   assert.equal(panel.style.getPropertyValue("margin-top"), "", "the panel is held down by a margin");
-  assert.equal(waiting(), 0, "the view is asked to follow the cut on its frames");
-  // the frames: the cut at heights the transition passes through. the head stays
-  // where it stands on the screen, the view stays where it is, and the foot, the
-  // arrow and the answer under it come up by what the cut comes up by
+  assert.equal(waiting(), 1, "the view is not asked to follow the cut on its frames");
+  // the frames: the cut at heights the transition passes through. the scroll goes
+  // back by what the cut has taken, so the foot and the answer under it do not move
+  // at all, and the head, still above the view, comes down with the scroll
   const frames = playRun(view, clip, frame, [240, 208, 149, 100, 72, 58]);
-  assert.deepEqual(frames.map(f => f.scroll), Array(6).fill(440), "the view scrolled during the run");
-  assert.deepEqual(frames.map(f => f.head), Array(6).fill(-440), "the panel's head moved on the screen");
-  assert.deepEqual(frames.map(f => f.foot), [-200, -232, -291, -340, -368, -382],
-    "the foot and the answer under it do not come up with the cut");
-  for (let i = 1; i < frames.length; i++) {
-    assert.equal(frames[i - 1].foot - frames[i].foot, frames[i - 1].cut - frames[i].cut,
-      "the foot and the cut did not move by the same step");
-    assert.equal(panel.style.getPropertyValue("margin-top"), "", "a margin was written during the run");
-  }
+  assert.deepEqual(frames.map(f => f.scroll), [200, 168, 109, 60, 32, 18], "the scroll did not go back with the cut");
+  assert.deepEqual(frames.map(f => f.foot), Array(6).fill(40), "the foot and the answer under it moved");
+  assert.deepEqual(frames.map(f => f.head), [-200, -168, -109, -60, -32, -18]);
+  assert.ok(frames.every(f => f.head < 0), "the panel's head came into sight during the run");
   assert.deepEqual(view.pulled, [], "the browser pulled the view during the run");
-  assert.equal(waiting(), 0, "a frame was asked for during the run");
-  // landed: the view has not moved, nothing was written, and the room the view
-  // stands on is kept, so the answer under the panel is above the view and the
-  // view stands on room until the reader scrolls
+  assert.deepEqual(view.writes, [200, 200, 168, 109, 60, 32, 18], "the scroll was written other than once per frame");
+  assert.equal(panel.style.getPropertyValue("margin-top"), "", "a margin was written during the run");
+  assert.equal(waiting(), 1, "the follow does not ask for the frame after this one");
+  // landed: the far end is written for a run that ends between frames, the room
+  // the view no longer stands on is let go, and the frame that was still waiting
+  // finds the run over and asks for no more
   clip.midRun = null;
   landRun(panel);
-  assert.equal(el.replyview.scrollTop, 440, "the scroll moved as the panel landed");
-  assert.deepEqual(view.writes, [440], "the scroll was written during the run or as it landed");
-  assert.equal(view.foot(), -382);
-  assert.equal(view.head(), -440);
+  assert.equal(el.replyview.scrollTop, 18, "the scroll did not land where the cut leaves it");
+  assert.equal(view.foot(), 40, "the answer moved as the panel landed");
+  assert.equal(view.head(), -18);
   assert.deepEqual(view.pulled, [], "the browser pulled the scroll as the panel landed");
-  assert.equal(view.slack(), 182, "the room the view stands on was let go as the panel landed");
-  assert.equal(panel.style.getPropertyValue("margin-top"), "");
-  assert.equal(waiting(), 0);
-  // and it goes as the reader scrolls off it, a part of it while they still stand
-  // on some, all of it once they do not
-  el.replyview.scrollTop = 300;
-  el.replyview.fire("scroll");
-  assert.equal(view.slack(), 42, "room the reader still stands on was let go");
-  el.replyview.scrollTop = 200;
-  el.replyview.fire("scroll");
-  assert.equal(view.slack(), 0, "room was kept once the reader had scrolled off it");
+  assert.equal(view.slack(), 0, "room was kept that the view does not stand on");
+  frame();
+  assert.equal(waiting(), 0, "the follow went on asking for frames after the run landed");
+  assert.deepEqual(view.writes, [200, 200, 168, 109, 60, 32, 18, 18], "the landing wrote more than the far end");
+});
 
-  // a panel whose head is on screen and whose scroll is at its top has no room to
-  // hold: it is cut from its foot as ever, and the answer under it comes up
-  panel.fire("click", { target: panel });
-  landRun(panel);
-  el.replyview.scrollTop = 0;
-  view.pulled.length = 0;
-  const flush = cutOnScreen(view, panel, clip, frame, 240, [240, 149, 58], "the panel at the top");
-  assert.deepEqual(flush.map(f => f.foot), [240, 149, 58], "the answer under the panel does not come up with its foot");
-  assert.equal(view.slack(), 0, "room was held under a view standing at its top");
+test("a cut back with less of the panel above the view than the cut takes off scrolls back by the hidden part, and the answer rises by the rest", () => {
+  const { el, panel, clip, view, frame, waiting } = openedCard(400, 400);
+  // scrolled 100 down: 100 of the head is above the view, the cut takes 182
+  el.replyview.scrollTop = 100;
+  assert.equal(view.foot(), 140);
+  const frames = cutOnScreen(view, panel, clip, frame, 240, [240, 208, 149, 100, 72, 58], "the hidden part shorter than the cut");
+  assert.deepEqual(frames.map(f => f.scroll), [100, 68, 9, 0, 0, 0], "the scroll did not go back by the hidden part");
+  assert.deepEqual(frames.map(f => f.foot), [140, 140, 140, 100, 72, 58],
+    "the answer did not stay put while the hidden part lasted and come up by the rest");
+  assert.deepEqual(frames.map(f => f.head), [-100, -68, -9, 0, 0, 0], "the panel's head went past the top of the view");
+  assert.equal(view.slack(), 42, "the room held is not what the run needs");
   clip.midRun = null;
   landRun(panel);
   assert.equal(el.replyview.scrollTop, 0);
   assert.equal(view.foot(), 58);
+  assert.equal(frames[0].foot - view.foot(), 182 - 100, "the answer did not rise by what the hidden part could not give");
+  assert.equal(view.slack(), 0, "room was kept that the view does not stand on");
+  assert.deepEqual(view.pulled, []);
+  frame();
+  assert.equal(waiting(), 0);
 
+  // a hidden part that is not a whole number of points is counted down, so the
+  // scroll stops with the head still above the view, not at its top
+  const part = openedCard(400, 400, 0.6);
+  part.el.replyview.scrollTop = 100;
+  const rounded = cutOnScreen(part.view, part.panel, part.clip, part.frame, 240, [240, 208, 149, 100, 58], "the hidden part in fractions");
+  assert.deepEqual(rounded.map(f => f.scroll), [100, 68, 9, 1, 1]);
+  assert.ok(rounded.every(f => f.head < 0), "the panel's head reached the view's top");
+  part.clip.midRun = null;
+  landRun(part.panel);
+  assert.equal(part.el.replyview.scrollTop, 1);
+  assert.equal(part.view.head(), 0.6 - 1, "the head was scrolled into sight");
+});
+
+test("a cut back with nothing of the panel above the view is cut from its foot with the scroll left alone, as ever", () => {
+  // the panel at the top, its head in sight
+  const top = openedCard(400, 400);
+  assert.equal(top.view.top(), 0);
+  const flush = cutOnScreen(top.view, top.panel, top.clip, top.frame, 240, [240, 149, 58], "the panel at the top");
+  assert.deepEqual(flush.map(f => f.foot), [240, 149, 58], "the answer under the panel does not come up with its foot");
+  assert.deepEqual(flush.map(f => f.scroll), [0, 0, 0]);
+  assert.equal(top.waiting(), 0, "the view is asked to follow a cut that has nothing above the view");
+  assert.equal(top.view.slack(), 0, "room was held under a view standing at its top");
+  top.clip.midRun = null;
+  landRun(top.panel);
+  assert.equal(top.el.replyview.scrollTop, 0);
+  assert.equal(top.view.foot(), 58);
+  assert.equal(top.waiting(), 0);
+  // the view scrolled a little, but the panel standing further down than that:
+  // its head is in sight, so nothing is above the view and the scroll stays
+  const seated = openedCard(400, 400, 30);
+  seated.el.replyview.scrollTop = 20;
+  assert.equal(seated.view.head(), 10);
+  const kept = cutOnScreen(seated.view, seated.panel, seated.clip, seated.frame, 240, [240, 149, 58], "the head in sight");
+  assert.deepEqual(kept.map(f => f.scroll), [20, 20, 20]);
+  assert.deepEqual(kept.map(f => f.foot), [250, 159, 68]);
+  assert.equal(seated.waiting(), 0, "the view is asked to follow a cut that has nothing above the view");
+  seated.clip.midRun = null;
+  landRun(seated.panel);
+  assert.equal(seated.el.replyview.scrollTop, 20, "the scroll moved as the panel landed");
+});
+
+test("a cut back that is turned, taken by the reader, met by a short answer or a keyboard, or made plain, keeps the reader where the cut puts them", () => {
   // a press that catches the cut part way turns it round where it stands: the
-  // scroll has not moved, the opening starts from the height the cut had
-  // reached, the foot does not jump, and nothing is written
-  panel.fire("click", { target: panel });
-  landRun(panel);
-  el.replyview.scrollTop = 440;
-  cutBack(panel, clip, 240);
-  playRun(view, clip, frame, [240, 149]);
-  view.seen.length = 0;
-  view.writes.length = 0;
-  panel.fire("click", { target: panel });
-  assert.equal(panel.classList.contains("open"), true, "the second press did not turn the run round");
-  assert.equal(el.replyview.scrollTop, 440, "the scroll moved as the run turned round");
-  assert.equal(clip.style.heights.at(-2), "149px", "the opening run did not start where the cut stood");
-  assert.equal(view.foot(), -291, "the foot jumped as the run turned round");
-  assert.ok(view.seen.every(at => at === 440), "the view was pulled while the run turned round");
-  assert.deepEqual(view.writes, [], "the scroll was written as the run turned round");
-  clip.midRun = null;
-  landRun(panel);
-  assert.equal(el.replyview.scrollTop, 440);
-  assert.equal(view.slack(), 0);
+  // scroll has not moved, the opening starts from the height the cut had reached,
+  // the foot does not jump, nothing is written, and the follow of the cut stops
+  const turned = openedCard(400, 400);
+  turned.el.replyview.scrollTop = 200;
+  cutBack(turned.panel, turned.clip, 240);
+  playRun(turned.view, turned.clip, turned.frame, [240, 149]);
+  assert.equal(turned.view.top(), 109);
+  turned.view.seen.length = 0;
+  turned.view.writes.length = 0;
+  turned.panel.fire("click", { target: turned.panel });
+  assert.equal(turned.panel.classList.contains("open"), true, "the second press did not turn the run round");
+  assert.equal(turned.el.replyview.scrollTop, 109, "the scroll moved as the run turned round");
+  assert.equal(turned.clip.style.heights.at(-2), "149px", "the opening run did not start where the cut stood");
+  assert.equal(turned.view.foot(), 40, "the foot jumped as the run turned round");
+  assert.ok(turned.view.seen.every(at => at === 109), "the view was pulled while the run turned round");
+  assert.deepEqual(turned.view.writes, [], "the scroll was written as the run turned round");
+  turned.frame();
+  assert.equal(turned.waiting(), 0, "the cut's follow went on after a press turned the run round");
+  assert.deepEqual(turned.view.writes, [], "the cut's follow wrote the scroll after a press turned the run round");
+  turned.clip.midRun = null;
+  landRun(turned.panel);
+  assert.equal(turned.el.replyview.scrollTop, 109);
+  assert.equal(turned.view.slack(), 0);
 
   // a press that catches the opening part way and cuts it back: the room is
   // counted from the whole the panel stands at when the run is settled, not from
   // the height the opening had reached, so the cut's end is not pulled
-  cutBack(panel, clip, 240);
-  playRun(view, clip, frame, [240, 100]);
-  clip.midRun = null;
-  landRun(panel);
-  assert.equal(view.slack(), 182);
-  panel.fire("click", { target: panel });
-  playRun(view, clip, frame, [58, 149]);
-  view.writes.length = 0;
-  view.pulled.length = 0;
-  cutOnScreen(view, panel, clip, frame, 149, [149, 100, 58], "the opening caught and cut back");
-  assert.equal(view.slack(), 182, "the room is not counted from the whole panel");
-  clip.midRun = null;
-  landRun(panel);
-  assert.equal(el.replyview.scrollTop, 440);
-  assert.deepEqual(view.pulled, [], "the cut's end was pulled after the opening was caught");
+  const caught = openedCard(400, 400);
+  caught.el.replyview.scrollTop = 200;
+  cutBack(caught.panel, caught.clip, 240);
+  playRun(caught.view, caught.clip, caught.frame, [240, 100]);
+  caught.clip.midRun = null;
+  landRun(caught.panel);
+  assert.equal(caught.view.top(), 18);
+  caught.panel.fire("click", { target: caught.panel });
+  playRun(caught.view, caught.clip, caught.frame, [58, 149]);
+  caught.el.replyview.scrollTop = 140;
+  const back = cutOnScreen(caught.view, caught.panel, caught.clip, caught.frame, 149, [149, 100, 58], "the opening caught and cut back");
+  assert.deepEqual(back.map(f => f.foot), [9, 9, 9], "the answer moved while the hidden part lasted");
+  assert.equal(caught.view.slack(), 82, "the room is not counted from the whole panel");
+  caught.clip.midRun = null;
+  landRun(caught.panel);
+  assert.equal(caught.el.replyview.scrollTop, 49);
+  assert.deepEqual(caught.view.pulled, [], "the cut's end was pulled after the opening was caught");
 
-  // a reader who takes the scroll during the run keeps it: nothing writes to the
-  // view, the room is not let go of while the run is on, and the landing lets go
-  // of what the reader no longer stands on
-  panel.fire("click", { target: panel });
-  landRun(panel);
-  el.replyview.scrollTop = 440;
-  cutBack(panel, clip, 240);
-  playRun(view, clip, frame, [240, 149]);
-  el.replyview.scrollTop = 200;
-  el.replyview.fire("scroll");
-  assert.equal(view.slack(), 182, "room was let go of while the run was on");
-  view.pulled.length = 0;
-  playRun(view, clip, frame, [100]);
-  assert.equal(el.replyview.scrollTop, 200, "the run fought the reader for the scroll");
-  clip.midRun = null;
-  landRun(panel);
-  assert.equal(el.replyview.scrollTop, 200, "the landing moved a scroll the reader had taken");
-  assert.equal(view.slack(), 0);
-  assert.deepEqual(view.pulled, []);
+  // a reader who takes the scroll during the run keeps it: the follow writes
+  // nothing more, the room is not let go of while the run is on, and the landing
+  // lets go of what the reader no longer stands on
+  const taken = openedCard(400, 400);
+  taken.el.replyview.scrollTop = 200;
+  cutBack(taken.panel, taken.clip, 240);
+  playRun(taken.view, taken.clip, taken.frame, [240, 149]);
+  taken.el.replyview.scrollTop = 30;
+  taken.el.replyview.fire("scroll");
+  assert.equal(taken.view.slack(), 142, "room was let go of while the run was on");
+  taken.view.pulled.length = 0;
+  taken.view.writes.length = 0;
+  playRun(taken.view, taken.clip, taken.frame, [100]);
+  assert.equal(taken.el.replyview.scrollTop, 30, "the run fought the reader for the scroll");
+  assert.deepEqual(taken.view.writes, [], "the run wrote the scroll a reader had taken");
+  assert.equal(taken.waiting(), 0, "the follow went on after the reader took the scroll");
+  taken.clip.midRun = null;
+  landRun(taken.panel);
+  assert.equal(taken.el.replyview.scrollTop, 30, "the landing moved a scroll the reader had taken");
+  assert.equal(taken.view.slack(), 0);
+  assert.deepEqual(taken.view.pulled, []);
 
   // an answer too short to stand the view on: 100 of answer under the 240 batch
-  // in a 300 view, scrolled 40 to its end. the cut leaves the view standing on
-  // room, held for the run, and kept on landing until the reader scrolls
-  const short = sandbox();
-  const brief = card("c3");
-  short.context.syncAnswered(brief, short.context.liveAnswered({ ...liveBox(), id: "c3" }));
-  const briefClip = layOutLong(brief.answ, FakeResizeObserver.made[0]);
-  brief.answ.fire("click", { target: brief.answ });
-  landRun(brief.answ);
-  const briefView = scrollingView(brief.replyview, briefClip, 100, 300);
-  brief.replyview.scrollTop = 40;
-  assert.equal(brief.replyview.scrollTop, 40);
-  briefView.seen.length = 0;
-  briefView.pulled.length = 0;
-  const briefFrames = cutOnScreen(briefView, brief.answ, briefClip, short.frame, 240, [240, 149, 58], "the short answer");
-  assert.equal(briefView.slack(), 182, "the room held is not what the short answer needs");
-  assert.deepEqual(briefFrames.map(f => f.foot), [200, 109, 18]);
-  assert.equal(short.waiting(), 0);
-  briefClip.midRun = null;
-  landRun(brief.answ);
-  assert.equal(brief.replyview.scrollTop, 40, "the short answer's view moved as the panel landed");
-  assert.equal(briefView.foot(), 18, "the short answer jumped as the panel landed");
-  assert.equal(briefView.slack(), 182, "the room the short answer stands on was let go as the panel landed");
-  assert.deepEqual(briefView.pulled, [], "the short answer's view was pulled as the panel landed");
-  brief.replyview.scrollTop = 0;
-  brief.replyview.fire("scroll");
-  assert.equal(briefView.slack(), 0, "room was kept once the reader had scrolled off it");
+  // in a 300 view, scrolled 40 to its end. the whole 40 is hidden, so the scroll
+  // goes back to the top with the cut, the answer holds still until then, and
+  // room is held for the run
+  const short = openedCard(100, 300);
+  short.el.replyview.scrollTop = 40;
+  assert.equal(short.el.replyview.scrollTop, 40);
+  const shortFrames = cutOnScreen(short.view, short.panel, short.clip, short.frame, 240, [240, 149, 58], "the short answer");
+  assert.equal(short.view.slack(), 182, "the room held is not what the short answer needs");
+  assert.deepEqual(shortFrames.map(f => f.foot), [200, 149, 58]);
+  short.clip.midRun = null;
+  landRun(short.panel);
+  assert.equal(short.el.replyview.scrollTop, 0, "the short answer's view did not land at its top");
+  assert.equal(short.view.foot(), 58);
+  assert.equal(short.view.slack(), 0, "room was kept that the short answer's view does not stand on");
+  assert.deepEqual(short.view.pulled, [], "the short answer's view was pulled as the panel landed");
 
   // the phone's keyboard, put away by the press: the view grows while the run
   // goes, as far as the window under its top, and the room held covers it. 100
   // of answer under the 240 batch in a 150 view with the keyboard up, scrolled
   // 190 to its end, the view's top 100 down a 450 window
-  const typing = sandbox();
+  const typing = openedCard(100, 150);
   typing.context.innerHeight = 450;
-  const row = card("c4");
-  typing.context.syncAnswered(row, typing.context.liveAnswered({ ...liveBox(), id: "c4" }));
-  const rowClip = layOutLong(row.answ, FakeResizeObserver.made[0]);
-  row.answ.fire("click", { target: row.answ });
-  landRun(row.answ);
-  const rowView = scrollingView(row.replyview, rowClip, 100, 150);
-  row.replyview.rect = { top: 100, bottom: 250 };
-  row.replyview.scrollTop = 190;
-  assert.equal(rowView.foot(), 50);
-  rowView.writes.length = 0;
-  cutBack(row.answ, rowClip, 240);
-  assert.equal(rowView.slack(), 382, "no room was held for the view to grow into");
+  typing.el.replyview.rect = { top: 100, bottom: 250 };
+  typing.el.replyview.scrollTop = 190;
+  assert.equal(typing.view.foot(), 50);
+  typing.view.writes.length = 0;
+  cutBack(typing.panel, typing.clip, 240);
+  assert.equal(typing.view.slack(), 382, "no room was held for the view to grow into");
   // part way, the keyboard is gone and the view stands 350 tall
-  const rowFrames = playRun(rowView, rowClip, typing.frame, [240]);
-  row.replyview.clientHeight = 350;
-  rowFrames.push(...playRun(rowView, rowClip, typing.frame, [149, 100]));
-  assert.deepEqual(rowFrames.map(f => f.scroll), [190, 190, 190], "the view scrolled as it grew");
-  assert.deepEqual(rowFrames.map(f => f.head), [-190, -190, -190], "the panel's head moved as the view grew");
-  assert.deepEqual(rowFrames.map(f => f.foot), [50, -41, -90], "the foot did not come up with the cut as the view grew");
-  assert.deepEqual(rowView.pulled, [], "the view was pulled as it grew");
-  assert.deepEqual(rowView.writes, [190], "the scroll was written as the view grew");
-  rowClip.midRun = null;
-  landRun(row.answ);
-  assert.equal(row.replyview.scrollTop, 190, "the view moved as the panel landed with the keyboard gone");
-  assert.equal(rowView.foot(), -132, "the answer jumped as the panel landed with the keyboard gone");
-  assert.equal(rowView.slack(), 382, "the room the grown view stands on was let go under it");
-  row.replyview.scrollTop = 0;
-  row.replyview.fire("scroll");
-  assert.equal(rowView.slack(), 0, "room was kept once the reader had scrolled off it");
+  const grown = playRun(typing.view, typing.clip, typing.frame, [240]);
+  typing.el.replyview.clientHeight = 350;
+  grown.push(...playRun(typing.view, typing.clip, typing.frame, [149, 100]));
+  assert.deepEqual(grown.map(f => f.scroll), [190, 99, 50], "the scroll did not go back with the cut as the view grew");
+  assert.deepEqual(grown.map(f => f.head), [-190, -99, -50]);
+  assert.deepEqual(grown.map(f => f.foot), [50, 50, 50], "the answer moved as the view grew");
+  assert.deepEqual(typing.view.pulled, [], "the view was pulled as it grew");
+  assert.deepEqual(typing.view.writes, [190, 190, 99, 50], "the scroll was written other than once per frame as the view grew");
+  typing.clip.midRun = null;
+  landRun(typing.panel);
+  assert.equal(typing.el.replyview.scrollTop, 8, "the scroll did not land where the cut leaves it with the keyboard gone");
+  assert.equal(typing.view.foot(), 50, "the answer jumped as the panel landed with the keyboard gone");
+  assert.equal(typing.view.slack(), 200, "the room the grown view stands on was let go under it");
+  assert.deepEqual(typing.view.pulled, []);
+  typing.el.replyview.scrollTop = 0;
+  typing.el.replyview.fire("scroll");
+  assert.equal(typing.view.slack(), 0, "room was kept once the reader had scrolled off it");
 
-  // with no motion asked for, the flip is the same on the screen: the view stays,
-  // the head stays, and the answer under the panel is where the cut leaves it
-  const still = sandbox();
-  still.context.stillness = true;
-  const flat = card("c2");
-  still.context.syncAnswered(flat, still.context.liveAnswered({ ...liveBox(), id: "c2" }));
-  const flatClip = layOutLong(flat.answ, FakeResizeObserver.made[0]);
-  flat.answ.fire("click", { target: flat.answ });
-  const flatView = scrollingView(flat.replyview, flatClip, 600, 400);
-  flat.replyview.scrollTop = 440;
-  flat.answ.fire("click", { target: flat.answ });
-  assert.equal(flat.answ.classList.contains("open"), false);
-  assert.equal(flat.answ.classList.contains("motion"), false, "a run went against the setting");
-  assert.equal(flat.replyview.scrollTop, 440, "the plain flip moved the view");
-  assert.equal(flatView.head(), -440);
-  assert.equal(flatView.foot(), -382, "the plain flip moved the answer under the panel");
-  assert.deepEqual(flatView.pulled, [], "the plain flip pulled the view");
-  assert.equal(flatView.slack(), 182);
-  assert.equal(still.waiting(), 0, "a plain flip asked for frames");
+  // with no motion asked for, the flip is the same on the screen: the scroll goes
+  // back by what the cut takes up to the hidden part, at once, and the answer
+  // under the panel is where the run would have left it
+  const flat = openedCard(400, 400);
+  flat.context.stillness = true;
+  flat.el.replyview.scrollTop = 200;
+  flat.panel.fire("click", { target: flat.panel });
+  assert.equal(flat.panel.classList.contains("open"), false);
+  assert.equal(flat.panel.classList.contains("motion"), false, "a run went against the setting");
+  assert.equal(flat.el.replyview.scrollTop, 18, "the plain flip did not scroll back with the cut");
+  assert.equal(flat.view.foot(), 40, "the plain flip moved the answer under the panel");
+  assert.deepEqual(flat.view.pulled, [], "the plain flip pulled the view");
+  assert.equal(flat.view.slack(), 0);
+  assert.equal(flat.waiting(), 0, "a plain flip asked for frames");
+  const level = openedCard(400, 400);
+  level.context.stillness = true;
+  level.panel.fire("click", { target: level.panel });
+  assert.equal(level.el.replyview.scrollTop, 0, "the plain flip of a panel at the top moved the view");
+  assert.equal(level.view.foot(), 58);
 });
 
 test("the room a cut back holds is a spacer under the answer, never the scroller's own padding", () => {

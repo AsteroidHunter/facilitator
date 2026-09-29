@@ -1370,22 +1370,29 @@ function answeredPanel(room){
 // the two ends stay on the panel for the length of the run (answSpan), for a
 // page that has to hold one of its own measures still while the panel moves.
 //
-// cutting back is the opening run backwards, as the reader sees it: the panel's
-// head stays where it stands on the screen, its foot comes up, and everything
-// under it follows, and the scroll is never moved. the panel rides at the head
-// of the answer's own scroller (answView), and the arrow of a batch opened
-// taller than the view is reached by scrolling the panel's head up out of
-// sight; cut back from there the head stays out of sight above the view and the
-// foot, the arrow and the answer under it come up to it, and may end above the
-// view as well. the browser pulls a scroll that a shortening layout leaves past
-// the end of the answer, and it did so at the start of the cut, a step ahead of
-// it, so the view shifted before the panel moved. so room is held under the
-// answer for the run (holdSlack), enough that the view is never stood past its
-// end at any frame, before anything is measured, kept from being let go of while
-// the run is on (answHeld), and once it has landed only what the view stands on
-// is kept (trimSlack), which is until the reader scrolls off it. the room also
-// covers an answer short enough to end in it, and a keyboard the press put away
-// giving the view its room back while the run is on.
+// cutting back is one motion: the panel's foot comes up, and the answer under
+// it with it, on the height's run. the panel rides at the head of the answer's
+// own scroller (answView), and the arrow of a batch opened taller than the view
+// is reached by scrolling the panel's head up out of sight. from there the
+// answer under the panel would rise by all the cut takes, so the scroll goes
+// back on every frame of the run by as much as the cut has taken so far
+// (followCut), read off the height the frame is drawn at, up to the part of the
+// panel that stands above the view: the answer and the panel's foot stay
+// exactly where they stand on the screen, the panel's head stays above the view
+// until the run ends, and the words in the part of the panel still in sight
+// slide down as it shortens. a cut longer than the part hidden above scrolls
+// back by the hidden part and no further, and the answer rises by the rest. a
+// panel whose head is in sight has nothing hidden above it, and is cut from its
+// foot with the scroll left alone. the browser pulls a scroll that a shortening
+// layout leaves past the end of the answer, and it did so at the start of the
+// cut, a step ahead of it, so the view shifted before the panel moved. so room
+// is held under the answer for the run (holdSlack), enough that the view is
+// never stood past its end at any frame, before anything is measured, kept from
+// being let go of while the run is on (answHeld), and once it has landed only
+// what the view stands on is kept (trimSlack), which is until the scroll moves
+// off it. the room also covers an answer short enough to end in it, and a
+// keyboard the press put away giving the view its room back while the run is on.
+// a scroll that anything else moves during the run is left to it.
 // a panel whose own lane was scrolled while it stood open (the sent panel's
 // cut, or a small card's seat) comes down to the head of its batch over the
 // same run, on a transform, rather than jumping there first.
@@ -1410,6 +1417,10 @@ function openAnswered(panel, open, change){
   const seat = panel.answView || null;
   const view = open ? null : seat;
   const at = view ? view.scrollTop : 0;
+  // the part of the panel above the top of the view, in whole points so the head
+  // is never scrolled into sight
+  const hidden = view ?
+    Math.floor(Math.max(0, view.getBoundingClientRect().top - panel.getBoundingClientRect().top)) : 0;
   const whole = view ? view.scrollHeight - heldSlack(view) : 0;
   const wide = view ? clip.getBoundingClientRect().height : 0;
   if (view) holdSlack(view, heldSlack(view) + from);   // room enough that no layout below can pull the scroll
@@ -1432,7 +1443,7 @@ function openAnswered(panel, open, change){
     (typeof innerHeight === "number" ? innerHeight : 0) - view.getBoundingClientRect().top) : 0;
   const room = view && at > 0 ? Math.max(0, Math.ceil(at + reach - whole + wide - to)) : 0;
   if (still || !from){
-    if (view) view.scrollTop = at;
+    if (view) view.scrollTop = at - Math.max(0, Math.min(hidden, from - to));
     if (seat) trimSlack(seat);
     if (panel.answRoom) panel.answRoom();
     return;
@@ -1456,11 +1467,13 @@ function openAnswered(panel, open, change){
     view.scrollTop = at;
     view.answHeld = true;
   }
+  const follow = view && hidden > 0 ? followCut(panel, view, clip, at, hidden, from) : null;
   const done = e => {
     if (e && (e.target !== clip || e.propertyName !== "height")) return;
     clip.removeEventListener("transitionend", done);
     clearTimeout(timer);
     if (mine !== panel.answRun) return;   // a newer run owns the panel now
+    if (follow) follow.land(to);
     settleAnswered(panel);
     if (!open) fitAnswered(panel);
     if (seat) trimSlack(seat);
@@ -1468,6 +1481,31 @@ function openAnswered(panel, open, change){
   };
   clip.addEventListener("transitionend", done);
   const timer = setTimeout(done, FOLD_TIMER_MS);
+}
+
+// the scroll going back with a cut, on every frame of its run: the frame's own
+// height is read in the frame callback, which runs after the transition's value
+// for that frame is set and before it is laid out and drawn, so the scroll and
+// the height are written for the same frame. land writes the far end, for a run
+// that ends between frames or on its timer. a scroll that is not where the last
+// write left it has been moved by something else, and is not written again
+function followCut(panel, view, clip, at, hidden, from){
+  const mine = panel.answRun;
+  const run = { seen: view.scrollTop, moved: false };
+  const write = height => {
+    if (run.moved) return;
+    if (Math.abs(view.scrollTop - run.seen) > 1){ run.moved = true; return; }
+    view.scrollTop = at - Math.max(0, Math.min(hidden, from - height));
+    run.seen = view.scrollTop;
+  };
+  const frame = () => {
+    if (panel.answRun !== mine || !panel.answSpan || run.moved) return;
+    write(clip.getBoundingClientRect().height);
+    if (!run.moved) requestAnimationFrame(frame);
+  };
+  run.land = write;
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(frame);
+  return run;
 }
 
 // the run's own dress taken off: the timing and the inline ends, so the panel
