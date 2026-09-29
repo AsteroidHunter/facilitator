@@ -887,7 +887,7 @@ test("the tab bar stays where he scrolled it, across a poll and a tap", async ()
   }
 });
 
-test("the settings come in from the right, with the header, its mark and the notifications control", async () => {
+test("the settings come in from the right, holding the header, the list of sections and the notifications control", async () => {
   const { page, problems } = await openPhone("/m");
   try {
     await page.waitForSelector("article.box.sel", { timeout: 5000 });
@@ -904,19 +904,20 @@ test("the settings come in from the right, with the header, its mark and the not
     assertPageDrewBack(shut, 0, "with settings closed");
 
     const made = await page.evaluate(() => {
-      const head = document.getElementById("sethead");
-      const gear = document.querySelector("#setmark svg");
+      const head = document.querySelector("#setpage .sp-head");
+      const gear = document.querySelector("#setpage .sp-item .sp-next svg");
       const button = document.getElementById("notify");
       const ink = getComputedStyle(document.documentElement);
       const own = getComputedStyle(button);
       return {
-        header: head.textContent.trim(),
+        header: head.querySelector(".sp-title").textContent.trim(),
+        items: [...document.querySelectorAll("#setpage .sp-item")].map(one => one.textContent.trim()),
         gear: !!gear,
         gearStroke: gear && gear.getAttribute("stroke"),
         gearFill: gear && gear.getAttribute("fill"),
         gearWeight: gear && gear.getAttribute("stroke-width"),
         label: button.textContent,
-        indent: getComputedStyle(document.getElementById("setgroup")).paddingLeft,
+        indent: getComputedStyle(document.querySelector("#setpage .sp-item")).paddingLeft,
         headPad: getComputedStyle(head).paddingLeft,
         fill: own.backgroundColor,
         border: own.borderStyle,
@@ -928,12 +929,13 @@ test("the settings come in from the right, with the header, its mark and the not
       };
     });
     assert.equal(made.header, "Settings", "the panel's header is not Settings");
-    assert.equal(made.gear, true, "the header carries no gear");
-    assert.equal(made.gearStroke, "currentColor", "the gear is not drawn in the card's line style");
+    assert.deepEqual(made.items, ["Editor", "Notifications", "Account", "Diagnostics"], "the panel does not list the sections");
+    assert.equal(made.gear, true, "a section in the list carries no mark");
+    assert.equal(made.gearStroke, "currentColor", "the mark is not drawn in the card's line style");
     assert.equal(made.gearFill, "none");
-    assert.equal(made.gearWeight, "1.9", "the gear is not the weight the plus is drawn at");
+    assert.equal(made.gearWeight, "1.9", "the mark is not the weight the plus is drawn at");
     assert.equal(made.label, "Notifications");
-    assert.ok(parseFloat(made.indent) > parseFloat(made.headPad), "Notifications is not stepped in under the header");
+    assert.equal(made.indent, made.headPad, "the list is not lined up under the header");
     assert.equal(made.border, "none", "the control has a border");
     assert.equal(made.fill, "rgb(255, 255, 255)", "the control is not on the phone's own paper");
     assert.equal(made.colour, "rgb(33, 29, 23)", "the control is not in the board's own ink");

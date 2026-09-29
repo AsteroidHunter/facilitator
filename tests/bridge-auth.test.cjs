@@ -214,6 +214,7 @@ test('bridge gates every route, persists sessions, signs out and rejects legacy 
     await reopened.evaluate(() => showMenu(settings));
     await new Promise(resolve => setTimeout(resolve,650));
     if (shots) await reopened.screenshot({path:path.join(shots,'signed-in-drawer.png')});
+    await reopened.click('.sp-item[data-section="account"]');
     await reopened.click('#signout');
     await reopened.waitForSelector('.install-face');
     assert.equal(await reopened.evaluate(async () => (await (await fetch('/auth/check')).json()).authenticated),false);
