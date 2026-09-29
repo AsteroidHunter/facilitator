@@ -220,7 +220,10 @@
 
   /* ---- the board has stopped answering: a white screen and one line -------- */
   /* over everything, the startup curtain included, and measured the way the
-     curtain is. the face is a line icon one em tall, sitting on the text's line */
+     curtain is. the face is a line icon one em tall, sitting on the text's line.
+     the phone's worker (m-sw.js) draws this same screen when a page open finds
+     the board down, from a copy of the rules and the markup of this one, and
+     tests/phone-server-down-fresh-open.test.cjs compares them: change both */
   #serverdown{
     display:none; position:fixed; left:0; right:0; top:0; height:var(--screen-h, var(--root-h)); z-index:50;
     align-items:center; justify-content:center; padding:0 24px;
