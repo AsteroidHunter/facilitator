@@ -72,13 +72,6 @@ const CARD_SHORTCUT_DEFINITIONS = [
     action: "create", mini: true,
     match: e => e.metaKey && (e.key === "t" || e.key === "T") ? true : null,
   },
-  // command+j alone jumps to the next unread card; only the desktop board answers it
-  {
-    action: "jumpUnread", mini: false,
-    match: e => e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey &&
-      !e.repeat && !e.isComposing && !e.defaultPrevented &&
-      (e.key === "j" || e.key === "J") ? true : null,
-  },
   {
     action: "tab", mini: false,
     match: e => e.metaKey && /^[1-9]$/.test(e.key) ? +e.key - 1 : null,
