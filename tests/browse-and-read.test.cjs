@@ -267,11 +267,11 @@ function desktop() {
 }
 
 // a board as it stands after its first reading: the card it opened on shown
-// and nothing chosen. right opens the page with the right composer chosen, and
-// the page's first fit seats the box
+// and nothing chosen. right opens the page with the right composer chosen for
+// this page, and the page's first fit seats the box
 function loaded({ right = false } = {}) {
   const d = desktop();
-  if (right) d.store.set("composer.right", "1");
+  if (right) d.get("xcChosen = true");
   d.get("applySelection")(d.state);
   d.get("xcPlace")();
   if (right) assert.equal(d.xc.host, "a", "the box did not open on the card on show");
