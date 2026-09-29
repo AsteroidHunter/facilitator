@@ -307,15 +307,12 @@
    reader left them with a transform and lets it go, so they travel rather than
    jump. the column moves in the sent panel's cut, the whole panel in a small
    card's seat.
-   and a panel over the answer whose head is scrolled out of sight is cut back
-   off its top: the script holds it down by a top margin that grows on the same
-   run and curve as the cut shrinks, so the arrow pressed and the answer under
-   it stand still (openAnswered in card-logic.js). it is the one thing in a run
-   that is neither a height, a strength nor a transform, because it has to keep
-   step with the cut's height on every frame to the pixel, and a transform runs
-   on a clock of its own apart from the layout */
+   and a panel over the answer is cut back the way it opened, its head still on
+   the screen, in sight or above it, and its foot coming up with the answer
+   under it. nothing scrolls: the script holds room under the answer so the
+   browser never pulls the scroll (openAnswered in card-logic.js) */
 .answered.motion{
-  transition:transform var(--answ-move) var(--gentle), margin-top var(--answ-move) var(--gentle),
+  transition:transform var(--answ-move) var(--gentle),
     margin-bottom var(--answ-move) var(--gentle), --answ-fill var(--answ-move) var(--gentle);
 }
 .answered.motion .answstack{transition:transform var(--answ-move) var(--gentle)}
