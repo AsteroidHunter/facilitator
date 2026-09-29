@@ -196,8 +196,8 @@ test('uninstall retains PATH for another command and never removes a replacement
     const rc = path.join(f.home, '.zshrc');
     const original = await fs.readFile(rc, 'utf8');
     const result = await integration(f, 'uninstall');
-    assert.match(result.stdout, /kept changed command/);
-    assert.match(result.stdout, /kept PATH block/);
+    assert.match(result.stdout, /Kept command .*, which has changed since install\./);
+    assert.match(result.stdout, /Kept the PATH block: /);
     assert.equal(await fs.readlink(link), path.join(f.dir, 'other-project'));
     assert.equal(await fs.readFile(rc, 'utf8'), original);
   } finally { await f.clean(); }
@@ -317,7 +317,7 @@ test('help and unknown installer arguments do not create or edit files', async (
     const error = await exec('bash', [path.join(f.repo, 'install.sh'), '--bogus'], { cwd: f.repo, env: f.env })
       .then(() => null, failure => failure);
     assert.ok(error);
-    assert.match(error.stderr, /unknown option/);
+    assert.match(error.stderr, /^\n⚠ Unknown option or argument: --bogus\.\n  usage: \.\/install\.sh\n$/);
     assert.equal(await fs.readFile(rc, 'utf8'), 'export EXISTING=1\n');
     await assert.rejects(fs.lstat(path.join(f.repo, '.venv')), { code: 'ENOENT' });
     await assert.rejects(fs.lstat(path.join(f.home, '.local/share/facilitator/bin/facilitator')), { code: 'ENOENT' });
@@ -335,18 +335,25 @@ test('./install.sh sets up a fake checkout and exposes the real CLI command', as
     const env = { ...f.env, PATH: `${tools}:${f.env.PATH}` };
     const first = await exec('bash', [path.join(f.repo, 'install.sh')], { cwd: f.repo, env });
     assert.match(first.stdout, /FACILITATOR|█████/);
-    assert.match(first.stdout, /1\. Check the command and skill locations/);
-    assert.match(first.stdout, /2\. Set up the board/);
-    assert.match(first.stdout, /3\. Create the phone app password/);
-    assert.match(first.stdout, /4\. Add the facilitator command and agent skill/);
+    const titles = ['1. Locations', '2. Board', '3. App password', '4. Command and skill'];
+    const lines = first.stdout.split('\n');
+    for (const title of titles) {
+      const at = lines.indexOf(title);
+      assert.ok(at > 0, `${title} is missing`);
+      assert.equal(lines[at - 1], '', `no blank line before ${title}`);
+      assert.equal(lines[at + 1], '─'.repeat(title.length), `the rule under ${title}`);
+      assert.equal(lines[at + 2], '', `no blank line after the rule under ${title}`);
+    }
+    assert.doesNotMatch(first.stdout, /\n\n\n/, 'two blank lines in a row');
     assert.match(first.stdout, /facilitator password set/);
-    assert.match(first.stdout, /Installed\. Run: facilitator run/);
+    assert.match(first.stdout, /✦ Facilitator is installed!\n\nNext steps:\n\n1\. Start the board: facilitator run\n2\. Onboard your agent, in Claude Code: \/facilitator onboard\n   or in Codex: \$facilitator onboard\n\n$/);
     const second = await exec('bash', [path.join(f.repo, 'install.sh')], { cwd: f.repo, env });
-    assert.match(second.stdout, /command: already linked/);
+    assert.match(second.stdout, /✓ Command already linked\./);
     const ptyCapture = `import os,pty,subprocess,sys\nm,s=pty.openpty()\np=subprocess.Popen(['bash',sys.argv[1]],stdin=subprocess.DEVNULL,stdout=s,stderr=s)\nos.close(s)\nwhile True:\n try: data=os.read(m,65536)\n except OSError: break\n if not data: break\n os.write(1,data)\nsys.exit(p.wait())`;
     const terminal = await exec('python3', ['-c', ptyCapture, path.join(f.repo, 'install.sh')],
       { cwd: f.repo, env });
     assert.match(terminal.stdout, /\x1b\[38;2;190;55;30m█/, 'terminal banner lacks the reddish-orange gradient');
+    assert.match(terminal.stdout, /\x1b\[38;2;0;114;0m✓\x1b\[0m /, 'terminal output lacks the green check');
     const command = path.join(f.home, '.local/share/facilitator/bin/facilitator');
     const result = await exec(command, ['_install'], { env: { ...env, FACILITATOR_INTERNAL_INSTALL: '' } }).then(() => null, error => error);
     assert.ok(result, 'internal install was exposed without the installer guard');
