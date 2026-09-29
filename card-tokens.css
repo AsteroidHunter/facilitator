@@ -307,10 +307,12 @@
    reader left them with a transform and lets it go, so they travel rather than
    jump. the column moves in the sent panel's cut, the whole panel in a small
    card's seat.
-   and a panel over the answer is cut back the way it opened, its head still on
-   the screen, in sight or above it, and its foot coming up with the answer
-   under it. nothing scrolls: the script holds room under the answer so the
-   browser never pulls the scroll (openAnswered in card-logic.js) */
+   and a panel over the answer is cut back from its foot, which comes up on the
+   height's own run. the part of the panel scrolled above the view is given up
+   first: the script scrolls back by what the cut has taken so far, on every
+   frame, so the answer under the panel stays where it stands, and holds room
+   under the answer so the browser never pulls the scroll (openAnswered and
+   followCut in card-logic.js) */
 .answered.motion{
   transition:transform var(--answ-move) var(--gentle),
     margin-bottom var(--answ-move) var(--gentle), --answ-fill var(--answ-move) var(--gentle);
