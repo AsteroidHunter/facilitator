@@ -2925,55 +2925,10 @@
      script seats it on the last line of type, the way the bar seats its own */
   body.focus #xcomposer .xcside{flex:none; display:flex; flex-direction:column;
     justify-content:space-between}
-  /* the switch between the two: a button built into the card's right edge
-     beside the bar, the way a button on the edge of a camera or a game boy is
-     part of its body. it is the old tab turned inward, the owner's "mirror
-     invert the current button and make it a part of the card": one star cell
-     wide inside the card's right edge, its top on the bar's hairline and its
-     foot on the bar's floor, so it spans the bar and grows with it, the card's
-     own bottom padding clear of the card's bottom edge. it lives on the stage
-     and the script seats it off the card and the bar (xcSeat), so it moves with
-     the card and scales with the board; it stands one step over the card (2).
-     its right side lies on the card's own edge line, so that side reads as the
-     card's edge and the button as let into it: the card's edge ink on its other
-     three sides, rounded only on the two corners inside the card. it keeps off
-     the card's own controls by where it stands: in the card's side padding,
-     which holds nothing, 27.7px clear of the send square's right edge (the
-     card's 0.8 edge, its 23.04 of padding and the bar's 15.36 of margin, less
-     its own 11.52),
-     and the row, the square and the answered panel's arrow are all further in.
-     no drop shadow. at rest it is raised a little from the card's surface: the
-     card's white face falling off a few shades toward its foot, with a light
-     line along its top and a shaded one along its foot, lit from above like
-     every sunk thing on the board. pressed it goes into the card: the board's
-     press seat, the pressed paper fill and the sunk inset the plus button and
-     the sent box are set with, in the plus's own 110ms. a press holds it down
-     for as long as the pointer does, and while the right composer is chosen it
-     stays down, a latched button, so the same press puts the box away and it
-     comes back up. where there is no room for the box it takes the chips' off
-     fade and does not press. the keyboard's focus ring is the board's own.
-     it has no reason to know the note's corner: that corner is the window's, it
-     wakes on the window's last 12px, and no card fitted to the wide board
-     reaches there */
-  #xcswitch{display:none}
-  body.focus #xcswitch{
-    display:block; position:fixed; z-index:2; padding:0; margin:0; cursor:pointer;
-    border:var(--edge) solid var(--line); border-radius:var(--sq) 0 0 var(--sq);
-    background:linear-gradient(to bottom, var(--card), color-mix(in srgb, #000 4%, var(--card)));
-    box-shadow:inset 0 1px 0 var(--card), inset 0 -1px 0 color-mix(in srgb, #000 9%, var(--card));
-    transition:box-shadow .11s var(--gentle);
-  }
-  body.focus #xcswitch:not([aria-disabled="true"]):active,
-  body.focus #xcswitch[aria-pressed="true"]{
-    background:color-mix(in srgb, #000 var(--press), var(--paper)); box-shadow:var(--sunk-deep);
-  }
-  body.focus #xcswitch:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
-  body.focus #xcswitch[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}
-  body.focus #xcswitch[hidden]{display:none}
-  body.choosing :is(#xcswitch, #xcomposer),
-  body:is([data-resp-mode="portrait"], [data-resp-mode="twopane"]) :is(#xcswitch, #xcomposer){display:none !important}
+  body.choosing #xcomposer,
+  body:is([data-resp-mode="portrait"], [data-resp-mode="twopane"]) #xcomposer{display:none !important}
   @media (prefers-reduced-motion: reduce){
-    body.focus #xcomposer, body.focus #xcswitch,
+    body.focus #xcomposer,
     body.focus .box.sel .bottombar.xcrun{transition:none}
   }
 
@@ -4801,17 +4756,17 @@ const MIN_CARD_H = 160;   // a card is never squeezed past being a card
 addEventListener("fullscreenchange", () => { fitStage(); seatPagePill(); });
 
 // the large card and what stands beside it for it: the composer box on its
-// right, which holds its draft while open, and the switch on its corner
-const CARD_PARTS = "main, #xcomposer, #xcswitch";
-// a press anywhere on the card, the box or the switch, or the keyboard's focus
-// landing in one of them, selects the card on screen where it stands. the box
-// and the switch are built further down, on the stage and not in the card, so
-// the page is listened to, first, before anything on them can stop the press.
-// in edit mode a press is a drag
+// right, which holds its draft while open
+const CARD_PARTS = "main, #xcomposer";
+// a press anywhere on the card or the box, or the keyboard's focus landing in
+// one of them, selects the card on screen where it stands. the box is built
+// further down, on the stage and not in the card, so the page is listened to,
+// first, before anything on it can stop the press. in edit mode a press is a
+// drag
 {
   const frame = document.querySelector("main");
   const inCard = e => !editMode &&
-    (e.target === frame || !!e.target.closest?.("#sections, #xcomposer, #xcswitch"));
+    (e.target === frame || !!e.target.closest?.("#sections, #xcomposer"));
   for (const type of ["pointerdown", "focusin"])
     document.addEventListener(type, e => { if (inCard(e)) chooseShown(); }, true);
 }
@@ -4911,9 +4866,9 @@ function chooseShown(){
 }
 
 // Escape with nothing being typed: the card stays on screen, browsed, and
-// gives up its drop shadow. whatever held the focus inside it, the composer on
-// its right or the switch on its corner lets go, so the Enter that selects it
-// again is never a press on one of their buttons
+// gives up its drop shadow. whatever held the focus inside it, or the composer
+// on its right, lets go, so the Enter that selects it again is never a press on
+// one of their buttons
 function unselectShown(){
   const id = selectedId;
   if (browsing || !id || !els[id]) return;
@@ -10046,7 +10001,7 @@ try {
 // two composers and one draft. the bar under the answer is the default; the
 // composer on the right is a box of its own standing right of the card, hung
 // from an arm that pivots on the card's edge, swung down from behind the card
-// and back up by the button built into the card's right edge beside the bar.
+// and back up by switchComposer(). nothing on the page calls it at present.
 // the large card alone carries it: the small cards in magic box 2 keep their
 // one line of a composer. whichever of
 // the two holds the selected card's draft is that card's el.ta, el.send and
@@ -10067,8 +10022,8 @@ try {
 // the choice is the board's, one key in localStorage, so a reload opens on the
 // composer last chosen. where the box has no room, which is the portrait
 // column, the two pane view and a card with no space right of it inside the
-// frame, the bar stays and the choice waits. no key is bound yet:
-// switchComposer() is the one call a key will make
+// frame, the bar stays and the choice waits. no key is bound:
+// switchComposer() is the one call that makes the choice
 const XC_KEY = "composer.right";          // "1" while the box is the chosen composer
 const XC_CELL = STAGE_W * 0.008;          // one star cell, the pitch GRID below is
 const XC_GAP = 2 * XC_CELL;               // the air between the card and the box
@@ -10076,14 +10031,13 @@ const XC_W = 24 * XC_CELL;                // the box's width, about half the car
 const XC_MIN_W = 16 * XC_CELL;            // under this across there is no room, and the bar stays
 const XC_MIN_H = 12 * XC_CELL;            // the box at rest, the sheet's twelve cells
 const XC_LIFT = 5 * XC_CELL;              // its foot stands this far above the card's floor
-const XC_TAB_W = XC_CELL;                 // the switch's width, inside the card's right edge
 const XC_ARM_AT = 6 * XC_CELL;            // the arm meets the box's foot this far along it, a quarter
 const XC_ARM_BACK = 3;                    // and starts this far back under the card, so it leaves the edge whole
 const XC_RUN_MS = 320;                    // the bar's run, the sheet's .32s; a safety net only
 const XC_HINT = "Push to production …";   // the sketch's own words
 let xcRoom = false;                       // the box has room beside the card right now
 let xcSeatAt = null;                      // the bar's top and foot over the card's floor, last read at rest
-let xcWatched = null;                     // the bar the switch is lined up with, watched while on show
+let xcWatched = null;                     // the bar the box's pivot is lined up with, watched while on show
 const xcWatch = window.ResizeObserver ? new ResizeObserver(() => xcSeat()) : null;
 
 // the box, built once and seated on the stage with the arm it hangs from. its
@@ -10151,21 +10105,6 @@ xc.root.addEventListener("transitionend", e => {
   if (e.target === xc.root && e.propertyName === "transform") xcTick();
 });
 
-// the switch, a button built into the card's right edge beside the bar. it is
-// on the stage, so it scales with the board, and xcSeat seats it off the card
-// and the bar wherever they stand (the sheet says how it reads as the card's).
-// the press keeps the caret where it is, the way the send square and the plus
-// do, so the words cross with the caret in them
-const xcSwitch = h("button");
-xcSwitch.id = "xcswitch";
-xcSwitch.type = "button";
-document.getElementById("stage").appendChild(xcSwitch);
-xcSwitch.addEventListener("pointerdown", e => {
-  const el = selectedId && els[selectedId];
-  if (el && ComposeFormat.focused(el.ta)) e.preventDefault();
-});
-xcSwitch.addEventListener("click", () => { if (xcRoom) switchComposer(); });
-
 function xcWanted(){ return localStorage.getItem(XC_KEY) === "1"; }
 function xcStill(){
   try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { return false; }
@@ -10189,7 +10128,7 @@ function switchComposer(side){
 // inside the frame, where frameLimits says the board may reach, and the board
 // has to be the wide one: the portrait column has no side, and the two pane
 // view is exactly a window with no room right of the card. anything under 16
-// cells across is no room at all, and the bar stays. the switch is seated in
+// cells across is no room at all, and the bar stays. the pivot is seated in
 // the same breath (xcSeat)
 function xcPlace(){
   const card = document.querySelector("main");
@@ -10215,23 +10154,15 @@ function xcPlace(){
   const changed = room !== xcRoom;
   xcRoom = room;
   xcSeat();
-  xcPaint();
   if (changed) xcSync();
 }
 
-// the switch stands beside the bar, in the card's right edge at the bar's own
-// height: one cell wide inside the card's edge, its top on the bar's hairline
-// and its foot on the bar's floor, so it spans the bar and grows with it. the
-// pivot the box swings about sits at its foot (xcHinge). the bar is read where
-// it stands whenever it is at rest in the card
-// and kept as how far its two edges stand over the card's floor, so the switch
-// goes with a card that is dragged or resized. while the bar is away, with the
-// box open, or part way through its run, its own box says nothing about where
-// it rests, so the switch keeps the place the bar last rested in, which is
-// where the bar comes back to and where the press to close the box is found.
-// before any bar has been read there is nothing to line up with, and nothing
-// to see either: the switch only shows while a card is on show, and the first
-// sync with a card on show reads its bar before anything can take it away
+// the bar is read where it stands whenever it is at rest in the card and kept
+// as how far its two edges stand over the card's floor, so the pivot the box
+// swings about (xcHinge), at the bar's foot, goes with a card that is dragged
+// or resized. while the bar is away, with the box open, or part way through
+// its run, its own box says nothing about where it rests, so the last place
+// it rested in is kept, which is where the bar comes back to
 function xcSeat(){
   const card = document.querySelector("main");
   const stage = document.getElementById("stage");
@@ -10240,23 +10171,18 @@ function xcSeat(){
   xcFollow(el);
   const S = stageScale || 1;
   const sr = stage.getBoundingClientRect(), r = card.getBoundingClientRect();
-  const edge = (r.right - sr.x) / S, base = (r.bottom - sr.y) / S;
+  const base = (r.bottom - sr.y) / S;
   const bar = el && el.bottombar;
   if (bar && !el.box.classList.contains("xcaway") && !bar._xcStop){
     const b = bar.getBoundingClientRect();
     if (b.height > 0) xcSeatAt = { top: base - (b.top - sr.y) / S, foot: base - (b.bottom - sr.y) / S };
   }
-  const sw = xcSwitch.style;
-  sw.left = (edge - XC_TAB_W) + "px";
-  sw.width = XC_TAB_W + "px";
   if (!xcSeatAt) return;
-  sw.bottom = (STAGE_H - base + xcSeatAt.foot) + "px";
-  sw.height = (xcSeatAt.top - xcSeatAt.foot) + "px";
   xcHinge(xcSeatAt.foot);
 }
 
 // the pivot the box swings about and the arm it hangs from. the pivot is on the
-// card's right edge at the switch's foot. the box stands two cells off that edge
+// card's right edge at the bar's foot. the box stands two cells off that edge
 // with its foot XC_LIFT over the card's floor, so seen from the box's own left
 // edge and foot the pivot is XC_GAP to the left and the rest of XC_LIFT below,
 // wherever the card stands and whatever its size. never less than a cell below,
@@ -10276,7 +10202,7 @@ function xcHinge(foot){
   arm.transform = "rotate(" + Math.atan2(rise, run) + "rad) translateX(" + -XC_ARM_BACK + "px)";
 }
 
-// the bar the switch is lined up with is watched while its card is on show. the
+// the bar the pivot is lined up with is watched while its card is on show. the
 // bar is pinned to the floor of the card's body, so only three things can move
 // its edges: its own size, which changes with every line it grows or loses in
 // either face of the field; the wrapper it stands in, which changes size when
@@ -10291,38 +10217,22 @@ function xcFollow(el){
   if (bar){ xcWatch.observe(bar); xcWatch.observe(el.pendwrap); }
 }
 
-// the card on show, if there is one: the switch hangs off it and the box holds its draft
+// the card on show, if there is one: the box holds its draft
 function xcCard(){
   const el = selectedId && els[selectedId];
   return el && el.box.classList.contains("sel") ? el : null;
 }
 
-// the switch says which composer is chosen and whether the box has room here.
-// it is only on the wide board and only while a card is on show, since an empty
-// lane has no bar to switch from. it runs after every poll's selection, so it
-// writes only what has changed
-function xcPaint(){
-  const wanted = xcWanted();
-  const hide = !(FOCUS && respMode === "wide" && xcCard());
-  if (xcSwitch.hidden !== hide) xcSwitch.hidden = hide;
-  const label = !xcRoom ? "no room for the composer on the right of this card"
-    : wanted ? "put the composer back under the card" : "open the composer on the right";
-  for (const [name, value] of [["aria-pressed", wanted ? "true" : "false"],
-                               ["aria-disabled", xcRoom ? "false" : "true"],
-                               ["aria-label", label], ["title", label]])
-    if (xcSwitch.getAttribute(name) !== value) xcSwitch.setAttribute(name, value);
-}
-
 // which card's draft the box holds, worked out afresh after anything that can
-// change it: the choice, the room, the selection, a tab. run is the switch's own
-// press, and only a press moves anything on screen: a load, a card switch or a
+// change it: the choice, the room, the selection, a tab. run is a switchComposer
+// call, and only that moves anything on screen: a load, a card switch or a
 // window losing the room changes over at once, and so does everything when the
-// reader has asked for less motion. focus says a press asked for the typing to
+// reader has asked for less motion. focus says the call asked for the typing to
 // go on in the composer it opened, unless the caret is in some other field
 function xcSync(opts = {}){
   xcSeat();   // the bar read where it rests, before a move can take it away
   const want = xcWanted() && xcRoom && xcCard() ? selectedId : null;
-  if (xc.host === want){ xcPaint(); return; }
+  if (xc.host === want) return;
   const run = !!opts.run && !xcStill();
   const gave = xc.host;
   let caret = false;
@@ -10334,7 +10244,6 @@ function xcSync(opts = {}){
   const elsewhere = now && now !== document.body && cardShortcutEditing(now) &&
     !(dest && ComposeFormat.focused(dest));
   if (dest && (caret || (opts.focus && !elsewhere))) dest.focus({ preventScroll: true });
-  xcPaint();
   queueFatCaret();
 }
 
@@ -10486,7 +10395,7 @@ function xcBar(el, away, run){
 function xcLanded(el, end){
   if (end) el.replyview.scrollTop = el.replyview.scrollHeight;
   // the bar is at rest again, and its last frame may have changed no size for
-  // the watch to hear, so the switch is lined up with it here
+  // the watch to hear, so the place it rests in is read again here
   xcSeat();
   // the answer's room has changed, so its lines are snapped to it again
   if (el.box.classList.contains("sel")) snapCard();
@@ -10498,7 +10407,6 @@ function xcLanded(el, end){
 if (window.ResizeObserver) new ResizeObserver(() => xcPlace()).observe(document.querySelector("main"));
 addEventListener("pointermove", () => { if (dragging || sizing) requestAnimationFrame(xcPlace); },
   { passive: true });
-xcPaint();
 
 // the copy button on fenced blocks: one click puts the block's text on the
 // clipboard; the icon is the standard two-sheets copy glyph, drawn inline
