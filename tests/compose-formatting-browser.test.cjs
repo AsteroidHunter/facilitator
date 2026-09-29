@@ -589,7 +589,9 @@ test("a send that fails keeps the words, and an attachment still joins them", as
     const address = await page.evaluate(async () => {
       const row = document.querySelector("article.box.sel textarea");
       row.value = "";
-      await attach([new File([new Uint8Array([1, 2, 3])], "shot.png", { type: "image/png" })], row);
+      // the board reads a file's kind from its first bytes, so these are a PNG's
+      const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13]);
+      await attach([new File([png], "shot.png", { type: "image/png" })], row);
       return row.value;
     });
     assert.match(address, /^\/uploads\/.+\n$/, "the attachment did not join the row: " + address);
