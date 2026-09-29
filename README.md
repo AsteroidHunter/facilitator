@@ -27,7 +27,7 @@ The bundled CodeMirror editor (`cm-markdown.js`) is included under its own MIT l
 
 ## Attachments
 
-Card and chat composers accept files from the attach button, drag and drop, or a clipboard that provides files. The document page's existing drop path accepts the same types. Each file can be at most 100 MiB. Unsupported, empty and oversized files show a message. Uploads keep their original bytes and add a local `/uploads/...` address to the message. On the phone, picked files wait in a tray over the typing row, showing their upload's progress, and their addresses join the message when it is sent; an upload that does not get through is tried again on its own. An upload may take as long as it needs while its bytes keep arriving; it is cut after a minute with nothing arriving, or an hour in all.
+Card and chat composers accept files from the attach button, drag and drop, or a clipboard that provides files. The document page's existing drop path accepts the same types. Each file can be at most 100 MiB. Unsupported, empty and oversized files show a message on the desktop; on the phone the file's square wears a red mark instead. Uploads keep their original bytes and add a local `/uploads/...` address to the message. On the phone, picked files wait in a tray over the typing row, showing their upload's progress in a ring on the square and no words, and their addresses join the message when it is sent; an upload that does not get through is tried again on its own, and wears a red mark if it never does. An upload may take as long as it needs while its bytes keep arriving; it is cut after a minute with nothing arriving, or an hour in all.
 
 | Files | Extensions | Content types |
 | --- | --- | --- |
