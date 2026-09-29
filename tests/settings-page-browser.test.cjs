@@ -1,11 +1,15 @@
-// The full-screen settings page, driven headless against its own fixture board on
-// the two surfaces that carry it: the Mac board and the phone app.
+// The settings page, driven headless against its own fixture board on the two
+// surfaces that carry it: the Mac board, where it is an overlay, and the phone
+// app, where it fills the screen.
 //
-// What is being proved is what was asked for: one page over the whole window in
-// the quick note's glass, a column of sections beside the chosen section on a wide
-// window, only the list on a narrow one with a way back from a section, a way to
-// put the whole page away, every setting still writing what it always wrote, the
-// colour picker gone from the bar and the pen a plain mark like the gear.
+// What is being proved is what was asked for: on the Mac one page centred over
+// the board at about seven tenths of the window each way, in the quick note's
+// glass and with its corners, a column of sections beside the chosen section
+// when the page itself is wider than 989px, only the list when it is not, with a
+// way back from a section, a way to put the whole page away (the close mark,
+// Escape, a click outside it), every setting still writing what it always wrote,
+// the colour picker gone from the bar and the pen a plain mark like the gear, and
+// the phone's page left as it was.
 //
 // The board is invented and lives in a temp directory. Nothing here touches the
 // real board, the owner's browser or port 8877.
@@ -23,6 +27,8 @@ const CHROME = process.env.CHROME_PATH ||
 const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, ".venv", "bin", "python3");
 const WIDE = { width: 1440, height: 900 };
 const TALL = { width: 820, height: 1180 };
+const OWNER = { width: 1512, height: 982, deviceScaleFactor: 2 };
+const NARROW = { width: 900, height: 982, deviceScaleFactor: 2 };
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
 const COPIED = ["m.html", "m-sw.js", "m-manifest.json", "sw.js", "manifest.json", "card-markdown.js", "card-tokens.css",
                 "card-logic.js", "card-report.js", "compose-format.js", "cm-markdown.js",
@@ -104,10 +110,31 @@ function cover(page, selector) {
   }, selector);
 }
 
+// the overlay's own box in fractions of the window: how much of it each way, and
+// how far it stands from each edge
+function share(page) {
+  return page.evaluate(() => {
+    const box = document.querySelector(".sp-page").getBoundingClientRect();
+    return { across: box.width / innerWidth, down: box.height / innerHeight,
+             left: box.left, right: innerWidth - box.right, top: box.top, bottom: innerHeight - box.bottom };
+  });
+}
+
+function assertSeventhTenths(box, where) {
+  assert.ok(Math.abs(box.across - 0.7) < 0.01, where + ": not about 70% across: " + box.across);
+  assert.ok(Math.abs(box.down - 0.7) < 0.01, where + ": not about 70% down: " + box.down);
+  assert.ok(Math.abs(box.left - box.right) <= 1, where + ": not centred across: " + box.left + " and " + box.right);
+  assert.ok(Math.abs(box.top - box.bottom) <= 1, where + ": not centred down: " + box.top + " and " + box.bottom);
+}
+
 async function openMac(page) {
   await page.click("#setbtn");
   await page.waitForSelector(".sp-veil.open", { timeout: 5000 });
   await settle(200);
+}
+
+async function openIfShut(page) {
+  if (!(await shown(page, ".sp-page"))) await openMac(page);
 }
 
 // the phone opens its settings the way it always did, with a pull from the right edge
@@ -222,28 +249,122 @@ test("the bar has no colour picker and the pen is a plain mark like the gear", a
 
 // ---- the Mac board, wide --------------------------------------------------------------
 
-test("wide: the gear opens one page over the whole window, in the quick note's glass", async () => {
-  const { page, problems } = await open("/", WIDE);
+test("wide: the gear opens one page, centred at about 70% of the window, in the quick note's glass and corners", async () => {
+  const { page, problems } = await open("/", OWNER);
   try {
     assert.equal(await shown(page, ".sp-page"), false, "the page was already on show");
+    // the quick note's dress in this same window, to set the page's against
+    await page.evaluate(() => quickNote.open(null, document.querySelector(".qnpeek").getBoundingClientRect()));
+    await page.waitForFunction(() => document.querySelector(".qn-veil.open:not(.sp-veil)"), { timeout: 5000 });
+    await settle(500);
+    const dress = selector => page.evaluate(sel => {
+      const style = getComputedStyle(document.querySelector(sel));
+      return { radius: style.borderRadius, shadow: style.boxShadow, filter: style.backdropFilter,
+               tint: style.backgroundColor, layers: style.backgroundImage };
+    }, selector);
+    const note = await dress(".qn-card");
+    await page.keyboard.press("Escape");
+    await settle(300);
+
     await openMac(page);
     assert.equal(await page.evaluate(() => document.querySelectorAll(".sp-page").length), 1,
       "there is not exactly one settings page");
-    const box = await cover(page, ".sp-page");
-    assert.ok(box.left <= 0 && box.top <= 0 && box.right >= box.width && box.bottom >= box.height,
-      "the page does not cover the window: " + JSON.stringify(box));
-    const glass = await page.evaluate(() => {
-      const style = getComputedStyle(document.querySelector(".sp-page"));
-      const veil = getComputedStyle(document.querySelector(".sp-veil"));
-      return { filter: style.backdropFilter, tint: style.backgroundColor, veil: veil.position,
-               classes: document.querySelector(".sp-page").className };
-    });
+    assertSeventhTenths(await share(page), "at the owner's window");
+    const glass = await dress(".sp-page");
     assert.match(glass.filter, /blur\(15px\)/, "the page is not blurred like the note: " + glass.filter);
     assert.match(glass.filter, /saturate\((1\.8|180%)\)/, "the page is not saturated like the note: " + glass.filter);
     assert.equal(glass.tint, "rgba(255, 255, 255, 0.77)", "the page's tint is not the note's");
-    assert.match(glass.classes, /qn-glass/, "the page does not wear the note's glass");
+    assert.equal(glass.radius, note.radius, "the page's corners are not the note's");
+    assert.equal(glass.shadow, note.shadow, "the page's edge is not the note's");
+    assert.equal(glass.layers, note.layers, "the page's surface is not the note's");
+    assert.equal(glass.filter, note.filter);
+    assert.equal(glass.tint, note.tint);
+    assert.match(await page.$eval(".sp-page", el => el.className), /qn-glass/, "the page does not wear the note's glass");
+    // the veil is the note's own and still covers the window, so a press outside
+    // the page lands on it and the board stays drawn under it
+    const around = await page.evaluate(() => {
+      const veil = document.querySelector(".sp-veil").getBoundingClientRect();
+      const corner = document.elementFromPoint(6, 6);
+      return { veil: getComputedStyle(document.querySelector(".sp-veil")).position,
+               covers: veil.left === 0 && veil.top === 0 && veil.right === innerWidth && veil.bottom === innerHeight,
+               cornerIsVeil: corner === document.querySelector(".sp-veil"),
+               ink: getComputedStyle(document.querySelector(".sp-veil")).backgroundColor,
+               boardStillThere: !!document.getElementById("stage") && document.getElementById("stage").getBoundingClientRect().width > 0 };
+    });
+    assert.equal(around.veil, "fixed");
+    assert.equal(around.covers, true, "the veil no longer covers the window");
+    assert.equal(around.cornerIsVeil, true, "a press near the window's corner would reach the board");
+    assert.notEqual(around.ink, "rgba(0, 0, 0, 0)", "nothing veils the board around the page");
+    assert.equal(around.boardStillThere, true);
     assert.equal(await page.$eval("#setbtn", el => el.getAttribute("aria-expanded")), "true");
     assert.equal(await page.evaluate(() => document.body.classList.contains("setopen")), true);
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("the overlay is about 70% of the window each way, centred, and follows the window", async () => {
+  const { page, problems } = await open("/", OWNER);
+  try {
+    await openMac(page);
+    assertSeventhTenths(await share(page), "1512 by 982");
+    for (const size of [{ width: 1200, height: 800 }, { width: 1800, height: 1000 }, { width: 900, height: 982 }]) {
+      await page.setViewport({ ...size, deviceScaleFactor: 2 });
+      await settle(300);
+      assertSeventhTenths(await share(page), size.width + " by " + size.height);
+      assert.equal(await shown(page, ".sp-page"), true, "the page went away with the resize");
+    }
+    await page.setViewport(OWNER);
+    await settle(300);
+    assertSeventhTenths(await share(page), "back at 1512 by 982");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("a narrow window gets the same overlay, at 70%, with the list", async () => {
+  const { page, problems } = await open("/", NARROW);
+  try {
+    await openMac(page);
+    assertSeventhTenths(await share(page), "at 900 by 982");
+    assert.equal(await shown(page, ".sp-list"), true, "the list is not showing");
+    assert.equal(await shown(page, ".sp-panes"), false, "settings show beside a list that has no room");
+    assert.equal(await page.evaluate(() => document.querySelector(".sp-page").hasAttribute("data-narrow")), true);
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("the two layouts turn on the overlay's own width, 989px, and not on the window's", async () => {
+  const { page, problems } = await open("/", OWNER);
+  try {
+    await openMac(page);
+    const state = async () => ({
+      width: await page.evaluate(() => document.querySelector(".sp-page").getBoundingClientRect().width),
+      window: await page.evaluate(() => innerWidth),
+      panes: await shown(page, ".sp-panes"),
+    });
+    // a window well past 989px whose overlay is not: seven tenths of 1200 is 840
+    await page.setViewport({ width: 1200, height: 800, deviceScaleFactor: 2 });
+    await settle(300);
+    let now = await state();
+    assert.ok(now.window > 989 && now.width < 989, "the fixture window is not the case it is meant to be");
+    assert.equal(now.panes, false, "the window's width, and not the page's, chose the layout: " + JSON.stringify(now));
+    assert.equal(await shown(page, ".sp-list"), true);
+    // and either side of the switch, an overlay of 989px or narrower gets the list
+    await page.setViewport({ width: 1412, height: 900, deviceScaleFactor: 2 });
+    await settle(300);
+    now = await state();
+    assert.ok(now.width <= 989, "the fixture is not on the narrow side: " + JSON.stringify(now));
+    assert.equal(now.panes, false, "the list did not hold at " + now.width + "px");
+    await page.setViewport({ width: 1414, height: 900, deviceScaleFactor: 2 });
+    await settle(300);
+    now = await state();
+    assert.ok(now.width > 989, "the fixture is not on the wide side: " + JSON.stringify(now));
+    assert.equal(now.panes, true, "the sections did not stand beside the settings at " + now.width + "px");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
@@ -350,15 +471,101 @@ test("wide: the close mark and Escape put the page away, and Escape stays off th
   }
 });
 
+test("a press outside the page puts it away; a press inside it, or a drag out of it, does not", async () => {
+  const made = await fetch(origin + "/create?owner=facilitator", { method: "POST", body: "Card behind the overlay" });
+  const { id } = await made.json();
+  const { page, problems } = await open("/", OWNER);
+  try {
+    await page.waitForFunction(cardId => !!els[cardId], { timeout: 10000 }, id);
+    await page.evaluate(cardId => select(cardId), id);
+    await page.waitForSelector(`#box-${id}.sel`, { timeout: 8000 });
+    await openMac(page);
+    const box = await page.evaluate(() => {
+      const r = document.querySelector(".sp-page").getBoundingClientRect();
+      return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: innerWidth, height: innerHeight };
+    });
+    const outside = {
+      left: [box.left / 2, box.height / 2], right: [(box.right + box.width) / 2, box.height / 2],
+      top: [box.width / 2, box.top / 2], bottom: [box.width / 2, (box.bottom + box.height) / 2],
+      corner: [4, 4],
+    };
+    for (const [side, [x, y]] of Object.entries(outside)) {
+      await openIfShut(page);
+      await page.mouse.click(x, y);
+      await settle(200);
+      assert.equal(await shown(page, ".sp-page"), false, "a click outside on the " + side + " left the page on show");
+      assert.equal(await page.$eval("#setbtn", el => el.getAttribute("aria-expanded")), "false");
+      assert.equal(await page.evaluate(() => document.body.classList.contains("setopen")), false);
+      assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.id), "setbtn",
+        "focus did not return to the gear after a click on the " + side);
+    }
+    // the click did not go on to the board behind the page
+    assert.equal(await page.evaluate(cardId => document.getElementById("box-" + cardId).classList.contains("sel"), id), true,
+      "a click outside the page reached the card behind it");
+
+    await openIfShut(page);
+    // on the page's own bar, and on bare glass under the sections, it stays
+    await page.click(".sp-title");
+    await settle(100);
+    assert.equal(await shown(page, ".sp-page"), true, "a click on the page's bar put it away");
+    await page.mouse.click(box.left + (box.right - box.left) / 2, box.bottom - 30);
+    await settle(100);
+    assert.equal(await shown(page, ".sp-page"), true, "a click on bare glass put the page away");
+    // the page keeps focus after that, so Escape still puts it away and no key reaches the board
+    assert.equal(await page.evaluate(() => !!document.querySelector(".sp-veil").contains(document.activeElement)), true,
+      "a click on bare glass took focus out of the page");
+    // a press that starts inside and lets go on the veil, as a text selection dragged out would, does not close it
+    await page.mouse.move(box.left + 100, box.bottom - 50);
+    await page.mouse.down();
+    await page.mouse.move(2, 2, { steps: 5 });
+    await page.mouse.up();
+    await settle(150);
+    assert.equal(await shown(page, ".sp-page"), true, "a drag out of the page put it away");
+    await page.mouse.click(box.left + (box.right - box.left) / 2, box.bottom - 30);
+    await page.keyboard.press("Escape");
+    await settle(200);
+    assert.equal(await shown(page, ".sp-page"), false, "Escape after a click on bare glass left the page on show");
+    assert.equal(await page.evaluate(cardId => document.getElementById("box-" + cardId).classList.contains("sel"), id), true,
+      "the Escape that closed the page also cleared the card behind it");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("no key reaches the board while the page is open", async () => {
+  const { page, problems } = await open("/", OWNER);
+  try {
+    await openMac(page);
+    await page.evaluate(() => {
+      window.__keysAtDocument = [];
+      document.addEventListener("keydown", e => window.__keysAtDocument.push(e.key));
+      document.querySelector(".sp-item").focus();
+    });
+    for (const key of ["ArrowDown", "ArrowUp", "Tab", "j", "Backspace", "Enter", " "]) {
+      await page.keyboard.press(key);
+      await settle(40);
+    }
+    assert.deepEqual(await page.evaluate(() => window.__keysAtDocument), [],
+      "a key went on past the page to the board");
+    assert.equal(await page.evaluate(() => document.querySelector(".sp-veil").contains(document.activeElement)), true,
+      "focus left the page");
+    await page.keyboard.press("Escape");
+    await settle(200);
+    assert.equal(await shown(page, ".sp-page"), false);
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
 // ---- the Mac board, narrow -----------------------------------------------------------
 
 test("narrow Mac: only the list, a section on tap, a way back, and a way out", async () => {
   const { page, problems } = await open("/", TALL);
   try {
     await openMac(page);
-    const box = await cover(page, ".sp-page");
-    assert.ok(box.left <= 0 && box.top <= 0 && box.right >= box.width && box.bottom >= box.height,
-      "the page does not cover the tall window: " + JSON.stringify(box));
+    assertSeventhTenths(await share(page), "at the tall window");
     assert.deepEqual(await labels(page), ["Appearance", "Editor"]);
     assert.equal(await shown(page, ".sp-list"), true, "the list is not showing");
     assert.equal(await shown(page, ".sp-panes"), false, "settings show beside a list that has no room");
@@ -439,6 +646,16 @@ test("phone: a pull from the right edge opens the page over the screen with the 
     const box = await cover(page, "#settings");
     assert.ok(box.left <= 0 && box.right >= box.width && box.top <= 0 && box.bottom >= box.height,
       "the page does not cover the screen: " + JSON.stringify(box));
+    // and it is still the right hand menu, not an overlay: no veil, no round corners, no focus seat of its own
+    const seat = await page.evaluate(() => {
+      const el = document.getElementById("settings");
+      return { veil: !!document.querySelector(".sp-veil"), inVeil: !!el.closest(".sp-veil"),
+               radius: getComputedStyle(el).borderRadius, tabindex: el.getAttribute("tabindex") };
+    });
+    assert.equal(seat.veil, false, "the phone has an overlay veil");
+    assert.equal(seat.inVeil, false, "the phone's page sits in a veil");
+    assert.equal(seat.radius, "0px", "the phone's page has round corners");
+    assert.equal(seat.tabindex, null, "the phone's page took a focus seat");
     const glass = await page.evaluate(() => {
       const style = getComputedStyle(document.getElementById("settings"));
       return { filter: style.backdropFilter, tint: style.backgroundColor, page: document.getElementById("settings").classList.contains("sp-page") };
@@ -451,6 +668,26 @@ test("phone: a pull from the right edge opens the page over the screen with the 
     assert.equal(await shown(page, ".sp-panes"), false, "settings show beside the list on a phone");
     assert.equal(await shown(page, ".sp-back"), false);
     assert.equal(await title(page), "Settings");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("phone: the page still turns between its layouts on the window's width", async () => {
+  const wider = { width: 1100, height: 800, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
+  const { page, problems } = await open("/m", wider);
+  try {
+    await page.evaluate(() => showMenu(settings));
+    await page.waitForSelector("#settings.open", { timeout: 5000 });
+    await settle(700);
+    const box = await cover(page, "#settings");
+    assert.ok(box.left <= 0 && box.right >= box.width && box.top <= 0 && box.bottom >= box.height,
+      "the phone's page does not cover a wider screen: " + JSON.stringify(box));
+    assert.equal(await shown(page, ".sp-panes"), true, "the sections did not stand beside the settings at 1100px");
+    await page.setViewport({ ...wider, width: 900 });
+    await settle(400);
+    assert.equal(await shown(page, ".sp-panes"), false, "the list did not hold at 900px");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
