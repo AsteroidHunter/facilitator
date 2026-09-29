@@ -5519,6 +5519,7 @@ function makeBox(b, i, state){
     // clicking or tabbing into the title starts an inline rename
     titleEl.addEventListener("mousedown", () => editTitle(b.id, { fromClick: true }));
     titleEl.addEventListener("focus", () => { if (!titleEl.isContentEditable) editTitle(b.id); });
+    titleEl.addEventListener("paste", pasteIntoTitle);
     head.appendChild(titleEl);
     const wstat = h("span", "wstat");
     head.appendChild(wstat);
@@ -5799,6 +5800,17 @@ async function newCard(owner){
   localStorage.setItem("focusbox", r.id);
   if (els[r.id]) landFocus();
   else await poll();   // the reading that draws the card lands on it
+}
+
+// a copied line ends in a break that the title's wrapping hides, leaving the caret no spot to draw at
+function pasteIntoTitle(e){
+  if (!e.currentTarget.isContentEditable) return;
+  const words = e.clipboardData && e.clipboardData.getData("text/plain");
+  if (!words) return;
+  e.preventDefault();
+  const line = words.replace(/^\s*[\r\n\u2028\u2029]\s*|\s*[\r\n\u2028\u2029]\s*$/g, "")
+    .replace(/\s*[\r\n\u2028\u2029]\s*/g, " ");
+  if (line) document.execCommand("insertText", false, line);
 }
 
 // editTitle is shared with the phone page in card-logic.js. the desktop's

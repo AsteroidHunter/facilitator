@@ -611,6 +611,169 @@ test("a card with no name shows a name to click, and its title can be typed into
   }
 });
 
+const PASTED_LINE = "Pre-pub: Clean up install, update and uninstall so existing settings survive.";
+const PASTED_MARKUP = "<meta charset='utf-8'><span style=\"color: rgb(20, 20, 20); font-family: Georgia, serif; font-size: 13px; font-style: italic; background-color: rgb(255, 255, 200);\">"
+  + PASTED_LINE + "</span>";
+
+// a real paste; the clipboard may be the machine's, so what was on it is put back
+async function pasteFromClipboard(page, parts) {
+  await browser.defaultBrowserContext().overridePermissions(origin,
+    ["clipboard-read", "clipboard-write", "clipboard-sanitized-write"]);
+  const held = await page.evaluate(async () => {
+    const kept = [];
+    try {
+      for (const item of await navigator.clipboard.read()) {
+        const texts = {};
+        for (const type of item.types) if (type.startsWith("text/")) texts[type] = await (await item.getType(type)).text();
+        if (Object.keys(texts).length) kept.push(texts);
+      }
+    } catch (error) {}
+    return kept;
+  });
+  const put = items => page.evaluate(async list => {
+    await navigator.clipboard.write(list.map(texts => new ClipboardItem(
+      Object.fromEntries(Object.entries(texts).map(([type, text]) => [type, new Blob([text], { type })])))));
+  }, items);
+  try {
+    await put([parts]);
+    await page.keyboard.down("Meta");
+    await page.keyboard.down("KeyV", { commands: ["Paste"] });
+    await page.keyboard.up("KeyV");
+    await page.keyboard.up("Meta");
+    await settle(300);
+  } finally {
+    if (held.length) await put(held);
+  }
+}
+
+// the words before the title's caret, and whether the board's caret bar stands on the last letter
+function titleCaret(page, id) {
+  return page.evaluate(cardId => {
+    const title = els[cardId].titleEl;
+    const selection = getSelection();
+    const range = selection.rangeCount ? selection.getRangeAt(0) : null;
+    if (!range || !range.collapsed || !title.contains(range.startContainer)) return { inTitle: false };
+    const before = document.createRange();
+    before.selectNodeContents(title);
+    before.setEnd(range.startContainer, range.startOffset);
+    let last = null;
+    const walk = document.createTreeWalker(title, NodeFilter.SHOW_TEXT);
+    for (let node = walk.nextNode(); node; node = walk.nextNode()) if (/\S/.test(node.data)) last = node;
+    let letter = null;
+    if (last) {
+      let end = last.data.length;
+      while (end > 0 && /\s/.test(last.data[end - 1])) end--;
+      const glyph = document.createRange();
+      glyph.setStart(last, end - 1);
+      glyph.setEnd(last, end);
+      letter = glyph.getBoundingClientRect();
+    }
+    const bar = document.getElementById("fatcaret");
+    const drawn = bar.getBoundingClientRect();
+    return {
+      inTitle: true,
+      wordsBefore: before.toString(),
+      drawn: bar.classList.contains("on"),
+      onLastLetter: !!letter && Math.abs(drawn.left - letter.right) < 3 &&
+        drawn.top > letter.top - 4 && drawn.bottom < letter.bottom + 4,
+    };
+  }, id);
+}
+
+function titleLook(page, id) {
+  return page.evaluate(cardId => {
+    const title = els[cardId].titleEl;
+    const style = getComputedStyle(title);
+    return {
+      words: title.textContent,
+      pieces: title.childNodes.length,
+      markup: title.children.length,
+      look: [style.fontFamily, style.fontSize, style.fontWeight, style.fontStyle, style.color, style.backgroundColor].join("|"),
+    };
+  }, id);
+}
+
+async function assertCaretAfter(page, id, words, where) {
+  const caret = await titleCaret(page, id);
+  assert.equal(caret.inTitle, true, `${where}: the caret is not in the title`);
+  assert.equal(caret.wordsBefore, words, `${where}: the caret is not after the last pasted letter`);
+  assert.equal(caret.drawn, true, `${where}: the board draws no caret`);
+  assert.equal(caret.onLastLetter, true, `${where}: the caret is drawn away from the last letter`);
+}
+
+// a copied line ends in a break, and a page copied from brings its own font
+test("a line pasted into a new card's title is plain, and the caret and typing carry on after it", async () => {
+  await clearLane();
+  const cases = [
+    { name: "a copied line with its markup", click: false, typed: "", parts: { "text/html": PASTED_MARKUP + "<br>", "text/plain": PASTED_LINE + "\n" } },
+    { name: "a copied line after a click into the title", click: true, typed: "", parts: { "text/plain": PASTED_LINE + "\n" } },
+    { name: "plain words with no break", click: true, typed: "", parts: { "text/plain": PASTED_LINE } },
+    { name: "a copied line after some typing", click: true, typed: "A ", parts: { "text/html": PASTED_MARKUP, "text/plain": PASTED_LINE + "\n" } },
+  ];
+  for (const c of cases) {
+    const { page, problems } = await openDesktop();
+    try {
+      const created = page.waitForResponse(response => new URL(response.url()).pathname === "/create");
+      await chord(page, "t", "Meta");
+      const madeId = (await (await created).json()).id;
+      await page.waitForFunction(id => selectedId === id && document.querySelector(`#box-${id}.sel .title`)?.isContentEditable,
+        { timeout: 3000 }, madeId);
+      if (c.click) await page.click(`#box-${madeId}.sel .title`);
+      if (c.typed) await page.keyboard.type(c.typed);
+      const plain = await titleLook(page, madeId);
+      await pasteFromClipboard(page, c.parts);
+      const words = c.typed + PASTED_LINE;
+      const pasted = await titleLook(page, madeId);
+      assert.equal(pasted.words, words, `${c.name}: the title is not the pasted line alone`);
+      assert.equal(pasted.markup, 0, `${c.name}: the paste brought markup into the title`);
+      assert.equal(pasted.pieces, 1, `${c.name}: the paste split the title into pieces`);
+      assert.equal(pasted.look, plain.look, `${c.name}: the pasted words are not in the title's own font`);
+      await assertCaretAfter(page, madeId, words, `${c.name}, after the paste`);
+      await settle(3200);   // the board's readings come in twice inside this
+      await assertCaretAfter(page, madeId, words, `${c.name}, after the board's readings`);
+      await page.keyboard.type("!");
+      await settle(120);
+      await assertCaretAfter(page, madeId, words + "!", `${c.name}, after typing`);
+      await page.keyboard.press("Enter");
+      await page.waitForFunction((id, title) => lastState?.boxes.find(box => box.id === id)?.title === title,
+        { timeout: 3000 }, madeId, words + "!");
+      assert.equal((await savedBox(madeId)).title, words + "!", `${c.name}: the saved title is not the pasted line`);
+      const row = await page.evaluate(id => document.querySelector(`#tiklist .trow[data-id="${id}"]`)?.textContent || "", madeId);
+      assert.ok(row.includes(words + "!"), `${c.name}: the list row does not show the pasted title`);
+      assert.deepEqual(problems, []);
+    } finally {
+      await page.close();
+    }
+  }
+});
+
+test("a line pasted into a named title goes in at the caret, and clicking away saves it", async () => {
+  await clearLane();
+  const madeId = await create("A");
+  const { page, problems } = await openDesktop();
+  try {
+    await selectDesktop(page, madeId);
+    await page.click(`#box-${madeId}.sel .title`);
+    await page.waitForFunction(id => els[id].titleEl.isContentEditable && document.activeElement === els[id].titleEl,
+      { timeout: 3000 }, madeId);
+    await page.keyboard.press("End");
+    await page.keyboard.type(" ");
+    await pasteFromClipboard(page, { "text/html": PASTED_MARKUP, "text/plain": PASTED_LINE + "\n" });
+    const words = "A " + PASTED_LINE;
+    const pasted = await titleLook(page, madeId);
+    assert.equal(pasted.words, words, "the title is not the old name and the pasted line");
+    assert.equal(pasted.markup, 0, "the paste brought markup into the title");
+    await assertCaretAfter(page, madeId, words, "named title, after the paste");
+    await page.mouse.click(DESKTOP.width - 10, DESKTOP.height / 2);
+    await page.waitForFunction((id, title) => lastState?.boxes.find(box => box.id === id)?.title === title,
+      { timeout: 3000 }, madeId, words);
+    assert.equal((await savedBox(madeId)).title, words);
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
 test("escape puts the caret out of the row and leaves the words in it", async () => {
   await clearLane();
   const id = await create("Escape on the phone");
