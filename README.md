@@ -27,7 +27,7 @@ The bundled CodeMirror editor (`cm-markdown.js`) is included under its own MIT l
 
 ## Attachments
 
-Card and chat composers accept files from the attach button, drag and drop, or a clipboard that provides files. The document page's existing drop path accepts the same types. Each file can be at most 100 MiB. Unsupported, empty and oversized files show a message. Uploads keep their original bytes and add a local `/uploads/...` address to the message.
+Card and chat composers accept files from the attach button, drag and drop, or a clipboard that provides files. The document page's existing drop path accepts the same types. Each file can be at most 100 MiB. Unsupported, empty and oversized files show a message. Uploads keep their original bytes and add a local `/uploads/...` address to the message. On the phone, picked files wait in a tray over the typing row, showing their upload's progress, and their addresses join the message when it is sent; an upload that does not get through is tried again on its own. An upload may take as long as it needs while its bytes keep arriving; it is cut after a minute with nothing arriving, or an hour in all.
 
 | Files | Extensions | Content types |
 | --- | --- | --- |
@@ -37,7 +37,7 @@ Card and chat composers accept files from the attach button, drag and drop, or a
 | PDF | `.pdf` | `application/pdf` |
 | Word | `.doc`, `.docx` | `application/msword`, `application/vnd.openxmlformats-officedocument.wordprocessingml.document` |
 
-A recognized extension is required. A file without an extension can use one of the listed MIME types; the client adds its extension. `audio/x-wav` and `audio/x-m4a` are also recognized for extensionless clipboard files.
+A recognized extension is required. A file without an extension can use one of the listed MIME types; the client adds its extension. `audio/x-wav` and `audio/x-m4a` are also recognized for extensionless clipboard files. The file's first bytes must also be the kind its extension names, so a page renamed `.png` is refused, and an SVG that carries script is refused. Stored files are readable by their owner only.
 
 Images retain their existing display. Audio and video have controls without autoplay, and every media or document attachment has its filename plus Open and Download links. Playback depends on the browser's codec support, which the file extension alone cannot guarantee. Unsupported codecs can still be downloaded. PDF viewing depends on the browser; Word files download for opening in a compatible app. Files are not converted. Lane panel images remain image-only.
 
