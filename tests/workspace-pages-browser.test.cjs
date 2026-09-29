@@ -113,7 +113,7 @@ function pillShape(page) {
         current: d.getAttribute("aria-current"),
       })),
       centre: Math.round(box.left + box.width / 2),
-      window: innerWidth,
+      frameMid: (() => { const f = document.getElementById("appframe").getBoundingClientRect(); return f.left + f.width / 2; })(),
       blank: document.body.classList.contains("pageblank"),
       stage: getComputedStyle(document.getElementById("stage")).visibility,
     };
@@ -265,7 +265,7 @@ test("the retained page controls open on one page, with the plus on the pill's l
     assert.equal(shape.dots[0].on, true, "the one page is not marked as the one being looked at");
     assert.equal(shape.dots[0].current, "page");
     assert.ok(shape.firstLeft < shape.dots[0].left, "the plus is not to the left of the dot");
-    assert.ok(Math.abs(shape.centre - shape.window / 2) <= 2, "the pill is not centred");
+    assert.ok(Math.abs(shape.centre - shape.frameMid) <= 2, "the pill is not centred");
     assert.equal(shape.blank, false);
     assert.equal(shape.stage, "visible", "the board is not showing on the board page");
     assert.deepEqual(problems, []);
@@ -697,12 +697,13 @@ test("the pill keeps its seat, clear of the rail, at a normal and a narrow windo
         const pill = document.getElementById("pagepill").getBoundingClientRect();
         const rail = document.getElementById("rail").getBoundingClientRect();
         const card = document.querySelector("main").getBoundingClientRect();
+        const frame = document.getElementById("appframe").getBoundingClientRect();
         const overlaps = other => pill.right > other.left && pill.left < other.right &&
                                   pill.bottom > other.top && pill.top < other.bottom;
         return {
           onScreen: pill.top >= 0 && pill.bottom <= innerHeight &&
                     pill.left >= 0 && pill.right <= innerWidth,
-          centred: Math.abs((pill.left + pill.width / 2) - innerWidth / 2) <= 2,
+          centred: Math.abs((pill.left + pill.width / 2) - (frame.left + frame.width / 2)) <= 2,
           onRail: overlaps(rail), onCard: overlaps(card),
         };
       });

@@ -26,6 +26,15 @@
     }
   })();
 </script>
+<script>
+  // restore the toolbar's open panel before the first paint
+  (function(){
+    try {
+      var tool = localStorage.getItem("railtool");
+      if (tool) document.documentElement.dataset.rail = tool;
+    } catch (e) {}
+  })();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -151,7 +160,8 @@
      right; first in the bar, so every tab paints over it */
   body.focus .bar::before{
     content:""; position:absolute; pointer-events:none;
-    top:calc(var(--bar-h) - 1px - var(--edge-drawn)); left:0; right:0; height:8px;
+    top:calc(var(--bar-h) - 1px - var(--edge-drawn)); left:0;
+    right:calc(var(--ws-r) - var(--app-inset)); height:8px;
     border:var(--edge) solid var(--line); border-bottom:none;
     border-radius:7px 7px 0 0;
     clip-path:inset(0 0 7px 0);
@@ -166,7 +176,7 @@
        drawn width, so the line takes the bottom of the row, where the tab's
        foot and its notches land */
     top:calc(var(--app-inset) + var(--bar-h) - 1px - var(--edge-drawn));
-    left:var(--app-inset); right:var(--app-inset); bottom:var(--app-inset);
+    left:var(--app-inset); right:var(--ws-r); bottom:var(--app-inset);
     /* one closed rounded rectangle, all four sides and all four corners: a
        corner needs both of its edges to turn into, and rounding a box with no
        top left the arcs hooking into nothing */
@@ -176,6 +186,48 @@
        seated tab's mouth and shut it: that was the bar seen under the tab */
     pointer-events:none; z-index:9;
   }
+
+  /* ---- the right toolbar -------------------------------------------------
+     the right margin is --tb-w thick and holds the tool buttons. an open panel
+     moves the frame's right edge (--ws-r) inward by --rail-x, one transitioned
+     length that the frame, the panel and the centred pages all read.
+     --panel-w is the panel's width */
+  @property --rail-x{syntax:"<length>"; inherits:true; initial-value:0px}
+  :root{
+    --tb-w:34px; --panel-w:400px; --rail-move:.33s;
+    --ws-r:calc(var(--tb-w) + var(--rail-x));
+    --ws-mid:calc((var(--app-inset) + 100vw - var(--ws-r)) / 2);
+    transition:--rail-x var(--rail-move) var(--gentle);
+  }
+  html[data-rail]{--rail-x:calc(var(--panel-w) + var(--app-inset))}
+  #toolbar, #railpanel{display:none}
+  body.focus #toolbar{
+    display:flex; flex-direction:column; align-items:center; gap:8px;
+    position:fixed; z-index:11; right:0; width:var(--tb-w);
+    top:calc(var(--app-inset) + var(--bar-h) + 10px);
+  }
+  /* dressed like the gear and the pen; the pointer may land a little outside */
+  .tool{position:relative; display:flex; align-items:center; padding:2px; border:none;
+    background:none; color:var(--sub); cursor:pointer; transition:color .2s}
+  .tool::after{content:""; position:absolute; inset:-4px}
+  .tool:hover, .tool.on{color:var(--accent)}
+  body.focus #railpanel{
+    display:block; position:fixed; z-index:11; overflow:hidden;
+    top:calc(var(--app-inset) + var(--bar-h) - 1px - var(--edge-drawn));
+    bottom:var(--app-inset); right:var(--tb-w);
+    width:max(0px, calc(var(--rail-x) - var(--app-inset)));
+    border-radius:7px;
+    opacity:0; visibility:hidden;
+    transition:opacity calc(var(--rail-move) / 2) var(--gentle), visibility 0s linear var(--rail-move);
+  }
+  html[data-rail] body.focus #railpanel{
+    opacity:1; visibility:visible;
+    transition:opacity calc(var(--rail-move) / 2) var(--gentle), visibility 0s;
+  }
+  /* a tool's room keeps the full width while the panel opens, so it never reflows */
+  #railpanel > [data-tool]{position:absolute; top:0; right:0; bottom:0;
+    width:var(--panel-w); outline:none}
+  @media (prefers-reduced-motion: reduce){ :root{--rail-move:0s} }
 
   /* ---- layout ----------------------------------------------------------- */
   main{max-width:700px; margin:0 auto; padding:26px 18px 30vh}
@@ -2614,7 +2666,7 @@
     display:flex; align-items:center; justify-content:center;
   }
   body.focus #respnav:hover{border-color:var(--ink)}
-  body.focus #respnav.toright{right:10px}
+  body.focus #respnav.toright{right:calc(var(--ws-r) + 4px)}
   body.focus #respnav.toleft{left:10px}
 
   /* ---- portrait phone-style view ---------------------------------------- */
@@ -2646,7 +2698,8 @@
        paper gap that seats the card inside the boundary line */
     --port-inset:calc(var(--app-inset) * 2);
     position:fixed !important;
-    left:var(--port-inset) !important; right:var(--port-inset) !important;
+    left:var(--port-inset) !important;
+    right:calc(var(--ws-r) + var(--app-inset)) !important;
     bottom:var(--port-inset) !important;
     top:calc(var(--app-inset) + var(--bar-h) - 2px + var(--app-inset)) !important;
     width:auto !important; height:auto !important; max-height:none !important;
@@ -2715,7 +2768,7 @@
        a dot growing in has to cancel it, and a flex gap cannot be animated */
     --mark:7px; --pillgap:6px;
     align-items:center; gap:var(--pillgap);
-    position:fixed; left:50%; transform:translateX(-50%); bottom:8px; z-index:12;
+    position:fixed; left:var(--ws-mid); transform:translateX(-50%); bottom:8px; z-index:12;
     padding:3px 7px;
     /* the workspace's own corner, the 7px #appframe turns: a small rounded
        rectangle standing on the paper rather than a capsule */
@@ -3172,7 +3225,7 @@
     #magic4, #goalbox, #rail, #taskchip){display:none !important}
   body.choosing #newproj{
     display:flex; flex-direction:column; align-items:center; position:fixed;
-    z-index:5; left:50%; top:calc(41px + (100vh - 41px)*.44);
+    z-index:5; left:var(--ws-mid); top:calc(41px + (100vh - 41px)*.44);
     transform:translate(-50%,-50%);
   }
   #nphome{display:flex; flex-direction:column; align-items:center;
@@ -3316,7 +3369,7 @@
      window only narrows the view onto them. its top never rises into the bar,
      162px being half the box and 16 to spare */
   #home{display:none}
-  body.focus.home #home{display:block; position:fixed; z-index:5; left:50%;
+  body.focus.home #home{display:block; position:fixed; z-index:5; left:var(--ws-mid);
     top:max(calc(var(--bar-h) + (100vh - var(--bar-h)) * .44), calc(var(--bar-h) + 162px));
     transform:translate(-50%, -50%); width:min(582px, calc(100vw - 64px))}
   body.focus.home #stage{visibility:hidden; opacity:0; pointer-events:none}
@@ -3500,6 +3553,13 @@
 </div>
 
 <div id="appframe" aria-hidden="true"></div>
+
+<div id="toolbar">
+  <button class="tool" id="tool-notes" data-tool="notes" type="button" aria-controls="railpanel" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z"/><path d="M15 3v4a2 2 0 0 0 2 2h4"/></svg></button>
+</div>
+<div id="railpanel" class="qn-glass">
+  <div id="railnotes" data-tool="notes" tabindex="-1" hidden></div>
+</div>
 
 <div id="offline"></div>
 <nav id="toc"></nav>
@@ -9745,6 +9805,15 @@ function frameLimits(){
   return { left, right, bottom };
 }
 
+// the width the board fits into: the frame's right edge plus the plain inset,
+// so the toolbar's margin and an open panel both narrow it
+function workWidth(){
+  const frame = document.getElementById("appframe");
+  const fr = frame && frame.getBoundingClientRect();
+  if (!fr || fr.width < 1) return innerWidth;
+  return fr.right + parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--app-inset"));
+}
+
 // per project, which pane the two-pane view is showing. It is deliberately kept
 // apart from the saved layout keys: it is a view offset, not an arrangement, so
 // it never rewrites where a region lives.
@@ -9766,6 +9835,7 @@ function fitStage(){
   // fit inside the rounded app frame, not the raw window: the frame is inset from
   // every edge, so a region fitted to the window bottom lands past the frame line.
   const lim = frameLimits();
+  const workW = workWidth();   // the window's width as the frame's right edge leaves it
   const availH = lim.bottom - STAGE_BAR;   // room from the stage top to the frame's inner foot
   const availW = lim.right - lim.left;     // room across the frame's inner width
   // measure the real content extent with the card's foot-clearance clamp lifted,
@@ -9797,9 +9867,9 @@ function fitStage(){
   const aspectGate = PORTRAIT_ASPECT + (prev === "portrait" ? -0.06 : 0.06);
   const portraitW = leftMid.right * (PORTRAIT_FLOOR + (prev === "portrait" ? -MODE_HYST : MODE_HYST));
   const wideW = all.right * (WIDE_FLOOR + (prev === "wide" ? -MODE_HYST : MODE_HYST));
-  if (innerHeight > innerWidth * aspectGate || innerWidth < portraitW){
+  if (innerHeight > workW * aspectGate || workW < portraitW){
     respMode = "portrait";
-  } else if (respHasRight && innerWidth < wideW){
+  } else if (respHasRight && workW < wideW){
     respMode = "twopane";
   } else {
     respMode = "wide";
@@ -9836,13 +9906,13 @@ function fitStage(){
     // near 6:5: keep the left plus middle group readable at a height-based scale
     // and expose a window over the same stage; the arrow pans it left or right.
     // Positions are never touched; this is purely a view transform.
-    scale = Math.min(1, innerWidth / leftMid.right, heightScale);
+    scale = Math.min(1, workW / leftMid.right, heightScale);
     ty = Math.max(0, Math.min((availH - STAGE_H * scale) / 2, availH - all.bottom * scale));
     const pane = respHasRight ? getPane() : 0;
     // pane 0 shows the left plus middle from the left edge; pane 1 pans left so
     // the true right edge of the board sits at the window's right edge, which
     // keeps the conversation in the middle visible in both panes.
-    tx = pane === 1 ? Math.min(0, innerWidth - all.right * scale) : 0;
+    tx = pane === 1 ? Math.min(0, workW - all.right * scale) : 0;
   } else {
     // wide landscape: one uniform scale that fits the whole visible board inside
     // the usable window, never enlarged past 1:1. Fitting the actual content, not
@@ -9854,7 +9924,7 @@ function fitStage(){
     // frame's inner bottom and the right edge is clamped to the frame too. Keep
     // the original zero translation floor so already-fitting content retains its
     // horizontal position instead of shifting by the frame inset.
-    tx = Math.max(0, Math.min((innerWidth - STAGE_W * scale) / 2, lim.right - all.right * scale));
+    tx = Math.max(0, Math.min((workW - STAGE_W * scale) / 2, lim.right - all.right * scale));
     ty = Math.max(0, Math.min((availH - STAGE_H * scale) / 2, availH - all.bottom * scale));
   }
   stageScale = scale; stageTx = tx; stageTy = ty;
@@ -9996,6 +10066,61 @@ try {
   if (fsq.addEventListener) fsq.addEventListener("change", onFs);
   else if (fsq.addListener) fsq.addListener(onFs);
 } catch (e) {}
+
+// ---- the right toolbar ---------------------------------------------------------
+// railTool.open("notes") opens a tool's panel and focuses its room, close()
+// shuts it; the room to fill is the data-tool element inside #railpanel
+const RAIL_KEY = "railtool";
+const railRoot = document.documentElement;
+const railPanel = document.getElementById("railpanel");
+const railButtons = [...document.querySelectorAll("#toolbar .tool")];
+const railRoom = tool => [...railPanel.children].find(p => p.dataset.tool === tool);
+function railCurrent(){ return railRoot.dataset.rail || ""; }
+function railSet(tool){
+  if (tool && !railRoom(tool)) tool = "";
+  if (tool){
+    railRoot.dataset.rail = tool;
+    for (const p of railPanel.children) p.hidden = p.dataset.tool !== tool;
+  } else delete railRoot.dataset.rail;
+  try { if (tool) localStorage.setItem(RAIL_KEY, tool); else localStorage.removeItem(RAIL_KEY); } catch (e) {}
+  for (const b of railButtons){
+    const on = b.dataset.tool === tool;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-expanded", on ? "true" : "false");
+  }
+}
+const railTool = {
+  open(tool){ railSet(tool); const room = railRoom(railCurrent()); if (room) room.focus({ preventScroll: true }); },
+  close(){
+    const was = railCurrent();
+    railSet("");
+    railButtons.find(b => b.dataset.tool === was)?.focus({ preventScroll: true });
+  },
+  toggle(tool){ if (railCurrent() === tool) railTool.close(); else railTool.open(tool); },
+  get current(){ return railCurrent(); },
+};
+window.railTool = railTool;
+railSet(railCurrent());   // draw the state the page was restored to
+for (const b of railButtons) b.addEventListener("click", () => railTool.toggle(b.dataset.tool));
+// Escape shuts the panel unless an inner handler already answered the key
+for (const el of [railPanel, document.getElementById("toolbar")]){
+  el.addEventListener("keydown", e => {
+    if (e.key !== "Escape" || e.defaultPrevented || e.isComposing || !railCurrent()) return;
+    e.preventDefault();
+    railTool.close();
+  });
+}
+// refit on every frame the frame's width changes; height-only changes stay frozen
+if (FOCUS && window.ResizeObserver){
+  let railSeenW = null;
+  new ResizeObserver(entries => {
+    const w = entries[0].contentRect.width;
+    const first = railSeenW === null;
+    if (!first && Math.abs(w - railSeenW) < 0.01) return;
+    railSeenW = w;
+    if (!first) fitStage();
+  }).observe(document.getElementById("appframe"));
+}
 
 // ---- the right composer --------------------------------------------------------
 // two composers and one draft. the bar under the answer is the default; the
