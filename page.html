@@ -177,7 +177,7 @@
        border:var(--edge) solid var(--line); border-radius:6px; padding:2px 7px; flex:none}
   .title{font:500 17.5px/1.25 var(--serif); flex:1; min-width:0}
   .title[contenteditable]{outline:none}
-  .title[contenteditable]:empty::before{content:"Chat Name"; color:var(--line-strong)}
+  .title[contenteditable]:empty::before{content:"Card Name"; color:var(--bubble-fill, #F3F3F3)}
   .donebtn, .parkbtn{
     flex:none; font:12px var(--mono); color:var(--sub); background:none; cursor:pointer;
     border:var(--edge) solid var(--line); border-radius:99px; padding:3px 11px; transition:.2s;
@@ -1140,7 +1140,7 @@
   .doctask:empty::before{content:"Task"; color:var(--line-strong)}
   .doctitle{font:700 30px/1.25 var(--inter); font-style:normal;
     letter-spacing:.005em; color:var(--ink); outline:none; cursor:text}
-  .doctitle:empty::before{content:"Chat Name"; color:var(--line-strong)}
+  .doctitle:empty::before{content:"Card Name"; color:var(--bubble-fill, #F3F3F3)}
   .docpath{margin-top:3px; font:11.5px var(--mono); color:#B4AA99;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   /* your own unanswered message keeps the board's right-hand voice */
