@@ -309,7 +309,7 @@ function openPage(opts = {}){
     opts.note ? KEYS[0] : "",
     RIGHT,
     opts.note ? NOTE : "",
-    "globalThis.page = { els, xc, xcSwitch, switchComposer, xcSync, xcPlace,",
+    "globalThis.page = { els, xc, switchComposer, xcSync, xcPlace,",
     opts.note ? "  quickNote, qnPeek," : "",
     "  get xcRoom(){ return xcRoom; }, get snaps(){ return snaps; }, get polls(){ return polls; },",
     "  set selectedId(v){ selectedId = v; }, set respMode(v){ respMode = v; },",
@@ -390,14 +390,6 @@ const sends = p => p.calls.filter(c => c.url.startsWith("/send"));
 const landRun = el => el.bottombar.dispatchEvent({ type: "transitionend", propertyName: "height",
   target: el.bottombar, preventDefault(){}, stopPropagation(){} });
 const near = (a, b, what) => assert.ok(Math.abs(a - b) < 1e-6, what + ": " + a + " is not " + b);
-// the switch's box in the window, from where the page seated it on the stage
-function switchRect(p, S = 1){
-  const st = p.page.xcSwitch.style, sr = p.stage.rect;
-  const left = sr.left + parseFloat(st.left) * S;
-  const bottom = sr.top + (900 - parseFloat(st.bottom)) * S;
-  return { left, right: left + parseFloat(st.width) * S,
-           top: bottom - parseFloat(st.height) * S, bottom };
-}
 
 // ---- the sheet, read as text -------------------------------------------------------
 const rule = selector => {
@@ -408,23 +400,30 @@ const rule = selector => {
 
 // ---- the tests -----------------------------------------------------------------------
 
-test("the switch opens the box on the right and puts it away, and a reload keeps the choice", async () => {
+test("no button on the card opens the composer on the right", () => {
+  assert.doesNotMatch(HTML, /xcswitch/i, "the page still names the button");
+  const p = openPage();
+  p.fit();
+  addCard(p, "m30");
+  choose(p, "m30");
+  assert.equal(p.dom.doc.getElementById("xcswitch"), null, "the button is on the page");
+  assert.deepEqual(p.stage.children.filter(n => n.tagName && n.tagName.toLowerCase() === "button"), [],
+    "a button stands on the stage");
+  assert.equal(p.page.xc.root.classes.has("open"), false, "the box opened by itself");
+});
+
+test("switchComposer opens the box on the right and puts it away, and a reload keeps the choice", async () => {
   const p = openPage();
   p.fit();
   addCard(p, "m31");
   choose(p, "m31");
   const { page } = p;
-  const sw = page.xcSwitch, root = page.xc.root;
-  assert.equal(sw.parentNode, p.stage, "the switch does not stand on the stage with the card");
+  const root = page.xc.root;
   assert.equal(root.parentNode, p.stage, "the box does not stand on the stage");
   assert.equal(page.xcRoom, true, "the default card left no room right of it");
-  assert.equal(sw.hidden, false);
-  assert.equal(sw.getAttribute("aria-pressed"), "false");
   assert.equal(root.classes.has("open"), false, "the box was out before it was asked for");
-  // the press
-  p.dom.fire(sw, "click");
+  page.switchComposer("right");
   assert.equal(p.store.getItem("composer.right"), "1", "the choice was not kept");
-  assert.equal(sw.getAttribute("aria-pressed"), "true");
   assert.equal(root.classes.has("open"), true, "the box did not open");
   assert.equal(root.getAttribute("aria-hidden"), "false");
   assert.equal(page.xc.host, "m31");
@@ -435,19 +434,17 @@ test("the switch opens the box on the right and puts it away, and a reload keeps
   choose(q, "m31");
   assert.equal(q.page.xc.root.classes.has("open"), true, "a reload lost the choice");
   assert.equal(q.page.xc.host, "m31");
-  assert.equal(q.page.xcSwitch.getAttribute("aria-pressed"), "true");
   assert.ok(q.page.xc.root.classLog.includes("+still"), "a reload swung the box in instead of standing it there");
   assert.equal(card.box.classes.has("xcaway"), true, "a reload left the bar under the answer");
   assert.deepEqual(card.bottombar.style.heights, [], "a reload ran the bar");
-  // and the press again puts it away and forgets the choice
-  p.dom.fire(sw, "click");
+  // and the call again puts it away and forgets the choice
+  page.switchComposer();
   assert.equal(p.store.getItem("composer.right"), null);
   assert.equal(root.classes.has("open"), false, "the box stayed out");
   assert.equal(page.xc.host, null);
-  assert.equal(sw.getAttribute("aria-pressed"), "false");
 });
 
-test("switchComposer is the one call a key can make, and names either side", async () => {
+test("switchComposer names either side, and nothing on the page calls it", async () => {
   const p = openPage();
   p.fit();
   addCard(p, "m32");
@@ -458,14 +455,12 @@ test("switchComposer is the one call a key can make, and names either side", asy
   assert.equal(p.page.switchComposer(), false, "with no side named it did not flip back");
   assert.equal(p.page.xc.host, null);
   assert.equal(p.page.switchComposer("bar"), false);
-  // no key is bound for it yet: the shared key table does not name it, and the
-  // switch's own press is the one place the page calls it
+  // no key and no button is bound to it: the shared key table does not name
+  // it, and the page does not call it
   assert.doesNotMatch(LOGIC, /switchComposer/, "a key already calls it");
   const calls = HTML.split("\n").filter(line => /switchComposer\(/.test(line) &&
     !/^\s*\/\//.test(line) && !/function switchComposer\(/.test(line));
-  assert.deepEqual(calls.map(s => s.trim()),
-    ['xcSwitch.addEventListener("click", () => { if (xcRoom) switchComposer(); });'],
-    "switchComposer is called from somewhere besides the switch");
+  assert.deepEqual(calls.map(s => s.trim()), [], "something on the page calls switchComposer");
 });
 
 test("the draft crosses both ways: words, caret, a pick and the markdown the formatting is drawn from", async () => {
@@ -712,11 +707,11 @@ test("reduced motion: the box stands in and the bar steps aside at once", async 
   assert.equal(card.box.classes.has("xcaway"), false);
   assert.deepEqual(card.bottombar.style.heights, []);
   assert.equal(card.bar.ta.value, "still words");
-  // and the sheet takes every run away under reduced motion: the swing, the
-  // button's press and the bar's run
-  const quiet = HTML.slice(HTML.indexOf("  body:is([data-resp-mode=\"portrait\"], [data-resp-mode=\"twopane\"]) :is(#xcswitch, #xcomposer)"));
+  // and the sheet takes every run away under reduced motion: the swing and the
+  // bar's run
+  const quiet = HTML.slice(HTML.indexOf("  body:is([data-resp-mode=\"portrait\"], [data-resp-mode=\"twopane\"]) #xcomposer"));
   const block = between(quiet, "@media (prefers-reduced-motion: reduce){", "\n  }\n");
-  assert.match(block, /body\.focus #xcomposer, body\.focus #xcswitch,\s*body\.focus \.box\.sel \.bottombar\.xcrun\{transition:none\}/);
+  assert.match(block, /body\.focus #xcomposer,\s*body\.focus \.box\.sel \.bottombar\.xcrun\{transition:none\}/);
 });
 
 // a list of values split on its own commas and not on those inside brackets,
@@ -785,12 +780,12 @@ test("the box hangs from an arm on a pivot at the card's edge, and at rest the c
                 bottom: 900 - parseFloat(st.bottom) };
   box.top = box.bottom - 12 * cell;
   // the pivot, seen from the box's left edge and foot, is two cells left and
-  // the rest of the box's lift below: on the card's right edge at the switch's foot
+  // the rest of the box's lift below: on the card's right edge at the bar's foot
   near(parseFloat(st.getPropertyValue("--xc-pivot-x")), -2 * cell, "the pivot's reach");
   near(parseFloat(st.getPropertyValue("--xc-pivot-y")), 5 * cell - 20.6, "the pivot's drop");
   const pivot = { x: box.left - 2 * cell, y: box.bottom + 5 * cell - 20.6 };
   near(pivot.x, 996.48, "the pivot is not on the card's right edge");
-  near(pivot.y + 41, switchRect(p).bottom, "the pivot is not at the switch's foot");
+  near(pivot.y + 41, p.page.els.m53.bottombar.getBoundingClientRect().bottom, "the pivot is not at the bar's foot");
   // the arm: part of the assembly, drawn under the box, from just under the
   // card's edge to the box's foot a quarter of the way along it, in the edge ink
   const arm = p.page.xc.arm;
@@ -826,44 +821,12 @@ test("the box hangs from an arm on a pivot at the card's edge, and at rest the c
   }
   // and the angle is not idle: at 80 degrees the box's far corner would show
   assert.ok(turned(parts[2], -80 * Math.PI / 180).x > card.right, "a smaller tuck would already hide the box");
-  // the card stands over the box and the button over the card: the box keeps
-  // the stage's own level after every box on it, the card is one step up, the
-  // button two
+  // the card stands over the box: the box keeps the stage's own level after
+  // every box on it, and the card is one step up
   assert.doesNotMatch(rule("  body.focus #xcomposer"), /z-index/, "the box does not keep the stage's own level");
   assert.match(rule("  body.focus main"), /z-index:1;/, "the card does not stand over the box");
-  assert.match(rule("  body.focus #xcswitch"), /z-index:2;/, "the button is not on the card");
   assert.ok(p.stage.children.indexOf(p.page.xc.root) > p.stage.children.indexOf(p.main),
     "the box does not come after the card's neighbours on the stage");
-});
-
-test("the button is built into the card: raised at rest, pressed in when pressed or latched, no drop shadow, a focus ring", () => {
-  const sw = rule("  body.focus #xcswitch");
-  // the card's edge ink on all four sides, the right one lying on the card's
-  // own edge; rounded only on the two corners inside the card
-  assert.match(sw, /border:var\(--edge\) solid var\(--line\); border-radius:var\(--sq\) 0 0 var\(--sq\);/);
-  // raised: the card's white falling off toward its foot, a light line on top
-  // and a shaded one along the foot, all drawn inside it: no drop shadow
-  assert.match(sw, /background:linear-gradient\(to bottom, var\(--card\), color-mix\(in srgb, #000 4%, var\(--card\)\)\);/);
-  const shadows = topLevel(/box-shadow:([^;]+);/.exec(sw)[1]);
-  assert.ok(shadows.length >= 2 && shadows.every(s => s.startsWith("inset")), "the button casts a shadow: " + shadows);
-  // pressed, and latched while the box is chosen: the board's press seat
-  const pressed = rule('  body.focus #xcswitch:not([aria-disabled="true"]):active,\n  body.focus #xcswitch[aria-pressed="true"]');
-  assert.match(pressed, /background:color-mix\(in srgb, #000 var\(--press\), var\(--paper\)\); box-shadow:var\(--sunk-deep\);/);
-  const TOKENS = readFileSync(path.join(ROOT, "card-tokens.css"), "utf8");
-  assert.match(TOKENS, /--sunk-deep:inset [^;]*inset [^;]*;/, "the press seat is not an inset");
-  assert.match(sw, /transition:box-shadow \.11s var\(--gentle\);/, "the press is not the plus's own 110ms");
-  assert.match(rule("  body.focus #xcswitch:focus-visible"), /outline:2px solid var\(--accent\); outline-offset:2px/);
-  assert.match(rule('  body.focus #xcswitch[aria-disabled="true"]'), /opacity:var\(--chipoff\)/);
-  // and the page latches it: pressed while the box is chosen, up again after
-  const p = openPage();
-  p.fit();
-  addCard(p, "m54");
-  choose(p, "m54");
-  assert.equal(p.page.xcSwitch.getAttribute("aria-pressed"), "false");
-  p.dom.fire(p.page.xcSwitch, "click");
-  assert.equal(p.page.xcSwitch.getAttribute("aria-pressed"), "true", "the button did not stay down");
-  p.dom.fire(p.page.xcSwitch, "click");
-  assert.equal(p.page.xcSwitch.getAttribute("aria-pressed"), "false", "the button did not come back up");
 });
 
 test("the box wears the card's own look: white, the edge, the 7px corner, the raised shadow, the bar's type", () => {
@@ -907,7 +870,7 @@ test("the box stands off the card inside the frame, on the stage's own pixels", 
   assert.equal(q.page.xcRoom, true);
 });
 
-test("the owner's layout: the box fits beside the card, over the navigator, clear of the frame and the switch", () => {
+test("the owner's layout: the box fits beside the card, over the navigator and clear of the frame", () => {
   // read off the owner's screenshot of the facilitator tab (September 22, a
   // 1509 by 943 window): the card from 420 to 925 across and 123 to 847 down,
   // the file navigator filling the right from 973 to 1466. the scale and the
@@ -930,16 +893,6 @@ test("the owner's layout: the box fits beside the card, over the navigator, clea
   const lim = { right: 1503 - 1 - 16, bottom: 937 - 1 - 16 };
   assert.ok(right <= lim.right, "the box runs past the frame's clear edge");
   assert.ok(foot <= lim.bottom && foot < 847, "the box's foot is below the card's");
-  // the button stands in the card's right edge beside the bar, where the bar
-  // rested before the box took its words, clear of the box and of the owner's
-  // navigator at 973
-  const tab = switchRect(p, S);
-  near(tab.left, 925 - 1440 * 0.008 * S, "the button's inner edge");
-  near(tab.right, 925, "the button's outer side is not the card's edge");
-  near(tab.bottom, 847 - 20.6 * S, "the switch's foot is not the bar's floor");
-  near(tab.bottom - tab.top, 44.8 * S, "the switch is not the bar's height");
-  assert.ok(tab.right < left, "the switch runs into the box");
-  assert.ok(tab.right < 973, "the switch reaches the owner's navigator");
   // the box stands over the boxes the owner keeps there, by keeping the stage's
   // own level after them, under the card one step up and the edit handles
   assert.doesNotMatch(rule("  body.focus #xcomposer"), /z-index/);
@@ -962,7 +915,6 @@ test("where the box cannot stand, the bar stays: two panes, the portrait column,
     assert.equal(p.page.xc.host, null, "the box kept the draft in " + mode);
     assert.equal(card.bar.ta.value, "kept through every mode", "the draft was lost going to " + mode);
     assert.equal(card.box.classes.has("xcaway"), false, "the bar is away in " + mode);
-    assert.equal(p.page.xcSwitch.hidden, true, "the switch shows in " + mode);
     assert.equal(p.store.getItem("composer.right"), "1", "the choice was dropped in " + mode);
     assert.equal(p.page.switchComposer("right"), true, "asking again in " + mode + " changed the choice");
     assert.equal(p.page.xc.host, null, "the box opened in " + mode);
@@ -972,206 +924,64 @@ test("where the box cannot stand, the bar stays: two panes, the portrait column,
   p.fit();
   assert.equal(p.page.xc.host, "m44");
   assert.equal(p.page.xc.ta.value, "kept through every mode");
-  // a card dragged hard against the right: no room, the switch says so and takes no press
+  // a card dragged hard against the right: no room, and the box stays away
   p.main.rect = { left: 1000, right: 1300, top: 104, bottom: 830 };
   p.fit();
   assert.equal(p.page.xcRoom, false);
   assert.equal(p.page.xc.host, null);
-  assert.equal(p.page.xcSwitch.getAttribute("aria-disabled"), "true");
-  assert.match(p.page.xcSwitch.getAttribute("title"), /no room/);
-  p.dom.fire(p.page.xcSwitch, "click");
-  assert.equal(p.store.getItem("composer.right"), "1", "a press on the switch with no room changed the choice");
-  // and the sheet takes both away in the two modes whatever the script says
-  assert.match(HTML, /body:is\(\[data-resp-mode="portrait"\], \[data-resp-mode="twopane"\]\) :is\(#xcswitch, #xcomposer\)\{display:none !important\}/);
+  assert.equal(p.page.switchComposer("right"), true);
+  assert.equal(p.page.xc.host, null, "the box opened with no room");
+  // and the sheet takes it away in the two modes whatever the script says
+  assert.match(HTML, /body:is\(\[data-resp-mode="portrait"\], \[data-resp-mode="twopane"\]\) #xcomposer\{display:none !important\}/);
   // the board calls the seat every time it fits
   const fit = between(HTML, "function fitStage(){", "\n}\n");
   assert.equal((fit.match(/xcPlace\(\);/g) || []).length, 2, "fitStage does not seat the box on both of its ways out");
 });
 
-test("the button stands in the card's right edge beside the compose bar, spanning it, and moves and scales with the card", () => {
-  const p = openPage();
-  p.fit();
-  const card = addCard(p, "m47");
-  choose(p, "m47");
-  const cell = 1440 * 0.008;
-  let tab = switchRect(p), bar = card.bottombar.getBoundingClientRect();
-  // one cell wide inside the card's right edge at 996.48, its outer side on
-  // the card's own edge: the old tab turned inward
-  near(tab.left, 996.48 - cell, "the button's inner edge");
-  near(tab.right, 996.48, "the button's outer side is not the card's edge");
-  // its top on the bar's hairline and its foot on the bar's floor: the bar's
-  // own 44.8 at rest, one line
-  near(tab.top, bar.top, "the switch's top is not the bar's");
-  near(tab.bottom, bar.bottom, "the switch's foot is not the bar's");
-  near(tab.bottom - tab.top, 44.8, "the switch is not the bar's height");
-  // not at the card's very bottom: the card's 19.8 foot padding and its 0.8
-  // edge stand under it, as they stand under the bar
-  near(p.main.rect.bottom - tab.bottom, 20.6, "the switch is not lifted off the card's bottom edge");
-  // tall and narrow
-  assert.ok(tab.bottom - tab.top > 3.5 * (tab.right - tab.left), "the button is not a tall narrow rectangle");
-  // the sheet: on the card, rounded only inside it, and no place of its own in
-  // the window any more
-  const sw = rule("  body.focus #xcswitch");
-  assert.match(sw, /position:fixed; z-index:2;/, "the button does not stand on the card");
-  assert.match(sw, /border-radius:var\(--sq\) 0 0 var\(--sq\);/);
-  assert.doesNotMatch(sw, /(?:^|[\s;])(right|bottom|left|top|width|height):/, "the sheet still places the button itself");
-  assert.doesNotMatch(HTML, /bottom:84px/, "the old dodge of the note's corner is still in the sheet");
-  // a drag of the card takes the switch with it, still beside the bar; the
-  // card's own size watch is what hears it
-  p.main.rect = { left: 300, right: 830, top: 80, bottom: 700 };
-  p.resized(p.main);
-  tab = switchRect(p); bar = card.bottombar.getBoundingClientRect();
-  near(tab.left, 830 - cell, "the button stayed behind when the card moved");
-  near(tab.top, bar.top, "the switch left the bar when the card moved");
-  near(tab.bottom, bar.bottom, "the switch left the bar's floor when the card moved");
-  // a board scaled down: the same place on the stage, so it shrinks with the
-  // card. before any card is on show there is no bar to line up with and the
-  // switch is not on show either: only its place along the card's edge is set
-  const q = openPage({ scale: .8, window: { w: 1200, h: 760 }, layout: {
-    stage: { left: 20, top: 41, right: 20 + 1440 * .8, bottom: 41 + 900 * .8 },
-    card: { left: 20 + 466.56 * .8, right: 20 + 996.48 * .8, top: 41 + 63.36 * .8, bottom: 41 + 789.12 * .8 },
-    frame: { left: 6, right: 1194, top: 46, bottom: 754 } } });
-  q.page.stageScale = .8;
-  q.fit();
-  const qs = q.page.xcSwitch.style;
-  near(parseFloat(qs.left), 996.48 - cell, "the button was not placed in stage pixels");
-  assert.equal(q.page.xcSwitch.hidden, true, "the switch shows with no card on show");
-  assert.equal(qs.height, "", "the switch was given a height with no bar to read");
-  // a card with no bar at all, the way a test or a half built card may stand,
-  // leaves the switch where it was rather than stopping the sync
-  q.page.els.bare = { box: q.dom.doc.createElement("article") };
-  q.page.els.bare.box.className = "box sel";
-  q.page.selectedId = "bare";
-  q.page.xcSync();
-  assert.equal(qs.height, "", "a card with no bar gave the switch a height");
-  delete q.page.els.bare;
-  addCard(q, "m52");
-  choose(q, "m52");
-  near(parseFloat(qs.bottom), 900 - 789.12 + 20.6, "the scaled bar's floor was not read in stage pixels");
-  near(parseFloat(qs.height), 44.8, "the scaled bar's height was not read in stage pixels");
-  assert.equal(q.page.xcSwitch.parentNode, q.stage, "the switch does not scale with the stage");
-  // the large card alone carries it: the small cards' build never names it
-  const mini = between(HTML, 'const compose = h("div", "mcompose");', "box.append(sun, arc, x, title, answwrap, reply, sentwrap, compose);");
-  assert.doesNotMatch(mini, /xcSwitch|switchComposer|xcswitch/, "the small cards carry the switch");
-  assert.equal((HTML.match(/xcSwitch\.id = "xcswitch";/g) || []).length, 1, "there is more than one switch");
-});
-
-test("the switch tracks the bar: more lines, a note under it, the sent box and the answered panel above it, a card switch", () => {
+test("the pivot tracks the bar: a note under it, the sent box and the answered panel above it, a card switch", () => {
   const p = openPage();
   p.fit();
   const card = addCard(p, "m50");
   choose(p, "m50");
-  const lined = (what, el = card) => {
-    const tab = switchRect(p), bar = el.bottombar.getBoundingClientRect();
-    near(tab.top, bar.top, what + ": the switch's top is off the bar's hairline");
-    near(tab.bottom, bar.bottom, what + ": the switch's foot is off the bar's floor");
-  };
-  lined("at rest");
+  const cell = 1440 * 0.008;
+  const drop = () => parseFloat(p.page.xc.root.style.getPropertyValue("--xc-pivot-y"));
+  near(drop(), 5 * cell - 20.6, "at rest");
   // the watch is on the bar and on the wrapper it stands in
   const watch = p.watches.find(w => w.els.has(card.bottombar));
   assert.ok(watch, "the bar is not watched");
   assert.ok(watch.els.has(card.pendwrap), "the wrapper the bar stands in is not watched");
-  // four lines typed: the row grows, the bar with it, and the watch hears the
-  // bar. the formatted editor grows the same bar, its scroller being the row,
-  // and it is the bar that is watched whichever face the field wears
+  // four lines typed: the bar grows upward from its floor, which stays put
   card.bottombar.natural = 44.8 + 3 * 25.5;
   p.resized(card.bottombar);
-  lined("four lines");
-  near(switchRect(p).bottom - switchRect(p).top, 44.8 + 3 * 25.5, "the switch did not grow with the bar");
-  // the sent box opening above the bar grows the wrapper and leaves the bar,
-  // and so the switch, where they are
-  const open = switchRect(p);
+  near(drop(), 5 * cell - 20.6, "four lines");
+  // a note landing under the bar lifts its floor, and the pivot goes up with it
+  card.bottombar.lift = 10;
   p.resized(card.pendwrap);
-  assert.deepEqual(switchRect(p), open, "the sent box moved the switch");
-  // a note landing under the bar lifts it, and the switch goes up with it
-  card.bottombar.lift = 30;
-  p.resized(card.pendwrap);
-  lined("a note under the bar");
+  near(drop(), 5 * cell - 30.6, "a note under the bar");
   card.bottombar.lift = 0;
   p.resized(card.pendwrap);
-  lined("the note gone");
-  // the answered panel is in the answer's own scroller and moves nothing the
-  // switch stands by: the next poll still finds it on the bar
+  near(drop(), 5 * cell - 20.6, "the note gone");
+  // the answered panel is in the answer's own scroller and moves nothing
   p.page.xcSync();
-  lined("the answered panel opened");
+  near(drop(), 5 * cell - 20.6, "the answered panel opened");
   assert.ok(!watch.els.has(card.replyview), "the answer's scroller is watched for nothing");
-  // back to one line
-  card.bottombar.natural = 44.8;
-  p.resized(card.bottombar);
-  lined("one line again");
-  // another card: the switch lines up with that card's bar and the watch moves over
+  // another card: the watch moves over
   const other = addCard(p, "m51", { selected: false });
   other.bottombar.natural = 70.3;
   choose(p, "m51");
-  lined("the next card", other);
   assert.ok(watch.els.has(other.bottombar) && !watch.els.has(card.bottombar), "the watch stayed on the last card's bar");
+  // the box open: the bar is away, and the pivot keeps the place the bar rested in
+  const rest = drop();
+  p.page.switchComposer("right");
+  landRun(other);
+  p.resized(other.bottombar);
+  near(drop(), rest, "the pivot left the bar's place while the box is open");
   // the page's own hooks: the seat is read before any move and after every run
   assert.match(between(HTML, "function xcSync(opts = {}){", "\n}\n"), /^\s*xcSeat\(\);/m);
   assert.match(between(HTML, "function xcLanded(el, end){", "\n}\n"), /xcSeat\(\);/);
 });
 
-test("the button keeps off the card's own controls: the row, the send square and the answered panel's arrow", () => {
-  const p = openPage();
-  p.fit();
-  const card = addCard(p, "m48");
-  choose(p, "m48");
-  const tab = switchRect(p), box = p.main.rect, bar = card.bottombar.getBoundingClientRect();
-  // the button stands wholly inside the card's box, in its right padding
-  assert.ok(tab.left > box.left && tab.right <= box.right + 1e-6, "the button stands outside the card");
-  // the row, the send square and the plus are all in the bar, and the bar ends
-  // the card's edge, its side padding and the bar's own margin in from the
-  // card's edge: 0.8 + 23.04 + 15.36. the button is one cell wide, so more than
-  // two cells of the card's white stand between it and the send square
-  const padX = 1440 * 0.016;
-  assert.match(rule("  body.focus main"), /padding:calc\(var\(--ch\)\*0\.022\) var\(--pad-x\);/);
-  assert.match(rule("  body.focus .box.sel .bottombar"), /margin:0 calc\(var\(--pad-x\)\*2\/3\) 0 calc\(var\(--pad-x\)\*2\/3\);/);
-  const squareRight = box.right - 0.8 - padX - padX * 2 / 3;
-  near(bar.right, box.right - 38.4, "the test bar no longer ends where the page's does");
-  assert.ok(tab.left - squareRight > 2 * 1440 * 0.008, "the button crowds the send square");
-  for (const node of [card.ta, card.send, card.clip]) assert.ok(p.main.contains(node), "a control stands outside the card");
-  // the answered panel and its arrow are further in still, inside the card's
-  // body over the answer, and the card clips what it holds
-  assert.match(between(HTML, "function makeBox(b, i, state){", "\n}\n"),
-    /replyview\.append\(answwrap, reply\);\s*body\.append\(replyview, pendwrap\);/,
-    "the answered panel is no longer inside the card's body");
-  assert.match(rule("  body.focus main"), /overflow:hidden;/, "the card no longer clips what it holds");
-});
-
-test("with the box open the switch keeps the bar's place, pressed, and the same press puts the box away", () => {
-  const p = openPage();
-  p.fit();
-  const card = addCard(p, "m49");
-  assert.equal(p.page.xcSwitch.hidden, true, "the switch hangs off a card that is not there");
-  choose(p, "m49");
-  assert.equal(p.page.xcSwitch.hidden, false, "the switch is missing from the card on show");
-  card.bottombar.natural = 70.3;   // two lines of a draft when the box is opened
-  p.resized(card.bottombar);
-  const rest = switchRect(p);
-  p.dom.fire(p.page.xcSwitch, "click");
-  assert.equal(p.page.xc.host, "m49");
-  // the bar sinks away, and neither its run nor its absence moves the switch
-  p.resized(card.bottombar);
-  assert.deepEqual(switchRect(p), rest, "the switch followed the bar's run down");
-  landRun(card);
-  p.resized(card.bottombar);
-  assert.deepEqual(switchRect(p), rest, "the switch left the bar's place while the box is open");
-  assert.equal(p.page.xcSwitch.hidden, false, "the switch went away with the box open");
-  assert.equal(p.page.xcSwitch.getAttribute("aria-pressed"), "true");
-  assert.equal(p.page.xcSwitch.getAttribute("aria-label"), "put the composer back under the card");
-  // on the card's edge, the box's two cells of air beyond it
-  const boxLeft = p.stage.rect.left + parseFloat(p.page.xc.root.style.left);
-  near(boxLeft - rest.right, 2 * 1440 * 0.008, "the air between the button and the box");
-  // the same press, and the bar comes back to where the switch was waiting
-  p.dom.fire(p.page.xcSwitch, "click");
-  assert.equal(p.page.xc.host, null, "the switch did not put the box away");
-  assert.equal(p.page.xcSwitch.getAttribute("aria-pressed"), "false");
-  landRun(card);
-  const bar = card.bottombar.getBoundingClientRect(), tab = switchRect(p);
-  near(tab.top, bar.top, "the switch is off the bar once it is back");
-  near(tab.bottom, bar.bottom, "the switch's foot is off the bar once it is back");
-});
-
-test("the quick note's corner still wakes and opens, with the switch on the card", async () => {
+test("the quick note's corner still wakes and opens, with the box out", async () => {
   const p = openPage({ note: true });
   p.fit();
   addCard(p, "m45");
@@ -1185,44 +995,23 @@ test("the quick note's corner still wakes and opens, with the switch on the card
   // the peek's piece when out: 60% of its 160 by 120, in the window's corner
   assert.match(rule("  .qnpeek"), /width:160px; height:120px;/);
   assert.match(rule("  .qnpeek.out"), /transform:translate\(40%, 40%\)/);
-  const peek = { left: W - 160 * .6, top: H - 120 * .6 };
-  const corner = Number(/const QN_CORNER = (\d+);/.exec(HTML)[1]);
-  // the switch hangs off the card, nowhere near the window's corner
-  const box = switchRect(p);
-  assert.ok(box.right < peek.left || box.bottom < peek.top, "the switch meets the peek");
-  // and cannot meet the square that wakes the note wherever the card is put: a
-  // card hard in the frame's clear corner still leaves the switch above it
-  p.main.rect = { left: 890, right: 1440 - 7 - 16, top: 150, bottom: 900 - 7 - 16 };
-  p.fit();
-  const far = switchRect(p);
-  assert.ok(far.bottom < H - corner, "a card in the corner puts the switch on the note's wake square");
-  assert.ok(far.right < W - 7, "a card in the corner puts the switch past the frame");
-  p.main.rect = { left: 466.56, right: 996.48, top: 41 + 63.36, bottom: 41 + 789.12 };
-  p.fit();
-  // a pointer all over the switch never wakes the note
-  for (const [x, y] of [[box.left + 8, box.top], [box.right - 1, box.bottom - 1], [box.right - 2, box.top + 30]]){
-    move(x, y, page.xcSwitch);
-    assert.equal(out(), false, "the switch woke the note at " + x + "," + y);
-  }
-  // and the corner still does, with the box out and the switch pressed
+  // the corner wakes the note with the box out
   move(W - 1, H - 1);
   assert.equal(out(), true, "the corner no longer wakes the note");
   dom.fire(page.qnPeek, "click");
   assert.equal(page.quickNote.root.classes.has("open"), true, "the peek no longer opens the note");
   await settle();
-  // the switch still works after, and the note's corner never saw the press
-  p.page.xcSwitch.dispatchEvent(Object.assign({ type: "click", preventDefault(){}, stopPropagation(){} }));
+  // the box still goes away after
+  p.page.switchComposer("bar");
   assert.equal(p.page.xc.host, null);
 });
 
-test("the switch keeps the caret while it is pressed, and the plus and the square keep it in the box", () => {
+test("the plus and the square keep the caret in the box", () => {
   const p = openPage();
   p.fit();
   const card = addCard(p, "m46");
   choose(p, "m46");
   card.ta.focus();
-  const down = p.dom.fire(p.page.xcSwitch, "pointerdown");
-  assert.equal(down.defaultPrevented, true, "pressing the switch took the caret out of the row");
   p.page.switchComposer("right");
   for (const control of [p.page.xc.clip, p.page.xc.send])
     assert.equal(p.dom.fire(control, "pointerdown").defaultPrevented, true, "a press in the box took the caret out");

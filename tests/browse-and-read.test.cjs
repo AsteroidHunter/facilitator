@@ -256,7 +256,7 @@ function desktop() {
   };
   return {
     sandbox, doc, body, main, els, rows, state, seen, get, press, store, addCard, homeico,
-    xc: get("xc"), xcSwitch: get("xcSwitch"),
+    xc: get("xc"),
     shown: () => get("selectedId"),
     browsing: () => get("browsing"),
     row: id => rows.find(r => r.dataset.id === id),
@@ -553,7 +553,7 @@ test("with the right composer open, Enter selects the card and puts the caret in
   assert.deepEqual(d.seen, [{ b: 1 }]);
 });
 
-test("a click into the box, a key typed there or a press on it or its switch reads and selects its card", () => {
+test("a click into the box, a key typed there or a press on it reads and selects its card", () => {
   const d = loaded({ right: true });
   d.press("ArrowRight");
   // a click into the box's field
@@ -575,8 +575,8 @@ test("a click into the box, a key typed there or a press on it or its switch rea
   d.sandbox.seenSync(d.state);
   d.xc.ta.fire("input");
   assert.deepEqual(d.seen, [{ b: 1 }, { b: 2 }, { b: 3 }], "typing in the box did not read the reply");
-  // a press anywhere on the box or on the switch selects, the way the card does
-  for (const [where, node] of [["the box", d.xc.page], ["the switch", d.xcSwitch]]) {
+  // a press anywhere on the box selects, the way the card does
+  for (const [where, node] of [["the box", d.xc.page]]) {
     d.press("Escape", { target: d.xc.ta });
     d.press("Escape");
     assert.equal(d.browsing(), true);
@@ -596,9 +596,8 @@ test("Escape with the right composer open: the box's caret first, then the selec
   assert.equal(d.browsing(), true, "the second Escape left the card selected");
   assert.equal(d.xc.host, "a", "unselecting took the draft out of the box");
   assert.ok(d.xc.root.classList.contains("open"), "unselecting shut the box");
-  // the switch, and the box's own buttons, let go too, so Enter selects
-  // rather than pressing them
-  for (const node of [d.xcSwitch, d.xc.send]) {
+  // the box's own buttons let go too, so Enter selects rather than pressing them
+  for (const node of [d.xc.send]) {
     d.press("Enter");
     node.focus();
     d.press("Escape", { target: node });
