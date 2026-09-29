@@ -85,6 +85,17 @@ async function workerReady(page) {
   }, { timeout: 20000 });
 }
 
+// page.setOfflineMode leaves the worker's own fetches online, so the worker is
+// put offline through its own target, and the same session takes it back
+async function workerNetwork(browser, session, offline) {
+  const cdp = session || await (await browser.waitForTarget(
+    target => target.type() === "service_worker", { timeout: 10000 })).createCDPSession();
+  await cdp.send("Network.enable");
+  await cdp.send("Network.emulateNetworkConditions",
+    { offline, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  return cdp;
+}
+
 async function keptPaths(page) {
   return page.evaluate(async () => {
     const names = await caches.keys();
@@ -250,12 +261,14 @@ test("an offline navigation cannot reopen a cached authenticated board", async (
     const kept = await keptPaths(page);
     assert.equal(Object.values(kept).flat().includes("/m"), false);
     await page.setOfflineMode(true);
+    const worker = await workerNetwork(browser, null, true);
     await page.reload({ waitUntil: "domcontentloaded" }).catch(() => null);
     const offline = await page.evaluate(() => ({
       board: !!document.getElementById("cards"),
       title: document.title,
     }));
     assert.equal(offline.board, false, "an offline reload displayed an old board: " + JSON.stringify(offline));
+    await workerNetwork(browser, worker, false);
     await page.setOfflineMode(false);
     await page.goto(origin + "/m", { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => !document.getElementById("loading"), { timeout: 30000 });
