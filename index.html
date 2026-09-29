@@ -10019,12 +10019,14 @@ try {
 // carried on into the box from there while the box holds that card's draft
 // (xcCarry), so a picture still on its way when the reader switches composers,
 // or cards, lands on the card it was picked for.
-// the choice is the board's, one key in localStorage, so a reload opens on the
-// composer last chosen. where the box has no room, which is the portrait
-// column, the two pane view and a card with no space right of it inside the
-// frame, the bar stays and the choice waits. no key is bound:
-// switchComposer() is the one call that makes the choice
+// switchComposer() is the one call that makes the choice, and it writes one key
+// in localStorage. while nothing on the page calls it the board never reads
+// that key back, so every load opens under the card and a key left by an
+// earlier session stays in storage untouched. where the box has no room,
+// which is the portrait column, the two pane view and a card with no space
+// right of it inside the frame, the bar stays and the choice waits
 const XC_KEY = "composer.right";          // "1" while the box is the chosen composer
+let xcChosen = false;                     // this page's choice, never read from storage
 const XC_CELL = STAGE_W * 0.008;          // one star cell, the pitch GRID below is
 const XC_GAP = 2 * XC_CELL;               // the air between the card and the box
 const XC_W = 24 * XC_CELL;                // the box's width, about half the card's, as sketched
@@ -10105,7 +10107,7 @@ xc.root.addEventListener("transitionend", e => {
   if (e.target === xc.root && e.propertyName === "transform") xcTick();
 });
 
-function xcWanted(){ return localStorage.getItem(XC_KEY) === "1"; }
+function xcWanted(){ return xcChosen; }
 function xcStill(){
   try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { return false; }
 }
@@ -10116,6 +10118,7 @@ function xcStill(){
 function switchComposer(side){
   const want = side === "right" ? true : side === "bar" ? false : !xcWanted();
   if (want && !xcRoom) return xcWanted();
+  xcChosen = want;
   if (want) localStorage.setItem(XC_KEY, "1"); else localStorage.removeItem(XC_KEY);
   xcSync({ run: true, focus: true });
   return want;

@@ -412,7 +412,23 @@ test("no button on the card opens the composer on the right", () => {
   assert.equal(p.page.xc.root.classes.has("open"), false, "the box opened by itself");
 });
 
-test("switchComposer opens the box on the right and puts it away, and a reload keeps the choice", async () => {
+test("a stored composer.right = 1 still opens under the card and the key is left alone", async () => {
+  const store = storage();
+  store.setItem("composer.right", "1");
+  const p = openPage({ store });
+  p.fit();
+  const card = addCard(p, "m29");
+  choose(p, "m29");
+  assert.equal(p.page.xcRoom, true, "the default card left no room right of it");
+  assert.equal(p.page.xc.root.classes.has("open"), false, "the stored choice opened the box");
+  assert.equal(p.page.xc.host, null, "the box took the card");
+  assert.equal(card.box.classes.has("xcaway"), false, "the bar was put away under the answer");
+  p.page.xcSync({ run: true, focus: true });
+  assert.equal(p.page.xc.root.classes.has("open"), false, "a later sync read the stored choice");
+  assert.equal(store.getItem("composer.right"), "1", "the stored key was changed");
+});
+
+test("switchComposer opens the box on the right and puts it away, and the choice is kept in storage", async () => {
   const p = openPage();
   p.fit();
   addCard(p, "m31");
@@ -427,16 +443,13 @@ test("switchComposer opens the box on the right and puts it away, and a reload k
   assert.equal(root.classes.has("open"), true, "the box did not open");
   assert.equal(root.getAttribute("aria-hidden"), "false");
   assert.equal(page.xc.host, "m31");
-  // the same page read again with the same store: it opens on the box at once
+  // the same page read again with the same store: the key stays, the box does not open
   const q = openPage({ store: p.store });
   q.fit();
-  const card = addCard(q, "m31");
+  addCard(q, "m31");
   choose(q, "m31");
-  assert.equal(q.page.xc.root.classes.has("open"), true, "a reload lost the choice");
-  assert.equal(q.page.xc.host, "m31");
-  assert.ok(q.page.xc.root.classLog.includes("+still"), "a reload swung the box in instead of standing it there");
-  assert.equal(card.box.classes.has("xcaway"), true, "a reload left the bar under the answer");
-  assert.deepEqual(card.bottombar.style.heights, [], "a reload ran the bar");
+  assert.equal(q.page.xc.root.classes.has("open"), false, "a reload read the stored choice");
+  assert.equal(p.store.getItem("composer.right"), "1", "a reload changed the stored key");
   // and the call again puts it away and forgets the choice
   page.switchComposer();
   assert.equal(p.store.getItem("composer.right"), null);
