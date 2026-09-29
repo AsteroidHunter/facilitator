@@ -195,16 +195,16 @@ test("install creates the environment, the config and the test deps in one run",
   assert.ok(res.files.package_json && res.files.package_lock);
   assert.equal(res.files.state, false, "install fabricated board data");
 
-  assert.match(res.out, /python: \d+\.\d+\.\d+ meets the 3\.9 minimum/, res.out);
-  assert.match(res.out, /uv: found/);
-  assert.match(res.out, /environment: creating \.venv/);
-  assert.match(res.out, /packages: syncing to requirements\.txt/);
-  assert.match(res.out, /config: wrote run\.config\.json from run\.config\.example\.json/);
-  assert.match(res.out, /config: wrote seed\.json from seed\.example\.json/);
-  assert.match(res.out, /node packages: installing puppeteer-core for the tests/);
-  assert.match(res.out, /Board installed\. Start it with:/);
-  assert.match(res.out, /facilitator run/);
+  assert.match(res.out, /✓ Python \d+\.\d+\.\d+ meets the 3\.9 minimum\./, res.out);
+  assert.match(res.out, /✓ uv found\./);
+  assert.match(res.out, /Creating the environment in \.venv\.\n✓ Environment created\./);
+  assert.match(res.out, /Syncing packages to requirements\.txt\.\n✓ Packages synced\./);
+  assert.match(res.out, /✓ Wrote run\.config\.json from run\.config\.example\.json\./);
+  assert.match(res.out, /✓ Wrote seed\.json from seed\.example\.json\./);
+  assert.match(res.out, /Installing puppeteer-core for the tests\.\n✓ Test packages installed\./);
+  assert.match(res.out, /✓ Board installed\.\n\nStart it with: facilitator run/);
   assert.match(res.out, /run\.config\.json \(edit it\)/);
+  assert.doesNotMatch(res.out, /\n\n\n/, "two blank lines in a row");
 
   const kinds = res.calls.map(c => `${c[0]} ${c[1]}`);
   assert.ok(kinds.includes(`${UV} venv`) && kinds.includes(`${UV} pip`) && kinds.includes(`${NPM} install`), kinds.join(" | "));
@@ -217,10 +217,10 @@ test("a second install changes nothing and says so", async () => {
 
   assert.equal(again.exit, null, again.out);
   assert.ok(installed(again.files));
-  assert.match(again.out, /environment: \.venv present/);
-  assert.match(again.out, /config: run\.config\.json present/);
-  assert.match(again.out, /config: seed\.json present/);
-  assert.match(again.out, /node packages: present \(for the tests\)/);
+  assert.match(again.out, /✓ Environment found in \.venv\./);
+  assert.match(again.out, /✓ run\.config\.json found\./);
+  assert.match(again.out, /✓ seed\.json found\./);
+  assert.match(again.out, /✓ Test packages found\./);
 
   // the environment is not rebuilt and the test deps are not reinstalled; only
   // the idempotent sync runs again
@@ -233,7 +233,7 @@ test("a user's own config is left untouched by install", async () => {
   const dir = await freshClone();
   await writeFile(path.join(dir, "run.config.json"), JSON.stringify({ port: 9001, lanes: [], mine: true }));
   const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
-  assert.match(res.out, /config: run\.config\.json present/);
+  assert.match(res.out, /✓ run\.config\.json found\./);
   const kept = JSON.parse(await readFile(path.join(dir, "run.config.json"), "utf8"));
   assert.equal(kept.mine, true, "install overwrote a config the user had already written");
 });
@@ -246,8 +246,8 @@ test("uninstall preserves a preexisting config and an edited generated seed", as
   const result = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
   assert.equal(await readFile(path.join(dir, "run.config.json"), "utf8"), '{"mine":true}');
   assert.equal(await readFile(path.join(dir, "seed.json"), "utf8"), '{"edited":true}');
-  assert.match(result.out, /kept run\.config\.json/);
-  assert.match(result.out, /kept changed seed\.json/);
+  assert.match(result.out, /⊘ Kept run\.config\.json: it is not recorded as installer-owned\./);
+  assert.match(result.out, /⊘ Kept seed\.json: it has changed since install\./);
 });
 
 test("without node, the test deps are skipped and named as such", async () => {
@@ -257,14 +257,14 @@ test("without node, the test deps are skipped and named as such", async () => {
   assert.equal(res.files.node_modules, false);
   assert.equal(res.files.package_json, false);
   assert.ok(res.files.venv && res.files.run_config && res.files.seed);
-  assert.match(res.out, /node packages: node not found; skipped \(needed only to run the tests\)/);
+  assert.match(res.out, /⊘ Skipped the test packages: node was not found\.\nThey are needed only to run the tests\./);
 });
 
 test("when uv is missing and Homebrew is here, install uses brew then continues", async () => {
   const dir = await freshClone();
   const res = await run(dir, stubs({ uv: false, brew: true }) + "\n" + snapshot("cli.cmd_install(['install'])"));
   assert.equal(res.exit, null, res.out);
-  assert.match(res.out, /uv: not found; installing with Homebrew/);
+  assert.match(res.out, /uv is not installed\. Installing it with Homebrew\.\n✓ uv installed\./);
   assert.ok(res.calls.some(c => c[0] === "/fake/brew" && c[1] === "install"), "brew was not used");
   assert.equal(res.calls.some(c => c[0] === "sh"), false, "the astral installer ran with brew present");
   assert.ok(installed(res.files), "the install did not continue after uv was installed");
@@ -274,7 +274,7 @@ test("when uv is missing and there is no brew, install uses the astral.sh script
   const dir = await freshClone();
   const res = await run(dir, stubs({ uv: false, brew: false }) + "\n" + snapshot("cli.cmd_install(['install'])"));
   assert.equal(res.exit, null, res.out);
-  assert.match(res.out, /uv: not found; installing with the astral\.sh installer into your home/);
+  assert.match(res.out, /uv is not installed\. Installing it with the astral\.sh installer\ninto your home\.\n✓ uv installed\./);
   assert.ok(res.calls.some(c => c[0] === "curl"), "the installer was not downloaded");
   assert.ok(res.calls.some(c => c[0] === "sh"), "the installer script was not run");
   assert.equal(res.sh_no_modify, "1", "the installer was allowed to change a shell profile");
@@ -311,15 +311,35 @@ test("uninstall removes the environment, node deps and config, and keeps the boa
   assert.ok(res.files.state && res.files.transcript && res.files.uploads && res.files.internal_uploads
     && res.files.logs && res.files.vapid, JSON.stringify(res.files));
 
-  assert.match(res.out, /removed \.venv/);
-  assert.match(res.out, /removed node_modules/);
-  assert.match(res.out, /removed run\.config\.json/);
-  assert.match(res.out, /kept state\.json/);
-  assert.match(res.out, /kept transcript\.jsonl/);
-  assert.match(res.out, /kept card attachments in .*facilitator-internal\/uploads/);
-  assert.match(res.out, /kept card attachments in .*facilitator\/uploads/);
-  assert.match(res.out, /kept logs/);
-  assert.match(res.out, /kept vapid-key\.pem/);
+  assert.match(res.out, /✓ Removed \.venv\./);
+  assert.match(res.out, /✓ Removed node_modules\./);
+  assert.match(res.out, /✓ Removed run\.config\.json\./);
+  assert.match(res.out, /⊘ Kept state\.json\./);
+  assert.match(res.out, /⊘ Kept transcript\.jsonl\./);
+  assert.match(res.out, /⊘ Kept card attachments in .*facilitator-internal\/uploads\./);
+  assert.match(res.out, /⊘ Kept card attachments in .*facilitator\/uploads\./);
+  assert.match(res.out, /⊘ Kept logs\./);
+  assert.match(res.out, /⊘ Kept vapid-key\.pem\./);
+});
+
+test("uninstall prints numbered sections with a rule as long as each title and no double blank line", async () => {
+  const dir = await freshClone();
+  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
+  await fabricateData(dir);
+
+  const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
+  assert.equal(res.exit, null, res.out);
+  const lines = res.out.split("\n");
+  const titles = lines.filter(line => /^\d\. /.test(line));
+  assert.deepEqual(titles, ["1. Card attachments", "2. Command and skill", "3. Board files", "4. Board data"]);
+  for (const title of titles) {
+    const at = lines.indexOf(title);
+    assert.equal(lines[at - 1], "", `no blank line before ${title}`);
+    assert.equal(lines[at + 1], "─".repeat(title.length), `the rule under ${title}`);
+    assert.equal(lines[at + 2], "", `no blank line after the rule under ${title}`);
+  }
+  assert.doesNotMatch(res.out, /\n\n\n/, "two blank lines in a row");
+  assert.match(res.out, /✦ Uninstall finished\.\n\nThis folder was left in place\.\n$/);
 });
 
 test("uninstall --wipe removes the board's data but keeps attachments with no terminal to ask on", async () => {
@@ -334,11 +354,11 @@ test("uninstall --wipe removes the board's data but keeps attachments with no te
   }
   assert.ok(res.files.uploads && res.files.internal_uploads, "attachments went without a clear no");
   assert.doesNotMatch(res.out, /Keep your card attachments/, "a noninteractive run was asked");
-  assert.match(res.out, /card attachments: kept, no terminal to ask on \(pass --remove-attachments to remove them\)/);
-  assert.match(res.out, /removed state\.json/);
-  assert.match(res.out, /removed transcript\.jsonl/);
-  assert.match(res.out, /removed logs/);
-  assert.match(res.out, /removed vapid-key\.pem/);
+  assert.match(res.out, /⊘ Keeping your card attachments: there is no terminal to ask on\.\nPass --remove-attachments to remove them\./);
+  assert.match(res.out, /✓ Removed state\.json\./);
+  assert.match(res.out, /✓ Removed transcript\.jsonl\./);
+  assert.match(res.out, /✓ Removed logs\./);
+  assert.match(res.out, /✓ Removed vapid-key\.pem\./);
 });
 
 test("uninstall --wipe --remove-attachments also removes both attachment folders and nothing above them", async () => {
@@ -353,8 +373,8 @@ test("uninstall --wipe --remove-attachments also removes both attachment folders
   }
   assert.equal(res.files.internal_notes, true, "the internal folder's other files went too");
   assert.doesNotMatch(res.out, /Keep your card attachments/, "the flag did not answer the question");
-  assert.match(res.out, /removed card attachments folder .*facilitator-internal\/uploads/);
-  assert.match(res.out, /removed card attachments folder .*facilitator\/uploads/);
+  assert.match(res.out, /✓ Removed card attachments folder .*facilitator-internal\/uploads\./);
+  assert.match(res.out, /✓ Removed card attachments folder .*facilitator\/uploads\./);
 });
 
 // a terminal on stdin that answers the attachments question with the given text
@@ -376,10 +396,10 @@ test("the attachments question comes right after the banner, before anything is 
   assert.equal(res.exit, null, res.out);
   const title = res.out.indexOf("uninstaller");
   const question = res.out.indexOf("Keep your card attachments (pictures and files you attached to cards)? [Y/n] ");
-  const removed = res.out.indexOf("removed ");
+  const removed = res.out.indexOf("✓ Removed ");
   assert.ok(title >= 0 && res.out.slice(0, title).includes("█████"), res.out);
   assert.ok(title < question && question < removed, res.out);
-  assert.doesNotMatch(res.out.slice(title, question), /removed|kept/, "something was done before the question");
+  assert.doesNotMatch(res.out.slice(title, question), /✓ Removed|⊘ Kept/, "something was done before the question");
 });
 
 for (const [said, name] of [["\n", "Enter"], ["maybe\n", "an unclear answer"], ["", "end of input"]]) {
@@ -410,8 +430,8 @@ for (const said of ["n\n", " No \n"]) {
     // the folder above and the rest of the board's data stay without --wipe
     assert.equal(res.files.internal_notes, true, "the internal folder's other files went");
     assert.ok(res.files.state && res.files.transcript && res.files.logs && res.files.vapid, JSON.stringify(res.files));
-    assert.match(res.out, /removed card attachments folder .*facilitator-internal\/uploads/);
-    assert.match(res.out, /kept state\.json/);
+    assert.match(res.out, /✓ Removed card attachments folder .*facilitator-internal\/uploads\./);
+    assert.match(res.out, /⊘ Kept state\.json\./);
   });
 }
 
@@ -436,7 +456,7 @@ test("a clear no never follows a link out of the attachments folder", async () =
   assert.equal(await readFile(path.join(outside, "pictures", "precious.png"), "utf8"), "img");
   assert.equal(await readFile(path.join(outside, "file.png"), "utf8"), "img");
   assert.ok((await lstat(path.join(dir, "uploads"))).isSymbolicLink(), "the linked old folder was removed");
-  assert.match(res.out, /kept card attachments link .*facilitator\/uploads \(a link is not followed; remove it by hand\)/);
+  assert.match(res.out, /⊘ Kept card attachments link .*facilitator\/uploads\.\nA link is not followed\. Remove it by hand\./);
   assert.equal(res.files.internal_notes, true, "the internal folder's other files went");
 });
 
@@ -446,7 +466,7 @@ test("no attachment folders means no question", async () => {
   const res = await run(dir, stubs() + "\n" + answering("n\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
   assert.equal(res.exit, null, res.out);
   assert.doesNotMatch(res.out, /Keep your card attachments/);
-  assert.match(res.out, /card attachments: none found/);
+  assert.match(res.out, /No card attachments found\./);
 });
 
 test("--keep-attachments keeps them through --wipe without asking, and both flags together are refused", async () => {
@@ -456,7 +476,7 @@ test("--keep-attachments keeps them through --wipe without asking, and both flag
 
   const both = await run(dir, stubs() + "\n" + answering("n\n") + "\n"
     + snapshot("cli.cmd_uninstall(['uninstall', '--keep-attachments', '--remove-attachments'])"));
-  assert.match(String(both.exit), /give --keep-attachments or --remove-attachments, not both/);
+  assert.match(String(both.exit), /^\n⚠ Both --keep-attachments and --remove-attachments were given\.\n  Give one of them, not both\.$/);
   assert.ok(installed(both.files) && both.files.internal_uploads, "a refused run removed something");
 
   const res = await run(dir, stubs() + "\n" + answering("n\n") + "\n"
@@ -473,7 +493,7 @@ test("uninstall has no dry run: --dry-run is refused before anything is asked or
   await fabricateData(dir);
 
   const res = await run(dir, stubs() + "\n" + answering("n\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--dry-run'])"));
-  assert.match(String(res.exit), /uninstall takes --wipe, --keep-attachments or --remove-attachments; got --dry-run/);
+  assert.match(String(res.exit), /^\n⚠ Unknown option: --dry-run\.\n  uninstall takes --wipe, --keep-attachments or --remove-attachments\./);
   assert.doesNotMatch(res.out, /Keep your card attachments|uninstaller/, "a refused run asked or showed the banner");
   assert.ok(installed(res.files) && res.files.uploads && res.files.internal_uploads, JSON.stringify(res.files));
 });
@@ -509,8 +529,8 @@ test("a second uninstall is harmless and says nothing is present", async () => {
   await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
   const again = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
   assert.equal(again.exit, null, again.out);
-  assert.match(again.out, /\.venv not present/);
-  assert.match(again.out, /run\.config\.json not present/);
+  assert.match(again.out, /⊘ \.venv not present\./);
+  assert.match(again.out, /⊘ run\.config\.json not present\./);
 });
 
 test("uninstall refuses while the board answers on the port, and removes nothing", async () => {
@@ -519,7 +539,7 @@ test("uninstall refuses while the board answers on the port, and removes nothing
 
   const res = await run(dir, stubs({ up: true }) + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
   assert.equal(typeof res.exit, "string", "a running board did not stop the uninstall");
-  assert.match(res.exit, /the board is up on port \d+; stop that server first, then run uninstall again/, res.exit);
+  assert.match(res.exit, /^\n⚠ The board is up on port \d+\.\n  Stop that server first, then run uninstall again\.$/, res.exit);
   assert.doesNotMatch(res.out, /Keep your card attachments/, "a refused uninstall asked about attachments");
   // nothing was removed
   assert.ok(installed(res.files), "files were removed while the board was up");
@@ -547,5 +567,5 @@ test("uninstall refuses unknown options before it touches anything", async () =>
     .then(() => null, error => error);
   assert.ok(refused, "uninstall accepted an unknown option");
   assert.equal(refused.code, 1);
-  assert.match(refused.stderr, /uninstall takes --wipe, --keep-attachments or --remove-attachments; got --bogus/, refused.stderr);
+  assert.match(refused.stderr, /⚠ Unknown option: --bogus\.\n  uninstall takes --wipe, --keep-attachments or --remove-attachments\./, refused.stderr);
 });

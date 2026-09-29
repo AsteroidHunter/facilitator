@@ -5,11 +5,22 @@ REPO="$(cd "$(dirname "$0")" && pwd)"
 
 if [ "$#" -gt 0 ]; then
   if [ "$#" -eq 1 ] && { [ "$1" = "--help" ] || [ "$1" = "-h" ]; }; then
-    printf 'usage: ./install.sh\n\nSet up this checkout, create a phone app password, and register the command and shared agent skill.\n'
+    printf 'usage: ./install.sh\n\n'
+    printf 'Set up this checkout, create a phone app password, and register the\n'
+    printf 'command and shared agent skill.\n'
     exit 0
   fi
-  printf 'install: unknown option or argument: %s\nusage: ./install.sh\n' "$*" >&2
+  printf '\n⚠ Unknown option or argument: %s.\n  usage: ./install.sh\n' "$*" >&2
   exit 2
+fi
+
+# Colour only when stdout is a terminal, so pipes and logs stay plain.
+if [ -t 1 ]; then
+  BOLD=$'\033[1m'
+  GREEN=$'\033[38;2;0;114;0m'
+  RESET=$'\033[0m'
+else
+  BOLD='' GREEN='' RESET=''
 fi
 
 banner() {
@@ -36,15 +47,44 @@ for row in rows:
 print(' ' * (len(rows[0])-9) + 'installer')
 PY
 }
-step() { printf '\n%s\n%s\n' "$1" '────────────────────────────────────────'; }
+section() {
+  local title="$1" underline="" i=0
+  printf '\n%s%s%s\n' "$BOLD" "$title" "$RESET"
+  while [ "$i" -lt "${#title}" ]; do
+    underline="${underline}─"
+    i=$((i+1))
+  done
+  printf '%s\n\n' "$underline"
+}
+ok() { printf '%s✓%s %s\n' "$GREEN" "$RESET" "$1"; }
 
 banner
-step '1. Check the command and skill locations'
+
+section '1. Locations'
+printf 'Setup adds a facilitator command, links the agent skill and adds\n'
+printf 'one block to your shell profile. This step only checks that none of\n'
+printf 'them is blocked by something already there. It changes nothing.\n\n'
 python3 "$REPO/shell_integration.py" preflight
-step '2. Set up the board and dependencies'
+ok 'Nothing is in the way.'
+
+section '2. Board'
+printf 'Setup builds a private Python environment in .venv with uv, installs\n'
+printf 'the pinned packages, and writes run.config.json and seed.json from\n'
+printf 'their examples when they are missing. When node is here it also\n'
+printf 'installs the packages the tests need.\n\n'
 FACILITATOR_INTERNAL_INSTALL=1 python3 "$REPO/facilitator" _install
-step '3. Create the phone app password'
+
+section '3. App password'
 FACILITATOR_INTERNAL_INSTALL=1 python3 "$REPO/facilitator" _password-setup
-step '4. Add the facilitator command and agent skill'
+
+section '4. Command and skill'
+printf 'The facilitator command goes in a private folder under your home,\n'
+printf 'the agent skill is linked for Claude Code and Codex, and one block\n'
+printf 'in your shell profile puts the command on your PATH.\n\n'
 python3 "$REPO/shell_integration.py" install
-printf '\nInstalled. Run: facilitator run\nAgent onboarding: /facilitator onboard (Claude Code) or $facilitator onboard (Codex)\n'
+
+printf '\n%s✦%s Facilitator is installed!\n\n' "$GREEN" "$RESET"
+printf '%sNext steps:%s\n\n' "$BOLD" "$RESET"
+printf '%s1.%s Start the board: facilitator run\n' "$BOLD" "$RESET"
+printf '%s2.%s Onboard your agent, in Claude Code: /facilitator onboard\n' "$BOLD" "$RESET"
+printf '   or in Codex: $facilitator onboard\n\n'

@@ -88,6 +88,6 @@ test('the installer path keeps the same groups and ends without a trailing blank
     ...PAIR, '',
     'The passwords did not match. Try both entries again.', '',
     ...PAIR, '',
-    'App password confirmed.',
+    '✓ App password confirmed.',
   ].join('\n') + '\n');
 });

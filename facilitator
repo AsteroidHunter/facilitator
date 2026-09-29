@@ -86,18 +86,57 @@ The bridge persists after this command exits; use `facilitator bridge off` to
 sever the phone session. `--dry-run` inspects current state without changing it."""
 
 
+def style(code, text):
+    """ANSI styling only on a terminal, so pipes and logs stay plain."""
+    return f"\033[{code}m{text}\033[0m" if sys.stdout.isatty() else text
+
+
+_after_intro = False
+
+
+def ok(text):
+    global _after_intro
+    _after_intro = False
+    print(f"{style('38;2;0;114;0', '✓')} {text}")
+
+
+def skipped(text):
+    global _after_intro
+    _after_intro = False
+    print(f"{style('2', '⊘')} {text}")
+
+
+def section(title):
+    """A bold title, a rule as long as the title, then a blank line."""
+    global _after_intro
+    _after_intro = True
+    print()
+    print(style("1", title))
+    print("─" * len(title))
+    print()
+
+
+def problem(headline, *next_steps, blank=None):
+    """The text for sys.exit: the problem, then each next step indented two
+    spaces. A blank line comes first, unless the step intro just before it
+    already ended with one; blank=True forces it."""
+    lead = "\n" if (not _after_intro if blank is None else blank) else ""
+    return lead + "⚠ " + headline + "".join("\n  " + line for line in next_steps)
+
+
 def cmd_password(args, *, installer=False):
     """Create or replace the password with hidden terminal input only."""
     if not installer and args != ["password", "set"]:
         sys.exit("usage: facilitator password set")
     if not sys.stdin.isatty():
         if installer:
-            print("password: no interactive terminal; run `facilitator password set` before enabling the phone bridge")
+            skipped("No app password was set: there is no interactive terminal.")
+            print("Run `facilitator password set` before enabling the phone bridge.")
             return
         sys.exit("password: run this command in an interactive terminal")
     import bridge_auth
     if installer and bridge_auth.configured():
-        print("password: existing app password kept; use it to sign in on your phone")
+        ok("Existing app password kept. Use it to sign in on your phone.")
         return
     import getpass
     print("Choose a strong password to log into your Facilitator phone app.")
@@ -120,8 +159,10 @@ def cmd_password(args, *, installer=False):
             continue
         bridge_auth.set_password(first)
         print()
-        print("App password confirmed. Existing phone sessions were signed out." if not installer
-              else "App password confirmed.")
+        if installer:
+            ok("App password confirmed.")
+        else:
+            print("App password confirmed. Existing phone sessions were signed out.")
         return
 
 
@@ -1501,12 +1542,14 @@ shared agent skill through ./install.sh.
 Safe to run again; a second run changes nothing."""
 UNINSTALL_HELP = """usage: facilitator uninstall [--wipe] [--keep-attachments | --remove-attachments]
 
-Remove what install made: the .venv, node_modules, generated config, and owned
-command and agent-skill links. Keeps board data and bridge credentials unless
---wipe is given. Never removes this folder or stops a running server.
-Card attachments are asked about after the banner and kept unless the answer
-is a clear no; with no terminal they are kept. --keep-attachments and
---remove-attachments answer without asking, with or without --wipe."""
+Remove what install made: the .venv, node_modules, generated config,
+and owned command and agent-skill links. Keeps board data and bridge
+credentials unless --wipe is given. Never removes this folder or stops
+a running server.
+Card attachments are asked about after the banner and kept unless the
+answer is a clear no; with no terminal they are kept.
+--keep-attachments and --remove-attachments answer without asking, with
+or without --wipe."""
 # card attachments, worked out exactly as server.py works them out: new ones
 # save in the sibling internal folder, and the old in-repo uploads/ still
 # serves the ones saved before that move
@@ -1531,9 +1574,9 @@ def check_python():
     shown = ".".join(str(part) for part in have)
     floor = ".".join(str(part) for part in MIN_PYTHON)
     if have < MIN_PYTHON:
-        sys.exit(f"python: {shown} is below the {floor} minimum; "
-                 "install a newer Python, then run install again")
-    print(f"python: {shown} meets the {floor} minimum")
+        sys.exit(problem(f"Python {shown} is below the {floor} minimum.",
+                         "Install a newer Python, then run ./install.sh again."))
+    ok(f"Python {shown} meets the {floor} minimum.")
 
 
 def find_uv():
@@ -1556,31 +1599,39 @@ def install_uv():
     shell profile. uv is required; there is no fallback to a plain venv."""
     brew = shutil.which("brew")
     if brew:
-        print("uv: not found; installing with Homebrew")
+        print("uv is not installed. Installing it with Homebrew.")
         if subprocess.run([brew, "install", "uv"]).returncode != 0:
-            sys.exit("uv: Homebrew could not install it; install uv yourself, then run install again")
+            sys.exit(problem("Homebrew could not install uv.",
+                             "Install uv yourself, then run ./install.sh again."))
     else:
         if not shutil.which("curl"):
-            sys.exit("uv: curl is needed to fetch the installer; install uv yourself, then run install again")
-        print("uv: not found; installing with the astral.sh installer into your home")
+            sys.exit(problem("curl is needed to fetch the uv installer.",
+                             "Install uv yourself, then run ./install.sh again."))
+        print("uv is not installed. Installing it with the astral.sh installer")
+        print("into your home.")
         script = subprocess.run(["curl", "-LsSf", UV_INSTALL_URL], capture_output=True, text=True)
         if script.returncode != 0 or not script.stdout:
-            sys.exit("uv: could not download the installer; install uv yourself, then run install again")
+            sys.exit(problem("Could not download the uv installer.",
+                             "Install uv yourself, then run ./install.sh again."))
         env = {**os.environ, "INSTALLER_NO_MODIFY_PATH": "1"}
         if subprocess.run(["sh"], input=script.stdout, text=True, env=env).returncode != 0:
-            sys.exit("uv: the installer did not finish; install uv yourself, then run install again")
+            sys.exit(problem("The uv installer did not finish.",
+                             "Install uv yourself, then run ./install.sh again."))
     uv = find_uv()
     if not uv:
-        sys.exit("uv: installed but still not found; open a new shell so it is on PATH, then run install again")
+        sys.exit(problem("uv is installed but still not found.",
+                         "Open a new shell so it is on PATH, then run ./install.sh again."))
     return uv
 
 
 def ensure_uv():
     uv = find_uv()
     if uv:
-        print("uv: found")
+        ok("uv found.")
         return uv
-    return install_uv()
+    uv = install_uv()
+    ok("uv installed.")
+    return uv
 
 
 def ensure_env(uv):
@@ -1590,15 +1641,19 @@ def ensure_env(uv):
     file is picked up."""
     venv_python = HERE / ".venv" / "bin" / "python"
     if venv_python.exists():
-        print("environment: .venv present")
+        ok("Environment found in .venv.")
     else:
-        print("environment: creating .venv")
+        print("Creating the environment in .venv.")
         if subprocess.run([uv, "venv", ".venv"], cwd=str(HERE)).returncode != 0:
-            sys.exit("environment: uv could not create .venv; see the output above")
-    print("packages: syncing to requirements.txt")
+            sys.exit(problem("uv could not create .venv.",
+                             "See the output above, then run ./install.sh again."))
+        ok("Environment created.")
+    print("Syncing packages to requirements.txt.")
     if subprocess.run([uv, "pip", "sync", "--python", ".venv/bin/python", "requirements.txt"],
                       cwd=str(HERE)).returncode != 0:
-        sys.exit("packages: uv could not sync requirements.txt; see the output above")
+        sys.exit(problem("uv could not sync requirements.txt.",
+                         "See the output above, then run ./install.sh again."))
+    ok("Packages synced.")
 
 
 def ensure_config():
@@ -1608,10 +1663,10 @@ def ensure_config():
                           ("seed.json", "seed.example.json")):
         target = HERE / name
         if target.exists():
-            print(f"config: {name} present")
+            ok(f"{name} found.")
         else:
             shutil.copyfile(HERE / example, target)
-            print(f"config: wrote {name} from {example}")
+            ok(f"Wrote {name} from {example}.")
 
 
 def ensure_node_deps():
@@ -1620,14 +1675,17 @@ def ensure_node_deps():
     does not need them."""
     npm = shutil.which("npm")
     if not (shutil.which("node") and npm):
-        print("node packages: node not found; skipped (needed only to run the tests)")
+        skipped("Skipped the test packages: node was not found.")
+        print("They are needed only to run the tests.")
         return
     if (HERE / "node_modules" / "puppeteer-core").exists():
-        print("node packages: present (for the tests)")
+        ok("Test packages found.")
         return
-    print("node packages: installing puppeteer-core for the tests")
+    print("Installing puppeteer-core for the tests.")
     if subprocess.run([npm, "install", "puppeteer-core"], cwd=str(HERE)).returncode != 0:
-        sys.exit("node packages: npm could not install puppeteer-core; see the output above")
+        sys.exit(problem("npm could not install puppeteer-core.",
+                         "See the output above, then run ./install.sh again."))
+    ok("Test packages installed.")
 
 
 def cmd_install(args):
@@ -1642,6 +1700,9 @@ def cmd_install(args):
     # keep these lines in order with uv's and npm's when the output is a pipe
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)
+    # install.sh prints this step's intro and its blank line before it gets here
+    global _after_intro
+    _after_intro = True
     previous = read_install_record()
     before = {name: (HERE / name).exists() for name in INSTALL_ARTIFACTS}
     try:
@@ -1659,10 +1720,11 @@ def cmd_install(args):
             if not before[name] and path.exists():
                 owned[name] = file_digest(path) if path.is_file() else "directory"
         INSTALL_RECORD.write_text(json.dumps(owned, indent=2) + "\n")
-    print("")
-    print("Board installed. Start it with:")
-    print("  facilitator run")
-    print("Config lives beside this command: run.config.json (edit it) and seed.json")
+    ok("Board installed.")
+    print()
+    print("Start it with: facilitator run")
+    print("Config lives beside this command: run.config.json (edit it)")
+    print("and seed.json.")
 
 
 def board_running(port):
@@ -1703,8 +1765,9 @@ def remove_path(path):
         if path.is_dir():
             shutil.rmtree(path)
             return True
-    except OSError as problem:
-        sys.exit(f"uninstall: could not remove {path.name}: {problem.strerror or 'error'}")
+    except OSError as error:
+        sys.exit(problem(f"Could not remove {path.name}: {error.strerror or 'error'}.",
+                         "Fix that, then run uninstall again."))
     return False
 
 
@@ -1714,7 +1777,8 @@ def file_digest(path):
 
 def read_install_record():
     if INSTALL_RECORD.is_symlink():
-        sys.exit("install record is a symlink; refusing to modify it")
+        sys.exit(problem(f"{INSTALL_RECORD.name} is a symlink.",
+                         "Facilitator will not modify it."))
     if not INSTALL_RECORD.exists():
         return {}
     try:
@@ -1723,7 +1787,8 @@ def read_install_record():
             raise ValueError("invalid install record")
         return record
     except (OSError, ValueError):
-        sys.exit("install record is invalid; refusing to guess which files belong to Facilitator")
+        sys.exit(problem(f"{INSTALL_RECORD.name} is invalid.",
+                         "Facilitator will not guess which files belong to it."))
 
 
 def banner(role):
@@ -1739,7 +1804,6 @@ def banner(role):
             out += f"\033[38;2;{r};{g};{b}m{ch}" if ch != " " and tty else ch
         print(out + ("\033[0m" if tty else ""))
     print(" " * (len(rows[0]) - len(role)) + role)
-    print("")
 
 
 def attachment_dirs():
@@ -1757,9 +1821,10 @@ def keep_attachments(answer):
     Enter, anything unclear or no terminal to ask on keeps them."""
     if answer is not None:
         return answer
+    print()
     if not sys.stdin.isatty():
-        print("card attachments: kept, no terminal to ask on "
-              "(pass --remove-attachments to remove them)")
+        skipped("Keeping your card attachments: there is no terminal to ask on.")
+        print("Pass --remove-attachments to remove them.")
         return True
     try:
         said = input(ATTACHMENT_QUESTION)
@@ -1768,7 +1833,7 @@ def keep_attachments(answer):
         return True
     except KeyboardInterrupt:
         print("")
-        sys.exit("uninstall: stopped at the attachments question; nothing was removed")
+        sys.exit(problem("Stopped at the attachments question.", "Nothing was removed.", blank=True))
     return said.strip().lower() not in ("n", "no")
 
 
@@ -1777,15 +1842,17 @@ def remove_attachments(path):
     rather than followed, and rmtree unlinks any link inside without following
     it, so nothing outside the folder goes."""
     if path.is_symlink():
-        print(f"kept card attachments link {path} (a link is not followed; remove it by hand)")
+        skipped(f"Kept card attachments link {path}.")
+        print("A link is not followed. Remove it by hand.")
     elif not path.is_dir():
-        print(f"kept {path} (not a folder)")
+        skipped(f"Kept {path}: it is not a folder.")
     else:
         try:
             shutil.rmtree(path)
-        except OSError as problem:
-            sys.exit(f"uninstall: could not remove {path}: {problem.strerror or 'error'}")
-        print(f"removed card attachments folder {path}")
+        except OSError as error:
+            sys.exit(problem(f"Could not remove {path}: {error.strerror or 'error'}.",
+                             "Fix that, then run uninstall again."))
+        ok(f"Removed card attachments folder {path}.")
 
 
 def cmd_uninstall(args):
@@ -1800,35 +1867,48 @@ def cmd_uninstall(args):
     wipe = "--wipe" in words
     extra = [w for w in words if w not in ("--wipe", "--keep-attachments", "--remove-attachments")]
     if extra:
-        sys.exit("uninstall takes --wipe, --keep-attachments or --remove-attachments; got "
-                 + " ".join(extra) + "\n" + UNINSTALL_HELP)
+        sys.exit(problem("Unknown option: " + " ".join(extra) + ".",
+                         "uninstall takes --wipe, --keep-attachments or --remove-attachments.")
+                 + "\n\n" + UNINSTALL_HELP)
     if "--keep-attachments" in words and "--remove-attachments" in words:
-        sys.exit("uninstall: give --keep-attachments or --remove-attachments, not both")
+        sys.exit(problem("Both --keep-attachments and --remove-attachments were given.",
+                         "Give one of them, not both."))
     answer = (True if "--keep-attachments" in words
               else False if "--remove-attachments" in words else None)
 
     banner("uninstaller")
     port = board_port()
     if board_running(port):
-        sys.exit(f"uninstall: the board is up on port {port}; "
-                 "stop that server first, then run uninstall again")
+        sys.exit(problem(f"The board is up on port {port}.",
+                         "Stop that server first, then run uninstall again."))
 
     owned = read_install_record()
     attachments = attachment_dirs()
+    section("1. Card attachments")
+    print("Uninstall asks about your card attachments first, apart from the")
+    print("rest of the board's data, so your answer holds with or without")
+    print("--wipe. Only a clear no removes them.")
+    print()
     if attachments:
+        print("Your card attachments are in:")
         for path in attachments:
-            print(f"card attachments are in {path}")
+            print(f"  {path}")
         keep = keep_attachments(answer)
     else:
-        print("card attachments: none found")
+        print("No card attachments found.")
         keep = True
-    print("")
 
     import shell_integration
+    section("2. Command and skill")
+    print("Uninstall removes the command link, the skill links and the")
+    print("installer block in your shell profile, but only where they are")
+    print("still the ones setup made.")
+    print()
     shell_integration.uninstall()
 
     note = bridge_note(port)
     if note:
+        print()
         print(note)
 
     made = [(".venv", HERE / ".venv"),
@@ -1844,36 +1924,62 @@ def cmd_uninstall(args):
             ("bridge-auth.json", HERE / "bridge-auth.json"),
             ("bridge-auth.lock", HERE / "bridge-auth.lock")]
 
+    section("3. Board files")
+    print("Setup recorded the files it made. Uninstall removes those, and")
+    print("keeps any that you changed or that were already there.")
+    print()
     for label, path in made:
         marker = owned.get(label)
         if marker is None:
-            print(f"kept {label} (not recorded as installer-owned)" if path.exists()
-                  else f"{label} not present")
+            if path.exists():
+                skipped(f"Kept {label}: it is not recorded as installer-owned.")
+            else:
+                skipped(f"{label} not present.")
         elif marker != "directory" and (not path.is_file() or file_digest(path) != marker):
-            print(f"kept changed {label}")
+            skipped(f"Kept {label}: it has changed since install.")
+        elif remove_path(path):
+            ok(f"Removed {label}.")
         else:
-            print(f"removed {label}" if remove_path(path) else f"{label} not present")
+            skipped(f"{label} not present.")
     if INSTALL_RECORD.exists():
         INSTALL_RECORD.unlink()
 
+    section("4. Board data")
+    print("Board data and bridge credentials are kept unless you pass --wipe.")
+    print("Card attachments follow your answer in step 1.")
+    print()
+    shown = 0
     if wipe:
         for label, path in data:
-            print(f"removed {label}" if remove_path(path) else f"{label} not present")
+            if remove_path(path):
+                ok(f"Removed {label}.")
+            else:
+                skipped(f"{label} not present.")
+            shown += 1
         # state's scratch and backups are the board's data too, not the install
         for path in [HERE / "state.tmp", *sorted(HERE.glob("state.json.bak-*"))]:
             if remove_path(path):
-                print(f"removed {path.name}")
+                ok(f"Removed {path.name}.")
     else:
         for label, path in data:
             if path.exists():
-                print(f"kept {label}")
+                skipped(f"Kept {label}.")
+                shown += 1
 
     # asked about apart from --wipe, so the answer holds either way
     for path in attachments:
         if keep:
-            print(f"kept card attachments in {path}")
+            skipped(f"Kept card attachments in {path}.")
         else:
             remove_attachments(path)
+        shown += 1
+    if not shown:
+        skipped("No board data found.")
+
+    print()
+    print(f"{style('38;2;0;114;0', '✦')} Uninstall finished.")
+    print()
+    print("This folder was left in place.")
 
 
 def main():
