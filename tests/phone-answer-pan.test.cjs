@@ -41,8 +41,7 @@ function world() {
   const boxes = { m1: box("m1"), m2: box("m2") };
   const cards = { addEventListener: on("#cards"), clientWidth: 360 };
   const panel = side => ({ dataset: { side } });
-  const drawer = panel("left"), settings = { ...panel("right"), classList: classList() };
-  const view = { inDetail: false, listed: 0 };
+  const drawer = panel("left"), settings = panel("right");
   const document = {
     addEventListener: on("document"), body, activeElement: body,
     getElementById: id => id === "cards" ? cards : id === "pane" ? { classList: classList() } : null,
@@ -55,8 +54,7 @@ function world() {
     addEventListener: on("window"), performance: { now: () => 0 },
     setTimeout: (fn, ms) => { timers.push(fn); return timers.length; }, clearTimeout() {},
     matchMedia: () => ({ matches: false }),
-    menuOut: () => settings.classList.contains("open") ? settings : null, dismissEditor() {},
-    settingsView: { inDetail: () => view.inDetail, list: () => { view.listed++; } }, tracePhone() {}, traceFrameOpportunity() {},
+    menuOut: () => null, dismissEditor() {}, tracePhone() {}, traceFrameOpportunity() {},
     phoneEnterRole: () => "other",
     menuWidth: () => 300, menuSign: p => p === settings ? -1 : 1,
     paintMenu: (p, at) => calls.push(["paint", p.dataset.side, Math.round(at * 100) / 100]),
@@ -81,19 +79,16 @@ function world() {
   return { listeners, calls, timers, body, boxes, events,
     down: (x, y) => fire("touchstart", touch(x, y)),
     move: (x, y) => fire("touchmove", touch(x, y)),
-    up: (x, y) => fire("touchend", { touches: [], changedTouches: x === undefined ? [] : [{ clientX: x, clientY: y }],
-      target: { closest: () => null } }),
+    up: () => fire("touchend", { touches: [], target: { closest: () => null } }),
     flush() { while (timers.length) timers.shift()(); },
-    settings, view,
     prevented: () => events.reduce((n, e) => n + (e.prevented || 0), 0) };
 }
 
 test("every touch, mouse and pointer listener over the answer is passive", () => {
   const w = world();
   const over = w.listeners.filter(l => /^(touch|mouse|pointer)/.test(l.type));
-  // the drawer pull's seven, the settings swipe back's four, the recorder's six
-  // and the card swipe's four
-  assert.equal(over.length, 21);
+  // the drawer pull's seven, the recorder's six and the card swipe's four
+  assert.equal(over.length, 17);
   for (const l of over)
     assert.equal(l.options?.passive, true, `${l.where} ${l.type} may cancel, so the phone waits on the page`);
 });
@@ -115,42 +110,6 @@ test("a pull from the left edge opens the list, cancelling nothing", () => {
   w.move(250, 410);
   w.up();
   assert.deepEqual(w.calls, [["paint", "left", 0.18], ["paint", "left", 0.82], ["run", "left", 1]]);
-  assert.equal(w.prevented(), 0);
-});
-
-test("a swipe right inside a settings section goes back to the list, cancelling nothing", () => {
-  const w = world();
-  w.settings.classList.add("open");
-  w.view.inDetail = true;
-  w.down(120, 400);
-  w.move(200, 405);
-  w.up(200, 405);
-  assert.equal(w.view.listed, 1);
-  assert.deepEqual(w.calls, []);
-  assert.ok(!w.body.classList.contains("menudrag"));
-  assert.equal(w.prevented(), 0);
-});
-
-test("a short or upright drag inside a settings section stays where it is", () => {
-  const w = world();
-  w.settings.classList.add("open");
-  w.view.inDetail = true;
-  w.down(120, 400);
-  w.up(150, 402);
-  w.down(120, 400);
-  w.up(260, 200);
-  assert.equal(w.view.listed, 0);
-});
-
-test("a swipe right on the settings list shuts the page and does not go back", () => {
-  const w = world();
-  w.settings.classList.add("open");
-  w.down(200, 400);
-  w.move(260, 403);
-  w.move(380, 405);
-  w.up(380, 405);
-  assert.equal(w.view.listed, 0);
-  assert.deepEqual(w.calls.at(-1), ["run", "right", 0]);
   assert.equal(w.prevented(), 0);
 });
 
