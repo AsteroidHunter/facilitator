@@ -783,7 +783,7 @@ test("the defer chip parks, the history steps back, the plus makes a card to nam
       placeholder: getComputedStyle(document.querySelector("article.box.sel .title"), "::before").content,
     }));
     assert.equal(naming.drawerOpen, false);
-    assert.equal(naming.placeholder, '"Chat Name"');
+    assert.equal(naming.placeholder, '"Card Name"');
     await page.keyboard.type("Named on the phone");
     await page.keyboard.press("Enter");
     await page.waitForFunction(cardId => lastState?.boxes.find(b => b.id === cardId)?.title === "Named on the phone", { timeout: 3000 }, newId);

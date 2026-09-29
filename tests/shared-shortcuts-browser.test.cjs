@@ -595,7 +595,7 @@ test("a card with no name shows a name to click, and its title can be typed into
       return { height: el.getBoundingClientRect().height, placeholder: getComputedStyle(el, "::before").content, naming: el.isContentEditable };
     }, madeId);
     assert.ok(title.height > 10, "a card with no name has no title line to click");
-    assert.equal(title.placeholder, '"Chat Name"', "a card with no name does not say where its name goes");
+    assert.equal(title.placeholder, '"Card Name"', "a card with no name does not say where its name goes");
     assert.equal(title.naming, false, "a card picked by hand started out renaming");
     await page.click(`#box-${madeId}.sel .title`);
     await page.waitForFunction(id => els[id].titleEl.isContentEditable && document.activeElement === els[id].titleEl,

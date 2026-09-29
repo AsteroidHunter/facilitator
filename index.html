@@ -252,7 +252,7 @@
        border:var(--edge) solid var(--line); border-radius:6px; padding:2px 7px; flex:none}
   .title{font:625 17.5px/1.25 var(--inter); flex:1; min-width:0}
   .title[contenteditable]{outline:none}
-  .title:empty::before{content:"Chat Name"; color:var(--line-strong)}
+  .title:empty::before{content:"Card Name"; color:var(--bubble-fill, #F3F3F3)}
   .body{padding:8px 14px 13px}
   .reply{color:var(--ink)}
   .reply p{margin:0 0 9px}
@@ -2327,7 +2327,7 @@
   #magic2 .mtitle{font:625 15px/1.25 var(--inter); color:var(--ink);
     margin-top:8px; padding-right:71px; flex:none; cursor:text}
   #magic2 .mtitle[contenteditable]{outline:none}
-  #magic2 .mtitle[contenteditable]:empty::before{content:"Chat Name"; color:var(--line-strong)}
+  #magic2 .mtitle[contenteditable]:empty::before{content:"Card Name"; color:var(--bubble-fill, #F3F3F3)}
   /* the cross, copied off the card: round pink chip, two black bars */
   #magic2 .mx{position:absolute; top:9px; right:9px; z-index:4;
     width:16px; height:16px; border-radius:50%; background:#FF9F98;
