@@ -112,10 +112,21 @@ Endpoints:
   POST /delete?box=ID       -> legacy empty-meta removal route. A stale caller
                                that sends a nonempty meta card here closes it to
                                done instead, so old tabs cannot erase a thread
-  POST /upload?name=F       -> body = raw attachment bytes; saves to the sibling internal
+  POST /upload?name=F[&op=ID] -> body = raw attachment bytes; saves to the sibling internal
                                folder ../facilitator-internal/uploads/ (outside the
                                repo, never pushed), returns {"url": "/uploads/..."}
-                               unchanged; GET /uploads/<file> serves it back
+                               unchanged; GET /uploads/<file> serves it back. The
+                               bytes stream to a hidden part file, owner-only, and
+                               are put in place only once complete and only if
+                               their first bytes are the kind the name says (415
+                               otherwise; an SVG carrying script is refused too).
+                               The body may go UPLOAD_STALL_TIMEOUT with nothing
+                               arriving and UPLOAD_TIME_LIMIT in all (408). ID is
+                               the caller's operation id: a repeat under the same
+                               ID is answered with the file already stored
+  GET  /upload?op=ID        -> the receipt of that upload: {"url": ...} once
+                               stored, {"arriving": true} while it is still coming,
+                               404 when this server run has no record of it
   GET  /uploads/<file>      -> a previously uploaded attachment: served from the internal
                                uploads folder, falling back to the old in-repo
                                uploads/ for images saved before the move
@@ -1181,6 +1192,13 @@ BODY_READ_TIMEOUT = 30.0        # seconds a request body may take to arrive
 GRACEFUL_STOP_TIMEOUT = 3       # seconds a stop waits for open requests before cutting them
 MAX_TEXT_BODY = 1024 * 1024     # bytes of a plain text body: a message, a reply, a text file
 MAX_UPLOAD_BODY = 100 * 1024 * 1024   # bytes of one attachment
+# an attachment is not held to BODY_READ_TIMEOUT: a phone video over a slow
+# link can need minutes, and a flat total cuts a slow but steady upload as
+# surely as a dead one. It is cut when nothing has arrived for the first clock,
+# and in any case once the second has run out
+UPLOAD_STALL_TIMEOUT = 60.0     # seconds an upload may go with no bytes arriving
+UPLOAD_TIME_LIMIT = 3600.0      # seconds a whole upload may take
+UPLOAD_RECEIPTS = 256           # finished uploads remembered by operation id, newest kept
 MAX_IMG_PREVIEW = 25 * 1024 * 1024    # bytes of an in-root image the navigator will preview inline
 # the control bytes a real text file never carries: every C0 control except tab,
 # newline, carriage return and form feed. A file can decode as utf-8 and still be
@@ -4243,21 +4261,109 @@ def _rollback_claim(owner: str, bid: str, token: str) -> bool:
 
 # -- POST -----------------------------------------------------------------------
 
-def _post_upload(q: Query, raw: bytes):
-    if not raw:
-        return 400, {"error": "empty upload"}
-    name = q.one("name", "file")
-    safe = "".join(c for c in name if c.isalnum() or c in "._- ").strip()[-100:] or "file"
-    if Path(safe).suffix.lower() not in UPLOAD_TYPES:
-        return 415, {"error": "unsupported file type; choose an image, video, audio, PDF or Word file"}
-    up = INTERNAL_UPLOADS
-    up.mkdir(parents=True, exist_ok=True)
-    # Exclusive creation keeps simultaneous uploads with the same name distinct.
-    stamp = time.time_ns()
-    fname = f"{stamp}-{safe}"
-    with (up / fname).open("xb") as target:
-        target.write(raw)
-    return 200, {"url": "/uploads/" + quote(fname)}
+# ---- attachments ----------------------------------------------------------------
+# What an upload is allowed to be. The name only says which kind of file the
+# sender means; the first bytes say which kind arrived, and the two have to
+# agree, so a page renamed as a picture never reaches the uploads folder. The
+# checks are loose within a kind on purpose (any of the box names a QuickTime
+# file may open with, a bare frame as well as a tag for MP3, RTF as well as the
+# Word binary for .doc), because a real file turned away is the worse mistake:
+# what keeps an odd file harmless is how /uploads serves it, with nosniff and a
+# sandbox, and this is the layer in front of that. The words are the phone's:
+# it shows them to the owner as they are.
+UPLOAD_HEAD = 4096              # bytes of the start of a file its kind is read from
+_ISO_BOXES = (b"ftyp", b"moov", b"mdat", b"wide", b"free", b"skip", b"pnot")
+UPLOAD_KINDS = {
+    ".png": ("a PNG picture", lambda h: h.startswith(b"\x89PNG\r\n\x1a\n")),
+    ".jpg": ("a JPEG picture", lambda h: h.startswith(b"\xff\xd8\xff")),
+    ".jpeg": ("a JPEG picture", lambda h: h.startswith(b"\xff\xd8\xff")),
+    ".gif": ("a GIF picture", lambda h: h.startswith((b"GIF87a", b"GIF89a"))),
+    ".webp": ("a WebP picture", lambda h: h[:4] == b"RIFF" and h[8:12] == b"WEBP"),
+    ".svg": ("an SVG picture", lambda h: b"<svg" in h.lower()),
+    ".mp4": ("an MP4 video", lambda h: h[4:8] in _ISO_BOXES),
+    ".m4v": ("an M4V video", lambda h: h[4:8] in _ISO_BOXES),
+    ".mov": ("a QuickTime video", lambda h: h[4:8] in _ISO_BOXES),
+    ".webm": ("a WebM video", lambda h: h.startswith(b"\x1a\x45\xdf\xa3")),
+    ".ogv": ("an Ogg video", lambda h: h.startswith(b"OggS")),
+    ".mp3": ("an MP3 recording", lambda h: h.startswith(b"ID3") or (len(h) > 1 and h[0] == 0xFF and h[1] & 0xE0 == 0xE0)),
+    ".m4a": ("an M4A recording", lambda h: h[4:8] in _ISO_BOXES),
+    ".aac": ("an AAC recording", lambda h: h.startswith((b"ID3", b"ADIF")) or (len(h) > 1 and h[0] == 0xFF and h[1] & 0xF0 == 0xF0)),
+    ".wav": ("a WAV recording", lambda h: h[:4] == b"RIFF" and h[8:12] == b"WAVE"),
+    ".ogg": ("an Ogg recording", lambda h: h.startswith(b"OggS")),
+    ".oga": ("an Ogg recording", lambda h: h.startswith(b"OggS")),
+    ".opus": ("an Opus recording", lambda h: h.startswith(b"OggS")),
+    ".weba": ("a WebM recording", lambda h: h.startswith(b"\x1a\x45\xdf\xa3")),
+    ".pdf": ("a PDF", lambda h: b"%PDF-" in h[:1024]),
+    ".doc": ("a Word document", lambda h: h.startswith((b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1", b"{\\rtf"))),
+    ".docx": ("a Word document", lambda h: h.startswith(b"PK\x03\x04")),
+}
+# what an SVG may not carry: script in any of the ways a document can hold it,
+# an event handler on any element, a javascript: link, or HTML embedded in it.
+# /uploads already serves an SVG where none of this could run; refusing it here
+# means the folder never holds one that would run anywhere else
+_SVG_SCRIPT = re.compile(rb"<script|<handler|<foreignobject|<iframe|<embed|<object|javascript:"
+                         rb"|<[^<]{0,4096}?[\s\"'/]on[a-z]+\s*=", re.IGNORECASE)
+_SVG_OVERLAP = 8192             # longer than any match above, so a read boundary never splits one
+UPLOAD_WORDS = {
+    "type": "That kind of file cannot be attached. Choose an image, video, audio, PDF or Word file.",
+    "large": "The file is larger than 100 MiB, so it was not attached.",
+    "empty": "The file is empty, so it was not attached.",
+    "script": "That SVG carries script, so it was not attached.",
+    "stalled": "The upload stopped arriving for a minute, so it was not saved.",
+    "late": "The upload took longer than an hour, so it was not saved.",
+    "op": "That upload id is not one this board can use.",
+    "other": "That upload id belongs to another file.",
+    "arriving": "That upload is still arriving.",
+}
+# the operation ids of finished uploads, oldest first, and the ones still
+# coming in. Both are this server run's alone and touched only on the loop: an
+# upload changes no board state, so a receipt lost to a restart costs a second
+# copy of one file, never a second message
+_upload_receipts: dict[str, dict] = {}
+_uploads_arriving: set[str] = set()
+
+
+def _upload_name(name: str) -> str:
+    """The name a file is kept under after its stamp: letters, digits, dot,
+    dash, underscore and space, the last 100 of them."""
+    return "".join(c for c in name if c.isalnum() or c in "._- ").strip()[-100:] or "file"
+
+
+def _upload_kind_error(ext: str, head: bytes) -> str | None:
+    """Plain words when the start of a file is not the kind its name says."""
+    kind = UPLOAD_KINDS.get(ext)
+    if kind is None:
+        return UPLOAD_WORDS["type"]
+    words, matches = kind
+    return None if matches(head) else f"That file is not {words}, whatever its name says, so it was not attached."
+
+
+def _svg_carries_script(path: Path) -> bool:
+    """The whole file is read for it, a MiB at a time with an overlap so a
+    marker cut in two by the read is still seen whole."""
+    tail = b""
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            window = tail + chunk
+            if _SVG_SCRIPT.search(window):
+                return True
+            tail = window[-_SVG_OVERLAP:]
+    return False
+
+
+def _sweep_upload_parts() -> None:
+    """Part files an upload left behind when the server stopped under it. One
+    still younger than an upload may take could belong to a server starting
+    beside this one, so only older ones go."""
+    try:
+        for part in INTERNAL_UPLOADS.glob(".*.part"):
+            try:
+                if time.time() - part.stat().st_mtime > UPLOAD_TIME_LIMIT:
+                    part.unlink()
+            except OSError:
+                pass
+    except OSError:
+        pass
 
 
 def _post_clientlog(q: Query, raw: bytes):
@@ -5564,6 +5670,150 @@ def _state_endpoint(fn, body: str = "none", cap: int = MAX_TEXT_BODY,
     return _endpoint(fn, body, cap, too_large, stateful=True)
 
 
+# -- the attachment upload ---------------------------------------------------------
+# The one body that is not read whole into memory: up to MAX_UPLOAD_BODY of it
+# goes straight to a hidden part file beside the uploads, created for the owner
+# alone, and is linked into place under its kept name only once all of it has
+# come and its first bytes are the kind its name says. Every way out before
+# that removes the part, so a cut, a refusal or a stop leaves nothing that could
+# be served. The receipts below are what make a retry safe: the phone names
+# each upload with an operation id, and the same id asked again is answered with
+# the file already stored rather than a second copy.
+
+UPLOAD_WRITE = 1024 * 1024      # bytes gathered before each write to the part file
+
+
+class _UploadRefused(Exception):
+    def __init__(self, status: int, words: str) -> None:
+        super().__init__(words)
+        self.status, self.words = status, words
+
+
+async def _upload_to_part(request: Request, part: Path, got: dict) -> bytes:
+    """The body into the part file, counted into got["bytes"] as it comes;
+    answers the first UPLOAD_HEAD bytes. One clock is moved on with every
+    chunk that arrives, to the silence limit or the whole upload's end,
+    whichever is sooner."""
+    loop = asyncio.get_running_loop()
+    ends = loop.time() + UPLOAD_TIME_LIMIT
+    head, gathered = bytearray(), bytearray()
+    fd = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as target:
+        try:
+            async with asyncio.timeout(min(UPLOAD_STALL_TIMEOUT, UPLOAD_TIME_LIMIT)) as clock:
+                async for chunk in request.stream():
+                    clock.reschedule(min(loop.time() + UPLOAD_STALL_TIMEOUT, ends))
+                    got["bytes"] += len(chunk)
+                    if got["bytes"] > MAX_UPLOAD_BODY:
+                        raise _UploadRefused(413, UPLOAD_WORDS["large"])
+                    if len(head) < UPLOAD_HEAD:
+                        head += chunk[:UPLOAD_HEAD - len(head)]
+                    gathered += chunk
+                    if len(gathered) >= UPLOAD_WRITE:
+                        await run_in_threadpool(target.write, bytes(gathered))
+                        gathered.clear()
+        except TimeoutError:
+            raise _UploadRefused(408, UPLOAD_WORDS["late" if loop.time() >= ends - 1 else "stalled"])
+        if gathered:
+            await run_in_threadpool(target.write, bytes(gathered))
+    return bytes(head)
+
+
+async def _post_upload(request: Request) -> Response:
+    q = _query(request.scope)
+    route = q.path
+    safe = _upload_name(q.one("name", "file"))
+    ext = Path(safe).suffix.lower()
+    # what can be refused before a byte of the body is asked for is refused
+    # first, and the connection is closed with its unread bytes
+    if ext not in UPLOAD_TYPES:
+        return _answer(415, {"error": UPLOAD_WORDS["type"]}, route=route, close=True)
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_UPLOAD_BODY:
+        return _answer(413, {"error": UPLOAD_WORDS["large"]}, route=route, close=True)
+    op = q.one("op")
+    if op and not INCIDENT_OP.fullmatch(op):
+        return _answer(400, {"error": UPLOAD_WORDS["op"]}, route=route, close=True)
+    if op and op in _uploads_arriving:
+        return _answer(409, {"error": UPLOAD_WORDS["arriving"]}, route=route, close=True)
+    kept = _upload_receipts.get(op) if op else None
+    if kept is not None and kept["name"] != safe:
+        return _answer(409, {"error": UPLOAD_WORDS["other"]}, route=route, close=True)
+    INTERNAL_UPLOADS.mkdir(parents=True, exist_ok=True)
+    stamp = time.time_ns()
+    part = INTERNAL_UPLOADS / f".{stamp}-{secrets.token_hex(4)}.part"
+    started = time.monotonic()
+    got = {"bytes": 0}
+    if op:
+        _uploads_arriving.add(op)
+    try:
+        head = await _upload_to_part(request, part, got)
+        size = got["bytes"]
+        if kept is not None:
+            # the retry of an upload already stored: its bytes are let go and
+            # the answer is the one its first try was given
+            return _answer(200, {"url": kept["url"], "replayed": True}, route=route)
+        if not size:
+            raise _UploadRefused(400, UPLOAD_WORDS["empty"])
+        wrong = _upload_kind_error(ext, head)
+        if wrong:
+            raise _UploadRefused(415, wrong)
+        if ext == ".svg" and await run_in_threadpool(_svg_carries_script, part):
+            raise _UploadRefused(415, UPLOAD_WORDS["script"])
+        # the kept name is taken with an exclusive create, so two uploads
+        # stamped alike stay two files, and the part is then renamed over it
+        # in one step, so no reader ever sees half a file under that name
+        for bump in range(8):
+            fname = f"{stamp + bump}-{safe}"
+            try:
+                os.close(os.open(INTERNAL_UPLOADS / fname, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+                break
+            except FileExistsError:
+                continue
+        else:
+            raise _UploadRefused(409, "Another upload took that name; try again.")
+        try:
+            os.replace(part, INTERNAL_UPLOADS / fname)
+        except OSError:
+            (INTERNAL_UPLOADS / fname).unlink(missing_ok=True)
+            raise
+        url = "/uploads/" + quote(fname)
+        if op:
+            _upload_receipts[op] = {"url": url, "name": safe, "size": size}
+            while len(_upload_receipts) > UPLOAD_RECEIPTS:
+                del _upload_receipts[next(iter(_upload_receipts))]
+        _info("upload", route=route, bytes=size, ms=round((time.monotonic() - started) * 1000))
+        return _answer(200, {"url": url}, route=route)
+    except _UploadRefused as refused:
+        return _answer(refused.status, {"error": refused.words}, route=route, close=True)
+    except ClientDisconnect:
+        # the phone went: out of signal, asleep, or its own clock ran out. Not
+        # an error, but the one line a failed phone upload leaves behind, so it
+        # says how far the upload got
+        _info("uploadcut", route=route, bytes=got["bytes"], ms=round((time.monotonic() - started) * 1000))
+        return Response(status_code=400)
+    finally:
+        if op:
+            _uploads_arriving.discard(op)
+        part.unlink(missing_ok=True)
+
+
+async def _get_upload_receipt(request: Request) -> Response:
+    """Whether an upload under this operation id is stored, still coming in,
+    or unknown to this server run. On the loop, like the upload itself, so the
+    two never read the receipts from different threads."""
+    q = _query(request.scope)
+    op = q.one("op")
+    if not INCIDENT_OP.fullmatch(op):
+        return _answer(400, {"error": UPLOAD_WORDS["op"]}, route=q.path)
+    if op in _uploads_arriving:
+        return _answer(200, {"arriving": True}, route=q.path)
+    kept = _upload_receipts.get(op)
+    if kept is None:
+        return _plain(404, {"error": "no upload under that id"})
+    return _answer(200, {"url": kept["url"], "size": kept["size"]}, route=q.path)
+
+
 # -- the agent's long poll ----------------------------------------------------------
 # The one route that waits. It waits on the loop, woken by every change to the
 # board (_notify) and by the peer hanging up, and it sends its own answer so a
@@ -5750,7 +6000,7 @@ _last_overload: dict = {}
 # read routes, the ones that share READ_SLOTS: every GET except the small
 # answers that a command loop or a waking phone depends on
 UNCOUNTED_GETS = frozenset({"/unread", "/op", "/fresh", "/wait", "/push/key", "/worktrees",
-                            "/dirs", "/pickdir"})
+                            "/dirs", "/pickdir", "/upload"})
 
 
 def _overload(which: str, route: str) -> None:
@@ -5957,7 +6207,8 @@ ROUTES = [
     Route("/navfiles", _endpoint(_get_navfiles), methods=["GET"]),
     Route("/navfile", _endpoint(_get_navfile), methods=["GET"]),
     Route("/navimg", _endpoint(_get_navimg), methods=["GET"]),
-    Route("/upload", _endpoint(_post_upload, "raw", MAX_UPLOAD_BODY, "upload too large"), methods=["POST"]),
+    Route("/upload", _post_upload, methods=["POST"]),
+    Route("/upload", _get_upload_receipt, methods=["GET"]),
     Route("/clientlog", _endpoint(_post_clientlog, "raw", CLIENT_MAX_BODY, "report batch too large"), methods=["POST"]),
     Route("/navsave", _endpoint(_post_navsave, "raw", MAX_TEXT_BODY), methods=["POST"]),
     Route("/send", _state_endpoint(_post_send, "text"), methods=["POST"]),
@@ -6273,6 +6524,7 @@ def main() -> None:
 
     try:
         INTERNAL_UPLOADS.mkdir(parents=True, exist_ok=True)
+        _sweep_upload_parts()
         _load()
         with _lock:
             _state["busy"] = {ow: None for ow in OWNERS}  # a restart never resumes mid-claim
