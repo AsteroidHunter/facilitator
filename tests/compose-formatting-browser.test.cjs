@@ -687,7 +687,7 @@ test("the board's own file navigator and the card row keep separate words and se
   }
 });
 
-test("the board's settings page opens over the whole window, works and closes", async () => {
+test("the board's settings page opens as an overlay over the board, works and closes", async () => {
   await clearLane();
   const id = await card("Settings page", "A reply to answer.");
   const { page, problems } = await open("/", DESKTOP);
@@ -708,9 +708,10 @@ test("the board's settings page opens over the whole window, works and closes", 
         open: document.body.classList.contains("setopen"),
         shown: getComputedStyle(view.closest(".sp-veil")).display,
         onTop: !!middle && view.contains(middle),
-        coversTheWindow: rect.left === 0 && rect.top === 0
-          && rect.right === document.documentElement.clientWidth
-          && rect.bottom === document.documentElement.clientHeight,
+        centredAtSeventhTenths: Math.abs(rect.width / document.documentElement.clientWidth - 0.7) < 0.01
+          && Math.abs(rect.height / document.documentElement.clientHeight - 0.7) < 0.01
+          && Math.abs(rect.left - (document.documentElement.clientWidth - rect.right)) <= 1
+          && Math.abs(rect.top - (document.documentElement.clientHeight - rect.bottom)) <= 1,
         label: view.querySelector(".sp-pane.on .setrow span").textContent,
         checked: document.getElementById("setformat").checked,
         expanded: mark.getAttribute("aria-expanded"),
@@ -719,7 +720,7 @@ test("the board's settings page opens over the whole window, works and closes", 
     assert.equal(out.open, true, "the mark did not open the page");
     assert.equal(out.shown, "block");
     assert.equal(out.onTop, true, "the page was drawn under the board it opens over");
-    assert.equal(out.coversTheWindow, true, "the page did not cover the whole window");
+    assert.equal(out.centredAtSeventhTenths, true, "the page is not a centred overlay at about 70% of the window");
     assert.equal(out.label, "Format text while typing");
     assert.equal(out.checked, true);
     assert.equal(out.expanded, "true");

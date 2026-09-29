@@ -3210,14 +3210,16 @@ function quickNoteOverlay(host, opts){
 }
 
 // ---- the settings page ---------------------------------------------------------
-// the board's own choices on one full-screen page, the same one on the desktop
-// board and on the phone. each page keeps its controls in the markup, grouped
+// the board's own choices on one page, the same one on the desktop board, where
+// it is an overlay, and on the phone, where it fills the screen. each page keeps
+// its controls in the markup, grouped
 // under one element per section carrying data-section and data-label, so every
 // control keeps its id and its own wiring; this builds the page around them and
 // moves each group into its pane. nothing here reads or writes a setting.
 // the width it turns from a column of sections beside the settings to a list
 // that opens one section at a time is 989px, the board's own single column width
-const SETTINGS_NARROW = "(max-width: 989px)";
+const SETTINGS_NARROW_PX = 989;
+const SETTINGS_NARROW = "(max-width: " + SETTINGS_NARROW_PX + "px)";
 const SETTINGS_MARKS = {
   back: '<path d="M15 5l-7 7 7 7"/>',
   next: '<path d="M9 5l7 7-7 7"/>',
@@ -3232,10 +3234,12 @@ function settingsMark(name){
 }
 
 // fills root, which becomes the page, from source, the element holding the
-// section groups. opts.close puts the whole page away. what comes back moves
-// between the list and one section, and says where it stands
+// section groups. opts.close puts the whole page away. opts.narrow, where the
+// window is not what decides, is a query like matchMedia's that says when the
+// page is narrow. what comes back moves between the list and one section, and
+// says where it stands
 function settingsPage(root, source, opts){
-  const narrow = matchMedia(SETTINGS_NARROW);
+  const narrow = opts.narrow || matchMedia(SETTINGS_NARROW);
   root.classList.add("qn-glass", "sp-page");
   root.setAttribute("role", "dialog");
   root.setAttribute("aria-modal", "true");
@@ -3284,6 +3288,7 @@ function settingsPage(root, source, opts){
   function paint(){
     const detail = narrow.matches && view === "pane";
     root.dataset.view = view;
+    root.toggleAttribute("data-narrow", narrow.matches);
     back.hidden = !detail;
     title.textContent = detail ? current.label : "Settings";
     for (const s of sections){
@@ -3322,24 +3327,39 @@ function settingsPage(root, source, opts){
   };
 }
 
+// a query like matchMedia's, on the width of one element instead of the window
+function widthQuery(el, limit){
+  const heard = [];
+  if (typeof ResizeObserver === "function") new ResizeObserver(() => heard.forEach(fn => fn())).observe(el);
+  return {
+    get matches(){ return el.getBoundingClientRect().width <= limit; },
+    addEventListener(type, fn){ heard.push(fn); },
+  };
+}
+
 // the desktop's seat for the page: a veil over the whole window, the same one
-// the quick note opens over, with the page filling it. Escape puts the whole
-// page away from either view, and no key goes on to the board it covers. opts
-// carries onOpen and onClose for the page's own bookkeeping
+// the quick note opens over, with the page centred on it at about seven tenths
+// of the window each way. the page turns between its two layouts by its own
+// width, not the window's. a press on the veil outside the page, Escape and the
+// close mark all put the whole page away from either view, and no key goes on
+// to the board it covers. opts carries onOpen and onClose for the page's own
+// bookkeeping
 function settingsOverlay(host, source, opts){
   const veil = h("div", "qn-veil sp-veil");
   veil.setAttribute("aria-hidden", "true");
   const seat = h("div");
+  // a press on bare glass leaves focus on the page, so Escape still reaches the veil
+  seat.tabIndex = -1;
   veil.appendChild(seat);
   host.appendChild(veil);
-  let open = false, back = null;
-  const page = settingsPage(seat, source, { close });
+  let open = false, back = null, downOutside = false;
+  const page = settingsPage(seat, source, { close, narrow: widthQuery(seat, SETTINGS_NARROW_PX) });
   function openOverlay(){
     if (open) return;
     open = true;
     back = document.activeElement;
-    page.reset();
     veil.classList.add("open");
+    page.reset();
     veil.setAttribute("aria-hidden", "false");
     if (opts.onOpen) opts.onOpen();
     page.focus();
@@ -3358,6 +3378,13 @@ function settingsOverlay(host, source, opts){
   veil.addEventListener("keydown", e => {
     e.stopPropagation();
     if (e.key === "Escape"){ e.preventDefault(); close(); }
+  });
+  // a press that starts and ends on the veil, outside the page, puts it away;
+  // a selection dragged out of the page and let go on the veil does not
+  veil.addEventListener("pointerdown", e => { downOutside = e.target === veil; });
+  veil.addEventListener("click", e => {
+    if (downOutside && e.target === veil) close();
+    downOutside = false;
   });
   // and focus cannot wander onto the board behind it
   document.addEventListener("focusin", e => {

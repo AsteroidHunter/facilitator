@@ -569,18 +569,21 @@
 }
 
 /* ---- the settings page --------------------------------------------------- */
-/* the board's own choices, on one page that covers the whole window and is
-   drawn in the quick note's glass, so the board is seen blurred through it.
-   the desktop board seats it in a veil of its own (.sp-veil) and the phone
-   seats it as its right hand menu; the page itself is the same on both.
+/* the board's own choices, on one page drawn in the quick note's glass, so the
+   board is seen blurred through it. the desktop board seats it in a veil of its
+   own (.sp-veil), the quick note's veil, as a centred overlay seven tenths of the
+   window across and down with the note's own corners; the phone seats it as its
+   right hand menu over the whole screen. the page itself is the same on both.
    wide, a column of sections stands on the left and the chosen section's
-   settings on the right. narrow, which is the width the board already turns to
-   its single column at, only the list of sections shows, a tap shows one
-   section, and the back mark on the bar above goes back to the list */
+   settings on the right. narrow, which is the page's own width at or under the
+   board's single column width, only the list of sections shows, a tap shows one
+   section, and the back mark on the bar above goes back to the list. the page
+   marks itself data-narrow when it is */
 .sp-page{box-sizing:border-box; display:flex; flex-direction:column; min-height:0;
   border-radius:0; --qn-boost:.22; color:var(--ink); font:14px/1.4 var(--sans)}
 .sp-veil.open{display:block}
-.sp-veil .sp-page{position:absolute; inset:0}
+.sp-veil .sp-page{position:absolute; inset:15%; border-radius:9px; overflow:hidden}
+.sp-veil .sp-page:focus{outline:none}
 .sp-head, .sp-body{position:relative}
 .sp-head{flex:none; display:flex; align-items:center; gap:8px;
   padding:calc(14px + env(safe-area-inset-top, 0px)) 20px 12px;
@@ -632,18 +635,16 @@
 .sp-btn:hover, .sp-btn:active{background:color-mix(in srgb, #000 var(--press), var(--card))}
 .sp-btn:disabled{opacity:.6; cursor:default}
 .sp-btn:disabled:hover{background:var(--card)}
-@media (max-width:989px){
-  .sp-body{grid-template-columns:minmax(0, 1fr)}
-  .sp-list{gap:0; padding:0; border-right:none}
-  .sp-item{padding:15px 20px; border-radius:0; font-size:15px;
-    border-bottom:var(--edge) solid var(--line)}
-  .sp-item.on{background:none; color:var(--ink)}
-  .sp-item.on:hover{background:color-mix(in srgb, #000 var(--press), transparent)}
-  .sp-next{display:block}
-  .sp-panes{padding:0 20px 32px}
-  .sp-pane{max-width:none}
-  .sp-panehead{display:none}
-  .sp-panehead + .setrow, .sp-panehead + .setact{border-top:none}
-  .sp-page[data-view="list"] .sp-panes{display:none}
-  .sp-page[data-view="pane"] .sp-list{display:none}
-}
+.sp-page[data-narrow] .sp-body{grid-template-columns:minmax(0, 1fr)}
+.sp-page[data-narrow] .sp-list{gap:0; padding:0; border-right:none}
+.sp-page[data-narrow] .sp-item{padding:15px 20px; border-radius:0; font-size:15px;
+  border-bottom:var(--edge) solid var(--line)}
+.sp-page[data-narrow] .sp-item.on{background:none; color:var(--ink)}
+.sp-page[data-narrow] .sp-item.on:hover{background:color-mix(in srgb, #000 var(--press), transparent)}
+.sp-page[data-narrow] .sp-next{display:block}
+.sp-page[data-narrow] .sp-panes{padding:0 20px 32px}
+.sp-page[data-narrow] .sp-pane{max-width:none}
+.sp-page[data-narrow] .sp-panehead{display:none}
+.sp-page[data-narrow] .sp-panehead + .setrow, .sp-page[data-narrow] .sp-panehead + .setact{border-top:none}
+.sp-page[data-narrow][data-view="list"] .sp-panes{display:none}
+.sp-page[data-narrow][data-view="pane"] .sp-list{display:none}
