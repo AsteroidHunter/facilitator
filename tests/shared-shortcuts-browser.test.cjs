@@ -488,6 +488,129 @@ test("command t makes a card in the lane on show, with its name ready to be type
   }
 });
 
+// a card made with command t is the card on show, its name ready, whichever way
+// the board's readings and the answer to the create happen to fall in order
+test("desktop command t shows the new card at once, with its name ready to be typed", async () => {
+  await clearLane();
+  const { page, problems } = await openDesktop();
+  try {
+    const created = page.waitForResponse(response => new URL(response.url()).pathname === "/create");
+    await chord(page, "t", "Meta");
+    const madeId = (await (await created).json()).id;
+    await page.waitForFunction(id => selectedId === id && document.querySelector(`#box-${id}.sel .title`)?.isContentEditable,
+      { timeout: 3000 }, madeId);
+    assert.equal(await shownId(page), madeId, "the new card is not the one on show");
+    await page.keyboard.type("Named from the desktop keyboard");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(id => lastState?.boxes.find(box => box.id === id)?.title === "Named from the desktop keyboard",
+      { timeout: 3000 }, madeId);
+    assert.equal((await savedBox(madeId)).title, "Named from the desktop keyboard");
+    assert.deepEqual(await activeRow(page), { row: true, box: madeId },
+      "naming the new card did not end with the caret in its row");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("desktop command t lands on the new card when a reading draws it before the create answer arrives", async () => {
+  await clearLane();
+  const { page, problems } = await openDesktop();
+  try {
+    // the answer to the create is held after the server has made the card, so the
+    // board's own next reading finds the card and draws it first
+    await page.evaluate(() => {
+      const real = window.fetch;
+      window.fetch = async (url, init) => {
+        const answer = await real(url, init);
+        if (String(url).startsWith("/create")) await new Promise(resolve => { window.__answerNow = resolve; });
+        return answer;
+      };
+    });
+    const known = await page.evaluate(() => Object.keys(els));
+    await chord(page, "t", "Meta");
+    await page.waitForFunction(ids => Object.keys(els).some(id => !ids.includes(id)), { timeout: 4000 }, known);
+    const madeId = await page.evaluate(ids => Object.keys(els).find(id => !ids.includes(id)), known);
+    assert.notEqual(await page.evaluate(() => selectedId), madeId,
+      "the card was landed on before the create answer, so this run did not meet the order it is for");
+    await page.evaluate(() => window.__answerNow());
+    await page.waitForFunction(id => selectedId === id && document.querySelector(`#box-${id}.sel .title`)?.isContentEditable,
+      { timeout: 3000 }, madeId);
+    assert.equal(await shownId(page), madeId, "the new card is not the one on show");
+    assert.equal(await page.evaluate(() => localStorage.getItem("focusbox")), null,
+      "the wish to land on the new card was left behind");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("desktop command t keeps the new card when a reading asked before it arrives after it", async () => {
+  await clearLane();
+  const { page, problems } = await openDesktop();
+  try {
+    // one reading is asked for now and handed to the page only when let go, after
+    // the card is made: it is older than the card and knows nothing of it
+    await page.evaluate(() => {
+      const real = window.fetch;
+      let held = false;
+      window.fetch = async (url, init) => {
+        const answer = await real(url, init);
+        if (String(url).startsWith("/state") && !held) {
+          held = true;
+          await new Promise(resolve => { window.__letGo = resolve; });
+        }
+        return answer;
+      };
+      poll();
+    });
+    const created = page.waitForResponse(response => new URL(response.url()).pathname === "/create");
+    await chord(page, "t", "Meta");
+    const madeId = (await (await created).json()).id;
+    await page.waitForFunction(id => selectedId === id && document.querySelector(`#box-${id}.sel .title`)?.isContentEditable,
+      { timeout: 3000 }, madeId);
+    await page.evaluate(() => window.__letGo());
+    await settle(600);
+    assert.deepEqual(
+      await page.evaluate(id => ({ drawn: !!els[id], selected: selectedId === id, naming: !!els[id]?.titleEl.isContentEditable }), madeId),
+      { drawn: true, selected: true, naming: true },
+      "an older reading took the new card away once it had landed");
+    assert.equal(await shownId(page), madeId, "the new card is no longer the one on show");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("a card with no name shows a name to click, and its title can be typed into", async () => {
+  await clearLane();
+  const madeId = await create("");
+  const { page, problems } = await openDesktop();
+  try {
+    await page.waitForFunction(id => !!els[id], { timeout: 5000 }, madeId);
+    await page.click(`#tiklist .trow[data-id="${madeId}"]`);
+    await page.waitForSelector(`#box-${madeId}.sel`, { timeout: 3000 });
+    const title = await page.evaluate(id => {
+      const el = els[id].titleEl;
+      return { height: el.getBoundingClientRect().height, placeholder: getComputedStyle(el, "::before").content, naming: el.isContentEditable };
+    }, madeId);
+    assert.ok(title.height > 10, "a card with no name has no title line to click");
+    assert.equal(title.placeholder, '"Chat Name"', "a card with no name does not say where its name goes");
+    assert.equal(title.naming, false, "a card picked by hand started out renaming");
+    await page.click(`#box-${madeId}.sel .title`);
+    await page.waitForFunction(id => els[id].titleEl.isContentEditable && document.activeElement === els[id].titleEl,
+      { timeout: 3000 }, madeId);
+    await page.keyboard.type("Named by a click");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(id => lastState?.boxes.find(box => box.id === id)?.title === "Named by a click",
+      { timeout: 3000 }, madeId);
+    assert.equal((await savedBox(madeId)).title, "Named by a click");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
 test("escape puts the caret out of the row and leaves the words in it", async () => {
   await clearLane();
   const id = await create("Escape on the phone");

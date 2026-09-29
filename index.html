@@ -252,7 +252,7 @@
        border:var(--edge) solid var(--line); border-radius:6px; padding:2px 7px; flex:none}
   .title{font:625 17.5px/1.25 var(--inter); flex:1; min-width:0}
   .title[contenteditable]{outline:none}
-  .title[contenteditable]:empty::before{content:"Chat Name"; color:var(--line-strong)}
+  .title:empty::before{content:"Chat Name"; color:var(--line-strong)}
   .body{padding:8px 14px 13px}
   .reply{color:var(--ink)}
   .reply p{margin:0 0 9px}
@@ -5387,12 +5387,9 @@ function build(state){
     if (METAS.includes(key)){   // the plus lives in the left bar: the page shows one box at a time
       const plus = h("button", "tocadd", "＋");
       plus.title = "new box";
-      plus.addEventListener("click", async () => {
+      plus.addEventListener("click", () => {
         const metaOwner = metaOwnerOf(key);
-        if (!metaOwner) return;
-        const r = await fetch("/create?owner=" + metaOwner, { method: "POST" }).then(x => x.json()).catch(() => null);
-        if (r?.id) localStorage.setItem("focusbox", r.id);
-        poll();
+        if (metaOwner) newCard(metaOwner);
       });
       bucketRow.appendChild(plus);
     }
@@ -5768,12 +5765,9 @@ function addRows(){
   for (const key of METAS){
     const addRow = h("div", "addrow");
     const addBtn = h("button", "addbtn", "＋ new box");
-    addBtn.addEventListener("click", async () => {
+    addBtn.addEventListener("click", () => {
       const owner = metaOwnerOf(key);
-      if (!owner) return;
-      const r = await fetch("/create?owner=" + owner, { method: "POST" }).then(x => x.json()).catch(() => null);
-      if (r?.id) localStorage.setItem("focusbox", r.id);  // survive the rebuild reload
-      poll();  // unknown id triggers the rebuild
+      if (owner) newCard(owner);
     });
     addRow.appendChild(addBtn);
     secEls[key].list.appendChild(addRow);
@@ -5790,6 +5784,21 @@ function landFocus(){
     else els[fb].box.scrollIntoView({ block: "center" });
     editTitle(fb);
   }
+}
+
+// one way to make a card, for the plus buttons and the new card key alike. Landing
+// on it does not wait for a reading: one already in flight can have drawn the
+// card before this answer got here, and then no later draw is left to land on it
+async function newCard(owner){
+  const r = await fetch("/create?owner=" + encodeURIComponent(owner), { method: "POST" })
+    .then(x => x.json()).catch(() => null);
+  if (!r?.id) return;
+  // a reading asked for before this answer may not have the card, and once it is
+  // on the page a reading that lacks it would take it away again (see poll)
+  createSeq = pollSeq;
+  localStorage.setItem("focusbox", r.id);
+  if (els[r.id]) landFocus();
+  else await poll();   // the reading that draws the card lands on it
 }
 
 // editTitle is shared with the phone page in card-logic.js. the desktop's
@@ -9355,6 +9364,8 @@ function focusedCaretContext(){
 }
 let queueFatCaret = () => {};
 let pollFails = 0;
+let pollSeq = 0;     // the readings asked for so far
+let createSeq = 0;   // the newest of them when the last new card's answer came in
 // the fetch and the render each get their own try. One try around both is
 // what told the reader the server was unreachable when a card had failed to draw:
 // three throws from anywhere in the render path raised pollFails to three and
@@ -9365,6 +9376,7 @@ let pollFails = 0;
 async function poll(){
   noteDoing("poll");
   let state;
+  const seq = ++pollSeq;
   // when this reading was asked for: a reading older than the board's answer to
   // a click made on this page knows nothing about that card and may not repaint
   // it. The phone's readings carry the same stamp for the same reason
@@ -9381,6 +9393,7 @@ async function poll(){
     return;
   }
   pollFails = 0;
+  if (seq <= createSeq) return;   // asked before the last new card's answer came in (newCard)
   noteDoing("render");
   try {
     if (!validateActiveOwner(state)) return;
@@ -9478,10 +9491,7 @@ const boardShortcutActions = {
   create(e){
     e.preventDefault();
     if (!ownerReady || draft) return;
-    fetch("/create?owner=" + activeOwner, { method: "POST" })
-      .then(x => x.json())
-      .then(r => { if (r?.id){ localStorage.setItem("focusbox", r.id); poll(); } })
-      .catch(() => {});
+    newCard(activeOwner);
   },
   tab(e, shortcut){
     if (!lastState) return;
