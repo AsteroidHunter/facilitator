@@ -307,7 +307,7 @@ async function portraitSnap(page) {
       mode: document.body.dataset.respMode, pathname: location.pathname,
       drawerOpen: document.body.classList.contains("resp-drawer-open"),
       drawerBtnShown: (() => { const b = document.getElementById("respdrawerbtn"); return b && getComputedStyle(b).display !== "none"; })(),
-      main: rectOf("main"), tickets: rectOf("#tickets"), clockShown: rectOf("#clockbox").disp !== "none",
+      main: rectOf("main"), frame: rectOf("#appframe"), tickets: rectOf("#tickets"), clockShown: rectOf("#clockbox").disp !== "none",
     };
   });
 }
@@ -322,7 +322,8 @@ test("a portrait window becomes a phone-style column, not a tiny board, without 
     // inset from the window edge on both sides, not a full-bleed sheet
     assert.ok(s.main.x >= 7 && s.main.x <= 20,
       `the conversation should sit inside the frame, not on the window edge (x=${s.main.x})`);
-    assert.equal(s.main.w, 900 - 2 * s.main.x, "the column fills the width between its frame insets");
+    assert.equal(s.frame.x + s.frame.w - (s.main.x + s.main.w), s.main.x - s.frame.x,
+      "the column fills the width between its frame insets");
     assert.equal(s.clockShown, false, "the landscape clock is not part of the phone column");
     assert.equal(s.drawerBtnShown, true, "the drawer button is offered in portrait");
     assert.ok(s.tickets.x <= -s.tickets.w + 1, "the ticket drawer starts off-canvas");
