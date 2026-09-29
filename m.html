@@ -712,8 +712,10 @@
      as the run that puts it back: no wait on the way in, and the whole run on
      the way out, so it disappears only once it has finished leaving */
   #drawer, #settings{
-    position:fixed; top:0; bottom:0; z-index:20;
+    position:fixed; top:0; bottom:0; width:min(71.4vw, 289px); z-index:20;
+    background:#fff;
     display:flex; flex-direction:column;
+    padding-top:env(safe-area-inset-top, 0px); padding-bottom:env(safe-area-inset-bottom, 0px);
     transform:translateX(var(--shift));
     opacity:1;
     visibility:hidden; --menuwait:var(--drawer-ms);
@@ -739,16 +741,11 @@
      out by the width the menu's own edge line is drawn at, so the shade starts
      exactly where the menu ends */
   #drawer{--shift:-100%; left:0; border-right:var(--edge) solid var(--line);
-    border-radius:0 12px 12px 0; width:min(71.4vw, 289px); background:#fff;
-    padding-top:env(safe-area-inset-top, 0px); padding-bottom:env(safe-area-inset-bottom, 0px)}
+    border-radius:0 12px 12px 0}
   #drawer::after{left:0; right:calc(-1 * var(--edge-drawn));
     box-shadow:2px 0 6px rgba(0,0,0,.10), 10px 0 26px rgba(0,0,0,.20)}
-  /* the settings are a page over the whole screen in the quick note's glass
-     (.sp-page in card-tokens.css), pulled in from the right edge like the card
-     list from the left. the page blurs the shaded board behind it, so the
-     shade over the page is the quick note's own veil while it is out */
-  #settings{--shift:100%; left:0; right:0}
-  #scrim[data-for="right"]{background:color-mix(in srgb, var(--ink) var(--qn-veil, 15%), transparent)}
+  #settings{--shift:100%; right:0; border-left:var(--edge) solid var(--line);
+    border-radius:12px 0 0 12px}
   #settings::after{left:calc(-1 * var(--edge-drawn)); right:0;
     box-shadow:-2px 0 6px rgba(0,0,0,.10), -10px 0 26px rgba(0,0,0,.20)}
   /* a finger is followed frame by frame, so the moving layers are not timed */
@@ -841,9 +838,46 @@
      fold scaled to this row, rounded down, which stays over 2.5px clear of all
      four */
   .trow.testc{--fold:12px}
-  /* ---- the settings, on the page off the right edge ---------------------- */
-  /* the page and its controls are the shared ones in card-tokens.css. what is
-     here is the one line a keyboard save says over whatever the page shows */
+  /* ---- the settings, on the panel off the right edge ---------------------- */
+  /* the header, its mark on the left in the line the card's own marks are drawn
+     in, and the card title's face and weight, which is the one heading face on
+     the board */
+  #sethead{
+    flex:none; display:flex; align-items:center; gap:var(--sp-s);
+    padding:14px 12px 11px; border-bottom:var(--edge) solid var(--line);
+    font:625 17px/1.25 var(--inter); color:var(--ink);
+  }
+  #setmark{flex:none; display:block; color:var(--sub)}
+  #setmark svg{display:block}
+  /* what the header stands over, stepped in to start under its first letter:
+     the header's own side padding, plus the mark and the step beside it */
+  #setgroup{
+    display:flex; flex-direction:column; gap:6px;
+    padding:12px 12px 12px calc(12px + 16px + var(--sp-s));
+  }
+  /* the one thing on the phone the desktop has no need of: the ask for
+     notifications, since a phone only asks on a tap. it is the card's own kind
+     of control, no border and the paper for a fill, and it takes the board's
+     one press shade mixed into that fill */
+  #notify, #savediagnostic, #signout{
+    align-self:flex-start; font:500 14px/1.2 var(--sans); color:var(--ink);
+    background:var(--paper); border:none; border-radius:var(--sq);
+    padding:9px 14px; cursor:pointer;
+  }
+  #notify:active, #savediagnostic:active, #signout:active{background:color-mix(in srgb, #000 var(--press), var(--paper))}
+  #notify:disabled, #savediagnostic:disabled, #signout:disabled{opacity:.6}
+  #notifynote, #signoutnote{font:11.5px/1.4 var(--mono); color:var(--sub)}
+  #notifynote:empty, #signoutnote:empty{display:none}
+  /* a plain row of choice, drawn in the panel's own type: the mark, the words
+     beside it, and one line under it saying what the choice does */
+  #setgroup .setrow{display:flex; gap:8px; align-items:flex-start;
+    font:14px/1.35 var(--sans); color:var(--ink); cursor:pointer}
+  #setgroup .setrow input{margin:2px 0 0; flex:none; width:16px; height:16px;
+    accent-color:var(--accent)}
+  #setgroup .sethelp{margin:8px 0 16px 24px; font:12px/1.5 var(--sans); color:var(--sub)}
+  #diagnostics{margin-top:16px; border-top:var(--edge) solid var(--line); padding-top:16px}
+  #diagnostichelp, #diagnosticstatus{font:12px/1.5 var(--sans); color:var(--sub); margin:8px 0 0}
+  #diagnosticstatus:empty{display:none}
   #diagnostictoast{position:fixed; z-index:30; top:48px; left:12px; right:12px;
     padding:10px 12px; background:var(--paper); border:var(--edge) solid var(--line);
     border-radius:var(--sq); font:13px/1.4 var(--sans); color:var(--ink); pointer-events:none}
@@ -1090,36 +1124,19 @@
   <div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div>
 </aside>
 
-<!-- the settings page: card-logic.js builds it into this aside from the groups
-     in it, one to a section, and moves each group into its pane, so every
-     control keeps its id and its wiring below -->
-<aside id="settings" aria-label="Settings" data-side="right">
-  <div id="setsrc">
-    <div data-section="editor" data-label="Editor">
-      <div class="setrow">
-        <label class="setlabel" for="setformat"><span>Format text while typing</span>
-          <small class="sethelp">Bold, italic, strikethrough, quotes and bullets are drawn in the composer as you type. The message is still sent as Markdown.</small></label>
-        <input type="checkbox" id="setformat">
-      </div>
-    </div>
-    <div data-section="notifications" data-label="Notifications">
-      <div class="setact">
-        <button id="notify" class="sp-btn" type="button">Notifications</button>
-        <div id="notifynote" class="sethelp"></div>
-      </div>
-    </div>
-    <div data-section="account" data-label="Account">
-      <div class="setact">
-        <button id="signout" class="sp-btn" type="button">Sign out</button>
-        <div id="signoutnote" class="sethelp" role="status" aria-live="polite"></div>
-      </div>
-    </div>
-    <div data-section="diagnostics" data-label="Diagnostics">
-      <div class="setact">
-        <button id="savediagnostic" class="sp-btn" type="button" aria-describedby="diagnostichelp" aria-keyshortcuts="Control+Shift+M">Save diagnostic history</button>
-        <p id="diagnostichelp" class="sethelp">Mark a glitch and save recent timing and screen state to the Mac’s diagnostic log. Messages and titles are excluded. Unsaved history stays only in this open page.<br>Keyboard: Control + Shift + M.</p>
-        <p id="diagnosticstatus" class="sethelp" role="status"></p>
-      </div>
+<aside id="settings" aria-label="settings" data-side="right">
+  <div id="sethead"><span id="setmark"></span>Settings</div>
+  <div id="setgroup">
+    <label class="setrow"><input type="checkbox" id="setformat"><span>Format text while typing</span></label>
+    <p class="sethelp">Bold, italic, strikethrough, quotes and bullets are drawn in the composer as you type. The message is still sent as Markdown.</p>
+    <button id="notify" type="button">Notifications</button>
+    <div id="notifynote"></div>
+    <button id="signout" type="button">Sign out</button>
+    <div id="signoutnote" role="status" aria-live="polite"></div>
+    <div id="diagnostics">
+      <button id="savediagnostic" type="button" aria-describedby="diagnostichelp" aria-keyshortcuts="Control+Shift+M">Save diagnostic history</button>
+      <p id="diagnostichelp">Mark a glitch and save recent timing and screen state to the Mac’s diagnostic log. Messages and titles are excluded. Unsaved history stays only in this open page.<br>Keyboard: Control + Shift + M.</p>
+      <p id="diagnosticstatus" role="status"></p>
     </div>
   </div>
 </aside>
@@ -1231,6 +1248,11 @@ function endPhoneTrace(token, detail, response, inspect = false){
 const PLUS_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>';
 const SEND_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 11.5V3.5M3.6 6.9 7 3.5l3.4 3.4" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const MOON_ICON = '<svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" stroke="none" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
+// the settings mark, drawn in the same line the plus is drawn in: one weight,
+// round ends, no fill. a gear, the mark every phone puts on its own settings:
+// a ring, and eight teeth standing on the ring rather than off it, which is
+// what tells a gear from a sun at this size
+const GEAR_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>';
 const CHEV_PATH = '<path d="M1 5.5 5.5 1.5 10 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>';
 const chevSVG = seat => '<svg class="chev ' + seat + '" width="11" height="7" viewBox="0 0 11 7" fill="none" aria-hidden="true">' + CHEV_PATH + "</svg>";
 
@@ -2985,12 +3007,6 @@ const drawer = document.getElementById("drawer");
 const settings = document.getElementById("settings");
 const scrim = document.getElementById("scrim");
 const menus = [drawer, settings];   // the left one first: the drag reads the side off each
-// the settings menu is a whole page (card-logic.js), whose close mark shuts it
-// as the shade does. a section of it is a level under the list, so a swipe in
-// one goes back a level (see the pull below) where a swipe on the list shuts it
-const settingsView = settingsPage(settings, document.getElementById("setsrc"), {
-  close: () => hideMenu(settings),
-});
 for (const panel of menus) panel.addEventListener("transitionend", e => {
   if (e.target === panel && e.propertyName === "transform")
     tracePhone("note", "drawer", { side: panel.dataset.side, phase: "end", shown: panel.classList.contains("open") });
@@ -3012,12 +3028,6 @@ const PAGE_SINK = 0.015;
 // behind
 function paintMenu(panel, v){
   const dir = menuSign(panel);
-  // the settings come out on their list, and the shade over the page is the
-  // one for the side that is coming
-  if (v){
-    if (panel === settings && !panel.classList.contains("live")) settingsView.reset();
-    scrim.dataset.for = panel.dataset.side;
-  }
   panel.style.setProperty("--shift", (dir * (v - 1) * 100).toFixed(3) + "%");
   scrim.style.setProperty("--scrimv", v ? v.toFixed(4) : "0");
   page.style.setProperty("--page-scale", (1 - PAGE_SINK * v).toFixed(5));
@@ -3075,7 +3085,6 @@ scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu
   let panel = null, x0 = 0, y0 = 0, at = 0, live = false, opening = false, decided = false;
   const start = (x, y) => {
     const out = menuOut();
-    if (out === settings && settingsView.inDetail()){ panel = null; live = false; return; }   // that swipe goes back, below
     if (out){ panel = out; opening = false; }
     else if (x <= EDGE){ panel = drawer; opening = true; }
     else if (x >= innerWidth - EDGE){ panel = settings; opening = true; }
@@ -3120,23 +3129,6 @@ scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu
   document.addEventListener("mousedown", e => { if (e.button === 0) start(e.clientX, e.clientY); }, { passive: true });
   document.addEventListener("mousemove", e => move(e.clientX, e.clientY), { passive: true });
   document.addEventListener("mouseup", end, { passive: true });
-}
-// a section of the settings is a level under their list: a swipe to the right in
-// one goes back to the list, and only on the list does it shut the page. it is
-// judged when the finger lets go, on how far it went across and how little up
-{
-  const ACROSS = 60;
-  let from = null;
-  const begin = (x, y) => { from = settings.classList.contains("open") && settingsView.inDetail() ? { x, y } : null; };
-  const finish = (x, y) => {
-    const at = from;
-    from = null;
-    if (at && x - at.x > ACROSS && Math.abs(y - at.y) < (x - at.x) / 2) settingsView.list();
-  };
-  document.addEventListener("touchstart", e => { const t = e.touches[0]; if (t) begin(t.clientX, t.clientY); }, { passive: true });
-  document.addEventListener("touchend", e => { const t = e.changedTouches[0]; if (t) finish(t.clientX, t.clientY); }, { passive: true });
-  document.addEventListener("mousedown", e => { if (e.button === 0) begin(e.clientX, e.clientY); }, { passive: true });
-  document.addEventListener("mouseup", e => finish(e.clientX, e.clientY), { passive: true });
 }
 
 // Keep only the start, first intended move, and end of a gesture. Coordinates
@@ -4675,7 +4667,8 @@ function keyBytes(b64url){
   const raw = atob((b64url + pad).replace(/-/g, "+").replace(/_/g, "/"));
   return Uint8Array.from(raw, ch => ch.charCodeAt(0));
 }
-// the composer's typed formatting, the one choice this page holds that the
+document.getElementById("setmark").innerHTML = GEAR_ICON;
+// the composer's typed formatting, the one choice this panel holds that the
 // board's own settings hold too. the mark writes straight through to it
 {
   const format = document.getElementById("setformat");
@@ -4699,7 +4692,7 @@ async function saveDiagnostic(source = "settings"){
   };
   clearTimeout(diagnosticToastTimer);
   tell(tracePhone("version") >= 3 && !diagnosticRetry
-    ? "Recording the next 20 seconds before saving" : "Saving diagnostic history");
+    ? "Recording the next 20 seconds before saving" : "Saving diagnostic history…");
   try {
     const answer = await tracePhone("mark", source, phoneTraceState(), diagnosticRetry);
     const outcome = answer?.status || "failed";

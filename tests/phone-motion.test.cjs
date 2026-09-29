@@ -887,32 +887,37 @@ test("the tab bar stays where he scrolled it, across a poll and a tap", async ()
   }
 });
 
-test("the settings come in from the right as a full-width page, with its list and the notifications control", async () => {
+test("the settings come in from the right, with the header, its mark and the notifications control", async () => {
   const { page, problems } = await openPhone("/m");
   try {
     await page.waitForSelector("article.box.sel", { timeout: 5000 });
     const shut = await readMenu(page, "#settings");
     assert.equal(shut.open, false);
-    assert.equal(shut.right, -shut.width, "the settings page does not wait beyond the right edge");
-    assert.equal(shut.width, shut.viewportWidth, "the settings page is not the whole width of the screen");
-    assert.deepEqual(shut.corners, ["0px", "0px", "0px", "0px"], "the settings page has rounded corners");
+    assert.equal(shut.right, -shut.width, "the settings panel does not wait beyond the right edge");
+    assert.equal(shut.width, 278, "settings is not about 15% narrower than its former 328px width");
+    assert.deepEqual(shut.corners, ["12px", "0px", "0px", "12px"], "the settings panel's exposed corners are not 12px");
     assert.equal(shut.lift, 0, "settings waits off its own line");
     assert.equal(shut.top, 0, "settings waits below the top of the screen");
     assert.equal(shut.fade, "1.00", "settings waits at less than its full strength");
     assert.equal(shut.depth, 0, "settings waits with a shade already under it");
-    // the page wears the glass's own rim, but the depth under its edge is a layer of its own
-    assert.doesNotMatch(shut.shade, /-2px 0px 6px|-10px 0px 26px/, "the depth is still on the panel instead of its own layer");
+    assert.equal(shut.shade, "none", "the depth is still on the panel instead of its own layer");
     assertPageDrewBack(shut, 0, "with settings closed");
 
     const made = await page.evaluate(() => {
-      const head = document.querySelector("#settings .sp-title");
+      const head = document.getElementById("sethead");
+      const gear = document.querySelector("#setmark svg");
       const button = document.getElementById("notify");
       const ink = getComputedStyle(document.documentElement);
       const own = getComputedStyle(button);
       return {
         header: head.textContent.trim(),
-        sections: [...document.querySelectorAll("#settings .sp-item")].map(one => one.textContent),
+        gear: !!gear,
+        gearStroke: gear && gear.getAttribute("stroke"),
+        gearFill: gear && gear.getAttribute("fill"),
+        gearWeight: gear && gear.getAttribute("stroke-width"),
         label: button.textContent,
+        indent: getComputedStyle(document.getElementById("setgroup")).paddingLeft,
+        headPad: getComputedStyle(head).paddingLeft,
         fill: own.backgroundColor,
         border: own.borderStyle,
         colour: own.color,
@@ -922,10 +927,13 @@ test("the settings come in from the right as a full-width page, with its list an
         gone: !document.getElementById("drawerfoot") && !document.querySelector("#drawer #notify"),
       };
     });
-    assert.equal(made.header, "Settings", "the page's header is not Settings");
-    assert.deepEqual(made.sections, ["Editor", "Notifications", "Account", "Diagnostics"],
-      "the page does not list its sections");
+    assert.equal(made.header, "Settings", "the panel's header is not Settings");
+    assert.equal(made.gear, true, "the header carries no gear");
+    assert.equal(made.gearStroke, "currentColor", "the gear is not drawn in the card's line style");
+    assert.equal(made.gearFill, "none");
+    assert.equal(made.gearWeight, "1.9", "the gear is not the weight the plus is drawn at");
     assert.equal(made.label, "Notifications");
+    assert.ok(parseFloat(made.indent) > parseFloat(made.headPad), "Notifications is not stepped in under the header");
     assert.equal(made.border, "none", "the control has a border");
     assert.equal(made.fill, "rgb(255, 255, 255)", "the control is not on the phone's own paper");
     assert.equal(made.colour, "rgb(33, 29, 23)", "the control is not in the board's own ink");
@@ -1021,11 +1029,12 @@ test("a pull from the right edge brings the settings in", async () => {
     assert.equal(out.open, true, "a pull past the middle did not bring the settings in");
     assert.equal(out.shift, 0);
     assertPageDrewBack(out, 1, "after a settings pull");
-    // and the close mark on the page shuts it again
-    await page.tap("#settings .sp-close");
+    // and a tap on what is left of the page shuts it again, the strip the page
+    // has drawn back from included
+    await page.touchscreen.tap(0, 0);
     await settle(750);
     const shut = await readMenu(page, "#settings");
-    assert.equal(shut.open, false, "a tap on the close mark did not shut the settings");
+    assert.equal(shut.open, false, "a tap on the strip the page left did not shut the settings");
     assert.equal(shut.shift, shut.width);
     assertPageDrewBack(shut, 0, "after settings dismissal");
     assert.deepEqual(problems, []);
@@ -1103,7 +1112,7 @@ test("turned on its side both menus keep the same sideways run", async () => {
   }
 });
 
-test("reduced motion keeps both overlays immediate and the wide-phone card list capped", async () => {
+test("reduced motion keeps both overlays immediate and the wide-phone cap narrower", async () => {
   const widePhone = { ...PHONE, width: 430, height: 932 };
   const { page, problems } = await openPhone("/m", { viewport: widePhone, reduced: true });
   try {
@@ -1126,7 +1135,7 @@ test("reduced motion keeps both overlays immediate and the wide-phone card list 
 
     await page.evaluate(() => { closeDrawer(); showMenu(settings); });
     const right = await readMenu(page, "#settings");
-    assert.equal(right.width, widePhone.width, "the wide-phone settings page is not the whole width of the screen");
+    assert.equal(right.width, 289, "the wide-phone settings panel did not keep the 15% narrower cap");
     assert.equal(right.shift, 0);
     assert.equal(right.ms, "0s", "reduced motion left a settings transition running");
     assert.equal(right.depthMs, "0s", "reduced motion left settings' shade running");

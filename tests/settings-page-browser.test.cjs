@@ -1,6 +1,6 @@
-// The settings page, driven headless against its own fixture board on the two
-// surfaces that carry it: the Mac board, where it is an overlay, and the phone
-// app, where it fills the screen.
+// The settings page on the Mac board, where it is an overlay, driven headless
+// against its own fixture board, and the phone app's right drawer, which is not
+// that page.
 //
 // What is being proved is what was asked for: on the Mac one page centred over
 // the board at about seven tenths of the window each way, in the quick note's
@@ -9,7 +9,7 @@
 // way back from a section, a way to put the whole page away (the close mark,
 // Escape, a click outside it), every setting still writing what it always wrote,
 // the colour picker gone from the bar and the pen a plain mark like the gear, and
-// the phone's page left as it was.
+// the phone's drawer left as it was.
 //
 // The board is invented and lives in a temp directory. Nothing here touches the
 // real board, the owner's browser or port 8877.
@@ -137,7 +137,7 @@ async function openIfShut(page) {
   if (!(await shown(page, ".sp-page"))) await openMac(page);
 }
 
-// the phone opens its settings the way it always did, with a pull from the right edge
+// the phone opens its settings drawer with a pull from the right edge
 async function openPhone(page) {
   const from = PHONE.width - 6, y = 500;
   await page.touchscreen.touchStart(from, y);
@@ -635,84 +635,75 @@ test("the same page changes layout when the window does", async () => {
 });
 
 // ---- the phone app ------------------------------------------------------------------
+// the phone has no settings page: a pull from the right edge brings in its drawer, the
+// narrow white panel it has always had, and the tab row holds only the house and the tabs
 
-test("phone: a pull from the right edge opens the page over the screen with the list of sections", async () => {
+test("phone: a pull from the right edge brings in the drawer, a panel and not the page", async () => {
   const { page, problems } = await open("/m", PHONE);
   try {
-    assert.equal(await page.evaluate(() => document.querySelectorAll(".sp-page").length), 1);
+    const wide = Math.min(PHONE.width * 0.714, 289);
+    assert.equal(await page.evaluate(() => document.querySelectorAll(".sp-page, .sp-list, .sp-item, #setsrc, #setico").length), 0,
+      "the phone carries the settings page or a gear for it");
     assert.deepEqual(await page.evaluate(() => [...document.getElementById("tabrow").children].map(one => one.id || one.className)),
       ["homeico", "bar"], "the tab row holds something besides the house and the tabs");
+    const shut = await cover(page, "#settings");
+    assert.ok(shut.left >= shut.width, "the drawer does not wait beyond the right edge: " + JSON.stringify(shut));
     await openPhone(page);
     const box = await cover(page, "#settings");
-    assert.ok(box.left <= 0 && box.right >= box.width && box.top <= 0 && box.bottom >= box.height,
-      "the page does not cover the screen: " + JSON.stringify(box));
-    // and it is still the right hand menu, not an overlay: no veil, no round corners, no focus seat of its own
-    const seat = await page.evaluate(() => {
-      const el = document.getElementById("settings");
-      return { veil: !!document.querySelector(".sp-veil"), inVeil: !!el.closest(".sp-veil"),
-               radius: getComputedStyle(el).borderRadius, tabindex: el.getAttribute("tabindex") };
-    });
-    assert.equal(seat.veil, false, "the phone has an overlay veil");
-    assert.equal(seat.inVeil, false, "the phone's page sits in a veil");
-    assert.equal(seat.radius, "0px", "the phone's page has round corners");
-    assert.equal(seat.tabindex, null, "the phone's page took a focus seat");
-    const glass = await page.evaluate(() => {
+    assert.equal(box.right, box.width, "the drawer does not stand on the right edge");
+    assert.equal(box.right - box.left, Math.round(wide), "the drawer is not about 71% of the screen wide");
+    assert.ok(box.left > 0 && box.top <= 0 && box.bottom >= box.height, "the drawer is not a full-height panel: " + JSON.stringify(box));
+    const look = await page.evaluate(() => {
       const style = getComputedStyle(document.getElementById("settings"));
-      return { filter: style.backdropFilter, tint: style.backgroundColor, page: document.getElementById("settings").classList.contains("sp-page") };
+      return { fill: style.backgroundColor, filter: style.backdropFilter, edge: style.borderLeftStyle,
+               corners: [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius, style.borderBottomLeftRadius],
+               scrim: getComputedStyle(document.getElementById("scrim")).backgroundColor,
+               veil: document.getElementById("scrim").dataset.for || null,
+               glass: document.getElementById("settings").classList.contains("qn-glass") };
     });
-    assert.equal(glass.page, true, "the phone's settings are not the shared page");
-    assert.match(glass.filter, /blur\(15px\)/, "the phone page is not blurred like the note: " + glass.filter);
-    assert.equal(glass.tint, "rgba(255, 255, 255, 0.77)");
-    assert.deepEqual(await labels(page), ["Editor", "Notifications", "Account", "Diagnostics"]);
-    assert.equal(await shown(page, ".sp-list"), true);
-    assert.equal(await shown(page, ".sp-panes"), false, "settings show beside the list on a phone");
-    assert.equal(await shown(page, ".sp-back"), false);
-    assert.equal(await title(page), "Settings");
+    assert.equal(look.fill, "rgb(255, 255, 255)", "the drawer is not the card list's white");
+    assert.equal(look.filter, "none", "the drawer blurs the board behind it");
+    assert.equal(look.glass, false, "the drawer wears the note's glass");
+    assert.equal(look.edge, "solid", "the drawer has no edge line on its left");
+    assert.deepEqual(look.corners, ["12px", "0px", "0px", "12px"], "the drawer's exposed corners are not 12px");
+    assert.equal(look.scrim, "rgba(33, 29, 23, 0.18)", "the shade over the page is not the drawer's");
+    assert.equal(look.veil, null, "the shade was told which side is coming");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
   }
 });
 
-test("phone: the page still turns between its layouts on the window's width", async () => {
-  const wider = { width: 1100, height: 800, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
-  const { page, problems } = await open("/m", wider);
-  try {
-    await page.evaluate(() => showMenu(settings));
-    await page.waitForSelector("#settings.open", { timeout: 5000 });
-    await settle(700);
-    const box = await cover(page, "#settings");
-    assert.ok(box.left <= 0 && box.right >= box.width && box.top <= 0 && box.bottom >= box.height,
-      "the phone's page does not cover a wider screen: " + JSON.stringify(box));
-    assert.equal(await shown(page, ".sp-panes"), true, "the sections did not stand beside the settings at 1100px");
-    await page.setViewport({ ...wider, width: 900 });
-    await settle(400);
-    assert.equal(await shown(page, ".sp-panes"), false, "the list did not hold at 900px");
-    assert.deepEqual(problems, []);
-  } finally {
-    await page.close();
-  }
-});
-
-test("phone: a section opens on tap, holds its settings, and goes back", async () => {
+test("phone: the drawer holds its header and its four controls in their order", async () => {
   const { page, problems } = await open("/m", PHONE);
   try {
     await openPhone(page);
-    const homes = { editor: "#setformat", notifications: "#notify", account: "#signout", diagnostics: "#savediagnostic" };
-    for (const [section, control] of Object.entries(homes)) {
-      await page.tap(`.sp-item[data-section="${section}"]`);
-      await settle(200);
-      assert.equal(await shown(page, ".sp-list"), false, section + ": the list stayed under the section");
-      assert.equal(await shown(page, "#settings-" + section), true, section + ": the section did not show");
-      assert.equal(await page.evaluate(sel => !!document.querySelector(sel).closest(".sp-pane"), control), true,
-        section + ": " + control + " is not in its section");
-      assert.equal(await shown(page, ".sp-back"), true, section + ": no way back");
-      assert.equal(await page.$eval(".sp-back", el => el.getAttribute("aria-label")), "Back to settings");
-      await page.tap(".sp-back");
-      await settle(200);
-      assert.equal(await shown(page, ".sp-list"), true, section + ": back did not return to the list");
-      assert.equal(await title(page), "Settings");
-    }
+    const made = await page.evaluate(() => {
+      const words = el => el.textContent.trim();
+      return {
+        head: words(document.getElementById("sethead")),
+        mark: !!document.querySelector("#setmark svg"),
+        group: [...document.getElementById("setgroup").children].map(one => one.id || one.className || one.tagName),
+        diagnostics: [...document.getElementById("diagnostics").children].map(one => one.id),
+        format: words(document.querySelector("#setgroup .setrow")),
+        notify: words(document.getElementById("notify")),
+        signout: words(document.getElementById("signout")),
+        save: words(document.getElementById("savediagnostic")),
+        allShown: ["setformat", "notify", "signout", "savediagnostic"].every(id => {
+          const box = document.getElementById(id).getBoundingClientRect();
+          return box.width > 0 && box.height > 0 && box.left >= document.getElementById("settings").getBoundingClientRect().left;
+        }),
+      };
+    });
+    assert.equal(made.head, "Settings");
+    assert.equal(made.mark, true, "the header carries no gear");
+    assert.deepEqual(made.group, ["setrow", "sethelp", "notify", "notifynote", "signout", "signoutnote", "diagnostics"]);
+    assert.deepEqual(made.diagnostics, ["savediagnostic", "diagnostichelp", "diagnosticstatus"]);
+    assert.equal(made.format, "Format text while typing");
+    assert.equal(made.notify, "Notifications");
+    assert.equal(made.signout, "Sign out");
+    assert.equal(made.save, "Save diagnostic history");
+    assert.equal(made.allShown, true, "a control is out of sight in the drawer");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
@@ -723,8 +714,6 @@ test("phone: typed formatting is still stored as it was", async () => {
   const { page, problems } = await open("/m", PHONE);
   try {
     await openPhone(page);
-    await page.tap('.sp-item[data-section="editor"]');
-    await settle(200);
     assert.equal(await page.$eval("#setformat", el => el.checked), true, "formatting does not start on");
     await page.tap("#setformat");
     assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "0");
@@ -737,30 +726,25 @@ test("phone: typed formatting is still stored as it was", async () => {
   }
 });
 
-test("phone: the close mark and a swipe put the page away, a swipe in a section goes back first", async () => {
+test("phone: a tap on the shade and a swipe toward the edge put the drawer away", async () => {
   const { page, problems } = await open("/m", PHONE);
   try {
     const out = () => page.evaluate(() => document.getElementById("settings").classList.contains("open"));
     await openPhone(page);
-    await page.tap(".sp-close");
+    assert.equal(await out(), true);
+    await page.touchscreen.tap(20, 400);
     await settle(700);
-    assert.equal(await out(), false, "the close mark left the page open");
+    assert.equal(await out(), false, "a tap on the shade left the drawer open");
 
     await openPhone(page);
-    await page.tap('.sp-item[data-section="editor"]');
-    await settle(200);
     await swipeRight(page);
-    assert.equal(await out(), true, "a swipe inside a section closed the whole page");
-    assert.equal(await shown(page, ".sp-list"), true, "a swipe inside a section did not go back to the list");
-    assert.equal(await title(page), "Settings");
+    assert.equal(await out(), false, "a swipe toward the edge did not put the drawer away");
+    assert.equal(await page.evaluate(() => document.body.classList.contains("menuout")), false);
 
-    await swipeRight(page);
-    assert.equal(await out(), false, "a swipe on the list did not put the page away");
-
-    // it opens on the list again
+    // a short swipe is turned back and the drawer stays
     await openPhone(page);
-    assert.equal(await shown(page, ".sp-list"), true);
-    assert.equal(await shown(page, ".sp-panes"), false);
+    await swipeRight(page, 500, 150, 190);
+    assert.equal(await out(), true, "a short swipe put the drawer away");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
