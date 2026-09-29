@@ -239,8 +239,8 @@ test("wide: the gear opens one page over the whole window, in the quick note's g
                classes: document.querySelector(".sp-page").className };
     });
     assert.match(glass.filter, /blur\(15px\)/, "the page is not blurred like the note: " + glass.filter);
-    assert.match(glass.filter, /saturate\((2|200%)\)/, "the page is not saturated like the note: " + glass.filter);
-    assert.equal(glass.tint, "rgba(255, 255, 255, 0.56)", "the page's tint is not the note's");
+    assert.match(glass.filter, /saturate\((1\.8|180%)\)/, "the page is not saturated like the note: " + glass.filter);
+    assert.equal(glass.tint, "rgba(255, 255, 255, 0.77)", "the page's tint is not the note's");
     assert.match(glass.classes, /qn-glass/, "the page does not wear the note's glass");
     assert.equal(await page.$eval("#setbtn", el => el.getAttribute("aria-expanded")), "true");
     assert.equal(await page.evaluate(() => document.body.classList.contains("setopen")), true);
@@ -445,7 +445,7 @@ test("phone: a pull from the right edge opens the page over the screen with the 
     });
     assert.equal(glass.page, true, "the phone's settings are not the shared page");
     assert.match(glass.filter, /blur\(15px\)/, "the phone page is not blurred like the note: " + glass.filter);
-    assert.equal(glass.tint, "rgba(255, 255, 255, 0.56)");
+    assert.equal(glass.tint, "rgba(255, 255, 255, 0.77)");
     assert.deepEqual(await labels(page), ["Editor", "Notifications", "Account", "Diagnostics"]);
     assert.equal(await shown(page, ".sp-list"), true);
     assert.equal(await shown(page, ".sp-panes"), false, "settings show beside the list on a phone");
