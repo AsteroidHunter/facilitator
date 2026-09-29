@@ -125,8 +125,9 @@ const words = (page, id, text) => page.evaluate((id, text) => {
   els[id].ta.dispatchEvent(new Event("input"));
 }, id, text);
 // the tray says nothing in words: only squares stand in it, a square carries no
-// more than its kind (and size while it is idle) or the red mark, and the tray
-// sits directly on the typing row with no line between them
+// more than its kind (and size while it is idle) or the red mark, and the
+// squares' row stands 12px clear of the line above the typing row, with at least
+// 8px over the squares so the crosses on their corners are not clipped
 async function noStatusText(page, id) {
   const seen = await page.evaluate(id => {
     const el = els[id], box = document.querySelector("#box-" + id);
@@ -136,18 +137,25 @@ async function noStatusText(page, id) {
       for (const part of node.childNodes) if (part.nodeType === 3 && part.textContent.trim()) stray.push(part.textContent.trim());
     }
     const tray = el.tray.getBoundingClientRect(), row = box.querySelector(".bottombar").getBoundingClientRect();
+    const on = el.tray.classList.contains("on");
+    const squares = [...el.tray.querySelectorAll(".tsq")].map(node => node.getBoundingClientRect());
+    const crosses = [...el.tray.querySelectorAll(".tsqx")].map(node => node.getBoundingClientRect());
     return { squaresOnly: [...el.tray.children].every(child => child.classList.contains("tsq")),
       noteElement: !!box.querySelector(".traynote") || el.trayNote !== undefined,
       stray, kinds: [...el.tray.querySelectorAll(".tsqkind")].map(node => node.textContent),
       marks: [...el.tray.querySelectorAll(".tsqbang")].map(node => node.textContent),
-      gap: el.tray.classList.contains("on") ? Math.round((row.top - tray.bottom) * 100) / 100 : 0 };
+      gap: on ? Math.round((row.top - Math.max(...squares.map(s => s.bottom))) * 100) / 100 : 12,
+      above: on ? Math.round((Math.min(...squares.map(s => s.top)) - tray.top) * 100) / 100 : 8,
+      crossTop: on ? Math.round((Math.min(...crosses.map(x => x.top)) - tray.top) * 100) / 100 : 0 };
   }, id);
   assert.equal(seen.squaresOnly, true, "something other than a square stands in the tray");
   assert.equal(seen.noteElement, false, "the tray has a status line");
   assert.deepEqual(seen.stray, [], "words stand in the tray outside a square's kind and mark");
   for (const kind of seen.kinds) assert.match(kind, /^[A-Z0-9]+(\d+(\.\d)? (KB|MB))?$/, "a square says more than its kind");
   for (const mark of seen.marks) assert.equal(mark, "!");
-  assert.equal(seen.gap, 0, "the tray does not sit directly on the typing row");
+  assert.equal(seen.gap, 12, "the squares are not 12px clear of the line above the typing row");
+  assert.ok(seen.above >= 8, "less than 8px stands over the squares");
+  assert.ok(seen.crossTop >= 0, "a cross hangs out over the tray's top edge");
 }
 // the squares' states, as the classes that dress them
 const squares = (page, id) => page.evaluate(id => els[id].trayItems.map(it => ({ name: it.name, state: it.state,

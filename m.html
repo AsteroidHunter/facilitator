@@ -633,9 +633,10 @@
      tray is the typing row's width and the card's white, so the answer's fade
      reads it as part of the foot. the squares' corners are the 7px of things
      let into the card, and the cross hangs off the top right corner, which is
-     what the tray's top and right padding are for */
-  .tray{display:none; flex-wrap:wrap; align-items:flex-start; gap:var(--sp-s); flex:none; position:relative;
-    margin:0 calc(var(--pad-x)*2/3); padding:var(--sp-s) 6px 0 0; background:var(--card)}
+     what the tray's top and right padding are for. --tray-gap is the clear
+     space between the squares' row and the line above the typing row */
+  .tray{--tray-gap:12px; display:none; flex-wrap:wrap; align-items:flex-start; gap:var(--sp-s); flex:none; position:relative;
+    margin:0 calc(var(--pad-x)*2/3); padding:var(--sp-s) 6px var(--tray-gap) 0; background:var(--card)}
   .tray.on{display:flex}
   .tray.closing{overflow:hidden}
   .tsq{position:relative; flex:none; width:64px; height:64px}
@@ -1913,11 +1914,12 @@ function trayLeave(el, leaving){
   const gone = sq => { for (const url of leaving.find(it => it.sq === sq)?.urls || []) URL.revokeObjectURL(url); sq.remove(); };
   if (!el.trayItems.length){
     const height = tray.offsetHeight;
-    const pad = parseFloat(getComputedStyle(tray).paddingTop) || 0;
+    const cs = getComputedStyle(tray);
+    const pad = parseFloat(cs.paddingTop) || 0, padBottom = parseFloat(cs.paddingBottom) || 0;
     tray.classList.add("closing");
     for (const it of leaving) it.sq.animate(drop, beat);
-    const run = tray.animate([{ height: height + "px", paddingTop: pad + "px" },
-                              { height: "0px", paddingTop: "0px" }], beat);
+    const run = tray.animate([{ height: height + "px", paddingTop: pad + "px", paddingBottom: padBottom + "px" },
+                              { height: "0px", paddingTop: "0px", paddingBottom: "0px" }], beat);
     el.trayClosing = run;
     const end = () => {
       for (const it of leaving) gone(it.sq);
