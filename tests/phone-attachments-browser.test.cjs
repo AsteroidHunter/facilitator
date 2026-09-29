@@ -1,9 +1,10 @@
 // The phone's attachment tray at phone size: what a picked file looks like and
-// how it moves, what the owner is told while it uploads and when it does not
-// get through, how a try that failed is tried again without ever storing the
-// file twice, what happens to a file the board refuses, and a send pressed
-// while a file is still on its way. A copied server on a free port pair in a
-// temp folder, and an owned headless Chrome at 375 x 812, scale 3, touch on.
+// how it moves, how the squares alone show an upload going, waiting, failed or
+// refused with no line of words anywhere, how a try that failed is tried again
+// without ever storing the file twice, what happens to a file the board
+// refuses, and a send pressed while a file is still on its way. A copied
+// server on a free port pair in a temp folder, and an owned headless Chrome at
+// 375 x 812, scale 3, touch on.
 const assert = require("node:assert/strict");
 const { before, after, test } = require("node:test");
 const { spawn } = require("node:child_process");
@@ -123,7 +124,35 @@ const words = (page, id, text) => page.evaluate((id, text) => {
   els[id].ta.value = text;
   els[id].ta.dispatchEvent(new Event("input"));
 }, id, text);
-const note = (page, id) => page.evaluate(id => els[id].trayNote.textContent, id);
+// the tray says nothing in words: only squares stand in it, a square carries no
+// more than its kind (and size while it is idle) or the red mark, and the tray
+// sits directly on the typing row with no line between them
+async function noStatusText(page, id) {
+  const seen = await page.evaluate(id => {
+    const el = els[id], box = document.querySelector("#box-" + id);
+    const stray = [];
+    for (const node of el.tray.querySelectorAll("*")) {
+      if (node.closest(".tsqkind, .tsqbang")) continue;
+      for (const part of node.childNodes) if (part.nodeType === 3 && part.textContent.trim()) stray.push(part.textContent.trim());
+    }
+    const tray = el.tray.getBoundingClientRect(), row = box.querySelector(".bottombar").getBoundingClientRect();
+    return { squaresOnly: [...el.tray.children].every(child => child.classList.contains("tsq")),
+      noteElement: !!box.querySelector(".traynote") || el.trayNote !== undefined,
+      stray, kinds: [...el.tray.querySelectorAll(".tsqkind")].map(node => node.textContent),
+      marks: [...el.tray.querySelectorAll(".tsqbang")].map(node => node.textContent),
+      gap: el.tray.classList.contains("on") ? Math.round((row.top - tray.bottom) * 100) / 100 : 0 };
+  }, id);
+  assert.equal(seen.squaresOnly, true, "something other than a square stands in the tray");
+  assert.equal(seen.noteElement, false, "the tray has a status line");
+  assert.deepEqual(seen.stray, [], "words stand in the tray outside a square's kind and mark");
+  for (const kind of seen.kinds) assert.match(kind, /^[A-Z0-9]+(\d+(\.\d)? (KB|MB))?$/, "a square says more than its kind");
+  for (const mark of seen.marks) assert.equal(mark, "!");
+  assert.equal(seen.gap, 0, "the tray does not sit directly on the typing row");
+}
+// the squares' states, as the classes that dress them
+const squares = (page, id) => page.evaluate(id => els[id].trayItems.map(it => ({ name: it.name, state: it.state,
+  ring: getComputedStyle(it.sq.querySelector(".tsqring")).opacity, mark: getComputedStyle(it.sq.querySelector(".tsqbang")).display,
+  tappable: it.sq.classList.contains("tappable") })), id);
 
 test("a picked photo stands in the tray as a 64px square with its picture, a cross, and no mark once uploaded", async () => {
   const { page, id } = await openCard();
@@ -154,7 +183,7 @@ test("a picked photo stands in the tray as a 64px square with its picture, a cro
     assert.equal(shape.text, "A draft that stays");
     assert.equal(shape.arrow, true);
     await page.waitForFunction(id => getComputedStyle(els[id].trayItems[0].sq.querySelector(".tsqring")).opacity === "0", {}, id);
-    assert.equal(await note(page, id), "");
+    await noStatusText(page, id);
   } finally { await closePage(page); }
 });
 
@@ -199,26 +228,35 @@ test("the tray moves on one beat: a square slides in, one taken out shrinks whil
   } finally { await closePage(page); }
 });
 
-test("while a file uploads, its ring and the line under the tray say how far it has got", async () => {
+test("while a file uploads, its ring says how far it has got and no words stand under the tray", async () => {
   const { page, id } = await openCard();
   try {
     let release;
     page.hold = new Promise(resolve => { release = resolve; });
-    await add(page, id, [["Recording.mov", [0, 0, 0, 20, 102, 116, 121, 112, 113, 116, 32, 32], "video/quicktime"]]);
+    await add(page, id, [["Recording.mov", [0, 0, 0, 20, 102, 116, 121, 112, 113, 116, 32, 32], "video/quicktime"],
+                         ["Waiting.pdf", PDF, "application/pdf"]]);
     const drawn = await page.evaluate(id => {
       const el = els[id], it = el.trayItems[0];
       it.sent = 1.5e6; it.total = 4e6; it.measured = true;
       trayDraw(el);
-      return { offset: it.arc.style.strokeDashoffset, line: el.trayNote.textContent,
-        up: it.sq.classList.contains("up"), label: it.sq.getAttribute("aria-label") };
+      return { offset: it.arc.style.strokeDashoffset, up: it.sq.classList.contains("up"),
+        label: it.sq.getAttribute("aria-label") };
     }, id);
     assert.equal(Number(drawn.offset).toFixed(2), (65.97 * (1 - 1.5 / 4)).toFixed(2));
-    assert.equal(drawn.line, "Uploading, 1.5 of 4.0 MB");
     assert.equal(drawn.up, true);
     assert.equal(drawn.label, "Recording.mov: uploading");
+    // the square being sent and the one waiting its turn both wear the ring, and neither the mark
+    await page.waitForFunction(id => els[id].trayItems.every(it => getComputedStyle(it.sq.querySelector(".tsqring")).opacity === "1"), {}, id);
+    assert.deepEqual((await squares(page, id)).map(s => [s.state, s.ring, s.mark]), [["up", "1", "none"], ["queued", "1", "none"]]);
+    await noStatusText(page, id);
+    const heightWhileUploading = await page.evaluate(id => els[id].tray.getBoundingClientRect().height, id);
     release();
-    const [item] = await settled(page, id, 1);
-    assert.equal(item.state, "done");
+    const items = await settled(page, id, 2);
+    assert.deepEqual(items.map(it => it.state), ["done", "done"]);
+    await pause(450);
+    await noStatusText(page, id);
+    // the tray is no taller while it uploads than once it is done
+    assert.equal(await page.evaluate(id => els[id].tray.getBoundingClientRect().height, id), heightWhileUploading);
   } finally { await closePage(page); }
 });
 
@@ -261,26 +299,36 @@ test("a reply lost on the way is answered from the board's receipt, not by sendi
   } finally { await closePage(page); }
 });
 
-test("after five tries a file wears a mark and says so, and a tap starts another round", async () => {
+test("after five tries a file wears the red mark and nothing else, and a tap starts another round", async () => {
   const { page, id } = await openCard();
   try {
     await cutUploads(page, 5);
+    // the first wait is long enough to look at; the rest are short
+    await page.evaluate(() => { window.backoffMs = () => 1500; });
     await add(page, id, [["stubborn.pdf", PDF, "application/pdf"]]);
     await page.waitForFunction(id => els[id].trayItems[0].state === "wait", {}, id);
-    assert.match(await note(page, id), /stubborn\.pdf: the connection dropped\. Trying again, 2 of 5\./);
+    // waiting out a backoff: the ring turns, no mark, no words
+    await page.waitForFunction(id => getComputedStyle(els[id].trayItems[0].sq.querySelector(".tsqring")).opacity === "1", {}, id);
+    const [waiting] = await squares(page, id);
+    assert.deepEqual([waiting.state, waiting.ring, waiting.mark, waiting.tappable], ["wait", "1", "none", true]);
+    await noStatusText(page, id);
+    await page.evaluate(() => { window.backoffMs = () => 60; });
     const [failed] = await settled(page, id, 1);
     assert.equal(failed.state, "failed");
     assert.equal(failed.tries, 5);
-    assert.match(await note(page, id), /^stubborn\.pdf did not upload: the connection dropped\. Tap it to try again\.$/);
-    assert.equal(await page.evaluate(id => getComputedStyle(els[id].trayItems[0].sq.querySelector(".tsqbang")).display, id), "block");
+    await page.waitForFunction(id => getComputedStyle(els[id].trayItems[0].sq.querySelector(".tsqring")).opacity === "0", {}, id);
+    const [marked] = await squares(page, id);
+    assert.deepEqual([marked.ring, marked.mark, marked.tappable], ["0", "block", true]);
+    await noStatusText(page, id);
     await page.tap(`#box-${id} .tsq .tsqface`);
     const [item] = await settled(page, id, 1);
     assert.equal(item.state, "done");
-    assert.equal(await note(page, id), "");
+    assert.equal((await squares(page, id))[0].mark, "none");
+    await noStatusText(page, id);
   } finally { await closePage(page); }
 });
 
-test("a hostile file is refused in the board's words, tried once, and never sent", async () => {
+test("a hostile file is refused with the red mark and no words, tried once, and never sent", async () => {
   const { page, id } = await openCard();
   try {
     await add(page, id, [
@@ -291,13 +339,14 @@ test("a hostile file is refused in the board's words, tried once, and never sent
     const items = await settled(page, id, 3);
     assert.deepEqual(items.map(it => [it.name, it.state, it.tries]),
       [["holiday.png", "refused", 1], ["drawing.svg", "refused", 1], ["clean.svg", "done", 1]]);
-    const line = await note(page, id);
-    assert.match(line, /holiday\.png: That file is not a PNG picture, whatever its name says, so it was not attached\./);
-    assert.match(line, /drawing\.svg: That SVG carries script, so it was not attached\./);
+    // the two the board refused wear the red mark, the clean one does not, and no line says why
+    assert.deepEqual((await squares(page, id)).map(s => [s.name, s.mark, s.tappable]),
+      [["holiday.png", "block", false], ["drawing.svg", "block", false], ["clean.svg", "none", false]]);
+    await noStatusText(page, id);
     assert.equal(page.requests.filter(r => r.startsWith("POST /upload")).length, 3);
     assert.deepEqual((await kept("holiday.png")).concat(await kept("drawing.svg")), []);
     assert.equal(await page.evaluate(() => window.pwned), undefined);
-    // a send takes the file that went and leaves the refused ones, with their words
+    // a send takes the file that went and leaves the refused ones, with their marks
     await words(page, id, "Only the clean one");
     const sent = page.waitForResponse(response => new URL(response.url()).pathname === "/send");
     await page.tap(`#box-${id} .sendbtn`);
@@ -305,7 +354,9 @@ test("a hostile file is refused in the board's words, tried once, and never sent
     await page.waitForFunction(id => els[id].trayItems.length === 2, {}, id);
     const thread = await (await fetch(origin + "/thread?box=" + id)).json();
     assert.equal(thread.messages.filter(m => m.kind === "user").at(-1).text, items[2].url + "\n\nOnly the clean one");
-    assert.match(await note(page, id), /holiday\.png: /);
+    await pause(450);   // the leaving square's exit is over
+    assert.deepEqual((await squares(page, id)).map(s => [s.name, s.mark]), [["holiday.png", "block"], ["drawing.svg", "block"]]);
+    await noStatusText(page, id);
   } finally { await closePage(page); }
 });
 
@@ -319,10 +370,12 @@ test("a send pressed while a file uploads waits in the row and goes with it", as
     await words(page, id, "Three files from the phone");
     await page.tap(`#box-${id} .sendbtn`);
     await pause(200);
-    const held = await page.evaluate(id => ({ text: els[id].ta.value, line: els[id].trayNote.textContent, hold: !!els[id].trayHold }), id);
+    const held = await page.evaluate(id => ({ text: els[id].ta.value, hold: !!els[id].trayHold }), id);
     assert.equal(held.text, "Three files from the phone");
     assert.equal(held.hold, true);
-    assert.match(held.line, /^Uploading 3 files, .* Sends when they finish$/);
+    // a send waiting on its files says nothing: the squares still show the uploads
+    assert.ok((await squares(page, id)).every(s => ["up", "queued"].includes(s.state) && s.mark === "none"));
+    await noStatusText(page, id);
     assert.equal(page.requests.filter(r => r.startsWith("POST /send")).length, 0, "the words went before their files");
     const sent = page.waitForResponse(response => new URL(response.url()).pathname === "/send");
     release();
@@ -340,7 +393,7 @@ test("a send pressed while a file uploads waits in the row and goes with it", as
   } finally { await closePage(page); }
 });
 
-test("a held send whose file is refused stays in the row and says why", async () => {
+test("a held send whose file is refused stays in the row, and the square wears the mark", async () => {
   const { page, id } = await openCard();
   try {
     let release;
@@ -353,9 +406,9 @@ test("a held send whose file is refused stays in the row and says why", async ()
     await settled(page, id, 1);
     await pause(200);
     assert.equal(await page.evaluate(id => els[id].ta.value, id), "Words that wait");
-    const line = await note(page, id);
-    assert.match(line, /fake\.mp4: That file is not an MP4 video, whatever its name says, so it was not attached\./);
-    assert.match(line, /Not sent: a file did not upload\. Try it again or take it out, then send\./);
+    assert.deepEqual((await squares(page, id)).map(s => [s.name, s.state, s.mark]), [["fake.mp4", "refused", "block"]]);
+    assert.equal(await page.evaluate(id => els[id].trayHold, id), null, "the held send is still waiting on a file that will never land");
+    await noStatusText(page, id);
     assert.equal(page.requests.filter(r => r.startsWith("POST /send")).length, 0);
     // taken out, the words can go on their own
     await page.tap(`#box-${id} .tsqx`);

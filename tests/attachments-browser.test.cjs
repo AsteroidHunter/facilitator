@@ -306,6 +306,22 @@ async function trayLanded(page, id, count) {
     els[id].trayItems.every(it => !["up", "queued", "wait"].includes(it.state)), { timeout: 20000 }, id, count);
   return page.evaluate(id => els[id].trayItems.map(it => ({ name: it.name, state: it.state, url: it.url || "" })), id);
 }
+// the phone's tray says nothing in words: no status line, and nothing in it
+// outside a square's kind label and its red mark
+async function assertNoTrayText(page, id) {
+  const seen = await page.evaluate(id => {
+    const tray = els[id].tray, stray = [];
+    for (const node of tray.querySelectorAll("*")) {
+      if (node.closest(".tsqkind, .tsqbang")) continue;
+      for (const part of node.childNodes) if (part.nodeType === 3 && part.textContent.trim()) stray.push(part.textContent.trim());
+    }
+    return { note: !!document.querySelector("#box-" + id + " .traynote") || els[id].trayNote !== undefined, stray,
+      marks: [...tray.querySelectorAll(".tsq")].map(sq => getComputedStyle(sq.querySelector(".tsqbang")).display) };
+  }, id);
+  assert.equal(seen.note, false, "the tray has a status line");
+  assert.deepEqual(seen.stray, [], "words stand in the tray");
+  return seen.marks;
+}
 
 test("phone picker, paste and drop put files in the tray, keep the draft, and send them with the words", async () => {
   const { page, id } = await openCard(true);
@@ -374,12 +390,13 @@ test("phone refuses unsupported, empty and oversized files in the tray before an
     page.on("request", request => { if (new URL(request.url()).pathname === "/upload") uploads++; });
     await page.evaluate(id => { els[id].ta.value = "Still here"; }, id);
     await transfer(page, id, "drop", "unsupported.html", "text/html");
-    await page.waitForFunction(id => els[id].trayNote?.textContent.includes("Unsupported"), {}, id);
+    await page.waitForFunction(id => els[id].trayItems.length === 1, {}, id);
     await transfer(page, id, "drop", "empty.pdf", "application/pdf", []);
-    await page.waitForFunction(id => els[id].trayNote.textContent.includes("empty"), {}, id);
+    await page.waitForFunction(id => els[id].trayItems.length === 2, {}, id);
     await page.evaluate(id => trayAdd(id, [new File([new Uint8Array(100 * 1024 * 1024 + 1)], "huge.pdf", { type: "application/pdf" })]), id);
-    assert.match(await page.evaluate(id => els[id].trayNote.textContent, id), /100 MiB/);
     assert.deepEqual(await page.evaluate(id => els[id].trayItems.map(it => it.state), id), ["refused", "refused", "refused"]);
+    // each one wears the red mark and nothing says why
+    assert.deepEqual(await assertNoTrayText(page, id), ["block", "block", "block"]);
     assert.equal(await page.evaluate(id => els[id].ta.value, id), "Still here");
     assert.equal(uploads, 0, "invalid files must be refused before upload");
   } finally { await closePage(page); }
@@ -491,13 +508,14 @@ test("phone: an upload that did not get through keeps the draft and the file, an
       trayAdd(id, [new File(["%PDF-1.4 fixture"], "retry.pdf", { type: "application/pdf" })]);
     }, id);
     await page.waitForFunction(id => els[id].trayItems[0].state === "wait", { timeout: 10000 }, id);
-    const waiting = await page.evaluate(id => ({ text: els[id].ta.value, note: els[id].trayNote.textContent }), id);
+    const waiting = await page.evaluate(id => ({ text: els[id].ta.value, tappable: els[id].trayItems[0].sq.classList.contains("tappable") }), id);
     assert.equal(waiting.text, "Draft before upload");
-    assert.match(waiting.note, /retry\.pdf: the connection dropped\. Trying again, 2 of 5\./);
+    assert.equal(waiting.tappable, true);
+    assert.deepEqual(await assertNoTrayText(page, id), ["none"]);
     const [item] = await trayLanded(page, id, 1);
     assert.equal(item.state, "done");
     assert.match(item.url, /^\/uploads\/\d+-retry\.pdf$/);
-    assert.equal(await page.evaluate(id => els[id].trayNote.textContent, id), "");
+    assert.deepEqual(await assertNoTrayText(page, id), ["none"]);
     assert.equal(await page.evaluate(id => els[id].ta.value, id), "Draft before upload");
   } finally { await closePage(page); }
 });

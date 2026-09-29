@@ -629,11 +629,11 @@
 
   /* ---- the files picked for the next message: a tray over the typing row ---- */
   /* one 64px square per file, standing from the pick on, with the upload's ring
-     over it and a line under the squares saying how far it has got. the tray
-     is the typing row's width and the card's white, so the answer's fade reads
-     it as part of the foot. the squares' corners are the 7px of things let into
-     the card, and the cross hangs off the top right corner, which is what the
-     tray's top and right padding are for */
+     over it. the squares carry the state alone: no words stand under them. the
+     tray is the typing row's width and the card's white, so the answer's fade
+     reads it as part of the foot. the squares' corners are the 7px of things
+     let into the card, and the cross hangs off the top right corner, which is
+     what the tray's top and right padding are for */
   .tray{display:none; flex-wrap:wrap; align-items:flex-start; gap:var(--sp-s); flex:none; position:relative;
     margin:0 calc(var(--pad-x)*2/3); padding:var(--sp-s) 6px 0 0; background:var(--card)}
   .tray.on{display:flex}
@@ -648,8 +648,7 @@
     font:600 11px/1.25 var(--mono); letter-spacing:.04em; color:var(--sub)}
   .tsqkind small{display:block; font-weight:400; font-size:9.5px; letter-spacing:0}
   /* with a ring or a mark to wear, a file with no picture keeps only its kind,
-     at the top, and the mark stands under it; the line under the squares says
-     the sizes meanwhile */
+     at the top, and the mark stands under it */
   .tsq:not(.drawn):is(.up,.queued,.wait,.failed,.refused) .tsqkind{place-content:start center; padding-top:8px}
   .tsq:not(.drawn):is(.up,.queued,.wait,.failed,.refused) .tsqkind small{display:none}
   .tsq:not(.drawn) :is(.tsqring, .tsqbang){top:62%}
@@ -685,12 +684,6 @@
     border:none; border-radius:50%; background:rgba(33,29,23,.72); color:#fff;
     display:grid; place-items:center; cursor:pointer}
   .tsqx::after{content:""; position:absolute; inset:-8px}
-  .traynote{flex-basis:100%; margin-top:-2px; font:10.5px/1.35 var(--mono); color:var(--sub)}
-  .traynote:empty{display:none}
-  .traynote .bad{display:block; color:#7A2E1B}
-  /* a try that did not get through and is being tried again: the colour the
-     sent panel gives a message still being retried */
-  .traynote .again{display:block; color:#8F7B4A}
   /* a picture in a sent message is capped on the phone, so one photo does not
      take the whole panel */
   .sentwrap .cardmd .shot, .answwrap .cardmd .shot{max-height:180px; width:auto; margin-left:0}
@@ -1576,11 +1569,11 @@ function makeBox(b){
 // ---- the files picked for the next message ---------------------------------------
 // a picked file goes into the tray over the typing row at once, as a square that
 // stands from the tap, and starts uploading while the words are typed, one file
-// at a time in the order they were picked. the square carries the upload's ring
-// and the line under the squares says how far it has got. a file the board
-// refuses says why in the board's own words and is not tried again; one that did
-// not get through is tried again on its own a few times, then wears a mark and
-// waits for a tap. the message carries
+// at a time in the order they were picked. the square carries the state alone,
+// with no words anywhere: the upload's ring while it goes, and a red mark when
+// it did not. a file the board refuses wears the mark and is not tried again;
+// one that did not get through is tried again on its own a few times, then wears
+// the mark and waits for a tap. the message carries
 // the files the way the board keeps them, as /uploads lines ahead of the words,
 // and a send pressed while a file is still on its way waits for it in the row:
 // nothing goes without its files, and nothing leaves the row before it can go.
@@ -1614,23 +1607,21 @@ function trayBusy(el){ return !!el && el.trayItems.some(trayMoving); }
 // something in the tray can go with a message: uploaded, or still on its way
 function traySendable(el){ return !!el && el.trayItems.some(it => it.state === "done" || trayMoving(it)); }
 // sizes the way the phone's own Files app writes them: KB under a megabyte
-function traySize(bytes, unitOf = bytes){
-  return unitOf < 1e6 ? Math.max(bytes ? 1 : 0, Math.round(bytes / 1e3)) + (unitOf === bytes ? " KB" : "")
-    : (bytes / 1e6).toFixed(1) + (unitOf === bytes ? " MB" : "");
+function traySize(bytes){
+  return bytes < 1e6 ? Math.max(bytes ? 1 : 0, Math.round(bytes / 1e3)) + " KB" : (bytes / 1e6).toFixed(1) + " MB";
 }
 
 function trayAdd(id, files){
   const el = els[id];
   if (!el || !files.length) return;
   el.trayCard = id;
-  el.trayHeld = "";
   trayOpen(el);
   for (const file of files){
     const info = CardMarkdown.attachmentFile(file);
     const it = { key: newOpId(), file, name: info.name, kind: info.kind || "document",
       ext: (info.ext || (/\.([a-z0-9]+)$/i.exec(info.name) || [])[1] || "file").toUpperCase(),
       total: file.size, sent: 0, tries: 0, measured: false, urls: [],
-      state: info.error ? "refused" : "queued", why: info.error };
+      state: info.error ? "refused" : "queued" };
     el.trayItems.push(it);
     traySquare(el, it);
     it.sq.animate([{ opacity: 0, transform: "translateX(-" + TRAY_SLIDE_PX + "px)" },
@@ -1651,8 +1642,6 @@ function trayOpen(el){
     if (!el.trayItems.some(it => it.sq === sq)) sq.remove();
   tray.classList.remove("closing");
   tray.classList.add("on");
-  if (!el.trayNote){ el.trayNote = h("div", "traynote"); }
-  tray.appendChild(el.trayNote);
 }
 
 function traySquare(el, it){
@@ -1679,7 +1668,7 @@ function traySquare(el, it){
   x.addEventListener("click", e => { e.stopPropagation(); trayRemove(el, it); });
   face.addEventListener("click", () => trayRetry(el, it));
   Object.assign(it, { sq, face, veil, arc: ring.querySelector(".arc") });
-  el.tray.insertBefore(sq, el.trayNote);
+  el.tray.appendChild(sq);
 }
 
 // the picture a square wears: a photo decoded small on the side where the
@@ -1773,7 +1762,7 @@ function trayPost(el, it){
     if (e.lengthComputable && e.total) it.total = e.total;
     it.measured = true;
     clearTimeout(it.quiet);
-    it.quiet = setTimeout(() => { if (it.xhr === xhr){ xhr.abort(); landed(0, { quiet: true }); } }, TRAY_QUIET_MS);
+    it.quiet = setTimeout(() => { if (it.xhr === xhr){ xhr.abort(); landed(0, null); } }, TRAY_QUIET_MS);
     trayDraw(el);
   };
   xhr.onload = () => {
@@ -1786,20 +1775,16 @@ function trayPost(el, it){
   trayDraw(el);
 }
 
-// how a try ended: stored; refused for good, in the board's own words; or not
-// got through, which says nothing about the file and is tried again on the
-// messages' backoff until the round's tries are spent, then waits for a tap
+// how a try ended: stored; refused for good; or not got through, which says
+// nothing about the file and is tried again on the messages' backoff until the
+// round's tries are spent, then waits for a tap
 function trayLanded(el, it, status, body){
   if (it.gone) return;
   if (status === 200 && body && body.url){
     it.state = "done"; it.url = body.url; it.sent = it.total;
   } else if (TRAY_REFUSED.has(status)){
     it.state = "refused";
-    it.why = status === 401 ? "Signed out. Sign in again to attach files." : (body && body.error) || ("The board refused it (" + status + ").");
   } else {
-    it.why = body && body.quiet ? "the upload stopped moving" : !status ? "the connection dropped"
-      : status === 408 ? "the upload stopped arriving" : status === 409 ? "the board was still taking the last try"
-      : status === 429 || status === 503 ? "the board was busy" : "the board answered " + status;
     if (it.tries < TRAY_TRIES){
       it.state = "wait";
       clearTimeout(it.timer);
@@ -1825,7 +1810,7 @@ function trayRetry(el, it){
   if (it.gone) return;
   if (it.state === "wait"){ trayAgain(el, it); return; }
   if (it.state !== "failed") return;
-  it.state = "queued"; it.tries = 0; el.trayHeld = "";
+  it.state = "queued"; it.tries = 0;
   trayDraw(el);
   el.tick();
   trayPump(el);
@@ -1845,7 +1830,6 @@ function trayRemove(el, it){
   if (it.gone) return;
   trayForget(it);
   el.trayItems = el.trayItems.filter(o => o !== it);
-  el.trayHeld = "";
   trayLeave(el, [it]);
   trayDraw(el);
   el.tick();
@@ -1860,26 +1844,20 @@ function trayForget(it){
 }
 
 // a send pressed while files were still on their way: the words stay in the
-// row and the line says when they go
+// row until the files have landed
 function trayHoldSend(id, opts){
   const el = els[id];
   el.trayHold = { advance: opts.advance, wait: new Set(el.trayItems.filter(trayMoving).map(it => it.key)) };
-  el.trayHeld = "";
-  trayDraw(el);
 }
 // the files a held send waited for have landed: it goes now, or, when one of
-// them did not get through, it stays in the row and the line says why
+// them did not get through, it stays in the row and the square wears its mark
 function trayRelease(el){
   const hold = el.trayHold;
   if (!hold) return;
   const waited = el.trayItems.filter(it => hold.wait.has(it.key));
   if (waited.some(trayMoving)) return;
   el.trayHold = null;
-  if (waited.some(it => it.state !== "done")){
-    el.trayHeld = "Not sent: a file did not upload. Try it again or take it out, then send.";
-    trayDraw(el);
-    return;
-  }
+  if (waited.some(it => it.state !== "done")) return;
   doSend(el.trayCard, { advance: hold.advance });
 }
 
@@ -1899,7 +1877,6 @@ function trayTake(el){
   if (!going.length) return;
   for (const it of going) trayForget(it);
   el.trayItems = el.trayItems.filter(it => it.state !== "done");
-  el.trayHeld = "";
   trayLeave(el, going);
   trayDraw(el);
 }
@@ -1950,8 +1927,7 @@ function trayLeave(el, leaving){
   }
 }
 
-// every square's dress from its file's state, and the line under them: what
-// did not go and why first, then how far the uploads have got
+// every square's dress from its file's state
 function trayDraw(el){
   for (const it of el.trayItems){
     for (const state of ["up", "queued", "wait", "done", "failed", "refused"])
@@ -1963,29 +1939,6 @@ function trayDraw(el){
       : String(TRAY_RING * (1 - (it.total ? Math.min(1, it.sent / it.total) : 0)));
     it.sq.setAttribute("aria-label", it.name + ": " + trayWords(it));
   }
-  const note = el.trayNote;
-  if (!note) return;
-  const bad = [], again = [];
-  for (const it of el.trayItems){
-    if (it.state === "refused") bad.push(it.name + ": " + it.why);
-    else if (it.state === "failed") bad.push(it.name + " did not upload: " + it.why + ". Tap it to try again.");
-    else if (it.state === "wait") again.push(it.name + ": " + it.why + ". Trying again, " + (it.tries + 1) + " of " + TRAY_TRIES + ".");
-  }
-  if (el.trayHeld) bad.push(el.trayHeld);
-  const moving = el.trayItems.filter(trayMoving);
-  let line = "";
-  if (moving.length){
-    const sent = moving.reduce((n, it) => n + (it.state === "up" ? it.sent : 0), 0);
-    const total = moving.reduce((n, it) => n + it.total, 0);
-    line = (moving.length === 1 ? "Uploading" : "Uploading " + moving.length + " files") +
-      ", " + traySize(sent, total) + " of " + traySize(total);
-    if (el.trayHold) line += moving.length === 1 ? ". Sends when it finishes" : ". Sends when they finish";
-  }
-  const key = bad.join("\n") + "\n" + again.join("\n") + "\n" + line;
-  if (note.dataset.key === key) return;
-  note.dataset.key = key;
-  note.replaceChildren(...bad.map(text => h("span", "bad", text)), ...again.map(text => h("span", "again", text)),
-    ...(line ? [document.createTextNode(line)] : []));
 }
 function trayWords(it){
   return it.state === "done" ? "uploaded" : it.state === "refused" ? "not attached" : it.state === "failed" ? "not uploaded"
