@@ -218,6 +218,19 @@
      asking again, which is not yet a board that is gone */
   #offline.stale{color:#6B5A2E; background:#F6F1E4; border-color:var(--line)}
 
+  /* ---- the board has stopped answering: a white screen and one line -------- */
+  /* over everything, the startup curtain included, and measured the way the
+     curtain is. the face is a line icon one em tall, sitting on the text's line */
+  #serverdown{
+    display:none; position:fixed; left:0; right:0; top:0; height:var(--screen-h, var(--root-h)); z-index:50;
+    align-items:center; justify-content:center; padding:0 24px;
+    background:#FFFFFF; color:var(--ink); font:400 17px/1.4 var(--sans); text-align:center;
+    -webkit-user-select:none; user-select:none;
+  }
+  body.down #serverdown{display:flex}
+  #serverdown p{margin:0}
+  #serverdown svg{width:1em; height:1em; margin-right:.4em; vertical-align:-.15em}
+
   /* ---- the card pane ------------------------------------------------------ */
   main{
     flex:1 1 auto; min-height:0; margin-top:var(--sp-s);
@@ -1047,6 +1060,7 @@
   </div>
 </aside>
 <div id="diagnostictoast" role="status"></div>
+<div id="serverdown" role="alert"><p><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m6.5 8 3.5 3.5m0-3.5-3.5 3.5m7.5-3.5 3.5 3.5m0-3.5-3.5 3.5"/><path d="M8.5 17c1-1.2 2.2-1.8 3.5-1.8s2.5.6 3.5 1.8"/></svg>Is the Facilitator server down?</p></div>
 
 <script>
   // the web font sheets, asked for without holding any paint. linked in the
@@ -3303,6 +3317,27 @@ function linkStatus(){
   bar.classList.toggle("stale", !gone);
   document.body.classList.add("offline");
 }
+// the white screen: readings have failed for DOWN_AFTER_MS across at least
+// DOWN_AFTER_READS in a row. the note above covers the short gaps before it
+const DOWN_AFTER_MS = 5000, DOWN_AFTER_READS = 2;
+let downSince = 0, downReads = 0;
+function linkDown(asked, response){
+  // an answer that refuses is still an answer: the board is there
+  if (response && (response.status === 401 || response.status === 403)){ linkUp(); return; }
+  if (!downSince) downSince = asked;
+  downReads++;
+  if (downReads >= DOWN_AFTER_READS && Date.now() - downSince >= DOWN_AFTER_MS)
+    document.body.classList.add("down");
+}
+function linkUp(){
+  downSince = 0; downReads = 0;
+  document.body.classList.remove("down");
+}
+// a wake starts the count again, so a failure from before the phone slept never
+// adds to the first one after it. the screen itself stays until a reading gets through
+function linkWoke(){
+  if (!document.body.classList.contains("down")){ downSince = 0; downReads = 0; }
+}
 // one reading at a time. asked while one is out, poll answers with the reading
 // that follows it, so whoever waits on it gets a reading asked for after their
 // change landed, never the one that was already on its way
@@ -3429,6 +3464,7 @@ async function readBoard(){
     pollFails++;
     pollGap = Math.min(POLL_BACKOFF_MAX_MS, pollGap * 2);
     linkStatus();
+    linkDown(asked, response);
     startupTrouble();   // the board could not be reached: the startup globe stops, and reddens
   }
   endPhoneTrace(trace, { status: response?.status || 0, rev: data?.rev,
@@ -3436,6 +3472,7 @@ async function readBoard(){
   if (data){
     pollFails = 0; pollGap = POLL_MS; lastGood = Date.now();
     linkStatus();
+    linkUp();
     startupAnswered();   // a reading got through: the startup globe turns again
     if (createRevFloor != null && Number.isSafeInteger(data.rev) && data.rev < createRevFloor){
       pollAgain = true;
@@ -3535,6 +3572,7 @@ async function readBoard(){
 // pending operation, and every sleeping retry is woken
 function resume(){
   pollGap = POLL_MS;
+  linkWoke();
   poll();
   wakeOps();
 }
