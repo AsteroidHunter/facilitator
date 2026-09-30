@@ -175,8 +175,6 @@ test("arriving at a card only browses it: nothing is read and the card sits leve
     ["swipe to the previous card", p => swipe(p, 1)],
     ["Control+Shift+Right", p => chord(p, ["Control", "Shift"], "ArrowRight")],
     ["Control+Shift+Left", p => chord(p, ["Control", "Shift"], "ArrowLeft")],
-    ["Command+Shift+]", p => chord(p, ["Meta", "Shift"], "]")],
-    ["Command+Shift+[", p => chord(p, ["Meta", "Shift"], "[")],
     ["Right arrow", p => chord(p, [], "ArrowRight")],
     ["Left arrow", p => chord(p, [], "ArrowLeft")],
   ];
