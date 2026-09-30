@@ -16,10 +16,8 @@
   padding:16px 20px 14px; color:var(--ink); font:400 12px/16px var(--sans);
 }
 .tk-head{flex:none; display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px}
-/* what the panel counts goes under its name when the two do not fit on one line */
-.tk-title{display:flex; flex-wrap:wrap; align-items:baseline; column-gap:10px; row-gap:0; min-width:0}
-.tk-name{font:600 14px/18px var(--sans); color:var(--ink)}
-.tk-what{color:var(--sub); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.tk-title{min-width:0}
+.tk-name{font:600 14px/18px var(--sans); color:var(--ink); text-wrap:balance}
 
 /* the pill: the page switcher's small rounded rectangle on the paper, holding
    two names of one width. the one showing sits on a white seat the way the
@@ -88,16 +86,31 @@
 .tk-path{stroke-width:1.75px; stroke-linejoin:round; stroke-linecap:round}
 .tk-avg{stroke-width:2.8px; stroke-linecap:round; stroke-linejoin:round}
 .tk-guide{stroke:var(--line); stroke-width:1px}
-.tk-foot{flex:none; display:flex; align-items:center; justify-content:space-between; gap:12px;
+/* neither the words on the left nor the legend on the right ever break: where
+   both will not fit across, the legend drops to a row of its own, at the right */
+.tk-foot{flex:none; display:flex; flex-wrap:wrap; align-items:center; gap:2px 12px;
   margin-top:10px; color:var(--sub)}
+.tk-sum{white-space:nowrap}
 .tk-sum b{color:var(--ink); font-weight:600}
-.tk-legend{display:inline-flex; align-items:center; gap:3px}
+.tk-legend{display:inline-flex; align-items:center; gap:3px; margin-left:auto; white-space:nowrap}
 .tk-legend i{display:inline-block; width:10px; height:10px; border-radius:2px;
   box-shadow:inset 0 0 0 .6px rgba(60,45,20,.05)}
 .tk-legend i:first-of-type{margin-left:5px}
 .tk-legend i:last-of-type{margin-right:5px}
 .tk-key{display:block; flex:none}
 .tk-legend .tk-key ~ .tk-key{margin-left:10px}
+
+/* on the board, where a mouse or trackpad hovers, the panel is a box of a set
+   size and the chart is what it is for, so the padding, the gaps around the
+   heading row and the foot and the pill's own padding are cut down to what
+   they hold and the chart's view takes the rest. a phone, which does not
+   hover, keeps the roomier sizes above for a finger */
+@media (hover: hover) and (pointer: fine){
+  .tk-panel{padding:10px 14px 9px}
+  .tk-head{margin-bottom:6px}
+  .tk-opt{padding:2px 10px}
+  .tk-foot{margin-top:6px}
+}
 
 /* the hover tip: ink on the paper, never in the pointer's way */
 .tk-tip{position:absolute; z-index:2; pointer-events:none; white-space:nowrap;
@@ -113,8 +126,9 @@
 .tk-tip .tk-row{display:flex; align-items:center; gap:4px; margin-top:2px}
 .tk-tip .tk-row em{font-style:normal; font-weight:600; color:#FFFFFF; margin-left:auto; padding-left:14px}
 
-/* the wait takes the view's place and the foot's 26px under it, so the
-   panel is its finished size from the first frame and never moves */
+/* the wait takes the view's place and the foot's 26px under it, so a panel
+   that hugs its chart is its finished size from the first frame and never
+   moves; in a box of a set size it simply fills what the stage is given */
 .tk-wait{flex:1 1 auto; display:flex; align-items:center; justify-content:center;
   height:calc(var(--tk-view-h) + 26px); min-height:0; color:var(--sub)}
 .tk-note{flex:none; margin-top:8px; color:var(--sub)}

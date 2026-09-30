@@ -189,9 +189,10 @@ test("the heatmap draws one square per day of the year in 53 week columns of 7",
 test("the heatmap's squares grow with the view's height, within limits, and fill it", () => {
   const { W } = widgets();
   assert.equal(W.VIEW_H, 200);
-  // the board's two window sizes and the phone's view: seven rows and the
-  // month names fill the height, with at most a few pixels over, split above and below
-  for (const [h, step, cell] of [[226, 29, 25], [156, 19, 16], [200, 25, 21]]) {
+  // the board's two window sizes (1512 x 982 and 1280 x 800) and the phone's
+  // view: seven rows and the month names fill the height, with at most a few
+  // pixels over, split above and below
+  for (const [h, step, cell] of [[251, 32, 28], [187, 23, 19], [226, 29, 25], [156, 19, 16], [200, 25, 21]]) {
     const g = W.geometry(h);
     assert.equal(g.step, step, `step at ${h}`);
     assert.equal(g.cell, cell, `square at ${h}`);
@@ -550,10 +551,26 @@ test("the box stands in the top right quarter, the charts fill it and scroll nat
   assert.match(panelRule, /--tk-view-h:200px/);
   assert.match(panelRule, /box-sizing:border-box; height:100%; display:flex; flex-direction:column/);
   assert.match(panelRule, /padding:16px 20px 14px/);
+  // where a mouse or trackpad hovers the chrome around the view is cut down so
+  // the view takes more of the box; a phone, which does not hover, keeps the
+  // roomier sizes above
+  const board = /@media \(hover: hover\) and \(pointer: fine\)\{([^@]*?)\n\}/.exec(css);
+  assert.ok(board, "a rule for pointers that hover");
+  assert.match(board[1], /\.tk-panel\{padding:10px 14px 9px\}/);
+  assert.match(board[1], /\.tk-head\{margin-bottom:6px\}/);
+  assert.match(board[1], /\.tk-opt\{padding:2px 10px\}/);
+  assert.match(board[1], /\.tk-foot\{margin-top:6px\}/);
+  assert.match(rule(".tk-head"), /margin-bottom:14px/);
+  assert.match(rule(".tk-opt"), /padding:3px 11px/);
   assert.match(rule(".tk-stage"), /flex:1 1 auto; min-height:0; display:flex; flex-direction:column/);
   assert.match(rule(".tk-view"), /flex:1 1 var\(--tk-view-h\); height:var\(--tk-view-h\); min-height:0/);
   assert.match(rule(".tk-head"), /^flex:none/);
   assert.match(rule(".tk-foot"), /^flex:none/);
+  // neither the words nor the legend ever break; with no room for both across,
+  // the legend drops to its own row at the right
+  assert.match(rule(".tk-foot"), /flex-wrap:wrap/);
+  assert.match(rule(".tk-sum"), /white-space:nowrap/);
+  assert.match(rule(".tk-legend"), /margin-left:auto; white-space:nowrap/);
   assert.equal(W.VIEW_H, 200, "the widgets draw at the sheet's own view height until a view is measured");
   // both charts' names at the panel's 12px; the day's line solid, its average dotted
   assert.match(rule(".tk-axis"), /font:400 12px var\(--sans\)/);
@@ -610,13 +627,76 @@ test("the line's tip names the day, its total and its 7-day average, and nothing
   const short = W.lineModel(daysEnding("2026-09-27", 3, () => 3e6));
   assert.match(W.lineTip(short.points[0]), /^<b>Fri, Sep 25, 2026<\/b>.*Daily<em>3M<\/em>.*1-day average<em>3M<\/em>/);
   assert.match(W.lineTip(short.points[2]), /3-day average<em>3M<\/em>/);
-  // the legend under the line names both, beside the same strokes, and says what the axis counts
+  // the legend under the line names both, beside the same strokes, and the
+  // words on its left name the tools whose tokens the days hold
   const doc = makeDocument();
-  const el = new El("div", doc);
-  W.drawLine(el, days);
-  const foot = /<div class="tk-foot">(.*?)<\/div>/.exec(el.innerHTML)[1];
-  assert.match(foot, /^<span class="tk-sum">Tokens per day<\/span><span class="tk-legend"><svg class="tk-key"/);
-  assert.equal(foot.replace(/<[^>]+>/g, ""), "Tokens per dayDaily7-day average");
+  const footOf = set => {
+    const el = new El("div", doc);
+    W.drawLine(el, set);
+    return /<div class="tk-foot">(.*?)<\/div>/.exec(el.innerHTML)[1];
+  };
+  const text = html => html.replace(/<[^>]+>/g, "");
+  const split = (claude, codex) => days.map(d => ({ ...d, claude: d.total * claude, codex: d.total * codex }));
+  const foot = footOf(split(1, 0));
+  assert.match(foot, /^<span class="tk-sum">Includes data from Claude<\/span><span class="tk-legend"><svg class="tk-key"/);
+  assert.equal(text(foot), "Includes data from ClaudeDaily7-day average");
+  assert.equal(text(footOf(split(0, 1))), "Includes data from CodexDaily7-day average");
+  assert.equal(text(footOf(split(0.5, 0.5))), "Includes data from Claude &amp; CodexDaily7-day average");
+  assert.match(footOf(split(0, 0)), /^<span class="tk-sum"><\/span><span class="tk-legend"><svg class="tk-key"/,
+               "with no tokens from either, nothing stands on the left and the legend stays");
+  assert.doesNotMatch(foot, /Tokens per day/);
+});
+
+test("the foot names Claude, Codex or both, by whose tokens the year holds", () => {
+  const { W } = widgets();
+  const days = daysEnding("2026-09-27", 371, () => 1000);
+  const set = (from, claude, codex) => days.map((d, k) => (k >= from ? { ...d, claude, codex } : { ...d, claude: 0, codex: 0 }));
+  assert.deepEqual(Array.from(W.sources(set(0, 1000, 0))), ["Claude"]);
+  assert.deepEqual(Array.from(W.sources(set(0, 0, 1000))), ["Codex"]);
+  assert.deepEqual(Array.from(W.sources(set(0, 600, 400))), ["Claude", "Codex"]);
+  assert.deepEqual(Array.from(W.sources(set(0, 0, 0))), []);
+  // one day in the year is enough to name a tool, and the six days fetched
+  // ahead of the year for the average are not
+  assert.deepEqual(Array.from(W.sources(set(370, 1000, 1000))), ["Claude", "Codex"]);
+  assert.deepEqual(Array.from(W.sources(set(6, 1000, 1000))), ["Claude", "Codex"]);
+  const early = days.map((d, k) => ({ ...d, claude: 1000, codex: k < 6 ? 1000 : 0 }));
+  assert.deepEqual(Array.from(W.sources(early)), ["Claude"], "a tool seen only before the year is not named");
+  // a route that does not say which tool a day came from names neither
+  assert.deepEqual(Array.from(W.sources(days.map(({ date, total }) => ({ date, total })))), []);
+  assert.equal(W.sourceLine([]), "");
+  assert.equal(W.sourceLine(["Claude"]), "Includes data from Claude");
+  assert.equal(W.sourceLine(["Codex"]), "Includes data from Codex");
+  assert.equal(W.sourceLine(["Claude", "Codex"]), "Includes data from Claude & Codex");
+});
+
+test("the panel's heading reads Token consumption per day, with no line under it", () => {
+  const { W } = widgets();
+  const doc = makeDocument();
+  const root = new El("div", doc);
+  W.panel(root, { load: async () => ({ days: daysEnding("2026-09-27", 371), found: { claude: true, codex: false } }), store: null });
+  const nodes = walk(root);
+  const title = nodes.find(n => n.className === "tk-title");
+  assert.deepEqual(title.children.map(n => [n.className, n.textContent]), [["tk-name", "Token consumption per day"]]);
+  assert.equal(title.textContent, "Token consumption per day");
+  assert.ok(!nodes.some(n => n.className === "tk-what"), "no subtitle");
+  assert.doesNotMatch(root.textContent, /Claude Code and Codex on this machine/);
+});
+
+test("the panel's line foot follows the tools the route's days carry", async () => {
+  const { W } = widgets();
+  const doc = makeDocument();
+  const footText = async mix => {
+    const days = daysEnding("2026-09-27", 371).map(d => ({ ...d, claude: d.total && mix.claude, codex: d.total && mix.codex }));
+    const root = new El("div", doc);
+    const p = W.panel(root, { load: async () => ({ days, found: { claude: true, codex: true } }), store: makeStore({ "home.chart": "line" }) });
+    await p.refresh();
+    const stage = walk(root).find(n => n.className === "tk-stage");
+    return /<span class="tk-sum">(.*?)<\/span>/.exec(stage.innerHTML)[1];
+  };
+  assert.equal(await footText({ claude: 5, codex: 0 }), "Includes data from Claude");
+  assert.equal(await footText({ claude: 0, codex: 5 }), "Includes data from Codex");
+  assert.equal(await footText({ claude: 5, codex: 5 }), "Includes data from Claude &amp; Codex");
+  assert.equal(await footText({ claude: 0, codex: 0 }), "");
 });
 
 // ---- the panel -----------------------------------------------------------------------------

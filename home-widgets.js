@@ -15,10 +15,14 @@
 //            the busiest day, in four to six steps; the months are named
 //            along the bottom. A day is marked only where the pointer or a
 //            tap is, with a dot on each line and a tip giving the date, the
-//            day's total and its 7-day average
-//   panel    one rectangle holding one of the two at a time and a two-way
-//            pill to switch them, whose seat slides from one name to the
-//            other; the choice is remembered in this browser
+//            day's total and its 7-day average. The foot says whose tokens
+//            they are, "Includes data from Claude", "... Codex" or "...
+//            Claude & Codex", from the per-tool counts on each day; a year
+//            with none from either leaves that place empty
+//   panel    one rectangle headed "Token consumption per day", holding one
+//            of the two at a time and a two-way pill to switch them, whose
+//            seat slides from one name to the other; the choice is
+//            remembered in this browser
 //   view     both charts are drawn to the height of the view they are shown
 //            in, never stretched: the heatmap's squares grow until its seven
 //            rows fill it, and the line is as wide as the heatmap, a week of
@@ -85,6 +89,17 @@
   }
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   const r1 = n => Math.round(n * 10) / 10;
+
+  // ---- whose tokens these are ----------------------------------------------
+  // each day from the route carries the share of each tool (claude, codex), and
+  // a tool turned off or with no logs has none, so a tool is named when any day
+  // of the year shown has tokens from it
+  const TOOL_NAMES = [["claude", "Claude"], ["codex", "Codex"]];
+  function sources(days) {
+    const year = days.slice(-YEAR);
+    return TOOL_NAMES.filter(([key]) => year.some(d => d[key] > 0)).map(([, name]) => name);
+  }
+  const sourceLine = names => (names.length ? "Includes data from " + names.join(" & ") : "");
 
   // ---- the colour scale ----------------------------------------------------
   // the year's active days, cut at their quartiles: a day at or past the top
@@ -315,7 +330,7 @@
            `<span class="tk-row">${swatch(true)}${p.span}-day average<em>${esc(compact(p.avg))}</em></span>`;
   }
   function drawLine(el, days, spot) {
-    const foot = `<div class="tk-foot"><span class="tk-sum">Tokens per day</span>` +
+    const foot = `<div class="tk-foot"><span class="tk-sum">${esc(sourceLine(sources(days)))}</span>` +
       `<span class="tk-legend">${swatch(false)}Daily${swatch(true)}7-day average</span></div>`;
     const h = viewHeight(el, foot);
     const model = lineModel(days, h);
@@ -510,8 +525,7 @@
     const box = el("div", "tk-panel");
     const head = el("div", "tk-head");
     const title = el("div", "tk-title");
-    title.appendChild(el("span", "tk-name", "Tokens"));
-    title.appendChild(el("span", "tk-what", "Claude Code and Codex on this machine"));
+    title.appendChild(el("span", "tk-name", "Token consumption per day"));
     const pill = el("div", "tk-pill");
     pill.setAttribute("role", "group");
     pill.setAttribute("aria-label", "Chart");
@@ -587,7 +601,7 @@
 
   window.TokenWidgets = {
     PALETTE, LINE, AVG_LINE, AVG_DASH, YEAR, WEEKS, FETCH_DAYS, VIEW_H, MIN_STEP, MAX_STEP,
-    compact, longDay, scale, rolling, niceAxis, geometry,
+    compact, longDay, scale, rolling, niceAxis, geometry, sources, sourceLine,
     heatmapModel, heatmapSvg, heatPin, heatTip, drawHeatmap,
     lineModel, lineSvg, linePin, lineTip, drawLine,
     viewHtml, seat, panel,
