@@ -2013,6 +2013,21 @@ function scrollCardTop(el){
   el.quietScroll = Date.now();
   (el.replyview || el.reply).scrollTop = 0;
 }
+function cardLaidOut(el){
+  return !!(el.replyview || el.reply).getBoundingClientRect().height;
+}
+// a new answer swapped in with no page turn opens at its head: now if the card is laid out, else when it is next shown
+function headOnSwap(el, b){
+  if (cardOnShow(el) && b.replyKind !== "agent") return;
+  if (cardLaidOut(el)) scrollCardTop(el);
+  else el.headDue = true;
+}
+// a card hidden with display:none is handed back the scroll it was left at when it is shown again
+function openAtHead(el){
+  if (!el.headDue || !cardLaidOut(el)) return;
+  el.headDue = false;
+  scrollCardTop(el);
+}
 // and a key into a row, which is what says the reader is typing. each page calls
 // it from its rows' input: the card's own bar, the phone's row, and the desktop's
 // composer on the right while it holds a card's draft, which is then that card's
