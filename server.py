@@ -294,14 +294,19 @@ Endpoints:
                                below zero; an unknown box or a bad count is a
                                400 with nothing stored at all. Answers the
                                stored counts for the ids it was given
+  The five quick note routes below are OFF in this version
+  (QUICK_NOTES_ON is False): each answers 404, the same as an unknown route,
+  and /state carries no quicknotes. The notes already stored in state.json
+  are left as they are. The entries say what the routes do with the switch on.
   GET  /quicknotes          -> {notes, rev}: every quick note, oldest first, each
                                {id, text, created, updated, card}. A quick note
                                is plain text the owner jots down from the
                                board's corner; card is the id of the card it is
-                               attached to, or null while it stands alone. /state
-                               carries the same list without the text, which is
-                               enough for a card to show it has a note; the text
-                               itself travels only on these routes
+                               attached to, or null while it stands alone. With
+                               the switch on, /state carries the same list
+                               without the text, which is enough for a card to
+                               show it has a note; the text itself travels only
+                               on these routes
   POST /quicknote/new[?card=ID] -> body = the note's text, kept as typed and
                                never stripped. Makes a note, ids qn1, qn2...
                                never reused, attached to card ID when one is
