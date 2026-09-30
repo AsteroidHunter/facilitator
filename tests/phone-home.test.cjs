@@ -491,6 +491,8 @@ test("on the phone the house opens home, the pill and the tips work by tap, and 
                seated: document.querySelectorAll("#tabbar .ptab.on").length,
                days: document.querySelectorAll(".tk-day").length,
                sum: document.querySelector(".tk-sum").textContent,
+               heading: document.querySelector(".tk-title").textContent,
+               subtitle: !!document.querySelector(".tk-what"),
                panel: { left: panel.left, right: panel.right, top: panel.top }, pane: { left: pane.left, right: pane.right, top: pane.top },
                lane: { left: r(scroll).left, right: r(scroll).right },
                chartWidth: document.querySelector(".tk-chart svg").getBoundingClientRect().width,
@@ -516,6 +518,8 @@ test("on the phone the house opens home, the pill and the tips work by tap, and 
     assert.equal(home.seated, 0, "no project tab is seated on home");
     assert.equal(home.days, 365);
     assert.match(home.sum, /^1\.14K tokens in the last year$/);
+    assert.equal(home.heading, "Token consumption per day");
+    assert.equal(home.subtitle, false, "no line under the heading");
     // the panel spans the pane, which is the screen within the app's margins
     assert.ok(Math.abs(home.panel.left - home.pane.left) < 1 && Math.abs(home.panel.right - home.pane.right) < 1);
     assert.ok(Math.abs(home.panel.top - home.pane.top) < 1);
@@ -577,6 +581,9 @@ test("on the phone the house opens home, the pill and the tips work by tap, and 
     await settle(150);
     assert.equal(await page.$eval(".tk-tip", t => t.hidden), false, "a tap on the line shows its tip");
     assert.equal(await page.$eval(".tk-dot", d => d.getAttribute("visibility")), "visible");
+    // the line's foot names the tool the counts come from: the fixture's logs are Claude's alone
+    assert.equal(await page.$eval(".tk-sum", s => s.textContent), "Includes data from Claude");
+    assert.equal(await page.$eval(".tk-legend", l => l.textContent), "Daily7-day average", "the legend stays");
 
     // a tap on a project tab: that project's board, the tab seated, the house not
     const owner = await page.$eval("#tabbar .ptab:last-child", t => t.dataset.owner);
