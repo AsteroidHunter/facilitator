@@ -3098,13 +3098,6 @@ addEventListener("keydown", e => {
     histStep(e.key === "ArrowUp" ? 1 : -1);
     return;
   }
-  if (e.metaKey && e.shiftKey && ["[", "]", "{", "}"].includes(e.key)){
-    // command+shift+brackets: previous/next card, works while typing,
-    // cursor lands in the next card's text box
-    e.preventDefault();
-    nav(e.key === "[" || e.key === "{" ? -1 : 1, 0, { focus: true });
-    return;
-  }
   // command+z and control+z are left to the text box: undo is the editor's, and
   // this page has no key of its own on that chord
   if (e.metaKey && (e.key === "t" || e.key === "T")){   // command+T: new card, input focused
@@ -3150,17 +3143,6 @@ addEventListener("keydown", e => {
       localStorage.setItem("size." + activeOwner + "." + regionId(el), JSON.stringify({ w, h }));
       return;
     }
-  }
-  // the document view has no card-closing key: a stray backspace over a page
-  // of prose must never close a real chat
-  if ((e.key === "Backspace" || e.key === "Delete") && selectedId && !DOC){
-    const b = lastState?.boxes.find(x => x.id === selectedId);
-    if (b?.bucket === "meta"){   // same cards the remove cross appears on
-      e.preventDefault();
-      fetch("/close?box=" + encodeURIComponent(selectedId), { method: "POST" })
-        .then(() => poll()).catch(() => {});
-    }
-    return;
   }
   const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[e.key];   // up/down freed; cmd+number switches projects
   if (d && !DOC){ e.preventDefault(); nav(d[0], d[1]); }   // left and right do nothing in the document view

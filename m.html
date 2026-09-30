@@ -2101,11 +2101,10 @@ turnAgain = () => { if (lastState) apply(lastState); };
 // ---- sending, closing, parking, naming ------------------------------------------
 // what the cross on the card does, and what the key that stands for it does: the
 // card is closed and the next one still open takes the screen, so the screen is
-// never left holding a card that has just gone. hop is false only for backspace
-// on a card already done, where the cross stands faded and nothing moves
-async function closeCard(id, hop = true){
+// never left holding a card that has just gone
+async function closeCard(id){
   await fetch("/close?box=" + encodeURIComponent(id), { method: "POST" }).catch(() => {});
-  if (hop) selectNextDoing(id);
+  selectNextDoing(id);
   poll();
 }
 function undone(id){
@@ -4609,12 +4608,6 @@ reconcile();
 // read the way the desktop reads them, off e.key and the modifier flags, and a
 // key is only taken from the browser where it is answered here; a plain arrow
 // while typing is never touched, since that one belongs to the caret.
-// this page is also run as a standalone app off the home screen, where the
-// system answers some command combinations itself before the page is shown
-// them. which ones cannot be learned from a browser driven headless, so both of
-// the desktop's pairs for walking the cards are kept: the control shift arrows
-// and the command shift brackets do the same thing, and whichever pair the
-// phone lets through is the one that works.
 
 // The laptop walks its chosen workspace. The phone has no workspace chooser,
 // so the selected card names that local context; the drawer still shows the
@@ -4746,9 +4739,9 @@ function phoneResponseCard(){
   return { id: selectedId, owner: activeOwner, el };
 }
 
-// the section keys' one path: a meta card, as control+n and backspace ask,
-// moved the way its own chip would move it, and done closed the way the cross
-// and backspace close it. the key is cancelled even where the chip is faded
+// the section keys' one path: a meta card moved the way its own chip would
+// move it, and done closed the way the cross closes it. the key is cancelled
+// even where the chip is faded
 function phoneSectionMove(e, section){
   if (!selectedId) return;
   const b = lastState?.boxes.find(x => x.id === selectedId);
@@ -4787,22 +4780,6 @@ const phoneShortcutActions = {
   },
   escape(e){
     if (phoneShortcutTyping(e.target)) e.target.blur();
-  },
-  close(e){
-    if (phoneShortcutTyping(e.target) || !selectedId) return;
-    const b = lastState?.boxes.find(x => x.id === selectedId);
-    if (b?.bucket === "meta"){
-      e.preventDefault();
-      // a done card is still sent the close it always was, but stays on screen
-      closeCard(selectedId, !chipOff(els[selectedId]?.x));
-    }
-  },
-  destination(e, shortcut){
-    if (phoneShortcutTyping(e.target) || !selectedId) return;
-    const b = lastState?.boxes.find(x => x.id === selectedId);
-    if (b?.bucket !== "meta") return;
-    e.preventDefault();
-    setCardDestination(selectedId, shortcut.value);
   },
   unfold(e){
     unfoldSelected(e, selectedId, selectedId && els[selectedId]);

@@ -9082,7 +9082,7 @@ function renderMiniCards(state){
         } catch (e) {} finally { send.disabled = false; }
       };
       send.addEventListener("click", fire);
-      // the board's own arrow and delete keys must never see this typing
+      // the board's own arrow keys must never see this typing
       ta.addEventListener("keydown", e => {
         e.stopPropagation();
         if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); fire(); }
@@ -9431,27 +9431,25 @@ function boardResponseCard(){
   return { id: selectedId, owner: activeOwner, el };
 }
 
-// the large card's close from the keyboard, backspace and the done keys alike:
-// the cross's own request, then the cross's own hop to the next doing card,
-// once the board has answered. hop is false where the cross stands faded, a
-// card already done, so a close that changes nothing leaves the card on screen
-async function boardCloseCard(id, hop){
+// the large card's close from the done keys: the cross's own request, then the
+// cross's own hop to the next doing card, once the board has answered
+async function boardCloseCard(id){
   await fetch("/close?box=" + encodeURIComponent(id), { method: "POST" }).catch(() => {});
-  if (hop) selectNextDoing(id);
+  selectNextDoing(id);
   poll();
 }
 
-// the section keys' one path on the large card: a meta card, as control+n and
-// backspace ask, moved the way its own chip would move it, and done closed the
-// way the cross closes it. the key is cancelled even where the chip is faded,
-// so a chord typed in the composer never leaves a character behind. deferred
-// hops, as the moon does, inside setFlag
+// the section keys' one path on the large card: a meta card moved the way its
+// own chip would move it, and done closed the way the cross closes it. the key
+// is cancelled even where the chip is faded, so a chord typed in the composer
+// never leaves a character behind. deferred hops, as the moon does, inside
+// setFlag
 function boardSectionMove(e, section){
   if (miniFocused || !selectedId) return;
   const b = lastState?.boxes.find(x => x.id === selectedId);
   if (b?.bucket !== "meta") return;
   e.preventDefault();
-  sectionKeyMove(selectedId, section, els[selectedId], id => boardCloseCard(id, true));
+  sectionKeyMove(selectedId, section, els[selectedId], boardCloseCard);
 }
 
 // the grid compass: arrow keys when not typing (Esc leaves the input), and
@@ -9502,22 +9500,6 @@ const boardShortcutActions = {
     e.preventDefault();
     chooseShown();
     els[selectedId].ta.focus({ preventScroll: true });
-  },
-  close(e){
-    if (boardShortcutTyping(e.target) || !selectedId) return;
-    const b = lastState?.boxes.find(x => x.id === selectedId);
-    if (b?.bucket === "meta"){
-      e.preventDefault();
-      // a done card is still sent the close it always was, but stays on screen
-      boardCloseCard(selectedId, !chipOff(els[selectedId]?.x));
-    }
-  },
-  destination(e, shortcut){
-    if (miniFocused || boardShortcutTyping(e.target) || !selectedId) return;
-    const b = lastState?.boxes.find(x => x.id === selectedId);
-    if (b?.bucket !== "meta") return;
-    e.preventDefault();
-    setCardDestination(selectedId, shortcut.value);
   },
   unfold(e){
     if (!miniFocused) unfoldSelected(e, selectedId, selectedId && els[selectedId]);
