@@ -3261,7 +3261,6 @@ const SETTINGS_NARROW = "(max-width: " + SETTINGS_NARROW_PX + "px)";
 const SETTINGS_MARKS = {
   back: '<path d="M15 5l-7 7 7 7"/>',
   next: '<path d="M9 5l7 7-7 7"/>',
-  close: '<path d="M6 6l12 12M18 6L6 18"/>',
 };
 function settingsMark(name){
   const svg = h("span");
@@ -3271,8 +3270,36 @@ function settingsMark(name){
   return svg.firstChild;
 }
 
+// the three window buttons a Mac window wears at its top left. the red one puts
+// the page away; the yellow and the green have nothing to do, since the page
+// cannot be minimised or zoomed, so they are plain marks the keyboard skips.
+// the symbols inside them show while a pointer is over the group
+const SETTINGS_LIGHTS = {
+  red: '<path d="M3 3l6 6M9 3L3 9"/>',
+  yellow: '<path d="M2.6 6h6.8"/>',
+  green: '<path d="M2.6 6h6.8M6 2.6v6.8"/>',
+};
+function settingsLights(close){
+  const group = h("div", "sp-lights");
+  for (const name of Object.keys(SETTINGS_LIGHTS)){
+    const light = h(name === "red" ? "button" : "span", "sp-light sp-" + name);
+    if (name === "red"){
+      light.type = "button";
+      light.setAttribute("aria-label", "Close settings");
+      light.addEventListener("click", close);
+    } else {
+      light.setAttribute("aria-hidden", "true");
+    }
+    light.innerHTML = '<svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.3" stroke-linecap="round" aria-hidden="true">' + SETTINGS_LIGHTS[name] + '</svg>';
+    group.appendChild(light);
+  }
+  return group;
+}
+
 // fills root, which becomes the page, from source, the element holding the
-// section groups. opts.close puts the whole page away. opts.narrow, where the
+// section groups. opts.close puts the whole page away. opts.lights, on the
+// desktop, adds the window buttons that do it. opts.narrow, where the
 // window is not what decides, is a query like matchMedia's that says when the
 // page is narrow. what comes back moves between the list and one section, and
 // says where it stands
@@ -3288,13 +3315,9 @@ function settingsPage(root, source, opts){
   back.setAttribute("aria-label", "Back to settings");
   back.appendChild(settingsMark("back"));
   const title = h("h2", "sp-title", "Settings");
-  const close = h("button", "sp-icon sp-close");
-  close.type = "button";
-  close.setAttribute("aria-label", "Close settings");
-  close.appendChild(settingsMark("close"));
-  close.addEventListener("click", () => opts.close());
   const head = h("div", "sp-head");
-  head.append(back, title, close);
+  if (opts.lights) head.appendChild(settingsLights(() => opts.close()));
+  head.append(back, title);
 
   const list = h("nav", "sp-list");
   list.setAttribute("aria-label", "Settings sections");
@@ -3379,9 +3402,9 @@ function widthQuery(el, limit){
 // the quick note opens over, with the page centred on it at about seven tenths
 // of the window each way. the page turns between its two layouts by its own
 // width, not the window's. a press on the veil outside the page, Escape and the
-// close mark all put the whole page away from either view, and no key goes on
-// to the board it covers. opts carries onOpen and onClose for the page's own
-// bookkeeping
+// red window button all put the whole page away from either view, and no key
+// goes on to the board it covers. opts carries onOpen and onClose for the page's
+// own bookkeeping
 function settingsOverlay(host, source, opts){
   const veil = h("div", "qn-veil sp-veil");
   veil.setAttribute("aria-hidden", "true");
@@ -3391,7 +3414,7 @@ function settingsOverlay(host, source, opts){
   veil.appendChild(seat);
   host.appendChild(veil);
   let open = false, back = null, downOutside = false;
-  const page = settingsPage(seat, source, { close, narrow: widthQuery(seat, SETTINGS_NARROW_PX) });
+  const page = settingsPage(seat, source, { close, lights: true, narrow: widthQuery(seat, SETTINGS_NARROW_PX) });
   function openOverlay(){
     if (open) return;
     open = true;

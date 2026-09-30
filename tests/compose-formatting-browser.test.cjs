@@ -738,11 +738,11 @@ test("the board's settings page opens as an overlay over the board, works and cl
     await settle(250);
     assert.equal(await page.evaluate(() => ComposeFormat.enabled()), true);
 
-    // and it closes on the close mark, and on escape, and hands the focus back to its mark
-    await page.click(".sp-close");
+    // and it closes on the red window button, and on escape, and hands the focus back to its mark
+    await page.click(".sp-red");
     await settle(200);
     assert.equal(await page.evaluate(() => document.body.classList.contains("setopen")), false,
-      "the close mark left the page open");
+      "the red button left the page open");
     assert.equal(await page.evaluate(() => document.activeElement.id), "setbtn");
     await page.click("#setbtn");
     await settle(200);
