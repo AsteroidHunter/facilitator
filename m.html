@@ -4824,7 +4824,6 @@ async function saveDiagnostic(source = "settings"){
       "saved-legacy": "History saved, but Enter or scroll details need the updated server. Restart Facilitator, then record again.",
       offline: "Offline. History is held in this page. Reconnect and retry.",
       limited: "Too many saves this minute. History is held in this page. Retry shortly.",
-      busy: "A diagnostic save is already running. Try again shortly.",
       failed: "Could not confirm a save. Keep this page open and retry.",
     };
     tell(messages[outcome] || messages.failed);

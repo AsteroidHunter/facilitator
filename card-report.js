@@ -307,12 +307,14 @@
     const opPattern = /^(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/;
     let ring = [], lost = 0, sparseLost = 0, suppressed = 0, seq = 0, generation = 0;
     const important = [], work = [], life = [], pollBuckets = [], observerBuckets = [];
-    let collecting = null, worker = "unknown", activeRequest = null;
+    const collecting = new Set();   // saves still recording their 20 seconds of recovery
+    let worker = "unknown", activeRequest = null;
     const session = windowId;
     let lastResume = -Infinity, lastAuto = -Infinity, attempts = [];
     const stuck = new Map();   // card -> when its last no-scroll save was made
     let viewport = null, viewportTimer = null, viewportAt = -Infinity, viewportKey = "";
-    let held = null, pendingManual = null, beaconed = null, busy = false, build = "phone-diag-unidentified", schema = 1;
+    let held = null, beaconed = null, busy = false, sending = null, inflight = Promise.resolve();
+    let build = "phone-diag-unidentified", schema = 1;
     let lastFrame = null, frameEpoch = generation, watching = false, watchUntil = -Infinity, watchedRev = null;
     let watchFrames = () => {};   // set once the frame callback exists, below
     const cap = (n, max) => Math.min(max, Math.max(0, Math.round(n)));
@@ -350,7 +352,9 @@
           entry.part === "reply-swap" ? important : work;
       target.push(entry);
       const limit = target === important ? 60 : target === work ? 40 : 8;
-      const cutoff = collecting ? collecting.markAt - SPARSE_AGE : entry.time - SPARSE_AGE;
+      let from = collecting.size ? Infinity : entry.time;
+      for (const current of collecting) from = Math.min(from, current.markAt);
+      const cutoff = from - SPARSE_AGE;
       while (target.length && (target.length > limit || target[0].time < cutoff)) {
         target.shift(); sparseLost = cap(sparseLost + 1, 1000000000);
       }
@@ -615,21 +619,23 @@
       attempts.push(now);
       return true;
     }
-    function upload() {
-      if (busy) return Promise.resolve({ status: "busy" });
-      if (!held) return Promise.resolve({ status: "failed" });
+    // One report goes out at a time. A report asked for while another is going
+    // out follows it as soon as it finishes, so a save is never refused for that.
+    function upload(report) {
+      if (busy) return report === sending ? inflight : inflight.then(() => upload(report));
+      if (!report) return Promise.resolve({ status: "failed" });
       if (navigator.onLine === false) return Promise.resolve({ status: "offline" });
       if (!permit()) return Promise.resolve({ status: "limited" });
-      busy = true;
+      busy = true; sending = report;
       // JSON and transport start on a later task, after the triggering work.
-      return new Promise(resolve => setTimeout(async () => {
+      inflight = new Promise(resolve => setTimeout(async () => {
         let timer = null;
         try {
           const controller = new AbortController();
           timer = setTimeout(() => controller.abort(), SAVE_TIMEOUT);
-          let submitted = held;
+          let submitted = report;
           let response = await realFetch.call(window, "/clientlog", { method: "POST",
-            headers: { "content-type": "application/json" }, body: bodyOf(held),
+            headers: { "content-type": "application/json" }, body: bodyOf(report),
             signal: controller.signal, keepalive: true });
           // A v5 refusal steps down to v4, and a v4 refusal to v3.
           while (response.status === 400 && submitted.v >= 4) {
@@ -645,23 +651,24 @@
           }
           const answer = response.ok ? await response.json() : null;
           if (answer?.ok === true && answer.written === 1 && answer.dropped === 0) {
-            held = null;
+            if (held === report) held = null;
             resolve({ status: submitted._enterOmitted || submitted._scrollOmitted ? "saved-legacy" : "saved" });
           } else resolve({ status: "failed" });
         } catch (_) { resolve({ status: "failed" }); }
-        finally { if (timer !== null) clearTimeout(timer); busy = false; }
+        finally { if (timer !== null) clearTimeout(timer); busy = false; sending = null; }
       }, 0));
+      return inflight;
     }
     function automatic(reason, detail) {
       const now = performance.now();
-      if (!reasons.has(reason) || document.hidden || busy || collecting || pendingManual ||
+      if (!reasons.has(reason) || document.hidden || busy || collecting.size ||
           (held && held.reason === "manual") || now - lastAuto < COOLDOWN) {
         suppressed = cap(suppressed + 1, 1000000000); return false;
       }
       lastAuto = now;
-      held = capture(reason, detail);
-      if (schema >= 3) collect(held, false);
-      else upload();
+      const initial = capture(reason, detail);
+      if (schema >= 3) collect(initial, false);
+      else { held = initial; upload(initial); }
       return true;
     }
     // A swipe on a scrollable response that moved nothing, as the page judged
@@ -680,28 +687,23 @@
       const markAt = initial._markAt;
       return new Promise(resolve => {
         const current = { initial, markAt, resolve, timer: null, manual };
-        collecting = current;
+        collecting.add(current);
         current.timer = setTimeout(() => {
-          if (collecting !== current) return;
-          collecting = null;
-          held = finishCollection(initial);
-          upload().then(resolve);
+          if (!collecting.delete(current)) return;
+          const report = finishCollection(initial);
+          held = report;
+          upload(report).then(resolve);
         }, POST_MS);
       });
     }
+    // A press starts its own marker and its own 20 seconds at once, even while an
+    // automatic save is still recording or sending; it goes out when it is ready.
     function mark(source, detail, retry = false) {
-      if (busy || collecting) {
-        if (!pendingManual) pendingManual = capture("manual", { ...detail, source });
-        return Promise.resolve({ status: "busy" });
-      }
-      if (retry && pendingManual) {
-        held = pendingManual; pendingManual = null;
-      } else if (!retry || !held) {
-        pendingManual = null;
-        held = capture("manual", { ...detail, source });
-      }
-      if (schema >= 3 && !retry) return collect(held, true);
-      return upload();
+      if (retry && held) return upload(held);
+      const report = capture("manual", { ...detail, source });
+      if (schema >= 3 && !retry) return collect(report, true);
+      held = report;
+      return upload(report);
     }
     function lifecycle(value, detail = {}) {
       if (value === "visible" || value === "pageshow") beaconed = null;
@@ -784,13 +786,13 @@
       }),
       hide: safe(() => {
         drainViewport();
-        if (collecting) {
-          const current = collecting;
-          collecting = null; clearTimeout(current.timer);
-          held = finishCollection(current.initial);
+        for (const current of [...collecting]) {
+          collecting.delete(current); clearTimeout(current.timer);
+          const finished = finishCollection(current.initial);
+          if (current.manual || held?.reason !== "manual") held = finished;
           current.resolve({ status: "failed" }); // a beacon is never a persistence acknowledgement
         }
-        const report = pendingManual || (!busy ? held : null);
+        const report = held !== sending ? held : null;
         if (report && report !== beaconed && navigator.sendBeacon && permit()) {
           if (navigator.sendBeacon("/clientlog", new Blob([bodyOf(report)], { type: "application/json" })))
             beaconed = report;
