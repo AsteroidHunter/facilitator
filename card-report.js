@@ -247,7 +247,7 @@
     const ENTRIES = 40, AGE = 60000, BYTES = 12 * 1024;
     const COALESCE = 250, UI_SLOW = 150, REQUEST_SLOW = 2000;
     const COOLDOWN = 30000, SAVES_PER_MINUTE = 4, SAVE_TIMEOUT = 4000;
-    const POST_MS = 20000, SPARSE_AGE = 120000;
+    const POST_MS = 20000, SPARSE_AGE = 120000, FRAME_WATCH = 5000;
     const STUCK_COOLDOWN = 120000;   // one no-scroll save per card in this long
     const events = new Set(["create", "select", "focus", "send", "operation", "request",
       "render", "stage", "observer", "drawer", "viewport", "lifecycle", "problem", "freeze", "mark",
@@ -313,6 +313,8 @@
     const stuck = new Map();   // card -> when its last no-scroll save was made
     let viewport = null, viewportTimer = null, viewportAt = -Infinity, viewportKey = "";
     let held = null, pendingManual = null, beaconed = null, busy = false, build = "phone-diag-unidentified", schema = 1;
+    let lastFrame = null, frameEpoch = generation, watching = false, watchUntil = -Infinity, watchedRev = null;
+    let watchFrames = () => {};   // set once the frame callback exists, below
     const cap = (n, max) => Math.min(max, Math.max(0, Math.round(n)));
     // Even a broken getter, unavailable clock, or disabled reporter must never
     // escape into a send, focus, navigation or keyboard reconciliation.
@@ -385,6 +387,10 @@
       }
       drainViewport();
       append(event, fields, now);
+      if (event === "render" && typeof fields.rev === "number" && fields.rev !== watchedRev) {
+        watchedRev = fields.rev;
+        watchFrames();
+      }
       if (event === "operation" && fields.outcome === "failed") automatic("problem");
     }
     function begin(event, detail) {
@@ -710,22 +716,32 @@
     note("lifecycle", { lifecycle: "start" });
     // Neither callback proves that pixels were presented. Together they show
     // whether script callbacks and frame opportunities stopped around an input.
-    let lastFrame = null, frameEpoch = generation;
-    if (typeof requestAnimationFrame === "function") {
-      const frame = safe(time => {
-        if (!document.hidden && schema >= 3 && lastFrame !== null && frameEpoch === generation) {
-          const gap = time - lastFrame;
-          if (gap >= 250 && time - lastResume > gap + 100) {
-            note("frame", { ms: gap });
-            if (gap >= 1000) automatic("freeze");
-          }
+    // Frames are watched only for FRAME_WATCH after a touch, a key or a new board
+    // reading, so a page with nothing going on asks for none. The 100 ms timer
+    // below still catches every stall.
+    const onFrame = safe(time => {
+      if (!document.hidden && schema >= 3 && lastFrame !== null && frameEpoch === generation) {
+        const gap = time - lastFrame;
+        if (gap >= 250 && time - lastResume > gap + 100) {
+          note("frame", { ms: gap });
+          if (gap >= 1000) automatic("freeze");
         }
-        lastFrame = document.hidden ? null : time;
-        frameEpoch = generation;
-        requestAnimationFrame(frame);
-      });
-      requestAnimationFrame(frame);
-    }
+      }
+      frameEpoch = generation;
+      if (document.hidden || performance.now() >= watchUntil) { watching = false; lastFrame = null; return; }
+      lastFrame = time;
+      requestAnimationFrame(onFrame);
+    });
+    watchFrames = safe(() => {
+      watchUntil = performance.now() + FRAME_WATCH;
+      if (watching || schema < 3 || document.hidden || typeof requestAnimationFrame !== "function") return;
+      watching = true;
+      lastFrame = performance.now();
+      frameEpoch = generation;
+      requestAnimationFrame(onFrame);
+    });
+    for (const type of ["touchstart", "touchmove", "touchend", "touchcancel", "pointerdown", "keydown"])
+      document.addEventListener(type, watchFrames, { capture: true, passive: true });
     let due = performance.now() + 100;
     setInterval(safe(() => {
       const now = performance.now(), late = now - due;
