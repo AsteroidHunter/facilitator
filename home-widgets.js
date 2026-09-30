@@ -220,30 +220,31 @@
     }
     return out;
   }
-  // the count axis: 0 up to the first round tick at or past the busiest day,
-  // a step of 1, 2, 2.5 or 5 times a power of ten, in four to six ticks. Of
-  // the steps that give that many, the lowest top wins, then the tick count
-  // nearest five. A busiest day right on a tick gets one step more of room
+  // the count axis: a main step of 1, 2 or 5 times a power of ten, lines and
+  // names at whole steps only, three to five of them counting 0. The top is the
+  // busiest day rounded up to the next half step, strictly above it, so a day
+  // on a half step gets one half step more. Of the steps that fit, the lowest
+  // top wins, then the line count nearest four
   function niceAxis(max) {
     if (!(max > 0)) return { top: 4, step: 1, ticks: [0, 1, 2, 3, 4] };
+    const mag = Math.floor(Math.log10(max));
     let best = null;
-    for (const n of [3, 4, 5]) {
-      const raw = max / n, mag = Math.pow(10, Math.floor(Math.log10(raw)));
-      const step = Math.max(1, [1, 2, 2.5, 5, 10].map(f => f * mag).find(s => s >= raw * (1 - 1e-9)));
-      let count = Math.ceil(max / step - 1e-9);
-      if (count * step <= max) count += 1;
-      const top = count * step;
-      if (count + 1 < 4 || count + 1 > 6) continue;
+    for (let e = Math.max(0, mag - 2); e <= mag; e++) for (const f of [1, 2, 5]) {
+      const step = f * Math.pow(10, e), half = step / 2;
+      const top = Number(((Math.floor(max / half + 1e-9) + 1) * half).toPrecision(12));
+      const count = Math.floor(top / step + 1e-9) + 1;
+      if (count < 3 || count > 5) continue;
       if (!best || top < best.top || (top === best.top && Math.abs(count - 4) < Math.abs(best.count - 4)))
         best = { top, step, count };
     }
     if (!best) {
-      // four ticks at the least, whatever the steps
-      const step = Math.max(1, max / 3);
-      best = { top: step * 4, step, count: 4 };
+      // under four tokens no step fits; the smallest whole one
+      const half = 0.5;
+      best = { top: (Math.floor(max / half + 1e-9) + 1) * half, step: 1 };
+      best.count = Math.floor(best.top) + 1;
     }
-    const ticks = Array.from({ length: best.count + 1 }, (_, i) => Number((i * best.step).toPrecision(12)));
-    return { top: ticks.at(-1), step: best.step, ticks };
+    const ticks = Array.from({ length: best.count }, (_, i) => Number((i * best.step).toPrecision(12)));
+    return { top: best.top, step: best.step, ticks };
   }
   function lineModel(days, h) {
     const geo = geometry(h);
