@@ -1,8 +1,10 @@
-// The phone page's typing row while the keyboard is up: the plus steps aside and
-// the text slides over its place, on the keyboard's own clock, then comes back the
-// same way. Headless Chrome cannot raise a keyboard, so a stand-in visual
-// viewport is moved by the test, as phone-keyboard.test.cjs does. The row is read
-// frame by frame through the rise, the typing and the close.
+// The phone page's typing row while the caret is in a card's box: the plus steps
+// aside and the text slides over its place, on the keyboard's own clock, then comes
+// back the same way. That holds for the on-screen keyboard, for a paired keyboard
+// with the phone's thin toolbar, and for a paired keyboard with nothing on screen.
+// Headless Chrome cannot raise a keyboard, so a stand-in visual viewport is moved
+// by the test, as phone-keyboard.test.cjs does. The row is read frame by frame
+// through the rise, the typing and the close.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawn } = require("node:child_process");
@@ -97,6 +99,7 @@ function rowShape() {
     t: performance.now(),
     cls: [...foot.classList].filter(x => x !== "bottombar").sort().join("+") || "-",
     kb: document.body.classList.contains("kb"),
+    obstructed: document.body.classList.contains("obstructed"),
     opacity: +cs.opacity, scale: matrix(cs.transform)[0], plusWidth: r.width, plusEvents: cs.pointerEvents,
     fieldLeft: f.left, fieldWidth: f.width,
     textLeft: inner.getBoundingClientRect().left + (parseFloat(getComputedStyle(inner).paddingLeft) || 0),
@@ -295,46 +298,177 @@ for (const editor of [false, true]) {
   });
 }
 
-test("a hardware keyboard or an accessory bar alone leaves the plus in place, and a keyboard that leaves with the box still focused gives it back", async () => {
-  const id = await create("Typing row other keyboards");
+// a paired keyboard: iOS shows only its thin toolbar (a small loss of height) or nothing at all
+for (const editor of [false, true]) {
+  for (const { lost, what } of [{ lost: ACCESSORY, what: "a paired keyboard with the phone's thin toolbar" }, { lost: 0, what: "a paired keyboard with nothing on screen" }]) {
+    const face = editor ? "the typed-formatting editor" : "the plain box";
+
+    test(`${face}, ${what}: the plus steps aside on the keyboard's clock, stays away while the caret is in the box, and comes back when it leaves`, async () => {
+      const id = await create("Typing row paired keyboard");
+      const { page, problems } = await openPhone(`/m?box=${id}`, { editor });
+      try {
+        await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
+        await settle(300);
+        const rest = await page.evaluate(rowShape);
+        assert.equal(rest.cls, "-");
+        const plusBox = await (await page.$("article.box.sel .clipbtn")).boundingBox();
+
+        await startSampling(page);
+        const tapAt = await page.evaluate(() => performance.now());
+        await tapField(page);
+        if (lost) {
+          await settle(60);
+          await keyboard(page, PHONE.height - lost);
+        }
+        await settle(900);
+        const rise = await stopSampling(page);
+
+        const first = rise.findIndex(s => /typing/.test(s.cls));
+        assert.ok(first > 0, "the row never took the typing look");
+        assert.ok(rise.slice(0, first).every(s => s.opacity === 1 && Math.abs(s.textLeft - rest.textLeft) <= 0.1), "the row moved before the typing look began");
+        if (lost) {
+          const reported = rise.findIndex(s => s.obstructed);
+          assert.ok(reported > 0 && first - reported >= 0 && first - reported <= 1, `the motion did not leave on the frame the toolbar was reported (${reported}, ${first})`);
+          assert.equal(rise[first].kb, false, "the small loss read as a soft keyboard");
+        } else {
+          const delay = rise[first].t - tapAt;
+          assert.ok(delay <= 300, `the motion began ${delay.toFixed(0)} ms after the focus`);
+        }
+        const moving = rise.filter((s, i) => i >= first && s.opacity > 0 && s.opacity < 1);
+        assert.ok(moving.length >= 8, `too few frames inside the motion (${moving.length})`);
+        const span = moving[moving.length - 1].t - rise[first].t;
+        assert.ok(span >= KB_ANIM_MS - 40 && span <= KB_ANIM_MS + 60, `the motion took ${span.toFixed(0)} ms, not about ${KB_ANIM_MS}`);
+        for (let i = 1; i < moving.length; i++) {
+          assert.ok(moving[i].opacity <= moving[i - 1].opacity + 0.001, "the plus's opacity came back up during the fade");
+          assert.ok(moving[i].textLeft <= moving[i - 1].textLeft + 0.5, "the text moved right during the slide");
+          assert.ok(moving[i].scale <= moving[i - 1].scale + 0.001, "the plus grew during the shrink");
+        }
+        const grew = moving.filter(s => Math.abs(s.fieldWidth - rest.fieldWidth) > 0.1);
+        assert.equal(grew.length, 0, `the box changed width while the motion ran: ${JSON.stringify(grew.slice(0, 2))} from ${rest.fieldWidth}`);
+        assert.ok(moving.every(s => s.plusEvents === "none"), "the plus still took taps during the motion");
+
+        const up = await page.evaluate(rowShape);
+        assert.equal(up.cls, "typing+wide", "the layout did not switch once the motion had landed");
+        assert.equal(up.kb, false);
+        assert.equal(up.opacity, 0);
+        assert.equal(up.plusWidth, 0);
+        assert.equal(up.plusEvents, "none");
+        assert.ok(Math.abs(up.fieldWidth - rest.fieldWidth - MOVE) <= 0.1, `the box is ${up.fieldWidth} wide, not ${rest.fieldWidth + MOVE}`);
+        assert.ok(Math.abs(rest.textLeft - up.textLeft - MOVE) <= 0.5, `the text travelled ${rest.textLeft - up.textLeft}, not ${MOVE}`);
+        assert.notEqual(up.caret, "rgba(0, 0, 0, 0)", "the caret was left hidden");
+        const at = rise.findIndex(s => /wide/.test(s.cls));
+        assert.ok(at > 0, "the wide layout never switched on");
+        assert.ok(Math.abs(rise[at].textLeft - rise[at - 1].textLeft) <= 0.5, "the text jumped when the layout switched");
+        assert.ok(rise.slice(0, at).some(s => s.caret === "rgba(0, 0, 0, 0)"), "the caret was not held through the rise");
+
+        // typing for longer than any focus window: the plus stays away
+        await page.keyboard.type("typed with a paired keyboard");
+        await settle(1300);
+        const typed = await page.evaluate(rowShape);
+        assert.equal(typed.cls, "typing+wide");
+        assert.equal(typed.opacity, 0);
+        assert.equal(typed.focused, true);
+
+        // a tap where the plus stood lands on the box
+        const foot = await (await page.$("article.box.sel .compose")).boundingBox();
+        await page.touchscreen.tap(plusBox.x + plusBox.width / 2, foot.y + foot.height / 2);
+        await settle(300);
+        assert.equal(await page.evaluate(() => window.__pickClicks), 0, "a tap on the hidden plus's place opened the picker");
+        assert.equal((await page.evaluate(rowShape)).focused, true, "the tap took the box's focus away");
+
+        await startSampling(page);
+        await page.evaluate(() => document.activeElement.blur());
+        if (lost) {
+          await settle(40);
+          await keyboard(page, PHONE.height);
+        }
+        await settle(800);
+        const back = await stopSampling(page);
+        const start = back.findIndex(s => s.cls !== "typing+wide");
+        assert.ok(start >= 0, "the row never left the wide look");
+        assert.ok(back[start].textLeft <= rest.textLeft - MOVE + 6, `the close did not start from the wide look (${back[start].textLeft})`);
+        assert.ok(/returning/.test(back[start].cls), "the way back was not on its own clock");
+        const returning = back.filter(s => s.opacity > 0 && s.opacity < 1);
+        assert.ok(returning.length >= 8, `too few frames inside the return (${returning.length})`);
+        const backSpan = returning[returning.length - 1].t - back[start].t;
+        assert.ok(backSpan >= KB_ANIM_MS - 40 && backSpan <= KB_ANIM_MS + 60, `the return took ${backSpan.toFixed(0)} ms`);
+        for (let i = 1; i < returning.length; i++) {
+          assert.ok(returning[i].opacity >= returning[i - 1].opacity - 0.001, "the plus faded out again during the return");
+          assert.ok(returning[i].textLeft >= returning[i - 1].textLeft - 0.5, "the text moved left during the return");
+        }
+        const end = await page.evaluate(rowShape);
+        assert.equal(end.cls, "-");
+        assert.equal(end.opacity, 1);
+        assert.equal(end.plusWidth, 28);
+        assert.equal(end.plusEvents, "auto");
+        assert.ok(Math.abs(end.fieldWidth - rest.fieldWidth) <= 0.1, "the box did not return to its resting width");
+        assert.ok(Math.abs(end.textLeft - rest.textLeft) <= 0.5);
+
+        const clicks = await page.evaluate(() => window.__pickClicks);
+        await page.touchscreen.tap(plusBox.x + plusBox.width / 2, plusBox.y + plusBox.height / 2);
+        await settle(200);
+        assert.equal(await page.evaluate(() => window.__pickClicks), clicks + 1, "the plus did not open the picker after the close");
+        assert.deepEqual(problems, []);
+      } finally {
+        await page.close();
+      }
+    });
+  }
+}
+
+test("a keyboard that comes and goes while the box keeps the caret leaves the plus hidden throughout", async () => {
+  const id = await create("Typing row keyboard comes and goes");
   const { page, problems } = await openPhone(`/m?box=${id}`);
   try {
     await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
     await settle(300);
-    // focus with no viewport report: the caret is held for a beat, the plus never moves
     await tapField(page);
-    await settle(120);
-    const held = await page.evaluate(rowShape);
-    assert.equal(held.caret, "rgba(0, 0, 0, 0)");
-    assert.equal(held.opacity, 1);
-    assert.equal(held.plusEvents, "auto");
-    await settle(700);
-    const freed = await page.evaluate(rowShape);
-    assert.equal(freed.cls, "-");
-    assert.notEqual(freed.caret, "rgba(0, 0, 0, 0)");
-    assert.equal(freed.plusWidth, 28);
-
-    // a small obstruction is the accessory strip, not the keyboard
+    await settle(60);
+    await keyboard(page, PHONE.height - KEYBOARD);
+    await settle(1200);
+    const hidden = async (step) => {
+      const s = await page.evaluate(rowShape);
+      assert.equal(s.focused, true, `${step}: the box lost the caret`);
+      assert.equal(s.cls, "typing+wide", `${step}: the row is ${s.cls}`);
+      assert.equal(s.opacity, 0, `${step}: the plus is showing`);
+      assert.equal(s.plusEvents, "none", `${step}: the plus takes taps`);
+    };
+    await hidden("keyboard up");
+    await keyboard(page, PHONE.height);
+    await settle(900);
+    await hidden("keyboard gone, caret kept");
     await keyboard(page, PHONE.height - ACCESSORY);
     await settle(900);
-    const strip = await page.evaluate(rowShape);
-    assert.equal(strip.kb, false);
-    assert.equal(strip.cls, "-");
-    assert.equal(strip.opacity, 1);
+    await hidden("toolbar only");
+    await keyboard(page, PHONE.height - KEYBOARD);
+    await settle(900);
+    await hidden("keyboard back");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
 
-    // the keyboard up, then away while the box keeps focus: the plus returns, and steps aside again
-    await keyboard(page, PHONE.height - KEYBOARD);
-    await settle(1200);
-    assert.equal((await page.evaluate(rowShape)).cls, "typing+wide");
-    await keyboard(page, PHONE.height);
+test("with no lost height reported the row follows the caret from card to card", async () => {
+  const a = await create("Typing row no report A");
+  await create("Typing row no report B");
+  const { page, problems } = await openPhone(`/m?box=${a}`);
+  try {
+    await page.waitForSelector(`#box-${a}.sel`, { timeout: 5000 });
+    await settle(300);
+    await tapField(page);
+    await settle(900);
+    const worn = () => page.evaluate(() => [...document.querySelectorAll("article.box .bottombar")]
+      .map(f => ({ sel: f.closest("article.box").classList.contains("sel"), cls: [...f.classList].filter(x => x !== "bottombar").sort().join("+") || "-" }))
+      .filter(f => f.cls !== "-"));
+    assert.deepEqual(await worn(), [{ sel: true, cls: "typing+wide" }]);
+    await page.evaluate(() => stepCard(1, true));
+    await settle(900);
+    assert.deepEqual(await worn(), [{ sel: true, cls: "typing+wide" }], "the typing row is not on exactly the card in use");
+    assert.equal((await page.evaluate(rowShape)).focused, true);
+    await page.evaluate(() => document.activeElement.blur());
     await settle(700);
-    const away = await page.evaluate(rowShape);
-    assert.equal(away.focused, true);
-    assert.equal(away.cls, "-");
-    assert.equal(away.opacity, 1);
-    await keyboard(page, PHONE.height - KEYBOARD);
-    await settle(1200);
-    assert.equal((await page.evaluate(rowShape)).cls, "typing+wide");
+    assert.deepEqual(await worn(), [], "a card still wears the typing row after the caret left");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();

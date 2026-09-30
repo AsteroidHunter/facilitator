@@ -4607,7 +4607,7 @@ function applyShell(obstructed, top, height, base){
     const el = selectedId && els[selectedId];
     if (el && ComposeFormat.focused(el.ta)) revealCaret(el.ta, el.twin);
   }
-  syncTyping(softKeyboard);
+  syncTyping(obstructed);
 }
 // a keyboard edge opens the settle window; the foot's own transitionend closes
 // it early and exactly, this clock closes one that never fires it
@@ -4626,7 +4626,7 @@ function liftLanded(byClock){
   const whole = viewportObstruction(w.baseline, w.vvHeight) === 0 && w.vvTop <= 1;
   if (byClock || appliedObstruction || whole) liftUntil = 0;
   reconcile();
-  if (appliedObstruction) typingLanded();
+  typingLanded();
   const el = selectedId && els[selectedId];
   if (!el) return;
   if (appliedObstruction){
@@ -4679,12 +4679,15 @@ function keyboardClosed(){
     if (!obstructionUp) correctionPass(true);
   }, CLOSE_RETRY_MS);
 }
-// ---- the typing row: the plus steps aside for the text while the keyboard is up ----------
-// .typing moves on the lift's frame and clock; .wide (the real layout) waits until all of it is at rest
+// ---- the typing row: the plus steps aside for the text while the caret is in a card's box ----------
+// typing is the caret in the box, whatever keyboard is in use: the on-screen one, a paired one with the
+// phone's thin toolbar, or a paired one with nothing on screen. .typing moves on the lift's frame and clock
+// when the phone reports any lost height, and a beat after the focus when it reports none; .wide (the real
+// layout) waits until all of it is at rest
 const WIDEN_CARET_MS = 50;       // the phone's catch-up after the layout switch
-const FOCUSING_MAX_MS = 1000;    // a focus the keyboard never answers lapses after this
-let typingFoot = null, focusingAt = -Infinity;
-let wideUp = false, wideProven = false, wideEnded = false, wideLanded = false, wideOn = false, wideHidden = false;
+const TYPING_GRACE_MS = 100;     // a focus the phone reports no lost height for: no lift is coming to move with
+let typingFoot = null, graceTimer = null;
+let wideUp = false, wideStarted = false, wideEnded = false, wideLanded = false, wideOn = false, wideHidden = false;
 let wideClock = null, wideRelease = null, returningFoot = null, returnTimer = null;
 
 function focusedFoot(){
@@ -4710,7 +4713,7 @@ function reassertCaret(){
   box.setSelectionRange(from, to, box.selectionDirection || undefined);
 }
 function wideSettle(){
-  if (!typingFoot || !wideUp || !wideProven || !wideEnded || !wideLanded || wideOn) return;
+  if (!typingFoot || !wideUp || !wideStarted || !wideEnded || !wideLanded || wideOn) return;
   wideOn = true;
   typingFoot.classList.add("wide");
   if (wideRelease) wideRelease();
@@ -4741,23 +4744,30 @@ function wideFlip(foot){
   foot.classList.remove("flip");
   startReturn(foot);
 }
-function typingUp(kb){
+// the caret is in the box: its colour is held back until the layout has settled. with no lost height
+// reported there is no lift to wait for, so the plus's own transition is the only rest point
+function typingUp(obstructed){
   wideUp = true;
   wideEnded = false;
-  wideLanded = kb && performance.now() >= liftUntil;
+  wideLanded = !obstructed || performance.now() >= liftUntil;
   wideCaret(true);
-  wideClock = setTimeout(() => {
-    wideClock = null;
-    wideEnded = true;
-    wideSettle();
-    // nothing proved a keyboard in the whole window: a hardware one, or none coming
-    if (!wideOn && !wideProven) wideShow();
-  }, LIFT_SETTLE_MS);
+  graceTimer = setTimeout(() => { graceTimer = null; typingStart(); }, TYPING_GRACE_MS);
+}
+// the plus and the text take their typing look; the clock covers a transition that never reports its end
+function typingStart(){
+  const foot = typingFoot;
+  if (!foot || wideStarted) return;
+  wideStarted = true;
+  if (graceTimer){ clearTimeout(graceTimer); graceTimer = null; }
+  if (returningFoot === foot) returnDone();
+  foot.classList.add("typing");
+  wideClock = setTimeout(() => { wideClock = null; wideEnded = true; wideSettle(); }, LIFT_SETTLE_MS);
 }
 function typingDown(){
   const foot = typingFoot, wasWide = wideOn, wasTyping = foot.classList.contains("typing");
-  wideUp = wideProven = wideEnded = wideLanded = wideOn = false;
+  wideUp = wideStarted = wideEnded = wideLanded = wideOn = false;
   if (wideClock){ clearTimeout(wideClock); wideClock = null; }
+  if (graceTimer){ clearTimeout(graceTimer); graceTimer = null; }
   wideShow();
   typingFoot = null;
   if (wasWide) wideFlip(foot);
@@ -4771,39 +4781,25 @@ function typingLanded(){
   wideSettle();
 }
 // run by applyShell after the classes it writes, so the row and the lift leave on one frame
-function syncTyping(kb){
+function syncTyping(obstructed){
   const foot = focusedFoot();
-  const up = !!foot && (kb || performance.now() - focusingAt < FOCUSING_MAX_MS);
-  if (typingFoot && (!up || foot !== typingFoot)) typingDown();
-  if (!up) return;
-  if (!typingFoot){ typingFoot = foot; typingUp(kb); }
-  if (kb !== wideProven){
-    wideProven = kb;
-    if (kb){
-      if (returningFoot === foot) returnDone();
-      foot.classList.add("typing");
-    } else {
-      foot.classList.remove("typing");
-      if (!wideOn) startReturn(foot);
-    }
-    wideSettle();
+  if (typingFoot && foot !== typingFoot) typingDown();
+  if (!foot) return;
+  if (!typingFoot){ typingFoot = foot; typingUp(obstructed); }
+  if (obstructed){
+    if (performance.now() < liftUntil) wideLanded = false;
+    typingStart();
   }
-}
-function noteFocusing(e){
-  const t = e.target;
-  if (!t || !t.closest || !t.closest(".compose")) return;
-  focusingAt = performance.now();
-  setTimeout(reconcile, FOCUSING_MAX_MS + 20);
 }
 document.addEventListener("transitionend", e => {
   const t = e.target;
   if (!t.classList || !t.classList.contains("clipbtn") || e.propertyName !== "transform") return;
   const foot = t.parentElement;
   if (foot === returningFoot) returnDone();
-  else if (foot === typingFoot && wideUp && wideProven){ wideEnded = true; wideSettle(); }
+  else if (foot === typingFoot && wideUp && wideStarted){ wideEnded = true; wideSettle(); }
 });
 
-document.addEventListener("focusin", e => { noteFocusing(e); reconcile(); });
+document.addEventListener("focusin", reconcile);
 document.addEventListener("focusout", () => requestAnimationFrame(reconcile));   // a frame's grace: focus may be hopping between fields
 for (const type of ["beforeinput", "keydown"]){
   document.addEventListener(type, e => { const t = e.target;
