@@ -59,11 +59,6 @@ const CARD_SHORTCUT_DEFINITIONS = [
       (e.key === "ArrowUp" || e.key === "ArrowDown")
       ? (e.key === "ArrowUp" ? 1 : -1) : null,
   },
-  {
-    action: "navigate", mini: false,
-    match: e => e.metaKey && e.shiftKey && ["[", "]", "{", "}"].includes(e.key)
-      ? (e.key === "[" || e.key === "{" ? -1 : 1) : null,
-  },
   // command+z and control+z are the editor's undo and nothing of ours. The card
   // pages had a return-to-the-previous-card on that chord until 20260910; it
   // took the key away from the text being typed, so it is gone with no
@@ -88,21 +83,6 @@ const CARD_SHORTCUT_DEFINITIONS = [
     match: e => e.key === "Enter" && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey &&
       !e.repeat && !e.isComposing && !e.defaultPrevented ? true : null,
   },
-  {
-    action: "close", mini: false,
-    match: e => e.key === "Backspace" || e.key === "Delete" ? true : null,
-  },
-  // control+n moves the selected card to Doing ("now") and control+l to
-  // Deferred ("later"). Plain letters are no command: a stray n or s used to
-  // move a card. Inside a text box macOS keeps control+n and control+l for the
-  // caret, so the pages act on these only when nothing is being typed
-  {
-    action: "destination", mini: false,
-    match: e => e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey &&
-      !e.repeat && !e.isComposing && !e.defaultPrevented &&
-      (e.key === "n" || e.key === "N" || e.key === "l" || e.key === "L")
-      ? ((e.key === "l" || e.key === "L") ? "deferred" : "doing") : null,
-  },
   // control+u unfolds the selected card's ticket while it wears the
   // ready-to-test fold, as a click on the folded corner does. nothing on this
   // mac, in chrome or in either shape of the composer answers control+u, so,
@@ -118,7 +98,7 @@ const CARD_SHORTCUT_DEFINITIONS = [
   // Done, typing or not. macOS text boxes give these chords no meaning and the
   // composer's editor is told to leave them to the page (PAGE_CHORDS in
   // compose-format.js), which cancels them on the way, so an event already
-  // cancelled still counts here. command+shift+[ and ] stay card steps above
+  // cancelled still counts here
   {
     action: "sectionChord", mini: true,
     match: e => e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey &&
@@ -2334,9 +2314,9 @@ function flagShown(id, kind){
 
 function toggleFlag(id, kind){ return setFlag(id, kind, !flagShown(id, kind)); }
 
-// Control+n and control+l name destinations, unlike the moon's reversible tap. Read
-// the held value so a second key during an unanswered request is judged against
-// what the card already shows, then use the same ordered flag requests as a tap.
+// A destination is named, unlike the moon's reversible tap. Read the held value
+// so a second request during an unanswered one is judged against what the card
+// already shows, then use the same ordered flag requests as a tap.
 function setCardDestination(id, destination){
   if (destination === "deferred"){
     if (!flagShown(id, "park")) return setFlag(id, "park", true);
@@ -2407,7 +2387,7 @@ function paintSectionChips(el, b){
 // the sun's own move: whatever holds the card out of doing is lifted, through
 // the same ordered flag requests a tap on the moon makes. a card the board
 // holds both parked and done shows as done, so its face carries no parked class
-// and control+n's read of it sees none; the reading's own park flag is asked as
+// and setCardDestination's read of it sees none; the reading's own park flag is asked as
 // well here, or the sun would lift the done and leave the card in deferred
 function wakeCard(id){
   const b = typeof lastState === "undefined" ? null : lastState?.boxes.find(x => x.id === id);
