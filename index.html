@@ -3313,17 +3313,23 @@
     transition:color .18s}
   body.focus #homeico::after{content:""; position:absolute; inset:-6px}
   body.focus #homeico:hover, body.focus.home #homeico{color:var(--ink)}
-  /* the home box is seated where the new-project landing is, centred across
-     the window and 44% down the room under the bar, which on the board's
-     1440 by 900 stage is the middle column the conversation card stands in.
-     582 by about 291, two to one: narrower than the charts, which keep their
-     own 769px and scroll sideways inside it (home-widgets.css), so a narrower
-     window only narrows the view onto them. its top never rises into the bar,
-     162px being half the box and 16 to spare */
+  /* the home box stands in the top right quarter of the page's frame (the
+     rectangle drawn under the bar, inset --app-inset on each side), centred on
+     that quarter and 70% of its width and of its height, so it follows the
+     window. the panel fills the box and its charts are drawn
+     to the height left for them, scrolling sideways inside it
+     (home-widgets.css) */
   #home{display:none}
-  body.focus.home #home{display:block; position:fixed; z-index:5; left:50%;
-    top:max(calc(var(--bar-h) + (100vh - var(--bar-h)) * .44), calc(var(--bar-h) + 162px));
-    transform:translate(-50%, -50%); width:min(582px, calc(100vw - 64px))}
+  body.focus.home #home{display:block; position:fixed; z-index:5;
+    --home-l:var(--app-inset); --home-r:calc(100vw - var(--app-inset));
+    --home-t:calc(var(--app-inset) + var(--bar-h) - 1px - var(--edge-drawn));
+    --home-b:calc(100vh - var(--app-inset));
+    left:calc(var(--home-l) * .25 + var(--home-r) * .75);
+    top:calc(var(--home-t) * .75 + var(--home-b) * .25);
+    width:calc((var(--home-r) - var(--home-l)) * .35);
+    height:calc((var(--home-b) - var(--home-t)) * .35);
+    transform:translate(-50%, -50%)}
+  body.focus.home #homeplot{height:100%}
   body.focus.home #stage{visibility:hidden; opacity:0; pointer-events:none}
   body.focus.home #editbtn{visibility:hidden}
   /* on-canvas edit mode: the bar's pencil toggles it; boxes then drag with no

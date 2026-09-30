@@ -492,6 +492,14 @@ test("on the phone the house opens home, the pill and the tips work by tap, and 
                panel: { left: panel.left, right: panel.right, top: panel.top }, pane: { left: pane.left, right: pane.right, top: pane.top },
                lane: { left: r(scroll).left, right: r(scroll).right },
                chartWidth: document.querySelector(".tk-chart svg").getBoundingClientRect().width,
+               chart: { top: r(document.querySelector(".tk-chart svg")).top, bottom: r(document.querySelector(".tk-chart svg")).bottom },
+               view: { top: r(document.querySelector(".tk-view")).top, bottom: r(document.querySelector(".tk-view")).bottom },
+               rows: { top: Math.min(...[...document.querySelectorAll(".tk-day")].map(d => r(d).top)),
+                       bottom: Math.max(...[...document.querySelectorAll(".tk-day")].map(d => r(d).bottom)) },
+               head: r(document.querySelector(".tk-head")).bottom,
+               foot: { top: r(document.querySelector(".tk-foot")).top, bottom: r(document.querySelector(".tk-foot")).bottom },
+               panelBottom: panel.bottom,
+               expected: TokenWidgets.geometry(r(document.querySelector(".tk-view")).height),
                atLatest: scroll.scrollLeft >= scroll.scrollWidth - scroll.clientWidth - 1 && scroll.scrollWidth > scroll.clientWidth,
                card: getComputedStyle(document.getElementById("cards")).visibility,
                cardParts: [...document.querySelectorAll("#cards *")].filter(n => getComputedStyle(n).visibility !== "hidden").length,
@@ -509,9 +517,21 @@ test("on the phone the house opens home, the pill and the tips work by tap, and 
     // the panel spans the pane, which is the screen within the app's margins
     assert.ok(Math.abs(home.panel.left - home.pane.left) < 1 && Math.abs(home.panel.right - home.pane.right) < 1);
     assert.ok(Math.abs(home.panel.top - home.pane.top) < 1);
-    // the chart keeps its own size and opens on the latest weeks, clear of the menus' strips
-    assert.equal(home.chartWidth, 769);
+    // the chart is drawn to the view's height, 200 here, never stretched, and
+    // scrolls sideways, opening on the latest weeks, clear of the menus' strips
+    assert.equal(home.view.bottom - home.view.top, 200);
+    assert.equal(home.chartWidth, home.expected.width);
+    assert.ok(home.chartWidth > home.lane.right - home.lane.left, "the year is wider than the screen, so it scrolls");
     assert.ok(home.atLatest, "the heatmap opens on its latest weeks");
+    // the box hugs the chart: the chart fills its view top to bottom, the
+    // squares and month names fill the chart but for a few pixels, and the
+    // panel ends a padding under the foot
+    assert.ok(Math.abs(home.chart.top - home.view.top) < 0.5 && Math.abs(home.chart.bottom - home.view.bottom) < 0.5,
+              JSON.stringify({ chart: home.chart, view: home.view }));
+    assert.ok(home.rows.top - home.view.top < 30 && home.view.bottom - home.rows.bottom < 8, JSON.stringify(home.rows));
+    assert.ok(home.expected.cell >= 18, "squares far larger than the 11px strip they were");
+    assert.ok(home.view.top - home.head <= 15 && home.foot.top - home.view.bottom <= 11, "no band over or under the chart");
+    assert.ok(home.panelBottom - home.foot.bottom <= 16, "the box ends under the foot");
     assert.ok(home.lane.left > 28 && home.lane.right < 375 - 28, JSON.stringify(home.lane));
     assert.equal(home.card, "hidden");
     assert.equal(home.hadHistory, true, "the card behind shows its history arrows on its board");

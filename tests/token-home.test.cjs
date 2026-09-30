@@ -1,9 +1,11 @@
 // the home page and its token widgets, with no browser. home-widgets.js is run
 // in a sandbox and held to what it draws: one square per day of the year in 53
 // week columns of 7, a red-orange scale light to deep over a faint warm grey,
-// a line of trailing 7-day averages, both at their own size in a view that
-// scrolls sideways and opens on the latest weeks, and one pill that switches
-// the panel between the two. then index.html's own home block is lifted out of the page
+// a solid line of daily totals under a dotted line of trailing 7-day averages
+// on a count axis that ends at the next round tick past the busiest day, both
+// drawn to the view's height in a lane that scrolls sideways by swipe, wheel
+// or drag and opens on the latest weeks, and one pill whose seat slides
+// between the two. then index.html's own home block is lifted out of the page
 // and driven through a small DOM: the house opens home, the widgets are
 // fetched only then, the panel asks the route for its days, and every project
 // tab leaves it. every count below is invented; nothing renders a pixel
@@ -169,18 +171,46 @@ test("the heatmap draws one square per day of the year in 53 week columns of 7",
     assert.ok(model.months.every(m => m.col >= 0 && m.col <= 51));
     const svg = W.heatmapSvg(model);
     assert.equal((svg.match(/<rect class="tk-day"/g) || []).length, 365);
-    // the one long row as first drawn, at its own size: 11 unit squares, one unit a pixel
-    assert.match(svg, /<svg class="tk-heat" width="769" height="113" viewBox="0 0 769 113"/);
-    assert.equal((svg.match(/width="11" height="11" rx="2"/g) || []).length, 365);
+    // drawn at the default view height when no view gives it one: 200 tall,
+    // a 25px week column, 21px squares with 4px between, never stretched
+    assert.match(svg, /<svg class="tk-heat" width="1355" height="200" viewBox="0 0 1355 200"/);
+    assert.equal((svg.match(/width="21" height="21" rx="3"/g) || []).length, 365);
     // the day names are drawn apart, in the place they held, to stay put while the row scrolls
-    const pin = W.heatPin();
-    assert.match(pin, /^<svg width="30" height="113" viewBox="0 0 30 113"/);
+    const pin = W.heatPin(model);
+    assert.match(pin, /^<svg width="34" height="200" viewBox="0 0 34 200"/);
     for (const name of ["Mon", "Wed", "Fri"]) {
       assert.ok(pin.includes(`>${name}</text>`));
       assert.ok(!svg.includes(`>${name}</text>`), `${name} would scroll away with the row`);
     }
-    assert.ok(model.cells.every(c => c.x >= 30), "no square sits under the pinned names at the start");
+    assert.ok(model.cells.every(c => c.x >= 34), "no square sits under the pinned names at the start");
   }
+});
+
+test("the heatmap's squares grow with the view's height, within limits, and fill it", () => {
+  const { W } = widgets();
+  assert.equal(W.VIEW_H, 200);
+  // the board's two window sizes and the phone's view: seven rows and the
+  // month names fill the height, with at most a few pixels over, split above and below
+  for (const [h, step, cell] of [[226, 29, 25], [156, 19, 16], [200, 25, 21]]) {
+    const g = W.geometry(h);
+    assert.equal(g.step, step, `step at ${h}`);
+    assert.equal(g.cell, cell, `square at ${h}`);
+    assert.equal(g.height, h, "as tall as the view");
+    assert.equal(g.width, 34 + 53 * step - g.gap);
+    const bottom = g.top + g.rows;
+    // under a column's width and its gap over, less than 7 + 2 + 4
+    assert.ok(g.top - 20 >= 0 && h - bottom >= 0 && (g.top - 20) + (h - bottom) <= 12, `${h} leaves little over`);
+    assert.ok(Math.abs((g.top - 20) - (h - bottom)) <= 3, "what is over is split");
+  }
+  // never smaller than 12 or larger than 32 a column, however short or tall the view
+  assert.equal(W.geometry(60).step, 12);
+  assert.ok(W.geometry(60).height >= 20 + 7 * 12 - 3, "a short view is overdrawn, never squeezed");
+  assert.equal(W.geometry(900).step, 32);
+  // the model follows the height it is given
+  const model = W.heatmapModel(daysEnding("2026-09-27", 371), 226);
+  assert.equal(model.geo.step, 29);
+  assert.ok(model.cells.every(c => (c.x - 34) % 29 === 0 && c.y >= model.geo.top));
+  assert.match(W.heatmapSvg(model), /width="25" height="25" rx="3"/);
 });
 
 test("the colour scale runs light to deep red-orange, and a day with nothing is a faint warm grey", () => {
@@ -222,7 +252,7 @@ test("the colour scale runs light to deep red-orange, and a day with nothing is 
 });
 
 // ---- the line -----------------------------------------------------------------------------
-test("the line is each day's trailing seven-day average over the same year", () => {
+test("the line draws each day's total solid and the trailing seven-day average dotted over it", () => {
   const { W } = widgets();
   assert.deepEqual(Array.from(W.rolling([7, 0, 0, 0, 0, 0, 0, 14, 0])), [7, 3.5, 7 / 3, 1.75, 1.4, 7 / 6, 1, 2, 2]);
   assert.equal(W.FETCH_DAYS, 371, "the panel asks for the six days before the year too");
@@ -230,49 +260,94 @@ test("the line is each day's trailing seven-day average over the same year", () 
   const model = W.lineModel(days);
   assert.equal(model.points.length, 365);
   assert.equal(model.points.at(-1).date, "2026-09-27");
-  // the spike's week: one million a day for seven days, then nothing
+  // one day of seven million: the daily line stands at it that day alone, and
+  // the average holds a million a day for that day and the six after it
+  assert.equal(model.points.filter(p => p.total === 7e6).length, 1);
   const avg = model.points.map(p => p.avg);
   assert.equal(avg.filter(v => v === 1e6).length, 7);
   assert.equal(avg.filter(v => v === 0).length, 358);
   for (let i = 1; i < model.points.length; i++) assert.ok(model.points[i].x > model.points[i - 1].x);
   const { box } = model;
-  for (const p of model.points) assert.ok(p.y >= box.top - 0.05 && p.y <= box.top + box.h + 0.05);
-  // the axis tops out at the first round number the busiest week reaches
-  assert.equal(model.top, 1e6);
-  assert.deepEqual(Array.from(model.ticks), [0, 5e5, 1e6]);
-  assert.equal(W.niceTop(1.3e6), 2e6);
-  assert.equal(W.niceTop(4.1e9), 5e9);
-  assert.equal(W.niceTop(0), 1);
-  const peak = model.points.find(p => p.avg === 1e6);
-  assert.ok(Math.abs(peak.y - box.top) < 0.1, "the busiest week reaches the top line");
-  const half = W.lineModel(daysEnding("2026-09-27", 371, k => (k === 200 ? 7e6 : k === 300 ? 14e6 : 0)));
-  const low = half.points.find(p => p.avg === 1e6);
-  assert.ok(Math.abs(low.y - (half.box.top + half.box.h / 2)) < 0.1, "half the axis is half the height");
+  for (const p of model.points) {
+    assert.ok(p.y >= box.top - 0.05 && p.y <= box.top + box.h + 0.05, "the day inside the plot");
+    assert.ok(p.ya >= box.top - 0.05 && p.ya <= box.top + box.h + 0.05, "the average inside the plot");
+    assert.ok(Math.abs(p.y - model.yAt(p.total)) < 0.1 && Math.abs(p.ya - model.yAt(p.avg)) < 0.1);
+  }
+  // the axis ends at the next round tick past the busiest day, not the busiest week
+  assert.equal(model.top, 7.5e6);
+  assert.deepEqual(Array.from(model.ticks), [0, 2.5e6, 5e6, 7.5e6]);
+  const spike = model.points.find(p => p.total === 7e6);
+  assert.ok(spike.y > box.top + 1, "the busiest day stands under the top line");
+  // drawn to the view's height and as wide as the heatmap at that height, a
+  // week of days as wide as a column
   const svg = W.lineSvg(model);
-  // at its own size, one unit a pixel: the heatmap's 769 across and the view's
-  // whole 192 down, so the plot is 158 tall rather than the heatmap strip's 88
-  assert.match(svg, /<svg class="tk-line" width="769" height="192" viewBox="0 0 769 192"/);
-  assert.deepEqual({ ...model.box }, { left: 46, right: 8, top: 10, bottom: 24, w: 715, h: 158 });
-  // its names a size up from the heatmap's, and every month name inside the chart
+  const g = W.geometry(W.VIEW_H);
+  assert.match(svg, new RegExp(`<svg class="tk-line" width="${g.width}" height="200" viewBox="0 0 ${g.width} 200"`));
+  assert.deepEqual({ ...model.box }, { left: 48, right: 14, top: 12, bottom: 26, w: g.width - 62, h: 162 });
+  assert.ok(Math.abs(7 * box.w / 364 - g.step) < 0.2, "a week of the line is a column of the heatmap");
+  const tall = W.lineModel(days, 226);
+  assert.equal(tall.height, 226);
+  assert.equal(tall.width, W.geometry(226).width);
+  // the months along the bottom at each one's first day, a tick under each,
+  // January with its year, every name inside the chart
   assert.ok(model.months.length >= 11);
-  assert.ok(model.months.every(m => m.x >= 46 && m.x + 22 <= 769 - 8));
-  assert.equal((svg.match(/<text class="tk-axis line"/g) || []).length, model.months.length);
-  assert.match(svg, /<circle class="tk-dot" r="5"/);
+  assert.ok(model.months.every(m => m.x >= 48 && m.x + 26 <= g.width));
+  assert.ok(model.months.some(m => m.label === "Jan 2026"));
+  assert.equal((svg.match(/<line class="tk-tick"/g) || []).length, model.months.length);
+  // the two lines, in the chart's own red-oranges: the day solid, its average in dots a shade deeper
   const path = /class="tk-path" d="([^"]+)"/.exec(svg)[1];
   assert.equal((path.match(/[ML]/g) || []).length, 365);
-  assert.ok(svg.includes(`stroke="${W.LINE}"`));
-  assert.ok(hsl(W.LINE).h >= 8 && hsl(W.LINE).h <= 30, "the same warm colour");
+  const dotted = /<path class="tk-avg" d="([^"]+)" fill="none" stroke="([^"]+)" stroke-dasharray="([^"]+)"/.exec(svg);
+  assert.ok(dotted, "the average is drawn dotted");
+  assert.equal((dotted[1].match(/[ML]/g) || []).length, 365);
+  assert.equal(dotted[2], W.AVG_LINE);
+  assert.ok(svg.includes(`class="tk-path" d="${path}" fill="none" stroke="${W.LINE}"`));
+  assert.doesNotMatch(/<path class="tk-path"[^>]*>/.exec(svg)[0], /dasharray/, "the daily line is solid");
+  assert.ok(W.PALETTE.includes(W.AVG_LINE));
+  for (const c of [W.LINE, W.AVG_LINE]) assert.ok(hsl(c).h >= 8 && hsl(c).h <= 30, `${c} is the same warm family`);
+  assert.doesNotMatch(svg, /linearGradient|tk-area/, "no fill under the line");
+  // a mark on each line where the pointer is, never smaller than 8px across
+  const radius = cls => Number(new RegExp(`<circle class="${cls}" r="([\\d.]+)"`).exec(svg)[1]);
+  assert.ok(2 * radius("tk-dot") >= 8 && 2 * radius("tk-dot avg") >= 8);
+  assert.match(svg, /<circle class="tk-dot avg"[^>]*fill="#FFFFFF" stroke="#C9401B"/);
   // the count names are drawn apart into the place they held, to stay put while the line scrolls
   const pin = W.linePin(model);
-  assert.match(pin, /^<svg width="46" height="192" viewBox="0 0 46 192"/);
-  for (const label of ["0", "500K", "1M"]) {
+  assert.match(pin, /^<svg width="48" height="200" viewBox="0 0 48 200"/);
+  for (const label of ["0", "2.5M", "5M", "7.5M"]) {
     assert.ok(pin.includes(`text-anchor="end">${label}</text>`));
-    assert.match(pin, new RegExp(`<text class="tk-axis line"[^>]*>${label}</text>`));
     assert.ok(!svg.includes(`>${label}</text>`), `${label} would scroll away with the line`);
   }
   // a year of nothing still draws, flat on the floor
   const flat = W.lineModel(daysEnding("2026-09-27", 371, () => 0));
-  assert.ok(flat.points.every(p => p.y === box.top + box.h));
+  assert.ok(flat.points.every(p => p.y === box.top + box.h && p.ya === box.top + box.h));
+});
+
+test("the count axis ends a round step past the busiest day, in four to six ticks", () => {
+  const { W } = widgets();
+  const cases = [
+    [1.35e9, [0, 5e8, 1e9, 1.5e9]],
+    [8.7e8, [0, 2.5e8, 5e8, 7.5e8, 1e9]],
+    [4.1e9, [0, 1e9, 2e9, 3e9, 4e9, 5e9]],
+    [1e6, [0, 2.5e5, 5e5, 7.5e5, 1e6, 1.25e6]],
+    [1115, [0, 250, 500, 750, 1000, 1250]],
+    [3, [0, 1, 2, 3, 4]],
+    [0, [0, 1, 2, 3, 4]],
+  ];
+  for (const [max, ticks] of cases) assert.deepEqual(Array.from(W.niceAxis(max).ticks), ticks, String(max));
+  assert.deepEqual([0, 5e8, 1e9, 1.5e9].map(W.compact), ["0", "500M", "1B", "1.5B"]);
+  // over a sweep of maxima: always past the busiest day, never by as much as
+  // half again, four to six ticks, and a step of 1, 2, 2.5 or 5 times a power of ten
+  for (let e = 0; e <= 12; e++) for (const f of [1, 1.01, 1.3, 1.99, 2.01, 2.6, 3.01, 3.7, 4.4, 5.01, 6.3, 7.9, 9.99]) {
+    const max = f * Math.pow(10, e);
+    if (max < 4) continue;
+    const { top, step, ticks } = W.niceAxis(max);
+    assert.ok(top > max && top / max < 1.5, `${max} tops at ${top}`);
+    assert.ok(ticks.length >= 4 && ticks.length <= 6, `${max} has ${ticks.length} ticks`);
+    const lead = step / Math.pow(10, Math.floor(Math.log10(step)));
+    assert.ok([1, 2, 2.5, 5].some(x => Math.abs(lead - x) < 1e-9), `${max} steps by ${step}`);
+    assert.ok(ticks.every((t, i) => Math.abs(t - i * step) < step * 1e-9));
+  }
+  assert.equal(W.niceTop, undefined, "no fixed top is left behind");
 });
 
 // ---- the scrolling view ---------------------------------------------------------------------
@@ -282,17 +357,18 @@ test("the view opens a chart on its latest weeks, keeps a place scrolled back to
   const days = daysEnding("2026-09-27", 371);
   const el = new El("div", doc);
   W.drawHeatmap(el, days);
-  assert.match(el.innerHTML, /^<div class="tk-view"><div class="tk-lane"><div class="tk-scroll"><div class="tk-chart"><svg class="tk-heat" width="769"/);
-  assert.match(el.innerHTML, /<div class="tk-pin" style="width:30px"><svg width="30"/);
+  const width = W.geometry(W.VIEW_H).width, room = width - 540;
+  assert.match(el.innerHTML, new RegExp(`^<div class="tk-view"><div class="tk-lane"><div class="tk-scroll"><div class="tk-chart"><svg class="tk-heat" width="${width}"`));
+  assert.match(el.innerHTML, /<div class="tk-pin" style="width:34px"><svg width="34"/);
   let view = el.querySelector(".tk-scroll"), lane = el.querySelector(".tk-lane");
-  assert.equal(view.scrollWidth, 769, "the row at its own width, wider than the 540px view");
-  assert.equal(view.scrollLeft, 769 - 540, "it opens at the right end, on the latest weeks");
+  assert.equal(view.scrollWidth, width, "the row at its own width, wider than the 540px view");
+  assert.equal(view.scrollLeft, room, "it opens at the right end, on the latest weeks");
   assert.ok(lane.classList.contains("more-left") && !lane.classList.contains("more-right"), "more only to the left");
 
   // a place of its own, followed as the reader scrolls
   const spot = { end: true, left: 0 };
   W.drawHeatmap(el, days, spot);
-  assert.equal(el.querySelector(".tk-scroll").scrollLeft, 229);
+  assert.equal(el.querySelector(".tk-scroll").scrollLeft, room);
   scrollTo(el.querySelector(".tk-scroll"), 100);
   assert.deepEqual({ ...spot }, { end: false, left: 100 });
   lane = el.querySelector(".tk-lane");
@@ -304,20 +380,85 @@ test("the view opens a chart on its latest weeks, keeps a place scrolled back to
   lane = el.querySelector(".tk-lane");
   assert.ok(!lane.classList.contains("more-left") && lane.classList.contains("more-right"), "at the start, more only to the right");
   // back at the end, a view stays at the end whatever room a redraw leaves it
-  scrollTo(el.querySelector(".tk-scroll"), 229);
+  scrollTo(el.querySelector(".tk-scroll"), room);
   assert.equal(spot.end, true);
   el.viewWidth = 400;
   W.drawHeatmap(el, days, spot);
-  assert.equal(el.querySelector(".tk-scroll").scrollLeft, 369);
+  assert.equal(el.querySelector(".tk-scroll").scrollLeft, width - 400);
   // a panel as wide as the chart has nothing to scroll and nothing to fade
-  el.viewWidth = 800;
+  el.viewWidth = 1400;
   W.drawLine(el, days, { end: true, left: 0 });
   view = el.querySelector(".tk-scroll"); lane = el.querySelector(".tk-lane");
   assert.equal(view.scrollLeft, 0);
   assert.ok(!lane.classList.contains("more-left") && !lane.classList.contains("more-right"));
-  // the line's view is the same, its count names pinned in their own 46px
-  assert.match(el.innerHTML, /<svg class="tk-line" width="769"/);
-  assert.match(el.innerHTML, /<div class="tk-pin" style="width:46px"><svg width="46"/);
+  // the line's view is the same, its count names pinned in their own 48px
+  assert.match(el.innerHTML, new RegExp(`<svg class="tk-line" width="${width}"`));
+  assert.match(el.innerHTML, /<div class="tk-pin" style="width:48px"><svg width="48"/);
+});
+
+// a wheel or pointer event as the browser gives one, with what the handler did to it
+function wheelAt(target, deltaY, deltaX = 0, deltaMode = 0) {
+  const e = { type: "wheel", target, deltaY, deltaX, deltaMode, prevented: false };
+  e.preventDefault = () => { e.prevented = true; };
+  return e;
+}
+const fire = (el, type, e) => { for (const fn of el.listeners[type] || []) fn(e); return e; };
+
+test("the wheel moves a chart sideways anywhere over it, and the mouse can drag it", () => {
+  const { W } = widgets();
+  const doc = makeDocument();
+  const el = new El("div", doc);
+  W.drawHeatmap(el, daysEnding("2026-09-27", 371));
+  const view = el.querySelector(".tk-scroll"), lane = el.querySelector(".tk-lane");
+  const room = view.scrollWidth - view.clientWidth;
+  scrollTo(view, 300);
+  // the wheel, or a two-finger swipe up or down: down for later days, taken
+  // from the page while the chart moves
+  let e = fire(el, "wheel", wheelAt(view, 120));
+  assert.equal(view.scrollLeft, 420);
+  assert.equal(e.prevented, true);
+  fire(el, "wheel", wheelAt(view, -200));
+  assert.equal(view.scrollLeft, 220);
+  // a mouse that counts in lines moves a line's worth each
+  fire(el, "wheel", wheelAt(view, 3, 0, 1));
+  assert.equal(view.scrollLeft, 268);
+  // a sideways swipe is the browser's own scroll, left alone
+  e = fire(el, "wheel", wheelAt(view, 4, -60));
+  assert.equal(view.scrollLeft, 268);
+  assert.equal(e.prevented, false);
+  // past the end nothing moves, and the page may have the wheel
+  scrollTo(view, room);
+  e = fire(el, "wheel", wheelAt(view, 80));
+  assert.equal(view.scrollLeft, room);
+  assert.equal(e.prevented, false);
+  // a wheel outside the chart, as over the foot, is not the chart's
+  e = fire(el, "wheel", wheelAt(new El("div", doc), -80));
+  assert.equal(view.scrollLeft, room);
+  assert.equal(e.prevented, false);
+
+  // the mouse takes hold and drags: nothing moves until it has gone 4px, then
+  // the chart follows it, marked as held, and lets go when the button comes up
+  scrollTo(view, 300);
+  const at = (type, x, extra = {}) => fire(el, type, { type, target: view, pointerId: 7, pointerType: "mouse",
+    button: 0, buttons: 1, clientX: x, ...extra });
+  at("pointerdown", 500);
+  at("pointermove", 498);
+  assert.equal(view.scrollLeft, 300, "a nudge is not a drag");
+  at("pointermove", 440);
+  assert.equal(view.scrollLeft, 360, "dragged left, it shows later days");
+  assert.ok(lane.classList.contains("dragging"));
+  at("pointermove", 560);
+  assert.equal(view.scrollLeft, 240);
+  at("pointerup", 560, { buttons: 0 });
+  assert.ok(!lane.classList.contains("dragging"));
+  at("pointermove", 300, { buttons: 0 });
+  assert.equal(view.scrollLeft, 240, "let go, it stays");
+  // a finger scrolls the browser's own way, and the right button never drags
+  at("pointerdown", 500, { pointerType: "touch" });
+  at("pointermove", 400, { pointerType: "touch" });
+  at("pointerdown", 500, { button: 2, buttons: 2 });
+  at("pointermove", 400, { buttons: 2 });
+  assert.equal(view.scrollLeft, 240);
 });
 
 test("each chart keeps its own place when the pill switches, and a refresh keeps it", async () => {
@@ -330,12 +471,13 @@ test("each chart keeps its own place when the pill switches, and a refresh keeps
   const stage = walk(root).find(n => n.className === "tk-stage");
   const [heat, line] = walk(root).filter(n => n.dataset.view);
   const view = () => stage.querySelector(".tk-scroll");
+  const room = W.geometry(W.VIEW_H).width - 540;
   await p.refresh();
-  assert.equal(view().scrollLeft, 229, "the heatmap opens on its latest weeks");
+  assert.equal(view().scrollLeft, room, "the heatmap opens on its latest weeks");
   scrollTo(view(), 100);
   line.click();
   assert.match(stage.innerHTML, /class="tk-line"/);
-  assert.equal(view().scrollLeft, 229, "the line opens on its own latest weeks, not where the heatmap was");
+  assert.equal(view().scrollLeft, room, "the line opens on its own latest weeks, not where the heatmap was");
   scrollTo(view(), 10);
   heat.click();
   assert.equal(view().scrollLeft, 100, "the heatmap is back where it was left");
@@ -348,53 +490,79 @@ test("each chart keeps its own place when the pill switches, and a refresh keeps
   const q = W.panel(again, { load: async () => data, store });
   await q.refresh();
   assert.equal(q.view(), "line");
-  assert.equal(walk(again).find(n => n.className === "tk-stage").querySelector(".tk-scroll").scrollLeft, 229);
+  assert.equal(walk(again).find(n => n.className === "tk-stage").querySelector(".tk-scroll").scrollLeft, room);
 });
 
-test("the box is narrower than the charts and taller than before, and scrolls them natively with no bar", () => {
+test("the box stands in the top right quarter, the charts fill it and scroll natively with no bar", () => {
   const { W } = widgets();
-  assert.deepEqual({ ...W.CHART }, { width: 769, height: 113 });
   const css = read("home-widgets.css").replace(/\/\*[\s\S]*?\*\//g, "");
   const rule = sel => {
-    const m = new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\{([^}]*)\\}").exec(css);
+    const m = new RegExp("(?:^|\\})\\s*" + sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\{([^}]*)\\}").exec(css);
     assert.ok(m, `no rule for ${sel}`);
     return m[1];
   };
   // never stretched to the panel: each svg keeps the width and height it is drawn with
   assert.doesNotMatch(rule(".tk-chart svg"), /width|height/);
   assert.match(rule(".tk-chart"), /width:max-content/);
-  // sideways scrolling the browser's own way, kept inside the lane
+  // sideways scrolling the browser's own way, kept inside the lane, which is
+  // the view's whole height so the pointer anywhere over a chart reaches it
   const scroll = rule(".tk-scroll");
+  assert.match(scroll, /height:100%/);
   assert.match(scroll, /overflow-x:auto/);
   assert.match(scroll, /overflow-y:hidden/);
   assert.match(scroll, /overscroll-behavior-x:contain/);
-  // no bar, the board's rule for every scroller, and no motion of its own
+  assert.match(rule(".tk-lane"), /height:100%/);
+  assert.doesNotMatch(rule(".tk-view"), /align-items|overflow/, "no band around the chart and no clip over the pinned names");
+  // no bar, the board's rule for every scroller, and no smooth scrolling;
+  // the only thing that moves on its own is the pill's seat
   assert.match(read("card-tokens.css"), /\*\{scrollbar-width:none\}\n\*::-webkit-scrollbar\{display:none\}/);
-  assert.doesNotMatch(css, /scrollbar|\bscroll-behavior|transition:[^;}]*(opacity|left|transform)/);
+  assert.doesNotMatch(css, /scrollbar|\bscroll-behavior/);
+  assert.equal([...css.matchAll(/transition:[^;}]*(opacity|left|transform)/g)].length, 1);
+  assert.match(rule(".tk-thumb"), /transition:transform \.28s var\(--gentle\)/);
   assert.doesNotMatch(WIDGETS, /smooth|scrollTo\(|scrollBy\(|requestAnimationFrame/);
+  // held and dragged with the mouse, the chart's names never picked up as text
+  assert.match(css, /\.tk-lane\.more-left \.tk-scroll, \.tk-lane\.more-right \.tk-scroll\{cursor:grab\}/);
+  assert.match(rule(".tk-lane.dragging .tk-scroll"), /cursor:grabbing/);
+  assert.match(rule(".tk-chart"), /user-select:none/);
   // a soft fade on each side with more, and the pinned names let the pointer through
   assert.match(css, /\.tk-lane\.more-left \.tk-pin::after, \.tk-lane\.more-right::after\{opacity:1\}/);
   assert.match(rule(".tk-pin"), /background:var\(--card\); pointer-events:none/);
-  // the box: 582 across, the view 192 tall, so with the panel's padding, its
-  // heading and its foot about 291 down, against the 840 by 223 it first was
+  // the box: centred on the top right quarter of the page's frame (the
+  // rectangle under the bar, its right edge at --ws-r), 70% of the quarter's
+  // width and height, so 35% of the frame's; the panel fills it
   const home = /body\.focus\.home #home\{([^}]*)\}/.exec(HTML)[1];
-  assert.match(home, /width:min\(582px, calc\(100vw - 64px\)\)/);
-  assert.match(home, /top:max\(calc\(var\(--bar-h\) \+ \(100vh - var\(--bar-h\)\) \* \.44\), calc\(var\(--bar-h\) \+ 162px\)\);/);
+  assert.match(home, /--home-l:var\(--app-inset\); --home-r:calc\(100vw - var\(--ws-r\)\);/);
+  assert.match(home, /--home-t:calc\(var\(--app-inset\) \+ var\(--bar-h\) - 1px - var\(--edge-drawn\)\);/);
+  assert.match(home, /--home-b:calc\(100vh - var\(--app-inset\)\);/);
+  assert.match(home, /left:calc\(var\(--home-l\) \* \.25 \+ var\(--home-r\) \* \.75\);/);
+  assert.match(home, /top:calc\(var\(--home-t\) \* \.75 \+ var\(--home-b\) \* \.25\);/);
+  assert.match(home, /width:calc\(\(var\(--home-r\) - var\(--home-l\)\) \* \.35\);/);
+  assert.match(home, /height:calc\(\(var\(--home-b\) - var\(--home-t\)\) \* \.35\);/);
   assert.match(home, /transform:translate\(-50%, -50%\)/);
-  assert.match(rule(".tk-view"), /height:192px/);
-  assert.match(rule(".tk-panel"), /padding:16px 20px 14px/);
-  // the line fills the view top to bottom, as wide as the heatmap so both
-  // scroll alike; the heatmap keeps its strip, its 10px names and its place
-  assert.deepEqual({ ...W.LINE_CHART }, { width: 769, height: 192 });
-  assert.match(rule(".tk-axis"), /font:400 10px var\(--sans\)/);
-  assert.match(rule(".tk-axis.line"), /font-size:12px/);
-  assert.match(rule(".tk-path"), /stroke-width:2\.5px/);
-  assert.ok(582 - 42 < W.LINE_CHART.width, "the line scrolls too rather than shrink");
-  const height = 16 + 14 + 41.6 + 192 + 26 + 1.6;
-  assert.ok(height > 223 && 582 < 840 && 582 / height < 2.05, "taller and narrower than the first box");
-  assert.ok(582 - 42 < W.CHART.width, "the view is narrower than the charts, so they scroll rather than shrink");
-  // the wait holds the view's height and the foot's, so the centred box never moves
-  assert.match(rule(".tk-wait"), /height:192px; margin-bottom:26px/);
+  // the frame the quarter is taken from is the one the page draws
+  const frame = /body\.focus #appframe\{([^}]*)\}/.exec(HTML.replace(/\/\*[\s\S]*?\*\//g, ""))[1];
+  assert.match(frame, /top:calc\(var\(--app-inset\) \+ var\(--bar-h\) - 1px - var\(--edge-drawn\)\);/);
+  assert.match(frame, /left:var\(--app-inset\); right:var\(--ws-r\); bottom:var\(--app-inset\);/);
+  assert.match(HTML, /body\.focus\.home #homeplot\{height:100%\}/);
+  // the panel is a column that fills a box with a height of its own, the view
+  // taking what the heading and foot leave; elsewhere the view is 200 tall
+  const panelRule = rule(".tk-panel");
+  assert.match(panelRule, /--tk-view-h:200px/);
+  assert.match(panelRule, /box-sizing:border-box; height:100%; display:flex; flex-direction:column/);
+  assert.match(panelRule, /padding:16px 20px 14px/);
+  assert.match(rule(".tk-stage"), /flex:1 1 auto; min-height:0; display:flex; flex-direction:column/);
+  assert.match(rule(".tk-view"), /flex:1 1 var\(--tk-view-h\); height:var\(--tk-view-h\); min-height:0/);
+  assert.match(rule(".tk-head"), /^flex:none/);
+  assert.match(rule(".tk-foot"), /^flex:none/);
+  assert.equal(W.VIEW_H, 200, "the widgets draw at the sheet's own view height until a view is measured");
+  // both charts' names at the panel's 12px; the day's line solid, its average dotted
+  assert.match(rule(".tk-axis"), /font:400 12px var\(--sans\)/);
+  assert.match(rule(".tk-path"), /stroke-width:1\.75px/);
+  assert.match(rule(".tk-avg"), /stroke-linecap:round/);
+  assert.match(rule(".tk-grid"), /stroke:#EFEBE5/);
+  // the wait holds the view's height and the foot's, so the box never moves
+  assert.match(rule(".tk-wait"), /flex:1 1 auto;/);
+  assert.match(rule(".tk-wait"), /height:calc\(var\(--tk-view-h\) \+ 26px\)/);
 });
 
 test("counts read short and the tips name the day", () => {
@@ -413,38 +581,42 @@ test("counts read short and the tips name the day", () => {
   assert.match(css, /\.tk-tip b\{font-weight:600; font-size:12px; line-height:16px\}/);
 });
 
-test("the line's tip leads with the average the dot shows, and no number on the line view passes its axis", () => {
+test("the line's tip names the day, its total and its 7-day average, and nothing on the line passes its axis", () => {
   const { W } = widgets();
-  // the owner's reading: Monday, Sep 21 alone was 1.35B, and its week averaged 616M a day
+  // Monday, Sep 21 alone was 1.35B, and its week averaged 616M a day
   const days = daysEnding("2026-09-27", 371,
     k => (k >= 358 && k <= 363 ? 493_666_667 : k === 364 ? 1.35e9 : 0));
   const model = W.lineModel(days);
-  assert.equal(model.top, 1e9, "the axis tops out at 1B, as in the owner's picture");
-  assert.match(W.linePin(model), />1B<\/text>/);
+  assert.equal(model.top, 1.5e9, "the axis ends at the next round tick past the busiest day, 1.35B");
+  assert.match(W.linePin(model), />1\.5B<\/text>/);
   const p = model.points.find(x => x.date === "2026-09-21");
-  assert.equal(W.lineTip(p), "<b>616M a day, 7-day average</b>" +
-    "<span>1.35B on Mon, Sep 21 alone</span><span>Averaged over Sep 15 to Sep 21, 2026</span>");
-  assert.ok(Math.abs(p.y - model.yAt(p.avg)) < 0.1, "the dot stands at the headline's number");
-  // on every day of the year the headline is the line's own value, which never
-  // passes the axis top; a day's own count, which can, only ever appears named
-  // as that one day, under the headline
+  const tip = W.lineTip(p);
+  assert.match(tip, /^<b>Mon, Sep 21, 2026<\/b>/);
+  const rows = [...tip.matchAll(/<span class="tk-row"><svg class="tk-key"[^>]*>.*?<\/svg>([^<]+)<em>([^<]+)<\/em><\/span>/g)]
+    .map(m => [m[1], m[2]]);
+  assert.deepEqual(rows, [["Daily", "1.35B"], ["7-day average", "616M"]]);
+  // each row's stroke is its line's: the day solid, the average dotted
+  assert.match(tip, new RegExp(`Daily.*stroke="${W.AVG_LINE}"[^>]*stroke-dasharray="${W.AVG_DASH}".*7-day average`));
+  assert.ok(Math.abs(p.y - model.yAt(p.total)) < 0.1 && Math.abs(p.ya - model.yAt(p.avg)) < 0.1,
+            "the two dots stand at the tip's two numbers");
+  // every day of the year: both numbers in the tip, both marks inside the axis
   for (const q of model.points) {
-    const tip = W.lineTip(q);
-    assert.equal(/^<b>([^<]*)<\/b>/.exec(tip)[1], `${W.compact(q.avg)} a day, 7-day average`);
-    assert.ok(q.avg <= model.top, `${q.date} stands above the axis`);
+    const t = W.lineTip(q);
+    assert.ok(t.includes(`Daily<em>${W.compact(q.total)}</em>`) && t.includes(`7-day average<em>${W.compact(q.avg)}</em>`));
+    assert.ok(q.total <= model.top && q.avg <= model.top, `${q.date} stands above the axis`);
     assert.equal(q.span, 7, "every day of the year averages a whole week");
-    assert.ok(tip.indexOf(`<span>${W.compact(q.total)} on `) > tip.indexOf("</b>"));
-    assert.ok(tip.includes(" alone</span>"));
   }
-  assert.ok(model.points.some(q => q.total > model.top), "the reading has a day above the axis to be careful of");
-  // a week that crosses the new year names both years
-  assert.match(W.lineTip(W.lineModel(daysEnding("2026-01-02", 371)).points.at(-1)),
-               /Averaged over Dec 27, 2025 to Jan 2, 2026<\/span>$/);
   // where a reading begins, the average says how few days it holds
   const short = W.lineModel(daysEnding("2026-09-27", 3, () => 3e6));
-  assert.equal(W.lineTip(short.points[0]),
-               "<b>3M a day, 1-day average</b><span>3M on Fri, Sep 25 alone</span><span>Averaged over Sep 25, 2026</span>");
-  assert.match(W.lineTip(short.points[2]), /^<b>3M a day, 3-day average<\/b>.*Averaged over Sep 25 to Sep 27, 2026/);
+  assert.match(W.lineTip(short.points[0]), /^<b>Fri, Sep 25, 2026<\/b>.*Daily<em>3M<\/em>.*1-day average<em>3M<\/em>/);
+  assert.match(W.lineTip(short.points[2]), /3-day average<em>3M<\/em>/);
+  // the legend under the line names both, beside the same strokes, and says what the axis counts
+  const doc = makeDocument();
+  const el = new El("div", doc);
+  W.drawLine(el, days);
+  const foot = /<div class="tk-foot">(.*?)<\/div>/.exec(el.innerHTML)[1];
+  assert.match(foot, /^<span class="tk-sum">Tokens per day<\/span><span class="tk-legend"><svg class="tk-key"/);
+  assert.equal(foot.replace(/<[^>]+>/g, ""), "Tokens per dayDaily7-day average");
 });
 
 // ---- the panel -----------------------------------------------------------------------------
@@ -459,9 +631,12 @@ test("one pill switches the panel between the two charts and the choice is remem
   assert.equal(box.className, "tk-panel", "one rectangle");
   const pills = walk(box).filter(n => n.className === "tk-pill");
   assert.equal(pills.length, 1, "one pill");
-  const opts = pills[0].children;
+  // a seat first, under the two names, which slides to the one showing
+  const [thumb, ...opts] = pills[0].children;
+  assert.deepEqual([thumb.tagName, thumb.className, thumb.textContent], ["SPAN", "tk-thumb", ""]);
   assert.deepEqual(opts.map(b => [b.tagName, b.type, b.dataset.view, b.textContent]),
                    [["BUTTON", "button", "heatmap", "Heatmap"], ["BUTTON", "button", "line", "Line"]]);
+  assert.equal(pills[0].dataset.on, "heatmap");
   const stage = walk(box).find(n => n.className === "tk-stage");
   const asking = p.refresh();
   assert.match(stage.textContent, /Counting tokens/);
@@ -476,6 +651,17 @@ test("one pill switches the panel between the two charts and the choice is remem
   opts[1].click();
   assert.deepEqual(pressed(), ["false", "true"]);
   assert.ok(!opts[0].classList.contains("on") && opts[1].classList.contains("on"));
+  assert.equal(pills[0].dataset.on, "line", "the seat is sent to the line");
+  // the seat is the pill's white; the names sit over it, one width each, and
+  // it slides one name's width and the gap between them on the board's curve,
+  // with no slide where motion is reduced
+  const sheet = read("home-widgets.css").replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.match(sheet, /\.tk-pill\{[^}]*position:relative; display:inline-grid; grid-template-columns:1fr 1fr;[^}]*gap:2px; padding:2px;/);
+  assert.match(sheet, /\.tk-thumb\{position:absolute; top:2px; bottom:2px; left:2px; width:calc\(\(100% - 6px\) \/ 2\);[^}]*background:var\(--card\);/);
+  assert.match(sheet, /\.tk-pill\[data-on="line"\] \.tk-thumb\{transform:translateX\(calc\(100% \+ 2px\)\)\}/);
+  assert.match(sheet, /@media \(prefers-reduced-motion: reduce\)\{ \.tk-thumb\{transition:none\} \}/);
+  assert.match(sheet, /\.tk-opt\{position:relative; z-index:1;[^}]*background:transparent;/);
+  assert.match(sheet, /\.tk-opt\.on\{color:var\(--ink\)\}/, "the name shown has no fill of its own; the seat is under it");
   assert.match(stage.innerHTML, /class="tk-line"/);
   assert.doesNotMatch(stage.innerHTML, /class="tk-heat"/);
   assert.equal(store.getItem("home.chart"), "line");
