@@ -327,10 +327,12 @@ function rowState(page, selector = ROW) {
   }, selector);
 }
 
-// the cards the list is showing, in the order it shows them, which is the order
-// the walking keys keep on both pages
+// the cards the list shows, in the order it shows them, which is the order the
+// walking keys keep on both pages. the phone draws its list only while the drawer
+// is on show, and opening it would take the caret out of the row, so the order
+// is read from the pool the list is drawn from
 function listOrder(page) {
-  return page.evaluate(() => [...document.querySelectorAll("#tiklist .trow")].map(row => row.dataset.id));
+  return page.evaluate(() => viewPool(lastState).map(b => b.id));
 }
 
 function shownCard(page) {

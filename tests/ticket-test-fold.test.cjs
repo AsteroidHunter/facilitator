@@ -219,6 +219,13 @@ class FakeElement {
   get textContent() { return this._text; }
   set textContent(v) { this._text = String(v ?? ""); this.children = []; }
   appendChild(child) { child.parentElement = this; this.children.push(child); return child; }
+  get firstElementChild() { return this.children[0] || null; }
+  insertBefore(child, ref) {
+    child.parentElement = this;
+    const at = ref ? this.children.indexOf(ref) : -1;
+    if (at < 0) this.children.push(child); else this.children.splice(at, 0, child);
+    return child;
+  }
   setAttribute() {}
   addEventListener() {}
   get offsetHeight() { return 40; }
@@ -265,11 +272,11 @@ const PAINT = {
   },
   "the phone": pool => {
     const paint = new Function("queueState", "cardState", "h", "seenReplies", "shortAge",
-      "SPIN_FRAMES", "spinFrame", "selectedId", "testReady", "appendOmniRowArt",
+      "SPIN_FRAMES", "spinFrame", "selectedId", "testReady", "appendOmniRowArt", "omniRowFace",
       `${functionSource(SURFACES["the phone"].html, "paintPhonePane", "renderTickets")}; return paintPhonePane;`,
-    )(queueState, cardState, h, {}, () => "5m", SPIN, 0, "none", testReady, appendOmniRowArt);
+    )(queueState, cardState, h, {}, () => "5m", SPIN, 0, "none", testReady, appendOmniRowArt, sandbox.omniRowFace);
     const pane = new FakeElement("div");
-    paint(pane, pool, "todo", "sig", { agents: {} });
+    paint(pane, pool, "todo", { agents: {} }, noop);
     return pane.children;
   },
   "the typed page": pool => {

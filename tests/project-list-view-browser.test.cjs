@@ -469,6 +469,8 @@ test("the phone: the drawer's tabs are one project's choice, not the phone's", a
     await page.evaluate(() => hideMenu(drawer));
     await settle(700);
     await tapTab(page, C);
+    await page.evaluate(() => showMenu(drawer));
+    await settle(700);
     await assertShowing(page, C, "todo", "a project the phone has picked nothing for");
     assert.deepEqual(problems, []);
   } finally {
