@@ -655,6 +655,7 @@
       C.EditorView.lineWrapping,
       C.EditorView.updateListener.of(update => {
         if (!update.docChanged) return;
+        field.edited = true;
         // the page is told inside the editor's own update, so anything it does
         // in answer must not reach back into the editor's measuring
         field.inUpdate = true;
@@ -794,6 +795,7 @@
           const text = next == null ? "" : String(next);
           if (text === view.state.doc.toString()) return;
           view.setState(freshState(field.C, field, text, text.length));
+          field.edited = false;
         },
       },
       selectionStart: { get: () => view.state.selection.main.from },
@@ -920,7 +922,7 @@
     const caret = hostSelection(field);
     const hadFocus = document.activeElement === ta;
     const parent = ta.parentNode;
-    const view = new C.EditorView({ state: freshState(C, field, text, caret), parent });
+    const view = new C.EditorView({ state: resumedState(C, field, text, caret), parent });
     parent.insertBefore(view.dom, ta.nextSibling);   // the row's own seat
     field.view = view;
     // the editor content is the field the reader actually focuses now, so it
@@ -995,10 +997,39 @@
     return true;
   }
 
-  function unmount(field) {
+  // The state a row put aside when its editor came off (unmount with keep),
+  // taken up again when the words are still the ones it was put aside with.
+  // The caret and pick come with it, unless something has moved the field's own
+  // selection since. Anything else starts afresh, as a field whose words were
+  // written into it always has.
+  function resumedState(C, field, text, caret) {
+    const parked = field.parked;
+    field.parked = null;
+    if (!parked || parked.state.doc.toString() !== text) {
+      field.edited = false;
+      return freshState(C, field, text, caret);
+    }
+    const held = parked.pick;
+    if (held.anchor === caret.anchor && held.head === caret.head) return parked.state;
+    const inside = n => Math.max(0, Math.min(n == null ? text.length : n, text.length));
+    return parked.state.update({
+      selection: { anchor: inside(caret.anchor), head: inside(caret.head) },
+    }).state;
+  }
+
+  // keep: the editor is coming off a row that will want it back (want(false)).
+  // Its state is put aside for that, and the page is not told the words
+  // changed, because they did not.
+  function unmount(field, keep) {
     if (!field.view) return;
     const view = field.view, hadFocus = hasCaret(view);
     const pick = view.state.selection.main;
+    // Only a row holding something to come back to keeps its state: words, or
+    // an edit that undo could bring back. An untouched empty row is the same
+    // row afresh, and several hundred of those are not held for nothing.
+    const parked = keep && (view.state.doc.length > 0 || field.edited)
+      ? view.state.update({ effects: awakeEffect.of(false) }).state : null;
+    field.parked = null;
     moveListeners(field, false);
     dropFace(field);
     field.view = null;
@@ -1032,16 +1063,23 @@
         restoreHostSelection(field, pick.from, pick.to, pick.anchor > pick.head);
       } catch (error) {}
     }
-    field.changed();
+    // what the field itself says is picked out once the editor is off, which is
+    // how a later mount tells a pick moved in between from one left alone
+    if (parked) field.parked = { state: parked, pick: hostSelection(field) };
+    if (!keep) field.changed();
   }
 
   // Putting the editor on is always one turn later than the call that asked
   // for it, even when the bundle is already here, so a page that builds a row
   // and then hangs its listeners on it has finished before anything moves.
+  // The one exception is want(true) on a held row, which a page asks for long
+  // after the row and its listeners are in place.
   const MOUNT_TRIES = 120;
   function applyMode(field) {
-    if (!enabled()) { unmount(field); return; }   // an ending, and an immediate one
-    if (field.view) return;
+    if (!enabled()) { field.parked = null; unmount(field); return; }   // an ending, and an immediate one
+    // a held row that has not been asked for its editor has no face to reach,
+    // and settled() owes nothing for it
+    if (field.view || !field.wanted) return;
     // this field is now on its way to a face, and settled() owes an answer for
     // it until it gets there. every path out of the work below gives that answer
     // back exactly once
@@ -1050,7 +1088,7 @@
       if (!ok) { noteSettling(-1); return; }
       let tries = 0;
       const go = () => {
-        if (!enabled() || field.dropped || field.view) { noteSettling(-1); return; }
+        if (!enabled() || field.dropped || field.view || !field.wanted) { noteSettling(-1); return; }
         if (!field.ta.parentNode && tries++ < MOUNT_TRIES) { requestAnimationFrame(go); return; }
         if (mount(field)) field.changed();
         noteSettling(-1);
@@ -1075,6 +1113,10 @@
       seat: null,
       inUpdate: false,     // the editor is in the middle of its own update
       scrollAsk: 0,        // which of the page's scroll writes is the latest
+      // a row attached held puts the editor on only once it is wanted (want)
+      wanted: !opts.held,
+      parked: null,        // the state a held row's editor put aside as it came off
+      edited: false,       // the editor changed the words since they were written in
       shellClass: opts.className || "cffield",
       // a line the page writes in keeps its words in textContent, not in value
       textValue: !!opts.textValue,
@@ -1135,8 +1177,27 @@
           last: head >= view.state.doc.length,
         };
       },
+      // For a row attached held: a page holding many rows and showing a few of
+      // them puts the editor on only those. want(true) puts it on in this same
+      // turn when the editor is already loaded, so a row can be shown or focused
+      // straight after and is already wearing its final face; while the editor
+      // is still on its way the row puts it on when it lands, and says so, as
+      // any row does. want(false) takes it off again, keeping the words in the
+      // field and the caret, pick and undo for the next want(true). Neither the
+      // same-turn mount nor the taking off tells the page the words changed.
+      // Answers whether the row is wearing the editor now.
+      want(on) {
+        this.wanted = !!on;
+        if (this.dropped) return false;
+        if (!on) { unmount(this, true); return false; }
+        if (this.view || !enabled()) return !!this.view;
+        if (window.CM6 && this.ta.parentNode) mount(this);
+        else applyMode(this);
+        return !!this.view;
+      },
       detach() {
         this.dropped = true;
+        this.parked = null;
         fields.delete(this);
         unmount(this);
       },
