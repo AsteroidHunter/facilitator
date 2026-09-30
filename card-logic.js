@@ -421,8 +421,10 @@ function queueState(b){ return b.parked ? cardState({ ...b, parked: false, state
 // quickNoteSession (which card a note attaches to) and quickNotesByCard (the
 // chip's grouping); in server.py _post_quicknote_new and _post_quicknote_attach
 // (the attach routes, which take a card id) and _remove_empty_meta_box (frees a
-// removed card's notes); in index.html syncQuickNoteChip (the note chip); and
-// the tests quick-note-refs.test.cjs and quick-notes.test.cjs
+// removed card's notes while QUICK_NOTES_ON is set); in parked/quick-note.js
+// syncQuickNoteChip (the note chip); and the tests quick-note-refs.test.cjs and
+// quick-notes.test.cjs. the quick note is hidden in this version and kept so it
+// can come back
 function ticketNum(id){
   const s = String(id == null ? "" : id);
   const m = /^m(\d+)$/.exec(s);
@@ -2917,6 +2919,8 @@ function syncSpinner(){
 // reading a reference out of the text, finding the card it names, what an edit
 // does to the attachment, the session that saves as the owner types, and the
 // overlay itself, so the phone can open the same element once it has a way in.
+// hidden in this version: no page builds the overlay or starts a session, and
+// the server answers 404 on every quick note route (QUICK_NOTES_ON, server.py).
 
 // the reference: card, card and a space, or c, then the number, standing as a
 // word of its own. a letter, digit or underscore on either side makes it part of
@@ -2928,7 +2932,7 @@ function syncSpinner(){
 // _migrate, and seeded ids as written in _seed_state), and the figure shown for
 // an id is ticketNum in this file (copied in page.html). when that numbering
 // changes, this parser, quickNoteCard below, the attach routes in server.py and
-// index.html syncQuickNoteChip have to change with it
+// parked/quick-note.js syncQuickNoteChip have to change with it
 const QUICK_NOTE_REF = /(^|[^\p{L}\p{N}_])(?:card[ \t\u00a0]*|c)(\d+)(?![\p{L}\p{N}_]|\.\d)/iu;
 function quickNoteRef(text){
   const m = QUICK_NOTE_REF.exec(String(text == null ? "" : text));

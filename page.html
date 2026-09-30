@@ -2734,7 +2734,8 @@ function queueState(b){ return b.parked ? cardState({ ...b, parked: false, state
 // notes attach by, so a change to it has to be carried into the quick note
 // system as well: card-logic.js ticketNum, quickNoteRef and QUICK_NOTE_REF (the
 // "card N" / "cN" parser) and quickNoteCard; server.py _post_quicknote_new and
-// _post_quicknote_attach; index.html syncQuickNoteChip (the note chip)
+// _post_quicknote_attach; parked/quick-note.js syncQuickNoteChip (the note
+// chip). the quick note is hidden in this version and kept so it can come back
 function ticketNum(id){
   const s = String(id == null ? "" : id);
   const m = /^m(\d+)$/.exec(s);

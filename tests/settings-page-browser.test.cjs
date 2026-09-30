@@ -255,8 +255,15 @@ test("wide: the gear opens one page, centred at about 70% of the window, in the 
   const { page, problems } = await open("/", OWNER);
   try {
     assert.equal(await shown(page, ".sp-page"), false, "the page was already on show");
-    // the quick note's dress in this same window, to set the page's against
-    await page.evaluate(() => quickNote.open(null, document.querySelector(".qnpeek").getBoundingClientRect()));
+    // the quick note's dress in this same window, to set the page's against. the
+    // quick note is hidden in this version, so the shared overlay is built here
+    await page.evaluate(() => quickNoteOverlay(document.body, {
+      fetch: async () => ({ ok: true, json: async () => ({ notes: [] }) }),
+      storage: localStorage,
+      boxes: () => [],
+      schedule: (fn, ms) => setTimeout(fn, ms),
+      cancel: id => clearTimeout(id),
+    }).open());
     await page.waitForFunction(() => document.querySelector(".qn-veil.open:not(.sp-veil)"), { timeout: 5000 });
     await settle(500);
     const dress = selector => page.evaluate(sel => {
