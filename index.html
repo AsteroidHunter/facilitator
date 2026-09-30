@@ -95,7 +95,11 @@
      covers the whole window (the settings page in card-tokens.css). the swatch
      is the background colour's control, which sits on that page */
   #setbtn{display:flex; align-items:center; padding:2px; border:none; flex:none;
-    background:none; color:var(--sub); cursor:pointer; transition:color .2s}
+    background:none; color:var(--sub); cursor:pointer; transition:color .2s;
+    /* pulled out past the bar's right padding and the window's inset, so the gear
+       is centred on the toolbar's icon column (--tb-w wide, 19px buttons) above
+       the first tool; the pen and the install control follow it leftward */
+    margin-right:calc((var(--tb-w) - 19px) / 2 - 20px - var(--app-inset))}
   #setbtn:hover, body.setopen #setbtn{color:var(--accent)}
 
   /* ---- the app's enclosure ----------------------------------------------- */

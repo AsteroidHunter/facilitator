@@ -72,6 +72,8 @@ test("the toolbar sits right of the frame on every tab and on the home page", as
       assert.ok(g.button.x >= g.frame.right, `${label}: the button sits outside the frame`);
       assert.ok(g.button.right <= VIEW.width, `${label}: the button is inside the window`);
       assert.ok(g.button.y > g.bar.gear.bottom, `${label}: the button is under the top bar's items`);
+      near(g.bar.gear.x + g.bar.gear.w / 2, g.button.x + g.button.w / 2, `${label}: the gear is centred over the toolbar's icon column`);
+      near(g.bar.pen.x + g.bar.pen.w + 14, g.bar.gear.x, `${label}: the pen sits 14px left of the gear`);
       assert.equal(shown.buttons, 1, label + ": the notes button is the only one");
       assert.equal(shown.text, "", label + ": the toolbar carries no text");
       assert.equal(shown.title, null, label + ": no tooltip");
