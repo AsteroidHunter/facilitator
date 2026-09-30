@@ -4,70 +4,91 @@
    .tk-panel, so the panel can be set down on any page that loads both. */
 
 /* the panel: one white rectangle on the paper, with the board's edge and the
-   7px corner of the things let into the board */
+   7px corner of the things let into the board. it is a column: the heading,
+   then the chart's view, then its foot. set down in a box with a height of
+   its own the panel fills it and the view takes whatever the heading and the
+   foot leave; anywhere else the view is --tk-view-h tall and the panel hugs it */
 .tk-panel{
+  --tk-view-h:200px;
+  box-sizing:border-box; height:100%; display:flex; flex-direction:column;
   background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
   box-shadow:0 1px 3px rgba(60,45,20,.07);
   padding:16px 20px 14px; color:var(--ink); font:400 12px/16px var(--sans);
 }
-.tk-head{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px}
-.tk-title{display:flex; align-items:baseline; gap:10px; min-width:0}
+.tk-head{flex:none; display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px}
+/* what the panel counts goes under its name when the two do not fit on one line */
+.tk-title{display:flex; flex-wrap:wrap; align-items:baseline; column-gap:10px; row-gap:0; min-width:0}
 .tk-name{font:600 14px/18px var(--sans); color:var(--ink)}
 .tk-what{color:var(--sub); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
 
 /* the pill: the page switcher's small rounded rectangle on the paper, holding
-   two names; the one showing is seated in white the way the open project tab
-   is, and a press sinks the name with the ticket names' own shade */
-.tk-pill{flex:none; display:inline-flex; gap:2px; padding:2px; border-radius:7px;
+   two names of one width. the one showing sits on a white seat the way the
+   open project tab does, and the seat slides under the other name when that
+   one is pressed, on the board's own curve; a press sinks the name with the
+   ticket names' own shade */
+.tk-pill{flex:none; position:relative; display:inline-grid; grid-template-columns:1fr 1fr;
+  gap:2px; padding:2px; border-radius:7px;
   background:color-mix(in srgb, var(--paper) 92%, #fff 8%);
   border:var(--edge) solid var(--line)}
-.tk-opt{font:500 12px/16px var(--sans); color:var(--sub); background:transparent;
+.tk-thumb{position:absolute; top:2px; bottom:2px; left:2px; width:calc((100% - 6px) / 2);
+  border-radius:5px; background:var(--card); box-shadow:0 1px 2px rgba(60,45,20,.14);
+  transition:transform .28s var(--gentle); pointer-events:none}
+.tk-pill[data-on="line"] .tk-thumb{transform:translateX(calc(100% + 2px))}
+.tk-opt{position:relative; z-index:1; font:500 12px/16px var(--sans); color:var(--sub); background:transparent;
   border:none; border-radius:5px; padding:3px 11px; cursor:pointer;
   box-shadow:inset 0 0 0 rgba(60,45,20,0), inset 0 0 0 rgba(60,45,20,0);
-  transition:color .18s, background-color .18s, box-shadow .16s ease-out}
+  transition:color .18s, box-shadow .16s ease-out}
 .tk-opt:hover{color:var(--ink)}
-.tk-opt.on{color:var(--ink); background:var(--card); box-shadow:0 1px 2px rgba(60,45,20,.14)}
+.tk-opt.on{color:var(--ink)}
 .tk-opt:active{
   box-shadow:inset 0 1.8px 4.2px rgba(60,45,20,.132), inset 0 .6px 1.2px rgba(60,45,20,.084);
   transition:color .18s, box-shadow .08s ease-in}
 .tk-opt:focus-visible{outline:1.5px solid var(--accent); outline-offset:1px}
+@media (prefers-reduced-motion: reduce){ .tk-thumb{transition:none} }
 
-/* the charts keep their own size, one unit to a pixel (the heatmap 769 by
-   113, the line 769 by 192), and are never stretched or squeezed to the
-   panel. the view around them is 192px tall, the line's own height, and holds
-   the heatmap in its middle, so the panel is one height for both charts; a
-   panel narrower than the chart scrolls it sideways the native way,
-   with no bar (the board's own rule in card-tokens.css) and no motion of its
-   own. overscroll stays in the lane, so a swipe past either end never pages
-   the window back */
-.tk-stage{position:relative}
-.tk-view{height:192px; display:flex; align-items:center}
-.tk-lane{position:relative; width:100%}
-.tk-scroll{overflow-x:auto; overflow-y:hidden; overscroll-behavior-x:contain}
-.tk-chart{width:max-content}
+/* the charts are drawn to the view's height (home-widgets.js) and never
+   stretched or squeezed to it. the lane is the view's whole height, so the
+   pointer anywhere over the chart reaches it, and a view narrower than the
+   chart scrolls it sideways, with no bar (the board's own rule in
+   card-tokens.css). overscroll stays in the lane, so a swipe past either end
+   never pages the window back. the mouse can drag it, and the chart's names
+   are never picked up as text on the way */
+.tk-stage{position:relative; flex:1 1 auto; min-height:0; display:flex; flex-direction:column}
+.tk-view{flex:1 1 var(--tk-view-h); height:var(--tk-view-h); min-height:0}
+.tk-lane{position:relative; width:100%; height:100%}
+.tk-scroll{height:100%; overflow-x:auto; overflow-y:hidden; overscroll-behavior-x:contain}
+.tk-lane.more-left .tk-scroll, .tk-lane.more-right .tk-scroll{cursor:grab}
+.tk-lane.dragging .tk-scroll{cursor:grabbing}
+.tk-chart{width:max-content; user-select:none; -webkit-user-select:none}
 .tk-chart svg{display:block; overflow:visible}
 /* the axis names stay over the lane's left edge while the chart passes under
-   them, on the panel's own white; the pointer goes through to the lane */
-.tk-pin{position:absolute; left:0; top:0; bottom:0; background:var(--card); pointer-events:none}
+   them, on the panel's own white; the pointer goes through to the lane. the
+   white reaches 2px past the lane's edge, and the fade starts 1px inside the
+   names' own edge, so a panel set down between pixels shows no sliver of the
+   chart at either edge */
+.tk-pin{position:absolute; left:0; top:0; bottom:0; background:var(--card); pointer-events:none;
+  box-shadow:-2px 0 0 var(--card)}
 .tk-pin svg{display:block; overflow:visible}
 /* a soft 24px fade on each side that has more to see: right of the pinned
    names once the chart has moved under them, and at the right edge until the
    latest end is in view */
 .tk-pin::after, .tk-lane::after{content:""; position:absolute; top:0; bottom:0; width:24px;
   pointer-events:none; opacity:0}
-.tk-pin::after{left:100%; background:linear-gradient(to right, var(--card), rgba(255,255,255,0))}
+.tk-pin::after{left:calc(100% - 1px); background:linear-gradient(to right, var(--card), rgba(255,255,255,0))}
 .tk-lane::after{right:0; background:linear-gradient(to left, var(--card), rgba(255,255,255,0))}
 .tk-lane.more-left .tk-pin::after, .tk-lane.more-right::after{opacity:1}
-.tk-axis{font:400 10px var(--sans); fill:var(--sub)}
-/* the line's counts and months at the panel's own 12px, read without leaning in */
-.tk-axis.line{font-size:12px}
+/* both charts' names at the panel's own 12px, read without leaning in */
+.tk-axis{font:400 12px var(--sans); fill:var(--sub)}
 .tk-day{stroke:rgba(60,45,20,.05); stroke-width:.6px}
-.tk-day.hot{stroke:var(--ink); stroke-width:1px}
+.tk-day.hot{stroke:var(--ink); stroke-width:1.2px}
+/* the line: light gridlines at each count, the floor and the month ticks in
+   the board's edge grey, the day's line solid and its average in dots */
 .tk-grid{stroke:#EFEBE5; stroke-width:1px}
-.tk-path{stroke-width:2.5px; stroke-linejoin:round; stroke-linecap:round}
+.tk-base, .tk-tick{stroke:var(--line); stroke-width:1px}
+.tk-path{stroke-width:1.75px; stroke-linejoin:round; stroke-linecap:round}
+.tk-avg{stroke-width:2.8px; stroke-linecap:round; stroke-linejoin:round}
 .tk-guide{stroke:var(--line); stroke-width:1px}
-.tk-dot{stroke:#FFFFFF; stroke-width:2px}
-.tk-foot{display:flex; align-items:center; justify-content:space-between; gap:12px;
+.tk-foot{flex:none; display:flex; align-items:center; justify-content:space-between; gap:12px;
   margin-top:10px; color:var(--sub)}
 .tk-sum b{color:var(--ink); font-weight:600}
 .tk-legend{display:inline-flex; align-items:center; gap:3px}
@@ -75,6 +96,8 @@
   box-shadow:inset 0 0 0 .6px rgba(60,45,20,.05)}
 .tk-legend i:first-of-type{margin-left:5px}
 .tk-legend i:last-of-type{margin-right:5px}
+.tk-key{display:block; flex:none}
+.tk-legend .tk-key ~ .tk-key{margin-left:10px}
 
 /* the hover tip: ink on the paper, never in the pointer's way */
 .tk-tip{position:absolute; z-index:2; pointer-events:none; white-space:nowrap;
@@ -82,14 +105,17 @@
   background:var(--ink); color:#FFFFFF; font:400 11px/15px var(--sans);
   box-shadow:0 2px 8px rgba(33,29,23,.22)}
 .tk-tip[hidden]{display:none}
-/* the headline a size up from the lines under it, so the number the chart
-   shows reads first and the rest reads as detail */
+/* the headline a size up from the lines under it, so it reads first and the
+   rest reads as detail; the line's rows set each number to the right of its
+   line's stroke and name */
 .tk-tip b{font-weight:600; font-size:12px; line-height:16px}
 .tk-tip span{color:rgba(255,255,255,.72)}
+.tk-tip .tk-row{display:flex; align-items:center; gap:4px; margin-top:2px}
+.tk-tip .tk-row em{font-style:normal; font-weight:600; color:#FFFFFF; margin-left:auto; padding-left:14px}
 
-/* the wait takes the view's height and the foot's 26px under it, so the
-   centred panel is its finished size from the first frame and never moves */
-.tk-wait{display:flex; align-items:center; justify-content:center;
-  height:192px; margin-bottom:26px; color:var(--sub)}
-.tk-note{margin-top:8px; color:var(--sub)}
+/* the wait takes the view's place and the foot's 26px under it, so the
+   panel is its finished size from the first frame and never moves */
+.tk-wait{flex:1 1 auto; display:flex; align-items:center; justify-content:center;
+  height:calc(var(--tk-view-h) + 26px); min-height:0; color:var(--sub)}
+.tk-note{flex:none; margin-top:8px; color:var(--sub)}
 .tk-note:empty{display:none}
