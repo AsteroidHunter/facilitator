@@ -320,17 +320,17 @@ test("the browsed ticket and card give up the selected drop shadow, as the sheet
   assert.match(selected, /transform:translateY\(-1px\)/);
   assert.match(selected, /box-shadow:0 2px 18px rgba\(60,45,20,\.18\), 0 1px 3px rgba\(60,45,20,\.10\)/);
   // browsed: no lift and only the resting shade every row has, drawn as the
-  // filter a folded row draws its own with, so one rule covers both, plus a
-  // pale ring
+  // filter a folded row draws its own with, so one rule covers both, and no ring
   const browsed = rule("body.browsing .trow.on");
   assert.match(browsed, /transform:none/);
   assert.match(browsed, /box-shadow:none/);
   assert.match(browsed, /filter:drop-shadow\(0 1px 4px rgba\(60,45,20,\.05\)\)/);
   assert.doesNotMatch(browsed, /18px/, "the browsed ticket still casts the selected shadow");
-  assert.match(browsed, /outline:2px solid var\(--accent-soft\)/);
+  assert.doesNotMatch(browsed, /outline/, "the browsed ticket is drawn with a ring");
   assert.match(css, /\n  \.trow\{[^}]*box-shadow:0 1px 4px rgba\(60,45,20,\.05\)/, "the resting row shade is not the one named");
-  // and the large card settles the way it does for the small card
-  assert.match(css, /body\.focus\.minifocus main, body\.focus\.browsing main\{box-shadow:0 2px 18px rgba\(60,45,20,\.06\)\}/);
+  // and the large card sits level with the board, its edge line kept
+  assert.match(rule("body.focus.browsing main"), /box-shadow:none/);
+  assert.match(css, /body\.focus\.minifocus main\{box-shadow:0 2px 18px rgba\(60,45,20,\.06\)\}/);
 });
 
 test("Enter selects the browsed card where it stands, reads it and puts the caret in its composer", async () => {
@@ -741,7 +741,7 @@ test("the browsing look is drawn only on the board, which the home page hides", 
   // the two browsing rules paint the ticket and the card frame alone
   const rules = css.match(/^[^\n{]*\.browsing[^\n{]*\{/gm) || [];
   assert.deepEqual(rules.map(r => r.trim()),
-    ["body.focus.minifocus main, body.focus.browsing main{", "body.browsing .trow.on{"]);
+    ["body.focus.browsing main{", "body.browsing .trow.on{"]);
   // both stand on the stage, and home hides the stage
   const at = marker => { const i = css.indexOf(marker); assert.ok(i >= 0, marker); return i; };
   assert.ok(at('<div id="stage">') < at('<div id="tickets">') && at('<div id="tickets">') < at("\n<main>"));

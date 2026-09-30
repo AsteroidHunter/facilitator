@@ -676,9 +676,12 @@
        from behind the card and still has to stand over the boxes beside it */
     z-index:1;
   }
-  /* and it settles the same way while the card on screen is only browsed to
-     with the arrow keys and not selected: the selected card alone stands up */
-  body.focus.minifocus main, body.focus.browsing main{box-shadow:0 2px 18px rgba(60,45,20,.06)}
+  /* it settles while the composer in magic box 2 holds the keys */
+  body.focus.minifocus main{box-shadow:0 2px 18px rgba(60,45,20,.06)}
+  /* and it sits level with the board while the card on screen is only browsed
+     to with the arrow keys and not selected: the selected card alone stands
+     up. its edge line stays */
+  body.focus.browsing main{box-shadow:none}
   body.focus #sections{width:100%; max-width:100%; flex:1; display:flex; flex-direction:column}
   body.focus #sections > div:not(.bucket){display:contents}
   body.focus .bucket, body.focus .addrow{display:none}
@@ -1519,12 +1522,11 @@
     border-right:var(--edge) solid var(--line)}
   .trow.on .tt{font-weight:600}
   /* a ticket browsed to and not selected keeps its place in the list: no lift
-     and no shade, only the resting one every row has, and the pale ring the
-     board already marks a chosen dot with. the resting shade is drawn the way
-     a folded row draws its own, as a filter, so this one rule serves a folded
-     row and a plain one alike */
+     and no shade, only the resting one every row has. the resting shade is
+     drawn the way a folded row draws its own, as a filter, so this one rule
+     serves a folded row and a plain one alike */
   body.browsing .trow.on{transform:none; box-shadow:none;
-    filter:drop-shadow(0 1px 4px rgba(60,45,20,.05)); outline:2px solid var(--accent-soft)}
+    filter:drop-shadow(0 1px 4px rgba(60,45,20,.05))}
   /* magic stubs, contents to be explained */
   #magic1, #magic2, #magic3, #magic4{position:fixed; border:var(--edge) dashed var(--line); border-radius:7px;
     background:#fff;
