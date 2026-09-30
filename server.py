@@ -157,7 +157,11 @@ Endpoints:
                                the board and the phone page carry in common
   GET  /compose-format.js   -> the composer's typed formatting: the setting,
                                and the editor layer the card pages put over a
-                               composer while it is on
+                               composer while it is on. The board's default
+                               for a browser with no stored choice, from
+                               run.config.json's compose_format_default (off
+                               when the key is missing), is written in front
+                               of the file as it goes out
   GET  /home-widgets.js, /home-widgets.css -> the home page's token panel: its
                                heatmap and line chart, the pill that switches
                                them, and their sheet, fetched by the board the
@@ -645,6 +649,19 @@ def _spotify_client_id() -> str:
     return str(cfg.get("spotify_client_id") or "").strip()
 
 
+def _compose_format_default() -> bool:
+    """Whether formatting while typing starts on in a browser that has stored no
+    choice of its own, read from run.config.json (machine-local, gitignored)
+    under `compose_format_default`. Only true turns it on: a missing key, a
+    missing file or any other value leaves it off. A browser's own stored
+    choice always wins over this."""
+    try:
+        cfg = json.loads((HERE / "run.config.json").read_text())
+    except Exception:
+        return False
+    return isinstance(cfg, dict) and cfg.get("compose_format_default") is True
+
+
 class DatedRotatingHandler(logging.handlers.RotatingFileHandler):
     """A file per day per kind, capped by size and pruned by count.
 
@@ -763,6 +780,7 @@ class HumanLineFormatter(logging.Formatter):
 LOG_LEVEL = _configured_level()
 IMAGE_PANEL_LANE = _image_panel_lane()
 SPOTIFY_CLIENT_ID = _spotify_client_id()
+COMPOSE_FORMAT_DEFAULT = _compose_format_default()
 LOGGER = logging.getLogger("facilitator")
 LOGGER.setLevel(LOG_LEVELS[LOG_LEVEL])
 LOGGER.propagate = False
@@ -3589,6 +3607,17 @@ def _get_page(q: Query, _):
     return 200, (HERE / "page.html").read_bytes(), "text/html; charset=utf-8"
 
 
+def _get_compose_format(q: Query, _):
+    # the composer's file with the board's default written in front of it on the
+    # same line, so every page knows it before its first composer is built and
+    # the file's line numbers stay the file's own
+    p = HERE / "compose-format.js"
+    if not p.is_file():
+        return 404, {"error": "not found"}
+    lead = b"globalThis.COMPOSE_FORMAT_DEFAULT=" + (b"true" if COMPOSE_FORMAT_DEFAULT else b"false") + b";"
+    return 200, lead + p.read_bytes(), "application/javascript; charset=utf-8"
+
+
 def _sweep_clocks() -> None:
     """The two lazy clocks a reading runs before it answers: the unconfirmed
     hand-off clock and the working-flag heartbeat. Callers hold _lock. Either
@@ -6184,7 +6213,7 @@ ROUTES = [
     Route("/card-markdown.js", _static("card-markdown.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/card-tokens.css", _static("card-tokens.css", "text/css; charset=utf-8"), methods=["GET"]),
     Route("/card-logic.js", _static("card-logic.js", "application/javascript; charset=utf-8"), methods=["GET"]),
-    Route("/compose-format.js", _static("compose-format.js", "application/javascript; charset=utf-8"), methods=["GET"]),
+    Route("/compose-format.js", _endpoint(_get_compose_format), methods=["GET"]),
     Route("/card-report.js", _static("card-report.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/home-widgets.js", _static("home-widgets.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/home-widgets.css", _static("home-widgets.css", "text/css; charset=utf-8"), methods=["GET"]),

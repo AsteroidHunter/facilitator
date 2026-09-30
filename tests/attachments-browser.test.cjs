@@ -106,7 +106,8 @@ before(async () => {
     { id: "q", bucket: "meta", title: "Fixture chat", owner: "qchat", context: "Invented chat" },
     { id: "1.1", bucket: "now", title: "Fixture lane", owner: "pastureland", context: "Invented lane" },
   ] }));
-  await writeFile(path.join(app, "run.config.json"), JSON.stringify({ lanes: [{ owner: "facilitator", dir: app }] }));
+  await writeFile(path.join(app, "run.config.json"), JSON.stringify({
+    compose_format_default: true, lanes: [{ owner: "facilitator", dir: app }] }));
   await mkdir(path.join(app, "facilitator-internal"));
   await writeFile(path.join(app, "facilitator-internal", "lane.png"), PNG);
   await writeFile(path.join(app, "facilitator-internal", "lane.pdf"), PDF);

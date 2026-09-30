@@ -208,6 +208,9 @@ before(async () => {
   for (const name of await readdir(path.join(ROOT, "assets"))) {
     await copyFile(path.join(ROOT, "assets", name), path.join(fixtureDir, "assets", name));
   }
+  // a board that has formatting on for a browser that has chosen nothing; the
+  // default a board ships with is off and is covered by the format-default checks
+  await writeFile(path.join(fixtureDir, "run.config.json"), JSON.stringify({ compose_format_default: true }));
   await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
     title: "compose formatting fixture",
     items: [
@@ -351,7 +354,7 @@ test("a quote bar, bullets, a carried marker and an empty bullet that ends the l
   }
 });
 
-test("the setting is on by default, turns off to a plain field and keeps the draft either way", async () => {
+test("the setting follows a board that turns it on, turns off to a plain field and keeps the draft either way", async () => {
   await clearLane();
   const id = await card("Desktop setting", "A reply to answer.");
   const { page, problems } = await open("/", DESKTOP);
@@ -362,7 +365,7 @@ test("the setting is on by default, turns off to a plain field and keeps the dra
     assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), null,
       "the setting wrote itself down before anybody touched it");
     assert.equal(await page.evaluate(() => ComposeFormat.enabled()), true,
-      "the setting did not stand on by default");
+      "the setting did not stand on from the board's default");
     assert.equal(await page.evaluate(() => document.getElementById("setformat").checked), true,
       "the settings panel did not show the setting on");
 

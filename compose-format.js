@@ -2,9 +2,11 @@
  * Format text while typing: the card composer draws its own Markdown as it is
  * written, and still sends the Markdown itself.
  *
- * The setting is on by default and lives in localStorage, the way every other
- * per-browser choice on the board does. Off, the composer is the plain
- * textarea it has always been and not one line of this file runs on it.
+ * The setting lives in localStorage, the way every other per-browser choice on
+ * the board does. A browser that has stored no choice starts as the board says,
+ * and a board that says nothing starts it off: see boardDefault. Off, the
+ * composer is the plain textarea it has always been and not one line of this
+ * file runs on it.
  *
  * What it draws, and nothing else: one star is italic, two are bold, two tildes
  * on either side are a strike, a leading angle AND THE SPACE AFTER IT are a
@@ -53,7 +55,7 @@
 })(typeof globalThis === "object" ? globalThis : this, function composeFormatFactory() {
   "use strict";
 
-  const STORE_KEY = "composeformat";   // "1" on, "0" off, absent means on
+  const STORE_KEY = "composeformat";   // "1" on, "0" off, absent means the board's default
   const BUNDLE_URL = "/cm-markdown.js";
 
   const fields = new Set();
@@ -93,11 +95,19 @@
   function available() { return !bundleFailed; }
 
   // ---- the setting ----------------------------------------------------------
+  // The server writes the board's choice in front of this file when it serves
+  // it (compose_format_default in run.config.json), so it is known before the
+  // first composer is built. A copy loaded any other way carries none, and that
+  // is off.
+  function boardDefault() {
+    return globalThis.COMPOSE_FORMAT_DEFAULT === true;
+  }
+
   function enabled() {
     try {
       const raw = localStorage.getItem(STORE_KEY);
-      return raw == null ? true : raw !== "0";
-    } catch (error) { return true; }
+      return raw == null ? boardDefault() : raw !== "0";
+    } catch (error) { return boardDefault(); }
   }
 
   function setEnabled(on) {

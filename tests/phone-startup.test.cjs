@@ -164,6 +164,10 @@ async function startFixture() {
   };
   const files = new Map();
   for (const name of PAGE_FILES) files.set("/" + name, await readFile(path.join(ROOT, name)));
+  // a board whose default has typed formatting on: the server writes this ahead
+  // of the file, and the readiness checks below need the editor to be coming
+  files.set("/compose-format.js", Buffer.concat([
+    Buffer.from("globalThis.COMPOSE_FORMAT_DEFAULT=true;"), files.get("/compose-format.js")]));
   const editorSource = await readFile(path.join(ROOT, EDITOR_FILE));
   const manifest = await readFile(path.join(ROOT, "m-manifest.json"));
 
@@ -1130,7 +1134,7 @@ test("a picture whose loading ended in failure is finished, and holds nothing up
 });
 
 // ---- readiness: the typing row's own two faces ---------------------------------------
-// The composer's typed formatting is on by default, and the row wears it only
+// On a board that has the composer's typed formatting on, the row wears it only
 // once the vendored editor has landed. That file is fetched on its own, so a
 // board can be drawn and still while the row is the plain field it started as,
 // and the swap that follows changes the row's height. A curtain lifted in

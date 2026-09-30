@@ -1445,7 +1445,7 @@ function makeBox(b){
   box.appendChild(liftclip);
   document.getElementById("cards").appendChild(box);
 
-  // the row's typed formatting, on unless the setting says otherwise. it is
+  // the row's typed formatting, on when the setting says so. it is
   // wired before anything is hung on the field, because the field keeps one
   // public face whichever of the two it is wearing and the handle is what
   // carries a listener across a change of face. what counts as a new line here
@@ -3667,16 +3667,16 @@ async function startupRendered(){
   if (startupLifted || startupDrew || !curtain) return;
   startupDrew = true;
   // THE ROW THE READER WILL TYPE IN HAS TWO FACES. With the typed-formatting
-  // setting on, which is its standing state, the composer starts as the plain
-  // field and puts the editor on when the vendored bundle lands, which is a
-  // file of its own and can land after this board has been drawn. A curtain
-  // lifted before that swap would hand over a card whose row then changes
-  // height under the reader, which is the one thing this gate exists to
-  // prevent. So the swap is waited for by name, on the same terms as
-  // everything else here: settled() answers when the row has taken its final
-  // face, which is the editor mounted, the setting off, or the editor not
-  // available at all. It carries no clock, so a bundle still on its way keeps
-  // the curtain and a bundle that cannot be had lets it go.
+  // setting on, the composer starts as the plain field and puts the editor on
+  // when the vendored bundle lands, which is a file of its own and can land
+  // after this board has been drawn. A curtain lifted before that swap would
+  // hand over a card whose row then changes height under the reader, which is
+  // the one thing this gate exists to prevent. So the swap is waited for by
+  // name, on the same terms as everything else here: settled() answers when
+  // the row has taken its final face, which is the editor mounted, the setting
+  // off, or the editor not available at all. It carries no clock, so a bundle
+  // still on its way keeps the curtain and a bundle that cannot be had lets it
+  // go.
   if (typeof ComposeFormat === "object" && ComposeFormat) {
     try { await ComposeFormat.settled(); } catch (e) {}
   }
