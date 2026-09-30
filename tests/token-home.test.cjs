@@ -528,10 +528,10 @@ test("the box stands in the top right quarter, the charts fill it and scroll nat
   assert.match(css, /\.tk-lane\.more-left \.tk-pin::after, \.tk-lane\.more-right::after\{opacity:1\}/);
   assert.match(rule(".tk-pin"), /background:var\(--card\); pointer-events:none/);
   // the box: centred on the top right quarter of the page's frame (the
-  // rectangle under the bar, its right edge at --ws-r), 70% of the quarter's
+  // rectangle under the bar, inset --app-inset each side), 70% of the quarter's
   // width and height, so 35% of the frame's; the panel fills it
   const home = /body\.focus\.home #home\{([^}]*)\}/.exec(HTML)[1];
-  assert.match(home, /--home-l:var\(--app-inset\); --home-r:calc\(100vw - var\(--ws-r\)\);/);
+  assert.match(home, /--home-l:var\(--app-inset\); --home-r:calc\(100vw - var\(--app-inset\)\);/);
   assert.match(home, /--home-t:calc\(var\(--app-inset\) \+ var\(--bar-h\) - 1px - var\(--edge-drawn\)\);/);
   assert.match(home, /--home-b:calc\(100vh - var\(--app-inset\)\);/);
   assert.match(home, /left:calc\(var\(--home-l\) \* \.25 \+ var\(--home-r\) \* \.75\);/);
@@ -542,7 +542,7 @@ test("the box stands in the top right quarter, the charts fill it and scroll nat
   // the frame the quarter is taken from is the one the page draws
   const frame = /body\.focus #appframe\{([^}]*)\}/.exec(HTML.replace(/\/\*[\s\S]*?\*\//g, ""))[1];
   assert.match(frame, /top:calc\(var\(--app-inset\) \+ var\(--bar-h\) - 1px - var\(--edge-drawn\)\);/);
-  assert.match(frame, /left:var\(--app-inset\); right:var\(--ws-r\); bottom:var\(--app-inset\);/);
+  assert.match(frame, /left:var\(--app-inset\); right:var\(--app-inset\); bottom:var\(--app-inset\);/);
   assert.match(HTML, /body\.focus\.home #homeplot\{height:100%\}/);
   // the panel is a column that fills a box with a height of its own, the view
   // taking what the heading and foot leave; elsewhere the view is 200 tall
