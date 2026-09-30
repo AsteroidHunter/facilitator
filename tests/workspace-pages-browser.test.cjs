@@ -647,12 +647,11 @@ test("the board's own keys are dead on a blank page and while the question is up
     await clickPlus(page);
     const selected = await page.evaluate(() => selectedId);
 
-    // a new card, a closed card and a walked selection are all the board's, and
-    // the board is not on this page
+    // a new card and a walked selection are the board's, and the board is not
+    // on this page
     await page.keyboard.down("Meta");
     await page.keyboard.press("t");
     await page.keyboard.up("Meta");
-    await page.keyboard.press("Backspace");
     await page.keyboard.press("ArrowRight");
     await settle(600);
     let now = await state();

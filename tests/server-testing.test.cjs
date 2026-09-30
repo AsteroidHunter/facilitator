@@ -180,7 +180,7 @@ test("marking done clears the marker; v=0 clears safely too", async () => {
   assert.equal(cleared.body.testing, false);
 });
 
-// the cross, backspace and the done keys on every page post /close, never /done,
+// the cross and the done keys on every page post /close, never /done,
 // so this is the path by which marking a folded card done unfolds it
 test("closing a marked card marks it done and clears the marker in both snapshots", async () => {
   const id = await makeYours("Close clears");

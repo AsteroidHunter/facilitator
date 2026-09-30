@@ -180,7 +180,7 @@ async function desktopMini() {
 async function phone() {
   const html = await readFile(path.join(ROOT, "m.html"), "utf8");
   const icon = between(html, "const MOON_ICON = ", "</svg>';");
-  const close = between(html, "async function closeCard(id, hop = true){", "  poll();\n}");
+  const close = between(html, "async function closeCard(id){", "  poll();\n}");
   const build = between(html, '  const arc = h("button", "arcbtn");', "  topbar.append(histctl, sun, arc, x);");
   const paint = between(html, '    const cs = cardState(b);\n    el.box.classList.toggle("done", cs === "done");',
     "    paintSectionChips(el, b);");
@@ -369,7 +369,7 @@ function pressSection(surface, id, el, section, prevent) {
   }[surface.name];
   // the large card's done is its keyboard close, declared just above the move
   if (surface.name === "desktop large card")
-    vm.runInContext(between(surface.html, "async function boardCloseCard(id, hop){", "\n}"), ctx);
+    vm.runInContext(between(surface.html, "async function boardCloseCard(id){", "\n}"), ctx);
   vm.runInContext(between(surface.html, move, "\n}"), ctx);
   ctx.miniFocused = false;
   ctx.selectedId = id;
@@ -389,25 +389,30 @@ const HOP_KEYS = {
   doing: {
     "control+shift+[": { key: "{", code: "BracketLeft", ctrlKey: true, shiftKey: true },
     "[": { key: "[", code: "BracketLeft" },
-    "control+n": { key: "n", code: "KeyN", ctrlKey: true },
   },
   deferred: {
     "control+shift+]": { key: "}", code: "BracketRight", ctrlKey: true, shiftKey: true },
     "]": { key: "]", code: "BracketRight" },
-    "control+l": { key: "l", code: "KeyL", ctrlKey: true },
   },
   done: {
     "control+shift+\\": { key: "|", code: "Backslash", ctrlKey: true, shiftKey: true },
     "\\": { key: "\\", code: "Backslash" },
-    backspace: { key: "Backspace", code: "Backspace" },
-    delete: { key: "Delete", code: "Delete" },
   },
+};
+// keys that move, close and step nothing: the browser and the system keep them
+const REMOVED_KEYS = {
+  "control+n": { key: "n", code: "KeyN", ctrlKey: true },
+  "control+l": { key: "l", code: "KeyL", ctrlKey: true },
+  backspace: { key: "Backspace", code: "Backspace" },
+  delete: { key: "Delete", code: "Delete" },
+  "command+shift+[": { key: "{", code: "BracketLeft", metaKey: true, shiftKey: true },
+  "command+shift+]": { key: "}", code: "BracketRight", metaKey: true, shiftKey: true },
 };
 const HOP_CHIP = { doing: "sun", deferred: "arc", done: "x" };
 // the page's own key handling: its action table and what it calls, from the
 // first line to the table's end, and the scope its listener dispatches in
 const TABLES = {
-  "desktop large card": { from: "async function boardCloseCard(id, hop){", to: "const boardShortcutActions = {",
+  "desktop large card": { from: "async function boardCloseCard(id){", to: "const boardShortcutActions = {",
                           table: "boardShortcutActions", scope: "card" },
   "desktop small card": { from: "const miniShortcutActions = {", to: "function miniSectionMove(e, section){",
                           table: "miniShortcutActions", scope: "mini" },
@@ -459,7 +464,7 @@ async function byKey(make, kind, keyEvent, selected) {
               preventDefault() { e.defaultPrevented = true; }, stopPropagation() {} };
   w.ctx.dispatchCardShortcut(e, actions, TABLES[w.surface.name].scope);
   await flush();
-  return { requests: w.surface.env.requests.map(asked), landed: w.landed };
+  return { requests: w.surface.env.requests.map(asked), landed: w.landed, prevented: e.defaultPrevented };
 }
 
 for (const [name, make] of [["desktop large card", desktopLarge], ["phone card", phone]]) {
@@ -477,13 +482,19 @@ for (const [name, make] of [["desktop large card", desktopLarge], ["phone card",
           const key = await byKey(make, kind, keyEvent);
           const what = `${keyName} on a ${kind} card`;
           assert.deepEqual(key.landed, chip.landed, `${what} did not land where the ${HOP_CHIP[section]} lands`);
-          if (keyName === "backspace" || keyName === "delete") {
-            // backspace still sends its close to a done card, as it always did
-            assert.deepEqual(key.requests, [{ path: "/close", box: CARDS[kind].id, v: null, method: "POST" }], what);
-          } else if (keyName !== "control+n") {
-            assert.deepEqual(key.requests, chip.requests, `${what} asked something other than its chip`);
-          }
+          assert.deepEqual(key.requests, chip.requests, `${what} asked something other than its chip`);
         }
+      }
+    }
+  });
+
+  test(`${name}: control+n, control+l, backspace, delete and command+shift+[ and ] move, close and hop nothing`, async () => {
+    for (const kind of Object.keys(CARDS)) {
+      for (const [keyName, keyEvent] of Object.entries(REMOVED_KEYS)) {
+        const key = await byKey(make, kind, keyEvent);
+        assert.deepEqual(key.requests, [], `${keyName} on a ${kind} card asked the board`);
+        assert.deepEqual(key.landed, [], `${keyName} on a ${kind} card moved the selection`);
+        assert.equal(key.prevented, false, `${keyName} on a ${kind} card was cancelled`);
       }
     }
   });
@@ -531,13 +542,15 @@ test("desktop small card: its section keys land exactly where its chips land, wh
     for (const section of ["doing", "deferred", "done"]) {
       const chip = await byChip(desktopMini, kind, section, "m9");
       for (const [keyName, keyEvent] of Object.entries(HOP_KEYS[section])) {
-        // control+n, control+l and backspace are not the small card's keys
-        if (!/^(control\+shift\+.|.)$/.test(keyName)) continue;
         const key = await byKey(desktopMini, kind, keyEvent, "m9");
         assert.deepEqual(key.landed, chip.landed, `${keyName} on a small ${kind} card`);
         assert.deepEqual(key.landed, [], `${keyName} on a small ${kind} card hopped`);
         assert.deepEqual(key.requests, chip.requests, `${keyName} on a small ${kind} card`);
       }
+    }
+    for (const [keyName, keyEvent] of Object.entries(REMOVED_KEYS)) {
+      const key = await byKey(desktopMini, kind, keyEvent, "m9");
+      assert.deepEqual([key.requests, key.landed, key.prevented], [[], [], false], `${keyName} on a small ${kind} card`);
     }
   }
 });

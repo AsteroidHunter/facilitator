@@ -146,6 +146,30 @@ function undoKeysBeyond(page) {
   return page.evaluate(() => window.__undoKeysBeyond.splice(0));
 }
 
+// the keys named, as they reach the end of the page's own handling, and whether
+// anything canceled them. Added last, so a canceled chord shows here as canceled
+function watchKeys(page, keys) {
+  return page.evaluate(names => {
+    window.__keysSeen = [];
+    addEventListener("keydown", event => {
+      if (names.includes(event.key)) window.__keysSeen.push({ key: event.key, prevented: event.defaultPrevented });
+    });
+  }, keys);
+}
+
+function keysSeen(page) {
+  return page.evaluate(() => window.__keysSeen.splice(0));
+}
+
+// every card on the page, with what it shows and which are selected: a key that
+// moves, closes or hops a card would change one of these
+function cardsLook(page) {
+  return page.evaluate(() => ({
+    shown: (document.querySelector("article.box.sel") || {}).id || null,
+    boxes: [...document.querySelectorAll("article.box")].map(box => box.id + ":" + box.className).sort(),
+  }));
+}
+
 // both keyboards' undo, both cases a caps lock or a shifted key delivers, and
 // the shifted redo beside each
 async function pressUndoChords(page) {
@@ -392,7 +416,7 @@ test("control shift left and right walk the cards the list shows, and the caret 
   }
 });
 
-test("command shift brackets walk the same cards, in and out of a row", async () => {
+test("command shift brackets step no card, in or out of a row, and are left to the browser", async () => {
   await clearLane();
   const ids = [];
   for (const name of ["First on the brackets", "Second on the brackets", "Third on the brackets"]) {
@@ -403,16 +427,19 @@ test("command shift brackets walk the same cards, in and out of a row", async ()
   const { page, problems } = await openPhone(`/m?box=${ids[0]}`);
   try {
     await page.waitForSelector(`#box-${ids[0]}.sel`, { timeout: 5000 });
-    const order = await listOrder(page);
-    const at = order.indexOf(ids[0]);
+    await watchKeys(page, ["[", "]", "{", "}"]);
+    const before = await cardsLook(page);
     await chord(page, "]", "Meta", "Shift");
-    assert.equal(await shownId(page), order[(at + 1) % order.length], "the right bracket did not step on");
     await chord(page, "[", "Meta", "Shift");
-    assert.equal(await shownId(page), ids[0], "the left bracket did not step back");
+    assert.equal(await shownId(page), ids[0], "a command shift bracket moved the card on show");
     await page.focus(SEL);
     await chord(page, "]", "Meta", "Shift");
-    assert.deepEqual(await activeRow(page), { row: true, box: await shownId(page) },
-      "the caret did not go with the bracket");
+    await chord(page, "[", "Meta", "Shift");
+    assert.deepEqual(await activeRow(page), { row: true, box: ids[0] }, "a command shift bracket moved the caret");
+    assert.deepEqual(await cardsLook(page), before, "a command shift bracket changed a card");
+    const seen = await keysSeen(page);
+    assert.equal(seen.length, 4, "a command shift bracket never reached the end of the page's own handling");
+    assert.deepEqual(seen.filter(entry => entry.prevented), [], "the page canceled a command shift bracket");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
@@ -806,16 +833,21 @@ test("escape puts the caret out of the row and leaves the words in it", async ()
   }
 });
 
-test("backspace closes the card on show, and only the cards the board's own key closes", async () => {
+test("backspace and delete close no card, in the row or out of it", async () => {
   await clearLane();
-  const id = await create("Closed from the keyboard");
+  const id = await create("Left standing by the keyboard");
   await api(`/reply?box=${id}`, "A reply to answer.");
-  const keep = await create("Left standing after the close");
+  const keep = await create("Left standing beside it");
   await api(`/reply?box=${keep}`, "Another reply.");
   const { page, problems } = await openPhone(`/m?box=${id}`);
+  const closes = [];
+  page.on("request", request => {
+    if (new URL(request.url()).pathname === "/close") closes.push(request.url());
+  });
   try {
     await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
-    // with the caret in the row the key is the row's, and closes nothing
+    await watchKeys(page, ["Backspace", "Delete"]);
+    // with the caret in the row the key is the row's, as it always was
     await page.focus(SEL);
     await page.keyboard.type("ab");
     await page.keyboard.press("Backspace");
@@ -823,21 +855,21 @@ test("backspace closes the card on show, and only the cards the board's own key 
     assert.equal(await page.evaluate(() => document.querySelector("article.box.sel textarea").value), "a",
       "the key in the row did not rub out a letter");
     assert.equal((await savedBox(id)).done, false, "a backspace in the row closed the card");
+    // the row edits its own text and may cancel the key for that, which is its
+    // business; what is asked below is what the page does with the key out of it
+    await keysSeen(page);
 
     await page.evaluate(() => {
       const row = document.querySelector("article.box.sel textarea");
       row.value = "";
       row.blur();
     });
-    const closed = page.waitForResponse(response => new URL(response.url()).pathname === "/close");
     await page.keyboard.press("Backspace");
-    assert.equal((await closed).status(), 200);
+    await page.keyboard.press("Delete");
     await settle(400);
-    assert.equal((await savedBox(id)).done, true, "the key did not close the card");
-    assert.equal(await shownId(page), keep, "the close left the screen on the card that has gone");
+    assert.equal((await savedBox(id)).done, false, "a key out of the row closed the card");
+    assert.equal(await shownId(page), id, "a key out of the row moved the screen off the card");
 
-    // a card an agent dropped is not one the cross appears on, and the key
-    // leaves it exactly as the board's key does
     await chord(page, "2", "Meta");
     await page.waitForFunction(() => activeOwner === "pastureland", { timeout: 3000 });
     await page.evaluate(() => {
@@ -847,8 +879,13 @@ test("backspace closes the card on show, and only the cards the board's own key 
     await settle(150);
     assert.equal(await shownId(page), "1.1");
     await page.keyboard.press("Backspace");
+    await page.keyboard.press("Delete");
     await settle(400);
-    assert.equal((await savedBox("1.1")).done, false, "the key closed a card the board's own key leaves alone");
+    assert.equal((await savedBox("1.1")).done, false, "a key closed a card the cross is not on");
+    assert.deepEqual(closes, [], "a backspace or delete asked the board to close a card");
+    const seen = await keysSeen(page);
+    assert.equal(seen.length, 4, "a key never reached the end of the page's own handling");
+    assert.deepEqual(seen.filter(entry => entry.prevented), [], "the page canceled a backspace or delete");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
@@ -856,7 +893,7 @@ test("backspace closes the card on show, and only the cards the board's own key 
 });
 
 for (const surface of ["phone", "desktop"]) {
-  test(`${surface} Control+L and Control+N move the selected card to Deferred and Doing`, async () => {
+  test(`${surface} Control+L and Control+N move no card, and the letters stay in the fields`, async () => {
     await clearLane();
     const id = await create(`${surface} destination keys`);
     await api(`/reply?box=${id}`, "A reply to answer.");
@@ -902,49 +939,35 @@ for (const surface of ["phone", "desktop"]) {
       });
       assert.equal(requests.length, 0, "a modified, composing or scroll key changed card state");
 
-      let response = page.waitForResponse(r => new URL(r.url()).pathname === "/park");
-      await chord(page, "l", "Control");
-      assert.equal((await response).status(), 200);
-      await page.waitForFunction(cardId => els[cardId].box.classList.contains("parked"), {}, id);
-      assert.equal((await savedBox(id)).parked, true);
-      await page.evaluate(cardId => {
-        select(cardId);
-        dispatchEvent(new KeyboardEvent("keydown", { key: "l", ctrlKey: true, repeat: true, bubbles: true }));
-      }, neighbour);
-      assert.equal((await savedBox(neighbour)).parked, false,
-        "holding Control+L moved the next selected card to Deferred");
-      assert.equal(requests.length, 1, "the repeated Control+L sent another state request");
-      await page.evaluate(cardId => select(cardId), id);
-      await chord(page, "l", "Control");
-      await settle(120);
-      assert.equal(requests.length, 1, "Control+L toggled an already Deferred card");
-
-      response = page.waitForResponse(r => new URL(r.url()).pathname === "/park" && new URL(r.url()).searchParams.get("v") === "0");
-      await chord(page, "n", "Control");
-      assert.equal((await response).status(), 200);
-      await page.waitForFunction(cardId => !els[cardId].box.classList.contains("parked"), {}, id);
-      assert.equal((await savedBox(id)).parked, false);
-      await chord(page, "n", "Control");
-      await settle(120);
-      assert.equal(requests.length, 2, "Control+N sent a request for an already Doing card");
-
-      await api(`/done?box=${id}&v=1`);
-      await page.evaluate(() => poll());
-      await page.waitForFunction(cardId => els[cardId].box.classList.contains("done"), {}, id);
-      response = page.waitForResponse(r => new URL(r.url()).pathname === "/done" && new URL(r.url()).searchParams.get("v") === "0");
-      await chord(page, "n", "Control");
-      assert.equal((await response).status(), 200);
-      assert.equal((await savedBox(id)).done, false, "Control+N did not restore a Done card to Doing");
-
-      await api(`/done?box=${id}&v=1`);
-      await page.evaluate(() => poll());
-      await page.waitForFunction(cardId => els[cardId].box.classList.contains("done"), {}, id);
-      response = page.waitForResponse(r => new URL(r.url()).pathname === "/park" && new URL(r.url()).searchParams.get("v") === "1");
-      await chord(page, "l", "Control");
-      assert.equal((await response).status(), 200);
-      const moved = await savedBox(id);
-      assert.equal(moved.parked, true, "Control+L did not move a Done card to Deferred");
-      assert.equal(moved.done, false, "Control+L left the card in Done");
+      // with the card selected and no caret anywhere, in each section it can be
+      // in, the chords ask the board for nothing, leave the card where it is, and
+      // reach the end of the page's handling uncanceled for the browser to use
+      await watchKeys(page, ["l", "n"]);
+      for (const [section, put] of [
+        ["Doing", async () => {}],
+        ["Deferred", () => api(`/park?box=${id}&v=1`)],
+        ["Done", () => api(`/done?box=${id}&v=1`)],
+      ]) {
+        await put();
+        await page.evaluate(() => poll());
+        await settle(250);
+        await page.evaluate(cardId => select(cardId), id);
+        await page.evaluate(() => document.activeElement.blur());
+        assert.equal(await page.evaluate(() => selectedId), id, `the ${section} card was not the selected one`);
+        const before = await savedBox(id);
+        await chord(page, "l", "Control");
+        await chord(page, "n", "Control");
+        await settle(200);
+        const after = await savedBox(id);
+        assert.deepEqual([after.parked, after.done], [before.parked, before.done],
+          `a Control chord moved a ${section} card`);
+        assert.equal(await page.evaluate(() => selectedId), id, `a Control chord hopped off the ${section} card`);
+      }
+      assert.equal(requests.length, 0, "Control+L or Control+N asked the board to move a card");
+      assert.equal((await savedBox(neighbour)).parked, false, "a Control chord moved the neighbouring card");
+      const seen = await keysSeen(page);
+      assert.equal(seen.length, 6, "a Control chord never reached the end of the page's own handling");
+      assert.deepEqual(seen.filter(entry => entry.prevented), [], "the page canceled Control+L or Control+N");
       assert.deepEqual(problems, []);
     } finally {
       await page.close();
@@ -952,17 +975,15 @@ for (const surface of ["phone", "desktop"]) {
   });
 }
 
-for (const { surface, route, action } of [
-  { surface: "phone", route: "/m", action: "button" },
-  { surface: "phone", route: "/m", action: "shortcut" },
-  { surface: "desktop", route: "/", action: "button" },
-  { surface: "desktop", route: "/", action: "shortcut" },
-  { surface: "document page", route: "/page", action: "button" },
+for (const { surface, route } of [
+  { surface: "phone", route: "/m" },
+  { surface: "desktop", route: "/" },
+  { surface: "document page", route: "/page" },
 ]) {
-  test(`${surface} Snooze ${action} shows another Doing card`, async () => {
+  test(`${surface} Snooze button shows another Doing card`, async () => {
     await clearLane();
-    const deferred = await create(`${surface} ${action} to defer`);
-    const next = await create(`${surface} ${action} to show`);
+    const deferred = await create(`${surface} button to defer`);
+    const next = await create(`${surface} button to show`);
     const { page, problems } = route === "/m"
       ? await openPhone(`${route}?box=${deferred}`) : await openDesktop(route);
     try {
@@ -973,34 +994,22 @@ for (const { surface, route, action } of [
         return url.pathname === "/park" && url.searchParams.get("box") === deferred &&
           url.searchParams.get("v") === "1";
       });
-      if (action === "button"){
-        await page.evaluate(id => document.getElementById("box-" + id).querySelector(".arcbtn").click(), deferred);
-      } else {
-        await page.evaluate(() => document.activeElement.blur());
-        await chord(page, "l", "Control");
-      }
+      await page.evaluate(id => document.getElementById("box-" + id).querySelector(".arcbtn").click(), deferred);
       assert.equal((await response).status(), 200);
       await page.waitForFunction(id => selectedId === id, { timeout: 5000 }, next);
       assert.equal(await shownId(page), next);
       assert.equal((await savedBox(deferred)).parked, true);
       assert.equal(await page.evaluate(() => activeOwner), "facilitator");
 
-      // Opening the Deferred list is a deliberate selection; a second Control+L
-      // is still a destination, and the sun may reverse the park in place. the
-      // document page never shows its cards and keeps its moon's old toggle
+      // Opening the Deferred list is a deliberate selection, and the sun may
+      // reverse the park in place. the document page never shows its cards and
+      // keeps its moon's old toggle
       await page.evaluate(id => {
         document.getElementById("tv-deferred").click();
         select(id);
       }, deferred);
       await settle(100);
       assert.equal(await shownId(page), deferred);
-      if (action === "shortcut"){
-        await page.evaluate(() => document.activeElement.blur());
-        await chord(page, "l", "Control");
-        await settle(100);
-        assert.equal((await savedBox(deferred)).parked, true);
-        assert.equal(await shownId(page), deferred);
-      }
       await page.evaluate(({ id, wake }) => document.getElementById("box-" + id).querySelector(wake).click(),
         { id: deferred, wake: route === "/page" ? ".arcbtn" : ".sunbtn" });
       await page.waitForFunction(id => !els[id].box.classList.contains("parked"), { timeout: 5000 }, deferred);
@@ -1557,8 +1566,12 @@ test("desktop aliases walk the visible cards and preserve their focus rules", as
       row: true, box: order[(start + 1) % order.length],
     }, "desktop card stepping did not focus the destination composer");
 
+    const stepped = order[(start + 1) % order.length];
     await chord(page, "[", "Meta", "Shift");
-    assert.equal(await shownId(page), ids[0], "the bracket alias did not step back");
+    assert.equal(await shownId(page), stepped, "command shift bracket walked the cards");
+    assert.deepEqual(await activeRow(page), { row: true, box: stepped }, "command shift bracket moved the caret");
+    await chord(page, "ArrowLeft", "Control", "Shift");
+    assert.equal(await shownId(page), ids[0], "the arrow pair did not step back");
     await page.keyboard.type("abcd");
     await page.keyboard.press("ArrowLeft");
     assert.equal(await page.$eval(SEL, field => field.selectionStart), 3,
@@ -2001,11 +2014,11 @@ test("desktop mini capture keeps its subset ahead of typing and the board", asyn
     const blockedAt = await shownId(page);
     await chord(page, "]", "Meta", "Shift");
     assert.equal(await shownId(page), blockedAt,
-      "a mini textarea let bracket navigation reach the board");
+      "a mini textarea let a command shift bracket reach the board");
     await page.evaluate(() => document.activeElement.blur());
     await chord(page, "]", "Meta", "Shift");
-    assert.notEqual(await shownId(page), blockedAt,
-      "a bracket outside mini typing was redirected away from the board");
+    assert.equal(await shownId(page), blockedAt,
+      "a command shift bracket outside mini typing walked the board");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
@@ -2023,14 +2036,18 @@ test("desktop capture and component barriers retain keyboard priority", async ()
   try {
     await selectDesktop(page, current);
     await page.evaluate(at => editTitle(at), current);
+    await chord(page, "ArrowRight", "Control", "Shift");
     await chord(page, "]", "Meta", "Shift");
     assert.equal(await shownId(page), current, "the shared title let board navigation escape its barrier");
-    // and the same chord is live the moment the naming ends, so the barrier is
-    // what held it, not a key that does nothing
+    // and the walking chord is live the moment the naming ends, so the barrier
+    // is what held it, not a key that does nothing. the command shift bracket
+    // walks nowhere either way
     await page.evaluate(at => els[at].titleEl.blur(), current);
     await settle(120);
     await chord(page, "]", "Meta", "Shift");
-    assert.equal(await shownId(page), neighbour, "the bracket outside the naming did not reach the board");
+    assert.equal(await shownId(page), current, "a command shift bracket outside the naming walked the board");
+    await chord(page, "ArrowRight", "Control", "Shift");
+    assert.notEqual(await shownId(page), current, "the walking chord outside the naming did not reach the board");
     await selectDesktop(page, current);
 
     await page.evaluate(() => {
