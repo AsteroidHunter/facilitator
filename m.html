@@ -2929,74 +2929,131 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // ---- the drawer's list, the desktop's ticket panel ----------------------------------
-// one section of the drawer's sheet: its rows, its own scroll kept across a
-// rebuild. a tap selects the card and closes the drawer, so selection never
-// travels the sheet; only a tab tap does.
-function paintPhonePane(pane, pool, view, sig, state){
-  pane.dataset.sig = sig;
-  const keepScroll = pane.scrollTop;
-  pane.textContent = "";
+// the list is drawn only while the drawer is on show, and opening the drawer
+// draws whatever changed while it was away. each section keeps its rows by card:
+// a reading touches the rows that differ and leaves the others where they stand.
+// a tap selects the card and closes the drawer, so selection never travels the
+// sheet; only a tab tap does.
+// one section of the drawer's sheet. touch() is called before the first change
+// the pass makes; the answer says whether a row started or stopped working
+function paintPhonePane(pane, pool, view, state, touch){
+  let kept = phonePanes.get(pane);
+  if (!kept){ kept = { rows: new Map(), none: null }; phonePanes.set(pane, kept); }
+  const rows = kept.rows;
+  let keep = null, spin = false;
+  // rows come and go and change places, and the scroll position stays where it was
+  const shift = () => { touch(); if (keep == null) keep = pane.scrollTop; };
+  const here = new Set();
+  for (const b of pool) here.add(b.id);
+  for (const [id, part] of rows){
+    if (here.has(id)) continue;
+    shift();
+    part.row.remove();
+    rows.delete(id);
+    spin = true;
+  }
+  if (pool.length && kept.none){ shift(); kept.none.remove(); kept.none = null; }
+  let at = pane.firstElementChild;
   for (const b of pool){
     const s = queueState(b);
     const busy = s === "working" || (s === "done" && cardState({ ...b, done: false, parked: false, state: null }) === "working");
-    const read = seenReplies[b.id] || 0;
-    const isYours = s === "yours" || (s === "new" && b.ball === "you");
-    const isTest = testReady(b);
-    const r = h("div", "trow" + (b.id === selectedId ? " on" : "") + (busy ? " working" : "") +
-                (s === "yours" && read >= (b.replies || 0) ? " seen" : "") +
-                (isYours ? " yours" : "") +
-                (s === "queued" || (s === "new" && b.ball !== "you") ? " queuedc" : "") +
-                (s === "done" ? " donec" : "") +
-                (isTest ? " testc" : ""));
-    const inner = h("div", "trowin");
-    const omni = appendOmniRowArt(r, inner, b);
-    const ttl = h("div", "ttl", b.title);
-    inner.appendChild(ttl);
-    const meta = h("div", "tmeta");
-    meta.appendChild(h("span", "tage", busy ? SPIN_FRAMES[spinFrame] : s === "done" ? "done" : shortAge(b.agentTs)));
+    const marks = rowMarks(b, s, busy);
+    const age = busy ? SPIN_FRAMES[spinFrame] : s === "done" ? "done" : shortAge(b.agentTs);
     const ag = state.agents?.[b.owner];
-    meta.appendChild(h("span", "teng", ag ? (ag.alive ? ag.name : "offline") : ""));
-    inner.appendChild(meta);
-    r.appendChild(inner);
-    r.dataset.id = b.id;
-    // a tap on the folded corner unfolds the ticket and keeps the drawer open;
-    // anywhere else on the row opens the card
-    r.addEventListener("click", e => {
-      if (isTest && onFold(r, e)){ unfoldTicket(b.id); return; }
-      if (homeOpen) setHome(false);   // a card picked from home is shown on its board
-      select(b.id); closeDrawer();
-    });
-    pane.appendChild(r);
+    const eng = ag ? (ag.alive ? ag.name : "offline") : "";
+    let part = rows.get(b.id);
+    if (!part){
+      touch();
+      part = phoneRow(b, marks, age, eng);
+      rows.set(b.id, part);
+      if (marks & 1) spin = true;
+    } else {
+      const r = part.row, on = b.id === selectedId;
+      if (part.marks !== marks){
+        touch();
+        setRowMarks(r, marks);
+        if ((part.marks ^ marks) & 1) spin = true;
+        part.marks = marks;
+      }
+      if (r.classList.contains("on") !== on){ touch(); r.classList.toggle("on", on); }
+      if (part.ttl.textContent !== b.title){ touch(); omniRowFace(r, b.title); }
+      if (part.age.textContent !== age){ touch(); part.age.textContent = age; }
+      if (part.eng.textContent !== eng){ touch(); part.eng.textContent = eng; }
+    }
+    const r = part.row;
+    if (r === at) at = at.nextElementSibling;
+    else if (at && r === at.nextElementSibling) at = r.nextElementSibling;   // the row ahead of it is moving on
+    else { shift(); pane.insertBefore(r, at); }
   }
-  if (!pool.length) pane.appendChild(h("div", "tempty", view === "done" ? "no done chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here"));
-  pane.scrollTop = keepScroll;
+  if (!pool.length && !kept.none){
+    shift();
+    kept.none = h("div", "tempty", view === "done" ? "no done chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here");
+    pane.appendChild(kept.none);
+  }
+  if (keep != null) pane.scrollTop = keep;
+  return spin;
 }
-function renderTickets(state, action = "state"){
+const phonePanes = new WeakMap();   // section -> { rows: card id -> the row's parts, none: its empty note }
+const ROW_MARKS = ["working", "seen", "yours", "queuedc", "donec", "testc"];   // one bit each, in this order
+const ROW_FOLDED = 1 << 5;
+function rowMarks(b, s, busy){
+  const read = seenReplies[b.id] || 0;
+  return (busy ? 1 : 0) |
+         (s === "yours" && read >= (b.replies || 0) ? 2 : 0) |
+         (s === "yours" || (s === "new" && b.ball === "you") ? 4 : 0) |
+         (s === "queued" || (s === "new" && b.ball !== "you") ? 8 : 0) |
+         (s === "done" ? 16 : 0) |
+         (testReady(b) ? ROW_FOLDED : 0);
+}
+function setRowMarks(row, marks){
+  for (let i = 0; i < ROW_MARKS.length; i++) row.classList.toggle(ROW_MARKS[i], (marks & (1 << i)) !== 0);
+}
+function phoneRow(b, marks, age, eng){
+  const r = h("div", "trow" + (b.id === selectedId ? " on" : "") +
+              ROW_MARKS.map((name, i) => (marks & (1 << i) ? " " + name : "")).join(""));
+  const inner = h("div", "trowin");
+  appendOmniRowArt(r, inner, b);
+  const ttl = h("div", "ttl", b.title);
+  inner.appendChild(ttl);
+  const meta = h("div", "tmeta");
+  const ageEl = h("span", "tage", age), engEl = h("span", "teng", eng);
+  meta.appendChild(ageEl);
+  meta.appendChild(engEl);
+  inner.appendChild(meta);
+  r.appendChild(inner);
+  r.dataset.id = b.id;
+  const part = { row: r, ttl, age: ageEl, eng: engEl, marks };
+  // a tap on the folded corner unfolds the ticket and keeps the drawer open;
+  // anywhere else on the row opens the card
+  r.addEventListener("click", e => {
+    if ((part.marks & ROW_FOLDED) && onFold(r, e)){ unfoldTicket(b.id); return; }
+    if (homeOpen) setHome(false);   // a card picked from home is shown on its board
+    select(b.id); closeDrawer();
+  });
+  return part;
+}
+function ticketsShown(){
+  const at = document.getElementById("drawer");
+  return !!at && (at.classList.contains("live") || at.classList.contains("open"));
+}
+function renderTickets(state, action = "state", shown = ticketsShown()){
   const sheet = document.getElementById("tiksheet");
   paintViewTabs();
   if (!sheet) return;
-  const lane = state.agents?.[activeOwner];
-  const laneSig = lane ? lane.name + lane.alive : "";
-  const jobs = [];
-  for (const name of TICKET_VIEWS){
-    const pane = sheet.querySelector('.tikpane[data-view="' + name + '"]');
-    if (!pane) continue;
-    const pool = viewPoolFor(state, name);
-    const sig = name + "|" + laneSig + "|" +
-                pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
-                        ((seenReplies[b.id] || 0) >= (b.replies || 0) ? "r" : "") +
-                        (b.id === selectedId ? "!" : "") + b.title +
-                        // the marker rides the signature so a mark or a clear
-                        // repaints the row
-                        (testReady(b) ? "T" : "") +
-                        Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",");
-    if (pane.dataset.sig !== sig) jobs.push({ pane, pool, name, sig });
-  }
-  if (jobs.length){
-    const ticketTrace = tracePhone("begin", "phase", { action, part: "tickets" });
-    for (const j of jobs) paintPhonePane(j.pane, j.pool, j.name, j.sig, state);
-    syncSpinner();
-    endPhoneTrace(ticketTrace, { action, part: "tickets" });
+  if (shown){
+    let trace = null, began = false, spin = false;
+    const touch = () => {
+      if (began) return;
+      began = true;
+      trace = tracePhone("begin", "phase", { action, part: "tickets" });
+    };
+    const pool = poolOf(state);
+    for (const name of TICKET_VIEWS){
+      const pane = sheet.querySelector('.tikpane[data-view="' + name + '"]');
+      if (pane && paintPhonePane(pane, pool.filter(b => viewFilterFor(b, name)), name, state, touch)) spin = true;
+    }
+    if (spin) syncSpinner();
+    if (began) endPhoneTrace(trace, { action, part: "tickets" });
   }
   // keep the sheet on the current section without motion on a poll or first draw;
   // a tab tap owns its own travel
@@ -3087,6 +3144,8 @@ const PAGE_SINK = 0.015;
 // page at exactly 1, and a turn of the phone can leave no stale offset or size
 // behind
 function paintMenu(panel, v){
+  // the list is drawn as the drawer first comes on show, so a tap or a pull opens it onto current rows
+  if (panel === drawer && v > 0 && !panel.classList.contains("live") && lastState) renderTickets(lastState, "drawer", true);
   const dir = menuSign(panel);
   // the settings come out on their list
   if (v && panel === settings && !panel.classList.contains("live")) settingsView.reset();
@@ -3124,7 +3183,6 @@ function runMenu(panel, v, curve){
 }
 function showMenu(panel, curve){
   const trace = tracePhone("begin", "drawer", { side: panel.dataset.side });
-  if (lastState) renderTickets(lastState, "drawer");
   runMenu(panel, 1, curve || "var(--drawer-tap)");
   const scrollTrace = tracePhone("begin", "phase", { action: "drawer", part: "scroll-view" });
   panel.querySelector(".trow.on")?.scrollIntoView({ block: "nearest" });

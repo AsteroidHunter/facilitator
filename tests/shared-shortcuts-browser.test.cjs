@@ -220,13 +220,18 @@ function assertUndoStackIntact(stack, where) {
 
 // the cards the list is showing, in the order it shows them, which is the order
 // the walking keys have to keep. the sheet draws all three sections at once, so
-// the shown cards are the current section's pane
+// the shown cards are the current section's pane. the phone draws its list only
+// while the drawer is on show, so the drawer is opened for the reading and shut
 function listOrder(page) {
   return page.evaluate(() => {
+    const opened = typeof openDrawer === "function" && typeof drawerOpen === "function" && !drawerOpen();
+    if (opened) openDrawer();
     const sheet = document.getElementById("tiksheet");
     const view = typeof curView === "function" ? curView() : null;
     const scope = sheet && view ? sheet.querySelector('.tikpane[data-view="' + view + '"]') : document.getElementById("tiklist");
-    return scope ? [...scope.querySelectorAll(".trow")].map(row => row.dataset.id) : [];
+    const order = scope ? [...scope.querySelectorAll(".trow")].map(row => row.dataset.id) : [];
+    if (opened) closeDrawer();
+    return order;
   });
 }
 
@@ -834,6 +839,7 @@ test("backspace closes the card on show, and only the cards the board's own key 
     await chord(page, "2", "Meta");
     await page.waitForFunction(() => activeOwner === "pastureland", { timeout: 3000 });
     await page.evaluate(() => {
+      openDrawer();
       [...document.querySelectorAll("#tiklist .trow")].find(row => row.dataset.id === "1.1").click();
     });
     await settle(150);
