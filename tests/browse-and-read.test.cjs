@@ -512,7 +512,7 @@ test("the step that carries the caret selects, a tab switch browses, and the hop
 test("the keys that act on the card act on the browsed one", () => {
   const d = loaded();
   d.press("ArrowRight");
-  // control+u, control+shift+\ and backspace all read selectedId, which names
+  // control+u and control+shift+\ both read selectedId, which names
   // the card on screen whether it is selected or only browsed
   const src = between(HTML.desktop, "const boardShortcutActions = {", "\n};");
   assert.match(src, /unfold\(e\)\{\n    if \(!miniFocused\) unfoldSelected\(e, selectedId, selectedId && els\[selectedId\]\);/);

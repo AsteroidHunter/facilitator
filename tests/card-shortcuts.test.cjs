@@ -46,10 +46,6 @@ test("card navigation aliases resolve to one action and direction", async () => 
     { action: "navigate", value: -1 });
   assert.deepEqual(plain(resolve(event("ArrowRight", { ctrlKey: true, shiftKey: true, altKey: true }))),
     { action: "navigate", value: 1 });
-  assert.deepEqual(plain(resolve(event("[", { metaKey: true, shiftKey: true }))),
-    { action: "navigate", value: -1 });
-  assert.deepEqual(plain(resolve(event("}", { metaKey: true, ctrlKey: true, shiftKey: true, altKey: true }))),
-    { action: "navigate", value: 1 });
   assert.deepEqual(plain(resolve(event("ArrowLeft"))),
     { action: "plainNavigate", value: -1 });
   assert.deepEqual(plain(resolve(event("ArrowRight"))),
@@ -128,20 +124,36 @@ test("modified native combinations remain outside common recognition", async () 
   assert.equal(resolve(event("t", { ctrlKey: true })), null);
 });
 
-test("control N and control L name card destinations only with control alone and not composing", async () => {
-  const { resolve } = await shortcuts();
-  for (const key of ["n", "N"]) {
-    assert.deepEqual(plain(resolve(event(key, { ctrlKey: true }))), { action: "destination", value: "doing" });
-    assert.equal(resolve(event(key, { ctrlKey: true }), "mini"), null);
-  }
-  for (const key of ["l", "L"]) {
-    assert.deepEqual(plain(resolve(event(key, { ctrlKey: true }))), { action: "destination", value: "deferred" });
-    assert.equal(resolve(event(key, { ctrlKey: true }), "mini"), null);
-  }
-  for (const key of ["n", "l"]) {
-    for (const modifier of ["metaKey", "shiftKey", "altKey", "repeat", "isComposing", "defaultPrevented"]) {
-      assert.equal(resolve(event(key, { ctrlKey: true, [modifier]: true })), null, `control ${key} with ${modifier}`);
-    }
+// these chords are the browser's and the system's, and recognition must not know
+// them at all, so no page can be handed them and cancel them
+test("control N, control L, backspace, delete and command shift [ and ] are no command of the card pages", async () => {
+  const { resolve, dispatch } = await shortcuts();
+  const control = [{ ctrlKey: true }, { ctrlKey: true, altKey: true }, { ctrlKey: true, metaKey: true },
+    { ctrlKey: true, shiftKey: true }];
+  const command = [
+    { metaKey: true, shiftKey: true }, { metaKey: true, shiftKey: true, ctrlKey: true },
+    { metaKey: true, shiftKey: true, altKey: true },
+    { metaKey: true, shiftKey: true, ctrlKey: true, altKey: true },
+  ];
+  const everything = [{}, { ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true },
+    { metaKey: true, shiftKey: true, ctrlKey: true, altKey: true }];
+  const cases = [];
+  for (const [key, code] of [["n", "KeyN"], ["N", "KeyN"], ["l", "KeyL"], ["L", "KeyL"]])
+    for (const modifiers of control) cases.push([key, { code, ...modifiers }]);
+  for (const key of ["Backspace", "Delete"])
+    for (const modifiers of everything) cases.push([key, { code: key, ...modifiers }]);
+  for (const [key, code] of [["[", "BracketLeft"], ["]", "BracketRight"], ["{", "BracketLeft"], ["}", "BracketRight"]])
+    for (const modifiers of command) cases.push([key, { code, ...modifiers }]);
+  for (const [key, modifiers] of cases) {
+    const combination = key + " with " + Object.keys(modifiers).join(", ");
+    const chord = event(key, modifiers);
+    const called = [];
+    const actions = new Proxy({}, { get: (_, name) => (() => called.push(name)) });
+    assert.equal(resolve(chord), null, combination + " is still recognized");
+    assert.equal(resolve(chord, "mini"), null, combination + " is still a mini command");
+    assert.equal(dispatch(chord, actions), false, combination + " reached a page action");
+    assert.deepEqual(called, []);
+    assert.equal(chord.defaultPrevented, false);
   }
 });
 
@@ -193,10 +205,6 @@ test("editing flags do not add exclusions to recognized commands", async () => {
   assert.deepEqual(plain(resolve(event("Escape", {
     metaKey: true, ctrlKey: true, shiftKey: true, altKey: true,
   }))), { action: "escape", value: true });
-  assert.deepEqual(plain(resolve(event("Delete", {
-    metaKey: true, ctrlKey: true, shiftKey: true, altKey: true,
-  }))), { action: "close", value: true });
-  assert.deepEqual(plain(resolve(event("Backspace"))), { action: "close", value: true });
 });
 
 test("dispatch calls only a supported action and leaves policy to it", async () => {
@@ -259,15 +267,8 @@ test("the section chord needs control and shift, no command or option, and ignor
   assert.equal(resolve(event("P", { ...CHORD, code: "KeyP" })), null);
 });
 
-test("command shift [ and ] still step to the previous and next card, with or without control", async () => {
+test("command shift with \\ is no command, and never a section", async () => {
   const { resolve } = await shortcuts();
-  for (const extra of [{}, { ctrlKey: true }]) {
-    assert.deepEqual(plain(resolve(event("{", { metaKey: true, shiftKey: true, code: "BracketLeft", ...extra }))),
-      { action: "navigate", value: -1 });
-    assert.deepEqual(plain(resolve(event("}", { metaKey: true, shiftKey: true, code: "BracketRight", ...extra }))),
-      { action: "navigate", value: 1 });
-  }
-  // command shift \ is no command, and never a section
   assert.equal(resolve(event("|", { metaKey: true, shiftKey: true, code: "Backslash" })), null);
   assert.equal(resolve(event("|", { metaKey: true, ctrlKey: true, shiftKey: true, code: "Backslash" })), null);
 });
@@ -294,13 +295,8 @@ test("[, ] and \\ alone name the three sections, by the character they type", as
   }
 });
 
-test("control N, control L and backspace are what they were beside the section keys", async () => {
+test("control S and the diagnostic are what they were beside the section keys", async () => {
   const { resolve } = await shortcuts();
-  assert.deepEqual(plain(resolve(event("n", { ctrlKey: true, code: "KeyN" }))), { action: "destination", value: "doing" });
-  assert.deepEqual(plain(resolve(event("l", { ctrlKey: true, code: "KeyL" }))), { action: "destination", value: "deferred" });
-  assert.equal(resolve(event("n", { ctrlKey: true, shiftKey: true, code: "KeyN" })), null);
-  assert.deepEqual(plain(resolve(event("Backspace", { code: "Backspace" }))), { action: "close", value: true });
-  assert.deepEqual(plain(resolve(event("Delete", { code: "Delete" }))), { action: "close", value: true });
   assert.deepEqual(plain(resolve(event("s", { ctrlKey: true, code: "KeyS" }))), { action: "responseScroll", value: true });
   assert.deepEqual(plain(resolve(event("M", { ...CHORD, code: "KeyM" }))), { action: "diagnostic", value: true });
 });

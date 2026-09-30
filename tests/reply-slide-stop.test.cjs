@@ -254,7 +254,6 @@ const ARRIVALS = {
   select: (page, a, b) => page.evaluate(id => select(id), b),
   arrows: (page, a, b) => walkTo(page, b, () => page.keyboard.press("ArrowRight")),
   controlShift: (page, a, b) => walkTo(page, b, () => chord(page, ["Control", "Shift"], "ArrowRight")),
-  commandShift: (page, a, b) => walkTo(page, b, () => chord(page, ["Meta", "Shift"], "BracketRight")),
   ticketClick: (page, a, b) => page.click(`#tiklist .trow[data-id="${b}"]`),
   swipe: (page, a, b) => walkTo(page, b, () => swipeLeft(page)),
   drawerTap: async (page, a, b) => {
@@ -277,9 +276,9 @@ function assertOpensAtHead(frames, what){
 
 const ARRIVAL_CASES = {
   desktop: [["select", "end"], ["arrows", "end"], ["arrows", 1200], ["controlShift", "end"],
-    ["commandShift", 1200], ["ticketClick", "end"]],
+    ["controlShift", 1200], ["ticketClick", "end"]],
   phone: [["select", "end"], ["swipe", "end"], ["swipe", 1200], ["controlShift", "end"],
-    ["commandShift", 1200], ["drawerTap", "end"]],
+    ["controlShift", 1200], ["drawerTap", "end"]],
 };
 for (const surface of ["desktop", "phone"]) {
   for (const [how, left] of ARRIVAL_CASES[surface]) {

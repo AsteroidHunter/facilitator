@@ -226,9 +226,9 @@ test("control+u is the unfold key, with control alone and not composing, and onl
     assert.equal(resolve(key(k)), null);
     assert.equal(resolve(key(k, { metaKey: true })), null);
   }
-  // the keys around it are the ones they were
-  assert.deepEqual(resolve(key("n", { ctrlKey: true })), { action: "destination", value: "doing" });
-  assert.deepEqual(resolve(key("l", { ctrlKey: true })), { action: "destination", value: "deferred" });
+  // the keys around it are the ones they were, and control+n and control+l are no command
+  assert.equal(resolve(key("n", { ctrlKey: true })), null);
+  assert.equal(resolve(key("l", { ctrlKey: true })), null);
   assert.deepEqual(resolve(key("s", { ctrlKey: true })), { action: "responseScroll", value: true });
   assert.deepEqual(resolve(key("M", { ctrlKey: true, shiftKey: true })), { action: "diagnostic", value: true });
 });
