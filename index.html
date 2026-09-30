@@ -5017,6 +5017,7 @@ function select(id, opts){
     els[k].box.classList.toggle("sel", k === id);
     els[k].toc.classList.toggle("t-sel", k === id);
   }
+  openAtHead(els[id]);
   // the composer on the right follows the selection: the last card's draft goes
   // home to its own bar and this card's comes in, before anything below ticks
   // or focuses the card's row
@@ -5156,6 +5157,7 @@ function applySelection(state){
   if (hist && hist.id !== selectedId) histExit(hist.id);   // selection moved without select()
   const moved = shownId !== selectedId;
   for (const k of Object.keys(els)) els[k].box.classList.toggle("sel", k === selectedId);
+  openAtHead(els[selectedId]);
   xcSync();   // the right composer follows a selection made here too
   syncDesktopHistoryAvailability(selectedId);
   updatePwd(state);
@@ -6236,7 +6238,10 @@ function apply(state){
       el.reply.dataset.raw = rawReply;
       delete histCache[b.id];   // a fresh reply outdates the cached history
       if (hist && hist.id === b.id) histExit(b.id);   // and snaps a history view back to live
-      else el.reply.innerHTML = fmt(rawReply);
+      else{
+        el.reply.innerHTML = fmt(rawReply);
+        if (!turn) headOnSwap(el, b);
+      }
       // a new answer is a new line count in the same room, so the phase goes
       if (b.id === selectedId) requestAnimationFrame(snapCard);
     }

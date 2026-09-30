@@ -2690,6 +2690,7 @@ function select(id){
   syncPhoneHistory(b);
   wearEditor(id);
   for (const k of Object.keys(els)) els[k].box.classList.toggle("sel", k === id);
+  openAtHead(els[id]);
   document.getElementById("pane").classList.remove("blank");
   for (const r of document.querySelectorAll("#tiklist .trow")){
     r.classList.toggle("on", r.dataset.id === id);
@@ -2896,6 +2897,7 @@ function applySelection(state){
   // moved the cards around it moves its neighbours
   wearEditor(selectedId);
   for (const k of Object.keys(els)) els[k].box.classList.toggle("sel", k === selectedId);
+  openAtHead(els[selectedId]);
   document.getElementById("pane").classList.remove("blank");
   reachLater();
 }
@@ -3793,7 +3795,10 @@ function apply(state){
       el.reply.dataset.raw = rawReply;
       delete histCache[b.id];
       if (hist && hist.id === b.id) histExit(b.id);
-      else el.reply.innerHTML = fmt(rawReply);
+      else{
+        el.reply.innerHTML = fmt(rawReply);
+        if (!turn) headOnSwap(el, b);
+      }
     }
     // a reply landing on the open card while the caret is in its row is read as
     // it lands, unless the drawer is covering the card
@@ -4682,6 +4687,7 @@ function stepCard(dir, focus){
     drag.dir = dir; drag.pick = pick; drag.out = out; drag.into = into;
     out.classList.add("cardswipe");
     into.classList.add("cardswipe", "cardswipe-in");
+    openAtHead(els[pick.id]);
     document.getElementById("pane").classList.add("cardswiping");
     document.body.classList.add("carddrag");
     paint(dx);
