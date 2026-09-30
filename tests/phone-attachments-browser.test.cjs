@@ -2,9 +2,9 @@
 // how it moves, how the squares alone show an upload going, waiting, failed or
 // refused with no line of words anywhere, how a try that failed is tried again
 // without ever storing the file twice, what happens to a file the board
-// refuses, and a send pressed while a file is still on its way. A copied
-// server on a free port pair in a temp folder, and an owned headless Chrome at
-// 375 x 812, scale 3, touch on.
+// refuses, a send pressed while a file is still on its way, and the plus
+// opening the picker on every tap. A copied server on a free port pair in a
+// temp folder, and an owned headless Chrome at 375 x 812, scale 3, touch on.
 const assert = require("node:assert/strict");
 const { before, after, test } = require("node:test");
 const { spawn } = require("node:child_process");
@@ -398,6 +398,81 @@ test("a send pressed while a file uploads waits in the row and goes with it", as
     // document with its name
     await page.waitForFunction(id => els[id].sentwrap.querySelectorAll(".shotgrid .shot").length === 2 &&
       !!els[id].sentwrap.querySelector(".attachment-document"), {}, id);
+  } finally { await closePage(page); }
+});
+
+// The phone goes on taking its picker down after it is dismissed or a file is
+// chosen, until the window has its focus back, and a file input clicked in that
+// stretch opens nothing. Headless Chrome hands no focus back, so the test hands
+// it back where the phone would, and answers each picker at a person's pace.
+test("every tap on the plus opens the picker, ten in a row choosing and cancelling, and a tap while the last one is still closing is held", async () => {
+  const { page, id } = await openCard();
+  try {
+    const photo = path.join(outer, "IMG_0412.png");
+    await writeFile(photo, PNG);
+    const [x, y] = await page.evaluate(id => {
+      const r = els[id].clip.getBoundingClientRect();
+      return [r.left + r.width / 2, r.top + r.height / 2];
+    }, id);
+    // every click a file input takes
+    await page.evaluate(() => {
+      window.inputClicks = 0;
+      const click = HTMLInputElement.prototype.click;
+      HTMLInputElement.prototype.click = function () { if (this.type === "file") window.inputClicks++; return click.call(this); };
+    });
+    // a real touch on the plus, and the picker it opened, or null
+    const tapPlus = async () => {
+      const chooser = page.waitForFileChooser({ timeout: 1000 }).catch(() => null);
+      await page.touchscreen.tap(x, y);
+      return chooser;
+    };
+    const handBack = () => page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    const dimmed = () => page.evaluate(id => [document.body.classList.contains("picking"),
+      getComputedStyle(els[id].clip).opacity === "0.28"], id);
+    const answer = async (chooser, choose) => {
+      await pause(300);
+      if (choose) await chooser.accept([photo]); else await chooser.cancel();
+    };
+    for (let n = 1; n <= 10; n++) {
+      const chooser = await tapPlus();
+      assert.ok(chooser, `tap ${n} opened no picker`);
+      assert.deepEqual(await dimmed(), [true, true], "the plus is not dimmed while its picker is up");
+      await answer(chooser, n % 2 === 1);
+      await handBack();
+      assert.equal((await dimmed())[0], false, "the plus did not come back with the window");
+    }
+    assert.equal(await page.evaluate(() => window.inputClicks), 10);
+    // the same file chosen twice in a row lands twice
+    for (let n = 0; n < 2; n++) {
+      const chooser = await tapPlus();
+      assert.ok(chooser, "a second pick of the same file opened no picker");
+      await answer(chooser, true);
+      await handBack();
+    }
+    const items = await settled(page, id, 7);
+    assert.ok(items.every(it => it.name === "IMG_0412.png" && it.state === "done"));
+    assert.equal(new Set(items.map(it => it.url)).size, 7);
+    assert.equal((await kept("IMG_0412.png")).length, 7);
+    // a tap while the phone is still taking the picker down is held, click and
+    // all, on the dimmed plus; the one after the window comes back opens
+    await answer(await tapPlus(), false);
+    assert.deepEqual(await dimmed(), [true, true], "the plus is not dimmed while the picker is closing");
+    const clicks = await page.evaluate(() => window.inputClicks);
+    assert.equal(await tapPlus(), null, "a tap while the picker was closing opened one");
+    assert.equal(await page.evaluate(() => window.inputClicks), clicks, "a tap while the picker was closing reached the file input");
+    await handBack();
+    const again = await tapPlus();
+    assert.ok(again, "the plus did not open the picker once the window came back");
+    await answer(again, false);
+    // with no focus handed back at all, the plus comes back on its own clock
+    await pause(2700);
+    assert.deepEqual(await dimmed(), [false, false], "the plus stayed dimmed with nothing to end the close");
+    const late = await tapPlus();
+    assert.ok(late, "the plus did not open the picker after the close ran out");
+    await answer(late, true);
+    await handBack();
+    assert.equal((await settled(page, id, 8)).filter(it => it.state === "done").length, 8);
+    await noStatusText(page, id);
   } finally { await closePage(page); }
 });
 

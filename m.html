@@ -562,8 +562,11 @@
     flex:none; width:28px; height:var(--row-min); padding:0; border:none;
     background:none; border-radius:var(--sq); color:var(--ink);
     display:grid; place-items:center; line-height:1; cursor:pointer;
-    position:relative; isolation:isolate; transition:transform .11s var(--gentle);
+    position:relative; isolation:isolate; transition:transform .11s var(--gentle), opacity .3s var(--gentle);
   }
+  /* dimmed from the tap that opens the picker until the phone has taken it
+     down (the picker's session, in the script): off at once, back on a fade */
+  body.picking .clipbtn{opacity:.28; transition:none}
   .clipbtn::before{
     content:""; position:absolute; z-index:-1; left:0; right:0; top:50%; aspect-ratio:1;
     transform:translateY(-50%); border-radius:var(--sq); border:var(--edge) solid var(--line);
@@ -1536,11 +1539,23 @@ function makeBox(b){
     if (ComposeFormat.focused(ta)) e.preventDefault();
   });
   send.addEventListener("click", () => composerArrow(b.id));
-  clip.addEventListener("pointerdown", e => { if (ComposeFormat.focused(ta)) e.preventDefault(); });
+  // a tap that comes down while the last picker is still being taken down is
+  // held whole, its click included (the file picker's session, after makeBox)
+  let plusHeld = false;
+  clip.addEventListener("pointerdown", e => {
+    plusHeld = pickPhase === "closing";
+    if (plusHeld || ComposeFormat.focused(ta)) e.preventDefault();
+  });
   // picked, pasted or dropped, a file goes into the tray and starts uploading
   wireAttachmentTransfer(ta, files => trayAdd(b.id, files));
-  clip.addEventListener("click", () => clipfile.click());
+  clip.addEventListener("click", () => {
+    const held = plusHeld;
+    plusHeld = false;
+    if (!held && pickPhase !== "closing") pickOpen(clipfile);
+  });
+  clipfile.addEventListener("cancel", pickSettle);
   clipfile.addEventListener("change", () => {
+    pickSettle();
     const files = [...(clipfile.files || [])];
     clipfile.value = "";
     trayAdd(b.id, files);
@@ -1575,6 +1590,52 @@ function makeBox(b){
   watchReading(els[b.id]);
   return els[b.id];
 }
+
+// ---- the file picker's session ---------------------------------------------------
+// the phone's picker only looks gone the moment it is dismissed or a file is
+// chosen. the phone goes on taking it down for up to two seconds more, until
+// the window has its focus back, and a file input clicked in that stretch opens
+// nothing, with no error and no event: a plus tapped again that soon is a dead
+// tap, every other tap for a quick hand. no click in the stretch can be made to
+// open it, neither one put off to the window's focus nor one made on a new
+// input, so the plus waits the stretch out where it can be seen. it dims on the
+// tap that opens the picker and comes back once the window is handed back, and
+// a tap on it in between is held. the input's own cancel and change come at the
+// dismissal, before the phone is done, so they only mark the close; the
+// window's focus, or the page shown or made visible again, ends it, and a clock
+// ends a close that nothing else ends
+const PICK_GUARD_MS = 250;     // a close this soon after an open is the last picker's, arriving late
+const PICK_CLOSE_MS = 2500;    // the longest a close holds the plus
+let pickPhase = "idle", pickOpenedAt = 0, pickClosingAt = 0;
+function pickOpen(input){
+  pickPhase = "open";
+  pickOpenedAt = performance.now();
+  input.click();
+  document.body.classList.add("picking");
+}
+// the picker is off the screen, though the phone may still be taking it down
+function pickSettle(){
+  if (pickPhase !== "open" || performance.now() - pickOpenedAt < PICK_GUARD_MS) return;
+  pickPhase = "closing";
+  pickClosingAt = performance.now();
+  setTimeout(() => {
+    if (pickPhase === "closing" && performance.now() - pickClosingAt >= PICK_CLOSE_MS) pickEnd();
+  }, PICK_CLOSE_MS + 50);
+}
+function pickEnd(){
+  pickPhase = "idle";
+  document.body.classList.remove("picking");
+}
+// the phone has handed the window back
+function pickBack(){
+  pickSettle();
+  if (pickPhase === "closing") pickEnd();
+}
+window.addEventListener("focus", pickBack);
+window.addEventListener("pageshow", pickBack);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) pickBack(); });
+// a tap on the page means the picker is off the screen
+document.addEventListener("pointerdown", pickSettle, { capture: true, passive: true });
 
 // ---- the files picked for the next message ---------------------------------------
 // a picked file goes into the tray over the typing row at once, as a square that
