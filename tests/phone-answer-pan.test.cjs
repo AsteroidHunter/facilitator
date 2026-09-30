@@ -61,6 +61,9 @@ function world() {
     runMenu: (p, v) => calls.push(["run", p.dataset.side, v]),
     cardStepTarget: dir => ({ id: dir > 0 ? "m2" : "m1" }),
     select: id => calls.push(["select", id]),
+    // the card coming in is given its typing editor, and whether it was
+    // already on show when that happened
+    wearEditor: id => calls.push(["wear", id, boxes[id].classList.contains("cardswipe")]),
     MutationObserver: class { observe() {} disconnect() {} },
   });
   for (const source of [DRAWER, RECORDER, SWIPE]) vm.runInContext(source, context);
@@ -134,6 +137,8 @@ test("a sideways drag over the card swipes to the next card, cancelling nothing"
   w.up();
   w.flush();
   assert.deepEqual(w.calls.filter(c => c[0] === "select"), [["select", "m2"]]);
+  assert.deepEqual(w.calls.filter(c => c[0] === "wear"), [["wear", "m2", false]],
+    "the card slid in was not wearing its editor before it was shown");
   assert.equal(w.prevented(), 0);
 });
 

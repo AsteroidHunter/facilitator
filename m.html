@@ -1450,11 +1450,13 @@ function makeBox(b){
   // public face whichever of the two it is wearing and the handle is what
   // carries a listener across a change of face. what counts as a new line here
   // is the row's own pair: shift enter, and the return key while the on-screen
-  // keyboard is up, which is where return has always made a line
+  // keyboard is up, which is where return has always made a line. the row is
+  // held: it wears the editor only while its card is in reach (wearEditor)
   const createDiagnostic = [...createDiagnostics.values()].find(diagnostic => diagnostic.box === b.id);
   const editorTrace = createDiagnostic
     ? tracePhone("begin", "stage", { stage: "editor-init", box: b.id }) : null;
   const field = ComposeFormat.attach(ta, {
+    held: true,
     newline: e => e.shiftKey || document.body.classList.contains("kb"),
     enterTrace: (step, e, branch) => notePhoneEnter(step, e, branch, ta),
   });
@@ -2559,6 +2561,61 @@ function syncSelectedHistory(){
   syncPhoneHistory(lastState?.boxes.find(b => b.id === selectedId));
 }
 
+// ---- the typing editor, on the cards in reach -------------------------------------
+// Every card keeps its typing row and the row keeps its words, but only the
+// card on show and the two a swipe or a card key brings in next wear the
+// editor. An editor on each of several hundred cards was most of the time the
+// page took to open and much of its weight after that. The card on show is
+// given its editor in select, in the same turn and before it is drawn, so the
+// first tap and the first key land in the row as they always have. Its two
+// neighbours are given theirs once the switch has been drawn, and a card that
+// has left the reach takes its editor off; its words, caret and undo stay with
+// the row (ComposeFormat want). A row still holding the caret keeps its editor
+// until a later pass finds it let go.
+// With a row focused, the phone is still deciding for a moment after a switch
+// whether to scroll the page to the caret, and the focus blink that stops that
+// scroll holds only on a page that is not busy, so the neighbours wait until
+// that moment has passed.
+const REACH_TYPING_MS = 250;
+const editorsWorn = new Set();   // the cards this page has asked to wear the editor
+let reachTimer = null, reachAsk = 0;
+function wearEditor(id){
+  const el = els[id];
+  if (!el) return;
+  editorsWorn.add(id);
+  const was = el.field.formatted();
+  if (el.field.want(true) && !was) el.tick();
+}
+function editorReach(){
+  const reach = new Set();
+  if (!selectedId || !els[selectedId]) return reach;
+  reach.add(selectedId);
+  for (const dir of [-1, 1]){
+    const pick = lastState && cardStepTarget(dir);
+    if (pick && els[pick.id]) reach.add(pick.id);
+  }
+  return reach;
+}
+function reachEditors(){
+  clearTimeout(reachTimer); reachTimer = null;
+  const reach = editorReach();
+  for (const id of reach) wearEditor(id);
+  for (const id of [...editorsWorn]){
+    if (reach.has(id)) continue;
+    const el = els[id];
+    if (!el){ editorsWorn.delete(id); continue; }
+    if (el.field.focused()) continue;
+    el.field.want(false);
+    editorsWorn.delete(id);
+  }
+}
+function reachLater(){
+  clearTimeout(reachTimer); reachTimer = null;
+  const asked = ++reachAsk;
+  if (editing()){ reachTimer = setTimeout(reachEditors, REACH_TYPING_MS); return; }
+  requestAnimationFrame(() => { if (asked === reachAsk) reachTimer = setTimeout(reachEditors, 0); });
+}
+
 // ---- selection and tabs ----------------------------------------------------------
 function select(id){
   const trace = tracePhone("begin", "select", { box: id });
@@ -2571,6 +2628,7 @@ function select(id){
   const b = lastState?.boxes.find(x => x.id === id);
   if (b) lastSel[b.owner] = id;
   syncPhoneHistory(b);
+  wearEditor(id);
   for (const k of Object.keys(els)) els[k].box.classList.toggle("sel", k === id);
   document.getElementById("pane").classList.remove("blank");
   for (const r of document.querySelectorAll("#tiklist .trow")){
@@ -2578,6 +2636,7 @@ function select(id){
     if (r.dataset.id === id && r.classList.contains("yours") && !homeOpen) r.classList.add("seen");
   }
   if (lastState) renderTabs(lastState);
+  reachLater();
   endPhoneTrace(trace, { box: id }, null, true);
 }
 function deselect(){
@@ -2586,6 +2645,7 @@ function deselect(){
   for (const k of Object.keys(els)) els[k].box.classList.remove("sel");
   document.getElementById("pane").classList.add("blank");
   for (const r of document.querySelectorAll("#tiklist .trow")) r.classList.remove("on");
+  reachLater();
 }
 function setTab(owner){
   if (!validOwners.has(owner)) return;
@@ -2771,8 +2831,13 @@ function applySelection(state){
     return;
   }
   if (hist && hist.id !== selectedId) histExit(hist.id);
+  // the card kept on show, or put on show without select (a reload, a card
+  // just made): it wears its editor before it is drawn, and a reading that
+  // moved the cards around it moves its neighbours
+  wearEditor(selectedId);
   for (const k of Object.keys(els)) els[k].box.classList.toggle("sel", k === selectedId);
   document.getElementById("pane").classList.remove("blank");
+  reachLater();
 }
 
 // ---- the home page ---------------------------------------------------------
@@ -4493,6 +4558,9 @@ function stepCard(dir, focus){
     const pick = cardStepTarget(dir);
     const out = selectedId && els[selectedId]?.box, into = pick && els[pick.id]?.box;
     if (!out || !into || into === out) return false;
+    // a neighbour is already wearing its editor once the last switch was
+    // drawn; one swiped to sooner is given it here, before it slides in
+    wearEditor(pick.id);
     drag.dir = dir; drag.pick = pick; drag.out = out; drag.into = into;
     out.classList.add("cardswipe");
     into.classList.add("cardswipe", "cardswipe-in");
