@@ -845,13 +845,12 @@
   /* ---- the settings, on the panel off the right edge ---------------------- */
   /* the panel keeps its own white, edge, corners and top inset. the page
      card-logic.js builds inside it is the shared one, and here it is bare: none
-     of the glass it wears on the desktop, no second top inset, and no close
-     mark, since the shade and a swipe shut the panel */
+     of the glass it wears on the desktop, no second top inset, and no window
+     buttons, since the shade and a swipe shut the panel */
   #setpage{flex:1; min-height:0; background:none; box-shadow:none;
     backdrop-filter:none; -webkit-backdrop-filter:none}
   #setpage::before{display:none}
   #setpage .sp-head{padding-top:14px}
-  #setpage .sp-close{display:none}
   /* the one line a keyboard save says over whatever the panel shows */
   #diagnostictoast{position:fixed; z-index:30; top:48px; left:12px; right:12px;
     padding:10px 12px; background:var(--paper); border:var(--edge) solid var(--line);
@@ -1109,7 +1108,7 @@
         <div class="setrow">
           <label class="setlabel" for="setformat"><span>Format text while typing</span>
             <small class="sethelp">Bold, italic, strikethrough, quotes and bullets are drawn in the composer as you type. The message is still sent as Markdown.</small></label>
-          <input type="checkbox" id="setformat">
+          <input type="checkbox" role="switch" id="setformat">
         </div>
       </div>
       <div data-section="notifications" data-label="Notifications">

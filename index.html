@@ -3695,7 +3695,7 @@
     <div class="setrow">
       <label class="setlabel" for="setformat"><span>Format text while typing</span>
         <small class="sethelp">Bold, italic, strikethrough, quotes and bullets are drawn in the composer as you type. The message is still sent as Markdown.</small></label>
-      <input type="checkbox" id="setformat">
+      <input type="checkbox" role="switch" id="setformat">
     </div>
   </div>
 </div>
@@ -11646,8 +11646,8 @@ document.getElementById("editbtn").addEventListener("click", () => setEditMode(!
 // ---- settings --------------------------------------------------------------
 // the board's own choices for this browser, on one page over the whole window,
 // opened by the mark on the bar. the page itself is the shared one in
-// card-logic.js, built from the groups in #setsrc. it puts itself away from its
-// own close mark and on escape, and an Escape it spends is not heard by the
+// card-logic.js, built from the groups in #setsrc. it puts itself away from the
+// red window button and on escape, and an Escape it spends is not heard by the
 // board, which leaves the card selected. every control in it writes straight
 // through to the thing it names
 {

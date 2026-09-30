@@ -584,33 +584,59 @@
 .sp-page{box-sizing:border-box; display:flex; flex-direction:column; min-height:0;
   border-radius:0; --qn-boost:.22; color:var(--ink); font:14px/1.4 var(--sans)}
 .sp-veil.open{display:block}
-.sp-veil .sp-page{position:absolute; inset:15%; border-radius:9px; overflow:hidden}
+/* the top rim is one line. the note's shadow stack draws it twice: a white
+   highlight on the first row and a faint dark band two rows deep, which shows
+   as a second, grey line beneath the white one, and the two hide the grey ring
+   that goes round the other three sides. both are left out here, so the ring is
+   the top edge as well, and the rest of the stack, the bottom and side rims,
+   the inner glow and the outer shadow, is the note's own */
+.sp-veil .sp-page{position:absolute; inset:15%; border-radius:9px; overflow:hidden;
+  box-shadow:
+    inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
+    inset 0 0 0 1px var(--qn-ring),
+    inset 0 0 2px rgba(255,255,255,calc(.35 * var(--qn-edge))),
+    inset 0 12px 12px -6px rgba(255,255,255,calc(.55 * var(--qn-edge))),
+    0 1px 2px -1px rgba(0,0,0,.18),
+    0 1px 3px rgba(0,0,0,.07),
+    0 8px 20px rgba(0,0,0,.06)}
 .sp-veil .sp-page:focus{outline:none}
 .sp-head, .sp-body{position:relative}
 .sp-head{flex:none; display:flex; align-items:center; gap:8px;
   padding:calc(14px + env(safe-area-inset-top, 0px)) 20px 12px;
   border-bottom:var(--edge) solid var(--line)}
 .sp-title{flex:1; min-width:0; margin:0; font:625 17px/1.25 var(--inter); color:var(--ink)}
+/* the window buttons of the desktop page, at the top left as on any Mac window:
+   three 12px circles 8px apart in the system's own red, yellow and green, on
+   the page's own left margin. the symbols inside stay hidden until a pointer is
+   over the group, as they do on a Mac window. only the red one does anything */
+.sp-lights{flex:none; display:flex; gap:8px; margin-right:12px}
+.sp-light{flex:none; box-sizing:border-box; display:block; width:12px; height:12px;
+  margin:0; padding:0; border:none; border-radius:50%; cursor:default;
+  box-shadow:inset 0 0 0 .5px rgba(0,0,0,.14)}
+.sp-light svg{display:block; opacity:0; transition:opacity .12s}
+.sp-lights:hover .sp-light svg{opacity:1}
+.sp-red{background:#FF5F57; color:#4D0000}
+.sp-yellow{background:#FEBC2E; color:#985600}
+.sp-green{background:#28C840; color:#006500}
 /* the marks on the bar are the tab bar's own: 15px, the sub ink, no box, and
-   the accent under a pointer. the padding is only the room a finger needs, and
+   the ink under a pointer. the padding is only the room a finger needs, and
    the margin takes it back so the mark stands on the page's own margin */
 .sp-icon{flex:none; display:flex; padding:8px; border:none; background:none;
   color:var(--sub); cursor:pointer; transition:color .18s}
-.sp-icon:hover{color:var(--accent)}
+.sp-icon:hover{color:var(--ink)}
 .sp-icon[hidden]{display:none}
 .sp-icon svg{display:block}
 .sp-back{margin:-8px 0 -8px -8px}
-.sp-close{margin:-8px -8px -8px 0}
 .sp-body{flex:1; min-height:0; display:grid; grid-template-columns:260px minmax(0, 1fr)}
 .sp-list{display:flex; flex-direction:column; gap:2px; padding:16px 12px; overflow-y:auto;
   border-right:var(--edge) solid var(--line)}
 /* a section is a borderless button on the page: the press shade under a pointer,
-   and the board's own soft accent tint on the one that is chosen */
+   and the same shade held on the one that is chosen */
 .sp-item{display:flex; align-items:center; justify-content:space-between; gap:8px;
   width:100%; padding:9px 12px; border:none; border-radius:var(--sq); background:none;
   color:var(--ink); font:500 14px/1.3 var(--sans); text-align:left; cursor:pointer}
 .sp-item:hover{background:color-mix(in srgb, #000 var(--press), transparent)}
-.sp-item.on{background:var(--accent-soft); color:var(--accent)}
+.sp-item.on{background:color-mix(in srgb, #000 var(--press), transparent); color:var(--ink)}
 .sp-next{display:none; flex:none; color:var(--sub)}
 .sp-next svg{display:block}
 .sp-panes{overflow-y:auto; padding:24px 32px 40px}
@@ -625,8 +651,21 @@
   font:14px/1.35 var(--sans); color:var(--ink); cursor:pointer}
 .sp-pane .sethelp{margin:0; font:12px/1.5 var(--sans); color:var(--sub)}
 .sp-pane .sethelp:empty{display:none}
-.sp-pane .setrow input[type="checkbox"]{flex:none; width:16px; height:16px; margin:0;
-  accent-color:var(--accent); cursor:pointer}
+/* an on and off choice is a switch: a pill that is the line grey when off and the
+   ink when on, and a white pill knob that slides across. it is still the row's
+   own checkbox, drawn over, so the click, the label and the space bar all work */
+.sp-pane .setrow input[type="checkbox"]{flex:none; position:relative; box-sizing:border-box;
+  width:46px; height:24px; margin:0; border:none; border-radius:12px;
+  -webkit-appearance:none; appearance:none; background:var(--line); cursor:pointer;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.14); transition:background-color .18s}
+.sp-pane .setrow input[type="checkbox"]::before{content:""; position:absolute;
+  top:3px; left:3px; width:27px; height:18px; border-radius:9px; background:var(--card);
+  box-shadow:0 1px 2px rgba(0,0,0,.28); transition:transform .18s var(--gentle)}
+.sp-pane .setrow input[type="checkbox"]:checked{background:var(--ink)}
+.sp-pane .setrow input[type="checkbox"]:checked::before{transform:translateX(13px)}
+@media (prefers-reduced-motion: reduce){
+  .sp-pane .setrow input[type="checkbox"], .sp-pane .setrow input[type="checkbox"]::before{transition:none}
+}
 /* an action is a button with the words that go with it under it. it is the
    card's own kind of control, no border and the card's white for a fill, with
    the board's one press shade mixed into that fill */

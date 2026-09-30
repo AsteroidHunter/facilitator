@@ -6,8 +6,9 @@
 // the board at about seven tenths of the window each way, in the quick note's
 // glass and with its corners, a column of sections beside the chosen section
 // when the page itself is wider than 989px, only the list when it is not, with a
-// way back from a section, a way to put the whole page away (the close mark,
-// Escape, a click outside it), every setting still writing what it always wrote,
+// way back from a section, a way to put the whole page away (the red one of the
+// three window buttons at its top left, Escape, a click outside it), every on and
+// off setting a switch, no purple, every setting still writing what it always wrote,
 // the colour picker gone from the bar and the pen a plain mark like the gear. On
 // the phone the drawer keeps its own size, white, edge and corners, and holds the
 // list of sections, each one opening inside it with a way back.
@@ -276,7 +277,14 @@ test("wide: the gear opens one page, centred at about 70% of the window, in the 
     assert.match(glass.filter, /saturate\((1\.8|180%)\)/, "the page is not saturated like the note: " + glass.filter);
     assert.equal(glass.tint, "rgba(255, 255, 255, 0.77)", "the page's tint is not the note's");
     assert.equal(glass.radius, note.radius, "the page's corners are not the note's");
-    assert.equal(glass.shadow, note.shadow, "the page's edge is not the note's");
+    // the note's rim, less the two layers that draw a line along the top row and
+    // the row under it: what is left is the ring, the other rims and the shadows
+    const rim = shadow => shadow.split(/,\s(?![^(]*\))/);
+    const topLine = layer => /\s0px [12]px 0px 0px inset$/.test(layer);
+    assert.equal(rim(note.shadow).filter(topLine).length, 2, "the note's rim has changed shape: " + note.shadow);
+    assert.deepEqual(rim(glass.shadow), rim(note.shadow).filter(layer => !topLine(layer)),
+      "the page's edge is not the note's with one top line: " + glass.shadow);
+    assert.ok(rim(glass.shadow).some(layer => /\s0px 0px 0px 1px inset$/.test(layer)), "the page lost its ring");
     assert.equal(glass.layers, note.layers, "the page's surface is not the note's");
     assert.equal(glass.filter, note.filter);
     assert.equal(glass.tint, note.tint);
@@ -442,7 +450,185 @@ test("wide: each setting still writes what it always wrote", async () => {
   }
 });
 
-test("wide: the close mark and Escape put the page away, and Escape stays off the board", async () => {
+// the colour of what is on a pixel is not read; what is read is the switch's own
+// computed box: grey when off, the ink when on, the knob moved across, and no
+// purple in either state
+const hueOf = css => {
+  const [r, g, b] = css.match(/[\d.]+/g).slice(0, 3).map(Number);
+  const hi = Math.max(r, g, b), lo = Math.min(r, g, b);
+  return { chroma: (hi - lo) / 255, hue: hi === lo ? 0 : hi === r ? (60 * (((g - b) / (hi - lo)) % 6) + 360) % 360
+    : hi === g ? 60 * ((b - r) / (hi - lo) + 2) : 60 * ((r - g) / (hi - lo) + 4) };
+};
+const switchLook = page => page.evaluate(() => {
+  const box = document.getElementById("setformat");
+  const track = getComputedStyle(box), knob = getComputedStyle(box, "::before");
+  const rect = box.getBoundingClientRect();
+  return { width: rect.width, height: rect.height, radius: track.borderTopLeftRadius, appearance: track.appearance,
+           background: track.backgroundColor, accent: track.accentColor, role: box.getAttribute("role"),
+           knob: knob.backgroundColor, knobShift: new DOMMatrix(knob.transform).m41, checked: box.checked,
+           tabbable: box.tabIndex >= 0 };
+});
+
+test("wide: an on and off setting is a switch that any of a click, its words or Space flips", async () => {
+  const { page, problems } = await open("/", OWNER);
+  try {
+    await openMac(page);
+    await page.click('.sp-item[data-section="editor"]');
+    await settle();
+    const off = await switchLook(page);
+    assert.equal(off.appearance, "none", "the setting is still the browser's own checkbox");
+    assert.equal(off.role, "switch");
+    assert.ok(off.width > off.height * 1.6, "the switch is not a wide pill: " + off.width + " by " + off.height);
+    assert.equal(off.radius, off.height / 2 + "px", "the switch is not round ended");
+    assert.equal(off.background, "rgb(202, 202, 202)", "the switch is not the light grey when off: " + off.background);
+    assert.equal(off.knob, "rgb(255, 255, 255)", "the knob is not white");
+    assert.equal(off.knobShift, 0, "the knob is not at the left when off");
+    assert.equal(off.tabbable, true, "the switch cannot be reached by keyboard");
+    await page.click("#setformat");
+    await settle(400);
+    const on = await switchLook(page);
+    assert.equal(on.checked, true);
+    assert.equal(on.background, "rgb(33, 29, 23)", "the switch is not the board's ink when on: " + on.background);
+    assert.ok(on.knobShift > 8, "the knob did not move across: " + on.knobShift);
+    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "1");
+    for (const look of [off, on]) {
+      const { chroma, hue } = hueOf(look.background);
+      assert.ok(chroma < 0.1 || hue < 235 || hue > 335, "a purple switch: " + look.background);
+    }
+    // its words flip it
+    await page.click('label[for="setformat"] span');
+    await settle(200);
+    assert.equal(await page.$eval("#setformat", el => el.checked), false, "a press on the words did not flip it");
+    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "0");
+    // and so does Space, from the keyboard
+    await page.focus("#setformat");
+    await page.keyboard.press("Space");
+    await settle(200);
+    assert.equal(await page.$eval("#setformat", el => el.checked), true, "Space did not flip it");
+    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "1");
+    await page.keyboard.press("Space");
+    await settle(200);
+    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "0");
+    assert.equal(await page.evaluate(() => document.activeElement.id), "setformat", "the switch lost focus");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("wide: nothing on the page is purple, and the chosen section is a neutral shade", async () => {
+  const { page, problems } = await open("/", OWNER);
+  try {
+    await openMac(page);
+    const found = new Map();
+    const sweep = async () => {
+      const rows = await page.evaluate(() => {
+        const out = [];
+        const props = ["color", "backgroundColor", "borderTopColor", "borderBottomColor", "borderLeftColor",
+                       "borderRightColor", "outlineColor", "boxShadow", "backgroundImage", "accentColor", "fill", "stroke"];
+        const top = document.querySelector(".sp-veil");
+        for (const el of [top, ...top.querySelectorAll("*")]) {
+          for (const pseudo of [null, "::before", "::after"]) {
+            const style = getComputedStyle(el, pseudo);
+            for (const p of props) out.push(style[p]);
+          }
+        }
+        return out;
+      });
+      for (const value of rows) for (const m of String(value).matchAll(/rgba?\(([^)]*)\)/g)) found.set(m[0], m[1]);
+    };
+    await sweep();
+    await page.click('.sp-item[data-section="editor"]');
+    await page.click("#setformat");
+    await page.hover('.sp-item[data-section="appearance"]');
+    await settle(300);
+    await sweep();
+    assert.ok(found.size > 5, "too few colours were read to mean anything");
+    for (const [text, inside] of found) {
+      const [r, g, b, a = 1] = inside.split(/[ ,\/]+/).filter(Boolean).map(Number);
+      if (a === 0) continue;
+      const { chroma, hue } = hueOf("rgb(" + r + "," + g + "," + b + ")");
+      assert.ok(chroma < 0.06 || hue < 235 || hue > 335, "a purple on the settings page: " + text);
+    }
+    const chosen = await page.$eval('.sp-item[data-section="editor"]', el => {
+      const style = getComputedStyle(el);
+      return { color: style.color, background: style.backgroundColor };
+    });
+    assert.equal(chosen.color, "rgb(33, 29, 23)", "the chosen section is not in the ink: " + chosen.color);
+    assert.notEqual(chosen.background, "rgba(0, 0, 0, 0)", "the chosen section is not marked");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+// the window buttons at the top left of the overlay: 12px circles in the system's
+// own red, yellow and green, 8px apart, and only the red one does anything
+const lightsOf = page => page.evaluate(() => {
+  const group = document.querySelector(".sp-lights");
+  const page = document.querySelector(".sp-page").getBoundingClientRect();
+  const boxes = [...group.children].map(el => {
+    const r = el.getBoundingClientRect(), s = getComputedStyle(el);
+    return { cls: el.className, tag: el.tagName, left: r.left - page.left, top: r.top - page.top, width: r.width,
+             height: r.height, radius: s.borderTopLeftRadius, background: s.backgroundColor,
+             symbol: getComputedStyle(el.querySelector("svg")).opacity, focusable: el.tabIndex >= 0,
+             text: el.textContent.trim(), label: el.getAttribute("aria-label"), title: el.getAttribute("title") };
+  });
+  return { boxes, closeMark: !!document.querySelector(".sp-close"), pageWidth: page.width };
+});
+
+test("wide: three window buttons stand at the top left, and only the red one closes the page", async () => {
+  const { page, problems } = await open("/", OWNER);
+  try {
+    await openMac(page);
+    const seen = await lightsOf(page);
+    assert.deepEqual(seen.boxes.map(b => b.cls), ["sp-light sp-red", "sp-light sp-yellow", "sp-light sp-green"]);
+    assert.deepEqual(seen.boxes.map(b => b.background),
+      ["rgb(255, 95, 87)", "rgb(254, 188, 46)", "rgb(40, 200, 64)"], "the buttons are not the system's colours");
+    for (const b of seen.boxes) {
+      assert.equal(b.width, 12, b.cls + " is not 12px wide");
+      assert.equal(b.height, 12, b.cls + " is not 12px tall");
+      assert.equal(b.radius, "50%", b.cls + " is not round");
+      assert.equal(b.text, "", b.cls + " carries words");
+      assert.equal(b.title, null, b.cls + " carries a hint");
+      assert.equal(b.symbol, "0", b.cls + " shows its symbol without a pointer over the group");
+    }
+    assert.equal(seen.boxes[1].left - seen.boxes[0].left, 20, "the buttons are not 8px apart");
+    assert.equal(seen.boxes[2].left - seen.boxes[1].left, 20, "the buttons are not 8px apart");
+    assert.ok(seen.boxes[0].left >= 12 && seen.boxes[0].left <= 24, "the red button is not inset like a window's: " + seen.boxes[0].left);
+    assert.ok(seen.boxes[0].top >= 12 && seen.boxes[0].top <= 24, "the red button is not inset from the top: " + seen.boxes[0].top);
+    assert.equal(seen.closeMark, false, "the close mark at the top right is still there");
+    assert.equal(await page.evaluate(() => document.querySelector(".sp-red").tagName), "BUTTON");
+    // the title stands clear of the buttons
+    const gap = await page.evaluate(() => document.querySelector(".sp-title").getBoundingClientRect().left -
+      document.querySelector(".sp-green").getBoundingClientRect().right);
+    assert.ok(gap >= 12, "the title crowds the buttons: " + gap);
+    // a pointer over the group shows every symbol
+    const at = await page.evaluate(() => { const r = document.querySelector(".sp-yellow").getBoundingClientRect(); return { x: r.left + 6, y: r.top + 6 }; });
+    await page.mouse.move(at.x, at.y);
+    await settle(300);
+    assert.deepEqual((await lightsOf(page)).boxes.map(b => b.symbol), ["1", "1", "1"], "the symbols do not show under a pointer");
+    // yellow and green do nothing
+    for (const name of ["yellow", "green"]) {
+      const before = await page.evaluate(() => document.querySelector(".sp-page").outerHTML.length);
+      await page.click(".sp-" + name);
+      await settle(200);
+      assert.equal(await shown(page, ".sp-page"), true, "the " + name + " button put the page away");
+      assert.equal(await page.evaluate(() => document.querySelector(".sp-page").outerHTML.length), before,
+        "the " + name + " button changed the page");
+      assert.equal(await page.$eval("#setbtn", el => el.getAttribute("aria-expanded")), "true");
+    }
+    // red puts it away
+    await page.click(".sp-red");
+    await settle(200);
+    assert.equal(await shown(page, ".sp-page"), false, "the red button left the page on show");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("wide: the red button and Escape put the page away, and Escape stays off the board", async () => {
   const made = await fetch(origin + "/create?owner=facilitator", { method: "POST", body: "Card behind the page" });
   const { id } = await made.json();
   const { page, problems } = await open("/", WIDE);
@@ -451,9 +637,9 @@ test("wide: the close mark and Escape put the page away, and Escape stays off th
     await page.evaluate(cardId => select(cardId), id);
     await page.waitForSelector(`#box-${id}.sel`, { timeout: 8000 });
     await openMac(page);
-    await page.click(".sp-close");
+    await page.click(".sp-red");
     await settle(200);
-    assert.equal(await shown(page, ".sp-page"), false, "the close mark left the page on show");
+    assert.equal(await shown(page, ".sp-page"), false, "the red button left the page on show");
     assert.equal(await page.$eval("#setbtn", el => el.getAttribute("aria-expanded")), "false");
     assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.id), "setbtn",
       "focus did not return to the gear");
@@ -581,6 +767,17 @@ test("narrow Mac: only the list, a section on tap, a way back, and a way out", a
     assert.equal(await shown(page, ".sp-back"), true, "an opened section has no way back");
     assert.equal(await page.$eval(".sp-back", el => el.getAttribute("aria-label")), "Back to settings");
     assert.equal(await title(page), "Appearance", "the heading does not name the section");
+    // the back mark stands clear of the window buttons, and the title clear of the back mark
+    const bar = await page.evaluate(() => {
+      const at = sel => document.querySelector(sel).getBoundingClientRect();
+      return { greenRight: at(".sp-green").right, backLeft: at(".sp-back").left, backRight: at(".sp-back").right,
+               svgLeft: at(".sp-back svg").left, titleLeft: at(".sp-title").left,
+               overlap: !!document.elementFromPoint(at(".sp-back").left + 2, at(".sp-back").top + 2)?.closest(".sp-lights") };
+    });
+    assert.ok(bar.svgLeft - bar.greenRight >= 12, "the back mark crowds the window buttons: " + JSON.stringify(bar));
+    assert.ok(bar.backLeft >= bar.greenRight, "the back mark's box lies over the window buttons: " + JSON.stringify(bar));
+    assert.equal(bar.overlap, false, "a window button sits under the back mark");
+    assert.ok(bar.titleLeft >= bar.backRight, "the title lies over the back mark: " + JSON.stringify(bar));
     await page.$eval("#bgpick", el => { el.value = "#dde6f2"; el.dispatchEvent(new Event("input", { bubbles: true })); });
     assert.equal(await page.evaluate(() => localStorage.getItem("bgcolor")), "#dde6f2");
 
@@ -603,9 +800,9 @@ test("narrow Mac: only the list, a section on tap, a way back, and a way out", a
     await openMac(page);
     assert.equal(await shown(page, ".sp-list"), true);
     assert.equal(await shown(page, ".sp-panes"), false);
-    await page.click(".sp-close");
+    await page.click(".sp-red");
     await settle(200);
-    assert.equal(await shown(page, ".sp-page"), false, "the close mark left the page on show");
+    assert.equal(await shown(page, ".sp-page"), false, "the red button left the page on show");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
@@ -671,7 +868,7 @@ function drawerView(page) {
       view: page.dataset.view,
       title: page.querySelector(".sp-title").textContent,
       back: seen(page.querySelector(".sp-back")),
-      close: seen(page.querySelector(".sp-close")),
+      close: !!page.querySelector(".sp-lights, .sp-light, .sp-close"),
       items: [...page.querySelectorAll(".sp-item")].filter(seen).map(one => one.textContent.trim()),
       panes: [...page.querySelectorAll(".sp-pane")].filter(seen).map(one => one.id),
       shown: Object.fromEntries(Object.entries(sections).map(([name, ids]) => [name, ids.every(id => seen(document.getElementById(id)) && inside(document.getElementById(id)))])),
@@ -744,7 +941,7 @@ test("phone: the drawer opens on the list of sections and each one opens inside 
     assert.deepEqual(list.items, ["Editor", "Notifications", "Account", "Diagnostics"]);
     assert.deepEqual(list.panes, [], "a section shows over the list");
     assert.equal(list.back, false, "the list has a way back");
-    assert.equal(list.close, false, "the page carries a close mark of its own");
+    assert.equal(list.close, false, "the page carries window buttons or a close mark of its own");
     assert.deepEqual(list.anyShown, [], "a control shows before its section is opened");
     const words = { editor: "Editor", notifications: "Notifications", account: "Account", diagnostics: "Diagnostics" };
     for (const [name, ids] of Object.entries(SECTIONS)) {
@@ -754,7 +951,7 @@ test("phone: the drawer opens on the list of sections and each one opens inside 
       assert.equal(one.view, "pane", name + ": did not open");
       assert.equal(one.title, words[name], name + ": the title is not the section's");
       assert.equal(one.back, true, name + ": no way back");
-      assert.equal(one.close, false, name + ": a close mark shows");
+      assert.equal(one.close, false, name + ": window buttons or a close mark show");
       assert.deepEqual(one.items, [], name + ": the list shows beside the section");
       assert.deepEqual(one.panes, ["settings-" + name], name + ": the wrong section shows");
       assert.deepEqual(one.anyShown, ids, name + ": the wrong controls show");
@@ -812,11 +1009,21 @@ test("phone: typed formatting is still stored as it was", async () => {
     await page.tap('.sp-item[data-section="editor"]');
     await settle(80);
     assert.equal(await page.$eval("#setformat", el => el.checked), false, "formatting does not start off");
+    const off = await switchLook(page);
+    assert.equal(off.appearance, "none", "the setting is still the browser's own checkbox");
+    assert.equal(off.role, "switch");
+    assert.equal(off.background, "rgb(202, 202, 202)", "the switch is not the light grey when off: " + off.background);
     await page.tap("#setformat");
+    await settle(400);
     assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "1");
     assert.equal(await page.evaluate(() => ComposeFormat.enabled()), true);
+    const on = await switchLook(page);
+    assert.equal(on.background, "rgb(33, 29, 23)", "the switch is not the board's ink when on: " + on.background);
+    assert.ok(on.knobShift > 8, "the knob did not move across: " + on.knobShift);
     await page.tap("#setformat");
     assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "0");
+    await page.tap('label[for="setformat"] span');
+    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "1", "a tap on the words did not flip it");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
