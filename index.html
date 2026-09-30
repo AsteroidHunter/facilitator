@@ -89,7 +89,7 @@
      Chrome is offering to install the board */
   #installbtn{font:13px var(--mono); color:var(--accent); background:var(--accent-soft);
     border:none; border-radius:4px; padding:3px 9px; cursor:pointer; transition:.2s; flex:none}
-  #installbtn:hover{background:#E2DCFC}
+  #installbtn:hover{background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft))}
   /* ---- settings ----------------------------------------------------------
      the board's own choices, opened off the bar by one mark onto a page that
      covers the whole window (the settings page in card-tokens.css). the swatch
@@ -331,7 +331,7 @@
     border:none; border-radius:0; outline:none; resize:none; background:transparent;
     color:var(--ink); overflow-y:auto; transition:none}
   .np-hl{position:absolute; inset:0; overflow:hidden; pointer-events:none; color:transparent}
-  .np-hl mark{color:transparent; background:var(--accent-soft); border-radius:2px}
+  .np-hl mark{color:transparent; background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft)); border-radius:2px}
   .np-hl mark.cur{background:color-mix(in srgb, var(--accent) 30%, var(--card))}
   .np-ebot .np-chip{position:absolute; left:20px; top:20px; max-width:calc(100% - 96px)}
   .np button.np-more{position:absolute; right:24px; top:12px; width:32px; height:40px;
@@ -390,14 +390,14 @@
   }
   #tocgrip{position:fixed; left:calc(var(--tocw) - 3px); top:45px; bottom:0; width:7px;
     cursor:col-resize; z-index:6}
-  #tocgrip:hover, #tocgrip.drag{background:var(--accent-soft)}
+  #tocgrip:hover, #tocgrip.drag{background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft))}
   body.resizing{user-select:none; cursor:col-resize}
   #toc .toc-group{margin:0 0 18px}
   #toc .toc-bucket{font:11px var(--mono); letter-spacing:.09em; text-transform:uppercase;
     color:var(--sub); margin:0 6px 7px}
   .toc-entry{display:flex; align-items:center; gap:8px; padding:4px 6px; border-radius:7px;
     cursor:pointer; font:13px/1.3 var(--sans); color:var(--ink)}
-  .toc-entry:hover{background:var(--accent-soft)}
+  .toc-entry:hover{background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft))}
   .toc-entry .tage{font:10px var(--mono); color:#B4AA99; flex:none; width:30px; text-align:right}
   .toc-entry .tnum{font:10.5px var(--mono); color:var(--sub); flex:none; width:26px}
   .toc-entry .tdot{width:7px; height:7px; border-radius:50%; flex:none; background:var(--line-strong)}
@@ -587,10 +587,10 @@
   .sendbtn, .addbtn{border:none !important}
   .sendbtn{background:var(--accent-soft); color:var(--accent); font-weight:600;
     min-height:38px; padding:0 16px; display:flex; align-items:center}
-  .sendbtn:hover{background:#E2DCFC; transform:none}
+  .sendbtn:hover{background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft)); transform:none}
   .sendbtn:active{transform:scale(.97)}
   .addbtn{background:var(--accent-soft); color:var(--accent)}
-  .addbtn:hover{background:#E2DCFC}
+  .addbtn:hover{background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft))}
 
   /* ============ focus mode: one discussion fills the page ================ */
   /* the left bar stays; the right side shows exactly one box, chosen there.
@@ -2745,7 +2745,7 @@
   .dotk.ongoing{background:#FFD43B; border-color:#C9A21E}
   .dotk.pending{background:#E9ECEF; border-color:#B4AA99}
   .dotk.goal{background:#C0392B; border-color:#8E2A1F}
-  .dotk.sel{box-shadow:0 0 0 3px var(--accent-soft)}
+  .dotk.sel{box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 10%, var(--accent-soft))}
   #taskchip{position:fixed; left:var(--rail-x); top:calc(var(--oy) + var(--ch)*var(--chip-y));
     font:12px var(--mono); color:var(--sub)}
   body.focus #taskchip:not(:empty){display:block}
@@ -2778,7 +2778,7 @@
   }
   .tocadd:hover{color:var(--accent)}
   #toc .toc-bucket{display:flex; align-items:center; gap:6px}
-  .toc-entry.t-sel{background:var(--accent-soft)}
+  .toc-entry.t-sel{background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft))}
   /* the card grid's quiet compass: rows are projects, columns their cards */
   #navpad{display:none}
   body.focus #navpad{
@@ -2983,7 +2983,7 @@
     cursor:pointer;
   }
   #pagemenu .pagemenuitem:hover, #pagemenu .pagemenuitem:focus-visible{
-    background:var(--accent-soft); outline:none}
+    background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft)); outline:none}
 
   /* the confirmation, centred over the whole workspace. it takes the pointer
      and the keys for as long as it is up, so nothing behind it can be reached
