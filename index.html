@@ -229,6 +229,154 @@
     width:var(--panel-w); outline:none}
   @media (prefers-reduced-motion: reduce){ :root{--rail-move:0s} }
 
+  /* ---- the notes panel ---------------------------------------------------
+     the notes tool's room, laid out as a phone notes app at phone width: a
+     search pill, the notes as cards in two staggered columns or one, a large
+     button that starts a note, and an editor the card grows into. sizes are a
+     phone's, one dp to one px: the pill 56 tall and fully round, 8 of margin
+     and 8 between cards, cards 12 round with 16 inside, the button 80 square
+     and 20 round, 16 from the corner. colours and faces are the board's own:
+     the panel's glass behind, cards in --card with the board's edge, words in
+     --ink, the button in the accent. nothing here is a status line; a state
+     shows on the element that has it.
+     the curves: --np-emph is the emphasized path (two cubic pieces) sampled
+     into linear(); --np-spatial and --np-fx are springs sampled the same way,
+     a bouncy one for things that move (435ms to settle) and a critically
+     damped one for fades (150ms) */
+  :root{
+    --np-emph:linear(0 0%, 0.0012 1.25%, 0.005 2.5%, 0.0114 3.75%, 0.0206 5%, 0.0329 6.25%, 0.0488 7.5%, 0.0687 8.75%, 0.0935 10%, 0.1241 11.25%, 0.1622 12.5%, 0.2104 13.75%, 0.2733 15%, 0.3611 16.25%, 0.479 17.5%, 0.5711 18.75%, 0.6357 20%, 0.6829 21.25%, 0.7193 22.5%, 0.7486 23.75%, 0.7728 25%, 0.7934 26.25%, 0.8112 27.5%, 0.8267 28.75%, 0.8829 35%, 0.9125 40%, 0.9342 45%, 0.9506 50%, 0.9633 55%, 0.9732 60%, 0.9809 65%, 0.9868 70%, 0.9914 75%, 0.9948 80%, 0.9972 85%, 0.9988 90%, 0.9997 95%, 1 100%);
+    --np-dec:cubic-bezier(.05,.7,.1,1);
+    --np-acc:cubic-bezier(.3,0,.8,.15);
+    --np-spatial:linear(0, 0.02, 0.0714, 0.1432, 0.2269, 0.3158, 0.405, 0.4912, 0.5719, 0.6456, 0.7116, 0.7695, 0.8195, 0.862, 0.8975, 0.9267, 0.9503, 0.9689, 0.9834, 0.9944, 1.0024, 1.008, 1.0117, 1.0139, 1.015, 1.0151, 1.0147, 1.0138, 1.0127, 1.0114, 1.01, 1.0087, 1.0074, 1.0062, 1.0051, 1.0041, 1.0033, 1.0026, 1.0019, 1.0014, 1);
+    --np-fx:linear(0, 0.0573, 0.1797, 0.3199, 0.4541, 0.5719, 0.6701, 0.7491, 0.8113, 0.8594, 0.896, 0.9235, 0.9441, 0.9593, 0.9705, 0.9787, 0.9847, 0.989, 0.9921, 0.9944, 0.996, 0.9971, 0.998, 0.9986, 1);
+    --np-state:color-mix(in srgb, var(--ink) 8%, transparent);
+    --np-scrim:color-mix(in srgb, var(--ink) 32%, transparent);
+  }
+  #railnotes .np{position:absolute; inset:0; display:flex; flex-direction:column;
+    font-family:var(--sans); color:var(--ink)}
+  .np button{font:inherit; color:inherit; margin:0; padding:0; border:none; background:none; cursor:pointer}
+  .np button:focus-visible, .np-card:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+  .np svg{display:block; flex:none}
+  /* the pill: 56 tall, the words 24 in, the two icons at its right end with
+     the sort centred 32 from that end */
+  .np-top{flex:none; padding:8px 16px 0}
+  .np-pill{display:flex; align-items:center; height:56px; border-radius:28px;
+    background:var(--card); padding-right:8px}
+  /* the words sit in a content box one line tall, padded out to the pill's
+     height, so the board's block caret, which reads the box, lands on the line */
+  .np-q{flex:1; min-width:0; height:56px; margin:0; padding:16px 8px 16px 24px; border:none;
+    outline:none; background:none; -webkit-appearance:none; appearance:none;
+    font:16px/24px var(--sans); letter-spacing:.2px; color:var(--ink)}
+  .np-q::placeholder{color:#B4AA99}
+  .np-q::-webkit-search-cancel-button, .np-q::-webkit-search-decoration{-webkit-appearance:none; display:none}
+  .np-ib{position:relative; flex:none; width:48px; height:48px; border-radius:50%;
+    display:grid; place-items:center; color:var(--sub)}
+  .np-ib + .np-ib{margin-left:4px}
+  .np-ib::after{content:""; position:absolute; inset:0; border-radius:inherit;
+    background:var(--np-state); opacity:0; transition:opacity .15s var(--np-fx)}
+  .np-ib:hover::after{opacity:1}
+  .np-ib[hidden]{display:none}
+  .np-sort .dim{opacity:.35}
+  /* the notes: 20 under the pill, 8 of margin, 8 between columns and cards,
+     and room at the foot so the button never covers the last card */
+  .np-scroll{flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain}
+  .np-grid{display:flex; align-items:flex-start; gap:8px; padding:20px 8px 112px}
+  .np-col{flex:1 1 0; min-width:0; display:flex; flex-direction:column; gap:8px}
+  .np-card{position:relative; background:var(--card); border:var(--edge) solid var(--line);
+    border-radius:12px; padding:16px; cursor:pointer; outline:none}
+  .np-card::after{content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+    background:var(--np-state); opacity:0; transition:opacity .15s var(--np-fx)}
+  .np-card:hover::after{opacity:1}
+  /* long notes are cut at nine lines, the last one ending in an ellipsis */
+  .np-text{font:14px/20px var(--sans); letter-spacing:.2px; white-space:pre-wrap;
+    overflow-wrap:break-word; display:-webkit-box; -webkit-box-orient:vertical;
+    -webkit-line-clamp:9; overflow:hidden}
+  /* the card a note is attached to, where a label would sit */
+  .np-chip{display:inline-flex; align-items:center; max-width:100%; height:24px; padding:0 8px;
+    border-radius:8px; background:color-mix(in srgb, var(--ink) 8%, transparent);
+    font:500 12px/16px var(--sans); letter-spacing:.3px; color:var(--ink)}
+  .np button.np-chip{padding:0 8px; font:500 12px/16px var(--sans); letter-spacing:.3px;
+    background:color-mix(in srgb, var(--ink) 8%, transparent)}
+  .np button.np-chip:hover{background:color-mix(in srgb, var(--ink) 13%, transparent)}
+  .np-chip span{overflow:hidden; white-space:nowrap; text-overflow:ellipsis}
+  .np-card .np-chip{margin-top:12px}
+  .np-chip[hidden]{display:none}
+  /* the large button: 80 square, 20 round, 16 from the corner */
+  .np button.np-fab{position:absolute; z-index:1; right:16px; bottom:16px; width:80px; height:80px;
+    border-radius:20px; display:grid; place-items:center;
+    background:var(--accent-soft); color:var(--accent);
+    box-shadow:0 1px 3px 0 rgba(0,0,0,.3), 0 4px 8px 3px rgba(0,0,0,.15);
+    transition:background-color .15s var(--np-fx)}
+  .np button.np-fab:hover{background:color-mix(in srgb, var(--accent) 8%, var(--accent-soft))}
+  .np button.np-fab:active{background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft))}
+  /* the dim that covers the notes while one grows into the editor */
+  .np-dim{position:absolute; inset:0; z-index:2; background:var(--np-scrim);
+    opacity:0; visibility:hidden; pointer-events:none}
+  /* the editor: the whole room, white like the card it grew out of. a bar of
+     64 on top with the way back and one on the foot with the attached card on
+     the left and the menu on the right; each bar takes the paper shade while
+     the words run under it. a rim in the warning colour while words could
+     not be saved */
+  .np-ed{position:absolute; inset:0; z-index:3; display:none; flex-direction:column;
+    background:var(--card)}
+  .np-ed.open{display:flex}
+  .np-ed.failed{box-shadow:inset 0 0 0 1px var(--must)}
+  .np-ebar{flex:none; position:relative; height:64px; transition:background-color .15s var(--np-fx)}
+  .np-ebar.under{background:var(--paper)}
+  .np .np-back{position:absolute; left:4px; top:8px; color:var(--ink)}
+  .np-field{position:relative; flex:1; min-height:0}
+  .np .np-ta, .np-hl{box-sizing:border-box; margin:0; padding:20px 20px 24px;
+    font:16px/24px var(--sans); letter-spacing:.2px; white-space:pre-wrap; overflow-wrap:break-word}
+  .np .np-ta{position:relative; display:block; width:100%; height:100%; min-height:0; max-height:none;
+    border:none; border-radius:0; outline:none; resize:none; background:transparent;
+    color:var(--ink); overflow-y:auto; transition:none}
+  .np-hl{position:absolute; inset:0; overflow:hidden; pointer-events:none; color:transparent}
+  .np-hl mark{color:transparent; background:var(--accent-soft); border-radius:2px}
+  .np-hl mark.cur{background:color-mix(in srgb, var(--accent) 30%, var(--card))}
+  .np-ebot .np-chip{position:absolute; left:20px; top:20px; max-width:calc(100% - 96px)}
+  .np button.np-more{position:absolute; right:24px; top:12px; width:32px; height:40px;
+    border-radius:20px; display:grid; place-items:center; background:var(--paper)}
+  .np-ebar.under button.np-more{background:var(--card)}
+  .np button.np-more:hover{background:color-mix(in srgb, var(--ink) 8%, var(--paper))}
+  .np button.np-more[hidden]{display:none}
+  /* find in note: an outlined field, the two steps and the close, in place of
+     the foot's own things. the steps fade while there is nothing to step to */
+  .np-find{position:absolute; inset:0 12px 0 16px; display:flex; align-items:center; gap:4px}
+  .np-find[hidden]{display:none}
+  .np-ff{flex:1; min-width:0; display:flex; align-items:center; gap:8px; height:44px; padding:0 12px;
+    border:1px solid var(--accent); border-radius:8px; color:var(--sub)}
+  .np-fq{flex:1; min-width:0; height:24px; margin:0; padding:0; border:none; outline:none; background:none;
+    -webkit-appearance:none; appearance:none; font:16px/24px var(--sans); color:var(--ink)}
+  .np-fq::placeholder{color:#B4AA99}
+  .np-fq::-webkit-search-cancel-button{-webkit-appearance:none; display:none}
+  .np-find .np-ib{width:40px; height:40px; color:var(--ink)}
+  .np-find .np-ib + .np-ib{margin-left:0}
+  .np-find .np-ib:disabled{opacity:.38; cursor:default}
+  .np-find .np-ib:disabled::after{display:none}
+  /* sheets rise from the foot over a dim: 28 round on top, rows of 48 with
+     the icon 24 in and the words 72 in. the sort sheet's rows are 52 and the
+     chosen one is a filled pill with a tick */
+  .np-scrim{position:absolute; inset:0; z-index:4; display:none; background:var(--np-scrim); opacity:0}
+  .np-sheet{position:absolute; left:0; right:0; bottom:0; z-index:5; display:none;
+    background:var(--paper); border-radius:28px 28px 0 0; padding:8px 0 16px}
+  .np-scrim.open, .np-sheet.open{display:block}
+  .np-sheet.sort{padding:16px 0}
+  .np .np-row{position:relative; display:flex; align-items:center; width:100%; height:48px;
+    padding:0 24px; text-align:left; font:16px/24px var(--sans); letter-spacing:.2px; color:var(--ink)}
+  .np .np-row svg{margin-right:24px}
+  .np .np-row::after{content:""; position:absolute; inset:0; background:var(--np-state);
+    opacity:0; transition:opacity .15s var(--np-fx)}
+  .np .np-row:hover::after{opacity:1}
+  .np .np-row:disabled{opacity:.38; cursor:default}
+  .np .np-row:disabled::after{display:none}
+  .np-sheet.sort .np-row{width:calc(100% - 16px); height:52px; margin:0 8px; padding:0 0 0 27px;
+    border-radius:26px}
+  .np-sheet.sort .np-row::after{border-radius:inherit}
+  .np-sheet.sort .np-row svg{margin-right:28px}
+  .np-sheet.sort .np-row .tick{visibility:hidden}
+  .np-sheet.sort .np-row.on{background:var(--accent-soft)}
+  .np-sheet.sort .np-row.on .tick{visibility:visible}
+
   /* ---- layout ----------------------------------------------------------- */
   main{max-width:700px; margin:0 auto; padding:26px 18px 30vh}
   .box{scroll-margin-top:64px}
@@ -10120,6 +10268,688 @@ if (FOCUS && window.ResizeObserver){
     railSeenW = w;
     if (!first) fitStage();
   }).observe(document.getElementById("appframe"));
+}
+
+// ---- the notes panel -----------------------------------------------------------
+// the notes tool's room (#railnotes) laid out as a phone notes app: a search pill
+// with a grid or list switch and a sort, the notes as cards in two staggered
+// columns or one, a large button that starts a note, and an editor the card
+// grows into. it works from what a quick note stores and nothing more: the
+// words, when the note was made and last changed, and the card it is attached
+// to. it is built the first time the tool opens, reads the notes again whenever
+// the board's reading of them changes, and saves through the quick note's own
+// session (quickNoteSession in card-logic.js). each editor gets a session of its
+// own with a memory of its own, so the corner quick note keeps its place.
+// nothing here is a status line: a state shows on the element that has it.
+// a delete asks nothing; the notes deleted since the page loaded are held here,
+// and command Z in the list writes the last of them back as a new note
+const NP_VIEW = "notes.view", NP_SORT = "notes.sort", NP_DIR = "notes.dir";
+const NP_GROW_MS = 450, NP_SHRINK_MS = 300, NP_SHEET_IN = 350, NP_SHEET_OUT = 200;
+const NP_SPATIAL_MS = 435, NP_FX_MS = 150;
+const NP_ICONS = {
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/>',
+  close: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
+  list: '<rect x="4" y="4.5" width="16" height="6.5" rx="1.6"/><rect x="4" y="13" width="16" height="6.5" rx="1.6"/>',
+  grid: '<rect x="4" y="4" width="7" height="7" rx="1.6"/><rect x="13" y="4" width="7" height="7" rx="1.6"/><rect x="4" y="13" width="7" height="7" rx="1.6"/><rect x="13" y="13" width="7" height="7" rx="1.6"/>',
+  sort: '<g class="up"><path d="M8.5 19V5"/><path d="M5 8.5L8.5 5 12 8.5"/></g><g class="down"><path d="M15.5 5v14"/><path d="M12 15.5l3.5 3.5 3.5-3.5"/></g>',
+  add: '<path d="M12 5v14M5 12h14"/>',
+  back: '<path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/>',
+  more: '<circle cx="12" cy="5.5" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="18.5" r="1.7" fill="currentColor" stroke="none"/>',
+  trash: '<path d="M5 7h14"/><path d="M10 7V5h4v2"/><path d="M7 7l1 12.5h8L17 7"/><path d="M10.5 10.5v5.5M13.5 10.5v5.5"/>',
+  copy: '<rect x="8.5" y="8" width="11" height="12.5" rx="2"/><path d="M5 15.5V6a2 2 0 0 1 2-2h8.5"/>',
+  up: '<path d="M6 14.5l6-6 6 6"/>',
+  down: '<path d="M6 9.5l6 6 6-6"/>',
+  tick: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+};
+function npIcon(name, size){
+  const s = size || 24;
+  const wrap = document.createElement("span");
+  wrap.innerHTML = '<svg width="' + s + '" height="' + s + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + NP_ICONS[name] + "</svg>";
+  return wrap.firstChild;
+}
+function npButton(cls, icon, label, size){
+  const b = h("button", cls);
+  b.type = "button";
+  if (label) b.setAttribute("aria-label", label);
+  if (icon) b.append(npIcon(icon, size));
+  return b;
+}
+const npRead = (key, fallback, ok) => { try { const v = localStorage.getItem(key); return ok.includes(v) ? v : fallback; } catch (e){ return fallback; } };
+const npWrite = (key, v) => { try { localStorage.setItem(key, v); } catch (e){} };
+const npStill = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+const npVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const npSleep = ms => new Promise(r => setTimeout(r, ms));
+// a motion's end, or its planned length and a little more if the page never
+// gets to play it (a tab in the background runs no animations)
+const npEnd = (anim, ms) => Promise.race([anim.finished.catch(() => {}), npSleep(ms + 120)]);
+// a session's memory of which note it is on, kept for that session alone
+function npMemory(){ const m = {}; return { getItem: k => (k in m ? m[k] : null), setItem: (k, v) => { m[k] = String(v); }, removeItem: k => { delete m[k]; } }; }
+
+const np = {
+  built: false, notes: [], sig: "", q: "", cards: new Map(), drawn: false,
+  view: npRead(NP_VIEW, "grid", ["grid", "list"]),
+  sort: npRead(NP_SORT, "modified", ["modified", "created"]),
+  dir: npRead(NP_DIR, "desc", ["desc", "asc"]),
+  ed: null, moving: false, sheet: "", deleted: [], find: null, fetching: null,
+};
+
+function npCardOf(id){ return (id && lastState && lastState.boxes.find(b => b.id === id)) || null; }
+function npCardName(id){ const b = npCardOf(id); return b ? (b.title || ticketNum(b.id) || "") : ""; }
+// what the board's reading says of the notes, card names included, so a note
+// changed anywhere, or a card renamed, reads the list again
+function npSigOf(st){
+  return ((st && st.quicknotes) || []).map(n => n.id + ":" + n.updated + ":" + (n.card || "") + ":" + npCardName(n.card)).join("|");
+}
+function npOrder(notes){
+  const key = np.sort === "created" ? "created" : "updated";
+  const seq = n => Number(String((n && n.id) || "").slice(2)) || 0;
+  const out = notes.filter(Boolean).slice().sort((a, b) => (b[key] || 0) - (a[key] || 0) || seq(b) - seq(a));
+  return np.dir === "asc" ? out.reverse() : out;
+}
+function npMatches(n){
+  if (!np.q) return true;
+  if (String(n.text || "").toLowerCase().includes(np.q)) return true;
+  return npCardName(n.card).toLowerCase().includes(np.q);
+}
+
+function npBuild(){
+  if (np.built) return;
+  const room = document.getElementById("railnotes");
+  if (!room) return;
+  np.built = true;
+  const root = np.root = h("div", "np");
+
+  const top = h("div", "np-top"), pill = h("div", "np-pill");
+  const q = np.qEl = h("input", "np-q");
+  q.type = "search"; q.placeholder = "Search your notes"; q.setAttribute("aria-label", "Search your notes");
+  q.autocomplete = "off"; q.spellcheck = false;
+  const clear = np.clearEl = npButton("np-ib", "close", "Clear search");
+  clear.hidden = true;
+  const view = np.viewEl = npButton("np-ib np-view", null, "");
+  const sort = np.sortEl = npButton("np-ib np-sort", "sort", "Sort");
+  pill.append(q, clear, view, sort);
+  top.append(pill);
+
+  const scroll = np.scrollEl = h("div", "np-scroll");
+  const grid = np.gridEl = h("div", "np-grid");
+  scroll.append(grid);
+  const fab = np.fabEl = npButton("np-fab", "add", "Create", 28);
+  const dim = np.dimEl = h("div", "np-dim");
+
+  const ed = np.edEl = h("div", "np-ed");
+  const etop = np.etopEl = h("div", "np-ebar np-etop");
+  const back = npButton("np-ib np-back", "back", "Back");
+  etop.append(back);
+  const field = h("div", "np-field");
+  const hl = np.hlEl = h("div", "np-hl");
+  const hlIn = np.hlIn = h("div");
+  hl.append(hlIn);
+  const ta = np.taEl = h("textarea", "np-ta");
+  ta.setAttribute("aria-label", "Note");
+  field.append(hl, ta);
+  const ebot = np.ebotEl = h("div", "np-ebar np-ebot");
+  const echip = np.echipEl = h("button", "np-chip");
+  echip.type = "button"; echip.hidden = true;
+  const more = np.moreEl = npButton("np-more", "more", "Action");
+  const find = np.findEl = h("div", "np-find");
+  find.hidden = true;
+  const ff = h("label", "np-ff");
+  const fq = np.fqEl = h("input", "np-fq");
+  fq.type = "search"; fq.placeholder = "Find in note"; fq.autocomplete = "off"; fq.spellcheck = false;
+  ff.append(npIcon("search"), fq);
+  const fup = np.fupEl = npButton("np-ib", "up", "Previous");
+  const fdown = np.fdownEl = npButton("np-ib", "down", "Next");
+  const fclose = npButton("np-ib", "close", "Close");
+  find.append(ff, fup, fdown, fclose);
+  ebot.append(echip, more, find);
+  ed.append(etop, field, ebot);
+
+  const scrim = np.scrimEl = h("div", "np-scrim");
+  const sheet = np.sheetEl = h("div", "np-sheet");
+  sheet.setAttribute("role", "menu");
+  root.append(top, scroll, fab, dim, ed, scrim, sheet);
+  room.append(root);
+  npPaintBar();
+
+  q.addEventListener("input", () => {
+    np.q = q.value.trim().toLowerCase();
+    clear.hidden = !q.value;
+    npRender();
+  });
+  clear.addEventListener("click", () => { q.value = ""; q.dispatchEvent(new Event("input")); q.focus(); });
+  view.addEventListener("click", () => npSetView(np.view === "grid" ? "list" : "grid"));
+  sort.addEventListener("click", () => npSheetOpen("sort"));
+  fab.addEventListener("click", () => npOpen(null, fab, 20));
+  back.addEventListener("click", () => npClose());
+  more.addEventListener("click", () => npSheetOpen("more"));
+  echip.addEventListener("click", () => { if (np.ed) npGoCard(np.ed.s.card); });
+  ta.addEventListener("input", () => {
+    if (!np.ed) return;
+    np.ed.s.input(ta.value);
+    if (np.find) npFindRun(false);
+    npBars();
+  });
+  ta.addEventListener("scroll", () => { npBars(); npHlScroll(); queueFatCaret(); });
+  fq.addEventListener("input", () => npFindRun(true));
+  fup.addEventListener("click", () => npFindStep(-1));
+  fdown.addEventListener("click", () => npFindStep(1));
+  fclose.addEventListener("click", () => { npFindClose(); ta.focus({ preventScroll: true }); });
+  scrim.addEventListener("click", () => npSheetClose());
+  // the room keeps its keys: nothing typed or pressed in it reaches the board's
+  // own shortcuts. an Escape the room did not use goes on to the toolbar, which
+  // shuts the panel
+  room.addEventListener("keydown", e => {
+    if (npKey(e)){ e.preventDefault(); e.stopPropagation(); return; }
+    if (e.key !== "Escape") e.stopPropagation();
+  });
+}
+
+// the two icons in the pill say what they do next and how the list runs now:
+// the switch shows the layout it would change to, and the sort shows its arrow
+// for the way the dates run, the other arrow faded
+function npPaintBar(){
+  const v = np.viewEl;
+  v.textContent = "";
+  v.append(npIcon(np.view === "grid" ? "list" : "grid"));
+  v.setAttribute("aria-label", np.view === "grid" ? "List view" : "Grid view");
+  const svg = np.sortEl.querySelector("svg");
+  svg.querySelector(".up").classList.toggle("dim", np.dir === "desc");
+  svg.querySelector(".down").classList.toggle("dim", np.dir === "asc");
+}
+function npSetView(v){
+  np.view = v; npWrite(NP_VIEW, v);
+  npPaintBar();
+  npRender();
+}
+
+// one card per note, kept by id so a card that stays keeps its element
+function npCardEl(n){
+  let el = np.cards.get(n.id);
+  if (!el){
+    el = h("div", "np-card");
+    el.tabIndex = 0;
+    el.dataset.id = n.id;
+    el.append(h("div", "np-text"));
+    const chip = h("button", "np-chip");
+    chip.type = "button"; chip.tabIndex = -1; chip.hidden = true;
+    el.append(chip);
+    el.addEventListener("click", e => {
+      const id = el.dataset.id;
+      if (e.target.closest(".np-chip")){ const note = np.notes.find(x => x.id === id); if (note) npGoCard(note.card); return; }
+      npOpen(id, el, 12);
+    });
+    np.cards.set(n.id, el);
+  }
+  const tx = el.firstChild, words = String(n.text || "");
+  if (tx.textContent !== words) tx.textContent = words;
+  npChip(el.lastChild, n.card);
+  return el;
+}
+function npChip(chip, card){
+  const name = card ? npCardName(card) : "";
+  chip.hidden = !name;
+  if (!name) return;
+  let span = chip.firstChild;
+  if (!span){ span = h("span"); chip.append(span); }
+  if (span.textContent !== name) span.textContent = name;
+}
+// a note attached to a card takes you to that card on the board, on its own tab
+function npGoCard(id){
+  const b = npCardOf(id);
+  if (!b) return;
+  if (b.owner !== activeOwner) setTab(b.owner);
+  else if (homeOpen) setHome(false);
+  select(b.id);
+}
+
+// the notes drawn in order, each card going into whichever column is shorter at
+// that point, so the columns keep their own heights and never line up in rows.
+// a card that stays slides from where it was to where it lands, and a card new
+// to the view fades in
+function npRender(opts){
+  if (!np.built) return;
+  const grid = np.gridEl;
+  const moving = np.drawn && !(opts && opts.still) && !npStill();
+  const before = new Map();
+  if (moving) for (const [id, el] of np.cards) if (el.isConnected) before.set(id, el.getBoundingClientRect());
+  const live = new Set(np.notes.map(n => n.id));
+  for (const [id, el] of np.cards) if (!live.has(id)){ el.remove(); np.cards.delete(id); }
+  const list = npOrder(np.notes).filter(npMatches);
+  const cols = np.view === "list" ? 1 : 2;
+  grid.textContent = "";
+  const colEls = [];
+  for (let i = 0; i < cols; i++){ const c = h("div", "np-col"); colEls.push(c); grid.append(c); }
+  for (const n of list){
+    const el = npCardEl(n);
+    let into = colEls[0];
+    if (cols === 2 && colEls[1].offsetHeight < colEls[0].offsetHeight) into = colEls[1];
+    into.append(el);
+  }
+  np.drawn = true;
+  if (!moving) return;
+  for (const n of list){
+    const el = np.cards.get(n.id), was = before.get(n.id);
+    if (!el) continue;
+    if (!was){
+      el.animate([{ opacity: 0, transform: "scale(.96)" }, { opacity: 1, transform: "none" }],
+                 { duration: NP_SPATIAL_MS, easing: npVar("--np-fx") });
+      continue;
+    }
+    const now = el.getBoundingClientRect();
+    const dx = was.left - now.left, dy = was.top - now.top;
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
+    el.animate([{ transform: "translate(" + dx + "px, " + dy + "px)" }, { transform: "none" }],
+               { duration: NP_SPATIAL_MS, easing: npVar("--np-spatial") });
+  }
+}
+
+// read the notes again; one reading at a time, and a reading that fails leaves
+// the cards as they were. opts.fresh waits out a reading already under way and
+// takes one of its own, for a caller that has just changed a note
+function npRefresh(opts){
+  if (np.fetching){
+    if (!(opts && opts.fresh)) return np.fetching;
+    return np.fetching.then(() => npRefresh({ ...opts, fresh: false }));
+  }
+  const sig = npSigOf(lastState);
+  np.fetching = fetch("/quicknotes", { cache: "no-store" })
+    .then(r => r.ok ? r.json() : null)
+    .then(data => {
+      if (!data || !Array.isArray(data.notes)) return;
+      np.notes = data.notes.filter(n => n && typeof n.id === "string");
+      np.sig = sig;
+      npRender(opts);
+    })
+    .catch(() => {})
+    .finally(() => { np.fetching = null; });
+  return np.fetching;
+}
+function npRail(){
+  if (typeof railCurrent !== "function" || railCurrent() !== "notes") return;
+  npBuild();
+  npRefresh({ still: true });
+}
+new MutationObserver(npRail).observe(document.documentElement, { attributes: true, attributeFilter: ["data-rail"] });
+setTimeout(npRail, 0);   // a page restored with the panel open
+setInterval(() => {
+  if (!np.built || np.moving || railCurrent() !== "notes" || !lastState) return;
+  if (npSigOf(lastState) !== np.sig) npRefresh();
+}, 1200);
+
+// the room a rectangle stands in, as the clip that shows only that rectangle
+function npClipOf(r, radius){
+  const room = np.root.getBoundingClientRect();
+  return "inset(" + (r.top - room.top) + "px " + (room.right - r.right) + "px " +
+         (room.bottom - r.bottom) + "px " + (r.left - room.left) + "px round " + radius + "px)";
+}
+const NP_FULL = "inset(0px 0px 0px 0px round 0px)";
+function npBars(){
+  const ta = np.taEl;
+  np.etopEl.classList.toggle("under", ta.scrollTop > 0);
+  np.ebotEl.classList.toggle("under", ta.scrollTop + ta.clientHeight < ta.scrollHeight - 1);
+}
+function npEdSync(){
+  if (!np.ed) return;
+  const s = np.ed.s;
+  np.edEl.classList.toggle("failed", s.status === "failed");
+  npChip(np.echipEl, s.card);
+}
+// keep a card in the scroller's view without moving anything outside it
+function npReveal(el){
+  const sc = np.scrollEl, r = el.getBoundingClientRect(), v = sc.getBoundingClientRect();
+  if (r.top < v.top) sc.scrollTop -= v.top - r.top + 8;
+  else if (r.bottom > v.bottom) sc.scrollTop += r.bottom - v.bottom + 8;
+}
+
+// a note opens by growing from its card (or from the large button, for a new
+// note) to the whole room: the editor is clipped to the card's rectangle and
+// the clip opens on the emphasized curve while the notes behind dim and the
+// editor's words fade in over the first quarter
+function npOpen(id, fromEl, radius){
+  if (np.ed || np.moving) return;
+  const note = id ? np.notes.find(n => n.id === id) : null;
+  if (id && !note) return;
+  npSheetClose(true);
+  const s = quickNoteSession({
+    fetch: (url, init) => fetch(url, init), storage: npMemory(),
+    boxes: () => (lastState && lastState.boxes) || [],
+    schedule: (fn, ms) => setTimeout(fn, ms), cancel: t => clearTimeout(t),
+  });
+  np.ed = { s, from: id };
+  s.onChange = npEdSync;
+  const ta = np.taEl;
+  ta.value = note ? String(note.text || "") : "";
+  ta.scrollTop = 0;
+  np.hlIn.textContent = "";
+  npChip(np.echipEl, note ? note.card : null);
+  np.edEl.classList.remove("failed");
+  np.edEl.classList.add("open");
+  np.moreEl.hidden = false; np.findEl.hidden = true; np.find = null;
+  npBars();
+  // the board's words are put in once the session has read them; the field takes
+  // no typing while that is under way
+  ta.readOnly = true;
+  (id ? s.openNote(id) : s.open()).then(() => {
+    ta.readOnly = false;
+    if (np.ed && np.ed.s === s && ta.value !== s.text){ ta.value = s.text; npBars(); }
+    npEdSync();
+  });
+  let landed = false;
+  const land = () => {
+    if (landed) return;
+    landed = true;
+    np.moving = false;
+    if (!np.ed || np.ed.s !== s) return;
+    ta.focus({ preventScroll: true });
+    const end = ta.value.length;
+    ta.setSelectionRange(end, end);
+    queueFatCaret();
+  };
+  if (npStill() || !fromEl){ land(); return; }
+  np.moving = true;
+  const from = npClipOf(fromEl.getBoundingClientRect(), radius);
+  const grow = np.edEl.animate([{ clipPath: from }, { clipPath: NP_FULL }], { duration: NP_GROW_MS, easing: npVar("--np-emph") });
+  np.edEl.querySelectorAll(":scope > *").forEach(part =>
+    part.animate([{ opacity: 0 }, { opacity: 1, offset: 0.25 }, { opacity: 1 }], { duration: NP_GROW_MS }));
+  np.dimEl.animate([{ opacity: 0, visibility: "visible" }, { opacity: 1, visibility: "visible" }], { duration: NP_GROW_MS, easing: npVar("--np-emph") });
+  npEnd(grow, NP_GROW_MS).then(land);
+}
+
+// closing saves (an emptied note is removed, as the quick note does), reads the
+// notes again, and shrinks the editor back into the note's card, wherever the
+// sort has put it now. a note that is gone fades away instead
+async function npClose(){
+  const e = np.ed;
+  if (!e || np.moving) return;
+  np.moving = true;
+  npFindClose();
+  npSheetClose(true);
+  // the block caret goes with the field, not after the motion, and the room
+  // keeps the keys meanwhile
+  document.getElementById("railnotes").focus({ preventScroll: true });
+  const s = e.s;
+  const saved = s.close();
+  await Promise.race([saved, npSleep(900)]);
+  await Promise.race([npRefresh({ still: true, fresh: true }), npSleep(900)]);
+  const target = s.id && np.cards.get(s.id);
+  const shown = target && target.isConnected;
+  if (shown) npReveal(target);
+  const done = () => {
+    np.edEl.classList.remove("open", "failed");
+    np.edEl.style.opacity = "";
+    np.ed = null;
+    np.moving = false;
+    np.taEl.blur();
+    (shown ? target : document.getElementById("railnotes")).focus({ preventScroll: true });
+  };
+  if (npStill()){ done(); return; }
+  if (shown){
+    const to = npClipOf(target.getBoundingClientRect(), 12), white = npVar("--card");
+    // the clip reaches the card at six tenths, then the editor's white thins
+    // away over it so the card's own words and edge come through
+    const shrink = np.edEl.animate([{ clipPath: NP_FULL, backgroundColor: white },
+                                    { clipPath: to, backgroundColor: white, offset: 0.6 },
+                                    { clipPath: to, backgroundColor: "transparent" }],
+                                   { duration: NP_SHRINK_MS, easing: npVar("--np-emph") });
+    np.edEl.querySelectorAll(":scope > *").forEach(part =>
+      part.animate([{ opacity: 1 }, { opacity: 0, offset: 0.4 }, { opacity: 0 }], { duration: NP_SHRINK_MS }));
+    np.dimEl.animate([{ opacity: 1, visibility: "visible" }, { opacity: 0, visibility: "visible" }], { duration: NP_SHRINK_MS, easing: npVar("--np-emph") });
+    await npEnd(shrink, NP_SHRINK_MS);
+  } else {
+    await npEnd(np.edEl.animate([{ opacity: 1 }, { opacity: 0 }], { duration: NP_SHEET_OUT, easing: npVar("--np-acc") }), NP_SHEET_OUT);
+  }
+  done();
+}
+
+// delete asks nothing: the note is removed from the board and the editor fades
+// away. words that were still waiting to be saved are dropped with it
+async function npDeleteOpen(){
+  const e = np.ed;
+  if (!e || np.moving) return;
+  np.moving = true;
+  npSheetClose(true);
+  npFindClose();
+  document.getElementById("railnotes").focus({ preventScroll: true });
+  const s = e.s, words = np.taEl.value;
+  // nothing unsaved may land after the delete: a note never saved has nothing to
+  // send, and a saved one keeps the words the board already has
+  if (s.id == null) s.text = ""; else s.text = s.saved;
+  await s.flush();
+  if (s.id) await npDrop(s.id, words, s.card);
+  np.moving = false;
+  np.ed = null;
+  np.taEl.blur();
+  if (!npStill())
+    await npEnd(np.edEl.animate([{ opacity: 1 }, { opacity: 0 }], { duration: NP_SHEET_OUT, easing: npVar("--np-acc") }), NP_SHEET_OUT);
+  np.edEl.classList.remove("open", "failed");
+  document.getElementById("railnotes").focus({ preventScroll: true });
+}
+async function npDrop(id, words, card){
+  np.deleted.push({ text: words, card: card || null });
+  await fetch("/quicknote/del?id=" + encodeURIComponent(id), { method: "POST" }).catch(() => {});
+  np.notes = np.notes.filter(n => n.id !== id);
+  npRender();
+}
+// the focused card deleted from the list: it fades, then the others close up
+async function npDeleteCard(el){
+  const id = el.dataset.id, n = np.notes.find(x => x.id === id);
+  if (!n || np.moving) return;
+  const cards = [...np.gridEl.querySelectorAll(".np-card")];
+  const next = cards[cards.indexOf(el) + 1] || cards[cards.indexOf(el) - 1] || null;
+  if (!npStill()) await npEnd(el.animate([{ opacity: 1 }, { opacity: 0, transform: "scale(.96)" }], { duration: NP_FX_MS, easing: npVar("--np-fx"), fill: "forwards" }), NP_FX_MS);
+  await npDrop(id, n.text, n.card);
+  (next && next.isConnected ? next : document.getElementById("railnotes")).focus({ preventScroll: true });
+}
+// command Z in the list: the last note deleted since the page loaded is written
+// back as a new note, on its card if that card is still there
+async function npRestore(){
+  const d = np.deleted.pop();
+  if (!d) return;
+  const card = d.card && npCardOf(d.card) ? d.card : null;
+  const r = await fetch("/quicknote/new" + (card ? "?card=" + encodeURIComponent(card) : ""), { method: "POST", body: d.text })
+    .then(x => x.ok ? x.json() : null).catch(() => null);
+  if (!r || !r.note){ np.deleted.push(d); return; }
+  await npRefresh({ fresh: true });
+  const el = np.cards.get(r.note.id);
+  if (el && el.isConnected){ npReveal(el); el.focus({ preventScroll: true }); }
+}
+// a copy is a new note with the same words on the same card. the editor goes
+// back into the note first, and the copy then joins the list
+async function npCopy(){
+  const e = np.ed;
+  if (!e || np.moving) return;
+  const words = np.taEl.value, card = e.s.card;
+  if (!words.trim()) return;
+  npSheetClose(true);
+  await npClose();
+  await fetch("/quicknote/new" + (card ? "?card=" + encodeURIComponent(card) : ""), { method: "POST", body: words }).catch(() => {});
+  await npRefresh({ fresh: true });
+}
+
+// sheets: the sort, over the list, and the note's menu, over the editor
+function npSheetOpen(kind){
+  if (np.moving) return;
+  const sheet = np.sheetEl;
+  sheet.textContent = "";
+  sheet.className = "np-sheet" + (kind === "sort" ? " sort" : "");
+  const row = (icon, words, act, on) => {
+    const b = h("button", "np-row" + (on ? " on" : ""));
+    b.type = "button";
+    b.setAttribute("role", kind === "sort" ? "menuitemradio" : "menuitem");
+    if (kind === "sort") b.setAttribute("aria-checked", on ? "true" : "false");
+    const ic = npIcon(icon);
+    if (kind === "sort") ic.classList.add("tick");
+    b.append(ic, document.createTextNode(words));
+    b.addEventListener("click", act);
+    sheet.append(b);
+    return b;
+  };
+  if (kind === "sort"){
+    const pick = key => () => {
+      if (np.sort === key) np.dir = np.dir === "desc" ? "asc" : "desc";
+      else { np.sort = key; np.dir = "desc"; }
+      npWrite(NP_SORT, np.sort); npWrite(NP_DIR, np.dir);
+      npPaintBar();
+      npSheetClose();
+      npRender();
+    };
+    row("tick", "Date created", pick("created"), np.sort === "created");
+    row("tick", "Date modified", pick("modified"), np.sort === "modified");
+  } else {
+    row("search", "Find in note", () => { npSheetClose(); npFindOpen(); });
+    row("trash", "Delete", () => npDeleteOpen());
+    const copy = row("copy", "Make a copy", () => npCopy());
+    copy.disabled = !np.taEl.value.trim();
+  }
+  np.sheet = kind;
+  np.sheetReturn = document.activeElement;
+  np.scrimEl.getAnimations().forEach(a => a.cancel());
+  np.scrimEl.classList.add("open");
+  sheet.classList.add("open");
+  if (!npStill()){
+    np.scrimEl.animate([{ opacity: 0 }, { opacity: 1 }], { duration: NP_SHEET_IN, easing: npVar("--np-dec"), fill: "forwards" });
+    sheet.animate([{ transform: "translateY(100%)" }, { transform: "none" }], { duration: NP_SHEET_IN, easing: npVar("--np-dec") });
+  } else np.scrimEl.style.opacity = "1";
+  const first = sheet.querySelector(".np-row.on") || sheet.querySelector(".np-row:not(:disabled)");
+  if (first) first.focus({ preventScroll: true });
+}
+function npSheetClose(instant){
+  if (!np.sheet) return;
+  np.sheet = "";
+  const sheet = np.sheetEl, scrim = np.scrimEl;
+  const hide = () => {
+    if (np.sheet) return;
+    sheet.classList.remove("open"); scrim.classList.remove("open");
+    scrim.getAnimations().forEach(a => a.cancel()); scrim.style.opacity = "";
+    sheet.getAnimations().forEach(a => a.cancel());
+  };
+  const back = np.sheetReturn;
+  np.sheetReturn = null;
+  if (!instant && back && back.isConnected && np.root.contains(back)) back.focus({ preventScroll: true });
+  if (instant || npStill()){ hide(); return; }
+  scrim.animate([{ opacity: 1 }, { opacity: 0 }], { duration: NP_SHEET_OUT, easing: npVar("--np-acc"), fill: "forwards" });
+  npEnd(sheet.animate([{ transform: "none" }, { transform: "translateY(100%)" }], { duration: NP_SHEET_OUT, easing: npVar("--np-acc"), fill: "forwards" }), NP_SHEET_OUT)
+    .then(hide);
+}
+
+// find in note: the matches are marked on a layer under the words, the current
+// one darker, and the arrows step through them
+function npFindOpen(){
+  if (!np.ed) return;
+  np.find = { at: 0, hits: [] };
+  np.moreEl.hidden = true; np.echipEl.hidden = true;
+  np.findEl.hidden = false;
+  np.fqEl.value = "";
+  npFindRun(false);
+  np.fqEl.focus({ preventScroll: true });
+}
+function npFindClose(){
+  if (!np.find) return;
+  np.find = null;
+  np.findEl.hidden = true; np.moreEl.hidden = false;
+  np.hlIn.textContent = "";
+  if (np.ed) npChip(np.echipEl, np.ed.s.card);
+}
+function npFindRun(jump){
+  const f = np.find;
+  if (!f) return;
+  const text = np.taEl.value, want = np.fqEl.value.toLowerCase();
+  f.hits = [];
+  if (want){
+    const low = text.toLowerCase();
+    for (let i = low.indexOf(want); i >= 0; i = low.indexOf(want, i + want.length)) f.hits.push(i);
+  }
+  if (jump || f.at >= f.hits.length) f.at = 0;
+  npFindPaint(want.length, jump);
+}
+function npFindStep(d){
+  const f = np.find;
+  if (!f || !f.hits.length) return;
+  f.at = (f.at + d + f.hits.length) % f.hits.length;
+  npFindPaint(np.fqEl.value.length, true);
+}
+function npFindPaint(len, jump){
+  const f = np.find, text = np.taEl.value, box = np.hlIn;
+  box.textContent = "";
+  let from = 0, cur = null;
+  f.hits.forEach((at, i) => {
+    box.append(document.createTextNode(text.slice(from, at)));
+    const m = h("mark", i === f.at ? "cur" : null, text.slice(at, at + len));
+    if (i === f.at) cur = m;
+    box.append(m);
+    from = at + len;
+  });
+  box.append(document.createTextNode(text.slice(from)));
+  np.fupEl.disabled = np.fdownEl.disabled = !f.hits.length;
+  npHlScroll();
+  if (jump && cur){
+    const ta = np.taEl;
+    ta.scrollTop = Math.max(0, cur.offsetTop - ta.clientHeight / 2);
+    npHlScroll();
+  }
+}
+function npHlScroll(){ np.hlIn.style.transform = "translateY(" + (-np.taEl.scrollTop) + "px)"; }
+
+// the room's keys. the list's are the ones a web notes app uses: slash to
+// search, c for a new note, j and k (or the arrows) to walk the cards, Enter to
+// open one, # to delete it, command G to switch the layout, command Z to bring
+// the last deleted note back. in the editor Escape or command Enter closes the
+// note. true when the key was used
+function npKey(e){
+  if (e.isComposing) return false;
+  const k = e.key, cmd = e.metaKey || e.ctrlKey, plain = !cmd && !e.altKey;
+  const t = e.target;
+  const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA");
+  if (np.sheet){
+    if (k === "Escape"){ npSheetClose(); return true; }
+    if (k === "ArrowDown" || k === "ArrowUp"){
+      const rows = [...np.sheetEl.querySelectorAll(".np-row:not(:disabled)")];
+      const i = rows.indexOf(document.activeElement);
+      const to = rows[(i + (k === "ArrowDown" ? 1 : -1) + rows.length) % rows.length];
+      if (to) to.focus({ preventScroll: true });
+      return true;
+    }
+    return false;
+  }
+  if (np.ed){
+    if (np.moving) return k === "Escape";
+    if (t === np.fqEl){
+      if (k === "Escape"){ npFindClose(); np.taEl.focus({ preventScroll: true }); return true; }
+      if (k === "Enter"){ npFindStep(e.shiftKey ? -1 : 1); return true; }
+      return false;
+    }
+    if (k === "Escape" || (k === "Enter" && cmd)){ npClose(); return true; }
+    return false;
+  }
+  if (t === np.qEl){
+    if (k === "Escape"){
+      if (np.qEl.value){ np.qEl.value = ""; np.qEl.dispatchEvent(new Event("input")); }
+      else document.getElementById("railnotes").focus({ preventScroll: true });
+      return true;
+    }
+    if (k === "ArrowDown"){ npWalk(1); return true; }
+    return false;
+  }
+  if (typing) return false;
+  if (k === "/" && plain){ np.qEl.focus({ preventScroll: true }); return true; }
+  if ((k === "c" || k === "C") && plain){ npOpen(null, np.fabEl, 20); return true; }
+  if ((k === "j" || k === "ArrowDown") && plain){ npWalk(1); return true; }
+  if ((k === "k" || k === "ArrowUp") && plain){ npWalk(-1); return true; }
+  const card = t && t.classList && t.classList.contains("np-card") ? t : null;
+  if (card && (k === "Enter" || k === " ") && plain){ npOpen(card.dataset.id, card, 12); return true; }
+  if (card && k === "#" && !cmd){ npDeleteCard(card); return true; }
+  if (cmd && !e.shiftKey && (k === "z" || k === "Z")){ npRestore(); return true; }
+  if (cmd && (k === "g" || k === "G")){ npSetView(np.view === "grid" ? "list" : "grid"); return true; }
+  return false;
+}
+// the cards in the order the notes run, not column by column
+function npWalk(d){
+  const order = npOrder(np.notes).filter(npMatches).map(n => np.cards.get(n.id)).filter(Boolean);
+  if (!order.length) return;
+  const i = order.indexOf(document.activeElement);
+  const to = order[i < 0 ? (d > 0 ? 0 : order.length - 1) : Math.min(Math.max(i + d, 0), order.length - 1)];
+  npReveal(to);
+  to.focus({ preventScroll: true });
 }
 
 // ---- the right composer --------------------------------------------------------
