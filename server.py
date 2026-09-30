@@ -1681,7 +1681,7 @@ def _seed_state() -> dict:
         # into the quick note system as well: card-logic.js quickNoteRef and
         # quickNoteCard (which also settles a seeded 12 against a made m12),
         # _post_quicknote_new and _post_quicknote_attach in this file, and
-        # index.html syncQuickNoteChip
+        # parked/quick-note.js syncQuickNoteChip
         "boxes": [
             {
                 "id": it["id"], "bucket": it["bucket"], "title": it["title"],
@@ -1967,8 +1967,9 @@ def _migrate() -> None:
     # it is the source of every card number, so a change to it has to be carried
     # into the quick note system too: card-logic.js quickNoteRef and quickNoteCard
     # (the "card N" / "cN" parser and its lookup), _post_quicknote_new and
-    # _post_quicknote_attach in this file (the attach routes) and index.html
-    # syncQuickNoteChip (the note chip); _create_box_record lists them in full
+    # _post_quicknote_attach in this file (the attach routes) and
+    # parked/quick-note.js syncQuickNoteChip (the note chip);
+    # _create_box_record lists them in full
     _state.setdefault("next_bid", 1 + max(
         [int(b["id"][1:]) for b in _state["boxes"]
          if b["id"].startswith("m") and b["id"][1:].isdigit()] or [0]))
@@ -2410,10 +2411,12 @@ def _remove_empty_meta_box(box: dict) -> str:
         _state["busy"][ow] = None
         _state["claimed"][ow] = []
     # a quick note attached to the card that is going stands alone again,
-    # rather than naming a card the board no longer has
-    for note in _state.get("quicknotes", []):
-        if note.get("card") == bid:
-            note["card"] = None
+    # rather than naming a card the board no longer has. with the quick note
+    # hidden the stored notes are left exactly as they are
+    if QUICK_NOTES_ON:
+        for note in _state.get("quicknotes", []):
+            if note.get("card") == bid:
+                note["card"] = None
     _log("delete", bid, box["title"])
     return "deleted"
 
@@ -3542,7 +3545,7 @@ def _ui_state() -> dict:
         # the quick notes without their words: enough for a card to show that a
         # note is attached to it. the words travel only on the note routes, so
         # a reading taken every second never carries them
-        "quicknotes": [_quicknote_meta(n) for n in st.get("quicknotes", [])],
+        **({"quicknotes": [_quicknote_meta(n) for n in st.get("quicknotes", [])]} if QUICK_NOTES_ON else {}),
         "listenerGap": {ow: round(time.time() - _last_wait.get(ow, 0.0), 1) for ow in OWNERS},
         # the row tag's truth: the lane's last stated agent name, and alive
         # meaning connected now, seen within the steal window, or holding a card
@@ -5018,7 +5021,8 @@ def _create_box_record(owner: str, title: str) -> dict:
     # system as well: card-logic.js quickNoteRef and QUICK_NOTE_REF (the
     # "card N" / "cN" parser), quickNoteCard and quickNoteAttachStep; in this
     # file _post_quicknote_new and _post_quicknote_attach (the attach routes)
-    # and _remove_empty_meta_box; index.html syncQuickNoteChip (the note chip)
+    # and _remove_empty_meta_box; parked/quick-note.js syncQuickNoteChip (the
+    # note chip)
     bid_new = f"m{_state['next_bid']}"  # never reused, even after deletes
     _state["next_bid"] += 1
     # keep each meta section grouped: insert after its last same-owner meta box
@@ -5450,6 +5454,9 @@ def _post_seen(q: Query, text: str):
         _notify()
         return 200, {"ok": True, "seen": out}
 
+
+# hidden in v0: False refuses the quick note routes, drops quicknotes from /state, leaves stored notes alone
+QUICK_NOTES_ON = False
 
 # ---- quick notes ------------------------------------------------------------------
 # a few lines the owner jots down without leaving what they are doing: plain
@@ -6268,11 +6275,13 @@ ROUTES = [
     Route("/push/unsubscribe", _state_endpoint(_post_push_unsubscribe, "text"), methods=["POST"]),
     Route("/tabs", _state_endpoint(_post_tabs, "text"), methods=["POST"]),
     Route("/seen", _state_endpoint(_post_seen, "text"), methods=["POST"]),
-    Route("/quicknotes", _endpoint(_get_quicknotes), methods=["GET"]),
-    Route("/quicknote/new", _state_endpoint(_post_quicknote_new, "raw", MAX_TEXT_BODY, "note too large"), methods=["POST"]),
-    Route("/quicknote/save", _state_endpoint(_post_quicknote_save, "raw", MAX_TEXT_BODY, "note too large"), methods=["POST"]),
-    Route("/quicknote/attach", _state_endpoint(_post_quicknote_attach, "text"), methods=["POST"]),
-    Route("/quicknote/del", _state_endpoint(_post_quicknote_del, "text"), methods=["POST"]),
+    *([
+        Route("/quicknotes", _endpoint(_get_quicknotes), methods=["GET"]),
+        Route("/quicknote/new", _state_endpoint(_post_quicknote_new, "raw", MAX_TEXT_BODY, "note too large"), methods=["POST"]),
+        Route("/quicknote/save", _state_endpoint(_post_quicknote_save, "raw", MAX_TEXT_BODY, "note too large"), methods=["POST"]),
+        Route("/quicknote/attach", _state_endpoint(_post_quicknote_attach, "text"), methods=["POST"]),
+        Route("/quicknote/del", _state_endpoint(_post_quicknote_del, "text"), methods=["POST"]),
+    ] if QUICK_NOTES_ON else []),
     Route("/pause", _state_endpoint(_post_pause, "text"), methods=["POST"]),
     Route("/end", _state_endpoint(_post_end, "text"), methods=["POST"]),
 ]

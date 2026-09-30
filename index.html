@@ -2820,35 +2820,6 @@
     body.focus #stage{transition:none}
   }
 
-  /* the quick note's corner: a small piece of the note's own card that peeks
-     out of the window's bottom right corner while the pointer is there, with no
-     words on it. it wears the card's glass (.qn-glass in card-tokens.css) in
-     the card's own four by three, at a third of its size, 160 by 120. it lives
-     outside the stage, in the window's own pixels, so it is the window's corner
-     whatever the stage is scaled to. at rest it stands wholly past the corner,
-     hidden, so it covers nothing: the goal box, the navigator's box and
-     anything dragged near the corner keep every pixel and every click. out, it
-     shows its top left part, about 96 by 72, which clears the goal box's
-     pencil. it stands under the overlay (90) and over the board */
-  .qnpeek{position:fixed; right:0; bottom:0; z-index:85; box-sizing:border-box;
-    width:160px; height:120px; padding:0; margin:0;
-    cursor:pointer; visibility:hidden; transform:translate(100%, 100%);
-    transition:transform .2s var(--gentle), visibility 0s linear .2s}
-  .qnpeek.out{visibility:visible; transform:translate(40%, 40%);
-    transition:transform .2s var(--gentle), visibility 0s}
-  /* a card with a quick note attached says so in its top bar in the plainest
-     words there are, left of the three section chips, in the bar's own muted
-     mono and the chips' own press. where it finally sits is still open */
-  body.focus .box.sel .qnchip{flex:none; height:16px; padding:0 5px; border:none;
-    border-radius:var(--sq); background:var(--card); cursor:pointer;
-    font:11.5px/16px var(--mono); color:var(--sub)}
-  body.focus .box.sel .qnchip:hover{color:var(--ink);
-    background:color-mix(in srgb, #000 var(--press), var(--card))}
-  .qnchip[hidden]{display:none}
-  @media (prefers-reduced-motion: reduce){
-    .qnpeek, .qnpeek.out{transition:none}
-  }
-
   /* ---- the right composer ------------------------------------------------ */
   /* the second of the two composers, off the owner's sketch of September 27: a
      box of its own standing right of the card, with the hint at its top left
@@ -4353,9 +4324,6 @@ const pageKey = ow => "activepage." + ow;
 let pageMenu = null;     // {pid, dot} while the right-click menu is open
 let pageWarn = null;     // {pid, owner, from} while the confirmation is up
 let pageBusy = false;    // one create or one delete at a time
-// the quick note's overlay is up: it covers the board, so the board's keys are
-// off until it is put away (see the quick note, near the end of this script)
-let qnOpen = false;
 // the settings page is up, and covers the board the same way (see settings, near
 // the end of this script)
 let setOpen = false;
@@ -4429,7 +4397,7 @@ function onBoardPage(state){
 }
 // whether the board's own keys are live: a blank page has no cards to walk,
 // and the confirmation window owns the keyboard while it is up
-function boardKeysLive(){ return !pageWarn && !pageMenu && !qnOpen && !setOpen && !homeOpen && onBoardPage(); }
+function boardKeysLive(){ return !pageWarn && !pageMenu && !setOpen && !homeOpen && onBoardPage(); }
 
 async function addPage(){
   if (!ownerReady || draft || activeOwner === DRAFT || pageBusy) return;
@@ -5390,7 +5358,8 @@ function makeBox(b, i, state){
     // numbered has to be carried into the quick note system as well: card-logic.js
     // ticketNum, quickNoteRef and QUICK_NOTE_REF (the "card N" / "cN" parser) and
     // quickNoteCard; server.py _post_quicknote_new and _post_quicknote_attach; and
-    // syncQuickNoteChip near the end of this file (the note chip)
+    // syncQuickNoteChip in parked/quick-note.js (the note chip). the quick note
+    // is hidden in this version, and these are kept so it can come back
     entry.appendChild(h("span", "tnum", (b.id === "0" || b.id === "t0") ? "•" : b.id));
     entry.appendChild(h("span", "tdot"));
     entry.appendChild(h("span", "ttitle", b.title));
@@ -6023,7 +5992,6 @@ function apply(state){
     }
   }
 
-  const noteCards = quickNotesByCard(state.quicknotes);   // card id -> its quick notes
   for (const b of state.boxes){
     const el = els[b.id];
     if (!el) continue;
@@ -6069,7 +6037,6 @@ function apply(state){
       if (el.tocTitle.textContent !== b.title) el.tocTitle.textContent = b.title;
     }
     syncOmniCard(el, b);
-    syncQuickNoteChip(el, noteCards[b.id] || []);
     /* Worktree selector redraw, intentionally dormant with its UI and wiring.
     // the bar's worktree name, written only when it has actually changed: this
     // runs on every poll and rewriting a text node under a pointer is enough to
@@ -9483,7 +9450,7 @@ const boardShortcutActions = {
   // the first Escape leaves the composer, the bar or the box on the right
   // alike, or any field; the next one unselects the card, which stays on
   // screen browsed, the box still open with its draft. a key something else
-  // answered first, a menu, a picture, the quick note or the settings page,
+  // answered first, a menu, a picture or the settings page,
   // never gets this far, and neither does one held down to repeat. the card
   // has to be the one holding the keys, as control+s asks
   escape(e){
@@ -11629,103 +11596,6 @@ document.getElementById("taskstatus").addEventListener("click", () => {
 requestAnimationFrame(() => requestAnimationFrame(snapCard));
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(snapCard);
 addEventListener("resize", snapCard);
-
-// ---- the quick note ------------------------------------------------------------
-// the overlay and the session that saves it are the shared ones in card-logic.js;
-// this page's own part is the way in, its bottom right corner, and the chip on a
-// card a note is attached to. while the overlay is up the board's keys are off
-// (qnOpen in boardKeysLive), since the board they would act on is covered
-const quickNote = quickNoteOverlay(document.body, {
-  fetch: (url, init) => fetch(url, init),
-  storage: localStorage,
-  boxes: () => (lastState && lastState.boxes) || [],
-  schedule: (fn, ms) => setTimeout(fn, ms),
-  cancel: id => clearTimeout(id),
-  onOpen(){ qnOpen = true; qnPeekHide(); },
-  onClose(){ qnOpen = false; },
-  // the card's one warning, words that could not be saved, is worn by the peek
-  // too, so a note put away with its words unsaved still says so at the corner
-  onChange(session){ qnPeek.classList.toggle("failed", session.status === "failed"); },
-  // the block caret is the board's own, drawn over the field; it is placed
-  // again once the card has glided into the middle
-  onMoved(){ queueFatCaret(); },
-});
-// the corner: the pointer going into the window's bottom right corner brings a
-// small piece of the note's card peeking out of it, and a press on that piece
-// pulls the note into the middle of the window. the corner is read off where
-// the pointer is rather than caught by an element laid over it, so nothing on
-// the board ever loses a click to an invisible catcher, and the piece itself is
-// wholly past the corner until it is called. only a mouse has a corner to go
-// to: a touch, a pressed button (a drag or a selection running into the
-// corner), the layout being edited and a window already holding the keys never
-// wake it
-const QN_CORNER = 12;           // px: the square at the corner that wakes the peek
-const QN_PEEK_LEAVE_MS = 450;   // how long the pointer may be off the peek before it goes
-const qnPeek = h("button", "qnpeek qn-glass");
-qnPeek.type = "button";
-qnPeek.tabIndex = -1;
-qnPeek.setAttribute("aria-label", "open a quick note");
-document.body.appendChild(qnPeek);
-let qnPeekOut = false, qnPeekTimer = null;
-function qnCornerLive(){
-  return !qnOpen && !setOpen && !editMode && !pageWarn && !pageMenu && !p3Zoom &&
-         !document.body.classList.contains("dragging");
-}
-function qnPeekShow(){
-  clearTimeout(qnPeekTimer);
-  qnPeekTimer = null;
-  if (qnPeekOut) return;
-  qnPeekOut = true;
-  qnPeek.classList.add("out");
-}
-function qnPeekHide(){
-  clearTimeout(qnPeekTimer);
-  qnPeekTimer = null;
-  if (!qnPeekOut) return;
-  qnPeekOut = false;
-  qnPeek.classList.remove("out");
-}
-addEventListener("pointermove", e => {
-  if (e.pointerType !== "mouse") return;
-  const root = document.documentElement;
-  if (e.clientX >= root.clientWidth - QN_CORNER && e.clientY >= root.clientHeight - QN_CORNER &&
-      !e.buttons && qnCornerLive()){
-    qnPeekShow();
-    return;
-  }
-  if (!qnPeekOut) return;
-  if (qnPeek.contains(e.target)){ clearTimeout(qnPeekTimer); qnPeekTimer = null; }
-  else if (qnPeekTimer == null) qnPeekTimer = setTimeout(qnPeekHide, QN_PEEK_LEAVE_MS);
-}, { passive: true });
-qnPeek.addEventListener("click", () => quickNote.open(null, qnPeek.getBoundingClientRect()));
-// a card with a quick note attached carries the chip in its top bar, the
-// plainest mark there is, and a press opens the newest of its notes. the chip is
-// made the first time the card has a note, so a card that never has one carries
-// nothing extra, and it stands left of the three section chips, which keep their
-// seats. where it finally sits is still to be settled with the owner
-function syncQuickNoteChip(el, notes){
-  if (!notes.length){
-    if (el.qnchip) el.qnchip.hidden = true;
-    return;
-  }
-  if (!el.qnchip){
-    const made = el.qnchip = h("button", "qnchip");
-    made.type = "button";
-    made.tabIndex = -1;   // the card's own focus ring stays as it is
-    made.addEventListener("click", e => {
-      e.stopPropagation();
-      if (made.dataset.note) quickNote.open(made.dataset.note, made.getBoundingClientRect());
-    });
-    el.topbar.insertBefore(made, el.sun);
-  }
-  const chip = el.qnchip;
-  const label = notes.length === 1 ? "note" : notes.length + " notes";
-  if (chip.textContent !== label) chip.textContent = label;
-  chip.dataset.note = notes[0].id;
-  chip.title = notes.length === 1 ? "open the note attached to this card"
-                                  : "open the newest note attached to this card";
-  chip.hidden = false;
-}
 
 renameMagicLayouts();
 syncLayoutsOnce();

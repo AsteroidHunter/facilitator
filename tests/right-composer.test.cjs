@@ -206,7 +206,8 @@ const FRAME = HTML.match(/^const FRAME_CLEAR = \d+;.*$/m);
 const LIMITS = between(HTML, "function frameLimits(){", "\n}\n") + "\n}\n";
 const SEND = between(HTML, "// Enter and the card's send arrow each send", "// ---- older replies");
 const RIGHT = between(HTML, "// ---- the right composer ----", "// the copy button on fenced blocks");
-const NOTE = between(HTML, "// ---- the quick note ----", "\nrenameMagicLayouts();");
+// the quick note's wiring is parked for v0, and only the skipped corner test below runs it
+const NOTE = readFileSync(path.join(ROOT, "parked", "quick-note.js"), "utf8");
 const KEYS = HTML.match(/^function boardKeysLive\(\)\{.*\}$/m);
 
 const PRELUDE = `
@@ -994,7 +995,7 @@ test("the pivot tracks the bar: a note under it, the sent box and the answered p
   assert.match(between(HTML, "function xcLanded(el, end){", "\n}\n"), /xcSeat\(\);/);
 });
 
-test("the quick note's corner still wakes and opens, with the box out", async () => {
+test("the quick note's corner still wakes and opens, with the box out", { skip: "feature hidden for v0" }, async () => {
   const p = openPage({ note: true });
   p.fit();
   addCard(p, "m45");
