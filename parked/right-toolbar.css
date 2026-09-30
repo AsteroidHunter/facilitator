@@ -1,0 +1,190 @@
+/* Parked for v0: the right toolbar's and the notes panel's styles. index.html does not load this file. */
+  /* ---- the right toolbar -------------------------------------------------
+     the right margin is --tb-w thick and holds the tool buttons. an open panel
+     moves the frame's right edge (--ws-r) inward by --rail-x, one transitioned
+     length that the frame, the panel and the centred pages all read.
+     --panel-w is the panel's width */
+  @property --rail-x{syntax:"<length>"; inherits:true; initial-value:0px}
+  :root{
+    --tb-w:34px; --panel-w:400px; --rail-move:.33s;
+    --ws-r:calc(var(--tb-w) + var(--rail-x));
+    --ws-mid:calc((var(--app-inset) + 100vw - var(--ws-r)) / 2);
+    transition:--rail-x var(--rail-move) var(--gentle);
+  }
+  html[data-rail]{--rail-x:calc(var(--panel-w) + var(--app-inset))}
+  #toolbar, #railpanel{display:none}
+  body.focus #toolbar{
+    display:flex; flex-direction:column; align-items:center; gap:8px;
+    position:fixed; z-index:11; right:0; width:var(--tb-w);
+    top:calc(var(--app-inset) + var(--bar-h) + 10px);
+  }
+  /* dressed like the gear and the pen; the pointer may land a little outside */
+  .tool{position:relative; display:flex; align-items:center; padding:2px; border:none;
+    background:none; color:var(--sub); cursor:pointer; transition:color .2s}
+  .tool::after{content:""; position:absolute; inset:-4px}
+  .tool:hover, .tool.on{color:var(--accent)}
+  body.focus #railpanel{
+    display:block; position:fixed; z-index:11; overflow:hidden;
+    top:calc(var(--app-inset) + var(--bar-h) - 1px - var(--edge-drawn));
+    bottom:var(--app-inset); right:var(--tb-w);
+    width:max(0px, calc(var(--rail-x) - var(--app-inset)));
+    border-radius:7px;
+    opacity:0; visibility:hidden;
+    transition:opacity calc(var(--rail-move) / 2) var(--gentle), visibility 0s linear var(--rail-move);
+  }
+  html[data-rail] body.focus #railpanel{
+    opacity:1; visibility:visible;
+    transition:opacity calc(var(--rail-move) / 2) var(--gentle), visibility 0s;
+  }
+  /* a tool's room keeps the full width while the panel opens, so it never reflows */
+  #railpanel > [data-tool]{position:absolute; top:0; right:0; bottom:0;
+    width:var(--panel-w); outline:none}
+  @media (prefers-reduced-motion: reduce){ :root{--rail-move:0s} }
+
+  /* ---- the notes panel ---------------------------------------------------
+     the notes tool's room, laid out as a phone notes app at phone width: a
+     search pill, the notes as cards in two staggered columns or one, a large
+     button that starts a note, and an editor the card grows into. sizes are a
+     phone's, one dp to one px: the pill 56 tall and fully round, 8 of margin
+     and 8 between cards, cards 12 round with 16 inside, the button 80 square
+     and 20 round, 16 from the corner. colours and faces are the board's own:
+     the panel's glass behind, cards in --card with the board's edge, words in
+     --ink, the button in the accent. nothing here is a status line; a state
+     shows on the element that has it.
+     the curves: --np-emph is the emphasized path (two cubic pieces) sampled
+     into linear(); --np-spatial and --np-fx are springs sampled the same way,
+     a bouncy one for things that move (435ms to settle) and a critically
+     damped one for fades (150ms) */
+  :root{
+    --np-emph:linear(0 0%, 0.0012 1.25%, 0.005 2.5%, 0.0114 3.75%, 0.0206 5%, 0.0329 6.25%, 0.0488 7.5%, 0.0687 8.75%, 0.0935 10%, 0.1241 11.25%, 0.1622 12.5%, 0.2104 13.75%, 0.2733 15%, 0.3611 16.25%, 0.479 17.5%, 0.5711 18.75%, 0.6357 20%, 0.6829 21.25%, 0.7193 22.5%, 0.7486 23.75%, 0.7728 25%, 0.7934 26.25%, 0.8112 27.5%, 0.8267 28.75%, 0.8829 35%, 0.9125 40%, 0.9342 45%, 0.9506 50%, 0.9633 55%, 0.9732 60%, 0.9809 65%, 0.9868 70%, 0.9914 75%, 0.9948 80%, 0.9972 85%, 0.9988 90%, 0.9997 95%, 1 100%);
+    --np-dec:cubic-bezier(.05,.7,.1,1);
+    --np-acc:cubic-bezier(.3,0,.8,.15);
+    --np-spatial:linear(0, 0.02, 0.0714, 0.1432, 0.2269, 0.3158, 0.405, 0.4912, 0.5719, 0.6456, 0.7116, 0.7695, 0.8195, 0.862, 0.8975, 0.9267, 0.9503, 0.9689, 0.9834, 0.9944, 1.0024, 1.008, 1.0117, 1.0139, 1.015, 1.0151, 1.0147, 1.0138, 1.0127, 1.0114, 1.01, 1.0087, 1.0074, 1.0062, 1.0051, 1.0041, 1.0033, 1.0026, 1.0019, 1.0014, 1);
+    --np-fx:linear(0, 0.0573, 0.1797, 0.3199, 0.4541, 0.5719, 0.6701, 0.7491, 0.8113, 0.8594, 0.896, 0.9235, 0.9441, 0.9593, 0.9705, 0.9787, 0.9847, 0.989, 0.9921, 0.9944, 0.996, 0.9971, 0.998, 0.9986, 1);
+    --np-state:color-mix(in srgb, var(--ink) 8%, transparent);
+    --np-scrim:color-mix(in srgb, var(--ink) 32%, transparent);
+  }
+  #railnotes .np{position:absolute; inset:0; display:flex; flex-direction:column;
+    font-family:var(--sans); color:var(--ink)}
+  .np button{font:inherit; color:inherit; margin:0; padding:0; border:none; background:none; cursor:pointer}
+  .np button:focus-visible, .np-card:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+  .np svg{display:block; flex:none}
+  /* the pill: 56 tall, the words 24 in, the two icons at its right end with
+     the sort centred 32 from that end */
+  .np-top{flex:none; padding:8px 16px 0}
+  .np-pill{display:flex; align-items:center; height:56px; border-radius:28px;
+    background:var(--card); padding-right:8px}
+  /* the words sit in a content box one line tall, padded out to the pill's
+     height, so the board's block caret, which reads the box, lands on the line */
+  .np-q{flex:1; min-width:0; height:56px; margin:0; padding:16px 8px 16px 24px; border:none;
+    outline:none; background:none; -webkit-appearance:none; appearance:none;
+    font:16px/24px var(--sans); letter-spacing:.2px; color:var(--ink)}
+  .np-q::placeholder{color:#B4AA99}
+  .np-q::-webkit-search-cancel-button, .np-q::-webkit-search-decoration{-webkit-appearance:none; display:none}
+  .np-ib{position:relative; flex:none; width:48px; height:48px; border-radius:50%;
+    display:grid; place-items:center; color:var(--sub)}
+  .np-ib + .np-ib{margin-left:4px}
+  .np-ib::after{content:""; position:absolute; inset:0; border-radius:inherit;
+    background:var(--np-state); opacity:0; transition:opacity .15s var(--np-fx)}
+  .np-ib:hover::after{opacity:1}
+  .np-ib[hidden]{display:none}
+  .np-sort .dim{opacity:.35}
+  /* the notes: 20 under the pill, 8 of margin, 8 between columns and cards,
+     and room at the foot so the button never covers the last card */
+  .np-scroll{flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain}
+  .np-grid{display:flex; align-items:flex-start; gap:8px; padding:20px 8px 112px}
+  .np-col{flex:1 1 0; min-width:0; display:flex; flex-direction:column; gap:8px}
+  .np-card{position:relative; background:var(--card); border:var(--edge) solid var(--line);
+    border-radius:12px; padding:16px; cursor:pointer; outline:none}
+  .np-card::after{content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+    background:var(--np-state); opacity:0; transition:opacity .15s var(--np-fx)}
+  .np-card:hover::after{opacity:1}
+  /* long notes are cut at nine lines, the last one ending in an ellipsis */
+  .np-text{font:14px/20px var(--sans); letter-spacing:.2px; white-space:pre-wrap;
+    overflow-wrap:break-word; display:-webkit-box; -webkit-box-orient:vertical;
+    -webkit-line-clamp:9; overflow:hidden}
+  /* the card a note is attached to, where a label would sit */
+  .np-chip{display:inline-flex; align-items:center; max-width:100%; height:24px; padding:0 8px;
+    border-radius:8px; background:color-mix(in srgb, var(--ink) 8%, transparent);
+    font:500 12px/16px var(--sans); letter-spacing:.3px; color:var(--ink)}
+  .np button.np-chip{padding:0 8px; font:500 12px/16px var(--sans); letter-spacing:.3px;
+    background:color-mix(in srgb, var(--ink) 8%, transparent)}
+  .np button.np-chip:hover{background:color-mix(in srgb, var(--ink) 13%, transparent)}
+  .np-chip span{overflow:hidden; white-space:nowrap; text-overflow:ellipsis}
+  .np-card .np-chip{margin-top:12px}
+  .np-chip[hidden]{display:none}
+  /* the large button: 80 square, 20 round, 16 from the corner */
+  .np button.np-fab{position:absolute; z-index:1; right:16px; bottom:16px; width:80px; height:80px;
+    border-radius:20px; display:grid; place-items:center;
+    background:var(--accent-soft); color:var(--accent);
+    box-shadow:0 1px 3px 0 rgba(0,0,0,.3), 0 4px 8px 3px rgba(0,0,0,.15);
+    transition:background-color .15s var(--np-fx)}
+  .np button.np-fab:hover{background:color-mix(in srgb, var(--accent) 8%, var(--accent-soft))}
+  .np button.np-fab:active{background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft))}
+  /* the dim that covers the notes while one grows into the editor */
+  .np-dim{position:absolute; inset:0; z-index:2; background:var(--np-scrim);
+    opacity:0; visibility:hidden; pointer-events:none}
+  /* the editor: the whole room, white like the card it grew out of. a bar of
+     64 on top with the way back and one on the foot with the attached card on
+     the left and the menu on the right; each bar takes the paper shade while
+     the words run under it. a rim in the warning colour while words could
+     not be saved */
+  .np-ed{position:absolute; inset:0; z-index:3; display:none; flex-direction:column;
+    background:var(--card)}
+  .np-ed.open{display:flex}
+  .np-ed.failed{box-shadow:inset 0 0 0 1px var(--must)}
+  .np-ebar{flex:none; position:relative; height:64px; transition:background-color .15s var(--np-fx)}
+  .np-ebar.under{background:var(--paper)}
+  .np .np-back{position:absolute; left:4px; top:8px; color:var(--ink)}
+  .np-field{position:relative; flex:1; min-height:0}
+  .np .np-ta, .np-hl{box-sizing:border-box; margin:0; padding:20px 20px 24px;
+    font:16px/24px var(--sans); letter-spacing:.2px; white-space:pre-wrap; overflow-wrap:break-word}
+  .np .np-ta{position:relative; display:block; width:100%; height:100%; min-height:0; max-height:none;
+    border:none; border-radius:0; outline:none; resize:none; background:transparent;
+    color:var(--ink); overflow-y:auto; transition:none}
+  .np-hl{position:absolute; inset:0; overflow:hidden; pointer-events:none; color:transparent}
+  .np-hl mark{color:transparent; background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft)); border-radius:2px}
+  .np-hl mark.cur{background:color-mix(in srgb, var(--accent) 30%, var(--card))}
+  .np-ebot .np-chip{position:absolute; left:20px; top:20px; max-width:calc(100% - 96px)}
+  .np button.np-more{position:absolute; right:24px; top:12px; width:32px; height:40px;
+    border-radius:20px; display:grid; place-items:center; background:var(--paper)}
+  .np-ebar.under button.np-more{background:var(--card)}
+  .np button.np-more:hover{background:color-mix(in srgb, var(--ink) 8%, var(--paper))}
+  .np button.np-more[hidden]{display:none}
+  /* find in note: an outlined field, the two steps and the close, in place of
+     the foot's own things. the steps fade while there is nothing to step to */
+  .np-find{position:absolute; inset:0 12px 0 16px; display:flex; align-items:center; gap:4px}
+  .np-find[hidden]{display:none}
+  .np-ff{flex:1; min-width:0; display:flex; align-items:center; gap:8px; height:44px; padding:0 12px;
+    border:1px solid var(--accent); border-radius:8px; color:var(--sub)}
+  .np-fq{flex:1; min-width:0; height:24px; margin:0; padding:0; border:none; outline:none; background:none;
+    -webkit-appearance:none; appearance:none; font:16px/24px var(--sans); color:var(--ink)}
+  .np-fq::placeholder{color:#B4AA99}
+  .np-fq::-webkit-search-cancel-button{-webkit-appearance:none; display:none}
+  .np-find .np-ib{width:40px; height:40px; color:var(--ink)}
+  .np-find .np-ib + .np-ib{margin-left:0}
+  .np-find .np-ib:disabled{opacity:.38; cursor:default}
+  .np-find .np-ib:disabled::after{display:none}
+  /* sheets rise from the foot over a dim: 28 round on top, rows of 48 with
+     the icon 24 in and the words 72 in. the sort sheet's rows are 52 and the
+     chosen one is a filled pill with a tick */
+  .np-scrim{position:absolute; inset:0; z-index:4; display:none; background:var(--np-scrim); opacity:0}
+  .np-sheet{position:absolute; left:0; right:0; bottom:0; z-index:5; display:none;
+    background:var(--paper); border-radius:28px 28px 0 0; padding:8px 0 16px}
+  .np-scrim.open, .np-sheet.open{display:block}
+  .np-sheet.sort{padding:16px 0}
+  .np .np-row{position:relative; display:flex; align-items:center; width:100%; height:48px;
+    padding:0 24px; text-align:left; font:16px/24px var(--sans); letter-spacing:.2px; color:var(--ink)}
+  .np .np-row svg{margin-right:24px}
+  .np .np-row::after{content:""; position:absolute; inset:0; background:var(--np-state);
+    opacity:0; transition:opacity .15s var(--np-fx)}
+  .np .np-row:hover::after{opacity:1}
+  .np .np-row:disabled{opacity:.38; cursor:default}
+  .np .np-row:disabled::after{display:none}
+  .np-sheet.sort .np-row{width:calc(100% - 16px); height:52px; margin:0 8px; padding:0 0 0 27px;
+    border-radius:26px}
+  .np-sheet.sort .np-row::after{border-radius:inherit}
+  .np-sheet.sort .np-row svg{margin-right:28px}
+  .np-sheet.sort .np-row .tick{visibility:hidden}
+  .np-sheet.sort .np-row.on{background:var(--accent-soft)}
+  .np-sheet.sort .np-row.on .tick{visibility:visible}
