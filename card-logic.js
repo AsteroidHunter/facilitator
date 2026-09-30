@@ -1667,9 +1667,9 @@ function fitAnswered(panel){
 // note under one, draws nothing above it again and leaves a pick of those
 // words alone. a message may carry a short note under its words and a state
 // the page dresses it in: the phone says so of a message the board has not
-// confirmed yet. and a sent message carries its stage with the agent (see the
-// delivery marks further down): one that no agent has received yet is drawn
-// faded, and takes its full ink once it is delivered
+// confirmed yet. and a sent message carries its stage (see the delivery marks
+// further down): one the board has not saved yet is drawn faded, and takes its
+// full ink once the board has it
 const ANSWERED_STATES = ["pending", "unsure", "failed"];
 function stackAnswered(panel, batch){
   const stack = panel.querySelector(".answstack");
@@ -1777,29 +1777,64 @@ const SENT_ARRIVE_MS = 260;   // the sheet's --answ-come
 function sentBatch(texts){ return (texts || []).map(text => ({ text })); }
 
 // ---- the delivery marks ------------------------------------------------------------------
-// where each sent message stands with the agent, from the board's own record of
-// it (pendingStates and notedTexts on a reading, server.py's _pending_states):
-//   local      this phone has not had the board confirm it yet. the phone's own
-//              line under the words says how that is going (Sending, Not sent
-//              yet, retrying, and the rest)
-//   sent       on the board, and no agent has confirmed receiving it: drawn
+// a sent message is in one of three states, and a page holds it under one of
+// four stage names: the first is the page's own, the rest the board's, from its
+// record of the message (pendingStates and notedTexts on a reading, server.py's
+// _pending_states):
+//   local      the board has not saved it yet, so it would be lost if the page
+//              were closed: a send still on its way (the phone's own, or the
+//              desktop's between the press and the board's answer). drawn
 //              faded, the panel's grey and the words both, while every message
-//              in the panel is still only sent, and the words alone when an
-//              older message in it has been delivered
-//   delivered  the agent's listener confirmed the claim carrying it
-//   read       the agent has written back since it received it: a progress
+//              in the panel is still local, and the words alone when an older
+//              message in it is saved. no word stands for it, the fade says it.
+//              the phone's own line under a send that is not getting through
+//              (Not sent yet, retrying, and the rest) is a failure, not a state
+//   sent       the board has saved it: Delivered, at full ink
+//   delivered  an agent has picked it up, its listener confirmed the claim
+//              carrying it: Read
+//   read       the agent has written back since it picked it up: a progress
 //              note over its claim, a note that took it toward the answer still
-//              to come, or the answer itself. the board cannot see inside an
-//              agent, so read here means written back about, and a message read
-//              but not yet written about stays delivered
+//              to come, or the answer itself. it looks as delivered does, Read
 // the panel carries one quiet mark under its foot, the way a chat marks the
 // newest message that has got anywhere: Delivered or Read for the newest
-// message in it that is at least delivered, and nothing while none is. the
+// message in it that the board has saved, and nothing while none is. the
 // panel over an answer always reads Read, since the answer under it is the
 // board's proof. a message with no stage (a board too old to say) is drawn as
 // it always was and marks nothing
-const SENT_TAGS = { delivered: "Delivered", read: "Read" };
-function sentUndelivered(m){ return m.stage === "sent" || m.stage === "local"; }
+const SENT_TAGS = { sent: "Delivered", delivered: "Read", read: "Read" };
+function sentUndelivered(m){ return m.stage === "local"; }
+// a send on its way to the board, drawn faded from the press: el is the card's
+// page object, which holds its sentItems and its guard. the board's readings
+// are kept from replacing the list for as long as any send is out, since one
+// asked before the board had the words knows nothing of them
+function sentLaunch(el, text){
+  const item = { text, stage: "local" };
+  el.sentItems = [...el.sentItems, item];
+  el.sendsOut = (el.sendsOut || 0) + 1;
+  el.sendGuard = Infinity;
+  syncSent(el, el.sentItems, true);
+  return item;
+}
+function sentSettled(el){
+  el.sendsOut = Math.max(0, (el.sendsOut || 0) - 1);
+  if (!el.sendsOut) el.sendGuard = Date.now();
+}
+// the board answered: the message is saved, and stands as sent until a reading
+// says more. a reading asked before this moment may not take it away
+function sentLanded(el, item){
+  if (item.stage !== "local") return;
+  item.stage = "sent";
+  sentSettled(el);
+  syncSent(el, el.sentItems);
+}
+// the board did not take it: the faded message goes from the panel
+function sentLost(el, item){
+  if (item.stage !== "local") return;
+  item.stage = "lost";
+  el.sentItems = el.sentItems.filter(m => m !== item);
+  sentSettled(el);
+  syncSent(el, el.sentItems);
+}
 // the panel's list, out of the board's reading of a card: what a note has
 // already taken toward the answer to come, which is read, then the queued
 // messages, each where it stands
@@ -1848,8 +1883,8 @@ function showMark(panel, tag, comes){
     if (roomMoves && panel.isConnected && panel.answRoom) panel.answRoom();
   }, MARK_IN_MS + 20);
 }
-// the panel's one mark, and whether every message in it is still undelivered.
-// live is a panel that was standing before this reading
+// the panel's one mark, and whether every message in it is still unsaved by the
+// board. live is a panel that was standing before this reading
 function sentMarks(panel, shown, live){
   const got = [...shown].reverse().find(m => SENT_TAGS[m.stage]);
   const tag = got ? SENT_TAGS[got.stage] : "";
@@ -1863,7 +1898,7 @@ function syncSent(el, batch, arrive){
   const shown = (batch || []).filter(m => !ANSWERED_BLANK.test(answeredText(m)));
   if (!shown.length){ dropSent(el); return; }
   // what the panel is drawn from: the words, and the state, the note and the
-  // stage with the agent of each. a pass bringing the same again touches no dom
+  // stage of each. a pass bringing the same again touches no dom
   const key = JSON.stringify(shown.map(m => [answeredText(m), m.state || "", m.note || "", m.stage || ""]));
   if (el.sent && el.sentKey === key) return;
   el.sentKey = key;

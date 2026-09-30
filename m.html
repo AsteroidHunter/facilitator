@@ -2083,11 +2083,11 @@ function boxHasSelection(el){
 // the head of the card when the answer lands are the desktop's own, shared in
 // card-logic.js, and so is the whole of the panel of answered messages above
 // the answer. what is this page's own is what the panel is drawn from: the
-// messages the board has confirmed, each where it stands with the agent (sent,
-// delivered or read, the board's own record), and after them this phone's own
-// that the board has not confirmed yet, faded like a message no agent has
-// received and each with a line under its words saying where the sending
-// stands. arrive is what tells a send from a reading, as it does on the desktop
+// messages the board has confirmed, each where it stands (sent, delivered or
+// read, the board's own record), and after them this phone's own that the board
+// has not confirmed yet, faded like any message the board has not saved, and
+// with a line under its words only when the sending is not getting through.
+// arrive is what tells a send from a reading, as it does on the desktop
 function sentOf(el, id){
   const batch = el.sentItems.slice();
   for (const op of localSends(id))
@@ -2111,11 +2111,12 @@ function drawSent(el, id, arrive){
     openAnswered(panel, true);
   el.sentWarned = warn;
 }
-// what the line under an unconfirmed message says
+// what the line under an unconfirmed message says. a send on its way says
+// nothing, the fade does
 function opNote(op){
   return op.state === "failed" ? "Not sent, tap to take the words back"
     : op.state === "unsure" ? (op.armed ? "Tap again to take the words back; it may already have gone" : "Could not confirm it was sent")
-    : op.waiting ? "Not sent yet, retrying" : "Sending";
+    : op.waiting ? "Not sent yet, retrying" : "";
 }
 // a not-sent message gives the words back on a tap. an unsure one is the
 // reader's to decide: the first tap arms it and says the message may already
@@ -2502,7 +2503,7 @@ function failOp(op, why, by){
 function landSend(op, result){
   const el = els[op.box];
   if (!el) return;
-  // on the board now, and no agent has received it yet: sent, until a reading says more
+  // saved by the board now: sent, which reads Delivered, until a reading says more
   el.sentItems = [...el.sentItems, { text: op.text, stage: "sent" }];
   drawSent(el, op.box);
   el.sendGuard = Date.now();
@@ -2568,10 +2569,10 @@ function drawerNote(text){
 
 // ---- sending and making ------------------------------------------------------------
 // the tap is answered on the tap: the message lands in the sent panel now, marked
-// as on its way, and the operation loop behind it sees it home. the desktop waits
-// for the server before it draws the line because the server is on the same
-// machine and answers in a millisecond; here that wait is a second of nothing
-// happening under a finger
+// as on its way, and the operation loop behind it sees it home. the desktop
+// draws its message faded too, for as long as the server takes to answer, which
+// on the same machine is a millisecond; here that wait can be a second of
+// nothing happening under a finger
 function doSend(id, opts){
   opts = opts || {};
   const trace = tracePhone("begin", "send", { box: id });
