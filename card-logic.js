@@ -1032,16 +1032,10 @@ function markSeen(id){
 // it counts as read. use is the page's own way of saying so, markSeen unless
 // the page does more. the input is asked about the caret, because the
 // formatter also says input when it puts its editor on or takes it off, which
-// it does to every card on load, and that is nobody reading anything. id is
-// the card, or for a composer that holds one card's draft and then another's
-// the question that names the card at that moment, with nothing when it holds none
+// it does to every card on load, and that is nobody reading anything
 function readOnCompose(ta, id, use = markSeen){
-  const read = () => {
-    const card = typeof id === "function" ? id() : id;
-    if (card) use(card);
-  };
-  ta.addEventListener("focus", read);
-  ta.addEventListener("input", () => { if (ComposeFormat.focused(ta)) read(); });
+  ta.addEventListener("focus", () => use(id));
+  ta.addEventListener("input", () => { if (ComposeFormat.focused(ta)) use(id); });
 }
 // a reply that lands while the reader's caret is in that card's composer, on
 // a page that is on screen, is read the moment it lands: the reader is in the
@@ -2046,11 +2040,10 @@ function openAtHead(el){
   scrollCardTop(el);
 }
 // and a key into a row, which is what says the reader is typing. each page calls
-// it from its rows' input: the card's own bar, the phone's row, and the desktop's
-// composer on the right while it holds a card's draft, which is then that card's
-// el.ta. the formatter also says input when it puts its editor on or takes it
-// off, to every card on load, and that is nobody typing, so only a row holding
-// the caret counts, the way readOnCompose counts it
+// it from its rows' input: the card's own bar and the phone's row. the
+// formatter also says input when it puts its editor on or takes it off, to
+// every card on load, and that is nobody typing, so only a row holding the
+// caret counts, the way readOnCompose counts it
 function noteTyping(ta){
   if (typeof ComposeFormat === "object" && ComposeFormat && ComposeFormat.focused(ta)) ta.typedAt = Date.now();
 }

@@ -1449,34 +1449,32 @@ test("both pages seat the sent panel at the foot and hand the turn a pass that d
     "the phone's tap to take words back is not heard before the panel's own");
 });
 
-test("the turn keeps to the composer the reader is in, the right one included, and to a board that is covered", () => {
+test("the turn keeps to the composer the reader is in, and to a board that is covered", () => {
   const { context, run, pending } = sandbox();
   // a key counts only in a row that holds the caret: the formatter's own input
   // as it puts its editor on, to every card on load, is nobody typing
-  const bar = element("textarea"), right = element("textarea");
+  const idle = element("textarea"), typing = element("textarea");
   context.ComposeFormat = { focused: ta => ta === context.caret };
-  context.noteTyping(bar);
-  assert.equal(bar.typedAt, undefined, "a row with no caret was taken for typing");
-  context.caret = right;
-  context.noteTyping(right);
-  assert.ok(Date.now() - right.typedAt < 1000, "a key into the row with the caret was not noted");
-  // the composer on the right holds the card's draft, so it is the card's el.ta:
-  // typing there holds the new answer back as typing in the bar does
+  context.noteTyping(idle);
+  assert.equal(idle.typedAt, undefined, "a row with no caret was taken for typing");
+  context.caret = typing;
+  context.noteTyping(typing);
+  assert.ok(Date.now() - typing.typedAt < 1000, "a key into the row with the caret was not noted");
+  // typing in the card's composer holds the new answer back
   run("turnAgain = againSpy");
   const el = turningCard(context);
-  el.bar = { ta: bar };
-  el.ta = right;
-  assert.equal(context.turnBegin(el, NEXT), run("TURN_HELD"), "typing in the composer on the right did not hold the answer");
+  el.ta = typing;
+  assert.equal(context.turnBegin(el, NEXT), run("TURN_HELD"), "typing in the composer did not hold the answer");
   assert.equal(el.body.querySelector(".turnsheet"), null);
-  right.typedAt = 0;
+  typing.typedAt = 0;
   assert.equal(pending().at(-1).ms, 500);
-  // and with the bar stepped aside for it, the seat stands at the card's floor:
-  // the picture reaches down to the seat's foot wherever the seat stands
+  // with the seat standing at the card's floor, the picture reaches down to the
+  // seat's foot wherever the seat stands
   el.sentwrap.rect = { top: 780, bottom: 900 };
   const turn = context.turnBegin(el, NEXT);
   assert.equal(turn.mode, "glide");
   assert.equal(el.body.querySelector(".turnsheet").style.height, "800px", "the picture does not reach the seat at the floor");
-  assert.equal(context.caret, right, "the turn took the caret out of the composer on the right");
+  assert.equal(context.caret, typing, "the turn took the caret out of the composer");
   // a board the page has covered, as the desktop's home page covers its stage,
   // is not on show: the answer swaps as it always did, and nothing is held
   const covered = sandbox();
@@ -1487,10 +1485,8 @@ test("the turn keeps to the composer the reader is in, the right one included, a
   hidden.readAt = Date.now();
   assert.equal(covered.context.turnBegin(hidden, NEXT), null, "a covered card turned, or held its answer back");
   assert.equal(hidden.body.querySelector(".turnsheet"), null);
-  // the pages: the right composer's keys are noted, and a reply landing on the
-  // card in use is read whatever the turn does, the answer held back included
-  assert.match(DESKTOP, /xc\.ta\.addEventListener\("input", \(\) => \{[^}]*noteTyping\(xc\.ta\);/,
-    "a key into the composer on the right is not noted");
+  // the pages: a reply landing on the card in use is read whatever the turn
+  // does, the answer held back included
   for (const [where, text, rule] of [["the desktop", DESKTOP, "readOnArrival(el, b, b.id === selectedId && !browsing);"],
       ["the phone", PHONE, "readOnArrival(el, b, b.id === selectedId && !browsing && !drawerOpen());"]]) {
     const ask = text.indexOf("const held = turn === TURN_HELD;");
