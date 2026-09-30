@@ -387,5 +387,5 @@ test("the typing row's css sets no colour and its script has no em dash", async 
   assert.ok(start > 0 && end > start, "the typing row's css was not found");
   const css = source.slice(start, end);
   assert.ok(!/accent|purple|#[0-9a-f]{3,8}\b|rgb\(/i.test(css), "the typing row's css sets a colour");
-  assert.ok(!/—/.test(source.slice(source.indexOf("the typing row: the plus steps aside"), source.indexOf("a keyboard plugged into the phone"))), "an em dash in the typing row's script");
+  assert.ok(!/\u2014/.test(source.slice(source.indexOf("the typing row: the plus steps aside"), source.indexOf("a keyboard plugged into the phone"))), "an em dash in the typing row's script");
 });
