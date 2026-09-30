@@ -17,7 +17,7 @@
      lighter #DEDEDE would have spread over 1.6. white less #DEDEDE is 33
      levels, times 1.6 is about 53, and white less 53 is #CACACA */
   --line:#CACACA; --line-strong:#D8CFBE;
-  --accent:#432BFF; --accent-soft:#EEEBFF;
+  --accent:var(--ink); --accent-soft:var(--bubble-fill);
   --green:#2F6B3C; --green-bg:#EDF4E8; --green-line:#C4D9BB;
   --must:#A8442A; --must-bg:#F7EAE4;
   --could:#8A6D1F; --could-bg:#F5EFDD;
