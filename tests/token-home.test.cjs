@@ -274,9 +274,10 @@ test("the line draws each day's total solid and the trailing seven-day average d
     assert.ok(p.ya >= box.top - 0.05 && p.ya <= box.top + box.h + 0.05, "the average inside the plot");
     assert.ok(Math.abs(p.y - model.yAt(p.total)) < 0.1 && Math.abs(p.ya - model.yAt(p.avg)) < 0.1);
   }
-  // the axis ends at the next round tick past the busiest day, not the busiest week
-  assert.equal(model.top, 7.5e6);
-  assert.deepEqual(Array.from(model.ticks), [0, 2.5e6, 5e6, 7.5e6]);
+  // the axis ends at the next half step past the busiest day, not the busiest week,
+  // with lines at whole steps only
+  assert.equal(model.top, 8e6);
+  assert.deepEqual(Array.from(model.ticks), [0, 2e6, 4e6, 6e6, 8e6]);
   const spike = model.points.find(p => p.total === 7e6);
   assert.ok(spike.y > box.top + 1, "the busiest day stands under the top line");
   // drawn to the view's height and as wide as the heatmap at that height, a
@@ -314,40 +315,55 @@ test("the line draws each day's total solid and the trailing seven-day average d
   // the count names are drawn apart into the place they held, to stay put while the line scrolls
   const pin = W.linePin(model);
   assert.match(pin, /^<svg width="48" height="200" viewBox="0 0 48 200"/);
-  for (const label of ["0", "2.5M", "5M", "7.5M"]) {
+  for (const label of ["0", "2M", "4M", "6M", "8M"]) {
     assert.ok(pin.includes(`text-anchor="end">${label}</text>`));
     assert.ok(!svg.includes(`>${label}</text>`), `${label} would scroll away with the line`);
   }
+  assert.equal((pin.match(/<text /g) || []).length, 5, "names at whole steps only");
+  assert.equal((svg.match(/<line class="tk-(grid|base)"/g) || []).length, 5, "lines at whole steps only");
+  const half = W.lineModel(daysEnding("2026-09-27", 371, k => (k === 200 ? 3.06e9 : 0)));
+  assert.equal(half.top, 3.5e9);
+  assert.equal((W.linePin(half).match(/<text /g) || []).length, 4, "none at the top, which is no whole step");
+  assert.equal((W.lineSvg(half).match(/<line class="tk-(grid|base)"/g) || []).length, 4);
   // a year of nothing still draws, flat on the floor
   const flat = W.lineModel(daysEnding("2026-09-27", 371, () => 0));
   assert.ok(flat.points.every(p => p.y === box.top + box.h && p.ya === box.top + box.h));
 });
 
-test("the count axis ends a round step past the busiest day, in four to six ticks", () => {
+test("the count axis tops at the next half step past the busiest day, with lines at whole steps only", () => {
   const { W } = widgets();
+  const axis = max => { const a = W.niceAxis(max); return { top: a.top, step: a.step, ticks: Array.from(a.ticks) }; };
+  // the busiest day of 3.06B: lines at 0, 1B, 2B and 3B, the top at 3.5B, none at the half step
+  assert.deepEqual(axis(3.06e9), { top: 3.5e9, step: 1e9, ticks: [0, 1e9, 2e9, 3e9] }, "3.06B");
   const cases = [
-    [1.35e9, [0, 5e8, 1e9, 1.5e9]],
-    [8.7e8, [0, 2.5e8, 5e8, 7.5e8, 1e9]],
-    [4.1e9, [0, 1e9, 2e9, 3e9, 4e9, 5e9]],
-    [1e6, [0, 2.5e5, 5e5, 7.5e5, 1e6, 1.25e6]],
-    [1115, [0, 250, 500, 750, 1000, 1250]],
-    [3, [0, 1, 2, 3, 4]],
-    [0, [0, 1, 2, 3, 4]],
+    [1.35e9, 1.5e9, 5e8, [0, 5e8, 1e9, 1.5e9]],
+    [8.7e8, 9e8, 2e8, [0, 2e8, 4e8, 6e8, 8e8]],
+    [3.5e9, 4e9, 1e9, [0, 1e9, 2e9, 3e9, 4e9]],
+    [4.1e9, 4.5e9, 1e9, [0, 1e9, 2e9, 3e9, 4e9]],
+    [1e6, 1.25e6, 5e5, [0, 5e5, 1e6]],
+    [1115, 1250, 500, [0, 500, 1000]],
+    [3, 3.5, 1, [0, 1, 2, 3]],
+    [0, 4, 1, [0, 1, 2, 3, 4]],
   ];
-  for (const [max, ticks] of cases) assert.deepEqual(Array.from(W.niceAxis(max).ticks), ticks, String(max));
+  for (const [max, top, step, ticks] of cases) assert.deepEqual(axis(max), { top, step, ticks }, String(max));
   assert.deepEqual([0, 5e8, 1e9, 1.5e9].map(W.compact), ["0", "500M", "1B", "1.5B"]);
-  // over a sweep of maxima: always past the busiest day, never by as much as
-  // half again, four to six ticks, and a step of 1, 2, 2.5 or 5 times a power of ten
-  for (let e = 0; e <= 12; e++) for (const f of [1, 1.01, 1.3, 1.99, 2.01, 2.6, 3.01, 3.7, 4.4, 5.01, 6.3, 7.9, 9.99]) {
+  // over a sweep of maxima: the top is past the busiest day by no more than
+  // half a step and sits on a half step, three to five lines from 0, and a
+  // step of 1, 2 or 5 times a power of ten
+  for (let e = 0; e <= 13; e++) for (const f of [1, 1.01, 1.3, 1.99, 2.01, 2.5, 2.6, 3.01, 3.5, 3.7, 4.4, 5.01, 6.3, 7.9, 9.99]) {
     const max = f * Math.pow(10, e);
     if (max < 4) continue;
-    const { top, step, ticks } = W.niceAxis(max);
-    assert.ok(top > max && top / max < 1.5, `${max} tops at ${top}`);
-    assert.ok(ticks.length >= 4 && ticks.length <= 6, `${max} has ${ticks.length} ticks`);
+    const { top, step, ticks } = axis(max);
+    assert.ok(top > max && top - max <= step / 2 * (1 + 1e-9), `${max} tops at ${top}`);
+    assert.ok(Math.abs(top / (step / 2) - Math.round(top / (step / 2))) < 1e-9, `${max} top ${top} is on a half step of ${step}`);
+    assert.ok(ticks.length >= 3 && ticks.length <= 5, `${max} has ${ticks.length} lines`);
     const lead = step / Math.pow(10, Math.floor(Math.log10(step)));
-    assert.ok([1, 2, 2.5, 5].some(x => Math.abs(lead - x) < 1e-9), `${max} steps by ${step}`);
-    assert.ok(ticks.every((t, i) => Math.abs(t - i * step) < step * 1e-9));
+    assert.ok([1, 2, 5].some(x => Math.abs(lead - x) < 1e-9), `${max} steps by ${step}`);
+    assert.ok(ticks.every((t, i) => Math.abs(t - i * step) < step * 1e-9) && ticks.at(-1) <= top);
   }
+  // a busiest day right on a half step goes one half step higher
+  assert.equal(axis(3.5e9).top, 4e9);
+  assert.equal(axis(3e9).top, 3.5e9);
   assert.equal(W.niceTop, undefined, "no fixed top is left behind");
 });
 
