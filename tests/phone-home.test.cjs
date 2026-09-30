@@ -136,7 +136,7 @@ test("while home is up no tab is seated, the card is not read and the board's ke
   assert.doesNotMatch(between(PHONE, "function setTab(owner){", "\n}\n"), /setHome/);
   assert.match(PHONE, /t\.classList\.toggle\("on", t\.dataset\.owner === activeOwner && !homeOpen\);/);
   // shown is read, but a card under the home page is not shown
-  assert.match(between(PHONE, "function select(id){", "\n}\n"), /\n  if \(!homeOpen\) markSeen\(id\);\n/);
+  assert.match(between(PHONE, "function select(id, opts){", "\n}\n"), /\n  if \(chosen && !homeOpen\) markSeen\(id\);\n/);
   // a card picked in the drawer, a card just made and a notification's card
   // are each shown on their board
   assert.match(between(PHONE, 'r.addEventListener("click", e => {', "});"), /if \(homeOpen\) setHome\(false\);[^\n]*\n\s+select\(b\.id\); closeDrawer\(\);/);
@@ -210,7 +210,7 @@ function phoneHome({ stored = {}, want = null, serve = true, state = { rev: 1 } 
   byId.tabrow.parts = { ".bar": lane };
   doc.getElementById = id => byId[id] || null;
   const store = new Map(Object.entries(stored));
-  const fetched = [], tabs = [], blurred = [], timers = new Map();
+  const fetched = [], tabs = [], blurred = [], unselected = [], timers = new Map();
   let nextTimer = 0;
   const ctx = {
     console, document: doc, homeOpen: false, lastState: state, wantBox: want,
@@ -218,6 +218,7 @@ function phoneHome({ stored = {}, want = null, serve = true, state = { rev: 1 } 
                     removeItem: k => store.delete(k) },
     renderTabs: st => tabs.push(st),
     dismissEditor: () => blurred.push(true),
+    unselectShown: () => unselected.push(true),
     setInterval: (fn, ms) => { timers.set(++nextTimer, { fn, ms }); return nextTimer; },
     clearInterval: id => { timers.delete(id); },
     fetch: async url => { fetched.push(url);
@@ -238,7 +239,7 @@ function phoneHome({ stored = {}, want = null, serve = true, state = { rev: 1 } 
   };
   vm.createContext(ctx);
   vm.runInContext(block, ctx);
-  return { ctx, doc, byId, lane, store, fetched, tabs, blurred, timers, net, is: name => vm.runInContext(name, ctx) };
+  return { ctx, doc, byId, lane, store, fetched, tabs, blurred, unselected, timers, net, is: name => vm.runInContext(name, ctx) };
 }
 
 test("the phone's house opens home, fetches the widgets then, and leaving puts everything back", async () => {
@@ -252,6 +253,7 @@ test("the phone's house opens home, fetches the widgets then, and leaving puts e
   assert.equal(house.getAttribute("aria-pressed"), "true");
   assert.equal(h.store.get("homeopen"), "1");
   assert.equal(h.blurred.length, 1, "the card's typing and its keyboard go with the card");
+  assert.equal(h.unselected.length, 1, "the card on screen is unselected when home opens");
   assert.equal(h.tabs.length, 1, "the tabs are drawn again with none seated");
   await settle();
   const [sheet, script] = h.doc.head.children;

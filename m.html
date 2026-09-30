@@ -251,6 +251,9 @@
     margin-bottom:calc(0px - var(--kb-lift, 0px));
     transition:margin-bottom var(--kb-anim);
   }
+  /* a card only browsed to sits level with the page: the drop shadow is the
+     selected card's, and the hairline edge stays */
+  body.browsing main{box-shadow:none}
   #empty{display:none; flex:1; align-items:center; justify-content:center;
     font:italic 400 17px var(--serif); color:var(--sub); padding:20px; text-align:center}
   main.blank #empty{display:flex}
@@ -285,6 +288,10 @@
     will-change:transform; pointer-events:none;
   }
   .box.cardswipe-in{z-index:3}
+  /* the card swiped to lands browsed, and the one swiped away keeps the
+     shadow only while it was selected, so the pane's own shadow never has to
+     change when the faces are taken off */
+  .box.cardswipe-in, body.browsing .box.cardswipe{box-shadow:none}
   body.carddrag .box.cardswipe{transition:none}
 
   /* ---- the home page ------------------------------------------------------ */
@@ -1248,6 +1255,8 @@ const els = {};                 // box id -> the card's parts
 let lastState = null;
 let pollFails = 0;
 let selectedId = localStorage.getItem("selbox") || null;
+let shownId = null;             // the card the page is actually showing, so a selection that changed without a tap can be noticed
+let browsing = false;           // the card on screen is only browsed to, not selected: see setBrowsing
 let activeOwner = localStorage.getItem("activeproj") || "facilitator";
 let validOwners = new Set();
 // the drawer's tab (doing, deferred, done) is one choice per project and lives
@@ -1499,7 +1508,7 @@ function makeBox(b){
     });
   });
   // a tap into the row or a key typed there is using the card, so it is read
-  readOnCompose(ta, b.id);
+  readOnCompose(ta, b.id, useCard);
   ta.addEventListener("mousedown", e => takeFocusTap(e, ta));
   // enter sends and shift enter makes a new line, the desktop composer's pair,
   // and only while the on-screen keyboard is down. a phone puts that keyboard
@@ -2676,14 +2685,30 @@ function reachLater(){
 }
 
 // ---- selection and tabs ----------------------------------------------------------
-function select(id){
+// browsing: the card on screen was reached without being chosen, by a swipe,
+// the keys, a tab, a load or a fallback pick. selectedId still names it, so
+// every key that acts on the card acts on it, but it is not selected: it sits
+// level with the page instead of wearing the drop shadow, and nothing on it
+// counts as read. a tap on it or into it, or Enter, selects it; Escape puts
+// it back
+function setBrowsing(on){
+  browsing = on;
+  document.body.classList.toggle("browsing", on);
+}
+
+// a tap on a drawer row, a card just made, the caret carried along by a step:
+// the card is shown and selected, and so read. opts.browse shows it without
+// selecting it (browse, below)
+function select(id, opts){
   const trace = tracePhone("begin", "select", { box: id });
   if (!els[id]){ endPhoneTrace(trace, { box: id }); return; }
+  const chosen = !opts?.browse;
   cancelAutoNext();
   if (hist && hist.id !== id) histExit(hist.id);
-  selectedId = id; localStorage.setItem("selbox", id);
-  // shown is read, but not while the home page covers the card
-  if (!homeOpen) markSeen(id);
+  selectedId = id; shownId = id; localStorage.setItem("selbox", id);
+  setBrowsing(!chosen);
+  // a chosen card is read, but not while the home page covers it
+  if (chosen && !homeOpen) markSeen(id);
   const b = lastState?.boxes.find(x => x.id === id);
   if (b) lastSel[b.owner] = id;
   syncPhoneHistory(b);
@@ -2693,15 +2718,53 @@ function select(id){
   document.getElementById("pane").classList.remove("blank");
   for (const r of document.querySelectorAll("#tiklist .trow")){
     r.classList.toggle("on", r.dataset.id === id);
-    if (r.dataset.id === id && r.classList.contains("yours") && !homeOpen) r.classList.add("seen");
+    if (chosen && r.dataset.id === id && r.classList.contains("yours") && !homeOpen) r.classList.add("seen");
   }
   if (lastState) renderTabs(lastState);
   reachLater();
   endPhoneTrace(trace, { box: id }, null, true);
 }
+// a swipe, the keys and a tab: the card is shown and nothing is selected or
+// read. the card already on screen and selected stays so: a lane of one card,
+// or a tab's own tap, has nowhere else to go
+function browse(id){
+  if (id === shownId && !browsing) return;
+  select(id, { browse: true });
+}
+// the browsed card on screen becomes the selected one where it stands: nothing
+// on it moves, it takes the drop shadow back and counts as read. while the
+// home page is up the board is not on screen, so nothing on it is selected
+function chooseShown(){
+  const id = selectedId;
+  if (homeOpen || !browsing || !id || !els[id]) return;
+  setBrowsing(false);
+  markSeen(id);
+  if (lastState) renderTabs(lastState);
+  for (const r of document.querySelectorAll("#tiklist .trow"))
+    if (r.dataset.id === id && r.classList.contains("yours")) r.classList.add("seen");
+}
+// Escape with nothing being typed: the card stays on screen, browsed, and
+// gives up its drop shadow. whatever held the focus inside it lets go, so the
+// Enter that selects it again is never a press on one of its buttons
+function unselectShown(){
+  const id = selectedId;
+  if (browsing || !id || !els[id]) return;
+  setBrowsing(true);
+  const held = document.activeElement;
+  if (held && held !== document.body && els[id].box.contains(held)) held.blur();
+}
+// the reader is in this card's composer, by a tap, the caret landing there or
+// a key typed: the card on screen is selected if it was only browsed, and the
+// card counts as read
+function useCard(id){
+  if (homeOpen) return;
+  if (id === selectedId) chooseShown();
+  markSeen(id);
+}
 function deselect(){
   cancelAutoNext();
-  selectedId = null; localStorage.removeItem("selbox");
+  selectedId = null; shownId = null; localStorage.removeItem("selbox");
+  setBrowsing(false);
   for (const k of Object.keys(els)) els[k].box.classList.remove("sel");
   document.getElementById("pane").classList.add("blank");
   for (const r of document.querySelectorAll("#tiklist .trow")) r.classList.remove("on");
@@ -2711,7 +2774,7 @@ function setTab(owner){
   if (!validOwners.has(owner)) return;
   activeOwner = owner; localStorage.setItem("activeproj", owner);
   const pick = lastState && pickInRow(lastState, owner);
-  if (pick) select(pick.id); else deselect();
+  if (pick) browse(pick.id); else deselect();
   if (lastState){
     const trace = tracePhone("begin", "phase", { action: "project", part: "apply" });
     apply(lastState);
@@ -2887,17 +2950,19 @@ function applySelection(state){
               || pool.find(awaitsYou)
               || pool.find(b => !b.done && !b.parked)
               || pool[0];
-    select(pick.id);
+    browse(pick.id);
     return;
   }
   if (hist && hist.id !== selectedId) histExit(hist.id);
   // the card kept on show, or put on show without select (a reload, a card
   // just made): it wears its editor before it is drawn, and a reading that
-  // moved the cards around it moves its neighbours
+  // moved the cards around it moves its neighbours. nobody chose a card that
+  // arrived this way, so it is shown browsed
   wearEditor(selectedId);
   for (const k of Object.keys(els)) els[k].box.classList.toggle("sel", k === selectedId);
   openAtHead(els[selectedId]);
   document.getElementById("pane").classList.remove("blank");
+  if (shownId !== selectedId){ shownId = selectedId; setBrowsing(true); }
   reachLater();
 }
 
@@ -2965,6 +3030,9 @@ function setHome(on){
   clearInterval(homeTimer);
   homeTimer = null;
   if (homeOpen){
+    // the house leaves the board the way another tab does: the card on screen
+    // is no longer selected, so coming back shows it browsed
+    unselectShown();
     dismissEditor();   // the card's typing goes with the card, and its keyboard
     homeShow();
   }
@@ -3801,7 +3869,7 @@ function apply(state){
     }
     // a reply landing on the open card while the caret is in its row is read as
     // it lands, unless the drawer is covering the card
-    readOnArrival(el, b, b.id === selectedId && !drawerOpen());
+    readOnArrival(el, b, b.id === selectedId && !browsing && !drawerOpen());
     // the card reads its own name, Omni Card #N for an Omni ticket; an Omni
     // sweep in flight writes it itself
     if (!el.titleEl.isContentEditable && !el.omniSweep && el.titleEl.textContent !== omniCardTitle(b.title))
@@ -3886,7 +3954,7 @@ function goToBox(id){
     activeOwner = b.owner; localStorage.setItem("activeproj", b.owner);
   }
   wantBox = null;
-  select(id);
+  browse(id);
   apply(lastState);
 }
 // the poll's pass over one card's sent panel: the confirmed messages are the
@@ -4630,12 +4698,14 @@ function cardStepTarget(dir){
 function stepCard(dir, focus){
   const pick = cardStepTarget(dir);
   if (!pick) return;
+  // the caret was in a text box, so it belongs in the next card's, and a
+  // caret in a card is using it: that step selects. arriving from anywhere
+  // else only browses and leaves the focus where it was: on a phone a focused
+  // row is what raises the on-screen keyboard, and a key that only moves
+  // between cards must never raise it
+  if (!focus){ browse(pick.id); return; }
   select(pick.id);
-  // the caret was in a text box, so it belongs in the next card's. arriving
-  // from anywhere else leaves the focus where it was: on a phone a focused row
-  // is what raises the on-screen keyboard, and a key that only moves between
-  // cards must never raise it
-  if (focus) els[pick.id]?.ta.focus({ preventScroll: true });
+  els[pick.id]?.ta.focus({ preventScroll: true });
 }
 
 // A drag across the card walks the same pool as the keyboard. It waits until
@@ -4691,7 +4761,7 @@ function stepCard(dir, focus){
     const run = drag;
     document.body.classList.remove("carddrag");
     if (reduced()){
-      if (commit) select(run.pick.id);
+      if (commit) browse(run.pick.id);
       clear(); return;
     }
     const endX = commit ? -run.dir * (run.width + GAP) : 0;
@@ -4701,7 +4771,7 @@ function stepCard(dir, focus){
       run.into.style.setProperty("--card-swipe-x", "0px");
       run.into.style.setProperty("--card-swipe-z", "1");
     }
-    finishTimer = setTimeout(() => { if (drag === run && commit) select(run.pick.id); clear(); }, RUN_MS + 40);
+    finishTimer = setTimeout(() => { if (drag === run && commit) browse(run.pick.id); clear(); }, RUN_MS + 40);
   };
   document.getElementById("cards").addEventListener("touchstart", e => {
     clear();
@@ -4778,8 +4848,21 @@ const phoneShortcutActions = {
     const ow = barOwners(lastState)[shortcut.value];
     if (ow){ e.preventDefault(); setTab(ow); }
   },
+  // the first Escape leaves the reply box; the next one unselects the card,
+  // which stays on screen browsed. a key something else answered first, or
+  // one held down to repeat, is not this one
   escape(e){
     if (phoneShortcutTyping(e.target)) e.target.blur();
+    else if (!e.defaultPrevented && !e.repeat && phoneResponseCard()) unselectShown();
+  },
+  // Enter selects the card on screen and puts the caret in its reply box. a
+  // press on a button, a link or anything else that takes Enter is its own
+  enter(e){
+    if (phoneShortcutTyping(e.target) || !phoneResponseCard()) return;
+    if (e.target.closest?.("button, a, select, summary, [role], [tabindex]")) return;
+    e.preventDefault();
+    chooseShown();
+    els[selectedId].ta.focus({ preventScroll: true });
   },
   unfold(e){
     unfoldSelected(e, selectedId, selectedId && els[selectedId]);
@@ -4801,6 +4884,15 @@ const phoneShortcutActions = {
 // while the home page is up the board's keys are off, as on the board: there is
 // no card on screen to walk, close or move. the diagnostic save still answers
 const homeShortcutActions = { diagnostic: phoneShortcutActions.diagnostic };
+
+// a tap anywhere on the card on screen, or the keyboard's focus landing in it,
+// selects it where it stands. the tap is a click, which a swipe never makes,
+// so a card only swiped to stays browsed
+{
+  const inCard = e => !!e.target.closest?.("#cards") && !document.body.classList.contains("menuout");
+  document.getElementById("pane").addEventListener("click", e => { if (inCard(e)) chooseShown(); }, true);
+  document.addEventListener("focusin", e => { if (inCard(e)) chooseShown(); }, true);
+}
 
 addEventListener("keydown", e => {
   dispatchCardShortcut(e, homeOpen ? homeShortcutActions : phoneShortcutActions);

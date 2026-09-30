@@ -1488,7 +1488,7 @@ test("the turn keeps to the composer the reader is in, the right one included, a
   assert.match(DESKTOP, /xc\.ta\.addEventListener\("input", \(\) => \{[^}]*noteTyping\(xc\.ta\);/,
     "a key into the composer on the right is not noted");
   for (const [where, text, rule] of [["the desktop", DESKTOP, "readOnArrival(el, b, b.id === selectedId && !browsing);"],
-      ["the phone", PHONE, "readOnArrival(el, b, b.id === selectedId && !drawerOpen());"]]) {
+      ["the phone", PHONE, "readOnArrival(el, b, b.id === selectedId && !browsing && !drawerOpen());"]]) {
     const ask = text.indexOf("const held = turn === TURN_HELD;");
     const read = text.indexOf(rule, ask);
     const go = text.indexOf("turnGo(el, turn);", ask);

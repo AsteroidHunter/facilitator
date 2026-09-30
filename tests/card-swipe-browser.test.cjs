@@ -135,7 +135,7 @@ async function surfaces(){
     const pane=document.getElementById("pane"), ps=getComputedStyle(pane), pr=pane.getBoundingClientRect();
     const faces=[...document.querySelectorAll(".box.cardswipe")].map(el=>{
       const r=el.getBoundingClientRect(),s=getComputedStyle(el),matrix=new DOMMatrix(s.transform);
-      return {id:el.id,left:r.left,right:r.right,centerY:(r.top+r.bottom)/2,y:matrix.m42,
+      return {id:el.id,incoming:el.classList.contains("cardswipe-in"),left:r.left,right:r.right,centerY:(r.top+r.bottom)/2,y:matrix.m42,
         fill:s.backgroundColor,border:s.borderLeftWidth,borderColor:s.borderLeftColor,radius:s.borderRadius,
         shadow:s.boxShadow,overflow:s.overflow,replyLength:el.querySelector(".reply").textContent.length};
     }).sort((a,b)=>a.left-b.left);
@@ -156,7 +156,10 @@ function distinct(frame){
     assert.equal(face.fill,"rgb(255, 255, 255)");
     assert.ok(parseFloat(face.border)>0 && parseFloat(face.border)<1,`card edge is not the hairline: ${face.border}`);
     assert.notEqual(face.borderColor,"rgba(0, 0, 0, 0)"); assert.equal(face.radius,"7px");
-    assert.notEqual(face.shadow,"none"); assert.equal(face.overflow,"hidden");
+    // the card swiped to lands browsed, so it is level with the page; the one
+    // swiped away was selected, so it keeps the drop shadow
+    if(face.incoming) assert.equal(face.shadow,"none"); else assert.notEqual(face.shadow,"none");
+    assert.equal(face.overflow,"hidden");
     assert.ok(face.replyLength>400,"empty fixture cannot prove the moving card surface");
     assert.ok(Math.abs(face.y)<.01); assert.ok(Math.abs(face.centerY-frame.centerY)<.05);
   }

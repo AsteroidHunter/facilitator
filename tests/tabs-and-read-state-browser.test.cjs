@@ -416,7 +416,7 @@ test("the phone's bar looks like nothing until a press is held on it", async () 
   }
 });
 
-test("a card opened on the phone counts as read on the desktop board", async () => {
+test("a card tapped on the phone counts as read on the desktop board", async () => {
   await setTabs(["facilitator", "pastureland"], []);
   await post("/seen", JSON.stringify({ "0": 0 }));
   const board = await openBoard();
@@ -426,7 +426,16 @@ test("a card opened on the phone counts as read on the desktop board", async () 
     assert.equal(await bold(), true, "an unread reply did not bold the tab");
     const phone = await openPhone();
     try {
-      // the phone opens on the lane's card, which is what reading it means
+      // the phone opens on the lane's card only browsed: it is on screen but
+      // nobody has used it, so it is not read until it is tapped
+      await settle(1200);
+      assert.equal(await seenOf("0"), 0, "a card only opened on was marked read");
+      assert.equal(await bold(), true, "a card only opened on dropped the tab's bold");
+      const spot = await phone.page.$eval("article.box.sel .reply", el => {
+        const r = el.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + Math.min(r.height / 2, 40) };
+      });
+      await phone.page.touchscreen.tap(spot.x, spot.y);
       await until(async () => (await seenOf("0")) === 1);
       assert.deepEqual(phone.problems, []);
     } finally {

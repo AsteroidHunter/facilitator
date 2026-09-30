@@ -847,7 +847,7 @@ test("every composer is wired to the read rule after its formatter, on every sur
   const mini = between(HTML.desktop, "      ComposeFormat.attach(ta, { newline: e => e.shiftKey });", "      box.append(sun, arc, x, title, answwrap, reply, sentwrap, compose);");
   assert.match(mini, /\n      readOnCompose\(ta, b\.id\);\n/, "the small card's composer");
   const phone = between(HTML.phone, "  const field = ComposeFormat.attach(ta, {", "  ta.addEventListener(\"keydown\", e => {");
-  assert.match(phone, /\n  readOnCompose\(ta, b\.id\);\n/, "the phone's composer");
+  assert.match(phone, /\n  readOnCompose\(ta, b\.id, useCard\);\n/, "the phone's composer");
   // the right composer's box, built once with its formatter, reads whichever
   // card's draft it holds when it is used
   const right = between(HTML.desktop, "// ---- the right composer ----", "// the copy button on fenced blocks");
@@ -869,13 +869,13 @@ test("every surface asks the arrival rule for the card it is using, after the co
   const mini = between(HTML.desktop, "function renderMiniCards(state){", "\n// ---- the carousel");
   assert.match(mini, /\n    readOnArrival\(el, b, b\.id === miniId\);\n/);
   assert.ok(apply.indexOf("renderMiniCards(state);") > apply.indexOf("readOnArrival("));
-  // the phone: the open card with no drawer over it, after its own seenSync
+  // the phone: the selected card with no drawer over it, after its own seenSync
   const phone = between(HTML.phone, "function apply(state){", "\n  applySelection(state);");
-  assert.match(phone, /\n    readOnArrival\(el, b, b\.id === selectedId && !drawerOpen\(\)\);\n/);
+  assert.match(phone, /\n    readOnArrival\(el, b, b\.id === selectedId && !browsing && !drawerOpen\(\)\);\n/);
   assert.ok(phone.indexOf("seenSync(state);") < phone.indexOf("readOnArrival("));
 });
 
-test("Enter is the board's key alone, recognized only bare", () => {
+test("Enter is recognized only bare, and only the two full pages answer it", () => {
   const l = logic();
   const key = (k, extra) => ({ key: k, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false,
                                repeat: false, isComposing: false, defaultPrevented: false, ...extra });
@@ -884,6 +884,6 @@ test("Enter is the board's key alone, recognized only bare", () => {
   for (const m of ["ctrlKey", "metaKey", "shiftKey", "altKey", "repeat", "isComposing", "defaultPrevented"])
     assert.equal(resolve(key("Enter", { [m]: true })), null, `Enter with ${m}`);
   assert.equal(resolve(key("Enter"), "mini"), null, "the small card took Enter");
-  // the phone has no browsing, so its table carries no Enter
-  assert.ok(!/\n  enter\(e\)\{/.test(between(HTML.phone, "const phoneShortcutActions = {", "\n};")));
+  // the phone browses too, so its table answers Enter
+  assert.match(between(HTML.phone, "const phoneShortcutActions = {", "\n};"), /\n  enter\(e\)\{/);
 });
