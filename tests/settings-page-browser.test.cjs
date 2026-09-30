@@ -417,16 +417,16 @@ test("wide: each setting still writes what it always wrote", async () => {
     }));
     assert.equal(picked.stored, "#e8f0e0", "the colour was not stored as bgcolor");
     assert.equal(picked.paper, "#e8f0e0", "the colour did not reach the board");
-    // and typed formatting: on until it is turned off, stored as it always was
+    // and typed formatting: off until it is turned on, stored as it always was
     await page.click('.sp-item[data-section="editor"]');
     await settle();
-    assert.equal(await page.$eval("#setformat", el => el.checked), true, "formatting does not start on");
-    await page.click("#setformat");
-    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "0");
-    assert.equal(await page.evaluate(() => ComposeFormat.enabled()), false);
+    assert.equal(await page.$eval("#setformat", el => el.checked), false, "formatting does not start off");
     await page.click("#setformat");
     assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "1");
     assert.equal(await page.evaluate(() => ComposeFormat.enabled()), true);
+    await page.click("#setformat");
+    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "0");
+    assert.equal(await page.evaluate(() => ComposeFormat.enabled()), false);
     // the colour is still what the browser remembered after a reload
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => typeof lastState !== "undefined" && lastState !== null, { timeout: 15000 });
@@ -594,7 +594,7 @@ test("narrow Mac: only the list, a section on tap, a way back, and a way out", a
     await settle(200);
     assert.equal(await shown(page, "#setformat"), true);
     await page.click("#setformat");
-    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "0");
+    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "1");
     // Escape puts the whole page away, not just the section
     await page.keyboard.press("Escape");
     await settle(200);
@@ -811,12 +811,12 @@ test("phone: typed formatting is still stored as it was", async () => {
     await openPhone(page);
     await page.tap('.sp-item[data-section="editor"]');
     await settle(80);
-    assert.equal(await page.$eval("#setformat", el => el.checked), true, "formatting does not start on");
-    await page.tap("#setformat");
-    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "0");
-    assert.equal(await page.evaluate(() => ComposeFormat.enabled()), false);
+    assert.equal(await page.$eval("#setformat", el => el.checked), false, "formatting does not start off");
     await page.tap("#setformat");
     assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "1");
+    assert.equal(await page.evaluate(() => ComposeFormat.enabled()), true);
+    await page.tap("#setformat");
+    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "0");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();

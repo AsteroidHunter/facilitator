@@ -364,6 +364,8 @@ before(async () => {
   for (const name of await readdir(path.join(ROOT, "assets"))) {
     await copyFile(path.join(ROOT, "assets", name), path.join(fixtureDir, "assets", name));
   }
+  // the board's own default is off; these checks read the editor, so it is on
+  await writeFile(path.join(fixtureDir, "run.config.json"), JSON.stringify({ compose_format_default: true }));
   await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
     title: "compose column fixture",
     items: [

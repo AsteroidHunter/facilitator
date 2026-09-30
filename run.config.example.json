@@ -4,6 +4,7 @@
   "image_panel_lane": "",
   "spotify_client_id": "",
   "navigator_lanes": ["example"],
+  "compose_format_default": false,
   "lanes": [
     {
       "owner": "facilitator",
