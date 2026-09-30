@@ -484,26 +484,34 @@ test("offline and unconfirmed saves retain the noticed moment for an explicit re
   assert.equal(latest(f).marked, 1800000000010);
 });
 
-test("a manual marker made during an automatic upload is retained for retry", async () => {
+test("a manual save made during an automatic upload is sent right after it, not refused", async () => {
   const f = fixture();
   f.answer("timeout");
   f.context.reportProblem("render", new Error("fixture automatic problem"));
-  assert.equal((await f.history.mark("shortcut", { box: "m12" })).status, "busy");
-  await f.run(); f.now(4000); await f.run();
+  await f.run();
+  assert.equal(f.calls.length, 1);
+  let status = null;
+  const pending = f.history.mark("shortcut", { box: "m12" }).then(answer => { status = answer.status; });
+  await f.run();
+  assert.equal(f.calls.length, 1, "the manual save did not wait for the automatic one");
   f.answer("saved");
-  assert.equal((await f.mark("settings", {}, true)).status, "saved");
-  assert.equal(latest(f).reason, "manual");
+  f.now(4000); await f.run(); await pending;
+  assert.equal(status, "saved");
+  assert.deepEqual(f.calls.map(c => c.reports[0].reason), ["problem", "manual"]);
   assert.equal(latest(f).events.at(-1).source, "shortcut");
   assert.equal(latest(f).box, "m12");
 });
 
-test("telemetry failures, timeout, and busy saves stay separate from legacy error batches", async () => {
+test("telemetry failures, timeout, and queued saves stay separate from legacy error batches", async () => {
   const f = fixture();
   f.answer("timeout");
   const pending = f.history.mark("settings");
-  assert.equal((await f.history.mark("shortcut")).status, "busy");
+  const queued = f.history.mark("shortcut");
   await f.run(); f.now(4000); await f.run();
   assert.equal((await pending).status, "failed");
+  f.now(8000); await f.run();
+  assert.equal((await queued).status, "failed");
+  assert.equal(f.calls.length, 2);
   f.context.reportProblem("render", new Error("fixture render failed"));
   f.history.hide();
   f.fire("pagehide");
@@ -520,6 +528,70 @@ test("telemetry failures, timeout, and busy saves stay separate from legacy erro
   f.fire("pagehide");
   const legacy = JSON.parse(await f.beacons.at(-1).body.text());
   assert.equal(legacy.reports[0].route, "/broken");
+});
+
+const marks = report => report.events.filter(e => e.event === "mark");
+
+test("a manual press while an automatic save is recording records its own 20 seconds and follows it", async () => {
+  const f = fixture(); f.history.capability(5);
+  f.now(5000); f.history.freeze(3000);
+  f.now(12000);
+  let status = null;
+  const pending = f.history.mark("shortcut", { box: "m12" }).then(answer => { status = answer.status; });
+  f.now(20000); f.history.note("scroll", { action: "response-scroll", phase: "end", ms: 1800, count: 12 });
+  f.now(25000); await f.run();
+  assert.deepEqual(f.calls.map(c => c.reports[0].reason), ["freeze"]);
+  assert.equal(status, null, "a press was reported before its own recovery and the server reply");
+  f.now(31000); f.history.note("scroll", { action: "response-scroll", phase: "end", ms: 900, count: 4 });
+  f.now(32000); await f.run(); await pending;
+  assert.equal(status, "saved");
+  assert.deepEqual(f.calls.map(c => c.reports[0].reason), ["freeze", "manual"]);
+  const [automatic, manual] = f.calls.map(c => c.reports[0]);
+  assert.deepEqual(marks(automatic).map(e => [e.reason, e.at]), [["freeze", 0]]);
+  assert.deepEqual(marks(manual).map(e => [e.reason, e.at]), [["manual", 0]]);
+  assert.equal(manual.marked, 1800000012000);
+  assert.equal(manual.box, "m12");
+  assert.deepEqual(manual.events.filter(e => e.event === "scroll").map(e => e.at), [8000, 19000]);
+  assert.deepEqual(automatic.events.filter(e => e.event === "scroll").map(e => e.at), [15000]);
+});
+
+test("a manual press whose recording ends during an automatic upload waits for it and says saved only once the server has it", async () => {
+  const f = fixture(); f.history.capability(5);
+  f.now(5000); f.history.freeze(3000);
+  f.now(6000);
+  let status = null;
+  const pending = f.history.mark("shortcut").then(answer => { status = answer.status; });
+  f.answer("timeout");
+  f.now(25000); await f.run();
+  assert.equal(f.calls.length, 1);
+  f.now(26000); await f.run();
+  assert.equal(f.calls.length, 1, "the second upload started while the first was still out");
+  assert.equal(status, null);
+  f.answer("dropped");
+  f.now(29000); await f.run(); await pending;
+  assert.deepEqual(f.calls.map(c => c.reports[0].reason), ["freeze", "manual"]);
+  assert.equal(status, "failed", "a report the server dropped was called saved");
+  f.answer("saved");
+  assert.equal((await f.mark("settings", {}, true)).status, "saved");
+  assert.equal(latest(f).reason, "manual");
+  assert.equal(latest(f).marked, 1800000006000);
+  assert.equal(f.calls.length, 3);
+});
+
+test("hiding the page while two saves are recording sends the manual one and holds it for retry", async () => {
+  const f = fixture(); f.history.capability(5);
+  f.now(5000); f.history.freeze(3000);
+  f.now(12000);
+  const pending = f.history.mark("shortcut", { box: "m12" });
+  f.now(15000); f.history.hide();
+  assert.equal((await pending).status, "failed");
+  const sent = (await Promise.all(f.beacons.map(async e => JSON.parse(await e.body.text()))))
+    .flatMap(b => b.reports).filter(r => r.kind === "incident");
+  assert.deepEqual(sent.map(r => r.reason), ["manual"]);
+  assert.equal(f.calls.length, 0);
+  assert.equal((await f.mark("settings", {}, true)).status, "saved");
+  assert.equal(latest(f).reason, "manual");
+  assert.equal(latest(f).marked, 1800000012000);
 });
 
 test("invalid field getters and missing transport cannot throw through recorder calls", async () => {
