@@ -1436,10 +1436,14 @@ test("both pages seat the sent panel at the foot and hand the turn a pass that d
     assert.match(text, /sentBand\(el, boxBand\(el\.replyview, el\.pendwrap\)\)/, `${where} does not hold the band for a run`);
     assert.match(text, /turnAgain = /, `${where} cannot show an answer it held back`);
   }
-  // the sends: the desktop lands the message after the board has it, the phone
-  // at once with its line, and both as an arrival
-  assert.match(DESKTOP, /el\.sentItems = \[\.\.\.el\.sentItems, \{ text, stage: "sent" \}\];[\s\S]{0,80}syncSent\(el, el\.sentItems, true\);/);
-  assert.match(DESKTOP, /own\.sentItems = \[\.\.\.own\.sentItems, \{ text, stage: "sent" \}\];[\s\S]{0,80}syncSent\(own, own\.sentItems, true\);/);
+  // the sends: both pages draw the message faded as an arrival when it is sent,
+  // and the desktop saves it as sent once the board has answered
+  assert.match(DESKTOP, /const sentItem = sentLaunch\(el, text\);\s*try \{/);
+  assert.match(DESKTOP, /sentLanded\(el, sentItem\);/);
+  assert.match(DESKTOP, /sentLost\(el, sentItem\);/);
+  assert.match(DESKTOP, /const sentItem = own \? sentLaunch\(own, text\) : null;/);
+  assert.match(DESKTOP, /if \(own\) sentLanded\(own, sentItem\);/);
+  assert.match(LOGIC, /el\.sentItems = \[\.\.\.el\.sentItems, item\];[\s\S]{0,200}syncSent\(el, el\.sentItems, true\);/);
   assert.match(PHONE, /drawSent\(el, id, true\);/);
   assert.match(PHONE, /panel\.addEventListener\("click", e => sentPress\(e\), true\);/,
     "the phone's tap to take words back is not heard before the panel's own");
@@ -1501,41 +1505,52 @@ test("the turn keeps to the composer the reader is in, the right one included, a
 // ---- the delivery marks ------------------------------------------------------------------
 const stagesOf = panel => panel.querySelector(".answstack").children.map(node => node.classList.contains("undelivered"));
 
-test("the sent panel reads the board's own record: faded until delivered, then Delivered, then Read", () => {
+test("the sent panel reads the board's own record: faded until the board has it, then Delivered, then Read", () => {
   const { context, counts } = sandbox();
   const el = fullCard("c1");
   el.sentRoom = context.roomSpy;
-  // on the board, and no agent has received it: the panel and the words faded, no mark
-  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }], true);
+  // not yet saved by the board: the panel and the words faded, and no word
+  context.syncSent(el, [{ text: "Invented one.", stage: "local" }], true);
   const panel = el.sent;
-  assert.equal(panel.classList.contains("undelivered"), true, "a message nobody has received is not faded");
+  assert.equal(panel.classList.contains("undelivered"), true, "a message the board has not saved is not faded");
   assert.deepEqual(stagesOf(panel), [true]);
-  assert.equal(panel.dataset.tag, undefined, "a message nobody has received carries a mark");
+  assert.equal(panel.dataset.tag, undefined, "a message the board has not saved carries a mark");
+  assert.equal(panel.querySelector(".answnote"), null, "a message still on its way carries a word");
   assert.equal(panel.getAttribute("aria-label"), "your messages waiting for a reply");
-  // the agent confirmed the claim: full ink, and Delivered under the panel. a
-  // message sent after it waits faded on its own, and the panel's grey is back
+  // the board saved it: full ink, and Delivered under the panel. a message sent
+  // after it waits faded on its own, and the panel's grey is back
   const first = panel.querySelector(".answmsg");
   const rooms = counts.rooms;
-  context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }, { text: "Invented two.", stage: "sent" }]);
+  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }, { text: "Invented two.", stage: "local" }]);
   assert.equal(panel.querySelector(".answmsg"), first, "a change of stage drew the message again");
-  assert.equal(panel.classList.contains("undelivered"), false, "the panel stayed faded with a message delivered");
-  assert.deepEqual(stagesOf(panel), [false, true], "the message not yet delivered is not faded on its own");
+  assert.equal(panel.classList.contains("undelivered"), false, "the panel stayed faded with a message saved");
+  assert.deepEqual(stagesOf(panel), [false, true], "the message not yet saved is not faded on its own");
   assert.equal(panel.dataset.tag, "Delivered");
   assert.equal(panel.getAttribute("aria-label"), "your messages waiting for a reply, delivered");
   assert.ok(counts.rooms > rooms, "the card was not told the mark took its room");
+  // an agent picked it up, its listener confirmed the claim: Read, at full ink
+  context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }]);
+  assert.equal(panel.dataset.tag, "Read", "a message an agent picked up was not called read");
+  assert.deepEqual(stagesOf(panel), [false]);
+  assert.equal(panel.getAttribute("aria-label"), "your messages waiting for a reply, read");
   // the mark names the newest message that has got anywhere
+  context.syncSent(el, [{ text: "Invented one.", stage: "read" }, { text: "Invented two.", stage: "sent" }]);
+  assert.equal(panel.dataset.tag, "Delivered", "a later message only saved was called read");
   context.syncSent(el, [{ text: "Invented one.", stage: "read" }, { text: "Invented two.", stage: "delivered" }]);
-  assert.equal(panel.dataset.tag, "Delivered", "a later message still only delivered was called read");
+  assert.equal(panel.dataset.tag, "Read");
   context.syncSent(el, [{ text: "Invented one.", stage: "read" }, { text: "Invented two.", stage: "read" }]);
   assert.equal(panel.dataset.tag, "Read");
-  assert.equal(panel.getAttribute("aria-label"), "your messages waiting for a reply, read");
-  // the phone's own message, not yet on the board: faded, with its own line
+  // the phone's own message, not yet on the board: faded, with no word of its
+  // own while it is on its way, and with its line only when it is not getting through
   const phone = fullCard("c2");
-  context.syncSent(phone, [{ text: "Invented from the phone.", stage: "local", state: "pending", note: "Sending", op: "op-1" }], true);
+  context.syncSent(phone, [{ text: "Invented from the phone.", stage: "local", state: "pending", note: "", op: "op-1" }], true);
   assert.equal(phone.sent.classList.contains("undelivered"), true);
   const row = phone.sent.querySelector(".answmsg");
   assert.equal(row.classList.contains("pending"), true);
-  assert.equal(row.querySelector(".answnote").textContent, "Sending", "the phone's own line was lost");
+  assert.equal(row.querySelector(".answnote"), null, "a send on its way carries a word");
+  context.syncSent(phone, [{ text: "Invented from the phone.", stage: "local", state: "pending", note: "Not sent yet, retrying", op: "op-1" }]);
+  assert.equal(phone.sent.querySelector(".answnote").textContent, "Not sent yet, retrying", "the phone's own line was lost");
+  assert.equal(phone.sent.classList.contains("undelivered"), true);
   // a board too old to say leaves the panel as it always was
   const old = fullCard("c3");
   context.syncSent(old, context.sentBatch(["Invented unmarked."]));
@@ -1555,14 +1570,14 @@ test("a mark comes in on a panel that is standing, and the card is told of its r
   const { context, counts, run, pending, ringFor } = sandbox();
   const el = fullCard("c1");
   el.sentRoom = context.roomSpy;
-  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }], true);
+  context.syncSent(el, [{ text: "Invented one.", stage: "local" }], true);
   const panel = el.sent;
   panel.isConnected = true;
   assert.deepEqual(markOf(panel), [undefined, undefined, false, false]);
   assert.equal(run("MARK_IN_MS"), 330, "the mark does not come in over the fold's run");
   assert.equal(run("MARK_OUT_MS"), 165, "the mark does not go out over half of it");
-  // delivered: the word is on show and comes in at once, over the run
-  context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }]);
+  // saved by the board: the word is on show and comes in at once, over the run
+  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }]);
   assert.deepEqual(markOf(panel), ["Delivered", "Delivered", true, false], "the mark did not come in");
   assert.ok(pending().some(t => t.ms === 350), "no clock ends the mark's run");
   // the room's own run ends with the mark's: the card is told once, after
@@ -1573,7 +1588,7 @@ test("a mark comes in on a panel that is standing, and the card is told of its r
   // the same word again does nothing
   const runs = () => pending().filter(t => t.ms === 165 || t.ms === 350).length;
   const armed = runs();
-  context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }, { text: "Invented two.", stage: "sent" }]);
+  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }, { text: "Invented two.", stage: "local" }]);
   assert.deepEqual(markOf(panel), ["Delivered", "Delivered", false, false], "the same word ran again");
   assert.equal(runs(), armed, "the same word armed a run");
 });
@@ -1583,14 +1598,14 @@ test("a mark giving way to the next goes out, is swapped while it is not seen, a
   const el = fullCard("c1");
   el.sentRoom = context.roomSpy;
   // a panel drawn already marked shows its word at once and runs nothing
-  context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }], true);
+  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }], true);
   const panel = el.sent;
   panel.isConnected = true;
   assert.deepEqual(markOf(panel), ["Delivered", "Delivered", false, false], "a panel drawn marked ran a mark in");
   assert.ok(!pending().some(t => t.ms === 165 || t.ms === 350), "a panel drawn marked armed a run");
-  // the agent read it: the record says Read at once, and the word on show is
+  // an agent picked it up: the record says Read at once, and the word on show is
   // still the old one while it fades out
-  context.syncSent(el, [{ text: "Invented one.", stage: "read" }]);
+  context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }]);
   assert.deepEqual(markOf(panel), ["Read", "Delivered", false, true], "the old word was not faded out first");
   const rooms = counts.rooms;
   ringFor(165);
@@ -1599,7 +1614,7 @@ test("a mark giving way to the next goes out, is swapped while it is not seen, a
   assert.deepEqual(markOf(panel), ["Read", "Read", false, false]);
   assert.equal(counts.rooms, rooms, "a word for a word moved the room");
   // a word that goes with none after it: faded out, then the room closes with it
-  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }]);
+  context.syncSent(el, [{ text: "Invented one.", stage: "local" }]);
   assert.deepEqual(markOf(panel), [undefined, "Read", false, true]);
   const closing = counts.rooms;
   ringFor(165);
@@ -1611,13 +1626,13 @@ test("a mark giving way to the next goes out, is swapped while it is not seen, a
 test("a change that lands while a mark is going out is not started again, and the last word is the one that lands", () => {
   const { context, pending, ringFor } = sandbox();
   const el = fullCard("c1");
-  context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }], true);
+  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }], true);
   const panel = el.sent;
-  context.syncSent(el, [{ text: "Invented one.", stage: "read" }]);
+  context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }]);
   assert.equal(pending().filter(t => t.ms === 165).length, 1);
   // the record moves again before the swap: no second run is armed, and the word
   // that lands is the record's when the swap is made
-  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }]);
+  context.syncSent(el, [{ text: "Invented one.", stage: "local" }]);
   assert.equal(pending().filter(t => t.ms === 165).length, 1, "a second fade out was armed");
   assert.deepEqual(markOf(panel), [undefined, "Delivered", false, true]);
   ringFor(165);
@@ -1626,10 +1641,10 @@ test("a change that lands while a mark is going out is not started again, and th
   // of the run before leaves the dress of the run that is on
   const { context: again, pending: waiting, ringFor: letGo } = sandbox();
   const two = fullCard("c1");
-  again.syncSent(two, [{ text: "Invented one.", stage: "delivered" }], true);
-  again.syncSent(two, [{ text: "Invented one.", stage: "read" }]);
-  letGo(165);
+  again.syncSent(two, [{ text: "Invented one.", stage: "sent" }], true);
   again.syncSent(two, [{ text: "Invented one.", stage: "delivered" }]);
+  letGo(165);
+  again.syncSent(two, [{ text: "Invented one.", stage: "sent" }]);
   letGo(165);
   const clocks = waiting().filter(t => t.ms === 350);
   assert.equal(clocks.length, 2, "each run has its own clock");
@@ -1643,12 +1658,12 @@ test("a reader who asked for no motion, or a panel that was not standing, is giv
   const { context, pending } = sandbox();
   context.stillness = true;
   const el = fullCard("c1");
-  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }], true);
-  context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }]);
-  assert.deepEqual(markOf(el.sent), ["Delivered", "Delivered", false, false], "the mark ran against the setting");
-  context.syncSent(el, [{ text: "Invented one.", stage: "read" }]);
-  assert.deepEqual(markOf(el.sent), ["Read", "Read", false, false], "the mark was swapped with a run against the setting");
+  context.syncSent(el, [{ text: "Invented one.", stage: "local" }], true);
   context.syncSent(el, [{ text: "Invented one.", stage: "sent" }]);
+  assert.deepEqual(markOf(el.sent), ["Delivered", "Delivered", false, false], "the mark ran against the setting");
+  context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }]);
+  assert.deepEqual(markOf(el.sent), ["Read", "Read", false, false], "the mark was swapped with a run against the setting");
+  context.syncSent(el, [{ text: "Invented one.", stage: "local" }]);
   assert.deepEqual(markOf(el.sent), [undefined, undefined, false, false]);
   assert.ok(!pending().some(t => t.ms === 165 || t.ms === 350), "a clock stands behind a mark that did not run");
   // the panel over an answer is drawn with its word, and a page that draws it again keeps it
@@ -1667,12 +1682,12 @@ test("a reader who asked for no motion, or a panel that was not standing, is giv
 
 test("the page turn flips the sent panel's mark on the way up and holds the new panel's mark out, so no two words are drawn together", () => {
   const { context, run, ringFor } = sandbox();
-  const delivered = SENT.map(text => ({ text, stage: "delivered" }));
-  const el = turningCard(context, delivered);
+  const saved = SENT.map(text => ({ text, stage: "sent" }));
+  const el = turningCard(context, saved);
   ringFor(run("SENT_ARRIVE_MS") + 60);
   // the panel was in the middle of a change when the reader's reply came: the
   // picture is taken as still, without the classes that move
-  context.syncSent(el, SENT.map(text => ({ text, stage: "read" })));
+  context.syncSent(el, SENT.map(text => ({ text, stage: "delivered" })));
   assert.equal(el.sent.classList.contains("markout"), true);
   const turn = context.turnBegin(el, NEXT);
   const page = el.body.querySelector(".turnpage");
@@ -1699,7 +1714,7 @@ test("the page turn flips the sent panel's mark on the way up and holds the new 
   assert.deepEqual(markOf(el.answ), ["Read", "Read", false, false]);
   // one that was still faded when the reply landed takes its full ink up with it
   const other = sandbox();
-  const faded = turningCard(other.context, SENT.map(text => ({ text, stage: "sent" })));
+  const faded = turningCard(other.context, SENT.map(text => ({ text, stage: "local" })));
   const held = other.context.turnBegin(faded, NEXT);
   const picture = faded.body.querySelector(".turnpage").querySelector(".answered.sent");
   assert.equal(picture.classList.contains("undelivered"), true);
@@ -1757,6 +1772,45 @@ test("the panel's list is the board's reading: a note's messages first, read, th
   assert.match(mark, /pointer-events:none/);
 });
 
+test("a send is faded from the press, Delivered once the board answers, and taken out again if the board does not", () => {
+  const { context } = sandbox();
+  const el = fullCard("c1");
+  const item = context.sentLaunch(el, "Invented one.");
+  assert.equal(item.stage, "local");
+  assert.equal(el.sent.classList.contains("undelivered"), true, "a send on its way is not faded");
+  assert.equal(el.sent.dataset.tag, undefined, "a send on its way carries a word");
+  assert.equal(el.sendGuard, Infinity, "a reading asked before the board had it may replace the list");
+  // a second send while the first is out: the guard stands until both have settled
+  const second = context.sentLaunch(el, "Invented two.");
+  context.sentLanded(el, item);
+  assert.equal(item.stage, "sent");
+  assert.equal(el.sendGuard, Infinity, "the guard came down with a send still out");
+  assert.equal(el.sent.dataset.tag, "Delivered");
+  assert.deepEqual(stagesOf(el.sent), [false, true], "the send still out is not faded on its own");
+  context.sentLanded(el, second);
+  assert.ok(Number.isFinite(el.sendGuard), "the guard did not come down once every send had settled");
+  assert.equal(el.sent.classList.contains("undelivered"), false);
+  // landing again, or losing one that landed, changes nothing
+  context.sentLanded(el, second);
+  context.sentLost(el, second);
+  assert.deepEqual([...el.sentItems.map(m => m.stage)], ["sent", "sent"]);
+  assert.equal(el.sendsOut, 0);
+  // a send the board did not take goes from the panel
+  const lost = context.sentLaunch(el, "Invented three.");
+  assert.equal(el.sent.querySelectorAll(".answmsg").length, 3);
+  context.sentLost(el, lost);
+  assert.equal(lost.stage, "lost");
+  assert.deepEqual([...el.sentItems.map(m => m.text)], ["Invented one.", "Invented two."]);
+  assert.equal(el.sent.querySelectorAll(".answmsg").length, 2, "a send the board did not take stayed in the panel");
+  assert.equal(el.sendsOut, 0);
+  assert.ok(Number.isFinite(el.sendGuard));
+  // the only message lost: the panel goes with it
+  const alone = fullCard("c2");
+  const only = context.sentLaunch(alone, "Invented only.");
+  context.sentLost(alone, only);
+  assert.equal(alone.sent, null, "a panel with nothing left in it stayed");
+});
+
 test("the small card turns the same way, its three pieces pictured and carried up in one glide", () => {
   const { context, run } = sandbox();
   // the small card: its panel over the answer, its answer, its sent panel, one column in the card
@@ -1768,7 +1822,7 @@ test("the small card turns the same way, its three pieces pictured and carried u
   box.append(answwrap, reply, sentwrap);
   const el = { box, reply, answwrap, answ: null, answId: null, sentwrap, sent: null, sentKey: "", sentItems: [],
                ta: element("textarea") };
-  context.syncSent(el, [{ text: SENT[0], stage: "delivered" }], true);
+  context.syncSent(el, [{ text: SENT[0], stage: "sent" }], true);
   box.rect = { top: 0, bottom: 400 };
   reply.rect = { top: 40, bottom: 300 };
   sentwrap.rect = { top: 300, bottom: 360 };

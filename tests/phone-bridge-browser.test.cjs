@@ -260,7 +260,7 @@ test("the plus shows the card being made, and every press while it is on its way
   }
 });
 
-test("a send shows as on its way at once and lands once however many times Enter is pressed", async () => {
+test("a send shows faded at once, with no word, and lands once however many times Enter is pressed", async () => {
   const { page, problems } = await openPhone("/m?box=0");
   try {
     await page.waitForSelector("#box-0.sel", { timeout: 5000 });
@@ -273,19 +273,29 @@ test("a send shows as on its way at once and lands once however many times Enter
     assert.equal(now.field, "", "the words stayed in the row after Enter");
     assert.equal(now.local.length, 1, `Enter three times drew ${now.local.length} rows`);
     assert.equal(now.local[0].text, "Sent from the phone");
-    assert.equal(now.local[0].rcpt, "Sending");
+    assert.equal(now.local[0].rcpt, "", "a send on its way carries a word");
     assert.equal(now.local[0].pending, true);
     assert.equal(now.stored.length, 1);
+    const onWay = await page.evaluate(() => {
+      const panel = document.querySelector("article.box.sel .sentwrap .answered");
+      return { faded: panel.classList.contains("undelivered"), tag: panel.dataset.tag || "" };
+    });
+    assert.deepEqual(onWay, { faded: true, tag: "" }, "a send the board has not saved is not faded, or carries a mark");
     await page.screenshot({ path: path.join(SHOTS, "send-pending.png") });
 
     await page.waitForFunction(() =>
       document.querySelectorAll("article.box.sel .sentwrap .answmsg:not([data-op])").length === 1 &&
       !document.querySelector("article.box.sel .sentwrap .answmsg[data-op]"), { timeout: 5000 });
     const landed = await rows(page);
-    // confirmed, the message keeps its words and loses its line; the panel
-    // carries no delivery words
+    // confirmed, the message keeps its words and loses its line; the board has
+    // it, so the panel is at full ink and says Delivered
     assert.deepEqual(landed.delivered, [{ text: "Sent from the phone", rcpt: "" }]);
     assert.equal(landed.stored.length, 0);
+    const saved = await page.evaluate(() => {
+      const panel = document.querySelector("article.box.sel .sentwrap .answered");
+      return { faded: panel.classList.contains("undelivered"), tag: panel.dataset.tag || "" };
+    });
+    assert.deepEqual(saved, { faded: false, tag: "Delivered" }, "a send the board saved is not at full ink with Delivered");
     const sends = page.seen.filter(r => r.path === "/send");
     assert.equal(sends.length, 1, `Enter three times sent ${sends.length} requests`);
     assert.ok(new URLSearchParams(sends[0].search).get("op"), "the send carried no operation id");

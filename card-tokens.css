@@ -373,14 +373,14 @@
 .answered.arrive, .answmsg.arrive{animation:answarrive var(--answ-come) var(--gentle)}
 
 /* ---- the delivery marks -------------------------------------------------- */
-/* where a sent message stands with the agent, from the board's own record
-   (card-logic.js names the stages). a message no agent has received yet is
-   drawn faded: its words at half strength, and while every message in the
-   panel is still waiting, the panel's grey too, mixed halfway to the card's
-   white, and the dissolve at the cut with it. delivered, it takes its full ink;
-   the words come up over the fold's own length, and only their strength
-   changes. a line the phone writes under a message of its own stays at full
-   strength, since it is what says how the sending is going.
+/* where a sent message stands (card-logic.js names the stages). a message the
+   board has not saved yet is drawn faded: its words at half strength, and while
+   every message in the panel is still unsaved, the panel's grey too, mixed
+   halfway to the card's white, and the dissolve at the cut with it. once the
+   board has it, it takes its full ink; the words come up over the fold's own
+   length, and only their strength changes. a line the phone writes under a
+   message of its own stays at full strength, since it is what says how the
+   sending is going.
    the one mark a panel carries, Delivered or Read, stands under its foot at the
    right, in the card's quiet mono, stepped in by the corner's own radius so it
    sits under the straight edge. the panel keeps room for it under itself, so

@@ -5864,6 +5864,12 @@ async function doSend(id, opts){
   // and the reader may switch composers before the board answers.
   const send = el.send;
   send.disabled = !opts.enterIntent || opts.enterIntent.source !== "arrow";
+  // the message comes into the sent panel at the press, faded and cut to its
+  // preview: the first send brings the panel in, and every send after it comes
+  // into the panel already standing, cutting it back if it stood open. it is
+  // faded until the board has saved it, which is what would be lost if the
+  // page closed now
+  const sentItem = sentLaunch(el, text);
   try {
     const r = await fetch("/send?box=" + encodeURIComponent(id), { method: "POST", body: text });
     if (!r.ok) throw new Error(r.status);
@@ -5871,17 +5877,11 @@ async function doSend(id, opts){
       el.ta.value = "";   // the send button clears only after the server has it
       el.tick();           // the square goes with the words, and the row falls back to one line
     }
-    // the message lands in the sent panel now and not a poll later, and lands it
-    // cut to its preview: the first send brings the panel in, and every send
-    // after it comes into the panel already standing, cutting it back if it
-    // stood open. the list is marked as the one on screen, so the reading behind
-    // this brings nothing it does not already hold, and a reading asked for
-    // before the board had it may not take it away again. the board has it and
-    // no agent has received it yet, so it stands as sent, faded, until the
-    // board says otherwise
-    el.sentItems = [...el.sentItems, { text, stage: "sent" }];
-    el.sendGuard = Date.now();
-    syncSent(el, el.sentItems, true);
+    // the board has it: Delivered, at full ink, until the board says more. the
+    // list is marked as the one on screen, so the reading behind this brings
+    // nothing it does not already hold, and a reading asked for before the
+    // board had it may not take it away again
+    sentLanded(el, sentItem);
     if (hist && hist.id === id) histExit(id);   // a send lands you back on the live reply
     if (reopen) undone(id);   // the message is in; the flip rides behind it
     poll();
@@ -5894,6 +5894,7 @@ async function doSend(id, opts){
       scheduleDesktopAdvance(id);
     }
   } catch (err) {
+    sentLost(el, sentItem);
     if (opts.enterIntent) clearEnterAgain(opts.enterIntent);
     if (opts.clearNow){
       const newerDraft = el.ta.value;
@@ -9029,6 +9030,10 @@ function renderMiniCards(state){
         const text = ta.value.trim();
         if (!text) return;
         send.disabled = true;
+        // the message comes into the sent panel at the press, cut to its preview
+        // and faded until the board has saved it, the way it does on the large card
+        const own = miniEls[b.id];
+        const sentItem = own ? sentLaunch(own, text) : null;
         try {
           // via=mini says this was typed in the small card. The big card sends
           // no marker at all, so the agent can tell the two apart and the
@@ -9036,17 +9041,10 @@ function renderMiniCards(state){
           const r = await fetch("/send?box=" + encodeURIComponent(b.id) + "&via=mini", { method: "POST", body: text });
           if (r.ok){
             ta.value = ""; ta.style.height = "auto";
-            // the message comes into the sent panel now, cut to its preview and
-            // faded until an agent receives it, the way it does on the large card
-            const own = miniEls[b.id];
-            if (own){
-              own.sentItems = [...own.sentItems, { text, stage: "sent" }];
-              own.sendGuard = Date.now();
-              syncSent(own, own.sentItems, true);
-            }
+            if (own) sentLanded(own, sentItem);
             poll();
-          }
-        } catch (e) {} finally { send.disabled = false; }
+          } else if (own) sentLost(own, sentItem);
+        } catch (e) { if (own) sentLost(own, sentItem); } finally { send.disabled = false; }
       };
       send.addEventListener("click", fire);
       // the board's own arrow keys must never see this typing
