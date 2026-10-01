@@ -2443,20 +2443,23 @@ test("a cut back that is turned, taken by the reader, met by a short answer or a
   assert.equal(level.view.foot(), 58);
 });
 
-test("the room a cut back holds is a spacer under the answer, never the scroller's own padding", () => {
+test("the room a cut back holds and the answer's run-out are one spacer under the answer, never the scroller's own padding", () => {
   // the answer's scroller is a flex item, which cannot stand shorter than its
   // padding: room held in it pushed the scroller past the card, and the band
   // the fade over the typing row is cut to, read off the scroller's foot, grew
-  // with it and masked the answer out
+  // with it and masked the answer out. the run-out is a spacer for the other
+  // reason: an engine may leave padding out of the scrollable height, and an
+  // answer that ends inside the run-out then cannot be scrolled
   for (const [where, css, spacer] of [["the phone", PHONE, "\n  .replyview::after{"],
       ["the desktop", DESKTOP, "\n  body.focus .box.sel .replyview::after{"]]) {
     assert.doesNotMatch(css, /padding-bottom:[^;}]*--answ-slack/, `${where} still holds the room in the scroller's padding`);
+    assert.doesNotMatch(css, /padding-bottom:[^;}]*--boxband/, `${where} still hands the run-out back as padding`);
     const at = css.indexOf(spacer);
     assert.ok(at > 0, `${where} has no spacer for the held room`);
-    assert.match(css.slice(at, css.indexOf("}", at) + 1), /content:""; flex:none; height:var\(--answ-slack, 0px\)/);
+    assert.match(css.slice(at, css.indexOf("}", at) + 1),
+      /content:""; flex:none; height:calc\(var\(--answ-slack, 0px\) \+ var\(--boxband, 0px\) \+ var\(--replyfade, 0px\)\)/,
+      `${where} spacer does not carry the held room and the run-out`);
   }
-  assert.match(PHONE, /padding-bottom:calc\(var\(--boxband, 0px\) \+ var\(--replyfade\)\);/);
-  assert.match(DESKTOP, /padding-bottom:calc\(var\(--boxband, 0px\) \+ var\(--replyfade\)\);/);
 });
 
 test("a panel whose own lane was scrolled comes down to its head on the run, not in a jump first", () => {

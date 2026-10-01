@@ -874,33 +874,33 @@
      then painted over by the bar's own white, with no travel left to raise it.
      the reader reached the end of the scroll without reaching the end of the
      words, and on a long answer the final line or two were never on show at all.
-     the strip is handed back as padding at the foot. padding counts inside the
-     scrollable height, so the scroll gains exactly this much travel and the last
-     line rises exactly this far: onto the top of the ramp, where the mask is
-     still whole and the ink is still full.
+     the strip is a spacer at the foot of the scroller's content, so the scroll
+     gains exactly this much travel and the last line rises exactly this far:
+     onto the top of the ramp, where the mask is still whole and the ink is
+     still full.
      the band plus the ramp, because both of them stand between the cut and full
      ink, and both are read off the properties that draw them rather than typed
      again, so a box opened taller or a ramp cut deeper carries this with it.
-     padding and not a margin or a spacer element: the mask's 100% and --boxband
-     are both measured on the answer's border box, and box-sizing:border-box
-     leaves a padded box the size it always was, so nothing the ramp is cut from
-     moves by a pixel.
+     content and not padding: an engine may leave a scroller's padding out of
+     its scrollable height when the answer ends inside it, and an answer that
+     ends in this strip then has nothing to scroll while the ramp says there is
+     more. a spacer is content, so the scroll always counts it. the mask's 100%
+     and --boxband are both measured on the answer's border box, which the
+     spacer leaves the size it always was, so nothing the ramp is cut from moves
+     by a pixel.
      an answer that already fits spends none of it. scrollHeight never reads
      below the element's own height, so a short answer gains no travel and still
-     does not scroll. and while there is text left below, this padding is simply
+     does not scroll. and while there is text left below, this strip is simply
      out of sight past the foot of the words, where the ramp goes on doing its
-     old job of saying keep going */
-  body.focus .box.sel .replyview{
-    padding-bottom:calc(var(--boxband, 0px) + var(--replyfade));
-  }
-  /* the room the panel over the answer holds under it while it is cut back, so
-     the reader's scroll is never pulled (holdSlack in card-logic.js): a spacer
-     at the foot of the scroller's content and never the scroller's padding.
-     the scroller is a flex item, which cannot stand shorter than its own
-     padding, so room held there once pushed the scroller down past the card,
-     and --boxband, read off the scroller's foot, grew with it and masked the
-     answer out */
-  body.focus .box.sel .replyview::after{content:""; flex:none; height:var(--answ-slack, 0px)}
+     old job of saying keep going.
+     the same spacer holds the room the panel over the answer asks for while it
+     is cut back, so the reader's scroll is never pulled (holdSlack in
+     card-logic.js). that room is never the scroller's padding either: the
+     scroller is a flex item, which cannot stand shorter than its own padding,
+     so room held there once pushed the scroller down past the card, and
+     --boxband, read off the scroller's foot, grew with it and masked the answer
+     out */
+  body.focus .box.sel .replyview::after{content:""; flex:none; height:calc(var(--answ-slack, 0px) + var(--boxband, 0px) + var(--replyfade, 0px))}
   /* ---- the messages waiting for a reply ------------------------------------ */
   /* the card starts with no panel at the foot at all. the board only carries
      sent messages while they are unanswered, so the first send brings the
@@ -5265,7 +5265,7 @@ function snapCard(){
   if (!first) return;
   // the room is the answer's first line down to the cut. the panel above the answer
   // rides inside this same scroller, so the height it holds is room the prose
-  // does not have; the run-out padding at the foot is the scroll's own and no part
+  // does not have; the run-out at the foot is the scroll's own and no part
   // of it either. subtracting both leaves the whole number of lines the ramp needs
   const answH = (answ && el.answwrap) ? el.answwrap.getBoundingClientRect().height : 0;
   const room = rect.height - boxBand(view, el.pendwrap) - answH - parseFloat(vcs.paddingTop || 0);
