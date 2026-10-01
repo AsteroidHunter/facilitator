@@ -227,7 +227,14 @@ for (const [name, make] of [["desktop large card", desktopLarge], ["desktop smal
     assert.equal(el.sun.getAttribute("aria-label"), "move to doing");
     // the same inline svg approach at the same glyph size as the moon beside it
     const size = svg => /viewBox="0 0 24 24" width="9" height="9"/.test(svg);
-    assert.ok(size(el.arc.innerHTML), "the moon glyph changed size");
+    if (name === "desktop large card") {
+      // the board's big card sizes both glyphs in css, by the top row's one mark size, so its
+      // moon carries no size of its own and the sun's shared one is overruled
+      assert.doesNotMatch(/<svg [^>]*>/.exec(el.arc.innerHTML)?.[0] || "", /\s(width|height)=/, "the moon glyph carries a size of its own");
+      assert.match(surface.html, /body\.focus \.box\.sel :is\(\.arcbtn, \.sunbtn\) svg\{width:var\(--bar-mark\); height:var\(--bar-mark\)\}/);
+    } else {
+      assert.ok(size(el.arc.innerHTML), "the moon glyph changed size");
+    }
     assert.ok(size(el.sun.innerHTML), "the sun glyph is not the moon's size");
     // the middle is a hollow ring: nothing fills it, and it is drawn by a stroke
     // of the same weight and round ends as the rays
@@ -558,11 +565,17 @@ test("desktop small card: its section keys land exactly where its chips land, wh
 // ---- where each surface draws its chips ---------------------------------------------------
 test("the desktop bar lays the chips out sun, moon, cross", async () => {
   const html = await readFile(path.join(ROOT, "index.html"), "utf8");
-  // the cross is ordered to the bar's end; the moon and the sun keep document order
-  assert.match(html, /body\.focus \.box\.sel \.xbtn\{\s*position:relative; flex:none; order:5;/);
+  // each chip has its own column of the bar's grid, sun then moon then cross, and every
+  // square is the one named size
+  assert.match(html, /grid-template-areas:"hist sun moon cross"/);
+  assert.match(html, /body\.focus \.box\.sel \.sunbtn\{grid-area:sun\}/);
+  assert.match(html, /body\.focus \.box\.sel \.arcbtn\{grid-area:moon\}/);
+  assert.match(html, /body\.focus \.box\.sel \.xbtn\{\s*grid-area:cross; position:relative;/);
+  assert.match(html, /body\.focus \.box\.sel \.xbtn\{[^}]*width:var\(--bar-sq\); height:var\(--bar-sq\)/);
+  assert.equal(html.match(/--bar-sq:/g).length, 1, "the top row's square is named in more than one place");
   const chipRule = between(html, "  body.focus .box.sel .arcbtn, body.focus .box.sel .sunbtn{", "}");
   assert.doesNotMatch(chipRule, /[\s;{]order:/);
-  assert.match(chipRule, /width:16px; height:16px; border-radius:var\(--sq\)/);
+  assert.match(chipRule, /width:var\(--bar-sq\); height:var\(--bar-sq\); border-radius:var\(--sq\)/);
   // the focus ring runs cross, moon, sun, and a shift tab out of the title lands on the sun
   assert.match(html, /const ring = \[titleEl, ta, clip, send, x, arc, sun\];/);
   const logic = await readFile(path.join(ROOT, "card-logic.js"), "utf8");

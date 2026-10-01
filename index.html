@@ -504,9 +504,39 @@
      the card's own tokens, --cardbar-h, --sq, --press, --gentle and
      --sunk-deep, are shared with the phone page and live in card-tokens.css
      with their reasons, so every rule below reads a name rather than a number */
+  /* the top row's own names, for this page only. every element on the row, the
+     two arrows and the three chips, stands in a square --bar-sq, and the sun,
+     the moon and the cross draw their marks --bar-mark across inside it. the
+     cross's two lines are --cross-t thick, the share of their length
+     --cross-weight they had when they were 9px long and 1.2px thick.
+     the gap between neighbouring squares is its own value and is never worked
+     out from the square: --bar-gap-hist between the two arrows and
+     --bar-gap-chips between the sun, the moon and the cross. the arrow marks
+     stand 28 apart and the chip marks 25, so squares this size leave those two
+     gaps. --bar-lead is how far in the first arrow's square starts, and
+     --bar-tail how far the cross's square ends short of the bar's right edge;
+     with the gaps they hold every mark on the pixel it already stood on.
+     --histpos-room is what the "n of m" count keeps ahead of it beyond the
+     arrows' gap, and --pathline-h the height of the path line the bar replaced,
+     which the bar's bottom margin hands back */
+  :root{
+    --bar-sq:24px; --bar-mark:11px;
+    --cross-weight:calc(1.2 / 9); --cross-t:calc(var(--bar-mark) * var(--cross-weight));
+    --bar-gap-hist:4px; --bar-gap-chips:1px; --bar-lead:2px; --bar-tail:5px;
+    --histpos-room:2px; --pathline-h:15px;
+  }
   .topbar{display:none}
+  /* the bar is a grid of four columns, the history control and then the three
+     chips, so the working spinner can stand in the sun's own cell and share its
+     centre by construction. the first column takes the room that is left, which
+     is what holds the chips against the right end */
   body.focus .box.sel .topbar{
-    display:flex; align-items:center; gap:9px; flex:none; position:relative;
+    --hist-cell:var(--bar-sq);
+    display:grid; align-items:center; flex:none; position:relative;
+    grid-template-columns:minmax(0, 1fr) repeat(3, var(--bar-sq));
+    grid-template-rows:minmax(0, 1fr);
+    grid-template-areas:"hist sun moon cross";
+    column-gap:var(--bar-gap-chips);
     height:var(--cardbar-h);
     /* the bar runs edge to edge: the negative side and top margins eat the
        pane's own padding and the pane's rounded corners clip the two ends.
@@ -514,30 +544,30 @@
        the pane's top padding plus that line's own 15px less the bar's height,
        so the title, the answer and the composer keep the y they had */
     margin:calc(var(--ch)*-0.022) calc(var(--pad-x)*-1)
-           calc(var(--ch)*0.022 + 15px - var(--cardbar-h));
-    padding:0 9px 0 var(--pad-x);
+           calc(var(--ch)*0.022 + var(--pathline-h) - var(--cardbar-h));
+    padding:0 var(--bar-tail) 0 var(--pad-x);
     background:var(--card);
     /* the divider where the bar meets the card body: the board's own hairline
        ink, the same --line the composer draws its top edge in. an inset shadow
        and not a border-bottom on purpose, since a border would take a pixel out
-       of the 34px content box and lift both buttons off their 9px seat. a white
+       of the bar's content box and lift every control off its seat. a white
        bar over a white card needs the line most of all. a shadow is not
        snapped the way a border is, so it is given the edge's drawn width and
        not the asked-for one, to be as thick as the card's border around it */
     box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line);
   }
   /* the reply-history control keeps its own width whether its marks are
-     showing or not, and the working spinner after it, in the same run
-     (.histrun, card-tokens.css), takes the bar's flexible room whether it is
-     showing or not. the fixed room means the defer and close controls, the
-     divider, and everything below the bar keep their exact place when an
-     older reply first becomes available or the spinner comes and goes. its
-     two marks are the phone page's chevrons on the same seats, sized by
-     --hist-cell, --hist-glyph-w and --hist-glyph-h. they arrive with the
-     composer's send arrow's opacity-and-scale fade and are inert before
-     then */
+     showing or not, and the bar's other three columns are fixed, so the defer
+     and close controls, the divider, and everything below the bar keep their
+     exact place when an older reply first becomes available or the working
+     spinner comes and goes. its two marks are the phone page's chevrons on
+     squares of --bar-sq here, sized by --hist-glyph-w and --hist-glyph-h. the
+     lead-in is padding and not margin so the fade's scale still grows from the
+     bar's own left edge. they arrive with the composer's send arrow's
+     opacity-and-scale fade and are inert before then */
   body.focus .box.sel .histctl{
-    flex:0 1 auto; min-width:0; display:flex; align-items:center; gap:0;
+    grid-area:hist; justify-self:start; min-width:0;
+    display:flex; align-items:center; gap:var(--bar-gap-hist); padding-left:var(--bar-lead);
     font:11.5px var(--mono); color:var(--sub); white-space:nowrap;
     visibility:hidden; opacity:0; transform:scale(.5); transform-origin:left center;
     pointer-events:none;
@@ -558,7 +588,7 @@
   body.focus .box.sel .histbtn.older .histchev{transform:rotate(0deg)}
   body.focus .box.sel .histbtn.newer .histchev{transform:rotate(180deg)}
   body.focus .box.sel .histchev{display:block; flex:none; width:var(--hist-glyph-w); height:var(--hist-glyph-h)}
-  body.focus .box.sel .histpos{margin-left:4px}
+  body.focus .box.sel .histpos{margin-left:var(--histpos-room)}
   body.focus .box.sel .histpos:empty{display:none}
 
   /* Dormant styles for the commented worktree selector remain beside its old
@@ -617,35 +647,51 @@
   }
   body.focus .box.sel .wtmenu button:hover{background:#FFF8EF}
   /* the cross and the defer chip stop being pinned to the pane's corner and
-     become items of the bar, which sets them down on the same pixels they held:
-     16px wide, 9px down from the bar's top edge, 9px in from its right. both
-     wear the send square's shape now, the board's own 4px inner corner, so the
+     become items of the bar, each in its own column, a square of --bar-sq. both
+     wear the send square's shape now, the board's own inner corner, so the
      three controls on the card read as one family, and both open on the card's
      own white with their own dark mark carrying them. the press is what tells
      the seat apart from the ground under it, and on white it comes out a light
      grey, which is the clearest press either chip can wear */
   body.focus .box.sel .xbtn{
-    position:relative; flex:none; order:5; margin-left:0; top:auto; right:auto; left:auto;
-    width:16px; height:16px; border-radius:var(--sq);
+    grid-area:cross; position:relative; top:auto; right:auto; left:auto;
+    width:var(--bar-sq); height:var(--bar-sq); border-radius:var(--sq);
     background:var(--card); font-size:0; padding:0; border:none;
   }
   body.focus .box.sel .xbtn::before, body.focus .box.sel .xbtn::after{
     content:""; position:absolute; left:50%; top:50%;
-    width:9px; height:1.2px; background:#1e1e1e; border-radius:1px;
+    width:var(--bar-mark); height:var(--cross-t); background:#1e1e1e; border-radius:var(--cross-t);
   }
   body.focus .box.sel .xbtn::before{transform:translate(-50%,-50%) rotate(45deg)}
   body.focus .box.sel .xbtn::after{transform:translate(-50%,-50%) rotate(-45deg)}
   body.focus .box.sel .xbtn:hover{background:color-mix(in srgb, #000 var(--press), var(--card))}
   /* the sun is the moon's twin on this bar: the same white seat, the same
      rounding and the same dark mark, so the three chips stay one family and the
-     glyph alone tells them apart */
+     glyph alone tells them apart. the marks are sized here, by --bar-mark, and
+     this wins over the width and height the svg carries as attributes: the
+     sun's come from the shared card-logic.js, where the phone page sizes the
+     same glyph by them */
   body.focus .box.sel .arcbtn, body.focus .box.sel .sunbtn{
-    position:relative; flex:none; top:auto; right:auto;
-    width:16px; height:16px; border-radius:var(--sq);
+    position:relative; top:auto; right:auto;
+    width:var(--bar-sq); height:var(--bar-sq); border-radius:var(--sq);
     background:var(--card); color:#000; border:none; padding:0;
     display:inline-flex; align-items:center; justify-content:center;
   }
+  body.focus .box.sel .sunbtn{grid-area:sun}
+  body.focus .box.sel .arcbtn{grid-area:moon}
+  body.focus .box.sel :is(.arcbtn, .sunbtn) svg{width:var(--bar-mark); height:var(--bar-mark)}
   body.focus .box.sel .arcbtn:hover, body.focus .box.sel .sunbtn:hover{background:color-mix(in srgb, #000 var(--press), var(--card))}
+  /* a green card is always in doing, where the sun is off, so the working
+     spinner takes the sun's place: it stands in the sun's own cell, centred on
+     the sun's mark, and the two cross-fade on one curve and one clock. the
+     sun's mark is faded and not the button, so the button keeps the off fade
+     the chip rule below gives it and the sun returns to exactly that look. the
+     sheet's small lift, which sits the glyph on the arrows' centre line, is
+     dropped here so the glyph is centred on the sun's mark instead */
+  body.focus .box.sel .topbar > .cardspin{--cardspin-s:var(--bar-mark); grid-area:sun; place-self:center}
+  body.focus .box.sel .topbar > .cardspin::before{transform:none}
+  body.focus .box.sel .sunbtn svg{transition:opacity var(--spin-fade) var(--gentle)}
+  body.focus .box.sel .topbar:has(> .cardspin.on) .sunbtn svg{opacity:0}
   /* the chip naming the section the card is already in: lighter, with no
      press and no pointer, and it outranks the half fade of a tap still waiting
      on the board, since off is the lasting word about it */
@@ -5445,13 +5491,10 @@ function makeBox(b, i, state){
     histctl.append(histUp, histDown, histPos);
     histUp.addEventListener("click", () => histStep(b.id, 1));
     histDown.addEventListener("click", () => histStep(b.id, -1));
-    // the working spinner stands right after the arrows, in one run with them;
-    // the chips that follow are added below. apply() turns it on with the
-    // ticket's own green
+    // the working spinner is placed with the chips below, in the sun's square.
+    // apply() turns it on with the ticket's own green
     const cardSpin = makeCardSpinner();
-    const histrun = h("div", "histrun");
-    histrun.append(histctl, cardSpin);
-    topbar.appendChild(histrun);
+    topbar.appendChild(histctl);
     box.appendChild(topbar);
 
     const head = h("div", "head");
@@ -5486,7 +5529,7 @@ function makeBox(b, i, state){
     // orange archive button: defers the card into the deferred tab (parks it)
     const arc = h("button", "arcbtn");
     arc.title = "defer to the deferred tab\n" + SECTION_KEY_HINTS.deferred;
-    arc.innerHTML = '<svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" stroke="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
+    arc.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
     arc.addEventListener("click", e => { e.stopPropagation(); if (!chipOff(arc)) toggleFlag(b.id, "park"); });
     // the chip stands before the cross in the bar, the order the two corners
     // held: defer on the left of close
@@ -5495,6 +5538,9 @@ function makeBox(b, i, state){
     // left to right, the order of the three tabs
     const sun = sunChip("sunbtn", b.id);
     topbar.insertBefore(sun, arc);
+    // the working spinner follows the sun, and the bar's grid seats it in the
+    // sun's own cell
+    topbar.insertBefore(cardSpin, arc);
     box.appendChild(head);
 
 
