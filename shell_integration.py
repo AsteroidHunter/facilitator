@@ -1,6 +1,8 @@
-"""Own the command, shell block, and personal skill links installed by ./install.sh."""
+"""Own the command, shell block, personal skill links and Claude Code status line entry installed by ./install.sh."""
 import json
 import os
+import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -12,6 +14,9 @@ BIN = HOME / ".local" / "share" / "facilitator" / "bin" / "facilitator"
 PROFILE_RECORD = BIN.parent.parent / "profiles.json"
 SKILL = ROOT / ".agents" / "skills" / "facilitator"
 SKILL_RECORD = ROOT / ".facilitator-skills.json"
+STATUSLINE = ROOT / "claude-statusline.py"
+STATUSLINE_RECORD = ROOT / ".facilitator-statusline.json"
+STATUSLINE_QUESTION = "Show your Claude limits on the home page? [Y/n] "
 BEGIN = b"# >>> Facilitator installer >>>"
 END = b"# <<< Facilitator installer <<<"
 PATH_LINE = b'export PATH="$HOME/.local/share/facilitator/bin:$PATH"'
@@ -151,6 +156,7 @@ def install():
 
 
 def uninstall():
+    statusline_uninstall()
     skills_uninstall()
     # Another checkout's command and profile block are not ours, even though
     # the block text is identical. Without the command link as evidence, leave
@@ -193,13 +199,17 @@ def uninstall():
         PROFILE_RECORD.unlink()
 
 
-def skill_destinations():
-    """Personal skill locations in the two hosts, without editing their settings."""
-    claude_root = os.environ.get("CLAUDE_CONFIG_DIR")
-    claude = Path(claude_root).expanduser() if claude_root else HOME / ".claude"
+def claude_dir():
+    root = os.environ.get("CLAUDE_CONFIG_DIR")
+    claude = Path(root).expanduser() if root else HOME / ".claude"
     if not claude.is_absolute():
         raise SystemExit(problem("CLAUDE_CONFIG_DIR must be an absolute path."))
-    return (claude / "skills" / "facilitator", HOME / ".agents" / "skills" / "facilitator")
+    return claude
+
+
+def skill_destinations():
+    """Personal skill locations in the two hosts, without editing their settings."""
+    return (claude_dir() / "skills" / "facilitator", HOME / ".agents" / "skills" / "facilitator")
 
 
 def skill_record():
@@ -315,7 +325,286 @@ def skills_uninstall():
         SKILL_RECORD.unlink()
 
 
+WHITESPACE = " \t\r\n"
+DECODER = json.JSONDecoder()
+
+
+def skip_space(text, at):
+    while at < len(text) and text[at] in WHITESPACE:
+        at += 1
+    return at
+
+
+def members_of(text, at=0):
+    """The object that starts at text[at], as (open, members, close). Each
+    member is (key, key_start, key_end, value_start, value_end), so one can be
+    added, replaced or taken out without rewriting the rest of the text."""
+    i = skip_space(text, at)
+    if text[i:i + 1] != "{":
+        raise ValueError("not an object")
+    opened = i
+    i = skip_space(text, i + 1)
+    found = []
+    if text[i:i + 1] == "}":
+        return opened, found, i
+    while True:
+        key, key_end = DECODER.raw_decode(text, i)
+        colon = skip_space(text, key_end)
+        if not isinstance(key, str) or text[colon:colon + 1] != ":":
+            raise ValueError("bad member")
+        start = skip_space(text, colon + 1)
+        _, end = DECODER.raw_decode(text, start)
+        found.append((key, i, key_end, start, end))
+        i = skip_space(text, end)
+        if text[i:i + 1] == ",":
+            i = skip_space(text, i + 1)
+        elif text[i:i + 1] == "}":
+            return opened, found, i
+        else:
+            raise ValueError("bad object")
+
+
+def last_member(found, key):
+    return next((m for m in reversed(found) if m[0] == key), None)
+
+
+def render(value, lead, colon, newline):
+    """value as JSON, laid out like the members around it."""
+    if "\n" in lead:
+        unit = lead.rsplit("\n", 1)[1]
+        text = json.dumps(value, indent=unit, ensure_ascii=False).replace("\n", "\n" + unit)
+        return text.replace("\n", newline)
+    separators = (", ", ": ") if " " in colon else (",", ":")
+    return json.dumps(value, separators=separators, ensure_ascii=False)
+
+
+def add_member(text, key, value):
+    """text with key: value added at the end of its top-level object."""
+    newline = "\r\n" if "\r\n" in text else "\n"
+    opened, found, closed = members_of(text)
+    if not found:
+        lead, colon = newline + "  ", ": "
+        return (text[:opened + 1] + lead + json.dumps(key) + colon
+                + render(value, lead, colon, newline) + newline + text[closed:])
+    _, key_start, key_end, start, end = found[-1]
+    before = key_start
+    while text[before - 1] in WHITESPACE:
+        before -= 1
+    lead, colon = text[before:key_start], text[key_end:start]
+    return (text[:end] + "," + lead + json.dumps(key) + colon
+            + render(value, lead, colon, newline) + text[end:])
+
+
+def remove_member(text, key):
+    """text without the last member named key, and nothing else changed."""
+    opened, found, closed = members_of(text)
+    at = next(i for i in reversed(range(len(found))) if found[i][0] == key)
+    if len(found) == 1:
+        return text[:opened] + "{}" + text[closed + 1:]
+    if at == len(found) - 1:
+        return text[:found[at - 1][4]] + text[found[at][4]:]
+    return text[:found[at][1]] + text[found[at + 1][1]:]
+
+
+def statusline_spans(text):
+    """Where the statusLine value and its command value sit in text, each as
+    (start, end), or None for a part that is not there."""
+    _, found, _ = members_of(text)
+    member = last_member(found, "statusLine")
+    if member is None:
+        return None, None
+    command = None
+    if text[member[3]] == "{":
+        _, inner, _ = members_of(text, member[3])
+        got = last_member(inner, "command")
+        command = (got[3], got[4]) if got else None
+    return (member[3], member[4]), command
+
+
+def read_settings(path):
+    """The settings file's text; None when there is no file; ValueError when
+    it is not a JSON object."""
+    if path.is_symlink() and not path.exists():
+        raise ValueError("dangling link")
+    if not path.exists():
+        return None
+    text = path.read_bytes().decode("utf-8")
+    if not isinstance(json.loads(text), dict):
+        raise ValueError("not an object")
+    return text
+
+
+def write_settings(path, text):
+    """Replace the file whole and move it into place, through a link if the
+    settings file is one."""
+    real = Path(os.path.realpath(path))
+    temporary = real.with_name(real.name + ".facilitator-tmp")
+    try:
+        temporary.write_bytes(text.encode("utf-8"))
+        if real.exists():
+            shutil.copymode(real, temporary)
+        os.replace(temporary, real)
+    except OSError:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def statusline_command(wrapped=None):
+    command = f"python3 {shlex.quote(str(STATUSLINE))}"
+    return command + (f" {shlex.quote(wrapped)}" if wrapped else "")
+
+
+def statusline_record():
+    """The saved record; None when there is none; ValueError when it is not
+    one this checkout wrote."""
+    if STATUSLINE_RECORD.is_symlink():
+        raise ValueError("link")
+    if not STATUSLINE_RECORD.exists():
+        return None
+    record = json.loads(STATUSLINE_RECORD.read_text())
+    if (not isinstance(record, dict) or record.get("version") != 1
+            or not isinstance(record.get("settings"), str)
+            or not Path(record["settings"]).is_absolute()
+            or record.get("script") != str(STATUSLINE)
+            or not isinstance(record.get("created"), bool)
+            or not isinstance(record.get("entry"), dict)
+            or not (record.get("original") is None
+                    or (isinstance(record["original"], str) and isinstance(json.loads(record["original"]), str)))):
+        raise ValueError("invalid status line record")
+    return record
+
+
+def save_statusline_record(record):
+    temporary = STATUSLINE_RECORD.with_suffix(".tmp")
+    temporary.write_text(json.dumps(record, indent=2) + "\n")
+    temporary.replace(STATUSLINE_RECORD)
+
+
+def statusline_add():
+    """Point the Claude Code status line at claude-statusline.py, wrapping a
+    command that is already there. Safe to run again."""
+    settings = claude_dir() / "settings.json"
+    if not STATUSLINE.is_file():
+        skipped(f"Claude limits not added: {STATUSLINE} is missing.")
+        return
+    if not settings.parent.is_dir():
+        skipped(f"Claude limits not added: {settings.parent} is not there.")
+        return
+    try:
+        record = statusline_record()
+    except (OSError, ValueError):
+        skipped(f"Claude limits not added: {STATUSLINE_RECORD} is invalid.")
+        return
+    if record and record["settings"] != str(settings):
+        skipped(f"Claude limits were already added to {record['settings']}.")
+        return
+    try:
+        text = read_settings(settings)
+        whole, command = (None, None) if text is None else statusline_spans(text)
+        created = text is None
+        if created:
+            text = "{}\n"
+        original = None
+        if whole is None:
+            updated = add_member(text, "statusLine", {"type": "command", "command": statusline_command()})
+        else:
+            value = json.loads(text[whole[0]:whole[1]])
+            current = value.get("command") if isinstance(value, dict) else None
+            if (not isinstance(value, dict) or value.get("type") != "command"
+                    or not isinstance(current, str) or not current.strip() or command is None):
+                skipped(f"Claude limits not added: the statusLine in {settings} is not a command that can be wrapped.")
+                return
+            if str(STATUSLINE) in current:
+                ok("Claude limits already added.")
+                return
+            if "claude-statusline.py" in current:
+                skipped(f"Claude limits not added: the statusLine in {settings} runs another claude-statusline.py.")
+                return
+            original = text[command[0]:command[1]]
+            updated = text[:command[0]] + json.dumps(statusline_command(current), ensure_ascii=False) + text[command[1]:]
+        entry = json.loads(updated)["statusLine"]
+    except (OSError, ValueError):
+        skipped(f"Claude limits not added: {settings} could not be read as JSON.")
+        return
+    try:
+        save_statusline_record({"version": 1, "settings": str(settings), "script": str(STATUSLINE),
+                                "created": created, "original": original, "entry": entry})
+        try:
+            write_settings(settings, updated)
+        except OSError:
+            STATUSLINE_RECORD.unlink(missing_ok=True)
+            raise
+    except OSError as error:
+        skipped(f"Claude limits not added: could not write {settings} ({error.strerror or 'error'}).")
+        return
+    ok(f"Claude limits added to {settings}." if original is None
+       else f"Claude limits added to {settings}, around your status line.")
+
+
+def statusline_install():
+    """Ask once, on a terminal, and add the status line entry on yes. With no
+    terminal to ask on, add nothing."""
+    if not sys.stdin.isatty():
+        skipped("Claude limits not added: there is no terminal to ask on.")
+        return
+    try:
+        said = input(STATUSLINE_QUESTION)
+    except EOFError:
+        print()
+        said = "n"
+    except KeyboardInterrupt:
+        print()
+        raise SystemExit(problem("Stopped at the Claude limits question.", "Nothing was changed."))
+    if said.strip().lower() in ("", "y", "yes"):
+        statusline_add()
+    else:
+        skipped("Claude limits not added.")
+
+
+def statusline_uninstall():
+    """Take out the entry install added, or give a wrapped command back, and
+    only while the entry is still exactly what install wrote."""
+    try:
+        record = statusline_record()
+    except (OSError, ValueError):
+        skipped(f"Kept {STATUSLINE_RECORD}: it is not a record this installer wrote.")
+        return
+    if record is None:
+        return
+    settings = Path(record["settings"])
+    try:
+        text = read_settings(settings)
+        whole, command = (None, None) if text is None else statusline_spans(text)
+        current = None if whole is None else json.loads(text[whole[0]:whole[1]])
+    except (OSError, ValueError):
+        skipped(f"Kept the status line in {settings}: it could not be read as JSON.")
+        return
+    if current != record["entry"]:
+        STATUSLINE_RECORD.unlink()
+        if current is not None:
+            skipped(f"Kept the status line in {settings}, which has changed since install.")
+        return
+    try:
+        if record["original"] is not None:
+            write_settings(settings, text[:command[0]] + record["original"] + text[command[1]:])
+            ok(f"Restored your status line in {settings}.")
+        else:
+            updated = remove_member(text, "statusLine")
+            if record["created"] and json.loads(updated) == {}:
+                settings.unlink()
+                ok(f"Removed {settings}, which setup made.")
+            else:
+                write_settings(settings, updated)
+                ok(f"Removed the Claude limits status line from {settings}.")
+    except OSError as error:
+        skipped(f"Kept the status line in {settings}: could not write it ({error.strerror or 'error'}).")
+        return
+    STATUSLINE_RECORD.unlink()
+
+
 if __name__ == "__main__":
-    if len(sys.argv) != 2 or sys.argv[1] not in ("preflight", "install", "uninstall"):
-        raise SystemExit("usage: shell_integration.py preflight|install|uninstall")
-    globals()[sys.argv[1]]()
+    operations = {"preflight": preflight, "install": install, "uninstall": uninstall,
+                  "statusline": statusline_install}
+    if len(sys.argv) != 2 or sys.argv[1] not in operations:
+        raise SystemExit("usage: shell_integration.py preflight|install|uninstall|statusline")
+    operations[sys.argv[1]]()

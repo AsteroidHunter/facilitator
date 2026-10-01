@@ -335,7 +335,7 @@ test('./install.sh sets up a fake checkout and exposes the real CLI command', as
     const env = { ...f.env, PATH: `${tools}:${f.env.PATH}` };
     const first = await exec('bash', [path.join(f.repo, 'install.sh')], { cwd: f.repo, env });
     assert.match(first.stdout, /FACILITATOR|█████/);
-    const titles = ['1. Locations', '2. Board', '3. App password', '4. Command and skill'];
+    const titles = ['1. Locations', '2. Board', '3. App password', '4. Command and skill', '5. Claude limits'];
     const lines = first.stdout.split('\n');
     for (const title of titles) {
       const at = lines.indexOf(title);
@@ -346,6 +346,8 @@ test('./install.sh sets up a fake checkout and exposes the real CLI command', as
     }
     assert.doesNotMatch(first.stdout, /\n\n\n/, 'two blank lines in a row');
     assert.match(first.stdout, /facilitator password set/);
+    assert.match(first.stdout, /Claude limits not added: there is no terminal to ask on\./);
+    await assert.rejects(fs.lstat(path.join(f.home, '.claude', 'settings.json')), { code: 'ENOENT' });
     assert.match(first.stdout, /✦ Facilitator is installed!\n\nNext steps:\n\n1\. Start the board: facilitator run\n2\. Onboard your agent, in Claude Code: \/facilitator onboard\n   or in Codex: \$facilitator onboard\n\n$/);
     const second = await exec('bash', [path.join(f.repo, 'install.sh')], { cwd: f.repo, env });
     assert.match(second.stdout, /✓ Command already linked\./);
