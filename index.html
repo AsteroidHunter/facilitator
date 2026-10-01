@@ -4668,11 +4668,16 @@ addEventListener("fullscreenchange", () => { fitStage(); seatPagePill(); });
 }
 // a press on the bare board, the paper beside and below the panels, lets go of
 // the card on screen: it stays, browsed. a press on a panel, a button or the
-// card itself is not a press on the paper
+// card itself is not a press on the paper. the ticket list has no box, so its
+// empty strips and the gaps between tickets are paper too: a press that lands
+// on a list section itself, not on a ticket, counts. the drawer is a panel
 document.addEventListener("pointerdown", e => {
   if (e.button || editMode || homeOpen) return;
-  if (e.target === document.getElementById("stage") || e.target === document.body ||
-      e.target === document.documentElement) unselectShown();
+  const t = e.target;
+  const listPaper = (t.id === "tiklist" || t.id === "tiksheet" || t.classList?.contains("tikpane")) &&
+    document.body.dataset.respMode !== "portrait";
+  if (t === document.getElementById("stage") || t === document.body ||
+      t === document.documentElement || listPaper) unselectShown();
 }, true);
 // the house leaves the board for the home page the way another tab does: the
 // card on screen is no longer selected, so coming back through a tab shows it
