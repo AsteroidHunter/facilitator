@@ -39,7 +39,7 @@ const run = (input, ...args) => {
 };
 const stored = () => JSON.parse(fs.readFileSync(out, "utf8"));
 
-test("it writes the two windows and prints a short line", () => {
+test("it writes the two windows and prints nothing", () => {
   const done = run(session({
     five_hour: { used_percentage: 23.5, resets_at: FUTURE },
     seven_day: { used_percentage: 41.2, resets_at: FUTURE + 1 },
@@ -48,7 +48,7 @@ test("it writes the two windows and prints a short line", () => {
     five_hour: { used_percentage: 23.5, resets_at: FUTURE },
     seven_day: { used_percentage: 41.2, resets_at: FUTURE + 1 },
   });
-  assert.equal(done.stdout, "5h 24%  wk 41%\n");
+  assert.equal(done.stdout, "");
   assert.deepEqual(fs.readdirSync(dir).sort(), ["claude-limits.json", "claude-statusline.py"], "no temporary file is left");
 });
 
@@ -70,32 +70,32 @@ test("a window is replaced only when the input has it, and an input without limi
   const weekly = run(session({ seven_day: { used_percentage: 21, resets_at: FUTURE } }));
   assert.deepEqual(stored(), {
     five_hour: { used_percentage: 10, resets_at: FUTURE }, seven_day: { used_percentage: 21, resets_at: FUTURE } });
-  assert.equal(weekly.stdout, "5h 10%  wk 21%\n");
+  assert.equal(weekly.stdout, "");
   const before = fs.readFileSync(out, "utf8");
   // no limits at all: an API plan, or the first moments of a session
   for (const input of [session(), session({}), session({ five_hour: null }), "", "{not json", "[]", "null", "\u0000ÿ"]) {
     const done = run(input);
     assert.equal(fs.readFileSync(out, "utf8"), before, JSON.stringify(input).slice(0, 40));
-    assert.equal(done.stdout, "5h 10%  wk 21%\n");
+    assert.equal(done.stdout, "");
   }
   // a number that is not a number is not a window
   run(session({ five_hour: { used_percentage: true, resets_at: FUTURE }, seven_day: { used_percentage: "9" } }));
   assert.equal(fs.readFileSync(out, "utf8"), before);
 });
 
-test("with nothing to show it prints nothing and makes no file", () => {
+test("with no limits yet it prints nothing and makes no file", () => {
   const done = run(session());
   assert.equal(done.stdout, "");
   assert.equal(fs.existsSync(out), false);
 });
 
-test("a window whose reset time has passed is printed as 0%, and the file keeps what Claude Code sent", () => {
+test("a window whose reset time has passed is kept as Claude Code sent it, and nothing is printed", () => {
   const done = run(session({ five_hour: { used_percentage: 80, resets_at: PAST }, seven_day: { used_percentage: 3, resets_at: FUTURE } }));
-  assert.equal(done.stdout, "5h 0%  wk 3%\n");
+  assert.equal(done.stdout, "");
   assert.equal(stored().five_hour.used_percentage, 80);
 });
 
-test("a status line that was already there keeps working: it gets the input and its output is the line", () => {
+test("a status line that was already there keeps working: it gets the input and its output is printed unchanged", () => {
   const input = session({ five_hour: { used_percentage: 30, resets_at: FUTURE } });
   const done = run(input, "cat");
   assert.equal(done.stdout, input, "the input reaches it unchanged, and its output is all that is printed");

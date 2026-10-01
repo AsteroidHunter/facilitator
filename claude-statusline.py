@@ -4,8 +4,9 @@
 Claude Code runs the command after each reply and sends one JSON object on
 stdin. This keeps the two numbers the home page's limits box draws,
 rate_limits.five_hour and rate_limits.seven_day (used_percentage and
-resets_at), in claude-limits.json beside this file, and prints a short status
-line. Nothing else from the input is kept.
+resets_at), in claude-limits.json beside this file. It prints nothing of its
+own, so no status line text shows in Claude Code. Nothing else from the input
+is kept.
 
 Each window is replaced only when the input has it: Claude Code sends the
 limits for subscription plans only, only after the first reply of a session,
@@ -13,8 +14,8 @@ and either window may be missing on its own, so an input without them leaves
 the file as it was. The file is written whole and moved into place.
 
 A status line command already in use keeps working: give it as the one
-argument, and the input is passed to it unchanged and its output is the line
-printed here.
+argument, and the input is passed to it unchanged and its output is printed
+unchanged.
 
     python3 claude-statusline.py
     python3 claude-statusline.py "the command that was there before"
@@ -23,11 +24,10 @@ import json
 import os
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 OUT = Path(__file__).resolve().parent / "claude-limits.json"
-WINDOWS = (("five_hour", "5h"), ("seven_day", "wk"))
+WINDOWS = ("five_hour", "seven_day")
 WRAPPED_SECONDS = 5
 
 
@@ -50,7 +50,7 @@ def read_stored():
         return {}
     if not isinstance(data, dict):
         return {}
-    return {key: w for key, _ in WINDOWS if (w := window(data.get(key)))}
+    return {key: w for key in WINDOWS if (w := window(data.get(key)))}
 
 
 def write(windows):
@@ -65,18 +65,6 @@ def write(windows):
             pass
 
 
-def short(windows):
-    now = time.time()
-    bits = []
-    for key, name in WINDOWS:
-        w = windows.get(key)
-        if not w:
-            continue
-        over = w["resets_at"] is not None and w["resets_at"] <= now
-        bits.append(f"{name} {0 if over else round(min(max(w['used_percentage'], 0), 100))}%")
-    return "  ".join(bits)
-
-
 def main():
     raw = sys.stdin.buffer.read().decode("utf-8", "replace")
     try:
@@ -86,7 +74,7 @@ def main():
     limits = data.get("rate_limits") if isinstance(data, dict) else None
     stored = read_stored()
     windows = dict(stored)
-    for key, _ in WINDOWS:
+    for key in WINDOWS:
         got = window(limits.get(key)) if isinstance(limits, dict) else None
         if got:
             windows[key] = got
@@ -99,10 +87,6 @@ def main():
             sys.stdout.write(done.stdout)
         except (OSError, subprocess.TimeoutExpired):
             pass
-        return
-    line = short(windows)
-    if line:
-        print(line)
 
 
 if __name__ == "__main__":
