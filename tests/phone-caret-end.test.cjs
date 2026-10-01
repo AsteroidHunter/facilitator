@@ -3,7 +3,9 @@
 // lands after the last of them, wherever it was left in them before, and an empty box
 // stays as it was. The same holds on the plain box and on the typed-formatting editor.
 // The focus is still taken without scrolling, and the caret colour is still held back
-// at once and released once the layout has settled. A stand-in visual viewport stands
+// at once and released once the layout has settled, and the caret is then moved one place
+// off and back (an empty box gets a transform for a frame) so the phone draws it before
+// a key is pressed. A stand-in visual viewport stands
 // for the keyboard, as phone-typing-row.test.cjs does.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
@@ -262,6 +264,66 @@ for (const editor of [false, true]) {
       const landed = await where(page, next);
       assert.equal(landed.inBox, true);
       assert.deepEqual([landed.start, landed.end], [0, 0], "the caret was moved when the hold ended");
+      assert.deepEqual(problems, []);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test(`${face}: once the colour is back the caret is moved one place off and back, so the phone draws it`, async () => {
+    const { page, problems, next } = await prepare(editor, { words: WORDS });
+    try {
+      await page.evaluate(i => {
+        const ta = els[i].ta, foot = els[i].bottombar;
+        window.__moves = [];
+        window.__heldSeen = false;
+        window.__styled = false;
+        new MutationObserver(() => { if (foot.classList.contains("nocaret")) window.__heldSeen = true; })
+          .observe(foot, { attributes: true, attributeFilter: ["class"] });
+        new MutationObserver(records => {
+          if (records.some(r => /translateZ/.test(r.target.style.transform))) window.__styled = true;
+        }).observe(foot, { attributes: true, attributeFilter: ["style"], subtree: true });
+        const original = ta.setSelectionRange;
+        Object.defineProperty(ta, "setSelectionRange", {
+          configurable: true, writable: true,
+          value(...args) {
+            window.__moves.push({ from: args[0], to: args[1], back: window.__heldSeen && !foot.classList.contains("nocaret") });
+            return original.apply(this, args);
+          },
+        });
+      }, next);
+      await chord(page, "ArrowRight");
+      await settle(900);
+      const moves = (await page.evaluate(() => window.__moves)).filter(m => m.back).map(m => [m.from, m.to]);
+      assert.deepEqual(moves.slice(0, 2), [[WORDS.length - 1, WORDS.length - 1], [WORDS.length, WORDS.length]],
+        "the caret was not moved off its place and back once the colour returned");
+      const landed = await where(page, next);
+      assert.deepEqual([landed.start, landed.end], [WORDS.length, WORDS.length]);
+      assert.equal(await page.evaluate(() => window.__styled), false, "a box with words was given a transform");
+      assert.deepEqual(problems, []);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test(`${face}: a step into an empty box has the caret drawn again with a transform for one frame`, async () => {
+    const { page, problems, next } = await prepare(editor);
+    try {
+      await page.evaluate(i => {
+        window.__transforms = [];
+        new MutationObserver(records => {
+          for (const r of records) window.__transforms.push({ t: performance.now(), value: r.target.style.transform });
+        }).observe(els[i].bottombar, { attributes: true, attributeFilter: ["style"], subtree: true });
+      }, next);
+      await chord(page, "ArrowRight");
+      await settle(900);
+      const seen = await page.evaluate(() => window.__transforms);
+      const set = seen.find(s => /translateZ/.test(s.value));
+      assert.ok(set, "no transform was applied to the empty box's field");
+      const cleared = seen.find(s => s.t > set.t && s.value === "");
+      assert.ok(cleared && cleared.t - set.t < 100, "the transform was not taken off again within a frame or two");
+      const landed = await where(page, next);
+      assert.deepEqual([landed.start, landed.end, landed.length], [0, 0, 0]);
       assert.deepEqual(problems, []);
     } finally {
       await page.close();
