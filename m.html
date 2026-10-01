@@ -889,6 +889,43 @@
     backdrop-filter:none; -webkit-backdrop-filter:none}
   #setpage::before{display:none}
   #setpage .sp-head{padding-top:14px}
+  /* the turn off mark stands alone at the foot of the panel, under the list and
+     under any section: a 16px power mark in the sub ink, centred, 16px up from
+     the foot, with the room a finger needs around it. what it puts up first is
+     the question below. a sign out that fails says so under it */
+  #setfoot{flex:none; display:flex; flex-direction:column; align-items:center; gap:4px; padding:8px 12px}
+  #signout{display:flex; margin:0; padding:8px; border:none; background:none; color:var(--sub); cursor:pointer}
+  #signout:disabled{opacity:.6; cursor:default}
+  #signout svg{display:block}
+  #signoutnote{margin:0; font:12px/1.5 var(--sans); color:var(--sub); text-align:center}
+  #signoutnote:empty{display:none}
+  /* the question, in the alert a phone asks with: a dim over the whole screen
+     and a rounded card in its middle, the question over two pills side by side.
+     the colours are the system's own, from Apple's published table: the blue
+     fills the pill being asked for and inks the word on the other pill, whose
+     fill is the fifth gray, and the card is the sixth gray. it comes in from a
+     little larger and settles, and leaves on the fade alone, both in a fifth of
+     a second */
+  #signoutask{--system-blue:#0088FF; --system-gray5:#E5E5EA; --system-gray6:242 242 247;
+    position:fixed; inset:0; z-index:35; display:grid; place-items:center; padding:24px;
+    background:rgba(0,0,0,.14); opacity:1; transition:opacity 200ms ease-in-out;
+    font:17px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing:antialiased}
+  #signoutask[hidden]{display:none}
+  #signoutask.entering{opacity:0; transition:none}
+  #signoutask.leaving{opacity:0}
+  .ask-card{width:min(304px, calc(100vw - 48px)); overflow:hidden; padding:20px 14px 14px;
+    border:1px solid rgba(255,255,255,.72); border-radius:26px; background:rgb(var(--system-gray6) / .94);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.9), 0 18px 50px rgba(0,0,0,.2);
+    backdrop-filter:blur(34px) saturate(180%); -webkit-backdrop-filter:blur(34px) saturate(180%);
+    color:#000; text-align:center; transform:scale(1); transition:transform 200ms ease-in-out}
+  #signoutask.entering .ask-card{transform:scale(1.1); transition:none}
+  .ask-copy{margin:0; padding:0 8px 18px; font-size:18px; font-weight:500; line-height:1.28; letter-spacing:-.01em}
+  .ask-actions{display:grid; grid-auto-flow:column; grid-auto-columns:1fr; gap:10px}
+  .ask-actions button{min-width:0; min-height:44px; margin:0; padding:8px 12px; border:none; border-radius:999px;
+    font:inherit; font-size:16px; font-weight:500; cursor:pointer}
+  #signoutno{background:var(--system-gray5); color:var(--system-blue)}
+  #signoutyes{background:var(--system-blue); color:#fff}
   /* the one line a keyboard save says over whatever the panel shows */
   #diagnostictoast{position:fixed; z-index:30; top:48px; left:12px; right:12px;
     padding:10px 12px; background:var(--paper); border:var(--edge) solid var(--line);
@@ -1156,12 +1193,6 @@
           <input type="checkbox" role="switch" id="notify">
         </div>
       </div>
-      <div data-section="account" data-label="Account">
-        <div class="setact">
-          <button id="signout" class="sp-btn" type="button">Sign out</button>
-          <div id="signoutnote" class="sethelp" role="status" aria-live="polite"></div>
-        </div>
-      </div>
       <div data-section="diagnostics" data-label="Diagnostics">
         <div class="setact">
           <button id="savediagnostic" class="sp-btn" type="button" aria-describedby="diagnostichelp" aria-keyshortcuts="Control+Shift+M">Save diagnostic history</button>
@@ -1171,7 +1202,21 @@
       </div>
     </div>
   </div>
+  <div id="setfoot">
+    <button id="signout" type="button" title="Log out" aria-label="Log out" aria-haspopup="dialog"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v10"/><path d="M17.14 5.87A8 8 0 1 1 6.86 5.87"/></svg></button>
+    <p id="signoutnote" role="status" aria-live="polite"></p>
+  </div>
 </aside>
+<!-- the question the turn off mark puts before signing out -->
+<div id="signoutask" role="alertdialog" aria-modal="true" aria-labelledby="signoutaskcopy" hidden>
+  <div class="ask-card">
+    <p id="signoutaskcopy" class="ask-copy">Are you sure you want to log out?</p>
+    <div class="ask-actions">
+      <button type="button" id="signoutno">Cancel</button>
+      <button type="button" id="signoutyes">Log Out</button>
+    </div>
+  </div>
+</div>
 <div id="diagnostictoast" role="status"></div>
 <div id="serverdown" role="alert"><p><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m6.5 8 3.5 3.5m0-3.5-3.5 3.5m7.5-3.5 3.5 3.5m0-3.5-3.5 3.5"/><path d="M8.5 17c1-1.2 2.2-1.8 3.5-1.8s2.5.6 3.5 1.8"/></svg>Is the Facilitator server down?</p></div>
 
@@ -1203,7 +1248,41 @@
 <script src="/compose-format.js"></script>
 <script src="/m-splash.js"></script>
 <script>
-document.getElementById("signout").addEventListener("click", async () => {
+// the turn off mark asks before it signs out. Cancel and Escape put the
+// question away and change nothing; Log Out lets it fade, then signs out. while
+// it is up, a finger on it pulls nothing under it and a key pressed in it goes
+// no further
+const signoutAsk = document.getElementById("signoutask");
+let signoutAskTimer = 0;
+function askSignOut(){
+  clearTimeout(signoutAskTimer);
+  signoutAsk.classList.remove("leaving");
+  signoutAsk.hidden = false;
+  signoutAsk.classList.add("entering");
+  void signoutAsk.offsetWidth;   // drawn once at the start, so the settle runs from it
+  signoutAsk.classList.remove("entering");
+  document.getElementById("signoutno").focus({ preventScroll: true });
+}
+function putSignOutAskAway(then){
+  clearTimeout(signoutAskTimer);
+  signoutAsk.classList.add("leaving");
+  signoutAskTimer = setTimeout(() => {
+    signoutAsk.hidden = true;
+    signoutAsk.classList.remove("leaving");
+    if (then) then();
+    else document.getElementById("signout").focus({ preventScroll: true });
+  }, 200);
+}
+document.getElementById("signout").addEventListener("click", askSignOut);
+document.getElementById("signoutno").addEventListener("click", () => putSignOutAskAway());
+document.getElementById("signoutyes").addEventListener("click", () => putSignOutAskAway(signOut));
+for (const type of ["touchstart", "mousedown"])
+  signoutAsk.addEventListener(type, e => e.stopPropagation(), { passive: true });
+signoutAsk.addEventListener("keydown", e => {
+  e.stopPropagation();
+  if (e.key === "Escape"){ e.preventDefault(); putSignOutAskAway(); }
+});
+async function signOut(){
   const button = document.getElementById("signout");
   const note = document.getElementById("signoutnote");
   button.disabled = true;
@@ -1232,7 +1311,7 @@ document.getElementById("signout").addEventListener("click", async () => {
     note.textContent = "Could not sign out. Check your connection and try again.";
     button.disabled = false;
   }
-});
+}
 // the phone is where a failure is hardest to reproduce, so it reports the same
 // way the board does: thrown errors, failed fetches, failed renders
 if (typeof startReporter === "function") startReporter("phone");

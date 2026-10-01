@@ -931,7 +931,7 @@ test("the settings come in from the right, holding the header, the list of secti
       };
     });
     assert.equal(made.header, "Settings", "the panel's header is not Settings");
-    assert.deepEqual(made.items, ["Editor", "Notifications", "Account", "Diagnostics"], "the panel does not list the sections");
+    assert.deepEqual(made.items, ["Editor", "Notifications", "Diagnostics"], "the panel does not list the sections");
     assert.equal(made.gear, true, "a section in the list carries no mark");
     assert.equal(made.gearStroke, "currentColor", "the mark is not drawn in the card's line style");
     assert.equal(made.gearFill, "none");
