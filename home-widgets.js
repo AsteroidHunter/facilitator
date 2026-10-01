@@ -38,8 +38,15 @@
 //   limits   a second, smaller box of the same make: one row for each plan
 //            window GET /limits has a number for, Claude 5-hour, Claude
 //            weekly, Codex 5-hour, Codex weekly, each a name, a bar and the
-//            percent used. It says nothing else, and while there is no row to
-//            show it is not shown at all
+//            percent used, and under them, small and faint, when the numbers
+//            were taken ("Last updated 3 min ago"). The bars are drawn in the
+//            token chart's own colours: the line's daily colour filled into a
+//            track of the heatmap's lightest tint. The last answer is kept in
+//            this browser and drawn the moment the box is made, before the
+//            route has answered; the answer that follows moves the bars and
+//            the numbers where they differ, on the same nodes, so nothing
+//            jumps and the box keeps its size. While there is no row to show
+//            it is not shown at all
 //
 // Each widget is a function of (element, days) that draws into the element
 // it is given and owns nothing outside it, so either can later sit in a shared
@@ -611,23 +618,55 @@
   // the tool, the window and the words on the row
   const LIMIT_ROWS = [["claude", "five_hour", "Claude 5-hour"], ["claude", "weekly", "Claude weekly"],
                       ["codex", "five_hour", "Codex 5-hour"], ["codex", "weekly", "Codex weekly"]];
+  // the bars wear the chart's colours: the daily line's colour for the fill and
+  // the heatmap's lightest tint for the track
+  const LIMIT_FILL = LINE, LIMIT_TRACK = PALETTE[1];
+  const LIMITS_KEY = "home.limits";
+  // while the server says it is renewing its reading the box asks again, this
+  // often and at most this many times in a row
+  const FOLLOW_MS = 2000, FOLLOW_MAX = 8;
   // the rows an answer has a number for, each a whole percent from 0 to 100; a
-  // tool the answer leaves out, or a window it has no number for, has no row
-  function limitRows(answer) {
+  // tool the answer leaves out, or a window it has no number for, has no row.
+  // given the time in seconds, a window whose reset has passed is 0, since the
+  // number kept with it describes a window that is over
+  function limitRows(answer, now) {
     const rows = [];
     if (!answer || typeof answer !== "object") return rows;
     for (const [tool, span, label] of LIMIT_ROWS) {
       const w = answer[tool] && answer[tool][span];
       if (!w || typeof w.used !== "number" || !Number.isFinite(w.used)) continue;
-      rows.push({ label, used: Math.max(0, Math.min(100, Math.round(w.used))) });
+      const over = now != null && typeof w.resets === "number" && w.resets <= now;
+      rows.push({ label, used: over ? 0 : Math.max(0, Math.min(100, Math.round(w.used))) });
     }
     return rows;
   }
+  // how long ago, in the words the box uses
+  function ago(seconds) {
+    const s = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+    if (s < 60) return "just now";
+    const m = Math.floor(s / 60);
+    if (m < 60) return m + " min ago";
+    const h = Math.floor(m / 60);
+    return h < 24 ? h + " h ago" : Math.floor(h / 24) + " d ago";
+  }
+  // the answer kept in this browser: {at, answer}, at being the browser clock's
+  // time in milliseconds when the server took the reading. nothing kept, or
+  // something unreadable, is nothing
+  function readKept(store) {
+    try {
+      const kept = JSON.parse(store.getItem(LIMITS_KEY));
+      if (kept && typeof kept === "object" && kept.answer && typeof kept.answer === "object") return kept;
+    } catch (err) {}
+    return null;
+  }
   // the box is drawn into root, which it hides while there is nothing to show:
-  // no heading, no message and no empty frame. a reading that cannot be had
-  // leaves the last drawing as it was
+  // no heading and no message. a reading that cannot be had leaves the last
+  // drawing as it was
   function limits(root, opts = {}) {
     const doc = root.ownerDocument || document;
+    const store = "store" in opts ? opts.store : (typeof localStorage !== "undefined" ? localStorage : null);
+    const clock = opts.now || (() => Date.now());
+    const later = opts.later || ((fn, ms) => setTimeout(fn, ms));
     const load = opts.load || (() => fetch("/limits")
       .then(r => { if (!r.ok) throw new Error("limits " + r.status); return r.json(); }));
     const el = (tag, cls, text) => {
@@ -636,11 +675,12 @@
       if (text != null) n.textContent = text;
       return n;
     };
-    function draw(rows) {
+    let drawn = null;       // {labels, rows: [{fill, bar, pct}], note}
+    let at = null;          // when the reading on show was taken, browser clock
+    function build(rows) {
       root.textContent = "";
-      root.hidden = !rows.length;
-      if (!rows.length) return;
       const box = el("div", "tk-panel lm-box");
+      const parts = [];
       for (const { label, used } of rows) {
         const row = el("div", "lm-row");
         const bar = el("span", "lm-bar");
@@ -649,25 +689,75 @@
         bar.setAttribute("aria-valuemin", "0");
         bar.setAttribute("aria-valuemax", "100");
         bar.setAttribute("aria-valuenow", String(used));
+        bar.style.background = LIMIT_TRACK;
         const fill = el("span", "lm-fill");
         fill.style.width = used + "%";
+        fill.style.background = LIMIT_FILL;
         bar.appendChild(fill);
+        const pct = el("span", "lm-pct", used + "%");
         row.appendChild(el("span", "lm-name", label));
         row.appendChild(bar);
-        row.appendChild(el("span", "lm-pct", used + "%"));
+        row.appendChild(pct);
         box.appendChild(row);
+        parts.push({ fill, bar, pct });
       }
+      const note = el("span", "lm-updated");
+      box.appendChild(note);
       root.appendChild(box);
+      drawn = { labels: rows.map(r => r.label), rows: parts, note };
     }
-    let asking = null;
-    function refresh() {
+    // when the rows are the ones already on show only what differs is changed:
+    // the fill's width, which the sheet eases to the new value, and the number
+    function draw(rows) {
+      root.hidden = !rows.length;
+      if (!rows.length) { root.textContent = ""; drawn = null; return; }
+      const same = drawn && drawn.labels.length === rows.length && drawn.labels.every((l, i) => l === rows[i].label);
+      if (!same) build(rows);
+      else rows.forEach(({ used }, i) => {
+        const part = drawn.rows[i];
+        if (part.pct.textContent === used + "%") return;
+        part.fill.style.width = used + "%";
+        part.pct.textContent = used + "%";
+        part.bar.setAttribute("aria-valuenow", String(used));
+      });
+      tick();
+    }
+    // the faint line under the rows, counted from the server's own fetch time
+    function tick() {
+      if (!drawn) return;
+      const text = at == null ? "" : "Last updated " + ago((clock() - at) / 1000);
+      if (drawn.note.textContent !== text) drawn.note.textContent = text;
+    }
+    function keep(answer) {
+      if (!store) return;
+      try { store.setItem(LIMITS_KEY, JSON.stringify({ at, answer: { claude: answer.claude, codex: answer.codex } })); }
+      catch (err) {}
+    }
+    function take(answer) {
+      if (!answer || typeof answer !== "object") return;
+      at = typeof answer.fetched === "number" && typeof answer.now === "number"
+        ? clock() - (answer.now - answer.fetched) * 1000 : null;
+      draw(limitRows(answer));
+      keep(answer);
+    }
+    let asking = null, wave = 0;
+    function refresh(follow = 0) {
       if (asking) return asking;
-      asking = Promise.resolve().then(load).then(answer => draw(limitRows(answer)), () => {})
-        .finally(() => { asking = null; });
+      const mine = follow ? wave : ++wave;
+      asking = Promise.resolve().then(load).then(answer => {
+        take(answer);
+        if (answer && answer.refreshing === true && follow < FOLLOW_MAX)
+          later(() => { if (mine === wave) refresh(follow + 1); }, FOLLOW_MS);
+      }, () => {}).finally(() => { asking = null; });
       return asking;
     }
     root.hidden = true;
-    return { root, refresh };
+    const kept = store ? readKept(store) : null;
+    if (kept) {
+      at = typeof kept.at === "number" ? kept.at : null;
+      draw(limitRows(kept.answer, clock() / 1000));
+    }
+    return { root, refresh, tick };
   }
 
   window.TokenWidgets = {
@@ -675,6 +765,6 @@
     compact, longDay, scale, rolling, niceAxis, geometry, sources, sourceLine,
     heatmapModel, heatmapSvg, heatPin, heatTip, drawHeatmap,
     lineModel, lineSvg, linePin, lineTip, drawLine,
-    viewHtml, seat, panel, limitRows, limits,
+    viewHtml, seat, panel, limitRows, ago, limits, LIMIT_FILL, LIMIT_TRACK, LIMITS_KEY,
   };
 })();

@@ -286,7 +286,7 @@
 
   /* ---- the home page ------------------------------------------------------ */
   /* a blank page above every project holding the token panel and nothing else,
-     the board's own (home-widgets.css, fetched the first time home opens). it
+     the board's own (home-widgets.css, fetched once the page is idle). it
      takes the card's place under the tabs: the card stays laid out, only out of
      sight, so its answer's place and its row's words are as they were left when
      a tab brings it back. the pane gives up its fill, edge and shade the way it
@@ -3129,21 +3129,30 @@ function applySelection(state){
 // sight and marks nothing read, and the board's keys are off. The counts are
 // asked for when it opens and every few minutes while it stays open and in view.
 // The limits box under the panel is asked for every minute over the same time:
-// the server answers from a reading it keeps for five minutes, so the minute
-// only picks up what Claude Code's status line has written since.
+// the server answers at once from the reading it keeps, renewing it in the
+// background every five minutes, so the minute picks up what Claude Code's
+// status line has written since and a renewal that has finished. The box keeps
+// its last answer in this phone and draws it as soon as it is made, and its
+// "Last updated" line is counted again every few seconds while home is up. It
+// is made, and asked once, when the page loads (homeWarm), so a tap on the
+// house finds it drawn.
 const HOME_KEY = "homeopen";
 const HOME_EVERY = 5 * 60 * 1000;
 const LIMITS_EVERY = 60 * 1000;
+const LIMITS_TICK = 15 * 1000;
 const house = document.getElementById("homeico");
 let homePanel = null;
 let homeLimits = null;
 let homeTimer = null;
 let limitsTimer = null;
+let limitsTick = null;
 let homeLoad = null;
-// the panel's code and sheet, fetched the first time home opens and never on
-// boot, as the board does: a phone nobody opens home on pays nothing for them.
-// they come from the server this page came from, so one that cannot be had is
-// a board that cannot be reached right now, and a press on the house asks again
+// the panel's code and sheet, fetched when the page has loaded and is idle, or
+// when home opens if that comes first: they are small (about 40 KB), and having
+// them in hand is what lets the limits box be drawn in the same frame as the
+// tap on the house, not a round trip later. they come from the server this
+// page came from, so one that cannot be had is a board that cannot be reached
+// right now, and a press on the house asks again
 function homeBundle(){
   if (window.TokenWidgets) return Promise.resolve(true);
   if (homeLoad) return homeLoad;
@@ -3171,8 +3180,7 @@ async function homeShow(){
       return;
     }
     if (!homePanel) homePanel = TokenWidgets.panel(plot);
-    const spot = document.getElementById("homelimits");
-    if (spot && !homeLimits && TokenWidgets.limits) homeLimits = TokenWidgets.limits(spot);
+    homeLimitsMake();
   }
   if (!homeOpen) return;
   homePanel.refresh();
@@ -3182,7 +3190,23 @@ async function homeShow(){
     homeLimits.refresh();
     clearInterval(limitsTimer);
     limitsTimer = setInterval(() => { if (!document.hidden) homeLimits.refresh(); }, LIMITS_EVERY);
+    clearInterval(limitsTick);
+    limitsTick = setInterval(() => homeLimits.tick(), LIMITS_TICK);
   }
+}
+function homeLimitsMake(){
+  const spot = document.getElementById("homelimits");
+  if (spot && !homeLimits && window.TokenWidgets && TokenWidgets.limits) homeLimits = TokenWidgets.limits(spot);
+}
+// on load, once the page is idle: bring in the home page's files, make the
+// limits box (which draws what this phone kept of the last answer) and ask for
+// the numbers, so they are stored and drawn before the house is tapped
+function homeWarm(){
+  homeBundle().then(ok => {
+    if (!ok) return;
+    homeLimitsMake();
+    if (homeLimits) homeLimits.refresh();
+  });
 }
 function setHome(on){
   homeOpen = !!on;
@@ -3197,6 +3221,8 @@ function setHome(on){
   homeTimer = null;
   clearInterval(limitsTimer);
   limitsTimer = null;
+  clearInterval(limitsTick);
+  limitsTick = null;
   if (homeOpen){
     // the house leaves the board the way another tab does: the card on screen
     // is no longer selected, so coming back shows it browsed
@@ -3223,6 +3249,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let wanted = false;
   try { wanted = !!localStorage.getItem(HOME_KEY); } catch (err){}
   if (wanted && !wantBox) setHome(true);
+  else (window.requestIdleCallback || (fn => setTimeout(fn, 300)))(homeWarm);
 });
 
 // ---- the drawer's list, the desktop's ticket panel ----------------------------------

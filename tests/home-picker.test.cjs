@@ -121,9 +121,11 @@ test("the stack stands at the centre of the frame's left half, both ways, at thr
       assert.ok(m.stack.top >= m.frame.top && m.stack.bottom <= m.frame.bottom, `${why}: inside the frame`);
       assert.ok(m.stack.right <= (m.frame.left + m.frame.right) / 2, `${why}: in the left half`);
       assert.equal(m.marked, 0, `${why}: no row is marked on home`);
-      // the two boxes on the right are where the frame's quarters put them, picker or not
+      // the two boxes on the right are one pair, centred in the right half and down the frame, picker or not
+      assert.ok(m.limits, `${why}: the limits box is there`);
       near(m.token.cx, m.frame.left + 0.75 * (m.frame.right - m.frame.left), `${why}: token across`);
-      near(m.token.cy, m.frame.top + 0.25 * (m.frame.bottom - m.frame.top), `${why}: token down`);
+      near(m.limits.cx, m.token.cx, `${why}: limits across`);
+      near((m.token.top + m.limits.bottom) / 2, (m.frame.top + m.frame.bottom) / 2, `${why}: pair down`);
       await page.addStyleTag({ content: "#newproj{display:none !important}" });
       const bare = await measure(page);
       assert.deepEqual([bare.token, bare.limits], [m.token, m.limits], `${why}: the picker moved a box on the right`);
@@ -317,6 +319,68 @@ test("the house on an unfinished new tab drops it, back on the tab it came from,
     await goPlus(page);
     assert.equal((await measure(page)).marked, 1);
   } finally { await context.close(); }
+});
+
+const centred = (m, why) => {
+  near(m.stack.cy, (m.frame.top + m.frame.bottom) / 2, `${why}: down`);
+  assert.ok(m.stack.top >= m.frame.top && m.stack.bottom <= m.frame.bottom, `${why}: inside the frame`);
+};
+const projectCount = async () => Object.keys((await state()).pwds).filter(o => o !== "qchat").length;
+async function growTo(total) {
+  for (let k = await projectCount(); k < total; k++) await fx.makeProject("grow-" + k);
+}
+
+test("with one project the stack stands centred, on home and on the new tab", async () => {
+  const solo = await launch({ files: ["home-widgets.js", "home-widgets.css", "tokens.py", "limits.py"], onlyBin: true });
+  try {
+    await solo.makeProject("only-one");
+    const { context, page } = await solo.openBoard(null, SIZES[0]);
+    try {
+      await goHome(page);
+      let m = await measure(page);
+      assert.equal(m.rowRects.length, await page.evaluate(() => allRowsOf(lastState).length));
+      assert.ok(m.rowRects.length <= 2, "a short list");
+      centred(m, "home");
+      near(m.stack.cx, m.frame.left + (m.frame.right - m.frame.left) / 4, "home across");
+      await goPlus(page);
+      m = await measure(page);
+      centred(m, "new tab");
+      near(m.stack.cx, m.vw / 2, "new tab across");
+    } finally { await context.close(); }
+  } finally { await solo.stop(); }
+});
+
+test("the stack stays centred as the list grows to 12 and 40, on home and the new tab, and when one is added while open", async () => {
+  for (const total of [5, 12, 40]) {
+    await growTo(total);
+    for (const view of [SIZES[0], SIZES[1]]) {
+      const { context, page } = await openPage(view);
+      try {
+        await goHome(page);
+        const home = await measure(page);
+        assert.equal(home.rowRects.length, await page.evaluate(() => allRowsOf(lastState).length), `${total}: every project has its row`);
+        assert.ok(home.rowRects.length >= total, `${total}: at least that many rows`);
+        centred(home, `${total} on home at ${view.width}x${view.height}`);
+        await goPlus(page);
+        centred(await measure(page), `${total} on the new tab at ${view.width}x${view.height}`);
+      } finally { await context.close(); }
+    }
+  }
+  for (const where of ["home", "new tab"]) {
+    const { context, page } = await openPage(SIZES[0]);
+    try {
+      await goHome(page);
+      if (where === "new tab") await goPlus(page);
+      const before = await measure(page);
+      await fx.makeProject("added-while-open-" + where.replace(" ", ""));
+      await page.waitForFunction(n => document.querySelectorAll("#nprows .nprow").length > n, { timeout: 15000 }, before.rowRects.length);
+      await sleep(700);
+      const after = await measure(page);
+      assert.equal(after.rowRects.length, before.rowRects.length + 1);
+      centred(before, `${where} before the add`);
+      centred(after, `${where} after the add`);
+    } finally { await context.close(); }
+  }
 });
 
 test("a long list scrolls inside its well and the stack stays in the frame, in a tall window and a short one", async () => {
