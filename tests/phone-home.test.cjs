@@ -93,7 +93,7 @@ test("the house heads the phone's tab row, a tab in all but its mark", () => {
 });
 
 test("the home page takes the card's place, holds only the token panel and keeps the card as it was", () => {
-  // inside the pane, beside the card, loaded only when home first opens
+  // inside the pane, beside the card, its files brought in by script, never by a tag
   const pane = between(PHONE, '<main id="pane"', "</main>");
   assert.match(pane, /<section id="home" aria-label="Home"><div id="homeplot"><\/div><div id="homelimits" hidden><\/div><\/section>/);
   assert.doesNotMatch(PHONE, /<script src="\/home-widgets\.js">/);
@@ -211,7 +211,7 @@ function phoneHome({ stored = {}, want = null, serve = true, state = { rev: 1 } 
   byId.tabrow.parts = { ".bar": lane };
   doc.getElementById = id => byId[id] || null;
   const store = new Map(Object.entries(stored));
-  const fetched = [], tabs = [], blurred = [], unselected = [], timers = new Map();
+  const fetched = [], tabs = [], blurred = [], unselected = [], idle = [], timers = new Map();
   let nextTimer = 0;
   const ctx = {
     console, document: doc, homeOpen: false, lastState: state, wantBox: want,
@@ -222,6 +222,7 @@ function phoneHome({ stored = {}, want = null, serve = true, state = { rev: 1 } 
     unselectShown: () => unselected.push(true),
     setInterval: (fn, ms) => { timers.set(++nextTimer, { fn, ms }); return nextTimer; },
     clearInterval: id => { timers.delete(id); },
+    requestIdleCallback: fn => { idle.push(fn); },
     fetch: async url => { fetched.push(url);
       return { ok: true, json: async () => ({ days: daysEnding(371), found: { claude: true, codex: false } }) }; },
   };
@@ -240,13 +241,13 @@ function phoneHome({ stored = {}, want = null, serve = true, state = { rev: 1 } 
   };
   vm.createContext(ctx);
   vm.runInContext(block, ctx);
-  return { ctx, doc, byId, lane, store, fetched, tabs, blurred, unselected, timers, net, is: name => vm.runInContext(name, ctx) };
+  return { ctx, doc, byId, lane, store, fetched, tabs, blurred, unselected, idle, timers, net, is: name => vm.runInContext(name, ctx) };
 }
 
 test("the phone's house opens home, fetches the widgets then, and leaving puts everything back", async () => {
   const h = phoneHome();
   const house = h.byId.homeico;
-  assert.equal(h.doc.head.children.length, 0, "nothing fetched on boot");
+  assert.equal(h.doc.head.children.length, 0, "the block itself fetches nothing; the page's idle warm-up is the load handler's");
   house.click();
   assert.equal(h.ctx.homeOpen, true);
   assert.ok(h.doc.body.classList.contains("home"));
@@ -306,10 +307,19 @@ test("a reopen comes back to home, except onto a notification's card, and a fail
   assert.equal(back.ctx.homeOpen, true);
   await settle();
   assert.deepEqual(back.fetched, ["/tokens/daily?days=371"]);
+  assert.equal(back.idle.length, 0, "going straight onto home needs no idle warm-up");
 
   const card = phoneHome({ stored: { homeopen: "1" }, want: "m12" });
   for (const fn of card.doc.listeners.DOMContentLoaded) fn();
   assert.equal(card.ctx.homeOpen, false, "a notification's card is shown on its board");
+  // the page warms the home files when it is idle, and opens nothing
+  assert.equal(card.idle.length, 1);
+  assert.equal(card.doc.head.children.length, 0);
+  card.idle[0]();
+  await settle();
+  assert.equal(card.doc.head.children.length, 2, "the sheet and the script came in");
+  assert.equal(card.ctx.homeOpen, false);
+  assert.deepEqual(card.fetched, [], "no counts are asked for until home opens");
 
   // the board out of reach: home says so, with no ellipsis, and no counts are asked for
   const away = phoneHome({ serve: false });
@@ -490,7 +500,6 @@ test("on the phone the house opens home, the pill and the tips work by tap, and 
                tabs: tabs.map(t => ({ left: t.left, top: t.top, height: t.height })),
                pressed: document.getElementById("homeico").getAttribute("aria-pressed"),
                seated: document.querySelectorAll("#tabbar .ptab.on").length,
-               widgets: !!document.getElementById("homesheet"),
                home: getComputedStyle(document.getElementById("home")).display };
     });
     assert.ok(board.tabs.length >= 2, "the fixture has project tabs");
@@ -500,8 +509,12 @@ test("on the phone the house opens home, the pill and the tips work by tap, and 
     assert.ok(board.house.left < 20, "at the row's left end");
     assert.equal(board.pressed, "false");
     assert.equal(board.seated, 1);
-    assert.equal(board.widgets, false, "the widgets wait for home");
     assert.equal(board.home, "none");
+    // the page brings the home files in when it is idle, and opens nothing
+    await page.waitForSelector("#homesheet", { timeout: 8000 });
+    await page.waitForFunction(() => !!window.TokenWidgets, { timeout: 8000 });
+    assert.equal(await page.evaluate(() => document.body.classList.contains("home")), false);
+    assert.equal(await page.evaluate(() => document.querySelectorAll("#homeplot .tk-panel").length), 0, "no panel until home opens");
 
     // a tap on the house: home, the board's own panel, drawn from the bridge's /tokens/daily
     await page.tap("#homeico");
