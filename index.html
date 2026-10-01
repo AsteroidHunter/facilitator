@@ -9493,6 +9493,7 @@ async function poll(){
     // a configured reader at load without the reader revealing it by hand
     const fileNavSigWas = Object.entries(FILENAV_MOUNTS).map(([l, m]) => l + ":" + m.box).join(",");
     fileNavMounts(state.navigatorLanes);
+    if (Array.isArray(state.navigatorLanes)) restoreOwnNavigatorOnce();
     const fileNavSigNow = Object.entries(FILENAV_MOUNTS).map(([l, m]) => l + ":" + m.box).join(",");
     if (ownerReady && fileNavSigNow !== fileNavSigWas) applySavedLayout();
     // the Spotify app id is machine-local and rides in on the state; when it
@@ -10242,6 +10243,16 @@ function migrateLegacyVisibility(){
     }
   }
   localStorage.setItem(VISIBILITY_MIGRATION, "1");
+}
+// once per browser, a file navigator box put away on the board's own tab comes
+// back. the hide key goes and the saved place and size stay, so it returns where
+// it was. run after the mount map is known; the cross works as before after it
+const NAVIGATOR_RESTORE = "navrestore.1";
+function restoreOwnNavigatorOnce(){
+  if (localStorage.getItem(NAVIGATOR_RESTORE)) return;
+  const mount = FILENAV_MOUNTS["facilitator"];
+  if (mount) localStorage.removeItem("hide.facilitator." + mount.box);
+  localStorage.setItem(NAVIGATOR_RESTORE, "1");
 }
 function regionHidden(owner, id){
   // an explicit hide always wins: a box the reader put away by hand stays away
