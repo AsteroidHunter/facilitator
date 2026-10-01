@@ -4154,11 +4154,17 @@ function schedulePoll(ms){
 // deadline as the only wait. Once a reading asked after the opening is
 // answered the app is in use, and a board that stops answering then never
 // brings the screen up, however long it stays gone. A reading asked before the
-// opening neither shows the screen nor ends the opening. The screen goes away
-// on any answer
+// opening neither shows the screen nor ends the opening. A touch, a tap, a key
+// or typing before the first reading is answered also ends the opening: a hand
+// on the app is an app in use, and the screen never comes up over it. The
+// screen goes away on any answer
 let opening = true, openedAt = Date.now();
 function linkOpened(){
   opening = true; openedAt = Date.now();
+}
+function linkTouched(){
+  // a touch on the white screen itself is not use of the app
+  if (opening && !document.body.classList.contains("down")) opening = false;
 }
 function linkDown(asked, response){
   // an answer that refuses is still an answer: the board is there
@@ -4419,6 +4425,9 @@ document.addEventListener("visibilitychange", () => {
 // brings a page back from the browser's back-forward cache is an opening of its own
 window.addEventListener("pageshow", e => { if (e.persisted) linkOpened(); resume(); });
 window.addEventListener("online", resume);
+for (const type of ["pointerdown", "touchstart", "keydown", "input"]){
+  document.addEventListener(type, linkTouched, { capture: true, passive: true });
+}
 
 // ---- the typing row -----------------------------------------------------------
 // the row is measured on its twin, never by collapsing the row itself: a row
