@@ -9,7 +9,11 @@ sign-in file or calls a web endpoint.
           most once every EVERY seconds, under a hard time limit, so a stuck
           codex cannot hold a request. When it is missing, signed out or too
           slow, the newest limits Codex wrote into its own session logs are
-          used (tokens.TokenLedger keeps them).
+          used (tokens.TokenLedger keeps them). The first ask of a run is waited
+          for; after that a request is answered at once from the last reading,
+          and a reading EVERY seconds old is renewed in the background, so no
+          request waits on codex. A renewal that finds nothing keeps the last
+          reading, and the time it was taken stays what it was.
   Claude  Claude Code hands its status line command the limits on stdin, and
           claude-statusline.py beside this file writes the two windows to a
           small file. That file is read here on every request.
@@ -200,7 +204,10 @@ class Limits:
         self.clock = clock
         self.lock = threading.Lock()
         self.codex: dict = {}
-        self.asked = None
+        self.asked = None       # when codex was last asked, to space the asks
+        self.fetched = None     # when the reading in self.codex was taken
+        self.busy = False       # a background renewal is running
+        self.worker = None
         self.source = "none"
 
     def _ask(self) -> dict:
@@ -217,18 +224,57 @@ class Limits:
         self.source = "log" if got else "none"
         return got
 
-    def read(self) -> dict:
-        """{"claude": {"five_hour": {"used", "resets"}, "weekly": ...}, "codex":
-        {...}}, holding only the tools that have a window to show."""
+    def _store(self, got: dict) -> None:
+        now = self.clock()
+        if got or not self.codex:
+            self.codex = got
+            self.fetched = now
+        self.asked = now
+
+    def _renew(self) -> None:
+        try:
+            got = self._ask()
+        except Exception:
+            got = {}
+        with self.lock:
+            self._store(got)
+            self.busy = False
+
+    def idle(self, timeout: float = 30.0) -> None:
+        """Wait for a background renewal to finish."""
+        worker = self.worker
+        if worker is not None:
+            worker.join(timeout)
+
+    def _view(self):
         now = self.clock()
         with self.lock:
-            if self.asked is None or now - self.asked >= self.every:
-                self.codex = self._ask()
-                self.asked = self.clock()
-            codex = self.codex
+            if self.asked is None:
+                self._store(self._ask())
+            elif now - self.asked >= self.every and not self.busy:
+                self.busy = True
+                self.worker = threading.Thread(target=self._renew, daemon=True)
+                self.worker.start()
+            codex, fetched, busy = self.codex, self.fetched, self.busy
         out = {}
         for tool, windows in (("claude", read_claude(self.claude_file)), ("codex", codex)):
             shown = settle(windows, now)
             if shown:
                 out[tool] = shown
+        return out, fetched, busy, now
+
+    def read(self) -> dict:
+        """{"claude": {"five_hour": {"used", "resets"}, "weekly": ...}, "codex":
+        {...}}, holding only the tools that have a window to show."""
+        return self._view()[0]
+
+    def answer(self) -> dict:
+        """read() plus three keys: "fetched", when codex was last read (None
+        before the first reading); "now", this clock's time, so a reader on
+        another clock can tell how old the reading is; and "refreshing", true
+        while a renewal is running."""
+        out, fetched, busy, now = self._view()
+        out["fetched"] = None if fetched is None else int(fetched)
+        out["now"] = int(now)
+        out["refreshing"] = busy
         return out

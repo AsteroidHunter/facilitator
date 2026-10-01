@@ -397,8 +397,13 @@ Endpoints:
                                a window to show, each window ("five_hour",
                                "weekly") {used, resets}: a whole percent from 0
                                to 100, 0 once the reset time has passed, and the
-                               reset as epoch seconds or null. limits.py beside
-                               this file says where each number comes from
+                               reset as epoch seconds or null, plus "fetched"
+                               (epoch seconds when Codex was last read, or
+                               null), "now" (this server's clock) and
+                               "refreshing" (a renewal is running). It answers
+                               at once from the last reading; one five minutes
+                               old is renewed in the background. limits.py
+                               beside this file says where each number comes from
   GET  /pickdir             -> the system folder chooser on the desktop this
                                server runs in: blocks until a folder is chosen,
                                then {"path": "..."}; a dismissed chooser answers
@@ -3973,7 +3978,10 @@ def _get_tokens_daily(q: Query, _):
 # and of Codex as a percent used, for the tools that have a number to show.
 # Claude's come from the file claude-statusline.py writes beside this one
 # (gitignored); Codex's from its own app server, at most once in five minutes,
-# or from its session logs. limits.py is loaded when the page first asks.
+# or from its session logs. limits.py is loaded when the page first asks. The
+# first ask waits for Codex; every later one is answered at once from the last
+# reading, with the time it was taken, while a stale reading is renewed in the
+# background (`refreshing` says so).
 CLAUDE_LIMITS = HERE / "claude-limits.json"
 _limits = None
 _limits_lock = threading.Lock()
@@ -3986,8 +3994,9 @@ def _get_limits(q: Query, _):
         if _limits is None:
             _limits = limits.Limits(CLAUDE_LIMITS, lambda: _ledger().latest_limits())
         reader = _limits
-    shown = reader.read()
-    _debug("limits", source=reader.source, tools=len(shown))
+    shown = reader.answer()
+    _debug("limits", source=reader.source,
+           tools=sum(1 for tool in ("claude", "codex") if tool in shown))
     return 200, shown
 
 
