@@ -2978,9 +2978,10 @@
     font:500 15px/1 var(--mono); color:var(--ink); background:none;
     border:none; cursor:pointer; transition:opacity .2s; opacity:.75}
   .ptabplus:hover{opacity:1}
-  /* the not-yet-named tab while its folder is being chosen */
+  /* the not-yet-named tab while its folder is being chosen: upright, in the
+     board's own bold (the weight an unread tab takes) */
   .ptab.draft{color:var(--ink); background:var(--seat); border-color:var(--line);
-    font-style:italic}
+    font-weight:600}
   /* closing a project tab: no bare cross under a moving pointer, and no mark
      waiting on the tab either. a pointer that simply rests on one tab for two and
      a half unbroken seconds opens a band on that tab's right, and the cross lives in
@@ -3827,7 +3828,7 @@ function renderTabs(st){
     }
     if (draft){
       const t = h("button", "ptab draft");
-      t.appendChild(h("span", "plabel", "new project"));
+      t.appendChild(h("span", "plabel", "New Project"));
       bar.appendChild(t);
     }
     if (!LOCKED){
