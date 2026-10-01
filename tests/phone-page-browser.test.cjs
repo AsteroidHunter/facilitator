@@ -476,7 +476,7 @@ test("phone navigation waits for send confirmation, respects manual moves, and s
       "a delayed confirmation stole selection after a filter change");
     await page.evaluate(() => setView("todo"));
 
-    // A board refusal never advances and leaves the take-back safeguard intact.
+    // A board refusal never advances and leaves the red mark and its cross in the row, with no words on it.
     await page.evaluate(() => {
       select("nav-a"); els["nav-a"].ta.value = "fabricated refused send"; doSend("nav-a");
     });
@@ -484,7 +484,10 @@ test("phone navigation waits for send confirmation, respects manual moves, and s
     await page.evaluate(() => window.__sendReplies.shift()(400));
     await page.waitForFunction(() => localSends("nav-a").some(op => op.state === "failed"));
     assert.equal(await page.evaluate(() => selectedId), "nav-a");
-    assert.match(await page.evaluate(() => els["nav-a"].sent.textContent), /not sent/i);
+    assert.deepEqual(await page.evaluate(() => {
+      const row = els["nav-a"].sent.querySelector(".answmsg[data-op]");
+      return [!!row.querySelector(".answmark .answretry"), !!row.querySelector(".answmark .answcross"), row.innerText.trim()];
+    }), [true, true, "fabricated refused send"]);
 
     // A lost first response retries under the same operation id and advances only on recovery.
     await page.evaluate(() => {

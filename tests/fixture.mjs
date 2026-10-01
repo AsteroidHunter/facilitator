@@ -448,8 +448,7 @@ export function makeDesktop(ctx, board, clock){
       // the section the card is filed under, and the toc entry beside it
       page.sections[b.id] = cs === "done" ? "done" : cs === "parked" ? "later" : "now";
       el.toc.className = cs === "parked" ? "t-later" : cs === "done" ? "t-done" : "";
-      if (el.metaNote.textContent && el.metaNote.textContent.indexOf("send failed") !== 0 &&
-          el.metaNote.dataset.flagnote !== "1") el.metaNote.textContent = "";
+      if (el.metaNote.textContent && el.metaNote.dataset.flagnote !== "1") el.metaNote.textContent = "";
     }
     page.order = ctx.poolOf(state).map(b => b.id);
     page.list = ctx.viewPool(state).map(b => b.id);

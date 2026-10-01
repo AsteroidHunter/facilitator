@@ -131,12 +131,26 @@ function rows(page) {
   return page.evaluate(() => ({
     field: document.querySelector("article.box.sel textarea").value,
     delivered: [...document.querySelectorAll("article.box.sel .sentwrap .answmsg:not([data-op])")].map(r => ({
-      text: r.dataset.text, rcpt: r.querySelector(".answnote")?.textContent || "" })),
+      text: r.dataset.text, badge: r.querySelector(".answmark")?.dataset.kind || "" })),
     local: [...document.querySelectorAll("article.box.sel .sentwrap .answmsg[data-op]")].map(r => ({
-      text: r.dataset.text, op: r.dataset.op, rcpt: r.querySelector(".answnote")?.textContent || "",
+      text: r.dataset.text, op: r.dataset.op, badge: r.querySelector(".answmark")?.dataset.kind || "",
       pending: r.classList.contains("pending"), failed: r.classList.contains("failed") })),
     stored: JSON.parse(localStorage.getItem("pendops") || "[]"),
   }));
+}
+
+// the turning ring in a sent row: the phone is trying again on its own
+function ringShown(page, timeout = 5000) {
+  return page.waitForFunction(() =>
+    !!document.querySelector("article.box.sel .sentwrap .answmsg[data-op] .answmark .tsqring"), { timeout });
+}
+function markShown(page, timeout = 6000) {
+  return page.waitForFunction(() =>
+    !!document.querySelector("article.box.sel .sentwrap .answmsg[data-op] .answmark[data-kind=fail]"), { timeout });
+}
+// the words of a sent panel and nothing else: a failure sentence would show here
+function panelWords(page) {
+  return page.evaluate(() => document.querySelector("article.box.sel .sentwrap").innerText.replace(/\s+/g, " ").trim());
 }
 
 before(async () => {
@@ -273,7 +287,7 @@ test("a send shows faded at once, with no word, and lands once however many time
     assert.equal(now.field, "", "the words stayed in the row after Enter");
     assert.equal(now.local.length, 1, `Enter three times drew ${now.local.length} rows`);
     assert.equal(now.local[0].text, "Sent from the phone");
-    assert.equal(now.local[0].rcpt, "", "a send on its way carries a word");
+    assert.equal(now.local[0].badge, "", "a send on its way wears a badge");
     assert.equal(now.local[0].pending, true);
     assert.equal(now.stored.length, 1);
     const onWay = await page.evaluate(() => {
@@ -287,9 +301,9 @@ test("a send shows faded at once, with no word, and lands once however many time
       document.querySelectorAll("article.box.sel .sentwrap .answmsg:not([data-op])").length === 1 &&
       !document.querySelector("article.box.sel .sentwrap .answmsg[data-op]"), { timeout: 5000 });
     const landed = await rows(page);
-    // confirmed, the message keeps its words and loses its line; the board has
+    // confirmed, the message keeps its words and wears nothing; the board has
     // it, so the panel is at full ink and says Delivered
-    assert.deepEqual(landed.delivered, [{ text: "Sent from the phone", rcpt: "" }]);
+    assert.deepEqual(landed.delivered, [{ text: "Sent from the phone", badge: "" }]);
     assert.equal(landed.stored.length, 0);
     const saved = await page.evaluate(() => {
       const panel = document.querySelector("article.box.sel .sentwrap .answered");
@@ -321,9 +335,16 @@ test("a reply lost on the way is retried under the same id, and the message land
     };
     await page.type("article.box.sel textarea", "Reply lost on the way");
     await page.keyboard.press("Enter");
-    await page.waitForFunction(() =>
-      document.querySelector("article.box.sel .sentwrap .answmsg[data-op] .answnote")?.textContent === "Not sent yet, retrying", { timeout: 5000 });
+    await ringShown(page);
     const retrying = await rows(page);
+    assert.equal(retrying.local[0].badge, "ring");
+    const ringLook = await page.evaluate(() => {
+      const s = getComputedStyle(document.querySelector("article.box.sel .answmsg[data-op] .answmark .tsqring"));
+      return { opacity: s.opacity, position: s.position, animation: s.animationName, size: [s.width, s.height] };
+    });
+    assert.deepEqual(ringLook, { opacity: "1", position: "static", animation: "tsqturn", size: ["18px", "18px"] },
+      "the ring in the row is not drawn as a turning 18px ring");
+    assert.equal(await panelWords(page), "Reply lost on the way", "the retrying row carries a sentence");
     assert.equal(retrying.local[0].text, "Reply lost on the way");
     assert.equal(retrying.field, "", "the words went back to the row while the send was still being retried");
     await page.screenshot({ path: path.join(SHOTS, "send-retrying.png") });
@@ -354,8 +375,7 @@ test("with the board unreachable the words stay on the card, survive a reload, a
     page.rule = r => r.path === "/send" ? { act: "abort" } : null;
     await page.type("article.box.sel textarea", "Kept through a reload");
     await page.keyboard.press("Enter");
-    await page.waitForFunction(() =>
-      document.querySelector("article.box.sel .sentwrap .answmsg[data-op] .answnote")?.textContent === "Not sent yet, retrying", { timeout: 5000 });
+    await ringShown(page);
     const before = await rows(page);
     assert.equal(before.stored.length, 1);
     assert.equal(before.stored[0].text, "Kept through a reload");
@@ -399,8 +419,7 @@ test("waking reconciles a send that landed while the phone was away, without a s
     };
     await page.type("article.box.sel textarea", "Landed while away");
     await page.keyboard.press("Enter");
-    await page.waitForFunction(() =>
-      document.querySelector("article.box.sel .sentwrap .answmsg[data-op] .answnote")?.textContent === "Not sent yet, retrying", { timeout: 5000 });
+    await ringShown(page);
     assert.deepEqual(await pendingOn("0"), ["Landed while away"], "the lost-reply send did not reach the board");
 
     await page.evaluate(() => resume());
@@ -481,8 +500,7 @@ test("a bare text-plain 503 from the global cap is handled: the phone reconnects
     await page.type("article.box.sel textarea", "Sent into an overloaded board");
     await page.keyboard.press("Enter");
     // the send is on this phone, marked as on its way, and the board has nothing
-    await page.waitForFunction(() =>
-      document.querySelector("article.box.sel .sentwrap .answmsg[data-op] .answnote")?.textContent === "Not sent yet, retrying", { timeout: 6000 });
+    await ringShown(page, 6000);
     assert.deepEqual(await pendingOn("0"), [], "a send got through the 503");
     // the reading of the board is refused too, so the reconnecting note shows;
     // the phone never tried to read the text/plain body as JSON
@@ -545,8 +563,8 @@ for (const kept of ["pending", "failed"]) {
       await page.screenshot({ path: path.join(SHOTS, `held-${kept}.png`) });
       // taking one back makes room, and the held words then go on their own next Enter
       if (kept === "failed") {
-        await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answmsg[data-op].failed").click());
-        assert.equal(await page.evaluate(() => ops.length), 49);
+        await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answmsg[data-op].failed .answcross").click());
+        await page.waitForFunction(() => ops.length === 49, { timeout: 3000 });
         assert.equal(await page.evaluate(() => document.querySelector("article.box.sel .meta").textContent), "", "the held note did not clear once there was room");
         await page.evaluate(() => { const ta = document.querySelector("article.box.sel textarea"); ta.value = "the fifty-first"; ta.dispatchEvent(new Event("input")); });
         await page.keyboard.press("Enter");
@@ -575,8 +593,7 @@ test("a send whose reply was lost, then a sleep past the horizon: nothing more i
     };
     await page.type("article.box.sel textarea", "Landed, then the phone slept");
     await page.keyboard.press("Enter");
-    await page.waitForFunction(() =>
-      document.querySelector("article.box.sel .sentwrap .answmsg[data-op] .answnote")?.textContent === "Not sent yet, retrying", { timeout: 6000 });
+    await ringShown(page, 6000);
     assert.deepEqual(await pendingOn("0"), ["Landed, then the phone slept"], "the first try did not reach the board");
     // half a day passes on the phone's clock
     const opId = await page.evaluate(() => {
@@ -586,8 +603,7 @@ test("a send whose reply was lost, then a sleep past the horizon: nothing more i
       wakeOps();
       return op.id;
     });
-    await page.waitForFunction(() =>
-      document.querySelector("article.box.sel .sentwrap .answmsg[data-op] .answnote")?.textContent === "Could not confirm it was sent", { timeout: 6000 });
+    await markShown(page);
     const sendsAtHorizon = page.seen.filter(r => r.path === "/send").length;
     const unsure = await rows(page);
     assert.equal(unsure.local[0].text, "Landed, then the phone slept", "the words left the card");
@@ -616,7 +632,7 @@ test("a send whose reply was lost, then a sleep past the horizon: nothing more i
   }
 });
 
-test("an unsure send the board has no receipt of is settled as not sent inside the window, and stays unsure past it, taken back only by two taps", async () => {
+test("an unsure send the board has no receipt of is settled as not sent inside the window and stays unsure past it; the cross takes the first back, asks about the second, and the arrow sends it under its own id", async () => {
   const { page, problems } = await openPhone("/m?box=0");
   try {
     await page.waitForSelector("#box-0.sel", { timeout: 5000 });
@@ -637,7 +653,7 @@ test("an unsure send the board has no receipt of is settled as not sent inside t
       wakeOps();
     });
     await page.waitForFunction(() =>
-      [...document.querySelectorAll("article.box.sel .sentwrap .answmsg[data-op] .answnote")].every(r => r.textContent === "Could not confirm it was sent"), { timeout: 6000 });
+      document.querySelectorAll("article.box.sel .sentwrap .answmsg[data-op] .answmark[data-kind=fail]").length === 2, { timeout: 6000 });
     assert.deepEqual(await pendingOn("0"), []);
 
     // the board answers readings again, with no receipt for either
@@ -646,28 +662,32 @@ test("an unsure send the board has no receipt of is settled as not sent inside t
     await page.waitForFunction(() =>
       document.querySelectorAll("article.box.sel .sentwrap .answmsg[data-op].failed").length === 1, { timeout: 8000 });
     const settled = await rows(page);
-    assert.deepEqual(settled.local.map(r => [r.text, r.rcpt]), [
-      ["Never reached the board", "Not sent, tap to take the words back"],
-      ["Older than the window", "Could not confirm it was sent"],
+    assert.deepEqual(settled.local.map(r => [r.text, r.badge, r.failed]), [
+      ["Never reached the board", "fail", true],
+      ["Older than the window", "fail", false],
     ]);
+    assert.equal(await panelWords(page), "Never reached the board Older than the window", "a failed row carries a sentence");
     await page.screenshot({ path: path.join(SHOTS, "send-settled.png") });
     const sendsSoFar = page.seen.filter(r => r.path === "/send").length;
 
-    // the not-sent one gives its words back on one tap; the unsure one needs
-    // two, says so in between, and stands down if the second never comes
-    await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answmsg[data-op].failed").click());
+    // the cross on the one the board settled as not sent gives its words back
+    // at once; on the one past the window it asks the board, which can say
+    // nothing for certain, so nothing moves
+    await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answmsg[data-op].failed .answcross").click());
     assert.equal(await page.evaluate(() => document.querySelector("article.box.sel textarea").value), "Never reached the board");
     await page.evaluate(() => { const ta = document.querySelector("article.box.sel textarea"); ta.value = ""; ta.dispatchEvent(new Event("input")); });
-    await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answmsg[data-op].unsure").click());
-    assert.equal(await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answmsg[data-op].unsure .answnote").textContent),
-      "Tap again to take the words back; it may already have gone");
-    await settle(5500);
-    assert.equal(await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answmsg[data-op].unsure .answnote").textContent),
-      "Could not confirm it was sent", "the armed row did not stand down");
-    await page.evaluate(() => { const row = document.querySelector("article.box.sel .sentwrap .answmsg[data-op].unsure"); row.click(); row.click(); });
-    assert.equal(await page.evaluate(() => document.querySelector("article.box.sel textarea").value), "Older than the window");
-    assert.equal(await page.evaluate(() => ops.length), 0);
-    assert.equal(page.seen.filter(r => r.path === "/send").length, sendsSoFar, "taking the words back sent something on its own");
+    const asked = page.seen.filter(r => r.path === "/op").length;
+    await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answmsg[data-op].unsure .answcross").click());
+    await settle(600);
+    assert.equal(page.seen.filter(r => r.path === "/op").length, asked + 1, "the cross did not ask the board");
+    assert.equal(await page.evaluate(() => document.querySelector("article.box.sel textarea").value), "", "the words went back on a board that proved nothing");
+    assert.equal(await page.evaluate(() => ops.length), 1);
+    // the arrow sends it again under the id it was minted with
+    const keptId = await page.evaluate(() => ops[0].id);
+    await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answmsg[data-op].unsure .answretry").click());
+    await ringShown(page);
+    const again = page.seen.filter(r => r.path === "/send").slice(sendsSoFar);
+    assert.ok(again.length >= 1 && again.every(r => new URLSearchParams(r.search).get("op") === keptId), "the arrow did not send under the same id");
     assert.deepEqual(await pendingOn("0"), []);
     assert.deepEqual(problems, []);
   } finally {
@@ -722,9 +742,177 @@ test("a record an earlier page marked failed for a timeout is loaded as unsure a
     await page.waitForFunction(() => !ops.some(o => o.id === "old-page-timeout-01") &&
       [...document.querySelectorAll("article.box.sel .sentwrap .answmsg:not([data-op])")].some(r => r.dataset.text === "gave up too soon"), { timeout: 8000 });
     const left = await rows(page);
-    assert.deepEqual(left.local.map(r => [r.text, r.rcpt, r.failed]), [["refused by the board", "Not sent, tap to take the words back", true]]);
+    assert.deepEqual(left.local.map(r => [r.text, r.badge, r.failed]), [["refused by the board", "fail", true]]);
+    assert.equal(await panelWords(page), "gave up too soon refused by the board", "a refused row carries a reason");
     assert.equal(page.seen.filter(r => r.path === "/send").length, 0, "a loaded record was sent again on its own");
     assert.deepEqual(await pendingOn("0"), ["gave up too soon"]);
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.evaluate(() => localStorage.removeItem("pendops")).catch(() => {});
+    await page.close();
+    await api("/dismiss?box=0");
+  }
+});
+
+// a message sent while the board cannot be reached, then given up on by the
+// phone's own clock, so its row wears the red mark and its fate is unknown
+async function makeUnsure(page, words) {
+  await page.type("article.box.sel textarea", words);
+  await page.keyboard.press("Enter");
+  await ringShown(page);
+  await page.evaluate(() => {
+    const op = ops[ops.length - 1];
+    op.ts = Date.now() - OP_GIVE_UP_MS - 1000;
+    saveOps();
+    wakeOps();
+  });
+  await markShown(page);
+}
+const markLook = page => page.evaluate(() => {
+  const row = document.querySelector("article.box.sel .sentwrap .answmsg[data-op]");
+  const arrow = row.querySelector(".answretry"), cross = row.querySelector(".answcross");
+  const box = node => { const r = node.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; };
+  const rowBox = row.getBoundingClientRect(), arrowBox = arrow.getBoundingClientRect();
+  return {
+    arrow: box(arrow), cross: box(cross),
+    colour: getComputedStyle(arrow).backgroundColor,
+    gap: Math.round(rowBox.right - arrowBox.right),
+    centred: Math.abs((arrowBox.top + arrowBox.height / 2) - (rowBox.top + rowBox.height / 2)) < 1.5,
+    arrowGlyph: !!arrow.querySelector("svg polyline"),
+  };
+});
+
+test("a failed send wears the red round mark with a circular arrow and a small cross, and no words", async () => {
+  const { page, problems } = await openPhone("/m?box=0");
+  try {
+    await page.waitForSelector("#box-0.sel", { timeout: 5000 });
+    page.rule = r => (r.path === "/send" || r.path === "/m/state") ? { act: "abort" } : null;
+    await makeUnsure(page, "Kept on the phone");
+    const look = await markLook(page);
+    assert.deepEqual([look.arrow, look.colour, look.arrowGlyph, look.centred], [[18, 18], "rgb(255, 59, 48)", true, true]);
+    assert.ok(look.cross[0] < look.arrow[0], "the cross is not the smaller of the two");
+    assert.equal(look.gap, 2, "the mark does not stand 2px from the row's right edge");
+    assert.equal(await panelWords(page), "Kept on the phone", "a failed row carries a sentence");
+    const shown = await page.evaluate(() => document.body.innerText);
+    assert.ok(!/Not sent|Could not confirm|take the words back|send failed|Tap again/i.test(shown), "a failure sentence is on the page");
+    await page.screenshot({ path: path.join(SHOTS, "send-failed-mark.png") });
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.evaluate(() => localStorage.removeItem("pendops")).catch(() => {});
+    await page.close();
+  }
+});
+
+test("the arrow sends a failed message again under its own id, and a reply lost on the way lands it once", async () => {
+  const { page, problems } = await openPhone("/m?box=0");
+  try {
+    await page.waitForSelector("#box-0.sel", { timeout: 5000 });
+    page.rule = r => (r.path === "/send" || r.path === "/m/state" || r.path === "/op") ? { act: "abort" } : null;
+    await makeUnsure(page, "Arrow with a lost answer");
+    const id = await page.evaluate(() => ops[0].id);
+    const before = page.seen.filter(r => r.path === "/send").length;
+    // the board takes the message on the arrow's try and the answer is lost
+    let lost = 0;
+    page.rule = r => {
+      if (r.path === "/m/state" || r.path === "/op") return { act: "abort" };
+      return (r.path === "/send" && lost++ === 0) ? { act: "lose" } : null;
+    };
+    await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answmsg[data-op] .answretry").click());
+    await ringShown(page);
+    assert.equal(await panelWords(page), "Arrow with a lost answer", "the retrying row carries a sentence");
+    await page.screenshot({ path: path.join(SHOTS, "send-retrying-ring.png") });
+    await page.waitForFunction(() =>
+      !!document.querySelector("article.box.sel .sentwrap .answmsg:not([data-op])") &&
+      !document.querySelector("article.box.sel .sentwrap .answmsg[data-op]"), { timeout: 10000 });
+    const sends = page.seen.filter(r => r.path === "/send").slice(before);
+    assert.equal(sends.length, 2, `the arrow led to ${sends.length} sends`);
+    assert.ok(sends.every(r => new URLSearchParams(r.search).get("op") === id), "a try used another id");
+    assert.equal(page.answers.filter(a => a.path === "/send" && a.status === 200 && a.body.replayed === true).length, 1);
+    assert.deepEqual(await pendingOn("0"), ["Arrow with a lost answer"], "the message landed twice, or not at all");
+    assert.equal((await rows(page)).stored.length, 0);
+    await page.screenshot({ path: path.join(SHOTS, "send-retry-delivered.png") });
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.evaluate(() => localStorage.removeItem("pendops")).catch(() => {});
+    await page.close();
+    await api("/dismiss?box=0");
+  }
+});
+
+test("a message the board refused shows the mark and no reason, its arrow does nothing, and its cross gives the words back without asking", async () => {
+  const { page, problems } = await openPhone("/m?box=0");
+  try {
+    await page.waitForSelector("#box-0.sel", { timeout: 5000 });
+    page.rule = r => r.path === "/send" ? { act: "status", status: 400 } : null;
+    await page.type("article.box.sel textarea", "Refused outright");
+    await page.keyboard.press("Enter");
+    await markShown(page);
+    assert.equal(await panelWords(page), "Refused outright", "a refused row shows a reason");
+    await page.screenshot({ path: path.join(SHOTS, "send-refused-mark.png") });
+    const sends = page.seen.filter(r => r.path === "/send").length;
+    await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answmsg[data-op] .answretry").click());
+    await settle(600);
+    assert.equal(page.seen.filter(r => r.path === "/send").length, sends, "the arrow sent a refused message again");
+    assert.equal((await rows(page)).local[0].badge, "fail");
+    assert.equal(await panelWords(page), "Refused outright");
+    const asked = page.seen.filter(r => r.path === "/op").length;
+    await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answmsg[data-op] .answcross").click());
+    assert.equal(await page.evaluate(() => document.querySelector("article.box.sel textarea").value), "Refused outright");
+    assert.equal(page.seen.filter(r => r.path === "/op").length, asked, "the cross asked about a refused message");
+    assert.equal((await rows(page)).local.length, 0);
+    assert.deepEqual(await pendingOn("0"), []);
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.evaluate(() => localStorage.removeItem("pendops")).catch(() => {});
+    await page.close();
+  }
+});
+
+test("the cross on a message whose fate is unknown does nothing until the board can be asked, then marks it Delivered or gives the words back", async () => {
+  const { page, problems } = await openPhone("/m?box=0");
+  try {
+    await page.waitForSelector("#box-0.sel", { timeout: 5000 });
+    // the first message reaches the board and its answer is lost; the second never reaches it
+    let first = true;
+    page.rule = r => {
+      if (r.path === "/m/state" || r.path === "/op") return { act: "abort" };
+      if (r.path !== "/send") return null;
+      if (first) { first = false; return { act: "lose" }; }
+      return { act: "abort" };
+    };
+    await makeUnsure(page, "Landed and the answer lost");
+    assert.deepEqual(await pendingOn("0"), ["Landed and the answer lost"]);
+    const sends = page.seen.filter(r => r.path === "/send").length;
+    // the board cannot be reached: the cross does nothing
+    await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answmsg[data-op] .answcross").click());
+    await settle(600);
+    assert.ok(page.seen.some(r => r.path === "/op"), "the cross did not try to ask the board");
+    assert.equal(await page.evaluate(() => document.querySelector("article.box.sel textarea").value), "", "the words went back with the board out of reach");
+    assert.equal(await page.evaluate(() => ops.length), 1);
+    assert.equal(await panelWords(page), "Landed and the answer lost");
+    // the board can be asked: it has the message, so the row is Delivered and nothing is taken back
+    page.rule = r => (r.path === "/m/state" || r.path === "/send") ? { act: "abort" } : null;
+    await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answmsg[data-op] .answcross").click());
+    await page.waitForFunction(() =>
+      !!document.querySelector("article.box.sel .sentwrap .answmsg:not([data-op])") &&
+      !document.querySelector("article.box.sel .sentwrap .answmsg[data-op]"), { timeout: 5000 });
+    assert.equal(await page.evaluate(() => document.querySelector("article.box.sel textarea").value), "", "words came back for a message that landed");
+    assert.equal(await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answered").dataset.tag), "Delivered");
+    assert.deepEqual(await pendingOn("0"), ["Landed and the answer lost"]);
+    assert.equal(page.seen.filter(r => r.path === "/send").length, sends, "the cross sent something");
+    assert.equal((await rows(page)).stored.length, 0);
+    await page.screenshot({ path: path.join(SHOTS, "cross-landed-delivered.png") });
+
+    // the second never reached the board: asked, it has no record, and the words go back
+    await api("/dismiss?box=0");
+    page.rule = r => (r.path === "/send" || r.path === "/m/state" || r.path === "/op") ? { act: "abort" } : null;
+    await makeUnsure(page, "Never landed");
+    page.rule = r => (r.path === "/m/state" || r.path === "/send") ? { act: "abort" } : null;
+    await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answmsg[data-op] .answcross").click());
+    await page.waitForFunction(() => document.querySelector("article.box.sel textarea").value === "Never landed", { timeout: 5000 });
+    assert.equal(await page.evaluate(() => ops.length), 0);
+    assert.equal((await rows(page)).local.length, 0);
+    assert.deepEqual(await pendingOn("0"), []);
     assert.deepEqual(problems, []);
   } finally {
     await page.evaluate(() => localStorage.removeItem("pendops")).catch(() => {});
