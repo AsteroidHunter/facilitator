@@ -94,6 +94,21 @@ const CARD_SHORTCUT_DEFINITIONS = [
       !e.repeat && !e.isComposing && !e.defaultPrevented &&
       (e.key === "u" || e.key === "U") ? true : null,
   },
+  // control+enter moves to the card that has waited longest, as the second
+  // Enter of a double Enter does. a composer sends what it holds and takes the
+  // key itself, so only a press nothing else answered gets here. a held key's
+  // repeats are recognized so the page can keep them from the browser
+  {
+    action: "advance", mini: false,
+    match: e => controlEnter(e) && !e.isComposing && !e.defaultPrevented ? true : null,
+  },
+  // control+r jumps to a random card in the list whose ticket is not green
+  {
+    action: "random", mini: false,
+    match: e => e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey &&
+      !e.isComposing && !e.defaultPrevented &&
+      (e.key === "r" || e.key === "R") ? true : null,
+  },
   // control+shift+[, ] and \ move the selected card to Doing, Deferred and
   // Done, typing or not. macOS text boxes give these chords no meaning and the
   // composer's editor is told to leave them to the page (PAGE_CHORDS in
@@ -148,6 +163,29 @@ function dispatchCardShortcut(event, actions, scope = "card"){
 function cardShortcutEditing(target){
   return !!target && typeof target.closest === "function" &&
     !!target.closest("textarea, input, [contenteditable], [role='textbox'], .cm-editor");
+}
+
+// control and enter and nothing else: shift keeps its new line, and command,
+// option and the wider chords send as plain Enter does
+function controlEnter(e){
+  return e.key === "Enter" && e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey;
+}
+
+// the two standing boxes sit in the lists but are not cards to walk to
+function isStandingBox(id){ return id === "0" || id === "t0"; }
+
+// a green ticket: work is under way on the card. a done card the agent still
+// holds keeps its green, as its row keeps pulsing
+function ticketGreen(b){
+  return queueState(b) === "working" ||
+    (queueState(b) === "done" && cardState({ ...b, done: false, parked: false, state: null }) === "working");
+}
+
+// the id of a random card in pool, never the one on screen, a standing box or a
+// green ticket; null when none is left
+function pickRandomCard(pool, currentId, random = Math.random){
+  const open = pool.filter(b => b.id !== currentId && !isStandingBox(b.id) && !ticketGreen(b));
+  return open.length ? open[Math.floor(random() * open.length)].id : null;
 }
 
 // ---- the three section keys ------------------------------------------------------
@@ -2374,7 +2412,7 @@ function doingOrder(state){ return state ? viewPoolFor(state, "todo").map(b => b
 // card that was not in it gets the top card; the standing boxes are skipped
 function doingNeighbour(id, order){
   const at = order.indexOf(id);
-  const open = x => x !== id && x !== "0" && x !== "t0";
+  const open = x => x !== id && !isStandingBox(x);
   if (at < 0) return order.find(open) ?? null;
   return order.slice(at + 1).find(open) ?? order.slice(0, at).reverse().find(open) ?? null;
 }

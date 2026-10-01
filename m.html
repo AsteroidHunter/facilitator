@@ -1639,18 +1639,27 @@ function makeBox(b){
     }
     if (e.shiftKey) { notePhoneEnter("handler", e, "shift", ta); return; }
     if (e.isComposing) { notePhoneEnter("handler", e, "composition", ta); return; }
-    if (document.body.classList.contains("kb")) { notePhoneEnter("handler", e, "keyboard", ta); return; }
+    // control+enter is a double Enter pressed at once, and no on-screen
+    // keyboard has the key, so it answers whether or not that keyboard is up
+    const now = controlEnter(e);
+    if (!now && document.body.classList.contains("kb")) { notePhoneEnter("handler", e, "keyboard", ta); return; }
     e.preventDefault();
     if (e.repeat) { notePhoneEnter("handler", e, "repeat", ta); return; }
     const hadDraft = !!ta.value.trim() || traySendable(els[b.id]);
     if (!hadDraft){
-      if (!askPhoneEnterAdvance(b.id)) cancelAutoNext();
+      if (!askPhoneEnterAdvance(b.id)){
+        cancelAutoNext();
+        if (now) phoneAdvance(b.id);
+      }
       notePhoneEnter("handler", e, "empty", ta);
       return;
     }
     const op = doSend(b.id, { advance: false });
     notePhoneEnter("handler", e, op ? "send" : "held", ta, !!op, hadDraft);
-    if (op) armPhoneEnterAgain(b.id, op);
+    if (op){
+      armPhoneEnterAgain(b.id, op);
+      if (now) askPhoneEnterAdvance(b.id);
+    }
   });
   // fitted again once the web faces have landed. their sheets are asked for off
   // the first paint, so they can still be on the way here, and a plain
@@ -2274,8 +2283,13 @@ function schedulePhoneAdvance(op, intent = null){
       clearPhoneEnterAgain(intent);
       if (!valid) return;
     }
-    if (selectedId === op.box) jumpNextYellow(op.box, null, navigationPool(lastState, op.box));
+    phoneAdvance(op.box);
   }, AUTONEXT_MS);
+}
+// the move a double Enter's second press makes, and control+enter makes at
+// once: to the card that has waited longest, in the card's own workspace
+function phoneAdvance(id){
+  if (selectedId === id) jumpNextYellow(id, null, navigationPool(lastState, id));
 }
 function armPhoneEnterAgain(id, op, source = "enter"){
   cancelAutoNext();
@@ -5125,6 +5139,23 @@ const phoneShortcutActions = {
   },
   unfold(e){
     unfoldSelected(e, selectedId, selectedId && els[selectedId]);
+  },
+  // control+enter outside a reply box: the move a double Enter's second press
+  // makes. a field that is not a reply box keeps the key
+  advance(e){
+    if (!lastState || phoneShortcutTyping(e.target)) return;
+    e.preventDefault();
+    if (!e.repeat) phoneAdvance(selectedId);
+  },
+  // control+r, typing or not, shows a random card from the selected card's
+  // workspace, browsed as the arrow keys leave it. the key is the page's
+  // whether or not a card is left to go to, and a held key goes once
+  random(e){
+    if (!lastState) return;
+    e.preventDefault();
+    if (e.repeat) return;
+    const id = pickRandomCard(navigationPool(lastState).filter(b => els[b.id]), selectedId);
+    if (id) browse(id);
   },
   sectionChord(e, shortcut){
     const el = selectedId && els[selectedId];

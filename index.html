@@ -5754,8 +5754,13 @@ function scheduleDesktopAdvance(id, intent = null){
       clearEnterAgain(intent);
       if (!valid) return;
     }
-    if (FOCUS && selectedId === id) jumpNextYellow(id, { focus: true });
+    boardAdvance(id);
   }, AUTONEXT_MS);
+}
+// the move a double Enter's second press makes, and control+enter makes at
+// once: to the card that has waited longest, with the caret in its composer
+function boardAdvance(id){
+  if (FOCUS && selectedId === id) jumpNextYellow(id, { focus: true });
 }
 function armEnterAgain(id, source = "enter"){
   cancelAutoNext();
@@ -5794,12 +5799,18 @@ function composerEnter(e, id){
   if (e.repeat) return;
   const el = els[id];
   if (!el) return;
+  // control+enter is a double Enter pressed at once: the send, then the move
+  // once the board has the message
+  const now = controlEnter(e);
   if (!el.ta.value.trim()){
-    if (!askEnterAdvance(id)) cancelAutoNext();
+    if (askEnterAdvance(id)) return;
+    cancelAutoNext();
+    if (now) boardAdvance(id);
     return;
   }
   const intent = armEnterAgain(id);
   doSend(id, { advance: false, clearNow: true, enterIntent: intent });
+  if (now) askEnterAdvance(id);
 }
 
 // jumpNextYellow and stampText live in card-logic.js, shared with the phone page
@@ -6961,9 +6972,14 @@ function chatBuild(){
   attach.addEventListener("pointerdown", keepFocus);
   // enter sends and shift enter breaks the line, the board's own two keys. the
   // reference app has no enter handler at all and sends by the button only;
-  // that is a change to how the reader types, and it is not one to make unasked
+  // that is a change to how the reader types, and it is not one to make unasked.
+  // control+enter sends and then moves on, as it does in a card's composer
   ta.addEventListener("keydown", e => {
-    if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); chatSend(); }
+    if (e.key === "Enter" && !e.shiftKey){
+      e.preventDefault();
+      chatSend();
+      if (controlEnter(e) && !e.repeat) boardAdvance(selectedId);
+    }
   });
   ta.addEventListener("input", () => { c3Autosize(); c3Refresh(); });
   // hold brighten: the whole pill face comes up evenly while a pointer rests on
@@ -8869,14 +8885,16 @@ function miniEditTitle(id, opts){
 }
 // clicking anywhere inside magic box 2 hands it the keys; clicking anywhere
 // else hands them back to the board
-addEventListener("mousedown", e => {
-  const inside = !!(e.target.closest && e.target.closest("#magic2"));
+function miniHold(inside){
   if (inside === miniFocused) return;
   miniFocused = inside;
   document.getElementById("magic2")?.classList.toggle("mfocus", inside);
   // exactly one of the two stands up: the large card settles while the small
   // card is holding the keys
   document.body.classList.toggle("minifocus", inside);
+}
+addEventListener("mousedown", e => {
+  miniHold(!!(e.target.closest && e.target.closest("#magic2")));
 }, true);
 const miniShortcutActions = {
   create(e){
@@ -8984,9 +9002,11 @@ function renderMiniCards(state){
       // the small card's row carries the same typed formatting the big one
       // does, with the same two keys: enter sends and shift enter breaks
       ComposeFormat.attach(ta, { newline: e => e.shiftKey });
+      // answers true once the board has the message, false when it did not
+      // arrive, and null when there was nothing to send
       const fire = async () => {
         const text = ta.value.trim();
-        if (!text) return;
+        if (!text) return null;
         send.disabled = true;
         // the message comes into the sent panel at the press, cut to its preview
         // and faded until the board has saved it, the way it does on the large card
@@ -9001,14 +9021,26 @@ function renderMiniCards(state){
             ta.value = ""; ta.style.height = "auto";
             if (own) sentLanded(own, sentItem);
             poll();
+            return true;
           } else if (own) sentLost(own, sentItem);
         } catch (e) { if (own) sentLost(own, sentItem); } finally { send.disabled = false; }
+        return false;
       };
       send.addEventListener("click", fire);
-      // the board's own arrow keys must never see this typing
+      // the board's own arrow keys must never see this typing. control+enter
+      // sends, then hands the keys back to the large card and moves on to the
+      // card that has waited longest, or does just that when nothing is typed
       ta.addEventListener("keydown", e => {
         e.stopPropagation();
-        if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); fire(); }
+        if (e.key === "Enter" && !e.shiftKey){
+          e.preventDefault();
+          const sending = fire();
+          if (controlEnter(e) && !e.repeat) sending.then(sent => {
+            if (sent === false) return;
+            miniHold(false);
+            boardAdvance(selectedId);
+          });
+        }
       });
       ta.addEventListener("keyup", e => e.stopPropagation());
       ta.addEventListener("input", () => {
@@ -9354,6 +9386,16 @@ function boardResponseCard(){
   return { id: selectedId, owner: activeOwner, el };
 }
 
+// whether control+enter and control+r may move the card on screen: the page's
+// keys are the board's, and no panel, picture, menu or small card holds them.
+// unlike control+s there need be no card on screen to start from
+function boardMoveLive(){
+  const cls = document.body.classList;
+  return FOCUS && !!lastState && boardKeysLive() && !miniFocused && !p3Zoom && !draft &&
+    !cls.contains("setopen") && !cls.contains("resp-drawer-open") &&
+    !(selectedId && els[selectedId]?.wtmenu?.classList.contains("open"));
+}
+
 // the large card's close from the done keys: the cross's own request, then the
 // cross's own hop to the next doing card, once the board has answered
 async function boardCloseCard(id){
@@ -9425,6 +9467,24 @@ const boardShortcutActions = {
   },
   unfold(e){
     if (!miniFocused) unfoldSelected(e, selectedId, selectedId && els[selectedId]);
+  },
+  // control+enter outside a composer: the move a double Enter's second press
+  // makes. a field that is not a composer keeps the key, and a button does not
+  // take it as a press
+  advance(e){
+    if (!boardMoveLive() || boardShortcutTyping(e.target)) return;
+    e.preventDefault();
+    if (!e.repeat) boardAdvance(selectedId);
+  },
+  // control+r, typing or not, shows a random card from the list on screen,
+  // browsed as the arrow keys leave it. the key is the board's whether or not
+  // a card is left to go to, and a held key goes once
+  random(e){
+    if (!boardMoveLive()) return;
+    e.preventDefault();
+    if (e.repeat) return;
+    const id = pickRandomCard(viewPool(lastState).filter(b => els[b.id]), selectedId);
+    if (id) browse(id);
   },
   sectionChord(e, shortcut){
     const el = selectedId && els[selectedId];
