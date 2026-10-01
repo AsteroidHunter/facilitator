@@ -404,7 +404,8 @@ test("the answer dissolves under the title as it scrolls and into the sent box a
         air: cs.getPropertyValue("--replyair").trim(),
         mask: cs.webkitMaskImage,
         composite: cs.webkitMaskComposite || cs.maskComposite,
-        runout: cs.paddingBottom,
+        runout: getComputedStyle(view, "::after").height,
+        padding: cs.paddingBottom,
         scrolls: view.scrollHeight > view.clientHeight + 1,
       };
     });
@@ -418,6 +419,7 @@ test("the answer dissolves under the title as it scrolls and into the sent box a
     assert.equal(rest.mask.match(/linear-gradient/g).length, 3, "the mask is not the desktop's three layers");
     assert.match(rest.composite, /intersect/);
     assert.equal(rest.runout, (parseFloat(rest.band) + 22).toFixed(0) + "px", "the scroll's run-out is not the band plus the ramp");
+    assert.equal(rest.padding, "0px", "the run-out is still the scroller's padding and not content");
     assert.equal(rest.scrolls, true, "the answer under test does not scroll");
     await shot(page, "fade-rest");
 

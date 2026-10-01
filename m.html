@@ -501,20 +501,23 @@
         rgba(0,0,0,1) calc(100% - var(--boxband, 0px)),
         rgba(0,0,0,0) calc(100% - var(--boxband, 0px)));
     mask-composite:intersect, add, add;
-    /* the run-out the scroll needs under its last word: the band the box takes
-       plus the ramp, handed back as padding so the last line can rise onto the
-       top of the ramp where the ink is still full. padding counts inside the
-       scrollable height, so an answer that already fits gains no travel */
-    padding-bottom:calc(var(--boxband, 0px) + var(--replyfade));
   }
-  /* the room a panel over the answer holds under it while it is cut back, so
-     the reader's scroll is never pulled (holdSlack in card-logic.js): a spacer
-     at the foot of the scroller's content and never the scroller's padding.
-     the scroller is a flex item, which cannot stand shorter than its own
+  /* what stands under the answer's last word, as a spacer at the foot of the
+     scroller's content and never the scroller's padding: the room a panel over
+     the answer holds under it while it is cut back, so the reader's scroll is
+     never pulled (holdSlack in card-logic.js), and the run-out the scroll needs,
+     the band the box takes plus the ramp, so the last line can rise onto the top
+     of the ramp where the ink is still full. an answer that already fits gains
+     no travel.
+     it is content and not padding because an engine may leave a scroller's
+     padding out of its scrollable height when the answer ends inside it, and an
+     answer that ends in the run-out then has nothing to scroll while the ramp
+     says there is more. a spacer is content, so the scroll always counts it.
+     the scroller is also a flex item, which cannot stand shorter than its own
      padding, so room held there once pushed the scroller down past the card,
      and --boxband, read off the scroller's foot, grew with it and masked the
      answer out */
-  .replyview::after{content:""; flex:none; height:var(--answ-slack, 0px)}
+  .replyview::after{content:""; flex:none; height:calc(var(--answ-slack, 0px) + var(--boxband, 0px) + var(--replyfade, 0px))}
   .box.histview .replyview{opacity:.8}
 
   /* ---- the foot: the sent panel over the typing row ------------------------ */
@@ -1422,11 +1425,8 @@ function watchBand(el){
   // --boxband is what the sent panel and the typing row cover at the foot of the
   // answer. it is written on the CARD and the answer inherits it, so every rule
   // that reads --boxband reads the number it always read.
-  // it is written only when it changes. it feeds the size of the very element
-  // this observer watches (the answer's run-out off --boxband), so a write on
-  // every fire, even of the value already held, keeps the observer firing on its
-  // own writes, which the browser gives up on as a loop through a whole keyboard
-  // run. deduped, the writes converge in a frame and the loop never starts.
+  // it is written only when it changes, so a fire that finds the band where it
+  // was leaves the card's style alone.
   // while the sent panel runs, the band is held at one end of the run rather
   // than following it (sentBand in card-logic.js), so a run writes it once
   let lastBand = null;
@@ -1435,12 +1435,9 @@ function watchBand(el){
     if (band !== lastBand){ lastBand = band; el.box.style.setProperty("--boxband", band + "px"); }
   };
   el.bandWrite = write;
-  // the write resizes the very element this observer watches (the answer's
-  // run-out off --boxband), so running it inside the observer leaves a resize
-  // the observer never delivers, which the browser reports as a loop through a
-  // whole keyboard run. it is coalesced onto the next frame instead: one write a
-  // frame, outside the observer's own delivery, so nothing loops, and the dedupe
-  // above settles it once sizes hold
+  // the write is coalesced onto the next frame, outside the observer's own
+  // delivery: one write a frame, and the dedupe above settles it once sizes
+  // hold
   let scheduled = false;
   const schedule = () => {
     if (scheduled) return;
