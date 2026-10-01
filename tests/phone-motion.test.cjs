@@ -916,12 +916,14 @@ test("the settings come in from the right, holding the header, the list of secti
         gearStroke: gear && gear.getAttribute("stroke"),
         gearFill: gear && gear.getAttribute("fill"),
         gearWeight: gear && gear.getAttribute("stroke-width"),
-        label: button.textContent,
+        label: document.querySelector('label[for="notify"] span').textContent,
+        role: button.getAttribute("role"),
+        type: button.type,
         indent: getComputedStyle(document.querySelector("#setpage .sp-item")).paddingLeft,
         headPad: getComputedStyle(head).paddingLeft,
         fill: own.backgroundColor,
         border: own.borderStyle,
-        colour: own.color,
+        knob: getComputedStyle(button, "::before").backgroundColor,
         paper: ink.getPropertyValue("--paper").trim(),
         ink: ink.getPropertyValue("--ink").trim(),
         accent: ink.getPropertyValue("--accent").trim(),
@@ -935,10 +937,12 @@ test("the settings come in from the right, holding the header, the list of secti
     assert.equal(made.gearFill, "none");
     assert.equal(made.gearWeight, "1.9", "the mark is not the weight the plus is drawn at");
     assert.equal(made.label, "Notifications");
+    assert.equal(made.role, "switch", "the control is not a switch");
+    assert.equal(made.type, "checkbox");
     assert.equal(made.indent, made.headPad, "the list is not lined up under the header");
     assert.equal(made.border, "none", "the control has a border");
-    assert.equal(made.fill, "rgb(255, 255, 255)", "the control is not on the phone's own paper");
-    assert.equal(made.colour, "rgb(33, 29, 23)", "the control is not in the board's own ink");
+    assert.equal(made.fill, "rgb(202, 202, 202)", "the switch is not the light grey when off");
+    assert.equal(made.knob, "rgb(255, 255, 255)", "the switch's knob is not white");
     assert.equal(made.gone, true, "the old button is still in the card list");
 
     // the mark and the fill are the app's own and nothing new
@@ -970,9 +974,10 @@ test("the settings come in from the right, holding the header, the list of secti
       `the page did not draw back over the settings run (${sank.low} to ${sank.high})`);
     await shot(page, "settings-open");
 
-    // the control does what the button in the card list did: it asks, and says
-    // what it was told. the headless browser has no push service, so what is
-    // proved here is the ask and the answer being shown
+    // turning the switch on does what the button in the card list did: it asks,
+    // and says what it was told. the headless browser has no push service, so
+    // what is proved here is the ask, the answer being shown and the switch
+    // going back off
     const asked = await page.evaluate(async () => {
       const said = [];
       const real = Notification.requestPermission;
@@ -980,10 +985,12 @@ test("the settings come in from the right, holding the header, the list of secti
       document.getElementById("notify").click();
       await new Promise(r => setTimeout(r, 200));
       Notification.requestPermission = real;
-      return { said, note: document.getElementById("notifynote").textContent };
+      return { said, note: document.getElementById("notifynote").textContent,
+               on: document.getElementById("notify").checked };
     });
     assert.deepEqual(asked.said, ["asked"], "the control did not ask for notifications");
     assert.match(asked.note, /Notifications are off/, "the control did not show what it was told");
+    assert.equal(asked.on, false, "the switch stayed on after a refusal");
     await shot(page, "settings-refused");
 
     await startPageSamples(page);

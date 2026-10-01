@@ -831,7 +831,8 @@ test("the manifest, icons and service worker are served and the worker registers
     });
     assert.equal(new URL(registration.scope).pathname, "/m");
     assert.equal(new URL(registration.script).pathname, "/m-sw.js");
-    assert.equal(await page.evaluate(() => document.getElementById("notify").textContent), "Notifications");
+    assert.equal(await page.evaluate(() => document.querySelector('label[for="notify"] span').textContent), "Notifications");
+    assert.equal(await page.evaluate(() => document.getElementById("notify").getAttribute("role")), "switch");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();

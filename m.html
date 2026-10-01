@@ -1150,9 +1150,10 @@
         </div>
       </div>
       <div data-section="notifications" data-label="Notifications">
-        <div class="setact">
-          <button id="notify" class="sp-btn" type="button">Notifications</button>
-          <div id="notifynote" class="sethelp"></div>
+        <div class="setrow">
+          <label class="setlabel" for="notify"><span>Notifications</span>
+            <small id="notifynote" class="sethelp"></small></label>
+          <input type="checkbox" role="switch" id="notify">
         </div>
       </div>
       <div data-section="account" data-label="Account">
@@ -5127,11 +5128,13 @@ async function saveDiagnostic(source = "settings"){
   }
 }
 diagnosticButton.addEventListener("click", () => saveDiagnostic());
-const notifyBtn = document.getElementById("notify");
+// the Notifications switch is on while this phone is subscribed: push allowed
+// for the page and a subscription held by its worker. on asks and subscribes;
+// off takes the subscription away at both ends, so nothing more can arrive
+const notifySwitch = document.getElementById("notify");
 const notifyNote = document.getElementById("notifynote");
 function notifyState(on, note){
-  notifyBtn.textContent = on ? "Notifications on" : "Notifications";
-  notifyBtn.disabled = !!on;
+  notifySwitch.checked = !!on;
   notifyNote.textContent = note || "";
 }
 async function pushRegistration(){
@@ -5142,6 +5145,18 @@ async function sendSubscription(sub){
   const r = await fetch("/push/subscribe", { method: "POST", body: JSON.stringify(sub.toJSON()) });
   if (!r.ok) throw new Error("subscribe " + r.status);
 }
+// what the phone holds now, asked of its worker without waiting for one that
+// never registered
+async function pushSubscription(){
+  if (!("PushManager" in window) || !("serviceWorker" in navigator)) return null;
+  try {
+    const reg = swReg || await navigator.serviceWorker.getRegistration("/m");
+    return (await reg?.pushManager.getSubscription()) || null;
+  } catch (_) { return null; }
+}
+async function notifyOn(){
+  return "Notification" in window && Notification.permission === "granted" && !!(await pushSubscription());
+}
 async function askNotifications(){
   if (!("PushManager" in window) || !("Notification" in window)){
     notifyState(false, "Add this page to the home screen first, then ask again from there");
@@ -5151,17 +5166,44 @@ async function askNotifications(){
   if (!reg){ notifyState(false, "Notifications need the page served over https"); return; }
   const permission = await Notification.requestPermission();
   if (permission !== "granted"){ notifyState(false, "Notifications are off in the phone's settings for this page"); return; }
+  let sub = null;
   try {
     const key = (await (await fetch("/push/key")).json()).key;
-    let sub = await reg.pushManager.getSubscription();
+    sub = await reg.pushManager.getSubscription();
     if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) });
     await sendSubscription(sub);
     notifyState(true, "");
   } catch (err) {
+    // a subscription the board never took is let go, so off is what it says
+    try { await sub?.unsubscribe(); } catch (_) {}
     notifyState(false, "Could not subscribe: " + (err && err.message ? err.message : err));
   }
 }
-notifyBtn.addEventListener("click", askNotifications);
+async function stopNotifications(){
+  const sub = await pushSubscription();
+  if (sub){
+    try { await fetch("/push/unsubscribe", { method: "POST", body: JSON.stringify({ endpoint: sub.endpoint }) }); } catch (_) {}
+    try { await sub.unsubscribe(); } catch (_) {}
+  }
+  notifyState(await notifyOn(), "");
+}
+notifySwitch.addEventListener("change", async () => {
+  notifySwitch.disabled = true;
+  try { await (notifySwitch.checked ? askNotifications() : stopNotifications()); }
+  finally { notifySwitch.disabled = false; }
+});
+// it reads what the phone holds each time the panel comes out, so a permission
+// taken away in the phone's own settings shows as off
+{
+  let shown = false;
+  new MutationObserver(async () => {
+    const was = shown;
+    shown = settings.classList.contains("live");
+    if (!shown || was || notifySwitch.disabled) return;
+    const on = await notifyOn();
+    if (!notifySwitch.disabled) notifySwitch.checked = on;
+  }).observe(settings, { attributes: true, attributeFilter: ["class"] });
+}
 // a phone already subscribed says so, and hands the server its subscription
 // again so a board whose state was reset learns it back
 (async () => {
