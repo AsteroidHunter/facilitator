@@ -1176,35 +1176,41 @@
   .chip.g{background:#E3FFDB}
   .chip.y{background:#FFF8DB}
   @keyframes chippop{from{opacity:0; transform:translateY(6px) scale(.7)}}
-  /* the ticket holder: three names above an independent recessed list well,
-     with a strip of workspace between them. the holder itself paints nothing
-     now and does not clip: the well carries its own fill, hairline and sunk
-     shade, so the paper shows through the gap above it. 20260922, m807: the
-     selected name no longer sits in a depressed pill; it is marked by weight
-     and ink alone, and every name dips on press (see #tikhead .tvb below). */
+  /* the ticket holder: three names above the list, with a divider line in the
+     strip of workspace between them. the holder paints nothing and does not
+     clip, and the list stands on the paper with no box round it. 20260922,
+     m807: the selected name no longer sits in a depressed pill; it is marked by
+     weight and ink alone, and every name dips on press (see #tikhead .tvb below).
+     --line-gap is the clear air between a pressed name and the divider */
   body.focus #tickets{
+    --line-gap:6px;
     position:fixed; left:var(--tik-x); width:var(--tik-w);
     top:calc(var(--oy) + var(--ch)*var(--tik-y));
     height:calc(var(--ch)*var(--tik-h));
     background:transparent; border:none; border-radius:0; box-shadow:none;
-    display:flex; flex-direction:column; overflow:visible; gap:7px;
+    display:flex; flex-direction:column; overflow:visible; gap:calc(var(--line-gap) + 1px);
   }
   /* the ticket panel's head row, holding the doing / deferred / done segments.
      the file navigator used to share this one rule with it; 20260828 it stopped,
      because the two heads no longer want the same air on their sides, and its
      own row is written out beside its own tabs further down */
-  /* no side air and no line under the head now: the three names divide the
-     head into equal thirds across the holder's full width, so the first name's
-     outer-left edge and the last name's outer-right edge sit flush with the
-     well's own sides. */
-  #tikhead{flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 0 0; border-bottom:none}
+  /* no side air: the three names divide the head into equal thirds across the
+     holder's full width. the divider under them is drawn by #tikhead::after,
+     --line-gap below the names' foot and across the rows' own sides */
+  #tikhead{position:relative; flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 0 0; border-bottom:none}
+  #tikhead::after{
+    content:""; position:absolute; pointer-events:none;
+    top:calc(100% + var(--line-gap));
+    left:calc(0.7vw + var(--edge-drawn)); right:calc(0.6vw + var(--edge-drawn)); height:0;
+    border-top:var(--edge) solid var(--line);
+  }
   /* the ticket tabs still reuse the project tabs for type and spacing, three
      equal segments across the width, but they no longer draw the seated-tab
      shape: top:0 drops the 1px lift a .ptab carries so all three names share
      one baseline, and only the colour moves under a pointer. 20260922, m807:
      14px, a pixel over the .ptab's 13, on the same 16px line, and a 1px clear
      border on all four sides of every name, the selected one included, so a
-     name measures the same whether it is selected or not and the well below
+     name measures the same whether it is selected or not and the list below
      never moves. the ID-scoped border outranks .ptab.on's hairline. */
   #tikhead .tvb{flex:1; --seat:var(--card); height:auto; top:0; padding:6px 0 5px;
     font-size:14px; border:1px solid transparent}
@@ -1231,27 +1237,56 @@
     transition:color .18s, box-shadow .08s ease-in;
   }
   #tikhead .tvb.on::before, #tikhead .tvb.on::after{display:none}
-  /* the list well: the recessed surface under the names, with its own white
-     fill, hairline and sunk shade. it clips a horizontal sheet of three
-     sections and shows one at a time, so a tab change travels the sheet across
-     the well while the well and the names above never move. 20260922, m807:
-     the shade is --sunk-deep at 90% of its depth, both layers' y offset, blur
-     and alpha times .9; --sunk-deep itself is untouched for everything else
-     that reads it.
+  /* the list: the tickets stand on the paper, with no fill, edge or shade round
+     them. it clips a horizontal sheet of three sections and shows one at a
+     time, so a tab change travels the sheet across the list while the list and
+     the names above never move. it starts just under the divider and reaches
+     --list-side past the holder on both sides and --list-air past its foot, so
+     the lifted row's shadow is not cut on bare paper and the foot fades as
+     deep as the top; each section pads the same amounts back inside, so every
+     row stands where it did.
      use a non-scrolling clip so selected-row reveal cannot shift the outer
      holder sideways. each section below handles its own vertical scrolling. */
-  #tiklist{position:relative; flex:1; min-height:0; overflow:clip;
+  #tiklist{--listfade:22px; --list-air:7px; --list-side:20px;
+    position:relative; flex:1; min-height:0; overflow:clip;
     display:flex; flex-direction:column;
-    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
-    box-shadow:inset 0 2.7px 6.3px rgba(60,45,20,.198), inset 0 .9px 1.8px rgba(60,45,20,.126)}
+    margin:0 calc(var(--list-side)*-1) calc(var(--list-air)*-1)}
   /* #tiksheet is doing|deferred|done laid left to right, one section wide each.
-     section i rests at translateX(-i*100%); the well clips all but the shown one. */
+     section i rests at translateX(-i*100%); the list clips all but the shown one. */
   #tiksheet{flex:1; min-height:0; display:flex; flex-direction:row; will-change:transform}
   /* each section scrolls its own rows and keeps its own scroll position; the row
-     padding and gap live here, so the sheet moves the rows and never the well. */
+     padding and gap live here, so the sheet moves the rows and never the list.
+     the section's top and foot dissolve under the same ramp the answer wears,
+     --listfade deep: --upband is how far the section has scrolled and --downband
+     how far it still can, each capped at that depth by the script beside
+     riseBand, so an edge with nothing past it stays at full ink and a section
+     that fits wears no fade at all. a mask does not scroll with the rows.
+     scroll-padding keeps a row that is scrolled into view clear of both ramps */
   .tikpane{flex:0 0 100%; min-width:0; height:100%; overflow-y:auto; overflow-x:hidden;
     display:flex; flex-direction:column; gap:calc(var(--ch)*0.007);
-    padding:calc(var(--ch)*0.012) 0.6vw calc(var(--ch)*0.012) 0.7vw}
+    padding:calc(var(--edge-drawn) + var(--ch)*0.012)
+            calc(var(--list-side) + var(--edge-drawn) + 0.6vw)
+            calc(var(--list-air) + var(--edge-drawn) + var(--ch)*0.012)
+            calc(var(--list-side) + var(--edge-drawn) + 0.7vw);
+    scroll-padding-block:var(--listfade);
+    -webkit-mask-image:linear-gradient(to bottom,
+      rgba(0,0,0,0) 0,
+      rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
+      rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
+      rgba(0,0,0,1) var(--upband, 0px),
+      rgba(0,0,0,1) calc(100% - var(--downband, 0px)),
+      rgba(0,0,0,.80) calc(100% - var(--downband, 0px)*.72),
+      rgba(0,0,0,.35) calc(100% - var(--downband, 0px)*.38),
+      rgba(0,0,0,0) 100%);
+    mask-image:linear-gradient(to bottom,
+      rgba(0,0,0,0) 0,
+      rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
+      rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
+      rgba(0,0,0,1) var(--upband, 0px),
+      rgba(0,0,0,1) calc(100% - var(--downband, 0px)),
+      rgba(0,0,0,.80) calc(100% - var(--downband, 0px)*.72),
+      rgba(0,0,0,.35) calc(100% - var(--downband, 0px)*.38),
+      rgba(0,0,0,0) 100%)}
   /* the ticket list, the file navigator panes, the answer and the compose row scroll
      with no bar and no lane reserved for one: the page-wide rule in
      card-tokens.css hides every bar, so none is styled or slimmed here. */
@@ -2630,12 +2665,14 @@
   /* the ticket list becomes a left drawer, off-canvas until opened. the desktop
      holder is transparent so its labels sit bare on the workspace; a drawer over
      the conversation needs its own opaque paper, or the conversation shows
-     through the tab strip and the gap above the well. the well keeps its own
-     fill, so this only fills the strip and the gap behind the names. */
+     through the tab strip and the list. the list reaches a little past the
+     holder on desktop, so the drawer clips it: closed, it must not leave a
+     strip on the conversation's left edge that takes its taps, and open, it
+     must not take the taps meant for the scrim. */
   body[data-resp-mode="portrait"] #tickets{
     position:fixed !important; left:0 !important; top:var(--bar-h) !important;
     width:min(86vw, 380px) !important; height:calc(100vh - var(--bar-h)) !important;
-    max-width:none; border-radius:0 !important; z-index:14;
+    max-width:none; border-radius:0 !important; z-index:14; overflow:clip;
     background:var(--paper) !important;
     transform:translateX(-100%); transition:transform .26s ease;
     box-shadow:2px 0 18px rgba(60,45,20,.18);
@@ -4963,6 +5000,29 @@ function riseBand(node){
 function watchRise(node){
   node.addEventListener("scroll", () => riseBand(node), { passive: true });
   riseBand(node);
+}
+
+// the same two bands for each section of the ticket list: how far the section
+// has scrolled, --upband, and how far it still can, --downband, in whole pixels
+// and capped at --listfade, the depth of the ramp. a section at the top of its
+// scroll wears no band at the top, one at its end none at the foot, and one that
+// fits none at all. a number is only written when it changes. the bands are
+// read again when the rows are rebuilt and when a section changes size, since
+// either moves how far it can scroll without a scroll event. this feeds a mask
+// and nothing else, so it changes what is painted and never what is measured
+function tickBands(pane){
+  if (!pane._fade) pane._fade = parseFloat(getComputedStyle(pane).getPropertyValue("--listfade")) || 0;
+  const up = Math.min(Math.round(pane.scrollTop), pane._fade);
+  const down = Math.min(Math.max(0, Math.round(pane.scrollHeight - pane.clientHeight - pane.scrollTop)), pane._fade);
+  if (up !== pane._up){ pane._up = up; pane.style.setProperty("--upband", up + "px"); }
+  if (down !== pane._down){ pane._down = down; pane.style.setProperty("--downband", down + "px"); }
+}
+for (const pane of document.querySelectorAll(".tikpane")){
+  const read = () => tickBands(pane);
+  pane.addEventListener("scroll", read, { passive: true });
+  new MutationObserver(read).observe(pane, { childList: true });
+  if (window.ResizeObserver) new ResizeObserver(read).observe(pane);
+  read();
 }
 
 // every answer must end evenly against its box: the answer's room snaps down to
