@@ -3237,6 +3237,29 @@
     top:calc(var(--home-t) * .1 + var(--home-b) * .9);
     width:calc((var(--home-r) - var(--home-l)) * .35);
     transform:translate(-50%, -100%)}
+  /* the left half of the same frame holds the new tab's own picker (#newproj,
+     one set of markup and one builder): a box as wide as the half and as tall as
+     the frame, the stack centred in it by flex both ways, so it follows the
+     window as the two boxes on the right do. the box takes no clicks, only the
+     stack does. a long list scrolls inside its well, which is capped at 56vh
+     as on the new tab and, in a window too short for that, gives up its floor
+     and shrinks, so the stack never runs under the bar or past the bottom */
+  body.focus.home #newproj{display:flex; flex-direction:column; align-items:center;
+    justify-content:center; position:fixed; z-index:5; pointer-events:none;
+    --home-l:var(--app-inset); --home-r:calc(100vw - var(--app-inset));
+    --home-t:calc(var(--app-inset) + var(--bar-h) - 1px - var(--edge-drawn));
+    --home-b:calc(100vh - var(--app-inset));
+    left:var(--home-l); top:var(--home-t);
+    width:calc((var(--home-r) - var(--home-l)) * .5);
+    height:calc(var(--home-b) - var(--home-t))}
+  body.focus.home #nphome{max-width:100%; max-height:100%; pointer-events:auto}
+  body.focus.home #nppanel{display:flex; flex-direction:column;
+    min-height:min(330px, calc(100vh - 300px))}
+  body.focus.home #nprows{flex:0 1 auto; min-height:0}
+  /* every row on home is a way in, so each one takes the pointer and the soft
+     fill the new tab gives a closed project's row */
+  body.focus.home .nprow{cursor:pointer; border-radius:5px}
+  body.focus.home .nprow:hover{background:#FFF8EF}
   body.focus.home #stage{visibility:hidden; opacity:0; pointer-events:none}
   body.focus.home #editbtn{visibility:hidden}
   /* on-canvas edit mode: the bar's pencil toggles it; boxes then drag with no
@@ -4089,39 +4112,57 @@ function plusClick(){
   renderTabs(lastState);
   apply(lastState);
 }
-// the landing's panel: every project the board holds as a row by its display
-// name; open projects' rows are plain information (the tab bar owns
-// switching), but a closed project's row is itself the way back: clicking it
-// reopens that tab on the spot, no folder chooser needed
-function renderHome(st){
-  if (!draft || draft.screen !== "home" || !st) return;
+// the picker's panel, on the new tab and on the home page alike: every project
+// the board holds as a row by its display name. on the new tab the open
+// projects' rows are plain information (the tab bar owns switching), but a
+// closed project's row is itself the way back: clicking it reopens that tab on
+// the spot, no folder chooser needed. on the home page nothing is seated, so no
+// row is marked, and every row is a way in: an open one shows its board, a
+// closed one reopens its tab
+function renderHome(st, onHome = !draft && homeOpen){
+  if (!st || !(onHome || (draft && draft.screen === "home"))) return;
   const box = document.getElementById("nprows");
   const owners = allRowsOf(st);
-  const sig = owners.map(ow => ow + labelOf(st, ow) + ((st.pwds || {})[ow] || "") + (tabClosed(ow, st) ? "~" : "")).join(",") + "|" + draft.from;
+  const from = onHome ? "" : draft.from;
+  const sig = owners.map(ow => ow + labelOf(st, ow) + ((st.pwds || {})[ow] || "") + (tabClosed(ow, st) ? "~" : "")).join(",") + "|" + from + (onHome ? "|home" : "");
   if (box.dataset.sig === sig) return;
   box.dataset.sig = sig;
   box.textContent = "";
   for (const ow of owners){
     const shut = tabClosed(ow, st);
-    const row = h("div", "nprow" + (ow === draft.from ? " sel" : "") + (shut ? " shut" : ""));
+    const row = h("div", "nprow" + (!onHome && ow === from ? " sel" : "") + (shut ? " shut" : ""));
     row.appendChild(h("span", "npname", labelOf(st, ow)));
     row.appendChild(h("span", "nppath", (st.pwds || {})[ow] || ""));
-    if (shut){
-      row.title = "click to reopen this project";
-      row.addEventListener("click", () => reopenTab(ow));
-    }
+    if (shut) row.title = "click to reopen this project";
+    if (shut || onHome) row.addEventListener("click", () => { if (shut) reopenTab(ow); else setTab(ow); });
     box.appendChild(row);
   }
 }
+// the house leaves an unfinished new tab behind, back on the tab it came from,
+// and fills the picker's rows for the home page. this runs before the home
+// block's own listener opens the page
+document.getElementById("homeico").addEventListener("click", () => {
+  if (homeOpen) return;
+  if (draft){
+    const back = draft.from;
+    endDraft();
+    if (validActiveOwnerIds.has(back)) activeOwner = back;
+  }
+  if (lastState) renderHome(lastState, true);
+});
 // the start button hands folder choosing to the system: GET /pickdir opens
 // the desktop chooser and answers with the chosen path, which then creates
-// the lane the same way the old in-page browser did
+// the lane the same way the old in-page browser did. the home page asks the
+// same way and ends the same way, on the new project's own board
+const homePick = { picking: false };
 document.getElementById("npstart").addEventListener("click", async () => {
-  if (!draft || draft.picking) return;   // one chooser at a time
-  draft.picking = true;
+  const slot = draft || (homeOpen ? homePick : null);
+  if (!slot || slot.picking) return;   // one chooser at a time
+  slot.picking = true;
+  const here = () => slot === homePick ? homeOpen : !!draft;
   try {
     const x = await fetch("/pickdir").catch(() => null);
-    if (!draft) return;   // the draft was dropped while the chooser sat open
+    if (!here()) return;   // the page was left while the chooser sat open
     if (!x){ projNote("could not reach the server"); return; }
     if (x.status === 404){
       // a live server from before the endpoint: only a restart adds it
@@ -4166,8 +4207,10 @@ document.getElementById("npstart").addEventListener("click", async () => {
     endDraft();
     activeOwner = pr.id; localStorage.setItem("activeproj", pr.id);
     await poll();   // the new lane arrives with its tab label and directory
+    // home stays up until the lane is drawn, so the old board never shows
+    if (slot === homePick && homeOpen) setHome(false);
   } finally {
-    if (draft) draft.picking = false;
+    slot.picking = false;
   }
 });
 
@@ -6122,7 +6165,7 @@ function apply(state){
   }
   renderTabs(state);
   renderPages(state);   // the foot of the workspace, and whether the board is on this page at all
-  if (draft && draft.screen === "home") renderHome(state);   // new lanes join the landing card live
+  if ((draft && draft.screen === "home") || homeOpen) renderHome(state);   // new lanes join the landing card live
   if (FOCUS){
     renderWorkspaces(state);
     renderTrio(state);
