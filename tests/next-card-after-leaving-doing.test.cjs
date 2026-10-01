@@ -71,12 +71,37 @@ test("the list is taken in the order the lists draw it, before the card leaves",
     card("finished", { agentTs: 8, done: true, state: "done" }),
   ] };
   const { sandbox } = logicWith(state, null);
-  assert.deepEqual([...sandbox.doingOrder(state)], ["new", "mid", "old"]);
+  assert.deepEqual([...sandbox.doingOrder(state)], ["old", "mid", "new"]);
   assert.deepEqual([...sandbox.doingOrder(null)], []);
 });
 
+test("the waiting group runs oldest turn first and the other groups keep their order", () => {
+  const state = { boxes: [
+    card("late", { agentTs: 9 }),
+    card("fresh", { state: "new", ball: "me", replies: 0, agentTs: 0, ts: 50 }),
+    card("bare", { agentTs: 0, ts: 0 }),
+    card("tie-a", { agentTs: 5 }),
+    card("tie-b", { agentTs: 5 }),
+    card("early", { agentTs: 2 }),
+    card("ts-only", { agentTs: 0, ts: 7 }),
+    card("q1", { state: "queued", ball: "me", ts: 30 }), card("q2", { state: "queued", ball: "me", ts: 40 }),
+    card("w1", { state: "working", ball: "me", ts: 10 }), card("w2", { state: "working", ball: "me", ts: 20 }),
+    card("d1", { state: "done", done: true, ts: 1 }), card("d2", { state: "done", done: true, ts: 2 }),
+    card("newer", { state: "new", ball: "me", replies: 0, agentTs: 0, ts: 60 }),
+  ] };
+  const { sandbox, calls } = logicWith(state, null);
+  const order = [...sandbox.poolOf(state).map(b => b.id)];
+  assert.deepEqual(order, ["newer", "fresh", "early", "tie-a", "tie-b", "ts-only", "late", "bare", "q2", "q1", "w2", "w1", "d2", "d1"]);
+  // the jump after a send reads the same measure, so it lands on the top of the group
+  const list = sandbox.viewPoolFor(state, "todo");
+  assert.equal(sandbox.jumpNextYellow("late", null, list), "early");
+  assert.equal(sandbox.jumpNextYellow("early", null, list), "tie-a");
+  assert.equal(sandbox.jumpNextYellow("tie-a", null, list), "early");
+  assert.deepEqual(calls.map(c => c.select), ["early", "tie-a", "early"]);
+});
+
 test("the hop lands from the list taken at the tap, whatever the page has repainted since", () => {
-  const state = { boxes: ["a", "b", "c", "d"].map(id => card(id, { agentTs: 10 - "abcd".indexOf(id) })) };
+  const state = { boxes: ["a", "b", "c", "d"].map(id => card(id, { agentTs: 10 + "abcd".indexOf(id) })) };
   const { sandbox, calls } = logicWith(state, "b");
   const order = sandbox.doingOrder(state);
   assert.deepEqual(order, ["a", "b", "c", "d"]);
@@ -163,8 +188,8 @@ before(async () => {
     assert.ok(i < 400 && child.exitCode === null, "the fixture server did not start");
     await pause(25);
   }
-  // answered last card first, so the newest reply is on top and the list reads 1.1 down to 1.5
-  for (const id of [...CARDS].reverse()) {
+  // answered first card first, so the oldest reply is on top and the list reads 1.1 down to 1.5
+  for (const id of CARDS) {
     assert.equal((await post(`/send?box=${id}`, "a question")).status, 200);
     const claim = await (await fetch(`${origin}/wait?owner=facilitator&timeout=5`)).json();
     assert.equal(claim.box, id);

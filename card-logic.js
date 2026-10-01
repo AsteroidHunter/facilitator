@@ -912,6 +912,11 @@ function cardSection(b){ return TICKET_VIEWS.find(view => viewFilterFor(b, view)
 function viewPoolFor(state, view){ return poolOf(state).filter(b => viewFilterFor(b, view)); }
 function viewPool(state){ return viewPoolFor(state, curView()); }
 
+// when a card became the reader's turn. agentTs is written as the turn goes back
+// to the reader; a card the agent never answered ages by its own ts; one with
+// neither stamp cannot be aged and counts as the newest
+function waitingSince(b){ return b.agentTs || b.ts || Number.MAX_SAFE_INTEGER; }
+
 function poolOf(state){
   const keep = poolScope ? poolScope(state) : null;
   return state.boxes.filter(b =>
@@ -922,8 +927,11 @@ function poolOf(state){
       const g = x => ({ "new": 0, yours: 1, queued: 2, working: 3, done: 4 })[queueState(x)];
       if (g(a) !== g(b)) return g(a) - g(b);
       if (g(a) === 0) return (b.ts || 0) - (a.ts || 0);   // newest created on top
-      if (g(a) === 1) return (b.agentTs || 0) - (a.agentTs || 0);   // newest reply on top: latest cards come to the top. it was oldest first for a day so a batch came back in send order, which was not wanted
-      return (b.ts || 0) - (a.ts || 0);                    // waiting, working and done: newest first
+      // the waiting group is a queue: oldest turn first, so old turns do not go
+      // stale below newer ones. this is the same measure the post-send jump uses
+      // to pick the longest-waiting card; equal stamps keep the board's order
+      if (g(a) === 1) return waitingSince(a) - waitingSince(b);
+      return (b.ts || 0) - (a.ts || 0);                    // queued, working and done: newest first
     });
 }
 
@@ -2828,7 +2836,6 @@ function jumpNextYellow(fromId, opts, source){
   // neither stamp cannot be aged, so it sorts last instead of posing as the
   // oldest thing here. the filter above already made a fresh array, so nothing
   // else sees this sort, and equal stamps keep the list's own order
-  const waitingSince = b => b.agentTs || b.ts || Number.MAX_SAFE_INTEGER;
   const listOrder = new Map(p.map((b, i) => [b.id, i]));
   p.sort((a, b) => waitingSince(a) - waitingSince(b) || listOrder.get(a.id) - listOrder.get(b.id));
   select(p[0].id, opts);
