@@ -2357,13 +2357,28 @@ function setCardDestination(id, destination){
   }
 }
 
+// the Doing list as both pages draw it, top to bottom, by card id
+function doingOrder(state){ return state ? viewPoolFor(state, "todo").map(b => b.id) : []; }
+
+// where the screen goes when a card leaves Doing: the card below it, else the
+// one above it, else nothing. order is the list from before the card left; a
+// card that was not in it gets the top card; the standing boxes are skipped
+function doingNeighbour(id, order){
+  const at = order.indexOf(id);
+  const open = x => x !== id && x !== "0" && x !== "t0";
+  if (at < 0) return order.find(open) ?? null;
+  return order.slice(at + 1).find(open) ?? order.slice(0, at).reverse().find(open) ?? null;
+}
+
 // Closing a card and snoozing the card on screen use the same Doing fallback.
-// the hop says so to select, and the desktop keeps a card it only browsed to
-// browsed on the card it lands on
-function selectNextDoing(id){
-  const doing = lastState ? poolOf(lastState).filter(b =>
-    !b.done && !b.parked && b.id !== id && b.id !== "0" && b.id !== "t0") : [];
-  if (doing.length) select(doing[0].id, { hop: true }); else deselect();
+// order is taken at the tap, before the repaint drops the card from the list.
+// A card that is not on screen leaves the screen alone. the hop says so to
+// select, and the desktop keeps a card it only browsed to browsed
+function selectNextDoing(id, order){
+  if (selectedId !== id) return;
+  const live = new Set(doingOrder(lastState));
+  const next = doingNeighbour(id, order.filter(x => x === id || live.has(x)));
+  if (next) select(next, { hop: true }); else deselect();
 }
 
 // ---- the three section chips ---------------------------------------------------
@@ -2455,6 +2470,7 @@ function setFlag(id, kind, want){
     typeof selectedId !== "undefined" && selectedId === id &&
     typeof curView === "function" && curView() === "todo" &&
     current && current.owner === activeOwner && !current.done && !current.parked;
+  const order = advance ? doingOrder(lastState) : null;   // before the card is painted out of the list
   const spec = flagSpec(kind);
   const key = flagKey(id, kind);
   const hold = flagHolds[key] || (flagHolds[key] = { id, kind, truth: null, boxRef: null, sending: 0 });
@@ -2468,7 +2484,7 @@ function setFlag(id, kind, want){
   paintFlag(id, spec, want, true);                                  // the card, in this same turn
   const going = hold.sending ? Promise.resolve() : sendFlag(key);   // the board, before any redraw
   flagRepaint();                                                    // the list, the tabs, the place
-  if (advance) selectNextDoing(id);
+  if (advance) selectNextDoing(id, order);
   return going;
 }
 
