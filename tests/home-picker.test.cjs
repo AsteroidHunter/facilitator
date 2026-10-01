@@ -279,6 +279,19 @@ test("the new tab behaves as before: a marked row, an inert open row, a closed r
   } finally { await context.close(); await setTabs([ids[2]]); }
 });
 
+test("the plus pressed from home shows the new tab as from a board: its three pieces rise afresh", async () => {
+  for (const viaHome of [false, true]) {
+    const { context, page } = await openPage(SIZES[0]);
+    try {
+      if (viaHome) await goHome(page);
+      await page.click(".ptabplus", { delay: 10 });
+      const rising = await page.evaluate(() => document.getAnimations()
+        .filter(a => a.animationName === "npmelt" && a.currentTime < 150).length);
+      assert.equal(rising, 3, viaHome ? "from home" : "from a board");
+    } finally { await context.close(); }
+  }
+});
+
 test("the house on an unfinished new tab drops it, back on the tab it came from, and the picker shows the rows", async () => {
   await setTabs([ids[2]]);
   const { context, page } = await openPage(SIZES[0]);

@@ -4107,6 +4107,7 @@ function plusClick(){
   if (homeOpen) setHome(false);
   draft = { screen: "home", from: activeOwner };
   activeOwner = DRAFT;   // never saved: a reload forgets the unfinished tab
+  void document.body.offsetWidth;   // home's picker goes before the new tab shows it, so it rises and is drawn afresh
   document.body.classList.add("choosing");
   renderHome(lastState);
   renderTabs(lastState);
