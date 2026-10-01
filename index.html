@@ -5306,11 +5306,12 @@ function makeBox(b, i, state){
     x.addEventListener("click", async e => {
       e.stopPropagation();
       if (chipOff(x)) return;   // a done card: the cross has nothing left to do
+      const order = doingOrder(lastState);   // the list as it stands, before the close
       // the server reads the current record atomically, so a handler born with
       // an empty card can never erase replies that arrived on later polls
       await fetch("/close?box=" + encodeURIComponent(b.id), { method: "POST" }).catch(() => {});
       // dismiss this card from the center and jump to the next ongoing chat, so no extra click is needed
-      selectNextDoing(b.id);
+      selectNextDoing(b.id, order);
       poll();
     });
     topbar.appendChild(x);   // the cross is an item of the bar now, not a pinned corner
@@ -9254,8 +9255,9 @@ function boardResponseCard(){
 // the large card's close from the done keys: the cross's own request, then the
 // cross's own hop to the next doing card, once the board has answered
 async function boardCloseCard(id){
+  const order = doingOrder(lastState);
   await fetch("/close?box=" + encodeURIComponent(id), { method: "POST" }).catch(() => {});
-  selectNextDoing(id);
+  selectNextDoing(id, order);
   poll();
 }
 

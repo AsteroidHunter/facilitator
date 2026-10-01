@@ -471,19 +471,23 @@ test("the step that carries the caret selects, a tab switch browses, and the hop
   assert.equal(d.doc.activeElement, d.els.b.ta, "browsing to the selected card on screen dropped its caret");
   d.press("Escape", { target: d.els.b.ta });
   d.press("Escape");
-  // the hop after a close or a snooze: a browsed card hops to a browsed card
+  // the hop after a close or a snooze: a browsed card hops to the card right
+  // below it, browsed
   d.seen.length = 0;
-  d.sandbox.selectNextDoing("b");
-  assert.equal(d.shown(), "a");
+  const order = d.get("doingOrder")(d.state);
+  assert.deepEqual(order, ["a", "b", "c"]);
+  d.sandbox.selectNextDoing("b", order);
+  assert.equal(d.shown(), "c");
   assert.equal(d.browsing(), true, "the hop from a browsed card selected the next one");
   assert.deepEqual(d.seen, []);
-  // and a selected card to a selected one, read, as it always did. the card it
-  // lands on has had a reply since it was last read
+  // and a selected card to a selected one, read, as it always did. it was the
+  // last card, so it lands on the card above, which has had a reply since it
+  // was last read
   d.press("Enter");
   d.state.boxes.find(x => x.id === "b").replies = 2;
   d.sandbox.seenSync(d.state);
   d.seen.length = 0;
-  d.sandbox.selectNextDoing("a");
+  d.sandbox.selectNextDoing("c", order);
   assert.equal(d.shown(), "b");
   assert.equal(d.browsing(), false);
   assert.deepEqual(d.seen, [{ b: 2 }]);
