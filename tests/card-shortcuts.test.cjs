@@ -402,6 +402,34 @@ test("control enter is the move key and no other modifier set is", async () => {
   assert.equal(resolve(event("Enter", { ctrlKey: true }), "mini"), null);
 });
 
+test("option enter is no card key, alone or with control, command or shift", async () => {
+  const { resolve } = await shortcuts();
+  const source = await readFile(path.join(ROOT, "card-logic.js"), "utf8");
+  const context = vm.createContext({ Date, setInterval, clearInterval, setTimeout, clearTimeout });
+  vm.runInContext(source, context, { filename: "card-logic.js" });
+  const controlEnter = vm.runInContext("controlEnter", context);
+  for (const held of [{ altKey: true }, { altKey: true, ctrlKey: true }, { altKey: true, metaKey: true },
+                      { altKey: true, shiftKey: true }, { altKey: true, ctrlKey: true, shiftKey: true }]) {
+    assert.equal(resolve(event("Enter", held)), null, JSON.stringify(held));
+    assert.equal(controlEnter(event("Enter", held)), false, JSON.stringify(held));
+  }
+  assert.equal(controlEnter(event("Enter", { ctrlKey: true })), true);
+});
+
+test("every page's Enter send and title save leaves out the Option key", async () => {
+  for (const page of ["index.html", "m.html", "page.html", "card-logic.js"]) {
+    const lines = (await readFile(path.join(ROOT, page), "utf8")).split("\n");
+    lines.forEach((line, at) => {
+      const send = /"Enter"/.test(line) && /shiftKey/.test(line);
+      const save = /key === "Enter"/.test(line) && /commit\(\)/.test(line);
+      if (send || save) assert.ok(/altKey/.test(line), `${page}:${at + 1} lets Option+Enter through: ${line.trim()}`);
+    });
+  }
+  // the phone composer names the key on a line of its own
+  const phone = await readFile(path.join(ROOT, "m.html"), "utf8");
+  assert.match(phone, /if \(e\.altKey\) \{ notePhoneEnter\("handler", e, "modifier", ta\); return; \}/);
+});
+
 test("control r is the random jump key and no other modifier set is", async () => {
   const { resolve } = await shortcuts();
   assert.deepEqual(plain(resolve(event("r", { ctrlKey: true }))), { action: "random", value: true });
