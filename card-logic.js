@@ -166,8 +166,8 @@ function cardShortcutEditing(target){
     !!target.closest("textarea, input, [contenteditable], [role='textbox'], .cm-editor");
 }
 
-// control and enter and nothing else: shift keeps its new line, and command,
-// option and the wider chords send as plain Enter does
+// control and enter and nothing else: shift keeps its new line, command sends
+// as plain Enter does, and option does nothing of the page's
 function controlEnter(e){
   return e.key === "Enter" && e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey;
 }
@@ -2997,7 +2997,7 @@ function editTitle(id, opts){
   };
   t.onkeydown = e => {
     e.stopPropagation();   // card-switching keys must not fire while naming
-    if (e.key === "Enter"){ e.preventDefault(); commit(); el.ta.focus(); }
+    if (e.key === "Enter" && !e.altKey){ e.preventDefault(); commit(); el.ta.focus(); }
     else if (keyboardTitle && e.key === "Tab"){ e.preventDefault(); commit(); (e.shiftKey ? (el.sun || el.arc) : el.ta).focus(); }
     else if (e.key === "Escape"){
       if (!old && !t.textContent.trim()) commit();

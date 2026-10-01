@@ -5787,7 +5787,7 @@ function composerArrow(id){
   doSend(id, { advance: false, enterIntent: intent });
 }
 function composerEnter(e, id){
-  if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
+  if (e.key !== "Enter" || e.shiftKey || e.altKey || e.isComposing) return;
   e.preventDefault();
   if (e.repeat) return;
   const el = els[id];
@@ -6969,7 +6969,7 @@ function chatBuild(){
   // that is a change to how the reader types, and it is not one to make unasked.
   // control+enter sends and then moves on, as it does in a card's composer
   ta.addEventListener("keydown", e => {
-    if (e.key === "Enter" && !e.shiftKey){
+    if (e.key === "Enter" && !e.shiftKey && !e.altKey){
       e.preventDefault();
       chatSend();
       if (controlEnter(e) && !e.repeat) boardAdvance(selectedId);
@@ -8908,7 +8908,7 @@ function miniEditTitle(id, opts){
   };
   t.onkeydown = e => {
     e.stopPropagation();   // the card-walking keys must not fire while naming
-    if (e.key === "Enter"){ e.preventDefault(); commit(); el.ta?.focus(); }
+    if (e.key === "Enter" && !e.altKey){ e.preventDefault(); commit(); el.ta?.focus(); }
     else if (e.key === "Escape"){
       if (!old && !t.textContent.trim()) commit();
       else { end(); t.textContent = old; }
@@ -9068,7 +9068,7 @@ function renderMiniCards(state){
       // card that has waited longest, or does just that when nothing is typed
       ta.addEventListener("keydown", e => {
         e.stopPropagation();
-        if (e.key === "Enter" && !e.shiftKey){
+        if (e.key === "Enter" && !e.shiftKey && !e.altKey){
           e.preventDefault();
           const sending = fire();
           if (controlEnter(e) && !e.repeat) sending.then(sent => {
@@ -9673,7 +9673,7 @@ async function doQSend(){
   } finally { qsend.disabled = false; }
 }
 qsend.addEventListener("click", doQSend);
-qta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); doQSend(); } });
+qta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.altKey){ e.preventDefault(); doQSend(); } });
 
 setInterval(pollQ, 2500); pollQ();
 

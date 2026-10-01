@@ -1622,6 +1622,7 @@ function makeBox(b){
       return;
     }
     if (e.shiftKey) { notePhoneEnter("handler", e, "shift", ta); return; }
+    if (e.altKey) { notePhoneEnter("handler", e, "modifier", ta); return; }
     if (e.isComposing) { notePhoneEnter("handler", e, "composition", ta); return; }
     // control+enter is a double Enter pressed at once, and no on-screen
     // keyboard has the key, so it answers whether or not that keyboard is up
