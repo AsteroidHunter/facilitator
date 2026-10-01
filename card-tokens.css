@@ -81,34 +81,36 @@
   --sunk-deep:inset 0 3px 7px rgba(60,45,20,.22), inset 0 1px 2px rgba(60,45,20,.14);
 }
 
-/* ---- the top bar's history arrows, and the spinner that follows them ----- */
+/* ---- the top bar's history arrows, and the card's working spinner -------- */
 /* --hist-cell is the seat each history arrow stands in and --hist-glyph-w and
-   --hist-glyph-h the chevron drawn in it, centred. the gap between the two
-   arrows is therefore a seat less a chevron, and the spinner is laid out from
-   the same three names: its box is a chevron wide, and half a seat less half a
-   chevron of room ahead of it makes its gap from the second arrow that same
-   gap. nothing here is a copy of the arrows' numbers, so a change to the seat
-   or the chevron moves the spinner with it, on the board at any window size
-   (the stage scales as one piece) and on the phone.
+   --hist-glyph-h the chevron drawn in it, centred. the board's page sets the
+   seat on its own bar; the phone keeps this one.
    the spinner is always in the bar and only its strength changes, so showing
    or hiding it moves nothing. the fade is the history arrows' own, --spin-fade
    on the --gentle curve. its line is the working ticket's | / - \ , drawn in
-   the title's ink in the board's mono at the box's size; the small lift is a
-   fraction of the box, so the bar of the | sits on the arrows' centre line.
-   the control and the spinner stand in one run, .histrun, with no gap of its
-   own, since the bar's gap would be added to the arrows' gap. the run takes
-   the bar's flexible room (the history control keeps only its own width, the
-   spinner's seat takes the rest), which is what holds the section chips
-   against the right end. */
+   the title's ink in the board's mono at the box's size, --cardspin-s; the
+   small lift is a fraction of the box, so the bar of the | sits on the centre
+   line of what it stands beside. where it stands is each page's own: the
+   board's page puts it in the sun's square, and on the phone it follows the
+   arrows, below.
+   on the phone the control and the spinner stand in one run, .histrun, with no
+   gap of its own, since the bar's gap would be added to the arrows' gap. the
+   spinner's box is a chevron wide, and half a seat less half a chevron of room
+   ahead of it makes its gap from the second arrow the gap between the arrows.
+   the run takes the bar's flexible room (the history control keeps only its
+   own width, the spinner's seat takes the rest), which is what holds the
+   section chips against the right end. */
 :root{
   --hist-cell:28px; --hist-glyph-w:11px; --hist-glyph-h:7px;
   --spin-fade:.26s;
 }
 .histrun{flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:0}
-.cardspin{
-  --cardspin-s:var(--hist-glyph-w);
+.histrun > .cardspin{
   flex:1 1 auto; min-width:0; display:flex; align-items:center;
   padding-left:calc((var(--hist-cell) - var(--hist-glyph-w)) / 2);
+}
+.cardspin{
+  --cardspin-s:var(--hist-glyph-w);
   color:var(--ink); pointer-events:none;
   opacity:0; transition:opacity var(--spin-fade) var(--gentle);
 }

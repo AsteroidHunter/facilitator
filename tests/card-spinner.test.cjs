@@ -1,10 +1,13 @@
-// The card's own spinner: the | / - \ twin of the green ticket's, in the top bar
-// right after the history arrows, on the desktop board and on the phone page.
+// The card's own spinner: the | / - \ twin of the green ticket's, in the top bar.
+// On the phone page it stands right after the history arrows; on the desktop
+// board it stands in the sun's square, centred on the sun's mark, and cross-fades
+// with that mark.
 //
-// It is sized and spaced from the arrows' tokens, shows exactly when the card's
-// ticket is green (never on a done or deferred card), fades in and out with the
-// board's own fade, turns on the ticket's clock, and showing or hiding it moves
-// nothing else on the card.
+// It shows exactly when the card's ticket is green (never on a done or deferred
+// card), fades in and out with the board's own fade, turns on the ticket's
+// clock, and showing or hiding it moves nothing else on the card. On the phone
+// it is sized and spaced from the arrows' tokens; on the desktop it is sized by
+// the top row's own mark size.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawn } = require("node:child_process");
@@ -83,11 +86,14 @@ function installSampler() {
   window.__seatSamples = [];
   const tick = () => {
     const seat = document.querySelector("article.box.sel .cardspin");
-    if (seat) {
+    const sun = document.querySelector("article.box.sel .sunbtn");
+    if (seat && sun) {
       window.__seatSamples.push({
         t: performance.now(),
         opacity: Number(getComputedStyle(seat).opacity),
         on: seat.classList.contains("on"),
+        sunMark: Number(getComputedStyle(sun.querySelector("svg")).opacity),
+        sunButton: Number(getComputedStyle(sun).opacity),
       });
     }
     requestAnimationFrame(tick);
@@ -95,8 +101,8 @@ function installSampler() {
   requestAnimationFrame(tick);
 }
 
-// the bar's own geometry, in the page's design px: the desktop board is one
-// scaled piece, so what is read off the screen is divided by that scale
+// the phone's bar: the spinner follows the arrows, in one run with them, in the
+// page's design px
 function readBar() {
   const box = document.querySelector("article.box.sel");
   const stage = document.getElementById("stage");
@@ -124,18 +130,58 @@ function readBar() {
   };
 }
 
-// every rect in the bar and the title, in screen px
+// the desktop's bar, in the page's design px: the spinner stands in the sun's
+// square, so its box is read against the sun's mark and the squares' own size
+function readDeskBar() {
+  const box = document.querySelector("article.box.sel");
+  const stage = document.getElementById("stage");
+  const scale = stage.getBoundingClientRect().width / stage.offsetWidth;
+  const bar = box.querySelector(".topbar");
+  const seat = box.querySelector(".cardspin");
+  const sun = box.querySelector(".sunbtn");
+  const mark = sun.querySelector("svg");
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:absolute; visibility:hidden; width:var(--bar-sq); height:var(--bar-mark)";
+  bar.appendChild(probe);
+  const named = { square: parseFloat(getComputedStyle(probe).width), mark: parseFloat(getComputedStyle(probe).height) };
+  probe.remove();
+  const centre = r => [(r.left + r.right) / 2, (r.top + r.bottom) / 2];
+  const seatRect = seat.getBoundingClientRect(), markRect = mark.getBoundingClientRect(), sunRect = sun.getBoundingClientRect();
+  const before = getComputedStyle(seat, "::before");
+  const squares = [...box.querySelectorAll(".histbtn"), sun, box.querySelector(".arcbtn"), box.querySelector(".xbtn")]
+    .map(el => { const r = el.getBoundingClientRect(); return [r.width / scale, r.height / scale]; });
+  return {
+    named,
+    squares,
+    order: [...bar.children].map(c => String(c.className).split(" ")[0]),
+    hasRun: !!box.querySelector(".histrun"),
+    spinnerWidth: parseFloat(before.width),
+    spinnerHeight: parseFloat(before.height),
+    markWidth: markRect.width / scale,
+    markHeight: markRect.height / scale,
+    seatOffset: [(centre(seatRect)[0] - centre(markRect)[0]) / scale, (centre(seatRect)[1] - centre(markRect)[1]) / scale],
+    inSun: seatRect.left >= sunRect.left - 0.01 && seatRect.right <= sunRect.right + 0.01 &&
+      seatRect.top >= sunRect.top - 0.01 && seatRect.bottom <= sunRect.bottom + 0.01,
+    color: getComputedStyle(seat).color,
+    titleColor: getComputedStyle(box.querySelector(".title")).color,
+  };
+}
+
+// every rect in the bar and the title, in screen px; the phone's run is read
+// only where there is one
 function readPositions() {
   const box = document.querySelector("article.box.sel");
   const rect = el => { const r = el.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
   const buttons = [...box.querySelectorAll(".histbtn")];
+  const run = box.querySelector(".histrun");
   return {
     topbar: rect(box.querySelector(".topbar")),
-    histrun: rect(box.querySelector(".histrun")),
+    ...(run ? { histrun: rect(run) } : {}),
     histctl: rect(box.querySelector(".histctl")),
     olderBtn: rect(buttons[0]),
     newerBtn: rect(buttons[1]),
     sun: rect(box.querySelector(".sunbtn")),
+    sunMark: rect(box.querySelector(".sunbtn svg")),
     arc: rect(box.querySelector(".arcbtn")),
     x: rect(box.querySelector(".xbtn")),
     title: rect(box.querySelector(".title")),
@@ -309,15 +355,33 @@ test("the spinner's sheet rules carry no pixel number, no colour of their own an
   const allowed = new Set(["--hist-cell", "--hist-glyph-w", "--hist-glyph-h", "--cardspin-s", "--spin-fade", "--gentle", "--ink", "--mono"]);
   for (const name of used) assert.ok(allowed.has(name), `the spinner's rules use ${name}`);
   assert.match(rules, /\.cardspin\{[^}]*color:var\(--ink\)/, "the spinner is not in the ink colour");
-  assert.match(rules, /\.cardspin\{[^}]*padding-left:calc\(\(var\(--hist-cell\) - var\(--hist-glyph-w\)\) \/ 2\)/);
+  assert.match(rules, /\.histrun > \.cardspin\{[^}]*padding-left:calc\(\(var\(--hist-cell\) - var\(--hist-glyph-w\)\) \/ 2\)/);
   assert.match(rules, /--cardspin-s:var\(--hist-glyph-w\)/);
   assert.match(rules, /transition:opacity var\(--spin-fade\) var\(--gentle\)/);
 });
 
-test("neither page's markup puts the spinner outside the history run", async () => {
-  for (const name of ["index.html", "m.html"]) {
-    const html = await readFile(path.join(ROOT, name), "utf8");
-    assert.match(html, /histrun\.append\(histctl, cardSpin\)/, `${name}: the spinner is not built after the arrows`);
+test("the board's own spinner rules carry no pixel number and name the sun's cell and the top row's mark size", async () => {
+  const html = await readFile(path.join(ROOT, "index.html"), "utf8");
+  const from = html.indexOf("body.focus .box.sel .topbar > .cardspin{");
+  assert.notEqual(from, -1, "the board's spinner rule is missing");
+  const last = html.indexOf(".cardspin.on) .sunbtn svg{", from);
+  assert.notEqual(last, -1, "the sun's fade rule is missing");
+  const rules = html.slice(from, html.indexOf("}", last) + 1);
+  assert.doesNotMatch(rules, /\d\s*px/, "a pixel number is written in the board's spinner rules");
+  assert.doesNotMatch(rules, /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(|color-mix\(/, "the board's spinner rules name a colour");
+  assert.match(rules, /\.cardspin\{--cardspin-s:var\(--bar-mark\); grid-area:sun; place-self:center\}/);
+  assert.match(rules, /\.sunbtn svg\{transition:opacity var\(--spin-fade\) var\(--gentle\)\}/);
+  assert.match(rules, /:has\(> \.cardspin\.on\) \.sunbtn svg\{opacity:0\}/);
+});
+
+test("the board builds the spinner in the sun's square and the phone builds it after the arrows", async () => {
+  const board = await readFile(path.join(ROOT, "index.html"), "utf8");
+  assert.match(board, /topbar\.insertBefore\(sun, arc\);\s*(\/\/[^\n]*\n\s*)*topbar\.insertBefore\(cardSpin, arc\);/, "index.html: the spinner is not built after the sun");
+  assert.match(board, /topbar\.appendChild\(histctl\);/, "index.html: the arrows are not an item of the bar");
+  assert.doesNotMatch(board, /histrun/, "index.html: the board's spinner no longer stands in a run with the arrows");
+  const phone = await readFile(path.join(ROOT, "m.html"), "utf8");
+  assert.match(phone, /histrun\.append\(histctl, cardSpin\)/, "m.html: the spinner is not built after the arrows");
+  for (const [name, html] of [["index.html", board], ["m.html", phone]]) {
     assert.match(html, /setCardSpinner\(el\.cardSpin, cardSpinning\(b\)\)/, `${name}: the spinner is not driven by the shared rule`);
   }
   const page = await readFile(path.join(ROOT, "page.html"), "utf8");
@@ -325,14 +389,33 @@ test("neither page's markup puts the spinner outside the history run", async () 
 });
 
 for (const kind of ["desktop", "phone"]) {
-  test(`${kind}: the spinner sits right after the arrows, spaced and sized from their tokens`, async () => {
+  test(`${kind}: the spinner ${kind === "phone" ? "sits right after the arrows, spaced and sized from their tokens" : "stands in the sun's square, centred on the sun's mark"}`, async () => {
     await clearLane();
     const id = await answeredCard(`Spinner position on the ${kind}`);
     await turnGreen(id);
     const { page, problems } = await openCard(kind, id);
     await seatIs(page, id, true);
     await settle(400);
+    const measureDesk = async what => {
+      const bar = await page.evaluate(readDeskBar);
+      assert.equal(bar.hasRun, false, `${what}: the spinner still stands in a run after the arrows`);
+      assert.deepEqual(bar.order, ["histctl", "sunbtn", "cardspin", "arcbtn", "xbtn"], `${what}: the bar's order`);
+      assert.equal(bar.squares.length, 5, `${what}: the top row has ${bar.squares.length} squares`);
+      for (const [width, height] of bar.squares) {
+        assert.ok(Math.abs(width - bar.named.square) <= 0.01 && Math.abs(height - bar.named.square) <= 0.01,
+          `${what}: a square is ${width} by ${height}, not the named ${bar.named.square}`);
+      }
+      assert.ok(Math.abs(bar.spinnerWidth - bar.named.mark) <= 0.01 && Math.abs(bar.spinnerHeight - bar.named.mark) <= 0.01,
+        `${what}: the spinner is ${bar.spinnerWidth} by ${bar.spinnerHeight}, not the named mark ${bar.named.mark}`);
+      assert.ok(Math.abs(bar.markWidth - bar.named.mark) <= 0.01 && Math.abs(bar.markHeight - bar.named.mark) <= 0.01,
+        `${what}: the sun's mark is ${bar.markWidth} by ${bar.markHeight}, not the named ${bar.named.mark}`);
+      assert.ok(Math.abs(bar.seatOffset[0]) <= 0.01 && Math.abs(bar.seatOffset[1]) <= 0.01,
+        `${what}: the spinner's centre is ${bar.seatOffset} off the sun's mark`);
+      assert.ok(bar.inSun, `${what}: the spinner is not inside the sun's square`);
+      assert.equal(bar.color, bar.titleColor, `${what}: the spinner is not in the title's colour`);
+    };
     const measure = async what => {
+      if (kind === "desktop") return measureDesk(what);
       const bar = await page.evaluate(readBar);
       assert.deepEqual(bar.runOrder, ["histctl", "cardspin"], `${what}: the spinner is not right after the arrows`);
       assert.equal(bar.barOrder[0], "histrun", `${what}: the run is not first in the bar`);
@@ -457,7 +540,7 @@ for (const kind of ["desktop", "phone"]) {
     await seatIs(page, id, false);
     await settle(500);
     const back = await page.evaluate(readPositions);
-    assert.deepEqual(moved(idle, back, ["topbar", "histrun", "histctl", "olderBtn", "newerBtn", "sun", "arc", "x"]), [],
+    assert.deepEqual(moved(idle, back, Object.keys(idle).filter(key => key !== "title")), [],
       "the bar moved when the spinner left");
     assert.deepEqual(problems, []);
     await page.close();
@@ -488,6 +571,15 @@ for (const kind of ["desktop", "phone"]) {
     await seatIs(page, id, true);
     await settle(900);
     const mid = await page.evaluate(() => window.__seatSamples.length);
+    const sunGreen = await page.evaluate(() => {
+      const sun = document.querySelector("article.box.sel .sunbtn");
+      const probe = document.createElement("div");
+      probe.style.opacity = "var(--chipoff)";
+      document.body.appendChild(probe);
+      const off = Number(getComputedStyle(probe).opacity);
+      probe.remove();
+      return { aria: sun.getAttribute("aria-disabled"), tab: sun.tabIndex, off };
+    });
     await reply(id);
     await seatIs(page, id, false);
     await settle(900);
@@ -518,6 +610,23 @@ for (const kind of ["desktop", "phone"]) {
       assert.ok(fall[i - 1].opacity - fall[i].opacity < 0.3, "the fade out jumped");
     }
     assert.ok(fall.slice(gone).every(s => s.opacity === 0), "the spinner came back after the reply");
+
+    if (kind === "desktop") {
+      // the sun's mark and the spinner cross-fade: on every frame their strengths add to one
+      for (const s of samples) {
+        assert.ok(Math.abs(s.sunMark + s.opacity - 1) <= 0.02, `the sun's mark ${s.sunMark} and the spinner ${s.opacity} do not cross-fade`);
+        assert.ok(Math.abs(s.sunButton - sunGreen.off) <= 0.001, `the sun's button left its off fade: ${s.sunButton}`);
+      }
+      assert.equal(samples[0].sunMark, 1, "the sun's mark was not shown before the card turned green");
+      assert.equal(samples[split - 1].sunMark, 0, "the sun's mark is still shown on the green card");
+      assert.equal(samples[samples.length - 1].sunMark, 1, "the sun's mark did not come back after the reply");
+      assert.equal(sunGreen.aria, "true", "the sun is not inert on the green card");
+      assert.equal(sunGreen.tab, 0, "the sun left the keyboard path on the green card");
+      const sunSteps = samples.slice(1).map((s, i) => Math.abs(s.sunMark - samples[i].sunMark));
+      assert.ok(Math.max(...sunSteps) < 0.3, "the sun's mark jumped rather than fading");
+    } else {
+      assert.ok(samples.every(s => s.sunMark === 1), "the phone's sun fades with the spinner");
+    }
     assert.deepEqual(problems, []);
     await page.close();
   });
