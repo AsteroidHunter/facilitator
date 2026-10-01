@@ -98,9 +98,10 @@ test("a row is a name, a bar and a percent, and the box has nothing else in it",
   assert.equal(root.children.length, 1);
   const panel = root.children[0];
   assert.equal(panel.className, "tk-panel lm-box", "the token panel's own box");
-  assert.deepEqual(panel.children.map(r => r.className), [...Array(4).fill("lm-row"), "lm-updated"],
-                   "four rows and the faint line under them");
-  const lines = panel.children.slice(0, 4);
+  assert.deepEqual(panel.children.map(r => r.className), ["lm-title", ...Array(4).fill("lm-row"), "lm-updated"],
+                   "the title, four rows and the faint line under them");
+  assert.equal(panel.children[0].textContent, "Usage Limits");
+  const lines = panel.children.slice(1, 5);
   assert.deepEqual(lines.map(r => r.children.map(c => c.className)), Array(4).fill(["lm-name", "lm-bar", "lm-pct"]));
   assert.deepEqual(lines.map(r => r.children[0].textContent),
                    ["Claude 5-hour", "Claude weekly", "Codex 5-hour", "Codex weekly"]);
@@ -109,10 +110,11 @@ test("a row is a name, a bar and a percent, and the box has nothing else in it",
   assert.deepEqual(bars.map(b => b.children[0].style.width), ["23%", "41%", "7%", "88%"]);
   assert.deepEqual(bars.map(b => b.attrs.role), Array(4).fill("progressbar"));
   assert.deepEqual(bars.map(b => b.attrs["aria-valuenow"]), ["23", "41", "7", "88"]);
-  // no heading, subtitle, legend, reset time, status sentence or icon; an answer
-  // that does not say when it was taken leaves the faint line empty
-  assert.equal(root.textContent, "Claude 5-hour23%Claude weekly41%Codex 5-hour7%Codex weekly88%");
-  assert.equal(panel.children[4].textContent, "");
+  // the title and nothing else above the rows: no subtitle, legend, reset time,
+  // status sentence or icon; an answer that does not say when it was taken
+  // leaves the faint line empty
+  assert.equal(root.textContent, "Usage LimitsClaude 5-hour23%Claude weekly41%Codex 5-hour7%Codex weekly88%");
+  assert.equal(panel.children[5].textContent, "");
   assert.ok(!walk(root).some(n => ["SVG", "IMG", "H1", "H2", "H3", "BUTTON"].includes(n.tagName)));
   assert.ok(!walk(root).some(n => /tk-(head|name|what|foot|legend|note|sum)/.test(n.className)));
 });
@@ -123,10 +125,10 @@ test("a tool with no number has no rows, and with neither the box is hidden and 
   let answer = { codex: { five_hour: win(7), weekly: win(88) } };
   const box = W.limits(root, { load: async () => answer });
   await box.refresh();
-  assert.equal(root.textContent, "Codex 5-hour7%Codex weekly88%");
+  assert.equal(root.textContent, "Usage LimitsCodex 5-hour7%Codex weekly88%");
   answer = { claude: { weekly: win(41) } };
   await box.refresh();
-  assert.equal(root.textContent, "Claude weekly41%");
+  assert.equal(root.textContent, "Usage LimitsClaude weekly41%");
   answer = {};
   await box.refresh();
   assert.equal(root.hidden, true);
@@ -149,10 +151,10 @@ test("a reading that cannot be had leaves the last drawing, and one request is o
   assert.equal(asked, 1);
   release();
   await first;
-  assert.equal(root.children[0].children.length, 5, "four rows and the faint line");
+  assert.equal(root.children[0].children.length, 6, "the title, four rows and the faint line");
   fail = true;
   await box.refresh();
-  assert.equal(root.children[0].children.length, 5, "the rows stay");
+  assert.equal(root.children[0].children.length, 6, "the rows stay");
   assert.equal(root.hidden, false);
   assert.equal(asked, 2);
 });
@@ -184,7 +186,7 @@ test("the numbers last received are kept in the browser, and a fresh install sho
   let asked = 0;
   W.limits(later, { store, now: () => T0 + 90_000, load: () => { asked++; return new Promise(() => {}); } });
   assert.equal(later.hidden, false, "drawn as soon as the box is made");
-  assert.equal(later.textContent, "Claude 5-hour23%Claude weekly41%Codex 5-hour7%Codex weekly88%Last updated 1 min ago");
+  assert.equal(later.textContent, "Usage LimitsClaude 5-hour23%Claude weekly41%Codex 5-hour7%Codex weekly88%Last updated 1 min ago");
   assert.equal(asked, 0, "drawing from what was kept asks for nothing");
   // a store that cannot be read or written leaves the box as it would be without one
   for (const broken of [{ getItem: () => { throw new Error("no"); }, setItem: () => { throw new Error("no"); } },
@@ -203,7 +205,7 @@ test("a window that ended while the numbers were kept is drawn as 0", () => {
   store.setItem(W.LIMITS_KEY, JSON.stringify({ at: T0, answer: { codex: { five_hour: { used: 55, resets: T0 / 1000 + 60 }, weekly: win(61) } } }));
   const root = makeRoot();
   W.limits(root, { store, now: () => T0 + 120_000, load: () => new Promise(() => {}) });
-  assert.equal(root.textContent, "Codex 5-hour0%Codex weekly61%Last updated 2 min ago");
+  assert.equal(root.textContent, "Usage LimitsCodex 5-hour0%Codex weekly61%Last updated 2 min ago");
 });
 
 test("the faint line counts from the server's fetch, on the server's clock, and ticks while the box is open", async () => {
@@ -218,7 +220,7 @@ test("the faint line counts from the server's fetch, on the server's clock, and 
   let asked = 0;
   // the server's clock is a day ahead of the browser's: only the difference counts
   const box = W.limits(root, { store: null, now: () => t, load: async () => { asked++; return taken({ fetched: 5000, now: 5090 }); } });
-  const note = () => root.children[0].children[4];
+  const note = () => root.children[0].children[5];
   await box.refresh();
   assert.equal(note().className, "lm-updated");
   assert.equal(note().textContent, "Last updated 1 min ago", "90 seconds before the answer");
@@ -236,7 +238,7 @@ test("the faint line counts from the server's fetch, on the server's clock, and 
   const bare = makeRoot();
   const other = W.limits(bare, { store: null, now: () => t, load: async () => BOTH });
   await other.refresh();
-  assert.equal(bare.children[0].children[4].textContent, "");
+  assert.equal(bare.children[0].children[5].textContent, "");
 });
 
 test("fresh numbers move the bars and the percents in place: the same rows, nothing rebuilt", async () => {
@@ -246,12 +248,14 @@ test("fresh numbers move the bars and the percents in place: the same rows, noth
   const box = W.limits(root, { store: null, now: () => T0, load: async () => answer });
   await box.refresh();
   const panel = root.children[0];
-  const parts = panel.children.slice(0, 4).map(r => ({ row: r, bar: r.children[1], fill: r.children[1].children[0], pct: r.children[2] }));
+  const title = panel.children[0];
+  const parts = panel.children.slice(1, 5).map(r => ({ row: r, bar: r.children[1], fill: r.children[1].children[0], pct: r.children[2] }));
   answer = taken({ claude: { five_hour: win(30), weekly: win(41) }, codex: { five_hour: win(2), weekly: win(90) } });
   await box.refresh();
   assert.equal(root.children[0], panel, "the same box");
-  assert.equal(panel.children.length, 5);
-  panel.children.slice(0, 4).forEach((r, i) => {
+  assert.equal(panel.children[0], title, "the same title");
+  assert.equal(panel.children.length, 6);
+  panel.children.slice(1, 5).forEach((r, i) => {
     assert.equal(r, parts[i].row, `row ${i} kept`);
     assert.equal(r.children[1], parts[i].bar);
     assert.equal(r.children[1].children[0], parts[i].fill, `fill ${i} kept, so its width can move smoothly`);
@@ -263,7 +267,7 @@ test("fresh numbers move the bars and the percents in place: the same rows, noth
   // a tool gone or arriving changes the rows, and then the box is drawn again
   answer = taken({ codex: undefined });
   await box.refresh();
-  assert.equal(root.children[0].children.length, 3, "two rows and the faint line");
+  assert.equal(root.children[0].children.length, 4, "the title, two rows and the faint line");
 });
 
 test("while the server renews its reading the box asks again a few times, and stops when it is done", async () => {
@@ -354,6 +358,17 @@ test("the faint line is small and faint, in the board's own footnote style, bott
   assert.equal(declsFor(rules, ".lm-updated:empty").display, "none", "no line, no space, until there is a time");
 });
 
+test("the title is set like the token panel's heading and takes the grid's whole width", () => {
+  const rules = rulesOf(SHEET);
+  const title = declsFor(rules, ".lm-title"), name = declsFor(rules, ".tk-name");
+  assert.equal(title.font, name.font, "the heading's own face, size and weight");
+  assert.match(title.font, /^600 14px\/18px var\(--sans\)$/);
+  assert.equal(title.color, name.color);
+  assert.equal(title["grid-column"], "1 / -1");
+  assert.match(WIDGETS, /el\("span", "lm-title", "Usage Limits"\)/);
+  assert.doesNotMatch(PHONE, /\.lm-title/, "the phone takes the shared rule as it is");
+});
+
 test("the board's rules make the token box and the limits box one column, centred, with a named gap", () => {
   const rules = rulesOf(styleBlocks(BOARD));
   assert.equal(declsFor(rules, "#homepair").display, "none", "only on home");
@@ -363,7 +378,7 @@ test("the board's rules make the token box and the limits box one column, centre
   assert.equal(pair["justify-content"], "center", "the pair is centred in the frame's height");
   assert.equal(pair.position, "fixed");
   assert.equal(pair["pointer-events"], "none");
-  assert.equal(pair["--home-gap"], "var(--sp-m)", "the board's medium gap");
+  assert.equal(pair["--home-gap"], "calc(var(--sp-m) * 1.5)", "one and a half of the board's medium gap");
   assert.equal(pair.gap, "var(--home-gap)");
   assert.equal(pair["--home-w"], "calc((var(--home-r) - var(--home-l)) * .35)", "the token panel's own width");
   assert.equal(pair.width, "var(--home-w)");
@@ -380,7 +395,7 @@ test("the board's rules make the token box and the limits box one column, centre
   assert.equal(mine.flex, "none", "as tall as its rows");
   for (const k of ["position", "left", "top", "width", "transform", "height"]) assert.equal(mine[k], undefined, `no ${k} of its own`);
   assert.match(BOARD, /<div id="homepair">\s*<section id="home" aria-label="Home"><div id="homeplot"><\/div><\/section>[\s\S]*?<section id="homelimits" aria-label="Plan limits" hidden><\/section>\s*<\/div>/);
-  assert.match(BOARD, /--sp-m:calc\(/, "the gap's name is the board's own medium spacing");
+  assert.match(BOARD, /--sp-m:calc\(/, "the gap's name is built on the board's own medium spacing");
 });
 
 test("the board's rule draws a thin line down the middle of the frame, 70% of its height, in the board's line colour", () => {
@@ -494,6 +509,80 @@ test("on the board the limits box sits under the token panel as one unit, centre
       if (rows) assert.ok(m.limits.height < 0.4 * (m.frame.bottom - m.frame.top), `${where}: only as tall as its rows`);
     } finally { await context.close(); }
   }
+});
+
+test("on the board the gap between the two boxes is one and a half of the board's medium gap", async () => {
+  for (const view of MAC) {
+    const { context, page } = await fx.openBoard(null, view);
+    try {
+      await openHome(page, BOTH);
+      const m = await measure(page);
+      const medium = await page.evaluate(() => {
+        const probe = document.createElement("i");
+        probe.style.cssText = "position:absolute; visibility:hidden; width:1px; height:var(--sp-m)";
+        document.body.appendChild(probe);
+        const h = probe.getBoundingClientRect().height;
+        probe.remove();
+        return h;
+      });
+      const gap = m.limits.top - m.token.bottom;
+      assert.ok(medium > 8, `${view.width}x${view.height}: a medium gap of ${medium}`);
+      assert.ok(Math.abs(gap - 1.5 * medium) <= 0.5, `${view.width}x${view.height}: ${gap} against ${1.5 * medium}`);
+    } finally { await context.close(); }
+  }
+});
+
+test("the title reads Usage Limits in the token heading's face, on the board and on the phone, and the rows stay in their columns", async () => {
+  const read = () => {
+    const token = document.querySelector("#home .tk-name"), title = document.querySelector("#homelimits .lm-title");
+    const face = n => { const s = getComputedStyle(n); return [s.fontFamily, s.fontSize, s.fontWeight, s.lineHeight, s.color].join("|"); };
+    const inkTop = n => { const r = document.createRange(); r.selectNodeContents(n); return r.getClientRects()[0].top - n.closest(".tk-panel").getBoundingClientRect().top; };
+    const lefts = [...document.querySelectorAll("#homelimits .lm-name")].map(n => Math.round(n.getBoundingClientRect().left));
+    const bars = [...document.querySelectorAll("#homelimits .lm-bar")].map(n => Math.round(n.getBoundingClientRect().left));
+    const t = title.getBoundingClientRect(), first = document.querySelector("#homelimits .lm-name").getBoundingClientRect();
+    return { text: title.textContent, tokenFace: face(token), titleFace: face(title), weight: getComputedStyle(title).fontWeight,
+             inkOffset: inkTop(title) - inkTop(token), lefts, bars, above: t.bottom <= first.top, titleLeft: t.left };
+  };
+  for (const view of MAC) {
+    const { context, page } = await fx.openBoard(null, view);
+    try {
+      await openHome(page, BOTH);
+      const r = await page.evaluate(read);
+      const where = `${view.width}x${view.height}`;
+      assert.equal(r.text, "Usage Limits", where);
+      assert.equal(r.titleFace, r.tokenFace, `${where}: the token heading's face, size, weight and colour`);
+      assert.ok(Number(r.weight) >= 600, `${where}: bold`);
+      assert.ok(Math.abs(r.inkOffset) <= 1, `${where}: stands where the token heading stands, ${r.inkOffset}`);
+      assert.ok(r.above, `${where}: above the first row`);
+      assert.equal(new Set(r.lefts).size, 1, `${where}: the names share a column`);
+      assert.equal(new Set(r.bars).size, 1, `${where}: the bars share a column`);
+      assert.ok(Math.abs(r.titleLeft - r.lefts[0]) <= 1, `${where}: the title starts where the names do`);
+    } finally { await context.close(); }
+  }
+  const { context, page } = await fx.openBoard(null, MAC[0]);
+  try {
+    await page.setViewport(PHONE_VIEW);
+    await page.goto(fx.origin + "/m", { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => typeof lastState !== "undefined" && lastState !== null, { timeout: 15000 });
+    await page.waitForSelector("#tabbar .ptab.on", { timeout: 5000 });
+    await page.setRequestInterception(true);
+    page.on("request", request => {
+      if (new URL(request.url()).pathname === "/limits")
+        request.respond({ status: 200, contentType: "application/json", body: JSON.stringify(BOTH) });
+      else request.continue();
+    });
+    await page.tap("#homeico");
+    await page.waitForSelector("svg.tk-heat", { timeout: 15000 });
+    await new Promise(r => setTimeout(r, 400));
+    const r = await page.evaluate(read);
+    assert.equal(r.text, "Usage Limits", "phone");
+    assert.equal(r.titleFace, r.tokenFace, "phone: the token heading's face, size, weight and colour");
+    assert.ok(Number(r.weight) >= 600, "phone: bold");
+    assert.ok(r.above, "phone: above the first row");
+    assert.equal(new Set(r.lefts).size, 1, "phone: the names share a column");
+    assert.equal(new Set(r.bars).size, 1, "phone: the bars share a column");
+    assert.ok(Math.abs(r.titleLeft - r.lefts[0]) <= 1, "phone: the title starts where the names do");
+  } finally { await context.close(); }
 });
 
 test("on the board the pair and the line follow a resize of the window", async () => {

@@ -108,6 +108,7 @@
 @media (hover: hover) and (pointer: fine){
   .tk-panel{padding:10px 14px 9px}
   .tk-head{margin-bottom:6px}
+  .lm-title{padding-top:4px}   /* the pill centres the token heading 4px lower in its row */
   .tk-opt{padding:2px 10px}
   .tk-foot{margin-top:6px}
 }
@@ -142,10 +143,14 @@
    daily colour and the heatmap's lightest tint). a fill that meets a new number
    moves to it over .7s on the board's own curve, and the number's column is
    always four characters wide, so a bar that crosses 10% or 100% never moves
-   the others' ends. under the rows, the last-updated line takes the grid's
-   whole width at the left, small and faint like the foot's words */
+   the others' ends. over the rows, the title ("Usage Limits") takes the grid's
+   whole width and is set as the token panel's heading is (.tk-name, same face,
+   size and weight, kept as its own rule because a page may place .tk-name).
+   under the rows, the last-updated line takes the grid's whole width at the
+   left, small and faint like the foot's words */
 .lm-box{height:auto; display:grid; grid-template-columns:max-content minmax(0, 1fr) max-content;
   align-items:center; column-gap:10px; row-gap:7px}
+.lm-title{grid-column:1 / -1; font:600 14px/18px var(--sans); color:var(--ink)}
 .lm-row{display:contents}
 .lm-name{color:var(--ink); white-space:nowrap}
 .lm-bar{display:block; box-sizing:border-box; height:8px; border-radius:4px; overflow:hidden;

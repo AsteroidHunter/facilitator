@@ -70,12 +70,14 @@ async function openPage(view) {
 async function goHome(page) {
   await page.click("#homeico", { delay: 10 });
   await page.waitForFunction(() => document.body.classList.contains("home") && document.querySelectorAll("#nprows .nprow").length);
-  await sleep(500);   // the three pieces rise one beat apart
+  await sleep(500);   // the page's fade has finished
+  await page.evaluate(() => document.fonts.ready);   // sizes are read in the page's own faces
 }
 async function goPlus(page) {
   await page.click(".ptabplus", { delay: 10 });
   await page.waitForFunction(() => document.body.classList.contains("choosing"));
   await sleep(500);
+  await page.evaluate(() => document.fonts.ready);
 }
 const measure = page => page.evaluate(() => {
   const R = el => {
@@ -111,6 +113,7 @@ test("the stack stands at the centre of the frame's left half, both ways, at thr
   const { context, page } = await openPage(SIZES[0]);
   try {
     await goHome(page);
+    await page.waitForSelector("#homelimits .tk-panel", { timeout: 15000 });
     for (const view of [...SIZES, SIZES[0]]) {
       await page.setViewport(view);
       await sleep(400);
@@ -290,8 +293,83 @@ test("the plus pressed from home shows the new tab as from a board: its three pi
       const rising = await page.evaluate(() => document.getAnimations()
         .filter(a => a.animationName === "npmelt" && a.currentTime < 150).length);
       assert.equal(rising, 3, viaHome ? "from home" : "from a board");
+      const fading = await page.evaluate(() => document.getAnimations().filter(a => a.animationName === "homefade").length);
+      assert.equal(fading, 0, "the home fade is not on the new tab");
     } finally { await context.close(); }
   }
+});
+
+test("on home both halves come in at the same moment on one plain fade, with no rise and no stagger", async () => {
+  for (const view of SIZES.slice(0, 2)) {
+    const { context, page } = await openPage(view);
+    try {
+      await sleep(800);
+      await page.click("#homeico", { delay: 10 });
+      const seen = await page.evaluate(async () => {
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const running = document.getAnimations().filter(a => a.animationName);
+        const keys = a => [...new Set(a.effect.getKeyframes().flatMap(k => Object.keys(k)))]
+          .filter(k => !["offset", "easing", "composite", "computedOffset"].includes(k));
+        const stage = getComputedStyle(document.getElementById("stage"));
+        return {
+          fades: running.filter(a => a.animationName === "homefade").map(a => ({
+            id: a.effect.target.id, start: a.startTime, ms: a.effect.getTiming().duration, delay: a.effect.getTiming().delay,
+            ease: a.effect.getKeyframes()[0].easing, props: keys(a) })),
+          rises: running.filter(a => a.animationName === "npmelt").length,
+          pieces: ["npbrand", "nppanel", "npstart"].map(id => getComputedStyle(document.getElementById(id)).animationName),
+          stage: { ms: stage.transitionDuration.split(",")[0].trim(), ease: stage.transitionTimingFunction.split(",")[0].trim() },
+        };
+      });
+      const why = `${view.width}x${view.height}`;
+      assert.deepEqual(seen.fades.map(f => f.id).sort(), ["homeline", "homepair", "newproj"], `${why}: the left half, the pair and the line`);
+      assert.equal(new Set(seen.fades.map(f => f.start)).size, 1, `${why}: one start for all`);
+      assert.deepEqual(seen.fades.map(f => [f.ms, f.delay, f.ease]), Array(3).fill([180, 0, "ease"]), `${why}: one length, no delay, one curve`);
+      assert.deepEqual(seen.fades.map(f => f.props), Array(3).fill(["opacity"]), `${why}: opacity and nothing else, so nothing moves`);
+      assert.equal(seen.rises, 0, `${why}: no rise on home`);
+      assert.deepEqual(seen.pieces, ["none", "none", "none"], `${why}: the three pieces have no entrance of their own`);
+      assert.deepEqual(seen.stage, { ms: "0.18s", ease: "ease" }, `${why}: the board's dissolve has the same length and curve`);
+    } finally { await context.close(); }
+  }
+});
+
+test("the start button is dressed like the card on home and on the new tab, and shades as a top-row chip does", async () => {
+  const { context, page } = await openPage(SIZES[0]);
+  try {
+    const dress = () => page.evaluate(() => {
+      const b = document.getElementById("npstart"), s = getComputedStyle(b);
+      const probe = document.createElement("i");
+      document.body.appendChild(probe);
+      const colour = v => { probe.style.color = v; return getComputedStyle(probe).color; };
+      const line = colour("var(--line)"), ink = colour("var(--ink)"), card = colour("var(--card)");
+      probe.style.backgroundColor = "color-mix(in srgb, #000 var(--press), var(--card))";
+      const shade = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      const r = b.getBoundingClientRect();
+      return { bg: s.backgroundColor, color: s.color, border: s.borderTopStyle + " " + s.borderTopColor, radius: s.borderTopLeftRadius,
+        shadow: s.boxShadow, weight: s.fontWeight, family: s.fontFamily, line, ink, card, shade, width: r.width, height: r.height };
+    });
+    const check = async where => {
+      const d = await dress();
+      assert.equal(d.bg, d.card, `${where}: the card's white`);
+      assert.equal(d.color, d.ink, `${where}: the board's ink`);
+      assert.equal(d.border, `solid ${d.line}`, `${where}: a thin border in the line colour`);
+      assert.equal(d.radius, "7px", `${where}: the card's corner radius`);
+      assert.equal(d.shadow, "none", `${where}: no shadow`);
+      assert.match(d.family, /^Inter\b/, where);
+      assert.ok(Math.abs(d.width - 175) <= 2 && Math.abs(d.height - 41) <= 0.5, `${where}: the old size or close, ${d.width} x ${d.height}`);
+      await page.hover("#npstart");
+      await sleep(100);
+      assert.equal((await dress()).bg, d.shade, `${where}: the chips' shade under the pointer`);
+      await page.mouse.move(2, 2);
+    };
+    await goHome(page);
+    await check("home");
+    await goPlus(page);
+    await check("new tab");
+  } finally { await context.close(); }
+  const rule = (HTML.match(/#npstart\{[^}]*\}/) || [""])[0];
+  assert.doesNotMatch(rule, /FFF1E0|3A2E20|inset|border-radius:0|--accent|432BFF/i, "no cream, bevel or purple");
+  assert.doesNotMatch(HTML, /#npstart:active\{[^}]*inset/);
 });
 
 test("the house on an unfinished new tab drops it, back on the tab it came from, and the picker shows the rows", async () => {
