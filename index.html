@@ -1301,12 +1301,6 @@
   #tickets.scroll .trow.on{width:auto; margin-right:0.6vw;
     border-right:var(--edge) solid var(--line)}
   .trow.on .tt{font-weight:600}
-  /* a ticket browsed to and not selected keeps its place in the list: no lift
-     and no shade, only the resting one every row has. the resting shade is
-     drawn the way a folded row draws its own, as a filter, so this one rule
-     serves a folded row and a plain one alike */
-  body.browsing .trow.on{transform:none; box-shadow:none;
-    filter:drop-shadow(0 1px 4px rgba(60,45,20,.05))}
   /* magic stubs, contents to be explained */
   #magic1, #magic2, #magic3, #magic4{position:fixed; border:var(--edge) dashed var(--line); border-radius:7px;
     background:#fff;
@@ -3774,7 +3768,10 @@ function renderTabs(st){
       }
       t.addEventListener("click", () => {
         if (tabDrag?.pulled || tabDrag?.mode === "reorder") return;   // a pull or a slide is not a tab switch
-        setTab(ow);
+        // the open project's own tab lets go of the selected card on screen,
+        // which stays there browsed; any other tab switches to its lane
+        if (ow === activeOwner && !homeOpen && !draft && selectedId && !browsing) unselectShown();
+        else setTab(ow);
       });
       bar.appendChild(t);
     }
@@ -4623,14 +4620,23 @@ const MIN_CARD_H = 160;   // a card is never squeezed past being a card
 addEventListener("fullscreenchange", () => { fitStage(); seatPagePill(); });
 
 // a press anywhere on the large card, or the keyboard's focus landing in it,
-// selects the card on screen where it stands. the page is listened to, first,
-// before anything on it can stop the press. in edit mode a press is a drag
+// selects the card on screen where it stands, and reads it. the page is
+// listened to, first, before anything on it can stop the press. in edit mode a
+// press is a drag
 {
   const frame = document.querySelector("main");
   const inCard = e => !editMode && (e.target === frame || !!e.target.closest?.("#sections"));
   for (const type of ["pointerdown", "focusin"])
-    document.addEventListener(type, e => { if (inCard(e)) chooseShown(); }, true);
+    document.addEventListener(type, e => { if (inCard(e) && selectedId) useCard(selectedId); }, true);
 }
+// a press on the bare board, the paper beside and below the panels, lets go of
+// the card on screen: it stays, browsed. a press on a panel, a button or the
+// card itself is not a press on the paper
+document.addEventListener("pointerdown", e => {
+  if (e.button || editMode || homeOpen) return;
+  if (e.target === document.getElementById("stage") || e.target === document.body ||
+      e.target === document.documentElement) unselectShown();
+}, true);
 // the house leaves the board for the home page the way another tab does: the
 // card on screen is no longer selected, so coming back through a tab shows it
 // browsed, and a reply that landed meanwhile waits until the reader selects it
@@ -4649,11 +4655,11 @@ function setBrowsing(on){
 // a click on a ticket, a chip or an outline entry, the caret carried along by
 // a step, a new card: the card is shown and selected, and so read. opts.browse
 // shows it without selecting it (browse, below). the hop a close or a snooze
-// makes to the next card keeps a browsing reader browsing, since the board
-// picked that card and the reader did not
+// makes to the next card shows it browsed, since the board picked that card
+// and the reader did not
 function select(id, opts){
   if (!els[id]) return;
-  const chosen = !opts?.browse && !(opts?.hop && browsing);
+  const chosen = !opts?.browse && !opts?.hop;
   cancelAutoNext();
   if (hist && hist.id !== id) histExit(hist.id);   // every card opens on its live reply
   selectedId = id; shownId = id; localStorage.setItem("selbox", id);
@@ -5883,8 +5889,8 @@ function apply(state){
       delete histCache[b.id];
       setDesktopHistoryAvailability(b.id, olderReplies(b) > 0);
     }
-    // a reply landing on the selected card while the caret is in its composer
-    // is read as it lands
+    // a reply landing on the selected card while the window is in front is read
+    // as it lands. a browsed card is not read
     readOnArrival(el, b, b.id === selectedId && !browsing);
     // the card reads its own name, Omni Card #N for an Omni ticket, and the
     // outline keeps the stored title. an Omni sweep in flight writes both itself
@@ -8927,7 +8933,7 @@ function renderMiniCards(state){
     // one card at a time; the rest stay built so their half-typed messages
     // survive a walk away and back
     el.box.classList.toggle("off", b.id !== miniId);
-    readOnArrival(el, b, b.id === miniId);
+    readOnArrival(el, b, b.id === miniId && ComposeFormat.focused(el.ta));
     if (!el.title.isContentEditable && el.title.textContent !== (b.title || "")){
       el.title.textContent = b.title || "";
     }

@@ -132,7 +132,8 @@ test("the home page takes the card's place, holds only the token panel and keeps
 test("while home is up no tab is seated, the card is not read and the board's keys are off", () => {
   // a project tab's tap leaves home; the bar's own redraw never does
   const tab = between(PHONE, 't.addEventListener("click", () => {', "});");
-  assert.match(tab, /if \(tabCarried\) return;\n\s+if \(homeOpen\) setHome\(false\);[^\n]*\n\s+setTab\(ow\);/);
+  // the open tab's own tap lets go of the card, but never while home is up
+  assert.match(tab, /if \(tabCarried\) return;\n(?:\s+\/\/[^\n]*\n)*\s+if \(ow === activeOwner && !homeOpen [^\n]*\{ unselectShown\(\); return; \}\n\s+if \(homeOpen\) setHome\(false\);[^\n]*\n\s+setTab\(ow\);/);
   assert.doesNotMatch(between(PHONE, "function setTab(owner){", "\n}\n"), /setHome/);
   assert.match(PHONE, /t\.classList\.toggle\("on", t\.dataset\.owner === activeOwner && !homeOpen\);/);
   // shown is read, but a card under the home page is not shown

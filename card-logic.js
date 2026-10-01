@@ -1037,17 +1037,18 @@ function readOnCompose(ta, id, use = markSeen){
   ta.addEventListener("focus", () => use(id));
   ta.addEventListener("input", () => { if (ComposeFormat.focused(ta)) use(id); });
 }
-// a reply that lands while the reader's caret is in that card's composer, on
-// a page that is on screen, is read the moment it lands: the reader is in the
-// card. inUse is the page's word that this is the card being used. el.replyCount
-// is the count this page last drew, so a first drawing or a reload has nothing
-// to compare with and marks nothing. called after seenSync, so the mark covers
-// the reply that just came
+// a reply that lands on the card the reader has selected, while the page is
+// on screen and its window is in front, is read the moment it lands. inUse is
+// the page's word that this is the card being used. a window behind another
+// app leaves the reply unread until the reader comes back and uses the card.
+// el.replyCount is the count this page last drew, so a first drawing or a
+// reload has nothing to compare with and marks nothing. called after
+// seenSync, so the mark covers the reply that just came
 function readOnArrival(el, b, inUse){
   const was = el.replyCount, now = b.replies || 0;
   el.replyCount = now;
   if (was == null || now <= was || !inUse) return false;
-  if (document.visibilityState !== "visible" || !ComposeFormat.focused(el.ta)) return false;
+  if (document.visibilityState !== "visible" || !document.hasFocus()) return false;
   markSeen(b.id);
   return true;
 }
@@ -2373,7 +2374,7 @@ function doingNeighbour(id, order){
 // Closing a card and snoozing the card on screen use the same Doing fallback.
 // order is taken at the tap, before the repaint drops the card from the list.
 // A card that is not on screen leaves the screen alone. the hop says so to
-// select, and the desktop keeps a card it only browsed to browsed
+// select, and both pages show the card they land on browsed
 function selectNextDoing(id, order){
   if (selectedId !== id) return;
   const live = new Set(doingOrder(lastState));

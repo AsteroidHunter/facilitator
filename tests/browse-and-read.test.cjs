@@ -136,7 +136,7 @@ function card(id, extra) {
 // page sends is recorded, as the board would receive it
 function desktop() {
   const seen = [];
-  const doc = { visibilityState: "visible", listeners: {} };
+  const doc = { visibilityState: "visible", hasFocus: () => true, listeners: {} };
   // what the page hangs on the document, and an event sent there
   doc.addEventListener = (type, fn) => (doc.listeners[type] ||= []).push(fn);
   doc.fire = (type, target, event = {}) => {
@@ -288,27 +288,27 @@ test("the arrow keys browse: the ticket is marked, nothing is selected and nothi
   assert.equal(d.shown(), "b");
 });
 
-test("the browsed ticket and card give up the selected drop shadow, as the sheet states it", () => {
+test("the big card is flat when browsed; the ticket on screen is lifted either way, as the sheet states it", () => {
   const css = HTML.desktop;
   const rule = selector => {
     const at = css.indexOf(selector + "{");
     assert.ok(at >= 0, `no rule for ${selector}`);
     return css.slice(at, css.indexOf("}", at));
   };
-  // the selected look is the one it was
-  const selected = rule("  .trow.on");
-  assert.match(selected, /transform:translateY\(-1px\)/);
-  assert.match(selected, /box-shadow:0 2px 18px rgba\(60,45,20,\.18\), 0 1px 3px rgba\(60,45,20,\.10\)/);
-  // browsed: no lift and only the resting shade every row has, drawn as the
-  // filter a folded row draws its own with, so one rule covers both, and no ring
-  const browsed = rule("body.browsing .trow.on");
-  assert.match(browsed, /transform:none/);
-  assert.match(browsed, /box-shadow:none/);
-  assert.match(browsed, /filter:drop-shadow\(0 1px 4px rgba\(60,45,20,\.05\)\)/);
-  assert.doesNotMatch(browsed, /18px/, "the browsed ticket still casts the selected shadow");
-  assert.doesNotMatch(browsed, /outline/, "the browsed ticket is drawn with a ring");
-  assert.match(css, /\n  \.trow\{[^}]*box-shadow:0 1px 4px rgba\(60,45,20,\.05\)/, "the resting row shade is not the one named");
-  // and the large card sits level with the board, its edge line kept
+  // the ticket on screen wears the raised shadow and the lift, and nothing in
+  // the sheet takes either off it while the card is only browsed
+  const on = rule("  .trow.on");
+  assert.match(on, /transform:translateY\(-1px\)/);
+  assert.match(on, /box-shadow:0 2px 18px rgba\(60,45,20,\.18\), 0 1px 3px rgba\(60,45,20,\.10\)/);
+  assert.doesNotMatch(on, /outline/, "the ticket on screen is drawn with a ring");
+  assert.doesNotMatch(css, /browsing[^{\n]*\.trow/, "a rule still takes the lift off a browsed ticket");
+  // a folded ticket draws the same raised shadow as a filter, selected or not
+  const tokens = fs.readFileSync(path.join(ROOT, "card-tokens.css"), "utf8");
+  assert.match(tokens, /\.trow\.testc\.on\{box-shadow:none;\n  filter:drop-shadow\(0 1px 3px rgba\(60,45,20,\.10\)\) drop-shadow\(0 2px 18px rgba\(60,45,20,\.18\)\)\}/);
+  // the title weight is the unread mark and the lift leaves it alone
+  assert.match(css, /\.trow\.seen \.ttl\{[^}]*color:#847A6B/);
+  assert.doesNotMatch(rule("  .trow.on"), /font-weight|\.ttl/);
+  // the large card sits level with the board while it is browsed, its edge line kept
   assert.match(rule("body.focus.browsing main"), /box-shadow:none/);
   assert.match(css, /body\.focus\.minifocus main\{box-shadow:0 2px 18px rgba\(60,45,20,\.06\)\}/);
 });
@@ -443,7 +443,128 @@ test("a click on a ticket, or a press or the focus in the large card, selects an
   assert.ok(d.row("c").classList.contains("seen"));
 });
 
-test("the step that carries the caret selects, a tab switch browses, and the hop keeps the mode", () => {
+test("a press in a card that is already selected reads the reply that came while the window was behind", () => {
+  const d = loaded();
+  const land = arrivalOf(d);
+  land("a", 1);
+  d.get("select")("a");
+  d.seen.length = 0;
+  // the window is behind another app: the reply lands and waits
+  d.doc.hasFocus = () => false;
+  land("a", 2);
+  assert.deepEqual(d.seen, [], "a reply landing under a window behind another app was read");
+  d.doc.hasFocus = () => true;
+  assert.equal(d.browsing(), false, "the card was unselected on the way");
+  // back in front, a press in the card, or the focus landing in it, is using it
+  d.pressOn(d.els.a.reply);
+  assert.deepEqual(d.seen, [{ a: 2 }], "a press in the selected card did not read it");
+  land("a", 3);
+  d.seen.length = 0;
+  d.doc.hasFocus = () => false;
+  land("a", 4);
+  d.doc.hasFocus = () => true;
+  d.els.a.chip.focus();
+  assert.deepEqual(d.seen, [{ a: 4 }], "the focus landing in the selected card did not read it");
+  // a press on the paper, a ticket or a panel is not the card
+  d.doc.hasFocus = () => false;
+  land("a", 5);
+  d.doc.hasFocus = () => true;
+  d.seen.length = 0;
+  d.pressOn(d.row("a"));
+  assert.deepEqual(d.seen, [], "a press on a ticket read the card on screen");
+});
+
+test("a press on the empty board lets go of the card, which stays on screen", () => {
+  const d = loaded();
+  const stage = d.doc.getElementById("stage");
+  // the arrows mark the ticket of the card on screen, as select() does
+  d.press("ArrowRight");
+  d.press("ArrowLeft");
+  assert.ok(d.row("a").classList.contains("on"));
+  const lets = node => {
+    d.press("Enter");
+    assert.equal(d.browsing(), false);
+    d.pressOn(node);
+    return d.browsing();
+  };
+  // the paper: the stage itself, and the page around it
+  for (const node of [stage, d.body]) {
+    d.seen.length = 0;
+    assert.equal(lets(node), true, "a press on the empty board left the card selected");
+    assert.ok(d.body.classList.contains("browsing"));
+    assert.equal(d.shown(), "a", "unselecting took the card off the screen");
+    assert.ok(d.els.a.box.classList.contains("sel"));
+    assert.ok(d.row("a").classList.contains("on"), "unselecting took the mark off the ticket");
+    assert.equal(d.doc.activeElement, d.body, "the caret stayed in the card");
+  }
+  // not the paper: the card, a ticket, the panel of tickets, a button
+  const panel = d.doc.getElementById("tiklist");
+  for (const node of [d.els.a.reply, d.main, d.row("a"), panel, d.homeico]) {
+    d.press("Enter");
+    d.pressOn(node);
+    assert.equal(d.browsing(), false, `a press on ${node.tagName}#${node.id} unselected the card`);
+  }
+  // not the right button, not edit mode, not the home page
+  d.doc.fire("pointerdown", stage, { button: 2 });
+  assert.equal(d.browsing(), false, "a right press unselected the card");
+  d.sandbox.editMode = true;
+  d.pressOn(stage);
+  assert.equal(d.browsing(), false, "a press in edit mode unselected the card");
+  d.sandbox.editMode = false;
+  vm.runInContext("homeOpen = true", d.sandbox);
+  d.pressOn(stage);
+  assert.equal(d.browsing(), false, "a press under the home page unselected the card");
+  vm.runInContext("homeOpen = false", d.sandbox);
+  // and a card that was only browsed stays as it is, unread marks and all
+  d.pressOn(stage);
+  assert.equal(d.browsing(), true);
+  d.seen.length = 0;
+  d.pressOn(stage);
+  assert.equal(d.browsing(), true);
+  assert.equal(d.shown(), "a");
+  assert.deepEqual(d.seen, []);
+});
+
+test("a click on the open project's tab unselects the card on screen; another tab, or home, switches", () => {
+  const d = loaded();
+  const click = between(HTML.desktop, '      t.addEventListener("click", () => {', "\n      bar.appendChild(t);");
+  let handler = null;
+  d.sandbox.tabDrag = null;
+  const wire = vm.runInContext(`(function(t, ow){\n${click}\n})`, d.sandbox);
+  wire({ addEventListener: (type, fn) => { if (type === "click") handler = fn; } }, "lane");
+  assert.ok(handler, "the tab has no click handler");
+  const tabs = [];
+  vm.runInContext("setTab = owner => { tabsSet.push(owner); }", Object.assign(d.sandbox, { tabsSet: tabs }));
+  d.press("Enter");
+  assert.equal(d.browsing(), false);
+  handler();
+  assert.equal(d.browsing(), true, "a click on the open tab left the card selected");
+  assert.equal(d.shown(), "a", "the click took the card off the screen");
+  assert.deepEqual(tabs, [], "the open tab was switched to as well");
+  // browsed already: the click is the tab's own, as it always was
+  handler();
+  assert.deepEqual(tabs, ["lane"]);
+  // another project's tab switches
+  const other = vm.runInContext(`(function(t, ow){\n${click}\n})`, d.sandbox);
+  let otherHandler = null;
+  other({ addEventListener: (type, fn) => { if (type === "click") otherHandler = fn; } }, "other");
+  d.press("Enter");
+  otherHandler();
+  assert.deepEqual(tabs, ["lane", "other"]);
+  assert.equal(d.browsing(), false, "a click on another tab unselected the card");
+  // a tab pulled or slid is no click at all
+  d.sandbox.tabDrag = { pulled: true };
+  handler();
+  assert.equal(d.browsing(), false);
+  d.sandbox.tabDrag = null;
+  // the open tab from the home page leaves home, as a tab does
+  vm.runInContext("homeOpen = true", d.sandbox);
+  handler();
+  assert.deepEqual(tabs, ["lane", "other", "lane"], "the open tab did not leave home");
+  vm.runInContext("homeOpen = false", d.sandbox);
+});
+
+test("the step that carries the caret selects, a tab switch browses, and the hop browses", () => {
   const d = loaded();
   // control+shift+right from the composer walks on with the caret, which is
   // using the next card
@@ -480,17 +601,27 @@ test("the step that carries the caret selects, a tab switch browses, and the hop
   assert.equal(d.shown(), "c");
   assert.equal(d.browsing(), true, "the hop from a browsed card selected the next one");
   assert.deepEqual(d.seen, []);
-  // and a selected card to a selected one, read, as it always did. it was the
-  // last card, so it lands on the card above, which has had a reply since it
-  // was last read
+  // a selected card hops to the card below it browsed too: the board picked
+  // that card and the reader did not, so it is not read. it was the last
+  // card, so it lands on the card above, which has had a reply since it was
+  // last read
   d.press("Enter");
+  assert.equal(d.browsing(), false);
   d.state.boxes.find(x => x.id === "b").replies = 2;
   d.sandbox.seenSync(d.state);
   d.seen.length = 0;
   d.sandbox.selectNextDoing("c", order);
   assert.equal(d.shown(), "b");
-  assert.equal(d.browsing(), false);
-  assert.deepEqual(d.seen, [{ b: 2 }]);
+  assert.equal(d.browsing(), true, "the hop from a selected card selected the next one");
+  assert.ok(d.body.classList.contains("browsing"));
+  assert.deepEqual(d.seen, [], "the hop read the card it landed on");
+  // from the middle of the list a selected card lands on the one below it
+  d.get("select")("a");
+  d.seen.length = 0;
+  d.sandbox.selectNextDoing("a", order);
+  assert.equal(d.shown(), "b");
+  assert.equal(d.browsing(), true);
+  assert.deepEqual(d.seen, []);
 });
 
 test("the keys that act on the card act on the browsed one", () => {
@@ -586,11 +717,12 @@ test("a board reloaded onto the home page shows its card browsed and reads nothi
 
 test("the browsing look is drawn only on the board, which the home page hides", () => {
   const css = HTML.desktop;
-  // the two browsing rules paint the ticket and the card frame alone
+  // the one browsing rule paints the card frame alone; the ticket on screen
+  // draws the same browsed or selected
   const rules = css.match(/^[^\n{]*\.browsing[^\n{]*\{/gm) || [];
   assert.deepEqual(rules.map(r => r.trim()),
-    ["body.focus.browsing main{", "body.browsing .trow.on{"]);
-  // both stand on the stage, and home hides the stage
+    ["body.focus.browsing main{"]);
+  // it stands on the stage, and home hides the stage
   const at = marker => { const i = css.indexOf(marker); assert.ok(i >= 0, marker); return i; };
   assert.ok(at('<div id="stage">') < at('<div id="tickets">') && at('<div id="tickets">') < at("\n<main>"));
   assert.ok(at("\n</main>\n</div>\n") < at('<section id="home"'), "the home page is inside the stage");
@@ -598,9 +730,9 @@ test("the browsing look is drawn only on the board, which the home page hides", 
 });
 
 // ---- the two read rules, shared by every surface --------------------------------------
-function logic({ visible = true } = {}) {
+function logic({ visible = true, front = true } = {}) {
   const seen = [];
-  const doc = { visibilityState: visible ? "visible" : "hidden", activeElement: null, fire() {} };
+  const doc = { visibilityState: visible ? "visible" : "hidden", hasFocus: () => front, activeElement: null, fire() {} };
   const sandbox = {
     console, Date, Promise, setTimeout, clearTimeout, setInterval, clearInterval,
     document: doc,
@@ -650,32 +782,35 @@ test("a desktop composer used on a browsed card selects it where it stands", () 
   assert.deepEqual(d.seen, [{ b: 1 }]);
 });
 
-test("a reply landing while the caret is in the composer is read at once, and only then", () => {
+test("a reply landing on the card in use is read at once while the window is in front, and only then", () => {
   const land = (l, el, b, inUse) => {
     l.sandbox.seenSync({ boxes: [b] });   // the poll takes the counts in first
     return l.sandbox.readOnArrival(el, b, inUse);
   };
-  // the caret in the composer of the card in use, the page on screen
+  // the card in use, the page on screen and its window in front, the caret
+  // wherever it is
   const l = logic();
   const el = { ta: l.ta };
   assert.equal(land(l, el, card("m1", { replies: 1 }), true), false, "the first drawing marked the card");
-  l.ta.focus();
   assert.equal(land(l, el, card("m1", { replies: 1 }), true), false, "a poll with nothing new marked it");
-  assert.equal(land(l, el, card("m1", { replies: 2 }), true), true);
+  assert.equal(land(l, el, card("m1", { replies: 2 }), true), true, "a reply landing on the card in use stayed unread");
   assert.deepEqual(l.seen, [{ m1: 2 }]);
+  l.other.focus();
+  assert.equal(land(l, el, card("m1", { replies: 3 }), true), true, "the caret elsewhere kept the reply unread");
+  assert.deepEqual(l.seen, [{ m1: 2 }, { m1: 3 }]);
   // the page hidden: the reply waits
   const hidden = logic({ visible: false });
   const hel = { ta: hidden.ta };
   land(hidden, hel, card("m1", { replies: 1 }), true);
-  hidden.ta.focus();
   assert.equal(land(hidden, hel, card("m1", { replies: 2 }), true), false, "a hidden page read the reply");
   assert.deepEqual(hidden.seen, []);
-  // the caret somewhere else
-  const away = logic();
-  const ael = { ta: away.ta };
-  land(away, ael, card("m1", { replies: 1 }), true);
-  away.other.focus();
-  assert.equal(land(away, ael, card("m1", { replies: 2 }), true), false, "a card with no caret read the reply");
+  // the window behind another app: the reply waits, caret or none
+  const behind = logic({ front: false });
+  const bel = { ta: behind.ta };
+  land(behind, bel, card("m1", { replies: 1 }), true);
+  behind.ta.focus();
+  assert.equal(land(behind, bel, card("m1", { replies: 2 }), true), false, "a window behind another app read the reply");
+  assert.deepEqual(behind.seen, []);
   // not the card in use: browsed, another card, a drawer over it
   const idle = logic();
   const iel = { ta: idle.ta };
@@ -683,9 +818,34 @@ test("a reply landing while the caret is in the composer is read at once, and on
   idle.ta.focus();
   assert.equal(land(idle, iel, card("m1", { replies: 2 }), false), false, "a card not in use read the reply");
   assert.deepEqual(idle.seen, []);
-  // and once the reader is back in the row, the next arrival is read
+  // and once the reader has the card in use again, the next arrival is read
   assert.equal(land(idle, iel, card("m1", { replies: 3 }), true), true);
   assert.deepEqual(idle.seen, [{ m1: 3 }]);
+});
+
+test("on the board, a reply is read on the selected card and left on a browsed one", () => {
+  const d = loaded();
+  const land = arrivalOf(d);
+  land("a", 1);
+  // browsed: never read, the window in front or not
+  land("a", 2);
+  assert.deepEqual(d.seen, [], "a reply landing on a browsed card was read");
+  // selected, the caret out of the composer: read as it lands
+  d.get("select")("a");
+  d.seen.length = 0;
+  assert.notEqual(d.doc.activeElement, d.els.a.ta);
+  land("a", 3);
+  assert.deepEqual(d.seen, [{ a: 3 }], "a reply landing on the selected card stayed unread");
+  // the window behind another app: it waits
+  d.doc.hasFocus = () => false;
+  d.seen.length = 0;
+  land("a", 4);
+  assert.deepEqual(d.seen, [], "a reply was read under a window behind another app");
+  d.doc.hasFocus = () => true;
+  // a card that is not the one on screen is not read either
+  land("b", 1);
+  land("b", 2);
+  assert.deepEqual(d.seen, [], "a reply on a card off screen was read");
 });
 
 // ---- each surface's wiring, as its page writes it -------------------------------------
@@ -709,7 +869,7 @@ test("every surface asks the arrival rule for the card it is using, after the co
   assert.match(apply, /\n    readOnArrival\(el, b, b\.id === selectedId && !browsing\);\n/);
   // the small card: the card it is showing, drawn in the same apply
   const mini = between(HTML.desktop, "function renderMiniCards(state){", "\n// ---- the carousel");
-  assert.match(mini, /\n    readOnArrival\(el, b, b\.id === miniId\);\n/);
+  assert.match(mini, /\n    readOnArrival\(el, b, b\.id === miniId && ComposeFormat\.focused\(el\.ta\)\);\n/);
   assert.ok(apply.indexOf("renderMiniCards(state);") > apply.indexOf("readOnArrival("));
   // the phone: the selected card with no drawer over it, after its own seenSync
   const phone = between(HTML.phone, "function apply(state){", "\n  applySelection(state);");
