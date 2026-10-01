@@ -210,12 +210,21 @@ test('bridge gates every route, persists sessions, signs out and rejects legacy 
     await reopened.goto(`http://127.0.0.1:${port+1}/m`,{waitUntil:'domcontentloaded'});
     await reopened.waitForSelector('#settings');
     assert.equal(await reopened.$('.login-face'),null, 'reopening the installed profile asked for a password');
-    assert.equal(await reopened.$eval('#signout',el => el.textContent.trim()),'Sign out');
+    assert.equal(await reopened.$eval('#signout',el => el.getAttribute('aria-label')),'Log out');
     await reopened.evaluate(() => showMenu(settings));
     await new Promise(resolve => setTimeout(resolve,650));
     if (shots) await reopened.screenshot({path:path.join(shots,'signed-in-drawer.png')});
-    await reopened.click('.sp-item[data-section="account"]');
+    // the turn off mark asks first: Cancel keeps the session, Log Out ends it
+    const asking = shown => reopened.waitForFunction(want => document.getElementById('signoutask').hidden !== want, {}, shown);
     await reopened.click('#signout');
+    await asking(true);
+    await reopened.click('#signoutno');
+    await asking(false);
+    assert.equal(await reopened.evaluate(async () => (await (await fetch('/auth/check')).json()).authenticated),true,
+      'Cancel signed out');
+    await reopened.click('#signout');
+    await asking(true);
+    await reopened.click('#signoutyes');
     await reopened.waitForSelector('.install-face');
     assert.equal(await reopened.evaluate(async () => (await (await fetch('/auth/check')).json()).authenticated),false);
     await reopened.waitForFunction(() =>

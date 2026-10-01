@@ -12,7 +12,8 @@
 // the colour picker gone from the bar and the pen a plain mark like the gear. On
 // the phone the drawer keeps its own size, white, edge and corners, and holds the
 // list of sections, each one opening inside it with a way back; Notifications is
-// the Editor's switch and really subscribes and unsubscribes the phone.
+// the Editor's switch and really subscribes and unsubscribes the phone, and the
+// turn off mark at the drawer's foot asks in the system's alert before signing out.
 //
 // The board is invented and lives in a temp directory. Nothing here touches the
 // real board, the owner's browser or port 8877.
@@ -850,13 +851,11 @@ test("the same page changes layout when the window does", async () => {
 const HELD = {
   editor: ["setformat"],
   notifications: ["notify", "notifynote"],
-  account: ["signout", "signoutnote"],
   diagnostics: ["savediagnostic", "diagnostichelp", "diagnosticstatus"],
 };
 const SECTIONS = {
   editor: ["setformat"],
   notifications: ["notify"],
-  account: ["signout"],
   diagnostics: ["savediagnostic", "diagnostichelp"],
 };
 
@@ -947,12 +946,12 @@ test("phone: the drawer opens on the list of sections and each one opens inside 
     const list = await drawerView(page);
     assert.equal(list.view, "list");
     assert.equal(list.title, "Settings");
-    assert.deepEqual(list.items, ["Editor", "Notifications", "Account", "Diagnostics"]);
+    assert.deepEqual(list.items, ["Editor", "Notifications", "Diagnostics"]);
     assert.deepEqual(list.panes, [], "a section shows over the list");
     assert.equal(list.back, false, "the list has a way back");
     assert.equal(list.close, false, "the page carries window buttons or a close mark of its own");
     assert.deepEqual(list.anyShown, [], "a control shows before its section is opened");
-    const words = { editor: "Editor", notifications: "Notifications", account: "Account", diagnostics: "Diagnostics" };
+    const words = { editor: "Editor", notifications: "Notifications", diagnostics: "Diagnostics" };
     for (const [name, ids] of Object.entries(SECTIONS)) {
       await page.tap('.sp-item[data-section="' + name + '"]');
       await settle(80);
@@ -979,10 +978,10 @@ test("phone: the drawer opens on the list of sections and each one opens inside 
     const text = await page.evaluate(() => ({
       format: document.querySelector('label[for="setformat"]').textContent.trim().split("\n")[0],
       notify: document.querySelector('label[for="notify"]').textContent.trim().split("\n")[0],
-      signout: document.getElementById("signout").textContent.trim(),
+      signout: document.getElementById("signout").getAttribute("aria-label"),
       save: document.getElementById("savediagnostic").textContent.trim(),
     }));
-    assert.deepEqual(text, { format: "Format text while typing", notify: "Notifications", signout: "Sign out",
+    assert.deepEqual(text, { format: "Format text while typing", notify: "Notifications", signout: "Log out",
                              save: "Save diagnostic history" });
     assert.deepEqual(problems, []);
   } finally {
@@ -998,13 +997,13 @@ test("phone: the drawer stays narrow, with the list and sections, in a wide wind
     const box = await cover(page, "#settings");
     assert.equal(box.right - box.left, 289, "the drawer is not capped at 289px");
     const list = await drawerView(page);
-    assert.deepEqual(list.items, ["Editor", "Notifications", "Account", "Diagnostics"]);
+    assert.deepEqual(list.items, ["Editor", "Notifications", "Diagnostics"]);
     assert.deepEqual(list.panes, [], "a section shows beside the list");
-    await page.tap('.sp-item[data-section="account"]');
+    await page.tap('.sp-item[data-section="notifications"]');
     await settle(80);
     const one = await drawerView(page);
     assert.deepEqual(one.items, [], "the list shows beside the section");
-    assert.deepEqual(one.panes, ["settings-account"]);
+    assert.deepEqual(one.panes, ["settings-notifications"]);
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
@@ -1135,6 +1134,14 @@ const switchDress = (page, id) => page.evaluate(id => {
            knob: pick(getComputedStyle(box, "::before")), checked: box.checked };
 }, id);
 
+// the question up and done settling in
+function askSettled(page) {
+  return page.waitForFunction(() => {
+    const root = document.getElementById("signoutask");
+    return !root.hidden && root.getAnimations({ subtree: true }).length === 0;
+  }, { timeout: 5000 });
+}
+
 function notifySettled(page, on) {
   return page.waitForFunction(want => {
     const box = document.getElementById("notify");
@@ -1193,6 +1200,156 @@ test("phone: Notifications is the Editor's switch, and it subscribes this phone 
     await context.clearPermissionOverrides();
     await openPhone(page);
     await notifySettled(page, false);
+    assert.deepEqual(problems, []);
+  } finally {
+    await context.clearPermissionOverrides();
+    await page.close();
+  }
+});
+
+test("phone: the turn off mark stands at the foot of the drawer and asks before it signs out", async () => {
+  const { page, problems } = await open("/m", PHONE);
+  const asked = [];
+  page.on("request", request => {
+    const where = new URL(request.url()).pathname;
+    if (/^\/(auth|push)\//.test(where)) asked.push(request.method() + " " + where);
+  });
+  const isOpen = () => page.evaluate(() => document.getElementById("settings").classList.contains("open"));
+  const askShown = () => page.evaluate(() => !document.getElementById("signoutask").hidden);
+  try {
+    await openPhone(page);
+    const foot = () => page.evaluate(() => {
+      const drawer = document.getElementById("settings").getBoundingClientRect();
+      const button = document.getElementById("signout");
+      const box = button.getBoundingClientRect(), icon = button.querySelector("svg").getBoundingClientRect();
+      const style = getComputedStyle(button);
+      return { below: Math.round(drawer.bottom - icon.bottom),
+               centre: Math.round((icon.left + icon.right) / 2 - (drawer.left + drawer.right) / 2),
+               icon: [icon.width, icon.height], color: style.color, fill: style.backgroundColor, border: style.borderTopStyle,
+               reached: document.elementFromPoint((box.left + box.right) / 2, (box.top + box.bottom) / 2)?.closest("#signout") === button };
+    });
+    const list = await foot();
+    assert.deepEqual(list.icon, [16, 16], "the power mark is not 16px");
+    assert.equal(list.below, 16, "the mark does not stand 16px up from the drawer's foot");
+    assert.ok(Math.abs(list.centre) <= 1, "the mark is not centred across the drawer: " + list.centre);
+    assert.equal(list.color, "rgb(117, 105, 90)", "the mark is not in the sub ink");
+    assert.equal(list.fill, "rgba(0, 0, 0, 0)", "the mark sits on a box");
+    assert.equal(list.border, "none");
+    assert.equal(list.reached, true, "something lies over the mark");
+    await page.tap('.sp-item[data-section="diagnostics"]');
+    await settle(80);
+    assert.deepEqual(await foot(), list, "the mark moved when a section opened");
+
+    // the question: the system's alert, in the system's own blue and grays
+    await page.tap("#signout");
+    await askSettled(page);
+    const ask = await page.evaluate(() => {
+      const root = document.getElementById("signoutask"), card = root.querySelector(".ask-card");
+      const yes = document.getElementById("signoutyes"), no = document.getElementById("signoutno");
+      const copy = document.getElementById("signoutaskcopy");
+      const box = card.getBoundingClientRect(), y = yes.getBoundingClientRect(), n = no.getBoundingClientRect();
+      const css = el => getComputedStyle(el);
+      return { role: root.getAttribute("role"), modal: root.getAttribute("aria-modal"),
+               words: [copy.textContent, ...[...root.querySelectorAll("button")].map(one => one.textContent)],
+               dim: css(root).backgroundColor, card: css(card).backgroundColor, radius: css(card).borderTopLeftRadius,
+               width: card.offsetWidth, copy: css(copy).color,
+               centred: Math.abs((box.left + box.right - innerWidth) / 2) <= 1 && Math.abs((box.top + box.bottom - innerHeight) / 2) <= 1,
+               yes: [css(yes).backgroundColor, css(yes).color], no: [css(no).backgroundColor, css(no).color],
+               pills: [css(no).borderTopLeftRadius, css(yes).borderTopLeftRadius],
+               sideBySide: n.right <= y.left && Math.abs(n.top - y.top) < 1 && n.width === y.width,
+               focus: document.activeElement.id };
+    });
+    assert.equal(ask.role, "alertdialog");
+    assert.equal(ask.modal, "true");
+    assert.deepEqual(ask.words, ["Are you sure you want to log out?", "Cancel", "Log Out"]);
+    assert.deepEqual(ask.yes, ["rgb(0, 136, 255)", "rgb(255, 255, 255)"], "Log Out is not white on the system blue");
+    assert.deepEqual(ask.no, ["rgb(229, 229, 234)", "rgb(0, 136, 255)"], "Cancel is not the system blue on the fifth gray");
+    assert.equal(ask.card, "rgba(242, 242, 247, 0.94)", "the card is not the sixth gray");
+    assert.equal(ask.copy, "rgb(0, 0, 0)");
+    assert.equal(ask.dim, "rgba(0, 0, 0, 0.14)");
+    assert.equal(ask.radius, "26px");
+    assert.equal(ask.width, 304);
+    assert.equal(ask.centred, true, "the card is not in the middle of the screen");
+    assert.deepEqual(ask.pills, ["999px", "999px"]);
+    assert.equal(ask.sideBySide, true, "Cancel and Log Out are not two equal pills side by side");
+    assert.equal(ask.focus, "signoutno");
+
+    // a swipe over it does not pull the drawer away under it
+    await swipeRight(page, 300, 120, 340);
+    assert.equal(await isOpen(), true, "a swipe over the question put the drawer away");
+    assert.equal(await askShown(), true);
+
+    // Cancel and Escape put it away and change nothing
+    await page.tap("#signoutno");
+    await settle(600);
+    assert.equal(await askShown(), false, "Cancel left the question up");
+    assert.equal(await isOpen(), true, "Cancel put the drawer away");
+    assert.equal(await page.evaluate(() => document.activeElement.id), "signout");
+    await page.tap("#signout");
+    await askSettled(page);
+    await page.keyboard.press("Escape");
+    await settle(600);
+    assert.equal(await askShown(), false, "Escape left the question up");
+    assert.deepEqual(asked, [], "putting the question away asked the board for something");
+    assert.equal(page.url(), origin + "/m");
+
+    // Log Out signs out. this socket has no session to end, so the board refuses
+    // and the phone says so under the mark; the bridge test signs out for real
+    await page.tap("#signout");
+    await askSettled(page);
+    await page.tap("#signoutyes");
+    await page.waitForFunction(() => document.getElementById("signoutnote").textContent !== "", { timeout: 5000 });
+    assert.equal(await askShown(), false);
+    assert.deepEqual(asked, ["POST /auth/logout"]);
+    assert.equal(await page.$eval("#signoutnote", el => el.textContent),
+      "Could not sign out. Check your connection and try again.");
+    assert.equal(await page.$eval("#signout", el => el.disabled), false);
+    assert.deepEqual(problems.filter(line => !/\/auth\/logout|status of 40\d/.test(line)), []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("phone: nothing on the drawer or the question is purple", async () => {
+  const context = browser.defaultBrowserContext();
+  await context.overridePermissions(origin, ["notifications"]);
+  const { page, problems } = await open("/m", PHONE, { before: fakePush });
+  try {
+    const found = new Map();
+    const sweep = async selector => {
+      const rows = await page.evaluate(sel => {
+        const out = [];
+        const props = ["color", "backgroundColor", "borderTopColor", "borderBottomColor", "borderLeftColor",
+                       "borderRightColor", "outlineColor", "boxShadow", "backgroundImage", "accentColor", "fill", "stroke"];
+        const top = document.querySelector(sel);
+        for (const el of [top, ...top.querySelectorAll("*")]) {
+          for (const pseudo of [null, "::before", "::after"]) {
+            const style = getComputedStyle(el, pseudo);
+            for (const p of props) out.push(style[p]);
+          }
+        }
+        return out;
+      }, selector);
+      for (const value of rows) for (const m of String(value).matchAll(/rgba?\(([^)]*)\)/g)) found.set(m[0], m[1]);
+    };
+    await openPhone(page);
+    await sweep("#settings");
+    await page.tap('.sp-item[data-section="notifications"]');
+    await page.tap("#notify");
+    await notifySettled(page, true);
+    await settle(400);
+    await sweep("#settings");
+    await page.tap("#signout");
+    await askSettled(page);
+    await sweep("#signoutask");
+    assert.ok(found.size > 5, "too few colours were read to mean anything");
+    for (const [text, inside] of found) {
+      const [r, g, b, a = 1] = inside.split(/[ ,\/]+/).filter(Boolean).map(Number);
+      if (a === 0) continue;
+      assert.ok(!(r === 67 && g === 43 && b === 255) && !(r === 238 && g === 235 && b === 255), "the old accent: " + text);
+      const { chroma, hue } = hueOf("rgb(" + r + "," + g + "," + b + ")");
+      assert.ok(chroma < 0.06 || hue < 235 || hue > 335, "a purple on the drawer or the question: " + text);
+    }
     assert.deepEqual(problems, []);
   } finally {
     await context.clearPermissionOverrides();

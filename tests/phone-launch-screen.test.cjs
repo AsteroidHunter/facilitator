@@ -330,7 +330,7 @@ test("the board page loads the same painter, keeps no copy of its own and still 
   const page = await readFile(path.join(ROOT, "m.html"), "utf8");
   const include = page.indexOf('<script src="/m-splash.js"></script>');
   assert.ok(include > 0, "the board page does not load the painter");
-  const main = page.indexOf('<script>\ndocument.getElementById("signout")');
+  const main = page.indexOf('<script>\n// the turn off mark asks before it signs out');
   assert.ok(main > include, "the painter is loaded after the page's own script");
   for (const name of ["splashLayout", "splashHandleBox", "applySplashFont", "drawSplashHandle",
                       "paintSplash", "isAppleHomeScreenTarget", "installStartupImage"]) {
