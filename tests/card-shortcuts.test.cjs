@@ -437,6 +437,7 @@ async function randomPick() {
   return {
     pick: vm.runInContext("pickRandomCard", context),
     green: vm.runInContext("ticketGreen", context),
+    queued: vm.runInContext("ticketQueued", context),
     standing: vm.runInContext("isStandingBox", context),
   };
 }
@@ -450,23 +451,32 @@ test("a green ticket is a working or note card, and a done card still at work", 
   assert.equal(green({ id: "a", parked: true, state: null, ball: "you", replies: 1 }), false);
 });
 
-test("the random pick leaves out green tickets, the card on screen and the standing boxes", async () => {
+test("a grey ticket is a queued card, a parked one included, and nothing else", async () => {
+  const { queued } = await randomPick();
+  assert.equal(queued({ id: "a", state: "queued" }), true);
+  assert.equal(queued({ id: "a", state: "yours", pending: 1 }), true);
+  assert.equal(queued({ id: "a", parked: true, state: null, ball: "you", pending: 1 }), true);
+  for (const state of ["yours", "new", "working", "note", "done", "parked"]) assert.equal(queued({ id: "a", state }), false, state);
+});
+
+test("the random pick leaves out green and queued tickets, the card on screen and the standing boxes", async () => {
   const { pick, standing } = await randomPick();
   assert.deepEqual([standing("0"), standing("t0"), standing("q"), standing("m1")], [true, true, false, false]);
   const pool = [
     { id: "0", state: "new" }, { id: "t0", state: "yours" },
     { id: "a", state: "yours" }, { id: "b", state: "queued" }, { id: "c", state: "working" },
     { id: "d", state: "note" }, { id: "e", state: "yours" }, { id: "f", state: "new" },
+    { id: "g", state: "yours", pending: 2 },
   ];
-  assert.equal(pick(pool, "a", () => 0), "b");
+  assert.equal(pick(pool, "a", () => 0), "e");
   assert.equal(pick(pool, "a", () => 0.999), "f");
-  assert.equal(pick(pool, "b", () => 0), "a");
+  assert.equal(pick(pool, "e", () => 0), "a");
   assert.equal(pick(pool, null, () => 0), "a");
   // every one of the open cards can come up, and nothing else does
   const seen = new Set();
   for (let at = 0; at < 4; at++) seen.add(pick(pool, "a", () => at / 4));
-  assert.deepEqual([...seen].sort(), ["b", "e", "f"]);
-  assert.ok(["b", "e", "f"].includes(pick(pool, "a")), "the default chooser named a card outside the open ones");
+  assert.deepEqual([...seen].sort(), ["e", "f"]);
+  assert.ok(["e", "f"].includes(pick(pool, "a")), "the default chooser named a card outside the open ones");
 });
 
 test("the random pick has nothing to answer with when no card qualifies", async () => {
@@ -474,4 +484,5 @@ test("the random pick has nothing to answer with when no card qualifies", async 
   assert.equal(pick([], "a"), null);
   assert.equal(pick([{ id: "a", state: "yours" }], "a"), null);
   assert.equal(pick([{ id: "a", state: "yours" }, { id: "c", state: "working" }, { id: "0", state: "new" }], "a"), null);
+  assert.equal(pick([{ id: "a", state: "yours" }, { id: "b", state: "queued" }, { id: "c", state: "working" }], "a"), null);
 });

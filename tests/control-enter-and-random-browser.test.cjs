@@ -2,7 +2,8 @@
 // headless against their own fixture server. Control+Enter is a double Enter
 // pressed at once: it sends what the box holds, then moves to the card that has
 // waited longest, and with nothing typed, or outside a box, it only moves.
-// Control+R jumps to a random card in the list whose ticket is not green.
+// Control+R jumps to a random card in the list whose ticket is neither green
+// nor grey (queued).
 // Every landing is read against what a double Enter does on the same board.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
@@ -64,7 +65,7 @@ async function clearLane() {
   }
 }
 
-// four cards the reader can answer or open, two that Control+R must skip. The
+// three cards the reader can answer or open, two that Control+R must skip. The
 // oldest turn is the one a move has to land on; the source is the newest, where
 // the reader types. Done cards are in the list's last section and never green.
 async function board(label) {
@@ -447,7 +448,7 @@ for (const { name, viewport, caretFollows } of PAGES) {
   });
 
   for (const editor of ["formatted", "plain"]) {
-    test(`${name} ${editor} row: control+r lands on ten random cards, never green, never the one on screen, never a standing box`, async () => {
+    test(`${name} ${editor} row: control+r lands on ten random cards, never green, never queued, never the one on screen, never a standing box`, async () => {
       const ids = await board(`${name} ${editor} random`);
       const { page, problems } = await open(viewport);
       try {
@@ -462,7 +463,9 @@ for (const { name, viewport, caretFollows } of PAGES) {
         const pool = await page.evaluate(() => viewPool(lastState).map(b => b.id));
         assert.ok(pool.includes("0"), "the standing card is not in the list, so skipping it proves nothing");
         assert.ok(pool.includes(ids.working), "the green card is not in the list, so skipping it proves nothing");
-        const allowed = [ids.oldest, ids.newer, ids.source, ids.queued];
+        assert.ok(pool.includes(ids.queued), "the queued card is not in the list, so skipping it proves nothing");
+        assert.equal(await page.evaluate(card => queueState(lastState.boxes.find(b => b.id === card)), ids.queued), "queued");
+        const allowed = [ids.oldest, ids.newer, ids.source];
         const landed = [];
         let before = ids.source;
         for (let press = 0; press < 10; press++) {
@@ -486,7 +489,7 @@ for (const { name, viewport, caretFollows } of PAGES) {
     });
   }
 
-  test(`${name}: control+r does nothing with no open card to go to, and ignores a held key`, async () => {
+  test(`${name}: control+r does nothing with only green and queued cards to go to, and ignores a held key`, async () => {
     const ids = await board(`${name} no card`);
     const { page, problems } = await open(viewport);
     try {
@@ -502,9 +505,9 @@ for (const { name, viewport, caretFollows } of PAGES) {
       await settle(200);
       assert.equal((await landing(page)).shown, first, "the repeat of a held key moved again");
 
-      for (const card of [ids.oldest, ids.newer, ids.queued]) await api(`/park?box=${card}&v=1`);
+      for (const card of [ids.oldest, ids.newer]) await api(`/park?box=${card}&v=1`);
       await page.evaluate(() => poll());
-      const left = [ids.source, ids.working, "0"].sort();
+      const left = [ids.source, ids.working, ids.queued, "0"].sort();
       await page.waitForFunction(
         want => JSON.stringify(viewPool(lastState).map(b => b.id).sort()) === JSON.stringify(want),
         { timeout: 4000 }, left);

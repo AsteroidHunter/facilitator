@@ -102,7 +102,8 @@ const CARD_SHORTCUT_DEFINITIONS = [
     action: "advance", mini: false,
     match: e => controlEnter(e) && !e.isComposing && !e.defaultPrevented ? true : null,
   },
-  // control+r jumps to a random card in the list whose ticket is not green
+  // control+r jumps to a random card in the list whose ticket is neither green
+  // nor grey
   {
     action: "random", mini: false,
     match: e => e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey &&
@@ -181,10 +182,13 @@ function ticketGreen(b){
     (queueState(b) === "done" && cardState({ ...b, done: false, parked: false, state: null }) === "working");
 }
 
-// the id of a random card in pool, never the one on screen, a standing box or a
-// green ticket; null when none is left
+// a grey ticket: a message is waiting for the agent to pick it up
+function ticketQueued(b){ return queueState(b) === "queued"; }
+
+// the id of a random card in pool, never the one on screen, a standing box, a
+// green ticket or a grey one; null when none is left
 function pickRandomCard(pool, currentId, random = Math.random){
-  const open = pool.filter(b => b.id !== currentId && !isStandingBox(b.id) && !ticketGreen(b));
+  const open = pool.filter(b => b.id !== currentId && !isStandingBox(b.id) && !ticketGreen(b) && !ticketQueued(b));
   return open.length ? open[Math.floor(random() * open.length)].id : null;
 }
 
