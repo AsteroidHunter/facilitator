@@ -64,7 +64,7 @@ const between = (text, from, to) => {
 
 // ---- the markup and the sheet ---------------------------------------------------------
 test("the house heads the phone's tab row, a tab in all but its mark", () => {
-  const row = between(PHONE, '<div id="tabrow">', '<div id="offline">');
+  const row = between(PHONE, '<div id="tabrow">', '<main id="pane"');
   const house = /<button id="homeico"[^>]*>([\s\S]*?)<\/button>/.exec(row);
   assert.ok(house, "the house is a button in the tab row");
   assert.match(house[0], /class="ptab"/, "it wears the tabs' own class");

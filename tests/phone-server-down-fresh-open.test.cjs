@@ -1,7 +1,7 @@
 // The phone app opened fresh while the board is down. The page itself cannot
 // load then, so the phone's service worker answers the page open with the same
-// plain white "Is the Facilitator server down?" screen the page draws over the
-// board once its readings have failed. Three layers: the worker's decision run
+// plain white "Is the Facilitator server down?" screen the page draws when it
+// opens and its first reading of the board is not answered. Three layers: the worker's decision run
 // on its own, the worker's copy of the screen compared with m.html's, and the
 // whole thing driven headless at an iPhone size against its own fixture server
 // that is stopped, replaced by a stand-in proxy answering 502, and started again.

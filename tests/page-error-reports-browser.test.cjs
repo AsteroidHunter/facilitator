@@ -457,13 +457,11 @@ async function untilBanner(page, shown, ms = 8000) {
 }
 
 // the phone reads the board through its own short reading, and draws only
-// when the board has changed: its render runs once per change, and its note
-// for a board that stopped answering says so in its own words
-const PHONE_STALE = /^Reconnecting to the board\. Last update \d{1,2}:\d{2} (AM|PM)\.$/;
-
+// when the board has changed: its render runs once per change, and it paints no
+// banner for a board that stopped answering (a null says so)
 for (const [name, route, viewport, readRoute, saidWhenGone] of [
   ["board", "/", null, "/state", UNREACHABLE],
-  ["phone page", "/m", PHONE, "/m/state", PHONE_STALE],
+  ["phone page", "/m", PHONE, "/m/state", null],
 ]) {
   test(`a render that throws on the ${name} leaves the banner alone and is reported`, async () => {
     await settleReports();
@@ -499,18 +497,29 @@ for (const [name, route, viewport, readRoute, saidWhenGone] of [
     }
   });
 
-  test(`a server the ${name} cannot reach paints the banner, and it clears when it comes back`, async () => {
+  test(`a server the ${name} cannot reach ${saidWhenGone === null ? "paints no banner" : "paints the banner, and it clears when it comes back"}`, async () => {
     await settleReports();
     const { page, context } = await open(route, viewport);
     try {
       await cutTheWire(page, false);
-      const gone = await untilBanner(page, true);
-      if (typeof saidWhenGone === "string") assert.equal(gone.said, saidWhenGone, "the banner does not say what it always said");
-      else assert.match(gone.said, saidWhenGone, "the note does not say the board is being reached for again");
+      if (saidWhenGone === null) {
+        // an app in use: three failed readings and the page still says nothing
+        await page.waitForFunction(() => pollFails >= 3, { timeout: 20000 });
+        const shown = await banner(page);
+        assert.deepEqual(shown, { shown: false, said: "" }, "the phone painted a banner for a board that stopped answering");
+        assert.equal(await page.evaluate(() => document.body.classList.contains("down")), false);
+      } else {
+        const gone = await untilBanner(page, true);
+        assert.equal(gone.said, saidWhenGone, "the banner does not say what it always said");
+      }
 
       await cutTheWire(page, true);
-      if (readRoute === "/m/state") await page.evaluate(() => resume());   // the phone reads again on a wake, not on a clock it has backed off
-      await untilBanner(page, false);
+      if (readRoute === "/m/state") {
+        await page.evaluate(() => resume());   // the phone reads again on a wake, not on a clock it has backed off
+        await page.waitForFunction(() => pollFails === 0, { timeout: 10000 });
+      } else {
+        await untilBanner(page, false);
+      }
 
       await hide(page);
       const fresh = await newReports(report => report.kind === "fetch");

@@ -439,7 +439,7 @@ test("waking reconciles a send that landed while the phone was away, without a s
   }
 });
 
-test("readings never overlap, name the revision, cost little unchanged, and say when the board is not answering", async () => {
+test("readings never overlap, name the revision, cost little unchanged, and a board that stops answering changes nothing on screen", async () => {
   const { page, problems } = await openPhone("/m");
   try {
     await page.waitForSelector("article.box.sel", { timeout: 5000 });
@@ -462,28 +462,23 @@ test("readings never overlap, name the revision, cost little unchanged, and say 
     const unchanged = page.answers.filter(a => a.path === "/m/state" && a.body && a.body.changed === false);
     assert.ok(unchanged.length >= 1, "no reading came back unchanged");
     assert.ok(unchanged.every(a => a.body.boxes === undefined), "an unchanged reading carried the cards");
-    assert.equal(await page.evaluate(() => document.body.classList.contains("offline")), false);
 
-    // the board stops answering: the note says so, and since when
+    // the board stops answering: the app is in use, so nothing on screen changes,
+    // no bar under the tabs and no white screen, however long it lasts
     page.rule = r => r.path === "/m/state" ? { act: "abort" } : null;
-    await page.waitForFunction(() => document.body.classList.contains("offline"), { timeout: 12000 });
-    const note = await page.evaluate(() => ({
-      text: document.getElementById("offline").textContent,
-      stale: document.getElementById("offline").classList.contains("stale"),
+    await page.waitForFunction(() => pollFails >= 3, { timeout: 20000 });
+    const gone = await page.evaluate(() => ({
+      bar: document.getElementById("offline"),
+      down: document.body.classList.contains("down"),
+      card: !!document.querySelector("article.box.sel"),
     }));
-    assert.match(note.text, /^Reconnecting to the board\. Last update \d{1,2}:\d{2} (AM|PM)\.$/, note.text);
-    assert.equal(note.stale, true);
-    await page.screenshot({ path: path.join(SHOTS, "reconnecting.png") });
-    // and after long enough, that the board is gone and what happens to a send meanwhile
-    const gone = await page.evaluate(() => { lastGood = Date.now() - 40000; linkStatus(); return document.getElementById("offline").textContent; });
-    assert.match(gone, /^The facilitator server is not answering\. Messages you send are kept on this phone and delivered when it is back\./);
-    assert.equal(await page.evaluate(() => document.getElementById("offline").classList.contains("stale")), false);
-    await page.screenshot({ path: path.join(SHOTS, "not-answering.png") });
+    assert.deepEqual(gone, { bar: null, down: false, card: true });
+    await page.screenshot({ path: path.join(SHOTS, "board-gone.png") });
 
-    // the board answers again: one wake, and the note goes
+    // the board answers again: one wake, and the readings count from nothing again
     page.rule = () => null;
     await page.evaluate(() => resume());
-    await page.waitForFunction(() => !document.body.classList.contains("offline"), { timeout: 8000 });
+    await page.waitForFunction(() => pollFails === 0, { timeout: 8000 });
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
@@ -502,21 +497,21 @@ test("a bare text-plain 503 from the global cap is handled: the phone reconnects
     // the send is on this phone, marked as on its way, and the board has nothing
     await ringShown(page, 6000);
     assert.deepEqual(await pendingOn("0"), [], "a send got through the 503");
-    // the reading of the board is refused too, so the reconnecting note shows;
-    // the phone never tried to read the text/plain body as JSON
-    await page.waitForFunction(() => document.body.classList.contains("offline"), { timeout: 12000 });
-    const note = await page.evaluate(() => document.getElementById("offline").textContent);
-    assert.ok(/Reconnecting to the board|not answering/.test(note), note);
+    // the reading of the board is refused too, and counted as failed: the phone
+    // never tried to read the text/plain body as JSON, and the app in use is not
+    // covered
+    await page.waitForFunction(() => pollFails >= 2, { timeout: 12000 });
+    assert.equal(await page.evaluate(() => document.body.classList.contains("down")), false);
     const rowText = await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answmsg[data-op]").dataset.text);
     assert.equal(rowText, "Sent into an overloaded board", "the words were lost under the 503");
 
-    // the load clears: one wake, the message lands exactly once, the note goes
+    // the load clears: one wake, the message lands exactly once
     page.rule = () => null;
     await page.evaluate(() => resume());
     await page.waitForFunction(() =>
       !!document.querySelector("article.box.sel .sentwrap .answmsg:not([data-op])") &&
       !document.querySelector("article.box.sel .sentwrap .answmsg[data-op]") &&
-      !document.body.classList.contains("offline"), { timeout: 10000 });
+      pollFails === 0, { timeout: 10000 });
     assert.deepEqual(await pendingOn("0"), ["Sent into an overloaded board"]);
     assert.equal((await rows(page)).stored.length, 0);
     assert.deepEqual(problems, []);
