@@ -4803,6 +4803,22 @@ function wideShow(){
 }
 // the card a step just put the caret in, until the hold ends or a key is pressed
 let arrivedCard = null;
+// the phone keeps the caret colour from the last selection move, so the colour coming back shows nothing until a key
+function wakeCaret(ta){
+  const at = ta.selectionStart, live = document.activeElement;
+  if (at === null || at !== ta.selectionEnd || !live) return;
+  void getComputedStyle(live).caretColor;
+  if (ta.value.length){
+    const off = at ? at - 1 : 1;
+    ta.setSelectionRange(off, off);
+    ta.setSelectionRange(at, at);
+    return;
+  }
+  // an empty box has no place to move to: a transform for a frame has the phone draw it again
+  live.style.transform = "translateZ(0)";
+  void live.offsetWidth;
+  requestAnimationFrame(() => { live.style.transform = ""; });
+}
 // the colour is back, so the caret the phone was handed under the hold is issued again from it
 function reassertCaret(){
   const arrived = arrivedCard;
@@ -4811,6 +4827,7 @@ function reassertCaret(){
     // a step's caret the phone left at the head of the words goes back to their end
     const end = arrived.ta.value.length;
     if (end && arrived.ta.selectionStart === 0 && arrived.ta.selectionEnd === 0) arrived.ta.setSelectionRange(end, end);
+    wakeCaret(arrived.ta);
   }
   const box = typingFoot && typingFoot.querySelector(".compose > textarea:not(.twin)");
   if (!box || document.activeElement !== box) return;
