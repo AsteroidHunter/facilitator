@@ -959,21 +959,38 @@ function viewPool(state){ return viewPoolFor(state, curView()); }
 // neither stamp cannot be aged and counts as the newest
 function waitingSince(b){ return b.agentTs || b.ts || Number.MAX_SAFE_INTEGER; }
 
+// when the board put a card in the section it stands in. a card with no stamp
+// yet is one this page has just moved there, ahead of the board's reading, so it
+// counts as the most recent
+function restedSince(b, field){ return b[field] || Number.MAX_SAFE_INTEGER; }
+
 function poolOf(state){
   const keep = poolScope ? poolScope(state) : null;
+  const legacy = (a, b) => {
+    // an untouched new card stays on top; the first send drops it into the
+    // waiting group; anything green (in progress) sinks below all of that
+    const g = x => ({ "new": 0, yours: 1, queued: 2, working: 3, done: 4 })[queueState(x)];
+    if (g(a) !== g(b)) return g(a) - g(b);
+    if (g(a) === 0) return (b.ts || 0) - (a.ts || 0);   // newest created on top
+    // the waiting group is a queue: oldest turn first, so old turns do not go
+    // stale below newer ones. this is the same measure the post-send jump uses
+    // to pick the longest-waiting card; equal stamps keep the board's order
+    if (g(a) === 1) return waitingSince(a) - waitingSince(b);
+    return (b.ts || 0) - (a.ts || 0);                    // queued and working: newest first
+  };
+  // the three sections lie one after another: doing, deferred, done. doing keeps
+  // the order above; deferred runs by when each card was deferred and done by
+  // when each was marked done, most recent first, and cards with equal stamps
+  // fall back to the order above
+  const part = x => { const s = cardState(x); return s === "done" ? 2 : s === "parked" ? 1 : 0; };
+  const stamp = { 1: "parkedTs", 2: "doneTs" };
   return state.boxes.filter(b =>
     b.owner === activeOwner && b.id !== "q" && (!keep || keep(b)))
     .sort((a, b) => {
-      // an untouched new card stays on top; the first send drops it into the
-      // waiting group; anything green (in progress) sinks below all of that
-      const g = x => ({ "new": 0, yours: 1, queued: 2, working: 3, done: 4 })[queueState(x)];
-      if (g(a) !== g(b)) return g(a) - g(b);
-      if (g(a) === 0) return (b.ts || 0) - (a.ts || 0);   // newest created on top
-      // the waiting group is a queue: oldest turn first, so old turns do not go
-      // stale below newer ones. this is the same measure the post-send jump uses
-      // to pick the longest-waiting card; equal stamps keep the board's order
-      if (g(a) === 1) return waitingSince(a) - waitingSince(b);
-      return (b.ts || 0) - (a.ts || 0);                    // queued, working and done: newest first
+      const pa = part(a), pb = part(b);
+      if (pa !== pb) return pa - pb;
+      if (pa) return restedSince(b, stamp[pa]) - restedSince(a, stamp[pa]) || legacy(a, b);
+      return legacy(a, b);
     });
 }
 
