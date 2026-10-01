@@ -36,8 +36,8 @@ const SHELL_DEADLINE_MS = 8000;   // static files wait this long before the kept
 const PUSH_DEADLINE_MS = 6000;    // wait at most this long for auth before dropping a push
 
 /* The white screen a page open shows when the server cannot answer it: the same
-   screen m.html draws over the board once its readings have failed, with the
-   same icon, words, typeface, sizes, colours and centring. The rules and the
+   screen m.html draws when the app is opened and its first reading is not
+   answered, with the same icon, words, typeface, sizes, colours and centring. The rules and the
    markup here are a copy of that screen's, and
    tests/phone-server-down-fresh-open.test.cjs compares the two, so change them
    together. The whole page lives in this file

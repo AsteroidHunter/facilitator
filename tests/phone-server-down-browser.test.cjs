@@ -1,10 +1,12 @@
-// The phone page when the board stops answering: after a few seconds of failed
-// reads a plain white screen with one line, "Is the Facilitator server down?",
-// and a knocked out face drawn as a line icon. A single dropped or slow read must
-// not bring it up, and when the board answers again it goes away on its own with
-// the open card and the unsent words exactly as they were. Driven headless at an
-// iPhone size against its own fixture server, which is stopped and started again
-// on the same port.
+// The phone page when the board does not answer: a plain white screen with one
+// line, "Is the Facilitator server down?", and a knocked out face drawn as a line
+// icon, shown only while the app is being opened (the page loads, or comes back
+// on screen) and the first reading of the board is not answered. An app in use is
+// never covered, however long the board stays gone, and no reconnecting bar
+// stands under the tabs. When the board answers the screen goes away on its own
+// with the open card and the unsent words exactly as they were. Driven headless
+// at an iPhone size against its own fixture server, which is stopped and started
+// again on the same port.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawn } = require("node:child_process");
@@ -57,8 +59,9 @@ async function stopServer() {
 }
 
 // a page whose /m/state reads can be aborted, answered with a status, delayed
-// or left hanging, a set number of times, on the test's say
-async function openPhone(route, { held = false } = {}) {
+// or left hanging, a set number of times, on the test's say. mode is how the
+// reads are treated from the first one on
+async function openPhone(route, { mode = "pass", status = 0, ms = 0 } = {}) {
   // a context of its own: the retry store and the open card live in local storage,
   // and pages that share it would steer one another
   const context = await (browser.createBrowserContext || browser.createIncognitoBrowserContext).call(browser);
@@ -82,7 +85,7 @@ async function openPhone(route, { held = false } = {}) {
       }).observe(document.body, { attributes: true, attributeFilter: ["class"] });
     });
   });
-  const reads = { mode: held ? "abort" : "pass", left: Infinity, status: 0, ms: 0 };
+  const reads = { mode, left: Infinity, status, ms };
   await page.setRequestInterception(true);
   page.on("request", request => {
     if (!request.url().includes("/m/state") || reads.mode === "pass" || reads.left <= 0) {
@@ -94,6 +97,7 @@ async function openPhone(route, { held = false } = {}) {
       return request.respond({ status: reads.status, contentType: "text/plain", body: "refused" }).catch(() => {});
     }
     if (reads.mode === "delay") return void setTimeout(() => request.continue().catch(() => {}), reads.ms);
+    // "hang": the board takes the connection and never answers
   });
   await page.goto(origin + route, { waitUntil: "domcontentloaded" });
   return { page, reads, problems };
@@ -109,6 +113,19 @@ async function waitDown(page, want, timeout) {
   await page.waitForFunction(w => document.body.classList.contains("down") === w,
     { polling: 50, timeout }, want);
   return Date.now() - started;
+}
+
+// the app put away and brought back: the page is hidden, then visible again
+async function leaveAndReturn(page) {
+  await page.evaluate(() => {
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await settle(200);
+  await page.evaluate(() => {
+    delete document.hidden;
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
 }
 
 before(async () => {
@@ -149,74 +166,210 @@ after(async () => {
   if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
 });
 
-test("readings that fail briefly, slowly or with an answer never show the white screen for the wrong reason", async () => {
+test("no reconnecting bar is in the page source", async () => {
+  const source = await readFile(path.join(ROOT, "m.html"), "utf8");
+  for (const gone of ['id="offline"', "#offline", "body.offline", "Reconnecting to the board", "The facilitator server is not answering", "delivered when it is back", "Last update"]) {
+    assert.equal(source.includes(gone), false, `${gone} is still in the page source`);
+  }
+});
+
+test("the rule: only a reading asked after the opening decides, and the screen goes on any answer", async () => {
+  const { page } = await openPhone("/m?box=1.1");
+  try {
+    await boardDrawn(page);
+    const steps = await page.evaluate(() => {
+      const down = () => document.body.classList.contains("down");
+      const out = {};
+      linkOpened();
+      out.beforeEarlierFailure = down();
+      linkDown(openedAt - 1000, null);
+      out.afterEarlierFailure = down();
+      linkDown(openedAt, null);
+      out.afterOpeningFailure = down();
+      linkUp(openedAt - 1000);
+      out.afterEarlierAnswer = { down: down(), opening };
+      linkDown(openedAt + 5, null);
+      linkUp(openedAt + 10);
+      out.afterOpeningAnswer = { down: down(), opening };
+      linkDown(openedAt + 20, null);
+      out.afterAnsweredOpening = down();
+      linkOpened();
+      linkDown(openedAt, { status: 401 });
+      out.afterRefusal = { down: down(), opening };
+      linkOpened();
+      linkDown(openedAt, { status: 403 });
+      out.afterForbidden = { down: down(), opening };
+      linkOpened();
+      linkDown(openedAt, { status: 502 });
+      out.afterBadGateway = down();
+      linkUp(openedAt);
+      return out;
+    });
+    assert.deepEqual(steps, {
+      beforeEarlierFailure: false,
+      afterEarlierFailure: false,
+      afterOpeningFailure: true,
+      afterEarlierAnswer: { down: false, opening: true },
+      afterOpeningAnswer: { down: false, opening: false },
+      afterAnsweredOpening: false,
+      afterRefusal: { down: false, opening: false },
+      afterForbidden: { down: false, opening: false },
+      afterBadGateway: true,
+    });
+  } finally {
+    await page.close();
+  }
+});
+
+test("opening: the first reading decides, an app in use is never covered", async () => {
   // each case gets its own page; the reads are steered per page, the board stays up
   const cases = {
-    async oneDropped() {
-      const { page, reads } = await openPhone("/m?box=1.1");
+    async openedWhileBoardRefuses() {
+      const { page, reads } = await openPhone("/m?box=1.1", { mode: "abort" });
+      const took = await waitDown(page, true, 15000);
+      assert.ok(took <= 4000, `the screen came up ${took} ms after the page opened, too late for a first reading`);
+      reads.mode = "pass";
+      await waitDown(page, false, 30000);
       await boardDrawn(page);
-      reads.mode = "abort"; reads.left = 1;
-      await settle(6000);
-      assert.deepEqual(await downLog(page), [], "one dropped read must not bring the screen up");
+      assert.deepEqual(await downLog(page), [true, false]);
       await page.close();
     },
-    async oneSlow() {
+    async openedBehindBadGateway() {
+      const { page, reads } = await openPhone("/m?box=1.1", { mode: "status", status: 502 });
+      const took = await waitDown(page, true, 15000);
+      assert.ok(took <= 4000, `the screen came up ${took} ms after the page opened, too late for a first reading`);
+      reads.mode = "pass";
+      await waitDown(page, false, 30000);
+      await page.close();
+    },
+    async openedWhileBoardNeverAnswers() {
+      // the connection is taken and nothing comes back: the first reading's own
+      // deadline of eight seconds is the whole wait
+      const { page, reads } = await openPhone("/m?box=1.1", { mode: "hang" });
+      await settle(5000);
+      assert.deepEqual(await downLog(page), [], "the screen came up before the first reading's deadline");
+      const took = await waitDown(page, true, 12000);
+      assert.ok(took <= 6000, `the screen came up ${took} ms after the deadline was due`);
+      reads.mode = "pass";
+      await waitDown(page, false, 30000);
+      await page.close();
+    },
+    async openedWithASlowFirstAnswer() {
+      // a slow answer is an answer: never the screen
+      const { page } = await openPhone("/m?box=1.1", { mode: "delay", ms: 3500 });
+      await boardDrawn(page);
+      assert.deepEqual(await downLog(page), []);
+      await page.close();
+    },
+    async openedWithARefusal() {
+      for (const status of [401, 403]) {
+        const { page } = await openPhone("/m?box=1.1", { mode: "status", status });
+        await settle(5000);
+        assert.deepEqual(await downLog(page), [], `a ${status} on the first reading is the board answering`);
+        await page.close();
+      }
+    },
+    async inUseWhileTyping() {
+      const { page, reads } = await openPhone("/m?box=1.1");
+      await boardDrawn(page);
+      reads.mode = "abort";
+      const typed = "words typed while the board is gone, for a good while";
+      await page.type("article.box.sel textarea", typed, { delay: 300 });
+      assert.deepEqual(await downLog(page), [], "the screen covered an app in use");
+      const kept = await page.evaluate(() => ({
+        draft: document.querySelector("article.box.sel textarea").value,
+        sel: document.querySelector("article.box.sel").id,
+        bar: document.getElementById("offline"),
+        said: document.body.innerText,
+      }));
+      assert.equal(kept.draft, typed);
+      assert.equal(kept.sel, "box-1.1");
+      assert.equal(kept.bar, null, "a bar stands under the tabs");
+      assert.doesNotMatch(kept.said, /Reconnecting|not answering|Last update/);
+      await page.close();
+    },
+    async inUseBehindBadGateway() {
+      const { page, reads } = await openPhone("/m?box=1.1");
+      await boardDrawn(page);
+      reads.mode = "status"; reads.status = 502;
+      await settle(14000);
+      assert.deepEqual(await downLog(page), [], "a 502 on an app in use brought the screen up");
+      await page.close();
+    },
+    async inUseRefused() {
+      const { page, reads } = await openPhone("/m?box=1.1");
+      await boardDrawn(page);
+      reads.mode = "status"; reads.status = 401;
+      await settle(8000);
+      assert.deepEqual(await downLog(page), [], "a 401 is the board answering");
+      await page.close();
+    },
+    async inUseSlowRead() {
       const { page, reads } = await openPhone("/m?box=1.1");
       await boardDrawn(page);
       reads.mode = "delay"; reads.ms = 3500; reads.left = 1;
       await settle(7000);
-      assert.deepEqual(await downLog(page), [], "one slow read must not bring the screen up");
-      await page.close();
-    },
-    async twoDropped() {
-      const { page, reads } = await openPhone("/m?box=1.1");
-      await boardDrawn(page);
-      reads.mode = "abort"; reads.left = 2;
-      await page.waitForFunction(() => document.body.classList.contains("offline"), { polling: 50, timeout: 12000 });
-      assert.equal(await isDown(page), false, "the reconnecting note is for short gaps");
-      await page.waitForFunction(() => !document.body.classList.contains("offline"), { polling: 100, timeout: 20000 });
       assert.deepEqual(await downLog(page), []);
       await page.close();
     },
-    async refused() {
-      // an answer that refuses is still an answer: the board is there
+    async wakeWithoutAnOpening() {
+      // the phone coming back online is a wake, not an opening
       const { page, reads } = await openPhone("/m?box=1.1");
       await boardDrawn(page);
-      reads.mode = "status"; reads.status = 401;
-      await settle(11000);
-      assert.deepEqual(await downLog(page), [], "a 401 is the board answering");
+      reads.mode = "abort";
+      await page.evaluate(() => resume());
+      await settle(3000);
+      assert.deepEqual(await downLog(page), []);
       await page.close();
     },
-    async badGateway() {
-      // what a proxy in front of a stopped server says: the screen after the wait, gone on the next answer
+    async comingBackToTheScreenWhileBoardRefuses() {
       const { page, reads } = await openPhone("/m?box=1.1");
       await boardDrawn(page);
-      reads.mode = "status"; reads.status = 502;
-      const took = await waitDown(page, true, 25000);
-      assert.ok(took >= 4000, `the screen came up after ${took} ms, too soon`);
-      assert.ok(took <= 12000, `the screen came up after ${took} ms, too late`);
+      reads.mode = "abort";
+      await settle(3000);
+      assert.deepEqual(await downLog(page), [], "the screen came up before the app was opened again");
+      await leaveAndReturn(page);
+      const took = await waitDown(page, true, 12000);
+      assert.ok(took <= 4000, `the screen came up ${took} ms after the app came back`);
       reads.mode = "pass";
       await waitDown(page, false, 30000);
       assert.deepEqual(await downLog(page), [true, false]);
       await page.close();
     },
-    async openedWhileDown() {
-      // the page arrives and every reading then fails
-      const { page, reads } = await openPhone("/m?box=1.1", { held: true });
-      await waitDown(page, true, 30000);
-      reads.mode = "pass";
-      await waitDown(page, false, 30000);
+    async comingBackToTheScreenWithTheBoardUp() {
+      const { page } = await openPhone("/m?box=1.1");
       await boardDrawn(page);
+      await leaveAndReturn(page);
+      await settle(4000);
+      assert.deepEqual(await downLog(page), []);
       await page.close();
     },
-    async wakeStartsTheCountAgain() {
-      // one failure from before the phone slept plus one after it is not enough
+    async comingBackToTheScreenWithARefusal() {
       const { page, reads } = await openPhone("/m?box=1.1");
       await boardDrawn(page);
-      await page.evaluate(() => { downSince = Date.now() - 600000; downReads = 1; });
-      reads.mode = "abort"; reads.left = 1;
-      await page.evaluate(() => resume());
-      await settle(3000);
+      reads.mode = "status"; reads.status = 401;
+      await leaveAndReturn(page);
+      await settle(4000);
+      assert.deepEqual(await downLog(page), []);
+      await page.close();
+    },
+    async aPageBroughtBackFromTheBrowsersKeep() {
+      const { page, reads } = await openPhone("/m?box=1.1");
+      await boardDrawn(page);
+      reads.mode = "abort";
+      await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+      await waitDown(page, true, 12000);
+      await page.close();
+    },
+    async anAppInUseStaysUncoveredAfterItsOpeningWasAnswered() {
+      // opened, answered, then put away and brought back with the board up, and only
+      // then does the board go: that last stretch is use, however long it lasts
+      const { page, reads } = await openPhone("/m?box=1.1");
+      await boardDrawn(page);
+      await leaveAndReturn(page);
+      await settle(1500);
+      reads.mode = "abort";
+      await settle(12000);
       assert.deepEqual(await downLog(page), []);
       await page.close();
     },
@@ -224,11 +377,11 @@ test("readings that fail briefly, slowly or with an answer never show the white 
   const results = await Promise.allSettled(Object.entries(cases).map(async ([name, run]) => {
     try { await run(); } catch (error) { error.message = `${name}: ${error.message}`; throw error; }
   }));
-  const failed = results.find(result => result.status === "rejected");
-  if (failed) throw failed.reason;
+  const failed = results.filter(result => result.status === "rejected");
+  if (failed.length) throw new Error(failed.map(result => result.reason.message).join("\n"));
 });
 
-test("the server stops and starts again: the white screen comes and goes, the card and the words stay", async () => {
+test("the server stops and starts again: an app in use is never covered, an opening is, and the card and the words stay", async () => {
   const { page, problems } = await openPhone("/m?box=1.1");
   await boardDrawn(page);
   await page.type("article.box.sel textarea", "sent while the board was gone");
@@ -241,8 +394,14 @@ test("the server stops and starts again: the white screen comes and goes, the ca
   // the card can only move if the white screen moves it
   await page.evaluate(() => doSend(selectedId, { advance: false }));
   await page.type("article.box.sel textarea", "a draft still being written");
-  const took = await waitDown(page, true, 30000);
-  assert.ok(took >= 2000, `the screen came up ${took} ms after the last good read, too soon`);
+  await settle(12000);
+  assert.deepEqual(await downLog(page), [], "the screen covered an app in use");
+  assert.equal(await page.evaluate(() => document.querySelector("article.box.sel textarea").value), "a draft still being written");
+
+  // the app is put away and brought back with the board still gone: now it is an opening
+  await leaveAndReturn(page);
+  const took = await waitDown(page, true, 15000);
+  assert.ok(took <= 4000, `the screen came up ${took} ms after the app came back`);
 
   const shown = await page.evaluate(() => {
     const screen = document.getElementById("serverdown");

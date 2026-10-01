@@ -799,16 +799,16 @@ test("a connection lost after the start never brings the curtain back", async ()
   try {
     await page.waitForFunction(() => !document.getElementById("loading"), { timeout: 20000 });
     fixture.mode = "fail";
-    await page.waitForFunction(() => document.body.classList.contains("offline"), { timeout: 30000 });
+    await page.waitForFunction(() => pollFails >= 2, { timeout: 30000 });
     const after = await page.evaluate(() => ({
       curtain: !!document.getElementById("loading"),
-      note: document.getElementById("offline").textContent,
-      noteShown: getComputedStyle(document.getElementById("offline")).display !== "none",
+      bar: document.getElementById("offline"),
+      down: document.body.classList.contains("down"),
       cards: document.getElementById("cards").childElementCount,
     }));
     assert.equal(after.curtain, false, "the startup curtain came back after a later drop");
-    assert.equal(after.noteShown, true, "the reconnecting note did not appear");
-    assert.match(after.note, /Reconnecting to the board|not answering/);
+    assert.equal(after.bar, null, "a bar stands under the tabs");
+    assert.equal(after.down, false, "the white screen covered an app in use");
     assert.equal(after.cards, FIXTURE_BOXES.length, "the board it had read was taken away");
     await shot(page, "later-drop");
     assert.deepEqual(problems, []);

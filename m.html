@@ -79,7 +79,7 @@
      across the run rather than the OS or browser's own tint, so a long-press
      pick of the sent words or the prose reads the same here as on the board */
   ::selection{background:#000; color:#fff}
-  /* the page: the tabs, the note and the card, on the paper, as one surface.
+  /* the page: the tabs and the card, on the paper, as one surface.
      both menus cross over it, with the shade between them and it, and the
      surface itself draws back a little while either one is out */
   #page{
@@ -207,20 +207,10 @@
   #tabrow.scrolled .bar{-webkit-mask-image:linear-gradient(to right, transparent, #000 14px);
     mask-image:linear-gradient(to right, transparent, #000 14px)}
 
-  /* ---- the server unreachable note, the board's own --------------------- */
-  #offline{
-    display:none; flex:none; margin-top:var(--sp-s);
-    padding:9px 12px; font:13px var(--sans); color:#7A2E1B;
-    background:#FAE9E2; border:var(--edge) solid var(--line); border-radius:7px;
-  }
-  body.offline #offline{display:block}
-  /* the milder note: the board has missed a reading or two and the page is
-     asking again, which is not yet a board that is gone */
-  #offline.stale{color:#6B5A2E; background:#F6F1E4; border-color:var(--line)}
-
-  /* ---- the board has stopped answering: a white screen and one line -------- */
+  /* ---- the app is being opened and the board does not answer: a white screen and one line */
   /* over everything, the startup curtain included, and measured the way the
      curtain is. the face is a line icon one em tall, sitting on the text's line.
+     it is shown only while the app is being opened, never over an app in use.
      the phone's worker (m-sw.js) draws this same screen when a page open finds
      the board down, from a copy of the rules and the markup of this one, and
      tests/phone-server-down-fresh-open.test.cjs compares them: change both */
@@ -1148,7 +1138,6 @@
     <button id="homeico" class="ptab" type="button" title="Home" aria-label="Home" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></button>
     <div class="bar"><span id="tabbar"></span></div>
   </div>
-  <div id="offline"></div>
   <main id="pane" class="blank">
     <div id="empty">no cards on this tab yet</div>
     <div id="cards"></div>
@@ -3748,8 +3737,8 @@ scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu
 // from one nobody has read yet, and it only says so once a reading proves it
 // (the .stated rule in the sheet above).
 //
-// After the curtain has gone it never comes back. A connection lost later is
-// the reconnecting note's business, which is what that note is for.
+// After the curtain has gone it never comes back. A connection lost later
+// changes nothing on screen.
 
 // --- the phone's own launch image (iOS) ---
 // The painter is m-splash.js, loaded with the other shared files ahead of this
@@ -3814,7 +3803,7 @@ function liftCurtain(){
 }
 // a reading failed. only the readings BEFORE the first drawn board are the
 // curtain's business: once a board is on screen the connection was made, and a
-// loss after that is the reconnecting note's to report
+// loss after that is not the curtain's to report
 function startupTrouble(){
   if (startupLifted || startupDrew || !curtain) return;
   curtain.classList.add("down");
@@ -4120,16 +4109,14 @@ function syncSentPhone(el, b){
 // answers in a few hundred bytes, and one that has sends only the cards that
 // changed since (mergeReading), and it asks after every operation still
 // pending, so on waking what landed while the phone slept is drawn from the
-// board's receipts and what did not is sent again. the note under the tabs
-// says plainly when the board has stopped answering, and since when; what is
-// on screen then is the last reading, not the board
+// board's receipts and what did not is sent again. a board that stops
+// answering while the app is in use changes nothing on screen: what is shown
+// is the last reading, and linkDown below says when the white screen comes up
 const POLL_MS = 1200, POLL_DEADLINE_MS = 8000, POLL_BACKOFF_MAX_MS = 15000;
 // the deadline is on the answer starting. a body that has started is slow and
 // not lost for as long as it keeps arriving, and is given up only after this
 // long with nothing more of it (readingText)
 const POLL_STALL_MS = 8000;
-const STALE_AFTER = 2;                // missed readings before the note shows
-const OFFLINE_AFTER_MS = 30000;       // this long without an answer and the note says the board is gone
 let lastRev = null;                   // the revision lastState is of; null before the first reading
 // the cards of the reading last drawn, exactly as the board sent them, with its
 // revision and the server run that made it (mergeReading). null holds nothing,
@@ -4144,7 +4131,6 @@ let drewBoard = false;
 // reading reaches the create's revision, an older snapshot may not erase the
 // card and the title editor that the confirmed answer has just drawn.
 let createRevFloor = null;
-let lastGood = 0;                     // when the board last answered
 let pollAgain = false, pollTimer = null, pollGap = POLL_MS;
 // a timed reading that falls due while a panel on the card runs, or a page turns,
 // is put off a moment and not dropped (cardsMoving in card-logic.js): a reading
@@ -4160,41 +4146,28 @@ function schedulePoll(ms){
     poll();
   }, ms);
 }
-function linkStatus(){
-  const bar = document.getElementById("offline");
-  if (pollFails < STALE_AFTER){
-    document.body.classList.remove("offline");
-    bar.classList.remove("stale");
-    return;
-  }
-  const since = lastGood ? " Last update " + stampText(lastGood / 1000) + "." : "";
-  const gone = !lastGood || Date.now() - lastGood > OFFLINE_AFTER_MS;
-  bar.textContent = gone
-    ? "The facilitator server is not answering. Messages you send are kept on this phone and delivered when it is back." + since
-    : "Reconnecting to the board." + since;
-  bar.classList.toggle("stale", !gone);
-  document.body.classList.add("offline");
+// THE WHITE SCREEN IS FOR AN APP BEING OPENED, NEVER FOR ONE IN USE.
+//
+// The app is being opened when the page loads and each time it comes back on
+// screen (linkOpened). The first reading asked after that moment decides: if it
+// is not answered, the screen comes up at once, with that reading's own
+// deadline as the only wait. Once a reading asked after the opening is
+// answered the app is in use, and a board that stops answering then never
+// brings the screen up, however long it stays gone. A reading asked before the
+// opening neither shows the screen nor ends the opening. The screen goes away
+// on any answer
+let opening = true, openedAt = Date.now();
+function linkOpened(){
+  opening = true; openedAt = Date.now();
 }
-// the white screen: readings have failed for DOWN_AFTER_MS across at least
-// DOWN_AFTER_READS in a row. the note above covers the short gaps before it
-const DOWN_AFTER_MS = 5000, DOWN_AFTER_READS = 2;
-let downSince = 0, downReads = 0;
 function linkDown(asked, response){
   // an answer that refuses is still an answer: the board is there
-  if (response && (response.status === 401 || response.status === 403)){ linkUp(); return; }
-  if (!downSince) downSince = asked;
-  downReads++;
-  if (downReads >= DOWN_AFTER_READS && Date.now() - downSince >= DOWN_AFTER_MS)
-    document.body.classList.add("down");
+  if (response && (response.status === 401 || response.status === 403)){ linkUp(asked); return; }
+  if (opening && asked >= openedAt) document.body.classList.add("down");
 }
-function linkUp(){
-  downSince = 0; downReads = 0;
+function linkUp(asked){
+  if (asked >= openedAt) opening = false;
   document.body.classList.remove("down");
-}
-// a wake starts the count again, so a failure from before the phone slept never
-// adds to the first one after it. the screen itself stays until a reading gets through
-function linkWoke(){
-  if (!document.body.classList.contains("down")){ downSince = 0; downReads = 0; }
 }
 // one reading at a time. asked while one is out, poll answers with the reading
 // that follows it, so whoever waits on it gets a reading asked for after their
@@ -4284,8 +4257,8 @@ function mergeReading(held, data){
       !order.every(id => cards.has(id))) return null;
   return { rev: data.rev, epoch, cards, order, boxes: order.map(id => ({ ...cards.get(id) })) };
 }
-// the fetch and the render each get their own try, as on the board: the note
-// is for a server that did not answer, and a card that will not draw is
+// the fetch and the render each get their own try, as on the board: a failed
+// reading is for a server that did not answer, and a card that will not draw is
 // reported instead of being dressed up as one
 async function readBoard(){
   clearTimeout(pollTimer); pollTimer = null;
@@ -4321,16 +4294,14 @@ async function readBoard(){
   } catch (e) {
     pollFails++;
     pollGap = Math.min(POLL_BACKOFF_MAX_MS, pollGap * 2);
-    linkStatus();
     linkDown(asked, response);
     startupTrouble();   // the board could not be reached: the startup globe stops, and reddens
   }
   endPhoneTrace(trace, { status: response?.status || 0, rev: data?.rev,
     ...(data ? {} : { outcome: "retry" }) }, response);
   if (data){
-    pollFails = 0; pollGap = POLL_MS; lastGood = Date.now();
-    linkStatus();
-    linkUp();
+    pollFails = 0; pollGap = POLL_MS;
+    linkUp(asked);
     startupAnswered();   // a reading got through: the startup globe turns again
     if (createRevFloor != null && Number.isSafeInteger(data.rev) && data.rev < createRevFloor){
       pollAgain = true;
@@ -4430,7 +4401,6 @@ async function readBoard(){
 // pending operation, and every sleeping retry is woken
 function resume(){
   pollGap = POLL_MS;
-  linkWoke();
   poll();
   wakeOps();
 }
@@ -4443,9 +4413,11 @@ poll();
 if (typeof installStartupImage === "function") installStartupImage(SPLASH_LOGO);
 document.addEventListener("visibilitychange", () => {
   if (document.hidden){ clearTimeout(pollTimer); pollTimer = null; }
-  else resume();
+  else { linkOpened(); resume(); }
 });
-window.addEventListener("pageshow", resume);
+// the first pageshow is the load, which opened the app already; one that
+// brings a page back from the browser's back-forward cache is an opening of its own
+window.addEventListener("pageshow", e => { if (e.persisted) linkOpened(); resume(); });
 window.addEventListener("online", resume);
 
 // ---- the typing row -----------------------------------------------------------
