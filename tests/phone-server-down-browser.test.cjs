@@ -2,7 +2,8 @@
 // line, "Is the Facilitator server down?", and a knocked out face drawn as a line
 // icon, shown only while the app is being opened (the page loads, or comes back
 // on screen) and the first reading of the board is not answered. An app in use is
-// never covered, however long the board stays gone, and no reconnecting bar
+// never covered, however long the board stays gone, and neither is one that has
+// been touched or typed in before the first reading was answered. No reconnecting bar
 // stands under the tabs. When the board answers the screen goes away on its own
 // with the open card and the unsent words exactly as they were. Driven headless
 // at an iPhone size against its own fixture server, which is stopped and started
@@ -203,6 +204,15 @@ test("the rule: only a reading asked after the opening decides, and the screen g
       linkDown(openedAt, { status: 502 });
       out.afterBadGateway = down();
       linkUp(openedAt);
+      linkOpened();
+      linkTouched();
+      linkDown(openedAt + 5, null);
+      out.afterTouch = { down: down(), opening };
+      linkOpened();
+      linkDown(openedAt, null);
+      linkTouched();
+      out.afterTouchOnTheScreen = { down: down(), opening };
+      linkUp(openedAt);
       return out;
     });
     assert.deepEqual(steps, {
@@ -215,6 +225,8 @@ test("the rule: only a reading asked after the opening decides, and the screen g
       afterRefusal: { down: false, opening: false },
       afterForbidden: { down: false, opening: false },
       afterBadGateway: true,
+      afterTouch: { down: false, opening: false },
+      afterTouchOnTheScreen: { down: true, opening: true },
     });
   } finally {
     await page.close();
@@ -252,6 +264,70 @@ test("opening: the first reading decides, an app in use is never covered", async
       assert.ok(took <= 6000, `the screen came up ${took} ms after the deadline was due`);
       reads.mode = "pass";
       await waitDown(page, false, 30000);
+      await page.close();
+    },
+    async openedHangingThenTapped() {
+      // a hand on the app before the first reading is answered is an app in use
+      const { page, reads } = await openPhone("/m?box=1.1", { mode: "hang" });
+      await settle(2000);
+      await page.touchscreen.tap(PHONE.width / 2, PHONE.height / 2);
+      await settle(11000);
+      assert.deepEqual(await downLog(page), [], "the screen came up over a tapped app");
+      reads.mode = "pass";
+      await boardDrawn(page);
+      assert.deepEqual(await downLog(page), []);
+      await page.close();
+    },
+    async openedHangingThenAKeyPress() {
+      const { page } = await openPhone("/m?box=1.1", { mode: "hang" });
+      await settle(2000);
+      await page.keyboard.press("a");
+      await settle(11000);
+      assert.deepEqual(await downLog(page), [], "the screen came up over an app with a key pressed");
+      await page.close();
+    },
+    async aTouchOnTheWhiteScreenIsNotUse() {
+      const { page, reads } = await openPhone("/m?box=1.1", { mode: "abort" });
+      await waitDown(page, true, 15000);
+      await page.touchscreen.tap(PHONE.width / 2, PHONE.height / 2);
+      await settle(500);
+      assert.equal(await isDown(page), true, "a tap took the screen away");
+      assert.equal(await page.evaluate(() => opening), true, "a tap on the screen counted as use");
+      reads.mode = "pass";
+      await waitDown(page, false, 30000);
+      await page.close();
+    },
+    async returnedHangingWithNoTouch() {
+      // back on the screen with the board taking the connection and saying nothing:
+      // the screen comes up when the reading is given up, and not before
+      const { page, reads } = await openPhone("/m?box=1.1");
+      await boardDrawn(page);
+      reads.mode = "hang";
+      await leaveAndReturn(page);
+      await settle(5000);
+      assert.deepEqual(await downLog(page), [], "the screen came up before a reading was given up");
+      await waitDown(page, true, 20000);
+      reads.mode = "pass";
+      await waitDown(page, false, 30000);
+      await page.close();
+    },
+    async returnedHangingThenTyped() {
+      // the words typed at two seconds are use: the screen never comes up, the words stay
+      const { page, reads } = await openPhone("/m?box=1.1");
+      await boardDrawn(page);
+      await page.type("article.box.sel textarea", "words from before ");
+      reads.mode = "hang";
+      await leaveAndReturn(page);
+      await settle(2000);
+      await page.type("article.box.sel textarea", "and words typed at two seconds");
+      await settle(20000);
+      assert.deepEqual(await downLog(page), [], "the screen came up over typing");
+      const kept = await page.evaluate(() => ({
+        draft: document.querySelector("article.box.sel textarea").value,
+        sel: document.querySelector("article.box.sel").id,
+      }));
+      assert.equal(kept.draft, "words from before and words typed at two seconds");
+      assert.equal(kept.sel, "box-1.1");
       await page.close();
     },
     async openedWithASlowFirstAnswer() {
