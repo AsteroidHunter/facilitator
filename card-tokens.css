@@ -640,7 +640,7 @@
 .sp-next{display:none; flex:none; color:var(--sub)}
 .sp-next svg{display:block}
 .sp-panes{overflow-y:auto; padding:24px 32px 40px}
-.sp-pane{display:none; max-width:560px}
+.sp-pane{display:none}
 .sp-pane.on{display:block}
 .sp-panehead{margin:0 0 6px; font:625 15px/1.25 var(--inter); color:var(--ink)}
 /* a choice is a row: its words on the left with one line under them saying what
@@ -684,7 +684,6 @@
 .sp-page[data-narrow] .sp-item.on:hover{background:color-mix(in srgb, #000 var(--press), transparent)}
 .sp-page[data-narrow] .sp-next{display:block}
 .sp-page[data-narrow] .sp-panes{padding:0 20px 32px}
-.sp-page[data-narrow] .sp-pane{max-width:none}
 .sp-page[data-narrow] .sp-panehead{display:none}
 .sp-page[data-narrow] .sp-panehead + .setrow, .sp-page[data-narrow] .sp-panehead + .setact{border-top:none}
 .sp-page[data-narrow][data-view="list"] .sp-panes{display:none}

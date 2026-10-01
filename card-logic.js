@@ -3326,9 +3326,9 @@ function settingsMark(name){
 // cannot be minimised or zoomed, so they are plain marks the keyboard skips.
 // the symbols inside them show while a pointer is over the group
 const SETTINGS_LIGHTS = {
-  red: '<path d="M3 3l6 6M9 3L3 9"/>',
-  yellow: '<path d="M2.6 6h6.8"/>',
-  green: '<path d="M2.6 6h6.8M6 2.6v6.8"/>',
+  red: '<path d="M3.75 3.75l4.5 4.5M8.25 3.75l-4.5 4.5"/>',
+  yellow: '<path d="M2.8 6h6.4"/>',
+  green: '<path d="M2.55 6h6.9M6 2.55v6.9"/>',
 };
 function settingsLights(close){
   const group = h("div", "sp-lights");
@@ -3342,7 +3342,7 @@ function settingsLights(close){
       light.setAttribute("aria-hidden", "true");
     }
     light.innerHTML = '<svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" ' +
-      'stroke-width="1.3" stroke-linecap="round" aria-hidden="true">' + SETTINGS_LIGHTS[name] + '</svg>';
+      'stroke-width="1.5" stroke-linecap="round" aria-hidden="true">' + SETTINGS_LIGHTS[name] + '</svg>';
     group.appendChild(light);
   }
   return group;
