@@ -2,7 +2,7 @@
 // throwaway product server against an ephemeral loopback port pair, a fake HOME,
 // and a fake tailscale command, then a private headless Chrome. Nothing here
 // touches the live board on 8877 or the real Tailscale app.
-const { spawn } = require("node:child_process");
+const { execFileSync, spawn } = require("node:child_process");
 const { once } = require("node:events");
 const { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } =
   require("node:fs/promises");
@@ -32,7 +32,11 @@ esac
 exit 0
 `;
 
-async function launch({ seed } = {}) {
+// files: more of the product's files to copy beside server.py. onlyBin: the
+// server's PATH is the fake bin folder alone, so a test decides what commands
+// exist (a fake codex) and no real one can be started. env: more variables for
+// the server.
+async function launch({ seed, files = [], onlyBin = false, env = {} } = {}) {
   const fixtureDir = await realpath(await mkdtemp(path.join(tmpdir(), "facilitator-resp-")));
   const binDir = path.join(fixtureDir, "fakebin");
   await mkdir(binDir, { recursive: true });
@@ -56,7 +60,7 @@ async function launch({ seed } = {}) {
   await writeFile(path.join(fixtureDir, "server.py"), source);
   copyBridgeFiles(fixtureDir);
 
-  for (const name of COPY_FILES)
+  for (const name of [...COPY_FILES, ...files])
     await copyFile(path.join(ROOT, name), path.join(fixtureDir, name));
   await mkdir(path.join(fixtureDir, "assets"));
   for (const name of await readdir(path.join(ROOT, "assets")))
@@ -67,15 +71,19 @@ async function launch({ seed } = {}) {
     items: [{ id: "0", bucket: "meta", owner: "facilitator", title: "Welcome card" }],
   }));
 
-  const child = spawn(PYTHON, [path.join(fixtureDir, "server.py")], {
+  // an absolute interpreter, since the server's own PATH may hold nothing else
+  const python = onlyBin
+    ? execFileSync(PYTHON, ["-c", "import sys; print(sys.executable)"], { encoding: "utf8" }).trim() : PYTHON;
+  const child = spawn(python, [path.join(fixtureDir, "server.py")], {
     cwd: fixtureDir,
     env: {
       ...process.env,
       HOME: fixtureDir,
-      PATH: binDir + path.delimiter + (process.env.PATH || ""),
+      PATH: onlyBin ? binDir : binDir + path.delimiter + (process.env.PATH || ""),
       FACILITATOR_TEST_PORT: String(port),
       FACILITATOR_LOG_DIR: fixtureDir,
       FACILITATOR_FAKE_TAILSCALE_APP: "/nonexistent/tailscale",
+      ...env,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -233,7 +241,7 @@ async function launch({ seed } = {}) {
     if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
   }
 
-  return { origin, browser, fixtureDir, output: () => output, post, makeProject, openBoard, stop };
+  return { origin, browser, fixtureDir, binDir, output: () => output, post, makeProject, openBoard, stop };
 }
 
 module.exports = { launch };

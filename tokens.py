@@ -45,6 +45,12 @@ stats every file and reads only what was appended since; a file that shrank or
 whose first bytes changed is read again from the start. A file that has gone
 keeps its counts, since Claude Code clears old transcripts away on its own and
 the year would otherwise lose its early months. The cache holds no log text.
+
+Beside the counts the ledger keeps one more thing: the newest plan limits
+Codex wrote down. Each token_count event can carry the percent of the 5-hour
+and weekly windows used and when they reset; the event with the latest stamp
+is kept as a few numbers, and it is what the home page's limits box falls back
+on when Codex itself cannot be asked. It is a latest value, not a count.
 """
 from __future__ import annotations
 
@@ -60,6 +66,8 @@ KINDS = ("input", "cache_write", "cache_read", "output")
 TOOLS = ("claude", "codex")
 CACHE_VERSION = 1
 HEAD_BYTES = 512     # the first bytes of a file, fingerprinted to tell a rewrite from an append
+TAIL_FILES = 6       # newest Codex files whose ends are searched for limits when none are known
+TAIL_BYTES = 1 << 20 # how much of a file's end is searched
 # the cheap test a line has to pass before it is parsed: most lines are not
 # usage at all, and the tool results in them can be large
 WANTED = {
@@ -172,6 +180,22 @@ def _claude_usage(obj):
     return message.get("id"), obj.get("timestamp"), counts
 
 
+def _epoch(stamp) -> float | None:
+    if not isinstance(stamp, str):
+        return None
+    try:
+        moment = datetime.datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=datetime.timezone.utc)
+    return moment.timestamp()
+
+
+def _num(value) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
 def _codex_counts(usage) -> tuple:
     """Codex reports cached input inside input and reasoning inside output, so
     fresh input is what is left of input once the cached part is taken out."""
@@ -190,6 +214,8 @@ class TokenLedger:
         self.roots = {tool: tuple(folders.get(tool, ())) for tool in TOOLS}
         self.cache_path = Path(cache_path) if cache_path else None
         self.lock = threading.Lock()
+        self.limits = None
+        self.searched = False
         self.files = self._load()
         self.seen = {fp for rec in self.files.values() for fp in rec.get("ids", ())}
 
@@ -202,6 +228,9 @@ class TokenLedger:
             return {}
         if not isinstance(data, dict) or data.get("version") != CACHE_VERSION:
             return {}
+        limits = data.get("limits")
+        if isinstance(limits, dict) and _num(limits.get("at")) is not None:
+            self.limits = limits
         files = data.get("files")
         return files if isinstance(files, dict) else {}
 
@@ -210,8 +239,10 @@ class TokenLedger:
             return
         tmp = self.cache_path.with_name(self.cache_path.name + ".tmp")
         try:
-            tmp.write_text(json.dumps({"version": CACHE_VERSION, "files": self.files},
-                                      separators=(",", ":")))
+            body = {"version": CACHE_VERSION, "files": self.files}
+            if self.limits:
+                body["limits"] = self.limits
+            tmp.write_text(json.dumps(body, separators=(",", ":")))
             os.replace(tmp, self.cache_path)
         except OSError:
             # a cache that cannot be written only costs the next run a rescan
@@ -227,6 +258,7 @@ class TokenLedger:
         """Read what each log file has gained since the last refresh."""
         zone = zone_key()
         changed = False
+        known = self.limits
         for tool in TOOLS:
             for path, st in _log_files(self.roots[tool]):
                 rec = self.files.get(path)
@@ -235,8 +267,54 @@ class TokenLedger:
                     continue
                 if self._read(path, tool, st, rec, zone):
                     changed = True
-        if changed:
+        if self.limits is None and not self.searched:
+            # a cache made before limits were kept has read every file whole and
+            # will not read them again, so the newest files' ends are searched once
+            self.searched = True
+            self._search_tails()
+        if changed or self.limits != known:
             self._save()
+
+    def _search_tails(self) -> None:
+        newest = sorted(_log_files(self.roots["codex"]), key=lambda found: found[1].st_mtime)
+        for path, st in newest[-TAIL_FILES:]:
+            try:
+                with open(path, "rb") as f:
+                    start = max(st.st_size - TAIL_BYTES, 0)
+                    f.seek(start)
+                    chunk = f.read(TAIL_BYTES)
+            except OSError:
+                continue
+            lines = chunk.split(b"\n")
+            for line in lines[1:] if start else lines:
+                if b"token_count" not in line or b"rate_limits" not in line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except ValueError:
+                    continue
+                payload = obj.get("payload") if isinstance(obj, dict) else None
+                if isinstance(payload, dict) and payload.get("type") == "token_count":
+                    self._note_limits(obj, payload)
+
+    def _note_limits(self, obj: dict, payload: dict) -> None:
+        """Keep the plan limits of the newest token_count event: only numbers,
+        and only the account's own bucket, never a model's."""
+        got = payload.get("rate_limits")
+        if not isinstance(got, dict) or got.get("limit_id") not in (None, "codex"):
+            return
+        stamp = _epoch(obj.get("timestamp"))
+        if stamp is None or (self.limits and stamp < self.limits["at"]):
+            return
+        record = {"at": stamp}
+        for name in ("primary", "secondary"):
+            window = got.get(name)
+            used = _num(window.get("used_percent")) if isinstance(window, dict) else None
+            if used is not None:
+                record[name] = {"used_percent": used, "window_minutes": _num(window.get("window_minutes")),
+                                "resets_at": _num(window.get("resets_at"))}
+        if len(record) > 1:
+            self.limits = record
 
     def _fresh(self, tool: str, zone: str) -> dict:
         rec = {"tool": tool, "size": 0, "mtime": 0, "offset": 0, "head": "", "head_len": 0,
@@ -354,6 +432,7 @@ class TokenLedger:
                 self._add(rec, "days", "codex", payload.get("response_id"),
                           days_of(obj.get("timestamp")), _codex_counts(usage))
         elif kind == "event_msg" and payload.get("type") == "token_count":
+            self._note_limits(obj, payload)
             info = payload.get("info")
             if not isinstance(info, dict):
                 return
@@ -386,6 +465,14 @@ class TokenLedger:
                 for i, value in enumerate(counts[:4]):
                     row[i] += _n(value)
         return out
+
+    def latest_limits(self) -> dict | None:
+        """The plan limits on the newest Codex token_count event seen, as
+        {"at": epoch seconds, "primary": {"used_percent", "window_minutes",
+        "resets_at"}, "secondary": {...}}, or None when no event carried any."""
+        with self.lock:
+            self.refresh()
+            return self.limits
 
     def daily(self, days: int = 365, today: datetime.date | None = None) -> dict:
         """The last `days` days ending today, oldest first, every one present.

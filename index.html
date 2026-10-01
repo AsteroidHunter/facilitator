@@ -3221,6 +3221,19 @@
     height:calc((var(--home-b) - var(--home-t)) * .35);
     transform:translate(-50%, -50%)}
   body.focus.home #homeplot{height:100%}
+  /* the limits box stands in the bottom right quarter of the same frame: its
+     centre on the token box's own vertical line, its width the token box's,
+     and its bottom edge a tenth of the frame's height above the frame's bottom.
+     it is as tall as its rows, so it is anchored by its bottom and grows up */
+  #homelimits{display:none}
+  body.focus.home #homelimits:not([hidden]){display:block; position:fixed; z-index:5;
+    --home-l:var(--app-inset); --home-r:calc(100vw - var(--app-inset));
+    --home-t:calc(var(--app-inset) + var(--bar-h) - 1px - var(--edge-drawn));
+    --home-b:calc(100vh - var(--app-inset));
+    left:calc(var(--home-l) * .25 + var(--home-r) * .75);
+    top:calc(var(--home-t) * .1 + var(--home-b) * .9);
+    width:calc((var(--home-r) - var(--home-l)) * .35);
+    transform:translate(-50%, -100%)}
   body.focus.home #stage{visibility:hidden; opacity:0; pointer-events:none}
   body.focus.home #editbtn{visibility:hidden}
   /* on-canvas edit mode: the bar's pencil toggles it; boxes then drag with no
@@ -3484,6 +3497,9 @@
      panel, which home-widgets.js builds into #homeplot the first time home
      opens. like the landing above it stands outside the stage -->
 <section id="home" aria-label="Home"><div id="homeplot"></div></section>
+<!-- the limits box, in the bottom right quarter of the home page under the token
+     box: home-widgets.js draws it, and it stays hidden while it has no row -->
+<section id="homelimits" aria-label="Plan limits" hidden></section>
 
 <!-- The page switcher remains mounted for its page handlers, though its desktop
      UI is hidden. The menu and deletion confirmation stay with that code. -->
@@ -4159,11 +4175,17 @@ document.getElementById("npstart").addEventListener("click", async () => {
 // Any project tab leaves it for that project's board, and so does the plus.
 // The counts are asked for when home opens and every few minutes while it
 // stays open and in view; the panel keeps its last drawing while it asks.
+// The limits box under it (the same file) is asked for every minute over the
+// same time: the server answers from a reading it keeps for five minutes, so
+// the minute only picks up what Claude Code's status line has written since.
 const HOME_KEY = "homeopen";
 const HOME_EVERY = 5 * 60 * 1000;
+const LIMITS_EVERY = 60 * 1000;
 let homeOpen = false;
 let homePanel = null;
+let homeLimits = null;
 let homeTimer = null;
+let limitsTimer = null;
 let homeLoad = null;
 // the panel's code and sheet, fetched the first time home opens and never on
 // boot, the way the file navigator's editor is: a board nobody opens home on
@@ -4196,11 +4218,18 @@ async function homeShow(){
       return;
     }
     if (!homePanel) homePanel = TokenWidgets.panel(plot);
+    const spot = document.getElementById("homelimits");
+    if (spot && !homeLimits && TokenWidgets.limits) homeLimits = TokenWidgets.limits(spot);
   }
   if (!homeOpen) return;
   homePanel.refresh();
   clearInterval(homeTimer);
   homeTimer = setInterval(() => { if (!document.hidden) homePanel.refresh(); }, HOME_EVERY);
+  if (homeLimits){
+    homeLimits.refresh();
+    clearInterval(limitsTimer);
+    limitsTimer = setInterval(() => { if (!document.hidden) homeLimits.refresh(); }, LIMITS_EVERY);
+  }
 }
 function setHome(on){
   homeOpen = !!on;
@@ -4212,6 +4241,8 @@ function setHome(on){
   document.getElementById("homeico").setAttribute("aria-pressed", String(homeOpen));
   clearInterval(homeTimer);
   homeTimer = null;
+  clearInterval(limitsTimer);
+  limitsTimer = null;
   if (homeOpen){
     // the board's own arranging and typing go with the board
     if (editMode) setEditMode(false);
