@@ -490,14 +490,14 @@ test("the sent line lands on the tap, the panel comes up with it cut, and the po
         opacity: cs.opacity,
         transform: cs.transform,
         rows: [...document.querySelectorAll("article.box.sel .sentwrap .answmsg")].map(r => r.dataset.text),
-        line: document.querySelector("article.box.sel .sentwrap .answnote"),
+        line: document.querySelector("article.box.sel .sentwrap .answmark"),
       };
     });
     assert.equal(settled.classes, "answered sent", "the arrival left its dress on the panel");
     assert.equal(settled.opacity, "1");
     assert.equal(settled.transform, "none");
     assert.deepEqual(settled.rows, ["Landed before the server answered"], "the poll doubled the sent line");
-    assert.equal(settled.line, null, "a confirmed message kept the line an unconfirmed one wears");
+    assert.equal(settled.line, null, "a confirmed message kept the mark an unconfirmed one wears");
     const saved = await (await fetch(origin + "/state")).json();
     assert.deepEqual(saved.boxes.find(b => b.id === id).pendingTexts, ["Landed before the server answered"]);
     await shot(page, "send-settled");

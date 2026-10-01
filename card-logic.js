@@ -1705,13 +1705,41 @@ function fitAnswered(panel){
 // it adds no block, or it would stand as a second blank line.
 // the blocks already standing are kept for as long as they hold the same words
 // in the same place, so a pass that only adds a message, or only changes the
-// note under one, draws nothing above it again and leaves a pick of those
-// words alone. a message may carry a short note under its words and a state
-// the page dresses it in: the phone says so of a message the board has not
+// badge on one, draws nothing above it again and leaves a pick of those
+// words alone. a message may carry a badge in its row (sentBadge, below) and a
+// state the page dresses it in: the phone says so of a message the board has not
 // confirmed yet. and a sent message carries its stage (see the delivery marks
 // further down): one the board has not saved yet is drawn faded, and takes its
 // full ink once the board has it
 const ANSWERED_STATES = ["pending", "unsure", "failed"];
+
+// the badge a sent row wears while its message is not through, inside the row
+// and with no words on it. ring is the attachment tray's own turning ring, for
+// a send the phone is still trying again on its own. fail is a red round mark
+// holding a circular arrow that sends it again, with a small cross beside it
+// that takes the message back. the press on either is heard in syncSent
+const SENT_RING = '<svg class="tsqring" viewBox="0 0 24 24" aria-hidden="true">' +
+  '<circle class="track" cx="12" cy="12" r="10.5"/><circle class="arc" cx="12" cy="12" r="10.5"/></svg>';
+const SENT_RETRY = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"' +
+  ' stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>';
+const SENT_CROSS = '<svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M1 1l6 6M7 1L1 7" ' +
+  'stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+function sentBadge(kind){
+  const badge = h("span", "answmark");
+  badge.dataset.kind = kind;
+  if (kind === "ring"){ badge.innerHTML = SENT_RING; return badge; }
+  const cross = h("button", "answcross");
+  cross.type = "button"; cross.dataset.act = "cross";
+  cross.setAttribute("aria-label", "take the message back");
+  cross.innerHTML = SENT_CROSS;
+  const retry = h("button", "answretry");
+  retry.type = "button"; retry.dataset.act = "retry";
+  retry.setAttribute("aria-label", "send again");
+  retry.innerHTML = SENT_RETRY;
+  badge.append(cross, retry);
+  return badge;
+}
 function stackAnswered(panel, batch){
   const stack = panel.querySelector(".answstack");
   const want = batch.filter(m => !ANSWERED_BLANK.test(answeredText(m)));
@@ -1732,11 +1760,12 @@ function stackAnswered(panel, batch){
     msg.classList.toggle("undelivered", sentUndelivered(m));
     if (m.op) msg.dataset.op = m.op;
     else delete msg.dataset.op;
-    let note = msg.querySelector(".answnote");
-    if (m.note){
-      if (!note){ note = h("div", "answnote"); msg.appendChild(note); }
-      if (note.textContent !== m.note) note.textContent = m.note;
-    } else if (note) note.remove();
+    const kind = m.badge || "";
+    if (kind) msg.dataset.badge = kind;
+    else delete msg.dataset.badge;
+    let badge = [...msg.children].find(node => node.classList.contains("answmark"));
+    if (badge && badge.dataset.kind !== kind){ badge.remove(); badge = null; }
+    if (kind && !badge) msg.appendChild(sentBadge(kind));
   });
 }
 
@@ -1828,8 +1857,8 @@ function sentBatch(texts){ return (texts || []).map(text => ({ text })); }
 //              faded, the panel's grey and the words both, while every message
 //              in the panel is still local, and the words alone when an older
 //              message in it is saved. no word stands for it, the fade says it.
-//              the phone's own line under a send that is not getting through
-//              (Not sent yet, retrying, and the rest) is a failure, not a state
+//              a send that is not getting through keeps this stage and wears
+//              the badge of its row (sentBadge) as well: a failure, not a state
 //   sent       the board has saved it: Delivered, at full ink
 //   delivered  an agent has picked it up, its listener confirmed the claim
 //              carrying it: Read
@@ -1847,9 +1876,11 @@ function sentUndelivered(m){ return m.stage === "local"; }
 // a send on its way to the board, drawn faded from the press: el is the card's
 // page object, which holds its sentItems and its guard. the board's readings
 // are kept from replacing the list for as long as any send is out, since one
-// asked before the board had the words knows nothing of them
-function sentLaunch(el, text){
-  const item = { text, stage: "local" };
+// asked before the board had the words knows nothing of them. every send is an
+// operation, its id minted here before the first try and kept for every try
+// after it; route is the path it is posted to, without the id
+function sentLaunch(el, text, route){
+  const item = { text, stage: "local", op: newOpId(), ts: Date.now(), route };
   el.sentItems = [...el.sentItems, item];
   el.sendsOut = (el.sendsOut || 0) + 1;
   el.sendGuard = Infinity;
@@ -1868,13 +1899,117 @@ function sentLanded(el, item){
   sentSettled(el);
   syncSent(el, el.sentItems);
 }
-// the board did not take it: the faded message goes from the panel
-function sentLost(el, item){
+// one try of a send, under the id it was minted with. the board keeps a receipt
+// beside the message, so a try asked again after a lost answer is answered from
+// the receipt and the words never land twice. landed is the board's yes and
+// refused its no, which sending again cannot change. failed is anything else,
+// no answer within OP_TRY_MS included, and says nothing about whether the words
+// landed
+const SENT_REFUSED = new Set([400, 409, 413]);
+async function sentTry(item){
+  let r;
+  try {
+    r = await fetch(item.route + "&op=" + encodeURIComponent(item.op),
+      { method: "POST", body: item.text, signal: AbortSignal.timeout(OP_TRY_MS) });
+  } catch (e) { return "failed"; }
+  return r.ok ? "landed" : SENT_REFUSED.has(r.status) ? "refused" : "failed";
+}
+// the try did not get through. the message stays in the panel, faded as it was,
+// with the fail badge, and is held out of the board's readings, which would
+// otherwise take it away. refused is the board's own no
+function sentFailed(el, item, refused){
   if (item.stage !== "local") return;
-  item.stage = "lost";
+  item.badge = "fail"; item.refused = !!refused; item.checked = false;
   el.sentItems = el.sentItems.filter(m => m !== item);
+  el.sentHeld = [...(el.sentHeld || []), item];
   sentSettled(el);
   syncSent(el, el.sentItems);
+}
+function sentHeldOut(el, item){
+  el.sentHeld = (el.sentHeld || []).filter(m => m !== item);
+}
+// the arrow: the held message goes out again under its own id, drawn as any
+// send on its way is. a refused message is not sent again
+async function sentRetry(el, item){
+  if (item.refused || !(el.sentHeld || []).includes(item)) return;
+  sentHeldOut(el, item);
+  item.badge = "";
+  el.sentItems = [...el.sentItems, item];
+  el.sendsOut = (el.sendsOut || 0) + 1;
+  el.sendGuard = Infinity;
+  syncSent(el, el.sentItems);
+  const result = await sentTry(item);
+  if (result === "landed"){
+    sentLanded(el, item);
+    if (item.landed) item.landed();
+  } else sentFailed(el, item, result === "refused");
+}
+// the board has the held message after all: it stands as sent, Delivered, and
+// nothing is taken back
+function sentHeldLanded(el, item){
+  sentHeldOut(el, item);
+  item.badge = ""; item.stage = "sent";
+  el.sentItems = [...el.sentItems, item];
+  if (!el.sendsOut) el.sendGuard = Date.now();
+  syncSent(el, el.sentItems);
+  if (item.landed) item.landed();
+}
+// the words go back in the typing row, after what is already there and never
+// over it, and the message leaves the panel
+function sentBack(el, item){
+  sentHeldOut(el, item);
+  const draft = el.ta.value;
+  el.ta.value = draft.trim() ? draft.trimEnd() + "\n\n" + item.text : item.text;
+  el.tick();
+  syncSent(el, el.sentItems);
+}
+// what a lookup of the board's receipt for an operation answers, or null when
+// the board could not be reached, which is no answer at all
+async function askReceipt(id){
+  try {
+    const r = await fetch("/op?id=" + encodeURIComponent(id), { signal: AbortSignal.timeout(OP_TRY_MS) });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (e) { return null; }
+}
+// the cross. a refused message is known not to have landed, so its words come
+// back at once. any other failure leaves it unknown, so the board is asked
+// first: landed, and the row becomes Delivered with nothing taken back; not
+// landed, and the words go back; no answer, and nothing happens
+async function sentCross(el, item){
+  if (!(el.sentHeld || []).includes(item) || item.asking) return;
+  if (item.refused){ sentBack(el, item); return; }
+  item.asking = true;
+  let said;
+  try { said = await askReceipt(item.op); } finally { item.asking = false; }
+  if (!said || !(el.sentHeld || []).includes(item)) return;
+  if (said.status === "applied") sentHeldLanded(el, item);
+  else if (said.status === "unknown" && Date.now() - item.ts < OP_CERTAIN_MS) sentBack(el, item);
+}
+// a reading the board has just answered asks it once about each held message
+// it has not been asked about, so a send whose answer was lost on the way and
+// that landed is shown Delivered rather than as failed
+async function sentAskHeld(el){
+  for (const item of [...(el.sentHeld || [])]){
+    if (item.refused || item.checked || item.asking) continue;
+    item.asking = true;
+    let said;
+    try { said = await askReceipt(item.op); } finally { item.asking = false; }
+    if (!said) continue;
+    item.checked = true;
+    if (said.status === "applied" && (el.sentHeld || []).includes(item)) sentHeldLanded(el, item);
+  }
+}
+// how long after the press the board's answer "unknown" still proves the words
+// never landed. a receipt is kept at least two days from the moment the board
+// committed it, which is never before the press, so inside this window no
+// receipt means no commit. past it, unknown proves nothing
+const OP_CERTAIN_MS = 36 * 3600 * 1000;
+// how long one try waits for the board's answer
+const OP_TRY_MS = 10000;
+function newOpId(){
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, "0")).join("");
 }
 // the panel's list, out of the board's reading of a card: what a note has
 // already taken toward the answer to come, which is read, then the queued
@@ -1934,13 +2069,26 @@ function sentMarks(panel, shown, live){
   panel.setAttribute("aria-label", "your messages waiting for a reply" + (tag ? ", " + tag.toLowerCase() : ""));
 }
 
+// the press on a badge's arrow or cross. the page says what each does to the
+// message it belongs to (sentMarkAct), the panel's own press is not given it
+function sentBadgePress(el, e){
+  const button = e.target && e.target.closest && e.target.closest(".answmark button");
+  const row = button && button.closest(".answmsg[data-op]");
+  if (!row) return;
+  e.stopPropagation();
+  sentMarkAct(el, row.dataset.op, button.dataset.act);
+}
+
+// the messages this page sent that did not get through (el.sentHeld) stand in
+// the panel after what the board has, since a reading of the board knows
+// nothing of them
 function syncSent(el, batch, arrive){
   if (!el || !el.sentwrap) return;
-  const shown = (batch || []).filter(m => !ANSWERED_BLANK.test(answeredText(m)));
+  const shown = (batch || []).concat(el.sentHeld || []).filter(m => !ANSWERED_BLANK.test(answeredText(m)));
   if (!shown.length){ dropSent(el); return; }
-  // what the panel is drawn from: the words, and the state, the note and the
+  // what the panel is drawn from: the words, and the state, the badge and the
   // stage of each. a pass bringing the same again touches no dom
-  const key = JSON.stringify(shown.map(m => [answeredText(m), m.state || "", m.note || "", m.stage || ""]));
+  const key = JSON.stringify(shown.map(m => [answeredText(m), m.op || "", m.state || "", m.badge || "", m.stage || ""]));
   if (el.sent && el.sentKey === key) return;
   el.sentKey = key;
   const room = el.sentRoom || null;
@@ -1948,6 +2096,7 @@ function syncSent(el, batch, arrive){
   if (!panel){
     panel = el.sent = answeredPanel(room);
     panel.classList.add("sent");
+    panel.addEventListener("click", e => sentBadgePress(el, e));
     el.sentwrap.appendChild(panel);
     stackAnswered(panel, shown);
     sentMarks(panel, shown);

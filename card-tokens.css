@@ -399,7 +399,31 @@
 .answered{transition:margin-bottom var(--answ-move) var(--gentle), --answ-fill var(--answ-move) var(--gentle)}
 .answered.undelivered{--answ-fill:color-mix(in srgb, var(--bubble-fill) 50%, var(--card, #fff))}
 .answmsg > *{transition:opacity var(--answ-move) var(--gentle)}
-.answmsg.undelivered > :not(.answnote){opacity:.5}
+.answmsg.undelivered > :not(.answmark){opacity:.5}
+/* a message that is not getting through wears a badge inside its row, and
+   nothing is written on it (card-logic.js: sentBadge). the row gives up a
+   column on its right for it and the badge stands in that column, at the
+   row's vertical middle, always at full strength. the red round mark is 18px,
+   systemRed, with a white glyph, 2px from the edge; it holds the circular
+   arrow that sends the message again, and the small cross to its left, in the
+   tray's dark, takes the message back. a row with only the ring keeps 26px on
+   its right, a row with the mark and the cross 46px. the ring a send still
+   being tried again on its own wears is drawn by the page, in the mark's place */
+.answmsg{position:relative}
+.answmsg[data-badge]{padding-right:26px}
+.answmsg[data-badge=fail]{padding-right:46px}
+.answmark{
+  position:absolute; right:2px; top:50%; transform:translateY(-50%);
+  display:flex; align-items:center; gap:6px;
+}
+.answmsg + .answmsg > .answmark{top:calc(50% + var(--answ-line) / 4)}
+.answretry, .answcross{
+  position:relative; flex:none; padding:0; border:none; border-radius:50%;
+  color:#fff; display:grid; place-items:center; cursor:pointer;
+}
+.answretry{width:18px; height:18px; background:#ff3b30}
+.answcross{width:16px; height:16px; background:rgba(33,29,23,.72)}
+.answretry::after, .answcross::after{content:""; position:absolute; inset:-6px -3px}
 .answered[data-mark]{margin-bottom:var(--answ-tag)}
 .answered[data-mark]::after{
   content:attr(data-mark); position:absolute; top:100%; right:var(--answ-round);

@@ -523,20 +523,15 @@
   .sentwrap:empty{display:none}
   .box{--sent-cap:calc(var(--vvh, 100vh) * .38 - var(--answ-pad-y) - var(--answ-strip))}
   /* a message the board has not confirmed yet: drawn the moment it is sent, a
-     shade lighter, with a short line under its words saying where it stands,
-     and kept on the card until the board has it. one it could not be given
-     stays too, its line in the ink the unreachable note wears, and a tap puts
-     the words back in the typing row. the line stands right under the words,
-     so the block before it gives up its own step */
-  .answnote{display:block; margin-top:4px; font:10.5px/1.35 var(--mono); color:var(--sub); white-space:normal}
-  .answmsg > :has(+ .answnote){margin-bottom:0}
-  .answmsg.pending > :not(.answnote){opacity:.6}
-  .answmsg.pending .answnote{color:#8F7B4A}
-  .answmsg.failed .answnote{color:#7A2E1B}
-  /* a message the board never confirmed and the phone stopped resending: kept
-     as it was typed, its line saying only what is known */
-  .answmsg.unsure > :not(.answnote){opacity:.72}
-  .answmsg.unsure .answnote{color:#6B5A2E}
+     shade lighter, and kept on the card until the board has it. while the phone
+     is still trying it again on its own its row carries the tray's turning ring,
+     in the place the red mark takes once it has stopped (card-tokens.css). no
+     words stand on either */
+  .answmsg.pending > :not(.answmark){opacity:.6}
+  .answmsg.unsure > :not(.answmark){opacity:.72}
+  .answmark[data-kind=ring] .tsqring{position:static; width:18px; height:18px; margin:0; opacity:1;
+    animation:tsqturn .8s linear infinite}
+  .answmark[data-kind=ring] .tsqring .arc{stroke-dashoffset:49.48; transition:none}
 
   /* ---- the messages the answer on the card was given ---------------------- */
   /* the desktop card's panel, drawn from the shared sheet (card-tokens.css) at
@@ -2179,54 +2174,62 @@ function boxHasSelection(el){
 // messages the board has confirmed, each where it stands (sent, delivered or
 // read, the board's own record), and after them this phone's own that the board
 // has not confirmed yet, faded like any message the board has not saved, and
-// with a line under its words only when the sending is not getting through.
+// with a badge in its row only when the sending is not getting through.
 // arrive is what tells a send from a reading, as it does on the desktop
 function sentOf(el, id){
   const batch = el.sentItems.slice();
   for (const op of localSends(id))
-    batch.push({ text: op.text, op: op.id, state: op.state, note: opNote(op), stage: "local" });
+    batch.push({ text: op.text, op: op.id, state: op.state, badge: opBadge(op), stage: "local" });
   return batch;
 }
 function drawSent(el, id, arrive){
   syncSent(el, sentOf(el, id), arrive);
   const panel = el.sent;
   if (!panel) return;
-  // the tap on a message this phone could not send, which takes it back. it is
-  // heard before the panel's own tap, so taking words back never folds the panel
-  if (!panel.opPress){
-    panel.opPress = true;
-    panel.addEventListener("click", e => sentPress(e), true);
-  }
-  // a message newly refused, or whose fate is newly unknown, says so under its
-  // words, and a panel cut above that line is opened once so the line is read
+  // a message newly refused, or whose fate is newly unknown, wears its mark,
+  // and a panel cut above that row is opened once so the mark is seen
   const warn = localSends(id).filter(o => o.state === "failed" || o.state === "unsure").map(o => o.id).join(",");
   if (warn && warn !== el.sentWarned && panel.classList.contains("more") && !panel.classList.contains("open"))
     openAnswered(panel, true);
   el.sentWarned = warn;
 }
-// what the line under an unconfirmed message says. a send on its way says
-// nothing, the fade does
-function opNote(op){
-  return op.state === "failed" ? "Not sent, tap to take the words back"
-    : op.state === "unsure" ? (op.armed ? "Tap again to take the words back; it may already have gone" : "Could not confirm it was sent")
-    : op.waiting ? "Not sent yet, retrying" : "";
+// what an unconfirmed message wears in its row. a send on its first try wears
+// nothing, the fade says it; one being tried again on its own wears the ring;
+// one the phone has stopped sending wears the red mark and the cross
+function opBadge(op){
+  return op.state === "failed" || op.state === "unsure" ? "fail" : op.waiting ? "ring" : "";
 }
-// a not-sent message gives the words back on a tap. an unsure one is the
-// reader's to decide: the first tap arms it and says the message may already
-// have gone, and only a second tap within a few seconds takes the words back;
-// nothing is ever resent for it on its own. picking out its words is a copy
-function sentPress(e){
-  const row = e.target && e.target.closest && e.target.closest(".answmsg[data-op]");
-  if (!row || boxHasSelection(row)) return;
-  const op = ops.find(o => o.id === row.dataset.op);
-  if (!op) return;
-  if (op.state === "failed"){ e.stopPropagation(); takeBack(op); return; }
-  if (op.state !== "unsure") return;
-  e.stopPropagation();
-  if (op.armed){ takeBack(op); return; }
-  op.armed = true;
+// the arrow on a message that is not through. it sends again under the same id,
+// so a message the board already has is answered from its receipt and never
+// lands twice. one the board refused is not sent again, and says nothing
+function resendOp(op){
+  if (op.refused || (op.state !== "unsure" && op.state !== "failed")) return;
+  op.state = "pending"; op.waiting = true; op.tries = 0; op.since = Date.now();
+  saveOps();
   drawOpState(op);
-  setTimeout(() => { if (op.armed){ op.armed = false; drawOpState(op); } }, 5000);
+  runOps(laneOf(op));
+}
+// the cross. one the board refused, or has no record of inside the window where
+// that proves it never landed, gives its words back at once. one whose fate the
+// phone does not know asks the board first: landed, and it becomes Delivered
+// with nothing taken back; not landed, and the words go back; the board out of
+// reach, and nothing happens until it can be asked
+const crossAsking = new Set();
+async function crossOp(op){
+  if (op.state === "failed"){ takeBack(op); return; }
+  if (op.state !== "unsure" || crossAsking.has(op.id)) return;
+  crossAsking.add(op.id);
+  let said;
+  try { said = await askReceipt(op.id); } finally { crossAsking.delete(op.id); }
+  if (!said || !ops.includes(op)) return;
+  if (said.status === "applied") applyOp(op, { ...(said.result || {}), replayed: true });
+  else if (said.status === "unknown" && Date.now() - op.ts < OP_CERTAIN_MS) takeBack(op);
+}
+function sentMarkAct(el, id, act){
+  const op = ops.find(o => o.id === id);
+  if (!op) return;
+  if (act === "retry") resendOp(op);
+  else if (act === "cross") crossOp(op);
 }
 // a new answer held back while the reader was busy is shown by drawing the
 // reading this page already holds, since the board has nothing newer to say
@@ -2340,18 +2343,14 @@ const OPS_KEY = "pendops";
 // operation is words the board has not confirmed; the words of a refused send
 // stay in the typing row and the card says why
 const OPS_MAX = 50;
-const OP_TRY_MS = 10000;                     // one try's deadline
-// how long a send is resent on its own. well under the two days the board
+// how long a send is resent on its own, counted from the press or from the
+// last time the arrow sent it again. well under the two days the board
 // promises to keep a receipt, so every retry still finds its receipt and lands
 // at most once. past this the operation is unsure: nothing more is sent, the
-// words stay on the card, and every reading asks the board for its receipt
+// words stay on the card, and every reading asks the board for its receipt.
+// OP_TRY_MS and OP_CERTAIN_MS, one try's deadline and how long "unknown" proves
+// the words never landed, are shared with the desktop in card-logic.js
 const OP_GIVE_UP_MS = 12 * 3600 * 1000;
-// how long after minting the board's answer "unknown" still proves the words
-// never landed. a receipt is kept at least two days from the moment the board
-// committed it, which is never before the minting, so inside this window no
-// receipt means no commit. past it, unknown proves nothing, and the operation
-// stays unsure until the owner decides
-const OP_CERTAIN_MS = 36 * 3600 * 1000;
 const OP_ASK_MAX = 32;                       // receipts one reading may ask after, the board's own cap
 const RETRY_MIN_MS = 1500, RETRY_MAX_MS = 30000;
 // pending: being sent and resent. unsure: no more sends, the outcome unknown,
@@ -2371,7 +2370,7 @@ function loadOps(){
       (o.kind === "send" || o.kind === "create") && OP_STATES.has(o.state)).slice(-OPS_MAX) : [];
   } catch (e) { ops = []; }
   for (const op of ops){
-    op.fresh = false; op.armed = false; op.advance = false;   // a reload never steals the card after an old receipt arrives
+    op.fresh = false; op.advance = false;   // a reload never steals the card after an old receipt arrives
     // only the board can call a send not sent. a record marked failed for any
     // other reason, a horizon or a full store under an earlier page, is a send
     // whose outcome is unknown, and an absent receipt does not prove it never
@@ -2380,11 +2379,7 @@ function loadOps(){
   }
 }
 function saveOps(){
-  try { localStorage.setItem(OPS_KEY, JSON.stringify(ops.map(({ fresh, armed, advance, ...op }) => op))); } catch (e) {}
-}
-function newOpId(){
-  if (crypto.randomUUID) return crypto.randomUUID();
-  return [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, "0")).join("");
+  try { localStorage.setItem(OPS_KEY, JSON.stringify(ops.map(({ fresh, advance, ...op }) => op))); } catch (e) {}
 }
 // null when the store is full: the caller keeps the words where they are and
 // says so. nothing kept is ever dropped to make room, because every kept
@@ -2434,7 +2429,7 @@ function runOps(lane){
       for (;;){
         const op = ops.find(o => o.state === "pending" && laneOf(o) === lane);
         if (!op) return;
-        if (Date.now() - op.ts > OP_GIVE_UP_MS){ markUnsure(op, "no answer from the board for half a day"); continue; }
+        if (Date.now() - (op.since || op.ts) > OP_GIVE_UP_MS){ markUnsure(op, "no answer from the board for half a day"); continue; }
         if (await tryOp(op) === "retry"){
           op.waiting = true;
           drawOpState(op);
@@ -2449,7 +2444,7 @@ function runOps(lane){
 // the words landed, and the same id asked again is safe either way
 async function tryOp(op){
   if (op.state !== "pending") return "done";
-  op.tries++; op.waiting = false;
+  op.tries++;
   drawOpState(op);
   const url = op.kind === "send"
     ? "/send?box=" + encodeURIComponent(op.box) + "&op=" + encodeURIComponent(op.id)
@@ -2481,6 +2476,7 @@ async function tryOp(op){
     let why = "";
     try { why = (await r.json()).error || ""; } catch (e) {}
     endPhoneTrace(trace, { op: op.id, status: r.status }, r);
+    op.refused = true;
     failOp(op, why || ("refused " + r.status), "board");
     return "done";
   }

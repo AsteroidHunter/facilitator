@@ -189,12 +189,26 @@ function all(node) {
   for (const child of node.children) out.push(child, ...all(child));
   return out;
 }
-// a selector list of plain tags, plain classes, or a tag with a class
+// a selector list of plain tags, plain classes, a tag with a class, a data
+// attribute that is present, and a node under another
+function matchesOne(node, part) {
+  const attrs = [...part.matchAll(/\[data-([\w-]+)\]/g)].map(m => m[1].replace(/-(\w)/g, (_, c) => c.toUpperCase()));
+  const [tag, ...cls] = part.replace(/\[[^\]]*\]/g, "").split(".");
+  if (tag && node.tagName !== tag.toUpperCase()) return false;
+  if (!cls.every(name => node.classList.contains(name))) return false;
+  return attrs.every(name => node.dataset && node.dataset[name] !== undefined);
+}
 function matches(node, selector) {
   return selector.split(",").map(part => part.trim()).some(part => {
-    const [tag, ...cls] = part.split(".");
-    if (tag && node.tagName !== tag.toUpperCase()) return false;
-    return cls.every(name => node.classList.contains(name));
+    const chain = part.split(/\s+/);
+    if (!matchesOne(node, chain.pop())) return false;
+    let at = node.parentNode;
+    for (let i = chain.length - 1; i >= 0; i--) {
+      while (at && !matchesOne(at, chain[i])) at = at.parentNode;
+      if (!at) return false;
+      at = at.parentNode;
+    }
+    return true;
   });
 }
 // the tags of an html string, nested as written, and the text between them as
@@ -252,7 +266,7 @@ function sandbox() {
   const frames = new Map();
   let seq = 0;
   const context = vm.createContext({
-    Date, Promise, console,
+    Date, Promise, console, AbortSignal, crypto: require("node:crypto").webcrypto,
     // a range reports the line boxes the test laid its text node out on, and a
     // query for the card's own motion finds whatever the test says is moving
     document: {
@@ -1110,27 +1124,35 @@ test("the band over the answer holds still while the sent panel runs", () => {
   assert.equal(context.sentBand(fullCard("c2"), 77), 77);
 });
 
-test("a message the phone has not had confirmed carries its state and a line, and keeps its block as it lands", () => {
+test("a message the phone has not had confirmed carries its state and its badge, and keeps its block as it lands", () => {
   const { context } = sandbox();
   const el = fullCard("c1");
   const confirmed = { text: "Invented confirmed message." };
   const onWay = { text: "Invented message on its way.", op: "op-1" };
-  context.syncSent(el, [confirmed, { ...onWay, state: "pending", note: "Sending" }], true);
+  context.syncSent(el, [confirmed, { ...onWay, state: "pending", badge: "ring" }], true);
   const row = el.sent.querySelector(".answstack").children[1];
   assert.equal(row.classList.contains("pending"), true, "the unconfirmed message is not dressed as one");
   assert.equal(row.dataset.op, "op-1", "the message does not name its operation");
-  assert.equal(row.querySelector(".answnote").textContent, "Sending");
-  // the board refuses it: the same block says so
-  context.syncSent(el, [confirmed, { ...onWay, state: "failed", note: "Not sent, tap to take the words back" }]);
+  assert.equal(row.dataset.badge, "ring");
+  assert.ok(row.querySelector(".answmark").querySelector(".tsqring"), "the send still being tried wears no ring");
+  assert.equal(textsOf(row.querySelector(".answmark")).length, 0, "the ring has words on it");
+  // the board refuses it: the same block wears the red mark and the cross
+  context.syncSent(el, [confirmed, { ...onWay, state: "failed", badge: "fail" }]);
   const same = el.sent.querySelector(".answstack").children[1];
   assert.equal(same, row, "a new state drew the message again");
   assert.equal(row.classList.contains("failed"), true);
   assert.equal(row.classList.contains("pending"), false);
-  assert.equal(row.querySelector(".answnote").textContent, "Not sent, tap to take the words back");
-  // confirmed after all: the block stays, and its line and dress go
+  assert.equal(row.dataset.badge, "fail");
+  const mark = row.querySelector(".answmark");
+  assert.deepEqual(mark.children.map(node => node.dataset.act), ["cross", "retry"], "the mark is not the arrow with a cross");
+  assert.equal(mark.querySelector(".tsqring"), null, "the ring stayed under the mark");
+  assert.equal(row.querySelectorAll(".answmark").length, 1, "a new badge stood beside the old one");
+  assert.equal(textsOf(mark).length, 0, "the mark has words on it");
+  // confirmed after all: the block stays, and its badge and dress go
   context.syncSent(el, [confirmed, { text: onWay.text }]);
   assert.equal(el.sent.querySelector(".answstack").children[1], row, "landing drew the message again");
-  assert.equal(row.querySelector(".answnote"), null, "a confirmed message kept its line");
+  assert.equal(row.querySelector(".answmark"), null, "a confirmed message kept its badge");
+  assert.equal(row.dataset.badge, undefined);
   assert.equal(row.classList.contains("failed"), false);
   assert.equal(row.dataset.op, undefined);
 });
@@ -1438,15 +1460,15 @@ test("both pages seat the sent panel at the foot and hand the turn a pass that d
   }
   // the sends: both pages draw the message faded as an arrival when it is sent,
   // and the desktop saves it as sent once the board has answered
-  assert.match(DESKTOP, /const sentItem = sentLaunch\(el, text\);\s*try \{/);
+  assert.match(DESKTOP, /const sentItem = sentLaunch\(el, text, "\/send\?box=" \+ encodeURIComponent\(id\)\);/);
   assert.match(DESKTOP, /sentLanded\(el, sentItem\);/);
-  assert.match(DESKTOP, /sentLost\(el, sentItem\);/);
-  assert.match(DESKTOP, /const sentItem = own \? sentLaunch\(own, text\) : null;/);
-  assert.match(DESKTOP, /if \(own\) sentLanded\(own, sentItem\);/);
+  assert.match(DESKTOP, /sentFailed\(el, sentItem, result === "refused"\);/);
+  assert.match(DESKTOP, /const sentItem = sentLaunch\(own, text, /);
+  assert.match(DESKTOP, /sentLanded\(own, sentItem\);/);
   assert.match(LOGIC, /el\.sentItems = \[\.\.\.el\.sentItems, item\];[\s\S]{0,200}syncSent\(el, el\.sentItems, true\);/);
   assert.match(PHONE, /drawSent\(el, id, true\);/);
-  assert.match(PHONE, /panel\.addEventListener\("click", e => sentPress\(e\), true\);/,
-    "the phone's tap to take words back is not heard before the panel's own");
+  assert.match(LOGIC, /panel\.addEventListener\("click", e => sentBadgePress\(el, e\)\);/,
+    "the press on a badge is not heard on the shared panel");
 });
 
 test("the turn keeps to the composer the reader is in, and to a board that is covered", () => {
@@ -1511,7 +1533,7 @@ test("the sent panel reads the board's own record: faded until the board has it,
   assert.equal(panel.classList.contains("undelivered"), true, "a message the board has not saved is not faded");
   assert.deepEqual(stagesOf(panel), [true]);
   assert.equal(panel.dataset.tag, undefined, "a message the board has not saved carries a mark");
-  assert.equal(panel.querySelector(".answnote"), null, "a message still on its way carries a word");
+  assert.equal(panel.querySelector(".answmark"), null, "a message still on its way carries a mark");
   assert.equal(panel.getAttribute("aria-label"), "your messages waiting for a reply");
   // the board saved it: full ink, and Delivered under the panel. a message sent
   // after it waits faded on its own, and the panel's grey is back
@@ -1536,16 +1558,17 @@ test("the sent panel reads the board's own record: faded until the board has it,
   assert.equal(panel.dataset.tag, "Read");
   context.syncSent(el, [{ text: "Invented one.", stage: "read" }, { text: "Invented two.", stage: "read" }]);
   assert.equal(panel.dataset.tag, "Read");
-  // the phone's own message, not yet on the board: faded, with no word of its
-  // own while it is on its way, and with its line only when it is not getting through
+  // the phone's own message, not yet on the board: faded, with nothing in its
+  // row while it is on its way, and with the ring only when it is being tried again
   const phone = fullCard("c2");
-  context.syncSent(phone, [{ text: "Invented from the phone.", stage: "local", state: "pending", note: "", op: "op-1" }], true);
+  context.syncSent(phone, [{ text: "Invented from the phone.", stage: "local", state: "pending", op: "op-1" }], true);
   assert.equal(phone.sent.classList.contains("undelivered"), true);
   const row = phone.sent.querySelector(".answmsg");
   assert.equal(row.classList.contains("pending"), true);
-  assert.equal(row.querySelector(".answnote"), null, "a send on its way carries a word");
-  context.syncSent(phone, [{ text: "Invented from the phone.", stage: "local", state: "pending", note: "Not sent yet, retrying", op: "op-1" }]);
-  assert.equal(phone.sent.querySelector(".answnote").textContent, "Not sent yet, retrying", "the phone's own line was lost");
+  assert.equal(row.querySelector(".answmark"), null, "a send on its way wears a badge");
+  context.syncSent(phone, [{ text: "Invented from the phone.", stage: "local", state: "pending", badge: "ring", op: "op-1" }]);
+  assert.ok(phone.sent.querySelector(".tsqring"), "a send being tried again wears no ring");
+  assert.equal(textsOf(phone.sent.querySelector(".answmark")).length, 0, "the ring has words on it");
   assert.equal(phone.sent.classList.contains("undelivered"), true);
   // a board too old to say leaves the panel as it always was
   const old = fullCard("c3");
@@ -1755,11 +1778,11 @@ test("the panel's list is the board's reading: a note's messages first, read, th
   assert.match(DESKTOP, /el\.sentItems = sentFrom\(b\);\s*syncSent\(el, el\.sentItems\);/);
   assert.match(PHONE, /el\.sentItems = sentFrom\(b\);\s*drawSent\(el, b\.id\);/);
   assert.match(PHONE, /el\.sentItems = \[\.\.\.el\.sentItems, \{ text: op\.text, stage: "sent" \}\];/);
-  assert.match(PHONE, /batch\.push\(\{ text: op\.text, op: op\.id, state: op\.state, note: opNote\(op\), stage: "local" \}\);/,
+  assert.match(PHONE, /batch\.push\(\{ text: op\.text, op: op\.id, state: op\.state, badge: opBadge\(op\), stage: "local" \}\);/,
     "the phone's own messages are not marked as not yet on the board");
   // and the sheet draws the stages: faded words and grey, the one quiet mark in its room
   assert.match(rule(TOKENS, ".answered.undelivered"), /--answ-fill:color-mix\(in srgb, var\(--bubble-fill\) 50%, var\(--card, #fff\)\)/);
-  assert.match(rule(TOKENS, ".answmsg.undelivered > :not(.answnote)"), /opacity:\.5/);
+  assert.match(rule(TOKENS, ".answmsg.undelivered > :not(.answmark)"), /opacity:\.5/);
   assert.match(rule(TOKENS, ".answmsg > *"), /transition:opacity var\(--answ-move\) var\(--gentle\)/);
   assert.match(rule(TOKENS, ".answered[data-mark]"), /margin-bottom:var\(--answ-tag\)/);
   const mark = rule(TOKENS, ".answered[data-mark]::after");
@@ -1786,25 +1809,223 @@ test("a send is faded from the press, Delivered once the board answers, and take
   context.sentLanded(el, second);
   assert.ok(Number.isFinite(el.sendGuard), "the guard did not come down once every send had settled");
   assert.equal(el.sent.classList.contains("undelivered"), false);
-  // landing again, or losing one that landed, changes nothing
+  // landing again, or failing one that landed, changes nothing
   context.sentLanded(el, second);
-  context.sentLost(el, second);
+  context.sentFailed(el, second, false);
   assert.deepEqual([...el.sentItems.map(m => m.stage)], ["sent", "sent"]);
   assert.equal(el.sendsOut, 0);
-  // a send the board did not take goes from the panel
+  assert.equal((el.sentHeld || []).length, 0);
+  // a send the board did not take stays in the panel, held out of the board's readings
   const lost = context.sentLaunch(el, "Invented three.");
   assert.equal(el.sent.querySelectorAll(".answmsg").length, 3);
-  context.sentLost(el, lost);
-  assert.equal(lost.stage, "lost");
+  context.sentFailed(el, lost, false);
+  assert.equal(lost.stage, "local", "a send the board did not take was called sent");
   assert.deepEqual([...el.sentItems.map(m => m.text)], ["Invented one.", "Invented two."]);
-  assert.equal(el.sent.querySelectorAll(".answmsg").length, 2, "a send the board did not take stayed in the panel");
+  assert.deepEqual([...el.sentHeld.map(m => m.text)], ["Invented three."]);
+  assert.equal(el.sent.querySelectorAll(".answmsg").length, 3, "a send the board did not take left the panel");
   assert.equal(el.sendsOut, 0);
   assert.ok(Number.isFinite(el.sendGuard));
-  // the only message lost: the panel goes with it
+  // the board's reading replaces its own list and the held send is still drawn
+  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }]);
+  assert.deepEqual(el.sent.querySelectorAll(".answmsg").map(row => row.dataset.text), ["Invented one.", "Invented three."],
+    "the board's reading took the held send away");
+  // the only message failed: the panel stays, holding it
   const alone = fullCard("c2");
   const only = context.sentLaunch(alone, "Invented only.");
-  context.sentLost(alone, only);
-  assert.equal(alone.sent, null, "a panel with nothing left in it stayed");
+  context.sentFailed(alone, only, false);
+  assert.ok(alone.sent, "a panel holding the one failed message went");
+  assert.equal(alone.sent.classList.contains("undelivered"), true);
+});
+
+// the badge of a failed send, and what each press on it does. fetch is the
+// test's own, so each answer the board could give is the test's to choose
+function held(context, text, route = "/send?box=c1") {
+  const el = fullCard("c1");
+  Object.assign(el, { tick() {} });
+  el.ta.value = "";
+  const item = context.sentLaunch(el, text, route);
+  context.sentFailed(el, item, false);
+  return { el, item };
+}
+const reply = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
+
+test("a failed send wears the red round mark with its cross, and no words", () => {
+  const { context } = sandbox();
+  const { el, item } = held(context, "Invented failed.");
+  const mark = el.sent.querySelector(".answmark");
+  assert.ok(mark, "a failed send wears no mark");
+  assert.equal(mark.dataset.kind, "fail");
+  assert.equal(textsOf(mark).length, 0, "the mark carries words");
+  assert.ok(mark.querySelector(".answretry"), "no circular arrow");
+  assert.ok(mark.querySelector(".answcross"), "no cross");
+  assert.match(mark.querySelector(".answretry").innerHTML, /<polyline/);
+  assert.equal(el.sent.querySelector(".answmsg").dataset.op, item.op);
+  assert.equal(el.sent.querySelector(".answnote"), null);
+  // the same message tried again by the phone itself shows the ring and no buttons
+  item.badge = "ring";
+  context.syncSent(el, el.sentItems);
+  assert.ok(el.sent.querySelector(".tsqring"));
+  assert.equal(el.sent.querySelector(".answretry"), null);
+  assert.equal(el.sent.querySelector(".answcross"), null);
+});
+
+test("the arrow sends the held message again under its own id, and lands it once", async () => {
+  const { context } = sandbox();
+  const { el, item } = held(context, "Invented retry.");
+  const id = item.op;
+  const seen = [];
+  context.fetch = async (url, init) => { seen.push([url, init.method, init.body]); return reply(200, { ok: true }); };
+  let landed = 0;
+  item.landed = () => { landed++; };
+  await context.sentRetry(el, item);
+  assert.deepEqual(seen, [["/send?box=c1&op=" + encodeURIComponent(id), "POST", "Invented retry."]], "the retry did not reuse the id");
+  assert.equal(item.stage, "sent");
+  assert.equal(landed, 1);
+  assert.equal((el.sentHeld || []).length, 0);
+  assert.equal(el.sent.dataset.tag, "Delivered");
+  assert.equal(el.sent.querySelector(".answmark"), null, "a landed message kept its mark");
+  // pressing it again does nothing: it is no longer held
+  await context.sentRetry(el, item);
+  assert.equal(seen.length, 1);
+  // a retry that does not get through puts the mark back
+  const second = context.sentLaunch(el, "Invented again.", "/send?box=c1");
+  context.sentFailed(el, second, false);
+  context.fetch = async () => { throw new Error("offline"); };
+  await context.sentRetry(el, second);
+  assert.equal(second.badge, "fail");
+  assert.equal(el.sentHeld.length, 1);
+  assert.equal(el.sendsOut, 0);
+});
+
+test("the arrow on a refused message does nothing and shows no reason", async () => {
+  const { context } = sandbox();
+  const el = fullCard("c1");
+  const item = context.sentLaunch(el, "Invented refused.", "/send?box=c1");
+  context.sentFailed(el, item, true);
+  let asked = 0;
+  context.fetch = async () => { asked++; return reply(200, {}); };
+  await context.sentRetry(el, item);
+  assert.equal(asked, 0, "the arrow sent a refused message again");
+  assert.equal(item.badge, "fail");
+  assert.equal(el.sentHeld.length, 1);
+  assert.ok(el.sent.querySelector(".answmark"));
+  assert.equal(textsOf(el.sent.querySelector(".answmark")).length, 0);
+});
+
+test("a try is told landed, refused or failed by what the board answers", async () => {
+  const { context } = sandbox();
+  const item = { text: "Invented.", op: "op-x", route: "/send?box=c1" };
+  const tries = [];
+  context.fetch = async (url, init) => { tries.push(init.signal && typeof init.signal.aborted); return reply(context.said); };
+  for (const [status, want] of [[200, "landed"], [400, "refused"], [409, "refused"], [413, "refused"], [500, "failed"], [502, "failed"], [401, "failed"]]) {
+    context.said = status;
+    assert.equal(await context.sentTry(item), want, `${status}`);
+  }
+  assert.ok(tries.every(t => t === "boolean"), "a try has no time limit");
+  context.fetch = async () => { throw new Error("offline"); };
+  assert.equal(await context.sentTry(item), "failed");
+});
+
+test("the cross asks the board first: landed makes the row Delivered, not landed gives the words back", async () => {
+  const { context } = sandbox();
+  // the board has it
+  let h = held(context, "Invented landed.");
+  h.el.ta.value = "Invented draft.";
+  let asked = [];
+  context.fetch = async url => { asked.push(url); return reply(200, { status: "applied", kind: "send", box: "c1", result: {} }); };
+  let landed = 0;
+  h.item.landed = () => { landed++; };
+  await context.sentCross(h.el, h.item);
+  assert.deepEqual(asked, ["/op?id=" + encodeURIComponent(h.item.op)]);
+  assert.equal(h.el.ta.value, "Invented draft.", "words were taken back for a message that landed");
+  assert.equal(h.item.stage, "sent");
+  assert.equal(h.el.sent.dataset.tag, "Delivered");
+  assert.equal(h.el.sent.querySelector(".answmark"), null);
+  assert.equal(landed, 1);
+  // the board does not have it
+  h = held(context, "Invented not landed.");
+  h.el.ta.value = "Invented draft.";
+  context.fetch = async () => reply(200, { status: "unknown" });
+  await context.sentCross(h.el, h.item);
+  assert.equal(h.el.ta.value, "Invented draft.\n\nInvented not landed.", "the words did not go back after the draft");
+  assert.equal(h.el.sent, null, "the message stayed in the panel");
+  // with nothing in the bar the words go in alone
+  h = held(context, "Invented alone.");
+  context.fetch = async () => reply(200, { status: "unknown" });
+  await context.sentCross(h.el, h.item);
+  assert.equal(h.el.ta.value, "Invented alone.");
+});
+
+test("the cross does nothing while the board cannot be asked, and a refused message gives its words back at once", async () => {
+  const { context } = sandbox();
+  let h = held(context, "Invented unreachable.");
+  context.fetch = async () => { throw new Error("offline"); };
+  await context.sentCross(h.el, h.item);
+  assert.equal(h.el.ta.value, "");
+  assert.equal(h.el.sentHeld.length, 1, "the message was taken back with no answer from the board");
+  assert.ok(h.el.sent.querySelector(".answmark"));
+  context.fetch = async () => reply(503, {});
+  await context.sentCross(h.el, h.item);
+  assert.equal(h.el.sentHeld.length, 1);
+  assert.equal(h.el.ta.value, "");
+  // past the receipt's certain window "unknown" proves nothing
+  h.item.ts = Date.now() - 37 * 3600 * 1000;
+  context.fetch = async () => reply(200, { status: "unknown" });
+  await context.sentCross(h.el, h.item);
+  assert.equal(h.el.sentHeld.length, 1);
+  assert.equal(h.el.ta.value, "");
+  // once it can be asked, it is
+  h.item.ts = Date.now();
+  await context.sentCross(h.el, h.item);
+  assert.equal(h.el.ta.value, "Invented unreachable.");
+  // a refused message is known not to have landed: no question is asked
+  const el = fullCard("c2");
+  Object.assign(el, { tick() {} });
+  el.ta.value = "";
+  const refused = context.sentLaunch(el, "Invented refused.", "/send?box=c2");
+  context.sentFailed(el, refused, true);
+  let asked = 0;
+  context.fetch = async () => { asked++; return reply(200, {}); };
+  await context.sentCross(el, refused);
+  assert.equal(asked, 0);
+  assert.equal(el.ta.value, "Invented refused.");
+  assert.equal(el.sent, null);
+});
+
+test("a reading the board answers asks once about each held message, and a landed one becomes Delivered", async () => {
+  const { context } = sandbox();
+  const h = held(context, "Invented late.");
+  let asked = 0;
+  context.fetch = async () => { asked++; return reply(200, { status: "unknown" }); };
+  await context.sentAskHeld(h.el);
+  await context.sentAskHeld(h.el);
+  assert.equal(asked, 1, "the board was asked again for a message it had already said unknown for");
+  assert.equal(h.el.sentHeld.length, 1);
+  const g = held(context, "Invented landed late.");
+  context.fetch = async () => reply(200, { status: "applied", kind: "send", box: "c1", result: {} });
+  await context.sentAskHeld(g.el);
+  assert.equal(g.item.stage, "sent");
+  assert.equal(g.el.sentHeld.length, 0);
+  assert.equal(g.el.sent.dataset.tag, "Delivered");
+  // a board that could not be reached is asked again at the next reading
+  const k = held(context, "Invented waiting.");
+  context.fetch = async () => { throw new Error("offline"); };
+  await context.sentAskHeld(k.el);
+  assert.equal(k.item.checked, false);
+});
+
+test("a press on the mark's buttons goes to the page, and no press on its row opens the panel", () => {
+  const { context } = sandbox();
+  const { el, item } = held(context, "Invented pressed.");
+  const calls = [];
+  context.sentMarkAct = (card, op, act) => { calls.push([op, act]); };
+  const cross = el.sent.querySelector(".answcross");
+  const retry = el.sent.querySelector(".answretry");
+  let stopped = 0;
+  context.sentBadgePress(el, { target: retry, stopPropagation() { stopped++; } });
+  context.sentBadgePress(el, { target: cross, stopPropagation() { stopped++; } });
+  assert.deepEqual(calls, [[item.op, "retry"], [item.op, "cross"]]);
+  assert.equal(stopped, 2);
 });
 
 test("the small card turns the same way, its three pieces pictured and carried up in one glide", () => {

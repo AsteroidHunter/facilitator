@@ -1292,7 +1292,10 @@ test("phone double Enter waits for delivery, rejects held repeats, and cancels o
     await page.evaluate(() => window.__sendReplies.shift()(400));
     await page.waitForFunction(id => localSends(id).some(op => op.state === "failed"), { timeout: 3000 }, from);
     assert.equal(await shownId(page), from, "a refused send moved away from its failure");
-    assert.match(await page.evaluate(id => els[id].sent.textContent, from), /not sent/i);
+    assert.deepEqual(await page.evaluate(id => {
+      const row = els[id].sent.querySelector(".answmsg[data-op]");
+      return [!!row.querySelector(".answmark .answretry"), row.innerText.trim()];
+    }, from), [true, "refused double Enter"], "a refused send did not stay in the row with its mark and no words");
     assert.deepEqual(problems.filter(problem => !/status of 400 \(Bad Request\)/.test(problem)), []);
   } finally {
     await page.close();
@@ -1443,11 +1446,18 @@ test("desktop double Enter waits for delivery and failed sends restore their tex
       field.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await page.evaluate(() => window.__sendReplies.shift()(500));
-    await page.waitForFunction(id => els[id].metaNote.textContent.includes("send failed"), { timeout: 3000 }, from);
+    await page.waitForFunction(id => (els[id].sentHeld || []).length === 1, { timeout: 3000 }, from);
     assert.equal(await shownId(page), from);
-    assert.equal(await page.$eval(SEL, field => field.value),
-      "newer draft\n\ndesktop failure remains visible",
-      "restoring a failed send changed or replaced text typed while it was pending");
+    assert.equal(await page.$eval(SEL, field => field.value), "newer draft\n",
+      "a failed send changed or replaced text typed while it was pending");
+    assert.equal(await page.evaluate(id => els[id].metaNote.textContent, from), "", "a failed send left a sentence");
+    assert.equal(await page.evaluate(() => !!document.querySelector("article.box.sel .answmark .answretry")), true,
+      "a failed send did not stay in the sent messages with its mark");
+    // the cross asks the board, which has no record of it, and the words go back after the draft
+    await page.evaluate(() => document.querySelector("article.box.sel .answmark .answcross").click());
+    await page.waitForFunction(() => document.querySelector("article.box.sel textarea").value ===
+      "newer draft\n\ndesktop failure remains visible", { timeout: 3000 });
+    assert.equal(await page.evaluate(id => (els[id].sentHeld || []).length, from), 0);
 
     await page.$eval(SEL, field => {
       field.value = "the first send arrow stays";
@@ -1471,9 +1481,9 @@ test("desktop double Enter waits for delivery and failed sends restore their tex
     await page.evaluate(() => document.querySelector("article.box.sel .sendbtn").click());
     await page.waitForFunction(() => window.__sendReplies.length === 1);
     await page.evaluate(() => window.__sendReplies.shift()(500));
-    await page.waitForFunction(id => els[id].metaNote.textContent.includes("send failed"), { timeout: 3000 }, from);
+    await page.waitForFunction(id => (els[id].sentHeld || []).length === 1, { timeout: 3000 }, from);
     assert.equal(await shownId(page), from);
-    assert.equal(await page.$eval(SEL, field => field.value), "failed arrow message");
+    assert.equal(await page.$eval(SEL, field => field.value), "", "a failed arrow send refilled the row instead of staying in the sent messages");
     assert.equal(await page.evaluate(() => !!arrowAgainFor(selectedId)), false);
     await page.$eval(SEL, field => {
       field.value = "arrow expires on this card";

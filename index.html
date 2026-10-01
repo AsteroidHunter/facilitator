@@ -5791,7 +5791,7 @@ function composerArrow(id){
   const el = els[id];
   if (!el?.ta.value.trim()) return;
   const intent = armEnterAgain(id, "arrow");
-  doSend(id, { advance: false, clearNow: true, enterIntent: intent });
+  doSend(id, { advance: false, enterIntent: intent });
 }
 function composerEnter(e, id){
   if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
@@ -5809,7 +5809,7 @@ function composerEnter(e, id){
     return;
   }
   const intent = armEnterAgain(id);
-  doSend(id, { advance: false, clearNow: true, enterIntent: intent });
+  doSend(id, { advance: false, enterIntent: intent });
   if (now) askEnterAdvance(id);
 }
 
@@ -5829,10 +5829,10 @@ async function doSend(id, opts){
   const text = el.ta.value.trim();
   if (!text) return;
   const reopen = boxDone(id);   // before the send; the poll below clears the flag
-  if (opts.clearNow){
-    el.ta.value = "";
-    el.tick();
-  }
+  // the words leave the row at the press and stand in the sent panel; one that
+  // does not get through stays there under its mark, and the cross gives them back
+  el.ta.value = "";
+  el.tick();
   // The empty arrow remains tappable while its first delivery is in flight.
   const send = el.send;
   send.disabled = !opts.enterIntent || opts.enterIntent.source !== "arrow";
@@ -5840,44 +5840,46 @@ async function doSend(id, opts){
   // preview: the first send brings the panel in, and every send after it comes
   // into the panel already standing, cutting it back if it stood open. it is
   // faded until the board has saved it, which is what would be lost if the
-  // page closed now
-  const sentItem = sentLaunch(el, text);
-  try {
-    const r = await fetch("/send?box=" + encodeURIComponent(id), { method: "POST", body: text });
-    if (!r.ok) throw new Error(r.status);
-    if (!opts.clearNow){
-      el.ta.value = "";   // the send button clears only after the server has it
-      el.tick();           // the square goes with the words, and the row falls back to one line
-    }
-    // the board has it: Delivered, at full ink, until the board says more. the
-    // list is marked as the one on screen, so the reading behind this brings
-    // nothing it does not already hold, and a reading asked for before the
-    // board had it may not take it away again
-    sentLanded(el, sentItem);
+  // page closed now. it goes under an operation id of its own, so the arrow on
+  // a failed one sends it again without it ever landing twice
+  const sentItem = sentLaunch(el, text, "/send?box=" + encodeURIComponent(id));
+  sentItem.landed = () => {
     if (hist && hist.id === id) histExit(id);   // a send lands you back on the live reply
     if (reopen) undone(id);   // the message is in; the flip rides behind it
     poll();
-    if (opts.enterIntent){
-      opts.enterIntent.delivered = true;
-      if (opts.enterIntent.active && opts.enterIntent.advance)
-        scheduleDesktopAdvance(id, opts.enterIntent);
-    } else if (opts.advance !== false){
-      cancelAutoNext();
-      scheduleDesktopAdvance(id);
+  };
+  try {
+    const result = await sentTry(sentItem);
+    if (result === "landed"){
+      // the board has it: Delivered, at full ink, until the board says more. the
+      // list is marked as the one on screen, so the reading behind this brings
+      // nothing it does not already hold, and a reading asked for before the
+      // board had it may not take it away again
+      sentLanded(el, sentItem);
+      sentItem.landed();
+      if (opts.enterIntent){
+        opts.enterIntent.delivered = true;
+        if (opts.enterIntent.active && opts.enterIntent.advance)
+          scheduleDesktopAdvance(id, opts.enterIntent);
+      } else if (opts.advance !== false){
+        cancelAutoNext();
+        scheduleDesktopAdvance(id);
+      }
+    } else {
+      sentFailed(el, sentItem, result === "refused");
+      if (opts.enterIntent) clearEnterAgain(opts.enterIntent);
     }
-  } catch (err) {
-    sentLost(el, sentItem);
-    if (opts.enterIntent) clearEnterAgain(opts.enterIntent);
-    if (opts.clearNow){
-      const newerDraft = el.ta.value;
-      el.ta.value = newerDraft
-        ? newerDraft + (newerDraft.endsWith("\n") ? "\n" : "\n\n") + text : text;
-      el.tick();
-    }
-    el.metaNote.textContent = "send failed, text kept — try again";
   } finally {
     el.send.disabled = false;
   }
+}
+// the arrow and the cross on a message of this page that did not get through,
+// on the large card and on the small one alike (sentRetry, sentCross)
+function sentMarkAct(el, id, act){
+  const item = (el.sentHeld || []).find(m => m.op === id);
+  if (!item) return;
+  if (act === "retry") sentRetry(el, item);
+  else if (act === "cross") sentCross(el, item);
 }
 
 // ---- older replies --------------------------------------------------------
@@ -6064,12 +6066,10 @@ function apply(state){
     const ws = b.writing ? '<span class="w2">' + laneName(b.owner) + ' is writing</span>'
              : (b.queuePos ? "sent ✓ " + ord(b.queuePos) + " in line" : "");
     if (el.wstat.innerHTML !== ws) el.wstat.innerHTML = ws;  // rewriting every poll restarts the dots and re-wraps the title row
-    // the queue chatter (sent, nth in line, messages since) is gone on the
-    // owner's order; the element still carries transient send-failure notes
-    // a click on the moon the board refused or never answered leaves its own
-    // note; it says what the card is NOT, so a poll may not take it away
-    if (el.metaNote.textContent && el.metaNote.textContent.indexOf("send failed") !== 0 &&
-        el.metaNote.dataset.flagnote !== "1") el.metaNote.textContent = "";
+    // the queue chatter (sent, nth in line, messages since) is gone. a click on
+    // the moon the board refused or never answered leaves its own note; it says
+    // what the card is NOT, so a poll may not take it away
+    if (el.metaNote.textContent && el.metaNote.dataset.flagnote !== "1") el.metaNote.textContent = "";
     if (el.toc){
       // quirk kept: pending queues the entry even when the ball sits with you;
       // otherwise yours (or a new card whose ball is with you) paints t-you,
@@ -9009,21 +9009,23 @@ function renderMiniCards(state){
         if (!text) return null;
         send.disabled = true;
         // the message comes into the sent panel at the press, cut to its preview
-        // and faded until the board has saved it, the way it does on the large card
+        // and faded until the board has saved it, the way it does on the large
+        // card, and the words leave the row with it: one that does not get
+        // through stays in the panel under its mark, and the cross gives them back
         const own = miniEls[b.id];
-        const sentItem = own ? sentLaunch(own, text) : null;
+        // via=mini says this was typed in the small card. The big card sends
+        // no marker at all, so the agent can tell the two apart and the
+        // server can hold a small card answer to a small card's worth of room
+        const sentItem = sentLaunch(own, text, "/send?box=" + encodeURIComponent(b.id) + "&via=mini");
+        ta.value = ""; own.tick();
         try {
-          // via=mini says this was typed in the small card. The big card sends
-          // no marker at all, so the agent can tell the two apart and the
-          // server can hold a small card answer to a small card's worth of room
-          const r = await fetch("/send?box=" + encodeURIComponent(b.id) + "&via=mini", { method: "POST", body: text });
-          if (r.ok){
-            ta.value = ""; ta.style.height = "auto";
-            if (own) sentLanded(own, sentItem);
+          const result = await sentTry(sentItem);
+          if (result === "landed"){
+            sentLanded(own, sentItem);
             poll();
             return true;
-          } else if (own) sentLost(own, sentItem);
-        } catch (e) { if (own) sentLost(own, sentItem); } finally { send.disabled = false; }
+          } else sentFailed(own, sentItem, result === "refused");
+        } finally { send.disabled = false; }
         return false;
       };
       send.addEventListener("click", fire);
@@ -9053,7 +9055,8 @@ function renderMiniCards(state){
       box.append(sun, arc, x, title, answwrap, reply, sentwrap, compose);
       el = miniEls[b.id] = { box, title, reply, ta, sun, arc, x,
                              answwrap, answ: null, answId: null,
-                             sentwrap, sent: null, sentKey: "", sentItems: [] };
+                             sentwrap, sent: null, sentKey: "", sentItems: [],
+                             tick: () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; } };
       // and the reader's own scrolling of its answer, which holds a turn back too
       watchReading(el);
       list.appendChild(box);
@@ -9331,6 +9334,9 @@ async function poll(){
     return;
   }
   pollFails = 0;
+  // the board has answered: it is asked once about each message held on a card
+  // that did not get through, so one that landed after all is not left as failed
+  for (const el of [...Object.values(els), ...Object.values(miniEls)]) if (el.sentHeld && el.sentHeld.length) sentAskHeld(el);
   if (seq <= createSeq) return;   // asked before the last new card's answer came in (newCard)
   noteDoing("render");
   try {
