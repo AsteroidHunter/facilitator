@@ -186,9 +186,8 @@ const SURFACES = {
     viewport: { width: 1512, height: 982, deviceScaleFactor: 1 },
     shown: ".box.sel",
     closeFn: "boardCloseCard",
-    // a click on a chip selects the card before the chip acts, so a card browsed
-    // to lands selected after a chip; a key leaves the mode as it was
-    landsAfter: (how, mode) => (how === "key" ? mode : "selected"),
+    // the card the hop lands on is shown browsed, whatever the card it left was
+    landsAfter: () => "browsed",
     async open(id, mode) {
       const context = await browser.createBrowserContext();
       const page = await context.newPage();
@@ -205,9 +204,7 @@ const SURFACES = {
     viewport: { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true },
     shown: "#cards .box.sel",
     closeFn: "closeCard",
-    // the phone's own select takes no hop option: the card it lands on is
-    // always selected, as it was before the neighbour rule
-    landsAfter: () => "selected",
+    landsAfter: () => "browsed",
     async open(id, mode) {
       const context = await browser.createBrowserContext();
       const page = await context.newPage();

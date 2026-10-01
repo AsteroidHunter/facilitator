@@ -2811,11 +2811,12 @@ function setBrowsing(on){
 
 // a tap on a drawer row, a card just made, the caret carried along by a step:
 // the card is shown and selected, and so read. opts.browse shows it without
-// selecting it (browse, below)
+// selecting it (browse, below). the hop a close or a snooze makes to the next
+// card shows it browsed, since the board picked that card and the reader did not
 function select(id, opts){
   const trace = tracePhone("begin", "select", { box: id });
   if (!els[id]){ endPhoneTrace(trace, { box: id }); return; }
-  const chosen = !opts?.browse;
+  const chosen = !opts?.browse && !opts?.hop;
   cancelAutoNext();
   if (hist && hist.id !== id) histExit(hist.id);
   selectedId = id; shownId = id; localStorage.setItem("selbox", id);
@@ -2936,6 +2937,9 @@ function renderTabs(st){
       t.appendChild(lbl);
       t.addEventListener("click", () => {
         if (tabCarried) return;
+        // the open project's own tab lets go of the selected card on screen,
+        // which stays there browsed; any other tab switches to its lane
+        if (ow === activeOwner && !homeOpen && selectedId && !browsing){ unselectShown(); return; }
         if (homeOpen) setHome(false);   // a project tab leaves home for its board
         setTab(ow);
       });
@@ -3980,8 +3984,9 @@ function apply(state){
         if (!turn) headOnSwap(el, b);
       }
     }
-    // a reply landing on the open card while the caret is in its row is read as
-    // it lands, unless the drawer is covering the card
+    // a reply landing on the selected card while the window is in front is read
+    // as it lands, unless the drawer is covering the card. a browsed card is not
+    // read
     readOnArrival(el, b, b.id === selectedId && !browsing && !drawerOpen());
     // the card reads its own name, Omni Card #N for an Omni ticket; an Omni
     // sweep in flight writes it itself
@@ -5121,12 +5126,12 @@ const phoneShortcutActions = {
 const homeShortcutActions = { diagnostic: phoneShortcutActions.diagnostic };
 
 // a tap anywhere on the card on screen, or the keyboard's focus landing in it,
-// selects it where it stands. the tap is a click, which a swipe never makes,
-// so a card only swiped to stays browsed
+// selects it where it stands, and reads it. the tap is a click, which a swipe
+// never makes, so a card only swiped to stays browsed
 {
   const inCard = e => !!e.target.closest?.("#cards") && !document.body.classList.contains("menuout");
-  document.getElementById("pane").addEventListener("click", e => { if (inCard(e)) chooseShown(); }, true);
-  document.addEventListener("focusin", e => { if (inCard(e)) chooseShown(); }, true);
+  document.getElementById("pane").addEventListener("click", e => { if (inCard(e) && selectedId) useCard(selectedId); }, true);
+  document.addEventListener("focusin", e => { if (inCard(e) && selectedId) useCard(selectedId); }, true);
 }
 
 addEventListener("keydown", e => {

@@ -24,7 +24,7 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const CARDS = [
   ["0", "facilitator", "meta"], ["1.1", "facilitator", "now"], ["1.2", "facilitator", "now"],
   ["1.3", "facilitator", "now"], ["1.4", "facilitator", "now"], ["1.5", "facilitator", "now"],
-  ["1.6", "facilitator", "now"], ["2.1", "pastureland", "now"], ["2.2", "pastureland", "now"],
+  ["1.6", "facilitator", "now"], ["1.7", "facilitator", "meta"], ["1.8", "facilitator", "meta"], ["2.1", "pastureland", "now"], ["2.2", "pastureland", "now"],
 ];
 const SELECTED_SHADOW = "rgba(60, 45, 20, 0.18) 0px 2px 18px 0px, rgba(60, 45, 20, 0.1) 0px 1px 3px 0px";
 
@@ -296,8 +296,8 @@ test("the home page unselects the card, so a tab brings it back browsed", async 
   await p.close();
 });
 
-test("a reply that lands counts as read only for a card with the caret in its reply box", async () => {
-  // the caret is in the box: the answer is read as it lands
+test("a reply that lands is read at once on the selected card while the window is in front, never on a browsed one", async () => {
+  // selected, the caret in the box: read as it lands
   let p = await openPhone({ selbox: "0" });
   await tap(p, REPLY_BOX);
   assertSelected(await look(p), "0", "in the box");
@@ -306,7 +306,34 @@ test("a reply that lands counts as read only for a card with the caret in its re
   await until(async () => (await seenOf("0")) === 2);
   assert.ok((await look(p)).read.includes("0"), "the reply that landed under the caret is unread");
   await p.close();
-  // the card is only browsed: the answer waits
+  // selected with the caret out of the box (a tap on the card): read as it lands
+  p = await openPhone({ selbox: "1.3" });
+  await tap(p, READING);
+  const left = await look(p);
+  assertSelected(left, "1.3", "selected, the caret out of the box");
+  assert.equal(left.typing, false);
+  await until(async () => (await seenOf("1.3")) === 1);
+  await answer("1.3", 2);
+  await p.page.waitForFunction(() => seenTotals["1.3"] >= 2, { timeout: 15000 });
+  await until(async () => (await seenOf("1.3")) === 2);
+  assertSelected(await look(p), "1.3", "after the reply landed");
+  await p.close();
+  // selected, but the window is behind another app: it stays unread, and is read
+  // once the owner is back and uses the card
+  p = await openPhone({ selbox: "1.5" });
+  await tap(p, READING);
+  assertSelected(await look(p), "1.5", "selected");
+  await until(async () => (await seenOf("1.5")) === 1);
+  await p.page.evaluate(() => { document.hasFocus = () => false; });
+  await answer("1.5", 2);
+  await p.page.waitForFunction(() => seenTotals["1.5"] >= 2, { timeout: 15000 });
+  await pause(1500);
+  assert.equal(await seenOf("1.5"), 1, "a reply landing while the window was behind was read");
+  await p.page.evaluate(() => { delete document.hasFocus; });
+  await tap(p, READING);
+  await until(async () => (await seenOf("1.5")) === 2);
+  await p.close();
+  // browsed: the answer waits, window in front or not
   p = await openPhone({ selbox: "1.4" });
   assertBrowsed(await look(p), "1.4", "browsed");
   await answer("1.4", 2);
@@ -314,6 +341,75 @@ test("a reply that lands counts as read only for a card with the caret in its re
   await pause(1500);
   assertBrowsed(await look(p), "1.4", "after the reply landed");
   assert.equal(await seenOf("1.4"), 0, "a reply landing on a browsed card was read");
+  await p.close();
+});
+
+test("a tap on the open project's tab unselects the card and leaves it on screen", async () => {
+  const p = await openPhone({ selbox: "1.1" });
+  await tap(p, READING);
+  assertSelected(await look(p), "1.1", "after the tap");
+  await tap(p, '#tabbar .ptab[data-owner="facilitator"]');
+  const off = await look(p);
+  assert.equal(off.shown, "1.1", "the card left the screen");
+  assert.equal(off.browsing, true, "the tap on the open tab did not unselect");
+  assert.equal(off.shadow, "flat", "the unselected card kept its shadow");
+  assert.ok(off.read.includes("1.1"), "unselecting took the read mark back");
+  // on a browsed card the tab is only a tab: it shows the lane's own pick, browsed
+  await tap(p, '#tabbar .ptab[data-owner="facilitator"]');
+  const again = await look(p);
+  assert.equal(again.browsing, true, "the open tab tapped again selected a card");
+  assert.equal(again.shadow, "flat", "the open tab tapped again left a shadow on the card");
+  // the other project's tab only browses
+  await tap(p, '#tabbar .ptab[data-owner="pastureland"]');
+  const other = await look(p);
+  assert.ok(other.shown && other.shown.startsWith("2."), "the other tab showed no card of its own");
+  assert.equal(other.browsing, true, "the other tab selected a card");
+  assert.equal(other.shadow, "flat", "the other tab left a shadow on the card");
+  await p.close();
+});
+
+test("the ticket of the card on screen is lifted in the drawer, browsed or selected, and the unread title stays darker", async () => {
+  const p = await openPhone({ selbox: "1.4" });
+  const rows = () => p.page.evaluate(() => [...document.querySelectorAll('#tiklist .tikpane[data-view="todo"] .trow')].map(r => {
+    const cs = getComputedStyle(r), ttl = getComputedStyle(r.querySelector(".ttl"));
+    return { id: r.dataset.id, on: r.classList.contains("on"), seen: r.classList.contains("seen"), shadow: cs.boxShadow, filter: cs.filter, transform: cs.transform,
+      weight: ttl.fontWeight, colour: ttl.color, outline: cs.outlineStyle };
+  }));
+  const lifted = r => /0\.18/.test(r.shadow + r.filter) && /matrix\(1, 0, 0, 1, 0, -1\)/.test(r.transform);
+  await p.page.evaluate(() => openDrawer());
+  await pause(600);
+  assertBrowsed(await look(p), "1.4", "the drawer pulled out");
+  let all = await rows();
+  assert.deepEqual(all.filter(lifted).map(r => r.id), ["1.4"], "the browsed card's ticket is not the only one lifted");
+  // the lift leaves the title alone: an unread title on the lifted ticket is the
+  // same as one on a flat ticket, and both stay darker than a read one
+  const on = all.find(r => r.on), off = all.find(r => !r.on && !r.seen), read = all.find(r => !r.on && r.seen);
+  assert.ok(!on.seen && off && read, "the fixture needs an unread lifted ticket, an unread flat one and a read one");
+  assert.equal(on.weight, off.weight, "the lift changed the title's weight");
+  assert.equal(on.colour, off.colour, "the lift changed the unread title's colour");
+  assert.notEqual(on.colour, read.colour, "the unread title is no darker than a read one");
+  for (const r of all) assert.equal(r.outline, "none", "a ticket has an outline");
+  await p.page.evaluate(() => document.querySelector('#tiklist .trow[data-id="1.4"]').click());
+  await pause(500);
+  assertSelected(await look(p), "1.4", "the ticket tapped");
+  await p.page.evaluate(() => openDrawer());
+  await pause(600);
+  all = await rows();
+  assert.deepEqual(all.filter(lifted).map(r => r.id), ["1.4"], "the selected card's ticket is not the only one lifted");
+  assert.equal(all.find(r => r.on).seen, true, "the selected card's ticket is still drawn unread");
+  await p.close();
+});
+
+test("closing or deferring the card on screen lands on the card below it, browsed", async () => {
+  const p = await openPhone({ selbox: "1.8" });
+  await tap(p, READING);
+  assertSelected(await look(p), "1.8", "before");
+  const below = await p.page.evaluate(() => doingNeighbour("1.8", doingOrder(lastState)));
+  assert.ok(below, "the fixture has no card to land on");
+  await chord(p, ["Control", "Shift"], "Backslash");
+  await until(async () => (await look(p)).shown === below);
+  assertBrowsed(await look(p), below, "after Done");
+  assert.equal(await seenOf(below), 0, "the card below was read by arriving");
   await p.close();
 });
 
@@ -358,4 +454,7 @@ test("the selected shadow is the board's own, and the page adds no ring", async 
   assert.match(phone, /body\.browsing main\{box-shadow:none\}/);
   const rules = phone.match(/body\.browsing[^{]*\{[^}]*\}/g) || [];
   for (const rule of rules) assert.ok(!/outline|ring|--accent/.test(rule), "a browsing rule adds more than the shadow: " + rule);
+  // the lifted ticket has no browsing variant on either page: lift and shadow, browsed or selected
+  for (const [name, css] of [["board", board], ["phone", phone]])
+    assert.doesNotMatch(css, /body\.browsing\s+\.trow/, name + " draws the ticket of a browsed card differently");
 });
