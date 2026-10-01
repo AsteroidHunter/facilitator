@@ -526,14 +526,18 @@
        not the asked-for one, to be as thick as the card's border around it */
     box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line);
   }
-  /* the reply-history control takes the bar's flexible left-hand room whether
-     its marks are showing or not. the fixed room means the defer and close
-     controls, the divider, and everything below the bar keep their exact place
-     when an older reply first becomes available. its two marks are the phone
-     page's 11 by 7 chevrons on the same 28px seats. they arrive with the
-     composer's send arrow's opacity-and-scale fade and are inert before then */
+  /* the reply-history control keeps its own width whether its marks are
+     showing or not, and the working spinner after it, in the same run
+     (.histrun, card-tokens.css), takes the bar's flexible room whether it is
+     showing or not. the fixed room means the defer and close controls, the
+     divider, and everything below the bar keep their exact place when an
+     older reply first becomes available or the spinner comes and goes. its
+     two marks are the phone page's chevrons on the same seats, sized by
+     --hist-cell, --hist-glyph-w and --hist-glyph-h. they arrive with the
+     composer's send arrow's opacity-and-scale fade and are inert before
+     then */
   body.focus .box.sel .histctl{
-    flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:0;
+    flex:0 1 auto; min-width:0; display:flex; align-items:center; gap:0;
     font:11.5px var(--mono); color:var(--sub); white-space:nowrap;
     visibility:hidden; opacity:0; transform:scale(.5); transform-origin:left center;
     pointer-events:none;
@@ -545,7 +549,7 @@
     transition:opacity .26s var(--gentle), transform .26s var(--gentle), visibility 0s;
   }
   body.focus .box.sel .histbtn{
-    flex:none; width:28px; height:28px; padding:0; border:none; border-radius:var(--sq);
+    flex:none; width:var(--hist-cell); height:var(--hist-cell); padding:0; border:none; border-radius:var(--sq);
     background:var(--card); color:var(--ink); display:grid; place-items:center; cursor:pointer;
   }
   body.focus .box.sel .histbtn:hover,
@@ -553,7 +557,7 @@
   body.focus .box.sel .histbtn:disabled{opacity:.28; cursor:default}
   body.focus .box.sel .histbtn.older .histchev{transform:rotate(0deg)}
   body.focus .box.sel .histbtn.newer .histchev{transform:rotate(180deg)}
-  body.focus .box.sel .histchev{display:block; flex:none}
+  body.focus .box.sel .histchev{display:block; flex:none; width:var(--hist-glyph-w); height:var(--hist-glyph-h)}
   body.focus .box.sel .histpos{margin-left:4px}
   body.focus .box.sel .histpos:empty{display:none}
 
@@ -5391,7 +5395,13 @@ function makeBox(b, i, state){
     histctl.append(histUp, histDown, histPos);
     histUp.addEventListener("click", () => histStep(b.id, 1));
     histDown.addEventListener("click", () => histStep(b.id, -1));
-    topbar.appendChild(histctl);
+    // the working spinner stands right after the arrows, in one run with them;
+    // the chips that follow are added below. apply() turns it on with the
+    // ticket's own green
+    const cardSpin = makeCardSpinner();
+    const histrun = h("div", "histrun");
+    histrun.append(histctl, cardSpin);
+    topbar.appendChild(histrun);
     box.appendChild(topbar);
 
     const head = h("div", "head");
@@ -5612,7 +5622,7 @@ function makeBox(b, i, state){
     els[b.id] = { box, reply, replyview, meta, metaNote, histctl, histPos, histUp, histDown,
                   ta, send, wstat, toc: entry, sec,
                   titleEl, tocTitle: entry.querySelector(".ttitle"), sun, arc, x,
-                  topbar, branch, bname, wtpick, wtmenu, hasWt: false, hasHistory,
+                  topbar, cardSpin, branch, bname, wtpick, wtmenu, hasWt: false, hasHistory,
                   historyVersion: null,
                   // answ is null until the card shows a reply the board recorded
                   // a batch for, and null again the moment it shows one it did
@@ -6044,6 +6054,7 @@ function apply(state){
     el.box.classList.toggle("done", cs === "done");
     el.box.classList.toggle("parked", cs === "parked");
     paintSectionChips(el, b);
+    setCardSpinner(el.cardSpin, cardSpinning(b));
     const s = statusOf(b);
     if (el.sec !== s){
       secEls[s].list.appendChild(el.box);
