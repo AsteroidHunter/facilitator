@@ -42,6 +42,14 @@
   facilitator password set
       prompt twice for the phone bridge password; replacing it signs out every
       phone immediately. Passwords are never accepted on the command line.
+  facilitator update
+      bring this checkout up to date without running git yourself. Stops and
+      changes nothing when the checkout has uncommitted changes. Pulls the
+      current branch's upstream forward only (git pull --ff-only: never a merge
+      or a rewrite), then hands over to the freshly pulled code, which syncs
+      the .venv to requirements.txt and runs the numbered steps in updates/
+      that have not run here yet, each once. Restarts the board only when it
+      is running and something was pulled. Ends with the old and new version.
 
 Reads run.config.json beside this script: machine-local and gitignored, since
 lanes name real directories and tmux sessions; ./install.sh writes it
@@ -55,6 +63,7 @@ import ctypes
 import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import signal
@@ -1986,6 +1995,248 @@ def cmd_uninstall(args):
     print("This folder was left in place.")
 
 
+# --- update: pull forward only, then the pulled code runs its own update steps ---
+UPDATES_DIR = HERE / "updates"
+UPDATE_RECORD = HERE / ".facilitator-updates.json"
+UPDATE_RECORD_TMP = HERE / ".facilitator-updates.tmp"
+UPDATE_STEP_NAME = re.compile(r"^\d{4}-[A-Za-z0-9._-]+\.(?:py|sh)$")
+UPDATE_HELP = """usage: facilitator update
+
+Bring this checkout up to date. Stops, changing nothing, when the checkout has
+uncommitted changes, is not on a branch, or has no upstream. Pulls that
+upstream forward only (git pull --ff-only), then runs the pulled code's update
+steps: sync the .venv to requirements.txt, then run each numbered step in
+updates/ that has not run here yet. Restarts the board only when it is
+running and something was pulled."""
+
+
+def run_git(*args, env=None):
+    """One git command in this checkout with its output captured."""
+    return subprocess.run(["git", "-C", str(HERE), *args], capture_output=True,
+                          text=True, errors="replace", env=env)
+
+
+def board_version():
+    """The version label shown on the board, read from index.html."""
+    try:
+        text = (HERE / "index.html").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return "unknown"
+    found = re.search(r'id="npversion">([^<]*)<', text)
+    return found.group(1).strip() if found else "unknown"
+
+
+def check_checkout():
+    """Stop unless this is a clean git checkout on a branch with an upstream; return (remote, upstream branch)."""
+    top = run_git("rev-parse", "--show-toplevel")
+    if top.returncode != 0 or os.path.realpath(top.stdout.strip()) != os.path.realpath(HERE):
+        sys.exit(problem("This folder is not a git checkout, so it cannot be updated.",
+                         "Clone Facilitator again with git, then run ./install.sh there."))
+    status = run_git("--no-optional-locks", "status", "--porcelain", "--untracked-files=no")
+    if status.returncode != 0:
+        sys.exit(problem("git could not read this checkout.", *status.stderr.strip().splitlines()[-3:],
+                         "Nothing was changed."))
+    changed = status.stdout.splitlines()
+    if changed:
+        shown = [line.strip() for line in changed[:8]]
+        if len(changed) > 8:
+            shown.append(f"and {len(changed) - 8} more")
+        sys.exit(problem("This checkout has uncommitted changes.", *shown,
+                         "Commit or discard them, then run facilitator update again.",
+                         "Nothing was changed."))
+    ok("No uncommitted changes.")
+    branch = run_git("symbolic-ref", "--short", "-q", "HEAD").stdout.strip()
+    if not branch:
+        sys.exit(problem("This checkout is not on a branch, so there is nothing to follow.",
+                         "Switch back to a branch, then run facilitator update again.",
+                         "Nothing was changed."))
+    remote = run_git("config", "--get", f"branch.{branch}.remote").stdout.strip()
+    merge = run_git("config", "--get", f"branch.{branch}.merge").stdout.strip()
+    if not remote or not merge:
+        where = "origin" if "origin" in run_git("remote").stdout.split() else "<remote>"
+        sys.exit(problem(f"Branch {branch} has no upstream, so there is nothing to pull from.",
+                         f"Set one with: git branch --set-upstream-to={where}/{branch}",
+                         "Then run facilitator update again. Nothing was changed."))
+    upstream = merge.removeprefix("refs/heads/")
+    ok(f"Branch {branch} follows {remote}/{upstream}.")
+    return remote, upstream
+
+
+def pull_forward(remote, upstream):
+    """Fast-forward only pull of that one branch, no tags; return the commit before and after."""
+    before = run_git("rev-parse", "HEAD").stdout.strip()
+    result = run_git("pull", "--ff-only", "--no-rebase", "--no-tags", remote, upstream,
+                     env={**os.environ, "LC_ALL": "C"})
+    after = run_git("rev-parse", "HEAD").stdout.strip()
+    if result.returncode != 0:
+        output = (result.stdout + result.stderr).strip().splitlines()
+        if "fast-forward" in " ".join(output).lower():
+            sys.exit(problem("This checkout cannot be moved forward on its own.",
+                             "It has changes of its own that the upstream does not have,",
+                             "or the upstream's history was rewritten.",
+                             "Nothing was changed. Ask whoever looks after this copy before",
+                             "going further."))
+        sys.exit(problem(f"git could not pull {remote}/{upstream}.", *output[-4:],
+                         "Nothing was changed." if after == before else
+                         "Check the lines above before going further.",
+                         "Fix that, then run facilitator update again."))
+    return before, after
+
+
+def cmd_update(args):
+    """Check, pull, then hand over to the pulled code's _update-steps in a new process."""
+    words = args[1:]
+    if any(w in ("-h", "--help") for w in words):
+        print(UPDATE_HELP)
+        return
+    if words:
+        sys.exit(problem("update takes no options; got " + " ".join(words) + ".")
+                 + "\n\n" + UPDATE_HELP)
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)
+    banner("updater")
+    if not shutil.which("git"):
+        sys.exit(problem("git was not found.", "Install git, then run facilitator update again."))
+
+    section("1. Checkout")
+    print("Update first checks that this folder is a git checkout with no\n"
+          "uncommitted changes and a branch to follow. It changes nothing.\n")
+    old_version = board_version()
+    remote, upstream = check_checkout()
+
+    section("2. Pull")
+    print("This pulls only forward from the branch above. It never merges\n"
+          "and never rewrites anything.\n")
+    before, after = pull_forward(remote, upstream)
+    if before == after:
+        ok("No new commits upstream.")
+    else:
+        count = int(run_git("rev-list", "--count", f"{before}..{after}").stdout.strip() or 0)
+        noun = "commit" if count == 1 else "commits"
+        ok(f"Moved forward {count} {noun}, from {before[:7]} to {after[:7]}.")
+
+    command = [sys.executable, str(HERE / "facilitator"), "_update-steps",
+               "--from-version", old_version]
+    if before != after:
+        command.append("--pulled")
+    sys.stdout.flush()
+    sys.exit(subprocess.run(command, cwd=str(HERE),
+                            env={**os.environ, "FACILITATOR_INTERNAL_UPDATE": "1"}).returncode)
+
+
+def read_update_record():
+    """Step name to time for every step that has run here; an unreadable file stops the update."""
+    if not UPDATE_RECORD.exists():
+        return {}
+    try:
+        ran = json.loads(UPDATE_RECORD.read_text())["ran"]
+        if not isinstance(ran, dict):
+            raise ValueError("ran is not an object")
+        return ran
+    except (OSError, ValueError, KeyError, TypeError):
+        sys.exit(problem(f"{UPDATE_RECORD.name} is invalid.",
+                         "Facilitator will not guess which update steps already ran.",
+                         "Delete it to run every step again, then run facilitator update."))
+
+
+def record_update_step(ran, name):
+    ran[name] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    UPDATE_RECORD_TMP.write_text(json.dumps({"ran": ran}, indent=2) + "\n")
+    os.replace(UPDATE_RECORD_TMP, UPDATE_RECORD)
+
+
+def run_update_step(path):
+    """Run one step with no input and return its exit status; .py under the .venv python, .sh under bash."""
+    argv = [server_python(), str(path)] if path.suffix == ".py" else ["bash", str(path)]
+    try:
+        return subprocess.run(argv, cwd=str(HERE), stdin=subprocess.DEVNULL).returncode
+    except OSError as error:
+        print(f"Could not start it: {error.strerror or 'error'}.")
+        return 1
+
+
+def run_update_steps():
+    """Run the unrecorded numbered steps in name order; the first failure stops and is not recorded."""
+    ran = read_update_record()
+    names = sorted(path.name for path in UPDATES_DIR.iterdir()
+                   if UPDATE_STEP_NAME.match(path.name)) if UPDATES_DIR.is_dir() else []
+    pending = [name for name in names if name not in ran]
+    if not pending:
+        ok("No new update steps.")
+        return
+    for name in pending:
+        print(f"Running {name}.")
+        if run_update_step(UPDATES_DIR / name) != 0:
+            sys.exit(problem(f"Update step {name} failed.",
+                             "Its output is above. It was not marked as done and runs again next time.",
+                             "Fix the cause, then run facilitator update again."))
+        record_update_step(ran, name)
+        ok(f"{name} done.")
+
+
+def restart_board(pulled):
+    """Safe restart, only when something was pulled and the board is running; False if it was refused."""
+    if not pulled:
+        skipped("Nothing was pulled, so the board was left as it is.")
+        return True
+    port = board_port()
+    if not board_running(port):
+        skipped(f"The board is not running on port {port}, so it was not started.")
+        print("Start it with: facilitator run")
+        return True
+    print("The board is running. Restarting it onto the new code.\n")
+    try:
+        cmd_restart(["restart"])
+    except SystemExit as stop:
+        print(problem("The board was not restarted.", str(stop.code),
+                      "Restart it yourself with: facilitator restart", blank=True),
+              file=sys.stderr)
+        return False
+    ok("Board restarted.")
+    return True
+
+
+def cmd_update_steps(args):
+    """Run by the pulled code: sync the .venv, run pending steps, restart if due, report the versions."""
+    words = args[1:]
+    pulled = "--pulled" in words
+    old_version = words[words.index("--from-version") + 1] if "--from-version" in words[:-1] else None
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)
+
+    try:
+        section("3. Python environment")
+        print("This syncs the .venv to requirements.txt the way setup does,\n"
+              "and asks nothing.\n")
+        ensure_env(ensure_uv())
+
+        section("4. Update steps")
+        print("Numbered steps in the updates folder run once each, in order.\n"
+              "A step that fails stops the update and runs again next time.\n")
+        run_update_steps()
+    except SystemExit as stop:
+        if pulled and isinstance(stop.code, str):
+            stop.code += ("\n  The board was not restarted. Once the update goes through, run:"
+                          " facilitator restart")
+        raise
+
+    section("5. Board")
+    restarted = restart_board(pulled)
+
+    new_version = board_version()
+    green = style("38;2;0;114;0", "✦")
+    print()
+    if pulled:
+        print(f"{green} Facilitator updated.\n")
+        print(f"Old version: {old_version or 'unknown'}")
+        print(f"New version: {new_version}\n")
+        print("Reload the board in your browser and reopen the phone app.\n")
+    else:
+        print(f"{green} Already up to date ({new_version}).\n")
+    if not restarted:
+        sys.exit(1)
+
+
 def main():
     args = sys.argv[1:]
     cmd = args[0] if args and not args[0].startswith("-") else "run"
@@ -2005,6 +2256,10 @@ def main():
         cmd_install(args)
     elif cmd == "uninstall":
         cmd_uninstall(args)
+    elif cmd == "update":
+        cmd_update(args)
+    elif cmd == "_update-steps" and os.environ.get("FACILITATOR_INTERNAL_UPDATE") == "1":
+        cmd_update_steps(args)
     else:
         sys.exit(__doc__.strip())
 
