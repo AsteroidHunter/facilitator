@@ -1,6 +1,7 @@
 // The sign-in cookie is SameSite=Lax, a signed-in page open sends it again, a
 // turned-away request writes one rate-limited log line, and cross-site writes
-// are still refused with the Lax cookie present. A copied server on spare ports
+// are still refused with the Lax cookie present, and so is a cross-site GET of
+// any route but the page opens. A copied server on spare ports
 // with its own state folder, log folder and a password made for this run.
 const assert = require("node:assert/strict");
 const { test, before, after } = require("node:test");
@@ -19,6 +20,8 @@ const PASS = "Tp" + crypto.randomBytes(8).toString("hex") + "9!";
 const NAME = "__Host-facilitator_session";
 const PHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 const DESKTOP = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const STUB = "stub-folder-for-test";
+const CROSS = { "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document", "User-Agent": PHONE };
 let fixture;
 
 function request(port, route, method = "GET", body = null, headers = {}) {
@@ -44,6 +47,9 @@ const refusals = () => {
     .filter(line => line.kind === "signinrefused") };
 };
 const sessions = () => JSON.parse(fs.readFileSync(path.join(fixture.app, "bridge-auth.json"), "utf8")).sessions.length;
+const board = () => fs.readFileSync(path.join(fixture.app, "state.json"), "utf8");
+const write = (route, body) => request(fixture.bridge, route, "POST", body, { ...fixture.cookie, Origin: fixture.origin });
+const read = (route, extra, method = "GET") => request(fixture.bridge, route, method, null, { ...fixture.cookie, ...extra });
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 before(async () => {
@@ -62,7 +68,8 @@ before(async () => {
   fs.cpSync(path.join(ROOT, "assets"), path.join(app, "assets"), { recursive: true });
   execFileSync(PYTHON, ["-c", `import bridge_auth; bridge_auth.set_password(${JSON.stringify(PASS)})`], { cwd: app });
   const port = await freePortPair();
-  const env = { ...process.env, FACILITATOR_TEST_PORT: String(port), FACILITATOR_LOG_DIR: path.join(outer, "logs") };
+  const env = { ...process.env, FACILITATOR_TEST_PORT: String(port), FACILITATOR_LOG_DIR: path.join(outer, "logs"),
+    FACILITATOR_PICKDIR_STUB: STUB };
   const child = spawn(PYTHON, [path.join(app, "server.py")], { cwd: app, env, stdio: ["ignore", "pipe", "pipe"] });
   let output = "";
   for (const stream of [child.stdout, child.stderr]) stream.on("data", data => { output += data; });
@@ -188,4 +195,104 @@ test("a burst of turned-away polls writes one line, and the next window says how
   assert.equal(next.length, 2);
   assert.equal(next[1].folded, 29);
   assert.equal((await request(fixture.bridge, "/auth/check", "GET", null, {})).status, 200, "the gate stopped answering");
+});
+
+test("a cross-site GET of a route that acts is refused with the Lax cookie present, and claims and changes nothing", async () => {
+  const card = JSON.parse((await write("/create", "fixture")).text).id;
+  assert.equal((await write(`/send?box=${card}`, "first words")).status, 200);
+  const reasonLines = () => refusals().lines.filter(line => line.reason === "cross-site-get");
+  const before = board();
+  const lineCount = reasonLines().length;
+  const routes = ["/wait?owner=facilitator&timeout=0", "/fresh?owner=facilitator", "/pickdir", "/state", "/m/state",
+    "/unread?owner=facilitator", "/dirs", "/log", "/push/key", "/page", `/thread?box=${card}`, "/navfiles",
+    "/uploads/none.png"];
+  for (const route of routes) {
+    for (const method of ["GET", "HEAD"]) {
+      const answer = await read(route, CROSS, method);
+      assert.equal(answer.status, 403, `${method} ${route}`);
+      assert.deepEqual(answer.cookies, [], `${method} ${route} set a cookie`);
+      if (method === "GET") assert.deepEqual(JSON.parse(answer.text), { error: "origin refused" }, route);
+    }
+  }
+  assert.equal((await read("/fresh?owner=facilitator", { ...CROSS, "Sec-Fetch-Site": "Cross-Site" })).status, 403,
+    "the header value is read without regard to case");
+  assert.equal(board(), before, "a refused cross-site GET changed the board file");
+  assert.equal((await read("/pickdir", CROSS)).text.includes(STUB), false);
+
+  const fresh = reasonLines().slice(lineCount);
+  const routesLogged = fresh.map(line => line.route).sort();
+  assert.deepEqual(routesLogged, ["/dirs", "/fresh", "/log", "/m/state", "/navfiles", "/page", "/pickdir", "/push/key",
+    "/state", "/thread", "/unread", "/uploads/*", "/wait"].sort(), "one line per route, none for the repeats");
+  assert.deepEqual({ ...fresh.find(line => line.route === "/fresh"), ts: 0 }, { ts: 0, level: "info", kind: "signinrefused",
+    method: "GET", route: "/fresh", cookie_header: true, cookies: 1, session_cookie: true, session_known: true,
+    sec_fetch_site: "cross-site", sec_fetch_mode: "navigate", sec_fetch_dest: "document", client: "phone",
+    reason: "cross-site-get" });
+  const { text } = refusals();
+  for (const secret of [fixture.value, PASS, "first words", "owner=facilitator", "none.png", STUB, "iPhone"])
+    assert.equal(text.includes(secret), false, `the log holds ${secret.slice(0, 6)}`);
+
+  // the same requests from the bridge's own page do act: the claim lands, and the second message is folded in
+  assert.deepEqual(JSON.parse((await read("/pickdir", { "Sec-Fetch-Site": "same-origin" })).text), { path: STUB });
+  const claim = await read("/wait?owner=facilitator&timeout=0", { "Sec-Fetch-Site": "same-origin" });
+  assert.equal(claim.status, 200);
+  assert.deepEqual(JSON.parse(claim.text).messages, ["first words"]);
+  assert.notEqual(board(), before, "the same-origin claim changed nothing, so the check above proved nothing");
+
+  assert.equal((await write(`/send?box=${card}`, "second words")).status, 200);
+  const held = board();
+  assert.equal((await read("/fresh?owner=facilitator", CROSS)).status, 403);
+  assert.equal(board(), held, "a refused cross-site GET of /fresh folded a message in");
+  const handed = await read("/fresh?owner=facilitator", { "Sec-Fetch-Site": "same-origin" });
+  assert.equal(handed.status, 200);
+  assert.deepEqual(JSON.parse(handed.text).messages, ["second words"]);
+  assert.notEqual(board(), held, "the same-origin /fresh changed nothing, so the check above proved nothing");
+  assert.equal(reasonLines().filter(line => line.route === "/fresh").length, 1, "repeats inside the window made lines");
+});
+
+test("a refused cross-site GET and a request with no session are separate lines for the same route", async () => {
+  const before = refusals().lines.length;
+  assert.equal((await request(fixture.bridge, "/history", "GET", null, { "User-Agent": PHONE })).status, 401);
+  assert.equal((await read("/history", CROSS)).status, 403);
+  const [noSession, crossSite] = refusals().lines.slice(before).filter(line => line.route === "/history");
+  assert.equal(noSession.reason, undefined);
+  assert.equal(noSession.session_known, false);
+  assert.equal(crossSite.reason, "cross-site-get");
+  assert.equal(crossSite.session_known, true);
+});
+
+test("a cross-site open of the phone page or / is served with the cookie recognised", async () => {
+  const before = refusals().lines.length;
+  for (const route of ["/m", "/m?box=x"]) {
+    const page = await read(route, CROSS);
+    assert.equal(page.status, 200, route);
+    assert.match(page.text, /<aside id="settings"/, `${route} did not serve the signed-in page`);
+    assert.deepEqual(page.cookies,
+      [`${NAME}=${fixture.value}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=315360000`], route);
+  }
+  const root = await read("/", CROSS);
+  assert.equal(root.status, 200);
+  assert.equal(root.text, fs.readFileSync(path.join(ROOT, "index.html"), "utf8"), "/ did not serve the board page");
+  for (const route of ["/m", "/"]) assert.equal((await read(route, CROSS, "HEAD")).status, 200, `HEAD ${route}`);
+  assert.equal(refusals().lines.length, before, "an allowed page open wrote a refusal line");
+
+  const gate = await request(fixture.bridge, "/m", "GET", null, CROSS);
+  assert.equal(gate.status, 200);
+  assert.doesNotMatch(gate.text, /<aside id="settings"/, "a page open with no session got the signed-in page");
+  const noSession = await request(fixture.bridge, "/state", "GET", null, CROSS);
+  assert.equal(noSession.status, 401, "a cross-site GET with no session is answered as before");
+  assert.deepEqual(JSON.parse(noSession.text), { error: "sign in required" });
+  for (const route of ["/auth/check", "/m-sw.js", "/m-manifest.json"])
+    assert.equal((await read(route, CROSS)).status, 200, `${route} needs no session and is answered as before`);
+});
+
+test("same-origin, typed-address and header-less GETs of the same routes still work", async () => {
+  const before = refusals().lines.length;
+  for (const site of [{ "Sec-Fetch-Site": "same-origin" }, { "Sec-Fetch-Site": "none" }, { "Sec-Fetch-Site": "same-site" }, {}]) {
+    for (const route of ["/m/state", "/fresh?owner=facilitator", "/wait?owner=facilitator&timeout=0", "/state", "/m", "/"]) {
+      const answer = await read(route, site);
+      assert.equal(answer.status, 200, `${route} ${JSON.stringify(site)}`);
+      if (route !== "/m" && route !== "/") JSON.parse(answer.text);
+    }
+  }
+  assert.equal(refusals().lines.length, before, "an allowed GET wrote a refusal line");
 });

@@ -52,6 +52,8 @@ KNOWN_METHODS = frozenset(("GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPT
 FETCH_WORD = re.compile(r"[a-z-]{1,24}")
 # these two routes carry a file name in the path
 FILE_ROUTES = ("/uploads/", "/laneimg/")
+# a link from another site may open these; no other route may be read that way
+PAGE_OPENS = frozenset({"/m", "/"})
 
 
 def _client_class(headers):
@@ -159,9 +161,9 @@ class BridgeGate:
         self.app = app
         self.bridge_port = bridge_port
         self.log = log
-        self._refused = {}   # route -> [when its window opened, refusals folded into it]
+        self._refused = {}   # reason and route -> [when its window opened, refusals folded into it]
 
-    def _note_refusal(self, scope, headers, method, path, known):
+    def _note_refusal(self, scope, headers, method, path, known, reason=None):
         """One line per route per window, with a count of the ones left out. A
         failure here must never change the answer, so it is swallowed."""
         if self.log is None:
@@ -169,11 +171,12 @@ class BridgeGate:
         try:
             now = time.monotonic()
             route = _refused_route(path)
+            name = route if reason is None else f"{reason} {route}"
             table = self._refused
-            if route not in table and len(table) >= REFUSAL_ROUTES_KEPT:
+            if name not in table and len(table) >= REFUSAL_ROUTES_KEPT:
                 for stale in [k for k, w in table.items() if now - w[0] >= REFUSAL_WINDOW]:
                     del table[stale]
-            key = route if route in table or len(table) < REFUSAL_ROUTES_KEPT else ""
+            key = name if name in table or len(table) < REFUSAL_ROUTES_KEPT else ""
             window = table.get(key)
             if window is not None and now - window[0] < REFUSAL_WINDOW:
                 window[1] += 1
@@ -187,7 +190,7 @@ class BridgeGate:
                      sec_fetch_site=_fetch_word(headers, b"sec-fetch-site"),
                      sec_fetch_mode=_fetch_word(headers, b"sec-fetch-mode"),
                      sec_fetch_dest=_fetch_word(headers, b"sec-fetch-dest"),
-                     client=_client_class(headers), folded=folded or None)
+                     client=_client_class(headers), reason=reason, folded=folded or None)
         except Exception:
             pass
 
@@ -261,6 +264,11 @@ class BridgeGate:
                 await _reply(scope, receive, send, 401, {"error": "sign in required"})
             return
         if method not in ("GET", "HEAD") and not _same_origin(headers):
+            await _reply(scope, receive, send, 403, {"error": "origin refused"})
+            return
+        if (method in ("GET", "HEAD") and path not in PAGE_OPENS
+                and _fetch_word(headers, b"sec-fetch-site") == "cross-site"):
+            self._note_refusal(scope, headers, method, path, known, "cross-site-get")
             await _reply(scope, receive, send, 403, {"error": "origin refused"})
             return
         if method == "GET" and path == "/m":
