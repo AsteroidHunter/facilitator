@@ -6,7 +6,9 @@
 //   rule       a day's total is fresh input + cache write + cache read + output,
 //              Codex's cached input taken out of its input, the split kept
 //   once       a message or response counts once however many lines and files
-//              repeat it; an older Codex file is read from its token_count events
+//              repeat it, a message at the largest usage any line carries; an
+//              older Codex file is read from its token_count events, once per
+//              running total, so a forked thread replaying its parent adds nothing
 //   cache      an unchanged file is never opened again, an appended one is read
 //              from where it stopped, a shrunk one from the start, a deleted one
 //              keeps its counts, a restarted board carries on from the cache
@@ -214,6 +216,141 @@ test("each day is the four kinds added up, every message and response counted on
     assert.match(response.headers.get("content-type"), type);
     assert.equal(await response.text(), fs.readFileSync(path.join(ROOT, name), "utf8"));
   }
+});
+
+// ---- the largest usage ---------------------------------------------------------------
+test("a streamed reply counts at the largest usage any of its lines carries", async () => {
+  const b = await board();
+  const [d0, d1] = [day(0), day(1)];
+  const proj = path.join(b.home, ".claude", "projects", "proj");
+  const sub = path.join(proj, "s1", "subagents", "agent-a.jsonl");
+  put(sub, [
+    claude("msg_a", d1 + "T10:00:00Z", [10, 100, 1000, 2]),    // a subagent's early lines hold a placeholder output
+    claude("msg_a", d1 + "T10:00:01Z", [10, 100, 1000, 3]),
+    claude("msg_a", d1 + "T10:00:02Z", [10, 100, 1000, 60]),   // and the last one the usage of the whole reply
+    claude("msg_b", d1 + "T11:00:00Z", [1, 0, 5, 40]),
+    claude("msg_b", d1 + "T11:00:01Z", [1, 0, 5, 7]),          // a later line with less adds nothing
+    claude("msg_c", d1 + "T23:59:59Z", [2, 0, 0, 2]),          // a reply that runs past midnight
+    claude("msg_c", d0 + "T00:00:03Z", [2, 0, 0, 90]),         // stays on the day it began
+    claude("msg_e", d1 + "T12:00:00Z", [10, 0, 100, 5]),       // each kind is taken at its own largest
+    claude("msg_e", d1 + "T12:00:01Z", [12, 0, 100, 3]),
+  ]);
+  put(path.join(proj, "s1.jsonl"), [
+    claude("msg_d", d0 + "T01:00:00Z", [5, 0, 50, 4]),
+    claude("msg_d", d0 + "T01:00:01Z", [5, 0, 50, 4]),         // a main session repeats the usage as it is
+  ]);
+  await b.start();
+  let days = byDay(await b.days(2));
+  assert.deepEqual(days[d1], { date: d1, total: 1425, input: 25, cache_write: 100, cache_read: 1105,
+                               output: 195, claude: 1425, codex: 0 });
+  assert.deepEqual(days[d0], { date: d0, total: 59, input: 5, cache_write: 0, cache_read: 50,
+                               output: 4, claude: 59, codex: 0 });
+
+  // a line appended later that carries more adds the difference only, and so
+  // does one appended while the board is down, which carries on from the cache
+  append(sub, claude("msg_a", d1 + "T10:00:09Z", [10, 100, 1000, 80]) + "\n");
+  days = byDay(await b.days(2));
+  assert.equal(days[d1].output, 215);
+  assert.equal(days[d1].total, 1445);
+  await b.stop();
+  append(sub, claude("msg_b", d1 + "T11:00:09Z", [1, 0, 5, 50]) + "\n");
+  await b.start();
+  days = byDay(await b.days(2));
+  assert.equal(days[d1].output, 225);
+  assert.equal(days[d1].total, 1455);
+  assert.equal(days[d0].total, 59);
+
+  const cache = fs.readFileSync(b.cache, "utf8");
+  for (const secret of ["msg_a", "msg_b", "msg_c", "msg_d", "msg_e", "invented words"])
+    assert.ok(!cache.includes(secret), `${secret} reached the cache file`);
+});
+
+test("a message that two files carry counts once, whichever file holds the most of it", async () => {
+  const b = await board();
+  const at = day(1) + "T10:00:00Z";
+  const p = path.join(b.home, ".claude", "projects", "p");
+  const [s1, s2, s3] = ["s1", "s2", "s3"].map(name => path.join(p, name + ".jsonl"));
+  put(s1, [claude("msg_x", at, [10, 0, 100, 2]), claude("msg_y", at, [1, 0, 0, 1])]);   // a placeholder output
+  put(s2, [claude("msg_x", at, [10, 0, 100, 50])]);                                     // a resumed copy with the final usage
+  put(s3, [claude("msg_x", at, [10, 0, 100, 50]), claude("msg_z", at, [3, 0, 0, 3])]);  // and another copy of it
+  for (const file of [s1, s2, s3]) stamp(file, ROUND);
+  await b.start();
+  // x once at 160, y 2, z 6; the first line seen would have made it 120
+  assert.equal(await b.total(), 168);
+
+  // a file read again from the start gives back what it carried: the one
+  // that held the placeholder, the one that holds the final usage
+  put(s1, [claude("msg_x", at, [10, 0, 100, 2], "again"), claude("msg_y", at, [1, 0, 0, 1], "again")]);
+  stamp(s1, ROUND + 10);
+  assert.equal(await b.total(), 168);
+  put(s2, [claude("msg_x", at, [10, 0, 100, 50], "again")]);
+  stamp(s2, ROUND + 10);
+  assert.equal(await b.total(), 168);
+
+  // and loses what it no longer carries
+  put(s1, [claude("msg_x", at, [10, 0, 100, 2], "once more")]);
+  stamp(s1, ROUND + 20);
+  assert.equal(await b.total(), 166);
+
+  // a deleted file keeps its counts, and passes them on when another file
+  // carries more of the same message later, even after a restart
+  fs.unlinkSync(s2);
+  assert.equal(await b.total(), 166);
+  await b.stop();
+  append(s3, claude("msg_x", at, [10, 0, 100, 70]) + "\n");
+  await b.start();
+  assert.equal(await b.total(), 186);
+
+  const cache = fs.readFileSync(b.cache, "utf8");
+  for (const secret of ["msg_x", "msg_y", "msg_z", "invented words"])
+    assert.ok(!cache.includes(secret), `${secret} reached the cache file`);
+});
+
+test("a message that two files carry is counted once on its first day when the zone changes", async () => {
+  const b = await board();
+  const d = day(3);
+  const next = new Date(Date.parse(d) + 864e5).toISOString().slice(0, 10);
+  const p = path.join(b.home, ".claude", "projects", "p");
+  // 20:00 UTC is the same evening in UTC and 01:30 the next morning in Kolkata
+  put(path.join(p, "s1.jsonl"), [claude("msg_x", d + "T20:00:00Z", [0, 0, 0, 2])]);
+  put(path.join(p, "s2.jsonl"), [claude("msg_x", d + "T20:00:05Z", [0, 0, 0, 50])]);
+  const seen = async () => {
+    const days = byDay(await b.days(10));
+    return { [d]: days[d].total, [next]: days[next].total };
+  };
+  await b.start({ TZ: "UTC" });
+  assert.deepEqual(await seen(), { [d]: 50, [next]: 0 });
+  await b.stop();
+  await b.start({ TZ: "Asia/Kolkata" });
+  assert.deepEqual(await seen(), { [d]: 0, [next]: 50 });
+});
+
+test("a forked thread in an older Codex file, replaying its parent's events, adds nothing", async () => {
+  const b = await board();
+  const [d2, d1] = [day(2), day(1)];
+  const sessions = path.join(b.home, ".codex", "sessions", "2026", "09", "20");
+  const parent = [
+    meta("thread-parent"),
+    meter(d2 + "T09:00:00Z", [100, 40, 10], [100, 40, 10]),
+    meter(d2 + "T09:03:00Z", [50, 0, 5], [150, 40, 15]),
+  ];
+  put(path.join(sessions, "rollout-1-parent.jsonl"), parent);
+  put(path.join(sessions, "rollout-2-child.jsonl"), [          // its own header, then its parent's
+    meta("thread-child"), meta("thread-parent"),
+    meter(d1 + "T12:00:00Z", [100, 40, 10], [100, 40, 10]),    // the parent's events again, stamped at the fork
+    meter(d1 + "T12:00:01Z", [50, 0, 5], [150, 40, 15]),
+    meter(d1 + "T12:05:00Z", [30, 0, 3], [180, 40, 18]),       // and its own work
+  ]);
+  // the parent moved into the archive is still one thread
+  put(path.join(b.home, ".codex", "archived_sessions", "rollout-1-parent.jsonl"), parent);
+  await b.start();
+  const answer = await b.days(3);
+  const days = byDay(answer);
+  assert.deepEqual(days[d2], { date: d2, total: 165, input: 110, cache_write: 0, cache_read: 40,
+                               output: 15, claude: 0, codex: 165 });
+  assert.deepEqual(days[d1], { date: d1, total: 33, input: 30, cache_write: 0, cache_read: 0,
+                               output: 3, claude: 0, codex: 33 });
+  assert.equal(answer.total, 198);
 });
 
 // ---- the cache -----------------------------------------------------------------------
