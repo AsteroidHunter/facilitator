@@ -1380,7 +1380,7 @@
        would collide with the board's own ink if they were let out */
     --c3-canvas:#FFFFFF; --c3-hairline:#C7C7CC; --c3-link:#007AFF;
     --c3-sent-text:#FFFFFF; --c3-recv:#E9E9EB; --c3-recv-text:#111111;
-    --c3-text:#000000; --c3-muted:#8E8E93; --c3-red:#FF3B30;
+    --c3-text:#000000; --c3-muted:#8E8E93;
     --c3-glass:rgba(120,120,128,.03); --c3-veil:rgba(255,255,255,.55);
     /* the two lighting stacks. definition comes from a hairline ring that
        costs no layout, with a white top catch over it and a 2px melt, then
@@ -1492,18 +1492,11 @@
      word changes while it cannot be seen, and it fades back in more gently */
   #magic3 .c3rcpt .rc{transition:opacity .34s ease}
   #magic3 .c3rcpt .rc.rc-hide{opacity:0; transition:opacity .16s ease}
-  /* a line that never landed. the bubble stays at full strength, the way the
-     reference app leaves it, and a red badge sits in a column freed to its
-     right, so the bubble's own geometry and its run corners are untouched.
-     either mark is clickable, to hand the line over again */
-  #magic3 .c3evt.failed .c3row.user{padding-right:26px}
-  #magic3 .c3badge{position:absolute; right:2px; top:50%;
-    transform:translateY(-50%); width:18px; height:18px; padding:0; border:none;
-    border-radius:50%; background:var(--c3-red); color:#fff; font-size:12px;
-    font-weight:700; line-height:1; display:grid; place-items:center;
-    cursor:pointer}
-  #magic3 .c3fail{align-self:flex-end; margin-right:26px; padding:1px 4px 0;
-    color:var(--c3-red); font-size:11px; font-weight:600; cursor:pointer}
+  /* a line that never landed. the bubble stays at full strength and the red
+     round mark with its small cross (card-tokens.css, .answmark) sits in a
+     column freed to its right, so the bubble's own geometry and its run
+     corners are untouched */
+  #magic3 .c3evt.failed .c3row.user{padding-right:46px}
   /* ---- the compose bar: no panel behind it, no rule over it. the pill and
      the ＋ float on the thread's own canvas ---------------------------------- */
   #magic3 .c3bar{position:relative; display:flex; gap:8px; align-items:flex-end;
@@ -6902,6 +6895,7 @@ if (!Array.isArray(c3Out)) c3Out = [];
 // here rather than at every place that goes on to read it
 c3Out = c3Out.filter(o => o && typeof o.text === "string").map(o => ({
   id: o.id || c3Id(), at: o.at || Date.now(), text: o.text, failed: !!o.failed,
+  op: o.op || newOpId(), refused: !!o.refused,
   urls: Array.isArray(o.urls) ? o.urls : [], files: [], shots: [], missingFiles: o.missingFiles || 0,
 }));
 // only the lines that certainly did not reach the board are kept across a
@@ -6912,7 +6906,7 @@ c3Out = c3Out.filter(o => o && typeof o.text === "string").map(o => ({
 function c3Save(){
   try {
     localStorage.setItem(C3_OUT_KEY, JSON.stringify(c3Out.filter(o => o.failed)
-      .map(o => ({ id: o.id, at: o.at, text: o.text, failed: true, urls: o.urls,
+      .map(o => ({ id: o.id, at: o.at, text: o.text, failed: true, op: o.op, refused: !!o.refused, urls: o.urls,
         missingFiles: o.missingFiles || Math.max(0, o.files.length - o.urls.length) }))));
   } catch (e) {}
 }
@@ -7110,7 +7104,7 @@ function c3Fill(w, ev, anim){
   const sig = JSON.stringify([ev.blocks, failed]);
   if (w.dataset.sig === sig) return;
   w.dataset.sig = sig;
-  for (const gone of w.querySelectorAll(":scope > .c3row, :scope > .c3fail")) gone.remove();
+  for (const gone of w.querySelectorAll(":scope > .c3row")) gone.remove();
   const time = c3Time(ev.at);
   let last = null;
   for (const b of ev.blocks){
@@ -7142,21 +7136,14 @@ function c3Fill(w, ev, anim){
   }
   w.classList.toggle("failed", failed);
   if (failed && last){
-    // the one way back out of a line that never landed: click either mark to
-    // hand it over again. without this it would sit there for good, and
-    // throwing it away by itself is the one thing this panel must not do
-    const again = () => {
-      if (!ev.out.failed) return;
-      ev.out.failed = false; c3Save(); c3Sig = ""; chatDraw(true); chatPost(ev.out);
-    };
-    const badge = h("button", "c3badge", "!");
-    badge.title = "click to send again";
-    badge.addEventListener("click", again);
+    // the two ways out of a line that never landed: the arrow hands it over
+    // again and the cross takes the words back. without them it would sit
+    // there for good, and throwing it away by itself is the one thing this
+    // panel must not do
+    const badge = sentBadge("fail");
+    badge.querySelector(".answretry").addEventListener("click", () => c3Retry(ev.out));
+    badge.querySelector(".answcross").addEventListener("click", () => c3Cross(ev.out));
     last.appendChild(badge);
-    const label = h("div", "c3fail", "Not Delivered");
-    label.title = "click to send again";
-    label.addEventListener("click", again);
-    w.appendChild(label);
   }
 }
 // one pass over what is on screen: which bubbles belong to a run, and where the
@@ -7261,7 +7248,7 @@ function chatDraw(instant){
   if (!ordered) for (const t of tail) list.appendChild(t);
   // anything the reader said after the last thing the agent said is still unanswered,
   // which is the same set the server counts in the card's pending. a line that
-  // never landed says so on its own bubble, in red, so this line stays out of it
+  // never landed wears the red mark on its own bubble, so this line stays out of it
   let unanswered = 0;
   for (let i = c3Msgs.length - 1; i >= 0 && c3Msgs[i].kind === "user"; i--) unanswered++;
   const bad = c3Out.some(o => o.failed);
@@ -7467,34 +7454,81 @@ async function c3Upload(out){
   }
   return true;
 }
+// the board has the line: its own copy in the thread takes the stand-in's seat
+async function c3Landed(out){
+  out.failed = false;
+  // /send writes the line to the transcript before it answers, so the very
+  // next read of the thread already holds it and the stand-in can go
+  await chatFetch();
+  // unless the bubble is still in the air: the server's copy takes its seat
+  // only once it has landed, or the swap would cut the flight off midway
+  const left = c3Air - performance.now();
+  if (left > 0) await new Promise(r => setTimeout(r, left));
+  const i = c3Out.indexOf(out);
+  if (i >= 0) c3Out.splice(i, 1);
+  c3Save(); c3Sig = ""; chatDraw(true);
+}
+// one try of a line, under the id it was minted with, so a try asked again
+// after a lost answer is answered from the board's receipt and never lands twice
 async function chatPost(out){
-  let ok = false;
+  let result = "failed";
   try {
     if (await c3Upload(out)){
       const body = out.urls.concat(out.text ? [out.text] : []).join("\n");
-      ok = (await fetch("/send?box=" + C3_BOX, { method: "POST", body })).ok;
+      result = await sentTry({ route: "/send?box=" + C3_BOX, op: out.op, text: body });
     }
   } catch (e) {
-    ok = false;
     const ta = document.getElementById("magic3")?._c3?.ta;
     if (ta) attachmentNotice(ta, e.message || "Upload failed. Please try again.");
   }
-  if (ok){
+  if (result === "landed"){
     const ta = document.getElementById("magic3")?._c3?.ta;
     if (ta) attachmentNotice(ta, "");
-    // /send writes the line to the transcript before it answers, so the very
-    // next read of the thread already holds it and the stand-in can go
-    await chatFetch();
-    // unless the bubble is still in the air: the server's copy takes its seat
-    // only once it has landed, or the swap would cut the flight off midway
-    const left = c3Air - performance.now();
-    if (left > 0) await new Promise(r => setTimeout(r, left));
-    const i = c3Out.indexOf(out);
-    if (i >= 0) c3Out.splice(i, 1);
-  } else {
-    out.failed = true;   // it never reached the board. say so, and keep the words
+    await c3Landed(out);
+    return;
+  }
+  out.failed = true;   // it did not get through. keep the words under the mark
+  out.refused = result === "refused";
+  c3Save(); c3Sig = ""; chatDraw(true);
+}
+// the arrow: the line goes out again under its own id. a line the board
+// refused is not sent again
+function c3Retry(out){
+  if (!out.failed || out.refused) return Promise.resolve();
+  out.failed = false; c3Save(); c3Sig = ""; chatDraw(true);
+  return chatPost(out);
+}
+// the words go back in the typing box, after what is already there and never
+// over it, and the line leaves the thread. picked files go back in the tray; a
+// line restored after a reload has no files, so its uploaded addresses go back
+// ahead of the words instead
+function c3Back(out){
+  const i = c3Out.indexOf(out);
+  if (i < 0) return;
+  c3Out.splice(i, 1);
+  const el = document.getElementById("magic3")?._c3;
+  if (el){
+    const lead = out.files.length ? [] : out.urls;
+    const words = lead.concat(out.text ? [out.text] : []).join("\n");
+    if (words) el.ta.value = el.ta.value.trim() ? el.ta.value.trimEnd() + "\n\n" + words : words;
+    c3Pick(out.files);
+    c3Autosize(); c3Refresh();
   }
   c3Save(); c3Sig = ""; chatDraw(true);
+}
+// the cross. a refused line is known not to have landed, so its words come
+// back at once. any other failure leaves it unknown, so the board is asked
+// first: landed, and the line stands in the thread with nothing taken back; not
+// landed, and the words go back; no answer, and nothing happens
+async function c3Cross(out){
+  if (!out.failed || out.asking) return;
+  if (out.refused){ c3Back(out); return; }
+  out.asking = true;
+  let said;
+  try { said = await askReceipt(out.op); } finally { out.asking = false; }
+  if (!said || !out.failed || !c3Out.includes(out)) return;
+  if (said.status === "applied") await c3Landed(out);
+  else if (said.status === "unknown" && Date.now() - out.at < OP_CERTAIN_MS) c3Back(out);
 }
 async function chatSend(){
   const host = document.getElementById("magic3");
@@ -7514,7 +7548,7 @@ async function chatSend(){
   // on screen before the request leaves, at full strength, and it stays there
   // until the thread comes back holding it: there is no moment where the reader's words
   // are nowhere
-  const out = { id: c3Id(), at: Date.now(), text, failed: false, files,
+  const out = { id: c3Id(), at: Date.now(), text, failed: false, op: newOpId(), refused: false, files,
                 shots: shots.map(p => ({ url: p.url, w: p.w, h: p.h, kind: p.kind, name: p.name })), urls: [] };
   const list = el.msgs;
   const shift = c3ShiftBegin(list);
