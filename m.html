@@ -4804,13 +4804,17 @@ function wideShow(){
 let arrivedBox = null;
 // the colour is back, so the caret the phone was handed under the hold is issued again from it
 function reassertCaret(){
+  const arrived = arrivedBox;
+  arrivedBox = null;
+  if (arrived && arrived.field.focused()){
+    // a step's caret the phone left at the head of the words goes back to their end
+    const end = arrived.ta.value.length;
+    if (end && arrived.ta.selectionStart === 0 && arrived.ta.selectionEnd === 0) arrived.ta.setSelectionRange(end, end);
+  }
   const box = typingFoot && typingFoot.querySelector(".compose > textarea:not(.twin)");
   if (!box || document.activeElement !== box) return;
-  let from = box.selectionStart, to = box.selectionEnd;
+  const from = box.selectionStart, to = box.selectionEnd;
   if (from === null || to === null) return;
-  // a step's caret the phone left at the head of the words goes back to their end
-  if (arrivedBox === box && from === 0 && to === 0) from = to = box.value.length;
-  arrivedBox = null;
   void getComputedStyle(box).caretColor;
   box.setSelectionRange(from, to, box.selectionDirection || undefined);
 }
@@ -4968,7 +4972,7 @@ function stepCard(dir, focus){
   const end = el.ta.value.length;
   el.ta.setSelectionRange(end, end);
   el.ta.focus({ preventScroll: true });
-  arrivedBox = document.activeElement === el.ta ? el.ta : null;
+  arrivedBox = el.field.focused() ? el : null;
 }
 
 // A drag across the card walks the same pool as the keyboard. It waits until
