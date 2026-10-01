@@ -4800,12 +4800,12 @@ function wideShow(){
   if (wideRelease){ wideRelease(); wideRelease = null; }
   wideCaret(false);
 }
-// the box a card step just put the caret in, until the hold ends or the typist acts
-let arrivedBox = null;
+// the card a step just put the caret in, until the hold ends or a key is pressed
+let arrivedCard = null;
 // the colour is back, so the caret the phone was handed under the hold is issued again from it
 function reassertCaret(){
-  const arrived = arrivedBox;
-  arrivedBox = null;
+  const arrived = arrivedCard;
+  arrivedCard = null;
   if (arrived && arrived.field.focused()){
     // a step's caret the phone left at the head of the words goes back to their end
     const end = arrived.ta.value.length;
@@ -4872,7 +4872,7 @@ function typingStart(){
 function typingDown(){
   const foot = typingFoot, wasWide = wideOn, wasTyping = foot.classList.contains("typing");
   wideUp = wideStarted = wideEnded = wideLanded = wideOn = false;
-  arrivedBox = null;
+  arrivedCard = null;
   if (wideClock){ clearTimeout(wideClock); wideClock = null; }
   if (graceTimer){ clearTimeout(graceTimer); graceTimer = null; }
   wideShow();
@@ -4911,7 +4911,7 @@ document.addEventListener("focusout", () => requestAnimationFrame(reconcile));  
 for (const type of ["beforeinput", "keydown"]){
   document.addEventListener(type, e => { const t = e.target;
     if (t instanceof HTMLTextAreaElement || (t && t.isContentEditable && t.closest && t.closest(".compose"))) shoveClears = 0;
-    arrivedBox = null; }, true);
+    arrivedCard = null; }, true);
 }
 if (window.visualViewport){
   window.visualViewport.addEventListener("resize", reconcile);
@@ -4972,7 +4972,7 @@ function stepCard(dir, focus){
   const end = el.ta.value.length;
   el.ta.setSelectionRange(end, end);
   el.ta.focus({ preventScroll: true });
-  arrivedBox = el.field.focused() ? el : null;
+  arrivedCard = el.field.focused() ? el : null;
 }
 
 // A drag across the card walks the same pool as the keyboard. It waits until
