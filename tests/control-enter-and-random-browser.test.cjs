@@ -394,7 +394,11 @@ for (const { name, viewport, caretFollows } of PAGES) {
       const at = await landing(page);
       assert.equal(at.selected, ids.source, "a refused send moved the reader away from it");
       if (caretFollows) {
-        assert.match(await page.$eval(SEL, field => field.value), /this send is refused/, "the refused words were not given back");
+        // a refused send stays in the sent panel under its mark; the cross gives the words back
+        assert.equal(await page.evaluate(card => {
+          const held = (els[card] && els[card].sentHeld) || [];
+          return held.length === 1 && held[0].refused === true && /this send is refused/.test(held[0].text);
+        }, ids.source), true, "the refused send was not held under its mark");
       } else {
         assert.equal(await page.evaluate(card => localSends(card).some(op => op.state === "failed"), ids.source), true,
           "the refused send was not marked");
