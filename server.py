@@ -1961,6 +1961,39 @@ def _ensure_reply_schema_boundary() -> None:
     _state["transcript_reply_variants_version"] = REPLY_VARIANTS_VERSION
 
 
+def _backfill_rest_stamps() -> None:
+    """Give each parked or done card that has no parked_ts or done_ts the time of
+    the latest park or done event the transcript holds for it, and its own ts
+    when the transcript holds none. Only a missing stamp is filled and nothing
+    else on a card is touched, so a start with every stamp in place reads no
+    transcript and changes nothing. Callers hold _lock or run before serving."""
+    missing = [(b, flag, stamp)
+               for b in _state["boxes"]
+               for flag, stamp in (("parked", "parked_ts"), ("done", "done_ts"))
+               if b.get(flag) and not isinstance(b.get(stamp), (int, float))]
+    if not missing:
+        return
+    latest: dict = {}   # (box id, event kind) -> time of the last such row in file order
+    try:
+        with TRANSCRIPT_PATH.open(errors="replace") as transcript:
+            for line in transcript:
+                try:
+                    event = json.loads(line)
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(event, dict) or event.get("kind") not in ("park", "done"):
+                    continue
+                bid, ts = event.get("box"), event.get("ts")
+                if isinstance(bid, str) and isinstance(ts, (int, float)) and not isinstance(ts, bool):
+                    latest[(bid, event["kind"])] = ts
+    except FileNotFoundError:
+        pass
+    now = time.time()
+    for b, flag, stamp in missing:
+        kind = "park" if flag == "parked" else "done"
+        b[stamp] = latest.get((b["id"], kind)) or b.get("ts") or now
+
+
 def _migrate() -> None:
     """Apply each versioned, idempotent upgrade to saved board state."""
     _state.setdefault("paused", False)
@@ -2183,6 +2216,10 @@ def _migrate() -> None:
         [int(n["id"][2:]) for n in _state["quicknotes"]
          if isinstance(n, dict) and str(n.get("id", "")).startswith("qn")
          and str(n["id"])[2:].isdigit()] or [0]))
+    # when each deferred or done card was put there, for the Deferred and Done
+    # tabs to list by: cards saved before the board stamped them are filled once
+    # from the transcript and from then on the routes keep the stamps
+    _backfill_rest_stamps()
     _save()
 
 
@@ -2405,10 +2442,23 @@ def _box_has_content(box: dict) -> bool:
             bool(box.get("pending")))
 
 
+def _stamp_rest(box: dict, now: float) -> None:
+    """Keep parked_ts and done_ts in step with the parked and done flags: a stamp
+    is written the moment its flag turns on, kept while the flag stays on, and
+    dropped when it turns off. The Deferred and Done tabs list by these times.
+    Callers hold _lock, change the flags first and save after."""
+    for flag, stamp in (("parked", "parked_ts"), ("done", "done_ts")):
+        if box.get(flag):
+            box.setdefault(stamp, now)
+        else:
+            box.pop(stamp, None)
+
+
 def _mark_box_done(box: dict) -> str:
     box["done"] = True
     box["parked"] = False
     box["testing"] = False   # a closed card is not awaiting a test
+    _stamp_rest(box, time.time())
     _log("done", box["id"], "")
     return "done"
 
@@ -3270,6 +3320,7 @@ def _phone_box(b: dict) -> dict:
         "done": b["done"], "replies": b["replies"], "olderReplies": _older_replies(b),
         "ball": b.get("ball", "you"),
         "parked": b.get("parked", False), "ts": b.get("ts", 0), "owner": ow,
+        "parkedTs": b.get("parked_ts", 0), "doneTs": b.get("done_ts", 0),
         "pending": len(b["pending"]),
         "pendingTexts": [m["text"] for m in b["pending"]],
         "pendingStamps": [m.get("ts", 0) for m in b["pending"]],
@@ -3465,6 +3516,10 @@ def _ui_state() -> dict:
                 "olderReplies": _older_replies(b),
                 "ball": b.get("ball", "you"),
                 "parked": b.get("parked", False),
+                # when the card was deferred and when it was marked done, which
+                # is what the Deferred and Done tabs list by; 0 while it is not
+                "parkedTs": b.get("parked_ts", 0),
+                "doneTs": b.get("done_ts", 0),
                 "ts": b.get("ts", 0),
                 "context": b.get("context", ""),
                 "owner": b.get("owner", "facilitator"),
@@ -4560,6 +4615,7 @@ def _post_send(q: Query, text: str):
             msg["op"] = op
         box["pending"].append(msg)
         box["parked"] = False
+        _stamp_rest(box, msg["ts"])
         # fresh feedback lowers the ready-to-test marker: the reader has answered,
         # so any earlier "ready to try" no longer stands. This sits past the op
         # receipt above, so a deduplicated retry of an already-accepted send
@@ -4759,6 +4815,7 @@ def _post_done(q: Query, text: str):
         if box["done"]:
             box["parked"] = False
             box["testing"] = False   # a done card is not awaiting a test
+        _stamp_rest(box, time.time())
         _log("done" if box["done"] else "undone", bid, "")
         _save()
         _notify()
@@ -4960,6 +5017,7 @@ def _post_park(q: Query, text: str):
         box["parked"] = want
         if box["parked"]:
             box["done"] = False
+        _stamp_rest(box, time.time())
         _log("park" if box["parked"] else "unpark", bid, "")
         _save()
         _notify()
