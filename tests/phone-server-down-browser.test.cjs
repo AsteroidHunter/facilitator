@@ -450,11 +450,18 @@ test("opening: the first reading decides, an app in use is never covered", async
       await page.close();
     },
   };
-  const results = await Promise.allSettled(Object.entries(cases).map(async ([name, run]) => {
-    try { await run(); } catch (error) { error.message = `${name}: ${error.message}`; throw error; }
+  // a few at a time: the board answers at most 32 readings at once, its own files
+  // included, and turns the rest away, so a crowd of pages opening together
+  // loses scripts the page cannot start without
+  const waiting = Object.entries(cases);
+  const failures = [];
+  await Promise.all(Array.from({ length: 5 }, async () => {
+    for (let next = waiting.shift(); next; next = waiting.shift()) {
+      const [name, run] = next;
+      try { await run(); } catch (error) { failures.push(`${name}: ${error.message}`); }
+    }
   }));
-  const failed = results.filter(result => result.status === "rejected");
-  if (failed.length) throw new Error(failed.map(result => result.reason.message).join("\n"));
+  if (failures.length) throw new Error(failures.join("\n"));
 });
 
 test("the server stops and starts again: an app in use is never covered, an opening is, and the card and the words stay", async () => {
