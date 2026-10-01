@@ -451,8 +451,13 @@ test("the bridge refuses /limits without a session and serves the numbers with o
   assert.equal(served.status, 200, served.text);
   assert.match(served.type, /^application\/json/);
   const answer = JSON.parse(served.text);
-  assert.deepEqual(answer, { claude: { five_hour: { used: 12, resets: ahead }, weekly: { used: 34, resets: ahead } } });
-  assert.deepEqual(JSON.parse((await request(port, "/limits")).text), answer);
+  const { fetched, now, refreshing, ...numbers } = answer;
+  assert.deepEqual(numbers, { claude: { five_hour: { used: 12, resets: ahead }, weekly: { used: 34, resets: ahead } } });
+  assert.equal(typeof now, "number");
+  assert.ok(fetched <= now && now - fetched < 60, "when it was read, by the server's clock");
+  assert.equal(refreshing, false, "nothing to renew: no codex on this server");
+  const local = JSON.parse((await request(port, "/limits")).text);
+  assert.deepEqual(local.claude, answer.claude);
 });
 
 // ---- the page at an iPhone 13 mini's size, over the bridge -------------------------------

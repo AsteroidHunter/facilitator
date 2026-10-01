@@ -183,6 +183,7 @@ seen = []
 for t in (1000, 1100, 1299, 1300, 1301, 1599, 1600):
     clock[0] = float(t)
     seen.append(box.read())
+    box.idle()
 print(json.dumps(seen))`);
   const ok = run();
   assert.equal(codex.starts(), 3, "at 1000, 1300 and 1600 seconds");
@@ -192,6 +193,75 @@ print(json.dumps(seen))`);
   const failed = run();
   assert.equal(codex.starts(), 3, "a codex that answers with an error is not started every request");
   assert.deepEqual(failed, Array(7).fill({}));
+});
+
+test("a reading kept is answered at once, and a stale one is renewed behind the answer", () => {
+  const dir = scratch();
+  const bin = path.join(dir, "bin");
+  const codex = installCodex(bin);
+  const later = codexReply({ five: windowOf(50, 300, FUTURE), week: windowOf(80, 10080, FUTURE) });
+  const got = py(`import json, limits
+clock = [1000.0]
+box = limits.Limits(${lit(path.join(dir, "none.json"))}, lambda: None, path=${lit(bin)}, clock=lambda: clock[0])
+log = []
+def see(label):
+    out = box.answer()
+    five = out.get("codex", {}).get("five_hour", {}).get("used")
+    log.append({"label": label, "five": five, "fetched": out["fetched"], "now": out["now"], "refreshing": out["refreshing"]})
+see("first")
+open(${lit(path.join(bin, "reply.json"))}, "w").write(json.dumps(${lit(later)}))
+clock[0] = 1299.0
+see("inside the five minutes")
+clock[0] = 1300.0
+see("stale")
+box.idle()
+clock[0] = 1301.0
+see("renewed")
+open(${lit(path.join(bin, "mode.txt"))}, "w").write("error")
+clock[0] = 1600.0
+see("failing")
+box.idle()
+clock[0] = 1601.0
+see("kept")
+clock[0] = 1899.0
+see("not asked again")
+print(json.dumps(log))`);
+  const by = Object.fromEntries(got.map(g => [g.label, g]));
+  assert.deepEqual(by["first"], { label: "first", five: 32, fetched: 1000, now: 1000, refreshing: false });
+  assert.deepEqual(by["inside the five minutes"], { label: "inside the five minutes", five: 32, fetched: 1000, now: 1299, refreshing: false });
+  assert.deepEqual(by["stale"], { label: "stale", five: 32, fetched: 1000, now: 1300, refreshing: true },
+    "the old numbers are answered at once and the renewal runs behind them");
+  assert.deepEqual(by["renewed"], { label: "renewed", five: 50, fetched: 1300, now: 1301, refreshing: false });
+  assert.deepEqual(by["failing"], { label: "failing", five: 50, fetched: 1300, now: 1600, refreshing: true });
+  assert.deepEqual(by["kept"], { label: "kept", five: 50, fetched: 1300, now: 1601, refreshing: false },
+    "a renewal that finds nothing keeps the last good reading and its time");
+  assert.equal(by["not asked again"].refreshing, false, "the failed ask spaced the next one by five minutes");
+  assert.equal(codex.starts(), 3, "at 1000, 1300 and 1600 seconds");
+});
+
+test("a renewal that is slow leaves every request answered at once", () => {
+  const dir = scratch();
+  const bin = path.join(dir, "bin");
+  const codex = installCodex(bin);
+  const got = py(`import json, limits, time
+clock = [1000.0]
+box = limits.Limits(${lit(path.join(dir, "none.json"))}, lambda: None, path=${lit(bin)}, clock=lambda: clock[0])
+box.read()
+open(${lit(path.join(bin, "delay.txt"))}, "w").write("1.5")
+clock[0] = 1400.0
+seconds = []
+flags = []
+for k in range(4):
+    t = time.monotonic()
+    out = box.answer()
+    seconds.append(time.monotonic() - t)
+    flags.append(out["refreshing"])
+box.idle()
+print(json.dumps({"seconds": seconds, "flags": flags, "after": box.answer()["refreshing"]}))`);
+  assert.ok(got.seconds.every(s => s < 0.5), `the requests took ${got.seconds}`);
+  assert.deepEqual(got.flags, [true, true, true, true]);
+  assert.equal(got.after, false);
+  assert.equal(codex.starts(), 2, "four requests during one renewal start one codex");
 });
 
 test("a codex that hangs is stopped at the time limit and the logs answer instead", () => {
@@ -250,28 +320,35 @@ const numbers = (value, where = "answer") => {
   for (const [k, v] of Object.entries(value)) numbers(v, `${where}.${k}`);
 };
 
+// the rows alone: the answer also says when the reading was taken, by the server's
+// clock, and whether it is being renewed, which the tests of those keys read whole
+const rows = async b => {
+  const { fetched, now, refreshing, ...rest } = await b.limits();
+  return rest;
+};
+
 test("a board with neither tool answers with nothing to show", async () => {
   const b = await (await board()).start();
-  assert.deepEqual(await b.limits(), {});
+  assert.deepEqual(await rows(b), {});
 });
 
 test("Claude's rows come from the status line's file, read fresh on every request", async () => {
   const b = await (await board({ claude: {
     five_hour: { used_percentage: 12.4, resets_at: FUTURE }, seven_day: { used_percentage: 40, resets_at: FUTURE } } })).start();
-  assert.deepEqual(await b.limits(), { claude: { five_hour: { used: 12, resets: FUTURE }, weekly: { used: 40, resets: FUTURE } } });
+  assert.deepEqual(await rows(b), { claude: { five_hour: { used: 12, resets: FUTURE }, weekly: { used: 40, resets: FUTURE } } });
   fs.writeFileSync(b.claudeFile, JSON.stringify({ five_hour: { used_percentage: 77, resets_at: FUTURE } }));
-  assert.deepEqual(await b.limits(), { claude: { five_hour: { used: 77, resets: FUTURE } } });
+  assert.deepEqual(await rows(b), { claude: { five_hour: { used: 77, resets: FUTURE } } });
   fs.rmSync(b.claudeFile);
-  assert.deepEqual(await b.limits(), {}, "no file, no rows and no message");
+  assert.deepEqual(await rows(b), {}, "no file, no rows and no message");
 });
 
 test("Codex's rows come from the app server, once in five minutes, and carry only numbers", async () => {
   const b = await (await board({ codex: {} })).start();
-  const first = await b.limits();
+  const first = await rows(b);
   assert.deepEqual(first, { codex: { five_hour: { used: 32, resets: FUTURE }, weekly: { used: 61, resets: FUTURE } } });
   b.codex.setReply(codexReply({ five: windowOf(50, 300, FUTURE), week: windowOf(80, 10080, FUTURE) }));
-  assert.deepEqual(await b.limits(), first, "the next requests are answered from the reading kept");
-  assert.deepEqual(await b.limits(), first);
+  assert.deepEqual(await rows(b), first, "the next requests are answered from the reading kept");
+  assert.deepEqual(await rows(b), first);
   assert.equal(b.codex.starts(), 1);
   assert.deepEqual(b.codex.calls(), ["initialize", "initialized", "account/rateLimits/read"]);
   numbers(first);
@@ -284,10 +361,46 @@ test("both tools show together, and a window already over shows 0", async () => 
   const b = await (await board({ codex: { reply: codexReply({
     five: windowOf(55, 300, PAST), week: windowOf(61, 10080, FUTURE) }) },
     claude: { five_hour: { used_percentage: 90, resets_at: FUTURE }, seven_day: { used_percentage: 95, resets_at: PAST } } })).start();
-  assert.deepEqual(await b.limits(), {
+  assert.deepEqual(await rows(b), {
     claude: { five_hour: { used: 90, resets: FUTURE }, weekly: { used: 0, resets: PAST } },
     codex: { five_hour: { used: 0, resets: PAST }, weekly: { used: 61, resets: FUTURE } },
   });
+});
+
+test("the answer says when Codex was read, by the server's clock, and whether it is being renewed", async () => {
+  const before = Math.floor(Date.now() / 1000);
+  const b = await (await board({ codex: {} })).start();
+  const first = await b.limits();
+  assert.deepEqual(Object.keys(first).sort(), ["codex", "fetched", "now", "refreshing"]);
+  assert.ok(Number.isInteger(first.fetched) && first.fetched >= before - 1 && first.fetched <= first.now, "the fetch time is a whole second");
+  assert.ok(Math.abs(first.now - Date.now() / 1000) < 5, "now is the server's own clock");
+  assert.equal(first.refreshing, false);
+  const again = await b.limits();
+  assert.equal(again.fetched, first.fetched, "a request inside the five minutes leaves the fetch time alone");
+});
+
+test("a stale reading is answered at once by the board, and renewed behind the answer", async () => {
+  const b = await (await board({ codex: {}, every: 1 })).start();
+  const first = await b.limits();
+  assert.equal(first.codex.five_hour.used, 32);
+  b.codex.setReply(codexReply({ five: windowOf(50, 300, FUTURE), week: windowOf(80, 10080, FUTURE) }));
+  b.codex.setDelay(1.5);
+  await new Promise(resolve => setTimeout(resolve, 1200));
+  const asked = Date.now();
+  const stale = await b.limits();
+  assert.ok(Date.now() - asked < 700, "the answer did not wait for the app server");
+  assert.equal(stale.codex.five_hour.used, 32, "the numbers kept are answered");
+  assert.equal(stale.fetched, first.fetched);
+  assert.equal(stale.refreshing, true);
+  let fresh = stale;
+  for (let k = 0; k < 40 && fresh.refreshing; k++) {
+    await new Promise(resolve => setTimeout(resolve, 150));
+    fresh = await b.limits();
+  }
+  assert.equal(fresh.refreshing, false);
+  assert.equal(fresh.codex.five_hour.used, 50);
+  assert.ok(fresh.fetched > first.fetched, "the fetch time moved with the renewal");
+  assert.equal(b.codex.starts(), 2);
 });
 
 test("with no codex command, the newest limits in its session logs answer, never a model's", async () => {
@@ -302,7 +415,7 @@ test("with no codex command, the newest limits in its session logs answer, never
     logLine("2026-09-20T09:00:00Z", "codex", [1, 300, FUTURE], [2, 10080, FUTURE]),
   ].join("\n") + "\n");
   await b.start();
-  const answer = await b.limits();
+  const answer = await rows(b);
   assert.deepEqual(answer, { codex: { five_hour: { used: 31, resets: FUTURE }, weekly: { used: 62, resets: FUTURE } } });
   assert.equal(b.codex, null, "no codex was started: there is none");
   // what the board keeps of them is numbers and nothing else
@@ -317,7 +430,7 @@ test("with no codex command, the newest limits in its session logs answer, never
   delete cache.limits;
   fs.writeFileSync(b.cacheFile, JSON.stringify(cache));
   await b.start();
-  assert.deepEqual(await b.limits(), answer);
+  assert.deepEqual(await rows(b), answer);
 });
 
 test("a codex that cannot answer leaves the session logs to do it, and the route still answers", async () => {
@@ -327,7 +440,7 @@ test("a codex that cannot answer leaves the session logs to do it, and the route
   fs.writeFileSync(path.join(sessions, "rollout-b.jsonl"),
     logLine("2026-09-21T10:00:00Z", "codex", [44, 10080, FUTURE], null) + "\n");
   await b.start();
-  assert.deepEqual(await b.limits(), { codex: { weekly: { used: 44, resets: FUTURE } } });
+  assert.deepEqual(await rows(b), { codex: { weekly: { used: 44, resets: FUTURE } } });
   assert.equal(b.codex.starts(), 1);
 });
 

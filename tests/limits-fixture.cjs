@@ -24,6 +24,8 @@ if sys.argv[1:] != ["app-server"]:
 mode = open(os.path.join(here, "mode.txt")).read().strip()
 if mode == "hang":
     time.sleep(600)
+if os.path.exists(os.path.join(here, "delay.txt")):
+    time.sleep(float(open(os.path.join(here, "delay.txt")).read().strip() or 0))
 for line in sys.stdin:
     try:
         message = json.loads(line)
@@ -52,6 +54,7 @@ function installCodex(binDir, { reply = codexReply(), mode = "ok" } = {}) {
   const codex = {
     setReply(value) { fs.writeFileSync(at("reply.json"), JSON.stringify(value)); },
     setMode(value) { fs.writeFileSync(at("mode.txt"), value); },
+    setDelay(seconds) { fs.writeFileSync(at("delay.txt"), String(seconds)); },
     starts: () => lines("starts.txt").length,
     pids: () => lines("starts.txt").map(Number),
     calls: () => lines("calls.txt"),
@@ -109,7 +112,8 @@ exit 0
 
 // a board of its own on a spare port: its own folder, its own HOME, and a PATH
 // that holds a fake tailscale and, when asked for, a fake codex, and nothing else
-async function serve({ codex = null, claude = null, level = "info" } = {}) {
+// every, when given, is the seconds between two asks of Codex in place of five minutes
+async function serve({ codex = null, claude = null, level = "info", every = 0 } = {}) {
   const { spawn } = require("node:child_process");
   const { tmpdir } = require("node:os");
   const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
@@ -128,6 +132,11 @@ async function serve({ codex = null, claude = null, level = "info" } = {}) {
   copyBridgeFiles(dir);
   for (const name of ["tokens.py", "limits.py", "m-manifest.json", "home-widgets.js", "home-widgets.css"])
     fs.copyFileSync(path.join(ROOT, name), path.join(dir, name));
+  if (every) {
+    const text = fs.readFileSync(path.join(dir, "limits.py"), "utf8");
+    if (!text.includes("EVERY = 5 * 60")) throw new Error("the limits ceiling's anchor moved");
+    fs.writeFileSync(path.join(dir, "limits.py"), text.replace("EVERY = 5 * 60", "EVERY = " + every));
+  }
   fs.writeFileSync(path.join(dir, "seed.json"), JSON.stringify({
     title: "Kettle Drum",
     items: [{ id: "0", bucket: "meta", title: "Standing note for the tool lane", owner: "facilitator" }],
