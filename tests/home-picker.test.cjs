@@ -254,7 +254,7 @@ test("the new tab behaves as before: a marked row, an inert open row, a closed r
     await goPlus(page);
     const m = await measure(page);
     near(m.stack.cx, m.vw / 2, "new tab across the window");
-    near(m.stack.cy, 41 + (m.vh - 41) * 0.44, "new tab down the window", 1.5);
+    near(m.stack.top - m.frame.top, m.frame.bottom - m.stack.bottom, "new tab centred down the frame", 1.5);
     assert.equal(m.marked, 1, "the project it came from is the marked row");
     // an open project's row is plain information
     await clickRow(page, "harbor-notes");
