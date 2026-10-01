@@ -3,9 +3,9 @@
 // board's own home page, the token panel from home-widgets.js and nothing else,
 // and a tap on any project tab brings that project's board back. held here four
 // ways: m.html's markup and sheet read as text; the page's own home block lifted
-// out and run against a small DOM, with no browser; GET /tokens/daily on the
-// bridge socket of a fixture server, refused without a session and served with
-// one; and the page itself at an iPhone 13 mini's size (375 by 812, device
+// out and run against a small DOM, with no browser; GET /tokens/daily and
+// GET /limits on the bridge socket of a fixture server, refused without a
+// session and served with one; and the page itself at an iPhone 13 mini's size (375 by 812, device
 // scale 3, touch), signed in over that socket, driven by taps. every count is
 // invented and HOME points into the fixture, so no real log is ever read
 const assert = require("node:assert/strict");
@@ -95,7 +95,7 @@ test("the house heads the phone's tab row, a tab in all but its mark", () => {
 test("the home page takes the card's place, holds only the token panel and keeps the card as it was", () => {
   // inside the pane, beside the card, loaded only when home first opens
   const pane = between(PHONE, '<main id="pane"', "</main>");
-  assert.match(pane, /<section id="home" aria-label="Home"><div id="homeplot"><\/div><\/section>/);
+  assert.match(pane, /<section id="home" aria-label="Home"><div id="homeplot"><\/div><div id="homelimits" hidden><\/div><\/section>/);
   assert.doesNotMatch(PHONE, /<script src="\/home-widgets\.js">/);
   assert.doesNotMatch(PHONE, /<link[^>]*home-widgets\.css/);
   const rules = rulesOf(PHONE);
@@ -355,7 +355,7 @@ before(async () => {
   copyBridgeFiles(app);
   for (const name of ["index.html", "m.html", "m-sw.js", "m-manifest.json", "card-markdown.js", "card-tokens.css",
                       "card-logic.js", "card-report.js", "compose-format.js", "cm-markdown.js",
-                      "home-widgets.js", "home-widgets.css", "tokens.py"])
+                      "home-widgets.js", "home-widgets.css", "tokens.py", "limits.py"])
     fs.copyFileSync(path.join(ROOT, name), path.join(app, name));
   fs.cpSync(path.join(ROOT, "assets"), path.join(app, "assets"), { recursive: true });
   fs.writeFileSync(path.join(app, "state.json"), JSON.stringify(boardState({ cards: 24, seed: 916, dir: outer })));
@@ -369,6 +369,8 @@ before(async () => {
   const env = { ...process.env, HOME: home, TZ: "UTC", FACILITATOR_TEST_PORT: String(port),
                 FACILITATOR_LOG_DIR: path.join(outer, "logs") };
   delete env.CLAUDE_CONFIG_DIR; delete env.CODEX_HOME;
+  // no codex on the fixture's path, so the limits route never starts one
+  fs.mkdirSync(path.join(outer, "nobin")); env.PATH = path.join(outer, "nobin");
   const child = spawn(PYTHON, [path.join(app, "server.py")], { cwd: app, env, stdio: ["ignore", "pipe", "pipe"] });
   let output = "";
   for (const s of [child.stdout, child.stderr]) { s.setEncoding("utf8"); s.on("data", c => { output += c; }); }
@@ -432,6 +434,25 @@ test("the bridge refuses /tokens/daily without a session and serves it with one"
   assert.equal((await request(bridge, route, { Cookie: gone })).status, 200);
   assert.equal((await request(bridge, "/auth/logout", { Origin: origin, Cookie: gone }, "POST")).status, 200);
   assert.equal((await request(bridge, route, { Cookie: gone })).status, 401);
+});
+
+test("the bridge refuses /limits without a session and serves the numbers with one", async () => {
+  const { outer, port, bridge, cookie } = fixture;
+  const ahead = Math.floor(Date.now() / 1000) + 3600;
+  fs.writeFileSync(path.join(outer, "app", "claude-limits.json"), JSON.stringify({
+    five_hour: { used_percentage: 12, resets_at: ahead }, seven_day: { used_percentage: 34, resets_at: ahead } }));
+  for (const headers of [{}, { Cookie: "__Host-facilitator_session=not-a-session" }]) {
+    const refused = await request(bridge, "/limits", headers);
+    assert.equal(refused.status, 401, JSON.stringify(headers));
+    assert.deepEqual(JSON.parse(refused.text), { error: "sign in required" });
+    assert.doesNotMatch(refused.text, /used|five_hour|weekly/, "a refusal carries no numbers");
+  }
+  const served = await request(bridge, "/limits", { Cookie: cookie });
+  assert.equal(served.status, 200, served.text);
+  assert.match(served.type, /^application\/json/);
+  const answer = JSON.parse(served.text);
+  assert.deepEqual(answer, { claude: { five_hour: { used: 12, resets: ahead }, weekly: { used: 34, resets: ahead } } });
+  assert.deepEqual(JSON.parse((await request(port, "/limits")).text), answer);
 });
 
 // ---- the page at an iPhone 13 mini's size, over the bridge -------------------------------

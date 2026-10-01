@@ -16,6 +16,10 @@
 /tokens-cache.json
 /tokens-cache.json.tmp
 
+# Claude Code's plan limits for the home page, written by claude-statusline.py
+/claude-limits.json
+/claude-limits.json.tmp
+
 # real seed content: private discussion topics, never committed
 /seed.json
 

@@ -35,12 +35,18 @@
 //            scrollbar, like every scroller on the board. Each chart keeps its
 //            own place while the page is open, and one left at its latest end
 //            stays there as new days arrive or the window is resized
+//   limits   a second, smaller box of the same make: one row for each plan
+//            window GET /limits has a number for, Claude 5-hour, Claude
+//            weekly, Codex 5-hour, Codex weekly, each a name, a bar and the
+//            percent used. It says nothing else, and while there is no row to
+//            show it is not shown at all
 //
 // Each widget is a function of (element, days) that draws into the element
 // it is given and owns nothing outside it, so either can later sit in a shared
 // widget system on its own. The drawing is plain SVG written as text; the
 // models under it are plain data, which is what the tests hold them to.
-// Nothing here fetches except the panel, and only /tokens/daily.
+// Nothing here fetches except the panel, and only /tokens/daily, and the
+// limits box, and only /limits.
 (function () {
   const WEEKS = 53;
   const LEFT = 34, TOP = 20;                    // room for the day and month names
@@ -600,11 +606,75 @@
     return { root: box, show, refresh, view: () => view };
   }
 
+  // ---- the limits box ------------------------------------------------------
+  // the plan windows GET /limits can answer with, in the order they are shown:
+  // the tool, the window and the words on the row
+  const LIMIT_ROWS = [["claude", "five_hour", "Claude 5-hour"], ["claude", "weekly", "Claude weekly"],
+                      ["codex", "five_hour", "Codex 5-hour"], ["codex", "weekly", "Codex weekly"]];
+  // the rows an answer has a number for, each a whole percent from 0 to 100; a
+  // tool the answer leaves out, or a window it has no number for, has no row
+  function limitRows(answer) {
+    const rows = [];
+    if (!answer || typeof answer !== "object") return rows;
+    for (const [tool, span, label] of LIMIT_ROWS) {
+      const w = answer[tool] && answer[tool][span];
+      if (!w || typeof w.used !== "number" || !Number.isFinite(w.used)) continue;
+      rows.push({ label, used: Math.max(0, Math.min(100, Math.round(w.used))) });
+    }
+    return rows;
+  }
+  // the box is drawn into root, which it hides while there is nothing to show:
+  // no heading, no message and no empty frame. a reading that cannot be had
+  // leaves the last drawing as it was
+  function limits(root, opts = {}) {
+    const doc = root.ownerDocument || document;
+    const load = opts.load || (() => fetch("/limits")
+      .then(r => { if (!r.ok) throw new Error("limits " + r.status); return r.json(); }));
+    const el = (tag, cls, text) => {
+      const n = doc.createElement(tag);
+      n.className = cls;
+      if (text != null) n.textContent = text;
+      return n;
+    };
+    function draw(rows) {
+      root.textContent = "";
+      root.hidden = !rows.length;
+      if (!rows.length) return;
+      const box = el("div", "tk-panel lm-box");
+      for (const { label, used } of rows) {
+        const row = el("div", "lm-row");
+        const bar = el("span", "lm-bar");
+        bar.setAttribute("role", "progressbar");
+        bar.setAttribute("aria-label", label);
+        bar.setAttribute("aria-valuemin", "0");
+        bar.setAttribute("aria-valuemax", "100");
+        bar.setAttribute("aria-valuenow", String(used));
+        const fill = el("span", "lm-fill");
+        fill.style.width = used + "%";
+        bar.appendChild(fill);
+        row.appendChild(el("span", "lm-name", label));
+        row.appendChild(bar);
+        row.appendChild(el("span", "lm-pct", used + "%"));
+        box.appendChild(row);
+      }
+      root.appendChild(box);
+    }
+    let asking = null;
+    function refresh() {
+      if (asking) return asking;
+      asking = Promise.resolve().then(load).then(answer => draw(limitRows(answer)), () => {})
+        .finally(() => { asking = null; });
+      return asking;
+    }
+    root.hidden = true;
+    return { root, refresh };
+  }
+
   window.TokenWidgets = {
     PALETTE, LINE, AVG_LINE, AVG_DASH, YEAR, WEEKS, FETCH_DAYS, VIEW_H, MIN_STEP, MAX_STEP,
     compact, longDay, scale, rolling, niceAxis, geometry, sources, sourceLine,
     heatmapModel, heatmapSvg, heatPin, heatTip, drawHeatmap,
     lineModel, lineSvg, linePin, lineTip, drawLine,
-    viewHtml, seat, panel,
+    viewHtml, seat, panel, limitRows, limits,
   };
 })();

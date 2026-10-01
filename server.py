@@ -391,6 +391,14 @@ Endpoints:
                                which says what counts; run.config.json's
                                token_logs names other folders. Only counts
                                come back, and missing logs are zeros
+  GET  /limits              -> how much of its plan each coding agent has used,
+                               what the home page's limits box draws: {"claude":
+                               {...}, "codex": {...}} holding only the tools with
+                               a window to show, each window ("five_hour",
+                               "weekly") {used, resets}: a whole percent from 0
+                               to 100, 0 once the reset time has passed, and the
+                               reset as epoch seconds or null. limits.py beside
+                               this file says where each number comes from
   GET  /pickdir             -> the system folder chooser on the desktop this
                                server runs in: blocks until a folder is chosen,
                                then {"path": "..."}; a dismissed chooser answers
@@ -3883,10 +3891,7 @@ _token_ledger = None
 _token_ledger_lock = threading.Lock()
 
 
-def _get_tokens_daily(q: Query, _):
-    days = q.one("days", "365")
-    if not re.fullmatch(r"[0-9]{1,4}", days) or not 1 <= int(days) <= TOKENS_MAX_DAYS:
-        return 400, {"error": f"days must be a whole number from 1 to {TOKENS_MAX_DAYS}"}
+def _ledger():
     import tokens
     try:
         cfg = json.loads((HERE / "run.config.json").read_text())
@@ -3899,8 +3904,36 @@ def _get_tokens_daily(q: Query, _):
         # to them starts a ledger over them from the same cache
         if _token_ledger is None or _token_ledger.roots != folders:
             _token_ledger = tokens.TokenLedger(folders, TOKENS_CACHE)
-        ledger = _token_ledger
-    return 200, ledger.daily(int(days))
+        return _token_ledger
+
+
+def _get_tokens_daily(q: Query, _):
+    days = q.one("days", "365")
+    if not re.fullmatch(r"[0-9]{1,4}", days) or not 1 <= int(days) <= TOKENS_MAX_DAYS:
+        return 400, {"error": f"days must be a whole number from 1 to {TOKENS_MAX_DAYS}"}
+    return 200, _ledger().daily(int(days))
+
+
+# the limits box on the home page: the 5-hour and weekly windows of Claude Code
+# and of Codex as a percent used, for the tools that have a number to show.
+# Claude's come from the file claude-statusline.py writes beside this one
+# (gitignored); Codex's from its own app server, at most once in five minutes,
+# or from its session logs. limits.py is loaded when the page first asks.
+CLAUDE_LIMITS = HERE / "claude-limits.json"
+_limits = None
+_limits_lock = threading.Lock()
+
+
+def _get_limits(q: Query, _):
+    import limits
+    global _limits
+    with _limits_lock:
+        if _limits is None:
+            _limits = limits.Limits(CLAUDE_LIMITS, lambda: _ledger().latest_limits())
+        reader = _limits
+    shown = reader.read()
+    _debug("limits", source=reader.source, tools=len(shown))
+    return 200, shown
 
 
 def _get_dirs(q: Query, _):
@@ -6214,6 +6247,7 @@ ROUTES = [
     Route("/history", _endpoint(_get_history), methods=["GET"]),
     Route("/log", _endpoint(_get_log), methods=["GET"]),
     Route("/tokens/daily", _endpoint(_get_tokens_daily), methods=["GET"]),
+    Route("/limits", _endpoint(_get_limits), methods=["GET"]),
     Route("/dirs", _endpoint(_get_dirs), methods=["GET"]),
     Route("/pickdir", _endpoint(_get_pickdir), methods=["GET"]),
     Route("/uploads/{rest:path}", _endpoint(_get_upload), methods=["GET"]),

@@ -133,3 +133,17 @@
   height:calc(var(--tk-view-h) + 26px); min-height:0; color:var(--sub)}
 .tk-note{flex:none; margin-top:8px; color:var(--sub)}
 .tk-note:empty{display:none}
+
+/* the limits box wears the panel's own rectangle (it is a .tk-panel) and is as
+   tall as its rows. a row is the tool and window, a bar and the percent used,
+   laid on one grid so the bars start and end in the same places: the names and
+   the numbers take the width they need and the bar the rest. the bar is the
+   pill's own track with the ink filled into it */
+.lm-box{height:auto; display:grid; grid-template-columns:max-content minmax(0, 1fr) max-content;
+  align-items:center; column-gap:10px; row-gap:7px}
+.lm-row{display:contents}
+.lm-name{color:var(--ink); white-space:nowrap}
+.lm-bar{display:block; box-sizing:border-box; height:8px; border-radius:4px; overflow:hidden;
+  background:color-mix(in srgb, var(--paper) 92%, #fff 8%); border:var(--edge) solid var(--line)}
+.lm-fill{display:block; height:100%; background:var(--ink)}
+.lm-pct{color:var(--ink); font-weight:600; text-align:right; font-variant-numeric:tabular-nums}

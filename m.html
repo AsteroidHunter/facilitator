@@ -315,6 +315,9 @@
      from, the app's 6px margin and these 22px, so a sideways swipe on a chart
      only ever moves the chart */
   #home .tk-panel{padding-left:22px; padding-right:22px}
+  /* the limits box sits directly under the token panel, the same width, the
+     two sides set alike */
+  #home #homelimits{margin-top:8px}
   /* the heading's two lines, the name beside the pill and what it counts under
      both, since at phone width the one line would cut the words short */
   #home .tk-head{display:grid; grid-template-columns:1fr auto; grid-template-areas:"name pill" "what what";
@@ -1155,8 +1158,9 @@
     <div id="empty">no cards on this tab yet</div>
     <div id="cards"></div>
     <!-- the home page, opened by the house: blank but for the token panel,
-         which home-widgets.js builds into #homeplot the first time home opens -->
-    <section id="home" aria-label="Home"><div id="homeplot"></div></section>
+         which home-widgets.js builds into #homeplot the first time home opens,
+         and under it the limits box, #homelimits, hidden until it has a row -->
+    <section id="home" aria-label="Home"><div id="homeplot"></div><div id="homelimits" hidden></div></section>
   </main>
 </div>
 <div id="scrim"></div>
@@ -3092,11 +3096,17 @@ function applySelection(state){
 // notification's card. While it is up no tab is seated, the card is out of
 // sight and marks nothing read, and the board's keys are off. The counts are
 // asked for when it opens and every few minutes while it stays open and in view.
+// The limits box under the panel is asked for every minute over the same time:
+// the server answers from a reading it keeps for five minutes, so the minute
+// only picks up what Claude Code's status line has written since.
 const HOME_KEY = "homeopen";
 const HOME_EVERY = 5 * 60 * 1000;
+const LIMITS_EVERY = 60 * 1000;
 const house = document.getElementById("homeico");
 let homePanel = null;
+let homeLimits = null;
 let homeTimer = null;
+let limitsTimer = null;
 let homeLoad = null;
 // the panel's code and sheet, fetched the first time home opens and never on
 // boot, as the board does: a phone nobody opens home on pays nothing for them.
@@ -3129,11 +3139,18 @@ async function homeShow(){
       return;
     }
     if (!homePanel) homePanel = TokenWidgets.panel(plot);
+    const spot = document.getElementById("homelimits");
+    if (spot && !homeLimits && TokenWidgets.limits) homeLimits = TokenWidgets.limits(spot);
   }
   if (!homeOpen) return;
   homePanel.refresh();
   clearInterval(homeTimer);
   homeTimer = setInterval(() => { if (!document.hidden) homePanel.refresh(); }, HOME_EVERY);
+  if (homeLimits){
+    homeLimits.refresh();
+    clearInterval(limitsTimer);
+    limitsTimer = setInterval(() => { if (!document.hidden) homeLimits.refresh(); }, LIMITS_EVERY);
+  }
 }
 function setHome(on){
   homeOpen = !!on;
@@ -3146,6 +3163,8 @@ function setHome(on){
   house.setAttribute("aria-pressed", String(homeOpen));
   clearInterval(homeTimer);
   homeTimer = null;
+  clearInterval(limitsTimer);
+  limitsTimer = null;
   if (homeOpen){
     // the house leaves the board the way another tab does: the card on screen
     // is no longer selected, so coming back shows it browsed
