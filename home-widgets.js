@@ -660,7 +660,7 @@
     return null;
   }
   // the box is drawn into root, which it hides while there is nothing to show:
-  // no heading and no message. a reading that cannot be had leaves the last
+  // no title and no message. a reading that cannot be had leaves the last
   // drawing as it was
   function limits(root, opts = {}) {
     const doc = root.ownerDocument || document;
@@ -680,6 +680,7 @@
     function build(rows) {
       root.textContent = "";
       const box = el("div", "tk-panel lm-box");
+      box.appendChild(el("span", "lm-title", "Usage Limits"));
       const parts = [];
       for (const { label, used } of rows) {
         const row = el("div", "lm-row");

@@ -3113,8 +3113,9 @@
   }
   #nphome{display:flex; flex-direction:column; align-items:center;
     width:min(30rem, 88vw); pointer-events:auto}
-  /* the landing's three pieces arrive one beat apart on the page's own
-     soft rise; the reduced-motion rule above stills them all */
+  /* on the new tab the landing's three pieces arrive one beat apart on a soft
+     rise; on home they take the page's plain fade instead (see homefade below).
+     the reduced-motion rule above stills them all */
   @keyframes npmelt{from{opacity:0; transform:translateY(6px)}}
   #npbrand, #nppanel, #npstart{animation:npmelt .2s cubic-bezier(.2,.7,.3,1) both}
   #nppanel{animation-delay:.05s}
@@ -3159,17 +3160,15 @@
   .npname{font:400 15px/1.35 var(--inter); color:var(--ink)}
   .nppath{font:11px var(--mono); color:var(--sub); max-width:100%;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-  /* the start button: a raised bevel, square corners, pastel orange body,
-     black label; pressing inverts the bevel and drops the label one pixel */
-  #npstart{margin:18px 0 0; font:600 14px var(--inter); color:#000;
-    background:#FFF1E0; border:none; border-radius:0;
-    padding:12px 26px; cursor:pointer;
-    box-shadow:inset -1px -1px 0 #3A2E20, inset 1px 1px 0 #FFFFFF,
-      inset -2px -2px 0 #D3A878, inset 2px 2px 0 #FFF9F1}
-  #npstart:active{
-    box-shadow:inset -1px -1px 0 #FFFFFF, inset 1px 1px 0 #3A2E20,
-      inset -2px -2px 0 #FFF9F1, inset 2px 2px 0 #D3A878;
-    padding:13px 25px 11px 27px}
+  /* the start button is dressed like the open card: a white surface, the
+     card's corner radius, a thin border in the line colour and the board's ink.
+     the border's drawn width is taken out of the padding so the button keeps its
+     outer size. hovering or pressing shades it the way a top-row chip is shaded */
+  #npstart{margin:18px 0 0; font:500 14px var(--inter); color:var(--ink);
+    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
+    padding:calc(12px - var(--edge-drawn)) calc(26px - var(--edge-drawn));
+    cursor:pointer}
+  #npstart:hover, #npstart:active{background:color-mix(in srgb, #000 var(--press), var(--card))}
   body.focus .name{display:none}
   body.focus #offline{
     position:fixed; left:14px; bottom:12px; top:auto; transform:none;
@@ -3248,13 +3247,13 @@
      --app-inset on each side) holds the token box and the limits box as one
      unit. #homepair is a column as tall as the frame and 35% of its width,
      centred on the right half's own vertical line, with its two boxes stacked
-     in the middle of its height and --home-gap between them (the board's
-     medium gap, --sp-m). the limits box is directly under the token box and
-     as wide, so both share the line, and the pair is centred in the frame
-     however tall the limits box is, following the window. the token box keeps
-     its 35% of the frame's height and gives up height only when the pair would
-     not otherwise fit; the limits box is as tall as its rows. the column takes
-     no clicks, only the two boxes do. the panel fills the token box and its
+     in the middle of its height and --home-gap between them (one and a half
+     of the board's medium gap, --sp-m). the limits box is directly under the
+     token box and as wide, so both share the line, and the pair is centred in
+     the frame however tall the limits box is, following the window. the token
+     box keeps its 35% of the frame's height and gives up height only when the
+     pair would not otherwise fit; the limits box is as tall as its rows. the
+     column takes no clicks, only the two boxes do. the panel fills the token box and its
      charts are drawn to the height left for them, scrolling sideways inside
      it (home-widgets.css) */
   #homepair{display:none}
@@ -3263,7 +3262,7 @@
     --home-l:var(--app-inset); --home-r:calc(100vw - var(--app-inset));
     --home-t:calc(var(--app-inset) + var(--bar-h) - 1px - var(--edge-drawn));
     --home-b:calc(100vh - var(--app-inset));
-    --home-gap:var(--sp-m);
+    --home-gap:calc(var(--sp-m) * 1.5);
     --home-w:calc((var(--home-r) - var(--home-l)) * .35);
     left:calc(var(--home-l) * .25 + var(--home-r) * .75 - var(--home-w) / 2);
     top:var(--home-t); width:var(--home-w); height:calc(var(--home-b) - var(--home-t));
@@ -3311,6 +3310,12 @@
   body.focus.home .nprow{cursor:pointer; border-radius:5px}
   body.focus.home .nprow:hover{background:#FFF8EF}
   body.focus.home #stage{visibility:hidden; opacity:0; pointer-events:none}
+  /* both halves come in together on one plain fade: the same start, length and
+     curve as the board's own dissolve, with no movement and no stagger, so the
+     landing's three pieces drop their rise here and ride on their half's fade */
+  @keyframes homefade{from{opacity:0}}
+  body.focus.home :is(#newproj, #homepair, #homeline){animation:homefade .18s ease both}
+  body.focus.home :is(#npbrand, #nppanel, #npstart){animation:none}
   body.focus.home #editbtn{visibility:hidden}
   /* on-canvas edit mode: the bar's pencil toggles it; boxes then drag with no
      keys held and wear small squares that snap-resize them */
