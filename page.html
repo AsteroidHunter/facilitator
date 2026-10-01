@@ -2083,7 +2083,7 @@ function makeBox(b, i, state){
       metaNote.textContent = errors.join("\n");
       ta.dispatchEvent(new Event("input"));
     });
-    ta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); doSend(b.id); } });
+    ta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.altKey){ e.preventDefault(); doSend(b.id); } });
     send.addEventListener("click", () => doSend(b.id));
     done.addEventListener("click", e => { e.stopPropagation(); toggleFlag(b.id, "done"); });
     park.addEventListener("click", e => { e.stopPropagation(); toggleFlag(b.id, "park"); });
@@ -2175,7 +2175,7 @@ function editTitle(id, opts){
   };
   t.onkeydown = e => {
     e.stopPropagation();   // card-switching keys must not fire while naming
-    if (e.key === "Enter"){ e.preventDefault(); commit(); el.ta.focus(); }
+    if (e.key === "Enter" && !e.altKey){ e.preventDefault(); commit(); el.ta.focus(); }
     else if (e.key === "Tab"){ e.preventDefault(); commit(); (e.shiftKey ? el.arc : el.ta).focus(); }
     else if (e.key === "Escape"){
       if (!old && !t.textContent.trim()) commit();
@@ -3256,7 +3256,7 @@ async function doQSend(){
   } finally { qsend.disabled = false; }
 }
 qsend.addEventListener("click", doQSend);
-qta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); doQSend(); } });
+qta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.altKey){ e.preventDefault(); doQSend(); } });
 
 if (!MOCK){ setInterval(pollQ, 2500); pollQ(); }   // the sandbox asks the server for nothing
 
@@ -4115,7 +4115,7 @@ function docEditTitle(id){
   };
   t.onkeydown = e => {
     e.stopPropagation();
-    if (e.key === "Enter"){ e.preventDefault(); commit(); }
+    if (e.key === "Enter" && !e.altKey){ e.preventDefault(); commit(); }
     else if (e.key === "Escape"){ end(); t.textContent = old; if (mirror) mirror.textContent = old; t.blur(); }
   };
   t.onblur = () => { if (t.isContentEditable) commit(); };
@@ -4148,7 +4148,7 @@ function docEditHead(el){
   };
   el.onkeydown = e => {
     e.stopPropagation();
-    if (e.key === "Enter"){ e.preventDefault(); commit(); }
+    if (e.key === "Enter" && !e.altKey){ e.preventDefault(); commit(); }
     else if (e.key === "Escape"){ end(); el.textContent = old; if (mirror) mirror.textContent = old; el.blur(); }
   };
   el.onblur = () => { if (el.isContentEditable) commit(); };
@@ -4190,7 +4190,7 @@ function docSection(b){
   });
   line.addEventListener("focus", () => docSelect(b.id, { quiet: true }));
   line.addEventListener("keydown", e => {
-    if (e.key === "Enter" && !e.shiftKey){
+    if (e.key === "Enter" && !e.shiftKey && !e.altKey){
       e.preventDefault();
       const text = (line.textContent || "").trim();
       if (!text) return;
@@ -4501,7 +4501,7 @@ if (DOC){
     newline: e => e.shiftKey, placeholder: restingBlock,
   });
   nl.addEventListener("keydown", e => {
-    if (e.key === "Enter" && !e.shiftKey){
+    if (e.key === "Enter" && !e.shiftKey && !e.altKey){
       e.preventDefault();
       const text = (nl.textContent || "").trim();
       if (!text) return;
