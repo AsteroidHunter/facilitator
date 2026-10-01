@@ -506,9 +506,9 @@
      with their reasons, so every rule below reads a name rather than a number */
   /* the top row's own names, for this page only. every element on the row, the
      two arrows and the three chips, stands in a square --bar-sq, and the sun,
-     the moon and the cross draw their marks --bar-mark across inside it. the
-     cross's two lines are --cross-t thick, the share of their length
-     --cross-weight they had when they were 9px long and 1.2px thick.
+     the moon and the cross draw their marks across inside it, at --bar-mark,
+     the one mark size both pages share (card-tokens.css, with --cross-t, the
+     cross's thickness, and --cardspin-s, the spinner's own size).
      the gap between neighbouring squares is its own value and is never worked
      out from the square: --bar-gap-hist between the two arrows and
      --bar-gap-chips between the sun, the moon and the cross. the arrow marks
@@ -520,8 +520,7 @@
      arrows' gap, and --pathline-h the height of the path line the bar replaced,
      which the bar's bottom margin hands back */
   :root{
-    --bar-sq:24px; --bar-mark:11px;
-    --cross-weight:calc(1.2 / 9); --cross-t:calc(var(--bar-mark) * var(--cross-weight));
+    --bar-sq:24px;
     --bar-gap-hist:4px; --bar-gap-chips:1px; --bar-lead:2px; --bar-tail:5px;
     --histpos-room:2px; --pathline-h:15px;
   }
@@ -669,7 +668,7 @@
      rounding and the same dark mark, so the three chips stay one family and the
      glyph alone tells them apart. the marks are sized here, by --bar-mark, and
      this wins over the width and height the svg carries as attributes: the
-     sun's come from the shared card-logic.js, where the phone page sizes the
+     sun's come from the shared card-logic.js, where the small cards size the
      same glyph by them */
   body.focus .box.sel .arcbtn, body.focus .box.sel .sunbtn{
     position:relative; top:auto; right:auto;
@@ -681,17 +680,9 @@
   body.focus .box.sel .arcbtn{grid-area:moon}
   body.focus .box.sel :is(.arcbtn, .sunbtn) svg{width:var(--bar-mark); height:var(--bar-mark)}
   body.focus .box.sel .arcbtn:hover, body.focus .box.sel .sunbtn:hover{background:color-mix(in srgb, #000 var(--press), var(--card))}
-  /* a green card is always in doing, where the sun is off, so the working
-     spinner takes the sun's place: it stands in the sun's own cell, centred on
-     the sun's mark, and the two cross-fade on one curve and one clock. the
-     sun's mark is faded and not the button, so the button keeps the off fade
-     the chip rule below gives it and the sun returns to exactly that look. the
-     sheet's small lift, which sits the glyph on the arrows' centre line, is
-     dropped here so the glyph is centred on the sun's mark instead */
-  body.focus .box.sel .topbar > .cardspin{--cardspin-s:var(--bar-mark); grid-area:sun; place-self:center}
-  body.focus .box.sel .topbar > .cardspin::before{transform:none}
-  body.focus .box.sel .sunbtn svg{transition:opacity var(--spin-fade) var(--gentle)}
-  body.focus .box.sel .topbar:has(> .cardspin.on) .sunbtn svg{opacity:0}
+  /* the working spinner takes the sun's place on a green card, and fades with
+     the sun's mark, by the shared sheet's rules (card-tokens.css): the bar's
+     grid above names the sun's cell they put it in */
   /* the chip naming the section the card is already in: lighter, with no
      press and no pointer, and it outranks the half fade of a tap still waiting
      on the board, since off is the lasting word about it */

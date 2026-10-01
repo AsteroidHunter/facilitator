@@ -227,11 +227,14 @@ for (const [name, make] of [["desktop large card", desktopLarge], ["desktop smal
     assert.equal(el.sun.getAttribute("aria-label"), "move to doing");
     // the same inline svg approach at the same glyph size as the moon beside it
     const size = svg => /viewBox="0 0 24 24" width="9" height="9"/.test(svg);
-    if (name === "desktop large card") {
-      // the board's big card sizes both glyphs in css, by the top row's one mark size, so its
-      // moon carries no size of its own and the sun's shared one is overruled
+    if (name !== "desktop small card") {
+      // the big card on either page sizes both glyphs in css, by the top row's one mark size, so
+      // its moon carries no size of its own and the sun's shared one is overruled
       assert.doesNotMatch(/<svg [^>]*>/.exec(el.arc.innerHTML)?.[0] || "", /\s(width|height)=/, "the moon glyph carries a size of its own");
-      assert.match(surface.html, /body\.focus \.box\.sel :is\(\.arcbtn, \.sunbtn\) svg\{width:var\(--bar-mark\); height:var\(--bar-mark\)\}/);
+      const rule = name === "phone card"
+        ? /\n  :is\(\.arcbtn, \.sunbtn\) svg\{width:var\(--bar-mark\); height:var\(--bar-mark\)\}/
+        : /body\.focus \.box\.sel :is\(\.arcbtn, \.sunbtn\) svg\{width:var\(--bar-mark\); height:var\(--bar-mark\)\}/;
+      assert.match(surface.html, rule);
     } else {
       assert.ok(size(el.arc.innerHTML), "the moon glyph changed size");
     }
@@ -603,7 +606,10 @@ test("the small card seats the round yellow sun one seat left of the moon", asyn
 test("the phone bar and its entry carry the sun", async () => {
   const html = await readFile(path.join(ROOT, "m.html"), "utf8");
   const chipRule = between(html, "  .sunbtn, .arcbtn, .xbtn{", "}");
-  assert.match(chipRule, /width:28px; height:28px/);
+  assert.match(chipRule, /width:var\(--bar-sq\); height:var\(--bar-sq\)/);
+  assert.equal(html.match(/--bar-sq:/g).length, 1, "the top row's square is named in more than one place");
+  assert.match(html, /grid-template-areas:"hist sun moon cross"/);
+  assert.match(html, /\.sunbtn\{grid-area:sun\}\s*\.arcbtn\{grid-area:moon\}\s*\.xbtn\{grid-area:cross\}/);
   assert.doesNotMatch(chipRule, /[\s;{]order:/);
   assert.match(html, /els\[b\.id\] = \{ box, body, reply, replyview, meta, ta, twin, send, tick, titleEl, sun, arc, x,/);
 });

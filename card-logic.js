@@ -3176,13 +3176,13 @@ function syncSpinner(){
 }
 
 // ---- the card's own spinner ------------------------------------------------------------
-// the list's green ticket has a twin in the card's top bar, right after the
-// history arrows: the same four frames on the same clock, drawn by the shared
-// sheet (card-tokens.css, .cardspin) from the frame written in data-f. it is
-// always in the bar and only its strength changes, so it fades in when the card
-// turns green and out when the reply comes back, and shows or hides without
-// moving anything. a done or deferred card never shows it, even where its
-// ticket still pulses under a claim the agent holds.
+// the list's green ticket has a twin in the card's top bar, in the sun's place:
+// the same four frames on the same clock, drawn by the shared sheet
+// (card-tokens.css, .cardspin) from the frame written in data-f. it is always
+// in the bar and only its strength changes, so it fades in, as the sun's mark
+// fades out, when the card turns green and out when the reply comes back, and
+// shows or hides without moving anything. a done or deferred card never shows
+// it, even where its ticket still pulses under a claim the agent holds.
 function cardSpinning(b){
   const s = cardState(b);
   return s !== "done" && s !== "parked" && ticketGreen(b);

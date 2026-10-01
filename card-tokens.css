@@ -81,36 +81,35 @@
   --sunk-deep:inset 0 3px 7px rgba(60,45,20,.22), inset 0 1px 2px rgba(60,45,20,.14);
 }
 
-/* ---- the top bar's history arrows, and the card's working spinner -------- */
-/* --hist-cell is the seat each history arrow stands in and --hist-glyph-w and
-   --hist-glyph-h the chevron drawn in it, centred. the board's page sets the
-   seat on its own bar; the phone keeps this one.
+/* ---- the top bar's marks, and the card's working spinner ------------------ */
+/* --hist-glyph-w and --hist-glyph-h are the chevron each history arrow draws,
+   centred in its seat. each page sets the seat itself, --hist-cell, on its own
+   bar, from the square every element of its top row stands in.
+   --bar-mark is the size of the sun, the moon and the cross, drawn across
+   inside those squares, and --cardspin-s the size of the working spinner. they
+   are two sizes on purpose: the marks are one thing and the spinner another,
+   and each is written here once so the board and the phone cannot part. the
+   cross's two lines are --cross-t thick, the share of their length
+   --cross-weight they had when they were 9px long and 1.2px thick, so the
+   cross keeps its proportions at any mark size.
    the spinner is always in the bar and only its strength changes, so showing
    or hiding it moves nothing. the fade is the history arrows' own, --spin-fade
    on the --gentle curve. its line is the working ticket's | / - \ , drawn in
-   the title's ink in the board's mono at the box's size, --cardspin-s; the
-   small lift is a fraction of the box, so the bar of the | sits on the centre
-   line of what it stands beside. where it stands is each page's own: the
-   board's page puts it in the sun's square, and on the phone it follows the
-   arrows, below.
-   on the phone the control and the spinner stand in one run, .histrun, with no
-   gap of its own, since the bar's gap would be added to the arrows' gap. the
-   spinner's box is a chevron wide, and half a seat less half a chevron of room
-   ahead of it makes its gap from the second arrow the gap between the arrows.
-   the run takes the bar's flexible room (the history control keeps only its
-   own width, the spinner's seat takes the rest), which is what holds the
-   section chips against the right end. */
+   the title's ink in the board's mono at the box's size, --cardspin-s.
+   a green card is always in doing, where the sun is off, so on both pages the
+   spinner takes the sun's place: it stands in the sun's own cell of the bar's
+   grid, centred, so it shares the centre of the sun's mark by construction,
+   and the two cross-fade on one curve and one clock. the sun's mark is faded
+   and not the button, so the button keeps the off fade the chips give it and
+   the sun returns to exactly that look. the glyph is not lifted, so it is
+   centred on the sun's mark */
 :root{
-  --hist-cell:28px; --hist-glyph-w:11px; --hist-glyph-h:7px;
+  --hist-glyph-w:11px; --hist-glyph-h:7px;
+  --bar-mark:10px; --cardspin-s:11px;
+  --cross-weight:calc(1.2 / 9); --cross-t:calc(var(--bar-mark) * var(--cross-weight));
   --spin-fade:.26s;
 }
-.histrun{flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:0}
-.histrun > .cardspin{
-  flex:1 1 auto; min-width:0; display:flex; align-items:center;
-  padding-left:calc((var(--hist-cell) - var(--hist-glyph-w)) / 2);
-}
 .cardspin{
-  --cardspin-s:var(--hist-glyph-w);
   color:var(--ink); pointer-events:none;
   opacity:0; transition:opacity var(--spin-fade) var(--gentle);
 }
@@ -120,8 +119,10 @@
   width:var(--cardspin-s); height:var(--cardspin-s);
   font:600 var(--cardspin-s)/var(--cardspin-s) var(--mono);
   text-align:center; white-space:nowrap;
-  transform:translateY(calc(var(--cardspin-s) * -.07));
 }
+.topbar > .cardspin{grid-area:sun; place-self:center}
+.sunbtn svg{transition:opacity var(--spin-fade) var(--gentle)}
+.topbar:has(> .cardspin.on) .sunbtn svg{opacity:0}
 
 /* ---- the owner's grey ---------------------------------------------------- */
 /* --bubble-fill is the grey the owner's own words stand on: the panel of the

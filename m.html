@@ -322,19 +322,34 @@
   #home .tk-opt::after{content:""; position:absolute; left:0; right:0; top:-9px; bottom:-9px}
 
   /* the card's own top bar: the reply history on the left, the sun, the defer
-     chip and the close cross on the right, over the hairline the desktop bar wears */
+     chip and the close cross on the right, over the hairline the desktop bar wears.
+     the top row's own names, for this page only. every element on the row, the
+     two arrows and the three chips, stands in a square --bar-sq, a seat sized
+     for a finger, and the sun, the moon and the cross draw their marks across
+     inside it at --bar-mark, the one mark size both pages share
+     (card-tokens.css, with --cross-t, the cross's thickness, and --cardspin-s,
+     the spinner's own size). --bar-gap is the gap between neighbouring
+     squares, its own value and never worked out from the square, and
+     --bar-tail how far the cross's square ends short of the bar's right edge */
+  :root{--bar-sq:28px; --bar-gap:9px; --bar-tail:6px}
+  /* the bar is a grid of four columns, the history control and then the three
+     chips, so the working spinner can stand in the sun's own cell and share its
+     centre by construction. the first column takes the room that is left,
+     which is what holds the chips against the right end */
   .topbar{
-    flex:none; display:flex; align-items:center; gap:9px; position:relative;
-    height:var(--cardbar-h); padding:0 6px 0 calc(var(--pad-x)*2/3);
+    --hist-cell:var(--bar-sq);
+    display:grid; align-items:center; flex:none; position:relative;
+    grid-template-columns:minmax(0, 1fr) repeat(3, var(--bar-sq));
+    grid-template-rows:minmax(0, 1fr);
+    grid-template-areas:"hist sun moon cross";
+    column-gap:var(--bar-gap);
+    height:var(--cardbar-h); padding:0 var(--bar-tail) 0 calc(var(--pad-x)*2/3);
     background:var(--card); box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line);
   }
   /* the history control keeps its own width on a card with nothing older, and
-     only its marks go. the working spinner after it, in the same run
-     (.histrun, card-tokens.css), is what takes the bar's flexible room, the
-     thing that holds the three chips against the right end. the seats and the
-     chevrons are sized by --hist-cell, --hist-glyph-w and --hist-glyph-h,
-     which the spinner is laid out from too */
-  .histctl{flex:0 1 auto; min-width:0; display:flex; align-items:center; gap:0;
+     only its marks go. the seats and the chevrons are sized by --hist-cell,
+     --hist-glyph-w and --hist-glyph-h */
+  .histctl{grid-area:hist; justify-self:start; min-width:0; display:flex; align-items:center; gap:0;
     font:11.5px var(--mono); color:var(--sub); white-space:nowrap; visibility:hidden}
   .box.hashist .histctl{visibility:visible}
   .histbtn .chev{width:var(--hist-glyph-w); height:var(--hist-glyph-h)}
@@ -346,13 +361,22 @@
   .histbtn.newer svg{transform:rotate(180deg)}
   .histpos{margin-left:4px}
   .histpos:empty{display:none}
-  /* the three chips wear the desktop's 16px mark on a 28px seat, the seat being
-     what a finger needs; the mark, the ink and the press are the desktop's */
+  /* the three chips wear the desktop's mark, --bar-mark, on a seat of --bar-sq,
+     the seat being what a finger needs; the mark, the ink and the press are the
+     desktop's. each chip has its own column of the bar's grid, sun then moon
+     then cross. the marks are sized by the rule below, which wins over the
+     width and height the svg carries as attributes: the sun's come from the
+     shared card-logic.js, where the small cards size the same glyph by them,
+     and the moon's are not written at all */
   .sunbtn, .arcbtn, .xbtn{
-    flex:none; width:28px; height:28px; padding:0; border:none; border-radius:var(--sq);
+    width:var(--bar-sq); height:var(--bar-sq); padding:0; border:none; border-radius:var(--sq);
     background:var(--card); color:#000; position:relative; cursor:pointer;
     display:inline-flex; align-items:center; justify-content:center;
   }
+  .sunbtn{grid-area:sun}
+  .arcbtn{grid-area:moon}
+  .xbtn{grid-area:cross}
+  :is(.arcbtn, .sunbtn) svg{width:var(--bar-mark); height:var(--bar-mark)}
   .sunbtn:active, .arcbtn:active, .xbtn:active{background:color-mix(in srgb, #000 var(--press), var(--card))}
   /* the board has not answered the last tap on this chip: the mark is lighter
      until it has. the seat, the press and the tap are all untouched, because a
@@ -364,7 +388,7 @@
   .box :is(.sunbtn, .arcbtn, .xbtn)[aria-disabled="true"]:active{background:var(--card)}
   .xbtn::before, .xbtn::after{
     content:""; position:absolute; left:50%; top:50%;
-    width:9px; height:1.2px; background:#1e1e1e; border-radius:1px;
+    width:var(--bar-mark); height:var(--cross-t); background:#1e1e1e; border-radius:var(--cross-t);
   }
   .xbtn::before{transform:translate(-50%,-50%) rotate(45deg)}
   .xbtn::after{transform:translate(-50%,-50%) rotate(-45deg)}
@@ -1350,7 +1374,7 @@ function endPhoneTrace(token, detail, response, inspect = false){
 // ---- what the desktop card carries, at phone size ---------------------------
 const PLUS_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>';
 const SEND_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 11.5V3.5M3.6 6.9 7 3.5l3.4 3.4" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-const MOON_ICON = '<svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" stroke="none" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
+const MOON_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
 const CHEV_PATH = '<path d="M1 5.5 5.5 1.5 10 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>';
 const chevSVG = seat => '<svg class="chev ' + seat + '" width="11" height="7" viewBox="0 0 11 7" fill="none" aria-hidden="true">' + CHEV_PATH + "</svg>";
 
@@ -1495,12 +1519,10 @@ function makeBox(b){
   // the sun on the moon's left, so the three read in the order of the tabs
   const sun = sunChip("sunbtn", b.id);
   topbar.append(histctl, sun, arc, x);
-  // the working spinner stands right after the arrows, in one run with them;
-  // apply() turns it on with the ticket's own green
+  // the working spinner follows the sun, and the bar's grid seats it in the
+  // sun's own cell; apply() turns it on with the ticket's own green
   const cardSpin = makeCardSpinner();
-  const histrun = h("div", "histrun");
-  topbar.insertBefore(histrun, histctl);
-  histrun.append(histctl, cardSpin);
+  topbar.insertBefore(cardSpin, arc);
   box.appendChild(topbar);
 
   const head = h("div", "head");
