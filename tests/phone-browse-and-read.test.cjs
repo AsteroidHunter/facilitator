@@ -401,11 +401,12 @@ test("the ticket of the card on screen is lifted in the drawer, browsed or selec
 });
 
 test("closing or deferring the card on screen lands on the card below it, browsed", async () => {
-  const p = await openPhone({ selbox: "1.8" });
+  // the last two fixture cards are touched by no other test and sit side by side, so the one below is unread
+  const p = await openPhone({ selbox: "1.7" });
   await tap(p, READING);
-  assertSelected(await look(p), "1.8", "before");
-  const below = await p.page.evaluate(() => doingNeighbour("1.8", doingOrder(lastState)));
-  assert.ok(below, "the fixture has no card to land on");
+  assertSelected(await look(p), "1.7", "before");
+  const below = await p.page.evaluate(() => doingNeighbour("1.7", doingOrder(lastState)));
+  assert.equal(below, "1.8", "the card below 1.7");
   await chord(p, ["Control", "Shift"], "Backslash");
   await until(async () => (await look(p)).shown === below);
   assertBrowsed(await look(p), below, "after Done");
