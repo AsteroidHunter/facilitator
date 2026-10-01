@@ -1585,7 +1585,8 @@ function makeBox(b){
   const liftclip = h("div", "liftclip");
   liftclip.appendChild(body);
   box.appendChild(liftclip);
-  document.getElementById("cards").appendChild(box);
+  // first in #cards: the keyboard's word lookup at an empty title walks back through every card ahead of it
+  document.getElementById("cards").prepend(box);
 
   // the row's typed formatting, on when the setting says so. it is
   // wired before anything is hung on the field, because the field keeps one
