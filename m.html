@@ -4800,12 +4800,17 @@ function wideShow(){
   if (wideRelease){ wideRelease(); wideRelease = null; }
   wideCaret(false);
 }
+// the box a card step just put the caret in, until the hold ends or the typist acts
+let arrivedBox = null;
 // the colour is back, so the caret the phone was handed under the hold is issued again from it
 function reassertCaret(){
   const box = typingFoot && typingFoot.querySelector(".compose > textarea:not(.twin)");
   if (!box || document.activeElement !== box) return;
-  const from = box.selectionStart, to = box.selectionEnd;
+  let from = box.selectionStart, to = box.selectionEnd;
   if (from === null || to === null) return;
+  // a step's caret the phone left at the head of the words goes back to their end
+  if (arrivedBox === box && from === 0 && to === 0) from = to = box.value.length;
+  arrivedBox = null;
   void getComputedStyle(box).caretColor;
   box.setSelectionRange(from, to, box.selectionDirection || undefined);
 }
@@ -4863,6 +4868,7 @@ function typingStart(){
 function typingDown(){
   const foot = typingFoot, wasWide = wideOn, wasTyping = foot.classList.contains("typing");
   wideUp = wideStarted = wideEnded = wideLanded = wideOn = false;
+  arrivedBox = null;
   if (wideClock){ clearTimeout(wideClock); wideClock = null; }
   if (graceTimer){ clearTimeout(graceTimer); graceTimer = null; }
   wideShow();
@@ -4900,7 +4906,8 @@ document.addEventListener("focusin", reconcile);
 document.addEventListener("focusout", () => requestAnimationFrame(reconcile));   // a frame's grace: focus may be hopping between fields
 for (const type of ["beforeinput", "keydown"]){
   document.addEventListener(type, e => { const t = e.target;
-    if (t instanceof HTMLTextAreaElement || (t && t.isContentEditable && t.closest && t.closest(".compose"))) shoveClears = 0; }, true);
+    if (t instanceof HTMLTextAreaElement || (t && t.isContentEditable && t.closest && t.closest(".compose"))) shoveClears = 0;
+    arrivedBox = null; }, true);
 }
 if (window.visualViewport){
   window.visualViewport.addEventListener("resize", reconcile);
@@ -4955,7 +4962,13 @@ function stepCard(dir, focus){
   // between cards must never raise it
   if (!focus){ browse(pick.id); return; }
   select(pick.id);
-  els[pick.id]?.ta.focus({ preventScroll: true });
+  const el = els[pick.id];
+  if (!el) return;
+  // the end of the words is put in the box before the focus, so the phone has it to restore
+  const end = el.ta.value.length;
+  el.ta.setSelectionRange(end, end);
+  el.ta.focus({ preventScroll: true });
+  arrivedBox = document.activeElement === el.ta ? el.ta : null;
 }
 
 // A drag across the card walks the same pool as the keyboard. It waits until
