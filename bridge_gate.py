@@ -3,6 +3,7 @@
 import asyncio
 import json
 import re
+import time
 from http.cookies import SimpleCookie
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -42,6 +43,72 @@ def _cookie(headers):
         return jar[bridge_auth.COOKIE].value if bridge_auth.COOKIE in jar else ""
     except (UnicodeError, ValueError):
         return ""
+
+
+REFUSAL_WINDOW = 5.0     # seconds: one refusal line per route per window
+REFUSAL_ROUTES_KEPT = 64
+REFUSAL_ROUTE_CHARS = 80
+KNOWN_METHODS = frozenset(("GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"))
+FETCH_WORD = re.compile(r"[a-z-]{1,24}")
+# these two routes carry a file name in the path
+FILE_ROUTES = ("/uploads/", "/laneimg/")
+
+
+def _client_class(headers):
+    """The client log's classes, from the user agent, which is never kept.
+    A touch screen on a Mac user agent (an iPad) cannot be told from here."""
+    ua = headers.get(b"user-agent", b"")[:512].decode("latin-1")
+    if re.search(r"\b(iPhone|iPad|iPod|Android)\b", ua):
+        return "phone"
+    if "Electron/" in ua:
+        return "electron"
+    if "Chrome/" in ua:
+        return "other" if re.search(r"\b(Edg|OPR)/", ua) else "chrome"
+    if "Safari/" in ua:
+        return "safari"
+    if "Macintosh" in ua and "AppleWebKit/" in ua:
+        return "tauri"
+    return "other"
+
+
+def _fetch_word(headers, name):
+    value = headers.get(name)
+    if value is None:
+        return "absent"
+    text = value.decode("latin-1").strip().lower()
+    return text if FETCH_WORD.fullmatch(text) else "other"
+
+
+def _cookie_counts(scope):
+    """Whether a Cookie header came, how many cookies, whether ours was among
+    them. Read from every copy of the header and by name only, so it does not
+    depend on the parse that decides the session."""
+    came, named, count = False, False, 0
+    for name, value in scope.get("headers", []):
+        if name.lower() == b"cookie":
+            came = True
+            for part in value.split(b";"):
+                if part.strip():
+                    count += 1
+                    named = named or part.split(b"=", 1)[0].strip() == bridge_auth.COOKIE.encode()
+    return came, count, named
+
+
+def _refused_route(path):
+    for prefix in FILE_ROUTES:
+        if path.startswith(prefix):
+            return prefix + "*"
+    return path[:REFUSAL_ROUTE_CHARS]
+
+
+def _renewing(send, token):
+    """Send the session cookie again, same value, on a page open that succeeds."""
+    async def renewed(message):
+        if message["type"] == "http.response.start" and message.get("status") == 200:
+            message = {**message, "headers": [*message.get("headers", []),
+                                              (b"set-cookie", bridge_auth.session_cookie(token).encode())]}
+        await send(message)
+    return renewed
 
 
 def _same_origin(headers):
@@ -88,9 +155,41 @@ async def _body(receive):
 
 
 class BridgeGate:
-    def __init__(self, app, bridge_port):
+    def __init__(self, app, bridge_port, log=None):
         self.app = app
         self.bridge_port = bridge_port
+        self.log = log
+        self._refused = {}   # route -> [when its window opened, refusals folded into it]
+
+    def _note_refusal(self, scope, headers, method, path, known):
+        """One line per route per window, with a count of the ones left out. A
+        failure here must never change the answer, so it is swallowed."""
+        if self.log is None:
+            return
+        try:
+            now = time.monotonic()
+            route = _refused_route(path)
+            table = self._refused
+            if route not in table and len(table) >= REFUSAL_ROUTES_KEPT:
+                for stale in [k for k, w in table.items() if now - w[0] >= REFUSAL_WINDOW]:
+                    del table[stale]
+            key = route if route in table or len(table) < REFUSAL_ROUTES_KEPT else ""
+            window = table.get(key)
+            if window is not None and now - window[0] < REFUSAL_WINDOW:
+                window[1] += 1
+                return
+            folded = window[1] if window else 0
+            table[key] = [now, 0]
+            came, count, named = _cookie_counts(scope)
+            self.log("signinrefused", method=method if method in KNOWN_METHODS else "other",
+                     route=route, cookie_header=came, cookies=count, session_cookie=named,
+                     session_known=known,
+                     sec_fetch_site=_fetch_word(headers, b"sec-fetch-site"),
+                     sec_fetch_mode=_fetch_word(headers, b"sec-fetch-mode"),
+                     sec_fetch_dest=_fetch_word(headers, b"sec-fetch-dest"),
+                     client=_client_class(headers), folded=folded or None)
+        except Exception:
+            pass
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
@@ -152,7 +251,9 @@ class BridgeGate:
                 (b"set-cookie", bridge_auth.clear_cookie().encode()),))
             return
 
-        if not bridge_auth.has_session(token):
+        known = bridge_auth.has_session(token)
+        if not known:
+            self._note_refusal(scope, headers, method, path, known)
             if method == "GET" and path in ("/m", "/"):
                 await _reply(scope, receive, send, 200, GATE_HTML,
                              "text/html; charset=utf-8")
@@ -162,6 +263,8 @@ class BridgeGate:
         if method not in ("GET", "HEAD") and not _same_origin(headers):
             await _reply(scope, receive, send, 403, {"error": "origin refused"})
             return
+        if method == "GET" and path == "/m":
+            send = _renewing(send, token)
         reset = bridge_auth.CURRENT_SESSION.set(token)
         try:
             await self.app(scope, receive, send)

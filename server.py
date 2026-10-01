@@ -6539,7 +6539,7 @@ def _require_bridge_components():
 def _make_server(bridge_gate=None) -> BoardServer:
     if bridge_gate is None:
         bridge_gate = _require_bridge_components()
-    app = bridge_gate(build_app(), BRIDGE_PORT)
+    app = bridge_gate(build_app(), BRIDGE_PORT, _info)
     config = uvicorn.Config(
         app, host="127.0.0.1", port=PORT,
         log_config=None, access_log=False, server_header=False,

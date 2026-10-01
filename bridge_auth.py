@@ -169,8 +169,8 @@ def logout(token):
 
 
 def session_cookie(token):
-    return f"{COOKIE}={token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=315360000"
+    return f"{COOKIE}={token}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=315360000"
 
 
 def clear_cookie():
-    return f"{COOKIE}=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0"
+    return f"{COOKIE}=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0"

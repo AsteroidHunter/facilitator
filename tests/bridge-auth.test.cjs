@@ -117,7 +117,7 @@ test('bridge gates every route, persists sessions, signs out and rejects legacy 
       '/wait?owner=facilitator&timeout=0','/log','/dirs','/push/key'])
       assert.equal((await request(port+1,route)).status,401, route);
     assert.equal((await request(port+1,'/clientlog','POST','{}',{Origin:`http://127.0.0.1:${port+1}`})).status,401);
-    assert.match((await request(port+1,'/m')).text,/Adding the Facilitator to the Home Screen/);
+    assert.match((await request(port+1,'/m')).text,/Tap <strong>Add to Home Screen<\/strong>/);
     assert.equal((await request(port+1,'/m-icon-180.png')).status,200);
     assert.match((await request(port+1,'/m-manifest.json')).text,/"name": "Facilitator"/);
     const origin = { Origin:`http://127.0.0.1:${port+1}` };
@@ -147,7 +147,7 @@ test('bridge gates every route, persists sessions, signs out and rejects legacy 
     const login = await request(port+1,'/auth/login','POST',JSON.stringify({password:PASS}),origin);
     assert.equal(login.status,200,login.text);
     const cookie = login.headers['set-cookie'][0].split(';')[0];
-    assert.match(login.headers['set-cookie'][0],/Secure; HttpOnly; SameSite=Strict/);
+    assert.match(login.headers['set-cookie'][0],/Secure; HttpOnly; SameSite=Lax/);
     const auth = { Cookie:cookie };
     assert.equal((await request(port+1,'/state','GET',null,auth)).status,200);
     assert.match((await request(port+1,'/m','GET',null,auth)).text,/<aside id="settings"/);
