@@ -146,6 +146,10 @@ Magic box 3 holds one picture per lane, a plot above all. Write the file into yo
 
 So the `example` lane writes `~/projects/example/example-internal/panel.png`. Png, svg, jpg, gif and webp all work. The board picks it up within about four seconds, swaps itself when you rewrite the file, and falls back to its empty marks when you delete it. Nothing needs adding to the server, and no lane can read another's folder. Note that the panel is switched on for one configured tab only; every other tab still shows the plain stub.
 
+## The ticket list
+
+On the Mac board the tickets under the names Doing, Deferred and Done stand on the paper with no box, fill or shade round them. A thin line, drawn in the board's line colour, runs under the three names with 6px of clear air below a pressed name; it never fades and does not move when a list scrolls. The top and foot of each list fade out the way the conversation card's top and foot do, but only while more tickets lie past that edge, so a list that fits shows no fade. `tests/ticket-tab-corners.test.cjs` checks the missing box and the line.
+
 ## The file navigator
 
 On a lane listed in `navigator_lanes`, magic box 3 (and the navigator-only box for
