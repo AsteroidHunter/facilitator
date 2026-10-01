@@ -39,5 +39,9 @@
 /.facilitator-statusline.json
 /.facilitator-statusline.tmp
 
+# which numbered update steps have run in this checkout, written by facilitator update
+/.facilitator-updates.json
+/.facilitator-updates.tmp
+
 .DS_Store
 __pycache__/
