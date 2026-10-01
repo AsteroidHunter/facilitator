@@ -497,9 +497,8 @@ test("a press on the empty board lets go of the card, which stays on screen", ()
     assert.ok(d.row("a").classList.contains("on"), "unselecting took the mark off the ticket");
     assert.equal(d.doc.activeElement, d.body, "the caret stayed in the card");
   }
-  // not the paper: the card, a ticket, the panel of tickets, a button
-  const panel = d.doc.getElementById("tiklist");
-  for (const node of [d.els.a.reply, d.main, d.row("a"), panel, d.homeico]) {
+  // not the paper: the card, a ticket, a button
+  for (const node of [d.els.a.reply, d.main, d.row("a"), d.homeico]) {
     d.press("Enter");
     d.pressOn(node);
     assert.equal(d.browsing(), false, `a press on ${node.tagName}#${node.id} unselected the card`);
@@ -523,6 +522,54 @@ test("a press on the empty board lets go of the card, which stays on screen", ()
   assert.equal(d.browsing(), true);
   assert.equal(d.shown(), "a");
   assert.deepEqual(d.seen, []);
+});
+
+// the ticket list has no box round it, so the strips beside and below its
+// tickets and the gaps between them are paper. the board's sections are the
+// elements a press there lands on; the tickets are children of a section
+test("a press on the ticket list's empty area lets go of the card; a press on a ticket still selects", () => {
+  const d = loaded();
+  const sheet = new Node(d.doc, "div", { id: "tiksheet", parent: d.doc.getElementById("tiklist") });
+  const pane = new Node(d.doc, "div", { cls: ["tikpane"], parent: sheet });
+  for (const row of d.rows) pane.appendChild(row);
+  const inner = new Node(d.doc, "div", { cls: ["trowin"], parent: d.row("b") });
+  d.press("ArrowRight");
+  d.press("ArrowLeft");
+  const unselects = (node, why) => {
+    d.press("Enter");
+    assert.equal(d.browsing(), false, "Enter did not select the card");
+    d.pressOn(node);
+    assert.equal(d.browsing(), true, why);
+    assert.equal(d.shown(), "a", "unselecting took the card off the screen");
+    assert.ok(d.row("a").classList.contains("on"), "unselecting took the mark off the ticket");
+  };
+  // the strip beside the list and the gap between two tickets land on the section
+  unselects(pane, "a press in the strip beside the list left the card selected");
+  unselects(pane, "a press in a gap between two tickets left the card selected");
+  // the section holders themselves, should a press ever land on one
+  unselects(sheet, "a press on the sheet left the card selected");
+  unselects(d.doc.getElementById("tiklist"), "a press on the list holder left the card selected");
+  // a ticket, or anything in one, is not the paper: the press leaves the card
+  // selected and the ticket's own click chooses it, as it did
+  for (const node of [d.row("b"), inner]) {
+    d.press("Enter");
+    d.pressOn(node);
+    assert.equal(d.browsing(), false, `a press on a ticket ${node.className} unselected the card`);
+  }
+  // the edit mode, the right button and the home page keep the list as a panel
+  d.sandbox.editMode = true;
+  d.pressOn(pane);
+  assert.equal(d.browsing(), false, "a press on the list in edit mode unselected the card");
+  d.sandbox.editMode = false;
+  d.doc.fire("pointerdown", pane, { button: 2 });
+  assert.equal(d.browsing(), false, "a right press on the list unselected the card");
+  // the portrait drawer is a panel over the card: its empty area is not paper
+  d.body.dataset.respMode = "portrait";
+  d.pressOn(pane);
+  assert.equal(d.browsing(), false, "a press in the portrait drawer unselected the card");
+  d.body.dataset.respMode = "";
+  d.pressOn(pane);
+  assert.equal(d.browsing(), true);
 });
 
 test("a click on the open project's tab unselects the card on screen; another tab, or home, switches", () => {
