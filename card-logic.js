@@ -3154,20 +3154,52 @@ async function histStep(id, dir){   // +1 steps older, -1 steps back toward live
 // exists; each rebuild stamps the current frame itself, so the ticker and the
 // poll-driven re-renders never fight over the text. ages return on the next
 // quiet poll.
+// the card's own spinner (cardSpinner below) turns on the same clock: the
+// interval also lives while a card shows one, since a phone draws no rows while
+// its drawer is shut.
 const SPIN_FRAMES = ["|","/","-","\\"];   // the classic terminal spinner, bolder than braille dots
 let spinFrame = 0, spinTimer = null;
 function syncSpinner(){
-  const has = document.querySelector("#tiklist .trow.working");
+  const has = document.querySelector("#tiklist .trow.working, .cardspin.on");
   if (has && spinTimer == null){
     spinTimer = setInterval(() => {
       const ages = document.querySelectorAll("#tiklist .trow.working .tage");
-      if (!ages.length){ clearInterval(spinTimer); spinTimer = null; return; }
+      const cards = document.querySelectorAll(".cardspin.on");
+      if (!ages.length && !cards.length){ clearInterval(spinTimer); spinTimer = null; return; }
       spinFrame = (spinFrame + 1) % SPIN_FRAMES.length;
       for (const a of ages) a.textContent = SPIN_FRAMES[spinFrame];
+      for (const c of cards) c.dataset.f = SPIN_FRAMES[spinFrame];
     }, 180);
   } else if (!has && spinTimer != null){
     clearInterval(spinTimer); spinTimer = null;
   }
+}
+
+// ---- the card's own spinner ------------------------------------------------------------
+// the list's green ticket has a twin in the card's top bar, right after the
+// history arrows: the same four frames on the same clock, drawn by the shared
+// sheet (card-tokens.css, .cardspin) from the frame written in data-f. it is
+// always in the bar and only its strength changes, so it fades in when the card
+// turns green and out when the reply comes back, and shows or hides without
+// moving anything. a done or deferred card never shows it, even where its
+// ticket still pulses under a claim the agent holds.
+function cardSpinning(b){
+  const s = cardState(b);
+  return s !== "done" && s !== "parked" && ticketGreen(b);
+}
+function makeCardSpinner(){
+  const spin = h("span", "cardspin");
+  spin.setAttribute("role", "img");
+  spin.setAttribute("aria-label", "working");
+  spin.setAttribute("aria-hidden", "true");
+  spin.dataset.f = SPIN_FRAMES[spinFrame];
+  return spin;
+}
+function setCardSpinner(spin, on){
+  if (!spin || spin.classList.contains("on") === on) return;
+  if (on) spin.dataset.f = SPIN_FRAMES[spinFrame];
+  spin.classList.toggle("on", on);
+  spin.setAttribute("aria-hidden", on ? "false" : "true");
 }
 
 // ---- quick notes ------------------------------------------------------------------
