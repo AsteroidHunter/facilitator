@@ -383,3 +383,95 @@ test("the three chips' tooltips carry the section keys", async () => {
     for (const line of crosses) assert.ok(line.endsWith('\\n" + SECTION_KEY_HINTS.done;'), `${page}: ${line}`);
   }
 });
+
+// ---- control+enter and control+r ----------------------------------------------------
+const NOT_BARE_CONTROL = [
+  {}, { metaKey: true }, { shiftKey: true }, { altKey: true },
+  { ctrlKey: true, shiftKey: true }, { ctrlKey: true, metaKey: true }, { ctrlKey: true, altKey: true },
+];
+
+test("control enter is the move key and no other modifier set is", async () => {
+  const { resolve } = await shortcuts();
+  assert.deepEqual(plain(resolve(event("Enter", { ctrlKey: true }))), { action: "advance", value: true });
+  // a held key's repeats are still recognized, so a page can keep them from the browser
+  assert.deepEqual(plain(resolve(event("Enter", { ctrlKey: true, repeat: true }))), { action: "advance", value: true });
+  for (const held of NOT_BARE_CONTROL) assert.notEqual(resolve(event("Enter", held))?.action, "advance", JSON.stringify(held));
+  // a composer that took the key, or an input method's own Enter, is not asked again
+  assert.equal(resolve(event("Enter", { ctrlKey: true, defaultPrevented: true })), null);
+  assert.equal(resolve(event("Enter", { ctrlKey: true, isComposing: true })), null);
+  assert.equal(resolve(event("Enter", { ctrlKey: true }), "mini"), null);
+});
+
+test("control r is the random jump key and no other modifier set is", async () => {
+  const { resolve } = await shortcuts();
+  assert.deepEqual(plain(resolve(event("r", { ctrlKey: true }))), { action: "random", value: true });
+  assert.deepEqual(plain(resolve(event("R", { ctrlKey: true }))), { action: "random", value: true });
+  assert.deepEqual(plain(resolve(event("r", { ctrlKey: true, repeat: true }))), { action: "random", value: true });
+  for (const held of NOT_BARE_CONTROL) assert.notEqual(resolve(event("r", held))?.action, "random", JSON.stringify(held));
+  assert.equal(resolve(event("r", { ctrlKey: true, defaultPrevented: true })), null);
+  assert.equal(resolve(event("r", { ctrlKey: true, isComposing: true })), null);
+  assert.equal(resolve(event("r", { ctrlKey: true }), "mini"), null);
+  assert.equal(resolve(event("t", { ctrlKey: true })), null);
+});
+
+test("dispatch hands control enter and control r to the page's own action and leaves the event alone", async () => {
+  const { dispatch } = await shortcuts();
+  const seen = [];
+  const actions = {
+    advance(received) { seen.push(["advance", received.key]); },
+    random(received) { seen.push(["random", received.key]); },
+  };
+  const enter = event("Enter", { ctrlKey: true });
+  const random = event("r", { ctrlKey: true });
+  assert.equal(dispatch(enter, actions), true);
+  assert.equal(dispatch(random, actions), true);
+  assert.deepEqual(seen, [["advance", "Enter"], ["random", "r"]]);
+  assert.equal(enter.defaultPrevented || random.defaultPrevented, false, "dispatch canceled an event itself");
+  assert.equal(dispatch(enter, {}), false);
+});
+
+async function randomPick() {
+  const source = await readFile(path.join(ROOT, "card-logic.js"), "utf8");
+  const context = vm.createContext({ Date, setTimeout, clearTimeout, setInterval, clearInterval });
+  vm.runInContext(source, context, { filename: "card-logic.js" });
+  return {
+    pick: vm.runInContext("pickRandomCard", context),
+    green: vm.runInContext("ticketGreen", context),
+    standing: vm.runInContext("isStandingBox", context),
+  };
+}
+
+test("a green ticket is a working or note card, and a done card still at work", async () => {
+  const { green } = await randomPick();
+  for (const state of ["working", "note"]) assert.equal(green({ id: "a", state }), true, state);
+  for (const state of ["yours", "queued", "new", "parked", "done"]) assert.equal(green({ id: "a", state }), false, state);
+  assert.equal(green({ id: "a", state: "done", writing: true }), true);
+  assert.equal(green({ id: "a", parked: true, state: null, writing: true }), true);
+  assert.equal(green({ id: "a", parked: true, state: null, ball: "you", replies: 1 }), false);
+});
+
+test("the random pick leaves out green tickets, the card on screen and the standing boxes", async () => {
+  const { pick, standing } = await randomPick();
+  assert.deepEqual([standing("0"), standing("t0"), standing("q"), standing("m1")], [true, true, false, false]);
+  const pool = [
+    { id: "0", state: "new" }, { id: "t0", state: "yours" },
+    { id: "a", state: "yours" }, { id: "b", state: "queued" }, { id: "c", state: "working" },
+    { id: "d", state: "note" }, { id: "e", state: "yours" }, { id: "f", state: "new" },
+  ];
+  assert.equal(pick(pool, "a", () => 0), "b");
+  assert.equal(pick(pool, "a", () => 0.999), "f");
+  assert.equal(pick(pool, "b", () => 0), "a");
+  assert.equal(pick(pool, null, () => 0), "a");
+  // every one of the open cards can come up, and nothing else does
+  const seen = new Set();
+  for (let at = 0; at < 4; at++) seen.add(pick(pool, "a", () => at / 4));
+  assert.deepEqual([...seen].sort(), ["b", "e", "f"]);
+  assert.ok(["b", "e", "f"].includes(pick(pool, "a")), "the default chooser named a card outside the open ones");
+});
+
+test("the random pick has nothing to answer with when no card qualifies", async () => {
+  const { pick } = await randomPick();
+  assert.equal(pick([], "a"), null);
+  assert.equal(pick([{ id: "a", state: "yours" }], "a"), null);
+  assert.equal(pick([{ id: "a", state: "yours" }, { id: "c", state: "working" }, { id: "0", state: "new" }], "a"), null);
+});

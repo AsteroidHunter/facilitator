@@ -930,8 +930,10 @@ test("Enter is recognized only bare, and only the two full pages answer it", () 
                                repeat: false, isComposing: false, defaultPrevented: false, ...extra });
   const resolve = (e, scope) => { const s = l.sandbox.cardShortcut(e, scope); return s && s.action; };
   assert.equal(resolve(key("Enter")), "enter");
-  for (const m of ["ctrlKey", "metaKey", "shiftKey", "altKey", "repeat", "isComposing", "defaultPrevented"])
+  for (const m of ["metaKey", "shiftKey", "altKey", "repeat", "isComposing", "defaultPrevented"])
     assert.equal(resolve(key("Enter", { [m]: true })), null, `Enter with ${m}`);
+  // with control held it is the move key, never the select key
+  assert.equal(resolve(key("Enter", { ctrlKey: true })), "advance", "Enter with ctrlKey");
   assert.equal(resolve(key("Enter"), "mini"), null, "the small card took Enter");
   // the phone browses too, so its table answers Enter
   assert.match(between(HTML.phone, "const phoneShortcutActions = {", "\n};"), /\n  enter\(e\)\{/);
