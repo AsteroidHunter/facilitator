@@ -178,6 +178,8 @@ refused, a symlink pointing out of a folder is shown but never opened or served,
 and a special file is shown but never read. Editing writes text back with the
 same stale-write guard and never overwrites a binary or creates a new file.
 
+Once per browser, the first load after the board names its navigator lanes brings back the board's own tab's navigator box if it had been put away with the pencil's cross: the `hide.facilitator.<box>` key is removed, so the box returns in the place and size it was saved with, and the browser's `navrestore.1` key is set so this never runs again there. No other tab's keys are touched, and the cross hides the box again as it always did, for good. `tests/navigator-restore-browser.test.cjs` covers it.
+
 ## The Spotify player
 
 `spotify_client_id` in `run.config.json` is the client id magic box 1 signs into Spotify with; make an app at the Spotify developer dashboard (https://developer.spotify.com/dashboard) to get one, and leave the key empty until you do.
