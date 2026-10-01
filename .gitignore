@@ -36,6 +36,8 @@
 /.facilitator-install.json
 /.facilitator-skills.json
 /.facilitator-skills.tmp
+/.facilitator-statusline.json
+/.facilitator-statusline.tmp
 
 .DS_Store
 __pycache__/

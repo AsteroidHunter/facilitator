@@ -83,6 +83,13 @@ printf 'the agent skill is linked for Claude Code and Codex, and one block\n'
 printf 'in your shell profile puts the command on your PATH.\n\n'
 python3 "$REPO/shell_integration.py" install
 
+section '5. Claude limits'
+printf 'The home page can show your Claude plan limits. Claude Code sends\n'
+printf 'them to claude-statusline.py after each reply. Saying yes adds that\n'
+printf 'script as the status line in your Claude Code settings, around any\n'
+printf 'status line you already have, which shows as before.\n\n'
+python3 "$REPO/shell_integration.py" statusline
+
 printf '\n%s✦%s Facilitator is installed!\n\n' "$GREEN" "$RESET"
 printf '%sNext steps:%s\n\n' "$BOLD" "$RESET"
 printf '%s1.%s Start the board: facilitator run\n' "$BOLD" "$RESET"

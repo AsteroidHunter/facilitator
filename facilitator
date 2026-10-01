@@ -32,9 +32,10 @@
       --dry-run prints the commands instead of running them
   facilitator uninstall [--wipe] [--keep-attachments | --remove-attachments]
       remove what install made: the .venv, node_modules and the generated config
-      files, owned shell command, and owned agent-skill links. Keeps the board's
-      data (state.json, transcript.jsonl, logs, bridge credentials and vapid-key.pem)
-      unless --wipe is given. After its banner it asks whether to keep the card
+      files, owned shell command, owned agent-skill links, and the Claude Code
+      status line entry install added. Keeps the board's data (state.json,
+      transcript.jsonl, logs, bridge credentials and vapid-key.pem) unless
+      --wipe is given. After its banner it asks whether to keep the card
       attachments; Enter, an unclear answer or no terminal keeps them, and the
       two flags answer without asking.
       Never removes this folder or stops a running server.
@@ -1538,14 +1539,16 @@ Make this checkout runnable: check Python, find or install uv, create the .venv
 and sync requirements, write run.config.json and seed.json from the examples
 when they are missing, install test dependencies when node is present, then
 prompt for a phone app password in an interactive terminal and register the
-shared agent skill through ./install.sh.
+shared agent skill through ./install.sh. In an interactive terminal it also
+asks whether to show your Claude limits on the home page, and on yes adds
+claude-statusline.py as the Claude Code status line, around the one you have.
 Safe to run again; a second run changes nothing."""
 UNINSTALL_HELP = """usage: facilitator uninstall [--wipe] [--keep-attachments | --remove-attachments]
 
 Remove what install made: the .venv, node_modules, generated config,
-and owned command and agent-skill links. Keeps board data and bridge
-credentials unless --wipe is given. Never removes this folder or stops
-a running server.
+owned command and agent-skill links, and the Claude Code status line entry
+install added. Keeps board data and bridge credentials unless --wipe is
+given. Never removes this folder or stops a running server.
 Card attachments are asked about after the banner and kept unless the
 answer is a clear no; with no terminal they are kept.
 --keep-attachments and --remove-attachments answer without asking, with
@@ -1900,9 +1903,10 @@ def cmd_uninstall(args):
 
     import shell_integration
     section("2. Command and skill")
-    print("Uninstall removes the command link, the skill links and the")
-    print("installer block in your shell profile, but only where they are")
-    print("still the ones setup made.")
+    print("Uninstall removes the command link, the skill links, the")
+    print("installer block in your shell profile and the Claude limits entry")
+    print("in your Claude Code settings, but only where they are still the")
+    print("ones setup made.")
     print()
     shell_integration.uninstall()
 

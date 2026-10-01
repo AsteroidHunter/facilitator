@@ -29,7 +29,7 @@ async function freshClone() {
   dirs.push(base);
   const dir = path.join(base, "facilitator");
   await mkdir(dir);
-  for (const name of ["facilitator", "shell_integration.py", "run.config.example.json", "seed.example.json", "requirements.txt"]) {
+  for (const name of ["facilitator", "shell_integration.py", "claude-statusline.py", "run.config.example.json", "seed.example.json", "requirements.txt"]) {
     await copyFile(path.join(ROOT, name), path.join(dir, name));
   }
   await cp(path.join(ROOT, '.agents'), path.join(dir, '.agents'), { recursive: true });
@@ -521,6 +521,23 @@ test("uninstall --wipe removes owned skill links but keeps another personal skil
     await assert.rejects(lstat(path.join(home, host, 'skills/facilitator')), { code: 'ENOENT' });
   assert.equal(await readFile(path.join(other, 'SKILL.md'), 'utf8'), 'mine');
   assert.equal(await readFile(path.join(dir, '.agents/skills/facilitator/SKILL.md'), 'utf8').then(Boolean), true);
+});
+
+test("uninstall takes the Claude limits entry back out of the Claude Code settings", async () => {
+  const dir = await freshClone();
+  const home = path.join(dir, "home");
+  await mkdir(home);
+  const env = { SHELL: "/bin/zsh" };
+  const setup = ["import shell_integration", "shell_integration.install()", "shell_integration.statusline_add()",
+    stubs(), snapshot("cli.cmd_install(['install'])")].join("\n");
+  const first = await run(dir, setup, env);
+  assert.equal(first.exit, null, first.out);
+  const settings = path.join(home, ".claude", "settings.json");
+  assert.match(await readFile(settings, "utf8"), /claude-statusline\.py/);
+  const removed = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"), env);
+  assert.equal(removed.exit, null, removed.out);
+  assert.match(removed.out, /Removed .*settings\.json, which setup made\./);
+  await assert.rejects(lstat(settings), { code: "ENOENT" });
 });
 
 test("a second uninstall is harmless and says nothing is present", async () => {
