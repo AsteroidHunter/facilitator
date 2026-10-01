@@ -11,7 +11,8 @@
 // off setting a switch, no purple, every setting still writing what it always wrote,
 // the colour picker gone from the bar and the pen a plain mark like the gear. On
 // the phone the drawer keeps its own size, white, edge and corners, and holds the
-// list of sections, each one opening inside it with a way back.
+// list of sections, each one opening inside it with a way back; Notifications is
+// the Editor's switch and really subscribes and unsubscribes the phone.
 //
 // The board is invented and lives in a temp directory. Nothing here touches the
 // real board, the owner's browser or port 8877.
@@ -71,6 +72,7 @@ async function open(route, viewport, opts = {}) {
       localStorage.clear();
     } catch (error) {}
   });
+  if (opts.before) await page.evaluateOnNewDocument(opts.before);
   page.on("console", message => {
     if (message.type() !== "error") return;
     const where = (message.location() && message.location().url) || "";
@@ -976,7 +978,7 @@ test("phone: the drawer opens on the list of sections and each one opens inside 
     }
     const text = await page.evaluate(() => ({
       format: document.querySelector('label[for="setformat"]').textContent.trim().split("\n")[0],
-      notify: document.getElementById("notify").textContent.trim(),
+      notify: document.querySelector('label[for="notify"]').textContent.trim().split("\n")[0],
       signout: document.getElementById("signout").textContent.trim(),
       save: document.getElementById("savediagnostic").textContent.trim(),
     }));
@@ -1088,6 +1090,112 @@ test("phone: a tap on the shade and a swipe toward the edge put the drawer away"
     assert.equal(await out(), true, "a vertical drag put the drawer away");
     assert.deepEqual(problems, []);
   } finally {
+    await page.close();
+  }
+});
+
+// the headless browser has no push service, so the page is handed one that keeps
+// its subscription in session storage. what the page asks of it, and what the
+// board stores, are what is checked
+function fakePush() {
+  const KEY = "fake-push-sub";
+  const make = endpoint => ({
+    endpoint,
+    toJSON() { return { endpoint, keys: { p256dh: "fixture-key", auth: "fixture-auth" } }; },
+    async unsubscribe() {
+      sessionStorage.removeItem(KEY);
+      sessionStorage.setItem("fake-push-dropped", String(Number(sessionStorage.getItem("fake-push-dropped") || 0) + 1));
+      return true;
+    },
+  });
+  PushManager.prototype.getSubscription = async function () {
+    const endpoint = sessionStorage.getItem(KEY);
+    return endpoint ? make(endpoint) : null;
+  };
+  PushManager.prototype.subscribe = async function () {
+    const endpoint = "https://push.fixture.invalid/phone-" + Date.now();
+    sessionStorage.setItem(KEY, endpoint);
+    return make(endpoint);
+  };
+}
+
+// the endpoints the board keeps for push
+async function storedSubs() {
+  const state = JSON.parse(await readFile(path.join(fixtureDir, "state.json"), "utf8"));
+  return (state.push_subs || []).map(one => one.endpoint);
+}
+
+// a switch's whole computed dress, the track and the knob, to set beside the Editor's
+const switchDress = (page, id) => page.evaluate(id => {
+  const box = document.getElementById(id);
+  const pick = style => Object.fromEntries(["width", "height", "borderTopLeftRadius", "backgroundColor", "boxShadow",
+    "appearance", "cursor", "transitionProperty", "transitionDuration", "transform", "top", "left"].map(p => [p, style[p]]));
+  const rect = box.getBoundingClientRect();
+  return { role: box.getAttribute("role"), size: [rect.width, rect.height], track: pick(getComputedStyle(box)),
+           knob: pick(getComputedStyle(box, "::before")), checked: box.checked };
+}, id);
+
+function notifySettled(page, on) {
+  return page.waitForFunction(want => {
+    const box = document.getElementById("notify");
+    return !box.disabled && box.checked === want;
+  }, { timeout: 5000 }, on);
+}
+
+test("phone: Notifications is the Editor's switch, and it subscribes this phone and unsubscribes it", async () => {
+  const context = browser.defaultBrowserContext();
+  await context.overridePermissions(origin, ["notifications"]);
+  const { page, problems } = await open("/m", PHONE, { before: fakePush });
+  try {
+    await openPhone(page);
+    await page.tap('.sp-item[data-section="editor"]');
+    await settle(80);
+    const editorOff = await switchDress(page, "setformat");
+    await page.tap("#setformat");
+    await settle(400);
+    const editorOn = await switchDress(page, "setformat");
+    await page.tap(".sp-back");
+    await settle(80);
+    await page.tap('.sp-item[data-section="notifications"]');
+    await settle(80);
+    const off = await switchDress(page, "notify");
+    assert.equal(off.checked, false, "the switch is on with nothing subscribed");
+    assert.deepEqual(off, editorOff, "the Notifications switch is not the Editor's when off");
+    assert.deepEqual(await storedSubs(), []);
+
+    // on: the phone subscribes and the board keeps it
+    await page.tap("#notify");
+    await notifySettled(page, true);
+    await settle(400);
+    const held = await page.evaluate(() => sessionStorage.getItem("fake-push-sub"));
+    assert.match(held || "", /^https:\/\/push\.fixture\.invalid\//, "the phone did not subscribe");
+    assert.deepEqual(await storedSubs(), [held], "the board did not keep the phone's subscription");
+    assert.deepEqual(await switchDress(page, "notify"), editorOn, "the Notifications switch is not the Editor's when on");
+
+    // off: the board forgets it and the phone lets it go
+    await page.tap("#notify");
+    await notifySettled(page, false);
+    assert.equal(await page.evaluate(() => sessionStorage.getItem("fake-push-sub")), null, "the phone kept its subscription");
+    assert.equal(await page.evaluate(() => sessionStorage.getItem("fake-push-dropped")), "1");
+    assert.deepEqual(await storedSubs(), [], "the board still holds the subscription");
+    await settle(400);
+    assert.deepEqual(await switchDress(page, "notify"), editorOff, "off did not go back to the Editor's off");
+
+    // it shows what the phone holds: on after a reopen while subscribed, and off
+    // once the phone's own settings take the permission away
+    await page.tap("#notify");
+    await notifySettled(page, true);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => typeof lastState !== "undefined" && lastState !== null, { timeout: 15000 });
+    await openPhone(page);
+    await notifySettled(page, true);
+    await swipeRight(page);
+    await context.clearPermissionOverrides();
+    await openPhone(page);
+    await notifySettled(page, false);
+    assert.deepEqual(problems, []);
+  } finally {
+    await context.clearPermissionOverrides();
     await page.close();
   }
 });
