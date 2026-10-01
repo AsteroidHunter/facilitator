@@ -607,17 +607,18 @@
 .sp-title{flex:1; min-width:0; margin:0; font:625 17px/1.25 var(--inter); color:var(--ink)}
 /* the window buttons of the desktop page, at the top left as on any Mac window:
    three 12px circles 8px apart in the system's own red, yellow and green, on
-   the page's own left margin. the symbols inside stay hidden until a pointer is
-   over the group, as they do on a Mac window. only the red one does anything */
+   the page's own left margin. the red one does anything, and its x stays hidden
+   until a pointer is over the group, as it does on a Mac window. the yellow and
+   the green are drawn as a Mac draws a button that cannot be used: a flat light
+   grey with a slightly darker ring, and no mark under a pointer */
 .sp-lights{flex:none; display:flex; gap:8px; margin-right:12px}
 .sp-light{flex:none; box-sizing:border-box; display:block; width:12px; height:12px;
   margin:0; padding:0; border:none; border-radius:50%; cursor:default;
   box-shadow:inset 0 0 0 .5px rgba(0,0,0,.14)}
 .sp-light svg{display:block; opacity:0; transition:opacity .12s}
-.sp-lights:hover .sp-light svg{opacity:1}
+.sp-lights:hover .sp-red svg{opacity:1}
 .sp-red{background:#FF5F57; color:#4D0000}
-.sp-yellow{background:#FEBC2E; color:#985600}
-.sp-green{background:#28C840; color:#006500}
+.sp-yellow, .sp-green{background:#DCDCDC; box-shadow:inset 0 0 0 .5px #C3C3C3}
 /* the marks on the bar are the tab bar's own: 15px, the sub ink, no box, and
    the ink under a pointer. the padding is only the room a finger needs, and
    the margin takes it back so the mark stands on the page's own margin */

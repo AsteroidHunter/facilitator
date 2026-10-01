@@ -573,16 +573,18 @@ test("wide: nothing on the page is purple, and the chosen section is a neutral s
 });
 
 // the window buttons at the top left of the overlay: 12px circles in the system's
-// own red, yellow and green, 8px apart, and only the red one does anything
+// own red, yellow and green, 8px apart, and only the red one does anything. the
+// yellow and the green are greyed out the way a Mac greys a button it cannot use
 const lightsOf = page => page.evaluate(() => {
   const group = document.querySelector(".sp-lights");
   const page = document.querySelector(".sp-page").getBoundingClientRect();
   const boxes = [...group.children].map(el => {
-    const r = el.getBoundingClientRect(), s = getComputedStyle(el);
+    const r = el.getBoundingClientRect(), s = getComputedStyle(el), svg = el.querySelector("svg");
     return { cls: el.className, tag: el.tagName, left: r.left - page.left, top: r.top - page.top, width: r.width,
-             height: r.height, radius: s.borderTopLeftRadius, background: s.backgroundColor,
-             symbol: getComputedStyle(el.querySelector("svg")).opacity, focusable: el.tabIndex >= 0,
-             text: el.textContent.trim(), label: el.getAttribute("aria-label"), title: el.getAttribute("title") };
+             height: r.height, radius: s.borderTopLeftRadius, background: s.backgroundColor, ring: s.boxShadow,
+             cursor: s.cursor, symbol: svg ? getComputedStyle(svg).opacity : null, focusable: el.tabIndex >= 0,
+             disabled: el.getAttribute("aria-disabled"), text: el.textContent.trim(),
+             label: el.getAttribute("aria-label"), title: el.getAttribute("title") };
   });
   return { boxes, closeMark: !!document.querySelector(".sp-close"), pageWidth: page.width };
 });
@@ -594,15 +596,24 @@ test("wide: three window buttons stand at the top left, and only the red one clo
     const seen = await lightsOf(page);
     assert.deepEqual(seen.boxes.map(b => b.cls), ["sp-light sp-red", "sp-light sp-yellow", "sp-light sp-green"]);
     assert.deepEqual(seen.boxes.map(b => b.background),
-      ["rgb(255, 95, 87)", "rgb(254, 188, 46)", "rgb(40, 200, 64)"], "the buttons are not the system's colours");
+      ["rgb(255, 95, 87)", "rgb(220, 220, 220)", "rgb(220, 220, 220)"],
+      "the red is not the system's red, or the yellow and green are not the flat light grey of a disabled button");
+    for (const b of seen.boxes.slice(1)) {
+      assert.match(b.ring, /^rgb\(195, 195, 195\) 0px 0px 0px 0\.5px inset$/, b.cls + " has no slightly darker grey ring: " + b.ring);
+      assert.equal(b.symbol, null, b.cls + " carries a mark");
+      assert.equal(b.disabled, "true", b.cls + " is not marked disabled");
+      assert.equal(b.focusable, false, b.cls + " can be reached with the keyboard");
+      assert.equal(b.cursor, "default", b.cls + " changes the pointer");
+    }
+    assert.equal(seen.boxes[0].disabled, null, "the red button is marked disabled");
     for (const b of seen.boxes) {
       assert.equal(b.width, 12, b.cls + " is not 12px wide");
       assert.equal(b.height, 12, b.cls + " is not 12px tall");
       assert.equal(b.radius, "50%", b.cls + " is not round");
       assert.equal(b.text, "", b.cls + " carries words");
       assert.equal(b.title, null, b.cls + " carries a hint");
-      assert.equal(b.symbol, "0", b.cls + " shows its symbol without a pointer over the group");
     }
+    assert.equal(seen.boxes[0].symbol, "0", "the red button shows its x without a pointer over the group");
     assert.equal(seen.boxes[1].left - seen.boxes[0].left, 20, "the buttons are not 8px apart");
     assert.equal(seen.boxes[2].left - seen.boxes[1].left, 20, "the buttons are not 8px apart");
     assert.ok(seen.boxes[0].left >= 12 && seen.boxes[0].left <= 24, "the red button is not inset like a window's: " + seen.boxes[0].left);
@@ -613,11 +624,16 @@ test("wide: three window buttons stand at the top left, and only the red one clo
     const gap = await page.evaluate(() => document.querySelector(".sp-title").getBoundingClientRect().left -
       document.querySelector(".sp-green").getBoundingClientRect().right);
     assert.ok(gap >= 12, "the title crowds the buttons: " + gap);
-    // a pointer over the group shows every symbol
-    const at = await page.evaluate(() => { const r = document.querySelector(".sp-yellow").getBoundingClientRect(); return { x: r.left + 6, y: r.top + 6 }; });
-    await page.mouse.move(at.x, at.y);
-    await settle(300);
-    assert.deepEqual((await lightsOf(page)).boxes.map(b => b.symbol), ["1", "1", "1"], "the symbols do not show under a pointer");
+    // a pointer over the group shows the red one's x and nothing in the grey two
+    for (const name of ["yellow", "green", "red"]) {
+      const at = await page.evaluate(sel => { const r = document.querySelector(sel).getBoundingClientRect(); return { x: r.left + 6, y: r.top + 6 }; }, ".sp-" + name);
+      await page.mouse.move(at.x, at.y);
+      await settle(300);
+      const under = (await lightsOf(page)).boxes;
+      assert.deepEqual(under.map(b => b.symbol), ["1", null, null], "under the pointer on " + name + " the red x does not show alone");
+      assert.deepEqual(under.map(b => b.background),
+        ["rgb(255, 95, 87)", "rgb(220, 220, 220)", "rgb(220, 220, 220)"], "a colour changed under the pointer on " + name);
+    }
     // yellow and green do nothing
     for (const name of ["yellow", "green"]) {
       const before = await page.evaluate(() => document.querySelector(".sp-page").outerHTML.length);

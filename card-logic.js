@@ -3322,27 +3322,25 @@ function settingsMark(name){
 }
 
 // the three window buttons a Mac window wears at its top left. the red one puts
-// the page away; the yellow and the green have nothing to do, since the page
-// cannot be minimised or zoomed, so they are plain marks the keyboard skips.
-// the symbols inside them show while a pointer is over the group
-const SETTINGS_LIGHTS = {
-  red: '<path d="M3.75 3.75l4.5 4.5M8.25 3.75l-4.5 4.5"/>',
-  yellow: '<path d="M2.8 6h6.4"/>',
-  green: '<path d="M2.55 6h6.9M6 2.55v6.9"/>',
-};
+// the page away, and its x shows while a pointer is over the group; the yellow
+// and the green have nothing to do, since the page cannot be minimised or
+// zoomed, so they are greyed out, carry no mark, and the keyboard skips them
+const SETTINGS_LIGHTS = ["red", "yellow", "green"];
 function settingsLights(close){
   const group = h("div", "sp-lights");
-  for (const name of Object.keys(SETTINGS_LIGHTS)){
+  for (const name of SETTINGS_LIGHTS){
     const light = h(name === "red" ? "button" : "span", "sp-light sp-" + name);
     if (name === "red"){
       light.type = "button";
       light.setAttribute("aria-label", "Close settings");
       light.addEventListener("click", close);
+      light.innerHTML = '<svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" ' +
+        'stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3.75 3.75l4.5 4.5M8.25 3.75l-4.5 4.5"/></svg>';
     } else {
-      light.setAttribute("aria-hidden", "true");
+      light.setAttribute("role", "button");
+      light.setAttribute("aria-disabled", "true");
+      light.setAttribute("aria-label", name === "yellow" ? "Minimise" : "Maximise");
     }
-    light.innerHTML = '<svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" ' +
-      'stroke-width="1.5" stroke-linecap="round" aria-hidden="true">' + SETTINGS_LIGHTS[name] + '</svg>';
     group.appendChild(light);
   }
   return group;
