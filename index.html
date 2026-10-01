@@ -3056,7 +3056,7 @@
      raised start button that opens the system folder chooser. All landing
      type is Inter (row paths stay grey mono); no text on this screen may
      be orange: orange lives only in the well's text selection and in its
-     scrollbar thumb. Centers on the real window, untouched by the stage
+     scrollbar thumb. Centers in the page's frame, untouched by the stage
      or drag layouts. */
   #newproj{display:none}
   body.choosing{background-image:none}   /* no dots on this page */
@@ -3064,13 +3064,18 @@
   body.choosing .box{display:none !important}
   body.choosing :is(main, #clockbox, #tickets, #magic1, #magic2, #magic3,
     #magic4, #goalbox, #rail, #taskchip){display:none !important}
+  /* the wrapper is the page's frame, the same rectangle the home page's panels
+     stand in (under the bar, inset --app-inset), and centres the stack in it
+     both ways, so the air above the logo and below the button is equal at any
+     window size and any list length. it takes no pointer; the stack does */
   body.choosing #newproj{
-    display:flex; flex-direction:column; align-items:center; position:fixed;
-    z-index:5; left:50%; top:calc(41px + (100vh - 41px)*.44);
-    transform:translate(-50%,-50%);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    position:fixed; z-index:5; pointer-events:none;
+    top:calc(var(--app-inset) + var(--bar-h) - 1px - var(--edge-drawn));
+    left:var(--app-inset); right:var(--app-inset); bottom:var(--app-inset);
   }
   #nphome{display:flex; flex-direction:column; align-items:center;
-    width:min(30rem, 88vw)}
+    width:min(30rem, 88vw); pointer-events:auto}
   /* the landing's three pieces arrive one beat apart on the page's own
      soft rise; the reduced-motion rule above stills them all */
   @keyframes npmelt{from{opacity:0; transform:translateY(6px)}}
