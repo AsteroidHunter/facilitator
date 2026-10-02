@@ -94,7 +94,7 @@ async function context() {
       return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) });
     },
     els: {}, lastState: null, selectedId: null, activeOwner: "facilitator", lastSel: {},
-    poll() {}, select() {}, deselect() {}, growPend() {}, apply() {}, editTitle() {},
+    poll() {}, select() {}, deselect() {}, growPend() {}, apply() {}, editTitle() {}, pasteIntoTitle() {},
   };
   const ctx = vm.createContext(sandbox);
   vm.runInContext(await readFile(path.join(ROOT, "card-logic.js"), "utf8"), ctx, { filename: "card-logic.js" });
