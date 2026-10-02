@@ -5372,7 +5372,21 @@ document.addEventListener("transitionend", e => {
   else if (foot === typingFoot && wideUp && wideStarted){ wideEnded = true; wideSettle(); }
 });
 
-document.addEventListener("focusin", reconcile);
+// a Tab into the box is the browser's own focus move: like a step, it gets the end of the words to restore and the woken caret
+let tabbedAt = -1e9;
+document.addEventListener("keydown", e => {
+  if (e.key !== "Tab") return;
+  const el = selectedId && els[selectedId];
+  if (!el || el.field.focused()) return;
+  const end = el.ta.value.length;
+  el.ta.setSelectionRange(end, end);
+  tabbedAt = performance.now();
+}, true);
+document.addEventListener("focusin", () => {
+  reconcile();
+  const el = selectedId && els[selectedId];
+  if (el && performance.now() - tabbedAt < 300 && el.field.focused()) arrivedCard = el;
+});
 document.addEventListener("focusout", () => requestAnimationFrame(reconcile));   // a frame's grace: focus may be hopping between fields
 for (const type of ["beforeinput", "keydown"]){
   document.addEventListener(type, e => { const t = e.target;
