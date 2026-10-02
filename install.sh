@@ -156,8 +156,9 @@ chrome_known() {
   open -Ra 'Google Chrome' >/dev/null 2>&1
 }
 
-# python3 on PATH that is new enough and has scrypt, which the app password is
-# hashed with and the Python that Apple ships lacks. The stub macOS keeps in
+# python3 on PATH that is new enough to run the setup, which the Python Apple
+# ships is. The board itself and its app password run on the Python
+# $MANAGED_PYTHON in .venv, which uv provides. The stub macOS keeps in
 # /usr/bin opens a dialog asking to install developer tools when it is run
 # without them, so it is not run in that case.
 usable_python3() {
@@ -166,7 +167,7 @@ usable_python3() {
   if [ "$found" = /usr/bin/python3 ] && [ "$(uname -s)" = Darwin ] && ! xcode-select -p >/dev/null 2>&1; then
     return 1
   fi
-  "$found" -c "import hashlib, sys; sys.exit(0 if sys.version_info >= (${MIN_PYTHON/./, }) and hasattr(hashlib, 'scrypt') else 1)" >/dev/null 2>&1
+  "$found" -c "import sys; sys.exit(0 if sys.version_info >= (${MIN_PYTHON/./, }) else 1)" >/dev/null 2>&1
 }
 
 find_uv() {
@@ -222,7 +223,7 @@ uv_new_enough() {
 # naming it. Nothing goes into the user's Python.
 bootstrap_python() {
   local uv found=1
-  say "No Python this setup can use was found (it needs $MIN_PYTHON or newer, with scrypt)."
+  say "No Python this setup can use was found (it needs $MIN_PYTHON or newer)."
   say 'uv will provide one for the private environment.'
   if ! uv="$(find_uv)"; then
     found=0

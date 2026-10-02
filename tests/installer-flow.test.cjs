@@ -256,7 +256,7 @@ test("a second run on an installed copy keeps the password and the config and ma
 });
 
 test("with no Python it can use, uv is fetched and then a Python, and the environment is still private", async () => {
-  for (const python of ["missing", "noscrypt"]) {
+  for (const python of ["missing", "old"]) {
     await using({ python, uv: "brew" }, async f => {
       const { code, text } = await f.piped();
       assert.equal(code, 0, `${python}: ${text}`);
@@ -265,7 +265,7 @@ test("with no Python it can use, uv is fetched and then a Python, and the enviro
         + "the pinned packages, and writes run.config.json and seed.json from\n"
         + "their examples when they are missing. Your own Python is not changed.\n"
         + "When node is here it also installs the packages the tests need.\n\n"
-        + "No Python this setup can use was found (it needs 3.9 or newer, with scrypt).\n"
+        + "No Python this setup can use was found (it needs 3.9 or newer).\n"
         + "uv will provide one for the private environment.\n"
         + "uv is not installed. Installing it with Homebrew.\n"), `${python}: ${text}`);
       assert.match(text, /\n✓ uv installed\.\nInstalling Python 3\.14 with uv\.\n/);
@@ -279,6 +279,34 @@ test("with no Python it can use, uv is fetched and then a Python, and the enviro
       assert.equal(await f.has(path.join(f.repo, ".venv", "bin", "python")), true);
     });
   }
+});
+
+// the python3 macOS ships: 3.9, without the scrypt the app password is hashed with
+const APPLE_PYTHON = (() => {
+  try {
+    return require("node:child_process").execFileSync("/usr/bin/python3", ["-c",
+      "import hashlib, sys; print(sys.version_info[:2] == (3, 9) and not hasattr(hashlib, 'scrypt'))"],
+      { encoding: "utf8" }).trim() === "True";
+  } catch {
+    return false;
+  }
+})();
+
+test("the python3 macOS ships runs the setup, and the app password is set on .venv's Python", { skip: !APPLE_PYTHON && "no /usr/bin/python3 3.9 without scrypt here" }, async () => {
+  await using({ python: "apple" }, async f => {
+    const { code, text, unsent } = await f.terminal([[PHONE, "y"], [BOTH, "y"], [ANSWER, "y"], ...PASSWORDS]);
+    assert.equal(code, 0, text);
+    assert.deepEqual(unsent, []);
+    assert.match(text, /✓ Python 3\.9\.\d+ runs this setup\./);
+    assert.doesNotMatch(text, /No Python this setup can use/);
+    assert.match(text, /\n✓ App password confirmed\.\n/);
+    assert.ok(!text.includes(PASSWORD), "the password was echoed");
+    const auth = JSON.parse(await fs.readFile(path.join(f.repo, "bridge-auth.json"), "utf8"));
+    assert.match(auth.password, /^[0-9a-f]{128}$/, "no scrypt hash was written");
+    const calls = await f.calls();
+    assert.ok(calls.includes("apple python3 " + path.join(f.repo, "facilitator")), "Apple's python3 did not run the setup");
+    assert.ok(!calls.some(line => line.startsWith("uv python find")), "a Python was fetched for the setup anyway");
+  });
 });
 
 test("with no uv and no Homebrew, uv's own installer runs, told to leave the shell profile alone", async () => {

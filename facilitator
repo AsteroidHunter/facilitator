@@ -52,6 +52,9 @@
   facilitator password set
       prompt twice for the phone bridge password; replacing it signs out every
       phone immediately. Passwords are never accepted on the command line.
+      Runs on the .venv's Python 3.14, since the python3 macOS ships cannot
+      make the password's hash; with no working .venv it says to run
+      ./install.sh first.
   facilitator update
       bring this checkout up to date without running git yourself. Stops and
       changes nothing when the checkout has uncommitted changes. Pulls the
@@ -70,7 +73,8 @@ from run.config.example.json for you to fill in. This script is Python stdlib
 only and runs on the python3 macOS ships (3.9 or newer); ./install.sh builds
 the server's .venv on a Python 3.14 that uv manages, from requirements.txt.
 run starts the server with that .venv's python when the folder is there, and
-with its own interpreter otherwise.
+with its own interpreter otherwise. password set always runs on that .venv's
+python; the commands that repair or remove .venv (update, uninstall) never do.
 """
 
 import ctypes
@@ -302,6 +306,27 @@ def server_python():
     there is no such folder (a machine whose interpreter already has the
     server's libraries)."""
     return str(VENV_PYTHON) if os.access(VENV_PYTHON, os.X_OK) else sys.executable
+
+
+def on_app_env():
+    """Carry on in the Python of .venv, by running this same command again
+    there, unless this already is it. For the commands that need more than the
+    python3 this command may have started on: the app password's hash is
+    scrypt, which the python3 macOS ships lacks. The variable marks the second
+    run, so it happens once."""
+    if (os.environ.get("FACILITATOR_APP_ENV") == "1"
+            or os.path.realpath(sys.prefix) == os.path.realpath(HERE / ".venv")):
+        return
+    broken = problem("The app's environment in .venv is missing or broken.",
+                     f"Run ./install.sh in {HERE} to rebuild it, then try again.")
+    if not os.access(VENV_PYTHON, os.X_OK):
+        sys.exit(broken)
+    sys.stdout.flush()
+    try:
+        os.execve(str(VENV_PYTHON), [str(VENV_PYTHON), str(HERE / "facilitator"), *sys.argv[1:]],
+                  {**os.environ, "FACILITATOR_APP_ENV": "1"})
+    except OSError:
+        sys.exit(broken)
 
 
 def start_server():
@@ -2801,8 +2826,11 @@ def main():
     elif cmd == "bridge":
         cmd_bridge(args)
     elif cmd == "password":
+        if args == ["password", "set"]:
+            on_app_env()
         cmd_password(args)
     elif cmd == "_password-setup" and os.environ.get("FACILITATOR_INTERNAL_INSTALL") == "1":
+        on_app_env()
         cmd_password(args, installer=True)
     elif cmd == "_install" and os.environ.get("FACILITATOR_INTERNAL_INSTALL") == "1":
         cmd_install(args)
