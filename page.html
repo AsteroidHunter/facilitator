@@ -69,12 +69,6 @@
   @keyframes pulse{50%{opacity:.35}}
   .prog{font:12px var(--mono); color:var(--sub); white-space:nowrap}
   .prog b{color:var(--green); font-weight:500}
-  .endbtn{
-    font:12px var(--mono); color:var(--sub); background:none; border:var(--edge) solid var(--line);
-    border-radius:99px; padding:4px 12px; cursor:pointer; transition:.2s;
-  }
-  .endbtn:hover{border-color:var(--must); color:var(--must)}
-  .endbtn.arm{border-color:var(--must); color:#fff; background:var(--must)}
   #bgpick{width:24px; height:20px; padding:0; border:var(--edge) solid var(--line);
     border-radius:4px; background:none; cursor:pointer; flex:none}
   #bgpick::-webkit-color-swatch-wrapper{padding:2px}
@@ -272,16 +266,14 @@
   body.offline #offline{display:block}
   body.offline .dot{background:#C0442A !important; animation:none}
 
-  .endnote{display:none; margin:40px 2px; font:italic 400 17px var(--serif); color:var(--sub)}
-  body.ended .endnote{display:block}
   @media (prefers-reduced-motion: reduce){ *{animation:none !important; transition:none !important} }
 
   /* ============ structural skin: square corners + bracket buttons =========== */
-  .box, textarea, .sendbtn, .donebtn, .parkbtn, .addbtn, .addinput, .endbtn,
+  .box, textarea, .sendbtn, .donebtn, .parkbtn, .addbtn, .addinput,
   .toc-entry{border-radius:4px !important}
   .num{background:transparent; border:none; padding:0; width:auto}
   /* buttons: borderless soft-tint boxes; the old hover glow is the resting look */
-  .sendbtn, .donebtn, .parkbtn, .addbtn, .endbtn{border:none !important}
+  .sendbtn, .donebtn, .parkbtn, .addbtn{border:none !important}
   .sendbtn{background:var(--accent-soft); color:var(--accent); font-weight:600;
     min-height:38px; padding:0 16px; display:flex; align-items:center}
   .sendbtn:hover{background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft)); transform:none}
@@ -292,8 +284,6 @@
   .parkbtn:hover{background:#DFE3EA}
   .addbtn{background:var(--accent-soft); color:var(--accent)}
   .addbtn:hover{background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft))}
-  .endbtn{background:var(--must-bg); color:var(--must)}
-  .endbtn:hover{background:#F2DCD3}
   .box.done .donebtn{background:var(--green); color:#fff}
   .box.parked .parkbtn{background:var(--later); color:#fff}
   .ctx{
@@ -1031,10 +1021,10 @@
   #docroot{display:none}
   body.docview #stage{display:none !important}
   /* the bar keeps only its tabs in this view: the name label, the bar clock,
-     the sandbox word, end session, the listener tag and the await
+     the sandbox word, the listener tag and the await
      count all stay out. the big day block below is the only clock here */
   body.docview .live, body.docview .prog,
-  body.docview #endbtn, body.docview #editbtn, body.docview #bgpick,
+  body.docview #editbtn, body.docview #bgpick,
   body.docview .name{display:none !important}
   #docclock, #docmock{display:none}
 
@@ -1271,7 +1261,6 @@
   <span class="prog" id="prog"></span>
   <button id="editbtn" title="edit layout">✎</button>
   <input type="color" id="bgpick" title="background color (temporary)" value="#F5F4F1">
-  <button class="endbtn" id="endbtn">End session</button>
   <span id="setwrap">
     <button id="setbtn" type="button" title="settings" aria-label="settings" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-1 1.47V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.6 1.6 0 0 0 4.6 15a1.6 1.6 0 0 0-1.47-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 8.9a1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.6 1.6 0 0 0 8.88 4.6H9a1.6 1.6 0 0 0 1-1.47V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77V9a1.6 1.6 0 0 0 1.47 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.47 1z"/></svg></button>
   </span>
@@ -1344,7 +1333,6 @@
   <div id="pwdline"></div>
   <div id="sections"></div>
   <div id="carousel"></div>
-  <p class="endnote">Session ended. Claude is writing the wrap-up in the terminal — decisions, updated buckets, next steps.</p>
 </main>
 </div>
 
@@ -2500,7 +2488,6 @@ function apply(state){
     renderCarousel(state);
     renderTodos(state);
   }
-  document.body.classList.toggle("ended", !!state.end);
 
   // listener presence, per agent: each is either long-polling (listening),
   // composing a claimed reply (busy), or recently between the two. Otherwise: offline.
@@ -3173,16 +3160,6 @@ document.getElementById("ndown").addEventListener("click", () => nav(0, 1));
     settingsStore.setItem("bgcolor", pick.value);
   });
 }
-
-let endArmed = false;
-document.getElementById("endbtn").addEventListener("click", async e => {
-  const btn = e.currentTarget;
-  if (!endArmed){ endArmed = true; btn.textContent = "Sure? End it"; btn.classList.add("arm");
-    setTimeout(() => { endArmed = false; btn.textContent = "End session"; btn.classList.remove("arm"); }, 3500);
-    return; }
-  await fetch("/end", { method: "POST" }).catch(() => {});
-  btn.textContent = "Ended"; btn.disabled = true;
-});
 
 // resizable outline: drag the grip, clamped, remembered
 {

@@ -378,8 +378,6 @@
   body.offline #offline{display:block}
   body.offline .dot{background:#C0442A !important; animation:none}
 
-  .endnote{display:none; margin:40px 2px; font:italic 400 17px var(--serif); color:var(--sub)}
-  body.ended .endnote{display:block}
   @media (prefers-reduced-motion: reduce){ *{animation:none !important; transition:none !important} }
 
   /* ============ structural skin: square corners + bracket buttons =========== */
@@ -3564,7 +3562,6 @@
   <div id="pwdline"></div>
   <div id="sections"></div>
   <div id="carousel"></div>
-  <p class="endnote">Session ended. Claude is writing the wrap-up in the terminal — decisions, updated buckets, next steps.</p>
 </main>
 </div>
 
@@ -6278,7 +6275,6 @@ function apply(state){
     renderCarousel(state);
     renderMiniCards(state);
   }
-  document.body.classList.toggle("ended", !!state.end);
 
   // listener presence, per agent: each is either long-polling (listening),
   // composing a claimed reply (busy), or recently between the two. Otherwise: offline.
