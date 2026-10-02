@@ -4,7 +4,7 @@
 
 ## About 
 
-Facilitator is a natural language development environment. It as an interface built to resolve *the* bottleneck when coding with agents: [understanding](https://www.geoffreylitt.com/2026/07/02/understanding-is-the-new-bottleneck).
+Facilitator is a natural language development environment. It is an interface built to resolve *the* bottleneck when coding with agents: [understanding](https://www.geoffreylitt.com/2026/07/02/understanding-is-the-new-bottleneck).
 
 **Facilitator makes it super easy to atomize your asks and orchestrate dozens of subagents.** The interface speeds up your development and helps you ship faster and better in following ways:
 1. If you are working on a large spec, you can develop different parts of the spec independently, quickly delegating the portions that are simple, and spending more time on parts that require greater attention
@@ -24,11 +24,11 @@ Facilitator is meant to complement your existing development workflow. **To make
 **Pre-requisites**:
 - Claude Code or Codex
 - Google Chrome
-- Python 3.9 or greater
+- macOS
 
 Installing the Facilitator is easy:
 ```
-git clone
+git clone https://github.com/AsteroidHunter/facilitator.git
 cd facilitator
 ./install.sh
 ```
@@ -37,7 +37,7 @@ cd facilitator
 
 1. On your favorite terminal:
 `facilitator run`
-2. Start a Claude or Codex session, and run `/facilitator`
+2. Start a Claude or Codex session, and run `/facilitator onboard` in Claude Code and `$facilitator onboard` in Codex
 3. Open a project on the facilitator, press `command + T` to open a new card, and start shipping!
 
 ### Mobile version
@@ -45,11 +45,18 @@ The Facilitator comes with a mobile version. The mobile version is fun to use wh
 
 If you have an always on machine (or like to leave your laptop running), you can access your project on the Facilitator and direct agents as long as you have **Tailscale**. 
 
-To use the mobile verison:
+To use the mobile version:
 1. Run `facilitator bridge`
 2. Scan the QR code using your phone
 3. Follow the steps to set up the web app
 4. Continue shipping!
+
+## Updating the Facilitator
+
+Facilitator is still in development and will be constantly updated. To update, run the following on your terminal:
+```
+facilitator update
+```
 
 ## License
 
