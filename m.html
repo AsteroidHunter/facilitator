@@ -4,11 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>facilitator</title>
-<!-- the phone page. the same board, drawn for a phone: the project tabs across
-     the top, one card filling the screen with the app's thin margins on all
-     four sides, the card list in a menu pulled in from the left edge and the
-     settings in one pulled in from the right, and the board's home page, which
-     the house at the head of the tabs opens.
+<!-- the phone page. the same board, drawn for a phone: one card filling the
+     screen from the top down to a row of four glass buttons along the bottom
+     (the card list, the open project, a new card and the settings), the card
+     list in a menu pulled in from the left edge and the settings in one pulled
+     in from the right, and the board's home page, which the first row of the
+     project list opens.
      nothing else. the card is the desktop card at phone size: the same top
      bar, title, answer, sent box, composer and buttons, in the same colours
      and faces, read straight out of index.html rather than redrawn -->
@@ -48,7 +49,15 @@
     --drawer-tap:cubic-bezier(.445,.05,.55,.95);
     --drawer-drag:cubic-bezier(.215,.61,.355,1);
     --drawer-curve:var(--drawer-tap);
+    /* the row of buttons along the bottom (#dock), laid where iOS 26 draws the
+       bar a paired keyboard brings up: a 48px pill whose foot is 10px off the
+       screen's bottom edge, 16px in from each side, 20px on the two widest
+       phones. --dock-band is the whole band that bar takes from the page, the
+       pill and the 10px over and under it, and the card's foot stands on it */
+    --dock-h:48px; --dock-foot:10px; --dock-side:16px; --dock-gap:8px;
+    --dock-band:calc(var(--dock-h) + 2 * var(--dock-foot));
   }
+  @media (min-width:420px){ :root{--dock-side:20px} }
   *{box-sizing:border-box}
   /* Height follows the containing block, not a viewport unit. The two are not
      always the same box, and a column taken from the longer one overhangs the
@@ -79,9 +88,9 @@
      across the run rather than the OS or browser's own tint, so a long-press
      pick of the sent words or the prose reads the same here as on the board */
   ::selection{background:#000; color:#fff}
-  /* the page: the tabs and the card, on the paper, as one surface.
-     both menus cross over it, with the shade between them and it, and the
-     surface itself draws back a little while either one is out */
+  /* the page: the card and the row of buttons under it, on the paper, as one
+     surface. both menus cross over it, with the shade between them and it, and
+     the surface itself draws back a little while either one is out */
   #page{
     position:absolute; inset:0; z-index:10;
     display:flex; flex-direction:column; overflow:hidden;
@@ -90,25 +99,27 @@
             var(--pad-b)
             calc(env(safe-area-inset-left, 0px) + var(--app-inset));
     -webkit-tap-highlight-color:transparent;
-    /* the foot's clearance. at rest it is the home indicator's safe area plus
-       the app's thin margin. while an editor is focused, any bottom area lost
-       from the measured visual viewport is used instead, whether it is a small
-       hardware-keyboard accessory strip or the full on-screen keyboard. the
-       safe area still reported under that obstruction is not added twice.
-       --kb-inset is the measured loss written by the script. the clearance
-       moves on the platform keyboard's clock and curve, --kb-anim */
-    --pad-b:calc(env(safe-area-inset-bottom, 0px) + var(--app-inset));
+    /* the foot's clearance. at rest it is the band the row of buttons stands
+       in, which covers the home indicator's safe area too. while an editor is
+       focused, any bottom area lost from the measured visual viewport is used
+       instead, whether it is a small hardware-keyboard accessory strip or the
+       full on-screen keyboard. --kb-inset is the measured loss written by the
+       script. the clearance moves on the platform keyboard's clock and curve,
+       --kb-anim */
+    --pad-b:var(--dock-band);
     --kb-inset:0px;
     /* the gap the compose bar keeps above the keyboard is the app's own thin
-       margin. the card's foot travels the resting clearance less that gap less
-       the keyboard's measured inset; at rest it is nothing */
-    --kb-gap:var(--app-inset);
+       margin, and above a paired keyboard's bar it is nothing: the bar takes
+       the row's own band, so the card's foot does not move for it. the foot
+       travels the resting clearance less that gap less the keyboard's measured
+       inset; at rest it is nothing */
+    --kb-gap:0px;
     --kb-lift:0px;
     /* the platform keyboard's own clock and curve, fitted to a recording of it,
        leaving rest at no speed and landing at rest at no speed */
     --kb-anim:.22s cubic-bezier(.45,0,.55,1);
-    /* The tab strip, its seated tab and the exposed canvas share one paper.
-       A page-only highlight would reveal a seam when the page draws back. */
+    /* The page and the exposed canvas share one paper. A page-only highlight
+       would reveal a seam when the page draws back. */
     background:var(--paper);
     /* the depth a menu opens onto. as one comes out the whole page draws back
        towards the middle of the screen, by the same fraction the menu's travel
@@ -125,9 +136,9 @@
   }
   /* the lift is the whole of the keyboard's visible motion: how far the card's
      own bottom edge, and the typing row standing on it, come up. the page's own
-     bottom clearance never changes, so the strip and the card's top edge are
-     untouched by a keyboard. the small accessory strip lifts on the same rule as
-     the full keyboard, so both clear the obstruction the same way. the value is
+     bottom clearance never changes, so the card's top edge is untouched by a
+     keyboard. the small accessory strip is measured on the same rule as the full
+     keyboard, and one no taller than the row's band lifts nothing. the value is
      set on the page, which holds --kb-inset, and inherits to the card pane.
      it is a rise or it is nothing, never a fall. the inset goes to nothing at
      focus loss while the pane is still held for the close's settle window, and
@@ -135,6 +146,7 @@
      travel that far BELOW where it rests, and spring back up the moment the hold
      ended, which is one motion made into three */
   body.obstructed #page, body.lifting #page{--kb-lift:min(0px, calc(var(--pad-b) - var(--kb-gap) - var(--kb-inset)))}
+  body.kb #page{--kb-gap:var(--app-inset)}
   /* the box while the viewport is obstructed, and through the close's settle window.
      the top follows the visual viewport, for the phone that slides the layout
      viewport under the keyboard; the height is the learned full-screen height
@@ -144,18 +156,10 @@
   body.obstructed, body.lifting{top:var(--shell-top, 0px); height:var(--shell-h, 100%)}
   button{font-family:inherit; -webkit-appearance:none; appearance:none}
 
-  /* ---- the project tabs, seated the way the desktop bar seats them --------- */
-  .bar{
-    flex:none; height:39px; overflow-x:auto; overflow-y:hidden;
-    scrollbar-width:none;
-    /* the bar's bottom line is its last pixel row, painted as background so a
-       seated tab's paper can stand on it and open into the canvas below. it is
-       painted, not a border, so it takes the edge's drawn width to match the
-       tab's own border beside it */
-    background:linear-gradient(to top, var(--line) var(--edge-drawn), transparent var(--edge-drawn));
-  }
-  .bar::-webkit-scrollbar{display:none}
-  #tabbar{display:flex; align-items:flex-end; gap:4px; height:39px; padding:0 10px; width:max-content; min-width:100%}
+  /* ---- the tab's type and seat, which the drawer's three names wear ---------- */
+  /* the desktop bar's seated tab at phone size. the project tabs that used to
+     cross the top of this page wore it too; they are the project list now (the
+     row of buttons, below), and the drawer's Doing, Deferred and Done keep it */
   .ptab{
     flex:none; font:500 13px/16px var(--sans); color:var(--sub);
     background:transparent; border:var(--edge) solid transparent; border-bottom:none;
@@ -166,13 +170,6 @@
     --seat:var(--paper);
   }
   .ptab.on{color:var(--ink); background:var(--seat); border-color:var(--line)}
-  .ptab.unread{color:var(--ink)}
-  .ptab.unread .plabel{font-weight:600}
-  .plabel{display:inline-block; vertical-align:top}
-  .plabel[data-label]::after{
-    content:attr(data-label); display:block; height:0; overflow:hidden;
-    visibility:hidden; font-weight:600;
-  }
   .ptab.on::before, .ptab.on::after{
     content:""; position:absolute; bottom:0; width:10px; height:8px; pointer-events:none;
   }
@@ -186,26 +183,109 @@
     background:radial-gradient(circle 8px at 100% 0, transparent 0 calc(8px - var(--edge-drawn)),
       var(--line) calc(8px - var(--edge-drawn)) 8px, var(--seat) 8px);
   }
-  /* the house at the head of the row opens the home page, as on the board. it
-     stands outside the scroller, so it stays at the left end however far the
-     tabs are scrolled, and is a tab in every other way: the same height, type
-     and seat, the board's house mark in place of a name, and the one seated
-     while home is up. the row paints the bar's bottom line under it too, and it
-     is lifted over the scroller beside it so its seat's right notch is drawn
-     over that line rather than under it */
-  #tabrow{
-    flex:none; display:flex; align-items:flex-end;
-    background:linear-gradient(to top, var(--line) var(--edge-drawn), transparent var(--edge-drawn));
+  /* ---- the row of buttons along the bottom ------------------------------------ */
+  /* four buttons in the band iOS gives a paired keyboard's bar: the card list's
+     ticket and the settings' gear as circles at the two ends, the open project
+     in the long capsule between them, and the new card's plus in a shorter one.
+     all four wear the board's own glass (.qn-glass, card-tokens.css) and set
+     only their shape and their press here; the sheet loads after this one, so
+     each rule is scoped by the row's id to outrank the glass's own corner. the
+     row stands on the page under the card's foot, so it draws back with the page
+     while a menu is out, and nothing on it can be long-pressed into a selection.
+     it fades out while anything is being typed (syncDock, in the script), and
+     only once it is out of sight is it moved, by --dock-rise and with no motion,
+     up into the band the on-screen keyboard's toolbar takes, so it lies under
+     that toolbar rather than under the keyboard; with a paired keyboard's bar
+     the band is its own and it is not moved at all */
+  #dock{
+    position:absolute; z-index:2; display:flex; gap:var(--dock-gap);
+    left:max(var(--dock-side), env(safe-area-inset-left, 0px));
+    right:max(var(--dock-side), env(safe-area-inset-right, 0px));
+    bottom:var(--dock-foot); height:var(--dock-h);
+    -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
+    transform:translateY(calc(-1 * var(--dock-rise, 0px)));
+    opacity:1; visibility:visible;
+    transition:opacity .25s var(--gentle), visibility 0s;
   }
-  #tabrow .bar{flex:1 1 auto; min-width:0}
-  #homeico{margin-left:10px; padding-left:12px; padding-right:12px; z-index:1}
-  #homeico svg{display:block}
-  /* once the tabs are scrolled off their start they pass under the house's
-     edge through a short fade, the way a chart passes under its pinned names,
-     rather than being cut off beside it. at rest there is none, so a seated
-     first tab keeps its notch */
-  #tabrow.scrolled .bar{-webkit-mask-image:linear-gradient(to right, transparent, #000 14px);
-    mask-image:linear-gradient(to right, transparent, #000 14px)}
+  #dock.away{opacity:0; visibility:hidden; pointer-events:none;
+    transition:opacity .1s ease-out, visibility 0s linear .1s}
+  #dock .dockbtn{
+    flex:none; height:100%; margin:0; padding:0;
+    border-radius:calc(var(--dock-h) / 2); color:var(--ink); cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
+    transition:transform .12s var(--gentle), background-color .12s var(--gentle), box-shadow .12s var(--gentle);
+  }
+  #dock .dockbtn svg{display:block; flex:none}
+  #dock .round{width:var(--dock-h)}
+  /* the plus: an oval, but a short one beside the project's long capsule */
+  #tikadd{width:calc(var(--dock-h) * 1.5)}
+  /* while the card it was pressed for is still being made, its mark breathes
+     until the board answers, and a second press meanwhile is the same press */
+  #tikadd.pending svg{animation:tikpulse 1s ease-in-out infinite}
+  @keyframes tikpulse{0%,100%{opacity:.25} 50%{opacity:.85}}
+  /* the glass's own press: a little larger and a whiter face, held long enough
+     that a quick tap still shows it */
+  #dock .dockbtn.pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3}
+  /* the open project's name, or Home, centred, cut short with an ellipsis, and
+     beside it the mark of a list and, while another place has an unread reply,
+     a dot in the ink. it takes no browser panning, so a held finger stays its */
+  #dock #projbtn{flex:1 1 auto; min-width:0; gap:6px; padding:0 16px;
+    font:500 15px/1.2 var(--sans); touch-action:none}
+  #projname{flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  #projbtn .updown{color:var(--sub)}
+  #projbtn .others{display:none; flex:none; width:6px; height:6px; border-radius:50%; background:var(--ink)}
+  #projbtn.others .others{display:block}
+  /* held, the capsule grows and brightens over the hold, then lifts while its
+     list is up */
+  #dock #projbtn.pressed{transform:scale(1.1); --qn-tint:.97; --qn-edge:3.5;
+    transition:transform .38s cubic-bezier(.2,.8,.2,1), background-color .38s ease-out, box-shadow .38s ease-out}
+  #dock #projbtn.held{transform:scale(1.1); --qn-tint:1; --qn-edge:4;
+    filter:drop-shadow(0 6px 14px rgba(0,0,0,.12))}
+
+  /* ---- the project list, popped from the project's capsule --------------------- */
+  /* the board's places: Home, then the projects in the board's own order, the
+     unread ones heavier, the open one checked. it is the same glass, rounder,
+     standing just over the row with its left edge on the capsule's and its
+     right edge on the plus's, and a long list scrolls inside it. a press held
+     on a project lifts it, and the finger carries it up or down the list to
+     reorder the board's tabs. the shade under it is clear and only takes the
+     tap that shuts it */
+  #projshade{position:fixed; inset:0; z-index:24; display:none}
+  body.projopen #projshade{display:block}
+  #projmenu{
+    position:fixed; z-index:25; box-sizing:border-box;
+    left:calc(max(var(--dock-side), env(safe-area-inset-left, 0px)) + var(--dock-h) + var(--dock-gap));
+    right:calc(max(var(--dock-side), env(safe-area-inset-right, 0px)) + var(--dock-h) + var(--dock-gap));
+    bottom:calc(var(--dock-foot) + var(--dock-h) + 10px);
+    max-height:calc(100% - env(safe-area-inset-top, 0px) - var(--dock-band) - 24px);
+    display:flex; flex-direction:column; padding:6px; border-radius:22px;
+    overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none;
+    -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
+    visibility:hidden; opacity:0; transform:scale(.9); transform-origin:25% 100%;
+    transition:opacity .14s ease-out, transform .14s ease-out, visibility 0s linear .14s;
+  }
+  #projmenu::-webkit-scrollbar{display:none}
+  body.projopen #projmenu{visibility:visible; opacity:1; transform:none;
+    transition:opacity .16s ease-out, transform .22s cubic-bezier(.2,.9,.25,1), visibility 0s}
+  .projrow{
+    flex:none; display:flex; align-items:center; gap:10px; width:100%; min-height:44px;
+    margin:0; padding:0 12px; border:none; border-radius:16px; background:transparent;
+    font:500 16px/1.25 var(--sans); color:var(--ink); text-align:left; cursor:pointer;
+    -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
+    transition:background-color .12s ease-out;
+  }
+  .projrow svg{display:block; flex:none}
+  .projrow .pname{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .projrow.unread .pname{font-weight:600}
+  .projrow .pcheck{visibility:hidden}
+  .projrow.on .pcheck{visibility:visible}
+  /* the row under a finger: pressed, or passed over by the hold's drag */
+  .projrow:active, .projrow.hot{background:color-mix(in srgb, var(--ink) 8%, transparent)}
+  .projrow.lifted{position:relative; z-index:1; background:var(--card);
+    box-shadow:0 4px 14px rgba(0,0,0,.14); transition:none}
+  #projsep{flex:none; height:var(--edge); margin:4px 12px; background:var(--line)}
+  #projlist{flex:none; display:flex; flex-direction:column}
 
   /* ---- the app is being opened and the board does not answer: a white screen and one line */
   /* over everything, the startup curtain included, and measured the way the
@@ -225,16 +305,17 @@
   #serverdown svg{width:1em; height:1em; margin-right:.4em; vertical-align:-.15em}
 
   /* ---- the card pane ------------------------------------------------------ */
+  /* the card starts at the top of the page, the app's thin margin under the
+     status bar, and ends on the row's band */
   main{
-    flex:1 1 auto; min-height:0; margin-top:var(--sp-s);
+    flex:1 1 auto; min-height:0;
     background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
     display:flex; flex-direction:column; overflow:hidden; position:relative;
     /* the keyboard's whole visible motion. the card's own bottom edge comes up
        to the keyboard and the typing row rides on it, while the card's top edge,
-       its top bar and its title stand where they are and the gap under the tab
-       strip is kept, so nothing is ever drawn over the strip and no title is
-       ever left behind its own words. the room comes out of the answer between
+       its top bar and its title stand where they are, so no title is ever left
+       behind its own words. the room comes out of the answer between
        them, which is the one part that can give it: it scrolls, so what it can
        no longer show is still reachable. the margin is the lift turned over,
        since the lift is a rise and this is the room a rise leaves */
@@ -287,7 +368,7 @@
   /* ---- the home page ------------------------------------------------------ */
   /* a blank page above every project holding the token panel and nothing else,
      the board's own (home-widgets.css, fetched once the page is idle). it
-     takes the card's place under the tabs: the card stays laid out, only out of
+     takes the card's place over the row: the card stays laid out, only out of
      sight, so its answer's place and its row's words are as they were left when
      a tab brings it back. the pane gives up its fill, edge and shade the way it
      does under a swipe, and the page is pulled out by the edge's drawn width
@@ -813,8 +894,8 @@
   body.menudrag #scrim, body.menudrag #page, body.menudrag #drawer, body.menudrag #settings,
   body.menudrag #drawer::after, body.menudrag #settings::after{transition:none}
   #tikhead{flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 8px 0; border-bottom:none}
-  /* the drawer tabs reuse the project tabs for type and spacing, three equal
-     segments beside the plus, but they no longer draw the seated-tab shape:
+  /* the drawer tabs reuse the tabs' type and spacing, three equal segments,
+     but they no longer draw the seated-tab shape:
      top:0 drops the lift a .ptab carries so all three names share one baseline.
      like the board, the names read Doing, Deferred and Done at a pixel over the
      .ptab's 13, and every name carries a clear edge on all four sides, the
@@ -843,17 +924,8 @@
     transition:color .18s, box-shadow .08s ease-in;
   }
   #tikhead .tvb.on::before, #tikhead .tvb.on::after{display:none}
-  /* the new-card plus is a phone-only affordance the board makes with a key. it
-     sits in its own thin strip above the names rather than in their row, so the
-     three names keep the full width, doing flush left and done flush right like
-     the board, and it never overlaps the list below. */
-  #tiktop{flex:none; display:flex; align-items:center; justify-content:flex-end; padding:4px 8px 0}
-  .tikadd{flex:none; width:28px; height:28px; padding:0;
-    font:500 15px/1 var(--mono); color:var(--ink); background:none; border:none; cursor:pointer; opacity:.75}
-  /* the plus while the card it was pressed for is still being made: it breathes
-     until the board answers, and a second press meanwhile is the same press */
-  .tikadd.pending{animation:tikpulse 1s ease-in-out infinite}
-  @keyframes tikpulse{0%,100%{opacity:.25} 50%{opacity:.85}}
+  /* the new-card plus that stood in a strip over the names is the row's plus
+     now, so the names head the drawer */
   .tiknote{font:italic 12.5px var(--sans); color:#7A2E1B; padding:8px 12px}
   /* the list: unlike the board, the phone draws no recessed well here. a boxed
      inset inside a drawer this narrow read as a frame within a frame, so the
@@ -1165,10 +1237,6 @@
 </script>
 
 <div id="page">
-  <div id="tabrow">
-    <button id="homeico" class="ptab" type="button" title="Home" aria-label="Home" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></button>
-    <div class="bar"><span id="tabbar"></span></div>
-  </div>
   <main id="pane" class="blank">
     <div id="empty">no cards on this tab yet</div>
     <div id="cards"></div>
@@ -1177,13 +1245,26 @@
          and under it the limits box, #homelimits, hidden until it has a row -->
     <section id="home" aria-label="Home"><div id="homeplot"></div><div id="homelimits" hidden></div></section>
   </main>
+  <!-- the row of buttons along the bottom: the card list, the open project and
+       its list, a new card, and the settings -->
+  <nav id="dock" aria-label="Controls">
+    <button id="tikbtn" class="dockbtn round qn-glass" type="button" title="Cards" aria-label="Cards"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 5h12a2 2 0 0 1 2 2v2.5a2.5 2.5 0 0 0 0 5V17a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2.5a2.5 2.5 0 0 0 0-5V7a2 2 0 0 1 2-2Z"/><path d="M15 7.5v1.5M15 11.25v1.5M15 15v1.5"/></svg></button>
+    <button id="projbtn" class="dockbtn qn-glass" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="projmenu"><span id="projname"></span><span class="others" aria-hidden="true"></span><svg class="updown" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 4.5 6 2l2.5 2.5M3.5 7.5 6 10l2.5-2.5"/></svg></button>
+    <button id="tikadd" class="dockbtn qn-glass" type="button" title="new card" aria-label="new card"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+    <button id="setbtn" class="dockbtn round qn-glass" type="button" title="Settings" aria-label="Settings"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M9.97 4.68L10.32 1.94L13.68 1.94L14.03 4.68A7.6 7.6 0 0 1 15.74 5.39L17.92 3.70L20.30 6.08L18.61 8.26A7.6 7.6 0 0 1 19.32 9.97L22.06 10.32L22.06 13.68L19.32 14.03A7.6 7.6 0 0 1 18.61 15.74L20.30 17.92L17.92 20.30L15.74 18.61A7.6 7.6 0 0 1 14.03 19.32L13.68 22.06L10.32 22.06L9.97 19.32A7.6 7.6 0 0 1 8.26 18.61L6.08 20.30L3.70 17.92L5.39 15.74A7.6 7.6 0 0 1 4.68 14.03L1.94 13.68L1.94 10.32L4.68 9.97A7.6 7.6 0 0 1 5.39 8.26L3.70 6.08L6.08 3.70L8.26 5.39A7.6 7.6 0 0 1 9.97 4.68Z"/><circle cx="12" cy="12" r="3"/></svg></button>
+  </nav>
 </div>
 <div id="scrim"></div>
+<!-- the places the project's capsule opens: Home, with the board's house, then
+     the projects, which renderTabs draws into #projlist -->
+<div id="projshade"></div>
+<div id="projmenu" class="qn-glass" aria-label="Projects">
+  <button id="homeico" class="projrow" type="button" title="Home" aria-label="Home" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg><span class="pname">Home</span><svg class="pcheck" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5 10 17.5 19 7"/></svg></button>
+  <div id="projsep"></div>
+  <div id="projlist"></div>
+</div>
 
 <aside id="drawer" aria-label="cards" data-side="left">
-  <div id="tiktop">
-    <button id="tikadd" class="tikadd" type="button" title="new card" aria-label="new card">+</button>
-  </div>
   <div id="tikhead">
     <button id="tv-todo" class="ptab tvb on" type="button">Doing</button>
     <button id="tv-deferred" class="ptab tvb" type="button">Deferred</button>
@@ -2680,6 +2761,16 @@ function drawerNote(text){
   const note = h("div", "tiknote", text);
   tik.prepend(note);
   setTimeout(() => note.remove(), 6000);
+  // the plus is on the row now, pressed with the drawer shut, so the note is
+  // said in the one-line toast as well while the drawer is not out
+  if (!drawerOpen()) toastNote(text);
+}
+let noteToastTimer = null;
+function toastNote(text){
+  const toast = document.getElementById("diagnostictoast");
+  toast.textContent = text;
+  clearTimeout(noteToastTimer);
+  noteToastTimer = setTimeout(() => { if (toast.textContent === text) toast.textContent = ""; }, 6000);
 }
 
 // ---- sending and making ------------------------------------------------------------
@@ -2929,129 +3020,264 @@ function setTab(owner){
     endPhoneTrace(trace, { action: "project", part: "apply" });
   }
 }
-// the bar the board draws, in the board's order and without the tabs the board
-// has closed. this page is a bridge, so it shows exactly those tabs; a board
-// that has closed every lane leaves the bar whole rather than empty. the keys
-// that jump to a tab count along this same list, so a number is the tab that can be
-// seen in that place
+// the board's tabs, in the board's order and without the ones the board has
+// closed. this page is a bridge, so its list shows exactly those; a board that
+// has closed every lane leaves the list whole rather than empty. the keys that
+// jump to a tab count along this same list, so a number is the project in that
+// place in the list
 function barOwners(st){
   const all = allRowsOf(st);
   const open = all.filter(ow => !tabShut(st, ow));
   return open.length ? open : all;
 }
-// the bar is scrolled by hand and must stay where a finger left it. two
-// things used to take it back to the start. the first is the rebuild below,
-// which empties the row and puts a fresh set of tabs in it: a scroller with no
-// content is a scroller at nothing, so the place is read before and written
-// back after. the second is the line at the foot: it brought the tab in view on
-// every pass, and a poll comes round every 1.2 seconds, so a bar scrolled off
-// the current tab was yanked back to it a moment later, which is what was seen.
-// it runs on a change of tab now and never on a redraw
-let tabShown = null;
+
+// ---- the project's capsule and its list ------------------------------------------
+// the tab row that crossed the top of this page is the capsule in the row of
+// buttons and the list it opens. the capsule names the open project, or Home
+// while home is up, and wears a dot while another place has an unread reply.
+// the list holds the house, then every project, the unread ones heavier as the
+// tabs were and the open one checked. its rows are built again only when the
+// projects or their names change, so a poll that changes nothing touches only
+// the marks
+const projBtn = document.getElementById("projbtn");
+const projMenu = document.getElementById("projmenu");
+const projList = document.getElementById("projlist");
+const PROJ_CHECK = '<svg class="pcheck" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+  'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5 10 17.5 19 7"/></svg>';
 function renderTabs(st){
-  const bar = document.getElementById("tabbar");
-  const lane = bar.parentNode;   // the bar is the row; its parent is the scroller
-  if (tabTouch && tabTouch.rects) return;   // a tab being carried owns the bar
+  if (projCarry && projCarry.rects) return;   // a project being carried owns the list
   const owners = barOwners(st);
   // the current tab closed on the other device: step to the first one left,
   // the way the board does. setTab repaints, and the paint below is the same
   // paint either way, so this falls through rather than returning
   if (owners.length && !owners.includes(activeOwner)) setTab(owners[0]);
   const sig = owners.map(ow => ow + ":" + labelOf(st, ow)).join(",");
-  if (bar.dataset.sig !== sig){
-    const at = lane.scrollLeft;
-    bar.dataset.sig = sig;
-    bar.textContent = "";
+  if (projList.dataset.sig !== sig){
+    projList.dataset.sig = sig;
+    projList.textContent = "";
     for (const ow of owners){
-      const t = h("button", "ptab");
-      t.type = "button";
-      t.dataset.owner = ow;
-      const lbl = h("span", "plabel", labelOf(st, ow));
-      lbl.dataset.label = lbl.textContent;
-      t.appendChild(lbl);
-      t.addEventListener("click", () => {
-        if (tabCarried) return;
-        // the open project's own tab lets go of the selected card on screen,
-        // which stays there browsed; any other tab switches to its lane
-        if (ow === activeOwner && !homeOpen && selectedId && !browsing){ unselectShown(); return; }
-        if (homeOpen) setHome(false);   // a project tab leaves home for its board
-        setTab(ow);
-      });
-      bar.appendChild(t);
+      const row = h("button", "projrow");
+      row.type = "button";
+      row.dataset.owner = ow;
+      row.appendChild(h("span", "pname", labelOf(st, ow)));
+      row.insertAdjacentHTML("beforeend", PROJ_CHECK);
+      projList.appendChild(row);
     }
-    lane.scrollLeft = at;
   }
-  // no project tab is seated while home is up: the house is
-  for (const t of bar.querySelectorAll(".ptab")){
-    t.classList.toggle("on", t.dataset.owner === activeOwner && !homeOpen);
-    t.classList.toggle("unread", laneUnread(st, t.dataset.owner));
+  // no project is checked while home is up: the house is
+  let others = false;
+  for (const row of projList.querySelectorAll(".projrow")){
+    const ow = row.dataset.owner, on = ow === activeOwner && !homeOpen, unread = laneUnread(st, ow);
+    row.classList.toggle("on", on);
+    row.setAttribute("aria-pressed", String(on));
+    row.classList.toggle("unread", unread);
+    if (unread && !on) others = true;
   }
-  if (tabShown !== activeOwner){
-    tabShown = activeOwner;
-    bar.querySelector(".ptab.on")?.scrollIntoView({ inline: "nearest", block: "nearest" });
-  }
+  const name = homeOpen ? "Home" : labelOf(st, activeOwner);
+  const label = document.getElementById("projname");
+  if (label.textContent !== name) label.textContent = name;
+  projBtn.classList.toggle("others", others);
+  projBtn.setAttribute("aria-label", name + (others ? ", unread replies elsewhere" : "") + ", choose a project");
+}
+function projOpen(){ return document.body.classList.contains("projopen"); }
+function openProjects(){
+  if (projOpen()) return;
+  dismissEditor();
+  if (lastState) renderTabs(lastState);
+  document.body.classList.add("projopen");
+  projBtn.setAttribute("aria-expanded", "true");
+  // the open place in sight in a list long enough to scroll
+  projMenu.querySelector(".projrow.on")?.scrollIntoView({ block: "nearest" });
+}
+function closeProjects(){
+  endProjCarry();
+  lightRow(null);
+  if (!projOpen()) return;
+  document.body.classList.remove("projopen");
+  projBtn.setAttribute("aria-expanded", "false");
+}
+// a project chosen in the list, by a tap or by lifting a held finger on it. the
+// open project's own row, with home shut, lets go of the selected card on
+// screen, which stays there browsed, as a tap on its tab did; any other row
+// switches to its lane, leaving home for it. the house is its own press
+function chooseRow(row){
+  if (row === house){ house.click(); return; }
+  closeProjects();
+  const ow = row.dataset.owner;
+  if (!ow) return;
+  if (ow === activeOwner && !homeOpen && selectedId && !browsing){ unselectShown(); return; }
+  if (homeOpen) setHome(false);   // a project leaves home for its board
+  setTab(ow);
+}
+// the list's own taps. the house's press opens home through its own listener
+// (the home page, below), and every row shuts the list
+projMenu.addEventListener("click", e => {
+  const row = e.target.closest?.(".projrow");
+  if (!row || projCarried) return;
+  if (row === house) closeProjects();
+  else chooseRow(row);
+});
+document.getElementById("projshade").addEventListener("click", closeProjects);
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape" || !projOpen()) return;
+  e.preventDefault(); e.stopPropagation();
+  closeProjects();
+  projBtn.focus({ preventScroll: true });
+}, true);
+
+// ---- the press on the row's glass --------------------------------------------------
+// each of the row's buttons takes .pressed while a finger or the pointer holds
+// it, for at least PRESS_MIN so a quick tap still shows it, the way the
+// drawer's names hold their dip. the capsule's press is its hold (below)
+const PRESS_MIN = 80;
+function glassPress(btn){
+  let since = 0, timer = 0;
+  return {
+    press(){ clearTimeout(timer); since = performance.now(); btn.classList.add("pressed"); },
+    release(){
+      if (!btn.classList.contains("pressed")) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => btn.classList.remove("pressed"), Math.max(0, since + PRESS_MIN - performance.now()));
+    },
+  };
+}
+for (const btn of document.querySelectorAll("#dock .dockbtn")){
+  if (btn === projBtn) continue;
+  const glass = glassPress(btn);
+  btn.addEventListener("pointerdown", glass.press);
+  for (const type of ["pointerup", "pointercancel", "pointerleave"]) btn.addEventListener(type, glass.release);
 }
 
-// ---- carrying a tab along the bar --------------------------------------------------
-// the board reorders its tabs by pressing a tab and sliding it sideways. with
-// no mouse the press has to be held first, or every scroll of the bar would
-// pick a tab up. nothing at all shows until the press is held: the bar at rest
-// is the bar it always was, and the order it lands on goes to the board, so
-// the desktop bar follows on its next poll
-const TAB_PRESS = 420;   // ms a finger rests on a tab before the tab lifts
-const TAB_SLIP = 10;     // px of travel that makes the touch a scroll of the bar
-let tabTouch = null;     // the finger on the bar, before and during the carry
-let tabCarried = false;  // a carry just ended: the release is not a tab switch
-function tabsInBar(){
-  return [...document.querySelectorAll("#tabbar .ptab")]
-    .filter(el => el.getBoundingClientRect().width);
+// ---- the capsule: a tap, or a hold and a drag up the list ---------------------------
+// a tap opens the list and a tap on the capsule while it is open shuts it. a
+// press held still grows and brightens the capsule over the hold, and after
+// PROJ_HOLD the list pops with the finger still down: dragging up over it
+// lights the row under the finger, and lifting there chooses that row; lifting
+// anywhere else leaves the list open for a tap. a finger that travels before
+// the hold is up is not a press on it, so a slide along the screen's foot, the
+// phone's own app switcher, opens nothing. the touch's default is refused on
+// the capsule alone, which is what keeps the phone's own long-press selection
+// and callout off it, and the click a touch would make; the document's own
+// touch listeners stay passive
+const PROJ_HOLD = 380;   // ms a finger rests on the capsule before the list pops
+const PROJ_SLIP = 10;    // px of travel before the hold that make the touch no press
+const projGlass = glassPress(projBtn);
+let projPress = null;
+function rowAt(x, y){
+  const at = document.elementFromPoint(x, y);
+  const row = at && at.closest ? at.closest(".projrow") : null;
+  return row && projMenu.contains(row) ? row : null;
 }
-function endTabPress(){
-  if (!tabTouch) return;
-  clearTimeout(tabTouch.timer);
-  for (const el of (tabTouch.tabs || [])) el.style.transform = "";
-  tabTouch = null;
+function lightRow(row){
+  for (const r of projMenu.querySelectorAll(".projrow.hot")) if (r !== row) r.classList.remove("hot");
+  if (row) row.classList.add("hot");
 }
-// the press has been held: the resting spots are measured once, the held tab
-// lifts, and every swap reads against those fixed midpoints, as on the board
-function liftTab(){
-  const t = tabTouch;
+function endProjPress(){
+  const p = projPress;
+  if (!p) return null;
+  projPress = null;
+  clearTimeout(p.timer);
+  projBtn.classList.remove("held");
+  projGlass.release();
+  return p;
+}
+projBtn.addEventListener("touchstart", e => e.preventDefault(), { passive: false });
+projBtn.addEventListener("pointerdown", e => {
+  if (e.button !== 0) return;
+  endProjPress();
+  const p = projPress = { id: e.pointerId, x: e.clientX, y: e.clientY, held: false, wasOpen: projOpen() };
+  try { projBtn.setPointerCapture(e.pointerId); } catch (_) {}
+  projGlass.press();
+  p.timer = setTimeout(() => {
+    if (projPress !== p) return;
+    p.held = true;
+    projBtn.classList.add("held");
+    openProjects();
+  }, PROJ_HOLD);
+});
+projBtn.addEventListener("pointermove", e => {
+  const p = projPress;
+  if (!p || e.pointerId !== p.id) return;
+  if (p.held) lightRow(rowAt(e.clientX, e.clientY));
+  else if (Math.hypot(e.clientX - p.x, e.clientY - p.y) > PROJ_SLIP) endProjPress();
+});
+projBtn.addEventListener("pointerup", e => {
+  if (!projPress || e.pointerId !== projPress.id) return;
+  const p = endProjPress();
+  if (p.held){
+    const row = rowAt(e.clientX, e.clientY);
+    lightRow(null);
+    if (row) chooseRow(row);
+    return;
+  }
+  if (p.wasOpen) closeProjects(); else openProjects();
+});
+projBtn.addEventListener("pointercancel", e => {
+  if (projPress && e.pointerId === projPress.id){ endProjPress(); lightRow(null); }
+});
+// a key's press on the capsule, Enter or Space, is a click with no pointer
+projBtn.addEventListener("click", e => {
+  if (e.detail !== 0) return;
+  if (projOpen()) closeProjects(); else openProjects();
+});
+
+// ---- carrying a project along the list ----------------------------------------------
+// the board reorders its tabs by pressing a tab and sliding it along; here a
+// press is held on a project's row in the open list and the finger carries it
+// up or down. with no mouse the press has to be held first, or every scroll of
+// the list would pick a row up, and nothing at all shows until it is held. the
+// order it lands on goes to the board, so the desktop bar follows on its next
+// poll
+const TAB_PRESS = 420;   // ms a finger rests on a row before the row lifts
+const TAB_SLIP = 10;     // px of travel that makes the touch a scroll of the list
+let projCarry = null;    // the finger on the list, before and during the carry
+let projCarried = false; // a carry just ended: the release is not a choice
+function endProjCarry(){
+  const t = projCarry;
   if (!t) return;
-  t.tabs = tabsInBar();
-  t.idx = t.tabs.indexOf(t.el);
-  if (t.idx < 0){ tabTouch = null; return; }   // the bar rebuilt under the finger
-  t.rects = t.tabs.map(el => el.getBoundingClientRect());
-  t.gap = 4;      // the bar's own flex gap
-  t.slot = t.idx;
-  t.el.style.transform = "translate(0, -2px)";
+  projCarry = null;
+  clearTimeout(t.timer);
+  for (const el of (t.rows || [])) el.style.transform = "";
+  t.el.classList.remove("lifted");
 }
-function moveTab(x){
-  const t = tabTouch, r = t.rects, i = t.idx;
-  const raw = x - t.x;
-  // the held tab pins at the ends of the strip and never leaves the bar
-  const dx = Math.max(r[0].left - r[i].left,
-             Math.min(r[r.length - 1].right - r[i].right, raw));
-  t.el.style.transform = "translate(" + dx + "px, -2px)";
-  const center = r[i].left + r[i].width / 2 + raw;
+// the press has been held: the resting spots are measured once, the held row
+// lifts, and every swap reads against those fixed midpoints, as on the board
+function liftRow(){
+  const t = projCarry;
+  if (!t) return;
+  t.rows = [...projList.querySelectorAll(".projrow")];
+  t.idx = t.rows.indexOf(t.el);
+  if (t.idx < 0){ projCarry = null; return; }   // the list rebuilt under the finger
+  t.rects = t.rows.map(el => el.getBoundingClientRect());
+  t.slot = t.idx;
+  t.el.classList.add("lifted");
+}
+function moveRow(y){
+  const t = projCarry, r = t.rects, i = t.idx;
+  const raw = y - t.y;
+  // the held row pins at the ends of the list and never leaves it
+  const dy = Math.max(r[0].top - r[i].top, Math.min(r[r.length - 1].bottom - r[i].bottom, raw));
+  t.el.style.transform = "translateY(" + dy + "px)";
+  const center = r[i].top + r[i].height / 2 + raw;
   let slot = 0;
   for (let j = 0; j < r.length; j++)
-    if (j !== i && center > r[j].left + r[j].width / 2) slot++;
+    if (j !== i && center > r[j].top + r[j].height / 2) slot++;
   if (slot === t.slot) return;
   t.slot = slot;
-  const shift = r[i].width + t.gap;
-  for (let j = 0; j < t.tabs.length; j++){
+  const shift = r[i].height;   // the rows stand edge to edge
+  for (let j = 0; j < t.rows.length; j++){
     if (j === i) continue;
     const move = j < i ? (j >= slot ? shift : 0) : (j <= slot ? -shift : 0);
-    t.tabs[j].style.transform = move ? "translateX(" + move + "px)" : "";
+    t.rows[j].style.transform = move ? "translateY(" + move + "px)" : "";
   }
 }
-function dropTab(){
-  const t = tabTouch;
-  if (!t || !t.rects){ endTabPress(); return; }
-  tabCarried = true;
-  setTimeout(() => { tabCarried = false; }, 0);   // the release that ends the carry
-  if (t.slot === t.idx){ endTabPress(); return; }   // put back where it was
-  const strip = t.tabs.map(el => el.dataset.owner);
+function dropRow(){
+  const t = projCarry;
+  if (!t || !t.rects){ endProjCarry(); return; }
+  projCarried = true;
+  setTimeout(() => { projCarried = false; }, 0);   // the release that ends the carry
+  if (t.slot === t.idx){ endProjCarry(); return; }   // put back where it was
+  const strip = t.rows.map(el => el.dataset.owner);
   strip.splice(t.slot, 0, strip.splice(t.idx, 1)[0]);
   // closed tabs sat out of the carry, so the strip is not the whole order: the
   // held lane is lifted out of the full order and set down behind the visible
@@ -3060,36 +3286,33 @@ function dropTab(){
   const order = (lastState ? allRowsOf(lastState) : strip).filter(ow => ow !== t.ow);
   const prev = strip[strip.indexOf(t.ow) - 1];
   order.splice(prev ? order.indexOf(prev) + 1 : 0, 0, t.ow);
-  endTabPress();
+  endProjCarry();
   writeTabs({ order, closed: rec.closed });
-  document.getElementById("tabbar").dataset.sig = "";
+  projList.dataset.sig = "";
   if (lastState) renderTabs(lastState);
 }
-{
-  const bar = document.getElementById("tabbar");
-  bar.addEventListener("touchstart", e => {
-    endTabPress();
-    const el = e.target.closest && e.target.closest(".ptab");
-    if (!el || e.touches.length !== 1) return;
-    const p = e.touches[0];
-    tabTouch = { el, ow: el.dataset.owner, x: p.clientX, y: p.clientY, rects: null };
-    tabTouch.timer = setTimeout(liftTab, TAB_PRESS);
-  }, { passive: true });
-  bar.addEventListener("touchmove", e => {
-    if (!tabTouch) return;
-    const p = e.touches[0];
-    if (!tabTouch.rects){
-      // still only a finger resting: this much travel is a scroll of the bar
-      if (Math.abs(p.clientX - tabTouch.x) > TAB_SLIP ||
-          Math.abs(p.clientY - tabTouch.y) > TAB_SLIP) endTabPress();
-      return;
-    }
-    e.preventDefault();   // the bar may not scroll under a tab being carried
-    moveTab(p.clientX);
-  }, { passive: false });
-  bar.addEventListener("touchend", () => { if (tabTouch && tabTouch.rects) dropTab(); else endTabPress(); });
-  bar.addEventListener("touchcancel", endTabPress);
-}
+projList.addEventListener("touchstart", e => {
+  endProjCarry();
+  const el = e.target.closest && e.target.closest(".projrow");
+  if (!el || e.touches.length !== 1) return;
+  const p = e.touches[0];
+  projCarry = { el, ow: el.dataset.owner, x: p.clientX, y: p.clientY, rects: null };
+  projCarry.timer = setTimeout(liftRow, TAB_PRESS);
+}, { passive: true });
+projList.addEventListener("touchmove", e => {
+  const t = projCarry;
+  if (!t) return;
+  const p = e.touches[0];
+  if (!t.rects){
+    // still only a finger resting: this much travel is a scroll of the list
+    if (Math.abs(p.clientX - t.x) > TAB_SLIP || Math.abs(p.clientY - t.y) > TAB_SLIP) endProjCarry();
+    return;
+  }
+  e.preventDefault();   // the list may not scroll under a row being carried
+  moveRow(p.clientY);
+}, { passive: false });
+projList.addEventListener("touchend", () => { if (projCarry && projCarry.rects) dropRow(); else endProjCarry(); });
+projList.addEventListener("touchcancel", endProjCarry);
 function applySelection(state){
   const pool = state.boxes.filter(b => b.owner === activeOwner && b.id !== "q");
   if (!pool.length){ deselect(); return; }
@@ -3118,12 +3341,13 @@ function applySelection(state){
 }
 
 // ---- the home page ---------------------------------------------------------
-// The house at the head of the tab row opens it, as on the board: one blank
-// page above every project, holding the token panel (home-widgets.js) and
-// nothing else. Being on it is this phone's own, like the open tab, so a reopen
-// comes back to it. A tap on any project tab leaves it for that project's
-// board, and so do a card picked in the drawer, a card just made and a
-// notification's card. While it is up no tab is seated, the card is out of
+// The house, the first row of the project list, opens it, as the house at the
+// head of the board's bar does: one blank page above every project, holding
+// the token panel (home-widgets.js) and nothing else. Being on it is this
+// phone's own, like the open project, so a reopen comes back to it. Choosing
+// any project in the list leaves it for that project's board, and so do a card
+// picked in the drawer, a card just made and a notification's card. While it
+// is up no project is checked, the capsule reads Home, the card is out of
 // sight and marks nothing read, and the board's keys are off. The counts are
 // asked for when it opens and every few minutes while it stays open and in view.
 // The limits box under the panel is asked for every minute over the same time:
@@ -3236,11 +3460,6 @@ house.addEventListener("click", () => {
   if (!homeOpen) setHome(true);
   else if (!homePanel) homeShow();
 });
-// the tabs' fade under the house, worn only while they are scrolled off their start
-{
-  const row = document.getElementById("tabrow"), lane = row.querySelector(".bar");
-  lane.addEventListener("scroll", () => row.classList.toggle("scrolled", lane.scrollLeft > 0), { passive: true });
-}
 // put back once the whole script has run, as the board does, unless a
 // notification opened the page on a card, which is shown on its board
 document.addEventListener("DOMContentLoaded", () => {
@@ -3491,8 +3710,8 @@ function dismissEditor(){
 // drag's dress comes off first and the page is measured while it is off, so what
 // follows is a run from where the finger left it and not a jump
 function runMenu(panel, v, curve){
-  // Closing a drawer leaves focus alone.
-  if (v > 0) dismissEditor();
+  // Closing a drawer leaves focus alone. Opening one shuts the project list.
+  if (v > 0){ dismissEditor(); closeProjects(); }
   document.documentElement.style.setProperty("--drawer-curve", curve);
   if (document.body.classList.contains("menudrag")){
     document.body.classList.remove("menudrag");
@@ -3522,6 +3741,10 @@ function openDrawer(){ showMenu(drawer); }
 function closeDrawer(){ hideMenu(drawer); }
 function drawerOpen(){ return drawer.classList.contains("open"); }
 scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu(out); });
+// the two circles at the ends of the row bring the same two menus a pull from
+// that side does: the ticket the card list, the gear the settings
+document.getElementById("tikbtn").addEventListener("click", openDrawer);
+document.getElementById("setbtn").addEventListener("click", () => showMenu(settings));
 {
   const EDGE = 28;    // how far in from an edge a pull may begin
   let panel = null, x0 = 0, y0 = 0, at = 0, live = false, opening = false, decided = false;
@@ -3541,7 +3764,7 @@ scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu
       if (Math.abs(y - y0) > Math.abs(dx)){ live = false; return; }   // a scroll, not a pull
       decided = true;
       // Dismiss during a recognized opening pull, before the panel travels.
-      if (opening) dismissEditor();
+      if (opening){ dismissEditor(); closeProjects(); }
       tracePhone("note", "drawer", { side: panel.dataset.side, phase: "start" });
       document.body.classList.add("menudrag");
     }
@@ -3640,7 +3863,7 @@ scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu
     const action = scroller ? "response-scroll"
       : p.clientX <= 28 || p.clientX >= innerWidth - 28 ? "drawer"
       : target.closest?.(".trow, #cards") ? "card"
-      : target.closest?.(".ptab") ? "project" : null;
+      : target.closest?.("#projbtn, #projmenu") ? "project" : null;
     const layer = scroller || !selectedId ? null : layerOf(target);
     if (touch) { touch.armed = false; clearTimeout(touch.timer); }   // a second finger is no swipe
     touch = action || layer ? { action, layer, x: p.clientX, y: p.clientY, intended: false } : null;
@@ -4612,7 +4835,7 @@ function takeFocusTap(e, ta){
 // The older 100px line selects the full soft-keyboard composer cap, Enter
 // behavior, and app margin; the measured loss still supplies the inset. The body
 // keeps its full-screen height and follows the visual viewport's top, which cancels a
-// focus pan and anchors the tabs and card header. The box is held through the
+// focus pan and anchors the card header and the row of buttons. The box is held through the
 // close's settle window until the viewport is whole.
 const VIEWPORT_EPSILON_PX = 1;
 const PAGE_SCALE_EPSILON = .01;
@@ -4764,6 +4987,7 @@ function applyShell(obstructed, top, height, base){
     const el = selectedId && els[selectedId];
     if (el && ComposeFormat.focused(el.ta)) revealCaret(el.ta, el.twin);
   }
+  syncDock(obstructed, lifting, inset);
   syncTyping(obstructed);
 }
 // a keyboard edge opens the settle window; the foot's own transitionend closes
@@ -4835,6 +5059,49 @@ function keyboardClosed(){
     closeRetry = null;
     if (!obstructionUp) correctionPass(true);
   }, CLOSE_RETRY_MS);
+}
+// ---- the row of buttons, while anything is typed -----------------------------------
+// the row fades out the moment a text field is focused on a touch screen, and
+// while any loss of the viewport is measured, whatever its size, and it stays
+// out through the close's settle window, so it is gone before a keyboard or a
+// paired keyboard's bar arrives and comes back once it has left. only once it
+// is out of sight is it moved, with no motion of its own, up by what the
+// obstruction takes beyond the row's own band: that lays it in the band the
+// on-screen keyboard's toolbar takes on top of the keyboard, under the toolbar
+// and not under the keyboard, and a paired keyboard's bar, which takes the
+// row's own band, moves it nothing. it is moved back while still out of sight.
+// faded, it takes no taps. a page driven by a mouse keeps it while a field is
+// focused, since nothing comes up over it there
+const DOCK_FADE_MS = 100;   // the sheet's fade out on #dock.away
+const dockEl = document.getElementById("dock");
+const touchScreen = window.matchMedia ? matchMedia("(pointer: coarse)") : { matches: false };
+let dockAway = false, dockHidden = false, dockTimer = null, dockInset = 0, dockRise = 0, dockBand = 0;
+// a field that takes typing; a switch or a button focused in the settings does not
+function typingFocus(){
+  const a = document.activeElement;
+  if (!a || a === document.body) return false;
+  if (a.isContentEditable || a.matches("textarea")) return true;
+  return a.matches("input") && !/^(checkbox|radio|button|submit|reset|file|range|color|image|hidden)$/i.test(a.type);
+}
+function syncDock(obstructed, lifting, inset){
+  const away = obstructed || lifting || (touchScreen.matches && typingFocus());
+  if (away !== dockAway){
+    dockAway = away;
+    dockEl.classList.toggle("away", away);
+    clearTimeout(dockTimer); dockTimer = null;
+    dockHidden = false;
+    if (away) dockTimer = setTimeout(() => { dockTimer = null; dockHidden = true; placeDock(); }, DOCK_FADE_MS);
+  }
+  dockInset = inset;
+  placeDock();
+}
+function placeDock(){
+  // the band is the row's height and its foot twice over, read once
+  if (!dockBand) dockBand = dockEl.offsetHeight + 2 * (parseFloat(getComputedStyle(dockEl).bottom) || 0);
+  const rise = dockAway && dockHidden ? Math.max(0, Math.round(dockInset - dockBand)) : 0;
+  if (rise === dockRise) return;
+  dockRise = rise;
+  dockEl.style.setProperty("--dock-rise", rise + "px");
 }
 // ---- the typing row: the plus steps aside for the text while the caret is in a card's box ----------
 // typing is the caret in the box, whatever keyboard is in use: the on-screen one, a paired one with the
