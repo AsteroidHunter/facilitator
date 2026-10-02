@@ -555,6 +555,45 @@ test("a paired keyboard's bar no taller than the row's band leaves the card wher
   }
 });
 
+test("the row of buttons comes back about 220 ms after a paired keyboard's bar has gone, not after the lift's whole settle", async () => {
+  const id = await create("Row return on the phone");
+  await api(`/reply?box=${id}`, "A reply to answer.");
+  const { page, problems } = await openPhone(`/m?box=${id}`, { fake: true });
+  try {
+    await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
+    // the milliseconds from the viewport reporting itself whole to the row being in sight
+    const back = async lost => {
+      await page.focus(SEL);
+      await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height - lost);
+      await settle(700);
+      await page.evaluate(height => {
+        window.__back = null;
+        document.activeElement.blur();
+        setTimeout(() => {
+          const t0 = performance.now();
+          window.__keyboard.set(height, 0);
+          const look = () => {
+            if (!document.getElementById("dock").classList.contains("away")) window.__back = performance.now() - t0;
+            else requestAnimationFrame(look);
+          };
+          requestAnimationFrame(look);
+        }, 40);
+      }, PHONE.height);
+      await page.waitForFunction(() => window.__back !== null, { timeout: 3000 });
+      const ms = await page.evaluate(() => window.__back);
+      await settle(700);
+      return ms;
+    };
+    const bar = await back(ACCESSORY);
+    assert.ok(bar >= 180 && bar <= 340, `the row came back ${Math.round(bar)} ms after the bar's viewport was whole`);
+    const keyboard = await back(KEYBOARD);
+    assert.ok(keyboard >= 180 && keyboard <= 340, `the row came back ${Math.round(keyboard)} ms after the keyboard's viewport was whole`);
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
 test("a viewport the phone slides under the keyboard: the box follows its top, the card's top stays at the visible top, and the box stands until the slide is undone", async () => {
   const id = await create("Keyboard slide on the phone");
   await api(`/reply?box=${id}`, "A reply to answer.");
