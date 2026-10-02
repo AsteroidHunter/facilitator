@@ -107,5 +107,7 @@ test("a child that is gone at once is said in one sentence, since no file can ho
   assert.ok(failed, "a start that died at once was reported as a start");
   assert.equal(failed.code, 1);
   const said = failed.stderr.trim().split("\n").at(-1);
-  assert.match(said, /^the server did not start; run python3 .*server\.py by hand to see why$/, said);
+  // the interpreter named is the one the server is started with, not whatever python3 is first on PATH
+  const { stdout: named } = await probe("print(cli.server_python(), cli.HERE / 'server.py')");
+  assert.equal(said, `the server did not start; run ${named.trim()} by hand to see why`);
 });

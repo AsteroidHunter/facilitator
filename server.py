@@ -897,7 +897,15 @@ def _error(kind: str, box: str = "", /, **fields) -> None:
 # into the .venv beside this file from requirements.txt. Imported here, after
 # the logger exists, so a board started without them writes one line saying
 # so and says one sentence on the terminal, instead of dying of an import
-# nobody is there to read.
+# nobody is there to read. A Python older than 3.11 is turned away the same
+# way, before them: the request bodies are read under asyncio.timeout, which
+# 3.11 brought, so on an older one the board would start and then fail every
+# change made on it. facilitator run starts it on the Python 3.14 in .venv.
+if sys.version_info < (3, 11):
+    _running = ".".join(str(part) for part in sys.version_info[:3])
+    _error("startuprefused", reason="python is older than 3.11")
+    sys.exit(f"facilitator's server needs Python 3.11 or newer and this is {_running}. Start it with "
+             "facilitator run, which uses the Python 3.14 in .venv, or run ./install.sh to rebuild .venv.")
 try:
     import anyio
     import h11
@@ -912,11 +920,8 @@ try:
     from uvicorn.protocols.http.h11_impl import H11Protocol
 except ImportError:
     _error("startuprefused", reason="requirements are not installed")
-    setup = ("uv pip sync --python .venv/bin/python requirements.txt"
-             if (HERE / ".venv").is_dir()
-             else "uv venv .venv, then uv pip sync --python .venv/bin/python requirements.txt")
-    sys.exit("facilitator needs the packages in requirements.txt: beside server.py run " + setup + ", "
-             "then start the board with .venv/bin/python3 server.py or facilitator run")
+    sys.exit("facilitator needs the packages in requirements.txt: beside server.py run ./install.sh, "
+             "which builds .venv on Python 3.14 and installs them, then start the board with facilitator run")
 
 
 CRASH_FRAMES = 12           # frames a crash line walks back through, innermost last
