@@ -91,16 +91,16 @@ test("the house heads the phone's project list, a row of the list with the board
   assert.equal(declsFor(rules, ".projrow")["min-height"], "44px");
 });
 
-test("the home page takes the card's place, holds only the token panel and keeps the card as it was", () => {
+test("the home page takes the card's place, holds the heading and the panels and keeps the card as it was", () => {
   // inside the pane, beside the card, its files brought in by script, never by a tag
   const pane = between(PHONE, '<main id="pane"', "</main>");
-  assert.match(pane, /<section id="home" aria-label="Home"><div id="homeplot"><\/div><div id="homelimits" hidden><\/div><\/section>/);
+  assert.match(pane, /<section id="home" aria-label="Home"><div id="homestack">\s*<div id="homebrand"><span id="homemark" aria-hidden="true"><\/span><span id="homebrandcopy"><span id="homebrandname">Facilitator<\/span><span id="homeversion"><\/span><\/span><\/div>\s*<div id="homeplot"><\/div><div id="homelimits" hidden><\/div>\s*<\/div><\/section>/);
   assert.doesNotMatch(PHONE, /<script src="\/home-widgets\.js">/);
   assert.doesNotMatch(PHONE, /<link[^>]*home-widgets\.css/);
   const rules = rulesOf(PHONE);
   assert.equal(declsFor(rules, "#home").display, "none");
   const up = declsFor(rules, "body.home #home");
-  assert.equal(up.display, "block");
+  assert.equal(up.display, "flex");
   assert.equal(up.position, "absolute");
   assert.equal(up.inset, "calc(-1 * var(--edge-drawn))", "the panel's edge lands on the card's own");
   // the card is hidden, not taken out of the layout, so it comes back as left
@@ -202,7 +202,7 @@ const walk = (el, out = []) => { for (const c of el.children) { out.push(c); wal
 function daysEnding(n) {
   return Array.from({ length: n }, (_, k) => ({ date: day(n - 1 - k), total: k % 3 ? 1e6 * k : 0 }));
 }
-function phoneHome({ stored = {}, want = null, serve = true, state = { rev: 1 } } = {}) {
+function phoneHome({ stored = {}, want = null, serve = true, state = { rev: 1 }, index = "" } = {}) {
   const block = between(PHONE, "// ---- the home page ----", "// ---- the drawer's list");
   const doc = { listeners: {}, hidden: false };
   doc.createElement = tag => new El(tag, doc);
@@ -210,7 +210,7 @@ function phoneHome({ stored = {}, want = null, serve = true, state = { rev: 1 } 
   doc.head = new El("head", doc);
   doc.addEventListener = (type, fn) => { (doc.listeners[type] ||= []).push(fn); };
   const byId = {};
-  for (const id of ["homeico", "homeplot"]) byId[id] = new El(id === "homeico" ? "button" : "div", doc);
+  for (const id of ["homeico", "homeplot", "homeversion", "homemark"]) byId[id] = new El(id === "homeico" ? "button" : "div", doc);
   doc.getElementById = id => byId[id] || null;
   const store = new Map(Object.entries(stored));
   const fetched = [], tabs = [], blurred = [], unselected = [], idle = [], timers = new Map();
@@ -226,7 +226,8 @@ function phoneHome({ stored = {}, want = null, serve = true, state = { rev: 1 } 
     clearInterval: id => { timers.delete(id); },
     requestIdleCallback: fn => { idle.push(fn); },
     fetch: async url => { fetched.push(url);
-      return { ok: true, json: async () => ({ days: daysEnding(371), found: { claude: true, codex: false } }) }; },
+      return { ok: true, text: async () => index,
+               json: async () => ({ days: daysEnding(371), found: { claude: true, codex: false } }) }; },
   };
   ctx.window = ctx;
   // appending the script is where a browser fetches it: here the real file
@@ -300,15 +301,17 @@ test("a reopen comes back to home, except onto a notification's card, and a fail
   assert.equal(back.ctx.homeOpen, true);
   await settle();
   assert.deepEqual(back.fetched, ["/tokens/daily?days=371"]);
-  assert.equal(back.idle.length, 0, "going straight onto home needs no idle warm-up");
+  // the heading's mark and version are asked for when idle too; they are no part of the warm-up
+  const warm = h => h.idle.filter(fn => fn.name !== "brandAsk");
+  assert.equal(warm(back).length, 0, "going straight onto home needs no idle warm-up");
 
   const card = phoneHome({ stored: { homeopen: "1" }, want: "m12" });
   for (const fn of card.doc.listeners.DOMContentLoaded) fn();
   assert.equal(card.ctx.homeOpen, false, "a notification's card is shown on its board");
   // the page warms the home files when it is idle, and opens nothing
-  assert.equal(card.idle.length, 1);
+  assert.equal(warm(card).length, 1);
   assert.equal(card.doc.head.children.length, 0);
-  card.idle[0]();
+  warm(card)[0]();
   await settle();
   assert.equal(card.doc.head.children.length, 2, "the sheet and the script came in");
   assert.equal(card.ctx.homeOpen, false);
@@ -331,6 +334,49 @@ test("a reopen comes back to home, except onto a notification's card, and a fail
   away.byId.homeico.click();
   await settle();
   assert.deepEqual(away.fetched, ["/tokens/daily?days=371"]);
+});
+
+test("the heading's version and mark are the board page's own, kept a day and not written in the phone page", async () => {
+  const version = /id="npversion">(v\d+\.\d+\.\d+)</.exec(BOARD)[1];
+  const mark = /id="npmark" src="(data:image\/png;base64,[^"]+)"/.exec(BOARD)[1];
+  assert.doesNotMatch(PHONE, new RegExp(version.replace(/\./g, "\\.")), "the version is written in the phone page");
+  assert.ok(!PHONE.includes(mark.slice(0, 80)), "the mark is written in the phone page");
+
+  // nothing kept: the word stands alone until the board page has been read, once the phone is idle
+  const first = phoneHome({ index: BOARD });
+  for (const fn of first.doc.listeners.DOMContentLoaded) fn();
+  assert.equal(first.byId.homeversion.textContent, "");
+  assert.equal(first.byId.homemark.classList.contains("on"), false);
+  const ask = first.idle.filter(fn => fn.name === "brandAsk");
+  assert.equal(ask.length, 1, "asked for once, when idle");
+  assert.deepEqual(first.fetched, [], "nothing is fetched before the phone is idle");
+  await ask[0]();
+  assert.deepEqual(first.fetched, ["/"]);
+  assert.equal(first.byId.homeversion.textContent, version);
+  assert.equal(first.byId.homemark.style.backgroundImage, `url("${mark}")`);
+  assert.ok(first.byId.homemark.classList.contains("on"));
+  const kept = JSON.parse(first.store.get("homebrand"));
+  assert.deepEqual([kept.version, kept.mark], [version, mark]);
+
+  // kept and fresh: drawn at once and not asked for again
+  const again = phoneHome({ index: BOARD, stored: { homebrand: JSON.stringify({ ...kept, at: Date.now() - 3600e3 }) } });
+  for (const fn of again.doc.listeners.DOMContentLoaded) fn();
+  assert.equal(again.byId.homeversion.textContent, version);
+  assert.ok(again.byId.homemark.classList.contains("on"));
+  assert.equal(again.idle.filter(fn => fn.name === "brandAsk").length, 0, "a day's keep is not asked for again");
+
+  // kept a day ago: drawn at once and asked for again when idle
+  const old = phoneHome({ index: BOARD, stored: { homebrand: JSON.stringify({ ...kept, at: Date.now() - 25 * 3600e3 }) } });
+  for (const fn of old.doc.listeners.DOMContentLoaded) fn();
+  assert.equal(old.byId.homeversion.textContent, version);
+  assert.equal(old.idle.filter(fn => fn.name === "brandAsk").length, 1);
+
+  // a page that does not carry them, or cannot be had, leaves the heading as it is
+  const bare = phoneHome({ index: "<html></html>" });
+  for (const fn of bare.doc.listeners.DOMContentLoaded) fn();
+  await bare.idle.find(fn => fn.name === "brandAsk")();
+  assert.equal(bare.byId.homeversion.textContent, "");
+  assert.equal(bare.store.has("homebrand"), false);
 });
 
 // ---- a fixture server with a bridge password and invented logs -------------------------
@@ -535,7 +581,13 @@ test("on the phone the house in the project list opens home, the pill and the ti
                sum: document.querySelector(".tk-sum").textContent,
                heading: document.querySelector(".tk-title").textContent,
                subtitle: !!document.querySelector(".tk-what"),
-               panel: { left: panel.left, right: panel.right, top: panel.top }, pane: { left: pane.left, right: pane.right, top: pane.top },
+               panel: { left: panel.left, right: panel.right, top: panel.top, bottom: panel.bottom },
+               pane: { left: pane.left, right: pane.right, top: pane.top },
+               page: { top: r(document.getElementById("home")).top, bottom: r(document.getElementById("home")).bottom },
+               brand: { top: r(document.getElementById("homebrand")).top, bottom: r(document.getElementById("homebrand")).bottom },
+               versionBottom: r(document.getElementById("homeversion")).bottom,
+               brandName: document.getElementById("homebrandname").textContent,
+               limitsBottom: document.getElementById("homelimits").hidden ? null : r(document.getElementById("homelimits")).bottom,
                lane: { left: r(scroll).left, right: r(scroll).right },
                chartWidth: document.querySelector(".tk-chart svg").getBoundingClientRect().width,
                chart: { top: r(document.querySelector(".tk-chart svg")).top, bottom: r(document.querySelector(".tk-chart svg")).bottom },
@@ -566,7 +618,15 @@ test("on the phone the house in the project list opens home, the pill and the ti
     assert.equal(home.subtitle, false, "no line under the heading");
     // the panel spans the pane, which is the screen within the app's margins
     assert.ok(Math.abs(home.panel.left - home.pane.left) < 1 && Math.abs(home.panel.right - home.pane.right) < 1);
-    assert.ok(Math.abs(home.panel.top - home.pane.top) < 1);
+    // the heading stands above the panel with its version hanging into a gap a
+    // little wider than the 8px between the boxes, and the three stand in the
+    // middle of the page, to within the line's spare room above the word
+    assert.equal(home.brandName, "Facilitator");
+    const gap = home.panel.top - home.versionBottom;
+    assert.ok(gap > 8 && gap < 16, "the heading is " + gap + "px above the panel");
+    const stackBottom = home.limitsBottom ?? home.panel.bottom;
+    assert.ok(Math.abs((home.brand.top - home.page.top) - (home.page.bottom - stackBottom)) <= 5,
+              JSON.stringify({ page: home.page, brand: home.brand, stackBottom }));
     // the chart is drawn to the view's height, 200 here, never stretched, and
     // scrolls sideways, opening on the latest weeks, clear of the menus' strips
     assert.equal(home.view.bottom - home.view.top, 200);
