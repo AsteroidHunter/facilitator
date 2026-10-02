@@ -514,3 +514,64 @@ test("the random pick has nothing to answer with when no card qualifies", async 
   assert.equal(pick([{ id: "a", state: "yours" }, { id: "c", state: "working" }, { id: "0", state: "new" }], "a"), null);
   assert.equal(pick([{ id: "a", state: "yours" }, { id: "b", state: "queued" }, { id: "c", state: "working" }], "a"), null);
 });
+
+const COMMA = { metaKey: true, shiftKey: true, code: "Comma" };
+const PERIOD = { metaKey: true, shiftKey: true, code: "Period" };
+
+test("command shift comma and period name the two drawers by the physical key, whatever character it types", async () => {
+  const { resolve } = await shortcuts();
+  for (const key of ["<", ",", "Dead", "Unidentified"]) {
+    assert.deepEqual(plain(resolve(event(key, COMMA))), { action: "cardsDrawer", value: true }, key + " on Comma");
+  }
+  for (const key of [">", ".", "Dead", "Unidentified"]) {
+    assert.deepEqual(plain(resolve(event(key, PERIOD))), { action: "settingsDrawer", value: true }, key + " on Period");
+  }
+  assert.equal(resolve(event(",", { metaKey: true, shiftKey: true })), null, "a comma with no physical key named is no chord");
+  assert.equal(resolve(event("<", { metaKey: true, shiftKey: true, code: "KeyZ" })), null);
+});
+
+test("the drawer chords need command and shift alone, and ignore repeats and composition", async () => {
+  const { resolve } = await shortcuts();
+  for (const code of ["Comma", "Period"]) {
+    const held = { metaKey: true, shiftKey: true, code };
+    assert.ok(resolve(event(",", held)));
+    for (const off of [{ metaKey: false }, { shiftKey: false }, { ctrlKey: true }, { altKey: true },
+                       { repeat: true }, { isComposing: true }]) {
+      assert.equal(resolve(event(",", { ...held, ...off })), null, code + " with " + JSON.stringify(off));
+    }
+  }
+  assert.equal(resolve(event(",", { metaKey: true, code: "Comma" })), null, "command comma alone is the browser's settings");
+  assert.equal(resolve(event(",", { shiftKey: true, code: "Comma" })), null);
+});
+
+test("the drawer keys are not in the mini scope", async () => {
+  const { resolve } = await shortcuts();
+  assert.equal(resolve(event(",", COMMA), "mini"), null);
+  assert.equal(resolve(event(".", PERIOD), "mini"), null);
+  assert.equal(resolve(event("ArrowDown"), "mini"), null);
+});
+
+test("plain up and down name the drawer walk, one step each, and no modified arrow does", async () => {
+  const { resolve } = await shortcuts();
+  assert.deepEqual(plain(resolve(event("ArrowUp"))), { action: "drawerWalk", value: -1 });
+  assert.deepEqual(plain(resolve(event("ArrowDown"))), { action: "drawerWalk", value: 1 });
+  for (const modifiers of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true },
+                           { metaKey: true, shiftKey: true }, { isComposing: true }]) {
+    assert.equal(resolve(event("ArrowDown", modifiers)), null, JSON.stringify(modifiers));
+  }
+  assert.deepEqual(plain(resolve(event("ArrowUp", { ctrlKey: true, shiftKey: true }))), { action: "history", value: 1 });
+});
+
+test("a page with no drawer is handed nothing for the drawer keys, and the event is left alone", async () => {
+  const { dispatch } = await shortcuts();
+  for (const e of [event(",", COMMA), event(".", PERIOD), event("ArrowDown")]) {
+    const called = [];
+    assert.equal(dispatch(e, { diagnostic: () => called.push("diagnostic"), plainNavigate: () => called.push("plainNavigate") }), false);
+    assert.deepEqual(called, []);
+    assert.equal(e.defaultPrevented, false);
+  }
+  const taken = [];
+  dispatch(event(",", COMMA), { cardsDrawer: (e, shortcut) => taken.push(["cardsDrawer", shortcut.value]) });
+  dispatch(event("ArrowUp"), { drawerWalk: (e, shortcut) => taken.push(["drawerWalk", shortcut.value]) });
+  assert.deepEqual(taken, [["cardsDrawer", true], ["drawerWalk", -1]]);
+});
