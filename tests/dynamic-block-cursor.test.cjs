@@ -240,7 +240,7 @@ const boardState = boxes => ({
   boxes,
   pwd: "/tmp/lane", pwds: { facilitator: "/tmp/lane" },
   projects: [], busy: { facilitator: null }, queued: 0,
-  end: false, paused: false, title: "facilitator",
+  end: false, title: "facilitator",
   listening: { facilitator: false }, everListened: {}, workspaces: {},
   listenerGap: { facilitator: 0 },
   agents: { facilitator: { name: "claude", alive: false, away: false } },

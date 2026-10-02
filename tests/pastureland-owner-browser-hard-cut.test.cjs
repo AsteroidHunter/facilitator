@@ -41,7 +41,6 @@ const STATE = {
   busy: { facilitator: null, [PROJECT]: null },
   queued: 0,
   end: false,
-  paused: false,
   title: "owner browser hard cut",
   listening: { facilitator: false, [PROJECT]: false },
   everListened: {},

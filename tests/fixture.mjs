@@ -227,7 +227,7 @@ export function makeBoard(clock, cards){
     if (board.carryNow) out.now = clock.sec;
     if (out.changed) Object.assign(out, {
       title: "facilitator", tabs: { order: [], closed: [] }, pwds: { facilitator: "/lane/facilitator" },
-      projects: [], paused: false, boxes: board.boxes.map(phoneBox),
+      projects: [], boxes: board.boxes.map(phoneBox),
     });
     return [200, out];
   }
@@ -235,7 +235,7 @@ export function makeBoard(clock, cards){
   function uiState(){
     const out = {
       boxes: board.boxes.map(b => ({ ...phoneBox(b), reply: "", replyShort: "", context: "" })),
-      rev: board.rev, pwds: { facilitator: "/lane/facilitator" }, projects: [], paused: false,
+      rev: board.rev, pwds: { facilitator: "/lane/facilitator" }, projects: [],
       tabs: { order: [], closed: [] }, title: "facilitator", agents: {},
     };
     if (board.carryNow) out.now = clock.sec;
