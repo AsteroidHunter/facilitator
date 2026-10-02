@@ -1004,6 +1004,61 @@ test("a window that shrinks with the keyboard: the box keeps the full-screen hei
   }
 });
 
+test("a new height under a bar already up, reported with the window shoved, leaves the box where it stood and the shove is still taken back", async () => {
+  const id = await create("Shove under a bar on the phone");
+  await api(`/reply?box=${id}`, "A reply to answer.");
+  const { page, problems } = await openPhone(`/m?box=${id}`, { fake: true });
+  try {
+    await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
+    await page.focus(SEL);
+    await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height - BAND);
+    await settle(300);
+    const bar = await page.evaluate(shellShape);
+    assert.equal(bar.obstructed, true);
+    assert.equal(bar.kb, false);
+    assert.equal(bar.shellTop, "0px");
+
+    // the bar becomes a keyboard, and iOS shoves the window to keep the caret
+    // in view in the same report: the window is scrolled and the viewport's top
+    // is the scroll. the box is not carried down with it, since the scroll is
+    // taken back on the scroll report that follows the resize and the box would
+    // be left 39 px low; every write of the box's top is recorded
+    const SHOVE = 39;
+    await page.evaluate(shove => {
+      let scroll = shove;
+      window.__scrollCalls = 0;
+      window.__tops = [];
+      Object.defineProperty(window, "scrollY", { get: () => scroll, configurable: true });
+      window.scrollTo = () => { window.__scrollCalls++; scroll = 0; };
+      const write = CSSStyleDeclaration.prototype.setProperty;
+      CSSStyleDeclaration.prototype.setProperty = function (name, value, priority) {
+        if (name === "--shell-top") window.__tops.push(value);
+        return write.call(this, name, value, priority);
+      };
+    }, SHOVE);
+    await page.evaluate(v => window.__keyboard.set(v.height, v.top), { height: PHONE.height - KEYBOARD, top: SHOVE });
+    await settle(60);
+    const shoved = await page.evaluate(shellShape);
+    assert.equal(shoved.kb, true);
+    assert.equal(await page.evaluate(() => window.__scrollCalls), 1, "the shove was not taken back");
+    assert.deepEqual(await page.evaluate(() => window.__tops), [], "the box followed the shove into the viewport's top");
+    assert.equal(shoved.shellTop, "0px");
+
+    // the phone's viewport comes back to the top once the scroll is undone
+    await page.evaluate(v => window.__keyboard.set(v.height, v.top), { height: PHONE.height - KEYBOARD, top: 0 });
+    await settle(60);
+    const back = await page.evaluate(shellShape);
+    assert.deepEqual(await page.evaluate(() => window.__tops), [], "the box moved when the shove was undone");
+    assert.equal(back.shellTop, "0px");
+    assert.equal(back.head, INSET, "the card's top edge is not at the visible top");
+    assert.equal(await page.evaluate(() => window.__scrollCalls), 1);
+    await page.evaluate(() => document.activeElement.blur());
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
 test("the phone page's own words carry no em dash", async () => {
   const source = await readFile(path.join(ROOT, "m.html"), "utf8");
   assert.doesNotMatch(source, /—/, "an em dash in the phone page");
