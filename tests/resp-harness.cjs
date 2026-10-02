@@ -163,10 +163,27 @@ async function launch({ seed, files = [], onlyBin = false, env = {} } = {}) {
     } catch (e) {}
   }
 
+  // The layout is the board's (settings.json, through board-settings.js), so a
+  // board opened with `storage` starts the board's settings empty and plants
+  // the entries in the browser's own storage, which the one-time copy then
+  // hands to the board, as an older browser's first load of the code does.
+  // Asked until it stays empty, since a page just closed may still be writing
+  async function clearBoardSettings() {
+    for (let quiet = 0; quiet < 2;) {
+      const { values } = await (await fetch(origin + "/settings")).json();
+      const keys = Object.keys(values);
+      if (keys.length) await fetch(origin + "/settings", { method: "POST",
+        body: JSON.stringify(Object.fromEntries(keys.map(k => [k, null]))) });
+      quiet = keys.length ? 0 : quiet + 1;
+      await new Promise(resolve => setTimeout(resolve, 60));
+    }
+  }
+
   // prep is an optional evaluateOnNewDocument function run before navigation (for
   // example to install a controllable matchMedia). Existing callers omit it.
   async function openBoard(storage, viewport, prep) {
     let context, page, ctxWrap;
+    await clearBoardSettings();
     if (browserConn) {
       // Connect mode (shared background Chrome). Create the test page as a
       // background target in the EXISTING default context: no createBrowserContext
@@ -223,6 +240,7 @@ async function launch({ seed, files = [], onlyBin = false, env = {} } = {}) {
       await page.waitForFunction(() => getComputedStyle(document.getElementById("stage")).visibility === "visible");
       ctxWrap = context;
     }
+    await page.waitForFunction(() => !globalThis.boardSettings || !boardSettings.busy);
     return { context: ctxWrap, page };
   }
   async function stop() {

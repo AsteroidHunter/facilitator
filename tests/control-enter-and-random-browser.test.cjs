@@ -531,7 +531,7 @@ for (const { name, viewport, caretFollows } of PAGES) {
 // the small card is hidden in the default layout, so it is shown for this lane
 async function showMini(page) {
   await page.evaluate(() => {
-    localStorage.setItem("show.facilitator.magic2", "1");
+    settingsStore.setItem("show.facilitator.magic2", "1");
     applySavedLayout();
   });
   await page.waitForFunction(() => !document.getElementById("magic2").classList.contains("region-off"));

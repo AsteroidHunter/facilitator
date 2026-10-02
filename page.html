@@ -1401,10 +1401,16 @@
   </div>
 </div>
 
+<script src="/board-settings.js"></script>
 <script src="/card-markdown.js"></script>
 <script src="/card-report.js"></script>
 <script src="/compose-format.js"></script>
 <script>
+// the board's own settings, shared with the board page: box places and sizes,
+// the background colour, the outline's width and the task headings below,
+// kept beside the board by board-settings.js. It reads and writes the way
+// localStorage does; a page served without that file uses this browser's own
+const settingsStore = globalThis.boardSettings || localStorage;
 const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
                   ["now", "Now"], ["done", "Done"], ["later", "Later"]];
 // the two meta sections: the tool's own lane on top, the active project lane
@@ -3067,6 +3073,9 @@ async function poll(){
   noteDoing("render");
   try {
     if (!validateActiveOwner(state)) return;
+    // the settings have a revision of their own; another window's changes
+    // are read when it moves
+    if (settingsStore.notice) settingsStore.notice(state.settingsRev);
     const caretBefore = focusedCaretContext();
     if (!lastState) build(state);
     apply(state);
@@ -3141,7 +3150,7 @@ addEventListener("keydown", e => {
       const w = Math.max(2 * GRID, Math.round((r.width + dw) / GRID) * GRID);
       const h = Math.max(2 * GRID, Math.round((r.height + dh) / GRID) * GRID);
       el.style.width = w + "px"; el.style.height = h + "px";
-      localStorage.setItem("size." + activeOwner + "." + regionId(el), JSON.stringify({ w, h }));
+      settingsStore.setItem("size." + activeOwner + "." + regionId(el), JSON.stringify({ w, h }));
       return;
     }
   }
@@ -3168,11 +3177,11 @@ document.getElementById("ndown").addEventListener("click", () => nav(0, 1));
 
 {
   const pick = document.getElementById("bgpick");
-  const saved = localStorage.getItem("bgcolor");
+  const saved = settingsStore.getItem("bgcolor");
   if (saved){ document.body.style.setProperty("--paper", saved); pick.value = saved; }
   pick.addEventListener("input", () => {
     document.body.style.setProperty("--paper", pick.value);
-    localStorage.setItem("bgcolor", pick.value);
+    settingsStore.setItem("bgcolor", pick.value);
   });
 }
 document.getElementById("pausebtn").addEventListener("click", async () => {
@@ -3193,7 +3202,7 @@ document.getElementById("endbtn").addEventListener("click", async e => {
 // resizable outline: drag the grip, clamped, remembered
 {
   const clamp = w => Math.max(170, Math.min(420, w));
-  const saved = parseInt(localStorage.getItem("tocw") || "", 10);
+  const saved = parseInt(settingsStore.getItem("tocw") || "", 10);
   if (saved) document.documentElement.style.setProperty("--tocw", clamp(saved) + "px");
   const grip = document.getElementById("tocgrip");
   grip.addEventListener("mousedown", e => {
@@ -3205,7 +3214,7 @@ document.getElementById("endbtn").addEventListener("click", async e => {
     };
     const up = () => {
       grip.classList.remove("drag"); document.body.classList.remove("resizing");
-      localStorage.setItem("tocw", parseInt(getComputedStyle(document.documentElement).getPropertyValue("--tocw"), 10));
+      settingsStore.setItem("tocw", parseInt(getComputedStyle(document.documentElement).getPropertyValue("--tocw"), 10));
       removeEventListener("mousemove", move); removeEventListener("mouseup", up);
     };
     addEventListener("mousemove", move); addEventListener("mouseup", up);
@@ -3322,7 +3331,7 @@ function regionId(el){ return el.tagName === "MAIN" ? "main" : el.id; }
 function applySavedLayout(){
   if (!ownerReady) return;
   for (const el of document.querySelectorAll(REGION_SEL)){
-    const saved = dragEnabled ? localStorage.getItem("pos." + activeOwner + "." + regionId(el)) : null;
+    const saved = dragEnabled ? settingsStore.getItem("pos." + activeOwner + "." + regionId(el)) : null;
     if (saved){
       try {
         const p = JSON.parse(saved);
@@ -3335,7 +3344,7 @@ function applySavedLayout(){
       el.style.left = "";
       el.style.top = "";
     }
-    const sz = dragEnabled ? localStorage.getItem("size." + activeOwner + "." + regionId(el)) : null;
+    const sz = dragEnabled ? settingsStore.getItem("size." + activeOwner + "." + regionId(el)) : null;
     if (sz){
       try {
         const p = JSON.parse(sz);
@@ -3373,7 +3382,7 @@ addEventListener("pointermove", e => {
 });
 addEventListener("pointerup", () => {
   if (!dragging) return;
-  localStorage.setItem("pos." + activeOwner + "." + regionId(dragging.el),
+  settingsStore.setItem("pos." + activeOwner + "." + regionId(dragging.el),
     JSON.stringify({ x: dragging.x, y: dragging.y }));
   document.body.classList.remove("dragging");
   dragging = null;
@@ -3530,11 +3539,11 @@ addEventListener("pointerup", () => {
   sizing = null;
   if (!s.moved) return;
   squelchClick = true;
-  localStorage.setItem("size." + activeOwner + "." + regionId(s.el),
+  settingsStore.setItem("size." + activeOwner + "." + regionId(s.el),
     JSON.stringify({ w: s.outw, h: s.outh }));
   if (s.x != null || s.y != null){
     // a moved origin must be saved too or the resize half-reverts on reload
-    localStorage.setItem("pos." + activeOwner + "." + regionId(s.el),
+    settingsStore.setItem("pos." + activeOwner + "." + regionId(s.el),
       JSON.stringify({ x: s.x != null ? s.x : onStar(s.left), y: s.y != null ? s.y : onStar(s.top) }));
   }
 });
@@ -3990,15 +3999,16 @@ document.getElementById("taskstatus").addEventListener("click", () => {
 // outline on the left, the chats as sections in the middle, typing as the
 // only control. nothing below runs unless DOC is on.
 
-// tasks have no server endpoint this round, so the page keeps them itself.
-// every task read and write goes through this one object; when the server
-// grows a home for them, only load and save change.
+// tasks have no route of their own: they are kept with the board's settings
+// (board-settings.js), so they are the board's and not one browser's, and
+// survive the board moving to another port. every task read and write goes
+// through this one object; a route of their own would change only load and save.
 const docTasks = {
   key(lane){ return "doc.tasks." + lane; },
   load(lane){
     if (MOCK) return docMockTasks;   // the sandbox holds its tasks in memory, never in the real key
     try {
-      const raw = JSON.parse(localStorage.getItem(this.key(lane)) || "[]");
+      const raw = JSON.parse(settingsStore.getItem(this.key(lane)) || "[]");
       if (!Array.isArray(raw)) return [];
       return raw
         .filter(t => t && typeof t.title === "string")
@@ -4008,7 +4018,7 @@ const docTasks = {
   },
   save(lane, list){
     if (MOCK){ docMockTasks = list; return; }   // memory only; a reload resets the sandbox
-    try { localStorage.setItem(this.key(lane), JSON.stringify(list)); } catch (e) {}
+    try { settingsStore.setItem(this.key(lane), JSON.stringify(list)); } catch (e) {}
   },
 };
 
@@ -4393,7 +4403,7 @@ async function docCompose(text){
 const DOCMOCKPWD = "/Users/you/projects/example";   // a made-up folder, never a real one
 const DOCMOCKANSWER = "A reply would land here; this sandbox answers every message with this line.";
 let docMockState = null;   // built at boot, thrown away on reload
-let docMockTasks = [];     // the task headings, held here instead of localStorage
+let docMockTasks = [];     // the task headings, held here instead of the board's settings
 let docMockSeq = 0;
 
 function docMockChat(id, title, mins, st, reply){

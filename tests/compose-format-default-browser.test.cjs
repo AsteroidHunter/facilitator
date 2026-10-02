@@ -2,9 +2,11 @@
 //
 // A board says so with compose_format_default in run.config.json: only true turns
 // it on, and a config without the key, or with any other value, starts it off. A
-// choice a browser has stored as `composeformat` beats the board either way. Each
-// case is read on the Mac board, the phone app and the typed page, from a browser
-// profile of its own, against a copy of the server on a spare port.
+// stored `composeformat` choice beats the board either way: on the Mac board and
+// the typed page it is one of the board's own settings (settings.json), on the
+// phone it is the phone's. Each case is read on the Mac board, the phone app and
+// the typed page, from a browser profile of its own, against a copy of the
+// server on a spare port.
 //
 // This launches its own headless Chrome. The fixture boards run on free ports and
 // never on 8877 or 8878.
@@ -78,8 +80,12 @@ async function startServer(config) {
 }
 
 // A page in a browser profile of its own, so no stored choice is left over from
-// another case. `stored` is written once, before the page's own scripts run.
+// another case. `stored` is written once, before the page's own scripts run:
+// into the board's settings, where the desktop pages keep it, and into the
+// profile's storage, where the phone keeps its own.
 async function openPage(board, route, viewport, stored) {
+  const set = await fetch(board.origin + "/settings", { method: "POST", body: JSON.stringify({ composeformat: stored }) });
+  assert.equal(set.status, 200);
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   page.errors = [];
@@ -106,7 +112,7 @@ async function openPage(board, route, viewport, stored) {
 
 async function readSetting(page) {
   return page.evaluate(() => ({
-    stored: localStorage.getItem("composeformat"),
+    stored: (globalThis.boardSettings || localStorage).getItem("composeformat"),
     enabled: ComposeFormat.enabled(),
     checkbox: document.getElementById("setformat").checked,
     editors: document.querySelectorAll(".cffield").length,

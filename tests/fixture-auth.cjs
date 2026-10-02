@@ -12,10 +12,11 @@ const ROOT = path.resolve(__dirname, '..');
 // limits.py. That copy cannot find codex, or the first ask would start the
 // machine's real codex; the tests that read the limits copy the real file over
 // it. tokens.py is left out on purpose: with it the server reads the real token
-// logs, so only the tests that open home copy it.
+// logs, so only the tests that open home copy it. The desktop pages load their
+// settings store, board-settings.js, before anything else.
 function copyBridgeFiles(dir) {
   for (const name of ['bridge_auth.py', 'bridge_gate.py', 'm-gate.html', 'm-splash.js',
-                      'home-widgets.css', 'home-widgets.js'])
+                      'home-widgets.css', 'home-widgets.js', 'board-settings.js'])
     fs.copyFileSync(path.join(ROOT, name), path.join(dir, name));
   const anchor = 'return shutil.which("codex", path=path)';
   const limits = fs.readFileSync(path.join(ROOT, 'limits.py'), 'utf8');

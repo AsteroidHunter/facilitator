@@ -3612,6 +3612,7 @@
 </div>
 
 
+<script src="/board-settings.js"></script>
 <script src="/card-markdown.js"></script>
 <script src="/card-logic.js"></script>
 <script src="/card-report.js"></script>
@@ -3622,6 +3623,12 @@
 if (typeof startReporter === "function") startReporter("board");
 // the marker a freeze report carries; it goes nowhere if the reporter is absent
 if (typeof noteDoing !== "function") window.noteDoing = () => {};
+// the board's own settings: box places, sizes and hides, the background
+// colour, the outline's width and the rest the reader arranges, kept beside
+// the board by board-settings.js so every address the board is opened at
+// shows the same board. It reads and writes the way localStorage does; a page
+// served without that file goes on with this browser's own storage
+const settingsStore = globalThis.boardSettings || localStorage;
 const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
                   ["now", "Now"], ["done", "Done"], ["later", "Later"]];
 // the two meta sections: the tool's own lane on top, the active project lane
@@ -4341,7 +4348,9 @@ async function homeShow(){
       if (homeOpen && !homePanel) plot.textContent = "The home page needs the server restart.";
       return;
     }
-    if (!homePanel) homePanel = TokenWidgets.panel(plot);
+    // the chart the reader picked is one of the board's settings; the limits
+    // box keeps its last reading in this browser, as a cache
+    if (!homePanel) homePanel = TokenWidgets.panel(plot, { store: settingsStore });
     homeLimitsMake();
   }
   if (!homeOpen) return;
@@ -6418,7 +6427,11 @@ function inlineEdit(spanEl, initial, onSave){
 // secret. the app id is machine-local: it rides in on the board state from
 // run.config.json, so the page ships without one and each board uses its own
 let SPOT_ID = "";
-const SPOT_REDIRECT = "http://127.0.0.1:8877/";
+// where Spotify sends the sign-in back: this page's own address, so it follows
+// the board to whatever port it is on. Spotify takes only the return addresses
+// registered for the app id; a loopback one registered with no port stands for
+// every port
+const SPOT_REDIRECT = location.origin + "/";
 const SPOT_SCOPES = "user-read-playback-state user-modify-playback-state "
   + "user-read-currently-playing user-library-read user-library-modify";
 const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf)))
@@ -6485,16 +6498,73 @@ async function spotClaimCode(){
   history.replaceState({}, "", location.pathname);
   await spotExchange(code);
 }
+// the sign-in is the board's, kept beside its settings (/spotify/session), so
+// the board opened at another port needs no new sign-in. Only a page on this
+// Mac is answered there: the board opened any other way, through the phone
+// bridge say, or against an older server, keeps its sign-in in this browser's
+// storage as it always did. spotSession is what the player reads; until the
+// board has answered it is empty and the stub is drawn, and the stub is drawn
+// again once a sign-in arrives (spotResetStub)
+const SPOT_KEYS = { access: "spot.access", refresh: "spot.refresh", expires: "spot.expires", scopes: "spot.scopes" };
+let spotSession = {};
+let spotOnBoard = false;
+function spotFromBrowser(){
+  const out = {};
+  for (const [field, key] of Object.entries(SPOT_KEYS)){
+    const v = localStorage.getItem(key);
+    if (v !== null) out[field] = v;
+  }
+  return out;
+}
+async function spotLoad(){
+  try {
+    const r = await fetch("/spotify/session");
+    if (!r.ok) throw new Error("the board keeps no sign-in here");
+    spotSession = await r.json();
+    spotOnBoard = true;
+    // the one-time copy of a sign-in this browser already held, offered only
+    // while the board keeps none; the browser's own copy is left as it was
+    const mine = spotFromBrowser();
+    if (!spotSession.refresh && mine.refresh && !localStorage.getItem("spot.copied")){
+      const res = await fetch("/spotify/session?seed=1", { method: "POST", body: JSON.stringify(mine) });
+      if (res.ok){
+        const { ok, seeded, ...kept } = await res.json();
+        spotSession = kept;
+      }
+    }
+    localStorage.setItem("spot.copied", "1");
+  } catch (e) {
+    spotOnBoard = false;
+    spotSession = spotFromBrowser();
+  }
+  spotResetStub();
+}
+const spotLoaded = spotLoad();
 function spotStore(r){
-  localStorage.setItem("spot.scopes", SPOT_SCOPES);
-  localStorage.setItem("spot.access", r.access_token);
-  if (r.refresh_token) localStorage.setItem("spot.refresh", r.refresh_token);
-  localStorage.setItem("spot.expires", String(Date.now() + (r.expires_in || 3600) * 1000 - 60000));
+  spotSession = { scopes: SPOT_SCOPES, access: r.access_token,
+                  refresh: r.refresh_token || spotSession.refresh || "",
+                  expires: String(Date.now() + (r.expires_in || 3600) * 1000 - 60000) };
+  if (spotOnBoard){
+    fetch("/spotify/session", { method: "POST", body: JSON.stringify(spotSession) }).catch(() => {});
+    return;
+  }
+  for (const [field, key] of Object.entries(SPOT_KEYS))
+    if (spotSession[field]) localStorage.setItem(key, spotSession[field]);
 }
 async function spotToken(){
-  const at = localStorage.getItem("spot.access");
-  if (at && Date.now() < +(localStorage.getItem("spot.expires") || 0)) return at;
-  const rt = localStorage.getItem("spot.refresh");
+  await spotLoaded;
+  const fresh = () => spotSession.access && Date.now() < +(spotSession.expires || 0) ? spotSession.access : null;
+  if (fresh()) return fresh();
+  // another window may have renewed it already, and a renewal can retire the
+  // renewal token it used, so the board is asked again before renewing here
+  if (spotOnBoard){
+    try {
+      const r = await fetch("/spotify/session");
+      if (r.ok) spotSession = await r.json();
+    } catch (e) {}
+    if (fresh()) return fresh();
+  }
+  const rt = spotSession.refresh;
   if (!rt) return null;
   try {
     const r = await fetch("https://accounts.spotify.com/api/token", {
@@ -6711,8 +6781,7 @@ function spotBuild(){
   if (!host || host.classList.contains("filled")) return host;
   host.textContent = "";
   host.classList.add("filled");
-  if (!localStorage.getItem("spot.refresh") ||
-      localStorage.getItem("spot.scopes") !== SPOT_SCOPES){
+  if (!spotSession.refresh || spotSession.scopes !== SPOT_SCOPES){
     const btn = h("button", "spconnect");
     // the same mark and stub either way: with an id set this signs in; with
     // none it opens Spotify's dashboard to make one. only the word and the
@@ -9537,6 +9606,10 @@ async function poll(){
     seenSync(state);
     seedTabsOnce(state);
     seedSeenOnce(state);
+    // and the settings, which have a revision of their own: another window's
+    // arrangement is read when it moves, and used at the next tab switch or
+    // reload, as it was when the browser kept them
+    if (settingsStore.notice) settingsStore.notice(state.settingsRev);
     const caretBefore = focusedCaretContext();
     // a card this page is holding a click for is shown the way it was left, and
     // this reading's own word for it is kept aside to go back to
@@ -9757,17 +9830,17 @@ document.getElementById("ndown").addEventListener("click", () => nav(0, 1));
 
 {
   const pick = document.getElementById("bgpick");
-  const saved = localStorage.getItem("bgcolor");
+  const saved = settingsStore.getItem("bgcolor");
   if (saved){ document.body.style.setProperty("--paper", saved); pick.value = saved; }
   pick.addEventListener("input", () => {
     document.body.style.setProperty("--paper", pick.value);
-    localStorage.setItem("bgcolor", pick.value);
+    settingsStore.setItem("bgcolor", pick.value);
   });
 }
 // resizable outline: drag the grip, clamped, remembered
 {
   const clamp = w => Math.max(170, Math.min(420, w));
-  const saved = parseInt(localStorage.getItem("tocw") || "", 10);
+  const saved = parseInt(settingsStore.getItem("tocw") || "", 10);
   if (saved) document.documentElement.style.setProperty("--tocw", clamp(saved) + "px");
   const grip = document.getElementById("tocgrip");
   grip.addEventListener("mousedown", e => {
@@ -9779,7 +9852,7 @@ document.getElementById("ndown").addEventListener("click", () => nav(0, 1));
     };
     const up = () => {
       grip.classList.remove("drag"); document.body.classList.remove("resizing");
-      localStorage.setItem("tocw", parseInt(getComputedStyle(document.documentElement).getPropertyValue("--tocw"), 10));
+      settingsStore.setItem("tocw", parseInt(getComputedStyle(document.documentElement).getPropertyValue("--tocw"), 10));
       removeEventListener("mousemove", move); removeEventListener("mouseup", up);
     };
     addEventListener("mousemove", move); addEventListener("mouseup", up);
@@ -10203,8 +10276,8 @@ function layoutSource(){
   if (!dragEnabled) return null;
   for (const el of document.querySelectorAll(REGION_SEL)){
     const id = regionId(el);
-    if (localStorage.getItem("pos." + activeOwner + "." + id) ||
-        localStorage.getItem("size." + activeOwner + "." + id)) return activeOwner;
+    if (settingsStore.getItem("pos." + activeOwner + "." + id) ||
+        settingsStore.getItem("size." + activeOwner + "." + id)) return activeOwner;
   }
   return "facilitator";
 }
@@ -10214,19 +10287,19 @@ function layoutSource(){
 // place for anyone who had arranged them
 const MAGIC_RENAME = "magicrename.1";
 function renameMagicLayouts(){
-  if (!dragEnabled || localStorage.getItem(MAGIC_RENAME)) return;
-  localStorage.setItem(MAGIC_RENAME, "1");
+  if (!dragEnabled || settingsStore.getItem(MAGIC_RENAME)) return;
+  settingsStore.setItem(MAGIC_RENAME, "1");
   const move = (from, to) => {
     const hits = [];
-    for (let i = 0; i < localStorage.length; i++){
-      const k = localStorage.key(i);
+    for (let i = 0; i < settingsStore.length; i++){
+      const k = settingsStore.key(i);
       const m = k && new RegExp("^(pos|size)\\.(.+)\\." + from + "$").exec(k);
       if (m) hits.push([k, m[1] + "." + m[2] + "." + to]);
     }
     for (const [oldK, newK] of hits){
-      const v = localStorage.getItem(oldK);
-      localStorage.removeItem(oldK);
-      if (v !== null) localStorage.setItem(newK, v);
+      const v = settingsStore.getItem(oldK);
+      settingsStore.removeItem(oldK);
+      if (v !== null) settingsStore.setItem(newK, v);
     }
   };
   move("magic2", "magic3");   // has to run before the next line
@@ -10242,13 +10315,13 @@ const LAYOUT_SYNC = "layoutsync.1";
 // Capture this before syncLayoutsOnce writes its first-run key below. Browsers
 // that already used this board keep their current visible regions; new lanes
 // opened after this change use the smaller default.
-const HAD_LEGACY_LAYOUT = !!localStorage.getItem(LAYOUT_SYNC);
+const HAD_LEGACY_LAYOUT = !!settingsStore.getItem(LAYOUT_SYNC);
 function syncLayoutsOnce(){
-  if (!dragEnabled || localStorage.getItem(LAYOUT_SYNC)) return;
-  localStorage.setItem(LAYOUT_SYNC, "1");
+  if (!dragEnabled || settingsStore.getItem(LAYOUT_SYNC)) return;
+  settingsStore.setItem(LAYOUT_SYNC, "1");
   const lanes = new Set();
-  for (let i = 0; i < localStorage.length; i++){
-    const m = /^(?:pos|size)\.([^.]+)\./.exec(localStorage.key(i) || "");
+  for (let i = 0; i < settingsStore.length; i++){
+    const m = /^(?:pos|size)\.([^.]+)\./.exec(settingsStore.key(i) || "");
     if (m && m[1] !== "facilitator") lanes.add(m[1]);
   }
   for (const lane of lanes){
@@ -10256,11 +10329,11 @@ function syncLayoutsOnce(){
       const id = regionId(el);
       for (const kind of ["pos", "size"]){
         const mine = kind + "." + lane + "." + id;
-        const old = localStorage.getItem(mine);
-        if (old !== null) localStorage.setItem("layoutbak." + mine, old);
-        const src = localStorage.getItem(kind + ".facilitator." + id);
-        if (src !== null) localStorage.setItem(mine, src);
-        else localStorage.removeItem(mine);
+        const old = settingsStore.getItem(mine);
+        if (old !== null) settingsStore.setItem("layoutbak." + mine, old);
+        const src = settingsStore.getItem(kind + ".facilitator." + id);
+        if (src !== null) settingsStore.setItem(mine, src);
+        else settingsStore.removeItem(mine);
       }
     }
   }
@@ -10270,11 +10343,11 @@ function syncLayoutsOnce(){
 // writes, so the cross can put them back like anything else
 const HIDE_SEED = "hideseed.1";
 function seedHiddenOnce(){
-  if (localStorage.getItem(HIDE_SEED)) return;
+  if (settingsStore.getItem(HIDE_SEED)) return;
   if (!P3_LANE) return;
-  localStorage.setItem(HIDE_SEED, "1");
-  localStorage.setItem("hide." + P3_LANE + ".goalbox", "1");
-  localStorage.setItem("hide." + P3_LANE + ".rail", "1");
+  settingsStore.setItem(HIDE_SEED, "1");
+  settingsStore.setItem("hide." + P3_LANE + ".goalbox", "1");
+  settingsStore.setItem("hide." + P3_LANE + ".rail", "1");
 }
 
 const DEFAULT_HIDDEN_REGIONS = new Set(["rail", "magic1", "magic2", "magic3", "magic4", "goalbox"]);
@@ -10283,58 +10356,60 @@ const VISIBILITY_MIGRATION = "layoutvisibility.1";
 // in browsers that were using the board, so it gets a pass of its own
 const PLAYER_VISIBILITY_MIGRATION = "layoutvisibility.2";
 function hadLegacyVisibility(owner){
+  // the open tab, the ticket view and the view page are this window's own and
+  // stay in its storage; the places, sizes and hides are the board's
   if (owner === "facilitator" || localStorage.getItem("activeproj") === owner ||
       localStorage.getItem("tikview." + owner) || localStorage.getItem("activepage." + owner))
     return true;
   for (const id of ["main", "clockbox", "rail", "tickets", "magic1", "magic2", "magic3", "magic4", "goalbox"]){
-    if (["pos", "size", "hide"].some(kind => localStorage.getItem(kind + "." + owner + "." + id)))
+    if (["pos", "size", "hide"].some(kind => settingsStore.getItem(kind + "." + owner + "." + id)))
       return true;
   }
   return false;
 }
 function migrateLegacyVisibility(){
-  if (localStorage.getItem(VISIBILITY_MIGRATION)) return;
+  if (settingsStore.getItem(VISIBILITY_MIGRATION)) return;
   if (HAD_LEGACY_LAYOUT){
     for (const owner of validActiveOwnerIds){
       if (!hadLegacyVisibility(owner)) continue;
       for (const id of DEFAULT_HIDDEN_REGIONS){
-        if (!localStorage.getItem("hide." + owner + "." + id))
-          localStorage.setItem("show." + owner + "." + id, "1");
+        if (!settingsStore.getItem("hide." + owner + "." + id))
+          settingsStore.setItem("show." + owner + "." + id, "1");
       }
     }
   }
-  localStorage.setItem(VISIBILITY_MIGRATION, "1");
+  settingsStore.setItem(VISIBILITY_MIGRATION, "1");
 }
 // a tab that was already showing magic box 1 keeps showing it. only a show key is
 // added, and only where the tab has neither a hide nor a show for the box; saved
 // places, sizes and hides are never read or written here
 function migratePlayerVisibility(){
-  if (localStorage.getItem(PLAYER_VISIBILITY_MIGRATION)) return;
+  if (settingsStore.getItem(PLAYER_VISIBILITY_MIGRATION)) return;
   if (HAD_LEGACY_LAYOUT){
     for (const owner of validActiveOwnerIds){
       if (!hadLegacyVisibility(owner)) continue;
-      if (!localStorage.getItem("hide." + owner + ".magic1") &&
-          !localStorage.getItem("show." + owner + ".magic1"))
-        localStorage.setItem("show." + owner + ".magic1", "1");
+      if (!settingsStore.getItem("hide." + owner + ".magic1") &&
+          !settingsStore.getItem("show." + owner + ".magic1"))
+        settingsStore.setItem("show." + owner + ".magic1", "1");
     }
   }
-  localStorage.setItem(PLAYER_VISIBILITY_MIGRATION, "1");
+  settingsStore.setItem(PLAYER_VISIBILITY_MIGRATION, "1");
 }
 // once per browser, a file navigator box put away on the board's own tab comes
 // back. the hide key goes and the saved place and size stay, so it returns where
 // it was. run after the mount map is known; the cross works as before after it
 const NAVIGATOR_RESTORE = "navrestore.1";
 function restoreOwnNavigatorOnce(){
-  if (localStorage.getItem(NAVIGATOR_RESTORE)) return;
+  if (settingsStore.getItem(NAVIGATOR_RESTORE)) return;
   const mount = FILENAV_MOUNTS["facilitator"];
-  if (mount) localStorage.removeItem("hide.facilitator." + mount.box);
-  localStorage.setItem(NAVIGATOR_RESTORE, "1");
+  if (mount) settingsStore.removeItem("hide.facilitator." + mount.box);
+  settingsStore.setItem(NAVIGATOR_RESTORE, "1");
 }
 function regionHidden(owner, id){
   // an explicit hide always wins: a box the reader put away by hand stays away
   // even when it is this lane's configured file navigator, and the reader is
   // told rather than having that choice quietly overwritten
-  if (localStorage.getItem("hide." + owner + "." + id)) return true;
+  if (settingsStore.getItem("hide." + owner + "." + id)) return true;
   // a lane's configured file navigator is on screen by default, like the three
   // default elements and unlike the other default-hidden boxes. the box it
   // mounts in is the reader the board named for this lane, so it is shown without
@@ -10343,7 +10418,7 @@ function regionHidden(owner, id){
   const mount = FILENAV_MOUNTS[owner];
   if (mount && mount.box === id) return false;
   return DEFAULT_HIDDEN_REGIONS.has(id) &&
-    !localStorage.getItem("show." + owner + "." + id);
+    !settingsStore.getItem("show." + owner + "." + id);
 }
 
 function applySavedLayout(){
@@ -10360,7 +10435,7 @@ function applySavedLayout(){
   for (const el of document.querySelectorAll(REGION_SEL)){
     // Visibility belongs to this tab, unlike inherited position and size.
     el.classList.toggle("region-off", regionHidden(activeOwner, regionId(el)));
-    const saved = src ? localStorage.getItem("pos." + src + "." + regionId(el)) : null;
+    const saved = src ? settingsStore.getItem("pos." + src + "." + regionId(el)) : null;
     if (saved){
       try {
         const p = JSON.parse(saved);
@@ -10373,7 +10448,7 @@ function applySavedLayout(){
       el.style.left = "";
       el.style.top = "";
     }
-    const sz = src ? localStorage.getItem("size." + src + "." + regionId(el)) : null;
+    const sz = src ? settingsStore.getItem("size." + src + "." + regionId(el)) : null;
     if (sz){
       try {
         const p = JSON.parse(sz);
@@ -10419,7 +10494,7 @@ addEventListener("pointermove", e => {
 });
 addEventListener("pointerup", () => {
   if (!dragging) return;
-  localStorage.setItem("pos." + activeOwner + "." + regionId(dragging.el),
+  settingsStore.setItem("pos." + activeOwner + "." + regionId(dragging.el),
     JSON.stringify({ x: dragging.x, y: dragging.y }));
   document.body.classList.remove("dragging");
   dragging = null;
@@ -10446,11 +10521,11 @@ function toggleRegionHidden(id){
   const key = "hide." + activeOwner + "." + id;
   const show = "show." + activeOwner + "." + id;
   if (regionHidden(activeOwner, id)){
-    localStorage.removeItem(key);
-    localStorage.setItem(show, "1");
+    settingsStore.removeItem(key);
+    settingsStore.setItem(show, "1");
   } else {
-    localStorage.removeItem(show);
-    localStorage.setItem(key, "1");
+    settingsStore.removeItem(show);
+    settingsStore.setItem(key, "1");
   }
   applySavedLayout();
 }
@@ -10620,11 +10695,11 @@ addEventListener("pointerup", () => {
   sizing = null;
   if (!s.moved) return;
   squelchClick = true;
-  localStorage.setItem("size." + activeOwner + "." + regionId(s.el),
+  settingsStore.setItem("size." + activeOwner + "." + regionId(s.el),
     JSON.stringify({ w: s.outw, h: s.outh }));
   if (s.x != null || s.y != null){
     // a moved origin must be saved too or the resize half-reverts on reload
-    localStorage.setItem("pos." + activeOwner + "." + regionId(s.el),
+    settingsStore.setItem("pos." + activeOwner + "." + regionId(s.el),
       JSON.stringify({ x: s.x != null ? s.x : onStar(s.left), y: s.y != null ? s.y : onStar(s.top) }));
   }
 });

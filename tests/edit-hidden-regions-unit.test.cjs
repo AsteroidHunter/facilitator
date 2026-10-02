@@ -1,7 +1,7 @@
 // Deterministic, browser-free regression for the edit-mode treatment of removed
 // widgets. It extracts the ACTUAL trackHandles, toggleRegionHidden, regionHidden
 // and DEFAULT_HIDDEN_REGIONS bytes from index.html and runs them in tiny
-// sandboxes with fake DOM/localStorage, plus reads the shipped stylesheet, so
+// sandboxes with a fake DOM and settings store, plus reads the shipped stylesheet, so
 // the fix is pinned against the real source rather than a paraphrase of it.
 //
 // What it guards:
@@ -176,7 +176,8 @@ function buildRegions(seed) {
     let applyCalls = 0;
     const writes = [];
     const __store = new Map(${JSON.stringify(Object.entries(seed || {}))});
-    const localStorage = {
+    // the board's settings store, which the page reads these keys from
+    const settingsStore = {
       getItem: k => __store.has(k) ? __store.get(k) : null,
       setItem: (k, v) => { writes.push(["set", k]); __store.set(k, String(v)); },
       removeItem: k => { writes.push(["remove", k]); __store.delete(k); },
@@ -188,7 +189,7 @@ function buildRegions(seed) {
     ctl.toggle = id => toggleRegionHidden(id);
     ctl.setOwner = o => { activeOwner = o; };
     ctl.setMounts = m => { FILENAV_MOUNTS = m; };
-    ctl.get = k => localStorage.getItem(k);
+    ctl.get = k => settingsStore.getItem(k);
     ctl.writes = () => writes.slice();
     ctl.applyCalls = () => applyCalls;
     ctl.defaultHidden = DEFAULT_HIDDEN_REGIONS;

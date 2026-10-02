@@ -60,7 +60,26 @@ function settle(ms = 120) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// a stored setting as the page keeps it: on the Mac with the board's settings
+// (board-settings.js), on the phone in the phone's own storage
+function stored(page, key) {
+  return page.evaluate(k => (globalThis.boardSettings || localStorage).getItem(k), key);
+}
+
+// a Mac page's settings reach the board a moment after they are written, where
+// a browser's own storage had them at once, so a page is closed only once the
+// board has them and the next case's page starts from what this one left
+async function closePage(page) {
+  try { await page.waitForFunction(() => !globalThis.boardSettings || !boardSettings.busy, { timeout: 5000 }); } catch {}
+  await page.close();
+}
+
 async function open(route, viewport, opts = {}) {
+  // the Mac pages' settings are the board's, so a page that starts where a
+  // never-opened browser starts starts on a board with none
+  const { values } = await (await fetch(origin + "/settings")).json();
+  if (Object.keys(values).length) await fetch(origin + "/settings", { method: "POST",
+    body: JSON.stringify(Object.fromEntries(Object.keys(values).map(k => [k, null]))) });
   const page = await browser.newPage();
   const problems = [];
   await page.setViewport(viewport);
@@ -248,7 +267,7 @@ test("the bar has no colour picker and the pen is a plain mark like the gear", a
     assert.equal(bar.pen.color, bar.gear.color, "the pen mark is not the gear's colour");
     assert.deepEqual(problems, []);
   } finally {
-    await page.close();
+    await closePage(page);
   }
 });
 
@@ -319,7 +338,7 @@ test("wide: the gear opens one page, centred at about 70% of the window, in the 
     assert.equal(await page.evaluate(() => document.body.classList.contains("setopen")), true);
     assert.deepEqual(problems, []);
   } finally {
-    await page.close();
+    await closePage(page);
   }
 });
 
@@ -339,7 +358,7 @@ test("the overlay is about 70% of the window each way, centred, and follows the 
     assertSeventhTenths(await share(page), "back at 1512 by 982");
     assert.deepEqual(problems, []);
   } finally {
-    await page.close();
+    await closePage(page);
   }
 });
 
@@ -353,7 +372,7 @@ test("a narrow window gets the same overlay, at 70%, with the list", async () =>
     assert.equal(await page.evaluate(() => document.querySelector(".sp-page").hasAttribute("data-narrow")), true);
     assert.deepEqual(problems, []);
   } finally {
-    await page.close();
+    await closePage(page);
   }
 });
 
@@ -386,7 +405,7 @@ test("the two layouts turn on the overlay's own width, 989px, and not on the win
     assert.equal(now.panes, true, "the sections did not stand beside the settings at " + now.width + "px");
     assert.deepEqual(problems, []);
   } finally {
-    await page.close();
+    await closePage(page);
   }
 });
 
@@ -419,7 +438,7 @@ test("wide: sections stand on the left and the chosen one's settings on the righ
     assert.equal(await page.$eval('.sp-item[data-section="editor"]', el => el.getAttribute("aria-current")), "true");
     assert.deepEqual(problems, []);
   } finally {
-    await page.close();
+    await closePage(page);
   }
 });
 
@@ -427,10 +446,11 @@ test("wide: each setting still writes what it always wrote", async () => {
   const { page, problems } = await open("/", WIDE);
   try {
     await openMac(page);
-    // the colour behind the board: the custom property and the stored colour
+    // the colour behind the board: the custom property and the stored colour,
+    // which the board keeps with its settings
     await page.$eval("#bgpick", el => { el.value = "#e8f0e0"; el.dispatchEvent(new Event("input", { bubbles: true })); });
     const picked = await page.evaluate(() => ({
-      stored: localStorage.getItem("bgcolor"),
+      stored: settingsStore.getItem("bgcolor"),
       paper: document.body.style.getPropertyValue("--paper"),
     }));
     assert.equal(picked.stored, "#e8f0e0", "the colour was not stored as bgcolor");
@@ -440,12 +460,13 @@ test("wide: each setting still writes what it always wrote", async () => {
     await settle();
     assert.equal(await page.$eval("#setformat", el => el.checked), false, "formatting does not start off");
     await page.click("#setformat");
-    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "1");
+    assert.equal(await stored(page, "composeformat"), "1");
     assert.equal(await page.evaluate(() => ComposeFormat.enabled()), true);
     await page.click("#setformat");
-    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "0");
+    assert.equal(await stored(page, "composeformat"), "0");
     assert.equal(await page.evaluate(() => ComposeFormat.enabled()), false);
-    // the colour is still what the browser remembered after a reload
+    // the colour is still what the board kept after a reload
+    await page.waitForFunction(() => !boardSettings.busy);
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => typeof lastState !== "undefined" && lastState !== null, { timeout: 15000 });
     const kept = await page.evaluate(() => ({
@@ -456,7 +477,7 @@ test("wide: each setting still writes what it always wrote", async () => {
     assert.equal(kept.value, "#e8f0e0", "the picker does not show the stored colour");
     assert.deepEqual(problems, []);
   } finally {
-    await page.close();
+    await closePage(page);
   }
 });
 
@@ -500,7 +521,7 @@ test("wide: an on and off setting is a switch that any of a click, its words or 
     assert.equal(on.checked, true);
     assert.equal(on.background, "rgb(33, 29, 23)", "the switch is not the board's ink when on: " + on.background);
     assert.ok(on.knobShift > 8, "the knob did not move across: " + on.knobShift);
-    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "1");
+    assert.equal(await stored(page, "composeformat"), "1");
     for (const look of [off, on]) {
       const { chroma, hue } = hueOf(look.background);
       assert.ok(chroma < 0.1 || hue < 235 || hue > 335, "a purple switch: " + look.background);
@@ -509,20 +530,20 @@ test("wide: an on and off setting is a switch that any of a click, its words or 
     await page.click('label[for="setformat"] span');
     await settle(200);
     assert.equal(await page.$eval("#setformat", el => el.checked), false, "a press on the words did not flip it");
-    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "0");
+    assert.equal(await stored(page, "composeformat"), "0");
     // and so does Space, from the keyboard
     await page.focus("#setformat");
     await page.keyboard.press("Space");
     await settle(200);
     assert.equal(await page.$eval("#setformat", el => el.checked), true, "Space did not flip it");
-    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "1");
+    assert.equal(await stored(page, "composeformat"), "1");
     await page.keyboard.press("Space");
     await settle(200);
-    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "0");
+    assert.equal(await stored(page, "composeformat"), "0");
     assert.equal(await page.evaluate(() => document.activeElement.id), "setformat", "the switch lost focus");
     assert.deepEqual(problems, []);
   } finally {
-    await page.close();
+    await closePage(page);
   }
 });
 
@@ -568,7 +589,7 @@ test("wide: nothing on the page is purple, and the chosen section is a neutral s
     assert.notEqual(chosen.background, "rgba(0, 0, 0, 0)", "the chosen section is not marked");
     assert.deepEqual(problems, []);
   } finally {
-    await page.close();
+    await closePage(page);
   }
 });
 
@@ -650,7 +671,7 @@ test("wide: three window buttons stand at the top left, and only the red one clo
     assert.equal(await shown(page, ".sp-page"), false, "the red button left the page on show");
     assert.deepEqual(problems, []);
   } finally {
-    await page.close();
+    await closePage(page);
   }
 });
 
@@ -680,7 +701,7 @@ test("wide: the red button and Escape put the page away, and Escape stays off th
     assert.equal(await shown(page, "#settings-appearance"), true);
     assert.deepEqual(problems, []);
   } finally {
-    await page.close();
+    await closePage(page);
   }
 });
 
@@ -742,7 +763,7 @@ test("a press outside the page puts it away; a press inside it, or a drag out of
       "the Escape that closed the page also cleared the card behind it");
     assert.deepEqual(problems, []);
   } finally {
-    await page.close();
+    await closePage(page);
   }
 });
 
@@ -768,7 +789,7 @@ test("no key reaches the board while the page is open", async () => {
     assert.equal(await shown(page, ".sp-page"), false);
     assert.deepEqual(problems, []);
   } finally {
-    await page.close();
+    await closePage(page);
   }
 });
 
@@ -805,7 +826,7 @@ test("narrow Mac: only the list, a section on tap, a way back, and a way out", a
     assert.equal(bar.overlap, false, "a window button sits under the back mark");
     assert.ok(bar.titleLeft >= bar.backRight, "the title lies over the back mark: " + JSON.stringify(bar));
     await page.$eval("#bgpick", el => { el.value = "#dde6f2"; el.dispatchEvent(new Event("input", { bubbles: true })); });
-    assert.equal(await page.evaluate(() => localStorage.getItem("bgcolor")), "#dde6f2");
+    assert.equal(await stored(page, "bgcolor"), "#dde6f2");
 
     await page.click(".sp-back");
     await settle(200);
@@ -817,7 +838,7 @@ test("narrow Mac: only the list, a section on tap, a way back, and a way out", a
     await settle(200);
     assert.equal(await shown(page, "#setformat"), true);
     await page.click("#setformat");
-    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "1");
+    assert.equal(await stored(page, "composeformat"), "1");
     // Escape puts the whole page away, not just the section
     await page.keyboard.press("Escape");
     await settle(200);
@@ -831,7 +852,7 @@ test("narrow Mac: only the list, a section on tap, a way back, and a way out", a
     assert.equal(await shown(page, ".sp-page"), false, "the red button left the page on show");
     assert.deepEqual(problems, []);
   } finally {
-    await page.close();
+    await closePage(page);
   }
 });
 
@@ -854,7 +875,7 @@ test("the same page changes layout when the window does", async () => {
     assert.equal(await shown(page, ".sp-back"), true);
     assert.deepEqual(problems, []);
   } finally {
-    await page.close();
+    await closePage(page);
   }
 });
 
@@ -951,7 +972,7 @@ test("phone: a pull from the right edge brings in the drawer, in its own size an
       "the page does not fill the drawer: " + JSON.stringify(bare));
     assert.deepEqual(problems, []);
   } finally {
-    await page.close();
+    await closePage(page);
   }
 });
 
@@ -1002,7 +1023,7 @@ test("phone: the drawer opens on the list of sections and each one opens inside 
                              save: "Save diagnostic history" });
     assert.deepEqual(problems, []);
   } finally {
-    await page.close();
+    await closePage(page);
   }
 });
 
@@ -1023,7 +1044,7 @@ test("phone: the drawer stays narrow, with the list and sections, in a wide wind
     assert.deepEqual(one.panes, ["settings-notifications"]);
     assert.deepEqual(problems, []);
   } finally {
-    await page.close();
+    await closePage(page);
   }
 });
 
@@ -1040,18 +1061,18 @@ test("phone: typed formatting is still stored as it was", async () => {
     assert.equal(off.background, "rgb(202, 202, 202)", "the switch is not the light grey when off: " + off.background);
     await page.tap("#setformat");
     await settle(400);
-    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "1");
+    assert.equal(await stored(page, "composeformat"), "1");
     assert.equal(await page.evaluate(() => ComposeFormat.enabled()), true);
     const on = await switchLook(page);
     assert.equal(on.background, "rgb(33, 29, 23)", "the switch is not the board's ink when on: " + on.background);
     assert.ok(on.knobShift > 8, "the knob did not move across: " + on.knobShift);
     await page.tap("#setformat");
-    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "0");
+    assert.equal(await stored(page, "composeformat"), "0");
     await page.tap('label[for="setformat"] span');
-    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "1", "a tap on the words did not flip it");
+    assert.equal(await stored(page, "composeformat"), "1", "a tap on the words did not flip it");
     assert.deepEqual(problems, []);
   } finally {
-    await page.close();
+    await closePage(page);
   }
 });
 
@@ -1106,7 +1127,7 @@ test("phone: a tap on the shade and a swipe toward the edge put the drawer away"
     assert.equal(await out(), true, "a vertical drag put the drawer away");
     assert.deepEqual(problems, []);
   } finally {
-    await page.close();
+    await closePage(page);
   }
 });
 
@@ -1220,7 +1241,7 @@ test("phone: Notifications is the Editor's switch, and it subscribes this phone 
     assert.deepEqual(problems, []);
   } finally {
     await context.clearPermissionOverrides();
-    await page.close();
+    await closePage(page);
   }
 });
 
@@ -1323,7 +1344,7 @@ test("phone: the turn off mark stands at the foot of the drawer and asks before 
     assert.equal(await page.$eval("#signout", el => el.disabled), false);
     assert.deepEqual(problems.filter(line => !/\/auth\/logout|status of 40\d/.test(line)), []);
   } finally {
-    await page.close();
+    await closePage(page);
   }
 });
 
@@ -1370,6 +1391,6 @@ test("phone: nothing on the drawer or the question is purple", async () => {
     assert.deepEqual(problems, []);
   } finally {
     await context.clearPermissionOverrides();
-    await page.close();
+    await closePage(page);
   }
 });

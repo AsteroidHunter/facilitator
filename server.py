@@ -165,7 +165,7 @@ Endpoints:
   GET  /compose-format.js   -> the composer's typed formatting: the setting,
                                and the editor layer the card pages put over a
                                composer while it is on. The board's default
-                               for a browser with no stored choice, from
+                               for a page with no stored choice, from
                                run.config.json's compose_format_default (off
                                when the key is missing), is written in front
                                of the file as it goes out
