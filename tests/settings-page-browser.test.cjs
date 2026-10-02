@@ -860,7 +860,8 @@ test("the same page changes layout when the window does", async () => {
 
 // ---- the phone app ------------------------------------------------------------------
 // a pull from the right edge brings in the narrow white panel the phone has always had,
-// and the settings page fills it; the tab row holds only the house and the tabs
+// and the settings page fills it; the row along the bottom holds its four buttons,
+// the gear at its right end among them
 
 // the controls each section holds, and the ones of them that always draw a box (the
 // notes and the status line are empty until there is something to say)
@@ -911,8 +912,8 @@ test("phone: a pull from the right edge brings in the drawer, in its own size an
       "the phone carries a gear or the drawer's old header and controls");
     assert.equal(await page.evaluate(() => document.querySelectorAll("#settings .sp-page").length), 1,
       "the drawer does not hold the settings page");
-    assert.deepEqual(await page.evaluate(() => [...document.getElementById("tabrow").children].map(one => one.id || one.className)),
-      ["homeico", "bar"], "the tab row holds something besides the house and the tabs");
+    assert.deepEqual(await page.evaluate(() => [...document.getElementById("dock").children].map(one => one.id)),
+      ["tikbtn", "projbtn", "tikadd", "setbtn"], "the row along the bottom holds something besides its four buttons");
     const shut = await cover(page, "#settings");
     assert.ok(shut.left >= shut.width, "the drawer does not wait beyond the right edge: " + JSON.stringify(shut));
     await openPhone(page);

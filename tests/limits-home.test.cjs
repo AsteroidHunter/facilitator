@@ -438,6 +438,15 @@ const CASES = {
   neither: {},
 };
 
+// the phone's house is the first row of the list the capsule in its row of
+// buttons opens: a tap on the capsule, then on the house
+async function tapPhoneHouse(page) {
+  await page.tap("#projbtn");
+  await page.waitForFunction(() => document.body.classList.contains("projopen"), { timeout: 3000 });
+  await new Promise(r => setTimeout(r, 300));
+  await page.tap("#homeico");
+}
+
 async function openHome(page, answer, url = "/") {
   await page.setRequestInterception(true);
   page.on("request", request => {
@@ -564,14 +573,14 @@ test("the title reads Usage Limits in the token heading's face, on the board and
     await page.setViewport(PHONE_VIEW);
     await page.goto(fx.origin + "/m", { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => typeof lastState !== "undefined" && lastState !== null, { timeout: 15000 });
-    await page.waitForSelector("#tabbar .ptab.on", { timeout: 5000 });
+    await page.waitForSelector("#projlist .projrow.on", { timeout: 5000 });
     await page.setRequestInterception(true);
     page.on("request", request => {
       if (new URL(request.url()).pathname === "/limits")
         request.respond({ status: 200, contentType: "application/json", body: JSON.stringify(BOTH) });
       else request.continue();
     });
-    await page.tap("#homeico");
+    await tapPhoneHouse(page);
     await page.waitForSelector("svg.tk-heat", { timeout: 15000 });
     await new Promise(r => setTimeout(r, 400));
     const r = await page.evaluate(read);
@@ -646,14 +655,14 @@ test("on the phone the box stands directly under the token panel, as wide as it,
       await page.setViewport(PHONE_VIEW);
       await page.goto(fx.origin + "/m", { waitUntil: "domcontentloaded" });
       await page.waitForFunction(() => typeof lastState !== "undefined" && lastState !== null, { timeout: 15000 });
-      await page.waitForSelector("#tabbar .ptab.on", { timeout: 5000 });
+      await page.waitForSelector("#projlist .projrow.on", { timeout: 5000 });
       await page.setRequestInterception(true);
       page.on("request", request => {
         if (new URL(request.url()).pathname === "/limits")
           request.respond({ status: 200, contentType: "application/json", body: JSON.stringify(answer) });
         else request.continue();
       });
-      await page.tap("#homeico");
+      await tapPhoneHouse(page);
       await page.waitForSelector("svg.tk-heat", { timeout: 15000 });
       await new Promise(r => setTimeout(r, 400));
       const m = await measure(page);

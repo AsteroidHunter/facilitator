@@ -291,8 +291,9 @@ test("the phone drawer's names carry no pill and its rows sit in no well", async
     await page.goto(origin + "/m", { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => typeof lastState !== "undefined" && lastState !== null, { timeout: 8000 });
     await settle(400);
-    if (!(await page.$("#tabbar .ptab.on"))) {
-      await page.click("#tabbar .ptab");
+    // a project open, chosen in the capsule's list if none is yet
+    if (!(await page.$("#projlist .projrow.on"))) {
+      await page.evaluate(() => { openProjects(); document.querySelector("#projlist .projrow").click(); });
       await settle(300);
     }
     // the card drawer holds the doing, deferred and done row; open it and pick doing
