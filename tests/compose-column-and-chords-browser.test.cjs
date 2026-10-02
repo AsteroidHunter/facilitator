@@ -140,7 +140,11 @@ async function open(route, viewport, opts = {}) {
   await page.setViewport(viewport);
   if (opts.machine === "ios") await page.evaluateOnNewDocument(wearIphone);
   if (opts.machine === "mac") await page.evaluateOnNewDocument(wearMac);
-  // each page starts where a browser that has never been opened starts
+  // each page starts where a browser that has never been opened starts. The
+  // desktop pages keep the choice with the board's settings and the phone
+  // keeps its own, so the case's choice goes to both
+  await fetch(origin + "/settings", { method: "POST",
+    body: JSON.stringify({ composeformat: opts.setting === undefined ? null : opts.setting }) });
   await page.evaluateOnNewDocument(setting => {
     try {
       localStorage.clear();

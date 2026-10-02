@@ -96,7 +96,11 @@ async function open(route, viewport, opts = {}) {
   await page.setViewport(viewport);
   // each page starts where a browser that has never been opened starts, and only
   // on its first document: a reload inside a check is one of the things being
-  // asked about, so it must find what the page itself wrote down
+  // asked about, so it must find what the page itself wrote down. The desktop
+  // pages keep the choice with the board's settings and the phone keeps its
+  // own, so the case's choice goes to both
+  await fetch(origin + "/settings", { method: "POST",
+    body: JSON.stringify({ composeformat: opts.setting === undefined ? null : opts.setting }) });
   await page.evaluateOnNewDocument(setting => {
     try {
       if (sessionStorage.getItem("compose-format-check")) return;
@@ -362,7 +366,7 @@ test("the setting follows a board that turns it on, turns off to a plain field a
   try {
     await pickDesktopCard(page, id);
     await editorOn(page);
-    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), null,
+    assert.equal(await page.evaluate(() => (globalThis.boardSettings || localStorage).getItem("composeformat")), null,
       "the setting wrote itself down before anybody touched it");
     assert.equal(await page.evaluate(() => ComposeFormat.enabled()), true,
       "the setting did not stand on from the board's default");
@@ -385,7 +389,7 @@ test("the setting follows a board that turns it on, turns off to a plain field a
       editors: document.querySelectorAll(".cffield").length,
       tag: document.activeElement.tagName,
       mirror: document.querySelector("article.box.sel textarea").classList.contains("cfmirror"),
-      stored: localStorage.getItem("composeformat"),
+      stored: (globalThis.boardSettings || localStorage).getItem("composeformat"),
       checked: document.getElementById("setformat").checked,
     }));
     assert.equal(off.payload, words, "the draft did not come back byte for byte");
@@ -442,10 +446,11 @@ test("the setting follows a board that turns it on, turns off to a plain field a
     assert.equal(back.payload, words + " typed plainly", "turning the setting back on lost words");
     assert.deepEqual(back.italic, ["these"], "the words were not drawn again");
 
-    // and the choice is the browser's, kept across a reload
+    // and the choice is kept across a reload, with the board's settings
+    await page.waitForFunction(() => !globalThis.boardSettings || !boardSettings.busy);
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => lastState !== null, { timeout: 15000 });
-    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "1",
+    assert.equal(await page.evaluate(() => (globalThis.boardSettings || localStorage).getItem("composeformat")), "1",
       "the setting did not keep the reader's word");
     assert.deepEqual(problems, []);
   } finally {

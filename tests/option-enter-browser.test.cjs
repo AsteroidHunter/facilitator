@@ -391,7 +391,7 @@ test("Mac board small card: Option+Enter sends nothing and is left to the box, t
     await selectCard(page, ids.source);
     await page.waitForFunction(card => miniOrder.includes(card), { timeout: 5000 }, ids.newer);
     await page.evaluate(card => { miniGo(card); renderMiniCards(lastState); }, ids.newer);
-    await page.evaluate(() => { localStorage.setItem("show.facilitator.magic2", "1"); applySavedLayout(); });
+    await page.evaluate(() => { settingsStore.setItem("show.facilitator.magic2", "1"); applySavedLayout(); });
     await page.waitForFunction(() => !document.getElementById("magic2").classList.contains("region-off"));
     await settle(200);
     const field = "#magic2 .mbox:not(.off) textarea";
@@ -447,7 +447,7 @@ test("Mac board chat thread: Option+Enter sends nothing and is left to the box, 
   const page = await open(DESKTOP, "/");
   try {
     await page.evaluate(() => {
-      localStorage.setItem("show.facilitator.magic3", "1");
+      settingsStore.setItem("show.facilitator.magic3", "1");
       applySavedLayout();
       chatOff = () => {};
       chatBuild();

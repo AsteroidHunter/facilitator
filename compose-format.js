@@ -2,9 +2,12 @@
  * Format text while typing: the card composer draws its own Markdown as it is
  * written, and still sends the Markdown itself.
  *
- * The setting lives in localStorage, the way every other per-browser choice on
- * the board does. A browser that has stored no choice starts as the board says,
- * and a board that says nothing starts it off: see boardDefault. Off, the
+ * On the two desktop pages the setting is one of the board's own settings,
+ * kept beside the board (board-settings.js), so every address the board is
+ * opened at types the same way; the phone keeps its own in its localStorage,
+ * as every other phone choice is kept. A page that has stored no choice
+ * starts as the board says, and a board that says nothing starts it off: see
+ * boardDefault. Off, the
  * composer is the plain textarea it has always been and not one line of this
  * file runs on it.
  *
@@ -103,9 +106,15 @@
     return globalThis.COMPOSE_FORMAT_DEFAULT === true;
   }
 
+  // the board's settings store on a desktop page, this browser's own storage
+  // anywhere else (the phone loads no store)
+  function store() {
+    return globalThis.boardSettings || localStorage;
+  }
+
   function enabled() {
     try {
-      const raw = localStorage.getItem(STORE_KEY);
+      const raw = store().getItem(STORE_KEY);
       return raw == null ? boardDefault() : raw !== "0";
     } catch (error) { return boardDefault(); }
   }
@@ -113,7 +122,7 @@
   function setEnabled(on) {
     const want = !!on;
     if (want === enabled()) return want;
-    try { localStorage.setItem(STORE_KEY, want ? "1" : "0"); } catch (error) {}
+    try { store().setItem(STORE_KEY, want ? "1" : "0"); } catch (error) {}
     for (const field of fields) applyMode(field);
     for (const watcher of watchers) { try { watcher(want); } catch (error) {} }
     return want;

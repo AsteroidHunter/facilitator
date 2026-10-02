@@ -1,7 +1,9 @@
-// The board's own tab gets its file navigator box back once per browser when it
-// was put away by hand, in the place and size it had. The cross keeps working
-// after that, another tab's hidden navigator is left alone, and a browser with
-// no saved keys is not changed.
+// The board's own tab gets its file navigator box back once when it was put
+// away by hand, in the place and size it had. The cross keeps working after
+// that, another tab's hidden navigator is left alone, and a board with no saved
+// keys is not changed. The keys are the board's settings (settings.json): each
+// case starts them empty, and a browser's old keys reach the board through the
+// one-time copy its first load makes.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawn } = require("node:child_process");
@@ -30,7 +32,20 @@ async function mkfile(file, text){
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, text);
 }
+// the board's settings emptied, asked until they stay empty, since a page just
+// closed may still have a write on its way
+async function clearBoardSettings(){
+  for (let quiet = 0; quiet < 2;){
+    const { values } = await (await fetch(origin + "/settings")).json();
+    const keys = Object.keys(values);
+    if (keys.length) await fetch(origin + "/settings", { method: "POST",
+      body: JSON.stringify(Object.fromEntries(keys.map(k => [k, null]))) });
+    quiet = keys.length ? 0 : quiet + 1;
+    await new Promise(resolve => setTimeout(resolve, 60));
+  }
+}
 async function openBoard(storage){
+  await clearBoardSettings();
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   await page.setViewport({ width: 1512, height: 982 });
@@ -51,6 +66,8 @@ async function ready(page){
   await new Promise(resolve => setTimeout(resolve, 500));
 }
 async function reload(page){
+  // every setting the page wrote reaches the board before it goes
+  await page.waitForFunction(() => !globalThis.boardSettings || !boardSettings.busy);
   await page.reload({ waitUntil: "domcontentloaded" });
   await ready(page);
 }
@@ -72,8 +89,13 @@ async function navigator(page){
     };
   });
 }
+// what the page reads for a key: the board's settings, which the board holds too
 async function stored(page, key){
-  return page.evaluate(k => localStorage.getItem(k), key);
+  const seen = await page.evaluate(k => settingsStore.getItem(k), key);
+  await page.waitForFunction(() => !globalThis.boardSettings || !boardSettings.busy);
+  const { values } = await (await fetch(origin + "/settings")).json();
+  assert.equal(values[key] ?? null, seen, `the board and the page disagree about ${key}`);
+  return seen;
 }
 async function shot(page, name){
   await page.screenshot({ path: path.join(SHOTS, name + ".png") });

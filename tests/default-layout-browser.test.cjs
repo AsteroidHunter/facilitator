@@ -1,6 +1,10 @@
 // A clean browser sees the clock, the ticket list and the card at the places and
 // sizes the board's default layout names, a newly opened project starts the same
 // way, and an older browser keeps the visibility and the layout it already had.
+// The layout is the board's (settings.json, through board-settings.js): each
+// case starts the board's settings empty and plants what an older browser had
+// saved in that browser's own storage, which the one-time copy then hands to
+// the board, exactly as an existing browser's first load of this code does.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawn } = require("node:child_process");
@@ -57,7 +61,27 @@ async function makeProject(name){
   await mkdir(dir, { recursive:true });
   return (await post("/project?name=" + encodeURIComponent(name), dir)).id;
 }
+// the board's settings emptied, so the next browser is the first to load the
+// settings code against this board; asked until it stays empty, since a page
+// just closed may still have a write on its way
+async function clearBoardSettings(){
+  for (let quiet = 0; quiet < 2;){
+    const { values } = await (await fetch(origin + "/settings")).json();
+    const keys = Object.keys(values);
+    if (keys.length) await post("/settings", JSON.stringify(Object.fromEntries(keys.map(k => [k, null]))));
+    quiet = keys.length ? 0 : quiet + 1;
+    await new Promise(resolve => setTimeout(resolve, 60));
+  }
+}
+async function boardSettings(){
+  return (await (await fetch(origin + "/settings")).json()).values;
+}
+// every setting this page wrote has been answered by the board
+async function settled(page){
+  await page.waitForFunction(() => !globalThis.boardSettings || !boardSettings.busy);
+}
 async function openBoard(storage, viewport){
+  await clearBoardSettings();
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   await page.setViewport(viewport || { width:1440, height:900 });
@@ -67,6 +91,7 @@ async function openBoard(storage, viewport){
   await page.goto(origin + "/", { waitUntil:"domcontentloaded" });
   await page.waitForFunction(() => document.body.classList.contains("layout-ready") && lastState);
   await page.waitForFunction(() => getComputedStyle(document.getElementById("stage")).visibility === "visible");
+  await settled(page);
   return { context, page };
 }
 async function visibleRegions(page){
@@ -170,10 +195,12 @@ test("fresh and newly opened projects show three regions; a restored region pers
     // removed along with the ghosts. A reveal is exercised through the same
     // persisted show key the board writes; see the m797 report for the tradeoff.
     await page.evaluate(owner => {
-      localStorage.setItem("show." + owner + ".magic2", "1");
+      settingsStore.setItem("show." + owner + ".magic2", "1");
       applySavedLayout();
     }, firstProject);
     await assertVisible(page, ["clockbox", "tickets", "magic2", "main"]);
+    await settled(page);
+    assert.equal((await boardSettings())["show." + firstProject + ".magic2"], "1", "the reveal did not reach the board");
     await page.reload({ waitUntil:"domcontentloaded" });
     await page.waitForFunction(() => document.body.classList.contains("layout-ready") && lastState);
     await page.waitForFunction(() => getComputedStyle(document.getElementById("stage")).visibility === "visible");
@@ -213,8 +240,13 @@ test("a saved layout wins over the default and is not rewritten", async () => {
       clockbox:{ x:86.4, y:97.92, w:241.92, h:115.2 },
       main:{ x:570.24, y:63.36, w:506.88, h:748.8 },
     }, "saved layout");
-    const kept = await page.evaluate(keys => keys.map(k => localStorage.getItem(k)), Object.keys(saved));
+    const kept = await page.evaluate(keys => keys.map(k => settingsStore.getItem(k)), Object.keys(saved));
     assert.deepEqual(kept, Object.values(saved), "every saved key reads back as it was written");
+    const board = await boardSettings();
+    assert.deepEqual(Object.keys(saved).map(k => board[k]), Object.values(saved), "the board does not hold the saved layout");
+    // and the browser's own copy is left where it was
+    const local = await page.evaluate(keys => keys.map(k => localStorage.getItem(k)), Object.keys(saved));
+    assert.deepEqual(local, Object.values(saved), "the one-time copy took the browser's own keys away");
   } finally { await context.close(); }
 });
 
@@ -275,6 +307,7 @@ test("a browser that hid magic box 1 keeps it hidden after the second visibility
   });
   try {
     await assertVisible(page, THREE);
-    assert.equal(await page.evaluate(() => localStorage.getItem("show.facilitator.magic1")), null);
+    assert.equal(await page.evaluate(() => settingsStore.getItem("show.facilitator.magic1")), null);
+    assert.equal((await boardSettings())["show.facilitator.magic1"], undefined);
   } finally { await context.close(); }
 });
