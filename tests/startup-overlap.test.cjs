@@ -7,6 +7,7 @@ const { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } = require("node:fs
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
+const { copyBridgeFiles } = require("./fixture-auth.cjs");
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(__dirname, "..");
@@ -107,6 +108,7 @@ test("a startup that loses the port cannot migrate under the running legacy serv
     const correctedFile = path.join(fixture, "server-new.py");
     await writeFile(legacyFile, withTestPort(legacySource));
     await writeFile(correctedFile, withTestPort(currentSource));
+    copyBridgeFiles(fixture);
     await writeFile(path.join(fixture, "seed.json"), JSON.stringify({
       title: "overlap fixture",
       items: [{
@@ -177,6 +179,7 @@ test("a truncated transcript tail stays separate from the durable schema boundar
     const source = await readFile(path.join(ROOT, "server.py"), "utf8");
     const serverFile = path.join(fixture, "server.py");
     await writeFile(serverFile, withTestPort(source));
+    copyBridgeFiles(fixture);
     await writeFile(path.join(fixture, "seed.json"), JSON.stringify({
       title: "truncated boundary fixture",
       items: [{
