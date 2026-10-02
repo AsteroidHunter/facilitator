@@ -122,9 +122,15 @@ function events(place) {
   return out;
 }
 
-// something that is not this board, holding a port: a plain listener
+// something that is not this board, holding a port: a plain listener. What a
+// caller sends is read and dropped, or the caller's own close is never seen
+// and the listener could never be closed
 async function foreign(port) {
-  const server = net.createServer(socket => socket.end("not a board\n"));
+  const server = net.createServer(socket => {
+    socket.on("error", () => {});
+    socket.resume();
+    socket.end("not a board\n");
+  });
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, "127.0.0.1", resolve);
