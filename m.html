@@ -5019,9 +5019,10 @@ function reconcile(){
       window.scrollTo(0, 0);
       top = appliedTop; height = appliedVvHeight;
     }
-  } else if (obstructed && !wasUp && y !== 0){
-    // an open on a scrolled window: the height is the real change, the top
-    // describes a scroll about to be taken back, so it stands where it is
+  } else if (obstructed && (!wasUp || heightChanged) && y !== 0){
+    // an open, or a new height under a keyboard already up, on a scrolled
+    // window: the height is the real change, the top describes a scroll about
+    // to be taken back, so it stands where it is
     top = appliedTop === null ? 0 : appliedTop;
   }
   applyShell(obstructed, top, height, w.baseline);
