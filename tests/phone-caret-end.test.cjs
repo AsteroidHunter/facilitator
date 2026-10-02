@@ -97,7 +97,7 @@ async function chord(page, key) {
   await page.keyboard.up("Shift");
   await page.keyboard.up("Control");
 }
-// Tab as a browser with full keyboard access takes it: the paper clip is a stop before the box
+// Tab until the box has the focus: from the name it is the first press, from the stops before it a few more
 async function tabIntoBox(page, id) {
   for (let i = 0; i < 4; i++) {
     await page.keyboard.press("Tab");
@@ -393,6 +393,49 @@ for (const editor of [false, true]) {
       const moves = (await page.evaluate(() => window.__moves)).filter(m => m.back).map(m => [m.from, m.to]);
       assert.deepEqual(moves.slice(0, 2), [[WORDS.length - 1, WORDS.length - 1], [WORDS.length, WORDS.length]],
         "the caret was not moved off its place and back once the colour returned");
+      assert.deepEqual(problems, []);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test(`${face}: a Tab out of the name focuses the box without scrolling, once, with the caret after the last word`, async () => {
+    const { page, problems, first } = await prepareTab(editor, WORDS);
+    try {
+      await page.evaluate(i => {
+        window.__focusCalls = [];
+        const focus = HTMLElement.prototype.focus;
+        HTMLElement.prototype.focus = function (options) {
+          const box = this.closest("article.box");
+          window.__focusCalls.push({ box: box && box.id, preventScroll: !!(options && options.preventScroll) });
+          return focus.apply(this, arguments);
+        };
+      }, first);
+      await keyboard(page, PHONE.height - KEYBOARD);
+      await page.keyboard.press("Tab");
+      await settle(900);
+      const calls = (await page.evaluate(() => window.__focusCalls)).filter(c => c.box === "box-" + first);
+      assert.deepEqual(calls, [{ box: "box-" + first, preventScroll: true }], "the box was not focused once, without scrolling");
+      const landed = await where(page, first);
+      assert.equal(landed.inBox, true, "the Tab did not reach the box");
+      assert.deepEqual([landed.start, landed.end, landed.length], [WORDS.length, WORDS.length, WORDS.length]);
+      assert.deepEqual(problems, []);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test(`${face}: a Tab the browser makes itself, from the paper clip, puts the caret after the last word`, async () => {
+    const { page, problems, first } = await prepareTab(editor, WORDS);
+    try {
+      await page.evaluate(i => els[i].bottombar.querySelector(".clipbtn").focus(), first);
+      assert.equal(await page.evaluate(() => document.activeElement.className), "clipbtn", "the paper clip did not take the focus");
+      await keyboard(page, PHONE.height - KEYBOARD);
+      await page.keyboard.press("Tab");
+      await settle(900);
+      const landed = await where(page, first);
+      assert.equal(landed.inBox, true, "the Tab did not reach the box");
+      assert.deepEqual([landed.start, landed.end, landed.length], [WORDS.length, WORDS.length, WORDS.length]);
       assert.deepEqual(problems, []);
     } finally {
       await page.close();
