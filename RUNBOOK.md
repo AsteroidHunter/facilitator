@@ -6,10 +6,10 @@ The tool: `server.py` (Python) serves `index.html` (vanilla JS) at http://127.0.
 
 ## The loop
 
-From the agent conversation that owns your lane, repeat the current two-call production protocol. The installed `facilitator` skill resolves the lane and its `scripts/onboard.py wait` helper makes both calls for each claim:
+From the agent conversation that owns your lane, repeat the current two-call production protocol. The installed `facilitator` skill resolves the lane and its `scripts/onboard.py wait` helper makes both calls for each claim. In every command here, `$PORT` is the board's port: the `port` that `scripts/onboard.py inspect` reports, which is the `port` in `run.config.json` (8877 unless `facilitator run` has moved the board to another pair). Read it fresh rather than remembering it, since a board that moved stays on its new port, and set it once in your shell (`PORT=8877`, say) or write the number in:
 
-    curl --max-time 60 -sS "http://127.0.0.1:8877/wait?owner=facilitator&timeout=50&agent=claude"
-    curl -sS -X POST "http://127.0.0.1:8877/ack?owner=facilitator&token=<the ack field>"
+    curl --max-time 60 -sS "http://127.0.0.1:$PORT/wait?owner=facilitator&timeout=50&agent=claude"
+    curl -sS -X POST "http://127.0.0.1:$PORT/ack?owner=facilitator&token=<the ack field>"
 
 `agent=` states your name; the board's card rows show each lane's live agent name, or offline, from exactly this. It returns `{"box": id, "title": ..., "messages": [...], "queued_after": n, "ack": token}` on a claim, `{"idle": true}` on timeout, `{"paused": true}` while paused, `{"end": true}` once ended and drained.
 
@@ -19,7 +19,7 @@ WARNING: a loop without the confirm line claims cards it cannot keep. Every clai
 
 After reading the separate `/fresh` result as described below, answer with a complete reply:
 
-    curl -sS -X POST --data-binary @reply.txt "http://127.0.0.1:8877/reply?box=ID"
+    curl -sS -X POST --data-binary @reply.txt "http://127.0.0.1:$PORT/reply?box=ID"
 
 `ctx=` is optional compatibility data. A supplied context is stored and must be at most 50 words. The server accepts a reply without one.
 
@@ -28,9 +28,9 @@ After reading the separate `/fresh` result as described below, answer with a com
 - Three nets sit under a claim, in order: a hand-off written into a dead socket rolls back at once, an unconfirmed claim returns after 90 seconds, and a claim older than 15 minutes is stolen back. Do not lean on any of them; confirm what you claim and answer what you confirm.
 - Before going idle, check whether anything is waiting on your lane: `GET /unread?owner=YOURLANE` answers `{"queued": N, "claimed": M}`, messages still waiting plus messages in the claim you hold. It reads only, so it is safe from a hook. Paste this as a Stop hook command and go back to the loop instead of idling whenever `queued` is above zero:
 
-      curl -s "http://127.0.0.1:8877/unread?owner=facilitator"
+      curl -s "http://127.0.0.1:$PORT/unread?owner=facilitator"
 
-- `{"paused": true}` means the owner hit the pause button (laptop-close mode). Stop polling `/wait`; idle locally and re-check about once a minute (`curl -s http://127.0.0.1:8877/state`, read `paused`) until it goes false, then resume the loop. Messages still queue while paused; finish any open claim before going quiet.
+- `{"paused": true}` means the owner hit the pause button (laptop-close mode). Stop polling `/wait`; idle locally and re-check about once a minute (`curl -s http://127.0.0.1:$PORT/state`, read `paused`) until it goes false, then resume the loop. Messages still queue while paused; finish any open claim before going quiet.
 
 ## Replies
 
@@ -124,20 +124,20 @@ Any work belonging to a card carries that card's green flag for exactly as long 
 
 Green is verified, not trusted: registration starts a heartbeat clock, and without `POST /ping?box=ID` at least every 75 seconds the green expires on its own, so a dead job can never leave a card stuck green. Keep a pinger beside any long job:
 
-    ( while curl -s -o /dev/null -X POST "http://127.0.0.1:8877/ping?box=ID"; do sleep 30; done ) &
+    ( while curl -s -o /dev/null -X POST "http://127.0.0.1:$PORT/ping?box=ID"; do sleep 30; done ) &
 
 and kill it when the work ends. The server also watches the other direction: an agent alive but absent from the listening call for over a minute, holding no claim and no live job, makes the bar read "working, card not marked". Do not let that be true of you.
 
 ## Headless testing
 
-`probe3.js` (repo root; needs `npm install puppeteer-core` and Chrome) is the page health probe: read-only apart from creating and then deleting its own probe box. Never point a message-sending script at a live board.
+`probe3.js` (repo root; needs `npm install puppeteer-core` and Chrome) is the page health probe: read-only apart from creating and then deleting its own probe box. It opens the board on the port `run.config.json` names. Never point a message-sending script at a live board.
 
 ## Owner routing
 
 Two agents share one board. Every box carries an owner tag: `facilitator` (discussion about this tool, served by this repo's agent) or a project lane such as `example` (the project under discussion, served by its own agent). `/wait?owner=...` claims only that owner's boxes, and each owner has its own busy slot and listener-presence tracking, so the two agents never block or steal from each other. An ownerless `/wait` defaults to facilitator. Two meta sections sit on top, tool-meta first, each with its own plus button; user-created boxes inherit the section's owner; the writing indicator and the offline banner name the agent. Every meta box carries the owner's remove cross, any standing card the seed placed included (box `0` for the tool lane, for instance); a lane with its standing box removed just works from its remaining boxes, and notes that would have gone there go to an open box or the project docs. The two loops, side by side:
 
-    curl --max-time 60 -sS "http://127.0.0.1:8877/wait?owner=facilitator&timeout=50&agent=claude"
-    curl --max-time 60 -sS "http://127.0.0.1:8877/wait?owner=example&timeout=50&agent=claude"
+    curl --max-time 60 -sS "http://127.0.0.1:$PORT/wait?owner=facilitator&timeout=50&agent=claude"
+    curl --max-time 60 -sS "http://127.0.0.1:$PORT/wait?owner=example&timeout=50&agent=claude"
 
 Each lane confirms its own claims against its own owner: `POST /ack?owner=facilitator&token=...` and `POST /ack?owner=example&token=...`. A token belongs to one lane's claim and is refused (409) anywhere else.
 

@@ -1,5 +1,17 @@
 // READ-ONLY page health probe + create/delete round-trip (no messages sent)
+const fs = require("fs");
+const path = require("path");
 const puppeteer = require("puppeteer-core");
+
+// the board's port is the one run.config.json beside this file names, which
+// `facilitator run` moves when something else holds it; 8877 when it names none
+function boardPort() {
+  try {
+    const port = Number(JSON.parse(fs.readFileSync(path.join(__dirname, "run.config.json"), "utf8")).port);
+    if (Number.isInteger(port) && port > 0 && port < 65535) return port;
+  } catch (e) {}
+  return 8877;
+}
 
 (async () => {
   const browser = await puppeteer.launch({
@@ -9,7 +21,7 @@ const puppeteer = require("puppeteer-core");
   const page = await browser.newPage();
   const errs = [];
   page.on("pageerror", e => errs.push(e.message));
-  await page.goto("http://127.0.0.1:8877", { waitUntil: "networkidle2", timeout: 15000 });
+  await page.goto(`http://127.0.0.1:${boardPort()}`, { waitUntil: "networkidle2", timeout: 15000 });
   await new Promise(r => setTimeout(r, 2600));
 
   const before = await page.evaluate(() => ({
