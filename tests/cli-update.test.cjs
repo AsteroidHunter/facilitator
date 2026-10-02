@@ -425,6 +425,7 @@ def fake_restart(args):
     calls.append(args)
     if REFUSE[0]:
         raise SystemExit(REFUSE[0])
+    print("Board restarted.")
 cli.cmd_restart = fake_restart
 
 def scenario(pulled, running, refuse=None):
@@ -457,7 +458,8 @@ print(json.dumps(results))
 
   assert.deepEqual(r.pulled_running.calls, ["env", ["restart"]]);
   assert.equal(r.pulled_running.exit, null);
-  assert.match(r.pulled_running.out, /Board restarted\./);
+  assert.equal(r.pulled_running.out.split("Board restarted.").length - 1, 1,
+    "the restart was announced more than once: " + r.pulled_running.out);
   assert.match(r.pulled_running.out, /Old version: v0\.2\.1\nNew version: v0\.2\.1\n/);
 
   assert.deepEqual(r.pulled_down.calls, ["env"]);

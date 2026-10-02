@@ -96,6 +96,7 @@ function harness({
   newListenerOurs = true,     // and whether it reads back as this folder's server
   chrome = [],                // URLs Chrome is showing, or null for unknown
   openApp = "STUB",           // STUB records the call; REAL runs the real function
+  openFails = null,           // what `open` says to stderr, when it exits non-zero
 } = {}) {
   return [
     "EVENTS = []",
@@ -188,8 +189,11 @@ function harness({
     "            PROCS[NEW_LISTENER] = ident(NEW_LISTENER, NEW_LISTENER_OURS)",
     "    def poll(self):",
     "        return CHILD_EXIT",
+    `OPEN_FAILS = ${openFails === null ? "None" : JSON.stringify(openFails)}`,
     "def fake_run(argv, **kw):",
     "    EVENTS.append(['run', list(argv)])",
+    "    if OPEN_FAILS is not None and argv[0] == 'open':",
+    "        return types.SimpleNamespace(returncode=1, stdout='', stderr=OPEN_FAILS + '\\n')",
     "    return types.SimpleNamespace(returncode=0, stdout='', stderr='')",
     "cli.subprocess = types.SimpleNamespace(Popen=FakeChild, run=fake_run,",
     "                                       DEVNULL=subprocess.DEVNULL, STDOUT=subprocess.STDOUT,",
@@ -213,8 +217,10 @@ function harness({
     // launch of a real interpreter and has no business inside it
     "cli.probed_runtime = lambda interpreter: None",
     "",
+    "OLD_PIDS = set(LISTENERS)",
     "def fake_state(port, timeout=2):",
-    "    up = bool(STARTED) and ANSWERS",
+    // before the launch, the old server answers for as long as it is alive and listening
+    "    up = ANSWERS if STARTED else any(p in LISTENERS and p in ALIVE for p in OLD_PIDS)",
     "    EVENTS.append(['state', up])",
     "    if not up:",
     "        return None",
@@ -745,8 +751,7 @@ test("a wrong-shaped answer keeps readiness pending and never reports a restart"
       /the replacement \(pid 5150\) did not answer on \d+ with a board state within 20s/, run.stderr);
     assert.equal(kinds(run.events).includes("open_app"), false, "a window was opened for a bad answer");
     assert.equal(run.events.filter(e => e[0] === "popen").length, 1, "a second child was started");
-    assert.equal(run.said.includes(`restart: server up on ${port} (pid 5150)`), false,
-      "a restart was reported for an answer that is not a board");
+    assert.deepEqual(run.said, [], "a restart was reported for an answer that is not a board");
   }
 });
 
@@ -826,10 +831,8 @@ test("a listing that goes unreadable after the stop starts nothing", async () =>
   assert.equal(run.ok, false, "a child was started over a port nothing could read");
   assert.match(run.stderr, /restart: cannot read what is listening on \d+; nothing new was started/, run.stderr);
   assert.equal(kinds(run.events).includes("popen"), false);
-  assert.deepEqual(run.said, [
-    `restart: stopping pid 4242 on ${port}`,
-    `restart: port ${port} is free`,
-  ]);
+  assert.deepEqual(run.said, [], "a restart that failed printed progress lines");
+  assert.match(run.stderr, /The board is down now; start it with: facilitator run/, run.stderr);
 });
 
 // --- the ordinary path, and everything around it --------------------------
@@ -862,11 +865,7 @@ test("the order is stop, wait for the socket, start, confirm the child, then the
   assert.equal(launched[3], true, "the replacement's output is being caught again");
   assert.equal(launched[4], true, "the replacement's errors are being caught again");
 
-  assert.deepEqual(run.said, [
-    `restart: stopping pid 4242 on ${port}`,
-    `restart: port ${port} is free`,
-    `restart: server up on ${port} (pid 5150)`,
-  ]);
+  assert.deepEqual(run.said, ["Board restarted."]);
 });
 
 test("the only signals the CLI can send are one SIGTERM and one liveness probe", async () => {
@@ -936,8 +935,7 @@ test("a page that is already there is left alone and named for reloading", async
     const run = await restart({ chrome: ["chrome://newtab/", "https://example.com/", url] });
     assert.equal(run.ok, true, run.stderr);
     assert.equal(kinds(run.events).includes("open_app"), false, `a second window was opened over ${url}`);
-    assert.match(run.said.at(-1), /is already open and was left alone; reload that page to see the new server/);
-    assert.equal(run.said.at(-2), `restart: server up on ${port} (pid 5150)`);
+    assert.deepEqual(run.said, ["Board restarted.", "Reload the board (command + R)."]);
     assert.deepEqual(run.events.filter(e => e[0] === "run"), [], "something was said to the page itself");
   }
 });
@@ -950,16 +948,26 @@ test("no page anywhere means exactly one new app window, through the usual openi
   const opened = run.events.filter(e => e[0] === "run" && e[1][0] === "open");
   assert.equal(opened.length, 1, `the window was opened ${opened.length} times`);
   assert.deepEqual(opened[0][1], ["open", "-na", "Google Chrome", "--args", `--app=http://127.0.0.1:${port}`]);
-  assert.equal(run.said.at(-1), "window: opened");
+  assert.deepEqual(run.said, ["Board restarted."], "a window that opened was announced");
 });
 
-test("a browser that could not be asked is an unknown: no window, and the limit is said", async () => {
+test("a window that fails to open is said in one line, never reported as opened", async () => {
+  const run = await restart({
+    chrome: [], openApp: "REAL", openFails: "Unable to find application named 'Google Chrome'",
+  });
+  assert.equal(run.ok, true, run.stderr);
+  assert.deepEqual(run.said, [
+    "Board restarted.",
+    `could not open Chrome (Unable to find application named 'Google Chrome'); open http://127.0.0.1:${port} yourself`,
+  ]);
+});
+
+test("a browser that could not be asked is an unknown: no window and nothing said about it", async () => {
   const run = await restart({ chrome: null });
   assert.equal(run.ok, true, run.stderr);
   assert.equal(kinds(run.events).includes("open_app"), false,
     "a browser that could not be read was treated as a browser with nothing open");
-  assert.match(run.said.at(-1), /could not read Chrome's pages, so no window was opened in case one is already there/);
-  assert.match(run.said.at(-1), new RegExp(`open or reload http://127\\.0\\.0\\.1:${port} yourself`));
+  assert.deepEqual(run.said, ["Board restarted."]);
 });
 
 test("the matching rule: loopback spellings and cards yes, other ports and sites no", async () => {
@@ -1014,11 +1022,38 @@ test("with nothing listening, restart simply starts the server and signals no on
   assert.equal(run.ok, true, run.stderr);
   assert.equal(signalsIn(run.events).length, 0, "something was signalled");
   assert.equal(run.events.filter(e => e[0] === "popen").length, 1);
-  assert.deepEqual(run.said, [
-    `restart: nothing was listening on ${port}`,
-    `restart: server up on ${port} (pid 5150)`,
-  ]);
+  assert.deepEqual(run.said, ["Board started."]);
   assert.deepEqual(run.events.filter(e => e[0] === "open_app"), [["open_app", false]]);
+});
+
+test("a start that fails when nothing was listening does not claim the board went down", async () => {
+  const run = await restart({ listeners: [], childExit: 1, answers: false, newListener: null });
+  assert.equal(run.ok, false);
+  assert.match(run.stderr, /restart: the replacement did not start/, run.stderr);
+  assert.doesNotMatch(run.stderr, /board is down/i, "a board that was never up was said to have gone down");
+});
+
+test("a restart that stopped the old server and could not start the new one says the board is down", async () => {
+  const cases = {
+    "the replacement dies at once": { childExit: 1, answers: false, newListener: null },
+    "the replacement never answers": { answers: false, newListener: null },
+    "the port stays held after the stop": { portStaysHeld: true },
+  };
+  for (const [name, options] of Object.entries(cases)) {
+    const run = await restart(options);
+    assert.equal(run.ok, false, name);
+    assert.doesNotMatch(run.stderr, /Traceback/, run.stderr);
+    assert.match(run.stderr, /^restart: .*\. The board is down now; start it with: facilitator run\n?$/m,
+      `${name}: ${run.stderr}`);
+    assert.deepEqual(run.said, [], `${name}: progress lines were printed`);
+  }
+});
+
+test("a restart that left the old server running does not say the board is down", async () => {
+  const run = await restart({ ignoresTerm: true });
+  assert.equal(run.ok, false);
+  assert.match(run.stderr, /had not let go 10s after SIGTERM/, run.stderr);
+  assert.doesNotMatch(run.stderr, /board is down/i, "a board that is still serving was said to be down");
 });
 
 test("--dry-run signals nothing, starts nothing and opens nothing", async () => {
@@ -1055,8 +1090,11 @@ test("run is untouched: still server, window, and no tmux without being asked", 
   assert.deepEqual(events.filter(e => e[0] === "open_app"), [["open_app", false]],
     "run no longer opens its window, or opens it twice");
   assert.equal(events.filter(e => e[0] === "popen").length, 1, "run no longer starts the server");
-  assert.equal(said[0], `server: started on ${port}`);
-  assert.match(said[1], /^listener facilitator: not attached\./);
+  assert.deepEqual(said, [
+    `Board up on http://127.0.0.1:${port}`,
+    "Facilitator is live!",
+    "lane facilitator: no listener (run with --attach to wake its tmux session)",
+  ]);
   assert.equal(events.filter(e => e[0] === "kill").length, 0, "run signalled something");
   // run confirms a start the way it always did, by asking /state; neither the
   // listener checks nor the stricter readiness belong to it
@@ -1207,9 +1245,8 @@ test("a real restart: the old server goes, the port frees, the new one answers w
       assert.deepEqual(seen.opened, [false], "the window was not opened exactly once for an empty browser");
 
       const said = restarted.stdout.trim().split("\n");
-      assert.equal(said[0], `restart: stopping pid ${first.pid} on ${livePort}`);
-      assert.equal(said[1], `restart: port ${livePort} is free`);
-      assert.equal(said[2], `restart: server up on ${livePort} (pid ${seen.after})`);
+      assert.equal(said[0], "Board restarted.");
+      assert.equal(said.length, 2, "the restart said more than the one line: " + restarted.stdout);
 
       let oldStillThere = true;
       try { process.kill(first.pid, 0); } catch { oldStillThere = false; }
