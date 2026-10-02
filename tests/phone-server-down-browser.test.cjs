@@ -169,8 +169,10 @@ after(async () => {
 
 test("no reconnecting bar is in the page source", async () => {
   const source = await readFile(path.join(ROOT, "m.html"), "utf8");
-  for (const gone of ['id="offline"', "#offline", "body.offline", "Reconnecting to the board", "The facilitator server is not answering", "delivered when it is back", "Last update"]) {
-    assert.equal(source.includes(gone), false, `${gone} is still in the page source`);
+  // the bar's own "Last update <time>." line; the limits box's "Last updated" is a different line
+  for (const gone of ['id="offline"', "#offline", "body.offline", "Reconnecting to the board", "The facilitator server is not answering", "delivered when it is back", /Last update(?!d)/]) {
+    const found = typeof gone === "string" ? source.includes(gone) : gone.test(source);
+    assert.equal(found, false, `${gone} is still in the page source`);
   }
 });
 
