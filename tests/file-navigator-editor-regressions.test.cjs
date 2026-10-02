@@ -80,9 +80,15 @@ after(async () => {
 
 async function mountedEditor(source, height = 520) {
   const page = await browser.newPage();
-  await page.setViewport({ width: 900, height: 760, deviceScaleFactor: 2 });
+  // the board shrinks its stage to fit a window smaller than 1440 by 900, and
+  // these checks read the marker's own pixels against the screen's, so the
+  // window is big enough for the stage to stand at full size
+  await page.setViewport({ width: 1600, height: 1000, deviceScaleFactor: 2 });
   await page.goto(`${origin}/index.html`, { waitUntil: "domcontentloaded" });
   await page.evaluate(async (text, panelHeight) => {
+    // the stage stays hidden, and so cannot take focus, until a board's layout
+    // has been laid out. this page has no board, so it is shown the way that does
+    document.body.classList.add("layout-ready");
     fileNavMounts(["website", "pastureland"]);
     activeOwner = "pastureland";
     fileNavBoxes();
@@ -99,6 +105,10 @@ async function mountedEditor(source, height = 520) {
     fileNavMount(host, text, false);
     host.classList.add("editing");
     await document.fonts.ready;
+    // the stage comes in on a short fade, and a box in it takes no focus before it is in
+    const stage = document.getElementById("stage");
+    while (getComputedStyle(stage).visibility !== "visible")
+      await new Promise(resolve => requestAnimationFrame(resolve));
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   }, source, height);
   return page;
