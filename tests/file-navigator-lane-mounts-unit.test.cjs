@@ -140,7 +140,7 @@ test("the reader box is the only default-hidden region a configured lane reveals
   // the third lane's box shows, but the other default-hidden boxes stay hidden:
   // the change is scoped to the reader, not a wholesale reveal of the layout
   assert.equal(m.regionHidden(C, READER_BOX), false);
-  for (const id of ["magic3", "magic2", "rail", "goalbox"]) {
+  for (const id of ["magic3", "magic1", "magic2", "rail", "goalbox"]) {
     if (id === READER_BOX) continue;
     assert.equal(m.regionHidden(C, id), true, id + " should stay hidden for a configured lane");
   }
@@ -149,12 +149,12 @@ test("the reader box is the only default-hidden region a configured lane reveals
 test("a lane with no configured reader keeps the plain default layout", () => {
   const m = build();
   m.fileNavMounts([A, B, C]);   // NONE is not among them
-  for (const id of ["magic3", "magic4", "magic2", "rail", "goalbox"]) {
+  for (const id of ["magic3", "magic4", "magic1", "magic2", "rail", "goalbox"]) {
     assert.equal(m.regionHidden(NONE, id), true,
       NONE + " has no reader, so " + id + " must stay hidden by default");
   }
   // and its always-on elements are still on
-  for (const id of ["main", "clockbox", "tickets", "magic1"]) {
+  for (const id of ["main", "clockbox", "tickets"]) {
     assert.equal(m.regionHidden(NONE, id), false, id + " is a default element and must show");
   }
 });
