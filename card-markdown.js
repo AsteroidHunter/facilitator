@@ -464,7 +464,7 @@
   function renderList(lines, start, depth) {
     const first = listStart(lines[start]);
     const tag = first.ordered ? "ol" : "ul";
-    const attrs = first.ordered && first.start !== 1 ? ' start="' + first.start + '"' : "";
+    let attrs = first.ordered && first.start !== 1 ? ' start="' + first.start + '"' : "";
     const items = [];
     let at = start;
     while (at < lines.length) {
@@ -494,6 +494,10 @@
       }
       while (item.length && !item[item.length - 1].trim()) item.pop();
       items.push("<li>" + compactListItem(renderBlocks(item, depth + 1)) + "</li>");
+    }
+    if (first.ordered) {
+      const digits = String(Math.max(first.start, first.start + items.length - 1)).length;
+      if (digits > 1) attrs += ' class="md-ol' + Math.min(digits, 4) + '"';
     }
     return { html: "<" + tag + attrs + ">" + items.join("") + "</" + tag + ">", at };
   }
