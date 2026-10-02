@@ -3,9 +3,9 @@
 
   facilitator run [--attach] [--spawn] [--force] [--dry-run]
       start the server and the app window. That is all it touches by default:
-      uncovered lanes are only REPORTED, with the attach instruction printed
-      for pasting. --attach types that instruction into the lane's existing
-      tmux claude (send-keys); --spawn additionally creates a fresh session
+      it says the board is up, and uncovered lanes are only REPORTED, one
+      line each. --attach types the attach instruction into the lane's
+      existing tmux claude (send-keys); --spawn additionally creates a fresh session
       for lanes with no reachable one. --force ignores the lane-covered guard.
   facilitator restart [--dry-run]
       stop this board's server and start it again on the same port. One
@@ -13,8 +13,9 @@
       this folder's server.py first, by SIGTERM and never by SIGKILL, and the
       port is polled until it is really free before the replacement starts.
       The browser is read, never driven: a window or tab already showing the
-      board is left exactly as it is and named for reloading, and a new
+      board is left exactly as it is and a line asks for a reload, and a new
       chromeless app window is opened only when nothing is showing the board.
+      When the browser cannot be read nothing is opened and nothing is said.
       Touches no lane, no tmux session and no bridge. --dry-run says what it
       would do and does nothing.
   facilitator status
@@ -203,15 +204,67 @@ def bridge_log(kind, level="info", **fields):
 
 
 def load_config():
+    """The parsed run.config.json; a broken one ends the command with one plain line."""
     if not CONFIG.exists():
         sys.exit(f"no {CONFIG.name} beside the script; copy run.config.example.json and fill in real lanes")
-    cfg = json.loads(CONFIG.read_text())
+    try:
+        text = CONFIG.read_text()
+    except UnicodeDecodeError:
+        sys.exit(f"{CONFIG.name} is not UTF-8 text; it should be JSON")
+    except OSError as error:
+        sys.exit(f"{CONFIG.name} cannot be read: {error.strerror or error}")
+    if not text.strip():
+        sys.exit(f"{CONFIG.name} is empty; copy run.config.example.json and fill in real lanes")
+    try:
+        cfg = json.loads(text)
+    except ValueError as error:
+        sys.exit(f"{CONFIG.name} is not valid JSON: {error}")
+    if not isinstance(cfg, dict):
+        sys.exit(f"{CONFIG.name} must hold one JSON object, not {json_kind(cfg)}")
+    if "port" not in cfg:
+        sys.exit(f'{CONFIG.name} has no "port"')
+    port = cfg["port"]
+    if isinstance(port, bool) or not isinstance(port, (int, str)) or not str(port).isdigit():
+        sys.exit(f'{CONFIG.name}: "port" must be a whole number, not {json.dumps(port)}')
+    if "lanes" in cfg and not isinstance(cfg["lanes"], list):
+        sys.exit(f'{CONFIG.name}: "lanes" must be a list, not {json_kind(cfg["lanes"])}')
     retired = sorted({lane.get("owner") for lane in cfg.get("lanes", [])
                       if isinstance(lane, dict) and lane.get("owner") in RETIRED_OWNERS})
     if retired:
         names = ", ".join(repr(owner) for owner in retired)
         sys.exit(f"{CONFIG.name} requires owner migration: retired owner {names} is not allowed")
     return cfg
+
+
+def json_kind(value):
+    if isinstance(value, list):
+        return "a list"
+    if isinstance(value, dict):
+        return "an object"
+    if isinstance(value, str):
+        return "a string"
+    if isinstance(value, bool):
+        return "true or false"
+    if value is None:
+        return "null"
+    return "a number"
+
+
+def check_lanes(cfg):
+    """Lanes must be objects with an owner; other keys are read where used."""
+    if "lanes" not in cfg:
+        sys.exit(f'{CONFIG.name} has no "lanes"; copy run.config.example.json and fill in real lanes')
+    for index, lane in enumerate(cfg["lanes"], 1):
+        if not isinstance(lane, dict):
+            sys.exit(f"{CONFIG.name}: lane {index} must be an object, not {json_kind(lane)}")
+        if not isinstance(lane.get("owner"), str) or not lane["owner"]:
+            sys.exit(f'{CONFIG.name}: lane {index} has no "owner"')
+
+
+def lane_value(lane, key):
+    if key not in lane:
+        sys.exit(f'{CONFIG.name}: lane {lane["owner"]} has no "{key}"')
+    return lane[key]
 
 
 def state(port, timeout=2):
@@ -252,7 +305,8 @@ def ensure_server(port, dry):
     it: a child that is gone this early gets one sentence saying so and how to
     see it, which is running the server by hand where the terminal shows it."""
     if state(port):
-        print(f"server: already up on {port}")
+        if dry:
+            print(f"server: already up on {port}")
         return
     if dry:
         print(f"server: would start {HERE / 'server.py'}")
@@ -260,7 +314,6 @@ def ensure_server(port, dry):
     started = start_server()
     for _ in range(40):
         if state(port):
-            print(f"server: started on {port}")
             return
         if started.poll() is not None:
             sys.exit(f"the server did not start; run python3 {HERE / 'server.py'} "
@@ -281,8 +334,12 @@ def open_app(cfg, dry):
     if dry:
         print(f"window: would open {url} as a chromeless app window")
         return
-    subprocess.run(["open", "-na", "Google Chrome", "--args", f"--app={url}"], check=False)
-    print("window: opened")
+    opened = subprocess.run(["open", "-na", "Google Chrome", "--args", f"--app={url}"],
+                            capture_output=True, text=True, check=False)
+    if opened.returncode != 0:
+        said = (opened.stderr or "").strip().splitlines()
+        detail = f" ({said[0]})" if said else ""
+        print(f"could not open Chrome{detail}; open {url} yourself")
 
 
 def lane_covered(st, owner):
@@ -976,43 +1033,42 @@ def claude_pane(name):
 def instruct(lane, dry):
     """Type the attach instruction into the claude PANE of the lane's tmux
     session (a session's active pane may be a bare shell; the claude can live
-    in any pane). Verifies the text landed before pressing Enter. Returns True
-    if delivered. Never types into a shell."""
-    name, text = lane.get("tmux"), lane["instruction"]
+    in any pane). Verifies the text landed before pressing Enter. Never types
+    into a shell. Returns (delivered, why); why says what is missing, or None."""
+    name, text = lane.get("tmux"), lane_value(lane, "instruction")
     if not name:
-        return False
+        return False, None
     pane = claude_pane(name)
     if pane is None:
-        print(f"listener {lane['owner']}: tmux session {name} not found")
-        return False
+        return False, f"tmux session {name} not found"
     if not pane:
-        print(f"listener {lane['owner']}: no claude pane inside tmux {name}; not typing into shells")
-        return False
+        return False, f"no claude pane inside tmux {name}; not typing into shells"
     if dry:
         print(f"listener {lane['owner']}: would send the attach instruction to tmux {name} pane {pane}")
-        return True
+        return True, None
     subprocess.run(["tmux", "send-keys", "-t", pane, "-l", text], check=True)
     time.sleep(1)
     seen = subprocess.run(["tmux", "capture-pane", "-p", "-t", pane],
                           capture_output=True, text=True).stdout
     if text[:40] not in seen:
-        print(f"listener {lane['owner']}: instruction did not land in pane {pane}; Enter NOT pressed")
-        return False
+        print(f"lane {lane['owner']}: instruction did not land in pane {pane}; Enter NOT pressed")
+        return False, None
     subprocess.run(["tmux", "send-keys", "-t", pane, "Enter"], check=True)
-    print(f"listener {lane['owner']}: instructed the claude in tmux {name} (pane {pane})")
-    return True
+    print(f"lane {lane['owner']}: instructed the claude in tmux {name} (pane {pane})")
+    return True, None
 
 
 def spawn(lane, dry):
     """Create a FRESH claude session for the lane (only ever on --spawn)."""
-    owner, d, prompt = lane["owner"], str(Path(lane["dir"]).expanduser()), lane["prompt"]
+    owner = lane["owner"]
+    d, prompt = str(Path(lane_value(lane, "dir")).expanduser()), lane_value(lane, "prompt")
     if dry:
         print(f"listener {owner}: would spawn a NEW claude session in {d}")
         return
     if shutil.which("tmux"):
         name = f"facil-{owner}"
         if subprocess.run(["tmux", "has-session", "-t", name], capture_output=True).returncode == 0:
-            print(f"listener {owner}: tmux session {name} already exists; attach with: tmux attach -t {name}")
+            print(f"lane {owner}: tmux session {name} already exists; attach with: tmux attach -t {name}")
             return
         subprocess.run(["tmux", "new-session", "-d", "-s", name, "-c", d, "claude", prompt], check=True)
         term_cmd = f"tmux attach -t {name}"
@@ -1024,45 +1080,61 @@ def spawn(lane, dry):
     subprocess.run(["osascript",
                     "-e", f'tell application "Terminal" to do script "{esc}"',
                     "-e", 'tell application "Terminal" to activate'], check=False)
-    print(f"listener {owner}: spawned NEW session ({how})")
+    print(f"lane {owner}: spawned NEW session ({how})")
 
 
 def cmd_run(args):
     """Server and window only, by default. The CLI never touches tmux unless
     asked: --attach types the instruction into existing lane sessions, --spawn
-    creates fresh ones. Without either it just reports each lane's state."""
+    creates fresh ones. A real run says the board is up and adds one line per
+    lane nobody listens on; --dry-run keeps its longer account."""
     cfg = load_config()
+    check_lanes(cfg)
     dry = "--dry-run" in args
     force = "--force" in args
     do_spawn = "--spawn" in args
     do_attach = "--attach" in args or do_spawn
-    ensure_server(cfg["port"], dry)
+    port = cfg["port"]
+    ensure_server(port, dry)
+    if not dry:
+        print(f"Board up on http://127.0.0.1:{port}")
+        print("Facilitator is live!")
     open_app(cfg, dry)
-    st = state(cfg["port"])
+    st = state(port)
     for lane in cfg["lanes"]:
         ow = lane["owner"]
         if not force and lane_covered(st, ow):
-            if st["busy"].get(ow):
-                why = f"mid-claim on box {st['busy'][ow]}"
-            elif st["listening"].get(ow):
-                why = "attached right now"
-            else:
-                why = f"heard {round(st['listenerGap'].get(ow, 0) / 60)} min ago"
-            print(f"listener {ow}: lane covered ({why})")
+            if dry:
+                if st["busy"].get(ow):
+                    why = f"mid-claim on box {st['busy'][ow]}"
+                elif st["listening"].get(ow):
+                    why = "attached right now"
+                else:
+                    why = f"heard {round(st['listenerGap'].get(ow, 0) / 60)} min ago"
+                print(f"listener {ow}: lane covered ({why})")
             continue
         if not do_attach:
-            print(f"listener {ow}: not attached. Tell that agent to start listening, or\n"
-                  f"  rerun with --attach to type the instruction into its tmux session:\n"
-                  f"  {lane['instruction']}")
+            if dry:
+                print(f"listener {ow}: not attached. Tell that agent to start listening, or\n"
+                      f"  rerun with --attach to type the instruction into its tmux session:\n"
+                      f"  {lane_value(lane, 'instruction')}")
+            else:
+                print(f"lane {ow}: no listener (run with --attach to wake its tmux session)")
             continue
-        if instruct(lane, dry):
+        delivered, why = instruct(lane, dry)
+        if delivered:
             continue
+        if dry and why:
+            print(f"listener {ow}: {why}")
         if do_spawn:
             spawn(lane, dry)
-        else:
+        elif dry:
             print(f"listener {ow}: no reachable session. Paste this into the right claude yourself,\n"
                   f"  or rerun with --spawn to create a fresh session:\n"
                   f"  {lane['instruction']}")
+        else:
+            print(f"lane {ow}: {why or 'no reachable session'}; paste this into its claude, "
+                  f"or rerun with --spawn: {lane['instruction']}")
 
 
 def cmd_restart(args):
@@ -1101,38 +1173,34 @@ def cmd_restart(args):
             print(f"window: nothing is showing {url}; would open one app window")
         return
 
-    if owner is None:
-        print(f"restart: nothing was listening on {port}")
-    else:
-        print(f"restart: stopping pid {owner[0]} on {port}")
+    def stop_here(sentence):
+        # once the old server was signalled the board may be down; say how to start it
+        down = owner is not None and board_state(port) is None
+        sys.exit(f"restart: {sentence}"
+                 + (". The board is down now; start it with: facilitator run" if down else ""))
+
+    if owner is not None:
         refusal = stop_server(owner, port)
         if refusal:
-            sys.exit(f"restart: {refusal}")
-        print(f"restart: port {port} is free")
+            stop_here(refusal)
 
     # the last look before starting a second child: whatever the stop thought,
     # the port has to read as free right now, and unknown is not free
     free = port_free(port)
     if free is None:
-        sys.exit(f"restart: cannot read what is listening on {port}; "
-                 "nothing new was started")
+        stop_here(f"cannot read what is listening on {port}; nothing new was started")
     if not free:
-        sys.exit(f"restart: port {port} is still held by something; "
-                 "nothing new was started")
+        stop_here(f"port {port} is still held by something; nothing new was started")
 
-    new_owner, refusal = start_and_confirm(port)
+    _, refusal = start_and_confirm(port)
     if refusal:
-        sys.exit(f"restart: {refusal}")
-    print(f"restart: server up on {port} (pid {new_owner[0]})")
+        stop_here(refusal)
+    print("Board restarted." if owner is not None else "Board started.")
 
     showing = board_page_open(cfg)
-    if showing is None:
-        print("window: could not read Chrome's pages, so no window was opened in "
-              f"case one is already there; open or reload {url} yourself")
-    elif showing:
-        print(f"window: {url} is already open and was left alone; "
-              "reload that page to see the new server")
-    else:
+    if showing:
+        print("Reload the board (command + R).")
+    elif showing is False:
         open_app(cfg, False)
 
 
@@ -1157,7 +1225,7 @@ def board_port():
         return 8877
     try:
         return int(json.loads(CONFIG.read_text()).get("port") or 8877)
-    except (ValueError, TypeError, OSError):
+    except (ValueError, TypeError, AttributeError, OSError):
         return 8877
 
 
@@ -2183,7 +2251,6 @@ def restart_board(pulled):
                       "Restart it yourself with: facilitator restart", blank=True),
               file=sys.stderr)
         return False
-    ok("Board restarted.")
     return True
 
 
