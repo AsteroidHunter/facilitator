@@ -132,6 +132,27 @@ test("the row's shape: two circles at the ends, the long capsule, the short plus
   } finally { await page.close(); }
 });
 
+test("the glass's top rim is one line on every button and on the list: the grey ring, with no white or dark line along it", async () => {
+  const { page, problems } = await openPhone();
+  try {
+    await page.tap("#projbtn");
+    await settle(400);
+    const shadows = await page.evaluate(() => ["tikbtn", "projbtn", "tikadd", "setbtn", "projmenu"].map(id =>
+      [id, getComputedStyle(document.getElementById(id)).boxShadow]));
+    for (const [id, shadow] of shadows){
+      // the ring, one pixel all round, is drawn
+      assert.match(shadow, /rgb\(199, 199, 204\) 0px 0px 0px 1px inset/, `${id} has lost the grey ring`);
+      // and nothing lies along the top of it: no inset line offset down by one
+      // or two pixels, which is what drew the white line and the dark one
+      assert.doesNotMatch(shadow, /\) 0px [12]px 0px 0px inset/, `${id} draws a line along its top rim: ${shadow}`);
+      // the bottom rim, the inner glow and the outer shadow are the glass's own
+      assert.match(shadow, /0px -1px 0px 0px inset/, `${id} has lost the bottom rim`);
+      assert.match(shadow, /0px 8px 20px 0px/, `${id} has lost the glass's outer shadow`);
+    }
+    assert.deepEqual(problems, []);
+  } finally { await page.close(); }
+});
+
 test("the ticket opens the card list, the gear the settings, and the plus makes a card to name", async () => {
   const { page, problems } = await openPhone();
   try {
