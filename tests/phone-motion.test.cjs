@@ -831,58 +831,64 @@ test("the overlaid card list still scrolls vertically and every uncovered pixel,
   }
 });
 
-test("the tab bar stays where he scrolled it, across a poll and a tap", async () => {
-  // enough lanes to fill the bar past the width of the screen. the folder each
-  // lane is given is only a name to the page, and nothing is written in it
+test("the project list stays where he scrolled it, across a poll and a rebuild, and a row in view switches lane", async () => {
+  // enough lanes to run the list past the room over the row of buttons. the
+  // folder each lane is given is only a name to the page, and nothing is
+  // written in it
   const home = require("node:os").homedir();
-  for (const name of ["Lane two", "Lane three", "Lane four", "Lane five", "Lane six"]) {
-    const made = await fetch(`${origin}/project?name=${encodeURIComponent(name)}`, { method: "POST", body: home });
+  for (let n = 2; n <= 17; n++) {
+    const made = await fetch(`${origin}/project?name=${encodeURIComponent("Lane " + n)}`, { method: "POST", body: home });
     assert.equal(made.status, 200, "the fixture could not add a lane");
   }
   const { page, problems } = await openPhone("/m");
   try {
-    await page.waitForFunction(() => document.querySelectorAll("#tabbar .ptab").length >= 7, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelectorAll("#projlist .projrow").length >= 18, { timeout: 5000 });
+    await page.evaluate(() => openProjects());
+    await settle(300);
     const room = await page.evaluate(() => {
-      const lane = document.querySelector(".bar");
-      return lane.scrollWidth - lane.clientWidth;
+      const list = document.getElementById("projmenu");
+      return list.scrollHeight - list.clientHeight;
     });
-    assert.ok(room > 60, `the bar under test does not overflow (${room})`);
+    assert.ok(room > 60, `the list under test does not overflow (${room})`);
+    const place = Math.floor(room / 2);
 
-    await page.evaluate(() => { document.querySelector(".bar").scrollLeft = 120; });
+    await page.evaluate(at => { document.getElementById("projmenu").scrollTop = at; }, place);
     await page.evaluate(() => poll());
     await settle(1600);   // a hand-run poll and the clock's own one behind it
     const afterPoll = await page.evaluate(() => ({
-      at: document.querySelector(".bar").scrollLeft,
+      at: document.getElementById("projmenu").scrollTop,
+      open: document.body.classList.contains("projopen"),
       polls: !!lastState,
     }));
     assert.equal(afterPoll.polls, true);
-    assert.equal(afterPoll.at, 120, "a poll yanked the bar back to the start");
-    await shot(page, "tabbar-scrolled");
+    assert.equal(afterPoll.open, true, "a poll shut the list");
+    assert.equal(afterPoll.at, place, "a poll yanked the list back to its head");
+    await shot(page, "projlist-scrolled");
 
-    // a tap on a tab standing in view leaves the bar exactly where it is
+    // the list keeps its place when the lanes themselves are drawn again
+    await page.evaluate(() => { document.getElementById("projlist").dataset.sig = ""; renderTabs(lastState); });
+    assert.equal(await page.evaluate(() => document.getElementById("projmenu").scrollTop), place,
+      "a rebuild of the list lost the place he scrolled to");
+
+    // a tap on a row standing in view switches lane and shuts the list
     const tapped = await page.evaluate(() => {
-      const lane = document.querySelector(".bar").getBoundingClientRect();
-      const tab = [...document.querySelectorAll("#tabbar .ptab")].find(t => {
+      const list = document.getElementById("projmenu").getBoundingClientRect();
+      const row = [...document.querySelectorAll("#projlist .projrow")].find(t => {
         const r = t.getBoundingClientRect();
-        return r.left >= lane.left + 2 && r.right <= lane.right - 2 && !t.classList.contains("on");
+        return r.top >= list.top + 2 && r.bottom <= list.bottom - 2 && !t.classList.contains("on");
       });
-      tab.click();
-      return tab.dataset.owner;
+      row.click();
+      return row.dataset.owner;
     });
     await settle(300);
     const afterTap = await page.evaluate(() => ({
-      at: document.querySelector(".bar").scrollLeft,
       owner: activeOwner,
-      on: document.querySelector("#tabbar .ptab.on").dataset.owner,
+      on: document.querySelector("#projlist .projrow.on").dataset.owner,
+      open: document.body.classList.contains("projopen"),
     }));
     assert.equal(afterTap.owner, tapped, "the tap did not change lane");
     assert.equal(afterTap.on, tapped);
-    assert.equal(afterTap.at, 120, "a tap yanked the bar back to the start");
-
-    // and the bar keeps its place when the lanes themselves are drawn again
-    await page.evaluate(() => { document.getElementById("tabbar").dataset.sig = ""; renderTabs(lastState); });
-    assert.equal(await page.evaluate(() => document.querySelector(".bar").scrollLeft), 120,
-      "a rebuild of the tabs lost the place he scrolled to");
+    assert.equal(afterTap.open, false, "the list stayed open after the choice");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();

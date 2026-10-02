@@ -108,22 +108,25 @@ async function openPage(route, viewport, storage) {
   return { page, problems, context };
 }
 
-// the phone's own reorder: a press held on the tab, then the finger slides it
-// past the tab beside it, then the finger lifts
+// the phone's own reorder: the project list opened from the capsule in the row
+// of buttons, a press held on a project's row, then the finger carries it past
+// the row beside it, then the finger lifts
 async function carryTab(page, owner, pastOwner) {
-  const spots = await page.$$eval("#tabbar .ptab", tabs => tabs.map(t => {
+  await page.tap("#projbtn");
+  await settle(400);
+  const spots = await page.$$eval("#projlist .projrow", rows => rows.map(t => {
     const r = t.getBoundingClientRect();
     return { owner: t.dataset.owner, x: r.x, y: r.y, w: r.width, h: r.height };
   }));
   const held = spots.find(s => s.owner === owner);
   const past = spots.find(s => s.owner === pastOwner);
-  const from = held.x + held.w / 2;
-  const to = past.x < held.x ? past.x + 2 : past.x + past.w - 2;
-  const y = held.y + held.h / 2;
-  await page.touchscreen.touchStart(from, y);
-  await settle(700);   // the press is held: the tab lifts
+  const from = held.y + held.h / 2;
+  const to = past.y < held.y ? past.y + 2 : past.y + past.h - 2;
+  const x = held.x + held.w / 2;
+  await page.touchscreen.touchStart(x, from);
+  await settle(700);   // the press is held: the row lifts
   for (let step = 1; step <= 10; step++) {
-    await page.touchscreen.touchMove(from + (to - from) * step / 10, y);
+    await page.touchscreen.touchMove(x, from + (to - from) * step / 10);
     await settle(30);
   }
   await page.touchscreen.touchEnd();
@@ -131,6 +134,7 @@ async function carryTab(page, owner, pastOwner) {
 }
 
 const barOrder = page => page.$$eval("#tabbar .ptab:not(.draft)", tabs => tabs.map(t => t.dataset.owner));
+const listOrder = page => page.$$eval("#projlist .projrow", rows => rows.map(t => t.dataset.owner));
 const barShown = page => page.$$eval("#tabbar .ptab:not(.draft)",
   tabs => tabs.filter(t => t.getBoundingClientRect().width > 0).map(t => t.dataset.owner));
 
@@ -363,21 +367,21 @@ test("the browser's own arrangement and read marks carry over once, then never a
   }
 });
 
-test("the phone draws the board's tabs, in the board's order", async () => {
+test("the phone's project list draws the board's tabs, in the board's order", async () => {
   await setTabs(["pastureland", "facilitator"], []);
   const { page, problems, context } = await openPhone();
   try {
-    assert.deepEqual(await barOrder(page), ["pastureland", "facilitator"]);
-    // and a tab the board closes leaves the phone's bar on the next poll
+    assert.deepEqual(await listOrder(page), ["pastureland", "facilitator"]);
+    // and a tab the board closes leaves the phone's list on the next poll
     await setTabs(["pastureland", "facilitator"], ["pastureland"]);
-    await until(async () => (await barOrder(page)).join(",") === "facilitator");
+    await until(async () => (await listOrder(page)).join(",") === "facilitator");
     assert.deepEqual(problems, []);
   } finally {
     await context.close();
   }
 });
 
-test("a tab carried along the phone's bar reaches the desktop board", async () => {
+test("a project carried along the phone's list reaches the desktop board", async () => {
   await setTabs(["facilitator", "pastureland"], []);
   const board = await openBoard();
   const phone = await openPhone();
@@ -385,7 +389,7 @@ test("a tab carried along the phone's bar reaches the desktop board", async () =
     assert.deepEqual(await barOrder(board.page), ["facilitator", "pastureland"]);
     await carryTab(phone.page, "facilitator", "pastureland");
     assert.deepEqual((await tabs()).order, ["pastureland", "facilitator"]);
-    assert.deepEqual(await barOrder(phone.page), ["pastureland", "facilitator"]);
+    assert.deepEqual(await listOrder(phone.page), ["pastureland", "facilitator"]);
     await until(async () => (await barOrder(board.page)).join(",") === "pastureland,facilitator");
     assert.deepEqual(phone.problems, []);
     assert.deepEqual(board.problems, []);
@@ -395,21 +399,23 @@ test("a tab carried along the phone's bar reaches the desktop board", async () =
   }
 });
 
-test("the phone's bar looks like nothing until a press is held on it", async () => {
+test("the phone's project list looks like nothing until a press is held on it", async () => {
   await setTabs(["facilitator", "pastureland"], []);
   const { page, problems, context } = await openPhone();
   try {
-    const dressed = () => page.$$eval("#tabbar .ptab", tabs =>
-      tabs.map(t => t.getAttribute("style") || "").filter(Boolean));
-    assert.deepEqual(await dressed(), [], "a tab wore something at rest");
-    // a plain tap is still a tap: it switches tabs and moves nothing
-    const spot = await page.$eval('#tabbar .ptab[data-owner="pastureland"]',
+    const dressed = () => page.$$eval("#projlist .projrow", rows =>
+      rows.map(t => (t.getAttribute("style") || "") + (t.classList.contains("lifted") ? " lifted" : "")).filter(Boolean));
+    await page.tap("#projbtn");
+    await settle(400);
+    assert.deepEqual(await dressed(), [], "a row wore something at rest");
+    // a plain tap is still a tap: it switches project and moves nothing
+    const spot = await page.$eval('#projlist .projrow[data-owner="pastureland"]',
       t => { const r = t.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
     await page.touchscreen.tap(spot.x, spot.y);
     await settle(400);
     assert.equal(await page.evaluate(() => activeOwner), "pastureland");
-    assert.deepEqual((await tabs()).order, ["facilitator", "pastureland"], "a tap moved the bar");
-    assert.deepEqual(await dressed(), [], "a tab was left dressed after a tap");
+    assert.deepEqual((await tabs()).order, ["facilitator", "pastureland"], "a tap moved the list");
+    assert.deepEqual(await dressed(), [], "a row was left dressed after a tap");
     assert.deepEqual(problems, []);
   } finally {
     await context.close();

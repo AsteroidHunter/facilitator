@@ -478,16 +478,16 @@ test("control shift up and down step the card's older replies and come back to l
   }
 });
 
-test("command and a number jumps to that tab, counted along the bar", async () => {
+test("command and a number jumps to that project, counted along the project list", async () => {
   const { page, problems } = await openPhone("/m");
   try {
-    await page.waitForFunction(() => document.querySelectorAll("#tabbar .ptab").length >= 2, { timeout: 5000 });
-    const bar = await page.evaluate(() => [...document.querySelectorAll("#tabbar .ptab")].map(tab => tab.dataset.owner));
-    assert.deepEqual(bar, ["facilitator", "pastureland"], "the bar is not the two lanes this fixture seeds");
+    await page.waitForFunction(() => document.querySelectorAll("#projlist .projrow").length >= 2, { timeout: 5000 });
+    const bar = await page.evaluate(() => [...document.querySelectorAll("#projlist .projrow")].map(row => row.dataset.owner));
+    assert.deepEqual(bar, ["facilitator", "pastureland"], "the list is not the two lanes this fixture seeds");
     await chord(page, "2", "Meta");
     await page.waitForFunction(() => activeOwner === "pastureland", { timeout: 3000 });
-    assert.equal(await page.evaluate(() => document.querySelector("#tabbar .ptab.on").dataset.owner), "pastureland",
-      "the bar did not seat the tab the number jumped to");
+    assert.equal(await page.evaluate(() => document.querySelector("#projlist .projrow.on").dataset.owner), "pastureland",
+      "the list did not check the project the number jumped to");
     await chord(page, "1", "Meta");
     await page.waitForFunction(() => activeOwner === "facilitator", { timeout: 3000 });
     // a number past the end of the bar is nobody's tab, and moves nothing

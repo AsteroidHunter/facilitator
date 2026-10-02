@@ -311,8 +311,12 @@ for (const surface of ["desktop", "phone"]) {
     await wait(700);
     await answerAgain(page, other, "pastureland");
     await page.evaluate(RECORD, other);
-    const tab = '#tabbar .ptab[data-owner="pastureland"]';
-    if (surface === "phone") await page.tap(tab); else await page.click(tab);
+    // the phone's projects are rows of the list its capsule opens
+    if (surface === "phone"){
+      await page.tap("#projbtn");
+      await wait(400);
+      await page.tap('#projlist .projrow[data-owner="pastureland"]');
+    } else await page.click('#tabbar .ptab[data-owner="pastureland"]');
     await wait(2000);
     assertOpensAtHead(await page.evaluate(() => window.__slide.stop()), "tab");
     await page.close();
