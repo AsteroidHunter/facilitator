@@ -116,7 +116,7 @@ test("saved cards keep lane owners that no config or project names", async () =>
     ],
     projects: [], inbox: ["m11"],
     busy: {}, claimed: {}, busy_ts: {}, ack: {}, workspaces: {}, pages: {},
-    ever_listened: {}, end: false, next_mid: 6, next_bid: 13, rev: 1,
+    ever_listened: {}, next_mid: 6, next_bid: 13, rev: 1,
   };
   const server = await startServer({ state });
   try {
@@ -155,7 +155,7 @@ test("a saved paused flag from an older board is dropped on start", async () => 
     ],
     projects: [], inbox: [],
     busy: {}, claimed: {}, busy_ts: {}, ack: {}, workspaces: {}, pages: {},
-    ever_listened: {}, end: false, paused: true, next_mid: 1, next_bid: 1, rev: 1,
+    ever_listened: {}, paused: true, next_mid: 1, next_bid: 1, rev: 1,
   };
   const server = await startServer({ state });
   try {
@@ -169,6 +169,36 @@ test("a saved paused flag from an older board is dropped on start", async () => 
     assert.equal(created.status, 200);
     const saved = JSON.parse(await readFile(path.join(server.dir, "state.json"), "utf8"));
     assert.ok(!Object.hasOwn(saved, "paused"), "state.json still carries the paused flag after a save");
+  } finally {
+    await server.stop();
+  }
+});
+
+test("a saved end flag from an older board is dropped on start", async () => {
+  const state = {
+    title: "saved board",
+    boxes: [
+      { id: "0", bucket: "meta", title: "Tool standing", owner: "facilitator",
+        pending: [], replies: 0, done: false, ball: "you", reply: "", state: "new" },
+    ],
+    projects: [], inbox: [],
+    busy: {}, claimed: {}, busy_ts: {}, ack: {}, workspaces: {}, pages: {},
+    ever_listened: {}, end: true, next_mid: 1, next_bid: 1, rev: 1,
+  };
+  const server = await startServer({ state });
+  try {
+    const st = await api(server.origin, "/state");
+    assert.equal(st.status, 200);
+    assert.ok(!Object.hasOwn(st.body, "end"), "/state still carries an end flag");
+    const wait = await api(server.origin, "/wait?owner=facilitator&timeout=1&agent=test");
+    assert.equal(wait.status, 200);
+    assert.deepEqual(wait.body, { idle: true }, "a saved end flag still changed the wait answer");
+    const ended = await api(server.origin, "/end", { method: "POST" });
+    assert.equal(ended.status, 404, "the board still answers a POST to /end");
+    const created = await api(server.origin, "/create?owner=facilitator", { method: "POST", body: "New card" });
+    assert.equal(created.status, 200);
+    const saved = JSON.parse(await readFile(path.join(server.dir, "state.json"), "utf8"));
+    assert.ok(!Object.hasOwn(saved, "end"), "state.json still carries the end flag after a save");
   } finally {
     await server.stop();
   }
