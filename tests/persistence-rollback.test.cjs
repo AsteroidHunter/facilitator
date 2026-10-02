@@ -10,7 +10,6 @@ const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { execFileSync, spawn } = require("node:child_process");
 const { once } = require("node:events");
-const { createServer } = require("node:http");
 const { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("node:fs/promises");
 const { homedir, tmpdir } = require("node:os");
 const path = require("node:path");
@@ -24,18 +23,9 @@ let logs;
 let binDir;
 let port;
 let origin;
+let bridgeOrigin;
+let bridgeCookie;
 let child;
-
-async function freePort() {
-  const probe = createServer();
-  await new Promise((resolve, reject) => {
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", resolve);
-  });
-  const chosen = probe.address().port;
-  await new Promise(resolve => probe.close(resolve));
-  return chosen;
-}
 
 function patch(source, from, to) {
   const out = source.replace(from, to);
@@ -78,7 +68,16 @@ async function api(route, options = {}) {
   return { status: response.status, body };
 }
 
+// a phone's subscription is kept with the sign-in it was made under, and a push
+// is only sent to one that still has it, so it goes in through the phone's port
 async function post(route, body) {
+  if (route.startsWith("/push/subscribe")) {
+    const response = await fetch(bridgeOrigin + route, {
+      method: "POST", body,
+      headers: { Origin: bridgeOrigin, Cookie: bridgeCookie },
+    });
+    return { status: response.status, body: await response.json() };
+  }
   return api(route, { method: "POST", body });
 }
 
@@ -121,8 +120,9 @@ before(async () => {
   binDir = path.join(outer, "bin");
   await mkdir(app);
   await mkdir(binDir);
-  port = await freePort();
+  port = await require("./fixture-auth.cjs").freePortPair();
   origin = `http://127.0.0.1:${port}`;
+  bridgeOrigin = `http://127.0.0.1:${port + 1}`;
   let source = await readFile(path.join(ROOT, "server.py"), "utf8");
   source = patch(source, "PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
   source = patch(source, "ACK_GRACE = 90.0", `ACK_GRACE = ${ACK_GRACE_S}`);
@@ -158,10 +158,21 @@ before(async () => {
     title: "rollback fixture",
     items: [
       { id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" },
-      { id: "m1", bucket: "meta", title: "Answered once", owner: "facilitator", context: "an earlier reply" },
+      // not an m-number: a lane the first case makes gets its first card from
+      // the board's own counter, and that card is m1
+      { id: "5", bucket: "meta", title: "Answered once", owner: "facilitator", context: "an earlier reply" },
     ],
   }));
+  const python = execFileSync("python3", ["-c", "import sys; print(sys.executable)"], { encoding: "utf8" }).trim();
+  execFileSync(python, ["-c", "import bridge_auth; bridge_auth.set_password('FixtureRollback7!')"], { cwd: app });
   await startServer();
+  const login = await fetch(bridgeOrigin + "/auth/login", {
+    method: "POST", headers: { Origin: bridgeOrigin, "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "FixtureRollback7!" }),
+  });
+  assert.equal(login.status, 200);
+  bridgeCookie = login.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(bridgeCookie, "fixture login did not issue a bridge session");
 });
 
 after(async () => {
@@ -219,7 +230,7 @@ test("a failed save writes no transcript row and no log line for the event: the 
   try {
     reply = await post("/reply?box=0", "a reply under a failing disk");
     note = await post("/note?box=0", "a note under a failing disk");
-    close = await post("/close?box=m1");
+    close = await post("/close?box=5");
   } finally {
     await chmod(app, 0o700);
   }
@@ -228,7 +239,7 @@ test("a failed save writes no transcript row and no log line for the event: the 
   assert.equal(close.status, 500);
   const box0 = (await state()).boxes.find(b => b.id === "0");
   assert.equal(box0.replies, 0, "the failed reply changed the card");
-  assert.equal((await state()).boxes.find(b => b.id === "m1").done, false, "the failed close marked the card done");
+  assert.equal((await state()).boxes.find(b => b.id === "5").done, false, "the failed close marked the card done");
   const rows = await transcript();
   assert.equal(rows.length, rowsBefore, "a failed save wrote transcript rows: " + JSON.stringify(rows.slice(rowsBefore).map(r => r.kind)));
   const thread = await api("/thread?box=0&n=20");
@@ -237,13 +248,13 @@ test("a failed save writes no transcript row and no log line for the event: the 
     "the log says an event happened that the board rolled back");
   // once the disk is back each lands with exactly one row and one line
   assert.equal((await post("/reply?box=0", "a reply once the disk is back")).status, 200);
-  assert.equal((await post("/close?box=m1")).status, 200);
+  assert.equal((await post("/close?box=5")).status, 200);
   const landed = await transcript();
-  assert.deepEqual(landed.slice(rowsBefore).map(r => [r.kind, r.box]), [["agent", "0"], ["done", "m1"]]);
+  assert.deepEqual(landed.slice(rowsBefore).map(r => [r.kind, r.box]), [["agent", "0"], ["done", "5"]]);
   assert.deepEqual((await api("/thread?box=0&n=20")).body.messages.filter(m => m.kind === "agent").map(m => m.text),
     ["a reply once the disk is back"]);
   assert.equal((await events()).filter(e => e.kind === "agent").length, infoBefore + 1);
-  assert.equal((await post("/done?box=m1&v=0")).status, 200);
+  assert.equal((await post("/done?box=5&v=0")).status, 200);
 });
 
 test("a push for a turn that did not commit is never sent, and one for a turn that did is", async () => {
@@ -402,14 +413,14 @@ test("a push thread that cannot start after the rename does not turn the committ
     endpoint: "https://push.example.test/postcommit", keys: { p256dh: "a", auth: "b" },
   }))).status, 200);
   const before = await state();
-  const repliesBefore = before.boxes.find(b => b.id === "m1").replies;
+  const repliesBefore = before.boxes.find(b => b.id === "5").replies;
   const rowsBefore = (await transcript()).length;
   const failuresBefore = (await events()).filter(e => e.kind === "pushfail").length;
   const sentinel = path.join(app, ".fixture-push-start-fails");
   await writeFile(sentinel, "fail");
   let reply;
   try {
-    reply = await post("/reply?box=m1", "a reply whose push thread cannot start");
+    reply = await post("/reply?box=5", "a reply whose push thread cannot start");
   } finally {
     await rm(sentinel, { force: true });
   }
@@ -417,11 +428,11 @@ test("a push thread that cannot start after the rename does not turn the committ
     "a post-rename push scheduling failure made an installed reply look refused");
   const after = await state();
   assert.equal(after.rev, before.rev + 1);
-  assert.equal(after.boxes.find(b => b.id === "m1").replies, repliesBefore + 1);
+  assert.equal(after.boxes.find(b => b.id === "5").replies, repliesBefore + 1);
   assert.deepEqual((await transcript()).slice(rowsBefore).map(row => [row.kind, row.text]),
     [["agent", "a reply whose push thread cannot start"]]);
   const failures = (await events()).filter(e => e.kind === "pushfail");
   assert.equal(failures.length, failuresBefore + 1);
-  assert.equal(failures.at(-1).box, "m1");
+  assert.equal(failures.at(-1).box, "5");
   assert.equal(failures.at(-1).reason, "RuntimeError");
 });
