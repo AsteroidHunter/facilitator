@@ -214,7 +214,7 @@
     border-radius:calc(var(--dock-h) / 2); color:var(--ink); cursor:pointer;
     display:flex; align-items:center; justify-content:center;
     -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
-    transition:transform .12s var(--gentle), background-color .12s var(--gentle), box-shadow .12s var(--gentle);
+    transition:transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle), filter .5s var(--gentle);
   }
   #dock .dockbtn svg{display:block; flex:none}
   #dock .round{width:var(--dock-h)}
@@ -225,8 +225,14 @@
   #tikadd.pending svg{animation:tikpulse 1s ease-in-out infinite}
   @keyframes tikpulse{0%,100%{opacity:.25} 50%{opacity:.85}}
   /* the glass's own press: a little larger and a whiter face, held long enough
-     that a quick tap still shows it */
-  #dock .dockbtn.pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3}
+     that a quick tap still shows it. it rises over .3s and falls back over .5s,
+     both eased, and the tint and edge are registered numbers so the face, its
+     highlights and its shadows all ease together rather than the lighting
+     jumping at the start */
+  @property --qn-tint{syntax:"<number>"; inherits:true; initial-value:.77}
+  @property --qn-edge{syntax:"<number>"; inherits:true; initial-value:2}
+  #dock .dockbtn.pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
+    transition:transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
   /* the open project's name, or Home, centred, cut short with an ellipsis, and
      beside it the mark of a list and, while another place has an unread reply,
      a dot in the ink. it takes no browser panning, so a held finger stays its */
@@ -237,9 +243,9 @@
   #projbtn .others{display:none; flex:none; width:6px; height:6px; border-radius:50%; background:var(--ink)}
   #projbtn.others .others{display:block}
   /* held, the capsule grows and brightens over the hold, then lifts while its
-     list is up */
+     list is up, and lets go over the same .5s as the others */
   #dock #projbtn.pressed{transform:scale(1.1); --qn-tint:.97; --qn-edge:3.5;
-    transition:transform .38s cubic-bezier(.2,.8,.2,1), background-color .38s ease-out, box-shadow .38s ease-out}
+    transition:transform .38s cubic-bezier(.2,.8,.2,1), --qn-tint .38s ease-out, --qn-edge .38s ease-out, filter .38s ease-out}
   #dock #projbtn.held{transform:scale(1.1); --qn-tint:1; --qn-edge:4;
     filter:drop-shadow(0 6px 14px rgba(0,0,0,.12))}
 
@@ -3132,8 +3138,9 @@ document.addEventListener("keydown", e => {
 // ---- the press on the row's glass --------------------------------------------------
 // each of the row's buttons takes .pressed while a finger or the pointer holds
 // it, for at least PRESS_MIN so a quick tap still shows it, the way the
-// drawer's names hold their dip. the capsule's press is its hold (below)
-const PRESS_MIN = 80;
+// drawer's names hold their dip. the rise takes .3s, so the hold is long enough
+// for a tap to reach most of it. the capsule's press is its hold (below)
+const PRESS_MIN = 120;
 function glassPress(btn){
   let since = 0, timer = 0;
   return {
