@@ -3,7 +3,12 @@
 
   facilitator run [--attach] [--spawn] [--force] [--dry-run]
       start the server and the app window. That is all it touches by default:
-      it says the board is up and nothing more. --attach types the attach
+      it says the board is up and nothing more. The board listens on the port
+      in run.config.json and the one above it; when something else holds that
+      pair, run moves the board to the next free pair, writes the new port
+      into run.config.json, points the phone's Tailscale link at it when that
+      link was this board's own, and says so in one line. The board stays on
+      that pair until it is taken too. --attach types the attach
       instruction into the lane's existing tmux claude (send-keys), and
       --spawn additionally creates a fresh session
       for lanes with no reachable one. --force ignores the lane-covered guard.
@@ -16,8 +21,8 @@
       board is left exactly as it is and a line asks for a reload, and a new
       chromeless app window is opened only when nothing is showing the board.
       When the browser cannot be read nothing is opened and nothing is said.
-      Touches no lane, no tmux session and no bridge. --dry-run says what it
-      would do and does nothing.
+      Touches no lane, no tmux session and no bridge, and never moves the
+      board to another port. --dry-run says what it would do and does nothing.
   facilitator status
       one-line board state
   facilitator bridge [on|off] [--dry-run]
@@ -29,13 +34,17 @@
       proxying to a password-gated listener. A saved phone session lasts until
       sign-out. Set or reset the app password with `facilitator password set`.
       Needs HTTPS certificates switched on once for the tailnet, in the
-      Tailscale admin console; says so and stops when they are off.
+      Tailscale admin console; says so and stops when they are off. When run
+      moved the board and could not move the link with it, the config keeps
+      the old port as moved_from: on points that old rule at the board's
+      pair, and off takes it away.
       --dry-run prints the commands instead of running them
   facilitator uninstall [--keep-attachments | --remove-attachments]
       remove what install made: the .venv, node_modules and the generated config
       files, owned shell command, owned agent-skill links, and any Claude Code
       status line entry an older install added. Keeps the board's data
-      (state.json, transcript.jsonl, logs, bridge credentials and vapid-key.pem).
+      (state.json, transcript.jsonl, settings.json, logs, bridge credentials
+      and vapid-key.pem).
       After its banner it asks whether to keep the card
       attachments; Enter, an unclear answer or no terminal keeps them, and the
       two flags answer without asking.
@@ -62,6 +71,7 @@ with its own interpreter otherwise.
 
 import ctypes
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -226,6 +236,8 @@ def load_config():
     port = cfg["port"]
     if isinstance(port, bool) or not isinstance(port, (int, str)) or not str(port).isdigit():
         sys.exit(f'{CONFIG.name}: "port" must be a whole number, not {json.dumps(port)}')
+    if not 1 <= int(port) <= 65534:
+        sys.exit(f'{CONFIG.name}: "port" must be from 1 to 65534, the board using it and the one above, not {port}')
     if "lanes" in cfg and not isinstance(cfg["lanes"], list):
         sys.exit(f'{CONFIG.name}: "lanes" must be a list, not {json_kind(cfg["lanes"])}')
     retired = sorted({lane.get("owner") for lane in cfg.get("lanes", [])
@@ -271,7 +283,9 @@ def state(port, timeout=2):
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/state", timeout=timeout) as f:
             return json.load(f)
-    except (OSError, ValueError):    # no answer, or an answer that is not JSON
+    # no answer, an answer that is not JSON, or something on the port that
+    # does not speak HTTP at all
+    except (OSError, ValueError, http.client.HTTPException):
         return None
 
 
@@ -311,15 +325,247 @@ def ensure_server(port, dry):
     if dry:
         print(f"server: would start {HERE / 'server.py'}")
         return
+    said_why(port, launch_server(port))
+
+
+def launch_server(port):
+    """Start the server and wait for the port to answer: "up", "ended" when the
+    child was gone before anything answered, "silent" when nothing did in time."""
     started = start_server()
     for _ in range(40):
         if state(port):
-            return
+            return "up"
         if started.poll() is not None:
-            sys.exit(f"the server did not start; run python3 {HERE / 'server.py'} "
-                     "by hand to see why")
+            return "ended"
         time.sleep(0.25)
-    sys.exit(f"server failed to come up on {port}; see the day's server file in {LOG_DIR}")
+    return "silent"
+
+
+def said_why(port, started):
+    """The one sentence for a start that did not come up, and the end of the
+    command; nothing for one that did."""
+    if started == "ended":
+        sys.exit(f"the server did not start; run python3 {HERE / 'server.py'} "
+                 "by hand to see why")
+    if started == "silent":
+        sys.exit(f"server failed to come up on {port}; see the day's server file in {LOG_DIR}")
+
+
+# --- where the board listens: its own pair until something else takes it ------
+#
+# The board listens on a pair, the port run.config.json names and the one above
+# it for the phone. While nothing else holds that pair, run starts the board
+# there as it always did. When something else holds it, run moves the board to
+# the next free pair above it, writes the new port into run.config.json and
+# says so in one line; the board then stays on that pair, even once the old one
+# is free again, until that one is taken too. This folder's own board is never
+# "something else": it is found wherever it answers, by the folder its /state
+# names, and nothing is started beside it. restart never moves the board.
+DEFAULT_PORT = 8877
+PAIR_TRIES = 100        # pairs above a taken one that are looked at for a free one
+MOVE_TRIES = 3          # starts on a new pair before run stops trying
+SERVER_LOCK = HERE / "server.lock"
+
+
+def this_board(st):
+    """Whether a board's state is this folder's: the server names its own
+    folder as pwd, so a board from another checkout names another."""
+    pwd = st.get("pwd") if isinstance(st, dict) else None
+    return isinstance(pwd, str) and os.path.realpath(pwd) == os.path.realpath(HERE)
+
+
+def other_board(st):
+    """Whether an answer is a board that names a folder other than this one.
+    A board that names none is not counted as another's: that is a server
+    older than the field, and the board this run would have started."""
+    return isinstance(st, dict) and isinstance(st.get("pwd"), str) and not this_board(st)
+
+
+def lock_port():
+    """The port this folder's running server wrote into server.lock, or None.
+    The file outlives the server it names, so it says only where to look."""
+    try:
+        port = json.loads(SERVER_LOCK.read_text()).get("port")
+    except (OSError, ValueError, AttributeError):
+        return None
+    if isinstance(port, int) and not isinstance(port, bool) and 1 <= port <= 65534:
+        return port
+    return None
+
+
+def board_elsewhere(port):
+    """The port this folder's board answers on when it is not the configured
+    one, or None. Asked only where the lock points, so a board that is simply
+    down costs one file read and no request."""
+    found = lock_port()
+    if found is None or found == port:
+        return None
+    return found if this_board(board_state(found)) else None
+
+
+def pair_taken(port):
+    """Whether something holds either port of the pair (port, port + 1): a bind
+    of exactly the server's shape fails on one of them. That is the question
+    the server itself is about to ask, so a pair this calls free is one it can
+    have. Asked only once this folder's own board has been looked for."""
+    return not (port_binds(port) and port_binds(port + 1))
+
+
+def serve_targets():
+    """Every loopback port a Tailscale Serve proxy points at, read once and
+    read only, or nothing when there is no tailscale or it will not answer.
+    A pair whose ports are among them is not picked: the server refuses to
+    start under a rule on its own port, and a rule on the phone's port would
+    hand somebody else's traffic to this board."""
+    ts = find_tailscale()
+    if ts is None:
+        return set()
+    try:
+        seen = subprocess.run([ts, "serve", "status", "--json"], capture_output=True, text=True,
+                              encoding="utf-8", timeout=TAILSCALE_STATUS_TIMEOUT)
+        config = json.loads(seen.stdout) if seen.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError, UnicodeError, ValueError):
+        config = None
+    found = set()
+
+    def walk(value):
+        if isinstance(value, dict):
+            proxy = value.get("Proxy")
+            if isinstance(proxy, str):
+                try:
+                    target = urlparse(proxy)
+                    if target.hostname in ("127.0.0.1", "localhost") and target.port:
+                        found.add(target.port)
+                except ValueError:
+                    pass
+            for inner in value.values():
+                walk(inner)
+        elif isinstance(value, list):
+            for inner in value:
+                walk(inner)
+    walk(config)
+    return found
+
+
+def pick_pair(first, serve=True):
+    """The first free pair from first upward, stepping by two so a pair is
+    always (p, p + 1), skipping any pair with a port a Serve proxy points at
+    unless serve is False; None when PAIR_TRIES pairs are all taken or the
+    ports run out."""
+    targets = serve_targets() if serve else set()
+    for step in range(PAIR_TRIES):
+        candidate = first + 2 * step
+        if candidate + 1 > 65535:
+            return None
+        if {candidate, candidate + 1} & targets:
+            continue
+        if not pair_taken(candidate):
+            return candidate
+    return None
+
+
+def config_with(text, port, moved_from):
+    """run.config.json's text with port set and moved_from set (a port) or
+    taken away (None). Only the port's own value is replaced in the text, so
+    the file keeps its spacing and its order; the result is read back and has
+    to be the old config with just those changed, or the whole config is
+    written out as JSON instead."""
+    cfg = json.loads(text)
+    want = {**cfg, "port": port}
+    if moved_from is None:
+        want.pop("moved_from", None)
+    else:
+        want["moved_from"] = moved_from
+    kept, count = re.subn(r'("port"\s*:\s*)("?\d+"?)', lambda m: m.group(1) + str(port), text, count=1)
+    try:
+        if count == 1 and json.loads(kept) == want:
+            return kept
+    except ValueError:
+        pass
+    return json.dumps(want, indent=2) + "\n"
+
+
+def write_config_port(port, moved_from=None):
+    """The board's port into run.config.json, every other key kept: a temp file
+    beside it with the file's own permissions, then one rename."""
+    text = CONFIG.read_text()
+    mode = os.stat(CONFIG).st_mode & 0o777
+    tmp = CONFIG.with_name(CONFIG.name + ".tmp")
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(config_with(text, port, moved_from))
+        os.chmod(tmp, mode)
+        os.replace(tmp, CONFIG)
+    except OSError as error:
+        tmp.unlink(missing_ok=True)
+        sys.exit(f"could not write the board's port into {CONFIG.name}: {error.strerror or error}")
+
+
+def place_board(port, dry):
+    """Where the board is, starting it when it is not up: (port, moved_from),
+    moved_from being the port of the pair the board moved off, or None.
+
+    The first look is the one run has always made, /state on the configured
+    port. A board answering there is the board unless it names another folder;
+    an answer that is not a board at all is something else. When no board of
+    this folder's answers there, it may still be up on another pair (the
+    config changed under it): then that is where the board is, the config is
+    brought to it, and nothing is started. When nothing holds the pair, the
+    board starts there. Otherwise the pair is taken and the board moves."""
+    st = board_state(port)
+    if st and not other_board(st):
+        if dry:
+            print(f"server: already up on {port}")
+        return port, None
+    found = board_elsewhere(port)
+    if found is not None:
+        if dry:
+            print(f"server: already up on {found}; would write {found} into {CONFIG.name}")
+        else:
+            write_config_port(found)
+            print(f"This board was already running on port {found}; {CONFIG.name} now says {found}.")
+        return found, None
+    if not st and not pair_taken(port):
+        if dry:
+            print(f"server: would start {HERE / 'server.py'}")
+            return port, None
+        said_why(port, launch_server(port))
+        return port, None
+    old = port
+    for _ in range(MOVE_TRIES):
+        new = pick_pair(port + 2)
+        if new is None:
+            sys.exit(f"something else is using port {old} or {old + 1}, and no free pair was found "
+                     f"in the {PAIR_TRIES} above them; nothing was started")
+        if dry:
+            print(f"server: something else is using port {old} or {old + 1}; would move the board to "
+                  f"{new} and {new + 1}, write {new} into {CONFIG.name} and start {HERE / 'server.py'}")
+            return new, None
+        write_config_port(new)
+        port = new
+        started = launch_server(port)
+        if started == "up" and this_board(state(port)):
+            return port, old
+        # a pair can be taken in the moment between the look and the bind, and
+        # then the next one is tried; a start that failed on a pair still free,
+        # or never answered at all, failed for a reason of its own
+        if started == "silent" or not pair_taken(port):
+            said_why(port, "silent" if started == "silent" else "ended")
+    sys.exit(f"the board could not keep a free pair above {old}: each one it tried was taken "
+             "before it could start; nothing else was changed")
+
+
+def moved_line(old, new, linked, cfg):
+    """The one line a move gets."""
+    line = (f"Board moved to port {new}: something else is using {old} or {old + 1}. "
+            f"It stays on {new}, and {CONFIG.name} now says so.")
+    if linked:
+        line += " The phone link points there too."
+    app_url = cfg.get("app_url") or ""
+    if f":{old}" in app_url:
+        line += f" app_url in {CONFIG.name} still names {app_url}."
+    return line
 
 
 def window_url(cfg):
@@ -1088,18 +1334,24 @@ def cmd_run(args):
     asked: --attach types the instruction into existing lane sessions, --spawn
     creates fresh ones. A real run says the board is up and nothing more, and
     those two options add one line per lane they act on; --dry-run keeps its
-    longer account."""
+    longer account. A board that had to move to a free pair gets one line more
+    saying so, and the phone's link is pointed at the new pair with it."""
     cfg = load_config()
     check_lanes(cfg)
     dry = "--dry-run" in args
     force = "--force" in args
     do_spawn = "--spawn" in args
     do_attach = "--attach" in args or do_spawn
-    port = cfg["port"]
-    ensure_server(port, dry)
+    port, moved_from = place_board(int(cfg["port"]), dry)
     if not dry:
+        if moved_from is not None:
+            linked, problem = repoint_bridge(moved_from, port)
+            print(moved_line(moved_from, port, linked, cfg))
+            if problem:
+                print(problem)
         print(f"Board up on http://127.0.0.1:{port}")
         print("Facilitator is live!")
+    cfg = {**cfg, "port": port}
     open_app(cfg, dry)
     st = state(port)
     for lane in cfg["lanes"]:
@@ -1153,6 +1405,13 @@ def cmd_restart(args):
     owner, refusal = server_process(port)
     if refusal:
         sys.exit(f"restart: {refusal}")
+    # restart keeps the board on its pair and never moves it. A board of this
+    # folder's running on a pair the config does not name would refuse the
+    # replacement at its lock, so that is said instead of tried
+    elsewhere = board_elsewhere(port) if owner is None else None
+    if elsewhere is not None:
+        sys.exit(f"restart: this board is running on port {elsewhere}, not on {port} from "
+                 f"{CONFIG.name}; run facilitator run to bring the two together, then restart")
 
     if dry:
         if owner is None:
@@ -1221,11 +1480,24 @@ def board_port():
     own default otherwise, so the bridge works on a machine with no lanes
     written down yet."""
     if not CONFIG.exists():
-        return 8877
+        return DEFAULT_PORT
     try:
-        return int(json.loads(CONFIG.read_text()).get("port") or 8877)
+        return int(json.loads(CONFIG.read_text()).get("port") or DEFAULT_PORT)
     except (ValueError, TypeError, AttributeError, OSError):
-        return 8877
+        return DEFAULT_PORT
+
+
+def board_moved_from():
+    """The port of the pair the board moved off when run could not point the
+    phone's link at the new pair at the time, or None. Kept in run.config.json
+    as moved_from until the bridge command has dealt with the old rule."""
+    try:
+        moved = json.loads(CONFIG.read_text()).get("moved_from")
+    except (ValueError, TypeError, AttributeError, OSError):
+        return None
+    if isinstance(moved, int) and not isinstance(moved, bool) and 1 <= moved <= 65534:
+        return moved
+    return None
 
 
 def find_tailscale():
@@ -1524,6 +1796,91 @@ def bridge_conflict(analysis):
     sys.exit(f"tailscale: {analysis['why']}; no changes made")
 
 
+def bridge_off_steps(ts, name, raw, port):
+    """Take away this command's own root rule for the pair at port: checked
+    against an unchanged Serve config first and read back as gone after."""
+    latest, latest_analysis = analyze_bridge(ts, name, port)
+    if latest != raw or not latest_analysis["removable"]:
+        sys.exit("tailscale: serve configuration changed; no changes made, try again")
+    change_bridge(ts, [ts, "serve", "--https=443", "--set-path=/", "off"], "off")
+    _, after = analyze_bridge(ts, name, port)
+    if after["active"]:
+        sys.exit("tailscale: the bridge is still on after Tailscale reported success; inspect `tailscale serve status`")
+
+
+def bridge_on_steps(ts, status, name, port):
+    """Put this command's own root rule in for the pair at port, with the
+    checks `bridge on` makes before and after: the board up with its gate,
+    nothing else on the root, the tailnet unchanged, the rule read back as on."""
+    raw, analysis = analyze_bridge(ts, name, port)
+    if analysis["active"] or analysis["enable_blocked"]:
+        bridge_conflict(analysis)
+    require_bridge_ready(status, name, port)
+    latest, latest_analysis = analyze_bridge(ts, name, port)
+    if latest != raw or latest_analysis["active"] or latest_analysis["enable_blocked"]:
+        sys.exit("tailscale: serve configuration changed; no changes made, try again")
+    change_bridge(ts, [ts, "serve", "--bg", "--https=443", "--set-path=/",
+                       f"http://127.0.0.1:{port + 1}"], "on")
+    fresh_status = tailscale_status(ts)
+    if tailnet_name(fresh_status) != name:
+        sys.exit("tailscale: tailnet identity changed while enabling the bridge; inspect `tailscale serve status`")
+    require_bridge_ready(fresh_status, name, port)
+    _, after = analyze_bridge(ts, name, port)
+    if not after["on"]:
+        sys.exit("tailscale: the bridge is not safely on after Tailscale reported success; inspect `tailscale serve status`")
+
+
+def move_bridge(ts, status, name, raw, old, new):
+    """Point this board's own root rule from the old pair's phone port at the
+    new pair's: the new board is checked as `bridge on` checks it before
+    anything is touched, then the old rule goes and the new one comes, each
+    step checked as those commands check it."""
+    require_bridge_ready(status, name, new)
+    bridge_off_steps(ts, name, raw, old)
+    bridge_on_steps(ts, status, name, new)
+    bridge_log("sharemoved", port=new, previous=old)
+
+
+def repoint_bridge(old, new):
+    """After run moved the board: (linked, problem). The phone's Tailscale
+    Serve rule is pointed at the new pair only when it is exactly the rule
+    `bridge on` made for the old pair; any other rule, and no rule, is left
+    alone. Anything that stops it is one plain line, run carries on with the
+    board up, and the config keeps the old port as moved_from, so `bridge on`
+    can finish the move later and `bridge off` can still take the old rule
+    away."""
+    ts = find_tailscale()
+    if ts is None:
+        return False, None
+    try:
+        status = tailscale_status(ts)
+        name = tailnet_name(status)
+        raw, analysis = analyze_bridge(ts, name, old)
+        if not analysis["on"]:
+            return False, None
+        move_bridge(ts, status, name, raw, old, new)
+        return True, None
+    except SystemExit as stop:
+        write_config_port(new, moved_from=old)
+        return False, (f"The phone link was not moved ({stop.code}); if it was on, it still "
+                       f"points at port {old + 1}. Run facilitator bridge on to point it at {new + 1}.")
+
+
+def moved_rule(raw, name, port):
+    """The port of the pair the board moved off, when run left this command's
+    own rule for that pair behind and nothing serves the board's own pair;
+    else None."""
+    moved = board_moved_from()
+    if moved is None or moved == port:
+        return None
+    try:
+        if bridge_config(raw, name, port)["active"] or not bridge_config(raw, name, moved)["on"]:
+            return None
+    except (TypeError, ValueError):
+        return None
+    return moved
+
+
 def cmd_bridge(args):
     """Toggle, enable, or disable the persistent Tailscale Serve mapping.
 
@@ -1541,8 +1898,28 @@ def cmd_bridge(args):
     status = tailscale_status(ts)
     name = tailnet_name(status)
     raw, analysis = analyze_bridge(ts, name, port)
-    desired = ("off" if analysis["active"] else "on") if requested == "toggle" else requested
+    # the rule this command made for the pair the board moved off, when run
+    # could not point it at the new pair: still this board's own, so on moves
+    # it across and off takes it away
+    moved = moved_rule(raw, name, port)
+    desired = ("off" if analysis["active"] or moved else "on") if requested == "toggle" else requested
     url = f"https://{name}/m"
+
+    if moved is not None:
+        if dry:
+            print(f"bridge: would take the phone link off port {moved + 1}"
+                  + (f" and point it at {port + 1}" if desired == "on" else ""))
+            return
+        if desired == "off":
+            bridge_off_steps(ts, name, raw, moved)
+            write_config_port(port)
+            bridge_log("shareoff", port=moved)
+            print("Bridge is off.")
+            return
+        move_bridge(ts, status, name, raw, moved, port)
+        write_config_port(port)
+        show_way_in(url)
+        return
 
     if desired == "off":
         if not analysis["active"]:
@@ -1754,15 +2131,27 @@ def ensure_env(uv, quiet=False):
 
 def ensure_config():
     """Write each config file from its example only when it is not already
-    there, so a second run and a user's own edits are both left untouched."""
+    there, so a second run and a user's own edits are both left untouched.
+    A new run.config.json names the default pair, 8877 and 8878, when nothing
+    holds it, and otherwise the next free pair above it, with a line saying
+    which. Nothing is asked of any port beyond whether it can be bound, and
+    Tailscale is not asked at all: install runs before the phone client is set
+    up, and run checks the Serve rules when it starts the board."""
     for name, example in (("run.config.json", "run.config.example.json"),
                           ("seed.json", "seed.example.json")):
         target = HERE / name
         if target.exists():
             ok(f"{name} found.")
-        else:
-            shutil.copyfile(HERE / example, target)
-            ok(f"Wrote {name} from {example}.")
+            continue
+        shutil.copyfile(HERE / example, target)
+        ok(f"Wrote {name} from {example}.")
+        if name != "run.config.json":
+            continue
+        port = pick_pair(DEFAULT_PORT, serve=False)
+        if port is not None and port != json.loads(target.read_text()).get("port"):
+            target.write_text(config_with(target.read_text(), port, None))
+        if port is not None and port != DEFAULT_PORT:
+            print(f"Ports {DEFAULT_PORT} and {DEFAULT_PORT + 1} are in use here, so it names {port} and {port + 1}.")
 
 
 def ensure_node_deps():
