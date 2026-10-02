@@ -1,7 +1,8 @@
-// What `facilitator run` prints. A real run says the board is up and, for each
-// lane nobody is listening on, one line; nothing about the window unless it
-// failed to open; --dry-run keeps its longer account. A broken run.config.json
-// is one plain line naming the file, for every command that reads it.
+// What `facilitator run` prints. A real run says the board is up and is live,
+// two lines, and names no lane; nothing about the window unless it failed to
+// open; --attach and --spawn add a line per lane they act on; --dry-run keeps
+// its longer account. A broken run.config.json is one plain line naming the
+// file, for every command that reads it.
 //
 // The CLI is driven in-process with stand-ins for the board's answer, tmux, the
 // browser launcher and Popen, so no server starts, no window opens, no tmux
@@ -20,7 +21,6 @@ const ROOT = path.resolve(__dirname, "..");
 const PORT = 8899;
 const BOARD = `http://127.0.0.1:${PORT}`;
 const UP = ["Board up on " + BOARD, "Facilitator is live!"];
-const NO_LISTENER = lane => `lane ${lane}: no listener (run with --attach to wake its tmux session)`;
 const INSTRUCTIONS = {
   facilitator: "Attach your board listener: run the RUNBOOK listen loop with owner=facilitator and answer claims per doctrine. Server is already running.",
   example: "Attach to the facilitator board: read the facilitator repo's RUNBOOK.md, then run the listen loop with owner=example and answer claims per doctrine. Server is already running.",
@@ -138,15 +138,13 @@ test("a run that has to start the board says the same two lines", async () => {
   assert.equal(done.calls.filter(c => c[0] === "popen").length, 1, "the board was not started");
 });
 
-test("a lane with no listener gets one line, and a covered or mid-claim lane gets none", async () => {
-  const all = await run(["run"], { board: "covered" });
-  assert.deepEqual(all.said, UP, "a lane heard from a few minutes ago was reported");
-  const some = await run(["run"], { board: "partial" });
-  assert.deepEqual(some.said, [...UP, NO_LISTENER("example")], some.stderr);
-  const both = await run(["run"], { board: "uncovered" });
-  assert.deepEqual(both.said, [...UP, NO_LISTENER("facilitator"), NO_LISTENER("example")]);
-  const busy = await run(["run"], { board: "midclaim" });
-  assert.deepEqual(busy.said, [...UP, NO_LISTENER("example")]);
+test("a run says the same two lines whatever the lanes are doing, and names no lane", async () => {
+  for (const board of ["covered", "partial", "uncovered", "midclaim"]) {
+    const done = await run(["run"], { board });
+    assert.deepEqual(done.said, UP, `${board}: ${done.stderr}`);
+    assert.equal(done.stderr, "");
+    assert.deepEqual(done.calls.filter(c => c[0] === "tmux"), [], `${board}: a plain run touched tmux`);
+  }
 });
 
 test("an app_url in the config changes the window, not the address the board is said to be on", async () => {

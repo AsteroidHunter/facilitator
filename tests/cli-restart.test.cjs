@@ -1093,7 +1093,6 @@ test("run is untouched: still server, window, and no tmux without being asked", 
   assert.deepEqual(said, [
     `Board up on http://127.0.0.1:${port}`,
     "Facilitator is live!",
-    "lane facilitator: no listener (run with --attach to wake its tmux session)",
   ]);
   assert.equal(events.filter(e => e[0] === "kill").length, 0, "run signalled something");
   // run confirms a start the way it always did, by asking /state; neither the
