@@ -1245,7 +1245,7 @@ test("phone: Notifications is the Editor's switch, and it subscribes this phone 
   }
 });
 
-test("phone: the turn off mark stands at the foot of the drawer and asks before it signs out", async () => {
+test("phone: the turn off mark stands at the foot of the drawer, the license beside it, and it asks before it signs out", async () => {
   const { page, problems } = await open("/m", PHONE);
   const asked = [];
   page.on("request", request => {
@@ -1261,15 +1261,33 @@ test("phone: the turn off mark stands at the foot of the drawer and asks before 
       const button = document.getElementById("signout");
       const box = button.getBoundingClientRect(), icon = button.querySelector("svg").getBoundingClientRect();
       const style = getComputedStyle(button);
+      const link = document.getElementById("setlicense"), lb = link.getBoundingClientRect(), ls = getComputedStyle(link);
       return { below: Math.round(drawer.bottom - icon.bottom),
-               centre: Math.round((icon.left + icon.right) / 2 - (drawer.left + drawer.right) / 2),
+               right: Math.round(drawer.right - icon.right),
                icon: [icon.width, icon.height], color: style.color, fill: style.backgroundColor, border: style.borderTopStyle,
-               reached: document.elementFromPoint((box.left + box.right) / 2, (box.top + box.bottom) / 2)?.closest("#signout") === button };
+               reached: document.elementFromPoint((box.left + box.right) / 2, (box.top + box.bottom) / 2)?.closest("#signout") === button,
+               license: { words: link.textContent, href: link.getAttribute("href"), target: link.target, rel: link.rel,
+                          left: Math.round(lb.left + parseFloat(ls.paddingLeft) - drawer.left), sameLine: Math.round((lb.top + lb.bottom - icon.top - icon.bottom) / 2),
+                          color: ls.color, size: ls.fontSize, family: ls.fontFamily === getComputedStyle(document.getElementById("signoutnote")).fontFamily,
+                          underline: ls.textDecorationLine,
+                          reached: document.elementFromPoint((lb.left + lb.right) / 2, (lb.top + lb.bottom) / 2) === link } };
     });
     const list = await foot();
     assert.deepEqual(list.icon, [16, 16], "the power mark is not 16px");
     assert.equal(list.below, 16, "the mark does not stand 16px up from the drawer's foot");
-    assert.ok(Math.abs(list.centre) <= 1, "the mark is not centred across the drawer: " + list.centre);
+    // one line: the license's name at the left margin, the mark at the right, the same margin
+    assert.ok(Math.abs(list.right - list.license.left) <= 1, "the mark and the license's words are not the same distance from the drawer's sides: " + JSON.stringify([list.right, list.license.left]));
+    assert.ok(list.right >= 16 && list.right <= 24, "the margin of the foot's line: " + list.right);
+    assert.equal(list.license.sameLine, 0, "the license is not on the mark's line");
+    assert.equal(list.license.words, "Facilitator License");
+    assert.equal(list.license.href, "https://github.com/AsteroidHunter/facilitator/blob/main/LICENSE.md");
+    assert.equal(list.license.target, "_blank", "the license opens inside the app");
+    assert.match(list.license.rel, /noopener/);
+    assert.equal(list.license.color, "rgb(117, 105, 90)", "the license is not in the sub ink");
+    assert.equal(list.license.size, "12px");
+    assert.equal(list.license.family, true, "the license is not in the drawer's face");
+    assert.equal(list.license.underline, "underline");
+    assert.equal(list.license.reached, true, "something lies over the license");
     assert.equal(list.color, "rgb(117, 105, 90)", "the mark is not in the sub ink");
     assert.equal(list.fill, "rgba(0, 0, 0, 0)", "the mark sits on a box");
     assert.equal(list.border, "none");

@@ -1004,11 +1004,16 @@
     backdrop-filter:none; -webkit-backdrop-filter:none}
   #setpage::before{display:none}
   #setpage .sp-head{padding-top:14px}
-  /* the turn off mark stands alone at the foot of the panel, under the list and
-     under any section: a 16px power mark in the sub ink, centred, 16px up from
-     the foot, with the room a finger needs around it. what it puts up first is
-     the question below. a sign out that fails says so under it */
+  /* the foot of the panel, under the list and under any section, is one line:
+     the license's name at the left margin and the turn off mark at the right,
+     a 16px power mark in the sub ink, each with the room a finger needs around
+     it. what the mark puts up first is the question below. a sign out that
+     fails says so under the line, centred */
   #setfoot{flex:none; display:flex; flex-direction:column; align-items:center; gap:4px; padding:8px 12px}
+  #setfootline{align-self:stretch; display:flex; align-items:center; justify-content:space-between}
+  #setlicense{padding:8px; font:12px/16px var(--sans); color:var(--sub);
+    text-decoration:underline; text-underline-offset:2px}
+  #setlicense:active{color:var(--ink)}
   #signout{display:flex; margin:0; padding:8px; border:none; background:none; color:var(--sub); cursor:pointer}
   #signout:disabled{opacity:.6; cursor:default}
   #signout svg{display:block}
@@ -1331,7 +1336,10 @@
     </div>
   </div>
   <div id="setfoot">
-    <button id="signout" type="button" title="Log out" aria-label="Log out" aria-haspopup="dialog"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v10"/><path d="M17.14 5.87A8 8 0 1 1 6.86 5.87"/></svg></button>
+    <div id="setfootline">
+      <a id="setlicense" href="https://github.com/AsteroidHunter/facilitator/blob/main/LICENSE.md" target="_blank" rel="noopener">Facilitator License</a>
+      <button id="signout" type="button" title="Log out" aria-label="Log out" aria-haspopup="dialog"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v10"/><path d="M17.14 5.87A8 8 0 1 1 6.86 5.87"/></svg></button>
+    </div>
     <p id="signoutnote" role="status" aria-live="polite"></p>
   </div>
 </aside>
