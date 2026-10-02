@@ -44,7 +44,7 @@ async function open(kind) {
     await page.setViewport(PHONE_VIEW);
     await page.goto(fx.origin + "/m", { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => typeof lastState !== "undefined" && lastState !== null, { timeout: 15000 });
-    await page.waitForSelector("#tabbar .ptab.on", { timeout: 5000 });
+    await page.waitForSelector("#projlist .projrow.on", { timeout: 5000 });
   }
   // the page's own ask at load goes to the real board; let it land and be kept
   // before the test takes the route over
@@ -52,7 +52,17 @@ async function open(kind) {
   return { context, page };
 }
 const reopen = (page, kind) => page.goto(fx.origin + (kind === "phone" ? "/m" : "/"), { waitUntil: "domcontentloaded" });
-const press = (page, kind) => kind === "phone" ? page.tap("#homeico") : page.click("#homeico", { delay: 10 });
+// the phone's house and its projects are rows of the list the capsule in its
+// row of buttons opens: a tap on the capsule, then on the row
+async function viaList(page, row) {
+  await page.tap("#projbtn");
+  await page.waitForFunction(() => document.body.classList.contains("projopen"), { timeout: 3000 });
+  await sleep(300);
+  await page.tap(row);
+}
+const press = (page, kind) => kind === "phone" ? viaList(page, "#homeico") : page.click("#homeico", { delay: 10 });
+const pressTab = (page, kind) => kind === "phone" ? viaList(page, "#projlist .projrow")
+  : page.click("#tabbar .ptab:not(.ptabplus)", { delay: 10 });
 const kept = page => page.evaluate(() => localStorage.getItem("home.limits"));
 const noteOf = page => page.evaluate(() => document.querySelector("#homelimits .lm-updated")?.textContent || "");
 
@@ -111,7 +121,7 @@ for (const kind of ["board", "phone"]) {
       assert.ok(await kept(page), "the first visit kept its numbers");
       // a warm page: pressed again with the route held for seconds
       for (const when of ["warm", "cold"]) {
-        await page.click("#tabbar .ptab:not(.ptabplus)", { delay: 10 }).catch(() => page.tap("#tabbar .ptab"));
+        await pressTab(page, kind);
         await page.waitForFunction(() => !document.body.classList.contains("home"));
         state.hold = 3500;
         state.asked.length = 0;

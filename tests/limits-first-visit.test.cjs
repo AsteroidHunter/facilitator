@@ -51,8 +51,16 @@ async function untilRows(page, where) {
   assert.deepEqual(rows, ROWS, where);
 }
 
-const press = (page, touch) => touch ? page.tap("#homeico") : page.click("#homeico", { delay: 10 });
-const pressTab = (page, touch) => touch ? page.tap("#tabbar .ptab") : page.click("#tabbar .ptab", { delay: 10 });
+// the phone's house and its projects are rows of the list the capsule in its
+// row of buttons opens: a tap on the capsule, then on the row
+async function viaList(page, row) {
+  await page.tap("#projbtn");
+  await page.waitForFunction(() => document.body.classList.contains("projopen"), { timeout: 3000 });
+  await new Promise(r => setTimeout(r, 300));
+  await page.tap(row);
+}
+const press = (page, touch) => touch ? viaList(page, "#homeico") : page.click("#homeico", { delay: 10 });
+const pressTab = (page, touch) => touch ? viaList(page, "#projlist .projrow") : page.click("#tabbar .ptab", { delay: 10 });
 
 async function openOn(fx, kind) {
   const { context, page } = await fx.openBoard(null, MAC);
@@ -60,7 +68,7 @@ async function openOn(fx, kind) {
     await page.setViewport(PHONE);
     await page.goto(fx.origin + "/m", { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => typeof lastState !== "undefined" && lastState !== null, { timeout: 15000 });
-    await page.waitForSelector("#tabbar .ptab.on", { timeout: 5000 });
+    await page.waitForSelector("#projlist .projrow.on", { timeout: 5000 });
   }
   return { context, page };
 }
