@@ -116,7 +116,7 @@ test("saved cards keep lane owners that no config or project names", async () =>
     ],
     projects: [], inbox: ["m11"],
     busy: {}, claimed: {}, busy_ts: {}, ack: {}, workspaces: {}, pages: {},
-    ever_listened: {}, end: false, paused: false, next_mid: 6, next_bid: 13, rev: 1,
+    ever_listened: {}, end: false, next_mid: 6, next_bid: 13, rev: 1,
   };
   const server = await startServer({ state });
   try {
@@ -141,6 +141,34 @@ test("saved cards keep lane owners that no config or project names", async () =>
 
     const owners = new Set((await api(server.origin, "/state")).body.boxes.map(b => b.owner));
     for (const ow of invented) assert.ok(owners.has(ow), `a saved card lost its owner ${ow}`);
+  } finally {
+    await server.stop();
+  }
+});
+
+test("a saved paused flag from an older board is dropped on start", async () => {
+  const state = {
+    title: "saved board",
+    boxes: [
+      { id: "0", bucket: "meta", title: "Tool standing", owner: "facilitator",
+        pending: [], replies: 0, done: false, ball: "you", reply: "", state: "new" },
+    ],
+    projects: [], inbox: [],
+    busy: {}, claimed: {}, busy_ts: {}, ack: {}, workspaces: {}, pages: {},
+    ever_listened: {}, end: false, paused: true, next_mid: 1, next_bid: 1, rev: 1,
+  };
+  const server = await startServer({ state });
+  try {
+    const st = await api(server.origin, "/state");
+    assert.equal(st.status, 200);
+    assert.ok(!Object.hasOwn(st.body, "paused"), "/state still carries a paused flag");
+    const wait = await api(server.origin, "/wait?owner=facilitator&timeout=1&agent=test");
+    assert.equal(wait.status, 200);
+    assert.deepEqual(wait.body, { idle: true }, "a saved paused flag still changed the wait answer");
+    const created = await api(server.origin, "/create?owner=facilitator", { method: "POST", body: "New card" });
+    assert.equal(created.status, 200);
+    const saved = JSON.parse(await readFile(path.join(server.dir, "state.json"), "utf8"));
+    assert.ok(!Object.hasOwn(saved, "paused"), "state.json still carries the paused flag after a save");
   } finally {
     await server.stop();
   }
