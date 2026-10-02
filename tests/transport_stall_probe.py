@@ -41,14 +41,32 @@ def main() -> None:
         assert old in source, old
         source = source.replace(old, new)
     open(os.path.join(app, "server.py"), "w").write(source)
+    # a copied server starts only with the phone's gate beside it
+    for name in ("bridge_auth.py", "bridge_gate.py", "m-gate.html"):
+        shutil.copy(os.path.join(os.path.dirname(server_py), name), app)
     json.dump({"title": "stall probe",
                "items": [{"id": "0", "bucket": "meta", "title": "Standing", "owner": "facilitator"}]},
               open(os.path.join(app, "seed.json"), "w"))
 
-    sock = socket.socket()
-    sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
-    sock.close()
+    # the board holds two ports side by side, its own and the phone's
+    port = None
+    for _ in range(50):
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        candidate = sock.getsockname()[1]
+        phone = socket.socket()
+        try:
+            phone.bind(("127.0.0.1", candidate + 1))
+            port = candidate
+        except OSError:
+            pass
+        finally:
+            sock.close()
+            phone.close()
+        if port is not None:
+            break
+    if port is None:
+        raise SystemExit("no two free ports side by side")
     origin = f"http://127.0.0.1:{port}"
     env = {**os.environ, "FACILITATOR_TEST_PORT": str(port),
            "FACILITATOR_LOG_DIR": os.path.join(app, "logs"), "FACILITATOR_LOG_LEVEL": "debug"}
