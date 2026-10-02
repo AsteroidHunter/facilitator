@@ -214,7 +214,7 @@
     border-radius:calc(var(--dock-h) / 2); color:var(--ink); cursor:pointer;
     display:flex; align-items:center; justify-content:center;
     -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
-    transition:transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle), filter .5s var(--gentle);
+    transition:transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle);
   }
   /* the top rim is one line, as on the settings page (card-tokens.css). the
      glass's own stack draws a white highlight on the first row and a faint dark
@@ -250,18 +250,16 @@
   #dock .dockbtn.pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
     transition:transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
   /* the open project's name, or Home, centred, cut short with an ellipsis, and
-     beside it the mark of a list. it takes no browser panning, so a held finger
-     stays its */
+     beside it the mark of a list */
   #dock #projbtn{flex:1 1 auto; min-width:0; gap:6px; padding:0 16px;
-    font:500 15px/1.2 var(--sans); touch-action:none}
+    font:500 15px/1.2 var(--sans)}
   #projname{flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
   #projbtn .updown{color:var(--sub)}
-  /* held, the capsule grows and brightens over the hold, then lifts while its
-     list is up, and lets go over the same .5s as the others */
+  /* the capsule's press reaches a little further than the others', the grow
+     and settle a tap on it has always shown, and lets go over the same .5s. a
+     finger held on it does no more than a tap: the press is all */
   #dock #projbtn.pressed{transform:scale(1.1); --qn-tint:.97; --qn-edge:3.5;
-    transition:transform .38s cubic-bezier(.2,.8,.2,1), --qn-tint .38s ease-out, --qn-edge .38s ease-out, filter .38s ease-out}
-  #dock #projbtn.held{transform:scale(1.1); --qn-tint:1; --qn-edge:4;
-    filter:drop-shadow(0 6px 14px rgba(0,0,0,.12))}
+    transition:transform .38s cubic-bezier(.2,.8,.2,1), --qn-tint .38s ease-out, --qn-edge .38s ease-out}
 
   /* ---- the project list, popped from the project's capsule --------------------- */
   /* the board's places: Home, then the projects in the board's own order, the
@@ -305,8 +303,8 @@
   .projrow.unread .pname{font-weight:600}
   .projrow .pcheck{visibility:hidden}
   .projrow.on .pcheck{visibility:visible}
-  /* the row under a finger: pressed, or passed over by the hold's drag */
-  .projrow:active, .projrow.hot{background:color-mix(in srgb, var(--ink) 8%, transparent)}
+  /* the row under a finger */
+  .projrow:active{background:color-mix(in srgb, var(--ink) 8%, transparent)}
   .projrow.lifted{position:relative; z-index:1; background:var(--card);
     box-shadow:0 4px 14px rgba(0,0,0,.14); transition:none}
   #projsep{flex:none; height:var(--edge); margin:4px 12px; background:var(--line)}
@@ -3151,17 +3149,15 @@ function openProjects(){
 }
 function closeProjects(){
   endProjCarry();
-  lightRow(null);
   if (!projOpen()) return;
   document.body.classList.remove("projopen");
   projBtn.setAttribute("aria-expanded", "false");
 }
-// a project chosen in the list, by a tap or by lifting a held finger on it. the
-// open project's own row, with home shut, lets go of the selected card on
-// screen, which stays there browsed, as a tap on its tab did; any other row
-// switches to its lane, leaving home for it. the house is its own press
+// a project chosen in the list by a tap. the open project's own row, with home
+// shut, lets go of the selected card on screen, which stays there browsed, as a
+// tap on its tab did; any other row switches to its lane, leaving home for it.
+// the house is its own press
 function chooseRow(row){
-  if (row === house){ house.click(); return; }
   closeProjects();
   const ow = row.dataset.owner;
   if (!ow) return;
@@ -3189,7 +3185,12 @@ document.addEventListener("keydown", e => {
 // each of the row's buttons takes .pressed while a finger or the pointer holds
 // it, for at least PRESS_MIN so a quick tap still shows it, the way the
 // drawer's names hold their dip. the rise takes .3s, so the hold is long enough
-// for a tap to reach most of it. the capsule's press is its hold (below)
+// for a tap to reach most of it. the end of a press is heard wherever the
+// finger lifts: the phone sends the lift to whatever is under the finger then,
+// which need not be the button, so a lift over a layer that came up under it
+// ends the press as surely as one on the button. a page put away with a finger
+// still down, as when the phone's own swipe home takes the touch and the page
+// hears no end to it, drops every press, so no button comes back grown
 const PRESS_MIN = 120;
 function glassPress(btn){
   let since = 0, timer = 0;
@@ -3200,82 +3201,51 @@ function glassPress(btn){
       clearTimeout(timer);
       timer = setTimeout(() => btn.classList.remove("pressed"), Math.max(0, since + PRESS_MIN - performance.now()));
     },
+    drop(){ clearTimeout(timer); btn.classList.remove("pressed"); },
   };
 }
+const rowPresses = [];
 for (const btn of document.querySelectorAll("#dock .dockbtn")){
-  if (btn === projBtn) continue;
   const glass = glassPress(btn);
+  rowPresses.push(glass);
   btn.addEventListener("pointerdown", glass.press);
   for (const type of ["pointerup", "pointercancel", "pointerleave"]) btn.addEventListener(type, glass.release);
 }
+for (const type of ["pointerup", "pointercancel"])
+  addEventListener(type, () => { for (const glass of rowPresses) glass.release(); }, { passive: true });
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") for (const glass of rowPresses) glass.drop();
+});
 
-// ---- the capsule: a tap, or a hold and a drag up the list ---------------------------
-// a tap opens the list and a tap on the capsule while it is open shuts it. a
-// press held still grows and brightens the capsule over the hold, and after
-// PROJ_HOLD the list pops with the finger still down: dragging up over it
-// lights the row under the finger, and lifting there chooses that row; lifting
-// anywhere else leaves the list open for a tap. a finger that travels before
-// the hold is up is not a press on it, so a slide along the screen's foot, the
-// phone's own app switcher, opens nothing. the touch's default is refused on
-// the capsule alone, which is what keeps the phone's own long-press selection
-// and callout off it, and the click a touch would make; the document's own
-// touch listeners stay passive
-const PROJ_HOLD = 380;   // ms a finger rests on the capsule before the list pops
-const PROJ_SLIP = 10;    // px of travel before the hold that make the touch no press
-const projGlass = glassPress(projBtn);
-let projPress = null;
-function rowAt(x, y){
-  const at = document.elementFromPoint(x, y);
-  const row = at && at.closest ? at.closest(".projrow") : null;
-  return row && projMenu.contains(row) ? row : null;
-}
-function lightRow(row){
-  for (const r of projMenu.querySelectorAll(".projrow.hot")) if (r !== row) r.classList.remove("hot");
-  if (row) row.classList.add("hot");
-}
-function endProjPress(){
-  const p = projPress;
-  if (!p) return null;
-  projPress = null;
-  clearTimeout(p.timer);
-  projBtn.classList.remove("held");
-  projGlass.release();
-  return p;
-}
+// ---- the capsule: a tap opens the list ----------------------------------------------
+// a tap on the capsule opens the list, and shuts it while it is open. it is
+// pressed as the other three buttons are, and the tap is taken at the finger's
+// lift, as it always was: the phone holds back the click a touch on the
+// capsule makes by about a third of a second, and would then hand it to
+// whatever lies under the finger by then, the list's own shade, which would
+// shut the list again. so the touch's default is refused on the capsule alone,
+// which also keeps the phone's own long-press selection and callout off it;
+// the document's own touch listeners stay passive. a finger that travels
+// before it lifts is not a tap, so a slide along the screen's foot, the
+// phone's own app switcher, opens nothing, and a finger held on the capsule
+// does no more than a tap: its press shows, and its lift opens the list
+const PROJ_SLIP = 10;    // px of travel that make the touch no tap
+let projTap = null;
 projBtn.addEventListener("touchstart", e => e.preventDefault(), { passive: false });
 projBtn.addEventListener("pointerdown", e => {
-  if (e.button !== 0) return;
-  endProjPress();
-  const p = projPress = { id: e.pointerId, x: e.clientX, y: e.clientY, held: false, wasOpen: projOpen() };
-  try { projBtn.setPointerCapture(e.pointerId); } catch (_) {}
-  projGlass.press();
-  p.timer = setTimeout(() => {
-    if (projPress !== p) return;
-    p.held = true;
-    projBtn.classList.add("held");
-    openProjects();
-  }, PROJ_HOLD);
+  projTap = e.button === 0 ? { id: e.pointerId, x: e.clientX, y: e.clientY } : null;
 });
 projBtn.addEventListener("pointermove", e => {
-  const p = projPress;
-  if (!p || e.pointerId !== p.id) return;
-  if (p.held) lightRow(rowAt(e.clientX, e.clientY));
-  else if (Math.hypot(e.clientX - p.x, e.clientY - p.y) > PROJ_SLIP) endProjPress();
+  const tap = projTap;
+  if (tap && e.pointerId === tap.id && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > PROJ_SLIP) projTap = null;
 });
 projBtn.addEventListener("pointerup", e => {
-  if (!projPress || e.pointerId !== projPress.id) return;
-  const p = endProjPress();
-  if (p.held){
-    const row = rowAt(e.clientX, e.clientY);
-    lightRow(null);
-    if (row) chooseRow(row);
-    return;
-  }
-  if (p.wasOpen) closeProjects(); else openProjects();
+  const tap = projTap;
+  projTap = null;
+  if (!tap || e.pointerId !== tap.id) return;
+  if (projOpen()) closeProjects(); else openProjects();
 });
-projBtn.addEventListener("pointercancel", e => {
-  if (projPress && e.pointerId === projPress.id){ endProjPress(); lightRow(null); }
-});
+projBtn.addEventListener("pointercancel", () => { projTap = null; });
 // a key's press on the capsule, Enter or Space, is a click with no pointer
 projBtn.addEventListener("click", e => {
   if (e.detail !== 0) return;

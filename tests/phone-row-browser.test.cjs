@@ -4,8 +4,8 @@
 // card's plus (a short oval) and the settings' gear (a circle). Held here two
 // ways: m.html read as text, and the page itself at an iPhone 13 mini's size
 // (375 by 812, device scale 3, touch) on an invented board of five projects,
-// driven by taps, a held press and a drag. Nothing reads the real board, and
-// port 8877 is never touched.
+// driven by taps and held presses. Nothing reads the real board, and port 8877
+// is never touched.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const fs = require("node:fs");
@@ -69,12 +69,13 @@ async function openPhone(){
 }
 const middle = (page, sel) => page.$eval(sel, el => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
 const state = page => page.evaluate(() => ({
-  open: document.body.classList.contains("projopen"), held: document.getElementById("projbtn").classList.contains("held"),
-  hot: [...document.querySelectorAll(".projrow.hot")].map(r => r.dataset.owner || r.id),
+  open: document.body.classList.contains("projopen"),
   owner: activeOwner, home: homeOpen, name: document.getElementById("projname").textContent,
   drawer: drawerOpen(), settings: document.getElementById("settings").classList.contains("open"),
 }));
-
+// the capsule's drawn width and whether it wears its press
+const capsule = page => page.$eval("#projbtn", b => ({ width: b.getBoundingClientRect().width,
+  pressed: b.classList.contains("pressed"), classes: b.className }));
 // the shade under the list as drawn: its weight, whether it shows, and its colour
 const shade = page => page.evaluate(() => {
   const cs = getComputedStyle(document.getElementById("projshade"));
@@ -286,52 +287,92 @@ test("opening the list dims the page a little, and the dim fades away however th
   } finally { await page.close(); }
 });
 
-
-test("a held press grows the capsule and pops the list, a drag lights a row, and lifting on it chooses it", async () => {
+test("a held press on the capsule does no more than a tap: it grows a little, opens nothing while held, and its lift is a tap", async () => {
   const { page, problems } = await openPhone();
   try {
-    const before = await state(page);
     const at = await middle(page, "#projbtn");
-    const size = () => page.$eval("#projbtn", b => b.getBoundingClientRect().width);
-    const rest = await size();
+    const rest = await capsule(page);
+    assert.equal(rest.pressed, false);
     await page.touchscreen.touchStart(at.x, at.y);
     await settle(200);
-    assert.ok(await size() > rest, "the capsule did not grow under the held finger");
-    assert.equal((await state(page)).open, false, "the list popped before the hold was up");
-    await settle(400);
-    const held = await state(page);
-    assert.equal(held.open, true, "the list did not pop under the held finger");
-    assert.equal(held.held, true);
-    // up over the list, finger still down
-    const rows = await page.$$eval("#projlist .projrow", rs => rs.map(r => {
-      const b = r.getBoundingClientRect();
-      return { owner: r.dataset.owner, x: b.left + b.width / 2, y: b.top + b.height / 2 };
-    }));
-    const target = rows.find(r => r.owner !== before.owner);
-    for (let i = 1; i <= 10; i++){
-      await page.touchscreen.touchMove(at.x + (target.x - at.x) * i / 10, at.y + (target.y - at.y) * i / 10);
-      await settle(25);
-    }
-    assert.deepEqual((await state(page)).hot, [target.owner], "the row under the finger is not lit");
+    const pressed = await capsule(page);
+    assert.equal(pressed.pressed, true, "the capsule did not take its press under the finger");
+    assert.ok(pressed.width > rest.width, "the capsule did not grow under the finger");
+    // held past the old hold's 380 ms and well past the press's own rise: no
+    // list, no state of its own, no growth past the press
+    await settle(900);
+    const held = await capsule(page);
+    assert.equal((await state(page)).open, false, "the list popped under a held finger");
+    assert.deepEqual(held.classes.split(/\s+/).filter(c => !["dockbtn", "qn-glass"].includes(c)), ["pressed"],
+      "the capsule wears something besides its press while held");
+    assert.ok(held.width <= rest.width * 1.1 + 0.5, "the capsule grew past its press");
+    // the lift is a tap's: the list opens, and the capsule settles back
     await page.touchscreen.touchEnd();
-    await settle(500);
-    const after = await state(page);
-    assert.equal(after.owner, target.owner, "lifting on the row did not choose it");
-    assert.equal(after.open, false);
-    assert.equal(after.held, false);
-    assert.deepEqual(after.hot, []);
-    // a hold let go on nothing leaves the list open for a tap
+    await settle(50);
+    assert.equal((await state(page)).open, true, "the lift after a hold did not open the list as a tap does");
+    await settle(750);
+    const after = await capsule(page);
+    assert.equal(after.pressed, false, "the capsule kept its press once let go");
+    assert.equal(after.width, rest.width, "the capsule did not settle back to its own size");
+    // shutting the list leaves the capsule at its size
+    await page.touchscreen.tap(IPHONE_13_MINI.width / 2, 100);
+    await settle(800);
+    assert.equal((await state(page)).open, false);
+    assert.equal((await capsule(page)).width, rest.width, "the capsule stayed grown after the list shut");
+    // the tap: the press shows, the list opens at the lift, and the press settles
+    await page.tap("#projbtn");
+    await settle(40);
+    assert.equal((await capsule(page)).pressed, true, "a tap showed no press");
+    assert.equal((await state(page)).open, true, "a tap did not open the list at its lift");
+    await settle(800);
+    assert.deepEqual(await capsule(page), rest, "the capsule did not settle back after a tap");
+    await page.touchscreen.tap(IPHONE_13_MINI.width / 2, 100);
+    await settle(800);
+    assert.equal((await capsule(page)).width, rest.width);
+    assert.deepEqual(problems, []);
+  } finally { await page.close(); }
+});
+
+test("a press ends wherever its finger lifts, and a page put away with a finger still down drops it, so nothing comes back grown", async () => {
+  const { page, problems } = await openPhone();
+  try {
+    const rest = await capsule(page);
+    const at = await middle(page, "#projbtn");
+    // the phone sends a lift to whatever is under the finger by then, which on
+    // the old hold was the list's shade: the capsule never heard it and stayed
+    // grown. a lift landing on the card ends the press all the same
+    await page.$eval("#projbtn", b => b.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 41, pointerType: "touch", isPrimary: true })));
+    assert.equal((await capsule(page)).pressed, true);
+    await page.$eval("article.box.sel .reply", r => r.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 41, pointerType: "touch", isPrimary: true })));
+    await settle(800);
+    const lifted = await capsule(page);
+    assert.equal(lifted.pressed, false, "a lift that landed on the card left the capsule pressed");
+    assert.equal(lifted.width, rest.width, "a lift that landed on the card left the capsule grown");
+    // the phone's own swipe home can take a touch that started on the row, and
+    // the page then hears no end to it, only that it was put away
     await page.touchscreen.touchStart(at.x, at.y);
-    await settle(600);
+    await settle(200);
+    assert.equal((await capsule(page)).pressed, true);
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+      delete document.visibilityState;
+    });
+    const dropped = await capsule(page);
+    assert.equal(dropped.pressed, false, "the press outlived the page being put away");
+    await settle(800);
+    assert.equal((await capsule(page)).width, rest.width, "the capsule came back grown");
     await page.touchscreen.touchEnd();
-    await settle(300);
-    assert.equal((await state(page)).open, true, "a hold let go on the capsule shut the list");
-    await page.tap("#homeico");
-    await settle(600);
-    const home = await state(page);
-    assert.equal(home.home, true, "Home in the list did not open home");
-    assert.equal(home.name, "Home", "the capsule does not read Home");
-    assert.equal(home.open, false);
+    // the other three drop theirs the same way
+    for (const id of ["tikbtn", "tikadd", "setbtn"]){
+      await page.$eval("#" + id, b => b.classList.add("pressed"));
+      await page.evaluate(() => {
+        Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+        document.dispatchEvent(new Event("visibilitychange"));
+        delete document.visibilityState;
+      });
+      assert.equal(await page.$eval("#" + id, b => b.classList.contains("pressed")), false, `${id} kept its press`);
+    }
     assert.deepEqual(problems, []);
   } finally { await page.close(); }
 });
@@ -361,7 +402,7 @@ test("a finger on the composer fades the row before the focus comes, and a touch
   } finally { await page.close(); }
 });
 
-test("a finger sliding off the capsule before the hold is up opens nothing, and the capsule refuses the phone's long press", async () => {
+test("a finger sliding along the capsule opens nothing, and the capsule alone refuses the touch's default", async () => {
   const { page, problems } = await openPhone();
   try {
     const at = await middle(page, "#projbtn");
@@ -370,21 +411,23 @@ test("a finger sliding off the capsule before the hold is up opens nothing, and 
     await settle(600);
     assert.equal((await state(page)).open, false, "a sideways slide opened the list");
     await page.touchscreen.touchEnd();
-    await settle(200);
+    await settle(800);
     assert.equal((await state(page)).open, false);
-    // the touch's own default, which is the phone's long-press selection and
-    // callout and the click it would make, is refused on the capsule alone
-    const refused = await page.evaluate(() => {
-      const touch = new Touch({ identifier: 7, target: projBtn, clientX: 10, clientY: 10 });
-      const onCapsule = !projBtn.dispatchEvent(new TouchEvent("touchstart", { cancelable: true, bubbles: true, touches: [touch] }));
-      const reply = document.querySelector("article.box.sel .reply");
-      const elsewhere = !reply.dispatchEvent(new TouchEvent("touchstart", { cancelable: true, bubbles: true,
-        touches: [new Touch({ identifier: 8, target: reply, clientX: 10, clientY: 10 })] }));
-      return { onCapsule, elsewhere, action: getComputedStyle(projBtn).touchAction };
+    assert.equal((await capsule(page)).pressed, false, "the slide left the capsule pressed");
+    // the touch's own default, which is the click the phone would hand on a
+    // third of a second later to whatever lies under the finger by then (the
+    // list's shade, which would shut the list again) and the phone's
+    // long-press selection and callout, is refused on the capsule alone
+    const touch = await page.evaluate(() => {
+      const refused = el => !el.dispatchEvent(new TouchEvent("touchstart", { cancelable: true, bubbles: true,
+        touches: [new Touch({ identifier: 7, target: el, clientX: 10, clientY: 10 })] }));
+      return { onCapsule: refused(projBtn), onTicket: refused(document.getElementById("tikbtn")),
+        onCard: refused(document.querySelector("article.box.sel .reply")), select: getComputedStyle(projBtn).userSelect };
     });
-    assert.equal(refused.onCapsule, true, "the capsule left the touch's default to the phone");
-    assert.equal(refused.elsewhere, false, "a touch on the card had its default taken");
-    assert.equal(refused.action, "none");
+    assert.equal(touch.onCapsule, true, "the capsule left the touch's default to the phone");
+    assert.equal(touch.onTicket, false, "a touch on the ticket had its default taken");
+    assert.equal(touch.onCard, false, "a touch on the card had its default taken");
+    assert.equal(touch.select, "none");
     assert.deepEqual(problems, []);
   } finally { await page.close(); }
 });

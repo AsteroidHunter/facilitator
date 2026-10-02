@@ -131,9 +131,12 @@ test("the home page takes the card's place, holds the heading and the panels and
 test("while home is up no project is checked, the capsule reads Home, the card is not read and the board's keys are off", () => {
   // a project chosen in the list leaves home; the list's own redraw never does
   const choose = between(PHONE, "function chooseRow(row){", "\n}\n");
-  // the house is its own press; the open project's own row lets go of the
+  // the house is its own press: a tap on it in the list only shuts the list,
+  // and never reaches the choice; the open project's own row lets go of the
   // card, but never while home is up
-  assert.match(choose, /if \(row === house\)\{ house\.click\(\); return; \}/);
+  assert.match(between(PHONE, 'projMenu.addEventListener("click", e => {', "});"),
+    /if \(row === house\) closeProjects\(\);\n\s+else chooseRow\(row\);/);
+  assert.doesNotMatch(choose, /house/);
   assert.match(choose, /if \(ow === activeOwner && !homeOpen [^\n]*\{ unselectShown\(\); return; \}\n\s+if \(homeOpen\) setHome\(false\);[^\n]*\n\s+setTab\(ow\);/);
   assert.doesNotMatch(between(PHONE, "function setTab(owner){", "\n}\n"), /setHome/);
   const paint = between(PHONE, "function renderTabs(st){", "\n}\n");
