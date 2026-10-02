@@ -4850,12 +4850,14 @@ const MIN_SOFT_KEYBOARD_PX = 100;
 const KB_ANIM_MS = 220;                    // the css --kb-anim: the keyboard's own duration
 const LIFT_SETTLE_MS = KB_ANIM_MS + 200;   // the settle window, which a landing closes early
 const CLOSE_RETRY_MS = 350;                // the viewport reports late after a close
+const BAR_GONE_MS = KB_ANIM_MS;            // a paired keyboard's bar has left by then; it lifts nothing, so no landing ends the row's hold early
 const MAX_SHOVE_CLEARS = 3;                // per keystroke; a phone that keeps re-shoving is yielded to
 const HEAL_THRESHOLD_PX = 4;               // a window left this much short of the baseline is stuck
 let baseline = 0, baselineWidth = 0;
 let obstructionUp = false, appliedObstruction = false, appliedSoftKeyboard = false, appliedInset = 0;
 let appliedTop = null, appliedHeight = null, appliedVvHeight = null;
 let liftUntil = 0, liftTimer = null, closeRetry = null, shoveClears = 0;
+let dockBackAt = Infinity, dockBackTimer = null, keyboardSeen = false;
 
 // Enter evidence stays in the existing private incident recorder. This reads
 // the classifier's remembered baseline without teaching it a new one. Roles,
@@ -4916,14 +4918,12 @@ function editing(){
   const a = document.activeElement;
   return !!a && a !== document.body && (a.matches("textarea, input:not([type=file])") || a.isContentEditable);
 }
-const BAR_GONE_MS = KB_ANIM_MS;            // a paired keyboard's bar has left by then; it lifts nothing, so no landing ends the row's hold early
 function readWorld(){
   const vv = window.visualViewport;
   const vvHeight = vv ? vv.height : window.innerHeight;
   const vvScale = vv && Number.isFinite(vv.scale) ? vv.scale : 1;
   const pageAtRestScale = Math.abs(vvScale - 1) <= PAGE_SCALE_EPSILON;
   if (window.innerWidth !== baselineWidth){ baselineWidth = window.innerWidth; baseline = 0; }   // a rotation: relearn
-let dockBackAt = Infinity, dockBackTimer = null, keyboardSeen = false;
   const focused = editing();
   // only a keyboard-free frame teaches the baseline, and only upward: a
   // shrunken viewport and a zoomed viewport must not become the full screen
@@ -5131,6 +5131,10 @@ document.addEventListener("pointerdown", e => {
   dockEarlyTimer = setTimeout(() => { dockEarly = false; syncDock(appliedObstruction, dockHeld(), appliedInset); }, DOCK_EARLY_MS);
   syncDock(appliedObstruction, dockHeld(), appliedInset);
 }, { capture: true, passive: true });
+function dockHeld(){
+  const now = performance.now();
+  return now < liftUntil && now < dockBackAt;
+}
 function syncDock(obstructed, lifting, inset){
   const away = obstructed || lifting || (touchScreen.matches && (dockEarly || typingFocus()));
   if (away !== dockAway){
@@ -5197,10 +5201,6 @@ function wakeCaret(ta){
 function reassertCaret(){
   const arrived = arrivedCard;
   arrivedCard = null;
-function dockHeld(){
-  const now = performance.now();
-  return now < liftUntil && now < dockBackAt;
-}
   if (arrived && arrived.field.focused()){
     // a step's caret the phone left at the head of the words goes back to their end
     const end = arrived.ta.value.length;

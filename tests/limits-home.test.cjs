@@ -416,7 +416,7 @@ test("the board's rule draws a thin line down the middle of the frame, 70% of it
 });
 
 test("the phone's rule puts it directly under the token panel", () => {
-  assert.match(PHONE, /<section id="home" aria-label="Home"><div id="homeplot"><\/div><div id="homelimits" hidden><\/div><\/section>/);
+  assert.match(PHONE, /<section id="home" aria-label="Home">[\s\S]*?<div id="homeplot"><\/div><div id="homelimits" hidden><\/div>\s*<\/div><\/section>/);
   const rules = rulesOf(styleBlocks(PHONE));
   assert.equal(declsFor(rules, "#home #homelimits")["margin-top"], "8px");
   assert.equal(declsFor(rules, "#home .tk-panel")["padding-left"], "22px", "the same sides as the token panel's");
