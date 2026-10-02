@@ -48,9 +48,12 @@ function world() {
     querySelectorAll: selector => selector === ".box.cardswipe"
       ? Object.values(boxes).filter(b => b.classList.contains("cardswipe")) : [],
   };
+  const els = { m1: { box: boxes.m1 }, m2: { box: boxes.m2 } };
   const context = vm.createContext({
     document, drawer, settings, innerWidth: 390, selectedId: "m1", hist: null,
-    els: { m1: { box: boxes.m1 }, m2: { box: boxes.m2 } },
+    els,
+    // the page builds the card coming in when it is not built yet
+    ensureCard: id => els[id] || null,
     addEventListener: on("window"), performance: { now: () => 0 },
     setTimeout: (fn, ms) => { timers.push(fn); return timers.length; }, clearTimeout() {},
     matchMedia: () => ({ matches: false }),
@@ -67,6 +70,8 @@ function world() {
     wearEditor: id => calls.push(["wear", id, boxes[id].classList.contains("cardswipe")]),
     // card-logic.js's own function: the card coming in is handed its reading head
     openAtHead: el => calls.push(["head", el.box.id]),
+    // a card taken down and built again is handed its answer's scroll back
+    seatScroll() {},
     MutationObserver: class { observe() {} disconnect() {} },
   });
   for (const source of [DRAWER, RECORDER, SWIPE]) vm.runInContext(source, context);

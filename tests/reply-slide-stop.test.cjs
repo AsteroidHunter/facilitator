@@ -114,9 +114,13 @@ async function openCard(surface, id){
 // area's scroll, where the rising sent panel stands in the sheet, and where the
 // card's own panel and reply stand
 const RECORD = id => {
-  const el = els[id], view = el.replyview || el.reply;
   const frames = [];
   const read = () => {
+    // the phone builds a card when it is shown, so a card in another project
+    // has no frames until then
+    const el = els[id];
+    if (!el) return;
+    const view = el.replyview || el.reply;
     const top = view.getBoundingClientRect().top;
     const rising = document.querySelector(".turnsheet .answered.sent");
     frames.push({
@@ -214,8 +218,14 @@ async function answerAgain(page, id, owner = "facilitator"){
   await api(`/send?box=${id}`, "Invented latest message: please take the next step.");
   await claim(id, owner);
   await api(`/reply?box=${id}`, paragraphs("Second reply", 30));
-  await page.waitForFunction(cardId => els[cardId].reply.textContent.includes("Second reply paragraph 1."),
-    { timeout:9000 }, id);
+  // the phone builds only the cards near the one on show, so a card in another
+  // project is the board's record of it until it is shown
+  await page.waitForFunction(cardId => {
+    const text = "Second reply paragraph 1.";
+    if (els[cardId]) return els[cardId].reply.textContent.includes(text);
+    const b = lastState.boxes.find(x => x.id === cardId);
+    return !!b && (b.replyFull == null ? (b.reply || "") : b.replyFull).includes(text);
+  }, { timeout:9000 }, id);
   await wait(600);
 }
 
