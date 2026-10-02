@@ -330,32 +330,47 @@ test("uninstall removes the environment, node deps and config, and keeps the boa
   assert.match(res.out, /✓ Removed \.venv\./);
   assert.match(res.out, /✓ Removed node_modules\./);
   assert.match(res.out, /✓ Removed run\.config\.json\./);
-  assert.match(res.out, /⊘ Kept state\.json\./);
-  assert.match(res.out, /⊘ Kept transcript\.jsonl\./);
-  assert.match(res.out, /⊘ Kept card attachments in .*facilitator-internal\/uploads\./);
-  assert.match(res.out, /⊘ Kept card attachments in .*facilitator\/uploads\./);
-  assert.match(res.out, /⊘ Kept logs\./);
-  assert.match(res.out, /⊘ Kept vapid-key\.pem\./);
+  assert.doesNotMatch(res.out, /Kept (state|transcript|logs|vapid|bridge-auth)|Kept card attachments in|not present|are kept/);
 });
 
-test("uninstall prints numbered sections with a rule as long as each title and no double blank line", async () => {
+test("uninstall keeps only the attachments section, then check-mark lines and the finish", async () => {
   const dir = await freshClone();
-  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
+  const home = path.join(dir, "home");
+  await mkdir(home);
+  const env = { SHELL: "/bin/zsh" };
+  const setup = ["import shell_integration", "shell_integration.install()",
+    stubs(), snapshot("cli.cmd_install(['install'])")].join("\n");
+  assert.equal((await run(dir, setup, env)).exit, null);
   await fabricateData(dir);
 
-  const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
+  const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"), env);
   assert.equal(res.exit, null, res.out);
   const lines = res.out.split("\n");
-  const titles = lines.filter(line => /^\d\. /.test(line));
-  assert.deepEqual(titles, ["1. Card attachments", "2. Command and skill", "3. Board files", "4. Board data"]);
-  for (const title of titles) {
-    const at = lines.indexOf(title);
-    assert.equal(lines[at - 1], "", `no blank line before ${title}`);
-    assert.equal(lines[at + 1], "─".repeat(title.length), `the rule under ${title}`);
-    assert.equal(lines[at + 2], "", `no blank line after the rule under ${title}`);
-  }
+  const at = lines.indexOf("Card attachments");
+  assert.ok(at > 0, res.out);
+  assert.equal(lines[at - 1], "", "no blank line before the section title");
+  assert.equal(lines[at + 1], "─".repeat("Card attachments".length), "the rule under the title");
+  assert.equal(lines[at + 2], "", "no blank line after the rule");
+  assert.deepEqual(lines.filter(line => /^─+$/.test(line)).length, 1, "more than one section");
+  assert.doesNotMatch(res.out, /\d\. |Command and skill|Board files|Board data/);
   assert.doesNotMatch(res.out, /\n\n\n/, "two blank lines in a row");
-  assert.match(res.out, /✦ Uninstall finished\.\n\nThis folder was left in place\.\n$/);
+  const tail = res.out.slice(res.out.indexOf("Pass --remove-attachments to remove them.\n"));
+  assert.equal(tail, [
+    "Pass --remove-attachments to remove them.",
+    "",
+    "✓ facilitator command and agent skill removed",
+    "✓ Removed .venv.",
+    "✓ Removed node_modules.",
+    "✓ Removed package.json.",
+    "✓ Removed package-lock.json.",
+    "✓ Removed run.config.json.",
+    "✓ Removed seed.json.",
+    "",
+    "✦ Uninstall finished.",
+    "",
+    "This folder was left in place.",
+    "",
+  ].join("\n"));
 });
 
 test("uninstall keeps attachments with no terminal to ask on", async () => {
@@ -462,7 +477,7 @@ for (const said of ["n\n", " No \n"]) {
     assert.equal(res.files.internal_notes, true, "the internal folder's other files went");
     assert.ok(res.files.state && res.files.transcript && res.files.logs && res.files.vapid, JSON.stringify(res.files));
     assert.match(res.out, /✓ Removed card attachments folder .*facilitator-internal\/uploads\./);
-    assert.match(res.out, /⊘ Kept state\.json\./);
+    assert.doesNotMatch(res.out, /Kept state\.json/);
   });
 }
 
@@ -572,19 +587,19 @@ test("uninstall takes back a Claude limits entry an older install added to the C
   await writeFile(path.join(dir, ".facilitator-statusline.json"), fill(older.record));
   const removed = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"), env);
   assert.equal(removed.exit, null, removed.out);
-  assert.match(removed.out, /Removed .*settings\.json, which setup made\./);
-  assert.match(removed.out, /any Claude limits entry\nan older setup added/);
+  assert.match(removed.out, /✓ facilitator command and agent skill removed/);
+  assert.doesNotMatch(removed.out, /settings\.json|Claude limits entry/);
   await assert.rejects(lstat(settings), { code: "ENOENT" });
 });
 
-test("a second uninstall is harmless and says nothing is present", async () => {
+test("a second uninstall is harmless and prints no removal lines", async () => {
   const dir = await freshClone();
   await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
   await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
   const again = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
   assert.equal(again.exit, null, again.out);
-  assert.match(again.out, /⊘ \.venv not present\./);
-  assert.match(again.out, /⊘ run\.config\.json not present\./);
+  assert.doesNotMatch(again.out, /not present|✓ /);
+  assert.match(again.out, /✦ Uninstall finished\./);
 });
 
 test("uninstall refuses while the board answers on the port, and removes nothing", async () => {

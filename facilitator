@@ -1977,7 +1977,7 @@ def cmd_uninstall(args):
 
     owned = read_install_record()
     attachments = attachment_dirs()
-    section("1. Card attachments")
+    section("Card attachments")
     print("Uninstall asks about your card attachments first, apart from the")
     print("rest of the board's data. Only a clear no removes them.")
     print()
@@ -1990,19 +1990,16 @@ def cmd_uninstall(args):
         print("No card attachments found.")
         keep = True
 
-    import shell_integration
-    section("2. Command and skill")
-    print("Uninstall removes the command link, the skill links, the")
-    print("installer block in your shell profile and any Claude limits entry")
-    print("an older setup added to your Claude Code settings, but only where")
-    print("they are still the ones setup made.")
     print()
-    shell_integration.uninstall()
-
-    note = bridge_note(port)
-    if note:
-        print()
-        print(note)
+    import shell_integration
+    removed_before = shell_integration.done
+    shell_integration.QUIET = True
+    try:
+        shell_integration.uninstall()
+    finally:
+        shell_integration.QUIET = False
+    if shell_integration.done > removed_before:
+        ok("facilitator command and agent skill removed")
 
     made = [(".venv", HERE / ".venv"),
             ("node_modules", HERE / "node_modules"),
@@ -2010,51 +2007,27 @@ def cmd_uninstall(args):
             ("package-lock.json", HERE / "package-lock.json"),
             ("run.config.json", HERE / "run.config.json"),
             ("seed.json", HERE / "seed.json")]
-    data = [("state.json", HERE / "state.json"),
-            ("transcript.jsonl", HERE / "transcript.jsonl"),
-            ("logs", LOG_DIR),
-            ("vapid-key.pem", HERE / "vapid-key.pem"),
-            ("bridge-auth.json", HERE / "bridge-auth.json"),
-            ("bridge-auth.lock", HERE / "bridge-auth.lock")]
 
-    section("3. Board files")
-    print("Setup recorded the files it made. Uninstall removes those, and")
-    print("keeps any that you changed or that were already there.")
-    print()
     for label, path in made:
         marker = owned.get(label)
         if marker is None:
             if path.exists():
                 skipped(f"Kept {label}: it is not recorded as installer-owned.")
-            else:
-                skipped(f"{label} not present.")
         elif marker != "directory" and (not path.is_file() or file_digest(path) != marker):
             skipped(f"Kept {label}: it has changed since install.")
         elif remove_path(path):
             ok(f"Removed {label}.")
-        else:
-            skipped(f"{label} not present.")
     if INSTALL_RECORD.exists():
         INSTALL_RECORD.unlink()
 
-    section("4. Board data")
-    print("Board data and bridge credentials are kept.")
-    print("Card attachments follow your answer in step 1.")
-    print()
-    shown = 0
-    for label, path in data:
-        if path.exists():
-            skipped(f"Kept {label}.")
-            shown += 1
-
-    for path in attachments:
-        if keep:
-            skipped(f"Kept card attachments in {path}.")
-        else:
+    if not keep:
+        for path in attachments:
             remove_attachments(path)
-        shown += 1
-    if not shown:
-        skipped("No board data found.")
+
+    note = bridge_note(port)
+    if note:
+        print()
+        print(note)
 
     print()
     print(f"{style('38;2;0;114;0', '✦')} Uninstall finished.")

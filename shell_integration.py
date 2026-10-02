@@ -28,10 +28,12 @@ def style(code, text):
 
 _printed = False
 QUIET = False
+done = 0
 
 
 def ok(text):
-    global _printed
+    global _printed, done
+    done += 1
     if QUIET:
         return
     _printed = True
