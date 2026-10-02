@@ -156,6 +156,12 @@ async function tap(p, selector){
   await p.page.touchscreen.tap(at.x, at.y);
   await pause(400);
 }
+// a project chosen in the list the capsule in the row of buttons opens, the
+// way the tab row across the top used to be tapped
+async function pick(p, owner){
+  await tap(p, "#projbtn");
+  await tap(p, `#projlist .projrow[data-owner="${owner}"]`);
+}
 const READING = "article.box.sel .reply";
 const REPLY_BOX = "article.box.sel textarea";
 
@@ -189,7 +195,7 @@ test("arriving at a card only browses it: nothing is read and the card sits leve
     await p.close();
   }
   p = await openPhone();
-  await tap(p, '#tabbar .ptab[data-owner="pastureland"]');
+  await pick(p, "pastureland");
   const tab = await look(p);
   assert.ok(tab.shown && tab.shown.startsWith("2."), "the tab did not show its own card");
   assertBrowsed(tab, tab.shown, "tab switch");
@@ -282,16 +288,16 @@ test("a row tapped in the drawer is chosen, not browsed", async () => {
   await p.close();
 });
 
-test("the home page unselects the card, so a tab brings it back browsed", async () => {
+test("the home page unselects the card, so a project brings it back browsed", async () => {
   const p = await openPhone({ selbox: "1.6" });
   await tap(p, READING);
   assertSelected(await look(p), "1.6", "after the tap");
   await p.page.evaluate(() => house.click());
   await pause(400);
   assert.equal((await look(p)).browsing, true, "the home page left the card selected");
-  await tap(p, '#tabbar .ptab[data-owner="facilitator"]');
+  await pick(p, "facilitator");
   const back = await look(p);
-  assert.ok(back.shown, "the tab showed no card");
+  assert.ok(back.shown, "the project showed no card");
   assertBrowsed(back, back.shown, "coming back from home");
   await p.close();
 });
@@ -344,27 +350,27 @@ test("a reply that lands is read at once on the selected card while the window i
   await p.close();
 });
 
-test("a tap on the open project's tab unselects the card and leaves it on screen", async () => {
+test("choosing the open project in the list unselects the card and leaves it on screen", async () => {
   const p = await openPhone({ selbox: "1.1" });
   await tap(p, READING);
   assertSelected(await look(p), "1.1", "after the tap");
-  await tap(p, '#tabbar .ptab[data-owner="facilitator"]');
+  await pick(p, "facilitator");
   const off = await look(p);
   assert.equal(off.shown, "1.1", "the card left the screen");
-  assert.equal(off.browsing, true, "the tap on the open tab did not unselect");
+  assert.equal(off.browsing, true, "choosing the open project did not unselect");
   assert.equal(off.shadow, "flat", "the unselected card kept its shadow");
   assert.ok(off.read.includes("1.1"), "unselecting took the read mark back");
-  // on a browsed card the tab is only a tab: it shows the lane's own pick, browsed
-  await tap(p, '#tabbar .ptab[data-owner="facilitator"]');
+  // on a browsed card the row is only a project: it shows the lane's own pick, browsed
+  await pick(p, "facilitator");
   const again = await look(p);
-  assert.equal(again.browsing, true, "the open tab tapped again selected a card");
-  assert.equal(again.shadow, "flat", "the open tab tapped again left a shadow on the card");
-  // the other project's tab only browses
-  await tap(p, '#tabbar .ptab[data-owner="pastureland"]');
+  assert.equal(again.browsing, true, "the open project chosen again selected a card");
+  assert.equal(again.shadow, "flat", "the open project chosen again left a shadow on the card");
+  // the other project only browses
+  await pick(p, "pastureland");
   const other = await look(p);
-  assert.ok(other.shown && other.shown.startsWith("2."), "the other tab showed no card of its own");
-  assert.equal(other.browsing, true, "the other tab selected a card");
-  assert.equal(other.shadow, "flat", "the other tab left a shadow on the card");
+  assert.ok(other.shown && other.shown.startsWith("2."), "the other project showed no card of its own");
+  assert.equal(other.browsing, true, "the other project selected a card");
+  assert.equal(other.shadow, "flat", "the other project left a shadow on the card");
   await p.close();
 });
 

@@ -143,7 +143,7 @@ after(async () => {
   if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
 });
 
-test("the card fills the phone with thin margins, tabs on top, prose through the shared renderer", async () => {
+test("the card fills the phone from a thin top margin down to the row of buttons, prose through the shared renderer", async () => {
   const id = await create("Phone page renders the shared markdown");
   const reply = "The phone card shows the **full** reply.\n\nSee [the runbook](https://example.com/runbook) and this block:\n\n" +
     "```python\nprint('hello from the card')\n```\n\n- one\n- two";
@@ -155,28 +155,41 @@ test("the card fills the phone with thin margins, tabs on top, prose through the
     await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
     const shape = await page.evaluate(() => {
       const pane = document.getElementById("pane").getBoundingClientRect();
-      const bar = document.querySelector(".bar").getBoundingClientRect();
+      const dock = document.getElementById("dock").getBoundingClientRect();
       return {
-        tabs: [...document.querySelectorAll("#tabbar .ptab")].map(t => t.textContent),
-        activeTab: document.querySelector("#tabbar .ptab.on")?.dataset.owner,
-        barTop: bar.top, barBottom: bar.bottom,
+        projects: [...document.querySelectorAll("#projlist .projrow")].map(t => t.textContent),
+        activeProject: document.querySelector("#projlist .projrow.on")?.dataset.owner,
+        capsule: document.getElementById("projname").textContent,
         left: pane.left, top: pane.top,
         right: innerWidth - pane.right, bottom: innerHeight - pane.bottom,
+        dock: { left: dock.left, right: innerWidth - dock.right, bottom: innerHeight - dock.bottom, height: dock.height },
+        buttons: [...document.querySelectorAll("#dock .dockbtn")].map(b => {
+          const r = b.getBoundingClientRect();
+          return [b.id, Math.round(r.width), Math.round(r.height), getComputedStyle(b).borderRadius, b.classList.contains("qn-glass")];
+        }),
         width: innerWidth, height: innerHeight,
         visible: [...document.querySelectorAll("article.box")].filter(b => getComputedStyle(b).display !== "none").length,
-        nothingElse: !document.querySelector("#magic1, #magic2, #magic3, #qchat, #clockbox"),
+        nothingElse: !document.querySelector("#magic1, #magic2, #magic3, #qchat, #clockbox, #tabbar"),
       };
     });
-    assert.equal(shape.tabs.length, 2, "one tab per project lane");
-    assert.ok(shape.tabs.every(label => label.trim().length > 0), "a tab without a label");
-    assert.equal(shape.activeTab, "facilitator");
-    assert.ok(shape.barTop >= 4 && shape.barTop <= 12, `tabs sit at the top with a thin margin (${shape.barTop})`);
+    assert.equal(shape.projects.length, 2, "one row per project lane in the list");
+    assert.ok(shape.projects.every(label => label.trim().length > 0), "a project without a label");
+    assert.equal(shape.activeProject, "facilitator");
+    assert.ok(shape.capsule.trim().length > 0, "the capsule names no project");
+    assert.ok(shape.top >= 4 && shape.top <= 12, `the card starts at the top with a thin margin (${shape.top})`);
     assert.ok(shape.left >= 4 && shape.left <= 12, `thin left margin (${shape.left})`);
     assert.ok(shape.right >= 4 && shape.right <= 12, `thin right margin (${shape.right})`);
-    assert.ok(shape.bottom >= 4 && shape.bottom <= 12, `thin bottom margin (${shape.bottom})`);
-    assert.ok(shape.top >= shape.barBottom && shape.top <= shape.barBottom + 12, "the card starts right under the tabs");
+    // the card stands on the band iOS gives a paired keyboard's bar, and the
+    // row of buttons is laid where that bar's pill is: 48 tall, 10 off the
+    // bottom edge, 16 in from each side
+    assert.equal(shape.bottom, 68, `the card does not stand on the row's band (${shape.bottom})`);
+    assert.deepEqual(shape.dock, { left: 16, right: 16, bottom: 10, height: 48 });
+    // four glass buttons: a circle, the long capsule, a short one, a circle
+    const capsule = shape.width - 32 - 48 - 72 - 48 - 3 * 8;
+    assert.deepEqual(shape.buttons, [["tikbtn", 48, 48, "24px", true], ["projbtn", capsule, 48, "24px", true],
+      ["tikadd", 72, 48, "24px", true], ["setbtn", 48, 48, "24px", true]]);
     assert.equal(shape.visible, 1, "exactly one card is shown");
-    assert.ok(shape.nothingElse, "nothing but tabs, card and drawer");
+    assert.ok(shape.nothingElse, "nothing but the card, the row of buttons and the drawers");
 
     const prose = await page.evaluate(() => {
       const box = document.querySelector("article.box.sel");
@@ -778,9 +791,11 @@ test("the defer chip parks, the history steps back, the plus makes a card to nam
     await page.evaluate(() => document.querySelector("article.box.sel .sunbtn").click());
     assert.equal(new URL((await unparked).url()).searchParams.get("v"), "0");
 
-    await page.evaluate(() => openDrawer());
+    // the plus in the row of buttons, with the drawer shut
+    assert.equal(await page.evaluate(() => document.getElementById("tikadd").closest("#dock") !== null), true,
+      "the new card's plus is not in the row of buttons");
     const created = page.waitForResponse(r => new URL(r.url()).pathname === "/create");
-    await page.evaluate(() => document.getElementById("tikadd").click());
+    await page.tap("#tikadd");
     const newId = (await (await created).json()).id;
     await page.waitForFunction(cardId => document.querySelector(`#box-${cardId}.sel .title`)?.isContentEditable, { timeout: 3000 }, newId);
     const naming = await page.evaluate(() => ({
