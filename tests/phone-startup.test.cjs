@@ -117,7 +117,6 @@ function boardState(boxes, rev = 7) {
       { id: "facilitator", label: "facilitator" },
       { id: "pastureland", label: "pastureland" },
     ],
-    paused: false,
     boxes,
     live: {
       listening: { facilitator: true, pastureland: true },
