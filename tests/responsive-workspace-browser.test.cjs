@@ -345,7 +345,8 @@ test("the drawer opens and closes, and picking a ticket closes it", async () => 
 });
 
 test("an unsent draft, the selected card and focus survive wide -> portrait -> wide", async () => {
-  const { context, page } = await fx.openBoard(null, { width: 1440, height: 900 });
+  // the formatting editor is off until a browser turns it on
+  const { context, page } = await fx.openBoard({ composeformat: "1" }, { width: 1440, height: 900 });
   try {
     // put a draft in the live CodeMirror composer of the selected card
     await page.waitForSelector("main .cm-content", { visible: true });
