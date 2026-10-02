@@ -1,8 +1,10 @@
-// The Claude Code status line entry the installer offers and uninstall takes
-// back. Every run is on a copy of the checkout files in a temp folder, with HOME
-// (or CLAUDE_CONFIG_DIR) inside it, so no real settings file is read or written.
-// The question is answered through a pseudo terminal, since it is only asked
-// where there is a terminal to ask on.
+// The Claude Code status line entry an older install added and uninstall takes
+// back. The installer no longer adds one and no longer asks about it, so the
+// older states come from tests/fixtures/older-statusline-installs.json: for each
+// layout, the settings file before, the file after the older install, and the
+// record it saved. Every run is on a copy of the checkout files in a temp
+// folder, with HOME (or CLAUDE_CONFIG_DIR) inside it, so no real settings file
+// is read or written.
 const assert = require("node:assert/strict");
 const { after, test } = require("node:test");
 const { execFile, spawnSync } = require("node:child_process");
@@ -13,7 +15,7 @@ const { promisify } = require("node:util");
 
 const exec = promisify(execFile);
 const ROOT = path.resolve(__dirname, "..");
-const QUESTION = "Show your Claude limits on the home page? [Y/n] ";
+const OLDER = require("./fixtures/older-statusline-installs.json");
 const folders = [];
 after(async () => { for (const dir of folders) await fs.rm(dir, { recursive: true, force: true }); });
 
@@ -34,176 +36,115 @@ async function fixture() {
     script: path.join(repo, "claude-statusline.py"), record: path.join(repo, ".facilitator-statusline.json") };
 }
 
-const run = (f, op, env = f.env) => exec("python3", [path.join(f.repo, "shell_integration.py"), op], { env });
+const run = (f, ...words) => exec("python3", [path.join(f.repo, "shell_integration.py"), ...words], { env: f.env });
 const call = (f, code, env = f.env) => exec("python3", ["-c", `import shell_integration as s\n${code}`], { env, cwd: f.repo });
-const add = (f, env) => call(f, "s.statusline_add()", env);
 const take = (f, env) => call(f, "s.statusline_uninstall()", env);
 const exists = file => fs.access(file).then(() => true, () => false);
 const read = file => fs.readFile(file, "utf8");
 
-// answers the question on a terminal: sends `answer` when the prompt appears
-const ASK = `import os, pty, sys
-answer, argv = sys.argv[1].encode().decode("unicode_escape").encode(), sys.argv[2:]
-pid, fd = pty.fork()
-if pid == 0:
-    os.execvp(argv[0], argv)
-seen, sent = b"", False
-while True:
-    try:
-        data = os.read(fd, 65536)
-    except OSError:
-        break
-    if not data:
-        break
-    seen += data
-    if not sent and b"[Y/n] " in seen:
-        os.write(fd, answer)
-        sent = True
-code = os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1])
-sys.stdout.write(seen.decode("utf-8", "replace").replace("\\r\\n", "\\n"))
-sys.exit(code)
-`;
-function ask(f, answer, env = f.env) {
-  const done = spawnSync("python3", ["-c", ASK, answer, "python3", path.join(f.repo, "shell_integration.py"), "statusline"],
-    { env, encoding: "utf8", timeout: 30000 });
-  assert.equal(done.status, 0, done.stderr + done.stdout);
-  return done.stdout;
+const fill = (f, text, settings = f.settings) => text.split("@SCRIPT@").join(f.script).split("@SETTINGS@").join(settings);
+
+// the files an older install left: the settings file as it was after, and the record
+async function older(f, name, settings = f.settings) {
+  const found = OLDER[name];
+  assert.ok(found, name);
+  await fs.mkdir(path.dirname(settings), { recursive: true });
+  await fs.writeFile(settings, fill(f, found.after, settings));
+  await fs.writeFile(f.record, fill(f, found.record, settings));
+  return found;
 }
 
-const commandFor = (f, wrapped) =>
-  `python3 ${f.script.includes(" ") ? `'${f.script}'` : f.script}` + (wrapped === undefined ? "" : ` '${wrapped}'`);
-
-test("on Enter it adds the entry and records it, and a second run adds nothing more", async () => {
-  const f = await fixture();
-  const out = ask(f, "\\n");
-  assert.ok(out.includes(QUESTION), out);
-  assert.match(out, /Claude limits added to /);
-  const settings = JSON.parse(await read(f.settings));
-  assert.deepEqual(settings, { statusLine: { type: "command", command: commandFor(f) } });
-  const record = JSON.parse(await read(f.record));
-  assert.equal(record.settings, f.settings);
-  assert.equal(record.created, true);
-  assert.equal(record.original, null);
-  assert.deepEqual(record.entry, settings.statusLine);
-  const before = await read(f.settings);
-  const recordBefore = await read(f.record);
-  const again = ask(f, "y\\n");
-  assert.match(again, /Claude limits already added\./);
-  assert.equal(await read(f.settings), before);
-  assert.equal(await read(f.record), recordBefore);
-});
-
-test("no, an unclear answer, and no terminal at all add nothing", async () => {
-  for (const answer of ["n\\n", "no\\n", "maybe\\n"]) {
-    const f = await fixture();
-    assert.match(ask(f, answer), /Claude limits not added\./);
-    assert.equal(await exists(f.settings), false, answer);
-    assert.equal(await exists(f.record), false, answer);
+test("the fixture file holds the layouts the older installer was shown", () => {
+  const names = Object.keys(OLDER);
+  assert.ok(names.length >= 12, names.join(", "));
+  for (const name of ["two spaces", "tabs", "compact", "carriage returns", "empty object", "wrapped", "made from nothing"])
+    assert.ok(names.includes(name), name);
+  for (const [name, found] of Object.entries(OLDER)) {
+    assert.ok(found.after.includes("@SCRIPT@"), `${name}: the entry points at the script`);
+    assert.equal(JSON.parse(found.record.split("@SCRIPT@").join("/s").split("@SETTINGS@").join("/t")).version, 1, name);
   }
-  const f = await fixture();
-  const quiet = await run(f, "statusline");
-  assert.match(quiet.stdout, /Claude limits not added: there is no terminal to ask on\./);
-  assert.equal(await exists(f.settings), false);
-  assert.equal(await exists(f.record), false);
 });
 
-test("an existing settings file keeps every other key and its layout, and uninstall gives it back byte for byte", async () => {
-  const layouts = {
-    "two spaces": '{\n  "model": "opus",\n  "permissions": {\n    "allow": ["Bash(ls)"]\n  },\n  "env": { "A": "1" }\n}\n',
-    "four spaces, no final newline": '{\n    "model": "opus",\n    "theme": "dark"\n}',
-    "tabs": '{\n\t"model": "opus",\n\t"hooks": {}\n}\n',
-    "compact": '{"model":"opus","theme":"dark"}',
-    "inline spaces": '{"model": "opus", "theme": "dark"}\n',
-    "carriage returns": '{\r\n  "model": "opus",\r\n  "theme": "dark"\r\n}\r\n',
-    "empty object": "{}\n",
-    "a note in a string": '{\n  "model": "opus",\n  "note": "has a } and a , and \\"quotes\\""\n}\n',
-  };
-  for (const [name, original] of Object.entries(layouts)) {
+test("uninstall gives every older layout back byte for byte and drops the record", async () => {
+  for (const [name, found] of Object.entries(OLDER)) {
     const f = await fixture();
-    await fs.writeFile(f.settings, original);
-    await add(f);
-    const added = await read(f.settings);
-    const parsed = JSON.parse(added);
-    assert.deepEqual(parsed.statusLine, { type: "command", command: commandFor(f) }, name);
-    const others = { ...parsed };
-    delete others.statusLine;
-    assert.deepEqual(others, JSON.parse(original), `${name}: the other keys`);
-    assert.ok(added.startsWith(original.replace(/\s*\}\s*$/, "")), `${name}: what was there stays put`);
-    if (name === "carriage returns") assert.doesNotMatch(added.replace(/\r\n/g, ""), /\n/, "every line break stays a carriage return pair");
-    const out = await take(f);
-    assert.match(out.stdout, /Removed the Claude limits status line from /, name);
-    assert.equal(await read(f.settings), original, `${name}: back to what it was`);
+    await older(f, name);
+    const out = (await take(f)).stdout;
+    const record = JSON.parse(fill(f, found.record));
+    if (record.original !== null) assert.match(out, /Restored your status line in /, name);
+    else if (record.created) assert.match(out, /Removed .*, which setup made\./, name);
+    else assert.match(out, /Removed the Claude limits status line from /, name);
+    if (found.before === null) assert.equal(await exists(f.settings), false, `${name}: the file older setup made is gone`);
+    else assert.equal(await read(f.settings), found.before, `${name}: back to what it was`);
     assert.equal(await exists(f.record), false, name);
   }
 });
 
-test("a status line that is already there is wrapped and keeps showing, and uninstall restores it exactly", async () => {
+test("a settings file with carriage return line breaks gets them back", async () => {
   const f = await fixture();
-  const original = '{\n  "statusLine": {\n    "type": "command",\n    "command": "echo \\u00e9 \\"mine\\" $HOME",\n    "padding": 2\n  },\n  "model": "opus"\n}\n';
-  await fs.writeFile(f.settings, original);
-  const out = await add(f);
-  assert.match(out.stdout, /around your status line/);
+  await older(f, "carriage returns");
+  const text = await read(f.settings);
+  assert.ok(text.includes("\r\n"));
+  assert.doesNotMatch(text.replace(/\r\n/g, ""), /\n/, "every line break is a carriage return pair");
+  await take(f);
+  assert.equal(await read(f.settings), OLDER["carriage returns"].before);
+});
+
+test("a status line wrapped by an older install keeps showing until uninstall", async () => {
+  const f = await fixture();
+  await older(f, "wrapped");
   const wrapped = JSON.parse(await read(f.settings));
   assert.equal(wrapped.statusLine.type, "command");
   assert.equal(wrapped.statusLine.padding, 2);
   assert.equal(wrapped.model, "opus");
-  assert.equal(wrapped.statusLine.command, commandFor(f, 'echo é "mine" $HOME'));
-  // run the setting as Claude Code does: the old command's line comes out unchanged, and the limits are kept
   const input = JSON.stringify({ rate_limits: { five_hour: { used_percentage: 12, resets_at: 4102444800 } } });
   const shown = spawnSync("sh", ["-c", wrapped.statusLine.command], { input, encoding: "utf8", env: { ...f.env, HOME: "/invented" } });
   assert.equal(shown.stdout, "é mine /invented\n");
   assert.equal(JSON.parse(await read(path.join(f.repo, "claude-limits.json"))).five_hour.used_percentage, 12);
   await take(f);
-  assert.equal(await read(f.settings), original);
+  assert.equal(await read(f.settings), OLDER.wrapped.before);
   assert.equal(await exists(f.record), false);
 });
 
-test("one that prints through cat comes out unchanged, and a second add changes nothing", async () => {
+test("one wrapped around cat comes out unchanged while it is installed", async () => {
   const f = await fixture();
-  await fs.writeFile(f.settings, JSON.stringify({ statusLine: { type: "command", command: "cat" } }, null, 2) + "\n");
-  await add(f);
-  const once = await read(f.settings);
+  await older(f, "wrapped cat");
+  const command = JSON.parse(await read(f.settings)).statusLine.command;
   const input = JSON.stringify({ model: { display_name: "Invented" } });
-  const shown = spawnSync("sh", ["-c", JSON.parse(once).statusLine.command], { input, encoding: "utf8" });
+  const shown = spawnSync("sh", ["-c", command], { input, encoding: "utf8" });
   assert.equal(shown.stdout, input);
-  const again = await add(f);
-  assert.match(again.stdout, /already added/);
-  assert.equal(await read(f.settings), once);
 });
 
-test("uninstall takes out only what install added: the file it made, and nothing else", async () => {
+test("uninstall takes out only what the older install added: the file it made and the folder it made", async () => {
   const f = await fixture();
   await fs.rm(path.join(f.home, ".claude"), { recursive: true });
   await run(f, "install");
-  await add(f);
+  await older(f, "made from nothing");
   assert.equal(await exists(f.settings), true);
   await run(f, "uninstall");
-  assert.equal(await exists(f.settings), false, "the settings file install made is gone");
+  assert.equal(await exists(f.settings), false, "the settings file the older install made is gone");
   assert.equal(await exists(f.record), false);
-  assert.equal(await exists(path.join(f.home, ".claude")), false, "so is the folder it made");
+  assert.equal(await exists(path.join(f.home, ".claude")), false, "so is the folder");
 });
 
 test("a settings file that had other keys stays, without the entry", async () => {
   const f = await fixture();
-  await fs.writeFile(f.settings, '{\n  "model": "opus"\n}\n');
-  await add(f);
+  await older(f, "model only");
   await run(f, "uninstall");
   assert.equal(await read(f.settings), '{\n  "model": "opus"\n}\n');
 });
 
 test("an entry changed by hand since install is left alone, and uninstall says so", async () => {
   const f = await fixture();
-  await add(f);
+  await older(f, "made from nothing");
   const edited = JSON.stringify({ statusLine: { type: "command", command: "my-own-line --short" } }, null, 2) + "\n";
   await fs.writeFile(f.settings, edited);
   const out = await take(f);
   assert.match(out.stdout, /Kept the status line in .*, which has changed since install\./);
   assert.equal(await read(f.settings), edited);
   assert.equal(await exists(f.record), false, "nothing is owned any more");
-  // the same for a wrapped entry that was edited
   const g = await fixture();
-  await fs.writeFile(g.settings, JSON.stringify({ statusLine: { type: "command", command: "mine" } }));
-  await add(g);
+  await older(g, "wrapped compact");
   const wrapped = JSON.parse(await read(g.settings));
   wrapped.statusLine.padding = 1;
   const touched = JSON.stringify(wrapped);
@@ -214,87 +155,91 @@ test("an entry changed by hand since install is left alone, and uninstall says s
 
 test("an entry that is gone by hand, or a settings file that is gone, takes the record away quietly", async () => {
   const f = await fixture();
-  await add(f);
+  await older(f, "compact");
   await fs.writeFile(f.settings, '{"model":"opus"}');
   assert.equal((await take(f)).stdout, "");
   assert.equal(await read(f.settings), '{"model":"opus"}');
   assert.equal(await exists(f.record), false);
   const g = await fixture();
-  await add(g);
+  await older(g, "compact");
   await fs.rm(g.settings);
   assert.equal((await take(g)).stdout, "");
   assert.equal(await exists(g.record), false);
 });
 
-test("a settings file that is not JSON, a status line that is not a command, and one already ours are left alone", async () => {
+test("a settings file that is not JSON is kept as it is, and the record stays", async () => {
   const f = await fixture();
+  await older(f, "two spaces");
   await fs.writeFile(f.settings, "{ not json");
-  assert.match((await add(f)).stdout, /could not be read as JSON/);
+  assert.match((await take(f)).stdout, /Kept the status line in .*: it could not be read as JSON\./);
   assert.equal(await read(f.settings), "{ not json");
-  assert.equal(await exists(f.record), false);
-  for (const text of ['{"statusLine":"plain"}', '{"statusLine":{"type":"text"}}', '{"statusLine":{"type":"command"}}', '[]']) {
-    const g = await fixture();
-    await fs.writeFile(g.settings, text);
-    await add(g);
-    assert.equal(await read(g.settings), text, text);
-    assert.equal(await exists(g.record), false, text);
+  assert.equal(await exists(f.record), true);
+});
+
+test("a record this checkout did not write is kept and never acted on", async () => {
+  const bad = [
+    ["not JSON", () => "{ not json"],
+    ["another script", f => fill(f, OLDER["two spaces"].record).replace(f.script, "/elsewhere/claude-statusline.py")],
+    ["another version", f => fill(f, OLDER["two spaces"].record).replace('"version": 1', '"version": 2')],
+    ["a relative settings path", f => fill(f, OLDER["two spaces"].record).replace(f.settings, "settings.json")],
+  ];
+  for (const [name, make] of bad) {
+    const f = await fixture();
+    await fs.writeFile(f.settings, fill(f, OLDER["two spaces"].after));
+    await fs.writeFile(f.record, make(f));
+    const out = await take(f);
+    assert.match(out.stdout, /Kept .*: it is not a record this installer wrote\./, name);
+    assert.equal(await read(f.settings), fill(f, OLDER["two spaces"].after), `${name}: the settings file is untouched`);
+    assert.equal(await exists(f.record), true, name);
   }
-  // one set up by hand with this checkout's script: nothing to add and nothing to remove later
-  const h = await fixture();
-  const own = JSON.stringify({ statusLine: { type: "command", command: commandFor(h) } });
-  await fs.writeFile(h.settings, own);
-  assert.match((await add(h)).stdout, /already added/);
-  assert.equal(await exists(h.record), false);
-  await take(h);
-  assert.equal(await read(h.settings), own);
-  // another checkout's script is not wrapped either
-  const k = await fixture();
-  const other = JSON.stringify({ statusLine: { type: "command", command: "python3 /elsewhere/claude-statusline.py" } });
-  await fs.writeFile(k.settings, other);
-  assert.match((await add(k)).stdout, /runs another claude-statusline\.py/);
-  assert.equal(await read(k.settings), other);
 });
 
-test("CLAUDE_CONFIG_DIR is where the entry goes, and uninstall finds it again when the environment changes", async () => {
+test("with no record there is nothing to take back and the settings file is not read", async () => {
+  const f = await fixture();
+  await fs.writeFile(f.settings, "{ not json and not ours");
+  assert.equal((await take(f)).stdout, "");
+  assert.equal(await read(f.settings), "{ not json and not ours");
+});
+
+test("uninstall goes by the settings path in the record, whatever CLAUDE_CONFIG_DIR says now", async () => {
   const f = await fixture();
   const config = path.join(f.dir, "claude-config");
-  await fs.mkdir(config);
-  const env = { ...f.env, CLAUDE_CONFIG_DIR: config };
-  await add(f, env);
   const settings = path.join(config, "settings.json");
-  assert.equal(JSON.parse(await read(settings)).statusLine.command, commandFor(f));
-  assert.equal(await exists(f.settings), false, "the default place is not touched");
+  await older(f, "two spaces", settings);
   await take(f);
-  assert.equal(await exists(settings), false);
+  assert.equal(await read(settings), OLDER["two spaces"].before);
+  assert.equal(await exists(f.settings), false, "the default place is not touched");
   assert.equal(await exists(f.record), false);
+  const g = await fixture();
+  await older(g, "compact");
+  await take(g, { ...g.env, CLAUDE_CONFIG_DIR: path.join(g.dir, "elsewhere") });
+  assert.equal(await read(g.settings), OLDER.compact.before);
 });
 
-test("a changed CLAUDE_CONFIG_DIR does not add a second entry, and a link for the settings file is followed", async () => {
+test("a link for the settings file is followed and stays a link", async () => {
   const f = await fixture();
-  await add(f);
-  const config = path.join(f.dir, "claude-config");
-  await fs.mkdir(config);
-  const moved = await add(f, { ...f.env, CLAUDE_CONFIG_DIR: config });
-  assert.match(moved.stdout, /already added to /);
-  assert.equal(await exists(path.join(config, "settings.json")), false);
-  const g = await fixture();
-  const target = path.join(g.dir, "dotfiles-settings.json");
-  await fs.writeFile(target, '{\n  "model": "opus"\n}\n');
-  await fs.symlink(target, g.settings);
-  await add(g);
-  assert.equal((await fs.lstat(g.settings)).isSymbolicLink(), true, "the link stays a link");
-  assert.equal(JSON.parse(await read(target)).statusLine.command, commandFor(g));
-  await take(g);
-  assert.equal(await read(target), '{\n  "model": "opus"\n}\n');
+  const target = path.join(f.dir, "dotfiles-settings.json");
+  await fs.writeFile(target, fill(f, OLDER["two spaces"].after));
+  await fs.symlink(target, f.settings);
+  await fs.writeFile(f.record, fill(f, OLDER["two spaces"].record));
+  await take(f);
+  assert.equal((await fs.lstat(f.settings)).isSymbolicLink(), true, "the link stays a link");
+  assert.equal(await read(target), OLDER["two spaces"].before);
 });
 
-test("with no Claude Code folder, or without the script beside it, nothing is made", async () => {
+test("install adds no status line entry and keeps no record, with or without a terminal", async () => {
+  for (const words of [["install"], ["install", "--quiet"]]) {
+    const f = await fixture();
+    const out = (await run(f, ...words)).stdout;
+    assert.doesNotMatch(out, /Claude limits/i, words.join(" "));
+    assert.equal(await exists(f.settings), false, words.join(" "));
+    assert.equal(await exists(f.record), false, words.join(" "));
+  }
+});
+
+test("the statusline operation and the Claude limits question are gone", async () => {
   const f = await fixture();
-  await fs.rm(path.join(f.home, ".claude"), { recursive: true });
-  assert.match((await add(f)).stdout, /Claude limits not added: .* is not there\./);
-  assert.equal(await exists(path.join(f.home, ".claude")), false);
-  const g = await fixture();
-  await fs.rm(g.script);
-  assert.match((await add(g)).stdout, /is missing\./);
-  assert.equal(await exists(g.settings), false);
+  await assert.rejects(run(f, "statusline"), error => /usage: shell_integration\.py preflight\|install \[--quiet\]\|uninstall/.test(error.stderr));
+  await assert.rejects(run(f, "uninstall", "--quiet"), error => /usage: shell_integration\.py/.test(error.stderr));
+  assert.doesNotMatch(await read(path.join(ROOT, "install.sh")), /Claude limits|statusline/i);
 });

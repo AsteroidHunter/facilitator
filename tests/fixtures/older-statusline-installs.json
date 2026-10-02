@@ -1,0 +1,67 @@
+{
+ "two spaces": {
+  "before": "{\n  \"model\": \"opus\",\n  \"permissions\": {\n    \"allow\": [\"Bash(ls)\"]\n  },\n  \"env\": { \"A\": \"1\" }\n}\n",
+  "after": "{\n  \"model\": \"opus\",\n  \"permissions\": {\n    \"allow\": [\"Bash(ls)\"]\n  },\n  \"env\": { \"A\": \"1\" },\n  \"statusLine\": {\n    \"type\": \"command\",\n    \"command\": \"python3 @SCRIPT@\"\n  }\n}\n",
+  "record": "{\n  \"version\": 1,\n  \"settings\": \"@SETTINGS@\",\n  \"script\": \"@SCRIPT@\",\n  \"created\": false,\n  \"original\": null,\n  \"entry\": {\n    \"type\": \"command\",\n    \"command\": \"python3 @SCRIPT@\"\n  }\n}\n"
+ },
+ "four spaces, no final newline": {
+  "before": "{\n    \"model\": \"opus\",\n    \"theme\": \"dark\"\n}",
+  "after": "{\n    \"model\": \"opus\",\n    \"theme\": \"dark\",\n    \"statusLine\": {\n        \"type\": \"command\",\n        \"command\": \"python3 @SCRIPT@\"\n    }\n}",
+  "record": "{\n  \"version\": 1,\n  \"settings\": \"@SETTINGS@\",\n  \"script\": \"@SCRIPT@\",\n  \"created\": false,\n  \"original\": null,\n  \"entry\": {\n    \"type\": \"command\",\n    \"command\": \"python3 @SCRIPT@\"\n  }\n}\n"
+ },
+ "tabs": {
+  "before": "{\n\t\"model\": \"opus\",\n\t\"hooks\": {}\n}\n",
+  "after": "{\n\t\"model\": \"opus\",\n\t\"hooks\": {},\n\t\"statusLine\": {\n\t\t\"type\": \"command\",\n\t\t\"command\": \"python3 @SCRIPT@\"\n\t}\n}\n",
+  "record": "{\n  \"version\": 1,\n  \"settings\": \"@SETTINGS@\",\n  \"script\": \"@SCRIPT@\",\n  \"created\": false,\n  \"original\": null,\n  \"entry\": {\n    \"type\": \"command\",\n    \"command\": \"python3 @SCRIPT@\"\n  }\n}\n"
+ },
+ "compact": {
+  "before": "{\"model\":\"opus\",\"theme\":\"dark\"}",
+  "after": "{\"model\":\"opus\",\"theme\":\"dark\",\"statusLine\":{\"type\":\"command\",\"command\":\"python3 @SCRIPT@\"}}",
+  "record": "{\n  \"version\": 1,\n  \"settings\": \"@SETTINGS@\",\n  \"script\": \"@SCRIPT@\",\n  \"created\": false,\n  \"original\": null,\n  \"entry\": {\n    \"type\": \"command\",\n    \"command\": \"python3 @SCRIPT@\"\n  }\n}\n"
+ },
+ "inline spaces": {
+  "before": "{\"model\": \"opus\", \"theme\": \"dark\"}\n",
+  "after": "{\"model\": \"opus\", \"theme\": \"dark\", \"statusLine\": {\"type\": \"command\", \"command\": \"python3 @SCRIPT@\"}}\n",
+  "record": "{\n  \"version\": 1,\n  \"settings\": \"@SETTINGS@\",\n  \"script\": \"@SCRIPT@\",\n  \"created\": false,\n  \"original\": null,\n  \"entry\": {\n    \"type\": \"command\",\n    \"command\": \"python3 @SCRIPT@\"\n  }\n}\n"
+ },
+ "carriage returns": {
+  "before": "{\r\n  \"model\": \"opus\",\r\n  \"theme\": \"dark\"\r\n}\r\n",
+  "after": "{\r\n  \"model\": \"opus\",\r\n  \"theme\": \"dark\",\r\n  \"statusLine\": {\r\n    \"type\": \"command\",\r\n    \"command\": \"python3 @SCRIPT@\"\r\n  }\r\n}\r\n",
+  "record": "{\n  \"version\": 1,\n  \"settings\": \"@SETTINGS@\",\n  \"script\": \"@SCRIPT@\",\n  \"created\": false,\n  \"original\": null,\n  \"entry\": {\n    \"type\": \"command\",\n    \"command\": \"python3 @SCRIPT@\"\n  }\n}\n"
+ },
+ "empty object": {
+  "before": "{}\n",
+  "after": "{\n  \"statusLine\": {\n    \"type\": \"command\",\n    \"command\": \"python3 @SCRIPT@\"\n  }\n}\n",
+  "record": "{\n  \"version\": 1,\n  \"settings\": \"@SETTINGS@\",\n  \"script\": \"@SCRIPT@\",\n  \"created\": false,\n  \"original\": null,\n  \"entry\": {\n    \"type\": \"command\",\n    \"command\": \"python3 @SCRIPT@\"\n  }\n}\n"
+ },
+ "a note in a string": {
+  "before": "{\n  \"model\": \"opus\",\n  \"note\": \"has a } and a , and \\\"quotes\\\"\"\n}\n",
+  "after": "{\n  \"model\": \"opus\",\n  \"note\": \"has a } and a , and \\\"quotes\\\"\",\n  \"statusLine\": {\n    \"type\": \"command\",\n    \"command\": \"python3 @SCRIPT@\"\n  }\n}\n",
+  "record": "{\n  \"version\": 1,\n  \"settings\": \"@SETTINGS@\",\n  \"script\": \"@SCRIPT@\",\n  \"created\": false,\n  \"original\": null,\n  \"entry\": {\n    \"type\": \"command\",\n    \"command\": \"python3 @SCRIPT@\"\n  }\n}\n"
+ },
+ "wrapped": {
+  "before": "{\n  \"statusLine\": {\n    \"type\": \"command\",\n    \"command\": \"echo \\u00e9 \\\"mine\\\" $HOME\",\n    \"padding\": 2\n  },\n  \"model\": \"opus\"\n}\n",
+  "after": "{\n  \"statusLine\": {\n    \"type\": \"command\",\n    \"command\": \"python3 @SCRIPT@ 'echo é \\\"mine\\\" $HOME'\",\n    \"padding\": 2\n  },\n  \"model\": \"opus\"\n}\n",
+  "record": "{\n  \"version\": 1,\n  \"settings\": \"@SETTINGS@\",\n  \"script\": \"@SCRIPT@\",\n  \"created\": false,\n  \"original\": \"\\\"echo \\\\u00e9 \\\\\\\"mine\\\\\\\" $HOME\\\"\",\n  \"entry\": {\n    \"type\": \"command\",\n    \"command\": \"python3 @SCRIPT@ 'echo \\u00e9 \\\"mine\\\" $HOME'\",\n    \"padding\": 2\n  }\n}\n"
+ },
+ "wrapped cat": {
+  "before": "{\n  \"statusLine\": {\n    \"type\": \"command\",\n    \"command\": \"cat\"\n  }\n}\n",
+  "after": "{\n  \"statusLine\": {\n    \"type\": \"command\",\n    \"command\": \"python3 @SCRIPT@ cat\"\n  }\n}\n",
+  "record": "{\n  \"version\": 1,\n  \"settings\": \"@SETTINGS@\",\n  \"script\": \"@SCRIPT@\",\n  \"created\": false,\n  \"original\": \"\\\"cat\\\"\",\n  \"entry\": {\n    \"type\": \"command\",\n    \"command\": \"python3 @SCRIPT@ cat\"\n  }\n}\n"
+ },
+ "wrapped compact": {
+  "before": "{\"statusLine\":{\"type\":\"command\",\"command\":\"mine\"}}",
+  "after": "{\"statusLine\":{\"type\":\"command\",\"command\":\"python3 @SCRIPT@ mine\"}}",
+  "record": "{\n  \"version\": 1,\n  \"settings\": \"@SETTINGS@\",\n  \"script\": \"@SCRIPT@\",\n  \"created\": false,\n  \"original\": \"\\\"mine\\\"\",\n  \"entry\": {\n    \"type\": \"command\",\n    \"command\": \"python3 @SCRIPT@ mine\"\n  }\n}\n"
+ },
+ "model only": {
+  "before": "{\n  \"model\": \"opus\"\n}\n",
+  "after": "{\n  \"model\": \"opus\",\n  \"statusLine\": {\n    \"type\": \"command\",\n    \"command\": \"python3 @SCRIPT@\"\n  }\n}\n",
+  "record": "{\n  \"version\": 1,\n  \"settings\": \"@SETTINGS@\",\n  \"script\": \"@SCRIPT@\",\n  \"created\": false,\n  \"original\": null,\n  \"entry\": {\n    \"type\": \"command\",\n    \"command\": \"python3 @SCRIPT@\"\n  }\n}\n"
+ },
+ "made from nothing": {
+  "before": null,
+  "after": "{\n  \"statusLine\": {\n    \"type\": \"command\",\n    \"command\": \"python3 @SCRIPT@\"\n  }\n}\n",
+  "record": "{\n  \"version\": 1,\n  \"settings\": \"@SETTINGS@\",\n  \"script\": \"@SCRIPT@\",\n  \"created\": true,\n  \"original\": null,\n  \"entry\": {\n    \"type\": \"command\",\n    \"command\": \"python3 @SCRIPT@\"\n  }\n}\n"
+ }
+}

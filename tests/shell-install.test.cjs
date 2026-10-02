@@ -5,6 +5,7 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { promisify } = require('node:util');
+const { sandbox } = require('./installer-sandbox.cjs');
 const exec = promisify(execFile);
 const root = path.resolve(__dirname, '..');
 
@@ -325,18 +326,13 @@ test('help and unknown installer arguments do not create or edit files', async (
 });
 
 test('./install.sh sets up a fake checkout and exposes the real CLI command', async () => {
-  const f = await fixture();
+  const f = await sandbox({ agents: ['claude', 'codex'] });
   try {
-    const tools = path.join(f.dir, 'tools');
-    await fs.mkdir(tools);
-    const uv = path.join(tools, 'uv');
-    await fs.writeFile(uv, '#!/bin/sh\nif [ "$1" = venv ]; then mkdir -p .venv/bin; touch .venv/bin/python .venv/bin/python3; fi\n');
-    await fs.chmod(uv, 0o755);
-    const env = { ...f.env, PATH: `${tools}:${f.env.PATH}` };
-    const first = await exec('bash', [path.join(f.repo, 'install.sh')], { cwd: f.repo, env });
-    assert.match(first.stdout, /FACILITATOR|█████/);
-    const titles = ['1. Locations', '2. Board', '3. App password', '4. Command and skill', '5. Claude limits'];
-    const lines = first.stdout.split('\n');
+    const first = await f.piped();
+    assert.equal(first.code, 0, first.text);
+    assert.match(first.text, /█████/);
+    const titles = ['1. Claude Code or Codex', '2. Chrome', '3. Python', '4. Phone client'];
+    const lines = first.text.split('\n');
     for (const title of titles) {
       const at = lines.indexOf(title);
       assert.ok(at > 0, `${title} is missing`);
@@ -344,20 +340,21 @@ test('./install.sh sets up a fake checkout and exposes the real CLI command', as
       assert.equal(lines[at + 1], '─'.repeat(title.length), `the rule under ${title}`);
       assert.equal(lines[at + 2], '', `no blank line after the rule under ${title}`);
     }
-    assert.doesNotMatch(first.stdout, /\n\n\n/, 'two blank lines in a row');
-    assert.match(first.stdout, /facilitator password set/);
-    assert.match(first.stdout, /Claude limits not added: there is no terminal to ask on\./);
+    assert.doesNotMatch(first.text, /\n\n\n/, 'two blank lines in a row');
+    assert.match(first.text, /⊘ Skipped the phone client: there is no interactive terminal\./);
+    assert.doesNotMatch(first.text, /Claude limits|facilitator password set/);
     await assert.rejects(fs.lstat(path.join(f.home, '.claude', 'settings.json')), { code: 'ENOENT' });
-    assert.match(first.stdout, /✦ Facilitator is installed!\n\nNext steps:\n\n1\. Start the board: facilitator run\n2\. Onboard your agent, in Claude Code: \/facilitator onboard\n   or in Codex: \$facilitator onboard\n\n$/);
-    const second = await exec('bash', [path.join(f.repo, 'install.sh')], { cwd: f.repo, env });
-    assert.match(second.stdout, /✓ Command already linked\./);
-    const ptyCapture = `import os,pty,subprocess,sys\nm,s=pty.openpty()\np=subprocess.Popen(['bash',sys.argv[1]],stdin=subprocess.DEVNULL,stdout=s,stderr=s)\nos.close(s)\nwhile True:\n try: data=os.read(m,65536)\n except OSError: break\n if not data: break\n os.write(1,data)\nsys.exit(p.wait())`;
-    const terminal = await exec('python3', ['-c', ptyCapture, path.join(f.repo, 'install.sh')],
-      { cwd: f.repo, env });
-    assert.match(terminal.stdout, /\x1b\[38;2;190;55;30m█/, 'terminal banner lacks the reddish-orange gradient');
-    assert.match(terminal.stdout, /\x1b\[38;2;0;114;0m✓\x1b\[0m /, 'terminal output lacks the green check');
+    assert.match(first.text, /✓ facilitator command and agent skill installed\nOpen a new terminal to use facilitator\.\n\n✦ Facilitator is installed!\n\nNext steps:\n\n1\. Start the board: facilitator run\n2\. Onboard your agent, in Claude Code: \/facilitator onboard\n   or in Codex: \$facilitator onboard\n\n$/);
+    const second = await f.piped();
+    assert.equal(second.code, 0, second.text);
+    assert.match(second.text, /✓ facilitator command and agent skill installed\n\n✦ Facilitator is installed!/);
+    assert.doesNotMatch(second.text, /Open a new terminal/);
+    const terminal = await f.terminal([['phone client? (y / n) ', 'n']], [], { color: true });
+    assert.equal(terminal.code, 0, terminal.text);
+    assert.match(terminal.text, /\x1b\[38;2;190;55;30m█/, 'terminal banner lacks the reddish-orange gradient');
+    assert.match(terminal.text, /\x1b\[38;2;0;114;0m✓\x1b\[0m /, 'terminal output lacks the green check');
     const command = path.join(f.home, '.local/share/facilitator/bin/facilitator');
-    const result = await exec(command, ['_install'], { env: { ...env, FACILITATOR_INTERNAL_INSTALL: '' } }).then(() => null, error => error);
+    const result = await exec(command, ['_install'], { env: { ...f.env, FACILITATOR_INTERNAL_INSTALL: '' } }).then(() => null, error => error);
     assert.ok(result, 'internal install was exposed without the installer guard');
     assert.match(result.stderr, /facilitator run/);
   } finally { await f.clean(); }
