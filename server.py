@@ -488,9 +488,6 @@ Endpoints:
                                The messages the claim holds at that moment are
                                read from then on (pendingStates on /state)
   POST /end                 -> ask the agent to wrap up once the queue drains
-  POST /pause?v=1|0         -> pause / resume both listeners (laptop-close mode):
-                               while paused /wait returns {"paused":true} at once
-                               and agents idle locally, re-checking /state ~1/min
   GET  /fresh?owner=O       -> while O's agent holds a card: any messages that
                                landed on that card after the claim, handed over
                                and folded into the claim, so the one reply
@@ -516,9 +513,8 @@ Endpoints:
                                message_via runs beside it, one entry per message
                                in the same order, "mini" for a small card message
                                and null for a big card one. Also returns
-                               {"idle":true} on timeout, {"paused":true} while
-                               paused, or {"end":true} once ended and O's queue
-                               is drained.
+                               {"idle":true} on timeout, or {"end":true} once
+                               ended and O's queue is drained.
                                Delivery is confirmed, always: ack carries a short
                                token and the claim counts as provisional until
                                POST /ack names it. There is no unconfirmed mode.
@@ -1802,7 +1798,6 @@ def _seed_state() -> dict:
         # the lane holds nothing
         "ack": {ow: None for ow in OWNERS},
         "end": False,
-        "paused": False,
         "next_mid": 1,
         "next_bid": 1,
     }
@@ -2083,7 +2078,7 @@ def _backfill_rest_stamps() -> None:
 
 def _migrate() -> None:
     """Apply each versioned, idempotent upgrade to saved board state."""
-    _state.setdefault("paused", False)
+    _state.pop("paused", None)   # the pause switch is gone; drop what an older board saved
     _state.setdefault("title", "facilitator")
     # owners come from data, not code: the built-in facilitator, the lanes named
     # in run.config.json, the stored project lanes, and any owner a saved card
@@ -3477,7 +3472,7 @@ def _phone_state(since: int | None, ops: list[str], epoch: str = "") -> bytes:
             "title": _state.get("title", "facilitator"),
             "tabs": _state.get("tabs", {"order": [], "closed": []}),
             "pwds": _lane_pwds(), "projects": _state.get("projects", []),
-            "paused": _state.get("paused", False), "epoch": PHONE_EPOCH,
+            "epoch": PHONE_EPOCH,
         })
         if base is None:
             cards = texts
@@ -3680,7 +3675,6 @@ def _ui_state() -> dict:
         "busy": st["busy"],
         "queued": len(st["inbox"]),
         "end": st["end"],
-        "paused": st.get("paused", False),
         "title": st.get("title", "facilitator"),
         # the lane whose own internal folder feeds the image panel, read
         # from run.config.json; empty leaves the panel off on every tab
@@ -4391,11 +4385,9 @@ def _wait_leave(owner: str) -> None:
 
 def _wait_poll(owner: str):
     """One pass over the lane: the clocks, the steal-back, then a claim if a
-    box is waiting. Answers (kind, payload) with kind one of paused, end or
-    claim, or None when there is nothing to say yet."""
+    box is waiting. Answers (kind, payload) with kind one of end or claim, or
+    None when there is nothing to say yet."""
     with _lock:
-        if _state.get("paused"):  # laptop-close mode: send the listener home
-            return "paused", {"paused": True}
         # the short clock first: a hand-off nobody confirmed comes back
         # after 90 seconds, long before the steal-back below notices
         _release_unacked()
@@ -5929,15 +5921,6 @@ def _post_quicknote_del(q: Query, text: str):
         return 200, {"ok": True, "id": note["id"], "rev": _state["rev"]}
 
 
-def _post_pause(q: Query, text: str):
-    with _lock:
-        _state["paused"] = q.one("v", "1") == "1"
-        _log("pause" if _state["paused"] else "unpause", "", "")
-        _save()
-        _notify()  # in-flight waiters return {"paused":true} at once
-        return 200, {"ok": True, "paused": _state["paused"]}
-
-
 def _post_end(q: Query, text: str):
     with _lock:
         _state["end"] = True
@@ -6690,7 +6673,6 @@ ROUTES = [
         Route("/quicknote/attach", _state_endpoint(_post_quicknote_attach, "text"), methods=["POST"]),
         Route("/quicknote/del", _state_endpoint(_post_quicknote_del, "text"), methods=["POST"]),
     ] if QUICK_NOTES_ON else []),
-    Route("/pause", _state_endpoint(_post_pause, "text"), methods=["POST"]),
     Route("/end", _state_endpoint(_post_end, "text"), methods=["POST"]),
 ]
 
