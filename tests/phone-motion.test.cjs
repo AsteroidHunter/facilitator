@@ -427,9 +427,12 @@ test("the answer dissolves under the title as it scrolls and into the sent box a
     const scrolled = await page.evaluate(async () => {
       const view = document.querySelector("article.box.sel .replyview");
       const read = () => getComputedStyle(view).getPropertyValue("--upband").trim();
+      // the band is written by the scroll event, which comes on the next frame, so
+      // the read waits for that event and not for a fixed time
       const step = async to => {
+        const landed = new Promise(r => { view.addEventListener("scroll", r, { once: true }); setTimeout(r, 2000); });
         view.scrollTop = to;
-        await new Promise(r => setTimeout(r, 60));
+        await landed;
         return read();
       };
       return { small: await step(7), deep: await step(400) };
@@ -475,7 +478,9 @@ test("the sent line lands on the tap, the panel comes up with it cut, and the po
     assert.equal(atOnce.animation, "answarrive", "the arrival is not the shared rise and fade");
     assert.equal(atOnce.open, false, "the send landed the panel open");
     assert.equal(atOnce.field, "", "the words were left in the row he types on");
-    assert.equal(atOnce.square, false, "the send square stayed up with nothing to send");
+    // the arrow stays up for a quick second press, which is how a send moves on
+    // (393061c), and goes back down once that window has passed
+    assert.equal(atOnce.square, true, "the send square went down at once instead of waiting for a second press");
     // a burst over the arrival: the panel coming up out of the row
     await shot(page, "send-mid-1");
     await settle(120);
@@ -500,6 +505,8 @@ test("the sent line lands on the tap, the panel comes up with it cut, and the po
     assert.equal(settled.transform, "none");
     assert.deepEqual(settled.rows, ["Landed before the server answered"], "the poll doubled the sent line");
     assert.equal(settled.line, null, "a confirmed message kept the mark an unconfirmed one wears");
+    await page.waitForFunction(() => !document.querySelector("article.box.sel .sendbtn").classList.contains("show"),
+      { timeout: 3000 }).catch(() => assert.fail("the send square stayed up with nothing to send, past the second press's window"));
     const saved = await (await fetch(origin + "/state")).json();
     assert.deepEqual(saved.boxes.find(b => b.id === id).pendingTexts, ["Landed before the server answered"]);
     await shot(page, "send-settled");
@@ -511,7 +518,7 @@ test("the sent line lands on the tap, the panel comes up with it cut, and the po
   }
 });
 
-test("a send moves on to the card that has waited longest, on the desktop's wait", async () => {
+test("a second press of the send arrow moves on to the card that has waited longest, on the desktop's wait", async () => {
   const board = await readFile(path.join(ROOT, "index.html"), "utf8");
   const phone = await readFile(path.join(ROOT, "m.html"), "utf8");
   const wait = source => source.match(/const AUTONEXT_MS = (\d+)/)[1];
@@ -529,6 +536,15 @@ test("a send moves on to the card that has waited longest, on the desktop's wait
   try {
     await page.waitForSelector(`#box-${from}.sel`, { timeout: 5000 });
     await page.type("article.box.sel textarea", "Off you go");
+    // the first press of the arrow sends and stays on the card (393061c); a second
+    // press inside the quick window is the one that moves on
+    await page.evaluate(() => document.querySelector("article.box.sel .sendbtn").click());
+    const stayed = await page.evaluate(() => ({
+      selected: selectedId,
+      up: document.querySelector("article.box.sel .sendbtn").classList.contains("show"),
+    }));
+    assert.equal(stayed.selected, from, "the first press of the send arrow moved on");
+    assert.equal(stayed.up, true, "the send arrow did not stay up for a second press");
     await page.evaluate(() => document.querySelector("article.box.sel .sendbtn").click());
     await page.waitForFunction(id => selectedId === id, { timeout: 3000 }, waiting);
     const landed = await page.evaluate(() => ({
@@ -706,7 +722,12 @@ test("a pull past the middle opens the card list and one short of it goes back",
     let midway = null;
     await pull(page, "left", 0.6, async () => {
       midway = await readMenu(page, "#drawer");
-      await shot(page, "drawer-dragged");
+      // asked of the browser directly: the page's own screenshot, taken with a
+      // finger down, makes this Chrome send the touch again at a third of its place
+      const cdp = await page.createCDPSession();
+      const { data } = await cdp.send("Page.captureScreenshot", { format: "png" });
+      await cdp.detach();
+      await writeFile(path.join(SHOTS, "drawer-dragged.png"), Buffer.from(data, "base64"));
     });
     assert.ok(midway.shift < 0 && midway.shift > -midway.width, "the card list does not follow the finger");
     assert.equal(midway.ms, "0s", "the card list is on a clock while the finger holds it");
@@ -748,8 +769,10 @@ test("the overlaid card list still scrolls vertically and every uncovered pixel,
     await page.waitForSelector("article.box.sel", { timeout: 5000 });
     await page.evaluate(() => openDrawer());
     await settle(750);
+    // the groups sit side by side on one sheet and each group scrolls on its own,
+    // so the pane of the open view is the list that scrolls
     const before = await page.evaluate(() => {
-      const list = document.getElementById("tiklist");
+      const list = document.querySelector('#tiklist .tikpane[data-view="todo"]');
       return { top: list.scrollTop, room: list.scrollHeight - list.clientHeight };
     });
     assert.ok(before.room > 300, `the card-list fixture does not overflow enough to scroll (${before.room})`);
@@ -759,7 +782,7 @@ test("the overlaid card list still scrolls vertically and every uncovered pixel,
     await page.touchscreen.touchEnd();
     await settle(300);
     const scrolled = await page.evaluate(() => ({
-      top: document.getElementById("tiklist").scrollTop,
+      top: document.querySelector('#tiklist .tikpane[data-view="todo"]').scrollTop,
       open: document.getElementById("drawer").classList.contains("open"),
     }));
     assert.ok(scrolled.top > 100, `the overlaid card list did not scroll (${scrolled.top})`);
