@@ -3,6 +3,8 @@
 /state.json.bak-*
 /state.tmp
 /transcript.jsonl
+# held by the running server: one per folder, naming its pid and port
+/server.lock
 
 # the phone page's push signing key pair: made by openssl on first need, private
 /vapid-key.pem
