@@ -3152,23 +3152,26 @@
     max-height:56vh; overflow-y:auto}
   /* rows are plain information, never controls, with one exception: the row
      of a project whose tab was closed is the way back to it, so that row and
-     only that row takes clicks and says so with the pointer and a soft fill */
+     only that row takes clicks and says so with the pointer and a soft fill.
+     --row-hover is that fill, also the start button's shade under the pointer */
+  :root{--row-hover:#FFF8EF}
   .nprow{display:flex; flex-direction:column; gap:1px; width:100%;
     padding:9px 12px; text-align:left}
   .nprow.shut{cursor:pointer; border-radius:5px}
-  .nprow.shut:hover{background:#FFF8EF}
+  .nprow.shut:hover{background:var(--row-hover)}
   .npname{font:400 15px/1.35 var(--inter); color:var(--ink)}
   .nppath{font:11px var(--mono); color:var(--sub); max-width:100%;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   /* the start button is dressed like the open card: a white surface, the
      card's corner radius, a thin border in the line colour and the board's ink.
      the border's drawn width is taken out of the padding so the button keeps its
-     outer size. hovering or pressing shades it the way a top-row chip is shaded */
+     outer size. hovering or pressing fills it with the fill a project row takes
+     under the pointer */
   #npstart{margin:18px 0 0; font:500 14px var(--inter); color:var(--ink);
     background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
     padding:calc(12px - var(--edge-drawn)) calc(26px - var(--edge-drawn));
     cursor:pointer}
-  #npstart:hover, #npstart:active{background:color-mix(in srgb, #000 var(--press), var(--card))}
+  #npstart:hover, #npstart:active{background:var(--row-hover)}
   body.focus .name{display:none}
   body.focus #offline{
     position:fixed; left:14px; bottom:12px; top:auto; transform:none;
@@ -3247,8 +3250,8 @@
      --app-inset on each side) holds the token box and the limits box as one
      unit. #homepair is a column as tall as the frame and 35% of its width,
      centred on the right half's own vertical line, with its two boxes stacked
-     in the middle of its height and --home-gap between them (one and a half
-     of the board's medium gap, --sp-m). the limits box is directly under the
+     in the middle of its height and --home-gap between them (twice
+     the board's medium gap, --sp-m). the limits box is directly under the
      token box and as wide, so both share the line, and the pair is centred in
      the frame however tall the limits box is, following the window. the token
      box keeps its 35% of the frame's height and gives up height only when the
@@ -3262,7 +3265,7 @@
     --home-l:var(--app-inset); --home-r:calc(100vw - var(--app-inset));
     --home-t:calc(var(--app-inset) + var(--bar-h) - 1px - var(--edge-drawn));
     --home-b:calc(100vh - var(--app-inset));
-    --home-gap:calc(var(--sp-m) * 1.5);
+    --home-gap:calc(var(--sp-m) * 2);
     --home-w:calc((var(--home-r) - var(--home-l)) * .35);
     left:calc(var(--home-l) * .25 + var(--home-r) * .75 - var(--home-w) / 2);
     top:var(--home-t); width:var(--home-w); height:calc(var(--home-b) - var(--home-t));
@@ -3308,7 +3311,7 @@
   /* every row on home is a way in, so each one takes the pointer and the soft
      fill the new tab gives a closed project's row */
   body.focus.home .nprow{cursor:pointer; border-radius:5px}
-  body.focus.home .nprow:hover{background:#FFF8EF}
+  body.focus.home .nprow:hover{background:var(--row-hover)}
   body.focus.home #stage{visibility:hidden; opacity:0; pointer-events:none}
   /* both halves come in together on one plain fade: the same start, length and
      curve as the board's own dissolve, with no movement and no stagger, so the
