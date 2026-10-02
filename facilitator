@@ -60,8 +60,9 @@
       the .venv to requirements.txt and runs the numbered steps in updates/
       that have not run here yet, each once. A .venv that is missing, broken
       or not on Python 3.14 is first built again on the Python 3.14 uv
-      manages. Restarts the board only when it is running and something was
-      pulled. Ends with the old and new version.
+      manages; a board running on the old one is stopped before that and
+      started again after. Restarts the board only when it is running and
+      something was pulled. Ends with the old and new version.
 
 Reads run.config.json beside this script: machine-local and gitignored, since
 lanes name real directories and tmux sessions; ./install.sh writes it
@@ -1999,7 +2000,8 @@ INSTALL_HELP = """usage: ./install.sh
 Check that Claude Code or Codex and Chrome are here, then make this checkout
 runnable: find or install uv (0.9.0 or newer), build the private .venv on a
 Python 3.14 that uv manages, rebuilding a .venv that is missing, broken or on
-another Python, and sync requirements, write run.config.json and seed.json from
+another Python (a board running on the old one is stopped first), and sync
+requirements, write run.config.json and seed.json from
 the examples when they are missing, and install test dependencies when node is
 present. In an interactive terminal it asks about the phone client (Tailscale,
 then an app password). It ends by registering the facilitator command and the
@@ -2149,11 +2151,54 @@ def env_python():
     return None
 
 
+# set once ensure_env has stopped this folder's board to rebuild .venv, so a
+# step that fails after that can say the board is down
+env_stopped_board = False
+
+
+def board_on_env():
+    """The port this folder's board answers on, or None. Asked only where
+    server.lock and run.config.json point, and counted only when the board
+    there names this folder: another checkout's board on the same port runs on
+    its own .venv, and with neither file there is nowhere to ask."""
+    ports = [lock_port()]
+    if CONFIG.exists():
+        ports.append(board_port())
+    for port in dict.fromkeys(port for port in ports if port):
+        if this_board(board_state(port)):
+            return port
+    return None
+
+
+def stop_for_rebuild():
+    """Stop this folder's board before its .venv is rebuilt; True when one was
+    stopped. It has to go first: once .venv points at the new Python, restart
+    can no longer recognise a server still running on the old one, and the
+    rebuild would clear the packages from under it. A board that cannot be
+    stopped safely stops the run instead, with .venv unchanged."""
+    global env_stopped_board
+    port = board_on_env()
+    if port is None:
+        return False
+    owner, refusal = server_process(port)
+    if refusal is None and owner is not None:
+        refusal = stop_server(owner, port)
+    if refusal:
+        sys.exit(problem(f"The board could not be stopped to rebuild .venv: {refusal}.",
+                         "Nothing in .venv was changed. Stop the board, then run ./install.sh again."))
+    if owner is None:
+        return False
+    env_stopped_board = True
+    print(f"Stopped the board on port {port}, which was running on the old .venv.")
+    return True
+
+
 def build_env(uv, have, quiet):
     """Build .venv on a Python APP_PYTHON that uv manages itself, replacing
     whatever stands there. uv installs that Python first, the only step that
-    downloads, so a failure there leaves .venv as it was. A rebuild of a .venv
-    that was there says so even when quiet, since it is news."""
+    downloads, so a failure there leaves .venv and the board as they were. A
+    rebuild of a .venv that was there says so even when quiet, since it is
+    news. True when the board was stopped for it."""
     venv = HERE / ".venv"
     if venv.is_symlink():
         sys.exit(problem(f".venv is a link, and it is not on Python {APP_PYTHON}.",
@@ -2169,6 +2214,7 @@ def build_env(uv, have, quiet):
         sys.exit(problem(f"uv could not install Python {APP_PYTHON}.",
                          *(["Nothing in .venv was changed."] if there else []),
                          "See the output above, then run ./install.sh again."))
+    stopped = stop_for_rebuild() if there else False
     if run_uv([uv, "venv", "--clear", "--managed-python", "--python", APP_PYTHON, ".venv"], quiet) != 0:
         sys.exit(problem("uv could not create .venv.",
                          "See the output above, then run ./install.sh again."))
@@ -2179,6 +2225,7 @@ def build_env(uv, have, quiet):
                          "See the output above, then run ./install.sh again."))
     if not quiet:
         ok("Environment created.")
+    return stopped
 
 
 def ensure_env(uv, quiet=False):
@@ -2187,13 +2234,15 @@ def ensure_env(uv, quiet=False):
     Python is built again, so every checkout runs the Python the board is tested
     on. The sync runs either way because it is idempotent and is how a changed
     requirements file is picked up. quiet prints nothing unless a step fails or
-    .venv has to be rebuilt."""
+    .venv has to be rebuilt. True when the board was stopped for a rebuild, so
+    the caller can start it again."""
     have = env_python()
+    stopped = False
     if have == APP_PYTHON:
         if not quiet:
             ok(f"Environment found in .venv (Python {APP_PYTHON}).")
     else:
-        build_env(uv, have, quiet)
+        stopped = build_env(uv, have, quiet)
     if not quiet:
         print("Syncing packages to requirements.txt.")
     if run_uv([uv, "pip", "sync", "--python", ".venv/bin/python", "requirements.txt"], quiet) != 0:
@@ -2201,6 +2250,7 @@ def ensure_env(uv, quiet=False):
                          "See the output above, then run ./install.sh again."))
     if not quiet:
         ok("Packages synced.")
+    return stopped
 
 
 def ensure_config():
@@ -2270,6 +2320,11 @@ def cmd_install(args):
         ensure_env(uv)
         ensure_config()
         ensure_node_deps()
+    except SystemExit as stop:
+        if env_stopped_board and isinstance(stop.code, str):
+            stop.code += ("\n  The board was stopped to rebuild .venv and is down. Once this is"
+                          " fixed, start it with: facilitator run")
+        raise
     finally:
         # A failed dependency step can still have created files. Record them so
         # a later uninstall can remove only that partial install's own files.
@@ -2511,8 +2566,9 @@ upstream forward only (git pull --ff-only), then runs the pulled code's update
 steps: sync the .venv to requirements.txt, then run each numbered step in
 updates/ that has not run here yet. A .venv that is missing, broken or not on
 Python 3.14 is built again on it first; that needs uv 0.9.0 or newer, and an
-older uv stops the update with one line. Restarts the board only when it is
-running and something was pulled."""
+older uv stops the update with one line. A board running on the old .venv is
+stopped before the rebuild and started again after. Otherwise restarts the
+board only when it is running and something was pulled."""
 
 
 def run_git(*args, env=None):
@@ -2670,17 +2726,21 @@ def run_update_steps():
         ok(f"{name} done.")
 
 
-def restart_board(pulled):
-    """Safe restart, only when something was pulled and the board is running; False if it was refused."""
-    if not pulled:
+def restart_board(pulled, stopped=False):
+    """Safe restart, only when something was pulled and the board is running,
+    or a start when the .venv rebuild stopped it; False if it was refused."""
+    if stopped:
+        print("The board was stopped to rebuild .venv. Starting it again.\n")
+    elif not pulled:
         skipped("Nothing was pulled, so the board was left as it is.")
         return True
-    port = board_port()
-    if not board_running(port):
-        skipped(f"The board is not running on port {port}, so it was not started.")
-        print("Start it with: facilitator run")
-        return True
-    print("The board is running. Restarting it onto the new code.\n")
+    else:
+        port = board_port()
+        if not board_running(port):
+            skipped(f"The board is not running on port {port}, so it was not started.")
+            print("Start it with: facilitator run")
+            return True
+        print("The board is running. Restarting it onto the new code.\n")
     try:
         cmd_restart(["restart"])
     except SystemExit as stop:
@@ -2700,20 +2760,20 @@ def cmd_update_steps(args):
         sys.stdout.reconfigure(line_buffering=True)
 
     try:
-        ensure_env(ensure_uv(quiet=True), quiet=True)
+        stopped = ensure_env(ensure_uv(quiet=True), quiet=True)
 
         section("2. Update steps")
         print("Numbered steps in the updates folder run once each, in order.\n"
               "A step that fails stops the update and runs again next time.\n")
         run_update_steps()
     except SystemExit as stop:
-        if pulled and isinstance(stop.code, str):
+        if (pulled or env_stopped_board) and isinstance(stop.code, str):
             stop.code += ("\n  The board was not restarted. Once the update goes through, run:"
                           " facilitator restart")
         raise
 
     section("3. Board")
-    restarted = restart_board(pulled)
+    restarted = restart_board(pulled, stopped)
 
     new_version = board_version()
     green = style("38;2;0;114;0", "✦")
