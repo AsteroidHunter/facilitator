@@ -1471,8 +1471,7 @@ def cmd_status():
         f"{ow}: " + ("attached" if st["listening"][ow]
                      else f"last heard {round(st['listenerGap'][ow] / 60)}m ago")
         for ow in st["listening"])
-    print(f"server up, {len(st['boxes'])} boxes, {st['queued']} queued"
-          + (", PAUSED" if st.get("paused") else "") + f" | {lanes}")
+    print(f"server up, {len(st['boxes'])} boxes, {st['queued']} queued | {lanes}")
 
 
 def board_port():
