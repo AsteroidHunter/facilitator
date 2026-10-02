@@ -244,7 +244,9 @@ test("wherever the line grid leaves the upper side room, the gaps around the res
   let roomy = 0;
   // each step of extra air under the panel moves the answer's lines to another
   // place on the grid, so the sweep reaches places where the white below is the
-  // larger and the lower share holds enough to level the two
+  // larger and the remainder holds enough to level the two. the upper share is
+  // put back into the white below before asking, since a snap that has already
+  // levelled the gaps would otherwise never count as having had room to do it
   for (let extra = 0; extra < 28; extra += 2) {
     await page.evaluate((id, extra) => {
       els[id].answwrap.style.paddingBottom = `calc(var(--sp-s) + ${extra}px)`;
@@ -252,8 +254,8 @@ test("wherever the line grid leaves the upper side room, the gaps around the res
     }, cardId, extra);
     await wait(100);
     const gaps = (await geometry(page, `desktop-1440-grid-${extra}`)).visibleInkGaps;
-    const wanted = (gaps.bottom - gaps.top) / 2;
-    if (wanted > 1.1 && gaps.lowerShare >= wanted) {
+    const wanted = (gaps.bottom - gaps.top) / 2 + gaps.upperShare;
+    if (wanted > 1.1 && gaps.upperShare + gaps.lowerShare >= wanted) {
       roomy++;
       assert.ok(Math.abs(gaps.top - gaps.bottom) <= 1.1, JSON.stringify({ extra, gaps }));
     }
