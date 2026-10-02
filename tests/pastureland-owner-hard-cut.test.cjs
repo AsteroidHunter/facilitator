@@ -172,13 +172,18 @@ test("navigator routes mount the configured lane and fence others out", async ()
     ["internal", PROJECT + "-internal"],
     ["wiki", PROJECT + "-wiki"],
   ]);
-  assert.deepEqual(result.body.roots[0].files.map(file => file.rel), ["fixture.md"]);
+  assert.deepEqual(result.body.roots.map(root => root.exists), [true, true]);
+  // the listing is of one folder, the lane's internal one by default
+  assert.equal(result.body.kind, "internal");
+  assert.equal(result.body.exists, true);
+  assert.deepEqual(result.body.entries.map(entry => [entry.name, entry.type]), [["fixture.md", "file"]]);
 
   // facilitator is a real owner but is not a navigator lane, so it has no folders
+  const bare = body => [body.roots, body.entries, body.exists];
   result = await api("/navfiles?lane=facilitator");
-  assert.deepEqual(result.body, { roots: [] }, "a lane off the navigator list still has folders");
+  assert.deepEqual(bare(result.body), [[], [], false], "a lane off the navigator list still has folders");
   const unknown = await api("/navfiles?lane=" + STRANGER);
-  assert.deepEqual(unknown.body, { roots: [] });
+  assert.deepEqual(bare(unknown.body), [[], [], false]);
 
   result = await api("/navfile?lane=" + PROJECT + "&root=" + PROJECT + "-internal&rel=fixture.md");
   assert.equal(result.status, 200);
