@@ -54,7 +54,7 @@ function world() {
     addEventListener: on("window"), performance: { now: () => 0 },
     setTimeout: (fn, ms) => { timers.push(fn); return timers.length; }, clearTimeout() {},
     matchMedia: () => ({ matches: false }),
-    menuOut: () => null, dismissEditor() {}, tracePhone() {}, traceFrameOpportunity() {},
+    menuOut: () => null, dismissEditor() {}, closeProjects() {}, tracePhone() {}, traceFrameOpportunity() {},
     phoneEnterRole: () => "other",
     menuWidth: () => 300, menuSign: p => p === settings ? -1 : 1,
     paintMenu: (p, at) => calls.push(["paint", p.dataset.side, Math.round(at * 100) / 100]),
@@ -96,13 +96,16 @@ test("every touch, mouse and pointer listener over the answer is passive", () =>
     assert.equal(l.options?.passive, true, `${l.where} ${l.type} may cancel, so the phone waits on the page`);
 });
 
-test("the tab strip's carry is the page's one listener that may cancel a touch", () => {
-  // the strip is its own box at the top and holds no answer, so a pan over the
-  // answer never waits on it
+test("the project's capsule and its list's carry are the page's only listeners that may cancel a touch", () => {
+  // the capsule in the row of buttons and the project list are boxes of their
+  // own over the row, and hold no answer, so a pan over the answer never waits
+  // on either
   const cancellable = [...HTML.matchAll(/passive\s*:\s*false/g)];
-  assert.equal(cancellable.length, 1);
-  const at = cancellable[0].index;
-  assert.match(HTML.slice(HTML.lastIndexOf("addEventListener(", at) - 4, at), /bar\.addEventListener\("touchmove"/);
+  assert.equal(cancellable.length, 2);
+  // each from the start of the line its listener is added on
+  const owners = cancellable.map(m => HTML.slice(HTML.lastIndexOf("\n", HTML.lastIndexOf("addEventListener(", m.index)), m.index));
+  assert.match(owners[0], /projBtn\.addEventListener\("touchstart"/);
+  assert.match(owners[1], /projList\.addEventListener\("touchmove"/);
 });
 
 test("a pull from the left edge opens the list, cancelling nothing", () => {
