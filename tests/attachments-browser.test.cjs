@@ -452,7 +452,17 @@ test("document and media markup is bounded, escaped and playable in the owned br
 test("chat stages mixed files and retries only incomplete uploads before sending raw URLs", async () => {
   const page = await openPage("/");
   try {
-    await page.evaluate(() => { activeOwner = C3_LANE; chatBuild(); c3Out = []; c3Msgs = []; c3Sig = ""; chatDraw(true); });
+    await page.evaluate(() => {
+      activeOwner = C3_LANE;
+      // the thread's box is empty on this board, so its sends and reads are
+      // pointed at the fixture's chat card here, in the page only
+      const real = window.fetch.bind(window);
+      window.fetch = (url, options) => real(String(url).replace(/^(\/(?:send|thread)\?box=)(&|$)/, "$1q$2"), options);
+      // the chat box is put away until the reader shows it
+      settingsStore.setItem("show." + C3_LANE + ".magic3", "1");
+      applySavedLayout();
+      chatBuild(); c3Out = []; c3Msgs = []; c3Sig = ""; chatDraw(true);
+    });
     const filename = path.join(outer, "chat-video.mp4");
     await writeFile(filename, MP4);
     const chooser = page.waitForFileChooser();
