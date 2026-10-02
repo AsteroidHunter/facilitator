@@ -5065,8 +5065,9 @@ function keyboardClosed(){
   }, CLOSE_RETRY_MS);
 }
 // ---- the row of buttons, while anything is typed -----------------------------------
-// the row fades out the moment a text field is focused on a touch screen, and
-// while any loss of the viewport is measured, whatever its size, and it stays
+// the row fades out the moment a finger comes down on the typing row or a text
+// field is focused on a touch screen, and while any loss of the viewport is
+// measured, whatever its size, and it stays
 // out through the close's settle window, so it is gone before a keyboard or a
 // paired keyboard's bar arrives and comes back once it has left. only once it
 // is out of sight is it moved, with no motion of its own, up by what the
