@@ -94,10 +94,6 @@
     font:13px/1.4 var(--sans); color:var(--ink); cursor:pointer}
   #setpanel .setrow input{margin:2px 0 0; flex:none; accent-color:var(--accent)}
   #setpanel .sethelp{margin:5px 0 0 22px; font:11.5px/1.45 var(--mono); color:var(--sub)}
-  .pausebtn{font:12px var(--mono); color:var(--accent); background:var(--accent-soft);
-    border:none; border-radius:4px; padding:4px 12px; cursor:pointer; transition:.2s}
-  .pausebtn:hover{background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft))}
-  body.paused .pausebtn{background:var(--accent); color:#fff}
   #editbtn{font:13px var(--mono); color:var(--accent); background:var(--accent-soft);
     border:none; border-radius:4px; padding:3px 9px; cursor:pointer; transition:.2s; flex:none}
   #editbtn:hover{background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft))}
@@ -1035,9 +1031,9 @@
   #docroot{display:none}
   body.docview #stage{display:none !important}
   /* the bar keeps only its tabs in this view: the name label, the bar clock,
-     the sandbox word, pause, end session, the listener tag and the await
+     the sandbox word, end session, the listener tag and the await
      count all stay out. the big day block below is the only clock here */
-  body.docview .live, body.docview .prog, body.docview #pausebtn,
+  body.docview .live, body.docview .prog,
   body.docview #endbtn, body.docview #editbtn, body.docview #bgpick,
   body.docview .name{display:none !important}
   #docclock, #docmock{display:none}
@@ -1275,7 +1271,6 @@
   <span class="prog" id="prog"></span>
   <button id="editbtn" title="edit layout">✎</button>
   <input type="color" id="bgpick" title="background color (temporary)" value="#F5F4F1">
-  <button class="pausebtn" id="pausebtn">pause listeners</button>
   <button class="endbtn" id="endbtn">End session</button>
   <span id="setwrap">
     <button id="setbtn" type="button" title="settings" aria-label="settings" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-1 1.47V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.6 1.6 0 0 0 4.6 15a1.6 1.6 0 0 0-1.47-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 8.9a1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.6 1.6 0 0 0 8.88 4.6H9a1.6 1.6 0 0 0 1-1.47V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77V9a1.6 1.6 0 0 0 1.47 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.47 1z"/></svg></button>
@@ -2467,12 +2462,6 @@ function apply(state){
   live.textContent = writingBoxes.length
       ? ("replying to " + writingBoxes.map(x => x.id).join(" + ") + (state.queued ? " · " + state.queued + " queued" : ""))
       : state.queued ? (state.queued + " queued") : "idle";
-  document.body.classList.toggle("paused", !!state.paused);
-  document.getElementById("pausebtn").textContent = state.paused ? "resume listeners" : "pause listeners";
-  if (state.paused){
-    dot.classList.remove("on");
-    live.textContent = "paused" + (state.queued ? " · " + state.queued + " queued" : "");
-  }
   // board title comes from state (seeded via seed.json), not from the page
   if (state.title && document.title !== state.title){
     document.title = state.title;
@@ -2515,7 +2504,7 @@ function apply(state){
 
   // listener presence, per agent: each is either long-polling (listening),
   // composing a claimed reply (busy), or recently between the two. Otherwise: offline.
-  const offOwners = state.paused ? [] : Object.keys(state.listening || NAME).filter(ow =>
+  const offOwners = Object.keys(state.listening || NAME).filter(ow =>
     (state.everListened || {})[ow] &&
     !state.listening[ow] && !state.busy[ow] && state.listenerGap[ow] > 300);
   document.body.classList.toggle("offline", offOwners.length > 0);
@@ -3184,10 +3173,6 @@ document.getElementById("ndown").addEventListener("click", () => nav(0, 1));
     settingsStore.setItem("bgcolor", pick.value);
   });
 }
-document.getElementById("pausebtn").addEventListener("click", async () => {
-  await fetch("/pause?v=" + (lastState?.paused ? 0 : 1), { method: "POST" }).catch(() => {});
-  poll();
-});
 
 let endArmed = false;
 document.getElementById("endbtn").addEventListener("click", async e => {
