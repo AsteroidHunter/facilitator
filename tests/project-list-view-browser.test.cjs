@@ -135,17 +135,20 @@ async function clickTab(page, owner) {
   assert.equal(await openTab(page), owner, `the bar did not switch to ${owner}`);
 }
 
-// the phone's bar scrolls, so the tab is brought into the screen before the
-// finger goes down on it
+// the phone's projects are rows of the list its capsule in the row of buttons
+// opens: a tap on the capsule, then the finger on the project's row, brought
+// into the list's view first since a long list scrolls
 async function tapTab(page, owner) {
-  const selector = `#tabbar .ptab[data-owner="${owner}"]`;
-  await page.$eval(selector, t => t.scrollIntoView({ inline: "center", block: "nearest" }));
-  await settle(250);
+  await page.tap("#projbtn");
+  await settle(400);
+  const selector = `#projlist .projrow[data-owner="${owner}"]`;
+  await page.$eval(selector, t => t.scrollIntoView({ block: "nearest" }));
+  await settle(150);
   const spot = await page.$eval(selector,
     t => { const r = t.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
   await page.touchscreen.tap(spot.x, spot.y);
   await settle(350);
-  assert.equal(await openTab(page), owner, `the phone's bar did not switch to ${owner}`);
+  assert.equal(await openTab(page), owner, `the phone's project list did not switch to ${owner}`);
 }
 
 async function clickView(page, view) {
