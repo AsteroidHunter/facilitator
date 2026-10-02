@@ -428,12 +428,17 @@
        those same fractions, so borders run exactly along the star rows and
        every corner is pinned on a star: boxes span dot to dot. Widths and
        heights are whole cells, so opposite edges both land on stars. */
-    --clock-x:calc(var(--ox) + var(--cw)*0.024);   --clock-y:0.026;
+    /* the arrangement a browser with nothing saved starts from: the clock, the
+       ticket list and the card, and nothing else (see DEFAULT_HIDDEN_REGIONS).
+       their places and sizes are whole cells with every edge on a star line, so
+       a drag from here snaps like any other */
+    --clock-x:calc(var(--ox) + var(--cw)*0.02);    --clock-y:0.0448;
+    --clock-w:calc(var(--cw)*0.152);               --clock-h:0.1152;
     --chip-y:0.118;
     --chips-x:calc(var(--ox) + var(--cw)*0.044);   --chips-w:calc(var(--cw)*0.216);
     --chips-y:0.2112; --chips-h:0.0512;
-    --tik-x:calc(var(--ox) + var(--cw)*0.044);     --tik-w:calc(var(--cw)*0.248);
-    --tik-y:0.1984;  --tik-h:0.4736;
+    --tik-x:calc(var(--ox) + var(--cw)*0.036);     --tik-w:calc(var(--cw)*0.248);
+    --tik-y:0.2112;  --tik-h:0.6528;
     --tik-row:0.056; --tik-on-w:calc(var(--cw)*0.272);
     /* 10% narrower than drawn, nudged right by half the difference so the box
        keeps its centre exactly where it was (was x 0.068, w 0.216) */
@@ -441,8 +446,8 @@
     /* 15% shorter than drawn, lowered by half the difference so the box keeps
        its centre exactly where it was (was y 0.7104, h 0.1792) */
     --m1-y:0.72384;  --m1-h:0.15232;
-    --frame-x:calc(var(--ox) + var(--cw)*0.324);   --frame-w:calc(var(--cw)*0.368);
-    --frame-y:0.0704; --frame-h:0.8064;
+    --frame-x:calc(var(--ox) + var(--cw)*0.324);   --frame-w:calc(var(--cw)*0.352);
+    --frame-y:0.0832; --frame-h:0.832;
     --pad-x:calc(var(--cw)*0.016);  --pad-y:0.008;
     --tg-x:calc(var(--ox) + var(--cw)*0.748);      --tg-w:calc(var(--cw)*0.216);
     --tg-y:0.032;    --tg-h:0.4096;
@@ -925,7 +930,7 @@
     /* half the card, the one number the open panel is measured against. it is
        not typed in: it is the pane's own height rule cut in two, so a pane
        drawn at another size still stops its panel on its own middle line */
-    --pend-cap:calc(var(--ch)*var(--frame-h)/2);   /* 362.88px */
+    --pend-cap:calc(var(--ch)*var(--frame-h)/2);   /* 374.4px */
     /* what stands under the panel: the bar's own hairline, the typing row at
        rest, and the step between the two. the row is counted at rest on
        purpose, since a composer grown to several lines pushes the pair past
@@ -1198,8 +1203,9 @@
   #leftcol, #rightcol, #rail, #carousel, #taskchip{display:none}
   body.focus #toc, body.focus #tocgrip{display:none}   /* the old outline and its resize grip */
   body.focus #leftcol, body.focus #rightcol{display:contents}
-  /* the clock: x 7.1%, y 6.1% of the canvas */
+  /* the clock: x 2%, y 4.48% of the canvas, 19 by 9 cells */
   #clockbox{position:fixed; left:var(--clock-x); top:calc(var(--oy) + var(--ch)*var(--clock-y));
+    width:var(--clock-w); height:calc(var(--ch)*var(--clock-h));
     font:500 24px/1.45 var(--mono); color:var(--ink)}
   #rail-add{display:none}   /* not in the ui_3 drawing; tasks come via the agent */
   /* spring-up chips: one per ticket needing eyes; green while its agent works,
@@ -3704,6 +3710,7 @@ function validateActiveOwner(state){
   clearOwnerRefusal();
   if (first){
     migrateLegacyVisibility();
+    migratePlayerVisibility();
     applySavedLayout();
   }
   return true;
@@ -10270,8 +10277,11 @@ function seedHiddenOnce(){
   localStorage.setItem("hide." + P3_LANE + ".rail", "1");
 }
 
-const DEFAULT_HIDDEN_REGIONS = new Set(["rail", "magic2", "magic3", "magic4", "goalbox"]);
+const DEFAULT_HIDDEN_REGIONS = new Set(["rail", "magic1", "magic2", "magic3", "magic4", "goalbox"]);
 const VISIBILITY_MIGRATION = "layoutvisibility.1";
+// magic box 1 joined the default-hidden set after the pass above had already run
+// in browsers that were using the board, so it gets a pass of its own
+const PLAYER_VISIBILITY_MIGRATION = "layoutvisibility.2";
 function hadLegacyVisibility(owner){
   if (owner === "facilitator" || localStorage.getItem("activeproj") === owner ||
       localStorage.getItem("tikview." + owner) || localStorage.getItem("activepage." + owner))
@@ -10295,6 +10305,21 @@ function migrateLegacyVisibility(){
   }
   localStorage.setItem(VISIBILITY_MIGRATION, "1");
 }
+// a tab that was already showing magic box 1 keeps showing it. only a show key is
+// added, and only where the tab has neither a hide nor a show for the box; saved
+// places, sizes and hides are never read or written here
+function migratePlayerVisibility(){
+  if (localStorage.getItem(PLAYER_VISIBILITY_MIGRATION)) return;
+  if (HAD_LEGACY_LAYOUT){
+    for (const owner of validActiveOwnerIds){
+      if (!hadLegacyVisibility(owner)) continue;
+      if (!localStorage.getItem("hide." + owner + ".magic1") &&
+          !localStorage.getItem("show." + owner + ".magic1"))
+        localStorage.setItem("show." + owner + ".magic1", "1");
+    }
+  }
+  localStorage.setItem(PLAYER_VISIBILITY_MIGRATION, "1");
+}
 // once per browser, a file navigator box put away on the board's own tab comes
 // back. the hide key goes and the saved place and size stay, so it returns where
 // it was. run after the mount map is known; the cross works as before after it
@@ -10310,7 +10335,7 @@ function regionHidden(owner, id){
   // even when it is this lane's configured file navigator, and the reader is
   // told rather than having that choice quietly overwritten
   if (localStorage.getItem("hide." + owner + "." + id)) return true;
-  // a lane's configured file navigator is on screen by default, like the four
+  // a lane's configured file navigator is on screen by default, like the three
   // default elements and unlike the other default-hidden boxes. the box it
   // mounts in is the reader the board named for this lane, so it is shown without
   // a reveal. read from the mount map, so no lane id is written here and a lane

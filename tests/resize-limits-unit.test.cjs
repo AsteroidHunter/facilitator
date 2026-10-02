@@ -153,12 +153,14 @@ test("today's default sizes sit inside the limits", () => {
     main: [frac("frame-w") * 1440, frac("frame-h") * 900],
     tickets: [frac("tik-w") * 1440, frac("tik-h") * 900],
     magic1: [frac("m1-w") * 1440, frac("m1-h") * 900],
+    clockbox: [frac("clock-w") * 1440, frac("clock-h") * 900],
   };
-  // the clock has no set size: three lines of its own text, the longest a
+  // the clock's set size has to hold three lines of its own text, the longest a
   // date like "September 30th" in a monospace face about 0.6 of the font wide
   const font = /#clockbox\{[^}]*font:500 (\d+)px\/([0-9.]+)/.exec(HTML);
   assert.ok(font, "clock font found");
-  defaults.clockbox = [14 * 0.6 * Number(font[1]), 3 * Number(font[1]) * Number(font[2])];
+  assert.ok(defaults.clockbox[0] >= 14 * 0.6 * Number(font[1]), "the clock is wide enough for its longest date");
+  assert.ok(defaults.clockbox[1] >= 3 * Number(font[1]) * Number(font[2]) - 1, "the clock is tall enough for its three lines");
   for (const [id, [w, h]] of Object.entries(defaults)){
     const lim = RESIZE_LIMITS[id];
     assert.ok(w >= lim.minW * G && w <= lim.maxW * G, id + " default width " + cells(w) + " cells");

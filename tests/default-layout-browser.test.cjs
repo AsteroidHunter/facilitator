@@ -1,5 +1,6 @@
-// A clean browser sees the four board regions, a newly opened project starts
-// the same way, and an older browser keeps the visibility it already had.
+// A clean browser sees the clock, the ticket list and the card at the places and
+// sizes the board's default layout names, a newly opened project starts the same
+// way, and an older browser keeps the visibility and the layout it already had.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawn } = require("node:child_process");
@@ -15,7 +16,24 @@ const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Conte
 const PYTHON = process.env.FACILITATOR_TEST_PYTHON || "python3";
 const SHOTS = process.env.FACILITATOR_LAYOUT_SHOTS || path.join(tmpdir(), "facilitator-default-layout-shots");
 const REGIONS = ["clockbox", "tickets", "magic1", "magic2", "magic3", "magic4", "goalbox", "rail", "main"];
-const FOUR = ["clockbox", "tickets", "magic1", "main"];
+const THREE = ["clockbox", "tickets", "main"];
+// the default places and sizes in stage pixels, the stage being 1440 by 900
+const DEFAULT_RECTS = {
+  clockbox:{ x:28.8, y:40.32, w:218.88, h:103.68 },
+  tickets:{ x:51.84, y:190.08, w:357.12, h:587.52 },
+  main:{ x:466.56, y:74.88, w:506.88, h:748.8 },
+};
+// the same arrangement written out as a saved layout, with the other boxes put away
+const SAVED_SAME_AS_DEFAULT = {
+  "pos.facilitator.clockbox":JSON.stringify({ x:28.8, y:40.32 }),
+  "size.facilitator.clockbox":JSON.stringify({ w:218.88, h:103.68 }),
+  "pos.facilitator.tickets":JSON.stringify({ x:51.84, y:190.08 }),
+  "size.facilitator.tickets":JSON.stringify({ w:357.12, h:587.52 }),
+  "pos.facilitator.main":JSON.stringify({ x:466.56, y:74.88 }),
+  "size.facilitator.main":JSON.stringify({ w:506.88, h:748.8 }),
+  "hide.facilitator.magic1":"1", "hide.facilitator.magic2":"1", "hide.facilitator.magic3":"1",
+  "hide.facilitator.rail":"1", "hide.facilitator.goalbox":"1",
+};
 let fixtureDir, origin, child, browser, firstProject;
 
 async function freePort(){
@@ -39,10 +57,10 @@ async function makeProject(name){
   await mkdir(dir, { recursive:true });
   return (await post("/project?name=" + encodeURIComponent(name), dir)).id;
 }
-async function openBoard(storage){
+async function openBoard(storage, viewport){
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
-  await page.setViewport({ width:1440, height:900 });
+  await page.setViewport(viewport || { width:1440, height:900 });
   if (storage) await page.evaluateOnNewDocument(entries => {
     for (const [key, value] of Object.entries(entries)) localStorage.setItem(key, value);
   }, storage);
@@ -60,6 +78,24 @@ async function visibleRegions(page){
     return style.display !== "none" && style.visibility === "visible" &&
       rect.width > 0 && rect.height > 0;
   }), REGIONS);
+}
+async function stageRects(page){
+  return page.evaluate(() => {
+    const stage = document.getElementById("stage").getBoundingClientRect();
+    const scale = stage.width / 1440;
+    const out = { scale };
+    for (const id of ["clockbox", "tickets", "main"]){
+      const r = document.querySelector(id === "main" ? "main" : "#" + id).getBoundingClientRect();
+      out[id] = { x:(r.x - stage.x) / scale, y:(r.y - stage.y) / scale, w:r.width / scale, h:r.height / scale };
+    }
+    return out;
+  });
+}
+function assertRects(actual, expected, label){
+  for (const id of Object.keys(expected))
+    for (const k of ["x", "y", "w", "h"])
+      assert.ok(Math.abs(actual[id][k] - expected[id][k]) < 0.1,
+        `${label}: ${id}.${k} is ${actual[id][k]}, expected ${expected[id][k]}`);
 }
 async function assertVisible(page, expected){
   const actual = await visibleRegions(page);
@@ -118,14 +154,16 @@ after(async () => {
   if (fixtureDir) await rm(fixtureDir, { recursive:true, force:true });
 });
 
-test("fresh and newly opened projects show four regions; a restored region persists", async () => {
+test("fresh and newly opened projects show three regions; a restored region persists", async () => {
   const { context, page } = await openBoard();
   try {
-    await assertVisible(page, FOUR);
+    await assertVisible(page, THREE);
+    assertRects(await stageRects(page), DEFAULT_RECTS, "fresh board");
     await page.screenshot({ path:path.join(SHOTS, "fresh-board.png") });
     firstProject = await makeProject("Fresh Project");
     await selectProject(page, firstProject);
-    await assertVisible(page, FOUR);
+    await assertVisible(page, THREE);
+    assertRects(await stageRects(page), DEFAULT_RECTS, "new project");
     await page.screenshot({ path:path.join(SHOTS, "new-project.png") });
     // Edit mode now shows only the boxes that are on screen: a removed box is
     // not resurrected as a faint ghost, and the in-canvas restore cross was
@@ -135,13 +173,56 @@ test("fresh and newly opened projects show four regions; a restored region persi
       localStorage.setItem("show." + owner + ".magic2", "1");
       applySavedLayout();
     }, firstProject);
-    await assertVisible(page, ["clockbox", "tickets", "magic1", "magic2", "main"]);
+    await assertVisible(page, ["clockbox", "tickets", "magic2", "main"]);
     await page.reload({ waitUntil:"domcontentloaded" });
     await page.waitForFunction(() => document.body.classList.contains("layout-ready") && lastState);
     await page.waitForFunction(() => getComputedStyle(document.getElementById("stage")).visibility === "visible");
-    await assertVisible(page, ["clockbox", "tickets", "magic1", "magic2", "main"]);
+    await assertVisible(page, ["clockbox", "tickets", "magic2", "main"]);
     await selectProject(page, "facilitator");
-    await assertVisible(page, FOUR);
+    await assertVisible(page, THREE);
+  } finally { await context.close(); }
+});
+
+test("the default layout holds its places and sizes at other window sizes", async () => {
+  for (const [width, height] of [[1512, 982], [1280, 800], [1920, 1080]]){
+    const { context, page } = await openBoard(null, { width, height });
+    try {
+      await assertVisible(page, THREE);
+      assertRects(await stageRects(page), DEFAULT_RECTS, width + "x" + height);
+      await page.screenshot({ path:path.join(SHOTS, `fresh-${width}x${height}.png`) });
+    } finally { await context.close(); }
+  }
+});
+
+test("a saved layout wins over the default and is not rewritten", async () => {
+  const { "hide.facilitator.magic2":_hidden, ...rest } = SAVED_SAME_AS_DEFAULT;
+  // places are on star lines (a half cell past a whole one) and sizes are whole cells
+  const saved = {
+    ...rest,
+    "pos.facilitator.clockbox":JSON.stringify({ x:86.4, y:97.92 }),
+    "size.facilitator.clockbox":JSON.stringify({ w:241.92, h:115.2 }),
+    "pos.facilitator.main":JSON.stringify({ x:570.24, y:63.36 }),
+    "hide.facilitator.tickets":"1",
+    "show.facilitator.magic2":"1",
+  };
+  const { context, page } = await openBoard(saved);
+  try {
+    await assertVisible(page, ["clockbox", "magic2", "main"]);
+    const rects = await stageRects(page);
+    assertRects(rects, {
+      clockbox:{ x:86.4, y:97.92, w:241.92, h:115.2 },
+      main:{ x:570.24, y:63.36, w:506.88, h:748.8 },
+    }, "saved layout");
+    const kept = await page.evaluate(keys => keys.map(k => localStorage.getItem(k)), Object.keys(saved));
+    assert.deepEqual(kept, Object.values(saved), "every saved key reads back as it was written");
+  } finally { await context.close(); }
+});
+
+test("a saved layout equal to the default looks the same as the default", async () => {
+  const { context, page } = await openBoard(SAVED_SAME_AS_DEFAULT);
+  try {
+    await assertVisible(page, THREE);
+    assertRects(await stageRects(page), DEFAULT_RECTS, "saved copy of the default");
   } finally { await context.close(); }
 });
 
@@ -154,14 +235,46 @@ test("existing browser keeps visible regions while its future project gets the n
     await assertVisible(page, ["clockbox", "tickets", "magic1", "magic3", "goalbox", "rail", "main"]);
     await page.screenshot({ path:path.join(SHOTS, "legacy-board.png") });
     await selectProject(page, firstProject);
-    await assertVisible(page, FOUR);
+    await assertVisible(page, THREE);
     const laterOwner = await makeProject("Later Project");
     await selectProject(page, laterOwner);
-    await assertVisible(page, FOUR);
+    await assertVisible(page, THREE);
+    assertRects(await stageRects(page), DEFAULT_RECTS, "legacy browser, new project");
     await page.screenshot({ path:path.join(SHOTS, "legacy-new-project.png") });
     await page.reload({ waitUntil:"domcontentloaded" });
     await page.waitForFunction(() => document.body.classList.contains("layout-ready") && lastState);
     await page.waitForFunction(() => getComputedStyle(document.getElementById("stage")).visibility === "visible");
-    await assertVisible(page, FOUR);
+    await assertVisible(page, THREE);
+  } finally { await context.close(); }
+});
+
+test("a browser that already ran the first visibility pass keeps magic box 1 where it was showing", async () => {
+  const { context, page } = await openBoard({
+    "layoutsync.1":"1", "layoutvisibility.1":"1",
+    "pos.facilitator.magic1":JSON.stringify({ x:97.92, y:650.88 }),
+    "size.facilitator.magic1":JSON.stringify({ w:276.48, h:138.24 }),
+  });
+  try {
+    await assertVisible(page, ["clockbox", "tickets", "magic1", "main"]);
+    const rect = await page.evaluate(() => {
+      const stage = document.getElementById("stage").getBoundingClientRect();
+      const r = document.getElementById("magic1").getBoundingClientRect();
+      const scale = stage.width / 1440;
+      return { x:(r.x - stage.x) / scale, y:(r.y - stage.y) / scale, w:r.width / scale, h:r.height / scale };
+    });
+    for (const [k, v] of Object.entries({ x:97.92, y:650.88, w:276.48, h:138.24 }))
+      assert.ok(Math.abs(rect[k] - v) < 0.1, `magic1.${k} is ${rect[k]}, expected ${v}`);
+    await selectProject(page, firstProject);
+    await assertVisible(page, THREE);
+  } finally { await context.close(); }
+});
+
+test("a browser that hid magic box 1 keeps it hidden after the second visibility pass", async () => {
+  const { context, page } = await openBoard({
+    "layoutsync.1":"1", "layoutvisibility.1":"1", "hide.facilitator.magic1":"1",
+  });
+  try {
+    await assertVisible(page, THREE);
+    assert.equal(await page.evaluate(() => localStorage.getItem("show.facilitator.magic1")), null);
   } finally { await context.close(); }
 });
