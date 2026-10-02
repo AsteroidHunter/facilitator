@@ -5555,6 +5555,8 @@ const phoneShortcutActions = {
     e.preventDefault();
     saveDiagnostic("shortcut");
   },
+  cardsDrawer(e){ toggleMenuKey(e, drawer); },
+  settingsDrawer(e){ toggleMenuKey(e, settings); },
   navigate(e, shortcut){
     e.preventDefault();
     stepCard(shortcut.value, phoneShortcutTyping(e.target));
@@ -5630,6 +5632,67 @@ const phoneShortcutActions = {
 // while the home page is up the board's keys are off, as on the board: there is
 // no card on screen to walk, close or move. the diagnostic save still answers
 const homeShortcutActions = { diagnostic: phoneShortcutActions.diagnostic };
+
+// a key swaps one drawer for the other, and shuts the one that is out
+function toggleMenuKey(e, panel){
+  e.preventDefault();
+  const out = menuOut();
+  if (out === panel){ hideMenu(panel); return; }
+  if (out) hideMenu(out);
+  showMenu(panel);
+}
+
+// the card list's rows, top to bottom, for the section it is showing
+function drawerRows(){
+  const pane = document.querySelector('#tiksheet .tikpane[data-view="' + curView() + '"]');
+  return pane ? [...pane.querySelectorAll(".trow")] : [];
+}
+
+// while a drawer is out its keys are the whole table, so the card behind it is left alone
+const menuShortcutActions = {
+  diagnostic: phoneShortcutActions.diagnostic,
+  cardsDrawer: phoneShortcutActions.cardsDrawer,
+  settingsDrawer: phoneShortcutActions.settingsDrawer,
+  drawerWalk(e, shortcut){
+    if (!drawerOpen() || phoneShortcutTyping(e.target)) return;
+    e.preventDefault();
+    const rows = drawerRows();
+    if (!rows.length) return;
+    const at = rows.findIndex(r => r.dataset.id === selectedId);
+    const to = at < 0 ? (shortcut.value > 0 ? 0 : rows.length - 1)
+      : Math.max(0, Math.min(rows.length - 1, at + shortcut.value));
+    if (to !== at) browse(rows[to].dataset.id);
+    rows[to].scrollIntoView({ block: "nearest" });
+  },
+  escape(e){
+    if (phoneShortcutTyping(e.target)){ e.target.blur(); return; }
+    const out = menuOut();
+    if (out) hideMenu(out);
+  },
+  enter(e){
+    if (!drawerOpen() || phoneShortcutTyping(e.target)) return;
+    if (e.target.closest?.("button, a, select, summary, [role], [tabindex]")) return;
+    e.preventDefault();
+    if (drawerRows().some(r => r.classList.contains("on"))) chooseShown();
+    closeDrawer();
+  },
+};
+// Tab walks the menu that is out and wraps inside it, so it never carries the caret to the card behind
+function keepTabInMenu(e){
+  const stops = [...menuOut().querySelectorAll("button, a[href], input, select, textarea, [tabindex]")]
+    .filter(el => el.tabIndex >= 0 && !el.disabled && el.getClientRects().length);
+  const at = stops.indexOf(document.activeElement);
+  if (stops.length && at >= 0 && !(e.shiftKey ? at === 0 : at === stops.length - 1)) return;
+  e.preventDefault();
+  stops[e.shiftKey ? stops.length - 1 : 0]?.focus({ preventScroll: true });
+}
+addEventListener("keydown", e => {
+  if (homeOpen || !menuOut()) return;
+  if (e.key === "Tab" && !e.ctrlKey && !e.metaKey && !e.altKey){ keepTabInMenu(e); return; }
+  if (!cardShortcut(e)) return;
+  dispatchCardShortcut(e, menuShortcutActions);
+  e.stopImmediatePropagation();
+});
 
 // a tap anywhere on the card on screen, or the keyboard's focus landing in it,
 // selects it where it stands, and reads it. the tap is a click, which a swipe
