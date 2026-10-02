@@ -553,8 +553,10 @@ test("new-card diagnostics separate insertion from selection readiness", async t
   const before = await page.evaluate(() => {
     // The fixture's standing m1 would collide with the server's first minted
     // meta id. Remove only that invented client card so the create path must
-    // attach a fresh DOM/editor for the returned m1.
-    select("m2"); els.m1.field?.detach(); els.m1.box.remove(); delete els.m1;
+    // attach a fresh DOM/editor for the returned m1. The page builds only the
+    // cards near the one on show, so m1 may not be built at all.
+    select("m2");
+    if (els.m1){ els.m1.field?.detach(); els.m1.box.remove(); delete els.m1; }
     lastState.boxes = lastState.boxes.filter(box => box.id !== "m1");
     return { count:document.querySelectorAll("article.box").length, selected:selectedId };
   });

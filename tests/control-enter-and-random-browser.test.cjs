@@ -144,7 +144,8 @@ async function setEditor(page, on) {
 }
 
 async function selectCard(page, id) {
-  await page.waitForFunction(card => !!els[card], { timeout: 5000 }, id);
+  // the phone builds a card when it is shown, so the board holding it is enough
+  await page.waitForFunction(card => lastState.boxes.some(b => b.id === card), { timeout: 5000 }, id);
   await page.evaluate(card => select(card), id);
   await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
   await page.evaluate(() => document.activeElement && document.activeElement.blur());
@@ -158,7 +159,7 @@ async function rearm(page, ids) {
   await page.evaluate(() => poll());
   await page.waitForFunction(card => {
     const box = lastState.boxes.find(b => b.id === card);
-    return box && box.ball === "you" && !!els[card];
+    return !!box && box.ball === "you";
   }, { timeout: 4000 }, ids.source);
   await selectCard(page, ids.source);
 }
