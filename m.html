@@ -216,6 +216,22 @@
     -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
     transition:transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle), filter .5s var(--gentle);
   }
+  /* the top rim is one line, as on the settings page (card-tokens.css). the
+     glass's own stack draws a white highlight on the first row and a faint dark
+     band two rows deep, which on these small faces read as two lines along the
+     top over the hidden grey ring. both are left out, here and on the project
+     list, so the ring is the top edge as it is the sides', and the rest of the
+     stack, the bottom rim, the inner glow and the outer shadow, is the glass's
+     own */
+  #dock .dockbtn, #projmenu{
+    box-shadow:
+      inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
+      inset 0 0 0 1px var(--qn-ring),
+      inset 0 0 2px rgba(255,255,255,calc(.35 * var(--qn-edge))),
+      inset 0 12px 12px -6px rgba(255,255,255,calc(.55 * var(--qn-edge))),
+      0 1px 2px -1px rgba(0,0,0,.18),
+      0 1px 3px rgba(0,0,0,.07),
+      0 8px 20px rgba(0,0,0,.06)}
   #dock .dockbtn svg{display:block; flex:none}
   #dock .round{width:var(--dock-h)}
   /* the plus: an oval, but a short one beside the project's long capsule */
