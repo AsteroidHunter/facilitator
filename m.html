@@ -5076,10 +5076,10 @@ function keyboardClosed(){
 // row's own band, moves it nothing. it is moved back while still out of sight.
 // faded, it takes no taps. a page driven by a mouse keeps it while a field is
 // focused, since nothing comes up over it there
-const DOCK_HIDE_FRAMES = 30;   // the most frames the move waits for the fade, which is .1s
+const DOCK_HIDE_MS = 400;   // the longest the move waits for the fade's end, which a fade with no motion never reports
 const dockEl = document.getElementById("dock");
 const touchScreen = window.matchMedia ? matchMedia("(pointer: coarse)") : { matches: false };
-let dockAway = false, dockHidden = false, dockWatch = 0, dockInset = 0, dockRise = 0, dockBand = 0;
+let dockAway = false, dockHidden = false, dockTimer = null, dockInset = 0, dockRise = 0, dockBand = 0;
 // a field that takes typing; a switch or a button focused in the settings does not
 function typingFocus(){
   const a = document.activeElement;
@@ -5087,28 +5087,28 @@ function typingFocus(){
   if (a.isContentEditable || a.matches("textarea")) return true;
   return a.matches("input") && !/^(checkbox|radio|button|submit|reset|file|range|color|image|hidden)$/i.test(a.type);
 }
-// out of sight is the fade actually at nothing: the fade starts a frame or so after
-// the class, so a clock of the fade's own length moved a row still faintly there.
-// the computed opacity is read once a frame until it is nothing, and a fade that
-// never ends is waited out for no more than DOCK_HIDE_FRAMES
-function watchDockHide(){
-  const watch = ++dockWatch;
-  let frames = 0;
-  const look = () => {
-    if (watch !== dockWatch || !dockAway) return;
-    if (++frames < DOCK_HIDE_FRAMES && parseFloat(getComputedStyle(dockEl).opacity) > 0){ requestAnimationFrame(look); return; }
-    dockHidden = true;
-    placeDock();
-  };
-  requestAnimationFrame(look);
+// out of sight is the fade's own end, which the phone reports as the opacity's
+// transitionend. a clock of the fade's length moved a row still faintly there,
+// since on a busy focus the fade starts frames after the class, and the phone
+// reads a fade that has only just begun as already at its end. a fade with no
+// motion, asked for less motion, reports no end, and is taken as over by the clock
+function dockHide(){
+  clearTimeout(dockTimer); dockTimer = null;
+  if (!dockAway || dockHidden) return;
+  dockHidden = true;
+  placeDock();
 }
+dockEl.addEventListener("transitionend", e => {
+  if (e.target === dockEl && e.propertyName === "opacity" && dockAway) dockHide();
+});
 function syncDock(obstructed, lifting, inset){
   const away = obstructed || lifting || (touchScreen.matches && typingFocus());
   if (away !== dockAway){
     dockAway = away;
     dockEl.classList.toggle("away", away);
     dockHidden = false;
-    if (away) watchDockHide(); else dockWatch++;
+    clearTimeout(dockTimer);
+    dockTimer = away ? setTimeout(dockHide, DOCK_HIDE_MS) : null;
   }
   dockInset = inset;
   placeDock();
