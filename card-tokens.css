@@ -230,6 +230,10 @@
 .cardmd ul, .cardmd ol{margin:0 0 9px; padding-left:22px}
 .cardmd li{margin:2px 0}
 .cardmd li > ul, .cardmd li > ol{margin:3px 0 2px}
+/* the 22px indent holds a one digit number; the renderer names a longer list and it takes one more digit's width for each extra digit */
+.cardmd ol.md-ol2{padding-left:calc(22px + 1ch)}
+.cardmd ol.md-ol3{padding-left:calc(22px + 2ch)}
+.cardmd ol.md-ol4{padding-left:calc(22px + 3ch)}
 .cardmd h1, .cardmd h2, .cardmd h3, .cardmd h4, .cardmd h5, .cardmd h6{
   margin:13px 0 7px; color:var(--ink); font-family:var(--inter); line-height:1.25;
 }
