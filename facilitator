@@ -58,14 +58,17 @@
       current branch's upstream forward only (git pull --ff-only: never a merge
       or a rewrite), then hands over to the freshly pulled code, which syncs
       the .venv to requirements.txt and runs the numbered steps in updates/
-      that have not run here yet, each once. Restarts the board only when it
-      is running and something was pulled. Ends with the old and new version.
+      that have not run here yet, each once. A .venv that is missing, broken
+      or not on Python 3.14 is first built again on the Python 3.14 uv
+      manages. Restarts the board only when it is running and something was
+      pulled. Ends with the old and new version.
 
 Reads run.config.json beside this script: machine-local and gitignored, since
 lanes name real directories and tmux sessions; ./install.sh writes it
 from run.config.example.json for you to fill in. This script is Python stdlib
-only; ./install.sh builds the server's .venv from requirements.txt with
-uv. run starts the server with that .venv's python when the folder is there, and
+only and runs on the python3 macOS ships (3.9 or newer); ./install.sh builds
+the server's .venv on a Python 3.14 that uv manages, from requirements.txt.
+run starts the server with that .venv's python when the folder is there, and
 with its own interpreter otherwise.
 """
 
@@ -289,13 +292,15 @@ def state(port, timeout=2):
         return None
 
 
+VENV_PYTHON = HERE / ".venv" / "bin" / "python3"
+
+
 def server_python():
     """The interpreter the server runs under: the .venv beside this script,
     which is where requirements.txt is installed, or this process's own when
     there is no such folder (a machine whose interpreter already has the
     server's libraries)."""
-    venv = HERE / ".venv" / "bin" / "python3"
-    return str(venv) if os.access(venv, os.X_OK) else sys.executable
+    return str(VENV_PYTHON) if os.access(VENV_PYTHON, os.X_OK) else sys.executable
 
 
 def start_server():
@@ -1979,7 +1984,11 @@ def cmd_bridge(args):
 # uninstall takes away exactly what install made, always keeping the board's
 # data. Neither ever removes this folder, and uninstall never
 # stops a running server: it refuses while one is up and says so.
-MIN_PYTHON = (3, 9)              # the floor the pinned server libraries need
+MIN_PYTHON = (3, 9)     # the floor this command runs on: the python3 macOS ships
+APP_PYTHON = "3.14"     # the one Python .venv is built on, which the board is tested on;
+                        # keep in step with MANAGED_PYTHON in install.sh
+UV_MIN = (0, 9, 0)      # the first uv that installs Python 3.14.0 rather than a release
+                        # candidate; keep in step with UV_MIN in install.sh
 UV_HOME_BINS = ("~/.local/bin/uv", "~/.cargo/bin/uv")
 UV_INSTALL_URL = "https://astral.sh/uv/install.sh"
 INSTALL_RECORD = HERE / ".facilitator-install.json"
@@ -1988,8 +1997,9 @@ INSTALL_ARTIFACTS = (".venv", "node_modules", "package.json", "package-lock.json
 INSTALL_HELP = """usage: ./install.sh
 
 Check that Claude Code or Codex and Chrome are here, then make this checkout
-runnable: find or install uv, and a Python for it when there is none, create the
-private .venv and sync requirements, write run.config.json and seed.json from
+runnable: find or install uv, build the private .venv on a
+Python 3.14 that uv manages, rebuilding a .venv that is missing, broken or on
+another Python, and sync requirements, write run.config.json and seed.json from
 the examples when they are missing, and install test dependencies when node is
 present. In an interactive terminal it asks about the phone client (Tailscale,
 then an app password). It ends by registering the facilitator command and the
@@ -2020,16 +2030,16 @@ BANNER_GLYPHS = {
 
 
 def check_python():
-    """Report the running interpreter against the floor the server needs, and
-    stop below it. This is the interpreter that would build the environment, so
-    it is the one that has to be new enough."""
+    """Report the Python running this setup, and stop below the floor this
+    command needs. The board does not run on it: it runs on the Python
+    APP_PYTHON in .venv, which uv provides whatever Python runs this."""
     have = sys.version_info[:3]
     shown = ".".join(str(part) for part in have)
     floor = ".".join(str(part) for part in MIN_PYTHON)
     if have < MIN_PYTHON:
         sys.exit(problem(f"Python {shown} is below the {floor} minimum.",
                          "Install a newer Python, then run ./install.sh again."))
-    ok(f"Python {shown} meets the {floor} minimum.")
+    ok(f"Python {shown} runs this setup.")
 
 
 def find_uv():
@@ -2102,23 +2112,70 @@ def run_uv(argv, quiet):
     return result.returncode
 
 
+def env_python():
+    """The Python .venv is built on, as "3.14", read from .venv/pyvenv.cfg
+    without running anything. None when .venv/bin/python3 cannot be run (no
+    file, or a link whose Python was removed) or the file names no version."""
+    if not os.access(VENV_PYTHON, os.X_OK):
+        return None
+    try:
+        lines = (HERE / ".venv" / "pyvenv.cfg").read_text().splitlines()
+    except (OSError, UnicodeDecodeError):
+        return None
+    for line in lines:
+        key, _, value = line.partition("=")
+        if key.strip() in ("version_info", "version"):
+            parts = value.strip().split(".")
+            if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+                return f"{int(parts[0])}.{int(parts[1])}"
+    return None
+
+
+def build_env(uv, have, quiet):
+    """Build .venv on a Python APP_PYTHON that uv manages itself, replacing
+    whatever stands there. uv installs that Python first, the only step that
+    downloads, so a failure there leaves .venv as it was. A rebuild of a .venv
+    that was there says so even when quiet, since it is news."""
+    venv = HERE / ".venv"
+    if venv.is_symlink():
+        sys.exit(problem(f".venv is a link, and it is not on Python {APP_PYTHON}.",
+                         "Facilitator will not clear what it points to. Remove the link,",
+                         "then run ./install.sh again."))
+    there = venv.exists()
+    if there:
+        why = f"it was on Python {have}" if have else "its Python is missing or broken"
+        print(f"Rebuilding .venv on Python {APP_PYTHON}: {why}.")
+    elif not quiet:
+        print(f"Creating the environment in .venv on Python {APP_PYTHON}.")
+    if run_uv([uv, "python", "install", "--no-bin", APP_PYTHON], quiet) != 0:
+        sys.exit(problem(f"uv could not install Python {APP_PYTHON}.",
+                         *(["Nothing in .venv was changed."] if there else []),
+                         "See the output above, then run ./install.sh again."))
+    if run_uv([uv, "venv", "--clear", "--managed-python", "--python", APP_PYTHON, ".venv"], quiet) != 0:
+        sys.exit(problem("uv could not create .venv.",
+                         "See the output above, then run ./install.sh again."))
+    got = env_python()
+    if got != APP_PYTHON:
+        made = f"on Python {got}" if got else "but its Python could not be read"
+        sys.exit(problem(f"uv made .venv {made}, not on Python {APP_PYTHON}.",
+                         "See the output above, then run ./install.sh again."))
+    if not quiet:
+        ok("Environment created.")
+
+
 def ensure_env(uv, quiet=False):
-    """Create the environment when it is not there and sync the pinned packages
-    into it. Creating is skipped when the environment already stands; syncing
-    runs either way because it is idempotent and is how a changed requirements
-    file is picked up. quiet prints nothing unless a step fails."""
-    venv_python = HERE / ".venv" / "bin" / "python"
-    if venv_python.exists():
+    """Make .venv stand on Python APP_PYTHON with the pinned packages in it.
+    A .venv already on it is kept; one that is missing, broken or on any other
+    Python is built again, so every checkout runs the Python the board is tested
+    on. The sync runs either way because it is idempotent and is how a changed
+    requirements file is picked up. quiet prints nothing unless a step fails or
+    .venv has to be rebuilt."""
+    have = env_python()
+    if have == APP_PYTHON:
         if not quiet:
-            ok("Environment found in .venv.")
+            ok(f"Environment found in .venv (Python {APP_PYTHON}).")
     else:
-        if not quiet:
-            print("Creating the environment in .venv.")
-        if run_uv([uv, "venv", ".venv"], quiet) != 0:
-            sys.exit(problem("uv could not create .venv.",
-                             "See the output above, then run ./install.sh again."))
-        if not quiet:
-            ok("Environment created.")
+        build_env(uv, have, quiet)
     if not quiet:
         print("Syncing packages to requirements.txt.")
     if run_uv([uv, "pip", "sync", "--python", ".venv/bin/python", "requirements.txt"], quiet) != 0:
@@ -2434,7 +2491,8 @@ Bring this checkout up to date. Stops, changing nothing, when the checkout has
 uncommitted changes, is not on a branch, or has no upstream. Pulls that
 upstream forward only (git pull --ff-only), then runs the pulled code's update
 steps: sync the .venv to requirements.txt, then run each numbered step in
-updates/ that has not run here yet. Restarts the board only when it is
+updates/ that has not run here yet. A .venv that is missing, broken or not on
+Python 3.14 is built again on it first. Restarts the board only when it is
 running and something was pulled."""
 
 

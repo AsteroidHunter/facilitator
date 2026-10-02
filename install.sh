@@ -8,8 +8,8 @@ CODEX_URL='https://developers.openai.com/codex/cli'
 CHROME_URL='https://www.google.com/chrome/'
 TAILSCALE_URL='https://tailscale.com/download'
 UV_INSTALL_URL='https://astral.sh/uv/install.sh'
-MIN_PYTHON='3.9'      # keep in step with MIN_PYTHON in facilitator
-MANAGED_PYTHON='3.12'
+MIN_PYTHON='3.9'      # runs the setup and the command; keep in step with MIN_PYTHON in facilitator
+MANAGED_PYTHON='3.14' # the Python .venv is built on; keep in step with APP_PYTHON in facilitator
 
 if [ "$#" -gt 0 ]; then
   if [ "$#" -eq 1 ] && { [ "$1" = "--help" ] || [ "$1" = "-h" ]; }; then
@@ -165,7 +165,7 @@ usable_python3() {
   if [ "$found" = /usr/bin/python3 ] && [ "$(uname -s)" = Darwin ] && ! xcode-select -p >/dev/null 2>&1; then
     return 1
   fi
-  "$found" -c 'import hashlib, sys; sys.exit(0 if sys.version_info >= (3, 9) and hasattr(hashlib, "scrypt") else 1)' >/dev/null 2>&1
+  "$found" -c "import hashlib, sys; sys.exit(0 if sys.version_info >= (${MIN_PYTHON/./, }) and hasattr(hashlib, 'scrypt') else 1)" >/dev/null 2>&1
 }
 
 find_uv() {
