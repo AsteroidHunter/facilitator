@@ -4891,13 +4891,13 @@ function takeFocusTap(e, ta){
 // Tab out of the title is a focus the phone makes itself, with no tap to refuse (see
 // above), so its own caret reveal runs. made here with preventScroll, as the hotkeys
 // make theirs, it carries the one refusal the phone honours; the title's blur still
-// keeps the name
+// keeps the name. the caret goes to the end of the words, as it does after a step
 document.addEventListener("keydown", e => {
   if (e.key !== "Tab" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
   const el = selectedId && els[selectedId];
   if (!el || e.target !== el.titleEl || !el.titleEl.isContentEditable) return;
   e.preventDefault();
-  el.ta.focus({ preventScroll: true });
+  focusBoxAtEnd(el);
 }, true);
 
 // ---- the keyboard ----------------------------------------------------------------------
@@ -5251,6 +5251,13 @@ function wideShow(){
 }
 // the card a step just put the caret in, until the hold ends or a key is pressed
 let arrivedCard = null;
+// a focus made by the page into a card's box, as a step or a Tab out of the name makes it: the end of the words is put in the box before the focus, so the phone has it to restore, and the arrival is marked so the caret is woken when the hold ends
+function focusBoxAtEnd(el){
+  const end = el.ta.value.length;
+  el.ta.setSelectionRange(end, end);
+  el.ta.focus({ preventScroll: true });
+  arrivedCard = el.field.focused() ? el : null;
+}
 // the phone keeps the caret colour from the last selection move, so the colour coming back shows nothing until a key
 function wakeCaret(ta){
   const at = ta.selectionStart, live = document.activeElement;
@@ -5372,7 +5379,8 @@ document.addEventListener("transitionend", e => {
   else if (foot === typingFoot && wideUp && wideStarted){ wideEnded = true; wideSettle(); }
 });
 
-// a Tab into the box is the browser's own focus move: like a step, it gets the end of the words to restore and the woken caret
+// a Tab the page leaves to the browser (another stop, or Shift+Tab) is the browser's own focus move: the end of the
+// words goes in the box now for it to restore, and the arrival is marked when the focus lands, as focusBoxAtEnd does
 let tabbedAt = -1e9;
 document.addEventListener("keydown", e => {
   if (e.key !== "Tab") return;
@@ -5391,7 +5399,7 @@ document.addEventListener("focusout", () => requestAnimationFrame(reconcile));  
 for (const type of ["beforeinput", "keydown"]){
   document.addEventListener(type, e => { const t = e.target;
     if (t instanceof HTMLTextAreaElement || (t && t.isContentEditable && t.closest && t.closest(".compose"))) shoveClears = 0;
-    arrivedCard = null; }, true);
+    if (e.key !== "Tab") arrivedCard = null; }, true);   // a Tab only moves the focus: the one out of the name marks its arrival inside this same keydown
 }
 if (window.visualViewport){
   window.visualViewport.addEventListener("resize", reconcile);
@@ -5448,11 +5456,7 @@ function stepCard(dir, focus){
   select(pick.id);
   const el = els[pick.id];
   if (!el) return;
-  // the end of the words is put in the box before the focus, so the phone has it to restore
-  const end = el.ta.value.length;
-  el.ta.setSelectionRange(end, end);
-  el.ta.focus({ preventScroll: true });
-  arrivedCard = el.field.focused() ? el : null;
+  focusBoxAtEnd(el);
 }
 
 // A drag across the card walks the same pool as the keyboard. It waits until
