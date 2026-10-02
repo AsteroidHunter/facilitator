@@ -53,6 +53,24 @@ const CARD_SHORTCUT_DEFINITIONS = [
       (e.key === "ArrowLeft" || e.key === "ArrowRight")
       ? (e.key === "ArrowLeft" ? -1 : 1) : null,
   },
+  // up and down walk the open card list; a page with no such list leaves them alone
+  {
+    action: "drawerWalk", mini: false,
+    match: e => !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey && !e.isComposing &&
+      (e.key === "ArrowUp" || e.key === "ArrowDown")
+      ? (e.key === "ArrowUp" ? -1 : 1) : null,
+  },
+  // command+shift+comma and +period match the physical keys: e.key reads "<" and ">" on a US layout but "," and "." on iOS
+  {
+    action: "cardsDrawer", mini: false,
+    match: e => e.metaKey && e.shiftKey && !e.ctrlKey && !e.altKey &&
+      !e.repeat && !e.isComposing && e.code === "Comma" ? true : null,
+  },
+  {
+    action: "settingsDrawer", mini: false,
+    match: e => e.metaKey && e.shiftKey && !e.ctrlKey && !e.altKey &&
+      !e.repeat && !e.isComposing && e.code === "Period" ? true : null,
+  },
   {
     action: "history", mini: false,
     match: e => e.ctrlKey && !e.metaKey && e.shiftKey &&
