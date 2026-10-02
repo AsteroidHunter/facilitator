@@ -67,9 +67,10 @@ async function script(file, text) {
 // uv: "present", "brew" (a fake brew installs it), "curl" (a fake curl hands
 // back an installer that puts it in the home folder) or "absent". The fake's
 // venv writes a pyvenv.cfg naming venvPython, and a .venv/bin/python3 that
-// hands over to the real python, so what runs on .venv really runs.
+// hands over to the real python, so what runs on .venv really runs. It says
+// it is uvVersion when asked.
 async function sandbox({ agents = ["claude"], chrome = "spotlight", python = "system", uv = "present",
-  venvPython = "3.14.0" } = {}) {
+  venvPython = "3.14.0", uvVersion = "0.11.18" } = {}) {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "facilitator-installer-")));
   const home = path.join(dir, "home");
   const repo = path.join(dir, "repo");
@@ -98,6 +99,7 @@ async function sandbox({ agents = ["claude"], chrome = "spotlight", python = "sy
   const fakeUv = `#!/bin/sh
 echo "uv $*" >> "${log}"
 case "$1" in
+  --version) echo "uv ${uvVersion} (fake)" ;;
   venv)
     mkdir -p .venv/bin
     printf 'home = /fake\\nversion_info = ${venvPython}\\n' > .venv/pyvenv.cfg

@@ -76,7 +76,7 @@ function loadCli(dir) {
 // fakes for uv and npm that create the files those tools create, so the file
 // set is real even though nothing is downloaded; state and the tailnet are
 // stubbed so nothing touches a port or Tailscale.
-function stubs({ uv = true, node = true, brew = false, up = false } = {}) {
+function stubs({ uv = true, node = true, brew = false, up = false, uvSays = "uv 0.11.18 (fake)" } = {}) {
   return [
     `UV = ${JSON.stringify(UV)}`,
     `NPM = ${JSON.stringify(NPM)}`,
@@ -100,6 +100,8 @@ function stubs({ uv = true, node = true, brew = false, up = false } = {}) {
     "        return types.SimpleNamespace(returncode=0, stdout='', stderr='')",
     "    if argv[:3] == [UV, 'python', 'install']:",
     "        return types.SimpleNamespace(returncode=0, stdout='', stderr='')",
+    "    if argv == [UV, '--version']:",
+    `        return types.SimpleNamespace(returncode=0, stdout=${JSON.stringify(uvSays + "\n")}, stderr='')`,
     "    if argv[:3] == [UV, 'pip', 'sync']:",
     "        return types.SimpleNamespace(returncode=0, stdout='Audited', stderr='')",
     "    if argv[:2] == [NPM, 'install']:",
@@ -307,6 +309,29 @@ test("when uv is missing and there is no brew, install uses the astral.sh script
   assert.equal(res.sh_no_modify, "1", "the installer was allowed to change a shell profile");
   assert.equal(res.calls.some(c => c[0] === "/fake/brew"), false);
   assert.ok(installed(res.files), "the install did not continue after uv was installed");
+});
+
+test("a uv older than 0.9.0, or one that cannot say its version, stops install in one line before anything is made", async () => {
+  const TAIL = " is too old to install Python 3.14: upgrade it to 0.9.0 or newer (brew upgrade uv, or uv self update), then run ./install.sh again.";
+  for (const [label, options, who] of [
+    ["found", { uvSays: "uv 0.8.19 (Homebrew 2025-09-19)" }, "uv 0.8.19"],
+    ["just installed", { uv: false, brew: true, uvSays: "uv 0.8.19" }, "uv 0.8.19"],
+    ["unreadable", { uvSays: "something else" }, `The uv at ${UV}, whose version could not be read,`],
+  ]) {
+    const dir = await freshClone();
+    const res = await run(dir, stubs(options) + "\n" + snapshot("cli.cmd_install(['install'])"));
+    assert.ok(typeof res.exit === "string" && res.exit.trim() === `⚠ ${who}${TAIL}`, `${label}: ${JSON.stringify(res.exit)}`);
+    assert.doesNotMatch(res.out, /✓ uv (found|installed)\./, label);
+    assert.equal(res.files.venv, false, label);
+    assert.equal(res.files.run_config, false, label);
+    assert.equal(res.calls.some(c => c[0] === UV && c[1] !== "--version"), false, `${label}: uv was used anyway`);
+  }
+  // 0.9.0 itself is enough, and 0.10 is newer than 0.9
+  for (const uvSays of ["uv 0.9.0", "uv 0.10.2 (Homebrew)"]) {
+    const dir = await freshClone();
+    const res = await run(dir, stubs({ uvSays }) + "\n" + snapshot("cli.cmd_install(['install'])"));
+    assert.equal(res.exit, null, `${uvSays}: ${res.out}`);
+  }
 });
 
 test("find_uv prefers a uv on PATH", async () => {

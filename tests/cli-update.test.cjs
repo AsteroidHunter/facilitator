@@ -37,14 +37,16 @@ async function freePort() {
 
 // A fake uv that logs its arguments. Its venv makes a .venv on Python 3.14
 // whose python3 hands over to the real one, so .py steps really run on it;
-// with failSync the package sync fails the way a missing package would.
+// with failSync the package sync fails the way a missing package would. It
+// says it is version when asked.
 const REAL_PYTHON = process.env.FACILITATOR_TEST_PYTHON || "python3";
 const VENV_CALL = "venv --clear --managed-python --python 3.14 .venv";
-const ENV_CALLS = ["python install --no-bin 3.14", VENV_CALL, "pip sync --python .venv/bin/python requirements.txt"];
-function fakeUv({ failSync = false } = {}) {
+const ENV_CALLS = ["--version", "python install --no-bin 3.14", VENV_CALL, "pip sync --python .venv/bin/python requirements.txt"];
+function fakeUv({ failSync = false, version = "0.11.18" } = {}) {
   return [
     "#!/bin/sh",
     'echo "$@" >> "$UV_LOG"',
+    `if [ "$1" = --version ]; then echo "uv ${version} (fake)"; exit 0; fi`,
     'if [ "$1" = venv ]; then',
     "  mkdir -p .venv/bin",
     "  printf 'home = /fake\\nversion_info = 3.14.0\\n' > .venv/pyvenv.cfg",
@@ -313,6 +315,22 @@ test("an environment sync that fails still prints uv's output, the error and wha
   assert.deepEqual(sectionTitles(result.stdout), ["1. Checkout"]);
   assert.equal(await world.head(), pushed, "the pull still ran");
   assert.deepEqual(await world.markers(), [], "no step ran after the failed sync");
+});
+
+test("a uv too old to install Python 3.14 stops the update in one line, before .venv is touched", async () => {
+  const world = await makeWorld();
+  await writeFile(path.join(world.bin, "uv"), fakeUv({ version: "0.8.19" }));
+  const pushed = await world.push({ "updates/0001-mark.sh": STEP_SH("sh") });
+
+  const result = await world.update();
+  assert.notEqual(result.code, 0);
+  assert.ok(result.stderr.includes("⚠ uv 0.8.19 is too old to install Python 3.14: upgrade it to 0.9.0 or newer "
+    + "(brew upgrade uv, or uv self update), then run ./install.sh again.\n"), result.stderr);
+  assert.match(result.stderr, /The board was not restarted\. Once the update goes through, run: facilitator restart/);
+  assert.equal(await world.head(), pushed, "the pull still ran");
+  assert.deepEqual(await world.uvCalls(), ["--version"], "uv was used anyway");
+  assert.equal(existsSync(path.join(world.user, ".venv")), false);
+  assert.deepEqual(await world.markers(), [], "no step ran");
 });
 
 test("a branch with no upstream is refused and the command to set one is named", async () => {
