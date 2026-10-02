@@ -5101,8 +5101,22 @@ function dockHide(){
 dockEl.addEventListener("transitionend", e => {
   if (e.target === dockEl && e.propertyName === "opacity" && dockAway) dockHide();
 });
+// a finger coming down on the typing row is a keyboard about to rise. the row's
+// focus is a busy one, frames go by before the fade can start, so the fade starts
+// from the touch instead, which comes well before the focus. the row's buttons
+// are not typing, and a touch that brings no focus brings the row back
+const DOCK_EARLY_MS = 600;
+let dockEarly = false, dockEarlyTimer = null;
+document.addEventListener("pointerdown", e => {
+  if (e.pointerType === "mouse" || !touchScreen.matches) return;
+  if (!e.target.closest?.(".compose") || e.target.closest("button")) return;
+  dockEarly = true;
+  clearTimeout(dockEarlyTimer);
+  dockEarlyTimer = setTimeout(() => { dockEarly = false; syncDock(appliedObstruction, performance.now() < liftUntil, appliedInset); }, DOCK_EARLY_MS);
+  syncDock(appliedObstruction, performance.now() < liftUntil, appliedInset);
+}, { capture: true, passive: true });
 function syncDock(obstructed, lifting, inset){
-  const away = obstructed || lifting || (touchScreen.matches && typingFocus());
+  const away = obstructed || lifting || (touchScreen.matches && (dockEarly || typingFocus()));
   if (away !== dockAway){
     dockAway = away;
     dockEl.classList.toggle("away", away);
