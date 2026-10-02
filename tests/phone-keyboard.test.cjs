@@ -1059,6 +1059,50 @@ test("a new height under a bar already up, reported with the window shoved, leav
   }
 });
 
+test("Tab out of the card's name takes the focus into the typing row without scrolling, and the name is kept", async () => {
+  const id = await create("Name to be typed on the phone");
+  const { page, problems } = await openPhone(`/m?box=${id}`, { fake: true });
+  try {
+    await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
+    await page.evaluate(cardId => editTitle(cardId), id);
+    await page.evaluate(() => {
+      window.__focusCalls = [];
+      const focus = HTMLElement.prototype.focus;
+      HTMLElement.prototype.focus = function (options) {
+        window.__focusCalls.push({ ta: this === els[selectedId].ta, preventScroll: !!(options && options.preventScroll) });
+        return focus.apply(this, arguments);
+      };
+    });
+    await page.keyboard.type(" and its name");
+    const named = page.waitForResponse(response => new URL(response.url()).pathname === "/title", { timeout: 8000 });
+    await page.keyboard.press("Tab");
+    assert.equal((await named).status(), 200, "the name was not kept");
+    await settle(150);
+    const after = await page.evaluate(() => ({
+      calls: window.__focusCalls,
+      inRow: document.activeElement === els[selectedId].ta,
+      open: els[selectedId].titleEl.isContentEditable,
+      text: els[selectedId].titleEl.textContent,
+    }));
+    assert.deepEqual(after.calls, [{ ta: true, preventScroll: true }], "the typing row was not focused once, without scrolling");
+    assert.equal(after.inRow, true, "the focus did not land in the typing row");
+    assert.equal(after.open, false, "the name was left open for typing");
+    assert.match(after.text, /and its name$/);
+
+    // Shift+Tab is left to the phone: it goes backwards, not into the row
+    await page.evaluate(cardId => editTitle(cardId), id);
+    await page.evaluate(() => { window.__focusCalls = []; });
+    await page.keyboard.down("Shift");
+    await page.keyboard.press("Tab");
+    await page.keyboard.up("Shift");
+    assert.deepEqual(await page.evaluate(() => window.__focusCalls), [], "Shift+Tab was taken from the phone");
+    await page.evaluate(() => document.activeElement.blur());
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
 test("the phone page's own words carry no em dash", async () => {
   const source = await readFile(path.join(ROOT, "m.html"), "utf8");
   assert.doesNotMatch(source, /—/, "an em dash in the phone page");

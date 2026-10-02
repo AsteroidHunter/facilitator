@@ -4897,6 +4897,17 @@ function takeFocusTap(e, ta){
   e.preventDefault();
   ta.focus({ preventScroll: true });
 }
+// Tab out of the title is a focus the phone makes itself, with no tap to refuse (see
+// above), so its own caret reveal runs. made here with preventScroll, as the hotkeys
+// make theirs, it carries the one refusal the phone honours; the title's blur still
+// keeps the name
+document.addEventListener("keydown", e => {
+  if (e.key !== "Tab" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+  const el = selectedId && els[selectedId];
+  if (!el || e.target !== el.titleEl || !el.titleEl.isContentEditable) return;
+  e.preventDefault();
+  el.ta.focus({ preventScroll: true });
+}, true);
 
 // ---- the keyboard ----------------------------------------------------------------------
 // The page cannot read which keyboard surface is present. It learns the full
