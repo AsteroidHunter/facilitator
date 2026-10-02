@@ -1502,6 +1502,7 @@ function phoneTraceState(){
       shown,
       title: !!el?.titleEl.isConnected, titled: !!b?.title, emptyTitle: !el?.titleEl.textContent,
       editing: !!el?.titleEl.isContentEditable, boxes: document.getElementById("cards").childElementCount,
+      cards: lastState ? lastState.boxes.length : 0,
       kb: document.body.classList.contains("kb"), lifting: document.body.classList.contains("lifting"),
       editor, editorReady, inputReady, selectedDom: !!el?.box.classList.contains("sel"), paneBlank,
       loading: !!document.getElementById("loading"), connected: !!el?.box.isConnected,
@@ -3066,22 +3067,34 @@ function syncSelectedHistory(){
   syncPhoneHistory(lastState?.boxes.find(b => b.id === selectedId));
 }
 
-// ---- the typing editor, on the cards in reach -------------------------------------
-// Every card keeps its typing row and the row keeps its words, but only the
-// card on show and the two a swipe or a card key brings in next wear the
-// editor. An editor on each of several hundred cards was most of the time the
-// page took to open and much of its weight after that. The card on show is
-// given its editor in select, in the same turn and before it is drawn, so the
-// first tap and the first key land in the row as they always have. Its two
-// neighbours are given theirs once the switch has been drawn, and a card that
-// has left the reach takes its editor off; its words, caret and undo stay with
-// the row (ComposeFormat want). A row still holding the caret keeps its editor
-// until a later pass finds it let go.
+// ---- the cards in reach ----------------------------------------------------------
+// Only the card on show and the cards around it are built at all (ensureCard).
+// A card built for every card of a board of several hundred was most of the
+// time the page took to open and much of its weight after that: the keyboard
+// rising and falling restyles every card built, and so does the drawer being
+// pulled, so what each of those cost grew with the size of the board. The cards
+// around the one on show are the next and the previous in the order a swipe or
+// a card key walks, and the next and the previous in the order the drawer
+// lists. Those are built once the switch has been drawn, or on the spot if a
+// swipe starts sooner. A card two places or fewer from the one on show is kept
+// as it is, so going back and forth between a few cards builds and takes down
+// nothing. A card beyond that is taken down, its words, caret and the answer's
+// scroll put on the shelf, and built again as it was left when it comes near.
+// Of the cards built, only the card on show and the two a swipe or a card key
+// brings in next wear the typing editor. The card on show is given its editor
+// in select, in the same turn and before it is drawn, so the first tap and the
+// first key land in the row as they always have. Its two neighbours are given
+// theirs once the switch has been drawn, and a card that has left the reach
+// takes its editor off; its words, caret and undo stay with the row
+// (ComposeFormat want). A row still holding the caret keeps its editor until a
+// later pass finds it let go.
 // With a row focused, the phone is still deciding for a moment after a switch
 // whether to scroll the page to the caret, and the focus blink that stops that
 // scroll holds only on a page that is not busy, so the neighbours wait until
 // that moment has passed.
 const REACH_TYPING_MS = 250;
+const REACH_DRAG_MS = 300;       // how soon a pass put off by a pull or a swipe looks again
+const NEAR_KEEP = 2;             // places from the card on show, in either order, within which a card is kept
 const editorsWorn = new Set();   // the cards this page has asked to wear the editor
 let reachTimer = null, reachAsk = 0;
 function wearEditor(id){
@@ -3101,8 +3114,52 @@ function editorReach(){
   }
   return reach;
 }
-function reachEditors(){
+// the cards to have built (the one on show, its neighbours in each order, and a
+// card just made) and the cards to keep built (two places either way, in each
+// order, as well). the orders wrap round, as a swipe does
+function nearbyCards(){
+  const build = new Set(), keep = new Set();
+  if (pendingFocus){ build.add(pendingFocus); keep.add(pendingFocus); }
+  if (!lastState || !selectedId) return { build, keep };
+  build.add(selectedId); keep.add(selectedId);
+  for (const dir of [-1, 1]){
+    const pick = cardStepTarget(dir);
+    if (pick){ build.add(pick.id); keep.add(pick.id); }
+  }
+  for (const pool of [navigationPool(lastState), viewPool(lastState)]){
+    const at = pool.findIndex(b => b.id === selectedId);
+    if (at < 0) continue;
+    for (let d = -NEAR_KEEP; d <= NEAR_KEEP; d++){
+      const id = pool[(((at + d) % pool.length) + pool.length) % pool.length].id;
+      keep.add(id);
+      if (Math.abs(d) <= 1) build.add(id);
+    }
+  }
+  return { build, keep };
+}
+// a card that is not taken down however far it is from the one on show: the one
+// holding the caret or its title being typed, one holding files or a send held
+// for them, one with a send of its own that the board has not settled, a card
+// being named as it is made, and an older reply being read
+function cardHeld(id, el){
+  return id === pendingFocus || id === selectedId ||
+    el.box.contains(document.activeElement) || el.field.focused() || el.titleEl.isContentEditable ||
+    el.trayItems.length > 0 || !!el.trayHold || !!el.trayClosing ||
+    ops.some(o => o.box === id) || (hist && hist.id === id) ||
+    [...createDiagnostics.values()].some(d => d.box === id);
+}
+function pullGoing(){
+  return document.body.classList.contains("menudrag") ||
+    document.getElementById("pane").classList.contains("cardswiping");
+}
+function reachCards(){
   clearTimeout(reachTimer); reachTimer = null;
+  if (!lastState) return;
+  // building and taking down wait for a pull of the drawer or a swipe of the
+  // card to be over: neither is a time to be laying out a card
+  if (pullGoing()){ reachTimer = setTimeout(reachCards, REACH_DRAG_MS); return; }
+  const { build, keep } = nearbyCards();
+  for (const id of build) ensureCard(id);
   const reach = editorReach();
   for (const id of reach) wearEditor(id);
   for (const id of [...editorsWorn]){
@@ -3113,12 +3170,15 @@ function reachEditors(){
     el.field.want(false);
     editorsWorn.delete(id);
   }
+  for (const id of Object.keys(els)){
+    if (!keep.has(id) && !cardHeld(id, els[id])) dropCard(id);
+  }
 }
 function reachLater(){
   clearTimeout(reachTimer); reachTimer = null;
   const asked = ++reachAsk;
-  if (editing()){ reachTimer = setTimeout(reachEditors, REACH_TYPING_MS); return; }
-  requestAnimationFrame(() => { if (asked === reachAsk) reachTimer = setTimeout(reachEditors, 0); });
+  if (editing()){ reachTimer = setTimeout(reachCards, REACH_TYPING_MS); return; }
+  requestAnimationFrame(() => { if (asked === reachAsk) reachTimer = setTimeout(reachCards, 0); });
 }
 
 // ---- selection and tabs ----------------------------------------------------------
@@ -4466,9 +4526,15 @@ function apply(state){
     }
   }
   for (const id of Object.keys(shelf)) if (!onBoard.has(id)) delete shelf[id];
+  // only the cards built are drawn, with the card on show and one just made
+  // built first if they are not (reachCards builds the cards around it). any
+  // other card is drawn from this reading when it is built
+  for (const id of [selectedId, pendingFocus]){
+    const b = id && id !== "q" && !els[id] && state.boxes.find(x => x.id === id);
+    if (b && (id === pendingFocus || b.owner === activeOwner)) makeBox(b);
+  }
   for (const b of state.boxes){
-    if (b.id === "q") continue;
-    drawCard(els[b.id] || makeBox(b), b, state);
+    if (els[b.id]) drawCard(els[b.id], b, state);
   }
   if (selectedId && !state.boxes.some(b => b.id === selectedId && b.owner === activeOwner)) deselect();
   applySelection(state);
