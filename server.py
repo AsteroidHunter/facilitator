@@ -1,9 +1,14 @@
 """Triage facilitator — thinnest possible local server.
 
-The local board uses port 8877; Tailscale Serve targets the separately gated
-loopback port 8878. Every route on that socket requires a persistent session,
-except the install/sign-in page, its manifest and icons, and auth endpoints.
-An old Serve mapping to 8877 prevents startup until it is removed.
+The board listens on a pair of loopback ports: the one run.config.json names
+(port, 8877 when it names none) for the desktop and the agents, and the one
+above it, which Tailscale Serve targets, separately gated. `facilitator run`
+moves the pair to a free one when something else holds it and writes the new
+port into the config. Every route on the gated socket requires a persistent
+session, except the install/sign-in page, its manifest and icons, and auth
+endpoints. An old Serve mapping to the board's own port prevents startup
+until it is removed. One server per folder: server.lock beside state.json is
+held for as long as the server runs, and names its pid and port.
 
 One page, one state file. The human types into per-item boxes; messages queue
 FIFO; the agent (Claude, in the terminal session that launched this) drains the
@@ -1194,6 +1199,9 @@ def _lane_dirs() -> dict:
             for ln in lanes if ln.get("owner") and ln.get("dir")}
 STATE_PATH = HERE / "state.json"
 TRANSCRIPT_PATH = HERE / "transcript.jsonl"
+# held by the running server for as long as it runs: one server per folder,
+# and the pid and port it names are how the CLI finds this board on any port
+SERVER_LOCK = HERE / "server.lock"
 # uploaded images now save outside the repo, in the sibling internal folder
 # (not a git repo, never pushed); reads still fall back to the old in-repo
 # uploads/ so the images saved there before this change keep resolving
@@ -1209,7 +1217,34 @@ UPLOAD_TYPES = {**IMG_TYPES,
                 ".opus": "audio/ogg", ".weba": "audio/webm",
                 ".pdf": "application/pdf", ".doc": "application/msword",
                 ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
-PORT = 8877
+# The board's pair of ports: PORT for the desktop and the agents, and the
+# phone's guarded socket one above it. run.config.json's port names the pair,
+# and `facilitator run` moves it to a free pair when something else holds this
+# one, so the port is read rather than assumed. A test's copy of this file sets
+# FACILITATOR_TEST_PORT, which wins over the config, so no config a test
+# carries can steer it onto a real port; older tests swap the text of the line
+# below for their own port, which lands the same way.
+DEFAULT_PORT = 8877
+
+
+def _configured_port() -> int:
+    """FACILITATOR_TEST_PORT when it is set, else run.config.json's port when
+    it is a whole number from 1 to 65534 (the pair needs the one above it),
+    else DEFAULT_PORT. Read here, once, because the sockets are bound before
+    anything else is read; a missing or unreadable config is the default, the
+    way the agent skill's helper reads it."""
+    named = os.environ.get("FACILITATOR_TEST_PORT")
+    if named:
+        return int(named)
+    try:
+        value = json.loads((HERE / "run.config.json").read_text()).get("port")
+        number = None if isinstance(value, bool) else int(value)
+    except Exception:
+        number = None
+    return number if number is not None and 1 <= number <= 65534 else DEFAULT_PORT
+
+
+PORT = _configured_port()
 BRIDGE_PORT = PORT + 1  # a distinct socket; never infer trust from Host or proxy headers
 # ---- the transport's bounds ------------------------------------------------------
 # What the board accepts at once and how long it lets a peer sit on the line.
@@ -6550,6 +6585,36 @@ def _listen(port: int = PORT) -> socket.socket:
     return sock
 
 
+_held_lock: int | None = None   # the descriptor holding SERVER_LOCK, never closed
+
+
+def _take_lock() -> bool:
+    """One server per folder. Once the port could move, the bind stopped being
+    enough: a second server from this folder on another pair would bind
+    happily and then write the same state.json as the first. So the server
+    takes an exclusive lock on SERVER_LOCK and holds it until it exits, when
+    the kernel lets go of it whatever ended the process, a kill included.
+
+    False when another process holds it. Once taken, the file says which pid
+    and which pair holds it, for the CLI; it is never removed, and a reader
+    checks what it names rather than trusting it, so a stale one is harmless."""
+    global _held_lock
+    fd = os.open(SERVER_LOCK, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        return False
+    record = json.dumps({"pid": os.getpid(), "port": PORT, "bridge": BRIDGE_PORT}) + "\n"
+    try:
+        os.ftruncate(fd, 0)
+        os.pwrite(fd, record.encode(), 0)
+    except OSError:
+        pass   # the lock is what matters; the CLI falls back to the configured port
+    _held_lock = fd
+    return True
+
+
 def _legacy_target_in(config: object) -> bool:
     """Any Serve proxy to the old unguarded socket is unsafe after upgrade."""
     if isinstance(config, dict):
@@ -6627,17 +6692,19 @@ def main() -> None:
     _quiet_uvicorn()
     _warn_legacy_config()
 
-    # Own the listening socket before touching durable board data. In
-    # particular, a replacement started while the old server still owns the
-    # port must not migrate state or append the transcript schema boundary: the
-    # old process can still append legacy rows until it has actually stopped.
+    # Own the listening sockets and the folder's lock before touching durable
+    # board data. In particular, a replacement started while the old server
+    # still owns the port must not migrate state or append the transcript
+    # schema boundary: the old process can still append legacy rows until it
+    # has actually stopped.
     bridge_gate = _require_bridge_components()
     _refuse_legacy_serve()
     try:
         sock = _listen()
     except OSError as error:
         _error("bindfail", port=PORT,
-               reason=f"facilitator could not listen on 127.0.0.1:{PORT}: {error}")
+               reason=f"facilitator could not listen on 127.0.0.1:{PORT}, the first of "
+                      f"its two ports {PORT} and {BRIDGE_PORT}: {error}")
         raise SystemExit(1) from None
 
     try:
@@ -6645,7 +6712,18 @@ def main() -> None:
     except OSError as error:
         sock.close()
         _error("bindfail", port=BRIDGE_PORT,
-               reason=f"facilitator could not listen on 127.0.0.1:{BRIDGE_PORT}: {error}")
+               reason=f"facilitator could not listen on 127.0.0.1:{BRIDGE_PORT}, the phone's "
+                      f"port of its two ports {PORT} and {BRIDGE_PORT}: {error}")
+        raise SystemExit(1) from None
+
+    # Taken after the bind, so a second server on this same pair still fails
+    # there as it always has, and before state.json is read, so a second server
+    # from this folder on ANOTHER pair leaves having touched nothing
+    if not _take_lock():
+        sock.close()
+        bridge_sock.close()
+        _error("lockfail", port=PORT,
+               reason="another server from this folder is already running; this one stayed down")
         raise SystemExit(1) from None
     server = _make_server(bridge_gate)
 
