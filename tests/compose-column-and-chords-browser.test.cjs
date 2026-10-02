@@ -610,29 +610,22 @@ for (const shape of SHAPES) {
   });
 }
 
-// the line the caret is on puts its raw angles back, which is what a quote has
-// always done here; it must be moved by those angles and by nothing else, and
-// every other line stays on the column
+// the bar is the whole of a quote here, so the angles stay out of the drawing
+// on the line the caret is on as much as on any other, and no line's words step
+// sideways when the caret arrives: every line stays on the column
 function assertQuoteStates(hotLine, coldLine, angles, where) {
   assert.ok(hotLine && coldLine, `${where}: a line of the item was not drawn`);
-  assert.ok(hotLine.source.startsWith(">"),
-    `${where}: the raw angles did not come back under the caret: ` + hotLine.source);
-  assert.ok(!coldLine.source.startsWith(">"),
-    `${where}: the angles came back on a line the caret was not on: ` + coldLine.source);
-  assertOnColumn(coldLine, `${where}: the line the caret is away from`);
-  assert.ok(hotLine.edges.length >= 2,
-    `${where}: the line under the caret did not wrap: ` + JSON.stringify(hotLine.edges));
-  const column = columnOf(hotLine);
-  for (const edge of hotLine.edges.slice(1))
-    assert.ok(Math.abs(edge - column) <= EDGE,
-      `${where}: a wrapped line moved when the angles came back: ` + JSON.stringify(hotLine.edges));
-  assert.ok(angles > 0, `${where}: the angles under the caret took no room at all`);
-  assert.ok(Math.abs((hotLine.edges[0] - column) - angles) <= EDGE,
-    `${where}: the first line moved by ${(hotLine.edges[0] - column).toFixed(2)}px and the ` +
-    `angles it is showing are ${angles.toFixed(2)}px wide`);
+  for (const [line, side] of [[hotLine, "under"], [coldLine, "away from"]]) {
+    assert.ok(!line.source.startsWith(">"),
+      `${where}: the raw angles were drawn on the line the caret is ${side}: ` + line.source);
+    assertOnColumn(line, `${where}: the line the caret is ${side}`);
+    assert.ok(line.edges.length >= 2,
+      `${where}: the line the caret is ${side} did not wrap: ` + JSON.stringify(line.edges));
+  }
+  assert.equal(angles, 0, `${where}: the angles under the caret took ${angles}px`);
 }
 
-test("a quoted list shows its raw angles on the line the caret is on and stays typeable", async t => {
+test("a quoted list keeps its angles out of the drawing under the caret and stays typeable", async t => {
   await clearLane();
   const id = await card("Quoted list under the caret", "A fixture reply.");
   const { page, problems } = await open(`/m?box=${id}`, PHONE);
@@ -658,7 +651,7 @@ test("a quoted list shows its raw angles on the line the caret is on and stays t
     await page.focus(ROW);
     await settle(250);
 
-    // the caret on the second source line: the first is drawn and on its column
+    // the caret on the second source line: both lines are on the column, no angles
     await caretTo(text.length);
     await settle(200);
     const onSecond = await readBoth();
@@ -756,7 +749,9 @@ test("on an iPhone keyboard control shift up and down step the replies and leave
     });
 
     // the sideways pair still walks the cards, and the row it walked out of is
-    // left with its words and its caret untouched
+    // left with its words untouched. a step puts the caret at the end of the
+    // words in the card it arrives at, so coming back leaves it there, with
+    // nothing picked out
     const order = await listOrder(page);
     assert.ok(order.length >= 2, "the walk has nowhere to go: " + JSON.stringify(order));
     const next = order[(order.indexOf(id) + 1) % order.length];
@@ -766,7 +761,7 @@ test("on an iPhone keyboard control shift up and down step the replies and leave
     assert.equal(await shownCard(page), id, "control shift left did not walk back");
     const walkedBack = await rowState(page);
     assert.deepEqual({ payload: walkedBack.payload, from: walkedBack.from, to: walkedBack.to },
-      { payload: draft, from: 6, to: 6 },
+      { payload: draft, from: draft.length, to: draft.length },
       "walking the cards picked out the words in the row it left");
     assert.deepEqual(sends, [], "a card chord sent the draft");
     assert.deepEqual(problems, []);
