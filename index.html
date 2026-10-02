@@ -6246,7 +6246,6 @@ function apply(state){
     if (delta) window.scrollBy({ top: delta, left: 0, behavior: "instant" });
   }
   applySelection(state);
-  document.body.classList.toggle("paused", !!state.paused);
   // board title comes from state (seeded via seed.json), not from the page
   if (state.title && document.title !== state.title){
     document.title = state.title;
@@ -6281,7 +6280,7 @@ function apply(state){
 
   // listener presence, per agent: each is either long-polling (listening),
   // composing a claimed reply (busy), or recently between the two. Otherwise: offline.
-  const offOwners = state.paused ? [] : Object.keys(state.listening || NAME).filter(ow =>
+  const offOwners = Object.keys(state.listening || NAME).filter(ow =>
     (state.everListened || {})[ow] &&
     !state.listening[ow] && !state.busy[ow] && state.listenerGap[ow] > 300);
   document.body.classList.toggle("offline", offOwners.length > 0);
