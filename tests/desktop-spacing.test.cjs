@@ -137,7 +137,11 @@ async function geometry(page, label){
     range.selectNodeContents(first);
     const firstInk = [...range.getClientRects()].find(rect => rect.height > 2);
     const answerBottom = el.answwrap.getBoundingClientRect().bottom;
-    const visibleAnswerBottom = el.answ.getBoundingClientRect().bottom;
+    // the panel keeps the room its delivery mark is written in as a margin under
+    // its foot, so the white the eye sees above the answer begins at the foot of
+    // that room and not at the panel's edge
+    const markRoom = parseFloat(getComputedStyle(el.answ).marginBottom) || 0;
+    const visibleAnswerBottom = el.answ.getBoundingClientRect().bottom + markRoom;
     const pendingTop = el.sent.getBoundingClientRect().top;
     const cs = getComputedStyle(el.reply);
     const topGap = firstInk.top - answerBottom;
@@ -165,7 +169,10 @@ async function geometry(page, label){
     const visibleInkGaps = {
       top:visibleFirstInkTop - visibleAnswerBottom,
       bottom:pendingTop - visibleLastInkBottom,
-      visibleAnswerBottom, firstLine:{top:firstInk.top,bottom:firstInk.bottom},
+      upperShare:parseFloat(el.reply.style.marginTop) || 0,
+      lowerShare:(parseFloat(el.replyview.style.marginBottom) || 0) -
+        parseFloat(getComputedStyle(el.replyview).getPropertyValue("--replyair")),
+      visibleAnswerBottom, markRoom, firstLine:{top:firstInk.top,bottom:firstInk.bottom},
       lastLine:lastLine && {top:lastLine.top,bottom:lastLine.bottom},
       metrics:{actualAscent:metrics.actualBoundingBoxAscent,
         actualDescent:metrics.actualBoundingBoxDescent,
@@ -214,9 +221,15 @@ for (const [label, width, height] of [["desktop-1440",1440,900], ["desktop-1728"
   test(`${label}: upper and lower response gaps share the line-grid remainder`, async () => {
     const page = await open(width, height);
     const measured = await geometry(page, label);
-    assert.ok(Math.abs(measured.visibleInkGaps.top - measured.visibleInkGaps.bottom) <= 1.1,
-      JSON.stringify(measured.visibleInkGaps));
-    assert.ok(measured.visibleInkGaps.top < measured.lineHeight, JSON.stringify(measured.visibleInkGaps));
+    const gaps = measured.visibleInkGaps;
+    // the snap may only give the answer room under the panel, never pull it up
+    // under it, so the gaps are level whenever it spent any on the upper side;
+    // when it spent none, the white above is already the larger of the two
+    if (gaps.upperShare > 0.5)
+      assert.ok(Math.abs(gaps.top - gaps.bottom) <= 1.1, JSON.stringify(gaps));
+    else
+      assert.ok(gaps.bottom <= gaps.top + 1.1, JSON.stringify(gaps));
+    assert.ok(gaps.top < measured.lineHeight, JSON.stringify(gaps));
     if (SHOTS) { await mkdir(SHOTS, {recursive:true}); await page.screenshot({path:path.join(SHOTS, `${label}-after.png`)}); }
     await showFormerSpacing(page);
     const before = await geometry(page, label + "-before");
@@ -225,6 +238,29 @@ for (const [label, width, height] of [["desktop-1440",1440,900], ["desktop-1728"
     await page.close();
   });
 }
+
+test("wherever the line grid leaves the upper side room, the gaps around the response are level", async () => {
+  const page = await open(1440, 900);
+  let roomy = 0;
+  // each step of extra air under the panel moves the answer's lines to another
+  // place on the grid, so the sweep reaches places where the white below is the
+  // larger and the lower share holds enough to level the two
+  for (let extra = 0; extra < 28; extra += 2) {
+    await page.evaluate((id, extra) => {
+      els[id].answwrap.style.paddingBottom = `calc(var(--sp-s) + ${extra}px)`;
+      snapCard();
+    }, cardId, extra);
+    await wait(100);
+    const gaps = (await geometry(page, `desktop-1440-grid-${extra}`)).visibleInkGaps;
+    const wanted = (gaps.bottom - gaps.top) / 2;
+    if (wanted > 1.1 && gaps.lowerShare >= wanted) {
+      roomy++;
+      assert.ok(Math.abs(gaps.top - gaps.bottom) <= 1.1, JSON.stringify({ extra, gaps }));
+    }
+  }
+  assert.ok(roomy > 0, "the sweep never reached a place where the snap had room to level the gaps");
+  await page.close();
+});
 
 test("short invented response keeps the same balanced boundary spacing", async () => {
   const page = await open(1440, 900);
