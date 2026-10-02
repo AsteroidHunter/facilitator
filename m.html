@@ -234,14 +234,12 @@
   #dock .dockbtn.pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
     transition:transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
   /* the open project's name, or Home, centred, cut short with an ellipsis, and
-     beside it the mark of a list and, while another place has an unread reply,
-     a dot in the ink. it takes no browser panning, so a held finger stays its */
+     beside it the mark of a list. it takes no browser panning, so a held finger
+     stays its */
   #dock #projbtn{flex:1 1 auto; min-width:0; gap:6px; padding:0 16px;
     font:500 15px/1.2 var(--sans); touch-action:none}
   #projname{flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
   #projbtn .updown{color:var(--sub)}
-  #projbtn .others{display:none; flex:none; width:6px; height:6px; border-radius:50%; background:var(--ink)}
-  #projbtn.others .others{display:block}
   /* held, the capsule grows and brightens over the hold, then lifts while its
      list is up, and lets go over the same .5s as the others */
   #dock #projbtn.pressed{transform:scale(1.1); --qn-tint:.97; --qn-edge:3.5;
@@ -1254,8 +1252,8 @@
   <!-- the row of buttons along the bottom: the card list, the open project and
        its list, a new card, and the settings -->
   <nav id="dock" aria-label="Controls">
-    <button id="tikbtn" class="dockbtn round qn-glass" type="button" title="Cards" aria-label="Cards"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 5h12a2 2 0 0 1 2 2v2.5a2.5 2.5 0 0 0 0 5V17a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2.5a2.5 2.5 0 0 0 0-5V7a2 2 0 0 1 2-2Z"/><path d="M15 7.5v1.5M15 11.25v1.5M15 15v1.5"/></svg></button>
-    <button id="projbtn" class="dockbtn qn-glass" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="projmenu"><span id="projname"></span><span class="others" aria-hidden="true"></span><svg class="updown" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 4.5 6 2l2.5 2.5M3.5 7.5 6 10l2.5-2.5"/></svg></button>
+    <button id="tikbtn" class="dockbtn round qn-glass" type="button" title="Cards" aria-label="Cards"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 5h12a2 2 0 0 1 2 2v2.5a2.5 2.5 0 0 0 0 5V17a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2.5a2.5 2.5 0 0 0 0-5V7a2 2 0 0 1 2-2Z"/></svg></button>
+    <button id="projbtn" class="dockbtn qn-glass" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="projmenu"><span id="projname"></span><svg class="updown" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 4.5 6 2l2.5 2.5M3.5 7.5 6 10l2.5-2.5"/></svg></button>
     <button id="tikadd" class="dockbtn qn-glass" type="button" title="new card" aria-label="new card"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
     <button id="setbtn" class="dockbtn round qn-glass" type="button" title="Settings" aria-label="Settings"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M9.97 4.68L10.32 1.94L13.68 1.94L14.03 4.68A7.6 7.6 0 0 1 15.74 5.39L17.92 3.70L20.30 6.08L18.61 8.26A7.6 7.6 0 0 1 19.32 9.97L22.06 10.32L22.06 13.68L19.32 14.03A7.6 7.6 0 0 1 18.61 15.74L20.30 17.92L17.92 20.30L15.74 18.61A7.6 7.6 0 0 1 14.03 19.32L13.68 22.06L10.32 22.06L9.97 19.32A7.6 7.6 0 0 1 8.26 18.61L6.08 20.30L3.70 17.92L5.39 15.74A7.6 7.6 0 0 1 4.68 14.03L1.94 13.68L1.94 10.32L4.68 9.97A7.6 7.6 0 0 1 5.39 8.26L3.70 6.08L6.08 3.70L8.26 5.39A7.6 7.6 0 0 1 9.97 4.68Z"/><circle cx="12" cy="12" r="3"/></svg></button>
   </nav>
@@ -3040,11 +3038,10 @@ function barOwners(st){
 // ---- the project's capsule and its list ------------------------------------------
 // the tab row that crossed the top of this page is the capsule in the row of
 // buttons and the list it opens. the capsule names the open project, or Home
-// while home is up, and wears a dot while another place has an unread reply.
-// the list holds the house, then every project, the unread ones heavier as the
-// tabs were and the open one checked. its rows are built again only when the
-// projects or their names change, so a poll that changes nothing touches only
-// the marks
+// while home is up. the list holds the house, then every project, the unread
+// ones heavier as the tabs were and the open one checked. its rows are built
+// again only when the projects or their names change, so a poll that changes
+// nothing touches only the marks
 const projBtn = document.getElementById("projbtn");
 const projMenu = document.getElementById("projmenu");
 const projList = document.getElementById("projlist");
@@ -3086,7 +3083,6 @@ function renderTabs(st){
   const name = homeOpen ? "Home" : labelOf(st, activeOwner);
   const label = document.getElementById("projname");
   if (label.textContent !== name) label.textContent = name;
-  projBtn.classList.toggle("others", others);
   projBtn.setAttribute("aria-label", name + (others ? ", unread replies elsewhere" : "") + ", choose a project");
 }
 function projOpen(){ return document.body.classList.contains("projopen"); }

@@ -87,6 +87,10 @@ test("the row holds four glass buttons in the owner's order, each drawn as inlin
     assert.match(inside, /<svg[^>]*aria-hidden="true"/, `${id} carries no inline mark`);
     assert.doesNotMatch(inside, /<img|url\(/, `${id} fetches its mark`);
   }
+  // the capsule is the name and the arrows, with no dot beside the name; the ticket
+  // is one outline with its side notches and no tear line
+  assert.deepEqual([...buttons[1][3].matchAll(/<(\w+)/g)].map(m => m[1]), ["span", "svg", "path"], "the capsule carries more than the name and the arrows");
+  assert.equal([...buttons[0][3].matchAll(/<path\b/g)].length, 1, "the ticket is more than one outline");
   // the two ends are circles
   assert.match(buttons[0][2], /\bround\b/);
   assert.match(buttons[3][2], /\bround\b/);
