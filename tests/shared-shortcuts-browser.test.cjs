@@ -935,7 +935,8 @@ for (const surface of ["phone", "desktop"]) {
           { key: "l", ctrlKey: true, isComposing: true }, { key: "n", ctrlKey: true, isComposing: true },
           { key: "l", ctrlKey: true, repeat: true }, { key: "n", ctrlKey: true, repeat: true },
           { key: "s", ctrlKey: true }, { key: "s", ctrlKey: true, shiftKey: true },
-        ]) dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ...options }));
+        // a key press lands on an element, never on the window itself
+        ]) document.body.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ...options }));
       });
       assert.equal(requests.length, 0, "a modified, composing or scroll key changed card state");
 
@@ -1979,6 +1980,12 @@ test("desktop mini capture keeps its subset ahead of typing and the board", asyn
     await page.waitForFunction(() => miniOrder.length >= 2 && selectedId !== null, { timeout: 5000 });
     await selectDesktop(page, first);
     await page.evaluate(id => { miniGo(id); renderMiniCards(lastState); }, first);
+    // the small card is hidden in the default layout, so it is shown for this lane
+    await page.evaluate(() => {
+      settingsStore.setItem("show.facilitator.magic2", "1");
+      applySavedLayout();
+    });
+    await page.waitForFunction(() => !document.getElementById("magic2").classList.contains("region-off"));
     await page.click("#magic2 .mbox:not(.off) textarea");
     const mainBefore = await shownId(page);
     await chord(page, "ArrowRight", "Control", "Shift");
@@ -2114,6 +2121,8 @@ test("CodeMirror keeps its own undo and redo, and the board stays where it is", 
     await watchUndoKeys(page);
     await page.evaluate(async ({ currentId }) => {
       select(currentId);
+      // the fixture names no navigator lane, so the panel is mounted for this one by hand
+      fileNavMounts(["unused", "pastureland"]);
       fileNavBoxes();
       const host = fileNavBuild(FILENAV_MOUNTS.pastureland);
       host.style.left = "32px";
