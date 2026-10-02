@@ -370,8 +370,11 @@
   body.carddrag .box.cardswipe{transition:none}
 
   /* ---- the home page ------------------------------------------------------ */
-  /* a blank page above every project holding the token panel and nothing else,
-     the board's own (home-widgets.css, fetched once the page is idle). it
+  /* a blank page above every project holding the board's name, mark and
+     version and, under them, the token panel and the limits box, the board's
+     own (home-widgets.css, fetched once the page is idle). the three stand as
+     one stack in the middle of the page, from the status bar's margin to the
+     row's band, and a stack taller than that scrolls from its top. it
      takes the card's place over the row: the card stays laid out, only out of
      sight, so its answer's place and its row's words are as they were left when
      a tab brings it back. the pane gives up its fill, edge and shade the way it
@@ -382,8 +385,25 @@
   body.home main{background:transparent; border-color:transparent; box-shadow:none; overflow:visible}
   /* every part of the card, the history arrows too, which set their own */
   body.home #cards, body.home #cards *, body.home #empty{visibility:hidden}
-  body.home #home{display:block; position:absolute; inset:calc(-1 * var(--edge-drawn)); z-index:4;
+  body.home #home{display:flex; flex-direction:column; position:absolute; inset:calc(-1 * var(--edge-drawn)); z-index:4;
     overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain}
+  /* the stack's auto margins share out the room above and below it, and give
+     up to nothing when there is none, so it scrolls from its top */
+  #homestack{flex:none; margin:auto 0}
+  /* the desktop's lockup, the mark left of the word and the version under it,
+     a little smaller. the mark's place is kept before it arrives so the word
+     does not move. the version hangs below the line into the gap under it,
+     which is wider than the 8px between the two boxes. the line's spare room
+     above the word is taken off the top, so it is the ink that stands centred */
+  #homebrand{display:flex; align-items:center; justify-content:center; gap:5px; margin:-4px 0 20px;
+    font:700 36px/1.1 var(--inter); letter-spacing:-.02em; color:var(--ink)}
+  #homemark{flex:none; width:37px; height:29px; background:center / contain no-repeat;
+    opacity:0; transition:opacity .3s var(--gentle)}
+  #homemark.on{opacity:1}
+  #homebrandcopy{position:relative; display:inline-block}
+  #homebrandname{display:block}
+  #homeversion{position:absolute; top:calc(100% - 1px); left:1px; font:500 10px/1.1 var(--inter);
+    letter-spacing:.035em; color:var(--sub); opacity:.5; white-space:nowrap}
   /* the charts keep their own size and scroll sideways inside the panel, as on
      the board. the panel's sides are set so the lane they scroll in starts and
      ends clear of the 28px strips at the screen's edges the menus are pulled
@@ -1244,10 +1264,14 @@
   <main id="pane" class="blank">
     <div id="empty">no cards on this tab yet</div>
     <div id="cards"></div>
-    <!-- the home page, opened by the house: blank but for the token panel,
-         which home-widgets.js builds into #homeplot the first time home opens,
-         and under it the limits box, #homelimits, hidden until it has a row -->
-    <section id="home" aria-label="Home"><div id="homeplot"></div><div id="homelimits" hidden></div></section>
+    <!-- the home page, opened by the house: the board's name, mark and version,
+         then the token panel, which home-widgets.js builds into #homeplot the
+         first time home opens, and under it the limits box, #homelimits,
+         hidden until it has a row -->
+    <section id="home" aria-label="Home"><div id="homestack">
+      <div id="homebrand"><span id="homemark" aria-hidden="true"></span><span id="homebrandcopy"><span id="homebrandname">Facilitator</span><span id="homeversion"></span></span></div>
+      <div id="homeplot"></div><div id="homelimits" hidden></div>
+    </div></section>
   </main>
   <!-- the row of buttons along the bottom: the card list, the open project and
        its list, a new card, and the settings -->
@@ -3437,6 +3461,39 @@ function homeWarm(){
     if (homeLimits) homeLimits.refresh();
   });
 }
+// the heading's mark and version are the board page's own, read from the page
+// served at "/" (its #npmark and #npversion, the version's one source) and not
+// written again here. they are kept in this phone and asked for again after a
+// day, once the page is idle; the word is written here, so until they come
+// the heading shows the word alone
+const BRAND_KEY = "homebrand";
+const BRAND_EVERY = 24 * 60 * 60 * 1000;
+function brandPaint(b){
+  if (!b || !b.version || !b.mark) return;
+  document.getElementById("homeversion").textContent = b.version;
+  const mark = document.getElementById("homemark");
+  mark.style.backgroundImage = 'url("' + b.mark + '")';
+  mark.classList.add("on");
+}
+async function brandAsk(){
+  try {
+    const answer = await fetch("/", { cache: "no-store", credentials: "same-origin" });
+    if (!answer.ok) return;
+    const page = await answer.text();
+    const version = /id="npversion">(v[0-9]+\.[0-9]+\.[0-9]+)</.exec(page);
+    const mark = /id="npmark" src="(data:image\/png;base64,[A-Za-z0-9+\/=]+)"/.exec(page);
+    if (!version || !mark) return;
+    const b = { version: version[1], mark: mark[1], at: Date.now() };
+    try { localStorage.setItem(BRAND_KEY, JSON.stringify(b)); } catch (err){}
+    brandPaint(b);
+  } catch (err){}
+}
+function brandStart(){
+  let b = null;
+  try { b = JSON.parse(localStorage.getItem(BRAND_KEY)); } catch (err){}
+  brandPaint(b);
+  if (!b || !(Date.now() - b.at < BRAND_EVERY)) (window.requestIdleCallback || (fn => setTimeout(fn, 300)))(brandAsk);
+}
 function setHome(on){
   homeOpen = !!on;
   try {
@@ -3471,6 +3528,7 @@ house.addEventListener("click", () => {
 // notification opened the page on a card, which is shown on its board
 document.addEventListener("DOMContentLoaded", () => {
   let wanted = false;
+  brandStart();
   try { wanted = !!localStorage.getItem(HOME_KEY); } catch (err){}
   if (wanted && !wantBox) setHome(true);
   else (window.requestIdleCallback || (fn => setTimeout(fn, 300)))(homeWarm);
