@@ -3,9 +3,9 @@
 
   facilitator run [--attach] [--spawn] [--force] [--dry-run]
       start the server and the app window. That is all it touches by default:
-      it says the board is up, and uncovered lanes are only REPORTED, one
-      line each. --attach types the attach instruction into the lane's
-      existing tmux claude (send-keys); --spawn additionally creates a fresh session
+      it says the board is up and nothing more. --attach types the attach
+      instruction into the lane's existing tmux claude (send-keys), and
+      --spawn additionally creates a fresh session
       for lanes with no reachable one. --force ignores the lane-covered guard.
   facilitator restart [--dry-run]
       stop this board's server and start it again on the same port. One
@@ -1086,8 +1086,9 @@ def spawn(lane, dry):
 def cmd_run(args):
     """Server and window only, by default. The CLI never touches tmux unless
     asked: --attach types the instruction into existing lane sessions, --spawn
-    creates fresh ones. A real run says the board is up and adds one line per
-    lane nobody listens on; --dry-run keeps its longer account."""
+    creates fresh ones. A real run says the board is up and nothing more, and
+    those two options add one line per lane they act on; --dry-run keeps its
+    longer account."""
     cfg = load_config()
     check_lanes(cfg)
     dry = "--dry-run" in args
@@ -1118,8 +1119,6 @@ def cmd_run(args):
                 print(f"listener {ow}: not attached. Tell that agent to start listening, or\n"
                       f"  rerun with --attach to type the instruction into its tmux session:\n"
                       f"  {lane_value(lane, 'instruction')}")
-            else:
-                print(f"lane {ow}: no listener (run with --attach to wake its tmux session)")
             continue
         delivered, why = instruct(lane, dry)
         if delivered:
