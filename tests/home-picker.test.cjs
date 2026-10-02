@@ -332,7 +332,7 @@ test("on home both halves come in at the same moment on one plain fade, with no 
   }
 });
 
-test("the start button is dressed like the card on home and on the new tab, and shades as a top-row chip does", async () => {
+test("the start button is dressed like the card on home and on the new tab, and takes a project row's hover fill", async () => {
   const { context, page } = await openPage(SIZES[0]);
   try {
     const dress = () => page.evaluate(() => {
@@ -341,13 +341,18 @@ test("the start button is dressed like the card on home and on the new tab, and 
       document.body.appendChild(probe);
       const colour = v => { probe.style.color = v; return getComputedStyle(probe).color; };
       const line = colour("var(--line)"), ink = colour("var(--ink)"), card = colour("var(--card)");
-      probe.style.backgroundColor = "color-mix(in srgb, #000 var(--press), var(--card))";
-      const shade = getComputedStyle(probe).backgroundColor;
       probe.remove();
       const r = b.getBoundingClientRect();
       return { bg: s.backgroundColor, color: s.color, border: s.borderTopStyle + " " + s.borderTopColor, radius: s.borderTopLeftRadius,
-        shadow: s.boxShadow, weight: s.fontWeight, family: s.fontFamily, line, ink, card, shade, width: r.width, height: r.height };
+        shadow: s.boxShadow, weight: s.fontWeight, family: s.fontFamily, line, ink, card, width: r.width, height: r.height };
     });
+    const rowFill = async () => {
+      await page.hover("#nprows .nprow.shut");
+      await sleep(100);
+      const fill = await page.evaluate(() => getComputedStyle(document.querySelector("#nprows .nprow.shut")).backgroundColor);
+      await page.mouse.move(2, 2);
+      return fill;
+    };
     const check = async where => {
       const d = await dress();
       assert.equal(d.bg, d.card, `${where}: the card's white`);
@@ -357,10 +362,17 @@ test("the start button is dressed like the card on home and on the new tab, and 
       assert.equal(d.shadow, "none", `${where}: no shadow`);
       assert.match(d.family, /^Inter\b/, where);
       assert.ok(Math.abs(d.width - 175) <= 2 && Math.abs(d.height - 41) <= 0.5, `${where}: the old size or close, ${d.width} x ${d.height}`);
+      const fill = await rowFill();
+      assert.notEqual(fill, "rgba(0, 0, 0, 0)", `${where}: the row has a fill under the pointer`);
+      assert.notEqual(fill, d.card, `${where}: the row fill is not the card's white`);
       await page.hover("#npstart");
       await sleep(100);
-      assert.equal((await dress()).bg, d.shade, `${where}: the chips' shade under the pointer`);
+      assert.equal((await dress()).bg, fill, `${where}: a project row's fill under the pointer`);
+      await page.mouse.down();
+      await sleep(50);
+      assert.equal((await dress()).bg, fill, `${where}: and the same while pressed`);
       await page.mouse.move(2, 2);
+      await page.mouse.up();
     };
     await goHome(page);
     await check("home");
@@ -370,6 +382,10 @@ test("the start button is dressed like the card on home and on the new tab, and 
   const rule = (HTML.match(/#npstart\{[^}]*\}/) || [""])[0];
   assert.doesNotMatch(rule, /FFF1E0|3A2E20|inset|border-radius:0|--accent|432BFF/i, "no cream, bevel or purple");
   assert.doesNotMatch(HTML, /#npstart:active\{[^}]*inset/);
+  assert.match(HTML, /:root\{--row-hover:#FFF8EF\}/, "one named fill");
+  assert.match(HTML, /#npstart:hover, #npstart:active\{background:var\(--row-hover\)\}/, "the button reads it");
+  assert.match(HTML, /\.nprow\.shut:hover\{background:var\(--row-hover\)\}/, "the new tab's closed row reads it");
+  assert.match(HTML, /body\.focus\.home \.nprow:hover\{background:var\(--row-hover\)\}/, "a row on home reads it");
 });
 
 test("the house on an unfinished new tab drops it, back on the tab it came from, and the picker shows the rows", async () => {

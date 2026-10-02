@@ -378,7 +378,7 @@ test("the board's rules make the token box and the limits box one column, centre
   assert.equal(pair["justify-content"], "center", "the pair is centred in the frame's height");
   assert.equal(pair.position, "fixed");
   assert.equal(pair["pointer-events"], "none");
-  assert.equal(pair["--home-gap"], "calc(var(--sp-m) * 1.5)", "one and a half of the board's medium gap");
+  assert.equal(pair["--home-gap"], "calc(var(--sp-m) * 2)", "twice the board's medium gap");
   assert.equal(pair.gap, "var(--home-gap)");
   assert.equal(pair["--home-w"], "calc((var(--home-r) - var(--home-l)) * .35)", "the token panel's own width");
   assert.equal(pair.width, "var(--home-w)");
@@ -511,7 +511,7 @@ test("on the board the limits box sits under the token panel as one unit, centre
   }
 });
 
-test("on the board the gap between the two boxes is one and a half of the board's medium gap", async () => {
+test("on the board the gap between the two boxes is twice the board's medium gap", async () => {
   for (const view of MAC) {
     const { context, page } = await fx.openBoard(null, view);
     try {
@@ -527,7 +527,7 @@ test("on the board the gap between the two boxes is one and a half of the board'
       });
       const gap = m.limits.top - m.token.bottom;
       assert.ok(medium > 8, `${view.width}x${view.height}: a medium gap of ${medium}`);
-      assert.ok(Math.abs(gap - 1.5 * medium) <= 0.5, `${view.width}x${view.height}: ${gap} against ${1.5 * medium}`);
+      assert.ok(Math.abs(gap - 2 * medium) <= 0.5, `${view.width}x${view.height}: ${gap} against ${2 * medium}`);
     } finally { await context.close(); }
   }
 });
