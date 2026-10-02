@@ -1518,7 +1518,10 @@ const MOON_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none" ar
 const CHEV_PATH = '<path d="M1 5.5 5.5 1.5 10 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>';
 const chevSVG = seat => '<svg class="chev ' + seat + '" width="11" height="7" viewBox="0 0 11 7" fill="none" aria-hidden="true">' + CHEV_PATH + "</svg>";
 
-const els = {};                 // box id -> the card's parts
+const els = {};                 // box id -> the card's parts, for the cards that are built (see ensureCard)
+// what a card that has been taken down leaves behind: the words in its row, the
+// caret, and how far the answer was scrolled. makeBox gives it back
+const shelf = {};
 let lastState = null;
 let pollFails = 0;
 let selectedId = localStorage.getItem("selbox") || null;
@@ -1586,7 +1589,7 @@ function watchBand(el){
     });
   };
   if (window.ResizeObserver){
-    const ro = new ResizeObserver(schedule);
+    const ro = el.bandObserver = new ResizeObserver(schedule);
     ro.observe(el.pendwrap);
     ro.observe(el.replyview);
     // the card's own room changes with the keyboard and with the window, which
@@ -1703,6 +1706,12 @@ function makeBox(b){
   // whichever field is focused, this plain one or the editor content standing in
   // for it, is the one the reveal is kept off. the editor marks its content too
   ta.setAttribute("data-owned-focus", "");
+  const kept = shelf[b.id];
+  if (kept){
+    delete shelf[b.id];
+    ta.value = kept.value;
+    try { ta.setSelectionRange(kept.start, kept.end, kept.dir); } catch (_) {}
+  }
   const send = h("button", "sendbtn");
   send.type = "button"; send.setAttribute("aria-label", "send");
   send.innerHTML = SEND_ICON;
@@ -1865,6 +1874,12 @@ function makeBox(b){
   // the sent panel's room: the band it holds still for a run is written again
   // once the run has landed, which no size the band's watch sees changes
   card.sentRoom = () => card.bandWrite && card.bandWrite();
+  // how far the answer is scrolled, read where it can be: a card that is not
+  // on show has no layout and reads zero, but it keeps its place for when it is
+  // shown again, and this is what a card taken down hands to the shelf
+  card.replyTop = 0;
+  replyview.addEventListener("scroll", () => { card.replyTop = replyview.scrollTop; }, { passive: true });
+  if (kept && kept.top) card.scrollDue = { raw: kept.raw, top: kept.top };
   syncOmniCard(els[b.id], b);
   paintSectionChips(els[b.id], b);
   // the two fades: the band the sent panel and the bar stand in, and the band
@@ -1874,6 +1889,132 @@ function makeBox(b){
   // and the reader's own scrolling of the answer, which holds a page turn back
   watchReading(els[b.id]);
   return els[b.id];
+}
+
+// ---- which cards are built -----------------------------------------------------------
+// only the card on screen and the cards around it are built (reachCards, below).
+// every other card is the board's record of it in lastState, and is built from
+// that record the moment something is about to show it or touch it. ensureCard
+// is that moment: it answers the card's parts, built and drawn if it was not,
+// or null for a card the board does not hold
+function ensureCard(id){
+  if (els[id]) return els[id];
+  const b = lastState && id !== "q" && lastState.boxes.find(x => x.id === id);
+  if (!b) return null;
+  const el = makeBox(b);
+  drawCard(el, b, lastState);
+  return el;
+}
+// the pass over one built card that every reading makes: its answer, its
+// panels, its colour and its spinner, drawn from the board's record b
+function drawCard(el, b, state){
+  const rawReply = replyFull(b);
+  // a new answer on the card on show turns the page, as it does on the desktop
+  // (card-logic.js): the sheet over the page the reader was on is laid before
+  // anything of the new one is drawn, and turnGo below glides it. while the
+  // reader is busy with the card the new answer is held back, and this pass
+  // leaves the answer and both panels exactly as they stand
+  const turn = el.reply.dataset.raw !== rawReply ? turnBegin(el, b) : null;
+  const held = turn === TURN_HELD;
+  if (!held && el.reply.dataset.raw !== rawReply){
+    el.reply.dataset.raw = rawReply;
+    delete histCache[b.id];
+    if (hist && hist.id === b.id) histExit(b.id);
+    else{
+      el.reply.innerHTML = fmt(rawReply);
+      if (!turn) headOnSwap(el, b);
+    }
+  }
+  // a reply landing on the selected card while the window is in front is read
+  // as it lands, unless the drawer is covering the card. a browsed card is not
+  // read
+  readOnArrival(el, b, b.id === selectedId && !browsing && !drawerOpen());
+  // the card reads its own name, Omni Card #N for an Omni ticket; an Omni
+  // sweep in flight writes it itself
+  if (!el.titleEl.isContentEditable && !el.omniSweep && el.titleEl.textContent !== omniCardTitle(b.title))
+    el.titleEl.textContent = omniCardTitle(b.title);
+  syncOmniCard(el, b);
+  // the message a send has just drawn is not the poll's to take away. a state
+  // fetched before the server had that message knows nothing about it, and the
+  // pass over the panel would read the shorter list as the run being answered
+  // and clear the panel in view. el.sendGuard is the moment the send landed,
+  // and stands at the end of time while one is still in flight
+  const stale = (state.fetchedAt || 0) < (el.sendGuard || 0);
+  if (!held && !stale) syncSentPhone(el, b);
+  // and the panel over the answer: the reply the card is showing, and the
+  // messages the board recorded that reply was given. while an older page is
+  // on show the stepper owns that panel, so the poll leaves it alone and
+  // histExit is what hands it back to the live reply. the pass compares the
+  // reply's own name, so a poll carrying the same reply again touches no dom
+  // at all and nothing near the typing row moves
+  if (!held){
+    el.liveMeta = liveAnswered(b);
+    if (!(hist && hist.id === b.id)) syncAnswered(el, el.liveMeta);
+  }
+  // the new page stands under the sheet: the glide and the print
+  turnGo(el, turn);
+  const cs = cardState(b);
+  el.box.classList.toggle("done", cs === "done");
+  el.box.classList.toggle("parked", cs === "parked");
+  paintSectionChips(el, b);
+  setCardSpinner(el.cardSpin, cardSpinning(b));
+  syncPhoneHistory(b);
+  // a note about a send that failed or was held stays until the card can
+  // take another; any other note is the poll's to clear. a held send clears
+  // as soon as there is room again
+  // a tap on the moon the board refused or never answered leaves its own
+  // note, which says what the card is NOT: no reading may take that away,
+  // only the next tap on the same chip
+  if (el.meta.textContent && el.meta.textContent.indexOf("send ") !== 0 &&
+      el.meta.dataset.flagnote !== "1") el.meta.textContent = "";
+  if (el.meta.textContent.indexOf("send held") === 0 && ops.length < OPS_MAX) el.meta.textContent = "";
+}
+// a card taken down, because the board no longer holds it (gone) or because the
+// reader has moved well away from it. what makeBox hung on it goes with it; the
+// words in its row, the caret and the answer's scroll go to the shelf unless the
+// card is gone, so the card is built again exactly as it was left
+function dropCard(id, gone){
+  const el = els[id];
+  if (!el) return;
+  if (gone) delete shelf[id];
+  else{
+    // the editor off first, so the row holds the words and the caret itself
+    if (el.field.formatted()) el.field.want(false);
+    const ta = el.ta;
+    if (ta.value || el.replyTop)
+      shelf[id] = { value: ta.value, start: ta.selectionStart, end: ta.selectionEnd, dir: ta.selectionDirection,
+                    raw: el.reply.dataset.raw, top: el.replyTop || 0 };
+    else delete shelf[id];
+  }
+  omniSweepEnd(el);
+  turnEnd(el);
+  clearTimeout(el.turnHeld); clearTimeout(el.printTimer);
+  if (el.bandObserver) el.bandObserver.disconnect();
+  // the row's typed formatting is held by the formatter as well as by this
+  // card, so the card takes it with it: without this the editor and the
+  // removed card stay reachable for the rest of the page's life
+  el.field.detach();
+  // and the watches on its two panels' sizes go with it
+  dropAnswered(el, null);
+  el.sentRoom = null;
+  dropSent(el);
+  // an upload for a card that is gone has nowhere to land
+  trayDrop(el);
+  if (arrivedCard === el) arrivedCard = null;
+  editorsWorn.delete(id);
+  el.box.remove();
+  delete els[id];
+}
+// a card that was taken down is handed back the scroll of its answer once it is
+// laid out and can take one, and only for the answer it was left on: a new
+// answer opens at its head, as it always has
+function seatScroll(el){
+  const due = el && el.scrollDue;
+  if (!due || !cardLaidOut(el)) return;
+  el.scrollDue = null;
+  if (el.reply.dataset.raw !== due.raw) return;
+  el.quietScroll = Date.now();
+  el.replyview.scrollTop = due.top;
 }
 
 // ---- the file picker's session ---------------------------------------------------
@@ -2754,7 +2895,7 @@ function failOp(op, why, by){
 // only its line goes. sendGuard is the moment it landed: a reading asked
 // before it knows nothing of it and may not take it away
 function landSend(op, result){
-  const el = els[op.box];
+  const el = ensureCard(op.box);
   if (!el) return;
   // saved by the board now: sent, which reads Delivered, until a reading says more
   el.sentItems = [...el.sentItems, { text: op.text, stage: "sent" }];
@@ -2791,7 +2932,7 @@ function landCreate(op, result){
 function takeBack(op){
   ops = ops.filter(o => o !== op);
   saveOps();
-  const el = els[op.box];
+  const el = ensureCard(op.box);
   if (!el) return;
   el.ta.value = el.ta.value.trim() ? el.ta.value.trimEnd() + "\n\n" + op.text : op.text;
   el.tick();
@@ -2839,7 +2980,8 @@ function toastNote(text){
 function doSend(id, opts){
   opts = opts || {};
   const trace = tracePhone("begin", "send", { box: id });
-  const el = els[id];
+  const el = ensureCard(id);
+  if (!el){ endPhoneTrace(trace); return; }
   const typed = el.ta.value.trim();
   if (!typed && !traySendable(el)){ endPhoneTrace(trace); return; }
   // a file still on its way holds the send: the words stay in the row and go
@@ -2997,7 +3139,8 @@ function setBrowsing(on){
 // card shows it browsed, since the board picked that card and the reader did not
 function select(id, opts){
   const trace = tracePhone("begin", "select", { box: id });
-  if (!els[id]){ endPhoneTrace(trace, { box: id }); return; }
+  const shown = ensureCard(id);
+  if (!shown){ endPhoneTrace(trace, { box: id }); return; }
   const chosen = !opts?.browse && !opts?.hop;
   cancelAutoNext();
   if (hist && hist.id !== id) histExit(hist.id);
@@ -3010,7 +3153,8 @@ function select(id, opts){
   syncPhoneHistory(b);
   wearEditor(id);
   for (const k of Object.keys(els)) els[k].box.classList.toggle("sel", k === id);
-  openAtHead(els[id]);
+  openAtHead(shown);
+  seatScroll(shown);
   document.getElementById("pane").classList.remove("blank");
   for (const r of document.querySelectorAll("#tiklist .trow")){
     r.classList.toggle("on", r.dataset.id === id);
@@ -3364,9 +3508,11 @@ function applySelection(state){
   // just made): it wears its editor before it is drawn, and a reading that
   // moved the cards around it moves its neighbours. nobody chose a card that
   // arrived this way, so it is shown browsed
+  const shown = ensureCard(selectedId);
   wearEditor(selectedId);
   for (const k of Object.keys(els)) els[k].box.classList.toggle("sel", k === selectedId);
-  openAtHead(els[selectedId]);
+  openAtHead(shown);
+  seatScroll(shown);
   document.getElementById("pane").classList.remove("blank");
   if (shownId !== selectedId){ shownId = selectedId; setBrowsing(true); }
   reachLater();
@@ -4311,87 +4457,18 @@ function apply(state){
   // the read marks are the board's, so they arrive with the state: taken in
   // first, ahead of the tabs and the list that draw from them
   seenSync(state);
+  const onBoard = new Set(state.boxes.map(b => b.id));
   for (const id of Object.keys(els)){
-    if (!state.boxes.some(b => b.id === id)){
+    if (!onBoard.has(id)){
       if (hist && hist.id === id) hist = null;
       delete histCache[id];
-      // the row's typed formatting is held by the formatter as well as by this
-      // card, so the card takes it with it: without this the editor and the
-      // removed card stay reachable for the rest of the page's life
-      els[id].field?.detach();
-      // and the watches on its two panels' sizes go with it
-      dropAnswered(els[id], null);
-      els[id].sentRoom = null;
-      dropSent(els[id]);
-      // an upload for a card that is gone has nowhere to land
-      trayDrop(els[id]);
-      els[id].box.remove(); delete els[id];
+      dropCard(id, true);
     }
   }
+  for (const id of Object.keys(shelf)) if (!onBoard.has(id)) delete shelf[id];
   for (const b of state.boxes){
     if (b.id === "q") continue;
-    if (!els[b.id]) makeBox(b);
-    const el = els[b.id];
-    const rawReply = replyFull(b);
-    // a new answer on the card on show turns the page, as it does on the desktop
-    // (card-logic.js): the sheet over the page the reader was on is laid before
-    // anything of the new one is drawn, and turnGo below glides it. while the
-    // reader is busy with the card the new answer is held back, and this pass
-    // leaves the answer and both panels exactly as they stand
-    const turn = el.reply.dataset.raw !== rawReply ? turnBegin(el, b) : null;
-    const held = turn === TURN_HELD;
-    if (!held && el.reply.dataset.raw !== rawReply){
-      el.reply.dataset.raw = rawReply;
-      delete histCache[b.id];
-      if (hist && hist.id === b.id) histExit(b.id);
-      else{
-        el.reply.innerHTML = fmt(rawReply);
-        if (!turn) headOnSwap(el, b);
-      }
-    }
-    // a reply landing on the selected card while the window is in front is read
-    // as it lands, unless the drawer is covering the card. a browsed card is not
-    // read
-    readOnArrival(el, b, b.id === selectedId && !browsing && !drawerOpen());
-    // the card reads its own name, Omni Card #N for an Omni ticket; an Omni
-    // sweep in flight writes it itself
-    if (!el.titleEl.isContentEditable && !el.omniSweep && el.titleEl.textContent !== omniCardTitle(b.title))
-      el.titleEl.textContent = omniCardTitle(b.title);
-    syncOmniCard(el, b);
-    // the message a send has just drawn is not the poll's to take away. a state
-    // fetched before the server had that message knows nothing about it, and the
-    // pass over the panel would read the shorter list as the run being answered
-    // and clear the panel in view. el.sendGuard is the moment the send landed,
-    // and stands at the end of time while one is still in flight
-    const stale = (state.fetchedAt || 0) < (el.sendGuard || 0);
-    if (!held && !stale) syncSentPhone(el, b);
-    // and the panel over the answer: the reply the card is showing, and the
-    // messages the board recorded that reply was given. while an older page is
-    // on show the stepper owns that panel, so the poll leaves it alone and
-    // histExit is what hands it back to the live reply. the pass compares the
-    // reply's own name, so a poll carrying the same reply again touches no dom
-    // at all and nothing near the typing row moves
-    if (!held){
-      el.liveMeta = liveAnswered(b);
-      if (!(hist && hist.id === b.id)) syncAnswered(el, el.liveMeta);
-    }
-    // the new page stands under the sheet: the glide and the print
-    turnGo(el, turn);
-    const cs = cardState(b);
-    el.box.classList.toggle("done", cs === "done");
-    el.box.classList.toggle("parked", cs === "parked");
-    paintSectionChips(el, b);
-    setCardSpinner(el.cardSpin, cardSpinning(b));
-    syncPhoneHistory(b);
-    // a note about a send that failed or was held stays until the card can
-    // take another; any other note is the poll's to clear. a held send clears
-    // as soon as there is room again
-    // a tap on the moon the board refused or never answered leaves its own
-    // note, which says what the card is NOT: no reading may take that away,
-    // only the next tap on the same chip
-    if (el.meta.textContent && el.meta.textContent.indexOf("send ") !== 0 &&
-        el.meta.dataset.flagnote !== "1") el.meta.textContent = "";
-    if (el.meta.textContent.indexOf("send held") === 0 && ops.length < OPS_MAX) el.meta.textContent = "";
+    drawCard(els[b.id] || makeBox(b), b, state);
   }
   if (selectedId && !state.boxes.some(b => b.id === selectedId && b.owner === activeOwner)) deselect();
   applySelection(state);
@@ -5494,15 +5571,18 @@ function stepCard(dir, focus){
   const beginMotion = dx => {
     const dir = dx < 0 ? 1 : -1;
     const pick = cardStepTarget(dir);
-    const out = selectedId && els[selectedId]?.box, into = pick && els[pick.id]?.box;
+    // a neighbour is already built and wearing its editor once the last switch
+    // was drawn; one swiped to sooner is built and given it here, before it
+    // slides in
+    const incoming = pick && ensureCard(pick.id);
+    const out = selectedId && els[selectedId]?.box, into = incoming?.box;
     if (!out || !into || into === out) return false;
-    // a neighbour is already wearing its editor once the last switch was
-    // drawn; one swiped to sooner is given it here, before it slides in
     wearEditor(pick.id);
     drag.dir = dir; drag.pick = pick; drag.out = out; drag.into = into;
     out.classList.add("cardswipe");
     into.classList.add("cardswipe", "cardswipe-in");
-    openAtHead(els[pick.id]);
+    openAtHead(incoming);
+    seatScroll(incoming);
     document.getElementById("pane").classList.add("cardswiping");
     document.body.classList.add("carddrag");
     paint(dx);
@@ -5634,7 +5714,7 @@ const phoneShortcutActions = {
     if (!lastState) return;
     e.preventDefault();
     if (e.repeat) return;
-    const id = pickRandomCard(navigationPool(lastState).filter(b => els[b.id]), selectedId);
+    const id = pickRandomCard(navigationPool(lastState), selectedId);
     if (id) browse(id);
   },
   sectionChord(e, shortcut){
