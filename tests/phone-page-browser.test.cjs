@@ -420,21 +420,25 @@ test("phone navigation waits for send confirmation, respects manual moves, and s
       apply(lastState); select("nav-a");
       return { drawer: viewPool(lastState).map(box => box.id), navigation: navigationPool(lastState).map(box => box.id) };
     });
-    assert.deepEqual(initial.navigation, ["nav-a", "nav-b", "nav-e", "nav-d"],
+    // the waiting cards are a queue, the oldest turn first (000d31d), with the
+    // equal stamps in the board's order and the queued card after them
+    assert.deepEqual(initial.navigation, ["nav-b", "nav-e", "nav-a", "nav-d"],
       "the selected workspace, comparator, and stable tie were not the laptop sequence");
-    assert.deepEqual(initial.drawer, ["nav-a", "nav-c", "nav-b", "nav-e", "nav-d"],
+    assert.deepEqual(initial.drawer, ["nav-b", "nav-e", "nav-c", "nav-a", "nav-d"],
       "workspace navigation hid the rest of the lane from the drawer");
 
+    // the step from the equal tie skips the other workspace's card between them
+    await page.evaluate(() => select("nav-e"));
     await page.keyboard.down("Control"); await page.keyboard.down("Shift");
     await page.keyboard.press("ArrowRight");
     await page.keyboard.up("Shift"); await page.keyboard.up("Control");
-    assert.equal(await page.evaluate(() => selectedId), "nav-b",
+    assert.equal(await page.evaluate(() => selectedId), "nav-a",
       "keyboard traversal entered another workspace or skipped list order");
     await page.evaluate(() => select("nav-d"));
     await page.keyboard.down("Control"); await page.keyboard.down("Shift");
     await page.keyboard.press("ArrowRight");
     await page.keyboard.up("Shift"); await page.keyboard.up("Control");
-    assert.equal(await page.evaluate(() => selectedId), "nav-a", "workspace traversal did not wrap");
+    assert.equal(await page.evaluate(() => selectedId), "nav-b", "workspace traversal did not wrap");
 
     // A held response proves that local durable drawing no longer moves first.
     await page.evaluate(() => {
@@ -456,11 +460,11 @@ test("phone navigation waits for send confirmation, respects manual moves, and s
 
     // A deliberate move while confirmation is outstanding owns selection.
     await page.evaluate(() => stepCard(1, false));
-    assert.equal(await page.evaluate(() => selectedId), "nav-b");
+    assert.equal(await page.evaluate(() => selectedId), "nav-d");
     await page.evaluate(() => window.__sendReplies.shift()());
     await page.waitForFunction(() => localSends("nav-a").length === 0);
     await settle(50);
-    assert.equal(await page.evaluate(() => selectedId), "nav-b",
+    assert.equal(await page.evaluate(() => selectedId), "nav-d",
       "a delayed successful receipt stole a later manual selection");
 
     // With no intervening move, success advances to the oldest eligible card.
@@ -570,8 +574,8 @@ test("a pull from the left edge brings in the card list with the desktop's three
       const bg = sel => getComputedStyle(document.querySelector(sel)).backgroundColor;
       return { working: bg("#tiklist .trow.working"), yours: bg("#tiklist .trow.yours") };
     });
-    assert.equal(colours.working, "rgb(240, 250, 235)", "working green differs from the desktop's #F0FAEB");
-    assert.equal(colours.yours, "rgb(255, 251, 232)", "yours yellow differs from the desktop's #FFFBE8");
+    assert.equal(colours.working, "rgb(243, 255, 240)", "working green differs from the desktop's #F3FFF0");
+    assert.equal(colours.yours, "rgb(255, 251, 235)", "yours yellow differs from the desktop's #FFFBEB");
     await page.screenshot({ path: path.join(SHOTS, "test-phone-drawer.png") });
 
     await page.evaluate(() => document.getElementById("tv-deferred").click());
@@ -764,6 +768,10 @@ test("the defer chip parks, the history steps back, the plus makes a card to nam
   const { page, problems } = await openPhone(`/m?box=${id}`);
   try {
     await page.waitForSelector(`#box-${id}.sel.hashist`, { timeout: 5000 });
+    // the view is one choice per project and the phone keeps it between pages, so
+    // the tests before this one may have left it on done; this lane is put on
+    // doing by name, which is where a park moves the screen on
+    await page.evaluate(() => setTicketViewOf(activeOwner, "todo"));
     await page.evaluate(() => document.querySelector("article.box.sel .histbtn.older").click());
     await page.waitForFunction(() => document.querySelector("article.box.sel .histpos").textContent === "1 of 2", { timeout: 3000 });
     const older = await page.evaluate(() => ({
@@ -781,12 +789,19 @@ test("the defer chip parks, the history steps back, the plus makes a card to nam
     const parked = page.waitForResponse(r => new URL(r.url()).pathname === "/park");
     await page.evaluate(() => document.querySelector("article.box.sel .arcbtn").click());
     assert.equal(new URL((await parked).url()).searchParams.get("v"), "1");
-    await page.waitForFunction(() => document.querySelector("article.box.sel").classList.contains("parked"), { timeout: 3000 });
+    // a card parked from doing leaves the screen for the doing card below it
+    // (db32309), so the parked card is read where it stands and then put back
+    // on screen to be woken
+    await page.waitForFunction(cardId => document.getElementById("box-" + cardId).classList.contains("parked"),
+      { timeout: 3000 }, id);
+    assert.notEqual(await page.evaluate(() => selectedId), id, "a parked card stayed on screen in the doing view");
     assert.equal((await savedBox(id)).parked, true);
-    assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector("article.box.sel .title")).color), "rgb(90, 100, 115)",
-      "a parked card's title is not the desktop's later colour");
+    assert.equal(await page.evaluate(cardId => getComputedStyle(document.querySelector(`#box-${cardId} .title`)).color, id),
+      "rgb(90, 100, 115)", "a parked card's title is not the desktop's later colour");
     // a deferred card's moon is switched off; the sun is what brings it back
-    assert.equal(await page.evaluate(() => document.querySelector("article.box.sel .arcbtn").getAttribute("aria-disabled")), "true");
+    assert.equal(await page.evaluate(cardId => document.querySelector(`#box-${cardId} .arcbtn`).getAttribute("aria-disabled"), id), "true");
+    await page.evaluate(cardId => select(cardId), id);
+    await page.waitForSelector(`#box-${id}.sel`, { timeout: 3000 });
     const unparked = page.waitForResponse(r => new URL(r.url()).pathname === "/park");
     await page.evaluate(() => document.querySelector("article.box.sel .sunbtn").click());
     assert.equal(new URL((await unparked).url()).searchParams.get("v"), "0");
