@@ -398,6 +398,13 @@ test("response scrolling and drawer gestures retain frame evidence during a dela
     await page.touchscreen.touchMove(scrollBox.x, scrollBox.from + (scrollBox.to - scrollBox.from) * step / 8);
   await page.touchscreen.touchEnd();
   await delay(250);
+  // a touch at the edge above the card is the drawer's own. a swipe from the edge
+  // that starts on the response is a response touch, and the drawer takes it:
+  // the page records it that way since 166693d, and a finger this close to the
+  // response is read as on it, so the two are driven apart
+  await page.touchscreen.touchStart(6, 40);
+  await page.touchscreen.touchEnd();
+  await delay(100);
   await page.touchscreen.touchStart(6, 500);
   for (let x = 30; x <= 250; x += 40) await page.touchscreen.touchMove(x, 500);
   await page.touchscreen.touchEnd();
@@ -410,7 +417,9 @@ test("response scrolling and drawer gestures retain frame evidence during a dela
   assert.equal(saved.v, 5);
   assert.ok(saved.events.some(e => e.event === "input" && e.action === "response-scroll"));
   assert.ok(saved.events.some(e => e.event === "scroll" && e.phase === "end" && e.count > 0));
-  assert.ok(saved.events.some(e => e.event === "input" && e.action === "drawer"));
+  assert.ok(saved.events.some(e => e.event === "input" && e.action === "drawer" && e.part === "touch"));
+  assert.ok(saved.events.some(e => e.event === "input" && e.action === "response-scroll" &&
+    e.part === "taken" && e.by === "drawer"), "the drawer's swipe over the response was not recorded as taken");
   assert.ok(saved.events.some(e => e.event === "request" && e.ms >= 2000));
   assert.ok(saved.events.some(e => e.event === "phase" && e.part === "fetch-headers" && e.ms >= 2000));
   assert.ok(saved.events.some(e => e.event === "frame" && e.ms >= 250) ||
