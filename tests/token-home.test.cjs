@@ -835,10 +835,13 @@ function homeBlock({ serve = true, stored = {} } = {}) {
   const inside = new El("textarea", doc);
   byId.stage.appendChild(inside);
   const store = makeStore(stored);
+  // the chart picked is one of the board's settings (board-settings.js);
+  // whether home is open stays in the window's own storage
+  const settings = makeStore({});
   const fetched = [], tabs = [], timers = new Map();
   let nextTimer = 0;
   const ctx = {
-    console, document: doc, localStorage: store, FOCUS: true, editMode: false, lastState: { rev: 1 },
+    console, document: doc, localStorage: store, settingsStore: settings, FOCUS: true, editMode: false, lastState: { rev: 1 },
     setEditMode: on => { ctx.editMode = on; },
     renderTabs: st => tabs.push(st),
     setInterval: (fn, ms) => { timers.set(++nextTimer, { fn, ms }); return nextTimer; },
