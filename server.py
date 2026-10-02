@@ -18,7 +18,9 @@ Endpoints:
   GET  /                    -> index.html, the card board
   GET  /page                -> page.html, the same lanes drawn as one typed page
   GET  /state               -> full UI state (page polls this), with rev, the
-                               board's revision: every saved change moves it
+                               board's revision: every saved change moves it,
+                               and settingsRev, the settings' own revision
+                               (see /settings)
   GET  /m/state[?since=R][&delta=E][&ops=A,B] -> what the phone reads: {rev,
                                changed, live, ...}. With since naming the
                                revision the phone already holds and nothing
@@ -299,6 +301,50 @@ Endpoints:
                                below zero; an unknown box or a bad count is a
                                400 with nothing stored at all. Answers the
                                stored counts for the ids it was given
+  GET  /board-settings.js   -> the desktop pages' settings store, the file
+                               beside this one, with the board's settings
+                               written in front of it as
+                               globalThis.BOARD_SETTINGS = {rev, values}, so a
+                               page has them before its first line runs. The
+                               settings are what the reader arranges on the
+                               desktop pages: each lane's box places, sizes,
+                               hides and shows, the background colour, the
+                               outline's width, formatting while typing, the
+                               home chart, the typed page's tasks and the
+                               one-time layout passes, under the key names and
+                               text values the browsers kept them under. They
+                               live in settings.json beside state.json, so
+                               every address the board is opened at shows the
+                               same board
+  GET  /settings            -> {rev, values}: the same settings, for a page
+                               whose /state says settingsRev has moved
+  POST /settings[?seed=1]   -> body = {"<key>": "<value>" or null, ...}: sets
+                               or removes those keys and keeps every other, so
+                               two windows changing different boxes both keep
+                               theirs, and the last write to one key wins. A
+                               key outside the fixed patterns (SETTINGS_KEY), a
+                               value over SETTINGS_VALUE_MAX characters or a
+                               store past SETTINGS_KEYS_MAX keys is a 400 with
+                               nothing stored. seed=1 is a browser's one-time
+                               copy of what it already held: applied only
+                               while the store is empty, and seeded says
+                               whether it was. Answers {ok, rev, values}.
+                               Never moves the board's revision, so a box
+                               dragged on the desktop sends no phone a new board
+  GET  /spotify/session     -> the Spotify sign-in magic box 1 plays with,
+                               {access, refresh, expires, scopes}, or {} when
+                               none is kept: in settings.json, owner-only, so a
+                               board that moved needs no new sign-in. Answered
+                               only to a local page: on the board's own port,
+                               never the phone's, with no Tailscale forwarding
+                               header, a loopback Host and no cross-site fetch;
+                               a 404 to anything else. It never travels in
+                               /state, /settings or /board-settings.js
+  POST /spotify/session[?seed=1] -> body = those four fields as text, replacing
+                               the kept sign-in ({} drops it). Local only as
+                               above, and a 403 unless Origin is the page's own
+                               loopback address. seed=1 is a browser's one-time
+                               copy, applied only while none is kept
   The five quick note routes below are OFF in this version
   (QUICK_NOTES_ON is False): each answers 404, the same as an unknown route,
   and /state carries no quicknotes. The notes already stored in state.json
@@ -540,7 +586,8 @@ its own agent). Each owner has its own busy/claim slot and listener-presence
 tracking, so the lanes drain the same board without blocking each other.
 
 State persists to state.json next to this file; every send/reply also appends
-to transcript.jsonl so the discussion survives anything. A first-ever start
+to transcript.jsonl so the discussion survives anything. The desktop pages'
+settings and the Spotify sign-in persist to settings.json beside it. A first-ever start
 (no state.json) seeds the board title and boxes from seed.json if present;
 see seed.example.json. Real discussion content never ships in this code.
 """
@@ -3619,6 +3666,10 @@ def _ui_state() -> dict:
         # the revision this snapshot is of: every saved change moves it, so a
         # reader holding one can tell whether a later answer is newer
         "rev": st.get("rev", 0),
+        # the settings' own revision, apart from the board's: a page that sees
+        # it move reads /settings again, so a box arranged in one window
+        # reaches the others without the board itself changing
+        "settingsRev": _settings_rev(),
         # the board's own clock when this reading was made, the way the phone's
         # readings already carry it: a page names the moment of a click by it,
         # so the times it sends back are the board's and not the browser's
@@ -3685,11 +3736,15 @@ def _ui_state() -> dict:
 class Query(dict):
     """The query string parsed the way it always was, plus the raw string for
     the one route that has to tell a blank value from an absent one, the
-    request path for the routes that read a name out of it, and the encodings
-    the caller takes, for the one route whose answer is compressed."""
+    request path for the routes that read a name out of it, the encodings
+    the caller takes, for the one route whose answer is compressed, and
+    whether the request is a local page's and names its own origin, for the
+    routes only a page on this Mac may use (_local_request)."""
     raw: str = ""
     path: str = ""
     accept_encoding: str = ""
+    local: bool = False
+    same_origin: bool = False
 
     def one(self, name: str, default: str = "") -> str:
         values = self.get(name)
@@ -5595,6 +5650,182 @@ def _post_seen(q: Query, text: str):
         return 200, {"ok": True, "seen": out}
 
 
+# ---- the board's settings ---------------------------------------------------------
+# What the reader arranges on the desktop pages: where each box sits and how
+# big it is, which boxes are put away, the background colour, the outline's
+# width, formatting while typing, the home chart, the typed page's tasks, and
+# the one-time layout passes that go with them. They lived in each browser's
+# own storage, filed under the board's address, so the board opened at another
+# address (a port it moved to) started from nothing. Now they are the board's,
+# kept under the browsers' own key names and text values so the pages read
+# them exactly as before. In a file of their own and not in state.json: every
+# state.json save moves the board's revision, and a box dragged on the desktop
+# must not send every phone the board again.
+#
+# The Spotify sign-in is kept in the same file, under "spotify", and never
+# travels on these routes: /spotify/session alone answers it, to a local page.
+SETTINGS_PATH = HERE / "settings.json"
+SETTINGS_VALUE_MAX = 65536      # characters in one value; a box's place is a few dozen
+SETTINGS_KEYS_MAX = 4000        # keys in the whole store
+# the keys a page may keep here, the same list as SETTINGS_KEY in
+# board-settings.js. A lane is any printable text (a lane id keeps the letters
+# of its folder's name), a box is one of the page's element ids
+SETTINGS_KEY = re.compile(
+    r"(?:(?:layoutbak\.)?(?:pos|size)|hide|show)\.[^\x00-\x1f\x7f]{1,200}\.[A-Za-z0-9_-]{1,64}"
+    r"|doc\.tasks\.[^\x00-\x1f\x7f]{1,200}"
+    r"|bgcolor|tocw|composeformat|home\.chart"
+    r"|magicrename\.1|layoutsync\.1|hideseed\.1|layoutvisibility\.[12]|navrestore\.1")
+SPOTIFY_FIELDS = frozenset({"access", "refresh", "expires", "scopes"})
+SPOTIFY_VALUE_MAX = 4096
+_settings_lock = threading.Lock()
+_settings: dict | None = None   # the file as last written, read the first time it is asked for
+
+
+def _settings_file() -> dict:
+    """The settings as kept: {rev, values, spotify}. Callers hold
+    _settings_lock. A file that cannot be read as settings is moved aside
+    under a dated name rather than written over, and the board starts with
+    none beside it."""
+    global _settings
+    if _settings is not None:
+        return _settings
+    try:
+        raw = json.loads(SETTINGS_PATH.read_text())
+        values = raw.get("values", {})
+        spotify = raw.get("spotify", {})
+        if not isinstance(values, dict) or not isinstance(spotify, dict):
+            raise ValueError("not a settings file")
+        _settings = {"rev": int(raw.get("rev", 0)),
+                     "values": {k: v for k, v in values.items() if isinstance(k, str) and isinstance(v, str)},
+                     "spotify": {k: v for k, v in spotify.items() if k in SPOTIFY_FIELDS and isinstance(v, str)}}
+    except FileNotFoundError:
+        _settings = {"rev": 0, "values": {}, "spotify": {}}
+    except (OSError, ValueError, TypeError, AttributeError) as e:
+        kept = SETTINGS_PATH.with_name(f"settings.json.bad-{time.strftime('%Y%m%dT%H%M%S')}")
+        try:
+            SETTINGS_PATH.replace(kept)
+            _error("settingsbad", kept=kept.name, error=type(e).__name__)
+        except OSError as moved:
+            _error("settingsbad", error=type(e).__name__, reason=moved.strerror or type(moved).__name__)
+        _settings = {"rev": 0, "values": {}, "spotify": {}}
+    return _settings
+
+
+def _settings_rev() -> int:
+    with _settings_lock:
+        return _settings_file()["rev"]
+
+
+def _save_settings(store: dict) -> None:
+    """settings.json the way state.json is written: a temp file beside it,
+    flushed to the disk, then one rename. Owner-only, since it holds the
+    Spotify sign-in. The caller installs the new store in memory only after
+    this returns, so a save that fails leaves memory as the file still is."""
+    global _settings
+    payload = json.dumps(store, indent=1)
+    tmp = SETTINGS_PATH.with_name("settings.json.tmp")
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(payload)
+            f.flush()
+            _durable_fsync(f.fileno())
+        os.replace(tmp, SETTINGS_PATH)
+    except OSError as e:
+        tmp.unlink(missing_ok=True)
+        _error("savefail", step="settings", reason=e.strerror or type(e).__name__)
+        raise SaveFailed("settings") from e
+    _settings = store
+
+
+def _settings_answer(store: dict) -> dict:
+    """What a page is told of the settings: never the Spotify sign-in."""
+    return {"rev": store["rev"], "values": dict(store["values"])}
+
+
+def _get_settings(q: Query, _):
+    with _settings_lock:
+        return 200, _settings_answer(_settings_file())
+
+
+def _get_board_settings_js(q: Query, _):
+    # the store's file with the board's settings written in front of it on the
+    # same line, the way /compose-format.js carries its default: every value is
+    # there before a page's first line runs, so nothing is drawn twice, and the
+    # file's line numbers stay the file's own
+    p = HERE / "board-settings.js"
+    if not p.is_file():
+        return 404, {"error": "not found"}
+    with _settings_lock:
+        lead = "globalThis.BOARD_SETTINGS=" + json.dumps(_settings_answer(_settings_file())) + ";"
+    return 200, lead.encode() + p.read_bytes(), "application/javascript; charset=utf-8"
+
+
+def _post_settings(q: Query, text: str):
+    # set or remove the named keys and keep every other one: two windows
+    # arranging different boxes both keep theirs, and of two writes to the
+    # same key the one that lands last stands, as it did in a browser
+    try:
+        changes = json.loads(text) if text else None
+    except ValueError:
+        changes = None
+    if not isinstance(changes, dict) or not changes:
+        return 400, {"error": "bad settings"}
+    # every key and value is checked before anything is kept
+    for key, value in changes.items():
+        if not SETTINGS_KEY.fullmatch(key):
+            return 400, {"error": "unknown setting"}
+        if value is not None and (not isinstance(value, str) or len(value) > SETTINGS_VALUE_MAX):
+            return 400, {"error": "bad setting value"}
+    seed = q.one("seed") == "1"
+    with _settings_lock:
+        store = _settings_file()
+        if seed and store["values"]:
+            # a browser's one-time copy lands only on an empty store: the
+            # first browser to load this code keeps its arrangement, and any
+            # later one takes the board's
+            return 200, {"ok": True, "seeded": False, **_settings_answer(store)}
+        values = dict(store["values"])
+        for key, value in changes.items():
+            if value is None:
+                values.pop(key, None)
+            else:
+                values[key] = value
+        if len(values) > SETTINGS_KEYS_MAX:
+            return 400, {"error": "too many settings"}
+        new = {**store, "rev": store["rev"] + 1, "values": values}
+        _save_settings(new)
+        return 200, {"ok": True, **({"seeded": True} if seed else {}), **_settings_answer(new)}
+
+
+def _get_spotify_session(q: Query, _):
+    if not q.local:
+        return 404, {"error": "not found"}
+    with _settings_lock:
+        return 200, dict(_settings_file()["spotify"])
+
+
+def _post_spotify_session(q: Query, text: str):
+    if not q.local:
+        return 404, {"error": "not found"}
+    if not q.same_origin:
+        return 403, {"error": "origin refused"}
+    try:
+        rec = json.loads(text) if text else None
+    except ValueError:
+        rec = None
+    if not isinstance(rec, dict) or any(
+            key not in SPOTIFY_FIELDS or not isinstance(value, str) or len(value) > SPOTIFY_VALUE_MAX
+            for key, value in rec.items()):
+        return 400, {"error": "bad sign-in"}
+    with _settings_lock:
+        store = _settings_file()
+        if q.one("seed") == "1" and store["spotify"]:
+            return 200, {"ok": True, "seeded": False, **store["spotify"]}
+        _save_settings({**store, "spotify": rec})
+        return 200, {"ok": True, **rec}
+
+
 # hidden in v0: False refuses the quick note routes, drops quicknotes from /state, leaves stored notes alone
 QUICK_NOTES_ON = False
 
@@ -5736,7 +5967,37 @@ def _query(scope: dict) -> Query:
     q.path = scope.get("path", "")
     q.accept_encoding = next((v.decode("latin-1") for k, v in scope.get("headers") or ()
                               if k == b"accept-encoding"), "")
+    q.local, q.same_origin = _local_request(scope)
     return q
+
+
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost"})
+
+
+def _local_request(scope: dict) -> tuple[bool, bool]:
+    """(local, same origin) for one request. Local means a page on this Mac
+    asked the board's own port straight: not the phone's socket, not through
+    Tailscale Serve (which adds X-Forwarded-For), with a loopback Host (a name
+    some other site points at this machine is not one), and not a fetch
+    another site set off. Same origin means it also names its own loopback
+    address as its Origin, which a page writing anything has to. The phone's
+    socket answers nobody here, however signed in: the bridge gate refuses
+    these routes before they are reached, and this is the second wall."""
+    server = scope.get("server") or (None, None)
+    headers = {k.lower(): v for k, v in scope.get("headers") or ()}
+    if server[1] != PORT or b"x-forwarded-for" in headers or b"tailscale-headers-info" in headers:
+        return False, False
+    if headers.get(b"sec-fetch-site", b"").strip().lower() == b"cross-site":
+        return False, False
+    host = headers.get(b"host", b"").decode("latin-1").strip().lower()
+    try:
+        name, port = urlparse("//" + host).hostname, urlparse("//" + host).port
+    except ValueError:
+        return False, False
+    if name not in LOOPBACK_HOSTS or port not in (None, PORT):
+        return False, False
+    origin = headers.get(b"origin", b"").decode("latin-1").strip().lower()
+    return True, origin == "http://" + host
 
 
 def _answer(status: int, payload, ctype: str | None = None, *,
@@ -6416,6 +6677,12 @@ ROUTES = [
     Route("/push/unsubscribe", _state_endpoint(_post_push_unsubscribe, "text"), methods=["POST"]),
     Route("/tabs", _state_endpoint(_post_tabs, "text"), methods=["POST"]),
     Route("/seen", _state_endpoint(_post_seen, "text"), methods=["POST"]),
+    # the desktop pages' settings, in settings.json and never in state.json
+    Route("/board-settings.js", _endpoint(_get_board_settings_js), methods=["GET"]),
+    Route("/settings", _endpoint(_get_settings), methods=["GET"]),
+    Route("/settings", _endpoint(_post_settings, "text"), methods=["POST"]),
+    Route("/spotify/session", _endpoint(_get_spotify_session), methods=["GET"]),
+    Route("/spotify/session", _endpoint(_post_spotify_session, "text"), methods=["POST"]),
     *([
         Route("/quicknotes", _endpoint(_get_quicknotes), methods=["GET"]),
         Route("/quicknote/new", _state_endpoint(_post_quicknote_new, "raw", MAX_TEXT_BODY, "note too large"), methods=["POST"]),

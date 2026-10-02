@@ -54,6 +54,9 @@ FETCH_WORD = re.compile(r"[a-z-]{1,24}")
 FILE_ROUTES = ("/uploads/", "/laneimg/")
 # a link from another site may open these; no other route may be read that way
 PAGE_OPENS = frozenset({"/m", "/"})
+# answered only to a page on the Mac itself, never through this gate, signed in
+# or not: the Spotify sign-in kept beside the board's settings
+LOCAL_ONLY = frozenset({"/spotify/session"})
 
 
 def _client_class(headers):
@@ -210,6 +213,10 @@ class BridgeGate:
         path = scope.get("path", "")
         method = scope.get("method", "")
         token = _cookie(headers)
+
+        if path in LOCAL_ONLY:
+            await _reply(scope, receive, send, 404, {"error": "not found"})
+            return
 
         if method == "GET" and path == "/m-manifest.json":
             # The local route names the board from private state. Installation
