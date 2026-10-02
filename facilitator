@@ -1634,36 +1634,55 @@ def install_uv():
     return uv
 
 
-def ensure_uv():
+def ensure_uv(quiet=False):
     uv = find_uv()
     if uv:
-        ok("uv found.")
+        if not quiet:
+            ok("uv found.")
         return uv
     uv = install_uv()
-    ok("uv installed.")
+    if not quiet:
+        ok("uv installed.")
     return uv
 
 
-def ensure_env(uv):
+def run_uv(argv, quiet):
+    """Run uv in this checkout; quiet holds its output back and shows it only on failure."""
+    if not quiet:
+        return subprocess.run(argv, cwd=str(HERE)).returncode
+    result = subprocess.run(argv, cwd=str(HERE), capture_output=True, text=True, errors="replace")
+    if result.returncode != 0:
+        sys.stdout.write(result.stdout)
+        sys.stdout.flush()
+        sys.stderr.write(result.stderr)
+        sys.stderr.flush()
+    return result.returncode
+
+
+def ensure_env(uv, quiet=False):
     """Create the environment when it is not there and sync the pinned packages
     into it. Creating is skipped when the environment already stands; syncing
     runs either way because it is idempotent and is how a changed requirements
-    file is picked up."""
+    file is picked up. quiet prints nothing unless a step fails."""
     venv_python = HERE / ".venv" / "bin" / "python"
     if venv_python.exists():
-        ok("Environment found in .venv.")
+        if not quiet:
+            ok("Environment found in .venv.")
     else:
-        print("Creating the environment in .venv.")
-        if subprocess.run([uv, "venv", ".venv"], cwd=str(HERE)).returncode != 0:
+        if not quiet:
+            print("Creating the environment in .venv.")
+        if run_uv([uv, "venv", ".venv"], quiet) != 0:
             sys.exit(problem("uv could not create .venv.",
                              "See the output above, then run ./install.sh again."))
-        ok("Environment created.")
-    print("Syncing packages to requirements.txt.")
-    if subprocess.run([uv, "pip", "sync", "--python", ".venv/bin/python", "requirements.txt"],
-                      cwd=str(HERE)).returncode != 0:
+        if not quiet:
+            ok("Environment created.")
+    if not quiet:
+        print("Syncing packages to requirements.txt.")
+    if run_uv([uv, "pip", "sync", "--python", ".venv/bin/python", "requirements.txt"], quiet) != 0:
         sys.exit(problem("uv could not sync requirements.txt.",
                          "See the output above, then run ./install.sh again."))
-    ok("Packages synced.")
+    if not quiet:
+        ok("Packages synced.")
 
 
 def ensure_config():
@@ -2085,16 +2104,7 @@ def cmd_update(args):
     old_version = board_version()
     remote, upstream = check_checkout()
 
-    section("2. Pull")
-    print("This pulls only forward from the branch above. It never merges\n"
-          "and never rewrites anything.\n")
     before, after = pull_forward(remote, upstream)
-    if before == after:
-        ok("No new commits upstream.")
-    else:
-        count = int(run_git("rev-list", "--count", f"{before}..{after}").stdout.strip() or 0)
-        noun = "commit" if count == 1 else "commits"
-        ok(f"Moved forward {count} {noun}, from {before[:7]} to {after[:7]}.")
 
     command = [sys.executable, str(HERE / "facilitator"), "_update-steps",
                "--from-version", old_version]
@@ -2186,12 +2196,9 @@ def cmd_update_steps(args):
         sys.stdout.reconfigure(line_buffering=True)
 
     try:
-        section("3. Python environment")
-        print("This syncs the .venv to requirements.txt the way setup does,\n"
-              "and asks nothing.\n")
-        ensure_env(ensure_uv())
+        ensure_env(ensure_uv(quiet=True), quiet=True)
 
-        section("4. Update steps")
+        section("2. Update steps")
         print("Numbered steps in the updates folder run once each, in order.\n"
               "A step that fails stops the update and runs again next time.\n")
         run_update_steps()
@@ -2201,7 +2208,7 @@ def cmd_update_steps(args):
                           " facilitator restart")
         raise
 
-    section("5. Board")
+    section("3. Board")
     restarted = restart_board(pulled)
 
     new_version = board_version()

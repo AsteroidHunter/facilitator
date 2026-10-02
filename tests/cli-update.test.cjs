@@ -69,6 +69,7 @@ async function makeWorld({ seedSteps = {} } = {}) {
   await writeFile(path.join(world.bin, "uv"), [
     "#!/bin/sh",
     'echo "$@" >> "$UV_LOG"',
+    'echo "uv noise" >&2',
     'if [ "$1 $2" = "venv .venv" ]; then mkdir -p .venv/bin; : > .venv/bin/python; fi',
     "exit 0",
     "",
@@ -128,6 +129,18 @@ async function makeWorld({ seedSteps = {} } = {}) {
   return world;
 }
 
+function sectionTitles(text) {
+  return text.split("\n").filter(line => /^\d\. \S/.test(line));
+}
+
+function assertNoPullOrEnvironmentOutput(text) {
+  for (const gone of ["2. Pull", "3. Python environment", "pulls only forward", "syncs the .venv",
+    "Moved forward", "No new commits upstream", "uv found", "Environment found", "Environment created",
+    "Creating the environment", "Syncing packages", "Packages synced", "uv noise"]) {
+    assert.ok(!text.includes(gone), `${gone} is not printed:\n${text}`);
+  }
+}
+
 const STEP_SH = word => `echo ${word} >> "$UPDATE_TEST_MARKER"\n`;
 const STEP_PY = word => `import os\nwith open(os.environ["UPDATE_TEST_MARKER"], "a") as f:\n    f.write("${word}\\n")\n`;
 
@@ -155,7 +168,9 @@ test("a clean pull runs the new steps once, from the pulled code, and not again"
   const first = await run("python3", [link, "update"], { cwd: world.base, env: world.env });
   assert.equal(first.code, 0, first.stdout + first.stderr);
   assert.match(first.stdout, /Branch main follows origin\/main\./);
-  assert.match(first.stdout, /Moved forward 1 commit, from [0-9a-f]{7} to [0-9a-f]{7}\./);
+  assert.deepEqual(sectionTitles(first.stdout), ["1. Checkout", "2. Update steps", "3. Board"]);
+  assertNoPullOrEnvironmentOutput(first.stdout);
+  assert.ok(!first.stderr.includes("uv noise"), "uv's own output is held back on success");
   assert.match(first.stdout, /0001-mark\.sh done\./);
   assert.match(first.stdout, /0002-mark\.py done\./);
   assert.match(first.stdout, /Old version: v0\.2\.1\nNew version: v0\.2\.2\n/);
@@ -247,10 +262,46 @@ test("a failing step stops the update, is not recorded, and runs again next time
   await writeFile(world.flag, "");
   const second = await world.update({ UPDATE_TEST_FLAG: world.flag });
   assert.equal(second.code, 0, second.stdout + second.stderr);
-  assert.match(second.stdout, /No new commits upstream\./);
+  assertNoPullOrEnvironmentOutput(second.stdout);
   assert.match(second.stdout, /0001-flaky\.sh done\./);
   assert.deepEqual(await world.markers(), ["flaky", "after"]);
   assert.deepEqual(Object.keys((await world.record()).ran), ["0001-flaky.sh", "0002-after.sh"]);
+});
+
+test("a pull that fails still prints its error and what to do", async () => {
+  const world = await makeWorld();
+  await rm(world.origin, { recursive: true, force: true });
+
+  const result = await world.update();
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /git could not pull origin\/main\./);
+  assert.match(result.stderr, /Nothing was changed\./);
+  assert.match(result.stderr, /Fix that, then run facilitator update again\./);
+  assert.deepEqual(sectionTitles(result.stdout), ["1. Checkout"]);
+  assert.deepEqual(await world.uvCalls(), []);
+});
+
+test("an environment sync that fails still prints uv's output, the error and what to do", async () => {
+  const world = await makeWorld();
+  await writeFile(path.join(world.bin, "uv"), [
+    "#!/bin/sh",
+    'echo "$@" >> "$UV_LOG"',
+    'if [ "$1 $2" = "venv .venv" ]; then mkdir -p .venv/bin; : > .venv/bin/python; exit 0; fi',
+    'echo "no matching distribution for nothing" >&2',
+    "exit 2",
+    "",
+  ].join("\n"));
+  const pushed = await world.push({ "updates/0001-mark.sh": STEP_SH("sh") });
+
+  const result = await world.update();
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /no matching distribution for nothing/);
+  assert.match(result.stderr, /uv could not sync requirements\.txt\./);
+  assert.match(result.stderr, /See the output above, then run \.\/install\.sh again\./);
+  assert.match(result.stderr, /The board was not restarted\. Once the update goes through, run: facilitator restart/);
+  assert.deepEqual(sectionTitles(result.stdout), ["1. Checkout"]);
+  assert.equal(await world.head(), pushed, "the pull still ran");
+  assert.deepEqual(await world.markers(), [], "no step ran after the failed sync");
 });
 
 test("a branch with no upstream is refused and the command to set one is named", async () => {
@@ -288,13 +339,15 @@ test("a folder that is not a git checkout is refused", async () => {
   assert.deepEqual(await world.uvCalls(), []);
 });
 
-test("with nothing to pull it says so, still runs pending steps once, and does not restart", async () => {
+test("with nothing to pull it still runs pending steps once, and does not restart", async () => {
   const world = await makeWorld({ seedSteps: { "0001-mark.sh": STEP_SH("sh") } });
   const before = await world.head();
 
   const first = await world.update();
   assert.equal(first.code, 0, first.stdout + first.stderr);
-  assert.match(first.stdout, /No new commits upstream\./);
+  assertNoPullOrEnvironmentOutput(first.stdout);
+  assert.deepEqual(await world.uvCalls(), ["venv .venv", "pip sync --python .venv/bin/python requirements.txt"],
+    "the environment sync still ran");
   assert.match(first.stdout, /0001-mark\.sh done\./);
   assert.match(first.stdout, /Nothing was pulled, so the board was left as it is\./);
   assert.match(first.stdout, /Already up to date \(v0\.2\.1\)\./);
@@ -363,8 +416,8 @@ def never(*a, **k):
 cli.state = never
 cli.start_server = never
 cli.stop_server = never
-cli.ensure_uv = lambda: "/fake/uv"
-cli.ensure_env = lambda uv: calls.append("env")
+cli.ensure_uv = lambda quiet=False: "/fake/uv"
+cli.ensure_env = lambda uv, quiet=False: calls.append("env")
 RUNNING = [True]
 cli.board_running = lambda port: RUNNING[0]
 REFUSE = [None]
