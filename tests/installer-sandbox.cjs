@@ -63,7 +63,9 @@ async function script(file, text) {
 
 // agents: which of claude and codex exist. chrome: "spotlight" (mdfind knows it),
 // "launchservices" (only open -Ra does) or "none". python: "system" (a good
-// python3), "missing" (python3 fails) or "noscrypt" (python3 has no scrypt).
+// python3), "missing" (python3 fails), "old" (python3 fails the version
+// check) or "apple" (python3 is the /usr/bin/python3 macOS ships, which has no
+// scrypt).
 // uv: "present", "brew" (a fake brew installs it), "curl" (a fake curl hands
 // back an installer that puts it in the home folder) or "absent". The fake's
 // venv writes a pyvenv.cfg naming venvPython, and a .venv/bin/python3 that
@@ -92,7 +94,8 @@ async function sandbox({ agents = ["claude"], chrome = "spotlight", python = "sy
   const wrappers = {
     system: `#!/bin/sh\nexec "${real}" "$@"\n`,
     missing: `#!/bin/sh\necho "python3 $*" >> "${log}"\nexit 1\n`,
-    noscrypt: `#!/bin/sh\ncase "$*" in *scrypt*) echo "python3 without scrypt" >> "${log}"; exit 1;; esac\nexec "${real}" "$@"\n`,
+    old: `#!/bin/sh\ncase "$*" in *version_info*) echo "python3 too old" >> "${log}"; exit 1;; esac\nexec "${real}" "$@"\n`,
+    apple: `#!/bin/sh\necho "apple python3 $1" >> "${log}"\nexec /usr/bin/python3 "$@"\n`,
   };
   await script(path.join(tools, "python3"), wrappers[python]);
 
