@@ -8,9 +8,19 @@ const ROOT = path.resolve(__dirname, '..');
 
 // m-splash.js is the launch picture's painter, which the gate page loads before
 // sign-in and the phone page loads after it, so a copied server carries it too.
+// The pages also fetch the home widgets once idle and ask /limits, which imports
+// limits.py. That copy cannot find codex, or the first ask would start the
+// machine's real codex; the tests that read the limits copy the real file over
+// it. tokens.py is left out on purpose: with it the server reads the real token
+// logs, so only the tests that open home copy it.
 function copyBridgeFiles(dir) {
-  for (const name of ['bridge_auth.py', 'bridge_gate.py', 'm-gate.html', 'm-splash.js'])
+  for (const name of ['bridge_auth.py', 'bridge_gate.py', 'm-gate.html', 'm-splash.js',
+                      'home-widgets.css', 'home-widgets.js'])
     fs.copyFileSync(path.join(ROOT, name), path.join(dir, name));
+  const anchor = 'return shutil.which("codex", path=path)';
+  const limits = fs.readFileSync(path.join(ROOT, 'limits.py'), 'utf8');
+  if (!limits.includes(anchor)) throw new Error("the limits codex lookup's anchor moved");
+  fs.writeFileSync(path.join(dir, 'limits.py'), limits.replace(anchor, 'return None'));
 }
 
 function bind(server, port) {
