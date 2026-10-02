@@ -122,6 +122,9 @@ async function open(platform) {
   if (platform.name === 'phone') await page.waitForSelector('#loading', { hidden: true, timeout: 30000 });
   await page.evaluate(() => document.fonts.ready);
   await page.focus(ROW);
+  // the phone's typing row slides the text left as the plus steps aside, then switches to its
+  // resting layout; a caret read before that is read mid-slide
+  if (platform.name === 'phone') await page.waitForSelector('.bottombar.wide', { timeout: 5000 });
   return { page, problems };
 }
 
