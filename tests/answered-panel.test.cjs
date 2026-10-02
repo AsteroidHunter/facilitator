@@ -1440,9 +1440,11 @@ test("both pages seat the sent panel at the foot and hand the turn a pass that d
   for (const [where, text] of [["card-logic.js", LOGIC], ["card-tokens.css", TOKENS], ["index.html", DESKTOP], ["m.html", PHONE]])
     for (const name of retired)
       assert.ok(!text.includes(name), `${where} still carries the old sent box's ${name}`);
-  for (const [where, text] of [["the desktop", DESKTOP], ["the phone", PHONE]]) {
+  // the phone's file tray sits between the sent panel and the row
+  for (const [where, text, foot] of [["the desktop", DESKTOP, "meta, sentwrap, bottombar"],
+    ["the phone", PHONE, "meta, sentwrap, tray, bottombar"]]) {
     assert.match(text, /const sentwrap = h\("div", "sentwrap"\);/, `${where} builds no seat for the sent panel`);
-    assert.match(text, /pendwrap\.append\(meta, sentwrap, bottombar\);/, `${where} does not seat it over the row`);
+    assert.ok(text.includes(`pendwrap.append(${foot});`), `${where} does not seat it over the row`);
     // the turn is asked before anything of the new answer is drawn, and handed
     // the new page once both panels have been drawn
     const ask = text.indexOf("const turn = el.reply.dataset.raw !== rawReply ? turnBegin(el, b) : null;");
