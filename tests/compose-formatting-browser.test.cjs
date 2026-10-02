@@ -213,8 +213,11 @@ before(async () => {
     await copyFile(path.join(ROOT, "assets", name), path.join(fixtureDir, "assets", name));
   }
   // a board that has formatting on for a browser that has chosen nothing; the
-  // default a board ships with is off and is covered by the format-default checks
-  await writeFile(path.join(fixtureDir, "run.config.json"), JSON.stringify({ compose_format_default: true }));
+  // default a board ships with is off and is covered by the format-default checks.
+  // the file navigator mounts only on the lanes a board names for it
+  await writeFile(path.join(fixtureDir, "run.config.json"), JSON.stringify({
+    compose_format_default: true, navigator_lanes: ["pastureland"],
+  }));
   await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
     title: "compose formatting fixture",
     items: [
@@ -582,12 +585,18 @@ test("a send that fails keeps the words, and an attachment still joins them", as
     await page.focus(ROW);
     await page.keyboard.type("words that will not go");
     await page.keyboard.press("Enter");
-    await page.waitForFunction(() => {
-      const note = document.querySelector("article.box.sel .meta span");
-      return !!note && note.textContent.length > 0;
-    }, { timeout: 8000 });
-    assert.equal(await page.$eval(ROW, row => row.value), "words that will not go",
+    // the words leave the row at the press and a send that does not get through
+    // keeps them in the sent panel under a fail mark; the cross gives them back
+    const HELD = 'article.box.sel .answered.sent .answmsg[data-badge="fail"]';
+    await page.waitForSelector(HELD, { timeout: 8000 });
+    assert.equal(await page.$eval(HELD, row => row.dataset.text), "words that will not go",
       "a failed send lost the words it could not deliver");
+    assert.equal(await page.$eval(ROW, row => row.value), "",
+      "a failed send left its words in the row as well as in the sent panel");
+    await page.click(HELD + " .answcross");
+    await page.waitForFunction(() => document.querySelector("article.box.sel textarea").value ===
+      "words that will not go", { timeout: 8000 });
+    assert.equal(await page.$(HELD), null, "the cross left the message in the sent panel");
     // the refusal is taken off before the interception is, or a request still on
     // its way reaches a handler with nothing left to answer it
     page.off("request", refuse);
@@ -617,6 +626,11 @@ test("the small card beside the big one formats and sends the same way", async (
   const MINI = "#magic2 .mbox:not(.off) textarea";
   try {
     await page.waitForFunction(() => miniOrder.length > 0, { timeout: 10000 });
+    // the small card is put away until the reader shows it
+    await page.evaluate(() => {
+      settingsStore.setItem("show." + activeOwner + ".magic2", "1");
+      applySavedLayout();
+    });
     await page.evaluate(cardId => { miniGo(cardId); renderMiniCards(lastState); }, id);
     await page.waitForSelector("#magic2 .mbox:not(.off) .cffield", { timeout: 30000 });
     await page.focus(MINI);
