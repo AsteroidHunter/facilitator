@@ -68,6 +68,7 @@ test('bridge gates every route, persists sessions, signs out and rejects legacy 
       'm-splash.js','m-sw.js','m-manifest.json','seed.example.json','index.html','page.html','manifest.json',
       'sw.js','card-markdown.js','card-tokens.css','card-logic.js','card-report.js',
       'compose-format.js','cm-markdown.js']) await fs.copyFile(path.join(ROOT,file), path.join(app,file));
+    require('./fixture-auth.cjs').copyBridgeFiles(app);
     await fs.cp(path.join(ROOT,'assets'), path.join(app,'assets'), { recursive:true });
     const source = await fs.readFile(path.join(app,'server.py'),'utf8');
     await fs.writeFile(path.join(app,'server.py'), source.replace('PORT = 8877', 'PORT = int(os.environ["FACILITATOR_TEST_PORT"])'));
