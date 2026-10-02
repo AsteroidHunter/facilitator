@@ -445,7 +445,12 @@ cli.state = never
 cli.start_server = never
 cli.stop_server = never
 cli.ensure_uv = lambda quiet=False: "/fake/uv"
-cli.ensure_env = lambda uv, quiet=False: calls.append("env")
+STOPPED = [False]   # whether the .venv rebuild stopped the board, as ensure_env reports it
+def fake_env(uv, quiet=False):
+    calls.append("env")
+    cli.env_stopped_board = STOPPED[0]
+    return STOPPED[0]
+cli.ensure_env = fake_env
 RUNNING = [True]
 cli.board_running = lambda port: RUNNING[0]
 REFUSE = [None]
@@ -456,10 +461,12 @@ def fake_restart(args):
     print("Board restarted.")
 cli.cmd_restart = fake_restart
 
-def scenario(pulled, running, refuse=None):
+def scenario(pulled, running, refuse=None, stopped=False):
     del calls[:]
     RUNNING[0] = running
     REFUSE[0] = refuse
+    STOPPED[0] = stopped
+    cli.env_stopped_board = False
     out, err = io.StringIO(), io.StringIO()
     exit_code = None
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -474,10 +481,13 @@ results = {
     "pulled_down": scenario(True, False),
     "current_running": scenario(False, True),
     "refused": scenario(True, True, "restart: port 1 is still held by something; nothing new was started"),
+    "rebuilt_current": scenario(False, False, stopped=True),
+    "rebuilt_pulled": scenario(True, False, stopped=True),
 }
 step = cli.UPDATES_DIR / "0001-fails.sh"
 step.write_text("exit 7\\n")
 results["failed_step"] = scenario(True, True)
+results["rebuilt_failed_step"] = scenario(False, False, stopped=True)
 print(json.dumps(results))
 `;
   const result = await run("python3", ["-c", code], { cwd: world.user, env: world.env });
@@ -507,4 +517,16 @@ print(json.dumps(results))
   assert.deepEqual(r.failed_step.calls, ["env"], "no restart after a failed step");
   assert.match(String(r.failed_step.exit), /Update step 0001-fails\.sh failed\./);
   assert.match(String(r.failed_step.exit), /The board was not restarted\./);
+
+  // a board the .venv rebuild stopped is started again, pulled or not, and
+  // never after a failed step, which then says the board is down
+  for (const name of ["rebuilt_current", "rebuilt_pulled"]) {
+    assert.deepEqual(r[name].calls, ["env", ["restart"]], name);
+    assert.equal(r[name].exit, null, name);
+    assert.match(r[name].out, /The board was stopped to rebuild \.venv\. Starting it again\.\n/, name);
+    assert.doesNotMatch(r[name].out, /Nothing was pulled|is not running on port/, name);
+  }
+  assert.deepEqual(r.rebuilt_failed_step.calls, ["env"], "no start after a failed step");
+  assert.match(String(r.rebuilt_failed_step.exit),
+    /The board was not restarted\. Once the update goes through, run: facilitator restart/);
 });
