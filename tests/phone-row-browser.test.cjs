@@ -253,6 +253,31 @@ test("a held press grows the capsule and pops the list, a drag lights a row, and
   } finally { await page.close(); }
 });
 
+test("a finger on the composer fades the row before the focus comes, and a touch that brings no focus lets it back", async () => {
+  const { page, problems } = await openPhone();
+  try {
+    const row = () => page.evaluate(() => ({ away: document.getElementById("dock").classList.contains("away"),
+      typing: typingFocus() }));
+    const at = await page.$eval("article.box.sel .compose", c => { const r = c.getBoundingClientRect(); return { x: r.left + 40, y: r.top + r.height / 2 }; });
+    // the finger is down and nothing is focused yet: the fade has begun
+    await page.touchscreen.touchStart(at.x, at.y);
+    await settle(60);
+    assert.deepEqual(await row(), { away: true, typing: false }, "the row did not start its fade from the touch");
+    // a touch that turns into nothing: no focus, and the row comes back on its own
+    await page.touchscreen.touchMove(at.x, at.y - 80);
+    await page.touchscreen.touchEnd();
+    await settle(900);
+    assert.deepEqual(await row(), { away: false, typing: false }, "a touch that brought no focus left the row out of sight");
+    // the touch on the reading area is not a touch on the typing row
+    const reading = await middle(page, "article.box.sel .reply");
+    await page.touchscreen.touchStart(reading.x, reading.y);
+    await settle(60);
+    assert.equal((await row()).away, false, "a touch on the answer faded the row");
+    await page.touchscreen.touchEnd();
+    assert.deepEqual(problems, []);
+  } finally { await page.close(); }
+});
+
 test("a finger sliding off the capsule before the hold is up opens nothing, and the capsule refuses the phone's long press", async () => {
   const { page, problems } = await openPhone();
   try {
