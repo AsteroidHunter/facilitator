@@ -5,7 +5,9 @@
 // The focus is still taken without scrolling, and the caret colour is still held back
 // at once and released once the layout has settled, and the caret is then moved one place
 // off and back (an empty box gets a transform for a frame) so the phone draws it before
-// a key is pressed. A stand-in visual viewport stands
+// a key is pressed. A Tab from the card's title into the box, which is the browser's own
+// focus move, gets the same: the caret after the last word, and drawn once the colour
+// returns, while a tap keeps the caret where it lands. A stand-in visual viewport stands
 // for the keyboard, as phone-typing-row.test.cjs does.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
@@ -95,6 +97,14 @@ async function chord(page, key) {
   await page.keyboard.up("Shift");
   await page.keyboard.up("Control");
 }
+// Tab as a browser with full keyboard access takes it: the paper clip is a stop before the box
+async function tabIntoBox(page, id) {
+  for (let i = 0; i < 4; i++) {
+    await page.keyboard.press("Tab");
+    await settle(30);
+    if ((await where(page, id)).inBox) return;
+  }
+}
 const where = (page, id) => page.evaluate(i => {
   const ta = els[i].ta, active = document.activeElement;
   return {
@@ -134,6 +144,31 @@ async function prepare(editor, { words = "", leftBy = 0 } = {}) {
   await settle(900);
   assert.equal((await where(page, first)).selected, first, "the step back did not reach the first card");
   return { page, problems, first, next };
+}
+
+// the keyboard is down with the first card's box holding the words, if any, and the caret left at their
+// start; the focus is on the card's title, so a Tab is the browser's own move into the box
+async function prepareTab(editor, words) {
+  const first = await create("Caret tab");
+  const { page, problems } = await openPhone(`/m?box=${first}`, { editor });
+  await page.waitForSelector(`#box-${first}.sel`, { timeout: 5000 });
+  if (editor) await page.waitForFunction(i => els[i].field.formatted(), { timeout: 8000 }, first);
+  await settle(300);
+  await tapField(page);
+  await settle(60);
+  await keyboard(page, PHONE.height - KEYBOARD);
+  await settle(900);
+  if (words) {
+    await page.keyboard.type(words);
+    await page.keyboard.press("Home");
+    await settle(200);
+  }
+  await page.evaluate(() => document.activeElement.blur());
+  await keyboard(page, PHONE.height);
+  await settle(700);
+  await page.evaluate(i => editTitle(i), first);
+  assert.equal(await page.evaluate(i => document.activeElement === els[i].titleEl, first), true, "the title did not take the focus");
+  return { page, problems, first };
 }
 
 before(async () => {
@@ -324,6 +359,84 @@ for (const editor of [false, true]) {
       assert.ok(cleared && cleared.t - set.t < 100, "the transform was not taken off again within a frame or two");
       const landed = await where(page, next);
       assert.deepEqual([landed.start, landed.end, landed.length], [0, 0, 0]);
+      assert.deepEqual(problems, []);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test(`${face}: a Tab into a box with words puts the caret after the last one and moves it off and back once the colour returns`, async () => {
+    const { page, problems, first } = await prepareTab(editor, WORDS);
+    try {
+      assert.equal((await where(page, first)).start, 0, "the caret was not left at the start of the words");
+      await page.evaluate(i => {
+        const ta = els[i].ta, foot = els[i].bottombar;
+        window.__moves = [];
+        window.__heldSeen = false;
+        new MutationObserver(() => { if (foot.classList.contains("nocaret")) window.__heldSeen = true; })
+          .observe(foot, { attributes: true, attributeFilter: ["class"] });
+        const original = ta.setSelectionRange;
+        Object.defineProperty(ta, "setSelectionRange", {
+          configurable: true, writable: true,
+          value(...args) {
+            window.__moves.push({ from: args[0], to: args[1], back: window.__heldSeen && !foot.classList.contains("nocaret") });
+            return original.apply(this, args);
+          },
+        });
+      }, first);
+      await keyboard(page, PHONE.height - KEYBOARD);
+      await tabIntoBox(page, first);
+      await settle(900);
+      const landed = await where(page, first);
+      assert.equal(landed.inBox, true, "the Tab did not reach the box");
+      assert.deepEqual([landed.start, landed.end, landed.length], [WORDS.length, WORDS.length, WORDS.length]);
+      const moves = (await page.evaluate(() => window.__moves)).filter(m => m.back).map(m => [m.from, m.to]);
+      assert.deepEqual(moves.slice(0, 2), [[WORDS.length - 1, WORDS.length - 1], [WORDS.length, WORDS.length]],
+        "the caret was not moved off its place and back once the colour returned");
+      assert.deepEqual(problems, []);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test(`${face}: a Tab into an empty box has the caret drawn again with a transform for one frame`, async () => {
+    const { page, problems, first } = await prepareTab(editor, "");
+    try {
+      await page.evaluate(i => {
+        window.__transforms = [];
+        new MutationObserver(records => {
+          for (const r of records) window.__transforms.push({ t: performance.now(), value: r.target.style.transform });
+        }).observe(els[i].bottombar, { attributes: true, attributeFilter: ["style"], subtree: true });
+      }, first);
+      await keyboard(page, PHONE.height - KEYBOARD);
+      await tabIntoBox(page, first);
+      await settle(900);
+      const seen = await page.evaluate(() => window.__transforms);
+      const set = seen.find(s => /translateZ/.test(s.value));
+      assert.ok(set, "no transform was applied to the empty box's field");
+      const cleared = seen.find(s => s.t > set.t && s.value === "");
+      assert.ok(cleared && cleared.t - set.t < 100, "the transform was not taken off again within a frame or two");
+      const landed = await where(page, first);
+      assert.equal(landed.inBox, true, "the Tab did not reach the box");
+      assert.deepEqual([landed.start, landed.end, landed.length], [0, 0, 0]);
+      assert.deepEqual(problems, []);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test(`${face}: a click into a box with words still puts the caret where it was left`, async () => {
+    const { page, problems, first } = await prepareTab(editor, WORDS);
+    try {
+      await keyboard(page, PHONE.height - KEYBOARD);
+      await page.evaluate(() => document.activeElement.blur());
+      const box = await (await page.$("article.box.sel .compose > textarea:not(.twin), article.box.sel .compose > .cffield")).boundingBox();
+      await page.touchscreen.tap(box.x + 40, box.y + box.height / 2);
+      await settle(900);
+      const landed = await where(page, first);
+      assert.equal(landed.inBox, true, "the tap did not reach the box");
+      assert.equal(landed.start, landed.end);
+      assert.ok(landed.start > 0 && landed.start < WORDS.length, `a tap on the middle of the words left the caret at ${landed.start}`);
       assert.deepEqual(problems, []);
     } finally {
       await page.close();
