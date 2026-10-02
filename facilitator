@@ -30,12 +30,12 @@
       Needs HTTPS certificates switched on once for the tailnet, in the
       Tailscale admin console; says so and stops when they are off.
       --dry-run prints the commands instead of running them
-  facilitator uninstall [--wipe] [--keep-attachments | --remove-attachments]
+  facilitator uninstall [--keep-attachments | --remove-attachments]
       remove what install made: the .venv, node_modules and the generated config
       files, owned shell command, owned agent-skill links, and the Claude Code
       status line entry install added. Keeps the board's data (state.json,
-      transcript.jsonl, logs, bridge credentials and vapid-key.pem) unless
-      --wipe is given. After its banner it asks whether to keep the card
+      transcript.jsonl, logs, bridge credentials and vapid-key.pem). After its
+      banner it asks whether to keep the card
       attachments; Enter, an unclear answer or no terminal keeps them, and the
       two flags answer without asking.
       Never removes this folder or stops a running server.
@@ -1533,8 +1533,8 @@ def cmd_bridge(args):
 #
 # install makes a fresh checkout runnable with one command and is safe to run
 # again: every step reports either what it did or that it was already done.
-# uninstall takes away exactly what install made, keeping the board's data
-# unless --wipe is given. Neither ever removes this folder, and uninstall never
+# uninstall takes away exactly what install made, always keeping the board's
+# data. Neither ever removes this folder, and uninstall never
 # stops a running server: it refuses while one is up and says so.
 MIN_PYTHON = (3, 9)              # the floor the pinned server libraries need
 UV_HOME_BINS = ("~/.local/bin/uv", "~/.cargo/bin/uv")
@@ -1552,16 +1552,15 @@ shared agent skill through ./install.sh. In an interactive terminal it also
 asks whether to show your Claude limits on the home page, and on yes adds
 claude-statusline.py as the Claude Code status line, around the one you have.
 Safe to run again; a second run changes nothing."""
-UNINSTALL_HELP = """usage: facilitator uninstall [--wipe] [--keep-attachments | --remove-attachments]
+UNINSTALL_HELP = """usage: facilitator uninstall [--keep-attachments | --remove-attachments]
 
 Remove what install made: the .venv, node_modules, generated config,
 owned command and agent-skill links, and the Claude Code status line entry
-install added. Keeps board data and bridge credentials unless --wipe is
-given. Never removes this folder or stops a running server.
+install added. Keeps board data and bridge credentials. Never removes this
+folder or stops a running server.
 Card attachments are asked about after the banner and kept unless the
 answer is a clear no; with no terminal they are kept.
---keep-attachments and --remove-attachments answer without asking, with
-or without --wipe."""
+--keep-attachments and --remove-attachments answer without asking."""
 # card attachments, worked out exactly as server.py works them out: new ones
 # save in the sibling internal folder, and the old in-repo uploads/ still
 # serves the ones saved before that move
@@ -1868,19 +1867,17 @@ def remove_attachments(path):
 
 
 def cmd_uninstall(args):
-    """Take away exactly what install made, keeping the board's data unless
-    --wipe is given. Right after the banner, asks whether to keep the card
-    attachments. Refuses while the server is up, and never removes this
-    folder."""
+    """Take away exactly what install made, always keeping the board's data.
+    Right after the banner, asks whether to keep the card attachments.
+    Refuses while the server is up, and never removes this folder."""
     words = args[1:]
     if any(w in ("-h", "--help") for w in words):
         print(UNINSTALL_HELP)
         return
-    wipe = "--wipe" in words
-    extra = [w for w in words if w not in ("--wipe", "--keep-attachments", "--remove-attachments")]
+    extra = [w for w in words if w not in ("--keep-attachments", "--remove-attachments")]
     if extra:
         sys.exit(problem("Unknown option: " + " ".join(extra) + ".",
-                         "uninstall takes --wipe, --keep-attachments or --remove-attachments.")
+                         "uninstall takes --keep-attachments or --remove-attachments.")
                  + "\n\n" + UNINSTALL_HELP)
     if "--keep-attachments" in words and "--remove-attachments" in words:
         sys.exit(problem("Both --keep-attachments and --remove-attachments were given.",
@@ -1898,8 +1895,7 @@ def cmd_uninstall(args):
     attachments = attachment_dirs()
     section("1. Card attachments")
     print("Uninstall asks about your card attachments first, apart from the")
-    print("rest of the board's data, so your answer holds with or without")
-    print("--wipe. Only a clear no removes them.")
+    print("rest of the board's data. Only a clear no removes them.")
     print()
     if attachments:
         print("Your card attachments are in:")
@@ -1958,28 +1954,15 @@ def cmd_uninstall(args):
         INSTALL_RECORD.unlink()
 
     section("4. Board data")
-    print("Board data and bridge credentials are kept unless you pass --wipe.")
+    print("Board data and bridge credentials are kept.")
     print("Card attachments follow your answer in step 1.")
     print()
     shown = 0
-    if wipe:
-        for label, path in data:
-            if remove_path(path):
-                ok(f"Removed {label}.")
-            else:
-                skipped(f"{label} not present.")
+    for label, path in data:
+        if path.exists():
+            skipped(f"Kept {label}.")
             shown += 1
-        # state's scratch and backups are the board's data too, not the install
-        for path in [HERE / "state.tmp", *sorted(HERE.glob("state.json.bak-*"))]:
-            if remove_path(path):
-                ok(f"Removed {path.name}.")
-    else:
-        for label, path in data:
-            if path.exists():
-                skipped(f"Kept {label}.")
-                shown += 1
 
-    # asked about apart from --wipe, so the answer holds either way
     for path in attachments:
         if keep:
             skipped(f"Kept card attachments in {path}.")
