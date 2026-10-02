@@ -75,6 +75,12 @@ const state = page => page.evaluate(() => ({
   drawer: drawerOpen(), settings: document.getElementById("settings").classList.contains("open"),
 }));
 
+// the shade under the list as drawn: its weight, whether it shows, and its colour
+const shade = page => page.evaluate(() => {
+  const cs = getComputedStyle(document.getElementById("projshade"));
+  return { opacity: Number(cs.opacity), visible: cs.visibility === "visible", colour: cs.backgroundColor };
+});
+
 // ---- the markup and the sheet -----------------------------------------------------------
 test("the row holds four glass buttons in the owner's order, each drawn as inline svg", () => {
   const dock = /<nav id="dock"[^>]*>([\s\S]*?)<\/nav>/.exec(PHONE);
@@ -228,6 +234,58 @@ test("a tap on the capsule opens the list over the row, a tap on a project switc
     assert.deepEqual(problems, []);
   } finally { await page.close(); }
 });
+
+test("opening the list dims the page a little, and the dim fades away however the list is shut", async () => {
+  const { page, problems } = await openPhone();
+  try {
+    const rest = await shade(page);
+    assert.equal(rest.opacity, 0, "the page is dimmed with the list shut");
+    assert.equal(rest.visible, false);
+    // the drawers' shade, lighter: the same warm ink at a smaller weight
+    const scrim = await page.$eval("#scrim", s => getComputedStyle(s).backgroundColor);
+    const ink = c => /^rgba\((\d+), (\d+), (\d+), ([\d.]+)\)$/.exec(c).slice(1).map(Number);
+    const [sr, sg, sb, sa] = ink(scrim), [r, g, b, a] = ink(rest.colour);
+    assert.deepEqual([r, g, b], [sr, sg, sb], "the list's shade is not the drawers' colour");
+    assert.ok(a > 0 && a < sa, `the list's shade (${a}) is not lighter than the drawers' (${sa})`);
+    // its fade out runs however it is shut, so the shut state carries a timing
+    assert.notEqual(await page.$eval("#projshade", s => getComputedStyle(s).transitionDuration), "0s, 0s");
+
+    const dimmed = async how => {
+      await page.tap("#projbtn");
+      await settle(400);
+      const on = await shade(page);
+      assert.equal(on.opacity, 1, `the list opened (${how}) without its shade`);
+      assert.equal(on.visible, true);
+      assert.equal((await state(page)).open, true);
+    };
+    const back = async how => {
+      await settle(400);
+      assert.equal((await state(page)).open, false, `the list stayed open after ${how}`);
+      assert.deepEqual(await shade(page), rest, `the page stayed dimmed after ${how}`);
+    };
+    // a tap outside the list
+    await dimmed("for a tap outside");
+    await page.touchscreen.tap(IPHONE_13_MINI.width / 2, 100);
+    await back("a tap outside");
+    // a project chosen in it
+    await dimmed("for a choice");
+    const other = await page.$eval("#projlist .projrow:not(.on)", r => r.dataset.owner);
+    await page.tap(`#projlist .projrow[data-owner="${other}"]`);
+    await back("a project was chosen");
+    assert.equal((await state(page)).owner, other);
+    // Escape, from a paired keyboard
+    await dimmed("for Escape");
+    await page.keyboard.press("Escape");
+    await back("Escape");
+    // Home chosen in it
+    await dimmed("for Home");
+    await page.tap("#homeico");
+    await back("Home was chosen");
+    assert.equal((await state(page)).home, true);
+    assert.deepEqual(problems, []);
+  } finally { await page.close(); }
+});
+
 
 test("a held press grows the capsule and pops the list, a drag lights a row, and lifting on it chooses it", async () => {
   const { page, problems } = await openPhone();

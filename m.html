@@ -269,10 +269,15 @@
      standing just over the row with its left edge on the capsule's and its
      right edge on the plus's, and a long list scrolls inside it. a press held
      on a project lifts it, and the finger carries it up or down the list to
-     reorder the board's tabs. the shade under it is clear and only takes the
-     tap that shuts it */
-  #projshade{position:fixed; inset:0; z-index:24; display:none}
-  body.projopen #projshade{display:block}
+     reorder the board's tabs. the shade under it is the drawers' shade at a
+     little over half its weight, so the page and the row draw back a little
+     while the list is up. it fades in and out with the list, however the list
+     is shut, and only takes the tap that shuts it */
+  #projshade{position:fixed; inset:0; z-index:24; background:rgba(33,29,23,.1);
+    visibility:hidden; opacity:0; pointer-events:none;
+    transition:opacity .14s ease-out, visibility 0s linear .14s}
+  body.projopen #projshade{visibility:visible; opacity:1; pointer-events:auto;
+    transition:opacity .16s ease-out, visibility 0s}
   #projmenu{
     position:fixed; z-index:25; box-sizing:border-box;
     left:calc(max(var(--dock-side), env(safe-area-inset-left, 0px)) + var(--dock-h) + var(--dock-gap));
