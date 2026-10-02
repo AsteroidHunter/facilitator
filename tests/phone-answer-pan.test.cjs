@@ -61,9 +61,12 @@ function world() {
     runMenu: (p, v) => calls.push(["run", p.dataset.side, v]),
     cardStepTarget: dir => ({ id: dir > 0 ? "m2" : "m1" }),
     select: id => calls.push(["select", id]),
+    browse: id => calls.push(["browse", id]),
     // the card coming in is given its typing editor, and whether it was
     // already on show when that happened
     wearEditor: id => calls.push(["wear", id, boxes[id].classList.contains("cardswipe")]),
+    // card-logic.js's own function: the card coming in is handed its reading head
+    openAtHead: el => calls.push(["head", el.box.id]),
     MutationObserver: class { observe() {} disconnect() {} },
   });
   for (const source of [DRAWER, RECORDER, SWIPE]) vm.runInContext(source, context);
@@ -139,9 +142,13 @@ test("a sideways drag over the card swipes to the next card, cancelling nothing"
   assert.equal(w.boxes.m1.props["--card-swipe-x"], "-200px");
   w.up();
   w.flush();
-  assert.deepEqual(w.calls.filter(c => c[0] === "select"), [["select", "m2"]]);
+  // the card is shown and left unselected, so unread, until a tap selects it
+  assert.deepEqual(w.calls.filter(c => c[0] === "browse"), [["browse", "m2"]]);
+  assert.deepEqual(w.calls.filter(c => c[0] === "select"), []);
   assert.deepEqual(w.calls.filter(c => c[0] === "wear"), [["wear", "m2", false]],
     "the card slid in was not wearing its editor before it was shown");
+  assert.deepEqual(w.calls.filter(c => c[0] === "head"), [["head", "m2"]],
+    "the card slid in was not opened at its head");
   assert.equal(w.prevented(), 0);
 });
 
