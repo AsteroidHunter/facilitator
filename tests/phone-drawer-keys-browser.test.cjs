@@ -349,12 +349,15 @@ test("up and down walk the Doing tickets in the order the list shows, browsing e
     v = await inView();
     assert.ok(v.top >= -1 && v.bottom >= -1, "the last ticket is out of view: " + JSON.stringify(v));
     assert.ok(v.scrollTop > 0, "the list did not scroll to the last ticket");
+    assert.ok(v.bottom >= 8, "the last ticket sits on the pane's edge, so its shadow is cut: " + JSON.stringify(v));
     await shot(page, "walk-bottom");
 
-    // midway: one step at a time keeps the lifted ticket in view
-    for (let n = 0; n < 8; n++) await press(page, "ArrowUp");
-    v = await inView();
-    assert.ok(v.top >= -1 && v.bottom >= -1, "a middle ticket is out of view: " + JSON.stringify(v));
+    // midway: one step at a time keeps the lifted ticket in view, clear of the edges
+    for (let n = 0; n < 8; n++) {
+      await press(page, "ArrowUp");
+      v = await inView();
+      assert.ok(v.top >= 8 && v.bottom >= 8, "a ticket stepped to from below sits on the pane's edge: " + JSON.stringify(v));
+    }
     assert.equal((await read(page)).selected, list[last - 8]);
     assert.deepEqual(problems, []);
   } finally { await page.close(); }
