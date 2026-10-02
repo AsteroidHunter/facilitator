@@ -487,7 +487,6 @@ Endpoints:
                                card green and resets the steal timer, no release.
                                The messages the claim holds at that moment are
                                read from then on (pendingStates on /state)
-  POST /end                 -> ask the agent to wrap up once the queue drains
   GET  /fresh?owner=O       -> while O's agent holds a card: any messages that
                                landed on that card after the claim, handed over
                                and folded into the claim, so the one reply
@@ -513,8 +512,7 @@ Endpoints:
                                message_via runs beside it, one entry per message
                                in the same order, "mini" for a small card message
                                and null for a big card one. Also returns
-                               {"idle":true} on timeout, or {"end":true} once
-                               ended and O's queue is drained.
+                               {"idle":true} on timeout.
                                Delivery is confirmed, always: ack carries a short
                                token and the claim counts as provisional until
                                POST /ack names it. There is no unconfirmed mode.
@@ -1802,7 +1800,6 @@ def _seed_state() -> dict:
         # itself: {box, token, ts, confirmed} for the claim in play, None when
         # the lane holds nothing
         "ack": {ow: None for ow in OWNERS},
-        "end": False,
         "next_mid": 1,
         "next_bid": 1,
     }
@@ -2084,6 +2081,7 @@ def _backfill_rest_stamps() -> None:
 def _migrate() -> None:
     """Apply each versioned, idempotent upgrade to saved board state."""
     _state.pop("paused", None)   # the pause switch is gone; drop what an older board saved
+    _state.pop("end", None)   # the end switch is gone; drop what an older board saved
     _state.setdefault("title", "facilitator")
     # owners come from data, not code: the built-in facilitator, the lanes named
     # in run.config.json, the stored project lanes, and any owner a saved card
@@ -3679,7 +3677,6 @@ def _ui_state() -> dict:
         "projects": st.get("projects", []),
         "busy": st["busy"],
         "queued": len(st["inbox"]),
-        "end": st["end"],
         "title": st.get("title", "facilitator"),
         # the lane whose own internal folder feeds the image panel, read
         # from run.config.json; empty leaves the panel off on every tab
@@ -4390,8 +4387,8 @@ def _wait_leave(owner: str) -> None:
 
 def _wait_poll(owner: str):
     """One pass over the lane: the clocks, the steal-back, then a claim if a
-    box is waiting. Answers (kind, payload) with kind one of end or claim, or
-    None when there is nothing to say yet."""
+    box is waiting. Answers the claim, or None when there is nothing to say
+    yet."""
     with _lock:
         # the short clock first: a hand-off nobody confirmed comes back
         # after 90 seconds, long before the steal-back below notices
@@ -4450,10 +4447,7 @@ def _wait_poll(owner: str):
                     # the receipt this hand-off has to come back with
                     "ack": token,
                 }
-                return "claim", payload
-        if _state["end"] and _state["busy"][owner] is None and not any(
-                (_box(i) or {}).get("owner", "facilitator") == owner for i in _state["inbox"]):
-            return "end", {"end": True}
+                return payload
         return None
 
 
@@ -5926,15 +5920,6 @@ def _post_quicknote_del(q: Query, text: str):
         return 200, {"ok": True, "id": note["id"], "rev": _state["rev"]}
 
 
-def _post_end(q: Query, text: str):
-    with _lock:
-        _state["end"] = True
-        _log("end", "", "")
-        _save()
-        _notify()
-        return 200, {"ok": True}
-
-
 # ---- the transport --------------------------------------------------------------
 # One process, one worker, one owner of the board's state: uvicorn accepts the
 # connections and speaks HTTP, a small Starlette application routes them, and
@@ -6357,10 +6342,7 @@ class WaitRoute:
                                                      route=route), scope, receive, send)
                         return
                     if outcome is not None:
-                        kind, payload = outcome
-                        if kind != "claim":
-                            await _send_response(_answer(200, payload, route=route), scope, receive, send)
-                            return
+                        payload = outcome
                         bid, token = payload["box"], payload["ack"]
                         if gone.is_set():
                             # the listener left while the claim was being made
@@ -6678,7 +6660,6 @@ ROUTES = [
         Route("/quicknote/attach", _state_endpoint(_post_quicknote_attach, "text"), methods=["POST"]),
         Route("/quicknote/del", _state_endpoint(_post_quicknote_del, "text"), methods=["POST"]),
     ] if QUICK_NOTES_ON else []),
-    Route("/end", _state_endpoint(_post_end, "text"), methods=["POST"]),
 ]
 
 
