@@ -3053,6 +3053,9 @@ function renderTabs(st){
   if (owners.length && !owners.includes(activeOwner)) setTab(owners[0]);
   const sig = owners.map(ow => ow + ":" + labelOf(st, ow)).join(",");
   if (projList.dataset.sig !== sig){
+    // a list emptied is a list scrolled to nothing, so a long one scrolled by
+    // hand has its place read before and written back after
+    const at = projMenu.scrollTop;
     projList.dataset.sig = sig;
     projList.textContent = "";
     for (const ow of owners){
@@ -3063,6 +3066,7 @@ function renderTabs(st){
       row.insertAdjacentHTML("beforeend", PROJ_CHECK);
       projList.appendChild(row);
     }
+    projMenu.scrollTop = at;
   }
   // no project is checked while home is up: the house is
   let others = false;
