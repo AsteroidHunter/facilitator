@@ -139,7 +139,8 @@ async function surfaces(){
         fill:s.backgroundColor,border:s.borderLeftWidth,borderColor:s.borderLeftColor,radius:s.borderRadius,
         shadow:s.boxShadow,overflow:s.overflow,replyLength:el.querySelector(".reply").textContent.length};
     }).sort((a,b)=>a.left-b.left);
-    return {paneFill:ps.backgroundColor,paneBorder:ps.borderTopColor,paneShadow:ps.boxShadow,
+    return {paneFill:ps.backgroundColor,paneBorder:ps.borderTopColor,paneShadow:ps.boxShadow,paneEdge:ps.borderTopWidth,
+      edgeAsked:getComputedStyle(document.documentElement).getPropertyValue("--edge").trim(),
       centerY:(pr.top+pr.bottom)/2,faces,gap:faces.length===2?faces[1].left-faces[0].right:null,
       transitions:document.getAnimations().filter(a=>a.effect?.target?.matches?.(".box.cardswipe")).length};
   });
@@ -151,10 +152,15 @@ function distinct(frame){
   assert.equal(frame.paneShadow,"none");
   assert.ok(frame.gap>=12,`card surfaces have no clear gap: ${frame.gap}`);
   for(const face of frame.faces){
-    // the edge is asked for at 0.8px; chrome may report it as written or as the
-    // whole device pixels it draws on this 3x phone, so it is a visible line under 1px
+    // the page asks for the edge at 0.8px, but the width it is drawn at is
+    // chrome's to snap: the owned headless chrome draws it a whole 1px even on
+    // this 3x phone, a real phone draws it thinner. so the card's edge is a
+    // visible line no thicker than a pixel, and the same width the pane's own
+    // edge is drawn at, which is where each card's edge lands
     assert.equal(face.fill,"rgb(255, 255, 255)");
-    assert.ok(parseFloat(face.border)>0 && parseFloat(face.border)<1,`card edge is not the hairline: ${face.border}`);
+    assert.equal(frame.edgeAsked,".8px","the page no longer asks for the 0.8px edge");
+    assert.ok(parseFloat(face.border)>0 && parseFloat(face.border)<=1,`card edge is not the hairline: ${face.border}`);
+    assert.equal(face.border,frame.paneEdge,"card edge is not drawn as wide as the pane's own");
     assert.notEqual(face.borderColor,"rgba(0, 0, 0, 0)"); assert.equal(face.radius,"7px");
     // the card swiped to lands browsed, so it is level with the page; the one
     // swiped away was selected, so it keeps the drop shadow
