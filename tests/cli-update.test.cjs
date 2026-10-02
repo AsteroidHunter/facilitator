@@ -35,6 +35,31 @@ async function freePort() {
   return chosen;
 }
 
+// A fake uv that logs its arguments. Its venv makes a .venv on Python 3.14
+// whose python3 hands over to the real one, so .py steps really run on it;
+// with failSync the package sync fails the way a missing package would.
+const REAL_PYTHON = process.env.FACILITATOR_TEST_PYTHON || "python3";
+const VENV_CALL = "venv --clear --managed-python --python 3.14 .venv";
+const ENV_CALLS = ["python install --no-bin 3.14", VENV_CALL, "pip sync --python .venv/bin/python requirements.txt"];
+function fakeUv({ failSync = false } = {}) {
+  return [
+    "#!/bin/sh",
+    'echo "$@" >> "$UV_LOG"',
+    'if [ "$1" = venv ]; then',
+    "  mkdir -p .venv/bin",
+    "  printf 'home = /fake\\nversion_info = 3.14.0\\n' > .venv/pyvenv.cfg",
+    `  printf '#!/bin/sh\\nexec "%s" "$@"\\n' ${JSON.stringify(REAL_PYTHON)} > .venv/bin/python3`,
+    "  cp .venv/bin/python3 .venv/bin/python",
+    "  chmod +x .venv/bin/python .venv/bin/python3",
+    "fi",
+    failSync
+      ? 'if [ "$1" = pip ]; then echo "no matching distribution for nothing" >&2; exit 2; fi'
+      : 'echo "uv noise" >&2',
+    "exit 0",
+    "",
+  ].join("\n");
+}
+
 // A world: origin (bare), user (the checkout under test) and dev (a second clone that pushes).
 async function makeWorld({ seedSteps = {} } = {}) {
   const base = await realpath(await mkdtemp(path.join(tmpdir(), "facilitator-cli-update-")));
@@ -66,14 +91,7 @@ async function makeWorld({ seedSteps = {} } = {}) {
   delete world.env.FACILITATOR_INTERNAL_UPDATE;
 
   await mkdir(world.bin);
-  await writeFile(path.join(world.bin, "uv"), [
-    "#!/bin/sh",
-    'echo "$@" >> "$UV_LOG"',
-    'echo "uv noise" >&2',
-    'if [ "$1 $2" = "venv .venv" ]; then mkdir -p .venv/bin; : > .venv/bin/python; fi',
-    "exit 0",
-    "",
-  ].join("\n"));
+  await writeFile(path.join(world.bin, "uv"), fakeUv());
   await chmod(path.join(world.bin, "uv"), 0o755);
 
   world.git = (cwd, ...args) => run("git", args, { cwd, env: world.env });
@@ -180,7 +198,7 @@ test("a clean pull runs the new steps once, from the pulled code, and not again"
   assert.equal(await world.head(), pushed);
   assert.deepEqual(await world.markers(), ["sh", "py"]);
   assert.deepEqual(Object.keys((await world.record()).ran), ["0001-mark.sh", "0002-mark.py"]);
-  assert.deepEqual(await world.uvCalls(), ["venv .venv", "pip sync --python .venv/bin/python requirements.txt"]);
+  assert.deepEqual(await world.uvCalls(), ENV_CALLS);
   assert.equal(await world.mustGit(world.user, "status", "--porcelain"), "", "the record and .venv are ignored");
 
   await world.push({ "updates/0003-mark.sh": STEP_SH("three") });
@@ -283,14 +301,7 @@ test("a pull that fails still prints its error and what to do", async () => {
 
 test("an environment sync that fails still prints uv's output, the error and what to do", async () => {
   const world = await makeWorld();
-  await writeFile(path.join(world.bin, "uv"), [
-    "#!/bin/sh",
-    'echo "$@" >> "$UV_LOG"',
-    'if [ "$1 $2" = "venv .venv" ]; then mkdir -p .venv/bin; : > .venv/bin/python; exit 0; fi',
-    'echo "no matching distribution for nothing" >&2',
-    "exit 2",
-    "",
-  ].join("\n"));
+  await writeFile(path.join(world.bin, "uv"), fakeUv({ failSync: true }));
   const pushed = await world.push({ "updates/0001-mark.sh": STEP_SH("sh") });
 
   const result = await world.update();
@@ -346,8 +357,7 @@ test("with nothing to pull it still runs pending steps once, and does not restar
   const first = await world.update();
   assert.equal(first.code, 0, first.stdout + first.stderr);
   assertNoPullOrEnvironmentOutput(first.stdout);
-  assert.deepEqual(await world.uvCalls(), ["venv .venv", "pip sync --python .venv/bin/python requirements.txt"],
-    "the environment sync still ran");
+  assert.deepEqual(await world.uvCalls(), ENV_CALLS, "the environment sync still ran");
   assert.match(first.stdout, /0001-mark\.sh done\./);
   assert.match(first.stdout, /Nothing was pulled, so the board was left as it is\./);
   assert.match(first.stdout, /Already up to date \(v0\.2\.1\)\./);

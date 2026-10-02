@@ -139,8 +139,12 @@ test("a full run with no phone client makes the private environment and the comm
       assert.equal(await fs.readlink(path.join(f.home, host, "skills", "facilitator")), path.join(f.repo, ".agents/skills/facilitator"));
     assert.equal(await f.has(path.join(f.home, ".claude", "settings.json")), false, "no status line entry is added any more");
     const calls = await f.calls();
-    assert.ok(calls.includes("uv venv .venv"), calls.join(" | "));
-    assert.ok(!calls.some(line => line.startsWith("uv python")), "a good python3 is there, so uv is not asked for one");
+    const at = line => calls.indexOf(line);
+    assert.ok(at("uv python install --no-bin 3.14") >= 0, calls.join(" | "));
+    assert.ok(at("uv python install --no-bin 3.14") < at("uv venv --clear --managed-python --python 3.14 .venv"),
+      "the app's Python 3.14 comes from uv even with a good python3 here: " + calls.join(" | "));
+    assert.ok(!calls.some(line => line.startsWith("uv python find")), "a good python3 runs the setup, so none is fetched for it");
+    assert.equal(await fs.readFile(path.join(f.repo, ".venv", "pyvenv.cfg"), "utf8"), "home = /fake\nversion_info = 3.14.0\n");
   });
 });
 
@@ -225,7 +229,7 @@ test("stopping at a question leaves the command alone, and running again finishe
     assert.equal(await f.has(path.join(f.home, ".local")), false, "the command was linked before the question was answered");
     const again = await f.terminal([[PHONE, "n"]]);
     assert.equal(again.code, 0, again.text);
-    assert.match(again.text, /✓ Environment found in \.venv\./);
+    assert.match(again.text, /✓ Environment found in \.venv \(Python 3\.14\)\./);
     assert.ok(again.text.includes(CLOSING), again.text);
   });
 });
@@ -240,7 +244,7 @@ test("a second run on an installed copy keeps the password and the config and ma
     const second = await f.terminal([[PHONE, "y"], [BOTH, "y"], [ANSWER, "y"]]);
     assert.equal(second.code, 0, second.text);
     assert.deepEqual(second.unsent, []);
-    assert.match(second.text, /✓ Environment found in \.venv\.\n/);
+    assert.match(second.text, /✓ Environment found in \.venv \(Python 3\.14\)\.\n/);
     assert.match(second.text, /✓ run\.config\.json found\.\n✓ seed\.json found\./);
     assert.match(second.text, /4\.2 App password\n────────────────\n\n✓ Existing app password kept\. Use it to sign in on your phone\.\n\n/);
     assert.doesNotMatch(second.text, /App password \(input hidden\)|Open a new terminal/);
@@ -264,14 +268,14 @@ test("with no Python it can use, uv is fetched and then a Python, and the enviro
         + "No Python this setup can use was found (it needs 3.9 or newer, with scrypt).\n"
         + "uv will provide one for the private environment.\n"
         + "uv is not installed. Installing it with Homebrew.\n"), `${python}: ${text}`);
-      assert.match(text, /\n✓ uv installed\.\nInstalling Python 3\.12 with uv\.\n/);
-      assert.match(text, /\n✓ Python 3\.12 installed\.\n/);
+      assert.match(text, /\n✓ uv installed\.\nInstalling Python 3\.14 with uv\.\n/);
+      assert.match(text, /\n✓ Python 3\.14 installed\.\n/);
       const calls = (await f.calls()).filter(line => !line.startsWith("python3"));
       const at = name => calls.findIndex(line => line.startsWith(name));
       assert.ok(at("brew install uv") >= 0, calls.join(" | "));
-      assert.ok(at("brew install uv") < at("uv python install --no-bin 3.12"), calls.join(" | "));
-      assert.ok(at("uv python install --no-bin 3.12") < at("uv python find --managed-python 3.12"), calls.join(" | "));
-      assert.ok(at("uv python find --managed-python 3.12") < at("uv venv .venv"), calls.join(" | "));
+      assert.ok(at("brew install uv") < at("uv python install --no-bin 3.14"), calls.join(" | "));
+      assert.ok(at("uv python install --no-bin 3.14") < at("uv python find --managed-python 3.14"), calls.join(" | "));
+      assert.ok(at("uv python find --managed-python 3.14") < at("uv venv --clear --managed-python --python 3.14 .venv"), calls.join(" | "));
       assert.equal(await f.has(path.join(f.repo, ".venv", "bin", "python")), true);
     });
   }

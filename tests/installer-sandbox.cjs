@@ -65,8 +65,11 @@ async function script(file, text) {
 // "launchservices" (only open -Ra does) or "none". python: "system" (a good
 // python3), "missing" (python3 fails) or "noscrypt" (python3 has no scrypt).
 // uv: "present", "brew" (a fake brew installs it), "curl" (a fake curl hands
-// back an installer that puts it in the home folder) or "absent".
-async function sandbox({ agents = ["claude"], chrome = "spotlight", python = "system", uv = "present" } = {}) {
+// back an installer that puts it in the home folder) or "absent". The fake's
+// venv writes a pyvenv.cfg naming venvPython, and a .venv/bin/python3 that
+// hands over to the real python, so what runs on .venv really runs.
+async function sandbox({ agents = ["claude"], chrome = "spotlight", python = "system", uv = "present",
+  venvPython = "3.14.0" } = {}) {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "facilitator-installer-")));
   const home = path.join(dir, "home");
   const repo = path.join(dir, "repo");
@@ -95,10 +98,15 @@ async function sandbox({ agents = ["claude"], chrome = "spotlight", python = "sy
   const fakeUv = `#!/bin/sh
 echo "uv $*" >> "${log}"
 case "$1" in
-  venv) mkdir -p .venv/bin; touch .venv/bin/python .venv/bin/python3; chmod +x .venv/bin/python .venv/bin/python3 ;;
+  venv)
+    mkdir -p .venv/bin
+    printf 'home = /fake\\nversion_info = ${venvPython}\\n' > .venv/pyvenv.cfg
+    printf '#!/bin/sh\\nexec "%s" "$@"\\n' "${real}" > .venv/bin/python3
+    cp .venv/bin/python3 .venv/bin/python
+    chmod +x .venv/bin/python .venv/bin/python3 ;;
   python)
     case "$2" in
-      install) echo "Installed Python 3.12.7 (fake uv)" >&2 ;;
+      install) echo "Installed Python ${venvPython} (fake uv)" ;;  # stdout keeps a piped run's text in order
       find) echo "${real}" ;;
     esac ;;
 esac

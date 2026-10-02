@@ -93,8 +93,12 @@ function stubs({ uv = true, node = true, brew = false, up = false } = {}) {
     "    here = cli.HERE",
     "    if argv[:2] == [UV, 'venv']:",
     "        (here/'.venv'/'bin').mkdir(parents=True, exist_ok=True)",
-    "        (here/'.venv'/'bin'/'python').write_text('x')",
-    "        (here/'.venv'/'bin'/'python3').write_text('x')",
+    "        (here/'.venv'/'pyvenv.cfg').write_text('home = /fake\\nversion_info = 3.14.0\\n')",
+    "        for name in ('python', 'python3'):",
+    "            (here/'.venv'/'bin'/name).write_text('#!/bin/sh\\n')",
+    "            os.chmod(here/'.venv'/'bin'/name, 0o755)",
+    "        return types.SimpleNamespace(returncode=0, stdout='', stderr='')",
+    "    if argv[:3] == [UV, 'python', 'install']:",
     "        return types.SimpleNamespace(returncode=0, stdout='', stderr='')",
     "    if argv[:3] == [UV, 'pip', 'sync']:",
     "        return types.SimpleNamespace(returncode=0, stdout='Audited', stderr='')",
@@ -198,9 +202,9 @@ test("install creates the environment, the config and the test deps in one run",
   assert.ok(res.files.package_json && res.files.package_lock);
   assert.equal(res.files.state, false, "install fabricated board data");
 
-  assert.match(res.out, /✓ Python \d+\.\d+\.\d+ meets the 3\.9 minimum\./, res.out);
+  assert.match(res.out, /✓ Python \d+\.\d+\.\d+ runs this setup\./, res.out);
   assert.match(res.out, /✓ uv found\./);
-  assert.match(res.out, /Creating the environment in \.venv\.\n✓ Environment created\./);
+  assert.match(res.out, /Creating the environment in \.venv on Python 3\.14\.\n✓ Environment created\./);
   assert.match(res.out, /Syncing packages to requirements\.txt\.\n✓ Packages synced\./);
   assert.match(res.out, /✓ Wrote run\.config\.json from run\.config\.example\.json\./);
   assert.match(res.out, /✓ Wrote seed\.json from seed\.example\.json\./);
@@ -211,6 +215,13 @@ test("install creates the environment, the config and the test deps in one run",
 
   const kinds = res.calls.map(c => `${c[0]} ${c[1]}`);
   assert.ok(kinds.includes(`${UV} venv`) && kinds.includes(`${UV} pip`) && kinds.includes(`${NPM} install`), kinds.join(" | "));
+  // the app's Python comes from uv and nowhere else, before the environment
+  // that stands on it, which stands before the packages go in
+  const lines = res.calls.map(c => c.join(" "));
+  const at = line => lines.indexOf(line);
+  assert.ok(at(`${UV} python install --no-bin 3.14`) >= 0, lines.join(" | "));
+  assert.ok(at(`${UV} python install --no-bin 3.14`) < at(`${UV} venv --clear --managed-python --python 3.14 .venv`), lines.join(" | "));
+  assert.ok(at(`${UV} venv --clear --managed-python --python 3.14 .venv`) < at(`${UV} pip sync --python .venv/bin/python requirements.txt`), lines.join(" | "));
 });
 
 test("uv is found before the Python is checked, so a missing Python can be left to uv", async () => {
@@ -233,7 +244,7 @@ test("a second install changes nothing and says so", async () => {
 
   assert.equal(again.exit, null, again.out);
   assert.ok(installed(again.files));
-  assert.match(again.out, /✓ Environment found in \.venv\./);
+  assert.match(again.out, /✓ Environment found in \.venv \(Python 3\.14\)\./);
   assert.match(again.out, /✓ run\.config\.json found\./);
   assert.match(again.out, /✓ seed\.json found\./);
   assert.match(again.out, /✓ Test packages found\./);
