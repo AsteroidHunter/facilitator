@@ -32,10 +32,10 @@
       --dry-run prints the commands instead of running them
   facilitator uninstall [--keep-attachments | --remove-attachments]
       remove what install made: the .venv, node_modules and the generated config
-      files, owned shell command, owned agent-skill links, and the Claude Code
-      status line entry install added. Keeps the board's data (state.json,
-      transcript.jsonl, logs, bridge credentials and vapid-key.pem). After its
-      banner it asks whether to keep the card
+      files, owned shell command, owned agent-skill links, and any Claude Code
+      status line entry an older install added. Keeps the board's data
+      (state.json, transcript.jsonl, logs, bridge credentials and vapid-key.pem).
+      After its banner it asks whether to keep the card
       attachments; Enter, an unclear answer or no terminal keeps them, and the
       two flags answer without asking.
       Never removes this folder or stops a running server.
@@ -1544,20 +1544,19 @@ INSTALL_ARTIFACTS = (".venv", "node_modules", "package.json", "package-lock.json
                      "run.config.json", "seed.json")
 INSTALL_HELP = """usage: ./install.sh
 
-Make this checkout runnable: check Python, find or install uv, create the .venv
-and sync requirements, write run.config.json and seed.json from the examples
-when they are missing, install test dependencies when node is present, then
-prompt for a phone app password in an interactive terminal and register the
-shared agent skill through ./install.sh. In an interactive terminal it also
-asks whether to show your Claude limits on the home page, and on yes adds
-claude-statusline.py as the Claude Code status line, around the one you have.
-Safe to run again; a second run changes nothing."""
+Check that Claude Code or Codex and Chrome are here, then make this checkout
+runnable: find or install uv, and a Python for it when there is none, create the
+private .venv and sync requirements, write run.config.json and seed.json from
+the examples when they are missing, and install test dependencies when node is
+present. In an interactive terminal it asks about the phone client (Tailscale,
+then an app password). It ends by registering the facilitator command and the
+shared agent skill. Safe to run again; a second run changes nothing."""
 UNINSTALL_HELP = """usage: facilitator uninstall [--keep-attachments | --remove-attachments]
 
 Remove what install made: the .venv, node_modules, generated config,
-owned command and agent-skill links, and the Claude Code status line entry
-install added. Keeps board data and bridge credentials. Never removes this
-folder or stops a running server.
+owned command and agent-skill links, and any Claude Code status line entry
+an older install added. Keeps board data and bridge credentials. Never removes
+this folder or stops a running server.
 Card attachments are asked about after the banner and kept unless the
 answer is a clear no; with no terminal they are kept.
 --keep-attachments and --remove-attachments answer without asking."""
@@ -1717,8 +1716,8 @@ def cmd_install(args):
     previous = read_install_record()
     before = {name: (HERE / name).exists() for name in INSTALL_ARTIFACTS}
     try:
-        check_python()
         uv = ensure_uv()
+        check_python()
         ensure_env(uv)
         ensure_config()
         ensure_node_deps()
@@ -1733,7 +1732,6 @@ def cmd_install(args):
         INSTALL_RECORD.write_text(json.dumps(owned, indent=2) + "\n")
     ok("Board installed.")
     print()
-    print("Start it with: facilitator run")
     print("Config lives beside this command: run.config.json (edit it)")
     print("and seed.json.")
 
@@ -1909,9 +1907,9 @@ def cmd_uninstall(args):
     import shell_integration
     section("2. Command and skill")
     print("Uninstall removes the command link, the skill links, the")
-    print("installer block in your shell profile and the Claude limits entry")
-    print("in your Claude Code settings, but only where they are still the")
-    print("ones setup made.")
+    print("installer block in your shell profile and any Claude limits entry")
+    print("an older setup added to your Claude Code settings, but only where")
+    print("they are still the ones setup made.")
     print()
     shell_integration.uninstall()
 

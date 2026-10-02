@@ -1,0 +1,155 @@
+// A throwaway home and a throwaway copy of the checkout for running ./install.sh,
+// with fake claude, codex, mdfind, open, uv and brew on PATH. PATH holds the
+// fakes, then /usr/bin and /bin only, so no real Chrome lookup, uv, brew, node or
+// download can be reached. Every fake that is called writes a line to calls.log.
+const { execFile } = require("node:child_process");
+const fs = require("node:fs/promises");
+const os = require("node:os");
+const path = require("node:path");
+const { promisify } = require("node:util");
+
+const exec = promisify(execFile);
+const root = path.resolve(__dirname, "..");
+const COPIED = ["facilitator", "shell_integration.py", "install.sh", "bridge_auth.py", "requirements.txt",
+  "run.config.example.json", "seed.example.json", "claude-statusline.py"];
+
+// answers questions on a pseudo terminal: each step is [text to wait for, keys to send]
+const DRIVER = `import json, os, pty, re, select, signal, sys, time
+job = json.loads(sys.argv[1])
+pid, fd = pty.fork()
+if pid == 0:
+    os.chdir(job["cwd"])
+    os.execvpe(job["argv"][0], job["argv"], job["env"])
+seen, consumed, pending = b"", 0, list(job["steps"])
+deadline = time.time() + 90
+while True:
+    if time.time() > deadline:
+        os.kill(pid, signal.SIGKILL)
+        os.waitpid(pid, 0)
+        print(json.dumps({"code": -9, "text": seen.decode("utf-8", "replace"), "unsent": pending}))
+        sys.exit(0)
+    ready, _, _ = select.select([fd], [], [], 0.2)
+    if not ready:
+        continue
+    try:
+        data = os.read(fd, 65536)
+    except OSError:
+        break
+    if not data:
+        break
+    seen += data
+    if pending and pending[0][0].encode() in seen[consumed:]:
+        consumed = len(seen)
+        time.sleep(0.3)
+        os.write(fd, pending.pop(0)[1].encode())
+code = os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1])
+text = seen.decode("utf-8", "replace").replace("\\r\\n", "\\n")
+if not job.get("color"):
+    text = re.sub(r"\\x1b\\[[0-9;?]*[A-Za-z]", "", text)
+print(json.dumps({"code": code, "text": text, "unsent": pending}))
+`;
+
+let goodPython;
+async function pythonPath() {
+  goodPython ||= process.env.FACILITATOR_TEST_PYTHON
+    || (await exec("python3", ["-c", "import sys; print(sys.executable)"])).stdout.trim();
+  return goodPython;
+}
+
+async function script(file, text) {
+  await fs.writeFile(file, text);
+  await fs.chmod(file, 0o755);
+}
+
+// agents: which of claude and codex exist. chrome: "spotlight" (mdfind knows it),
+// "launchservices" (only open -Ra does) or "none". python: "system" (a good
+// python3), "missing" (python3 fails) or "noscrypt" (python3 has no scrypt).
+// uv: "present", "brew" (a fake brew installs it), "curl" (a fake curl hands
+// back an installer that puts it in the home folder) or "absent".
+async function sandbox({ agents = ["claude"], chrome = "spotlight", python = "system", uv = "present" } = {}) {
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "facilitator-installer-")));
+  const home = path.join(dir, "home");
+  const repo = path.join(dir, "repo");
+  const tools = path.join(dir, "tools");
+  const log = path.join(dir, "calls.log");
+  for (const folder of [home, repo, tools]) await fs.mkdir(folder);
+  await fs.writeFile(log, "");
+  for (const file of COPIED) await fs.copyFile(path.join(root, file), path.join(repo, file));
+  await fs.chmod(path.join(repo, "install.sh"), 0o755);
+  await fs.cp(path.join(root, ".agents"), path.join(repo, ".agents"), { recursive: true });
+
+  for (const name of agents) await script(path.join(tools, name), "#!/bin/sh\nexit 0\n");
+  await script(path.join(tools, "mdfind"), `#!/bin/sh\necho "mdfind $*" >> "${log}"\n`
+    + (chrome === "spotlight" ? 'echo "/Applications/Google Chrome.app"\n' : "exit 0\n"));
+  await script(path.join(tools, "open"), `#!/bin/sh\necho "open $*" >> "${log}"\n`
+    + (chrome === "launchservices" ? "exit 0\n" : "echo 'Unable to find application' >&2\nexit 1\n"));
+
+  const real = await pythonPath();
+  const wrappers = {
+    system: `#!/bin/sh\nexec "${real}" "$@"\n`,
+    missing: `#!/bin/sh\necho "python3 $*" >> "${log}"\nexit 1\n`,
+    noscrypt: `#!/bin/sh\ncase "$*" in *scrypt*) echo "python3 without scrypt" >> "${log}"; exit 1;; esac\nexec "${real}" "$@"\n`,
+  };
+  await script(path.join(tools, "python3"), wrappers[python]);
+
+  const fakeUv = `#!/bin/sh
+echo "uv $*" >> "${log}"
+case "$1" in
+  venv) mkdir -p .venv/bin; touch .venv/bin/python .venv/bin/python3; chmod +x .venv/bin/python .venv/bin/python3 ;;
+  python)
+    case "$2" in
+      install) echo "Installed Python 3.12.7 (fake uv)" >&2 ;;
+      find) echo "${real}" ;;
+    esac ;;
+esac
+`;
+  if (uv === "present") await script(path.join(tools, "uv"), fakeUv);
+  if (uv === "brew") {
+    const target = path.join(home, ".local", "bin", "uv");
+    await script(path.join(tools, "brew"), `#!/bin/sh
+echo "brew $*" >> "${log}"
+mkdir -p "${path.dirname(target)}"
+cat > "${target}" <<'FAKE'
+${fakeUv}FAKE
+chmod +x "${target}"
+`);
+  }
+
+  if (uv === "curl") {
+    await script(path.join(tools, "curl"), `#!/bin/sh
+echo "curl $*" >> "${log}"
+cat <<'SCRIPT'
+echo "uv installer ran with INSTALLER_NO_MODIFY_PATH=$INSTALLER_NO_MODIFY_PATH" >> "${log}"
+mkdir -p "$HOME/.local/bin"
+cat > "$HOME/.local/bin/uv" <<'FAKE'
+${fakeUv}FAKE
+chmod +x "$HOME/.local/bin/uv"
+SCRIPT
+`);
+  }
+
+  const env = { HOME: home, SHELL: "/bin/zsh", TERM: "xterm-256color", LANG: "en_US.UTF-8",
+    PATH: `${tools}:/usr/bin:/bin` };
+  const calls = async () => (await fs.readFile(log, "utf8")).split("\n").filter(Boolean);
+  return {
+    dir, home, repo, tools, env, calls,
+    clean: () => fs.rm(dir, { recursive: true, force: true }),
+    has: file => fs.access(file).then(() => true, () => false),
+    // no terminal: stdin and stdout are pipes
+    async piped() {
+      const done = await exec("bash", [path.join(repo, "install.sh")], { cwd: repo, env }).then(
+        ({ stdout, stderr }) => ({ code: 0, text: stdout + stderr }),
+        error => ({ code: error.code, text: error.stdout + error.stderr }));
+      return done;
+    },
+    // a terminal: steps are [text to wait for, keys to send]; colour codes are
+    // stripped from the text unless color is set
+    async terminal(steps, args = [], { color = false } = {}) {
+      const job = JSON.stringify({ argv: ["bash", path.join(repo, "install.sh"), ...args], cwd: repo, env, steps, color });
+      const { stdout } = await exec("python3", ["-c", DRIVER, job], { env: process.env, timeout: 120000, maxBuffer: 1 << 24 });
+      return JSON.parse(stdout);
+    },
+  };
+}
+
+module.exports = { sandbox, root };

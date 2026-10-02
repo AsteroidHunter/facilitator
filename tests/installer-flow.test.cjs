@@ -1,0 +1,319 @@
+// ./install.sh from the first check to the closing message: Claude Code or
+// Codex, Chrome, a private Python through uv, the optional phone client
+// (Tailscale, then the app password), the command and skill, then the end.
+// Each run is on a throwaway home and copy of the checkout with fake commands
+// on PATH (see installer-sandbox.cjs), and the questions are answered through a
+// pseudo terminal, so nothing real is looked up, installed or downloaded.
+const assert = require("node:assert/strict");
+const { test } = require("node:test");
+const fs = require("node:fs/promises");
+const path = require("node:path");
+const { sandbox, root } = require("./installer-sandbox.cjs");
+
+const URLS = {
+  claude: "https://code.claude.com/docs/en/overview",
+  codex: "https://developers.openai.com/codex/cli",
+  chrome: "https://www.google.com/chrome/",
+  tailscale: "https://tailscale.com/download",
+};
+const MDFIND = "mdfind kMDItemCFBundleIdentifier == 'com.google.Chrome'";
+const PASSWORD = "Sandbox-pass-2026!";
+const PHONE = "Would you like to use the phone client? (y / n) ";
+const BOTH = "Is Tailscale installed on both your devices? (y / n) ";
+const ANSWER = "answer: ";
+const PASSWORDS = [["App password (input hidden): ", PASSWORD + "\n"], ["Confirm app password (input hidden): ", PASSWORD + "\n"]];
+const CLOSING = "✦ Facilitator is installed!\n\nNext steps:\n\n1. Start the board: facilitator run\n"
+  + "2. Onboard your agent, in Claude Code: /facilitator onboard\n   or in Codex: $facilitator onboard";
+
+async function using(options, body) {
+  const f = await sandbox(options);
+  try { await body(f); } finally { await f.clean(); }
+}
+
+const NOTHING_MADE = ["repo/.venv", "repo/run.config.json", "repo/seed.json", "home/.local", "home/.claude", "home/.agents", "home/.zshrc"];
+async function assertNothingChanged(f) {
+  for (const name of NOTHING_MADE) assert.equal(await f.has(path.join(f.dir, name)), false, `${name} was made`);
+  assert.deepEqual(await fs.readdir(f.home), [], "the home folder was touched");
+}
+
+function assertSections(text, titles) {
+  const lines = text.split("\n");
+  let last = -1;
+  for (const title of titles) {
+    const at = lines.indexOf(title);
+    assert.ok(at > last, `${title} is missing or out of order`);
+    assert.equal(lines[at - 1], "", `no blank line before ${title}`);
+    assert.equal(lines[at + 1], "─".repeat([...title].length), `the rule under ${title}`);
+    assert.equal(lines[at + 2], "", `no blank line after the rule under ${title}`);
+    last = at;
+  }
+  assert.doesNotMatch(text, /\n\n\n/, "two blank lines in a row");
+}
+
+test("with neither Claude Code nor Codex it prints both links, stops, and changes nothing", async () => {
+  await using({ agents: [] }, async f => {
+    const { code, text } = await f.terminal([]);
+    assert.equal(code, 1, text);
+    assert.ok(text.includes("1. Claude Code or Codex\n───────────────────────\n\n"
+      + "⚠ Neither Claude Code nor Codex was found.\n"
+      + "  Facilitator needs at least one of them. Install one:\n"
+      + `    Claude Code: ${URLS.claude}\n`
+      + `    Codex: ${URLS.codex}\n`
+      + "  Then run ./install.sh again. Nothing was changed.\n"), text);
+    assert.doesNotMatch(text, /2\. Chrome/);
+    assert.deepEqual(await f.calls(), [], "nothing was looked up or run");
+    await assertNothingChanged(f);
+  });
+});
+
+test("one of the two is enough, and each one found is named", async () => {
+  for (const [agents, found, absent] of [[["claude"], "Claude Code", "Codex"], [["codex"], "Codex", "Claude Code"],
+    [["claude", "codex"], "Claude Code found.\n✓ Codex", ""]]) {
+    await using({ agents }, async f => {
+      const { code, text } = await f.piped();
+      assert.equal(code, 0, text);
+      assert.ok(text.includes(`✓ ${found} found.`), `${agents}: ${text}`);
+      if (absent) assert.doesNotMatch(text, new RegExp(`${absent} found`), agents.join());
+      assert.match(text, /\n2\. Chrome\n/);
+    });
+  }
+});
+
+test("without Chrome it prints the download link, says the board is its own app window, and changes nothing", async () => {
+  await using({ chrome: "none" }, async f => {
+    const { code, text } = await f.terminal([]);
+    assert.equal(code, 1, text);
+    assert.ok(text.includes("✓ Claude Code found.\n\n2. Chrome\n─────────\n\n"
+      + "⚠ Chrome was not found.\n"
+      + "  Facilitator is meant to run as its own Chrome app window, not in a\n"
+      + "  browser tab. Install Chrome:\n"
+      + `    ${URLS.chrome}\n`
+      + "  Then run ./install.sh again. Nothing was changed.\n"), text);
+    assert.doesNotMatch(text, /3\. Python/);
+    assert.deepEqual(await f.calls(), [MDFIND, "open -Ra Google Chrome"]);
+    await assertNothingChanged(f);
+  });
+});
+
+test("Chrome is asked of macOS and never found by reading the Applications folder", async () => {
+  await using({ chrome: "spotlight" }, async f => {
+    const { code, text } = await f.piped();
+    assert.equal(code, 0, text);
+    assert.match(text, /\n✓ Chrome found\.\n/);
+    assert.deepEqual((await f.calls()).filter(line => /^(mdfind|open)/.test(line)), [MDFIND], "Spotlight alone was enough");
+  });
+  await using({ chrome: "launchservices" }, async f => {
+    const { code, text } = await f.piped();
+    assert.equal(code, 0, text);
+    assert.match(text, /\n✓ Chrome found\.\n/);
+    assert.deepEqual((await f.calls()).filter(line => /^(mdfind|open)/.test(line)), [MDFIND, "open -Ra Google Chrome"]);
+  });
+  const code = (await fs.readFile(path.join(root, "install.sh"), "utf8")).split("\n").filter(line => !line.trim().startsWith("#")).join("\n");
+  assert.doesNotMatch(code, /Applications|\.app\b|^\s*(ls|find)\s/m, "the installer must not look into the Applications folder");
+});
+
+test("a full run with no phone client makes the private environment and the command, and asks nothing else", async () => {
+  await using({ agents: ["claude", "codex"] }, async f => {
+    const { code, text, unsent } = await f.terminal([[PHONE, "n"]]);
+    assert.equal(code, 0, text);
+    assert.deepEqual(unsent, []);
+    assertSections(text, ["1. Claude Code or Codex", "2. Chrome", "3. Python", "4. Phone client"]);
+    assert.ok(text.includes("✓ Claude Code found.\n✓ Codex found.\n"), text);
+    assert.ok(text.includes("✓ Chrome found.\n"), text);
+    assert.ok(text.includes("Setup builds a private Python environment in .venv with uv, installs\n"
+      + "the pinned packages, and writes run.config.json and seed.json from\n"
+      + "their examples when they are missing. Your own Python is not changed.\n"), text);
+    assert.match(text, /✓ Environment created\.\n/);
+    assert.match(text, /✓ Wrote run\.config\.json from run\.config\.example\.json\./);
+    assert.match(text, /✓ Board installed\.\n\nConfig lives beside this command/);
+    assert.ok(text.includes("4. Phone client\n───────────────\n\n"
+      + "The phone client puts your board on your phone, over Tailscale and\n"
+      + "behind an app password.\n\n"
+      + `${PHONE}n\n\n✓ facilitator command and agent skill installed\nOpen a new terminal to use facilitator.\n\n`
+      + `${CLOSING}\n\n`), text);
+    assert.doesNotMatch(text, /Tailscale\n─|4\.1|4\.2|App password|Claude limits|settings\.json/);
+    assert.equal(await f.has(path.join(f.repo, ".venv", "bin", "python")), true);
+    for (const name of ["run.config.json", "seed.json"]) assert.equal(await f.has(path.join(f.repo, name)), true, name);
+    assert.equal(await fs.readlink(path.join(f.home, ".local/share/facilitator/bin/facilitator")), path.join(f.repo, "facilitator"));
+    for (const host of [".claude", ".agents"])
+      assert.equal(await fs.readlink(path.join(f.home, host, "skills", "facilitator")), path.join(f.repo, ".agents/skills/facilitator"));
+    assert.equal(await f.has(path.join(f.home, ".claude", "settings.json")), false, "no status line entry is added any more");
+    const calls = await f.calls();
+    assert.ok(calls.includes("uv venv .venv"), calls.join(" | "));
+    assert.ok(!calls.some(line => line.startsWith("uv python")), "a good python3 is there, so uv is not asked for one");
+  });
+});
+
+test("phone client yes, Tailscale on both, HTTPS on: the question texts and the app password", async () => {
+  await using({}, async f => {
+    const { code, text, unsent } = await f.terminal([[PHONE, "Y"], [BOTH, "y"], [ANSWER, "y"], ...PASSWORDS]);
+    assert.equal(code, 0, text);
+    assert.deepEqual(unsent, []);
+    assertSections(text, ["4. Phone client", "4.1 Tailscale", "4.2 App password"]);
+    assert.ok(text.includes(`${PHONE}y\n\n4.1 Tailscale\n─────────────\n\n`
+      + "Tailscale connects your phone to the board on your Mac privately,\n"
+      + "without opening it to the internet. It is free.\n\n"
+      + `${BOTH}y\n\n`
+      + "Are HTTPS certificates switched on for your Tailscale account?\n\n"
+      + "  y - yes!\n  n - no / I do not know\n\n"
+      + `${ANSWER}y\n\n4.2 App password\n────────────────\n\n`
+      + "Choose a strong password to log into your Facilitator phone app.\n"
+      + "Use at least 11 characters, with a letter, a number and a symbol.\n\n"), text);
+    assert.match(text, /\n✓ App password confirmed\.\n\n✓ facilitator command and agent skill installed\n/);
+    assert.doesNotMatch(text, /Once installed|Turning on HTTPS|Would you like to install it now/);
+    assert.ok(!text.includes(PASSWORD), "the password was echoed");
+    assert.ok(text.endsWith(`${CLOSING}\n\n`) || text.endsWith(`${CLOSING}\n`), text.slice(-200));
+  });
+});
+
+test("Tailscale not installed, install now: the link, the App Store, a key, then HTTPS off and how to switch it on", async () => {
+  await using({}, async f => {
+    const steps = [[PHONE, "xq \ny"], [BOTH, "n"], [ANSWER, "y"], ["Once installed, press any key.", "x"], [ANSWER, "n"], ...PASSWORDS];
+    const { code, text, unsent } = await f.terminal(steps);
+    assert.equal(code, 0, text);
+    assert.deepEqual(unsent, []);
+    assert.ok(text.includes(`${PHONE}y\n`), "keys that are not answers were not ignored");
+    assert.ok(text.includes(`${BOTH}n\n\n`
+      + "Would you like to install it now or later?\n\n"
+      + "  y - yes, I would like to install it now\n"
+      + "  n - no, I will install it later\n\n"
+      + `${ANSWER}y\n\n`
+      + `Get Tailscale for your Mac and your phone: ${URLS.tailscale}\n`
+      + "On your phone, the App Store is the easiest place to get it.\n\n"
+      + "Once installed, press any key.\n\n"
+      + "Are HTTPS certificates switched on for your Tailscale account?\n\n"
+      + "  y - yes!\n  n - no / I do not know\n\n"
+      + `${ANSWER}n\n\n`
+      + "Turning on HTTPS certificates is a one time step and quite simple:\n\n"
+      + "Tailscale -> Network -> DNS -> Enable MagicDNS and allow HTTPS Certificates\n\n"
+      + "4.2 App password\n"), text);
+    assert.doesNotMatch(text, /\n\n\n/, "two blank lines in a row");
+  });
+});
+
+test("Tailscale not installed, install later: a reminder, no HTTPS question, then the app password", async () => {
+  await using({}, async f => {
+    const { code, text, unsent } = await f.terminal([[PHONE, "y"], [BOTH, "n"], [ANSWER, "n"], ...PASSWORDS]);
+    assert.equal(code, 0, text);
+    assert.deepEqual(unsent, []);
+    assert.ok(text.includes(`${ANSWER}n\n\n`
+      + "The phone client needs Tailscale on your Mac and your phone, with\n"
+      + "HTTPS certificates switched on for your Tailscale account.\n\n"
+      + "4.2 App password\n"), text);
+    assert.doesNotMatch(text, /Are HTTPS certificates|Get Tailscale|Once installed|Turning on HTTPS/);
+    assert.match(text, /✓ App password confirmed\./);
+  });
+});
+
+test("a run with no terminal asks nothing, treats the phone client as no, and says so in one line", async () => {
+  await using({}, async f => {
+    const { code, text } = await f.piped();
+    assert.equal(code, 0, text);
+    assertSections(text, ["1. Claude Code or Codex", "2. Chrome", "3. Python", "4. Phone client"]);
+    assert.ok(text.includes("4. Phone client\n───────────────\n\n⊘ Skipped the phone client: there is no interactive terminal.\n\n"
+      + "✓ facilitator command and agent skill installed\n"), text);
+    assert.doesNotMatch(text, /\(y \/ n\)|4\.1|4\.2|App password|Tailscale/);
+    assert.ok(text.endsWith(`${CLOSING}\n\n`), text.slice(-200));
+  });
+});
+
+test("stopping at a question leaves the command alone, and running again finishes safely", async () => {
+  await using({}, async f => {
+    const stopped = await f.terminal([[PHONE, "\x03"]]);
+    assert.equal(stopped.code, 130, stopped.text);
+    assert.doesNotMatch(stopped.text, /command and agent skill installed|Facilitator is installed/);
+    assert.equal(await f.has(path.join(f.home, ".local")), false, "the command was linked before the question was answered");
+    const again = await f.terminal([[PHONE, "n"]]);
+    assert.equal(again.code, 0, again.text);
+    assert.match(again.text, /✓ Environment found in \.venv\./);
+    assert.ok(again.text.includes(CLOSING), again.text);
+  });
+});
+
+test("a second run on an installed copy keeps the password and the config and makes nothing again", async () => {
+  await using({ agents: ["claude", "codex"] }, async f => {
+    const first = await f.terminal([[PHONE, "y"], [BOTH, "y"], [ANSWER, "y"], ...PASSWORDS]);
+    assert.equal(first.code, 0, first.text);
+    const edited = '{"my": "edit"}\n';
+    await fs.writeFile(path.join(f.repo, "run.config.json"), edited);
+    const before = (await f.calls()).length;
+    const second = await f.terminal([[PHONE, "y"], [BOTH, "y"], [ANSWER, "y"]]);
+    assert.equal(second.code, 0, second.text);
+    assert.deepEqual(second.unsent, []);
+    assert.match(second.text, /✓ Environment found in \.venv\.\n/);
+    assert.match(second.text, /✓ run\.config\.json found\.\n✓ seed\.json found\./);
+    assert.match(second.text, /4\.2 App password\n────────────────\n\n✓ Existing app password kept\. Use it to sign in on your phone\.\n\n/);
+    assert.doesNotMatch(second.text, /App password \(input hidden\)|Open a new terminal/);
+    assert.match(second.text, /\n✓ facilitator command and agent skill installed\n\n✦ Facilitator is installed!/);
+    assert.equal(await fs.readFile(path.join(f.repo, "run.config.json"), "utf8"), edited, "the config was rewritten");
+    assert.ok(!(await f.calls()).slice(before).some(line => line.startsWith("uv venv")), "the environment was made again");
+    assert.equal((await fs.readFile(path.join(f.home, ".zshrc"), "utf8").catch(() => "")).split("# >>> Facilitator installer >>>").length - 1, 1);
+  });
+});
+
+test("with no Python it can use, uv is fetched and then a Python, and the environment is still private", async () => {
+  for (const python of ["missing", "noscrypt"]) {
+    await using({ python, uv: "brew" }, async f => {
+      const { code, text } = await f.piped();
+      assert.equal(code, 0, `${python}: ${text}`);
+      assert.ok(text.includes("3. Python\n─────────\n\n"
+        + "Setup builds a private Python environment in .venv with uv, installs\n"
+        + "the pinned packages, and writes run.config.json and seed.json from\n"
+        + "their examples when they are missing. Your own Python is not changed.\n"
+        + "When node is here it also installs the packages the tests need.\n\n"
+        + "No Python this setup can use was found (it needs 3.9 or newer, with scrypt).\n"
+        + "uv will provide one for the private environment.\n"
+        + "uv is not installed. Installing it with Homebrew.\n"), `${python}: ${text}`);
+      assert.match(text, /\n✓ uv installed\.\nInstalling Python 3\.12 with uv\.\n/);
+      assert.match(text, /\n✓ Python 3\.12 installed\.\n/);
+      const calls = (await f.calls()).filter(line => !line.startsWith("python3"));
+      const at = name => calls.findIndex(line => line.startsWith(name));
+      assert.ok(at("brew install uv") >= 0, calls.join(" | "));
+      assert.ok(at("brew install uv") < at("uv python install --no-bin 3.12"), calls.join(" | "));
+      assert.ok(at("uv python install --no-bin 3.12") < at("uv python find --managed-python 3.12"), calls.join(" | "));
+      assert.ok(at("uv python find --managed-python 3.12") < at("uv venv .venv"), calls.join(" | "));
+      assert.equal(await f.has(path.join(f.repo, ".venv", "bin", "python")), true);
+    });
+  }
+});
+
+test("with no uv and no Homebrew, uv's own installer runs, told to leave the shell profile alone", async () => {
+  await using({ python: "missing", uv: "curl" }, async f => {
+    const { code, text } = await f.piped();
+    assert.equal(code, 0, text);
+    assert.match(text, /uv is not installed\. Installing it with the astral\.sh installer\ninto your home\.\n✓ uv installed\./);
+    const calls = await f.calls();
+    assert.ok(calls.includes("curl -LsSf https://astral.sh/uv/install.sh"), calls.join(" | "));
+    assert.ok(calls.includes("uv installer ran with INSTALLER_NO_MODIFY_PATH=1"), calls.join(" | "));
+    assert.equal(await f.has(path.join(f.repo, ".venv", "bin", "python")), true);
+  });
+});
+
+test("a command or skill name that is already taken stops the run before the environment is made", async () => {
+  await using({}, async f => {
+    const link = path.join(f.home, ".claude/skills/facilitator");
+    await fs.mkdir(link, { recursive: true });
+    await fs.writeFile(path.join(link, "mine.txt"), "mine");
+    const { code, text } = await f.piped();
+    assert.equal(code, 1, text);
+    assert.match(text, /already exists/);
+    assert.equal(await f.has(path.join(f.repo, ".venv")), false);
+    assert.equal(await fs.readFile(path.join(link, "mine.txt"), "utf8"), "mine");
+  });
+});
+
+test("the help text describes the new flow, and the script has no Claude limits step and no em dash", async () => {
+  await using({}, async f => {
+    const { code, text } = await f.terminal([], ["--help"]);
+    assert.equal(code, 0, text);
+    assert.ok(text.includes("usage: ./install.sh\n\nCheck for Claude Code or Codex and Chrome, set up a private Python\n"), text);
+    assert.match(text, /phone client \(Tailscale and\nan app password\)/);
+    assert.doesNotMatch(text, /limits/i);
+    assert.deepEqual(await f.calls(), []);
+    await assertNothingChanged(f);
+  });
+  const source = await fs.readFile(path.join(root, "install.sh"), "utf8");
+  assert.ok(!source.includes(String.fromCharCode(8212)), "an em dash");
+  assert.doesNotMatch(source, /Claude limits|claude-statusline|statusline/i);
+  for (const url of Object.values(URLS)) assert.ok(source.includes(url), url);
+});

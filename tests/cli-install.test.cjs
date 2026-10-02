@@ -205,12 +205,25 @@ test("install creates the environment, the config and the test deps in one run",
   assert.match(res.out, /✓ Wrote run\.config\.json from run\.config\.example\.json\./);
   assert.match(res.out, /✓ Wrote seed\.json from seed\.example\.json\./);
   assert.match(res.out, /Installing puppeteer-core for the tests\.\n✓ Test packages installed\./);
-  assert.match(res.out, /✓ Board installed\.\n\nStart it with: facilitator run/);
-  assert.match(res.out, /run\.config\.json \(edit it\)/);
+  assert.match(res.out, /✓ Board installed\.\n\nConfig lives beside this command: run\.config\.json \(edit it\)\nand seed\.json\.\n$/);
+  assert.doesNotMatch(res.out, /Start it with/, "install.sh ends with the next steps, so the board step does not repeat them");
   assert.doesNotMatch(res.out, /\n\n\n/, "two blank lines in a row");
 
   const kinds = res.calls.map(c => `${c[0]} ${c[1]}`);
   assert.ok(kinds.includes(`${UV} venv`) && kinds.includes(`${UV} pip`) && kinds.includes(`${NPM} install`), kinds.join(" | "));
+});
+
+test("uv is found before the Python is checked, so a missing Python can be left to uv", async () => {
+  const dir = await freshClone();
+  const order = [
+    "FIND, CHECK = cli.find_uv, cli.check_python",
+    "cli.find_uv = lambda: (CALLS.append(['order', 'uv']), FIND())[1]",
+    "cli.check_python = lambda: (CALLS.append(['order', 'python']), CHECK())[1]",
+  ].join("\n");
+  const res = await run(dir, stubs() + "\n" + order + "\n" + snapshot("cli.cmd_install(['install'])"));
+  assert.equal(res.exit, null, res.out);
+  const seen = res.calls.filter(c => c[0] === "order").map(c => c[1]);
+  assert.deepEqual(seen.slice(0, 2), ["uv", "python"], seen.join(" "));
 });
 
 test("a second install changes nothing and says so", async () => {
@@ -541,20 +554,26 @@ test("uninstall removes owned skill links but keeps another personal skill", asy
   assert.equal(await readFile(path.join(dir, '.agents/skills/facilitator/SKILL.md'), 'utf8').then(Boolean), true);
 });
 
-test("uninstall takes the Claude limits entry back out of the Claude Code settings", async () => {
+test("uninstall takes back a Claude limits entry an older install added to the Claude Code settings", async () => {
   const dir = await freshClone();
   const home = path.join(dir, "home");
   await mkdir(home);
   const env = { SHELL: "/bin/zsh" };
-  const setup = ["import shell_integration", "shell_integration.install()", "shell_integration.statusline_add()",
+  const setup = ["import shell_integration", "shell_integration.install()",
     stubs(), snapshot("cli.cmd_install(['install'])")].join("\n");
   const first = await run(dir, setup, env);
   assert.equal(first.exit, null, first.out);
   const settings = path.join(home, ".claude", "settings.json");
-  assert.match(await readFile(settings, "utf8"), /claude-statusline\.py/);
+  await assert.rejects(lstat(settings), { code: "ENOENT" }, "install must not add the entry any more");
+
+  const older = require("./fixtures/older-statusline-installs.json")["made from nothing"];
+  const fill = text => text.split("@SCRIPT@").join(path.join(dir, "claude-statusline.py")).split("@SETTINGS@").join(settings);
+  await writeFile(settings, fill(older.after));
+  await writeFile(path.join(dir, ".facilitator-statusline.json"), fill(older.record));
   const removed = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"), env);
   assert.equal(removed.exit, null, removed.out);
   assert.match(removed.out, /Removed .*settings\.json, which setup made\./);
+  assert.match(removed.out, /any Claude limits entry\nan older setup added/);
   await assert.rejects(lstat(settings), { code: "ENOENT" });
 });
 
