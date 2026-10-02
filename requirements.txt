@@ -1,10 +1,13 @@
 # The server's libraries: uvicorn speaks HTTP, starlette routes requests, and
 # http-ece encrypts each Web Push payload. Install once, beside server.py:
 #
-#     uv venv .venv && uv pip sync --python .venv/bin/python requirements.txt
+#     ./install.sh
 #
-# Every version is pinned, the direct libraries and what they pull in, so two
-# installs are the same install.
+# which builds .venv on Python 3.14, the one Python the board runs on, and
+# syncs this file into it; facilitator update keeps it so. The server needs
+# Python 3.11 or newer and refuses to start on anything older. Every version
+# is pinned, the direct libraries and what they pull in, so two installs are
+# the same install.
 uvicorn==0.52.4
 starlette==1.6.0
 anyio==4.15.1

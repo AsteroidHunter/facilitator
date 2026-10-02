@@ -282,6 +282,40 @@ test("an install that fails after stopping the board says the board is down", as
   assert.match(String(res.exit), /\n  The board was stopped to rebuild \.venv and is down\. Once this is fixed, start it with: facilitator run$/);
 });
 
+test("the server refuses a Python older than 3.11 in one sentence and one log line, before its libraries load", async () => {
+  const dir = await checkout();
+  await fs.copyFile(path.join(ROOT, "server.py"), path.join(dir, "server.py"));
+  const logs = path.join(dir, "logs");
+  // the standard library the server imports is loaded first, on the real
+  // version; then the version is made 3.10 and the server's own code runs, as
+  // a module and not as __main__, so nothing could start even if it went on
+  const code = String.raw`
+import json, runpy, sys
+import asyncio, base64, contextlib, fcntl, gzip, hashlib, logging, logging.handlers, os, re, random
+import secrets, shutil, signal, socket, stat, struct, subprocess, tempfile, threading, time, traceback
+import urllib.error, urllib.request, urllib.parse, pathlib
+sys.version_info = (3, 10, 4, "final", 0)
+try:
+    runpy.run_path(sys.argv[1], run_name="server_floor_check")
+    print("RESULT " + json.dumps({"exit": "it went on", "libraries": "starlette" in sys.modules}))
+except SystemExit as stop:
+    print("RESULT " + json.dumps({"exit": str(stop.code), "libraries": "starlette" in sys.modules}))
+`;
+  const { stdout } = await exec(PYTHON, ["-c", code, path.join(dir, "server.py")],
+    { cwd: dir, env: { ...process.env, FACILITATOR_LOG_DIR: logs }, timeout: 30000 });
+  const res = JSON.parse(stdout.trim().split("\n").find(l => l.startsWith("RESULT ")).slice("RESULT ".length));
+  assert.equal(res.exit, "facilitator's server needs Python 3.11 or newer and this is 3.10.4. Start it with "
+    + "facilitator run, which uses the Python 3.14 in .venv, or run ./install.sh to rebuild .venv.");
+  assert.equal(res.libraries, false, "starlette was imported before the refusal");
+  const written = [];
+  for (const name of await fs.readdir(logs)) {
+    for (const line of (await fs.readFile(path.join(logs, name), "utf8")).split("\n")) if (line) written.push(JSON.parse(line));
+  }
+  const refused = written.filter(event => event.kind === "startuprefused");
+  assert.equal(refused.length, 1, JSON.stringify(written));
+  assert.equal(refused[0].reason, "python is older than 3.11");
+});
+
 test("the pin is one Python and one uv, named the same in the command and the installer", async () => {
   const cli = await fs.readFile(path.join(ROOT, "facilitator"), "utf8");
   const sh = await fs.readFile(path.join(ROOT, "install.sh"), "utf8");

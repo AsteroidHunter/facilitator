@@ -376,7 +376,7 @@ def said_why(port, started):
     """The one sentence for a start that did not come up, and the end of the
     command; nothing for one that did."""
     if started == "ended":
-        sys.exit(f"the server did not start; run python3 {HERE / 'server.py'} "
+        sys.exit(f"the server did not start; run {server_python()} {HERE / 'server.py'} "
                  "by hand to see why")
     if started == "silent":
         sys.exit(f"server failed to come up on {port}; see the day's server file in {LOG_DIR}")
