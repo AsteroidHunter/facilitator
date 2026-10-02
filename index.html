@@ -5303,11 +5303,12 @@ function snapCard(){
       // down off the panel above (a margin on the prose block, inside the
       // scroller), the lower share lifts the scroller's own foot off the waiting
       // box. The two add back to exactly s, so the answer keeps its snapped line
-      // count. Balance the white the eye sees, from the panel's painted edge to the
-      // first glyph and from the last unobscured glyph to the waiting box. A Range
-      // describes the font box, not its ink; canvas supplies this face's actual
-      // ink bounds. Moving one pixel from the lower share to the upper moves every
-      // glyph down one, so half the measured difference is the balanced share.
+      // count. Balance the white the eye sees, from the foot of the panel's room for
+      // its delivery mark to the first glyph and from the last unobscured glyph to
+      // the waiting box. A Range describes the font box, not its ink; canvas
+      // supplies this face's actual ink bounds. Moving one pixel from the lower
+      // share to the upper moves every glyph down one, so half the measured
+      // difference is the balanced share.
       const canvas = document.createElement("canvas");
       const context = canvas.getContext("2d");
       context.font = cs.font;
@@ -5328,7 +5329,8 @@ function snapCard(){
       const lastLine = lines.filter(q => q.height > 2 && q.bottom > rect.top &&
         q.top < rect.bottom && inkBottom(q) <= pendingTop)
         .sort((a, b) => inkBottom(b) - inkBottom(a))[0];
-      const top0 = firstLine ? inkTop(firstLine) - el.answ.getBoundingClientRect().bottom : 0;
+      const markRoom = parseFloat(getComputedStyle(answ).marginBottom) || 0;
+      const top0 = firstLine ? inkTop(firstLine) - (answ.getBoundingClientRect().bottom + markRoom) : 0;
       const bottom0 = lastLine ? pendingTop - inkBottom(lastLine) : top0;
       // When the answer is short, the large body region below its only line is
       // content room rather than a boundary gap; it cannot be made equal by moving
