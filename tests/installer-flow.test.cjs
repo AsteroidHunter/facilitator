@@ -293,6 +293,31 @@ test("with no uv and no Homebrew, uv's own installer runs, told to leave the she
   });
 });
 
+test("a uv older than 0.9.0 cannot install Python 3.14, so the run stops in one line before .venv is made", async () => {
+  const LINE = "⚠ uv 0.8.19 is too old to install Python 3.14: upgrade it to 0.9.0 or newer "
+    + "(brew upgrade uv, or uv self update), then run ./install.sh again.\n";
+  // the command's own check, and the installer's when it needs uv for a Python first
+  for (const python of ["system", "missing"]) {
+    await using({ python, uvVersion: "0.8.19" }, async f => {
+      const { code, text } = await f.piped();
+      assert.equal(code, 1, `${python}: ${text}`);
+      assert.ok(text.includes(LINE), `${python}: ${text}`);
+      const calls = await f.calls();
+      assert.ok(calls.includes("uv --version"), calls.join(" | "));
+      assert.ok(!calls.some(line => /^uv (python|venv|pip)/.test(line)), `${python}: uv was used anyway: ${calls.join(" | ")}`);
+      assert.equal(await f.has(path.join(f.repo, ".venv")), false);
+    });
+  }
+  // the versions are compared as numbers: 0.10 is newer than 0.9
+  for (const uvVersion of ["0.9.0", "0.10.2"]) {
+    await using({ python: "missing", uvVersion }, async f => {
+      const { code, text } = await f.piped();
+      assert.equal(code, 0, `${uvVersion}: ${text}`);
+      assert.doesNotMatch(text, /too old/);
+    });
+  }
+});
+
 test("a command or skill name that is already taken stops the run before the environment is made", async () => {
   await using({}, async f => {
     const link = path.join(f.home, ".claude/skills/facilitator");

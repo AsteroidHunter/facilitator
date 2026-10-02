@@ -10,6 +10,7 @@ TAILSCALE_URL='https://tailscale.com/download'
 UV_INSTALL_URL='https://astral.sh/uv/install.sh'
 MIN_PYTHON='3.9'      # runs the setup and the command; keep in step with MIN_PYTHON in facilitator
 MANAGED_PYTHON='3.14' # the Python .venv is built on; keep in step with APP_PYTHON in facilitator
+UV_MIN='0.9.0'        # the first uv that installs Python 3.14.0; keep in step with UV_MIN in facilitator
 
 if [ "$#" -gt 0 ]; then
   if [ "$#" -eq 1 ] && { [ "$1" = "--help" ] || [ "$1" = "-h" ]; }; then
@@ -200,17 +201,40 @@ install_uv() {
   fi
 }
 
+# uv_new_enough <uv>: whether that uv is UV_MIN or newer, which it has to be to
+# install Python $MANAGED_PYTHON. UV_VERSION ends up naming what it said.
+uv_new_enough() {
+  local have want i
+  read -r _ UV_VERSION _ <<< "$("$1" --version 2>/dev/null)" || UV_VERSION=''
+  IFS=. read -r -a have <<< "$UV_VERSION"
+  IFS=. read -r -a want <<< "$UV_MIN"
+  for i in 0 1 2; do
+    have[i]="${have[i]:-}"
+    have[i]="${have[i]%%[!0-9]*}"
+    [ -n "${have[i]}" ] || return 1
+    if (( 10#${have[i]} > 10#${want[i]} )); then return 0; fi
+    if (( 10#${have[i]} < 10#${want[i]} )); then return 1; fi
+  done
+  return 0
+}
+
 # No python3 that is new enough: get uv, then a Python of uv's own. PY ends up
 # naming it. Nothing goes into the user's Python.
 bootstrap_python() {
-  local uv
+  local uv found=1
   say "No Python this setup can use was found (it needs $MIN_PYTHON or newer, with scrypt)."
   say 'uv will provide one for the private environment.'
   if ! uv="$(find_uv)"; then
+    found=0
     install_uv
     uv="$(find_uv)" || stop 'uv is installed but still not found.' 'Open a new shell so it is on PATH, then run ./install.sh again.'
-    ok 'uv installed.'
   fi
+  if ! uv_new_enough "$uv"; then
+    local which="uv $UV_VERSION"
+    [ -n "$UV_VERSION" ] || which="The uv at $uv, whose version could not be read,"
+    stop "$which is too old to install Python $MANAGED_PYTHON: upgrade it to $UV_MIN or newer (brew upgrade uv, or uv self update), then run ./install.sh again."
+  fi
+  if [ "$found" -eq 0 ]; then ok 'uv installed.'; fi
   say "Installing Python $MANAGED_PYTHON with uv."
   "$uv" python install --no-bin "$MANAGED_PYTHON" || stop 'uv could not install Python.' 'See the output above, then run ./install.sh again.'
   PY="$("$uv" python find --managed-python "$MANAGED_PYTHON")" || PY=''

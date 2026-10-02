@@ -1997,7 +1997,7 @@ INSTALL_ARTIFACTS = (".venv", "node_modules", "package.json", "package-lock.json
 INSTALL_HELP = """usage: ./install.sh
 
 Check that Claude Code or Codex and Chrome are here, then make this checkout
-runnable: find or install uv, build the private .venv on a
+runnable: find or install uv (0.9.0 or newer), build the private .venv on a
 Python 3.14 that uv manages, rebuilding a .venv that is missing, broken or on
 another Python, and sync requirements, write run.config.json and seed.json from
 the examples when they are missing, and install test dependencies when node is
@@ -2087,15 +2087,33 @@ def install_uv():
     return uv
 
 
+def uv_version(uv):
+    """What that uv says its version is, as numbers like (0, 9, 0), or None
+    when nothing it says reads as one."""
+    try:
+        said = subprocess.run([uv, "--version"], capture_output=True, text=True, errors="replace")
+    except OSError:
+        return None
+    found = re.match(r"uv (\d+)\.(\d+)\.(\d+)", (said.stdout or "").strip())
+    return tuple(int(part) for part in found.groups()) if found else None
+
+
 def ensure_uv(quiet=False):
+    """The uv command, found or installed, and new enough to install Python
+    APP_PYTHON. An older one stops the run in one line: it is the tester's own
+    tool, so it is theirs to upgrade, and nothing has been changed yet."""
     uv = find_uv()
-    if uv:
-        if not quiet:
-            ok("uv found.")
-        return uv
-    uv = install_uv()
+    installed = not uv
+    if installed:
+        uv = install_uv()
+    have = uv_version(uv)
+    if have is None or have < UV_MIN:
+        need = ".".join(str(part) for part in UV_MIN)
+        which = f"uv {'.'.join(str(part) for part in have)}" if have else f"The uv at {uv}, whose version could not be read,"
+        sys.exit(problem(f"{which} is too old to install Python {APP_PYTHON}: upgrade it to {need} or newer "
+                         "(brew upgrade uv, or uv self update), then run ./install.sh again."))
     if not quiet:
-        ok("uv installed.")
+        ok("uv installed." if installed else "uv found.")
     return uv
 
 
@@ -2492,7 +2510,8 @@ uncommitted changes, is not on a branch, or has no upstream. Pulls that
 upstream forward only (git pull --ff-only), then runs the pulled code's update
 steps: sync the .venv to requirements.txt, then run each numbered step in
 updates/ that has not run here yet. A .venv that is missing, broken or not on
-Python 3.14 is built again on it first. Restarts the board only when it is
+Python 3.14 is built again on it first; that needs uv 0.9.0 or newer, and an
+older uv stops the update with one line. Restarts the board only when it is
 running and something was pulled."""
 
 
