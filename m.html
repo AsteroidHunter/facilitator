@@ -205,7 +205,7 @@
     -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
     transform:translateY(calc(-1 * var(--dock-rise, 0px)));
     opacity:1; visibility:visible;
-    transition:opacity .25s var(--gentle), visibility 0s;
+    transition:opacity .18s var(--gentle), visibility 0s;
   }
   #dock.away{opacity:0; visibility:hidden; pointer-events:none;
     transition:opacity .1s ease-out, visibility 0s linear .1s}
@@ -4916,12 +4916,14 @@ function editing(){
   const a = document.activeElement;
   return !!a && a !== document.body && (a.matches("textarea, input:not([type=file])") || a.isContentEditable);
 }
+const BAR_GONE_MS = KB_ANIM_MS;            // a paired keyboard's bar has left by then; it lifts nothing, so no landing ends the row's hold early
 function readWorld(){
   const vv = window.visualViewport;
   const vvHeight = vv ? vv.height : window.innerHeight;
   const vvScale = vv && Number.isFinite(vv.scale) ? vv.scale : 1;
   const pageAtRestScale = Math.abs(vvScale - 1) <= PAGE_SCALE_EPSILON;
   if (window.innerWidth !== baselineWidth){ baselineWidth = window.innerWidth; baseline = 0; }   // a rotation: relearn
+let dockBackAt = Infinity, dockBackTimer = null, keyboardSeen = false;
   const focused = editing();
   // only a keyboard-free frame teaches the baseline, and only upward: a
   // shrunken viewport and a zoomed viewport must not become the full screen
@@ -4967,7 +4969,17 @@ function applyShell(obstructed, top, height, base){
   const softKeyboard = obstructed && inset >= MIN_SOFT_KEYBOARD_PX;
   const edge = obstructed !== appliedObstruction;
   const softEdge = softKeyboard !== appliedSoftKeyboard;
-  if (edge){ appliedObstruction = obstructed; armLift(); }
+  if (edge && obstructed) keyboardSeen = false;
+  if (softKeyboard) keyboardSeen = true;
+  if (edge){
+    appliedObstruction = obstructed; armLift();
+    // the row's own hold: the keyboard's close ends it at the landing, a bar's
+    // close, which has none, on its own shorter clock
+    const bar = !obstructed && !keyboardSeen;
+    dockBackAt = bar ? performance.now() + BAR_GONE_MS : Infinity;
+    clearTimeout(dockBackTimer);
+    dockBackTimer = bar ? setTimeout(() => syncDock(appliedObstruction, dockHeld(), appliedInset), BAR_GONE_MS + 2) : null;
+  }
   appliedSoftKeyboard = softKeyboard;
   const lifting = performance.now() < liftUntil;
   body.classList.toggle("obstructed", obstructed);
@@ -4994,7 +5006,7 @@ function applyShell(obstructed, top, height, base){
     const el = selectedId && els[selectedId];
     if (el && ComposeFormat.focused(el.ta)) revealCaret(el.ta, el.twin);
   }
-  syncDock(obstructed, lifting, inset);
+  syncDock(obstructed, dockHeld(), inset);
   syncTyping(obstructed);
 }
 // a keyboard edge opens the settle window; the foot's own transitionend closes
@@ -5116,8 +5128,8 @@ document.addEventListener("pointerdown", e => {
   if (!e.target.closest?.(".compose") || e.target.closest("button")) return;
   dockEarly = true;
   clearTimeout(dockEarlyTimer);
-  dockEarlyTimer = setTimeout(() => { dockEarly = false; syncDock(appliedObstruction, performance.now() < liftUntil, appliedInset); }, DOCK_EARLY_MS);
-  syncDock(appliedObstruction, performance.now() < liftUntil, appliedInset);
+  dockEarlyTimer = setTimeout(() => { dockEarly = false; syncDock(appliedObstruction, dockHeld(), appliedInset); }, DOCK_EARLY_MS);
+  syncDock(appliedObstruction, dockHeld(), appliedInset);
 }, { capture: true, passive: true });
 function syncDock(obstructed, lifting, inset){
   const away = obstructed || lifting || (touchScreen.matches && (dockEarly || typingFocus()));
@@ -5185,6 +5197,10 @@ function wakeCaret(ta){
 function reassertCaret(){
   const arrived = arrivedCard;
   arrivedCard = null;
+function dockHeld(){
+  const now = performance.now();
+  return now < liftUntil && now < dockBackAt;
+}
   if (arrived && arrived.field.focused()){
     // a step's caret the phone left at the head of the words goes back to their end
     const end = arrived.ta.value.length;
