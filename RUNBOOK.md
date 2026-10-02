@@ -180,9 +180,17 @@ same stale-write guard and never overwrites a binary or creates a new file.
 
 Once per browser, the first load after the board names its navigator lanes brings back the board's own tab's navigator box if it had been put away with the pencil's cross: the `hide.facilitator.<box>` key is removed, so the box returns in the place and size it was saved with, and the browser's `navrestore.1` key is set so this never runs again there. No other tab's keys are touched, and the cross hides the box again as it always did, for good. `tests/navigator-restore-browser.test.cjs` covers it.
 
+## The default layout
+
+A browser with nothing saved opens every project's board on the clock, the ticket list and the card, and nothing else. They stand at fixed places and sizes on the 1440 by 900 stage and scale with it. In stage pixels, as x, y, width and height: the clock at 28.8, 40.32, 218.88 and 103.68; the ticket list at 51.84, 190.08, 357.12 and 587.52; the card at 466.56, 74.88, 506.88 and 748.8. They are the `--clock-*`, `--tik-*` and `--frame-*` values in `index.html`, and every edge sits on the board's grid so a drag from there snaps like any other.
+
+Magic boxes 1, 2, 3 and 4, the rail and the goal box are off by default (`DEFAULT_HIDDEN_REGIONS`); a lane listed in `navigator_lanes` still shows its file navigator box. A place, size, hide or show a browser has saved always wins over these defaults, and nothing rewrites it. Magic box 1 (the player) came to the off-by-default set later than the others, so a browser that already had a layout gets one more one-time pass (`layoutvisibility.2`) that adds a `show.<project id>.magic1` key on each tab that was showing it and touches nothing else. On a tab where the player is off, that `show.` key is the only thing that brings it back; the pencil has no control for it.
+
+`tests/default-layout-browser.test.cjs` checks the places and sizes at three window sizes and that a saved layout is left as it is.
+
 ## The Spotify player
 
-`spotify_client_id` in `run.config.json` is the client id magic box 1 signs into Spotify with; make an app at the Spotify developer dashboard (https://developer.spotify.com/dashboard) to get one, and leave the key empty until you do.
+`spotify_client_id` in `run.config.json` is the client id magic box 1 signs into Spotify with; make an app at the Spotify developer dashboard (https://developer.spotify.com/dashboard) to get one, and leave the key empty until you do. The player is off by default on a new board (see the default layout above).
 
 ## The home page
 
