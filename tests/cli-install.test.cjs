@@ -21,7 +21,7 @@ const NPM = "/fake/npm";
 const dirs = [];
 
 // a pristine clone: only the tracked files install needs. The gitignored
-// artifacts (.venv, node_modules, run.config.json, seed.json) are absent, the
+// artifacts (.venv, tests/node_modules, run.config.json, seed.json) are absent, the
 // same as a real `git clone`. The clone sits one level down in its own temp
 // folder, so the sibling facilitator-internal/ it reads is private to the test.
 async function freshClone() {
@@ -33,6 +33,10 @@ async function freshClone() {
     await copyFile(path.join(ROOT, name), path.join(dir, name));
   }
   await cp(path.join(ROOT, '.agents'), path.join(dir, '.agents'), { recursive: true });
+  await mkdir(path.join(dir, "tests"));
+  for (const name of ["package.json", "package-lock.json"]) {
+    await copyFile(path.join(ROOT, "tests", name), path.join(dir, "tests", name));
+  }
   return dir;
 }
 
@@ -80,8 +84,9 @@ function loadCli(dir) {
 // the fingerprint in this checkout is made to match, "tampered" is other text
 // and "empty" is a download that came to nothing. sha256sum and shasum: the
 // path of that checking command on this machine, or null when it is missing.
+// npmFails: npm ci stops partway, after it has made the folder.
 function stubs({ uv = true, node = true, brew = false, up = false, uvSays = "uv 0.11.18 (fake)",
-  installer = "good", sha256sum = "/fake/sha256sum", shasum = null } = {}) {
+  installer = "good", sha256sum = "/fake/sha256sum", shasum = null, npmFails = false } = {}) {
   const served = { good: "INSTALLER", tampered: "b'#!/bin/sh\\necho changed\\n'", empty: "b''" }[installer];
   const tool = path => path ? JSON.stringify(path) : "None";
   return [
@@ -98,6 +103,7 @@ function stubs({ uv = true, node = true, brew = false, up = false, uvSays = "uv 
     "REAL_RUN = subprocess.run",
     "CALLS = []",
     "SH = {'no_modify': None}",
+    "NPMRUN = {}",
     "def fake_run(argv, **kw):",
     "    argv = list(argv)",
     "    CALLS.append(argv)",
@@ -115,10 +121,14 @@ function stubs({ uv = true, node = true, brew = false, up = false, uvSays = "uv 
     `        return types.SimpleNamespace(returncode=0, stdout=${JSON.stringify(uvSays + "\n")}, stderr='')`,
     "    if argv[:3] == [UV, 'pip', 'sync']:",
     "        return types.SimpleNamespace(returncode=0, stdout='Audited', stderr='')",
-    "    if argv[:2] == [NPM, 'install']:",
-    "        (here/'node_modules'/'puppeteer-core').mkdir(parents=True, exist_ok=True)",
-    "        (here/'package.json').write_text('{}')",
-    "        (here/'package-lock.json').write_text('{}')",
+    "    if argv[:2] == [NPM, 'ci']:",
+    "        NPMRUN['cwd'] = str(kw.get('cwd'))",
+    "        package = here/'tests'/'node_modules'/'puppeteer-core'",
+    "        package.mkdir(parents=True, exist_ok=True)",
+    `        if ${npmFails ? "True" : "False"}:`,
+    "            return types.SimpleNamespace(returncode=1, stdout='', stderr='')",
+    "        pinned = json.loads((here/'tests'/'package.json').read_text())['dependencies']['puppeteer-core']",
+    "        (package/'package.json').write_text(json.dumps({'name': 'puppeteer-core', 'version': pinned}))",
     "        return types.SimpleNamespace(returncode=0, stdout='', stderr='')",
     "    if argv[:2] == [BREW, 'install']:",
     "        UVSTATE['uv'] = UV",
@@ -162,7 +172,8 @@ function snapshot(callLine) {
     "    return os.path.exists(str(p))",
     "files = {",
     "  'venv': ex(here/'.venv'/'bin'/'python'),",
-    "  'node_modules': ex(here/'node_modules'/'puppeteer-core'),",
+    "  'node_modules': ex(here/'tests'/'node_modules'),",
+    "  'root_node_modules': ex(here/'node_modules'),",
     "  'package_json': ex(here/'package.json'),",
     "  'package_lock': ex(here/'package-lock.json'),",
     "  'run_config': ex(here/'run.config.json'),",
@@ -176,7 +187,7 @@ function snapshot(callLine) {
     "  'vapid': ex(here/'vapid-key.pem'),",
     "}",
     "sh = {k: (v.decode() if isinstance(v, bytes) else v) for k, v in SH.items()}",
-    "print('RESULT ' + json.dumps({'out': buf.getvalue(), 'exit': result_exit, 'files': files, 'calls': CALLS, 'sh_no_modify': SH['no_modify'], 'sh': sh}))",
+    "print('RESULT ' + json.dumps({'out': buf.getvalue(), 'exit': result_exit, 'files': files, 'calls': CALLS, 'npm_cwd': NPMRUN.get('cwd'), 'sh_no_modify': SH['no_modify'], 'sh': sh}))",
   ].join("\n");
 }
 
@@ -198,7 +209,9 @@ async function run(dir, body, env = {}) {
   return JSON.parse(line.slice("RESULT ".length));
 }
 
-const installed = files => files.venv && files.node_modules && files.run_config && files.seed;
+const installed = files => files.venv && files.run_config && files.seed;
+const NPM_CI = [NPM, "ci", "--ignore-scripts", "--no-audit", "--no-fund"];
+const npmRuns = calls => calls.filter(c => c[0] === NPM);
 
 test("install uses the script while uninstall remains a command", async () => {
   const dir = await freshClone();
@@ -216,13 +229,16 @@ test("install uses the script while uninstall remains a command", async () => {
   assert.doesNotMatch(source, /wipe/i, "the facilitator command still mentions wipe");
 });
 
-test("install creates the environment, the config and the test deps in one run", async () => {
+test("install creates the environment and the config in one run, and no test packages", async () => {
   const dir = await freshClone();
   const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
 
   assert.equal(res.exit, null, res.out);
   assert.ok(installed(res.files), JSON.stringify(res.files));
-  assert.ok(res.files.package_json && res.files.package_lock);
+  assert.equal(npmRuns(res.calls).length, 0, "a normal install ran npm: " + JSON.stringify(npmRuns(res.calls)));
+  assert.deepEqual([res.files.node_modules, res.files.root_node_modules, res.files.package_json, res.files.package_lock],
+    [false, false, false, false], "a normal install left test packages behind");
+  assert.doesNotMatch(res.out, /npm|puppeteer|[Tt]est packages/, res.out);
   assert.equal(res.files.state, false, "install fabricated board data");
 
   assert.match(res.out, /✓ Python \d+\.\d+\.\d+ runs this setup\./, res.out);
@@ -231,13 +247,12 @@ test("install creates the environment, the config and the test deps in one run",
   assert.match(res.out, /Syncing packages to requirements\.txt\.\n✓ Packages synced\./);
   assert.match(res.out, /✓ Wrote run\.config\.json from run\.config\.example\.json\./);
   assert.match(res.out, /✓ Wrote seed\.json from seed\.example\.json\./);
-  assert.match(res.out, /Installing puppeteer-core for the tests\.\n✓ Test packages installed\./);
   assert.match(res.out, /✓ Board installed\.\n\nConfig lives beside this command: run\.config\.json \(edit it\)\nand seed\.json\.\n$/);
   assert.doesNotMatch(res.out, /Start it with/, "install.sh ends with the next steps, so the board step does not repeat them");
   assert.doesNotMatch(res.out, /\n\n\n/, "two blank lines in a row");
 
   const kinds = res.calls.map(c => `${c[0]} ${c[1]}`);
-  assert.ok(kinds.includes(`${UV} venv`) && kinds.includes(`${UV} pip`) && kinds.includes(`${NPM} install`), kinds.join(" | "));
+  assert.ok(kinds.includes(`${UV} venv`) && kinds.includes(`${UV} pip`), kinds.join(" | "));
   // the app's Python comes from uv and nowhere else, before the environment
   // that stands on it, which stands before the packages go in
   const lines = res.calls.map(c => c.join(" "));
@@ -291,13 +306,118 @@ test("a second install changes nothing and says so", async () => {
   assert.match(again.out, /✓ Environment found in \.venv \(Python 3\.14\)\./);
   assert.match(again.out, /✓ run\.config\.json found\./);
   assert.match(again.out, /✓ seed\.json found\./);
-  assert.match(again.out, /✓ Test packages found\./);
 
-  // the environment is not rebuilt and the test deps are not reinstalled; only
-  // the idempotent sync runs again
+  // the environment is not rebuilt; only the idempotent sync runs again
   assert.equal(again.calls.some(c => c[0] === UV && c[1] === "venv"), false, "the .venv was rebuilt");
-  assert.equal(again.calls.some(c => c[0] === NPM && c[1] === "install"), false, "npm ran again");
+  assert.equal(npmRuns(again.calls).length, 0, "npm ran");
   assert.ok(again.calls.some(c => c[0] === UV && c[1] === "pip"), "the sync did not run");
+});
+
+test("install --dev adds the test packages from the lockfile, without running any package's scripts", async () => {
+  const dir = await freshClone();
+  const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install', '--dev'])"));
+
+  assert.equal(res.exit, null, res.out);
+  assert.ok(installed(res.files) && res.files.node_modules, JSON.stringify(res.files));
+  assert.deepEqual(npmRuns(res.calls), [NPM_CI], "npm was run some other way: " + JSON.stringify(npmRuns(res.calls)));
+  assert.equal(res.npm_cwd, path.join(dir, "tests"), "npm ci did not run against tests/package.json");
+  assert.deepEqual([res.files.root_node_modules, res.files.package_json, res.files.package_lock], [false, false, false],
+    "the test packages went into the checkout's root");
+  assert.match(res.out, /Syncing packages to requirements\.txt\.\n✓ Packages synced\.\n[^]*Installing the test packages from tests\/package-lock\.json\.\n✓ Test packages installed\.\n✓ Board installed\./, res.out);
+  const lines = res.calls.map(c => c.join(" "));
+  assert.ok(lines.indexOf(NPM_CI.join(" ")) > lines.findIndex(line => line.startsWith(`${UV} pip sync`)), "the test packages came before the board's own");
+});
+
+test("a second install --dev keeps the packages, and moves them when the pinned version moves", async () => {
+  const dir = await freshClone();
+  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install', '--dev'])"));
+  const again = await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install', '--dev'])"));
+  assert.equal(again.exit, null, again.out);
+  assert.match(again.out, /✓ Test packages found\./);
+  assert.equal(npmRuns(again.calls).length, 0, "npm ran again for packages that were already there");
+
+  const manifest = path.join(dir, "tests", "package.json");
+  const moved = JSON.parse(await readFile(manifest, "utf8"));
+  moved.dependencies["puppeteer-core"] = "99.0.0";
+  await writeFile(manifest, JSON.stringify(moved));
+  const third = await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install', '--dev'])"));
+  assert.deepEqual(npmRuns(third.calls), [NPM_CI], "a new pinned version was not installed");
+});
+
+test("a normal install after a --dev one keeps the test packages and does not touch them", async () => {
+  const dir = await freshClone();
+  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install', '--dev'])"));
+  const again = await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
+  assert.equal(again.exit, null, again.out);
+  assert.equal(again.files.node_modules, true, "a normal install removed the test packages");
+  assert.equal(npmRuns(again.calls).length, 0);
+});
+
+test("install --dev without node or npm stops before anything is built", async () => {
+  const dir = await freshClone();
+  const res = await run(dir, stubs({ node: false }) + "\n" + snapshot("cli.cmd_install(['install', '--dev'])"));
+  assert.equal(String(res.exit).trim(), "⚠ --dev needs node and npm, and they were not found.\n  Install Node.js, then run ./install.sh --dev again.");
+  assert.equal(res.calls.length, 0, "something ran before the check: " + JSON.stringify(res.calls));
+  assert.deepEqual([res.files.venv, res.files.run_config, res.files.seed, res.files.node_modules], [false, false, false, false]);
+});
+
+test("a failed npm ci in a --dev install is said plainly, and uninstall still takes back what it left", async () => {
+  const dir = await freshClone();
+  const res = await run(dir, stubs({ npmFails: true }) + "\n" + snapshot("cli.cmd_install(['install', '--dev'])"));
+  assert.equal(String(res.exit).trim(), "⚠ npm could not install the test packages.\n  See the output above, then run ./install.sh --dev again.");
+  assert.ok(res.files.venv && res.files.node_modules, "the board's own install did not stand");
+  const gone = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
+  assert.equal(gone.files.node_modules, false, "the partial packages stayed");
+  assert.match(gone.out, /✓ Removed tests\/node_modules\./);
+});
+
+test("a tests/node_modules that was there before install --dev is used, and uninstall leaves it alone", async () => {
+  const dir = await freshClone();
+  const own = path.join(dir, "tests", "node_modules", "puppeteer-core");
+  await mkdir(own, { recursive: true });
+  const pinned = JSON.parse(await readFile(path.join(dir, "tests", "package.json"), "utf8")).dependencies["puppeteer-core"];
+  await writeFile(path.join(own, "package.json"), JSON.stringify({ name: "puppeteer-core", version: pinned }));
+  const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install', '--dev'])"));
+  assert.equal(res.exit, null, res.out);
+  assert.match(res.out, /✓ Test packages found\./);
+  assert.equal(npmRuns(res.calls).length, 0);
+  const gone = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
+  assert.match(gone.out, /⊘ Kept tests\/node_modules: it is not recorded as installer-owned\./);
+  assert.equal(gone.files.node_modules, true, "uninstall removed packages the install did not make");
+});
+
+test("install takes --dev and nothing else", async () => {
+  const dir = await freshClone();
+  const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install', '--nonsense'])"));
+  assert.match(String(res.exit), /^install takes only --dev; got --nonsense\nusage: \.\/install\.sh \[--dev\]\n/);
+  assert.equal(res.calls.length, 0);
+  const help = await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install', '--help'])"));
+  assert.equal(help.exit, null);
+  assert.match(help.out, /^usage: \.\/install\.sh \[--dev\]\n/);
+  assert.match(help.out, /--dev also installs the packages only the tests need[^]*tests\/package-lock\.json[^]*npm ci/);
+  assert.doesNotMatch(help.out, /when node is present/);
+  assert.equal(help.calls.length, 0);
+});
+
+test("the test packages are one exact version, locked with a fingerprint on every file, and kept out of git", async () => {
+  const manifest = JSON.parse(await readFile(path.join(ROOT, "tests", "package.json"), "utf8"));
+  const lock = JSON.parse(await readFile(path.join(ROOT, "tests", "package-lock.json"), "utf8"));
+  const wanted = Object.entries(manifest.dependencies);
+  assert.ok(wanted.length >= 1 && !manifest.devDependencies && !manifest.optionalDependencies && !manifest.scripts, "an unexpected section in tests/package.json");
+  for (const [name, version] of wanted) assert.match(version, /^\d+\.\d+\.\d+$/, `${name} is not one exact version: ${version}`);
+  assert.equal(lock.lockfileVersion, 3);
+  assert.deepEqual(lock.packages[""].dependencies, manifest.dependencies, "the lockfile was made for other packages");
+  for (const [place, entry] of Object.entries(lock.packages)) {
+    if (!place) continue;
+    assert.match(entry.integrity, /^sha512-[A-Za-z0-9+/]{86}==$/, `${place} has no sha512 fingerprint`);
+    assert.match(entry.resolved, /^https:\/\/registry\.npmjs\.org\/[^?#]+\.tgz$/, `${place} does not come from the npm registry by name`);
+    assert.match(entry.version, /^\d+\.\d+\.\d+$/, `${place} is not one exact version`);
+    assert.ok(!entry.hasInstallScript, `${place} runs a script when installed`);
+  }
+  for (const [name, version] of wanted) assert.equal(lock.packages[`node_modules/${name}`].version, version);
+  const ignored = await readFile(path.join(ROOT, ".gitignore"), "utf8");
+  assert.match(ignored, /^\/tests\/node_modules\/$/m, "tests/node_modules is not ignored");
+  assert.doesNotMatch(ignored, /^(\/?tests\/)?package(-lock)?\.json$/m, "the pinned files are ignored, so they would never be committed");
 });
 
 test("a user's own config is left untouched by install", async () => {
@@ -321,14 +441,14 @@ test("uninstall preserves a preexisting config and an edited generated seed", as
   assert.match(result.out, /⊘ Kept seed\.json: it has changed since install\./);
 });
 
-test("without node, the test deps are skipped and named as such", async () => {
+test("a normal install needs no node and says nothing about it", async () => {
   const dir = await freshClone();
   const res = await run(dir, stubs({ node: false }) + "\n" + snapshot("cli.cmd_install(['install'])"));
   assert.equal(res.exit, null, res.out);
   assert.equal(res.files.node_modules, false);
   assert.equal(res.files.package_json, false);
   assert.ok(res.files.venv && res.files.run_config && res.files.seed);
-  assert.match(res.out, /⊘ Skipped the test packages: node was not found\.\nThey are needed only to run the tests\./);
+  assert.doesNotMatch(res.out, /node|npm|test packages/i);
 });
 
 test("when uv is missing and Homebrew is here, install uses brew then continues", async () => {
@@ -441,9 +561,9 @@ test("find_uv prefers a uv on PATH", async () => {
   assert.equal(stdout.trim(), path.join(bin, "uv"));
 });
 
-test("uninstall removes the environment, node deps and config, and keeps the board's data", async () => {
+test("uninstall removes the environment, test packages and config, and keeps the board's data", async () => {
   const dir = await freshClone();
-  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
+  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install', '--dev'])"));
   await fabricateData(dir);
 
   const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
@@ -451,18 +571,40 @@ test("uninstall removes the environment, node deps and config, and keeps the boa
   // gone: exactly what install made
   assert.equal(res.files.venv, false);
   assert.equal(res.files.node_modules, false);
-  assert.equal(res.files.package_json, false);
-  assert.equal(res.files.package_lock, false);
   assert.equal(res.files.run_config, false);
   assert.equal(res.files.seed, false);
-  // kept: the board's data
+  // kept: the board's data, and the files that ship in the checkout
   assert.ok(res.files.state && res.files.transcript && res.files.uploads && res.files.internal_uploads
     && res.files.logs && res.files.vapid, JSON.stringify(res.files));
+  for (const name of ["package.json", "package-lock.json"]) {
+    await readFile(path.join(dir, "tests", name), "utf8");
+  }
 
   assert.match(res.out, /✓ Removed \.venv\./);
-  assert.match(res.out, /✓ Removed node_modules\./);
+  assert.match(res.out, /✓ Removed tests\/node_modules\./);
   assert.match(res.out, /✓ Removed run\.config\.json\./);
   assert.doesNotMatch(res.out, /Kept (state|transcript|logs|vapid|bridge-auth)|Kept card attachments in|not present|are kept/);
+  assert.doesNotMatch(res.out, /package(-lock)?\.json/, "uninstall mentioned the pinned files that ship in the checkout");
+});
+
+test("uninstall still takes back test packages that an older install put in the checkout's root", async () => {
+  const dir = await freshClone();
+  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
+  const manifest = '{"dependencies":{"puppeteer-core":"^25.5.0"}}';
+  const lock = '{"lockfileVersion":3}';
+  await mkdir(path.join(dir, "node_modules", "puppeteer-core"), { recursive: true });
+  await writeFile(path.join(dir, "package.json"), manifest);
+  await writeFile(path.join(dir, "package-lock.json"), lock);
+  const sum = text => require("node:crypto").createHash("sha256").update(text).digest("hex");
+  const recordPath = path.join(dir, ".facilitator-install.json");
+  const record = JSON.parse(await readFile(recordPath, "utf8"));
+  Object.assign(record, { node_modules: "directory", "package.json": sum(manifest), "package-lock.json": sum(lock) });
+  await writeFile(recordPath, JSON.stringify(record));
+
+  const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
+  assert.equal(res.exit, null, res.out);
+  assert.deepEqual([res.files.root_node_modules, res.files.package_json, res.files.package_lock, res.files.venv], [false, false, false, false]);
+  assert.match(res.out, /✓ Removed node_modules\.\n✓ Removed package\.json\.\n✓ Removed package-lock\.json\./);
 });
 
 test("uninstall keeps only the attachments section, then check-mark lines and the finish", async () => {
@@ -492,9 +634,6 @@ test("uninstall keeps only the attachments section, then check-mark lines and th
     "",
     "✓ facilitator command and agent skill removed",
     "✓ Removed .venv.",
-    "✓ Removed node_modules.",
-    "✓ Removed package.json.",
-    "✓ Removed package-lock.json.",
     "✓ Removed run.config.json.",
     "✓ Removed seed.json.",
     "",

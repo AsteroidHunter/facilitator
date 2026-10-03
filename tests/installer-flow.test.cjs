@@ -264,7 +264,7 @@ test("with no Python it can use, uv is fetched and then a Python, and the enviro
         + "Setup builds a private Python environment in .venv with uv, installs\n"
         + "the pinned packages, and writes run.config.json and seed.json from\n"
         + "their examples when they are missing. Your own Python is not changed.\n"
-        + "When node is here it also installs the packages the tests need.\n\n"
+        + "The packages only the tests need are left out; ./install.sh --dev adds them.\n\n"
         + "No Python this setup can use was found (it needs 3.9 or newer).\n"
         + "uv will provide one for the private environment.\n"
         + "uv is not installed. Installing it with Homebrew.\n"), `${python}: ${text}`);
@@ -391,8 +391,9 @@ test("the help text describes the new flow, and the script has no Claude limits 
   await using({}, async f => {
     const { code, text } = await f.terminal([], ["--help"]);
     assert.equal(code, 0, text);
-    assert.ok(text.includes("usage: ./install.sh\n\nCheck for Claude Code or Codex and Chrome, set up a private Python\n"), text);
+    assert.ok(text.includes("usage: ./install.sh [--dev]\n\nCheck for Claude Code or Codex and Chrome, set up a private Python\n"), text);
     assert.match(text, /phone client \(Tailscale and\nan app password\)/);
+    assert.match(text, /--dev also installs the packages only the tests need/);
     assert.doesNotMatch(text, /limits/i);
     assert.deepEqual(await f.calls(), []);
     await assertNothingChanged(f);
@@ -401,4 +402,44 @@ test("the help text describes the new flow, and the script has no Claude limits 
   assert.ok(!source.includes(String.fromCharCode(8212)), "an em dash");
   assert.doesNotMatch(source, /Claude limits|claude-statusline|statusline/i);
   for (const url of Object.values(URLS)) assert.ok(source.includes(url), url);
+});
+
+test("a normal run leaves the test packages out, even with node and npm here", async () => {
+  await using({ node: true }, async f => {
+    const { code, text } = await f.piped();
+    assert.equal(code, 0, text);
+    const calls = await f.calls();
+    assert.ok(!calls.some(line => line.startsWith("npm")), "npm ran: " + calls.join(" | "));
+    assert.equal(await f.has(path.join(f.repo, "tests", "node_modules")), false);
+    assert.equal(await f.has(path.join(f.repo, "node_modules")), false);
+    assert.equal(await f.has(path.join(f.repo, "package.json")), false);
+    assert.doesNotMatch(text, /npm|puppeteer|Test packages/);
+  });
+});
+
+test("--dev adds the test packages from the lockfile in tests/, after the board's own", async () => {
+  await using({ node: true }, async f => {
+    const { code, text } = await f.piped(["--dev"]);
+    assert.equal(code, 0, text);
+    assert.match(text, /✓ Packages synced\.\n[^]*Installing the test packages from tests\/package-lock\.json\.\n✓ Test packages installed\.\n✓ Board installed\./);
+    const calls = await f.calls();
+    assert.ok(calls.includes("npm ci --ignore-scripts --no-audit --no-fund"), calls.join(" | "));
+    assert.ok(calls.includes(`npm ran in ${path.join(f.repo, "tests")}`), calls.join(" | "));
+    assert.equal(calls.filter(line => line.startsWith("npm ") && !line.startsWith("npm ran")).length, 1, calls.join(" | "));
+    assert.equal(await f.has(path.join(f.repo, "tests", "node_modules", "puppeteer-core", "package.json")), true);
+    assert.equal(await f.has(path.join(f.repo, "node_modules")), false, "the packages went into the checkout's root");
+    assert.equal(await f.has(path.join(f.repo, "package.json")), false);
+    assert.ok(text.includes(CLOSING), text);
+  });
+});
+
+test("--dev without node stops with the reason before the environment is made", async () => {
+  await using({}, async f => {
+    const { code, text } = await f.piped(["--dev"]);
+    assert.equal(code, 1, text);
+    assert.ok(text.includes("⚠ --dev needs node and npm, and they were not found.\n  Install Node.js, then run ./install.sh --dev again.\n"), text);
+    assert.equal(await f.has(path.join(f.repo, ".venv")), false);
+    assert.equal(await f.has(path.join(f.repo, "tests", "node_modules")), false);
+    assert.ok(!text.includes("Facilitator is installed"), text);
+  });
 });

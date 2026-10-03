@@ -72,9 +72,10 @@ async function script(file, text) {
 // same, but what it hands back is not what the checkout expects) or "absent". The fake's
 // venv writes a pyvenv.cfg naming venvPython, and a .venv/bin/python3 that
 // hands over to the real python, so what runs on .venv really runs. It says
-// it is uvVersion when asked.
+// it is uvVersion when asked. node: true puts a fake node and a fake npm on
+// PATH; npm ci makes tests/node_modules/puppeteer-core at the pinned version.
 async function sandbox({ agents = ["claude"], chrome = "spotlight", python = "system", uv = "present",
-  venvPython = "3.14.0", uvVersion = "0.11.18" } = {}) {
+  venvPython = "3.14.0", uvVersion = "0.11.18", node = false } = {}) {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "facilitator-installer-")));
   const home = path.join(dir, "home");
   const repo = path.join(dir, "repo");
@@ -85,6 +86,23 @@ async function sandbox({ agents = ["claude"], chrome = "spotlight", python = "sy
   for (const file of COPIED) await fs.copyFile(path.join(root, file), path.join(repo, file));
   await fs.chmod(path.join(repo, "install.sh"), 0o755);
   await fs.cp(path.join(root, ".agents"), path.join(repo, ".agents"), { recursive: true });
+  await fs.mkdir(path.join(repo, "tests"));
+  for (const name of ["package.json", "package-lock.json"]) {
+    await fs.copyFile(path.join(root, "tests", name), path.join(repo, "tests", name));
+  }
+
+  if (node) {
+    await script(path.join(tools, "node"), "#!/bin/sh\nexit 0\n");
+    await script(path.join(tools, "npm"), `#!/bin/sh
+echo "npm $*" >> "${log}"
+echo "npm ran in $PWD" >> "${log}"
+if [ "$1" = ci ]; then
+  mkdir -p node_modules/puppeteer-core
+  pinned="$(sed -n 's/.*"puppeteer-core": *"\\([^"]*\\)".*/\\1/p' package.json)"
+  printf '{"name":"puppeteer-core","version":"%s"}' "$pinned" > node_modules/puppeteer-core/package.json
+fi
+`);
+  }
 
   for (const name of agents) await script(path.join(tools, name), "#!/bin/sh\nexit 0\n");
   await script(path.join(tools, "mdfind"), `#!/bin/sh\necho "mdfind $*" >> "${log}"\n`
@@ -171,8 +189,8 @@ if [ -n "$out" ]; then cat "${path.join(dir, "served-installer.sh")}" > "$out"; 
     clean: () => fs.rm(dir, { recursive: true, force: true }),
     has: file => fs.access(file).then(() => true, () => false),
     // no terminal: stdin and stdout are pipes
-    async piped() {
-      const done = await exec("bash", [path.join(repo, "install.sh")], { cwd: repo, env }).then(
+    async piped(args = []) {
+      const done = await exec("bash", [path.join(repo, "install.sh"), ...args], { cwd: repo, env }).then(
         ({ stdout, stderr }) => ({ code: 0, text: stdout + stderr }),
         error => ({ code: error.code, text: error.stdout + error.stderr }));
       return done;
