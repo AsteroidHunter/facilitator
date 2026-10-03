@@ -1,7 +1,7 @@
 // The row of buttons along the foot of the phone page: four glass buttons in
 // the band iOS gives a paired keyboard's bar, from left to right the card
 // list's ticket (a circle), the open project's capsule (the long oval), a new
-// card's plus (a short oval) and the settings' gear (a circle). Held here two
+// card's plus (a short oval) and the settings' squid (a circle). Held here two
 // ways: m.html read as text, and the page itself at an iPhone 13 mini's size
 // (375 by 812, device scale 3, touch) on an invented board of five projects,
 // driven by taps and held presses. Nothing reads the real board, and port 8877
@@ -14,6 +14,7 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
 const { boardState, startBoard } = require("./phone-board-fixture.cjs");
+const { readMark } = require("./squid-mark.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const PHONE = fs.readFileSync(path.join(ROOT, "m.html"), "utf8");
@@ -141,6 +142,37 @@ test("the row's shape: two circles at the ends, the long capsule, the short plus
     assert.ok(plus.width > 48 * rest && plus.width < capsule.width, "the plus is not an oval shorter than the capsule");
     assert.ok(capsule.width / capsule.height > 2.5, "the capsule is not the long oval");
     assert.ok(plus.width / plus.height < 2, "the plus is as long as the capsule");
+    assert.deepEqual(problems, []);
+  } finally { await page.close(); }
+});
+
+test("the settings circle holds the squid in its own colours, as tall as its 22px mark was", async () => {
+  const { page, problems } = await openPhone();
+  try {
+    const button = await page.$eval("#setbtn", el => ({
+      tag: el.tagName, type: el.getAttribute("type"), title: el.title, label: el.getAttribute("aria-label"),
+      classes: el.className, marks: el.querySelectorAll("svg").length, hidden: el.querySelector("svg").getAttribute("aria-hidden"),
+      images: el.querySelectorAll("img").length,
+    }));
+    assert.deepEqual(button, { tag: "BUTTON", type: "button", title: "Settings", label: "Settings",
+      classes: "dockbtn round qn-glass", marks: 1, hidden: "true", images: 0 });
+    const mark = await page.evaluate(readMark, "#setbtn");
+    assert.deepEqual([mark.w, mark.h], [22, 22], "the mark is not the 22px box the row's marks stand in");
+    assert.deepEqual(mark.fills, ["#f89d0f", "#0c0b0a"], "the squid is not its orange with black eyes");
+    assert.equal(mark.stroked, false, "the mark is still a line drawing");
+    assert.equal(mark.other, 0, "the squid has a colour besides its orange and its black");
+    assert.equal(mark.black, 2, "the squid does not have two square eyes");
+    assert.ok(mark.orange > 120, "the squid has no body");
+    assert.equal(mark.h - mark.top - mark.bottom, 20, "the squid is not as tall as the gear it replaced");
+    assert.equal(mark.left, mark.right, "the squid is not centred in its box");
+    // drawn at the row's rest size, and still inside its circle
+    const fit = await page.evaluate(() => {
+      const b = document.getElementById("setbtn").getBoundingClientRect(), s = document.querySelector("#setbtn svg").getBoundingClientRect();
+      return { inside: s.left > b.left && s.right < b.right && s.top > b.top && s.bottom < b.bottom,
+        dx: (s.left + s.right) / 2 - (b.left + b.right) / 2, dy: (s.top + s.bottom) / 2 - (b.top + b.bottom) / 2 };
+    });
+    assert.equal(fit.inside, true, "the mark is not inside its circle");
+    assert.ok(Math.abs(fit.dx) < 0.5 && Math.abs(fit.dy) < 0.5, `the mark is not centred in its circle (${fit.dx}, ${fit.dy})`);
     assert.deepEqual(problems, []);
   } finally { await page.close(); }
 });
