@@ -60,16 +60,12 @@ const CARD_SHORTCUT_DEFINITIONS = [
       (e.key === "ArrowUp" || e.key === "ArrowDown")
       ? (e.key === "ArrowUp" ? -1 : 1) : null,
   },
-  // command+shift+comma and +period match the physical keys: e.key reads "<" and ">" on a US layout but "," and "." on iOS
+  // control+shift+comma matches the physical key: e.key reads "<" on a US layout but "," on iOS.
+  // the settings drawer has no key
   {
     action: "cardsDrawer", mini: false,
-    match: e => e.metaKey && e.shiftKey && !e.ctrlKey && !e.altKey &&
+    match: e => e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey &&
       !e.repeat && !e.isComposing && e.code === "Comma" ? true : null,
-  },
-  {
-    action: "settingsDrawer", mini: false,
-    match: e => e.metaKey && e.shiftKey && !e.ctrlKey && !e.altKey &&
-      !e.repeat && !e.isComposing && e.code === "Period" ? true : null,
   },
   {
     action: "history", mini: false,
