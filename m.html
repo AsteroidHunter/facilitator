@@ -1661,7 +1661,8 @@ function makeBox(b){
 
   const head = h("div", "head");
   const titleEl = h("span", "title", omniCardTitle(b.title));   // Omni Card #N on the card itself
-  titleEl.addEventListener("click", () => { if (!titleEl.isContentEditable) editTitle(b.id, { fromClick: true }); });
+  // opened before the press picks what to focus, so the same tap focuses the name with the caret under the finger
+  titleEl.addEventListener("mousedown", () => { if (!titleEl.isContentEditable) editTitle(b.id, { fromClick: true }); });
   head.appendChild(titleEl);
   box.appendChild(head);
 

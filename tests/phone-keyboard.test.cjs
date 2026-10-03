@@ -1103,6 +1103,53 @@ test("Tab out of the card's name takes the focus into the typing row without scr
   }
 });
 
+test("a tap on a card's name leaves it focused with the caret in it, so the Tab out of it is always the page's own", async () => {
+  const id = await create("Name tapped on the phone");
+  const { page, problems } = await openPhone(`/m?box=${id}`, { fake: true });
+  try {
+    await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
+    await page.evaluate(() => {
+      window.__focusCalls = [];
+      const focus = HTMLElement.prototype.focus;
+      HTMLElement.prototype.focus = function (options) {
+        window.__focusCalls.push({ ta: this === els[selectedId].ta, preventScroll: !!(options && options.preventScroll) });
+        return focus.apply(this, arguments);
+      };
+    });
+    const where = await page.evaluate(() => {
+      const r = els[selectedId].titleEl.getBoundingClientRect();
+      return { x: r.left + 6, y: r.top + r.height / 2 };
+    });
+    // the second round starts with the typing row focused, the third with nothing focused, as the toolbar's checkmark leaves it
+    for (const round of [1, 2, 3]) {
+      if (round === 3) await page.evaluate(() => document.activeElement.blur());
+      assert.equal(await page.evaluate(() => els[selectedId].titleEl.isContentEditable), false, `round ${round}: the name was open before the tap`);
+      await page.mouse.click(where.x, where.y);
+      await settle(80);
+      const tapped = await page.evaluate(() => {
+        const t = els[selectedId].titleEl, s = getSelection();
+        return { open: t.isContentEditable, focused: document.activeElement === t, caretInside: s.rangeCount > 0 && s.isCollapsed && t.contains(s.anchorNode) };
+      });
+      assert.deepEqual(tapped, { open: true, focused: true, caretInside: true }, `round ${round}: the tap did not leave the name focused with a caret`);
+      await page.evaluate(() => { window.__focusCalls = []; });
+      await page.keyboard.press("Tab");
+      await settle(150);
+      const after = await page.evaluate(() => ({
+        calls: window.__focusCalls,
+        inRow: document.activeElement === els[selectedId].ta,
+        open: els[selectedId].titleEl.isContentEditable,
+      }));
+      assert.deepEqual(after.calls, [{ ta: true, preventScroll: true }], `round ${round}: the Tab did not go through the page's own focus`);
+      assert.equal(after.inRow, true, `round ${round}: the focus did not land in the typing row`);
+      assert.equal(after.open, false, `round ${round}: the name was left open`);
+    }
+    await page.evaluate(() => document.activeElement.blur());
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
 test("the phone page's own words carry no em dash", async () => {
   const source = await readFile(path.join(ROOT, "m.html"), "utf8");
   assert.doesNotMatch(source, /—/, "an em dash in the phone page");
