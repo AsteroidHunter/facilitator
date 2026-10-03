@@ -6903,6 +6903,7 @@ class SiteGuard:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
+        send = _unframeable(send)
         reason = _foreign_site(scope)
         if reason is None:
             await self.app(scope, receive, send)
@@ -6911,6 +6912,24 @@ class SiteGuard:
         await Response(json.dumps({"error": "request from another site refused"}).encode(),
                        status_code=403, media_type="application/json",
                        headers={"Cache-Control": "no-store", "Connection": "close"})(scope, receive, send)
+
+
+def _unframeable(send):
+    """Every answer, the bridge gate's and the phone's port's included, says
+    it may not be shown in a frame. A policy an answer already carries (an
+    upload's sandbox, the gate's own) is left exactly as it is, and the older
+    header covers it."""
+    async def framed(message) -> None:
+        if message["type"] == "http.response.start":
+            held = list(message.get("headers") or ())
+            named = {name.lower() for name, _ in held}
+            if b"x-frame-options" not in named:
+                held.append((b"x-frame-options", b"DENY"))
+            if b"content-security-policy" not in named:
+                held.append((b"content-security-policy", b"frame-ancestors 'none'"))
+            message = {**message, "headers": held}
+        await send(message)
+    return framed
 
 
 # -- the wire ---------------------------------------------------------------------------
