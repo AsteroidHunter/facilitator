@@ -918,10 +918,14 @@ test("every surface asks the arrival rule for the card it is using, after the co
   const mini = between(HTML.desktop, "function renderMiniCards(state){", "\n// ---- the carousel");
   assert.match(mini, /\n    readOnArrival\(el, b, b\.id === miniId && ComposeFormat\.focused\(el\.ta\)\);\n/);
   assert.ok(apply.indexOf("renderMiniCards(state);") > apply.indexOf("readOnArrival("));
-  // the phone: the selected card with no drawer over it, after its own seenSync
+  // the phone: the selected card with no drawer over it, drawn by drawCard (which
+  // apply runs over each built card) after apply's own seenSync
+  const phoneDraw = between(HTML.phone, "function drawCard(el, b, state){", "\n// a card taken down");
+  assert.match(phoneDraw, /\n  readOnArrival\(el, b, b\.id === selectedId && !browsing && !drawerOpen\(\)\);\n/);
+  assert.equal((HTML.phone.match(/readOnArrival\(el, b, /g) || []).length, 1, "the phone asks the rule in one place");
   const phone = between(HTML.phone, "function apply(state){", "\n  applySelection(state);");
-  assert.match(phone, /\n    readOnArrival\(el, b, b\.id === selectedId && !browsing && !drawerOpen\(\)\);\n/);
-  assert.ok(phone.indexOf("seenSync(state);") < phone.indexOf("readOnArrival("));
+  assert.ok(phone.indexOf("seenSync(state);") < phone.indexOf("drawCard(els[b.id], b, state);"),
+    "the phone takes the counts in before it draws a card");
 });
 
 test("Enter is recognized only bare, and only the two full pages answer it", () => {

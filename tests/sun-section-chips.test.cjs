@@ -182,8 +182,8 @@ async function phone() {
   const icon = between(html, "const MOON_ICON = ", "</svg>';");
   const close = between(html, "async function closeCard(id){", "  poll();\n}");
   const build = between(html, '  const arc = h("button", "arcbtn");', "  topbar.append(histctl, sun, arc, x);");
-  const paint = between(html, '    const cs = cardState(b);\n    el.box.classList.toggle("done", cs === "done");',
-    "    paintSectionChips(el, b);");
+  const paint = between(html, '  const cs = cardState(b);\n  el.box.classList.toggle("done", cs === "done");',
+    "  paintSectionChips(el, b);");
   const env = await context();
   vm.runInContext(icon + "\n" + close, env.ctx);
   const makeChips = vm.runInContext(`(function(b, topbar, histctl){\n${build}\nreturn { sun, arc, x };\n})`, env.ctx);
