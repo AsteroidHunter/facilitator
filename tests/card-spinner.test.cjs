@@ -46,6 +46,7 @@ async function clearLane(owner = "facilitator") {
   if (held) await api(`/reply?box=${held}`, "Released.");
   const state = await (await fetch(origin + "/state")).json();
   for (const box of state.boxes) {
+    if (box.owner === owner && box.bg) await api(`/working?box=${box.id}&v=0`);
     if (box.owner === owner && !box.done && !box.parked) await api(`/park?box=${box.id}&v=1`);
   }
 }
@@ -229,7 +230,19 @@ function unfreeze() {
   syncSpinner();
 }
 
-async function openCard(kind, id) {
+function countIntervals() {
+  const live = new Set();
+  window.__tickers = live;
+  const set = window.setInterval.bind(window), clear = window.clearInterval.bind(window);
+  window.setInterval = (fn, ms, ...rest) => {
+    const timer = set(fn, ms, ...rest);
+    if (ms === 180) live.add(timer);
+    return timer;
+  };
+  window.clearInterval = timer => { live.delete(timer); return clear(timer); };
+}
+
+async function openCard(kind, id, init) {
   const page = await browser.newPage();
   const problems = [];
   page.on("console", message => {
@@ -241,6 +254,7 @@ async function openCard(kind, id) {
   await page.setViewport(kind === "phone" ? PHONE : DESKTOP);
   await page.evaluateOnNewDocument(() => { try { localStorage.clear(); } catch (err) {} });
   await page.evaluateOnNewDocument(installSampler);
+  if (init) await page.evaluateOnNewDocument(init);
   await page.goto(origin + (kind === "phone" ? `/m?box=${id}` : "/"), { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => lastState !== null, { timeout: 5000 });
   if (kind === "desktop") await page.evaluate(cardId => select(cardId), id);
@@ -631,6 +645,152 @@ for (const kind of ["desktop", "phone"]) {
     steps.slice(1).forEach((f, i) => assert.equal(FRAMES.indexOf(f), (FRAMES.indexOf(steps[i]) + 1) % 4, `the frames skipped: ${steps.join("")}`));
     for (const [frame, age] of reads) if (age !== null) assert.equal(age, frame, "the card and its ticket show different frames");
     if (kind === "desktop") assert.ok(reads.some(r => r[1] !== null), "the green ticket's row was never read");
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+}
+
+// the frame each of two cards and their rows show, read together in one instant
+function samplePhases(a, b, count, gap) {
+  return new Promise(resolve => {
+    const out = [];
+    const row = id => {
+      const age = document.querySelector(`#tiklist .trow.working[data-id="${id}"] .tage`);
+      return age ? age.textContent : null;
+    };
+    const timer = setInterval(() => {
+      try {
+        out.push({
+          tick: spinTick,
+          startA: spinStarts.get(a), startB: spinStarts.get(b),
+          cardA: els[a].cardSpin.dataset.f, cardB: els[b].cardSpin.dataset.f,
+          rowA: row(a), rowB: row(b),
+        });
+      } catch (err) { clearInterval(timer); resolve([{ error: String(err) }]); return; }
+      if (out.length >= count) { clearInterval(timer); resolve(out); }
+    }, gap);
+  });
+}
+
+function startsOver(id, ms) {
+  return new Promise(resolve => {
+    const out = [];
+    const began = performance.now();
+    const timer = setInterval(() => {
+      out.push(spinStarts.get(id));
+      if (performance.now() - began >= ms) { clearInterval(timer); resolve(out); }
+    }, 50);
+  });
+}
+
+function sampleTimers(count, gap) {
+  return new Promise(resolve => {
+    const out = [];
+    const timer = setInterval(() => {
+      out.push(window.__tickers.size);
+      if (out.length >= count) { clearInterval(timer); resolve(out); }
+    }, gap);
+  });
+}
+
+const working = (id, on) => api(`/working?box=${id}&v=${on ? 1 : 0}`);
+
+async function workingCard(title) {
+  const id = await create(title);
+  assert.equal((await api(`/reply?box=${id}`, "Earlier answer.")).status, 200);
+  return id;
+}
+
+for (const kind of ["desktop", "phone"]) {
+  test(`${kind}: cards that started working at different times turn out of step, and a ticket turns with its own card`, async () => {
+    await clearLane();
+    const a = await workingCard(`Phase first on the ${kind}`);
+    const b = await workingCard(`Phase second on the ${kind}`);
+    assert.equal((await working(a, true)).status, 200);
+    const { page, problems } = await openCard(kind, a);
+    if (kind === "phone") await page.evaluate(() => openDrawer());
+    await seatIs(page, a, true);
+    await settle(400);
+    const firstStart = await page.evaluate(id => spinStarts.get(id), a);
+    assert.equal(typeof firstStart, "number", "the first card has no start");
+
+    let apart = false;
+    for (let attempt = 0; attempt < 10 && !apart; attempt++) {
+      assert.equal((await working(b, true)).status, 200);
+      await seatIs(page, b, true);
+      await settle(300);
+      const samples = await page.evaluate(samplePhases, a, b, 30, 40);
+      assert.equal(samples[0].error, undefined, `reading the phases failed: ${samples[0].error}`);
+      const gap = ((samples[0].startB - samples[0].startA) % 4 + 4) % 4;
+      for (const s of samples) {
+        assert.equal(s.startA, firstStart, "the first card's start moved while the second began");
+        assert.equal(s.cardA, FRAMES[(s.tick - s.startA) % 4], "a card is not on the frame counted from its own start");
+        assert.equal(s.cardB, FRAMES[(s.tick - s.startB) % 4], "a card is not on the frame counted from its own start");
+        if (s.rowA !== null) assert.equal(s.rowA, s.cardA, "a ticket and its card show different frames");
+        if (s.rowB !== null) assert.equal(s.rowB, s.cardB, "a ticket and its card show different frames");
+        if (kind === "desktop") assert.ok(s.rowA !== null && s.rowB !== null, "a working ticket was not in the list");
+        if (gap === 0) assert.equal(s.cardA, s.cardB, "cards a whole turn apart are not on the same frame");
+        else assert.notEqual(s.cardA, s.cardB, "cards that started at different times show the same frame");
+      }
+      if (gap !== 0) apart = true;
+      else {
+        assert.equal((await working(b, false)).status, 200);
+        await page.waitForFunction(id => !spinStarts.has(id), { timeout: 5000 }, b);
+      }
+    }
+    assert.ok(apart, "the second card never started a quarter turn or more away from the first");
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  test(`${kind}: a card keeps its phase through polls and re-renders and forgets it when it stops working`, async () => {
+    await clearLane();
+    const a = await workingCard(`Phase kept on the ${kind}`);
+    assert.equal((await working(a, true)).status, 200);
+    const { page, problems } = await openCard(kind, a);
+    await seatIs(page, a, true);
+    await settle(300);
+    const start = await page.evaluate(id => spinStarts.get(id), a);
+    assert.equal(typeof start, "number");
+
+    // a new card on the board and several polls redraw the cards and the list
+    const other = await create(`Phase bystander on the ${kind}`);
+    assert.equal((await api(`/reply?box=${other}`, "Answer.")).status, 200);
+    await page.waitForFunction(id => lastState.boxes.some(b => b.id === id), { timeout: 5000 }, other);
+    const reads = await page.evaluate(startsOver, a, 3000);
+    assert.ok(reads.length > 0 && reads.every(s => s === start), `the start moved across polls: ${[...new Set(reads)]}`);
+    const after = await page.evaluate(id => ({ start: spinStarts.get(id), tick: spinTick, frame: els[id].cardSpin.dataset.f }), a);
+    assert.equal(after.start, start);
+    assert.equal(after.frame, FRAMES[(after.tick - start) % 4]);
+
+    assert.equal((await working(a, false)).status, 200);
+    await page.waitForFunction(id => !spinStarts.has(id), { timeout: 5000 }, a);
+    await seatIs(page, a, false);
+    await settle(700);
+    assert.equal((await working(a, true)).status, 200);
+    await seatIs(page, a, true);
+    await settle(300);
+    const again = await page.evaluate(id => spinStarts.get(id), a);
+    assert.ok(again > start, `a card that began working again kept its old start (${start}, ${again})`);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  test(`${kind}: one 180 ms timer turns every spinner, and none runs when nothing works`, async () => {
+    await clearLane();
+    const a = await workingCard(`Timer first on the ${kind}`);
+    const b = await workingCard(`Timer second on the ${kind}`);
+    const { page, problems } = await openCard(kind, a, countIntervals);
+    assert.equal(await page.evaluate(() => window.__tickers.size), 0, "a timer ran with nothing working");
+    assert.equal((await working(a, true)).status, 200);
+    await seatIs(page, a, true);
+    assert.equal((await working(b, true)).status, 200);
+    await seatIs(page, b, true);
+    const counts = await page.evaluate(sampleTimers, 30, 100);
+    assert.deepEqual([...new Set(counts)], [1], `timers alive while two cards worked: ${counts}`);
+    assert.equal((await working(a, false)).status, 200);
+    assert.equal((await working(b, false)).status, 200);
+    await page.waitForFunction(() => window.__tickers.size === 0, { timeout: 5000 });
     assert.deepEqual(problems, []);
     await page.close();
   });

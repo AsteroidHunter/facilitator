@@ -263,18 +263,18 @@ const SPIN = ["|", "/", "-", "\\"];
 const PAINT = {
   "the desktop board": pool => {
     const paint = new Function("Date", "queueState", "cardState", "h", "seenReplies", "shortAge",
-      "SPIN_FRAMES", "spinFrame", "curView", "selectedId", "selectedTask", "testReady", "appendOmniRowArt",
+      "spinGlyph", "curView", "selectedId", "selectedTask", "testReady", "appendOmniRowArt",
       `${functionSource(SURFACES["the desktop board"].html, "paintTicketPane", "renderCarousel")}; return paintTicketPane;`,
-    )(DateStub, queueState, cardState, h, {}, () => "5m", SPIN, 0, () => "todo", "none", null, testReady, appendOmniRowArt);
+    )(DateStub, queueState, cardState, h, {}, () => "5m", () => SPIN[0], () => "todo", "none", null, testReady, appendOmniRowArt);
     const pane = new FakeElement("div");
     paint(pane, pool, "todo", { agents: {} }, "lane");
     return pane.children;
   },
   "the phone": pool => {
     const paint = new Function("queueState", "cardState", "h", "seenReplies", "shortAge",
-      "SPIN_FRAMES", "spinFrame", "selectedId", "testReady", "appendOmniRowArt", "omniRowFace",
+      "spinGlyph", "selectedId", "testReady", "appendOmniRowArt", "omniRowFace",
       `${functionSource(SURFACES["the phone"].html, "paintPhonePane", "renderTickets")}; return paintPhonePane;`,
-    )(queueState, cardState, h, {}, () => "5m", SPIN, 0, "none", testReady, appendOmniRowArt, sandbox.omniRowFace);
+    )(queueState, cardState, h, {}, () => "5m", () => SPIN[0], "none", testReady, appendOmniRowArt, sandbox.omniRowFace);
     const pane = new FakeElement("div");
     paint(pane, pool, "todo", { agents: {} }, noop);
     return pane.children;

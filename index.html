@@ -9414,7 +9414,7 @@ function relAge(ts){
   return "replied " + Math.floor(sec / 86400) + "d ago";
 }
 
-// shortAge and the list's spinner (syncSpinner, SPIN_FRAMES, spinFrame) are
+// shortAge and the list's spinner (syncSpinner, SPIN_FRAMES, spinGlyph) are
 // shared with the phone page in card-logic.js
 // one section of the sheet: its own rows, its own scroll kept across a rebuild,
 // and the row-glide of survivors. drawn only when its own group's signature
@@ -9459,7 +9459,7 @@ function paintTicketPane(pane, pool, view, state, laneSig){
     const ttl = h("div", "ttl", b.title);
     inner.appendChild(ttl);
     const meta = h("div", "tmeta");
-    meta.appendChild(h("span", "tage", busy ? SPIN_FRAMES[spinFrame] : s === "done" ? "done" : shortAge(b.agentTs)));
+    meta.appendChild(h("span", "tage", busy ? spinGlyph(b.id) : s === "done" ? "done" : shortAge(b.agentTs)));
     // the tag is the lane's live truth, never a stored per-card value
     const ag = state.agents?.[b.owner];
     meta.appendChild(h("span", "teng", ag ? (ag.alive ? ag.name : "offline") : ""));

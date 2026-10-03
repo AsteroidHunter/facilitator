@@ -3169,33 +3169,69 @@ async function histStep(id, dir){   // +1 steps older, -1 steps back toward live
 // ---- the list's spinner ----------------------------------------------------------------
 // while a row works its age is noise; the slot carries a terminal spinner
 // instead. one interval serves every green row and only lives while one
-// exists; each rebuild stamps the current frame itself, so the ticker and the
-// poll-driven re-renders never fight over the text. ages return on the next
-// quiet poll.
+// exists. each card turns on its own phase: its frame is the number of ticks
+// since the page first drew it working, so cards that started at different
+// times are out of step, while a ticket and its own card, which share that
+// start, always show the same frame. the board carries no start time for a
+// working card, so the start is the tick on which the page first drew it
+// working; it is kept across renders and polls and forgotten once the card
+// stops working. rows are drawn with their frame already in place, so the
+// ticker and the poll-driven re-renders never fight over the text. ages
+// return on the next quiet poll.
 // the card's own spinner (cardSpinner below) turns on the same clock: the
 // interval also lives while a card shows one, since a phone draws no rows while
 // its drawer is shut.
 const SPIN_FRAMES = ["|","/","-","\\"];   // the classic terminal spinner, bolder than braille dots
-let spinFrame = 0, spinTimer = null;
+let spinTick = 0, spinTimer = null;
+const spinStarts = new Map();   // card id -> the tick it was first drawn working
+function spinGlyph(id){
+  if (!spinStarts.has(id)) spinStarts.set(id, spinTick);
+  return SPIN_FRAMES[(spinTick - spinStarts.get(id)) % SPIN_FRAMES.length];
+}
+function spinCardId(el){
+  const box = el.closest("article.box");
+  return box && box.id ? box.id.slice(4) : "";
+}
+// forget every card that no longer works, then (when asked) stamp the frame of
+// each one that does. a card the board still reports green counts as working
+// even while no row or card on the page shows it
+function spinRefresh(stamp){
+  const rows = document.querySelectorAll("#tiklist .trow.working");
+  const cards = document.querySelectorAll(".cardspin.on");
+  const live = new Set();
+  for (const r of rows) live.add(r.dataset.id);
+  for (const c of cards) live.add(spinCardId(c));
+  if (typeof lastState !== "undefined" && lastState && lastState.boxes){
+    for (const b of lastState.boxes) if (ticketGreen(b)) live.add(b.id);
+  }
+  for (const id of [...spinStarts.keys()]) if (!live.has(id)) spinStarts.delete(id);
+  if (!stamp) return;
+  for (const r of rows){
+    const age = r.querySelector(".tage");
+    if (age && r.dataset.id) age.textContent = spinGlyph(r.dataset.id);
+  }
+  for (const c of cards){
+    const id = spinCardId(c);
+    if (id) c.dataset.f = spinGlyph(id);
+  }
+}
 function syncSpinner(){
   const has = document.querySelector("#tiklist .trow.working, .cardspin.on");
   if (has && spinTimer == null){
     spinTimer = setInterval(() => {
-      const ages = document.querySelectorAll("#tiklist .trow.working .tage");
-      const cards = document.querySelectorAll(".cardspin.on");
-      if (!ages.length && !cards.length){ clearInterval(spinTimer); spinTimer = null; return; }
-      spinFrame = (spinFrame + 1) % SPIN_FRAMES.length;
-      for (const a of ages) a.textContent = SPIN_FRAMES[spinFrame];
-      for (const c of cards) c.dataset.f = SPIN_FRAMES[spinFrame];
+      if (!document.querySelector("#tiklist .trow.working .tage, .cardspin.on")){ clearInterval(spinTimer); spinTimer = null; return; }
+      spinTick++;
+      spinRefresh(true);
     }, 180);
   } else if (!has && spinTimer != null){
     clearInterval(spinTimer); spinTimer = null;
   }
+  spinRefresh(false);
 }
 
 // ---- the card's own spinner ------------------------------------------------------------
 // the list's green ticket has a twin in the card's top bar, in the sun's place:
-// the same four frames on the same clock, drawn by the shared sheet
+// the same four frames on the same clock and from the same start, drawn by the shared sheet
 // (card-tokens.css, .cardspin) from the frame written in data-f. it is always
 // in the bar and only its strength changes, so it fades in, as the sun's mark
 // fades out, when the card turns green and out when the reply comes back, and
@@ -3210,12 +3246,15 @@ function makeCardSpinner(){
   spin.setAttribute("role", "img");
   spin.setAttribute("aria-label", "working");
   spin.setAttribute("aria-hidden", "true");
-  spin.dataset.f = SPIN_FRAMES[spinFrame];
+  spin.dataset.f = SPIN_FRAMES[0];
   return spin;
 }
 function setCardSpinner(spin, on){
   if (!spin || spin.classList.contains("on") === on) return;
-  if (on) spin.dataset.f = SPIN_FRAMES[spinFrame];
+  if (on){
+    const id = spinCardId(spin);
+    spin.dataset.f = id ? spinGlyph(id) : SPIN_FRAMES[0];
+  }
   spin.classList.toggle("on", on);
   spin.setAttribute("aria-hidden", on ? "false" : "true");
 }
