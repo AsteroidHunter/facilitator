@@ -5579,7 +5579,6 @@ const phoneShortcutActions = {
     saveDiagnostic("shortcut");
   },
   cardsDrawer(e){ toggleMenuKey(e, drawer); },
-  settingsDrawer(e){ toggleMenuKey(e, settings); },
   navigate(e, shortcut){
     e.preventDefault();
     stepCard(shortcut.value, phoneShortcutTyping(e.target));
@@ -5675,7 +5674,14 @@ function drawerRows(){
 const menuShortcutActions = {
   diagnostic: phoneShortcutActions.diagnostic,
   cardsDrawer: phoneShortcutActions.cardsDrawer,
-  settingsDrawer: phoneShortcutActions.settingsDrawer,
+  // control+shift+left and right step the card with the list out; the list's
+  // highlight follows, and the caret stays out of the card behind it
+  navigate(e, shortcut){
+    if (!drawerOpen()) return;
+    e.preventDefault();
+    stepCard(shortcut.value, false);
+    drawerRows().find(r => r.dataset.id === selectedId)?.scrollIntoView({ block: "nearest" });
+  },
   drawerWalk(e, shortcut){
     if (!drawerOpen() || phoneShortcutTyping(e.target)) return;
     e.preventDefault();

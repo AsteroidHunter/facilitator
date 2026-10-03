@@ -2158,3 +2158,58 @@ test("CodeMirror keeps its own undo and redo, and the board stays where it is", 
     await page.close();
   }
 });
+
+test("control shift comma is the phone's card list key and the board's nothing; no page has a settings key", async () => {
+  await clearLane();
+  const id = await create("Drawer key card");
+  await api(`/reply?box=${id}`, "A reply to answer.");
+
+  const desktop = await openDesktop();
+  try {
+    await selectDesktop(desktop.page, id);
+    await desktop.page.focus(SEL);
+    await desktop.page.keyboard.type("draft");
+    await watchKeys(desktop.page, [",", "<", ".", ">"]);
+    for (const [key, mods] of [[",", ["Control", "Shift"]], [",", ["Meta", "Shift"]],
+                               [".", ["Control", "Shift"]], [".", ["Meta", "Shift"]]]) {
+      await chord(desktop.page, key, ...mods);
+    }
+    await settle(150);
+    const seen = await keysSeen(desktop.page);
+    assert.equal(seen.length, 4, "a drawer chord never reached the end of the board's own handling");
+    assert.deepEqual(seen.filter(entry => entry.prevented), [], "the board took a key it has no use for");
+    assert.equal(await desktop.page.$eval(SEL, field => field.value), "draft", "a drawer chord typed into the composer");
+    assert.equal(await shownId(desktop.page), id);
+    assert.deepEqual(desktop.problems, []);
+  } finally {
+    await desktop.page.close();
+  }
+
+  const phone = await openPhone("/m?box=" + id);
+  try {
+    await phone.page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
+    await settle(300);
+    const opened = () => phone.page.evaluate(() => ({
+      drawer: document.getElementById("drawer").classList.contains("open"),
+      settings: document.getElementById("settings").classList.contains("open"),
+    }));
+    for (const [key, mods] of [[",", ["Meta", "Shift"]], [".", ["Meta", "Shift"]], [".", ["Control", "Shift"]]]) {
+      await chord(phone.page, key, ...mods);
+      await settle(500);
+      assert.deepEqual(await opened(), { drawer: false, settings: false }, mods.join("+") + "+" + key + " opened a drawer");
+    }
+    await chord(phone.page, ",", "Control", "Shift");
+    await settle(700);
+    assert.deepEqual(await opened(), { drawer: true, settings: false }, "control shift comma did not open the card list");
+    await chord(phone.page, ".", "Control", "Shift");
+    await chord(phone.page, ".", "Meta", "Shift");
+    await settle(500);
+    assert.deepEqual(await opened(), { drawer: true, settings: false }, "a period chord swapped the list for the settings");
+    await chord(phone.page, ",", "Control", "Shift");
+    await settle(700);
+    assert.deepEqual(await opened(), { drawer: false, settings: false }, "control shift comma did not shut the card list");
+    assert.deepEqual(phone.problems, []);
+  } finally {
+    await phone.page.close();
+  }
+});

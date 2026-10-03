@@ -1,9 +1,12 @@
-// The phone page's two drawers answer the keyboard: command+shift+comma shuts and
-// opens the card list, command+shift+period the settings, from the card or from
-// inside the composer; with the card list out, up and down walk its tickets one
-// at a time (browsing each card, as left and right do), Enter picks the card the
+// The phone page's card list answers the keyboard: control+shift+comma shuts and
+// opens it, from the card or from inside the composer or a title, and the keys
+// never type there. The settings have no key: command+shift+comma and +period
+// open nothing, and neither does any other chord on the period. With the card
+// list out, up and down walk its tickets one at a time (browsing each card),
+// control+shift+left and right step to the previous or next card with the list's
+// lift following, plain left and right do nothing, Enter picks the card the
 // lifted ticket is on and shuts the drawer, and Escape shuts it and leaves the
-// card browsed. while a drawer is out the old bindings do not reach the card.
+// card browsed. while a drawer is out the other bindings do not reach the card.
 //
 // Headless, a real keyboard through puppeteer. The board is invented and lives in
 // a temp directory; nothing here touches the real board or port 8877.
@@ -58,13 +61,13 @@ async function card(title, reply) {
   return made.body.id;
 }
 
-async function openPhone(id) {
+async function openPhone(id, { formatted = false } = {}) {
   const page = await browser.newPage();
   const problems = [];
   await page.setViewport(PHONE);
-  await page.evaluateOnNewDocument(() => {
-    try { localStorage.clear(); localStorage.setItem("composeformat", "0"); } catch (error) {}
-  });
+  await page.evaluateOnNewDocument(on => {
+    try { localStorage.clear(); localStorage.setItem("composeformat", on ? "1" : "0"); } catch (error) {}
+  }, formatted);
   page.on("console", message => {
     if (message.type() !== "error") return;
     if (/fonts\.g(oogleapis|static)\.com/.test(message.text())) return;
@@ -74,6 +77,7 @@ async function openPhone(id) {
   await page.goto(origin + "/m?box=" + id, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => lastState !== null, { timeout: 8000 });
   await page.waitForSelector(`#box-${id}.sel`, { timeout: 8000 });
+  if (formatted) await page.waitForSelector("article.box.sel .cffield", { timeout: 30000 });
   await settle(400);
   return { page, problems };
 }
@@ -99,11 +103,17 @@ async function press(page, ...keys) {
   }
 }
 
-async function chord(page, code, modifiers = ["Meta", "Shift"], wait = 700) {
+async function chord(page, code, modifiers = ["Control", "Shift"], wait = 700) {
   for (const m of modifiers) await page.keyboard.down(m);
   await page.keyboard.press(code);
   for (const m of [...modifiers].reverse()) await page.keyboard.up(m);
   await settle(wait);
+}
+
+// the settings have no key; the gear at the end of the row brings them out
+async function openSettings(page) {
+  await page.evaluate(() => document.getElementById("setbtn").click());
+  await settle(700);
 }
 
 async function shot(page, name) {
@@ -180,7 +190,7 @@ after(async () => {
 
 // ---- the two keys ------------------------------------------------------------------
 
-test("command+shift+comma opens and shuts the card list, from the card and from the composer", async () => {
+test("control+shift+comma opens and shuts the card list, from the card and from the composer", async () => {
   const { page, problems } = await openPhone(ids.doing[5]);
   try {
     let s = await read(page);
@@ -214,39 +224,111 @@ test("command+shift+comma opens and shuts the card list, from the card and from 
   } finally { await page.close(); }
 });
 
-test("command+shift+period opens and shuts the settings, from the card and from the composer", async () => {
-  const { page, problems } = await openPhone(ids.doing[5]);
+test("control+shift+comma opens the card list from the formatted editor and types nothing into it", async () => {
+  const { page, problems } = await openPhone(ids.doing[15], { formatted: true });
   try {
-    await chord(page, "Period");
-    let s = await read(page);
-    assert.equal(s.settings, true, "the key did not open the settings");
-    assert.equal(s.drawer, false);
-    await shot(page, "settings-open-from-card");
-    await chord(page, "Period");
-    s = await read(page);
-    assert.equal(s.settings, false, "the key did not shut the settings");
-    assert.equal(s.menuOut, false);
-
     await page.evaluate(() => els[selectedId].ta.focus({ preventScroll: true }));
-    await page.keyboard.type("words");
-    await chord(page, "Period");
-    s = await read(page);
-    assert.equal(s.settings, true, "the key did nothing from inside the composer");
-    assert.notEqual(s.focus, "TEXTAREA");
-    assert.equal(await page.evaluate(() => els[selectedId].ta.value), "words");
-    await chord(page, "Period");
-    assert.equal((await read(page)).settings, false);
+    await page.keyboard.type("a *word*");
+    await settle(120);
+    await chord(page, "Comma");
+    const s = await read(page);
+    assert.equal(s.drawer, true, "the key did nothing from inside the editor");
+    assert.equal(await page.evaluate(() => els[selectedId].ta.value), "a *word*", "the key typed into the editor");
+    assert.equal(await page.evaluate(() => document.querySelector("article.box.sel .cm-content").innerText), "a word");
+    await chord(page, "Comma");
+    assert.equal((await read(page)).drawer, false);
     assert.deepEqual(problems, []);
   } finally { await page.close(); }
 });
 
-test("one drawer swaps for the other, and never both are out", async () => {
+test("the card list and step keys type nothing into a title being named, which keeps every key to itself", async () => {
+  const { page, problems } = await openPhone(ids.doing[10]);
+  try {
+    await page.evaluate(id => editTitle(id), ids.doing[10]);
+    await page.keyboard.type("A new name");
+    await settle(120);
+    assert.equal(await page.evaluate(() => document.activeElement === els[selectedId].titleEl), true,
+      "the title never took the caret");
+    for (const [code, modifiers] of [["Comma", ["Control", "Shift"]], ["Comma", ["Meta", "Shift"]],
+                                     ["Period", ["Meta", "Shift"]], ["Period", ["Control", "Shift"]],
+                                     ["ArrowRight", ["Control", "Shift"]], ["ArrowLeft", ["Control", "Shift"]]]) {
+      await chord(page, code, modifiers, 200);
+      const s = await read(page);
+      assert.deepEqual([s.drawer, s.settings, s.menuOut], [false, false, false], code + " opened a drawer from the title");
+      assert.equal(s.selected, ids.doing[10], code + " left the card being named");
+      assert.equal(await page.evaluate(() => els[selectedId].titleEl.textContent), "A new name",
+        modifiers.join("+") + "+" + code + " typed into the title");
+    }
+    assert.deepEqual(problems, []);
+  } finally { await page.close(); }
+});
+
+test("command+shift+comma no longer opens the card list, and does not shut it either", async () => {
   const { page } = await openPhone(ids.doing[5]);
   try {
-    await chord(page, "Comma");
-    await chord(page, "Period");
+    await chord(page, "Comma", ["Meta", "Shift"]);
     let s = await read(page);
-    assert.deepEqual([s.drawer, s.settings, s.menuOut], [false, true, true], "settings did not take the place of the list");
+    assert.deepEqual([s.drawer, s.settings, s.menuOut], [false, false, false], "the old key opened a drawer");
+    await page.evaluate(() => els[selectedId].ta.focus({ preventScroll: true }));
+    await chord(page, "Comma", ["Meta", "Shift"]);
+    s = await read(page);
+    assert.deepEqual([s.drawer, s.settings, s.menuOut], [false, false, false], "the old key opened a drawer from the composer");
+    await chord(page, "Comma");
+    assert.equal((await read(page)).drawer, true);
+    await chord(page, "Comma", ["Meta", "Shift"]);
+    assert.equal((await read(page)).drawer, true, "the old key shut the list");
+    await chord(page, "Comma");
+    assert.equal((await read(page)).drawer, false);
+  } finally { await page.close(); }
+});
+
+test("no key opens the settings: the period under any chord, and the old and new comma keys", async () => {
+  const { page } = await openPhone(ids.doing[5]);
+  try {
+    const CHORDS = [
+      ["Meta", "Shift"], ["Control", "Shift"], ["Meta"], ["Control"], ["Alt", "Shift"], ["Meta", "Control", "Shift"], ["Shift"], [],
+    ];
+    const none = async (why) => {
+      const s = await read(page);
+      assert.deepEqual([s.settings, s.menuOut], [false, false], why);
+    };
+    for (const modifiers of CHORDS) {
+      await chord(page, "Period", modifiers, 300);
+      await none("Period under " + (modifiers.join("+") || "no modifier") + " opened the settings");
+    }
+    for (const x of [{ metaKey: true }, { ctrlKey: true }, { metaKey: true, ctrlKey: true }, {}]) {
+      for (const key of [">", ".", "Dead"]) {
+        const taken = await page.evaluate((k, extra) => {
+          const e = new KeyboardEvent("keydown", { code: "Period", key: k, shiftKey: true, bubbles: true, cancelable: true, ...extra });
+          window.dispatchEvent(e);
+          return e.defaultPrevented;
+        }, key, x);
+        assert.equal(taken, false, `Period reading ${key} with ${JSON.stringify(x)} was taken by the page`);
+        await none("Period reading " + key + " opened the settings");
+      }
+    }
+    // from inside the composer, and with the card list out
+    await page.evaluate(() => els[selectedId].ta.focus({ preventScroll: true }));
+    await chord(page, "Period", ["Meta", "Shift"], 300);
+    await chord(page, "Period", ["Control", "Shift"], 300);
+    await none("Period opened the settings from the composer");
+    await chord(page, "Comma");
+    assert.equal((await read(page)).drawer, true);
+    await chord(page, "Period", ["Meta", "Shift"], 300);
+    await chord(page, "Period", ["Control", "Shift"], 300);
+    const s = await read(page);
+    assert.deepEqual([s.drawer, s.settings], [true, false], "Period swapped the list for the settings");
+    await chord(page, "Comma");
+    assert.deepEqual(await read(page).then(r => [r.drawer, r.settings, r.menuOut]), [false, false, false]);
+  } finally { await page.close(); }
+});
+
+test("the settings, opened from the gear, are swapped for the list by the key, and never both are out", async () => {
+  const { page } = await openPhone(ids.doing[5]);
+  try {
+    await openSettings(page);
+    let s = await read(page);
+    assert.deepEqual([s.drawer, s.settings, s.menuOut], [false, true, true], "the gear did not open the settings");
     assert.equal(Number(s.scale), 0.985, "the page is not drawn back for the one menu that is out");
     await chord(page, "Comma");
     s = await read(page);
@@ -257,11 +339,11 @@ test("one drawer swaps for the other, and never both are out", async () => {
   } finally { await page.close(); }
 });
 
-test("the keys match the physical comma and period, whatever the page is told the key is", async () => {
+test("the key matches the physical comma, whatever the page is told the key is", async () => {
   const { page } = await openPhone(ids.doing[5]);
   try {
     const send = (code, key, extra = {}) => page.evaluate((c, k, x) => {
-      const e = new KeyboardEvent("keydown", { code: c, key: k, metaKey: true, shiftKey: true, bubbles: true, cancelable: true, ...x });
+      const e = new KeyboardEvent("keydown", { code: c, key: k, ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true, ...x });
       window.dispatchEvent(e);
       return e.defaultPrevented;
     }, code, key, extra);
@@ -271,18 +353,12 @@ test("the keys match the physical comma and period, whatever the page is told th
       await send("Comma", key);
       assert.equal((await read(page)).drawer, false);
     }
-    for (const key of [">", ".", "Dead"]) {
-      assert.equal(await send("Period", key), true, `Period reading ${key} was not taken`);
-      assert.equal((await read(page)).settings, true);
-      await send("Period", key);
-      assert.equal((await read(page)).settings, false);
-    }
     // a held key does not flutter the drawer, and other modifiers are not the chord
     await send("Comma", "<", { repeat: true });
     assert.equal((await read(page)).drawer, false, "a repeat opened the list");
-    for (const x of [{ ctrlKey: true }, { altKey: true }, { metaKey: false }, { shiftKey: false }]) {
+    for (const x of [{ metaKey: true }, { altKey: true }, { ctrlKey: false }, { shiftKey: false },
+                     { ctrlKey: false, metaKey: true }]) {
       assert.equal(await send("Comma", ",", x), false, JSON.stringify(x) + " counted as the chord");
-      assert.equal(await send("Period", ".", x), false, JSON.stringify(x) + " counted as the chord");
     }
     const s = await read(page);
     assert.deepEqual([s.drawer, s.settings], [false, false]);
@@ -503,7 +579,8 @@ test("Escape shuts the settings too", async () => {
   const { page } = await openPhone(ids.doing[5]);
   try {
     const was = await read(page);
-    await chord(page, "Period");
+    await openSettings(page);
+    assert.equal((await read(page)).settings, true);
     await press(page, "Escape");
     const s = await read(page);
     assert.deepEqual([s.settings, s.drawer, s.menuOut], [false, false, false]);
@@ -548,14 +625,29 @@ test("the old bindings reach the card with no drawer out, and none of them does 
     for (const name of SPIED)
       assert.ok(reached.has(name), name + " was never reached with no drawer out, so this test proves nothing");
 
-    for (const key of ["Comma", "Period"]) {
-      await chord(page, key);
-      await calls(page);
-      for (const [code, modifiers] of OLD_KEYS) await chord(page, code, modifiers, 120);
-      assert.deepEqual(await calls(page), [], "a key reached the card behind the open " + key);
-      assert.equal((await read(page)).selected, ids.doing[5]);
-      await chord(page, key);
+    // the card list takes control+shift+left and right as its own; every other key stays off
+    const STEPS = ["ArrowLeft", "ArrowRight"];
+    const isStep = ([code, modifiers]) => STEPS.includes(code) && modifiers.length === 2;
+    await chord(page, "Comma");
+    await calls(page);
+    for (const key of OLD_KEYS.filter(k => !isStep(k))) await chord(page, key[0], key[1], 120);
+    assert.deepEqual(await calls(page), [], "a key reached the card behind the open card list");
+    assert.equal((await read(page)).selected, ids.doing[5]);
+    for (const code of STEPS) {
+      await chord(page, code, ["Control", "Shift"], 120);
+      assert.deepEqual(await calls(page), ["stepCard"], code + " with control and shift did not step once");
     }
+    await chord(page, "Comma");
+
+    // the settings have no key and no key reaches the card behind them
+    await openSettings(page);
+    await calls(page);
+    for (const [code, modifiers] of [...OLD_KEYS, ["ArrowLeft", ["Control", "Shift"]]])
+      await chord(page, code, modifiers, 120);
+    assert.deepEqual(await calls(page), [], "a key reached the card behind the open settings");
+    assert.equal((await read(page)).selected, ids.doing[5]);
+    await press(page, "Escape");
+    assert.equal((await read(page)).menuOut, false);
   } finally { await page.close(); }
 });
 
@@ -563,8 +655,9 @@ test("a drawer left open takes no typing for the card behind it", async () => {
   const { page } = await openPhone(ids.doing[5]);
   try {
     const stays = (panel) => page.evaluate(sel => !!document.activeElement.closest(sel), panel);
-    for (const [key, panel] of [["Comma", "#drawer"], ["Period", "#settings"]]) {
-      await chord(page, key);
+    for (const [key, panel] of [["Comma", "#drawer"], ["gear", "#settings"]]) {
+      if (key === "gear") await openSettings(page);
+      else await chord(page, key);
       await page.keyboard.type("abc");
       assert.equal(await page.evaluate(() => els[selectedId].ta.value), "", "words reached the composer under " + panel);
       for (let n = 0; n < 60; n++) {
@@ -579,7 +672,138 @@ test("a drawer left open takes no typing for the card behind it", async () => {
       }
       await page.keyboard.type("def");
       assert.equal(await page.evaluate(() => els[selectedId].ta.value), "", "words reached the composer under " + panel);
-      await chord(page, key);
+      if (key === "gear") await press(page, "Escape");
+      else await chord(page, key);
     }
+  } finally { await page.close(); }
+});
+
+// ---- stepping cards with the list out ---------------------------------------------------
+
+// what the page itself would step to from the card on screen, with nothing out
+const stepTarget = (page, dir) => page.evaluate(d => { const b = cardStepTarget(d); return b && b.id; }, dir);
+
+test("control+shift+left and right step the cards with the list out, and the lift follows", async () => {
+  const { page, problems } = await openPhone(ids.doing[5]);
+  try {
+    await chord(page, "Comma");
+    const list = await rows(page);
+    const first = await read(page);
+    assert.deepEqual(first.on, [ids.doing[5]]);
+
+    const inView = () => page.evaluate(() => {
+      const row = document.querySelector("#tiklist .trow.on");
+      const pane = row.closest(".tikpane");
+      const r = row.getBoundingClientRect(), p = pane.getBoundingClientRect();
+      return { top: r.top - p.top, bottom: p.bottom - r.bottom };
+    });
+    const walked = [ids.doing[5]];
+    for (let n = 0; n < 12; n++) {
+      const want = await stepTarget(page, 1);
+      assert.ok(want && want !== walked[walked.length - 1], "the fixture has no next card");
+      await chord(page, "ArrowRight", ["Control", "Shift"], 150);
+      const s = await read(page);
+      assert.equal(s.selected, want, "control+shift+right did not show the next card");
+      assert.deepEqual(s.on, list.includes(want) ? [want] : [], "the lift did not follow the card");
+      assert.equal(s.drawer, true, "a step shut the list");
+      assert.equal(s.browsing, true, "a step selected the card instead of browsing it");
+      assert.deepEqual(s.seen, first.seen, "a step marked a card read");
+      assert.notEqual(s.focus, "TEXTAREA", "a step put the caret in the card behind the list");
+      assert.equal(await page.evaluate(id => document.getElementById("box-" + id).classList.contains("sel"), want), true);
+      const v = await inView();
+      assert.ok(v.top >= -1 && v.bottom >= -1, "the lifted ticket is out of view: " + JSON.stringify(v));
+      walked.push(want);
+    }
+    for (let n = walked.length - 2; n >= 0; n--) {
+      await chord(page, "ArrowLeft", ["Control", "Shift"], 150);
+      const s = await read(page);
+      assert.equal(s.selected, walked[n], "control+shift+left did not show the previous card");
+      assert.deepEqual(s.on, [walked[n]]);
+      assert.equal(s.drawer, true);
+    }
+    assert.equal((await read(page)).selected, ids.doing[5]);
+    await shot(page, "control-shift-step");
+    assert.deepEqual(problems, []);
+  } finally { await page.close(); }
+});
+
+test("the same keys step the same cards with the list shut, and the caret goes with them", async () => {
+  const { page } = await openPhone(ids.doing[5]);
+  try {
+    const next = await stepTarget(page, 1);
+    await chord(page, "ArrowRight", ["Control", "Shift"], 300);
+    let s = await read(page);
+    assert.equal(s.selected, next, "control+shift+right did not step with the list shut");
+    assert.equal(s.drawer, false);
+    await chord(page, "ArrowLeft", ["Control", "Shift"], 300);
+    assert.equal((await read(page)).selected, ids.doing[5], "control+shift+left did not step back");
+
+    // from inside a composer the step brings the caret to the next card and leaves the words alone
+    await page.evaluate(() => els[selectedId].ta.focus({ preventScroll: true }));
+    await page.keyboard.type("kept words");
+    await chord(page, "ArrowRight", ["Control", "Shift"], 300);
+    s = await read(page);
+    assert.equal(s.selected, next);
+    assert.equal(s.focus, "TEXTAREA", "the caret did not go with the step");
+    assert.equal(await page.evaluate(id => els[id].ta.value, ids.doing[5]), "kept words");
+    assert.equal(await page.evaluate(() => els[selectedId].ta.value), "", "the step typed into the next card");
+  } finally { await page.close(); }
+});
+
+test("with the list out up and down still walk it, and plain left and right do nothing", async () => {
+  const { page } = await openPhone(ids.doing[5]);
+  try {
+    await chord(page, "Comma");
+    const list = await rows(page);
+    const at = list.indexOf(ids.doing[5]);
+    const before = await read(page);
+    await press(page, "ArrowRight", "ArrowLeft", "ArrowRight");
+    let s = await read(page);
+    assert.equal(s.selected, before.selected, "plain right or left moved the card with the list out");
+    assert.deepEqual(s.on, before.on);
+    assert.equal(s.drawer, true);
+    assert.equal(s.browsing, before.browsing);
+    await press(page, "ArrowDown");
+    s = await read(page);
+    assert.equal(s.selected, list[at + 1], "down no longer walks the list");
+    assert.deepEqual(s.on, [list[at + 1]]);
+    await press(page, "ArrowUp", "ArrowUp");
+    s = await read(page);
+    assert.equal(s.selected, list[at - 1], "up no longer walks the list");
+    assert.deepEqual(s.on, [list[at - 1]]);
+    // a step and a walk share the one highlight
+    await chord(page, "ArrowRight", ["Control", "Shift"], 150);
+    s = await read(page);
+    assert.equal(s.selected, list[at], "a step from the walked-to card did not go to the next one");
+    assert.deepEqual(s.on, [list[at]]);
+    assert.equal(s.drawer, true);
+  } finally { await page.close(); }
+});
+
+test("with the settings out control+shift+left and right step nothing", async () => {
+  const { page } = await openPhone(ids.doing[5]);
+  try {
+    await openSettings(page);
+    await chord(page, "ArrowRight", ["Control", "Shift"], 200);
+    await chord(page, "ArrowLeft", ["Control", "Shift"], 200);
+    const s = await read(page);
+    assert.equal(s.selected, ids.doing[5]);
+    assert.equal(s.settings, true);
+  } finally { await page.close(); }
+});
+
+test("control+shift+left and right with the list out never type into the composer", async () => {
+  const keys = ["ArrowRight", "ArrowLeft"];
+  const { page } = await openPhone(ids.doing[5]);
+  try {
+    await page.evaluate(() => els[selectedId].ta.focus({ preventScroll: true }));
+    await page.keyboard.type("words");
+    await chord(page, "Comma");
+    const typed = () => page.evaluate(() => Object.keys(els).map(id => id + ":" + els[id].ta.value).join("|"));
+    const was = await typed();
+    for (const code of keys) await chord(page, code, ["Control", "Shift"], 150);
+    assert.equal(await page.evaluate(id => els[id].ta.value, ids.doing[5]), "words");
+    assert.equal(await typed(), was, "a step typed into a composer");
+    await chord(page, "Comma");
   } finally { await page.close(); }
 });
