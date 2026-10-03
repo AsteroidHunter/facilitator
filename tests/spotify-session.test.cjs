@@ -99,9 +99,13 @@ test("a signed-in phone cannot read or write it, and neither can anything but a 
     const res = await request(port, "/spotify/session", "GET", null, { ...cookie, ...header });
     assert.equal(res.status, 404, JSON.stringify(header));
   }
-  // a name some other site resolves to this machine, and a fetch another site set off
-  assert.equal((await request(port, "/spotify/session", "GET", null, { Host: `evil.example:${port}` })).status, 404);
-  assert.equal((await request(port, "/spotify/session", "GET", null, { "Sec-Fetch-Site": "cross-site" })).status, 404);
+  // a name some other site resolves to this machine, and a fetch another site set off:
+  // the board's outer guard refuses both before the route is asked
+  for (const header of [{ Host: `evil.example:${port}` }, { "Sec-Fetch-Site": "cross-site" }]) {
+    const res = await request(port, "/spotify/session", "GET", null, header);
+    assert.equal(res.status, 403, JSON.stringify(header));
+    assert.ok(!res.text.includes(SIGN_IN.refresh));
+  }
   // a write has to name its own origin
   assert.equal((await request(port, "/spotify/session", "POST", JSON.stringify({ access: "planted" }))).status, 403);
   assert.equal((await request(port, "/spotify/session", "POST", JSON.stringify({ access: "planted" }),
