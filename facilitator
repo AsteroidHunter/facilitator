@@ -23,6 +23,20 @@
       When the browser cannot be read nothing is opened and nothing is said.
       Touches no lane, no tmux session and no bridge, and never moves the
       board to another port. --dry-run says what it would do and does nothing.
+  facilitator stop [--dry-run] [--force]
+      end this board's server and close the board's own Chrome window. The
+      server is found and stopped the way restart does it: the one process
+      holding the listening socket, read back as this folder's server.py
+      first, asked to quit with SIGTERM, and both of its ports polled until
+      they are really free. Only then does Chrome come into it: a window is
+      closed only when every tab in it is the board's own page, by its window
+      id and after its tabs are read again, and a board tab sharing a window
+      with other tabs is left open and said so. Chrome is never started, and
+      when it cannot be asked one line says so. A server still there after
+      10 seconds is left alone and reported; --force then ends it outright
+      with one SIGKILL to that same process, read a third time first. Touches
+      no lane, no tmux session, no bridge and no saved file. --dry-run says
+      what it would do and does nothing.
   facilitator status
       one-line board state
   facilitator bridge [on|off] [--dry-run]
@@ -1015,7 +1029,7 @@ def port_binds(port):
     return True
 
 
-def stop_timeout_reason(owner, port, wait):
+def stop_timeout_reason(owner, port, wait, restart=True):
     """Why the restart stopped here, in terms of what was actually established
     in this moment: whether the process that was signalled is still that same
     process, whether it is still alive, and what if anything is listening now.
@@ -1029,50 +1043,55 @@ def stop_timeout_reason(owner, port, wait):
     different things 'not our server any more' can mean. The process still
     there and still ours, a different process wearing the same number, and a
     number that could not be read at all are three states, not two, and the
-    one thing they must never be called is 'the server'."""
+    one thing they must never be called is 'the server'.
+
+    restart=False words the same findings for stop, which has no replacement
+    to hold back, so the clauses about starting one are left out."""
     pid = owner[0]
     read = process_identity(pid)
     same = None if read is None else ((pid, read) == owner)
     alive = pid_alive(pid)
     pids = listener_pids(port)
+    held = "; nothing was started" if restart else ""
+    left = " and nothing was started" if restart else ""
+    lead = "nothing was started and " if restart else ""
+    because = (", because a restart waits for the old server to finish leaving"
+               if restart else "")
     if pids is None:
         return (f"port {port} could not be read {wait:.0f}s after the server was "
-                "asked to stop; nothing was started")
+                f"asked to stop{held}")
     if pids == {pid}:
         if same is True:
             return (f"the server on {port} had not let go {wait:.0f}s after "
-                    "SIGTERM and is still the same process; it was left alone "
-                    "and nothing was started")
+                    "SIGTERM and is still the same process; it was left alone"
+                    f"{left}")
         if same is False:
             return (f"port {port} is still held under the same number by a "
-                    "different process from the one that was signalled; nothing "
-                    "was started and nothing else was signalled")
+                    "different process from the one that was signalled; "
+                    f"{lead}nothing else was signalled")
         return (f"port {port} is still held under the same number and what that "
-                "process is now could not be read; nothing was started and "
+                f"process is now could not be read; {lead}"
                 "nothing else was signalled")
     if pids:
         named = ", ".join(str(p) for p in sorted(pids))
         return (f"port {port} is listened on by {named} now, which is not the "
-                "process that was signalled; nothing was started and nothing "
-                "else was signalled")
+                f"process that was signalled; {lead}nothing else was signalled")
     binds = port_binds(port)
     if not alive:
         if binds:
-            return (f"port {port} came free as the wait ran out; nothing was "
-                    "started")
+            return f"port {port} came free as the wait ran out{held}"
         return (f"nothing is listening on {port} and the process that was "
                 "signalled is no longer there, but the port still could not be "
-                f"bound {wait:.0f}s after SIGTERM; nothing was started")
+                f"bound {wait:.0f}s after SIGTERM{held}")
     # something with that number is still running; say honestly what it is
     who = ("the server" if same is True else
            "a different process with the same number" if same is False else
            "something with the same number, which could not be read")
     if binds:
         return (f"{who} let go of port {port} but was still running {wait:.0f}s "
-                "after SIGTERM; nothing was started, because a restart waits "
-                "for the old server to finish leaving")
+                f"after SIGTERM{held}{because}")
     return (f"{who} was still running {wait:.0f}s after SIGTERM and port {port} "
-            "still could not be bound; nothing was started")
+            f"still could not be bound{held}")
 
 
 def stop_server(owner, port, wait=STOP_WAIT):
@@ -1092,10 +1111,24 @@ def stop_server(owner, port, wait=STOP_WAIT):
     in principle be reused. It is small and it is real, and nothing here
     pretends otherwise.
 
-    Never a process group, never SIGKILL: the server stops gracefully on
-    SIGTERM, and a process that will not go is reported and left exactly as it
-    is, because killing something harder without being asked is how the wrong
-    thing gets killed quietly."""
+    Never a process group, and never SIGKILL from here: the server stops
+    gracefully on SIGTERM, and a process that will not go is reported and left
+    exactly as it is, because killing something harder without being asked is
+    how the wrong thing gets killed quietly. The one firm step, end_server,
+    is reached only by stop --force."""
+    refusal = signal_server(owner, port)
+    if refusal:
+        return refusal
+    if wait_for_exit(owner[0], port, wait):
+        return None
+    return stop_timeout_reason(owner, port, wait)
+
+
+def signal_server(owner, port):
+    """The checks before the signal and the one SIGTERM itself: None once it
+    is sent, a sentence when nothing was signalled. Split from the wait so a
+    caller can tell a refusal, which sent nothing, from a signal that has run
+    out its wait."""
     pid = owner[0]
     pids = listener_pids(port)
     if pids is None:
@@ -1114,13 +1147,46 @@ def stop_server(owner, port, wait=STOP_WAIT):
         pass        # gone between the last read and the signal; still wait for the socket
     except PermissionError:
         return f"not allowed to stop pid {pid}; nothing was changed"
+    return None
+
+
+def wait_for_exit(pid, port, wait):
+    """True once that process is gone and the port is really free, False when
+    the wait runs out first. Unknown is never free (see port_free)."""
     deadline = time.monotonic() + wait
     while True:
         if not pid_alive(pid) and port_free(port) is True:
-            return None
+            return True
         if time.monotonic() >= deadline:
-            return stop_timeout_reason(owner, port, wait)
+            return False
         time.sleep(POLL_EVERY)
+
+
+def end_server(owner, port, wait=STOP_WAIT):
+    """The firm step: one SIGKILL to the process that was asked politely and
+    did not go, never a process group. None once it is gone and the port is
+    free, else a sentence. Only stop --force reaches this, after the polite
+    wait has run out. The identity is read a third time first, and a process
+    that is no longer the one asked, or cannot be read, is not signalled."""
+    pid = owner[0]
+    if server_identity(pid) != owner:
+        if not pid_alive(pid) and port_free(port) is True:
+            return None     # it went by itself as the wait ran out
+        return (f"pid {pid} is no longer the process that was asked to stop, or "
+                "can no longer be read; it was not ended")
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except PermissionError:
+        return f"not allowed to end pid {pid}; nothing was changed"
+    if wait_for_exit(pid, port, wait):
+        return None
+    if pid_alive(pid):
+        return (f"the server on {port} was still there {wait:.0f}s after it was "
+                "ended outright")
+    return (f"the server is gone, but port {port} could not be shown free "
+            f"{wait:.0f}s after it was ended outright")
 
 
 def board_state(port):
@@ -1288,6 +1354,151 @@ def board_page_open(cfg):
         return None
     board = window_url(cfg)
     return any(same_board_page(url, board) for url in urls)
+
+
+# --- stop: closing the board's own window ------------------------------------
+# Chrome is one process, so one window can only be closed through its own
+# scripting. The id and the pages the window must still show go in as
+# arguments, never as script text.
+CLOSE_WINDOW_SCRIPT = "\n".join([
+    'on run argv',
+    '  if (count of argv) < 2 then return "BADARGS"',
+    '  set wanted to (item 1 of argv) as integer',
+    '  set expected to rest of argv',
+    '  tell application "System Events"',
+    '    if not (exists process "Google Chrome") then return "GONE"',
+    '  end tell',
+    '  tell application "Google Chrome"',
+    '    set candidates to (every window whose id is wanted)',
+    '    if (count of candidates) is not 1 then return "GONE"',
+    '    set win to item 1 of candidates',
+    '    set seen to {}',
+    '    repeat with t in every tab of win',
+    '      set end of seen to (URL of t as text)',
+    '    end repeat',
+    '    set agreed to false',
+    '    considering case',
+    '      set agreed to (seen = expected)',
+    '    end considering',
+    '    if not agreed then return "CHANGED"',
+    '    close win',
+    '  end tell',
+    '  return "CLOSED"',
+    'end run',
+])
+
+
+def chrome_windows():
+    """Every Chrome window as (id, [tab URLs]), or None when that could not be
+    established. An empty list is a real absence: Chrome is not running, which
+    System Events is asked first so that Chrome is never started to find out.
+    A refusal (no automation permission) is None, an unknown and not an
+    absence. This only reads; nothing is activated, navigated or closed."""
+    osascript = shutil.which("osascript")
+    if not osascript:
+        return None
+    script = "\n".join([
+        'tell application "System Events"',
+        '  if not (exists process "Google Chrome") then return "NOTRUNNING"',
+        'end tell',
+        # inside Chrome's block the bare word tab means Chrome's tab class, so
+        # the separator is made out here
+        'set sep to character id 9',
+        'set listed to {}',
+        'tell application "Google Chrome"',
+        '  repeat with w in every window',
+        '    set entry to ((id of w) as text)',
+        '    repeat with t in every tab of w',
+        '      set entry to entry & sep & (URL of t as text)',
+        '    end repeat',
+        '    set end of listed to entry',
+        '  end repeat',
+        'end tell',
+        "set AppleScript's text item delimiters to linefeed",
+        'return listed as text',
+    ])
+    try:
+        seen = subprocess.run([osascript, "-e", script],
+                              capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if seen.returncode != 0:
+        return None
+    out = seen.stdout.strip()
+    if out == "NOTRUNNING":
+        return []
+    windows = []
+    for line in out.splitlines():
+        first, *urls = line.strip("\r\n").split("\t")
+        if first.strip().isdigit():
+            windows.append((int(first), [u.strip() for u in urls]))
+    return windows
+
+
+def close_chrome_window(wid, urls):
+    """Ask Chrome to close one window by its id: "CLOSED" when it did, "GONE"
+    when no such window (or no Chrome) is there any more, "CHANGED" when the
+    window no longer shows exactly those pages and was left alone, None when
+    Chrome could not be asked. The id and the pages go in as arguments."""
+    osascript = shutil.which("osascript")
+    if not osascript:
+        return None
+    try:
+        done = subprocess.run([osascript, "-e", CLOSE_WINDOW_SCRIPT, str(wid), *urls],
+                              capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    answer = done.stdout.strip()
+    return answer if answer in ("CLOSED", "GONE", "CHANGED") else None
+
+
+def board_addresses(cfg, port):
+    """Every address a window of the board that ran on this port can show: the
+    one the window was opened with, and this port on loopback."""
+    return [window_url({**cfg, "port": port}), f"http://127.0.0.1:{port}"]
+
+
+def sort_board_windows(windows, boards):
+    """(the windows whose every tab is the board's own page, how many other
+    windows hold a board tab among other tabs). A window with no tab at all is
+    not the board's: every tab of nothing matching is not a reason to close."""
+    only, mixed = [], 0
+    for wid, urls in windows:
+        hits = [any(same_board_page(url, board) for board in boards) for url in urls]
+        if hits and all(hits):
+            only.append((wid, urls))
+        elif any(hits):
+            mixed += 1
+    return only, mixed
+
+
+def close_board_windows(cfg, port):
+    """Close the windows that show nothing but the board that ran on this port
+    and return the lines to say about it: nothing when Chrome is not running
+    or shows no board page, one line for what was closed, and one for each
+    thing left for the person to do."""
+    windows = chrome_windows()
+    if windows is None:
+        return ["Could not ask Chrome; close the board window yourself."]
+    only, mixed = sort_board_windows(windows, board_addresses(cfg, port))
+    closed, refused = 0, False
+    for wid, urls in only:
+        answer = close_chrome_window(wid, urls)
+        if answer == "CLOSED":
+            closed += 1
+        elif answer is None:
+            refused = True
+    lines = []
+    if closed:
+        lines.append("Window closed." if closed == 1 else f"{closed} windows closed.")
+    if mixed:
+        lines.append("A board tab is still open in a window with other tabs; "
+                     "close it yourself.")
+    if refused:
+        lines.append("Could not ask Chrome; close the board window yourself.")
+    return lines
 
 
 def claude_pane(name):
@@ -1491,6 +1702,105 @@ def cmd_restart(args):
         print("Reload the board (command + R).")
     elif showing is False:
         open_app(cfg, False)
+
+
+def stop_target(port):
+    """(port, owner, refusal) for a stop: the server on the configured port,
+    found and read back the way restart does it. When nothing listens there,
+    this folder's board may still be running on the pair server.lock names, and
+    it counts only when that answer names this folder and the process holding
+    the port reads back as this folder's server.py as well. Restart refuses
+    that case; stop can act on it because the same identity rule applies."""
+    owner, refusal = server_process(port)
+    if refusal or owner is not None:
+        return port, owner, refusal
+    found = board_elsewhere(port)
+    if found is None:
+        return port, None, None
+    owner, refusal = server_process(found)
+    return found, owner, refusal
+
+
+def stop_board(owner, port, force):
+    """None once the server is gone and both of its ports are free, a sentence
+    when not. The polite stop first; with force, and only after its wait has
+    run out, the one firm step."""
+    refusal = signal_server(owner, port)
+    if refusal:
+        return refusal
+    if not wait_for_exit(owner[0], port, STOP_WAIT):
+        late = stop_timeout_reason(owner, port, STOP_WAIT, restart=False)
+        if not force:
+            return (f"{late}. Nothing was closed. Try again, or use: "
+                    "facilitator stop --force")
+        refusal = end_server(owner, port)
+        if refusal:
+            return f"{refusal}. Nothing was closed"
+    # one process holds both ports, so the phone's is checked as well
+    phone = port_free(port + 1)
+    if phone is True:
+        return None
+    what = "could not be read" if phone is None else "is still held by something"
+    return (f"the board on {port} has stopped, but port {port + 1}, the one above "
+            f"it, {what}. Nothing was closed")
+
+
+def stop_dry_run(cfg, port, owner, force):
+    """What a real stop would do, read from the same places and changing
+    nothing. Chrome is read, as the window step reads it, and never driven."""
+    windows = chrome_windows()
+    only, mixed = ([], 0) if windows is None else sort_board_windows(
+        windows, board_addresses(cfg, port))
+    closing = ("close no window" if not only else "close 1 window" if len(only) == 1
+               else f"close {len(only)} windows")
+    unknown = "Chrome cannot be asked, so a window may be left open"
+    if owner is not None:
+        head = f"stop (dry run): would stop the board on port {port} (pid {owner[0]})"
+        print(f"{head}; {unknown}." if windows is None else f"{head} and {closing}.")
+    else:
+        head = f"stop (dry run): the board is not running on port {port}"
+        print(f"{head}; {unknown}." if windows is None else f"{head}; would {closing}.")
+    if mixed:
+        print("stop (dry run): a board tab in a window with other tabs would be left open.")
+    if force and owner is not None:
+        print("stop (dry run): with --force the server would be ended outright if it "
+              f"is still there after {STOP_WAIT:.0f}s.")
+
+
+def cmd_stop(args):
+    """End this board's server, then close the windows that show nothing but
+    the board. The server goes first: if it is refused or will not go, no
+    window is touched, and a Chrome permission prompt cannot delay the stop.
+    Nothing here touches a lane, a tmux session, the bridge or a saved file.
+    Unknown words are refused rather than ignored."""
+    extra = [a for a in args[1:] if a not in ("--dry-run", "--force")]
+    if extra:
+        sys.exit("stop takes --dry-run, --force and nothing else; got " + " ".join(extra))
+    cfg = load_config()
+    port, owner, refusal = stop_target(int(cfg["port"]))
+    if refusal:
+        sys.exit(f"stop: {refusal}")
+    if "--dry-run" in args:
+        stop_dry_run(cfg, port, owner, "--force" in args)
+        return
+
+    if owner is None:
+        print("Board was not running.")
+    else:
+        refusal = stop_board(owner, port, "--force" in args)
+        if refusal:
+            sys.exit(f"stop: {refusal}")
+        print("Board stopped.")
+    for line in close_board_windows(cfg, port):
+        print(line)
+    if owner is not None:
+        # last, because it can be slow, and it must never change the outcome
+        try:
+            note = bridge_note(port)
+        except Exception:
+            note = None
+        if note:
+            print(note)
 
 
 def cmd_status():
@@ -2821,6 +3131,8 @@ def main():
         cmd_run(args)
     elif cmd == "restart":
         cmd_restart(args)
+    elif cmd == "stop":
+        cmd_stop(args)
     elif cmd == "status":
         cmd_status()
     elif cmd == "bridge":
