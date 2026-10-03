@@ -598,7 +598,8 @@ State persists to state.json next to this file; every send/reply also appends
 to transcript.jsonl so the discussion survives anything. The desktop pages'
 settings and the Spotify sign-in persist to settings.json beside it. A first-ever start
 (no state.json) seeds the board title and boxes from seed.json if present;
-see seed.example.json. Real discussion content never ships in this code.
+the shipped seed.example.json holds a title and no boxes, so a new install
+opens with no project. Real discussion content never ships in this code.
 """
 
 from __future__ import annotations
@@ -1869,7 +1870,8 @@ def _lane_worktrees(lane: str) -> dict:
 
 def _seed_state() -> dict:
     """First-ever start: board title and boxes come from seed.json if present
-    (see seed.example.json); otherwise the board starts empty."""
+    (the item shape is under "Seeding a board" in RUNBOOK.md); otherwise the
+    board starts empty."""
     seed = json.loads(SEED_PATH.read_text()) if SEED_PATH.exists() else {}
     return {
         "title": seed.get("title", "facilitator"),
