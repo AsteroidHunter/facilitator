@@ -6976,7 +6976,6 @@ let p3For = null;    // the tab the panel is currently drawn for
 let p3Ext = null;    // the extension that answered last time, tried first next time
 let p3Src = null;    // and which of the two places it came from, for the same reason
 let p3Size = -1;     // bytes of what is on screen, which is how a redrawn plot is spotted
-let p3Url = null;    // the object url the img is holding, revoked when it is replaced
 let p3Look = 0;      // polls counted, so the lane folder gets looked at now and then
                      // even while the pre-restart path is the one holding the panel up
 
@@ -6998,7 +6997,6 @@ function panelClear(host){
   p3Ext = null; p3Src = null; p3Size = -1;
   host._p3.img.hidden = true;
   host._p3.img.removeAttribute("src");
-  if (p3Url){ URL.revokeObjectURL(p3Url); p3Url = null; }
   host._p3.stub.hidden = false;
   host.classList.remove("filled");
 }
@@ -7007,7 +7005,6 @@ function panelClear(host){
 // left looking exactly as it did before the panel existed
 function panelOff(host){
   if (!host || host.dataset.p3 !== "1") return;
-  if (p3Url){ URL.revokeObjectURL(p3Url); p3Url = null; }
   p3For = null; p3Ext = null; p3Src = null; p3Size = -1;
   host._p3 = null;
   delete host.dataset.p3;
@@ -7060,12 +7057,10 @@ async function panelPoll(){
     p3Ext = cand.ext; p3Src = cand.src;
     // swapped only when the bytes differ or the picture came from somewhere
     // else, so a panel that has not changed is never rebuilt and never blinks
+    // from its own address, which the server sandboxes; a blob: copy is this origin's
     if (blob.size !== p3Size || moved){
       p3Size = blob.size;
-      const url = URL.createObjectURL(blob);
-      host._p3.img.src = url;
-      if (p3Url) URL.revokeObjectURL(p3Url);
-      p3Url = url;
+      host._p3.img.src = cand.url + "?v=" + Date.now();
     }
     host._p3.img.hidden = false;
     host._p3.stub.hidden = true;

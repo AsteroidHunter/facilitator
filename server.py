@@ -4302,7 +4302,11 @@ def _get_laneimg(q: Query, _):
     except OSError:
         inside = False   # unreadable or a symlink loop: same as missing
     if inside and p.is_file() and p.suffix.lower() in IMG_TYPES:
-        return 200, p.read_bytes(), IMG_TYPES[p.suffix.lower()]
+        # the headers /uploads and /navimg use: an SVG here can carry script, and
+        # opened by itself it would run in the board's origin without them
+        return Response(p.read_bytes(), media_type=IMG_TYPES[p.suffix.lower()],
+                        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+                                 "Content-Security-Policy": "sandbox"})
     return 404, {"error": "not found"}
 
 
