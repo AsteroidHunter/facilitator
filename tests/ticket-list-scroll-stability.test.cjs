@@ -104,12 +104,12 @@ function paneRendererFrom(html, clock) {
   const source = functionSource(html, "paintTicketPane", "renderCarousel");
   const paintTicketPane = new Function(
     "Date", "queueState", "cardState", "h", "seenReplies", "shortAge",
-    "SPIN_FRAMES", "spinFrame", "curView", "selectedId", "selectedTask",
+    "spinGlyph", "curView", "selectedId", "selectedTask",
     "testReady", "appendOmniRowArt",
     `${source}; return paintTicketPane;`,
   )(
     DateStub, () => "queued", () => "queued", h, {}, () => "1m",
-    ["|", "/", "-", "\\"], 0, () => "todo", "m1", null,
+    () => "|", () => "todo", "m1", null,
     () => false, () => null,
   );
   return { paintTicketPane, pane };
