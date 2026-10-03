@@ -229,7 +229,10 @@ Endpoints:
                                signed with a VAPID token openssl produces; the
                                phone's worker uses that event identity directly.
                                Progress notes never push. A subscription the
-                               push service reports gone (404, 410) is dropped
+                               push service reports gone (404, 410) is dropped.
+                               Each subscribe, unsubscribe, drop and skipped
+                               session writes one log line with a short hash of
+                               the endpoint and the number now stored
   POST /push/unsubscribe    -> JSON {endpoint}; remove this phone's subscription
   GET  /navfiles?lane=L&kind=K&rel=D -> the navigator's listing. Always the two
                                folders lane L owns (its internal folder and its
@@ -406,6 +409,14 @@ Endpoints:
                                (never coordinates) and the no-scroll reason.
                                All versions share four writes per minute across
                                incident reasons.
+                               Three more kinds come from the phone alone, each
+                               with fixed fields and nothing else: pushreceived
+                               (its worker's record of one push, shown or
+                               skipped and why), notifycheck (permission and
+                               whether a subscription exists, at open and on
+                               return) and notifylost (permission granted, no
+                               subscription). A field outside the list or a
+                               value outside its words is a 400.
                                Confirmation follows a successful log write/flush
   GET  /thread?box=ID&n=N   -> last N user/agent/note messages of a box from the
                                transcript (read by the quick chat panel and the
@@ -966,7 +977,8 @@ def _log_file() -> Path:
 # counters die on reload, so a page throwing during boot and reloading in a
 # cycle has fresh counters every time and only the server's cap is a cap.
 CLIENT_PAGES = ("board", "phone", "page")
-CLIENT_KINDS = ("error", "rejection", "fetch", "render", "slow", "incident")
+CLIENT_KINDS = ("error", "rejection", "fetch", "render", "slow", "incident",
+                "pushreceived", "notifycheck", "notifylost")
 # the kind of window a page is open in, and its id for one page load: the same
 # page in the Chrome window, the Electron app and the Tauri app is otherwise
 # indistinguishable. Only these names and 16 hex characters are ever kept
@@ -976,6 +988,9 @@ CLIENT_MAX_BODY = 16 * 1024   # bytes in one batch
 CLIENT_MAX_REPORTS = 20       # reports in one batch
 CLIENT_MAX_CHARS = 500        # characters of any one string a report carries
 CLIENT_PER_MINUTE = 10        # writes per key per minute; the rest are dropped and counted
+# a phone that was out of reach sends everything its worker kept at once, and
+# the worker keeps 50, so that kind may write more than the rest in a minute
+CLIENT_KIND_PER_MINUTE = {"pushreceived": 60}
 CLIENT_WINDOW = 60.0          # the minute that cap is measured over
 CLIENT_KEYS_KEPT = 512        # keys the cap remembers before the stale ones are swept
 # what a report may carry at all; anything else a page sends is dropped here
@@ -1126,6 +1141,59 @@ def _incident_valid(page: str, report: dict) -> bool:
         return len(marks) == 1 and marks[0].get("reason") == report["reason"] and marks[0]["at"] == 0
     return entries[-1]["event"] == "mark" and entries[-1].get("reason") == report["reason"]
 
+
+# What the phone says about its notifications: a push reaching its worker and
+# whether it was shown, and what the page finds when it opens or comes back.
+# Every field is a fixed word, a flag or a bounded number, so no report can
+# carry an address, a key, a token or any text; a report with a field not
+# listed, or a value not allowed, refuses the whole batch.
+NOTICE_FIELDS = {
+    "pushreceived": ("outcome", "reason", "ms", "status", "ago", "n", "worker"),
+    "notifycheck": ("source", "perm", "reg", "sub"),
+    "notifylost": ("source", "reg"),
+}
+NOTICE_CHOICES = {
+    "outcome": ("shown", "skipped"),
+    "reason": ("check-failed", "timeout", "not-signed-in", "show-failed", "other"),
+    "source": ("start", "return"),
+    "perm": ("granted", "denied", "default", "unsupported"),
+    "sub": ("yes", "no", "error"),
+}
+NOTICE_NUMBERS = {"ms": 600000, "status": 599, "ago": 7776000, "n": 1000000000000}
+
+
+def _notice_valid(page: str, report: dict) -> bool:
+    """Exactly the fields the kind allows, each of an allowed value. A push
+    that was shown has no reason and one that was skipped must have one."""
+    allowed = NOTICE_FIELDS[report["kind"]]
+    wanted = {"kind", *allowed}
+    if report["kind"] == "pushreceived":
+        if report.get("outcome") == "shown":
+            wanted.discard("reason")
+        elif report.get("outcome") != "skipped":
+            return False
+    if page != "phone" or set(report) != wanted:
+        return False
+    for name, value in report.items():
+        if name == "kind":
+            continue
+        if name in NOTICE_CHOICES:
+            if not isinstance(value, str) or value not in NOTICE_CHOICES[name]:
+                return False
+        elif name in NOTICE_NUMBERS:
+            if not _incident_integer(value, 0, NOTICE_NUMBERS[name]):
+                return False
+        elif name == "reg":
+            if type(value) is not bool:
+                return False
+        elif name == "worker":
+            if not isinstance(value, str) or not INCIDENT_BUILD.fullmatch(value):
+                return False
+        else:
+            return False
+    return True
+
+
 CLIENT_LOGGER = logging.getLogger("facilitator.client")
 CLIENT_LOGGER.setLevel(logging.INFO)
 CLIENT_LOGGER.propagate = False
@@ -1160,6 +1228,14 @@ def _client_fields(report: dict) -> dict:
     if report["kind"] == "incident":
         names = ("v", "reason", "marked", "lost", "suppressed", "events")
         return {k: report[k] for k in (*names, "build", "worker", "session") if k in report}
+    if report["kind"] in NOTICE_FIELDS:
+        out = {k: report[k] for k in NOTICE_FIELDS[report["kind"]] if k in report and k != "ago"}
+        if "ago" in report:
+            # the worker says how long ago the push came; the line says when
+            then = time.time() - report["ago"]
+            out["at"] = (time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(then))
+                         + f".{int(then * 1000) % 1000:03d}Z")
+        return out
     out = {}
     for name in CLIENT_FIELDS:
         value = report.get(name)
@@ -1204,7 +1280,8 @@ def _client_batch(page: str, reports: list, who: dict) -> tuple:
             window = _client_seen.get(key)
             if window is None or now - window[0] >= CLIENT_WINDOW:
                 window = _client_seen[key] = [now, 0, 0]
-            limit = INCIDENT_PER_MINUTE if report["kind"] == "incident" else CLIENT_PER_MINUTE
+            limit = (INCIDENT_PER_MINUTE if report["kind"] == "incident"
+                     else CLIENT_KIND_PER_MINUTE.get(report["kind"], CLIENT_PER_MINUTE))
             if window[1] >= limit:
                 window[2] += 1
                 count, _ = lost.get(key, (0, None))
@@ -3235,6 +3312,14 @@ def _push_bridge_available() -> tuple[bool, str]:
     return True, ""
 
 
+def _push_rec(endpoint: str) -> str:
+    """A short stable name for one stored subscription, so a phone's link can be
+    followed through the log over days. It is a hash of the endpoint and the
+    endpoint itself is never written; the same endpoint always gives the same
+    name, a new subscription a new one."""
+    return hashlib.sha256(endpoint.encode("utf-8", "replace")).hexdigest()[:8]
+
+
 def _push_turn(bid: str) -> None:
     """Every subscribed phone is told once that a card turned to the reader's turn.
     Runs on its own thread: it reads the subscriptions under the lock, checks
@@ -3247,11 +3332,14 @@ def _push_turn(bid: str) -> None:
         payload = json.dumps({"box": bid, "title": (box or {}).get("title") or "facilitator"},
                              separators=(",", ":")).encode()
     gone = []
+    gone_status = {}
     worked = None
     for sub in subs:
         # A sign-out or password change invalidates delivery as well as HTTP
         # access. Pre-upgrade subscriptions have no session and are skipped.
         if _BRIDGE_AUTH is None or not _BRIDGE_AUTH.has_session_digest(sub.get("session")):
+            _info("pushsession", bid, rec=_push_rec(sub.get("endpoint", "")),
+                  reason="no live session", count=len(subs))
             continue
         # Probe immediately before every service call. A bridge can go down
         # while an earlier phone's push service is answering, and that must
@@ -3263,26 +3351,34 @@ def _push_turn(bid: str) -> None:
         # the host, never the endpoint: the endpoint is the phone's own address
         # and identifies the device, so it is on the keep-out list
         host = urlparse(sub.get("endpoint", "")).netloc
+        rec = _push_rec(sub.get("endpoint", ""))
         try:
             code, said = _push_one(sub, payload)
         except Exception as e:   # a signing failure: reported, never fatal
-            _error("pushfail", bid, host=host, reason=str(e))
+            _error("pushfail", bid, host=host, rec=rec, reason=str(e))
             continue
         reason = said[:PUSH_REASON_CHARS] if code else ("unreachable " + said).strip()
-        _info("push", bid, host=host, status=code or None, reason=reason or None)
+        _info("push", bid, host=host, rec=rec, status=code or None, reason=reason or None)
         if 200 <= code < 300:
             worked = host
         if code in (404, 410):
             gone.append(sub["endpoint"])
+            gone_status[sub["endpoint"]] = code
     if gone or worked:
         with _lock:
             if worked:
                 # what the next start line reads, so a board coming back up can
                 # say when a phone was last actually reached
                 _state["push_last_ok"] = {"ts": time.time(), "host": worked}
+            dropped = []
             if gone:
-                _state["push_subs"] = [s for s in _state.get("push_subs", []) if s.get("endpoint") not in gone]
+                held = _state.get("push_subs", [])
+                dropped = [s["endpoint"] for s in held if s.get("endpoint") in gone]
+                _state["push_subs"] = [s for s in held if s.get("endpoint") not in gone]
             _save()
+            for endpoint in dropped:
+                _info("pushgone", bid, rec=_push_rec(endpoint), status=gone_status[endpoint],
+                      count=len(_state["push_subs"]))
 
 
 # ---- operations: a receipt kept beside the effect ----------------------------
@@ -4602,6 +4698,8 @@ def _post_clientlog(q: Query, raw: bytes):
         return 400, {"error": "too many reports in one batch"}
     if any(r["kind"] == "incident" and not _incident_valid(page, r) for r in reports):
         return 400, {"error": "bad incident history"}
+    if any(r["kind"] in NOTICE_FIELDS and not _notice_valid(page, r) for r in reports):
+        return 400, {"error": "bad notification report"}
     try:
         written, dropped = _client_batch(page, reports, who)
     except OSError:
@@ -5557,10 +5655,16 @@ def _post_push_subscribe(q: Query, text: str):
            "ts": time.time()}
     rec["session"] = _BRIDGE_AUTH.current_session_digest() if _BRIDGE_AUTH else ""
     with _lock:
-        subs = [s for s in _state.get("push_subs", []) if s.get("endpoint") != endpoint]
+        held = _state.get("push_subs", [])
+        subs = [s for s in held if s.get("endpoint") != endpoint]
+        replaced = len(subs) != len(held)
         subs.append(rec)
         _state["push_subs"] = subs
         _save()
+        # whether this is a new link or the same one posted again, never the
+        # endpoint or the keys; session says whether a live sign-in was named
+        _info("pushsub", action="replaced" if replaced else "new", rec=_push_rec(endpoint),
+              session=bool(rec["session"]), count=len(subs))
         return 200, {"ok": True, "count": len(subs)}
 
 
@@ -5573,9 +5677,11 @@ def _post_push_unsubscribe(q: Query, text: str):
     if not isinstance(endpoint, str) or len(endpoint) > 2048:
         return 400, {"error": "bad subscription"}
     with _lock:
-        subs = [s for s in _state.get("push_subs", []) if s.get("endpoint") != endpoint]
+        held = _state.get("push_subs", [])
+        subs = [s for s in held if s.get("endpoint") != endpoint]
         _state["push_subs"] = subs
         _save()
+        _info("pushunsub", rec=_push_rec(endpoint), removed=len(subs) != len(held), count=len(subs))
         return 200, {"ok": True}
 
 
