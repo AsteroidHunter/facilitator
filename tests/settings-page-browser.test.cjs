@@ -266,7 +266,8 @@ test("the bar has no colour picker and the bell is a plain mark like the gear", 
     assert.equal(bar.bell.background, "rgba(0, 0, 0, 0)", "the bell still sits on a tinted box");
     assert.equal(bar.bell.border, "none", "the bell still has a border");
     assert.equal(bar.bell.shadow, "none", "the bell still has a shadow");
-    assert.equal(bar.bell.mark, bar.gear.mark, "the bell mark is not the gear's size");
+    assert.equal(bar.bell.mark, "15x15", "the speaker mark is not the bar's 15px size");
+    assert.equal(bar.gear.mark, "22x22", "the squid is not drawn at its 22px size");
     assert.equal(bar.bell.color, bar.gear.color, "the bell mark is not the gear's colour");
     assert.deepEqual(problems, []);
   } finally {
