@@ -799,11 +799,13 @@ test("control+shift+left and right with the list out never type into the compose
     await page.evaluate(() => els[selectedId].ta.focus({ preventScroll: true }));
     await page.keyboard.type("words");
     await chord(page, "Comma");
-    const typed = () => page.evaluate(() => Object.keys(els).map(id => id + ":" + els[id].ta.value).join("|"));
+    const typed = () => page.evaluate(() => Object.fromEntries(Object.keys(els).map(id => [id, els[id].ta.value])));
     const was = await typed();
     for (const code of keys) await chord(page, code, ["Control", "Shift"], 150);
     assert.equal(await page.evaluate(id => els[id].ta.value, ids.doing[5]), "words");
-    assert.equal(await typed(), was, "a step typed into a composer");
+    // a step builds the card it lands beside, so a composer may be new; none may hold words it was not given
+    const now = await typed();
+    for (const id of Object.keys(now)) assert.equal(now[id], id in was ? was[id] : "", `a step typed into the composer of ${id}`);
     await chord(page, "Comma");
   } finally { await page.close(); }
 });
