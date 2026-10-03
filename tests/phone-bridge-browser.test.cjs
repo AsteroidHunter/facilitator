@@ -19,6 +19,7 @@ const { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
+const { REST } = require("./phone-rest-geometry.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
@@ -342,8 +343,11 @@ test("a reply lost on the way is retried under the same id, and the message land
       const s = getComputedStyle(document.querySelector("article.box.sel .answmsg[data-op] .answmark .tsqring"));
       return { opacity: s.opacity, position: s.position, animation: s.animationName, size: [s.width, s.height] };
     });
-    assert.deepEqual(ringLook, { opacity: "1", position: "static", animation: "tsqturn", size: ["18px", "18px"] },
-      "the ring in the row is not drawn as a turning 18px ring");
+    const ringSize = ringLook.size.map(parseFloat);
+    assert.deepEqual({ ...ringLook, size: null }, { opacity: "1", position: "static", animation: "tsqturn", size: null },
+      "the ring in the row is not drawn as a turning ring");
+    for (const side of ringSize)
+      assert.ok(Math.abs(side - 18 * REST) <= 0.1, `the ring in the row is not 18px at rest: ${side}`);
     assert.equal(await panelWords(page), "Reply lost on the way", "the retrying row carries a sentence");
     assert.equal(retrying.local[0].text, "Reply lost on the way");
     assert.equal(retrying.field, "", "the words went back to the row while the send was still being retried");

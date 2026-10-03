@@ -9,15 +9,15 @@
    its own the panel fills it and the view takes whatever the heading and the
    foot leave; anywhere else the view is --tk-view-h tall and the panel hugs it */
 .tk-panel{
-  --tk-view-h:200px;
+  --tk-view-h:calc(200 * var(--u, 1px));
   box-sizing:border-box; height:100%; display:flex; flex-direction:column;
-  background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
+  background:var(--card); border:var(--edge) solid var(--line); border-radius:calc(7 * var(--u, 1px));
   box-shadow:0 1px 3px rgba(60,45,20,.07);
-  padding:16px 20px 14px; color:var(--ink); font:400 12px/16px var(--sans);
+  padding:calc(16 * var(--u, 1px)) calc(20 * var(--u, 1px)) calc(14 * var(--u, 1px)); color:var(--ink); font:400 calc(12 * var(--u, 1px))/16px var(--sans);
 }
-.tk-head{flex:none; display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px}
+.tk-head{flex:none; display:flex; align-items:center; justify-content:space-between; gap:calc(12 * var(--u, 1px)); margin-bottom:calc(14 * var(--u, 1px))}
 .tk-title{min-width:0}
-.tk-name{font:600 14px/18px var(--sans); color:var(--ink); text-wrap:balance}
+.tk-name{font:600 calc(14 * var(--u, 1px))/18px var(--sans); color:var(--ink); text-wrap:balance}
 
 /* the pill: the page switcher's small rounded rectangle on the paper, holding
    two names of one width. the one showing sits on a white seat the way the
@@ -25,15 +25,15 @@
    one is pressed, on the board's own curve; a press sinks the name with the
    ticket names' own shade */
 .tk-pill{flex:none; position:relative; display:inline-grid; grid-template-columns:1fr 1fr;
-  gap:2px; padding:2px; border-radius:7px;
+  gap:calc(2 * var(--u, 1px)); padding:calc(2 * var(--u, 1px)); border-radius:calc(7 * var(--u, 1px));
   background:color-mix(in srgb, var(--paper) 92%, #fff 8%);
   border:var(--edge) solid var(--line)}
-.tk-thumb{position:absolute; top:2px; bottom:2px; left:2px; width:calc((100% - 6px) / 2);
-  border-radius:5px; background:var(--card); box-shadow:0 1px 2px rgba(60,45,20,.14);
+.tk-thumb{position:absolute; top:calc(2 * var(--u, 1px)); bottom:calc(2 * var(--u, 1px)); left:calc(2 * var(--u, 1px)); width:calc((100% - 6 * var(--u, 1px)) / 2);
+  border-radius:calc(5 * var(--u, 1px)); background:var(--card); box-shadow:0 1px 2px rgba(60,45,20,.14);
   transition:transform .28s var(--gentle); pointer-events:none}
-.tk-pill[data-on="line"] .tk-thumb{transform:translateX(calc(100% + 2px))}
-.tk-opt{position:relative; z-index:1; font:500 12px/16px var(--sans); color:var(--sub); background:transparent;
-  border:none; border-radius:5px; padding:3px 11px; cursor:pointer;
+.tk-pill[data-on="line"] .tk-thumb{transform:translateX(calc(100% + 2 * var(--u, 1px)))}
+.tk-opt{position:relative; z-index:1; font:500 calc(12 * var(--u, 1px))/16px var(--sans); color:var(--sub); background:transparent;
+  border:none; border-radius:calc(5 * var(--u, 1px)); padding:calc(3 * var(--u, 1px)) calc(11 * var(--u, 1px)); cursor:pointer;
   box-shadow:inset 0 0 0 rgba(60,45,20,0), inset 0 0 0 rgba(60,45,20,0);
   transition:color .18s, box-shadow .16s ease-out}
 .tk-opt:hover{color:var(--ink)}
@@ -70,7 +70,7 @@
 /* a soft 24px fade on each side that has more to see: right of the pinned
    names once the chart has moved under them, and at the right edge until the
    latest end is in view */
-.tk-pin::after, .tk-lane::after{content:""; position:absolute; top:0; bottom:0; width:24px;
+.tk-pin::after, .tk-lane::after{content:""; position:absolute; top:0; bottom:0; width:calc(24 * var(--u, 1px));
   pointer-events:none; opacity:0}
 .tk-pin::after{left:calc(100% - 1px); background:linear-gradient(to right, var(--card), rgba(255,255,255,0))}
 .tk-lane::after{right:0; background:linear-gradient(to left, var(--card), rgba(255,255,255,0))}
@@ -88,17 +88,17 @@
 .tk-guide{stroke:var(--line); stroke-width:1px}
 /* neither the words on the left nor the legend on the right ever break: where
    both will not fit across, the legend drops to a row of its own, at the right */
-.tk-foot{flex:none; display:flex; flex-wrap:wrap; align-items:center; gap:2px 12px;
-  margin-top:10px; color:var(--sub)}
+.tk-foot{flex:none; display:flex; flex-wrap:wrap; align-items:center; gap:calc(2 * var(--u, 1px)) calc(12 * var(--u, 1px));
+  margin-top:calc(10 * var(--u, 1px)); color:var(--sub)}
 .tk-sum{white-space:nowrap}
 .tk-sum b{color:var(--ink); font-weight:600}
-.tk-legend{display:inline-flex; align-items:center; gap:3px; margin-left:auto; white-space:nowrap}
-.tk-legend i{display:inline-block; width:10px; height:10px; border-radius:2px;
+.tk-legend{display:inline-flex; align-items:center; gap:calc(3 * var(--u, 1px)); margin-left:auto; white-space:nowrap}
+.tk-legend i{display:inline-block; width:calc(10 * var(--u, 1px)); height:calc(10 * var(--u, 1px)); border-radius:calc(2 * var(--u, 1px));
   box-shadow:inset 0 0 0 .6px rgba(60,45,20,.05)}
-.tk-legend i:first-of-type{margin-left:5px}
-.tk-legend i:last-of-type{margin-right:5px}
+.tk-legend i:first-of-type{margin-left:calc(5 * var(--u, 1px))}
+.tk-legend i:last-of-type{margin-right:calc(5 * var(--u, 1px))}
 .tk-key{display:block; flex:none}
-.tk-legend .tk-key ~ .tk-key{margin-left:10px}
+.tk-legend .tk-key ~ .tk-key{margin-left:calc(10 * var(--u, 1px))}
 
 /* on the board, where a mouse or trackpad hovers, the panel is a box of a set
    size and the chart is what it is for, so the padding, the gaps around the
@@ -131,8 +131,8 @@
    that hugs its chart is its finished size from the first frame and never
    moves; in a box of a set size it simply fills what the stage is given */
 .tk-wait{flex:1 1 auto; display:flex; align-items:center; justify-content:center;
-  height:calc(var(--tk-view-h) + 26px); min-height:0; color:var(--sub)}
-.tk-note{flex:none; margin-top:8px; color:var(--sub)}
+  height:calc(var(--tk-view-h) + 26 * var(--u, 1px)); min-height:0; color:var(--sub)}
+.tk-note{flex:none; margin-top:calc(8 * var(--u, 1px)); color:var(--sub)}
 .tk-note:empty{display:none}
 
 /* the limits box wears the panel's own rectangle (it is a .tk-panel) and is as
@@ -149,15 +149,15 @@
    under the rows, the last-updated line takes the grid's whole width at the
    left, small and faint like the foot's words */
 .lm-box{height:auto; display:grid; grid-template-columns:max-content minmax(0, 1fr) max-content;
-  align-items:center; column-gap:10px; row-gap:7px}
-.lm-title{grid-column:1 / -1; font:600 14px/18px var(--sans); color:var(--ink)}
+  align-items:center; column-gap:calc(10 * var(--u, 1px)); row-gap:calc(7 * var(--u, 1px))}
+.lm-title{grid-column:1 / -1; font:600 calc(14 * var(--u, 1px))/18px var(--sans); color:var(--ink)}
 .lm-row{display:contents}
 .lm-name{color:var(--ink); white-space:nowrap}
-.lm-bar{display:block; box-sizing:border-box; height:8px; border-radius:4px; overflow:hidden;
+.lm-bar{display:block; box-sizing:border-box; height:calc(8 * var(--u, 1px)); border-radius:calc(4 * var(--u, 1px)); overflow:hidden;
   border:var(--edge) solid var(--line)}
 .lm-fill{display:block; height:100%; transition:width .7s var(--gentle)}
 .lm-pct{min-width:4ch; color:var(--ink); font-weight:600; text-align:right; font-variant-numeric:tabular-nums}
 .lm-updated{grid-column:1 / -1; justify-self:start; white-space:nowrap; color:var(--sub);
-  font:400 11px/14px var(--sans)}
+  font:400 calc(11 * var(--u, 1px))/14px var(--sans)}
 .lm-updated:empty{display:none}
 @media (prefers-reduced-motion: reduce){ .lm-fill{transition:none} }

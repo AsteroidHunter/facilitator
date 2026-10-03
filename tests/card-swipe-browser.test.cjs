@@ -7,6 +7,7 @@ const { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
+const { REST } = require("./phone-rest-geometry.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT,".venv/bin/python3");
@@ -161,7 +162,7 @@ function distinct(frame){
     assert.equal(frame.edgeAsked,".8px","the page no longer asks for the 0.8px edge");
     assert.ok(parseFloat(face.border)>0 && parseFloat(face.border)<=1,`card edge is not the hairline: ${face.border}`);
     assert.equal(face.border,frame.paneEdge,"card edge is not drawn as wide as the pane's own");
-    assert.notEqual(face.borderColor,"rgba(0, 0, 0, 0)"); assert.equal(face.radius,"7px");
+    assert.notEqual(face.borderColor,"rgba(0, 0, 0, 0)"); assert.ok(Math.abs(parseFloat(face.radius)-7*REST)<=.05,`card corners are not 7px at rest: ${face.radius}`);
     // the card swiped to lands browsed, so it is level with the page; the one
     // swiped away was selected, so it keeps the drop shadow
     if(face.incoming) assert.equal(face.shadow,"none"); else assert.notEqual(face.shadow,"none");

@@ -75,6 +75,11 @@ async function settle(ms = 250) {
   await new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// layout units are sixty-fourths of a pixel, and the flexible capsule takes up every neighbour's rounding
+function near(actual, expected, what) {
+  assert.ok(Math.abs(actual - expected) < 0.1, `${what}: ${actual} is not ${expected}`);
+}
+
 before(async () => {
   await mkdir(SHOTS, { recursive: true });
   fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-phone-"));
@@ -165,9 +170,10 @@ test("the card fills the phone from a thin top margin down to the row of buttons
         dock: { left: dock.left, right: innerWidth - dock.right, bottom: innerHeight - dock.bottom, height: dock.height },
         buttons: [...document.querySelectorAll("#dock .dockbtn")].map(b => {
           const r = b.getBoundingClientRect();
-          return [b.id, Math.round(r.width), Math.round(r.height), getComputedStyle(b).borderRadius, b.classList.contains("qn-glass")];
+          return [b.id, r.width, r.height, parseFloat(getComputedStyle(b).borderTopLeftRadius), b.classList.contains("qn-glass")];
         }),
         width: innerWidth, height: innerHeight,
+        sink: parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sink")),
         visible: [...document.querySelectorAll("article.box")].filter(b => getComputedStyle(b).display !== "none").length,
         nothingElse: !document.querySelector("#magic1, #magic2, #magic3, #qchat, #clockbox, #tabbar"),
       };
@@ -176,18 +182,32 @@ test("the card fills the phone from a thin top margin down to the row of buttons
     assert.ok(shape.projects.every(label => label.trim().length > 0), "a project without a label");
     assert.equal(shape.activeProject, "facilitator");
     assert.ok(shape.capsule.trim().length > 0, "the capsule names no project");
-    assert.ok(shape.top >= 4 && shape.top <= 12, `the card starts at the top with a thin margin (${shape.top})`);
-    assert.ok(shape.left >= 4 && shape.left <= 12, `thin left margin (${shape.left})`);
-    assert.ok(shape.right >= 4 && shape.right <= 12, `thin right margin (${shape.right})`);
+    // at rest the page stands in from each screen edge by half of --sink of that
+    // side and is laid out --rest of its full size, so each length below is its
+    // full-size figure times rest, on top of the step in
+    assert.ok(shape.sink > 0 && shape.sink < 0.05, `the page's rest step is not a small share (${shape.sink})`);
+    const rest = 1 - shape.sink, stepX = shape.width * shape.sink / 2, stepY = shape.height * shape.sink / 2;
+    near(shape.top, stepY + 6 * rest, "the card starts at the top with a thin margin");
+    near(shape.left, stepX + 6 * rest, "thin left margin");
+    near(shape.right, stepX + 6 * rest, "thin right margin");
     // the card stands on the band iOS gives a paired keyboard's bar, and the
     // row of buttons is laid where that bar's pill is: 48 tall, 10 off the
     // bottom edge, 16 in from each side
-    assert.equal(shape.bottom, 68, `the card does not stand on the row's band (${shape.bottom})`);
-    assert.deepEqual(shape.dock, { left: 16, right: 16, bottom: 10, height: 48 });
+    near(shape.bottom, stepY + 68 * rest, "the card does not stand on the row's band");
+    near(shape.dock.left, stepX + 16 * rest, "the row does not start 16 in");
+    near(shape.dock.right, stepX + 16 * rest, "the row does not end 16 in");
+    near(shape.dock.bottom, stepY + 10 * rest, "the row is not 10 off the bottom");
+    near(shape.dock.height, 48 * rest, "the row is not 48 tall");
     // four glass buttons: a circle, the long capsule, a short one, a circle
-    const capsule = shape.width - 32 - 48 - 72 - 48 - 3 * 8;
-    assert.deepEqual(shape.buttons, [["tikbtn", 48, 48, "24px", true], ["projbtn", capsule, 48, "24px", true],
-      ["tikadd", 72, 48, "24px", true], ["setbtn", 48, 48, "24px", true]]);
+    const capsule = shape.width - 2 * stepX - rest * (32 + 48 + 72 + 48 + 3 * 8);
+    const buttons = [["tikbtn", 48], ["projbtn", null], ["tikadd", 72], ["setbtn", 48]];
+    assert.deepEqual(shape.buttons.map(b => b[0]), buttons.map(b => b[0]));
+    shape.buttons.forEach(([id, width, height, radius, glass], i) => {
+      near(width, buttons[i][1] === null ? capsule : buttons[i][1] * rest, `${id} width`);
+      near(height, 48 * rest, `${id} height`);
+      near(radius, 24 * rest, `${id} radius`);
+      assert.equal(glass, true, `${id} is not glass`);
+    });
     assert.equal(shape.visible, 1, "exactly one card is shown");
     assert.ok(shape.nothingElse, "nothing but the card, the row of buttons and the drawers");
 
@@ -226,7 +246,7 @@ test("the card fills the phone from a thin top margin down to the row of buttons
     assert.equal(prose.pendIsCardmd, true, "sent messages do not go through the shared renderer");
     assert.equal(prose.pendBold, "second");
     assert.equal(prose.title, "Phone page renders the shared markdown");
-    assert.equal(prose.replyFont, "17px");
+    near(parseFloat(prose.replyFont), 17 * rest, "the reply's type is not laid out at rest's share of 17px");
     assert.match(prose.titleFamily, /Inter/);
     await page.screenshot({ path: path.join(SHOTS, "test-phone-card.png") });
 

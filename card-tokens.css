@@ -43,6 +43,13 @@
 @media (min-resolution:2dppx){:root{--edge-drawn:.5px}}
 @media (min-resolution:3dppx){:root{--edge-drawn:calc(2px / 3)}}
 
+/* ---- the unit ------------------------------------------------------------ */
+/* --u is one pixel. a length that has to follow its page's scale is written as
+   a multiple of it, and a page that lays itself out smaller than the screen
+   declares it again on the part it shrinks. nothing else sets it, so wherever
+   it stands unchanged every such length is the pixel count it names */
+:root{--u:1px}
+
 /* ---- the card's own constants ------------------------------------------- */
 /* --app-inset is the thin margin the app frame keeps from the window's edge.
    --cardbar-h is the card's top bar, and not --bar-h: the status bar at the
@@ -225,53 +232,53 @@
    subset here gives the full card, both message panels, document and mini card the
    same visual vocabulary instead of relying on a surface-specific selector. */
 .cardmd{overflow-wrap:anywhere}
-.cardmd p{margin:0 0 9px}
+.cardmd p{margin:0 0 calc(9 * var(--u))}
 .cardmd > :last-child{margin-bottom:0}
-.cardmd ul, .cardmd ol{margin:0 0 9px; padding-left:22px}
-.cardmd li{margin:2px 0}
-.cardmd li > ul, .cardmd li > ol{margin:3px 0 2px}
+.cardmd ul, .cardmd ol{margin:0 0 calc(9 * var(--u)); padding-left:calc(22 * var(--u))}
+.cardmd li{margin:calc(2 * var(--u)) 0}
+.cardmd li > ul, .cardmd li > ol{margin:calc(3 * var(--u)) 0 calc(2 * var(--u))}
 /* the 22px indent holds a one digit number; the renderer names a longer list and it takes one more digit's width for each extra digit */
-.cardmd ol.md-ol2{padding-left:calc(22px + 1ch)}
-.cardmd ol.md-ol3{padding-left:calc(22px + 2ch)}
-.cardmd ol.md-ol4{padding-left:calc(22px + 3ch)}
+.cardmd ol.md-ol2{padding-left:calc(22 * var(--u) + 1ch)}
+.cardmd ol.md-ol3{padding-left:calc(22 * var(--u) + 2ch)}
+.cardmd ol.md-ol4{padding-left:calc(22 * var(--u) + 3ch)}
 .cardmd h1, .cardmd h2, .cardmd h3, .cardmd h4, .cardmd h5, .cardmd h6{
-  margin:13px 0 7px; color:var(--ink); font-family:var(--inter); line-height:1.25;
+  margin:calc(13 * var(--u)) 0 calc(7 * var(--u)); color:var(--ink); font-family:var(--inter); line-height:calc(1.25 * var(--ln, 1));
 }
 .cardmd h1{font-size:1.55em}.cardmd h2{font-size:1.35em}.cardmd h3{font-size:1.2em}
 .cardmd h4{font-size:1.1em}.cardmd h5{font-size:1em}.cardmd h6{font-size:.92em}
 .cardmd a{color:inherit; text-decoration:underline; text-underline-offset:2px}
-.cardmd .shot{display:block; max-width:100%; border-radius:6px; margin:8px auto}
+.cardmd .shot{display:block; max-width:100%; border-radius:calc(6 * var(--u)); margin:calc(8 * var(--u)) auto}
 .cardmd .shotgrid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
-  gap:8px; margin:8px 0 9px; align-items:start}
+  gap:calc(8 * var(--u)); margin:calc(8 * var(--u)) 0 calc(9 * var(--u)); align-items:start}
 .cardmd .shotgrid[data-n="3"]{grid-template-columns:repeat(3,minmax(0,1fr))}
 .cardmd .shotgrid[data-n="4"]{grid-template-columns:repeat(4,minmax(0,1fr))}
 .cardmd .shotgrid .shot{margin:0 auto}
 .cardmd .inlinecode{font-family:var(--mono); font-size:inherit; line-height:inherit;
   color:var(--ink); background:var(--paper); border-radius:var(--sq);
-  padding:1px 4px; white-space:pre-wrap}
-.cardmd .codeblockwrap{position:relative; margin:0 0 9px}
-.cardmd .codeblock{margin:0; padding:10px 12px; border-radius:8px;
-  background:#EFF1F4; border:0; font:12.5px/1.5 var(--mono); color:var(--ink);
+  padding:1px calc(4 * var(--u)); white-space:pre-wrap}
+.cardmd .codeblockwrap{position:relative; margin:0 0 calc(9 * var(--u))}
+.cardmd .codeblock{margin:0; padding:calc(10 * var(--u)) calc(12 * var(--u)); border-radius:calc(8 * var(--u));
+  background:#EFF1F4; border:0; font:calc(12.5 * var(--u))/1.5 var(--mono); color:var(--ink);
   white-space:pre; overflow-x:auto; user-select:text; -webkit-user-select:text}
-.cardmd .codeblockwrap[data-language] .codeblock{padding-top:29px}
-.cardmd .codelang{position:absolute; top:7px; left:12px; max-width:calc(100% - 62px);
+.cardmd .codeblockwrap[data-language] .codeblock{padding-top:calc(29 * var(--u))}
+.cardmd .codelang{position:absolute; top:calc(7 * var(--u)); left:calc(12 * var(--u)); max-width:calc(100% - 62 * var(--u));
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-  color:var(--sub); font:10.5px/1.4 var(--mono)}
-.cardmd .codeblockwrap .copybtn{position:absolute; top:6px; right:8px; padding:4px 6px;
+  color:var(--sub); font:calc(10.5 * var(--u))/1.4 var(--mono)}
+.cardmd .codeblockwrap .copybtn{position:absolute; top:calc(6 * var(--u)); right:calc(8 * var(--u)); padding:calc(4 * var(--u)) calc(6 * var(--u));
   display:flex; align-items:center; color:var(--sub); background:#fff;
-  box-shadow:0 1px 4px rgba(33,29,23,.18); border:0; border-radius:5px;
+  box-shadow:0 1px 4px rgba(33,29,23,.18); border:0; border-radius:calc(5 * var(--u));
   cursor:pointer; user-select:none; -webkit-user-select:none; opacity:0;
   pointer-events:none; transition:opacity .15s}
 .cardmd .codeblockwrap:hover .copybtn{opacity:1; pointer-events:auto}
 .cardmd .codeblockwrap .copybtn:hover{color:var(--ink)}
-.cardmd blockquote{margin:0 0 9px 2px; padding:2px 0 2px 12px;
-  border-left:3px solid var(--line); color:var(--sub)}
-.cardmd .tablewrap{max-width:100%; overflow-x:auto; margin:0 0 9px}
+.cardmd blockquote{margin:0 0 calc(9 * var(--u)) calc(2 * var(--u)); padding:calc(2 * var(--u)) 0 calc(2 * var(--u)) calc(12 * var(--u));
+  border-left:calc(3 * var(--u)) solid var(--line); color:var(--sub)}
+.cardmd .tablewrap{max-width:100%; overflow-x:auto; margin:0 0 calc(9 * var(--u))}
 .cardmd table{width:100%; border-collapse:collapse; font:inherit}
-.cardmd th, .cardmd td{padding:5px 7px; border:var(--edge) solid var(--line); text-align:left}
+.cardmd th, .cardmd td{padding:calc(5 * var(--u)) calc(7 * var(--u)); border:var(--edge) solid var(--line); text-align:left}
 .cardmd th{font-weight:650; background:var(--paper)}
 .cardmd .md-align-center{text-align:center}.cardmd .md-align-right{text-align:right}
-.cardmd hr{height:0; margin:13px 0; border:0; border-top:var(--edge) solid var(--line)}
+.cardmd hr{height:0; margin:calc(13 * var(--u)) 0; border:0; border-top:var(--edge) solid var(--line)}
 
 /* ---- the messages the answer was given ---------------------------------- */
 /* One plain panel over the answer, holding the owner's messages that answer
@@ -306,7 +313,7 @@
   background:var(--answ-fill); border-radius:var(--answ-round);
   font:var(--answ-font); color:var(--ink); text-align:left;
   --answ-move:.33s; --answ-come:.26s; --answ-rise:6px;
-  --answ-fill:var(--bubble-fill); --answ-tag:17px;
+  --answ-fill:var(--bubble-fill); --answ-tag:calc(17 * var(--u));
 }
 /* the cut. a batch longer than the preview shows its first lines and dissolves
    into the panel's own grey over the last of them, the way the drawing's third
@@ -457,24 +464,24 @@
    its right, a row with the mark and the cross 46px. the ring a send still
    being tried again on its own wears is drawn by the page, in the mark's place */
 .answmsg{position:relative}
-.answmsg[data-badge]{padding-right:26px}
-.answmsg[data-badge=fail]{padding-right:46px}
+.answmsg[data-badge]{padding-right:calc(26 * var(--u))}
+.answmsg[data-badge=fail]{padding-right:calc(46 * var(--u))}
 .answmark{
-  position:absolute; right:2px; top:50%; transform:translateY(-50%);
-  display:flex; align-items:center; gap:6px;
+  position:absolute; right:calc(2 * var(--u)); top:50%; transform:translateY(-50%);
+  display:flex; align-items:center; gap:calc(6 * var(--u));
 }
 .answmsg + .answmsg > .answmark{top:calc(50% + var(--answ-line) / 4)}
 .answretry, .answcross{
   position:relative; flex:none; padding:0; border:none; border-radius:50%;
   color:#fff; display:grid; place-items:center; cursor:pointer;
 }
-.answretry{width:18px; height:18px; background:#ff3b30}
-.answcross{width:16px; height:16px; background:rgba(33,29,23,.72)}
-.answretry::after, .answcross::after{content:""; position:absolute; inset:-6px -3px}
+.answretry{width:calc(18 * var(--u)); height:calc(18 * var(--u)); background:#ff3b30}
+.answcross{width:calc(16 * var(--u)); height:calc(16 * var(--u)); background:rgba(33,29,23,.72)}
+.answretry::after, .answcross::after{content:""; position:absolute; inset:calc(-6 * var(--u)) calc(-3 * var(--u))}
 .answered[data-mark]{margin-bottom:var(--answ-tag)}
 .answered[data-mark]::after{
   content:attr(data-mark); position:absolute; top:100%; right:var(--answ-round);
-  padding-top:3px; font:10.5px/1.35 var(--mono); color:var(--sub);
+  padding-top:calc(3 * var(--u)); font:calc(10.5 * var(--u))/1.35 var(--mono); color:var(--sub);
   white-space:nowrap; pointer-events:none;
 }
 .answered.markin::after{animation:markin var(--answ-move) var(--gentle) backwards}
@@ -514,11 +521,11 @@
 .printing > :nth-child(8){animation-delay:350ms}
 .printing > :nth-child(n+9){animation-delay:400ms}
 
-.cardmd .attachment{display:block; max-width:100%; margin:8px 0; overflow-wrap:anywhere}
-.cardmd .attachment audio, .cardmd .attachment video{display:block; width:100%; max-width:100%; max-height:420px; border-radius:6px}
+.cardmd .attachment{display:block; max-width:100%; margin:calc(8 * var(--u)) 0; overflow-wrap:anywhere}
+.cardmd .attachment audio, .cardmd .attachment video{display:block; width:100%; max-width:100%; max-height:calc(420 * var(--u)); border-radius:calc(6 * var(--u))}
 .cardmd .attachment-name{display:block; overflow-wrap:anywhere}
-.cardmd .attachment-links{display:flex; gap:12px; font-size:.9em}
-.attachment-status{font-size:12px; line-height:1.4; color:var(--must, #b73a3a); white-space:pre-wrap; overflow-wrap:anywhere}
+.cardmd .attachment-links{display:flex; gap:calc(12 * var(--u)); font-size:.9em}
+.attachment-status{font-size:calc(12 * var(--u)); line-height:1.4; color:var(--must, #b73a3a); white-space:pre-wrap; overflow-wrap:anywhere}
 .attachment-status:empty{display:none}
 
 /* ---- the quick note ------------------------------------------------------ */

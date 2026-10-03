@@ -14,6 +14,7 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
 const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
+const { REST } = require("./phone-rest-geometry.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -22,6 +23,9 @@ const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 const PDF = "%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n";
 let outer, uploads, origin, child, browser, cards = 0;
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+// the page lays out at REST of a design length, so a design length of n stands n * REST wide
+const near = (actual, design, message, tolerance = 0.1) =>
+  assert.ok(Math.abs(actual - design * REST) <= tolerance, `${message}: ${actual} is not ${design} * ${REST}`);
 
 before(async () => {
   outer = await mkdtemp(path.join(tmpdir(), "facilitator-phone-attachments-"));
@@ -144,8 +148,8 @@ async function noStatusText(page, id) {
       noteElement: !!box.querySelector(".traynote") || el.trayNote !== undefined,
       stray, kinds: [...el.tray.querySelectorAll(".tsqkind")].map(node => node.textContent),
       marks: [...el.tray.querySelectorAll(".tsqbang")].map(node => node.textContent),
-      gap: on ? Math.round((row.top - Math.max(...squares.map(s => s.bottom))) * 100) / 100 : 12,
-      above: on ? Math.round((Math.min(...squares.map(s => s.top)) - tray.top) * 100) / 100 : 8,
+      gap: on ? Math.round((row.top - Math.max(...squares.map(s => s.bottom))) * 100) / 100 : null,
+      above: on ? Math.round((Math.min(...squares.map(s => s.top)) - tray.top) * 100) / 100 : null,
       crossTop: on ? Math.round((Math.min(...crosses.map(x => x.top)) - tray.top) * 100) / 100 : 0 };
   }, id);
   assert.equal(seen.squaresOnly, true, "something other than a square stands in the tray");
@@ -153,8 +157,8 @@ async function noStatusText(page, id) {
   assert.deepEqual(seen.stray, [], "words stand in the tray outside a square's kind and mark");
   for (const kind of seen.kinds) assert.match(kind, /^[A-Z0-9]+(\d+(\.\d)? (KB|MB))?$/, "a square says more than its kind");
   for (const mark of seen.marks) assert.equal(mark, "!");
-  assert.equal(seen.gap, 12, "the squares are not 12px clear of the line above the typing row");
-  assert.ok(seen.above >= 8, "less than 8px stands over the squares");
+  if (seen.gap !== null) near(seen.gap, 12, "the squares are not 12px clear of the line above the typing row");
+  if (seen.above !== null) assert.ok(seen.above >= 8 * REST - 0.05, "less than 8px stands over the squares");
   assert.ok(seen.crossTop >= 0, "a cross hangs out over the tray's top edge");
 }
 // the squares' states, as the classes that dress them
@@ -182,9 +186,12 @@ test("a picked photo stands in the tray as a 64px square with its picture, a cro
         above: tray.bottom <= row.top + 1, left: Math.round(box.left - row.left),
         text: el.ta.value, arrow: el.send.classList.contains("show") };
     }, id);
-    assert.deepEqual([shape.w, shape.h], [64, 64]);
-    assert.equal(shape.radius, "7px");
-    assert.deepEqual(shape.cross, [20, 20, 6, 6]);
+    near(shape.w, 64, "the square is not 64px wide");
+    near(shape.h, 64, "the square is not 64px tall");
+    near(parseFloat(shape.radius), 7, "the square's corners are not 7px", 0.05);
+    near(shape.cross[0], 20, "the cross is not 20px wide");
+    near(shape.cross[1], 20, "the cross is not 20px tall");
+    assert.deepEqual(shape.cross.slice(2), [6, 6]);
     assert.equal(shape.mark, "none");
     assert.ok(shape.above, "the tray is not over the typing row");
     assert.equal(shape.left, 0, "the square does not start at the row's own left edge");
@@ -222,9 +229,11 @@ test("the tray moves on one beat: a square slides in, one taken out shrinks whil
     }, id);
     assert.deepEqual(removal.leaving, ["scale(0.8)", "0"]);
     assert.equal(removal.parked, true, "the leaving square kept its seat");
-    assert.equal(removal.moved, 72, "the others did not close the gap");
+    near(removal.moved, 72, "the others did not close the gap", 1.01);   // offsetLeft rounds to whole pixels
     assert.equal(removal.still, 0, "the others jumped on the frame of the tap");
-    assert.match(String(removal.slide), /^translate\(72px, ?0px\)$/, "the others jumped into the gap");
+    const slid = /^translate\(([\d.]+)px, ?0px\)$/.exec(String(removal.slide));
+    assert.ok(slid, "the others jumped into the gap");
+    near(Number(slid[1]), 72, "the others slide from the wrong distance");
     assert.deepEqual(removal.left, ["b.pdf", "c.pdf"]);
     await page.evaluate(id => { for (const it of [...els[id].trayItems]) it.sq.querySelector(".tsqx").click(); }, id);
     const closing = await page.evaluate(id => {
