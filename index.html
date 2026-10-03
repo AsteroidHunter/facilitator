@@ -68,16 +68,16 @@
     border-radius:4px; background:none; cursor:pointer; flex:none}
   #bgpick::-webkit-color-swatch-wrapper{padding:2px}
   #bgpick::-webkit-color-swatch{border:none; border-radius:2px}
-  /* the speaker is a mark like the gear beside it: 15px, the sub ink, no box,
-     the full ink under a pointer. a small x in place of its two waves means
-     the reply chime is off */
+  /* the speaker is a mark like the house at the other end of the bar: 15px, the
+     same reach across its box and the same line, the sub ink, no box, the full
+     ink under a pointer. a slash across it, with a clear gap round the slash,
+     means the reply chime is off */
   #chimebtn{display:flex; align-items:center; padding:2px; border:none; background:none;
     color:var(--sub); cursor:pointer; transition:color .2s; flex:none;
     margin-left:auto}   /* holds the right edge now the status row is gone */
   #chimebtn:hover{color:var(--ink)}
-  #chimebtn .chime-x{display:none}
-  #chimebtn[aria-pressed="false"] .chime-waves{display:none}
-  #chimebtn[aria-pressed="false"] .chime-x{display:inline}
+  #chimebtn .chime-slash, #chimebtn .chime-gap{display:none}
+  #chimebtn[aria-pressed="false"] :is(.chime-slash, .chime-gap){display:inline}
   /* the install control, in the soft tint the edit button used to wear: the same
      face, size, colours, corner and padding, and no margin of its own, since the
      button before it already holds the right edge. It is hidden except while
@@ -3480,7 +3480,7 @@
   <span id="tabbar"></span>
   <span id="projnote"></span>
   <span class="name" id="boardname">facilitator</span>
-  <button id="chimebtn" type="button" title="Reply chime on. Click to mute." aria-label="Reply chime" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><g class="chime-waves"><path d="M15 8a5.5 5.5 0 0 1 0 8"/><path d="M18.1 5.5a9.5 9.5 0 0 1 0 13"/></g><g class="chime-x"><path d="M15 9l6 6M21 9l-6 6"/></g></svg></button>
+  <button id="chimebtn" type="button" title="Reply chime on. Click to mute." aria-label="Reply chime" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><defs><mask id="chimegap" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="#fff" stroke="none"/><path class="chime-gap" d="M3 3 21 21" stroke="#000" stroke-width="5"/></mask></defs><g mask="url(#chimegap)"><path d="M12 3.5 6.5 8.5H2.5v7h4l5.5 5z"/><g class="chime-waves"><path d="M16 8.5a5 5 0 0 1 0 7"/><path d="M19.2 5.2a9.6 9.6 0 0 1 0 13.6"/></g></g><path class="chime-slash" d="M3 3 21 21"/></svg></button>
   <button id="installbtn" type="button" hidden>Install app</button>
   <button id="setbtn" type="button" title="settings" aria-label="settings" aria-haspopup="dialog" aria-expanded="false"><svg width="15" height="15" viewBox="-1 0 15 15" shape-rendering="crispEdges" aria-hidden="true"><path fill="#f89d0f" d="M10 0h2v1h-2zM9 1h4v1h-4zM8 2h5v1h-5zM7 3h5v1h-5zM6 4h6v1h-6zM6 5h5v1h-5zM5 6h5v2h-5zM0 7h1v1h-1zM12 7h1v1h-1zM1 8h1v1h-1zM4 8h5v1h-5zM11 8h1v1h-1zM2 9h9v1h-9zM0 10h1v1h-1zM4 10h5v1h-5zM12 10h1v1h-1zM1 11h5v1h-5zM7 11h5v1h-5zM5 12h1v1h-1zM7 12h1v1h-1zM1 13h4v1h-4zM8 13h4v1h-4zM4 14h1v1h-1zM8 14h1v1h-1z"/><path fill="#0c0b0a" d="M5 8h1v1h-1zM7 8h1v1h-1z"/></svg></button>
 </div>
