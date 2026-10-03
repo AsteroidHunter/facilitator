@@ -9459,7 +9459,7 @@ function paintTicketPane(pane, pool, view, state, laneSig){
     const ttl = h("div", "ttl", b.title);
     inner.appendChild(ttl);
     const meta = h("div", "tmeta");
-    meta.appendChild(h("span", "tage", busy ? spinGlyph(b.id) : s === "done" ? "done" : shortAge(b.agentTs)));
+    meta.appendChild(h("span", "tage", busy ? spinGlyph(b.id, b) : s === "done" ? "done" : shortAge(b.agentTs)));
     // the tag is the lane's live truth, never a stored per-card value
     const ag = state.agents?.[b.owner];
     meta.appendChild(h("span", "teng", ag ? (ag.alive ? ag.name : "offline") : ""));
