@@ -9827,7 +9827,7 @@ document.getElementById("ndown").addEventListener("click", () => nav(0, 1));
 
 {
   const pick = document.getElementById("bgpick");
-  const saved = settingsStore.getItem("bgcolor");
+  const saved = settingsStore.getItem("bgcolor") || globalThis.BOARD_BGCOLOR_DEFAULT;
   if (saved){ document.body.style.setProperty("--paper", saved); pick.value = saved; }
   pick.addEventListener("input", () => {
     document.body.style.setProperty("--paper", pick.value);
