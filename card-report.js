@@ -238,17 +238,22 @@
   // What the phone says about its notifications when it opens or comes back:
   // fixed words and flags only, sent at once rather than at page hide, and held
   // (up to a batch) for the next try when the board does not answer. A board
-  // that refuses the shape is not asked again with it.
+  // that refuses the shape is not asked again with it. A notice made while one
+  // request is out goes in the next request as soon as the board has answered.
   function sendNotices() {
     if (!page || noticeBusy || !notices.length || !plainFetch) return;
     noticeBusy = true;
     const sent = notices.slice(0, BATCH);
+    let answered = false;
     plainFetch("/clientlog", {
       method: "POST", headers: { "content-type": "application/json" },
       body: batchOf(sent), keepalive: true,
     }).then(function (answer) {
-      if (answer.ok || answer.status === 400) notices.splice(0, sent.length);
-    }).catch(function () {}).then(function () { noticeBusy = false; });
+      if (answer.ok || answer.status === 400) { notices.splice(0, sent.length); answered = true; }
+    }).catch(function () {}).then(function () {
+      noticeBusy = false;
+      if (answered) sendNotices();
+    });
   }
 
   window.reportNotice = function (report) {

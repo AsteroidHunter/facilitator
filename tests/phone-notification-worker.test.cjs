@@ -47,10 +47,15 @@ test("two pushes retain their independent titles and targets", async () => {
   ]) {
     await harness.dispatch("push", { data: { json: () => payload } });
   }
-  assert.deepEqual(harness.shown.map(item => JSON.parse(JSON.stringify(item))), [
-    { title: "First card", options: { tag: "facilitator-m101", data: { box: "m101" } } },
-    { title: "Second card", options: { tag: "facilitator-t202", data: { box: "t202" } } },
+  const kept = harness.shown.map(item => JSON.parse(JSON.stringify(item)));
+  assert.deepEqual(kept.map(item => [item.title, item.options.tag, item.options.data.box]), [
+    ["First card", "facilitator-m101", "m101"],
+    ["Second card", "facilitator-t202", "t202"],
   ]);
+  for (const item of kept) {
+    assert.deepEqual(Object.keys(item.options.data), ["box", "shown"]);
+    assert.equal(typeof item.options.data.shown, "number");
+  }
 });
 
 test("a missing or malformed payload safely shows the generic board notification", async () => {
@@ -81,7 +86,11 @@ test("a warm app receives its target even when focus rejects", async () => {
   await harness.dispatch("notificationclick", {
     notification: { data: { box: "t202" }, close() {} },
   });
-  assert.deepEqual(messages.map(message => JSON.parse(JSON.stringify(message))), [{ box: "t202" }]);
+  const [message, ...rest] = messages.map(message => JSON.parse(JSON.stringify(message)));
+  assert.deepEqual(rest, []);
+  assert.deepEqual(Object.keys(message), ["box", "tap"]);
+  assert.equal(message.box, "t202");
+  assert.match(message.tap, /^[0-9a-f]{8}$/);
   assert.deepEqual(harness.opened, []);
 });
 
@@ -95,7 +104,8 @@ test("a cold app opens the exact target and a failed warm delivery falls back to
     await harness.dispatch("notificationclick", {
       notification: { data: { box: "m 7" }, close() {} },
     });
-    assert.deepEqual(harness.opened, ["/m?box=m%207"]);
+    assert.equal(harness.opened.length, 1);
+    assert.match(harness.opened[0], /^\/m\?box=m%207&tap=[0-9a-f]{8}$/);
   }
 });
 
@@ -112,5 +122,6 @@ test("an uncontrolled loading page cannot silently consume the notification targ
     notification: { data: { box: "m303" }, close() {} },
   });
   assert.deepEqual(lost, []);
-  assert.deepEqual(harness.opened, ["/m?box=m303"]);
+  assert.equal(harness.opened.length, 1);
+  assert.match(harness.opened[0], /^\/m\?box=m303&tap=[0-9a-f]{8}$/);
 });

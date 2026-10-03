@@ -93,8 +93,10 @@ const OK = { ok: true, status: 200, json: async () => ({ authenticated: true }) 
 // `clock.now` is the worker's idea of the time, moved by the fake board so a
 // slow check can be told without waiting for one.
 async function loadWorker({ idb = fakeIndexedDB(), net = {}, clock = { now: 1_800_000_000_000 },
-                            noIndexedDB = false, shouldShow = () => {} } = {}) {
+                            noIndexedDB = false, shouldShow = () => {}, random } = {}) {
   const handlers = {};
+  // the windows the worker finds and what opening one does, for a tapped notification
+  const windows = { all: async () => [], open: async () => {}, asked: [], opened: [] };
   const shown = [];
   const calls = [];
   const order = [];
@@ -135,10 +137,16 @@ async function loadWorker({ idb = fakeIndexedDB(), net = {}, clock = { now: 1_80
           shown.push({ title, options: plain(options) });
         },
       },
-      clients: { claim: async () => {}, matchAll: async () => [], openWindow: async () => {} },
+      clients: {
+        claim: async () => {},
+        matchAll: async options => { windows.asked.push(plain(options)); return windows.all(options); },
+        openWindow: async target => { windows.opened.push(target); return windows.open(target); },
+      },
     },
   };
   if (!noIndexedDB) context.indexedDB = idb;
+  // the browser's source of random bytes, when a test wants to choose them
+  if (random) context.crypto = { getRandomValues: bytes => { bytes.set(random); return bytes; } };
   vm.runInNewContext(WORKER_SOURCE, context, { filename: "m-sw.js" });
   const dispatch = async (type, event = {}) => {
     let work;
@@ -148,7 +156,11 @@ async function loadWorker({ idb = fakeIndexedDB(), net = {}, clock = { now: 1_80
   const push = (payload = { box: "m101", title: "First card" }) =>
     dispatch("push", { data: { json: () => payload } });
   const logged = () => calls.filter(call => call.url === "/clientlog").map(call => JSON.parse(call.init.body));
-  return { dispatch, push, shown, calls, order, deadlines, idb, clock, board, logged, handlers };
+  const closed = { n: 0 };
+  const click = (box, notification = {}) => dispatch("notificationclick", {
+    notification: { data: box === undefined ? undefined : { box }, close() { closed.n++; }, ...notification },
+  });
+  return { dispatch, push, click, closed, shown, calls, order, deadlines, idb, clock, board, logged, handlers, windows };
 }
 
 // The page's start-up check, as written in m.html, run against a fake browser.

@@ -196,3 +196,29 @@ test("a notice held when the phone comes back online is sent without waiting for
   await r.settle();
   assert.deepEqual(r.sent.at(-1).body.reports, [{ kind: "notifylost", source: "start", reg: true }]);
 });
+
+test("a notice made while another is out goes in the next request once the board has answered", async () => {
+  const r = reporter();
+  r.context.startReporter("phone");
+  r.context.reportNotice({ kind: "notifycheck", source: "start", perm: "granted", reg: true, sub: "no" });
+  r.context.reportNotice({ kind: "notifylost", source: "start", reg: true });
+  await r.settle();
+  assert.deepEqual(r.sent.map(call => call.body.reports.map(x => x.kind)), [["notifycheck"], ["notifylost"]]);
+  await r.settle();
+  assert.equal(r.sent.length, 2, "a notice the board took was sent again");
+});
+
+test("a board that does not answer is not asked again at once for the notice that waited", async () => {
+  const r = reporter();
+  r.context.startReporter("phone");
+  r.board.answer = "throw";
+  r.context.reportNotice({ kind: "notifycheck", source: "start", perm: "granted", reg: true, sub: "no" });
+  r.context.reportNotice({ kind: "notifylost", source: "start", reg: true });
+  await r.settle();
+  await r.settle();
+  assert.equal(r.sent.length, 1, "the reporter asked again with nothing new to say");
+  r.board.answer = { ok: true, status: 200 };
+  r.windowEvents.online.forEach(fn => fn({}));
+  await r.settle();
+  assert.deepEqual(r.sent.at(-1).body.reports.map(x => x.kind), ["notifycheck", "notifylost"]);
+});
