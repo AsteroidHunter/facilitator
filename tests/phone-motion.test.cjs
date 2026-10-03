@@ -14,6 +14,7 @@ const { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
+const { REST, SINK } = require("./phone-rest-geometry.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
@@ -136,24 +137,32 @@ async function readMenu(page, sel) {
 
 // how far in the page is drawn with a menu the whole way out, and the size it
 // is drawn at for any fraction of the run. the page keeps its place: it only
-// grows a little smaller about its own middle
-const PAGE_SINK = 0.015;
+// grows a little smaller about its own middle. it starts from its resting size,
+// which is already REST of the screen and laid out that way, so the picture is
+// that much of the screen times the drawing back
+const PAGE_SINK = SINK;
 const pageSizeAt = v => 1 - PAGE_SINK * v;
+const pictureAt = v => REST * pageSizeAt(v);
+
+// a laid-out size is a whole number of pixels, so it is off the true one by up to one
+const WHOLE = 1.01;
 
 // the page at one moment of a run: drawn back by exactly what the menu is worth,
-// evenly on all four sides, around the middle of the screen, and laid out at the
-// full size of the screen throughout
+// evenly on all four sides, around the middle of the screen, and laid out at its
+// resting size, a share of the screen's own, throughout
 function assertPageDrewBack(shape, v, where) {
   const want = pageSizeAt(v);
-  if (v === 0) assert.equal(shape.pageScale, 1, `the page did not come back to its full size ${where}`);
+  if (v === 0) assert.equal(shape.pageScale, 1, `the page did not come back to its resting size ${where}`);
   assert.ok(Math.abs(shape.pageScale - want) < 0.0015,
     `the page is not drawn back to ${want.toFixed(4)} ${where} (${shape.pageScale})`);
   assert.equal(shape.pageScale, shape.pageScaleY, `the page drew back unevenly ${where}`);
   assert.equal(shape.pageShift, 0, `the page moved sideways ${where}`);
   assert.equal(shape.pageLift, 0, `the page moved up or down ${where}`);
-  // nothing was laid out again: the page still owns the whole screen
-  assert.equal(shape.pageLayoutWidth, shape.viewportWidth, `the page's laid-out width changed ${where}`);
-  assert.equal(shape.pageLayoutHeight, shape.viewportHeight, `the page's laid-out height changed ${where}`);
+  // nothing was laid out again: the page still owns its resting share of the screen
+  assert.ok(Math.abs(shape.pageLayoutWidth - shape.viewportWidth * REST) <= WHOLE,
+    `the page's laid-out width changed ${where} (${shape.pageLayoutWidth})`);
+  assert.ok(Math.abs(shape.pageLayoutHeight - shape.viewportHeight * REST) <= WHOLE,
+    `the page's laid-out height changed ${where} (${shape.pageLayoutHeight})`);
   // and the picture steps in by the same amount on facing edges, about the middle
   assert.ok(Math.abs(shape.pageLeft - shape.pageRight) < 0.01,
     `the page's side steps differ ${where} (${shape.pageLeft} and ${shape.pageRight})`);
@@ -163,8 +172,8 @@ function assertPageDrewBack(shape, v, where) {
     `the page left the middle of the screen sideways ${where} (${shape.pageMidX})`);
   assert.ok(Math.abs(shape.pageMidY - shape.viewportHeight / 2) < 0.01,
     `the page left the middle of the screen up or down ${where} (${shape.pageMidY})`);
-  const sideStep = shape.viewportWidth * (1 - want) / 2;
-  const endStep = shape.viewportHeight * (1 - want) / 2;
+  const sideStep = shape.viewportWidth * (1 - pictureAt(v)) / 2;
+  const endStep = shape.viewportHeight * (1 - pictureAt(v)) / 2;
   assert.ok(Math.abs(shape.pageLeft - sideStep) < 0.05,
     `the page's side step is not what its size is worth ${where} (${shape.pageLeft} for ${sideStep})`);
   assert.ok(Math.abs(shape.pageTop - endStep) < 0.05,
@@ -282,8 +291,8 @@ async function assertPageStayedCentred(page, where) {
     assert.ok(Math.abs(s.scale - s.scaleY) < 1e-6, `the page drew back unevenly at frame ${i} ${where}`);
     assert.ok(s.scale <= 1 && s.scale >= pageSizeAt(1) - 0.0005,
       `the page left the depth it was given at frame ${i} ${where} (${s.scale})`);
-    assert.equal(s.layoutWidth, s.viewportWidth, `the page's laid-out width changed at frame ${i} ${where}`);
-    assert.equal(s.layoutHeight, s.viewportHeight, `the page's laid-out height changed at frame ${i} ${where}`);
+    assert.ok(Math.abs(s.layoutWidth - s.viewportWidth * REST) <= WHOLE, `the page's laid-out width changed at frame ${i} ${where}`);
+    assert.ok(Math.abs(s.layoutHeight - s.viewportHeight * REST) <= WHOLE, `the page's laid-out height changed at frame ${i} ${where}`);
     assert.ok(Math.abs(s.left - s.right) < 0.01, `the page's side steps parted at frame ${i} ${where}`);
     assert.ok(Math.abs(s.top - s.foot) < 0.01, `the page's top and foot steps parted at frame ${i} ${where}`);
     assert.ok(Math.abs(s.midX - s.viewportWidth / 2) < 0.01, `the page left the middle sideways at frame ${i} ${where}`);
@@ -401,7 +410,7 @@ test("the answer dissolves under the title as it scrolls and into the sent box a
         wrapHeight: Math.round(wrap.getBoundingClientRect().height),
         up: cs.getPropertyValue("--upband").trim(),
         fade: cs.getPropertyValue("--replyfade").trim(),
-        air: cs.getPropertyValue("--replyair").trim(),
+        air: cs.marginBottom,   // --replyair is the answer's margin, and a length only once it is used
         mask: cs.webkitMaskImage,
         composite: cs.webkitMaskComposite || cs.maskComposite,
         runout: getComputedStyle(view, "::after").height,
@@ -411,14 +420,14 @@ test("the answer dissolves under the title as it scrolls and into the sent box a
     });
     assert.equal(rest.wrapPosition, "absolute", "the sent box is not laid over the answer");
     assert.ok(rest.overlap > 40, `the answer does not run on under the box (${rest.overlap})`);
-    assert.equal(rest.fade, "22px", "the ramp is not the desktop's depth");
-    assert.equal(rest.air, "3.5px", "the clear air over the box is not the desktop's");
-    assert.equal(rest.band, rest.wrapHeight + "px", "the ramp's top edge is not the box's top edge");
+    assert.ok(Math.abs(parseFloat(rest.fade) - 22 * REST) < 0.01, `the ramp is not the desktop's depth at the page's size (${rest.fade})`);
+    assert.ok(Math.abs(parseFloat(rest.air) - 3.5 * REST) < 0.01, `the clear air over the box is not the desktop's at the page's size (${rest.air})`);
+    assert.ok(Math.abs(parseFloat(rest.band) - rest.wrapHeight) <= 0.51, "the ramp's top edge is not the box's top edge");
     assert.ok(rest.up === "" || rest.up === "0px", `an answer at rest carries a band under the title (${rest.up})`);
     assert.match(rest.mask, /linear-gradient/, "the answer carries no mask");
     assert.equal(rest.mask.match(/linear-gradient/g).length, 3, "the mask is not the desktop's three layers");
     assert.match(rest.composite, /intersect/);
-    assert.equal(rest.runout, (parseFloat(rest.band) + 22).toFixed(0) + "px", "the scroll's run-out is not the band plus the ramp");
+    assert.ok(Math.abs(parseFloat(rest.runout) - (parseFloat(rest.band) + 22 * REST)) <= 0.51, `the scroll's run-out is not the band plus the ramp (${rest.runout})`);
     assert.equal(rest.padding, "0px", "the run-out is still the scroller's padding and not content");
     assert.equal(rest.scrolls, true, "the answer under test does not scroll");
     await shot(page, "fade-rest");
@@ -438,7 +447,7 @@ test("the answer dissolves under the title as it scrolls and into the sent box a
       return { small: await step(7), deep: await step(400) };
     });
     assert.equal(scrolled.small, "7px", "the band under the title does not follow the scroll");
-    assert.equal(scrolled.deep, "22px", "the band under the title is not capped at the ramp's depth");
+    assert.ok(Math.abs(parseFloat(scrolled.deep) - 22 * REST) < 0.01, `the band under the title is not capped at the ramp's depth (${scrolled.deep})`);
     await shot(page, "fade-scrolled");
     assert.deepEqual(problems, []);
   } finally {
@@ -611,11 +620,15 @@ test("the card list crosses the page on one line, at full strength, over a growi
     assert.equal(out.shift, 0, "the card list did not land against the left edge");
     assert.equal(out.left, 0);
     assertPageDrewBack(out, 1, "with the card list open");
-    assert.equal(out.pageScale, 0.985, "the page did not land on the depth it was given");
-    // about three pixels off each side and six off the top and the foot at this size
-    assert.ok(Math.abs(out.pageWidth - 390 * 0.985) < 0.01, `the open page's picture is not 98.5% of the screen (${out.pageWidth})`);
-    assert.ok(Math.abs(out.pageLeft - 2.925) < 0.01, `the open page does not step in about 3px at the side (${out.pageLeft})`);
-    assert.ok(Math.abs(out.pageTop - 6.33) < 0.01, `the open page does not step in about 6px at the top (${out.pageTop})`);
+    assert.equal(out.pageScale, pageSizeAt(1), "the page did not land on the depth it was given");
+    // the resting step in and then the same step again: about six pixels off each
+    // side and twelve off the top and the foot at this size
+    assert.ok(Math.abs(out.pageWidth - PHONE.width * pictureAt(1)) < 0.05,
+      `the open page's picture is not ${(pictureAt(1) * 100).toFixed(2)}% of the screen (${out.pageWidth})`);
+    assert.ok(Math.abs(out.pageLeft - PHONE.width * (1 - pictureAt(1)) / 2) < 0.05,
+      `the open page does not step in about 6px at the side (${out.pageLeft})`);
+    assert.ok(Math.abs(out.pageTop - PHONE.height * (1 - pictureAt(1)) / 2) < 0.05,
+      `the open page does not step in about 12px at the top (${out.pageTop})`);
     assert.match(out.depthShade, /rgba\(0, 0, 0, 0\.1\) 2px 0px 6px/, "the card list has no close shade under its edge");
     assert.match(out.depthShade, /rgba\(0, 0, 0, 0\.2\) 10px 0px 26px/, "the card list has no wide shade past its edge");
     assert.equal(out.depth, 1, "the shade did not come up to its full weight");

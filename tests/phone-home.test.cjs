@@ -20,6 +20,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
 const { boardState } = require("./phone-board-fixture.cjs");
+const { REST } = require("./phone-rest-geometry.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const read = name => fs.readFileSync(path.join(ROOT, name), "utf8");
@@ -88,7 +89,7 @@ test("the house heads the phone's project list, a row of the list with the board
   const rules = rulesOf(PHONE);
   // the house is a row of the list in every way: nothing of its own in the sheet
   assert.deepEqual(declsFor(rules, "#homeico"), {}, "the house sets something of its own");
-  assert.equal(declsFor(rules, ".projrow")["min-height"], "44px");
+  assert.equal(declsFor(rules, ".projrow")["min-height"], "calc(44 * var(--u))");
 });
 
 test("the home page takes the card's place, holds the heading and the panels and keeps the card as it was", () => {
@@ -113,9 +114,13 @@ test("the home page takes the card's place, holds the heading and the panels and
   // app's margin and the panel's side, with its hairline, reach past the strip
   const edge = Number(/const EDGE = (\d+);\s+\/\/ how far in from an edge a pull may begin/.exec(PHONE)[1]);
   const inset = parseFloat(/--app-inset:([\d.]+)px/.exec(read("card-tokens.css"))[1]);
-  const side = parseFloat(declsFor(rules, "#home .tk-panel")["padding-left"]);
-  assert.equal(declsFor(rules, "#home .tk-panel")["padding-right"], side + "px");
-  assert.ok(inset + side >= edge, `the lane starts ${inset + side}px in, inside the ${edge}px pull strip`);
+  // a page length is written in page pixels, which the page lays out at 1 - sink of a
+  // real pixel; the page itself stands in from the screen's edge by half of sink of its width
+  const sink = parseFloat(/--sink:([\d.]+);/.exec(PHONE)[1]);
+  const side = parseFloat(/^calc\(([\d.]+) \* var\(--u\)\)$/.exec(declsFor(rules, "#home .tk-panel")["padding-left"])[1]);
+  assert.equal(declsFor(rules, "#home .tk-panel")["padding-right"], `calc(${side} * var(--u))`);
+  const lane = (1 - sink) * (inset + side) + IPHONE_13_MINI.width * sink / 2;
+  assert.ok(lane >= edge, `the lane starts ${lane}px in, inside the ${edge}px pull strip`);
   // no new colour in any rule of the house or the home page: the palette is
   // the board's through its variables, and the one literal allowed is the
   // opaque end of a fade, which is a mask and never drawn
@@ -547,8 +552,10 @@ test("on the phone the house in the project list opens home, the pill and the ti
                home: getComputedStyle(document.getElementById("home")).display };
     });
     assert.ok(board.rows >= 2, "the fixture has projects");
-    assert.equal(board.capsule.height, 48, "the capsule is not the bar's 48px");
-    assert.equal(board.capsule.bottom, IPHONE_13_MINI.height - 10, "the capsule is not 10px off the bottom edge");
+    const sink = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sink")));
+    assert.ok(Math.abs(board.capsule.height - 48 * (1 - sink)) < 0.1, "the capsule is not the bar's 48px at rest");
+    assert.ok(Math.abs(IPHONE_13_MINI.height - board.capsule.bottom - (IPHONE_13_MINI.height * sink / 2 + 10 * (1 - sink))) < 0.1,
+      "the capsule is not 10px off the bottom edge at rest");
     assert.notEqual(board.name, "Home");
     assert.equal(board.open, false);
     assert.equal(board.first, "homeico", "the house does not head the list");
@@ -630,9 +637,10 @@ test("on the phone the house in the project list opens home, the pill and the ti
     const stackBottom = home.limitsBottom ?? home.panel.bottom;
     assert.ok(Math.abs((home.brand.top - home.page.top) - (home.page.bottom - stackBottom)) <= 5,
               JSON.stringify({ page: home.page, brand: home.brand, stackBottom }));
-    // the chart is drawn to the view's height, 200 here, never stretched, and
-    // scrolls sideways, opening on the latest weeks, clear of the menus' strips
-    assert.equal(home.view.bottom - home.view.top, 200);
+    // the chart is drawn to the view's height, 200 here at the page's size, never
+    // stretched, and scrolls sideways, opening on the latest weeks, clear of the menus' strips
+    assert.ok(Math.abs(home.view.bottom - home.view.top - 200 * REST) < 0.1,
+      `the chart's view is ${home.view.bottom - home.view.top} high, not ${200 * REST}`);
     assert.equal(home.chartWidth, home.expected.width);
     assert.ok(home.chartWidth > home.lane.right - home.lane.left, "the year is wider than the screen, so it scrolls");
     assert.ok(home.atLatest, "the heatmap opens on its latest weeks");

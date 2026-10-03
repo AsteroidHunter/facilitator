@@ -15,6 +15,7 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
 const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
+const { REST } = require("./phone-rest-geometry.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
@@ -369,7 +370,10 @@ test("the marks and the spinner are named once, in the sheet, and never again on
   assert.doesNotMatch(css, /--cardspin-s:\s*var\(/, "the spinner's size is tied to another size");
   for (const name of ["index.html", "m.html"]) {
     const html = await readFile(path.join(ROOT, name), "utf8");
-    assert.doesNotMatch(html, /--(bar-mark|cardspin-s|cross-t|cross-weight)\s*:/, `${name} sets one of the shared sizes itself`);
+    // the phone page may draw the shared sizes at the rest scale, from the sheet's own number, and no more
+    const own = html.replace(/--(bar-mark|cardspin-s):calc\(var\(--full-\1\) \* var\(--rest\)\);/g, "")
+      .replace(/--cross-t:calc\(var\(--bar-mark\) \* var\(--cross-weight\)\);/g, "");
+    assert.doesNotMatch(own, /--(bar-mark|cardspin-s|cross-t|cross-weight)\s*:/, `${name} sets one of the shared sizes itself`);
     assert.doesNotMatch(html, /\.cardspin\s*[{,:]/, `${name} carries a rule for the spinner of its own`);
     assert.doesNotMatch(html, /histrun/, `${name} still has the run the spinner once stood in`);
     assert.match(html, /:is\(\.arcbtn, \.sunbtn\) svg\{width:var\(--bar-mark\); height:var\(--bar-mark\)\}/, `${name}: the sun and the moon are not sized by the mark size`);
@@ -400,7 +404,9 @@ for (const kind of ["desktop", "phone"]) {
     const { page, problems } = await openCard(kind, id);
     await seatIs(page, id, true);
     await settle(400);
-    const near = (a, b) => Math.abs(a - b) <= 0.01;
+    // the phone lays out at rest scale, so its marks stand REST of the design size
+    const rest = kind === "phone" ? REST : 1, MARK = 10 * rest, SPIN = 11 * rest;
+    const near = (a, b) => Math.abs(a - b) <= 0.02;
     const measure = async what => {
       const bar = await page.evaluate(readBar);
       assert.equal(bar.hasRun, false, `${what}: the spinner stands in a run after the arrows`);
@@ -410,15 +416,15 @@ for (const kind of ["desktop", "phone"]) {
         assert.ok(near(width, bar.named.square) && near(height, bar.named.square),
           `${what}: a square is ${width} by ${height}, not the named ${bar.named.square}`);
       }
-      assert.equal(bar.named.mark, 10, `${what}: the named mark size is ${bar.named.mark}`);
-      assert.equal(bar.named.spinner, 11, `${what}: the named spinner size is ${bar.named.spinner}`);
-      assert.ok(near(bar.markWidth, 10) && near(bar.markHeight, 10), `${what}: the sun's mark is ${bar.markWidth} by ${bar.markHeight}`);
-      assert.ok(near(bar.moonWidth, 10) && near(bar.moonHeight, 10), `${what}: the moon is ${bar.moonWidth} by ${bar.moonHeight}`);
-      assert.ok(near(bar.crossLength, 10), `${what}: the cross is ${bar.crossLength} long`);
+      assert.ok(near(bar.named.mark, MARK), `${what}: the named mark size is ${bar.named.mark}`);
+      assert.ok(near(bar.named.spinner, SPIN), `${what}: the named spinner size is ${bar.named.spinner}`);
+      assert.ok(near(bar.markWidth, MARK) && near(bar.markHeight, MARK), `${what}: the sun's mark is ${bar.markWidth} by ${bar.markHeight}`);
+      assert.ok(near(bar.moonWidth, MARK) && near(bar.moonHeight, MARK), `${what}: the moon is ${bar.moonWidth} by ${bar.moonHeight}`);
+      assert.ok(near(bar.crossLength, MARK), `${what}: the cross is ${bar.crossLength} long`);
       assert.ok(Math.abs(bar.crossThickness / bar.crossLength - 1.2 / 9) <= 0.001,
         `${what}: the cross is ${bar.crossThickness} thick over ${bar.crossLength}, not the proportion it had`);
-      assert.ok(near(bar.spinnerWidth, 11) && near(bar.spinnerHeight, 11) && near(bar.spinnerFont, 11),
-        `${what}: the spinner is ${bar.spinnerWidth} by ${bar.spinnerHeight} in ${bar.spinnerFont}px type, not 11`);
+      assert.ok(near(bar.spinnerWidth, SPIN) && near(bar.spinnerHeight, SPIN) && near(bar.spinnerFont, SPIN),
+        `${what}: the spinner is ${bar.spinnerWidth} by ${bar.spinnerHeight} in ${bar.spinnerFont}px type, not ${SPIN}`);
       assert.ok(Math.abs(bar.seatOffset[0]) <= 0.01 && Math.abs(bar.seatOffset[1]) <= 0.01,
         `${what}: the spinner's centre is ${bar.seatOffset} off the sun's mark`);
       assert.ok(bar.inSun, `${what}: the spinner is not inside the sun's square`);

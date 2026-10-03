@@ -122,17 +122,23 @@ test("the row's shape: two circles at the ends, the long capsule, the short plus
         radius: cs.borderTopLeftRadius, glass: cs.backdropFilter || cs.webkitBackdropFilter };
     }));
     const [ticket, capsule, plus, gear] = shape;
+    // at rest the page stands in half of --sink of each side from the screen's
+    // edge and is laid out at 1 - sink of its full size
+    const sink = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sink")));
+    assert.ok(sink > 0 && sink < 0.05, `the page's rest step is not a small share (${sink})`);
+    const rest = 1 - sink, stepX = IPHONE_13_MINI.width * sink / 2, stepY = IPHONE_13_MINI.height * sink / 2;
+    const near = (actual, expected, what) => assert.ok(Math.abs(actual - expected) < 0.1, `${what}: ${actual} is not ${expected}`);
     for (const b of shape){
-      assert.equal(b.height, 48, `${b.id} is not the bar's 48px`);
-      assert.equal(b.bottom, IPHONE_13_MINI.height - 10, `${b.id} is not 10px off the bottom edge`);
-      assert.equal(b.radius, "24px", `${b.id} is not round at its ends`);
+      near(b.height, 48 * rest, `${b.id} is not the bar's 48px at rest`);
+      near(IPHONE_13_MINI.height - b.bottom, stepY + 10 * rest, `${b.id} is not 10px off the bottom edge at rest`);
+      near(parseFloat(b.radius), 24 * rest, `${b.id} is not round at its ends`);
       assert.match(b.glass, /blur\(15px\)/, `${b.id} is not the board's glass`);
     }
-    assert.equal(ticket.left, 16, "the row does not start 16px in");
-    assert.equal(gear.right, IPHONE_13_MINI.width - 16, "the row does not end 16px in");
-    assert.equal(ticket.width, 48, "the ticket is not a circle");
-    assert.equal(gear.width, 48, "the gear is not a circle");
-    assert.ok(plus.width > 48 && plus.width < capsule.width, "the plus is not an oval shorter than the capsule");
+    near(ticket.left, stepX + 16 * rest, "the row does not start 16px in at rest");
+    near(IPHONE_13_MINI.width - gear.right, stepX + 16 * rest, "the row does not end 16px in at rest");
+    near(ticket.width, 48 * rest, "the ticket is not a circle");
+    near(gear.width, 48 * rest, "the gear is not a circle");
+    assert.ok(plus.width > 48 * rest && plus.width < capsule.width, "the plus is not an oval shorter than the capsule");
     assert.ok(capsule.width / capsule.height > 2.5, "the capsule is not the long oval");
     assert.ok(plus.width / plus.height < 2, "the plus is as long as the capsule");
     assert.deepEqual(problems, []);

@@ -18,6 +18,7 @@ const { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
+const { restAt } = require("./phone-rest-geometry.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
@@ -25,11 +26,16 @@ const CHROME = process.env.CHROME_PATH ||
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
 const KEYBOARD = 336;          // an iPhone keyboard with its accessory bar, in css px
 const ACCESSORY = 54;          // a small reported obstruction, such as a hardware-keyboard accessory strip
-const INSET = 6;               // --app-inset, the card's thin margin from an edge
-// the row of buttons' band, 10 + 48 + 10: the card's foot stands on it at rest,
-// so a keyboard lifts the foot by its height less the band, plus the thin gap
-const BAND = 68;
+// at rest the page stands in from each screen edge and is laid out at REST of
+// full size, so these figures are the full-size ones carried by that
+const AT = restAt(PHONE.width, PHONE.height);
+const INSET = AT.inset;        // --app-inset, the card's thin margin from an edge
+// the row of buttons' band, 10 + 48 + 10 and the step in: the card's foot stands
+// on it at rest, so a keyboard lifts the foot by its height less the band, plus
+// the thin gap
+const BAND = AT.band;
 const LIFT = KEYBOARD + INSET - BAND;
+const WHOLE = 1.01;            // what a figure taken from offsets or rounded heights can be off by
 const SEL = "article.box.sel textarea";
 
 let browser, child, fixtureDir, origin;
@@ -51,6 +57,10 @@ async function create(title) {
   return result.body.id;
 }
 async function settle(ms = 250) { await new Promise(resolve => setTimeout(resolve, ms)); }
+// a length at rest is fractional, and a rounded one can be off by up to a pixel
+function near(actual, expected, message, tolerance = 0.1) {
+  assert.ok(Math.abs(actual - expected) <= tolerance, `${message} (${actual}, not ${expected})`);
+}
 
 // the stand-in visual viewport the tests move, since headless chrome cannot raise
 // a keyboard; set(height, offsetTop) is one keyboard report, a resize and a scroll
@@ -278,10 +288,11 @@ test("the card keeps the keyboard's room under its own foot, and nothing above i
   // the reachability padding went with the lift it answered: an answer whose top
   // never moves needs nothing given back, and the padding drew as a blank band
   assert.doesNotMatch(sheet, /--lift-pad/, "the answer still takes a lift's reachability padding");
-  // the lift distance: the resting clearance less the gap less the keyboard
-  // inset, floored at nothing so the rise can never come out a fall
-  assert.match(sheet, /--kb-lift:min\(0px, calc\(var\(--pad-b\)\s*-\s*var\(--kb-gap\)\s*-\s*var\(--kb-inset\)\)\)/,
-    "the lift distance is not the resting clearance less the gap less the inset, floored at nothing");
+  // the lift distance: the resting clearance, with the page's own step in from
+  // the screen's foot, less the gap less the keyboard inset, floored at nothing
+  // so the rise can never come out a fall
+  assert.match(sheet, /--kb-lift:min\(0px, calc\(var\(--pad-b\)\s*\+\s*var\(--shell-h\)\s*\*\s*var\(--sink\)\s*\/\s*2\s*-\s*var\(--kb-gap\)\s*-\s*var\(--kb-inset\)\)\)/,
+    "the lift distance is not the resting clearance and the step in less the gap less the inset, floored at nothing");
   // the page's own bottom padding still never grows with the keyboard: the room
   // is the card's, so the strip and the page under it are left alone
   assert.doesNotMatch(sheet, /body\.obstructed[^{]*#page\{[^}]*--pad-b:/,
@@ -323,8 +334,7 @@ test("the keyboard raises the card's bottom edge and the typing row, and nothing
     assert.ok(Math.abs(rose - LIFT) <= 2, `the typing row rose ${rose}, not the keyboard's ${KEYBOARD} less the band`);
     // the card's own bottom edge comes up with the row it carries, so the row
     // sits on the keyboard with the card's edge just under it
-    assert.equal(Math.round(rest.cardBottom - up.cardBottom), rose,
-      "the card's bottom edge did not rise with the typing row");
+    near(rest.cardBottom - up.cardBottom, rose, "the card's bottom edge did not rise with the typing row", WHOLE);
     // and nothing above that edge moves: the card keeps its top edge under the
     // status bar, and the title bar never leaves
     for (const key of ["cardTop", "titleBarTop", "titleBarBottom"]) {
@@ -334,9 +344,9 @@ test("the keyboard raises the card's bottom edge and the typing row, and nothing
       `the title bar (${up.titleBarBottom}) is below the visible viewport (${up.visible})`);
     // what gives is the answer between them: it is shorter by exactly the rise,
     // and it keeps every word by handing the loss to its own scroll
-    assert.equal(Math.round(rest.answer - up.answer), rose, "the answer did not shorten by the keyboard's rise");
+    near(rest.answer - up.answer, rose, "the answer did not shorten by the keyboard's rise", WHOLE);
     assert.equal(up.answerPad, "0px", "the answer took top padding, which reads as a blank band under the title");
-    assert.equal(up.answerTravel, rest.answerTravel + rose, "the shortened answer did not gain the travel it lost");
+    near(up.answerTravel, rest.answerTravel + rose, "the shortened answer did not gain the travel it lost", 2 * WHOLE);
 
     await page.evaluate(() => document.activeElement && document.activeElement.blur());
     await settle(60);
@@ -432,10 +442,10 @@ test("the close starts at focus loss and leaves no residue", async () => {
     assert.equal(down.lifting, false, "the settle window did not close");
     assert.equal(down.kbInset, "0px", "the keyboard inset was left on after the close");
     assert.equal(down.paneRoom, "0px", "the card kept the keyboard's room after the close");
-    assert.equal(down.answer, up.answer + LIFT, "the answer did not get its height back after the close");
+    near(down.answer, up.answer + LIFT, "the answer did not get its height back after the close", WHOLE);
     assert.equal(down.winX, 0, "a window scroll was left after the close");
     assert.equal(down.winY, 0, "a window scroll was left after the close");
-    assert.equal(down.foot, PHONE.height - BAND, "the card foot moved across the close");
+    near(down.foot, PHONE.height - BAND, "the card foot moved across the close");
     assert.ok(down.rowBottom > PHONE.height - KEYBOARD, "the composer did not come back down");
     assert.deepEqual(problems, []);
   } finally {
@@ -471,7 +481,7 @@ test("repeated keyboard cycles keep the answer's place and accumulate nothing", 
     assert.equal(after.paneRoom, "0px", "the keyboard's room accumulated across cycles");
     assert.equal(after.winX, 0);
     assert.equal(after.winY, 0);
-    assert.equal(after.foot, PHONE.height - BAND, "the card foot drifted across cycles");
+    near(after.foot, PHONE.height - BAND, "the card foot drifted across cycles");
     assert.ok(Math.abs(after.replyScroll - place) <= 1, `the answer's place drifted to ${after.replyScroll} from ${place}`);
     assert.deepEqual(problems, []);
   } finally {
@@ -494,7 +504,7 @@ test("the accessory strip going while the field stays focused leaves the compose
     // the strip is inside the row of buttons' band: the composer already stands
     // over it and does not move for it
     assert.ok(up.rowBottom <= PHONE.height - BAND, "the composer is not over the band the strip takes");
-    assert.equal(up.foot, PHONE.height - BAND, "the card foot moved for a strip inside the band");
+    near(up.foot, PHONE.height - BAND, "the card foot moved for a strip inside the band");
     assert.equal(await page.evaluate(() => editing()), true, "the field was not focused for the accessory test");
     // the strip goes but the field keeps its focus, the way a hardware keyboard leaves it
     await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height);
@@ -503,7 +513,7 @@ test("the accessory strip going while the field stays focused leaves the compose
     assert.equal(down.obstructed, false, "the card stayed obstructed after the strip went");
     assert.equal(down.kbInset, "0px", "the inset was left on after the strip went");
     assert.equal(down.paneRoom, "0px", "the card kept the strip's room after the strip went");
-    assert.equal(down.foot, PHONE.height - BAND, "the card foot moved after the strip went");
+    near(down.foot, PHONE.height - BAND, "the card foot moved after the strip went");
     assert.equal(down.rowBottom, up.rowBottom, "the composer moved when the strip went");
     assert.equal(await page.evaluate(() => editing()), true, "the field lost focus when only the strip went");
     assert.deepEqual(problems, []);

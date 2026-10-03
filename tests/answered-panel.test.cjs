@@ -875,6 +875,13 @@ function rule(css, selector) {
   assert.ok(at >= 0, `no rule for ${selector}`);
   return css.slice(at, css.indexOf("}", at) + 1);
 }
+// a design length a surface sets, as plain px on the desktop and as n of the
+// page's own pixel (--u) on the phone
+function designLength(body, name) {
+  const found = new RegExp(name + ":(?:calc\\(([\\d.]+) \\* var\\(--u\\)\\)|([\\d.]+)px)").exec(body);
+  assert.ok(found, `${name} is not a length`);
+  return parseFloat(found[1] || found[2]);
+}
 // every rule a selector opens, the last selector of a list included
 function rules(css, selector) {
   const out = [];
@@ -944,8 +951,8 @@ test("the sheet runs the fold on the old box's length and curve, turns the arrow
       ["the small card", DESKTOP, "  #magic2 .mbox", 24], ["the phone card", PHONE, "  .box", 32]]) {
     const at = css.indexOf("\n" + selector + "{\n    --answ-font:");
     const body = css.slice(at, css.indexOf("}", at));
-    const air = parseFloat(/--answ-pad-y:([\d.]+)px/.exec(body)[1]);
-    const got = parseFloat((/--answ-strip:([\d.]+)px/.exec(body) || [])[1]);
+    const air = designLength(body, "--answ-pad-y");
+    const got = designLength(body, "--answ-strip");
     assert.equal(got, strip, `${where}'s strip is not ${strip}px`);
     assert.ok(got > air, `${where}'s strip is no taller than the air it replaces`);
     assert.ok((got - 7) / 2 >= 8, `${where}'s arrow has under 8px clear over and under it`);
@@ -971,9 +978,9 @@ test("each surface types the panel's measures and seats it in the answer's colum
     for (const name of measures) assert.ok(body.includes(name + ":"), `${where} leaves ${name} unset`);
     assert.match(body, /var\(--inter\)/, `${where} does not set the panel in the title's face`);
     // the cut and its dissolve are counted in the surface's own line
-    const line = /--answ-line:([\d.]+)px/.exec(body)[1];
+    const line = String(designLength(body, "--answ-line"));
     for (const name of ["--answ-peek", "--answ-fade"])
-      assert.match(body, new RegExp(name + ":calc\\(" + line.replace(".", "\\.") + "px \\* "),
+      assert.match(body, new RegExp(name + ":calc\\(" + line.replace(".", "\\.") + "(?:px| \\* var\\(--u\\)) \\* "),
         `${where}'s ${name} is not counted in its own ${line}px line`);
   }
   // the large card's seat stands in the answer's own column on both pages
@@ -1789,7 +1796,7 @@ test("the panel's list is the board's reading: a note's messages first, read, th
   assert.match(rule(TOKENS, ".answered[data-mark]"), /margin-bottom:var\(--answ-tag\)/);
   const mark = rule(TOKENS, ".answered[data-mark]::after");
   assert.match(mark, /content:attr\(data-mark\); position:absolute; top:100%; right:var\(--answ-round\);/);
-  assert.match(mark, /font:10\.5px\/1\.35 var\(--mono\); color:var\(--sub\);/);
+  assert.match(mark, /font:calc\(10\.5 \* var\(--u\)\)\/1\.35 var\(--mono\); color:var\(--sub\);/);
   assert.match(mark, /pointer-events:none/);
 });
 

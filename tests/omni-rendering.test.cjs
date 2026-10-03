@@ -37,9 +37,13 @@ for (const [name, size, open] of [["index.html", "17.5px", ["body.focus .box.sel
       `${name} lets a poll write the title over a running sweep`);
     assert.match(html, /omniCardTitle\(b\.title\)[\s\S]{0,400}syncOmniCard\(el, b\)/);
     // the art is one em of the title's own font size, at its natural width
-    assert.match(html, new RegExp(`\\.title\\{[^}]*font:625 ${size.replace(".", "\\.")}/1\\.25`));
+    // (the phone draws its size in the page's own pixel, and keeps its line at whole pixels)
+    const plain = size.replace(".", "\\.");
+    const sized = name === "m.html" ? `calc\\(${plain.replace("px", "")} \\* var\\(--u\\)\\)` : plain;
+    const line = name === "m.html" ? `calc\\(1\\.25 \\* ${plain}\\)` : "1\\.25";
+    assert.match(html, new RegExp(`\\.title\\{[^}]*font:625 ${sized}/${line}`));
     const art = /\.omni-card-art\{([^}]*)\}/.exec(html)[1];
-    assert.match(art, new RegExp(`font-size:${size.replace(".", "\\.")}`));
+    assert.match(art, new RegExp(`font-size:${sized}`));
     assert.match(art, /width:auto; height:1em/);
     assert.doesNotMatch(art, /height:(44|66)px/);
     if (open){
@@ -57,7 +61,9 @@ for (const [name, size, open] of [["index.html", "17.5px", ["body.focus .box.sel
     assert.match(layer("before"), /mix-blend-mode:multiply;[\s\S]*radial-gradient\(circle at var\(--omni-x\) var\(--omni-y\)[\s\S]*linear-gradient\(var\(--omni-dir\)/);
     assert.match(layer("after"), /mix-blend-mode:screen;[\s\S]*radial-gradient\(circle at var\(--omni-x\) var\(--omni-y\)[\s\S]*linear-gradient\(var\(--omni-dir\)/);
     // a card lays the light corner to corner; a row at 45 degrees with a smaller sun
-    assert.match(sweep, /--omni-dir:to top right; --omni-sun:160px; --omni-core:50px;/);
+    assert.match(sweep, name === "m.html"
+      ? /--omni-dir:to top right; --omni-sun:calc\(160 \* var\(--u\)\); --omni-core:calc\(50 \* var\(--u\)\);/
+      : /--omni-dir:to top right; --omni-sun:160px; --omni-core:50px;/);
     assert.match(html, /\.trow > \.omni-sweep\{--omni-dir:45deg; --omni-sun:56px; --omni-core:18px\}/);
     // less yellow: every colour in the light, the working shine and the glint's
     // edge is white with at most a trace of warmth, red over blue by no more than 25

@@ -18,7 +18,11 @@ const { launch } = require("./resp-harness.cjs");
 const ROOT = path.resolve(__dirname, "..");
 const read = name => fs.readFileSync(path.join(ROOT, name), "utf8");
 const WIDGETS = read("home-widgets.js");
-const SHEET = read("home-widgets.css");
+// the sheet draws each length in --u, which the board leaves at 1px, so on the board
+// calc(N * var(--u, 1px)) is N px: the tests read the board's lengths as plain px
+const plainPx = css => css.replace(/calc\(([\d.]+) \* var\(--u, 1px\)\)/g, "$1px")
+  .replace(/([\d.]+) \* var\(--u, 1px\)/g, "$1px");
+const SHEET = plainPx(read("home-widgets.css"));
 const BOARD = read("index.html");
 const PHONE = read("m.html");
 const settle = async () => { for (let i = 0; i < 6; i++) await new Promise(r => setImmediate(r)); };
@@ -418,8 +422,8 @@ test("the board's rule draws a thin line down the middle of the frame, 70% of it
 test("the phone's rule puts it directly under the token panel", () => {
   assert.match(PHONE, /<section id="home" aria-label="Home">[\s\S]*?<div id="homeplot"><\/div><div id="homelimits" hidden><\/div>\s*<\/div><\/section>/);
   const rules = rulesOf(styleBlocks(PHONE));
-  assert.equal(declsFor(rules, "#home #homelimits")["margin-top"], "8px");
-  assert.equal(declsFor(rules, "#home .tk-panel")["padding-left"], "22px", "the same sides as the token panel's");
+  assert.equal(declsFor(rules, "#home #homelimits")["margin-top"], "calc(8 * var(--u))");
+  assert.equal(declsFor(rules, "#home .tk-panel")["padding-left"], "calc(22 * var(--u))", "the same sides as the token panel's");
 });
 
 // ---- where it stands in a browser ------------------------------------------------------------

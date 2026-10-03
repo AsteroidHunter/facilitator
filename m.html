@@ -37,9 +37,24 @@
        on every side of a phone with a notch too. --pad-x is the card pane's
        side padding, and the title and the answer step in from it by the same
        thirds the desktop uses */
-    --pad-x:18px;
-    --sp-xs:4px; --sp-s:8px; --sp-x:10px;
-    --titleair:calc(var(--pad-x)*2/3);
+    /* the page's depth at rest. --sink is the share of its own size the page
+       gives up on each axis, half of it from each side, and --rest is what it
+       keeps. the page is laid out at that size, so every length on it is
+       --rest of its full size and its type is drawn at its own size, not
+       scaled down. --rest-gap is how far each edge steps in, a share of the
+       screen's own width and height, so it is the same picture on every phone.
+       a menu coming out draws the page back by the same step again
+       (--page-scale, below) */
+    --sink:.015;
+    --rest:calc(1 - var(--sink));
+    --rest-gap:calc(var(--sink) / 2 * 100%);
+    /* the shared tokens the page measures from, under a second name: the page
+       declares the first name again at its own size, and a token cannot be
+       declared from itself */
+    --full-app-inset:var(--app-inset); --full-cardbar-h:var(--cardbar-h);
+    --full-sq:var(--sq); --full-row-min:var(--row-min); --full-sbar:var(--sbar);
+    --full-hist-glyph-w:var(--hist-glyph-w); --full-hist-glyph-h:var(--hist-glyph-h);
+    --full-bar-mark:var(--bar-mark); --full-cardspin-s:var(--cardspin-s);
     /* the menus' motion, taken from the drawer this page's menus are drawn
        from: one run of 550ms, an ease in and out on a tap and an ease out on
        the release of a drag, so a drag that is already moving is not asked to
@@ -53,11 +68,45 @@
        bar a paired keyboard brings up: a 48px pill whose foot is 10px off the
        screen's bottom edge, 16px in from each side, 20px on the two widest
        phones. --dock-band is the whole band that bar takes from the page, the
-       pill and the 10px over and under it, and the card's foot stands on it */
-    --dock-h:48px; --dock-foot:10px; --dock-side:16px; --dock-gap:8px;
+       pill and the 10px over and under it, and the card's foot stands on it. the
+       figures are full size; the page keeps --rest of them */
+  }
+  /* the board's own measures, as lengths in --u, one pixel of the page. on the
+     page and the project list, which stand at --rest of full size, --u is
+     --rest of a real pixel; everywhere else, the menus included, it is a real
+     pixel. the measures are declared again on the page and the list because a
+     custom property keeps the value it was worked out to where it was
+     declared, and does not follow the --u of an element below it */
+  :root, #page, #projmenu{
+    --pad-x:calc(18 * var(--u));
+    --sp-xs:calc(4 * var(--u)); --sp-s:calc(8 * var(--u)); --sp-x:calc(10 * var(--u));
+    --titleair:calc(var(--pad-x)*2/3);
+    --dock-h:calc(48 * var(--u)); --dock-foot:calc(10 * var(--u));
+    --dock-side:calc(16 * var(--u)); --dock-gap:calc(8 * var(--u));
     --dock-band:calc(var(--dock-h) + 2 * var(--dock-foot));
   }
-  @media (min-width:420px){ :root{--dock-side:20px} }
+  @media (min-width:420px){ :root, #page, #projmenu{--dock-side:calc(20 * var(--u))} }
+  /* the page and the list lay the shared tokens out at --rest of full size.
+     a line is laid out at a whole number of pixels, its height rounded down, so
+     type set at --rest of its size with its ratio unchanged would lose most of a
+     pixel on every line. --ln gives each ratio the share back, so a line is the
+     whole-pixel height it has at full size, and the lengths that state a line's
+     height outright state it in real pixels */
+  #page, #projmenu{
+    --u:calc(1px * var(--rest));
+    --ln:calc(1 / var(--rest));
+    font-size:calc(15 * var(--u)); line-height:calc(1.55 * var(--ln));
+    --app-inset:calc(var(--full-app-inset) * var(--rest));
+    --cardbar-h:calc(var(--full-cardbar-h) * var(--rest));
+    --sq:calc(var(--full-sq) * var(--rest));
+    --row-min:calc(var(--full-row-min) * var(--rest));
+    --sbar:calc(var(--full-sbar) * var(--rest));
+    --hist-glyph-w:calc(var(--full-hist-glyph-w) * var(--rest));
+    --hist-glyph-h:calc(var(--full-hist-glyph-h) * var(--rest));
+    --bar-mark:calc(var(--full-bar-mark) * var(--rest));
+    --cardspin-s:calc(var(--full-cardspin-s) * var(--rest));
+    --cross-t:calc(var(--bar-mark) * var(--cross-weight));
+  }
   *{box-sizing:border-box}
   /* Height follows the containing block, not a viewport unit. The two are not
      always the same box, and a column taken from the longer one overhangs the
@@ -90,14 +139,16 @@
   ::selection{background:#000; color:#fff}
   /* the page: the card and the row of buttons under it, on the paper, as one
      surface. both menus cross over it, with the shade between them and it, and
-     the surface itself draws back a little while either one is out */
+     the surface itself draws back a little while either one is out. at rest it
+     already stands --rest-gap in from each edge, laid out at --rest of full
+     size, and a menu draws it back from there */
   #page{
-    position:absolute; inset:0; z-index:10;
+    position:absolute; inset:var(--rest-gap); z-index:10;
     display:flex; flex-direction:column; overflow:hidden;
-    padding:calc(env(safe-area-inset-top, 0px) + var(--app-inset))
-            calc(env(safe-area-inset-right, 0px) + var(--app-inset))
+    padding:calc(var(--rest) * env(safe-area-inset-top, 0px) + var(--app-inset))
+            calc(var(--rest) * env(safe-area-inset-right, 0px) + var(--app-inset))
             var(--pad-b)
-            calc(env(safe-area-inset-left, 0px) + var(--app-inset));
+            calc(var(--rest) * env(safe-area-inset-left, 0px) + var(--app-inset));
     -webkit-tap-highlight-color:transparent;
     /* the foot's clearance. at rest it is the band the row of buttons stands
        in, which covers the home indicator's safe area too. while an editor is
@@ -125,9 +176,10 @@
        towards the middle of the screen, by the same fraction the menu's travel
        and its shade are worth, so the card reads as a stage set back rather
        than as something pushed aside. it goes nowhere sideways and nothing is
-       laid out again: the page keeps the screen's width and height and only
-       its picture is drawn smaller, from its own middle, so every edge steps
-       in by the same amount. --page-scale is written by the script and is
+       laid out again: the page keeps the size it rests at and only its
+       picture is drawn smaller, from its own middle, so every edge steps in
+       by the same amount, --sink of the page's size, on top of the step it
+       already stands in at rest. --page-scale is written by the script and is
        exactly 1 with both menus shut */
     --page-scale:1;
     transform:scale(var(--page-scale));
@@ -144,8 +196,11 @@
      focus loss while the pane is still held for the close's settle window, and
      the bare arithmetic there is the resting clearance itself: the foot would
      travel that far BELOW where it rests, and spring back up the moment the hold
-     ended, which is one motion made into three */
-  body.obstructed #page, body.lifting #page{--kb-lift:min(0px, calc(var(--pad-b) - var(--kb-gap) - var(--kb-inset)))}
+     ended, which is one motion made into three. the page's own foot stands
+     --rest-gap above the screen's, a share of the box's height, and that is
+     added to the resting clearance, since the card's foot stands that much
+     further up from the screen's edge than the clearance alone puts it */
+  body.obstructed #page, body.lifting #page{--kb-lift:min(0px, calc(var(--pad-b) + var(--shell-h) * var(--sink) / 2 - var(--kb-gap) - var(--kb-inset)))}
   body.kb #page{--kb-gap:var(--app-inset)}
   /* the box while the viewport is obstructed, and through the close's settle window.
      the top follows the visual viewport, for the phone that slides the layout
@@ -199,8 +254,8 @@
      the band is its own and it is not moved at all */
   #dock{
     position:absolute; z-index:2; display:flex; gap:var(--dock-gap);
-    left:max(var(--dock-side), env(safe-area-inset-left, 0px));
-    right:max(var(--dock-side), env(safe-area-inset-right, 0px));
+    left:max(var(--dock-side), calc(var(--rest) * env(safe-area-inset-left, 0px)));
+    right:max(var(--dock-side), calc(var(--rest) * env(safe-area-inset-right, 0px)));
     bottom:var(--dock-foot); height:var(--dock-h);
     -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
     transform:translateY(calc(-1 * var(--dock-rise, 0px)));
@@ -251,8 +306,8 @@
     transition:transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
   /* the open project's name, or Home, centred, cut short with an ellipsis, and
      beside it the mark of a list */
-  #dock #projbtn{flex:1 1 auto; min-width:0; gap:6px; padding:0 16px;
-    font:500 15px/1.2 var(--sans)}
+  #dock #projbtn{flex:1 1 auto; min-width:0; gap:calc(6 * var(--u)); padding:0 calc(16 * var(--u));
+    font:500 calc(15 * var(--u))/1.2 var(--sans)}
   #projname{flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
   #projbtn .updown{color:var(--sub)}
   /* the capsule's press reaches a little further than the others', the grow
@@ -278,11 +333,11 @@
     transition:opacity .16s ease-out, visibility 0s}
   #projmenu{
     position:fixed; z-index:25; box-sizing:border-box;
-    left:calc(max(var(--dock-side), env(safe-area-inset-left, 0px)) + var(--dock-h) + var(--dock-gap));
-    right:calc(max(var(--dock-side), env(safe-area-inset-right, 0px)) + var(--dock-h) + var(--dock-gap));
-    bottom:calc(var(--dock-foot) + var(--dock-h) + 10px);
-    max-height:calc(100% - env(safe-area-inset-top, 0px) - var(--dock-band) - 24px);
-    display:flex; flex-direction:column; padding:6px; border-radius:22px;
+    left:calc(var(--rest-gap) + max(var(--dock-side), calc(var(--rest) * env(safe-area-inset-left, 0px))) + var(--dock-h) + var(--dock-gap));
+    right:calc(var(--rest-gap) + max(var(--dock-side), calc(var(--rest) * env(safe-area-inset-right, 0px))) + var(--dock-h) + var(--dock-gap));
+    bottom:calc(var(--rest-gap) + var(--dock-foot) + var(--dock-h) + 10 * var(--u));
+    max-height:calc(100% - 2 * var(--rest-gap) - var(--rest) * env(safe-area-inset-top, 0px) - var(--dock-band) - 24 * var(--u));
+    display:flex; flex-direction:column; padding:calc(6 * var(--u)); border-radius:calc(22 * var(--u));
     overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none;
     -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
     visibility:hidden; opacity:0; transform:scale(.9); transform-origin:25% 100%;
@@ -292,9 +347,9 @@
   body.projopen #projmenu{visibility:visible; opacity:1; transform:none;
     transition:opacity .16s ease-out, transform .22s cubic-bezier(.2,.9,.25,1), visibility 0s}
   .projrow{
-    flex:none; display:flex; align-items:center; gap:10px; width:100%; min-height:44px;
-    margin:0; padding:0 12px; border:none; border-radius:16px; background:transparent;
-    font:500 16px/1.25 var(--sans); color:var(--ink); text-align:left; cursor:pointer;
+    flex:none; display:flex; align-items:center; gap:calc(10 * var(--u)); width:100%; min-height:calc(44 * var(--u));
+    margin:0; padding:0 calc(12 * var(--u)); border:none; border-radius:calc(16 * var(--u)); background:transparent;
+    font:500 calc(16 * var(--u))/1.25 var(--sans); color:var(--ink); text-align:left; cursor:pointer;
     -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
     transition:background-color .12s ease-out;
   }
@@ -307,7 +362,7 @@
   .projrow:active{background:color-mix(in srgb, var(--ink) 8%, transparent)}
   .projrow.lifted{position:relative; z-index:1; background:var(--card);
     box-shadow:0 4px 14px rgba(0,0,0,.14); transition:none}
-  #projsep{flex:none; height:var(--edge); margin:4px 12px; background:var(--line)}
+  #projsep{flex:none; height:var(--edge); margin:calc(4 * var(--u)) calc(12 * var(--u)); background:var(--line)}
   #projlist{flex:none; display:flex; flex-direction:column}
 
   /* ---- the app is being opened and the board does not answer: a white screen and one line */
@@ -332,7 +387,7 @@
      status bar, and ends on the row's band */
   main{
     flex:1 1 auto; min-height:0;
-    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
+    background:var(--card); border:var(--edge) solid var(--line); border-radius:calc(7 * var(--u));
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
     display:flex; flex-direction:column; overflow:hidden; position:relative;
     /* the keyboard's whole visible motion. the card's own bottom edge comes up
@@ -349,7 +404,7 @@
      selected card's, and the hairline edge stays */
   body.browsing main{box-shadow:none}
   #empty{display:none; flex:1; align-items:center; justify-content:center;
-    font:italic 400 17px var(--serif); color:var(--sub); padding:20px; text-align:center}
+    font:italic 400 calc(17 * var(--u)) var(--serif); color:var(--sub); padding:calc(20 * var(--u)); text-align:center}
   main.blank #empty{display:flex}
   /* the line is a reading of the board, so it waits for one. before the first
      reading lands the tab is unknown rather than empty, and a page that says
@@ -364,8 +419,11 @@
      --replyfade is the ramp, --replyair the clear white the answer leaves over
      the sent box, and --boxleft the column the box starts in. they are written
      on the shown card alone, the way the desktop writes them, so the mask rules
-     below can only ever apply to a card that is laid out */
-  .box.sel{display:flex; --replyfade:22px; --replyair:3.5px; --boxleft:calc(var(--pad-x)*2/3)}
+     below can only ever apply to a card that is laid out. --replyfade is
+     registered as a length so the script can read the ramp's depth in pixels
+     at whatever size the page stands */
+  @property --replyfade{syntax:"<length>"; inherits:true; initial-value:0px}
+  .box.sel{display:flex; --replyfade:calc(22 * var(--u)); --replyair:calc(3.5 * var(--u)); --boxleft:calc(var(--pad-x)*2/3)}
   /* While swiping, the complete card surfaces move. The stationary pane keeps
      its layout but gives up its fill and outline, exposing paper between the
      two independently clipped cards. Their borders replace the pane's border
@@ -374,9 +432,9 @@
   main.cardswiping{background:transparent; border-color:transparent; box-shadow:none; overflow:visible}
   .box.cardswipe{
     display:flex; position:absolute; inset:calc(-1 * var(--edge-drawn)); z-index:2;
-    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
+    background:var(--card); border:var(--edge) solid var(--line); border-radius:calc(7 * var(--u));
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
-    overflow:hidden; --replyfade:22px; --replyair:3.5px; --boxleft:calc(var(--pad-x)*2/3);
+    overflow:hidden; --replyfade:calc(22 * var(--u)); --replyair:calc(3.5 * var(--u)); --boxleft:calc(var(--pad-x)*2/3);
     transform:translate3d(var(--card-swipe-x, 0px), 0, 0) scale(var(--card-swipe-z, 1));
     transform-origin:50% 50%; transition:transform .24s cubic-bezier(.22,.72,.2,1);
     will-change:transform; pointer-events:none;
@@ -414,28 +472,28 @@
      does not move. the version hangs below the line into the gap under it,
      which is wider than the 8px between the two boxes. the line's spare room
      above the word is taken off the top, so it is the ink that stands centred */
-  #homebrand{display:flex; align-items:center; justify-content:center; gap:5px; margin:-4px 0 20px;
-    font:700 36px/1.1 var(--inter); letter-spacing:-.02em; color:var(--ink)}
-  #homemark{flex:none; width:37px; height:29px; background:center / contain no-repeat;
+  #homebrand{display:flex; align-items:center; justify-content:center; gap:calc(5 * var(--u)); margin:calc(-4 * var(--u)) 0 calc(20 * var(--u));
+    font:700 calc(36 * var(--u))/1.1 var(--inter); letter-spacing:-.02em; color:var(--ink)}
+  #homemark{flex:none; width:calc(37 * var(--u)); height:calc(29 * var(--u)); background:center / contain no-repeat;
     opacity:0; transition:opacity .3s var(--gentle)}
   #homemark.on{opacity:1}
   #homebrandcopy{position:relative; display:inline-block}
   #homebrandname{display:block}
-  #homeversion{position:absolute; top:calc(100% - 1px); left:1px; font:500 10px/1.1 var(--inter);
+  #homeversion{position:absolute; top:calc(100% - 1px); left:1px; font:500 calc(10 * var(--u))/1.1 var(--inter);
     letter-spacing:.035em; color:var(--sub); opacity:.5; white-space:nowrap}
   /* the charts keep their own size and scroll sideways inside the panel, as on
      the board. the panel's sides are set so the lane they scroll in starts and
      ends clear of the 28px strips at the screen's edges the menus are pulled
      from, the app's 6px margin and these 22px, so a sideways swipe on a chart
      only ever moves the chart */
-  #home .tk-panel{padding-left:22px; padding-right:22px}
+  #home .tk-panel{padding-left:calc(22 * var(--u)); padding-right:calc(22 * var(--u))}
   /* the limits box sits directly under the token panel, the same width, the
      two sides set alike */
-  #home #homelimits{margin-top:8px}
+  #home #homelimits{margin-top:calc(8 * var(--u))}
   /* the heading's two lines, the name beside the pill and what it counts under
      both, since at phone width the one line would cut the words short */
   #home .tk-head{display:grid; grid-template-columns:1fr auto; grid-template-areas:"name pill" "what what";
-    column-gap:12px; row-gap:2px; align-items:center}
+    column-gap:calc(12 * var(--u)); row-gap:calc(2 * var(--u)); align-items:center}
   #home .tk-title{display:contents}
   #home .tk-name{grid-area:name}
   #home .tk-what{grid-area:what}
@@ -443,7 +501,7 @@
   /* the pill is drawn as the board draws it; a finger's reach is taken above
      and below each name, where nothing else can be pressed */
   #home .tk-opt{position:relative}
-  #home .tk-opt::after{content:""; position:absolute; left:0; right:0; top:-9px; bottom:-9px}
+  #home .tk-opt::after{content:""; position:absolute; left:0; right:0; top:calc(-9 * var(--u)); bottom:calc(-9 * var(--u))}
 
   /* the card's own top bar: the reply history on the left, the sun, the defer
      chip and the close cross on the right, over the hairline the desktop bar wears.
@@ -455,7 +513,7 @@
      the spinner's own size). --bar-gap is the gap between neighbouring
      squares, its own value and never worked out from the square, and
      --bar-tail how far the cross's square ends short of the bar's right edge */
-  :root{--bar-sq:28px; --bar-gap:9px; --bar-tail:6px}
+  :root, #page{--bar-sq:calc(28 * var(--u)); --bar-gap:calc(9 * var(--u)); --bar-tail:calc(6 * var(--u))}
   /* the bar is a grid of four columns, the history control and then the three
      chips, so the working spinner can stand in the sun's own cell and share its
      centre by construction. the first column takes the room that is left,
@@ -474,7 +532,7 @@
      only its marks go. the seats and the chevrons are sized by --hist-cell,
      --hist-glyph-w and --hist-glyph-h */
   .histctl{grid-area:hist; justify-self:start; min-width:0; display:flex; align-items:center; gap:0;
-    font:11.5px var(--mono); color:var(--sub); white-space:nowrap; visibility:hidden}
+    font:calc(11.5 * var(--u)) var(--mono); color:var(--sub); white-space:nowrap; visibility:hidden}
   .box.hashist .histctl{visibility:visible}
   .histbtn .chev{width:var(--hist-glyph-w); height:var(--hist-glyph-h)}
   .histbtn{flex:none; width:var(--hist-cell); height:var(--hist-cell); padding:0; border:none; border-radius:var(--sq);
@@ -483,7 +541,7 @@
   .histbtn:disabled{opacity:.28}
   .histbtn.older svg{transform:rotate(0deg)}
   .histbtn.newer svg{transform:rotate(180deg)}
-  .histpos{margin-left:4px}
+  .histpos{margin-left:calc(4 * var(--u))}
   .histpos:empty{display:none}
   /* the three chips wear the desktop's mark, --bar-mark, on a seat of --bar-sq,
      the seat being what a finger needs; the mark, the ink and the press are the
@@ -520,7 +578,7 @@
   .head{flex:none; padding:var(--titleair) 0 0}
   .title{
     display:block; min-width:0; white-space:normal; overflow-wrap:anywhere;
-    font:625 24px/1.25 var(--inter); color:var(--ink);
+    font:625 calc(24 * var(--u))/calc(1.25 * 24px) var(--inter); color:var(--ink);
     padding:0 calc(var(--pad-x)*2/3); min-height:1.25em; outline:none;
   }
   .title[contenteditable]:empty::before{content:"Card Name"; color:var(--bubble-fill, #F3F3F3)}
@@ -564,7 +622,7 @@
      stands at its own height and lets the scroller take the overflow */
   .reply{
     flex:none; color:var(--ink);
-    font-size:17px; line-height:1.55;
+    font-size:calc(17 * var(--u)); line-height:calc(1.55 * var(--ln));
     padding:0 calc(var(--pad-x)*5/3 - var(--sbar)) 0 calc(var(--pad-x)*2/3);
   }
   /* the card's two fades, the desktop's rules at phone size and with the phone's
@@ -647,7 +705,7 @@
   /* ---- the foot: the sent panel over the typing row ------------------------ */
   .pendwrap{position:absolute; left:0; right:0; bottom:0;
     display:flex; flex-direction:column; background:var(--card)}
-  .meta{margin:0 calc(var(--pad-x)*2/3); font:11.5px var(--mono); color:var(--sub); background:var(--card)}
+  .meta{margin:0 calc(var(--pad-x)*2/3); font:calc(11.5 * var(--u)) var(--mono); color:var(--sub); background:var(--card)}
   .meta:empty{display:none}
   /* the history arrows' chevron */
   .chev{display:block; flex:none}
@@ -666,7 +724,9 @@
     background:var(--card);
   }
   .sentwrap:empty{display:none}
-  .box{--sent-cap:calc(var(--vvh, 100vh) * .38 - var(--answ-pad-y) - var(--answ-strip))}
+  /* a share of the screen's height is taken of the page's own height, --rest of
+     it, here and on the typing row's cap */
+  .box{--sent-cap:calc(var(--vvh, 100vh) * .38 * var(--rest) - var(--answ-pad-y) - var(--answ-strip))}
   /* a message the board has not confirmed yet: drawn the moment it is sent, a
      shade lighter, and kept on the card until the board has it. while the phone
      is still trying it again on its own its row carries the tray's turning ring,
@@ -674,7 +734,7 @@
      words stand on either */
   .answmsg.pending > :not(.answmark){opacity:.6}
   .answmsg.unsure > :not(.answmark){opacity:.72}
-  .answmark[data-kind=ring] .tsqring{position:static; width:18px; height:18px; margin:0; opacity:1;
+  .answmark[data-kind=ring] .tsqring{position:static; width:calc(18 * var(--u)); height:calc(18 * var(--u)); margin:0; opacity:1;
     animation:tsqturn .8s linear infinite}
   .answmark[data-kind=ring] .tsqring .arc{stroke-dashoffset:49.48; transition:none}
 
@@ -697,20 +757,20 @@
      16px of air it had and the height of this page's old shut bar, so the 7px
      arrow has 12.5px clear over it and under it */
   .box{
-    --answ-font:400 15px/21px var(--inter); --answ-line:21px;
-    --answ-pad-y:16px; --answ-pad-x:18px; --answ-round:18px;
-    --answ-peek:calc(21px * 2.75); --answ-fade:calc(21px * .75);
-    --answ-strip:32px;
+    --answ-font:400 calc(15 * var(--u))/21px var(--inter); --answ-line:calc(21 * var(--u));
+    --answ-pad-y:calc(16 * var(--u)); --answ-pad-x:calc(18 * var(--u)); --answ-round:calc(18 * var(--u));
+    --answ-peek:calc(21 * var(--u) * 2.75); --answ-fade:calc(21 * var(--u) * .75);
+    --answ-strip:calc(32 * var(--u));
   }
 
   /* ---- the foot: the plus, the typing row, the send square ------------ */
   .bottombar{
     display:flex; align-items:flex-end; gap:var(--sp-s); flex:none;
     margin:0 calc(var(--pad-x)*2/3); border-top:var(--edge) solid var(--line); background:var(--card);
-    --widen:calc(28px + var(--sp-s));
+    --widen:calc(28 * var(--u) + var(--sp-s));
   }
   .clipbtn{
-    flex:none; width:28px; height:var(--row-min); padding:0; border:none;
+    flex:none; width:calc(28 * var(--u)); height:var(--row-min); padding:0; border:none;
     background:none; border-radius:var(--sq); color:var(--ink);
     display:grid; place-items:center; line-height:1; cursor:pointer;
     position:relative; isolation:isolate; transition:transform .11s var(--gentle), opacity .3s var(--gentle);
@@ -743,8 +803,8 @@
   .bottombar.wide .compose > textarea:not(.twin), .bottombar.wide .compose > .cffield{
     transform:none; will-change:transform; transition:none;
   }
-  .bottombar.wide .compose textarea{padding-right:calc(4px + var(--widen))}
-  .bottombar.wide .compose .cffield .cm-scroller{padding-right:calc(4px + var(--widen))}
+  .bottombar.wide .compose textarea{padding-right:calc(4 * var(--u) + var(--widen))}
+  .bottombar.wide .compose .cffield .cm-scroller{padding-right:calc(4 * var(--u) + var(--widen))}
   /* the close's first frame: the resting layout drawn in the typing look, then released into .returning */
   .bottombar.flip .clipbtn{opacity:0; transform:scale(.7); transition:none}
   .bottombar.flip .compose > textarea:not(.twin), .bottombar.flip .compose > .cffield{
@@ -763,10 +823,10 @@
      the keyboard. the box shrinks at the keyboard's edge, and the script
      brings the caret's line back inside it on that same frame */
   textarea{
-    flex:1; min-width:0; resize:none; font:17px/1.5 var(--sans); color:var(--ink);
+    flex:1; min-width:0; resize:none; font:calc(17 * var(--u))/1.5 var(--sans); color:var(--ink);
     background:transparent; border:none; outline:none;
-    padding:var(--sp-s) 4px; margin:0 -4px;
-    min-height:var(--row-min); max-height:28vh; max-height:calc(var(--vvh, 100vh) * .28); overflow-y:auto;
+    padding:var(--sp-s) calc(4 * var(--u)); margin:0 calc(-4 * var(--u));
+    min-height:var(--row-min); max-height:calc(28vh * var(--rest)); max-height:calc(var(--vvh, 100vh) * .28 * var(--rest)); overflow-y:auto;
   }
   body.kb textarea{max-height:calc(5 * 1.5em + 2 * var(--sp-s))}
   /* the same row with its typed formatting on. the editor is the vendored
@@ -774,11 +834,11 @@
      the row had is written on that one element and its box, its scroll and its
      computed face read exactly as the field's did. the outer element is only
      the seat the row keeps in the bar */
-  .cffield{flex:1; min-width:0; font:17px/1.5 var(--sans); color:var(--ink)}
+  .cffield{flex:1; min-width:0; font:calc(17 * var(--u))/1.5 var(--sans); color:var(--ink)}
   .compose .cffield .cm-scroller{
-    background:transparent; border:none; padding:var(--sp-s) 4px; margin:0 -4px;
-    min-height:var(--row-min); max-height:28vh;
-    max-height:calc(var(--vvh, 100vh) * .28); overflow-y:auto;
+    background:transparent; border:none; padding:var(--sp-s) calc(4 * var(--u)); margin:0 calc(-4 * var(--u));
+    min-height:var(--row-min); max-height:calc(28vh * var(--rest));
+    max-height:calc(var(--vvh, 100vh) * .28 * var(--rest)); overflow-y:auto;
   }
   body.kb .compose .cffield .cm-scroller{max-height:calc(5 * 1.5em + 2 * var(--sp-s))}
   textarea::placeholder{color:#B4AA99}
@@ -802,7 +862,7 @@
   .compose textarea.twin{position:absolute; top:0; left:0; visibility:hidden; pointer-events:none;
     height:auto; min-height:0; max-height:none; overflow:hidden; margin:0}
   .sendbtn{
-    flex:none; width:28px; height:28px; min-height:0; padding:0; border:none;
+    flex:none; width:calc(28 * var(--u)); height:calc(28 * var(--u)); min-height:0; padding:0; border:none;
     background:var(--card); color:#000; border-radius:var(--sq);
     display:grid; place-items:center; line-height:1; cursor:pointer;
     opacity:0; transform:scale(.5); pointer-events:none;
@@ -819,22 +879,22 @@
      let into the card, and the cross hangs off the top right corner, which is
      what the tray's top and right padding are for. --tray-gap is the clear
      space between the squares' row and the line above the typing row */
-  .tray{--tray-gap:12px; display:none; flex-wrap:wrap; align-items:flex-start; gap:var(--sp-s); flex:none; position:relative;
-    margin:0 calc(var(--pad-x)*2/3); padding:var(--sp-s) 6px var(--tray-gap) 0; background:var(--card)}
+  .tray{--tray-gap:calc(12 * var(--u)); display:none; flex-wrap:wrap; align-items:flex-start; gap:var(--sp-s); flex:none; position:relative;
+    margin:0 calc(var(--pad-x)*2/3); padding:var(--sp-s) calc(6 * var(--u)) var(--tray-gap) 0; background:var(--card)}
   .tray.on{display:flex}
   .tray.closing{overflow:hidden}
-  .tsq{position:relative; flex:none; width:64px; height:64px}
+  .tsq{position:relative; flex:none; width:calc(64 * var(--u)); height:calc(64 * var(--u))}
   .tsq.leaving{position:absolute; pointer-events:none}
-  .tsqface{position:absolute; inset:0; overflow:hidden; border-radius:7px;
+  .tsqface{position:absolute; inset:0; overflow:hidden; border-radius:calc(7 * var(--u));
     background:#F3F1EC; box-shadow:inset 0 0 0 var(--edge-drawn) var(--line)}
   .tsq.tappable .tsqface{cursor:pointer}
   /* a file with no picture says its kind and its size, in the notes' type */
   .tsqkind{position:absolute; inset:0; display:grid; place-content:center; text-align:center;
-    font:600 11px/1.25 var(--mono); letter-spacing:.04em; color:var(--sub)}
-  .tsqkind small{display:block; font-weight:400; font-size:9.5px; letter-spacing:0}
+    font:600 calc(11 * var(--u))/1.25 var(--mono); letter-spacing:.04em; color:var(--sub)}
+  .tsqkind small{display:block; font-weight:400; font-size:calc(9.5 * var(--u)); letter-spacing:0}
   /* with a ring or a mark to wear, a file with no picture keeps only its kind,
      at the top, and the mark stands under it */
-  .tsq:not(.drawn):is(.up,.queued,.wait,.failed,.refused) .tsqkind{place-content:start center; padding-top:8px}
+  .tsq:not(.drawn):is(.up,.queued,.wait,.failed,.refused) .tsqkind{place-content:start center; padding-top:calc(8 * var(--u))}
   .tsq:not(.drawn):is(.up,.queued,.wait,.failed,.refused) .tsqkind small{display:none}
   .tsq:not(.drawn) :is(.tsqring, .tsqbang){top:62%}
   .tsqpic{position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block;
@@ -848,7 +908,7 @@
   .tsq.drawn:is(.up,.queued,.wait,.failed,.refused) .tsqveil{opacity:1}
   /* the upload's ring: how much of the file has gone, or a quarter turning
      while the phone cannot say */
-  .tsqring{position:absolute; left:50%; top:50%; width:24px; height:24px; margin:-12px 0 0 -12px;
+  .tsqring{position:absolute; left:50%; top:50%; width:calc(24 * var(--u)); height:calc(24 * var(--u)); margin:calc(-12 * var(--u)) 0 0 calc(-12 * var(--u));
     transform:rotate(-90deg); opacity:0; transition:opacity .26s var(--gentle); overflow:visible}
   .tsqring circle{fill:none; stroke-width:2.5}
   .tsqring .track{stroke:rgba(33,29,23,.14)}
@@ -861,17 +921,31 @@
   .tsq:is(.queued,.wait,.indet) .tsqring .arc{stroke-dashoffset:49.48; transition:none}
   @keyframes tsqturn{from{transform:rotate(-90deg)} to{transform:rotate(270deg)}}
   /* the file did not go: a mark in the card's own red, just there, no entrance */
-  .tsqbang{position:absolute; left:50%; top:50%; width:22px; height:22px; margin:-11px 0 0 -11px;
-    border-radius:50%; background:var(--must); color:#fff; font:700 13px/22px var(--sans);
+  .tsqbang{position:absolute; left:50%; top:50%; width:calc(22 * var(--u)); height:calc(22 * var(--u)); margin:calc(-11 * var(--u)) 0 0 calc(-11 * var(--u));
+    border-radius:50%; background:var(--must); color:#fff; font:700 calc(13 * var(--u))/calc(22 * var(--u)) var(--sans);
     text-align:center; display:none}
   .tsq:is(.failed,.refused) .tsqbang{display:block}
-  .tsqx{position:absolute; top:-6px; right:-6px; z-index:1; width:20px; height:20px; padding:0;
+  .tsqx{position:absolute; top:calc(-6 * var(--u)); right:calc(-6 * var(--u)); z-index:1; width:calc(20 * var(--u)); height:calc(20 * var(--u)); padding:0;
     border:none; border-radius:50%; background:rgba(33,29,23,.72); color:#fff;
     display:grid; place-items:center; cursor:pointer}
-  .tsqx::after{content:""; position:absolute; inset:-8px}
+  .tsqx::after{content:""; position:absolute; inset:calc(-8 * var(--u))}
   /* a picture in a sent message is capped on the phone, so one photo does not
      take the whole panel */
-  .sentwrap .cardmd .shot, .answwrap .cardmd .shot{max-height:180px; width:auto; margin-left:0}
+  .sentwrap .cardmd .shot, .answwrap .cardmd .shot{max-height:calc(180 * var(--u)); width:auto; margin-left:0}
+
+  /* the marks the page draws, sized in --u like everything else. their markup
+     carries real-pixel sizes, which these rules override */
+  #dock .round svg, #tikadd svg{width:calc(22 * var(--u)); height:calc(22 * var(--u))}
+  #dock #projbtn .updown{width:calc(12 * var(--u)); height:calc(12 * var(--u))}
+  .projrow svg{width:calc(15 * var(--u)); height:calc(15 * var(--u))}
+  .projrow .pcheck{width:calc(16 * var(--u)); height:calc(16 * var(--u))}
+  .clipbtn svg{width:calc(17 * var(--u)); height:calc(17 * var(--u))}
+  .sendbtn svg{width:calc(14 * var(--u)); height:calc(14 * var(--u))}
+  .tsqx svg{width:calc(8 * var(--u)); height:calc(8 * var(--u))}
+  .answchev{width:calc(11 * var(--u)); height:calc(7 * var(--u))}
+  .answretry svg{width:calc(11 * var(--u)); height:calc(11 * var(--u))}
+  .answcross svg{width:calc(8 * var(--u)); height:calc(8 * var(--u))}
+  .copybtn svg{width:calc(12 * var(--u)); height:calc(12 * var(--u))}
 
   /* ---- the card list off the left edge, the settings off the right --------- */
   /* the shade over the page while a menu is out, and the tap that shuts it. it
@@ -1173,12 +1247,12 @@
   .omni-art{display:block; flex:none; width:auto; height:44px; max-width:38px;
     object-fit:contain; object-position:center}
   .box.omni-card{background:#fff !important}
-  .box.omni-card .head{display:flex; align-items:center; gap:12px;
+  .box.omni-card .head{display:flex; align-items:center; gap:calc(12 * var(--u));
     padding-left:calc(var(--pad-x)*2/3)}
   /* the card's art stands exactly as tall as the title's letters are set: its
      font size is the title's own 24px and it is one em high at its natural
      width, riding the title's first line centred in that line's 1.25 height */
-  .box.omni-card .omni-card-art{display:block; flex:none; font-size:24px; width:auto; height:1em;
+  .box.omni-card .omni-card-art{display:block; flex:none; font-size:calc(24 * var(--u)); width:auto; height:1em;
     align-self:flex-start; margin-top:.125em; object-fit:contain; object-position:center}
   .box.omni-card .title{flex:1 1 0; padding-left:0}
   /* the light a card, or its row in the ticket list, crosses into and out of
@@ -1189,7 +1263,7 @@
      --omni-p. a row lays it at 45 degrees with a smaller sun. the element
      takes no z-index, so each layer's blend reaches what is under it */
   .omni-sweep{position:absolute; inset:0; pointer-events:none; --omni-p:-1;
-    --omni-dir:to top right; --omni-sun:160px; --omni-core:50px;
+    --omni-dir:to top right; --omni-sun:calc(160 * var(--u)); --omni-core:calc(50 * var(--u));
     --omni-c:calc(var(--omni-p) * 100%);
     --omni-x:calc(var(--omni-p) * 100%); --omni-y:calc((1 - var(--omni-p)) * 100%)}
   .trow > .omni-sweep{--omni-dir:45deg; --omni-sun:56px; --omni-core:18px}
@@ -3944,11 +4018,11 @@ for (const panel of menus) panel.addEventListener("transitionend", e => {
 function menuWidth(panel){ return panel.getBoundingClientRect().width; }
 function menuSign(panel){ return panel.dataset.side === "right" ? -1 : 1; }   // direction the panel enters
 function menuOut(){ return menus.find(p => p.classList.contains("open")) || null; }
-// how far in the page draws with a menu the whole way out: 1.5% of its size,
-// which at phone width is about three pixels off each side and six off the top
-// and the foot. enough to read as a step back, and little enough that the words
+// how far in the page draws with a menu the whole way out: the share of its size
+// it already gives up at rest, --sink in the sheet, read from there so the two
+// cannot differ. enough to read as a step back, and little enough that the words
 // on it are not noticeably smaller
-const PAGE_SINK = 0.015;
+const PAGE_SINK = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sink"));
 // the one number, painted onto the shade, the menu and the page. the travel is
 // written as a share of the menu's own width, which is the same shape as the
 // resting value in the sheet, and the page's size as a plain scale: every one of
@@ -5362,8 +5436,8 @@ function syncDock(obstructed, lifting, inset){
   placeDock();
 }
 function placeDock(){
-  // the band is the row's height and its foot twice over, read once
-  if (!dockBand) dockBand = dockEl.offsetHeight + 2 * (parseFloat(getComputedStyle(dockEl).bottom) || 0);
+  // the band is the row's height, its foot twice over and the page's own foot, read once
+  if (!dockBand) dockBand = dockEl.offsetHeight + 2 * (parseFloat(getComputedStyle(dockEl).bottom) || 0) + (parseFloat(getComputedStyle(page).bottom) || 0);
   const rise = dockAway && dockHidden ? Math.max(0, Math.round(dockInset - dockBand)) : 0;
   if (rise === dockRise) return;
   dockRise = rise;
