@@ -6805,6 +6805,114 @@ def build_app():
     return Transport(app)
 
 
+# -- other websites ---------------------------------------------------------------------
+# The board's own port answers a page on this Mac and a caller that is not a
+# browser at all, which is every agent: curl and onboard.py send no Origin and
+# no fetch metadata. It refuses what a page on another website sent, and what
+# arrived under a name another website pointed at this machine. The phone's
+# socket and what Tailscale Serve forwards are the bridge gate's, and pass
+# through here untouched.
+
+SITE_HOST = re.compile(r"(?:127\.0\.0\.1|localhost)(?::([0-9]{1,5}))?")
+# the one thing another site may do to the board is open its page: that is how
+# the Spotify sign-in comes back. The page is read and nothing is changed by it
+NAVIGATION_PAGES = frozenset({"/", "/m"})
+# a page opened straight from a link says document; the same opening, handed
+# on by the board's own service worker, says empty. Mode stays navigate in both,
+# which no script's fetch can produce
+NAVIGATION_DESTS = frozenset({"document", "empty"})
+SITE_REFUSAL_WINDOW = 5.0      # seconds: one refusal line per reason and route per window
+SITE_REFUSALS_KEPT = 64
+SITE_REFUSAL_ROUTE_CHARS = 80
+SITE_REFUSAL_FILE_ROUTES = ("/uploads/",)
+
+
+def _foreign_site(scope: dict) -> str | None:
+    """Why this request is not the board's own page or a caller with no
+    browser in it, or None when it is one of those. Only the board's own
+    port is asked: a request on the phone's port, or one carrying a Serve
+    forwarding header, is decided by the bridge gate and is not looked at here.
+
+    A name some other site pointed at this Mac has the wrong Host. A page
+    on another site, or on another port of this machine, names itself in
+    Origin when it writes and in Sec-Fetch-Site whatever it does, and neither
+    of those can be left out or changed by the page. A caller with no
+    browser sends neither, which is what lets agents through."""
+    headers: dict[bytes, bytes] = {}
+    hosts = 0
+    for name, value in scope.get("headers") or ():
+        name = name.lower()
+        hosts += name == b"host"
+        headers[name] = value
+    if (scope.get("server") or (None, None))[1] == BRIDGE_PORT \
+            or b"x-forwarded-for" in headers or b"tailscale-headers-info" in headers:
+        return None
+    host = headers.get(b"host", b"").decode("latin-1").strip().lower()
+    if hosts > 1:
+        return "host is not this board's"
+    if host:
+        named = SITE_HOST.fullmatch(host)
+        if named is None or (named.group(1) is not None and int(named.group(1)) != PORT):
+            return "host is not this board's"
+    fetch = {key: headers.get(b"sec-fetch-" + key.encode(), b"").decode("latin-1").strip().lower()
+             for key in ("site", "mode", "dest")}
+    if (scope.get("method") in ("GET", "HEAD") and scope.get("path") in NAVIGATION_PAGES
+            and fetch["mode"] == "navigate" and fetch["dest"] in NAVIGATION_DESTS):
+        return None
+    origin = headers.get(b"origin")
+    if origin is not None and origin.decode("latin-1").strip().lower() != "http://" + host:
+        return "origin is not this board's"
+    if fetch["site"] not in ("", "same-origin", "none"):
+        return "asked for by another site"
+    return None
+
+
+class SiteGuard:
+    """The outermost layer: answers a request from another website with a 403
+    before anything under it, the bridge gate included, has seen it."""
+
+    def __init__(self, app) -> None:
+        self.app = app
+        self._noted: dict[str, list] = {}   # reason and route -> [when its window opened, refusals folded into it]
+
+    def _note(self, scope: dict, reason: str) -> None:
+        """One line per reason and route per window, with a count of the ones
+        left out, so a page that asks every second writes a line every five.
+        Nothing the request carried goes in it, and a failure here never
+        changes the answer."""
+        try:
+            path = scope.get("path", "")
+            route = next((p + "*" for p in SITE_REFUSAL_FILE_ROUTES if path.startswith(p)),
+                         path[:SITE_REFUSAL_ROUTE_CHARS])
+            now, name, table = time.monotonic(), f"{reason} {route}", self._noted
+            if name not in table and len(table) >= SITE_REFUSALS_KEPT:
+                for stale in [k for k, w in table.items() if now - w[0] >= SITE_REFUSAL_WINDOW]:
+                    del table[stale]
+            key = name if name in table or len(table) < SITE_REFUSALS_KEPT else ""
+            window = table.get(key)
+            if window is not None and now - window[0] < SITE_REFUSAL_WINDOW:
+                window[1] += 1
+                return
+            table[key] = [now, 0]
+            _info("refusal", route=route, code=403, reason=reason,
+                  folded=(window[1] if window else 0) or None)
+        except Exception:
+            pass
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        reason = _foreign_site(scope)
+        if reason is None:
+            await self.app(scope, receive, send)
+            return
+        self._note(scope, reason)
+        await Response(json.dumps({"error": "request from another site refused"}).encode(),
+                       status_code=403, media_type="application/json",
+                       headers={"Cache-Control": "no-store", "Connection": "close"})(scope, receive, send)
+
+
 # -- the wire ---------------------------------------------------------------------------
 
 class BoardProtocol(H11Protocol):
@@ -7038,7 +7146,7 @@ def _require_bridge_components():
 def _make_server(bridge_gate=None) -> BoardServer:
     if bridge_gate is None:
         bridge_gate = _require_bridge_components()
-    app = bridge_gate(build_app(), BRIDGE_PORT, _info)
+    app = SiteGuard(bridge_gate(build_app(), BRIDGE_PORT, _info))
     config = uvicorn.Config(
         app, host="127.0.0.1", port=PORT,
         log_config=None, access_log=False, server_header=False,
