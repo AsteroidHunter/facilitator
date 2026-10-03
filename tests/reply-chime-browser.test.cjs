@@ -188,7 +188,10 @@ test("the pencil is gone, the edit code is kept, and the speaker is a plain mark
     assert.equal(bar.speaker.h, bar.gear.h);
     assert.ok(Math.abs(bar.speaker.mid - bar.gear.mid) <= 0.5, "the speaker and the gear are on one line");
     assert.ok(Math.abs(bar.speaker.right + 14 - bar.gear.left) <= 0.6, "the speaker sits 14px left of the gear");
-    assert.deepEqual(bar.speakerStyle, bar.gearStyle, "the speaker's box, fill, ink, stroke width and line ends are not the gear's");
+    // the settings mark is the squid in its own colours now, so the speaker is held
+    // to the line style the gear was drawn in: a 24 box, no fill, ink, 1.9 stroke, round ends
+    assert.deepEqual(bar.speakerStyle, ["0 0 24 24", "none", "currentColor", "1.9", "round", "round"],
+      "the speaker's box, fill, ink, stroke width and line ends are not the bar's line style");
     assert.deepEqual(bar.speakerStyle, ["0 0 24 24", "none", "currentColor", "1.9", "round", "round"]);
     assert.equal(bar.bodyPaths, 1, "the speaker's body and cone are one outline");
     assert.equal(bar.wavePaths, 2, "the speaker has two sound waves");
