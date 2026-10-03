@@ -318,7 +318,11 @@ Endpoints:
                                text values the browsers kept them under. They
                                live in settings.json beside state.json, so
                                every address the board is opened at shows the
-                               same board
+                               same board. When run.config.json names a
+                               background_default, a #rrggbb colour, it is
+                               written after them as
+                               globalThis.BOARD_BGCOLOR_DEFAULT, the colour a
+                               page uses until a bgcolor is saved
   GET  /settings            -> {rev, values}: the same settings, for a page
                                whose /state says settingsRev has moved
   POST /settings[?seed=1]   -> body = {"<key>": "<value>" or null, ...}: sets
@@ -737,6 +741,23 @@ def _compose_format_default() -> bool:
     return isinstance(cfg, dict) and cfg.get("compose_format_default") is True
 
 
+def _background_default() -> str:
+    """The colour a board's pages use until a background colour has been saved
+    with the board's settings, read from run.config.json (machine-local,
+    gitignored) under `background_default`. Only a string of the form #rrggbb
+    counts, kept in lower case; a missing key, a missing file or anything else
+    is empty, which leaves the pages' own paper colour as it is. A saved
+    colour always wins over this."""
+    try:
+        cfg = json.loads((HERE / "run.config.json").read_text())
+    except Exception:
+        return ""
+    value = cfg.get("background_default") if isinstance(cfg, dict) else None
+    if isinstance(value, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", value):
+        return value.lower()
+    return ""
+
+
 class DatedRotatingHandler(logging.handlers.RotatingFileHandler):
     """A file per day per kind, capped by size and pruned by count.
 
@@ -856,6 +877,7 @@ LOG_LEVEL = _configured_level()
 IMAGE_PANEL_LANE = _image_panel_lane()
 SPOTIFY_CLIENT_ID = _spotify_client_id()
 COMPOSE_FORMAT_DEFAULT = _compose_format_default()
+BACKGROUND_DEFAULT = _background_default()
 LOGGER = logging.getLogger("facilitator")
 LOGGER.setLevel(LOG_LEVELS[LOG_LEVEL])
 LOGGER.propagate = False
@@ -5855,6 +5877,8 @@ def _get_board_settings_js(q: Query, _):
         return 404, {"error": "not found"}
     with _settings_lock:
         lead = "globalThis.BOARD_SETTINGS=" + json.dumps(_settings_answer(_settings_file())) + ";"
+    if BACKGROUND_DEFAULT:
+        lead += "globalThis.BOARD_BGCOLOR_DEFAULT=" + json.dumps(BACKGROUND_DEFAULT) + ";"
     return 200, lead.encode() + p.read_bytes(), "application/javascript; charset=utf-8"
 
 
