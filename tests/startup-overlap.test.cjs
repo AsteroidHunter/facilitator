@@ -11,7 +11,7 @@ const { copyBridgeFiles } = require("./fixture-auth.cjs");
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(__dirname, "..");
-const LEGACY_COMMIT = "0e2f191";
+const LEGACY_COMMIT = "143ee72";
 
 async function freePort() {
   const probe = createServer();
