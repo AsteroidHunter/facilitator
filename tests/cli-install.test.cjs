@@ -244,7 +244,28 @@ test("install creates the environment, the config and the test deps in one run",
   const at = line => lines.indexOf(line);
   assert.ok(at(`${UV} python install --no-bin 3.14`) >= 0, lines.join(" | "));
   assert.ok(at(`${UV} python install --no-bin 3.14`) < at(`${UV} venv --clear --managed-python --python 3.14 .venv`), lines.join(" | "));
-  assert.ok(at(`${UV} venv --clear --managed-python --python 3.14 .venv`) < at(`${UV} pip sync --python .venv/bin/python requirements.txt`), lines.join(" | "));
+  assert.ok(at(`${UV} venv --clear --managed-python --python 3.14 .venv`) < at(`${UV} pip sync --require-hashes --python .venv/bin/python requirements.txt`), lines.join(" | "));
+});
+
+test("every requirement is one exact version with the fingerprint of each of its files, and the sync demands them", async () => {
+  const dir = await freshClone();
+  const text = await readFile(path.join(dir, "requirements.txt"), "utf8");
+  const entries = text.replace(/\\\n/g, " ").split("\n").filter(line => line.trim() && !line.startsWith("#"));
+  assert.ok(entries.length >= 11, `only ${entries.length} requirements`);
+  for (const entry of entries) {
+    const parts = entry.trim().split(/\s+/);
+    assert.match(parts[0], /^[A-Za-z0-9_.-]+==[0-9][A-Za-z0-9_.!+-]*$/, `not an exact version: ${entry.slice(0, 60)}`);
+    const hashes = parts.slice(1);
+    assert.ok(hashes.length >= 1, `${parts[0]} has no fingerprint`);
+    for (const hash of hashes) assert.match(hash, /^--hash=sha256:[0-9a-f]{64}$/, `${parts[0]}: ${hash}`);
+    assert.equal(new Set(hashes).size, hashes.length, `${parts[0]} lists a fingerprint twice`);
+  }
+  assert.doesNotMatch(text, /^\s*-(?!-hash=)/m, "an option line (index, link, editable) is in the requirements");
+  assert.doesNotMatch(text, /@\s*(git\+|https?:|file:)/, "a requirement comes from an address");
+
+  const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
+  const sync = res.calls.find(c => c[0] === UV && c[1] === "pip" && c[2] === "sync");
+  assert.deepEqual(sync, [UV, "pip", "sync", "--require-hashes", "--python", ".venv/bin/python", "requirements.txt"]);
 });
 
 test("uv is found before the Python is checked, so a missing Python can be left to uv", async () => {

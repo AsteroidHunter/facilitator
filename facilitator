@@ -2616,8 +2616,9 @@ def build_env(uv, have, quiet):
 
 
 def ensure_env(uv, quiet=False):
-    """Make .venv stand on Python APP_PYTHON with the pinned packages in it.
-    A .venv already on it is kept; one that is missing, broken or on any other
+    """Make .venv stand on Python APP_PYTHON with the pinned packages in it,
+    each file checked against the fingerprint requirements.txt gives it, so
+    nothing unlisted or changed goes in. A .venv already on it is kept; one that is missing, broken or on any other
     Python is built again, so every checkout runs the Python the board is tested
     on. The sync runs either way because it is idempotent and is how a changed
     requirements file is picked up. quiet prints nothing unless a step fails or
@@ -2632,7 +2633,7 @@ def ensure_env(uv, quiet=False):
         stopped = build_env(uv, have, quiet)
     if not quiet:
         print("Syncing packages to requirements.txt.")
-    if run_uv([uv, "pip", "sync", "--python", ".venv/bin/python", "requirements.txt"], quiet) != 0:
+    if run_uv([uv, "pip", "sync", "--require-hashes", "--python", ".venv/bin/python", "requirements.txt"], quiet) != 0:
         sys.exit(problem("uv could not sync requirements.txt.",
                          "See the output above, then run ./install.sh again."))
     if not quiet:
