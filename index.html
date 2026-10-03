@@ -9562,9 +9562,8 @@ function age(ts){
 // silent too, since it is in view; every other project rings, and with the
 // window behind or hidden every project does. Chrome plays sound only after a
 // click or key press, and a chime that cannot play is dropped, never held for
-// later. The bell on the bar mutes it. The choice is kept the way the board's
-// settings are, but under a key the board's store does not list, so it stays in
-// this browser's own storage until the board's list takes it in
+// later. The bell on the bar mutes it. The choice is one of the board's
+// settings, kept in settings.json like the background colour
 const CHIME_MUTED_KEY = "chimemuted";
 const CHIME_LAST_KEY = "chimelast";   // when a window of this browser last rang, so two windows do not both ring
 const CHIME_GAP_MS = 2 * 60 * 1000;
