@@ -4910,7 +4910,7 @@ function tapWords(id, tap){
 // what is open over the card: the card list, the settings or the project list
 function tapMenu(){
   const out = menuOut();
-  return out === drawer ? "cards" : out === settings ? "settings" : projOpen() ? "projects" : "none";
+  return out === tickets ? "cards" : out === settings ? "settings" : projOpen() ? "projects" : "none";
 }
 function tapNoteArrive(id, tap, via){
   try {

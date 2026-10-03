@@ -196,7 +196,7 @@ test("what stands over the card is named: the card list, the settings, the proje
   const { page, problems } = await readyPhone();
   try {
     const covers = [
-      ["cards", "cafe0010", () => drawer.classList.add("open")],
+      ["cards", "cafe0010", () => tickets.classList.add("open")],
       ["settings", "cafe0011", () => settings.classList.add("open")],
       ["projects", "cafe0012", () => document.body.classList.add("projopen")],
     ];
@@ -204,7 +204,7 @@ test("what stands over the card is named: the card list, the settings, the proje
       // each is put over the page as the page itself would have it: its panel open
       await page.evaluate(`(${cover})()`);
       const stood = await page.evaluate(() => ({
-        panel: menuOut() === drawer ? "cards" : menuOut() === settings ? "settings" : null,
+        panel: menuOut() === tickets ? "cards" : menuOut() === settings ? "settings" : null,
         projects: projOpen(),
       }));
       await tapFrom(page, id, tap);
@@ -213,12 +213,12 @@ test("what stands over the card is named: the card list, the settings, the proje
       assert.equal(arrived.menu, word, `the arrival did not name the ${word}`);
       assert.deepEqual([result.shown, result.pending], ["yes", "no"]);
       // and the result names what is over the card once it is drawn, as the page then has it
-      const after = await page.evaluate(() => (menuOut() === drawer ? "cards" : menuOut() === settings ? "settings"
+      const after = await page.evaluate(() => (menuOut() === tickets ? "cards" : menuOut() === settings ? "settings"
         : projOpen() ? "projects" : "none"));
       assert.equal(result.covered, after, `the result named ${result.covered} over the card, the page had ${after}`);
       assert.ok(stood.panel === word || (word === "projects" && stood.projects), "the cover was not put on");
       await page.evaluate(() => {
-        for (const panel of [drawer, settings]) panel.classList.remove("open");
+        for (const panel of [tickets, settings]) panel.classList.remove("open");
         document.body.classList.remove("projopen");
       });
     }
