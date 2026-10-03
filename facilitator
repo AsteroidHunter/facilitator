@@ -105,6 +105,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
@@ -2336,14 +2337,21 @@ APP_PYTHON = "3.14"     # the one Python .venv is built on, which the board is t
 UV_MIN = (0, 9, 0)      # the first uv that installs Python 3.14.0 rather than a release
                         # candidate; keep in step with UV_MIN in install.sh
 UV_HOME_BINS = ("~/.local/bin/uv", "~/.cargo/bin/uv")
-UV_INSTALL_URL = "https://astral.sh/uv/install.sh"
+# uv's own installer, locked to one release: it is run only when the file that
+# comes back has exactly this fingerprint. Move both together, here and in
+# install.sh, and take the fingerprint from a download of that exact address.
+UV_PIN = "0.12.22"
+UV_INSTALL_URL = f"https://astral.sh/uv/{UV_PIN}/install.sh"
+UV_INSTALL_SHA256 = "58488ae8dbd0773134c92c85e901430e33f99d975bd7f929d26aa9ab0c2f9390"
 INSTALL_RECORD = HERE / ".facilitator-install.json"
 INSTALL_ARTIFACTS = (".venv", "node_modules", "package.json", "package-lock.json",
                      "run.config.json", "seed.json")
 INSTALL_HELP = """usage: ./install.sh
 
 Check that Claude Code or Codex and Chrome are here, then make this checkout
-runnable: find or install uv (0.9.0 or newer), build the private .venv on a
+runnable: find or install uv (0.9.0 or newer; when there is no Homebrew its
+own installer is fetched for one exact release and run only when it matches
+its fingerprint), build the private .venv on a
 Python 3.14 that uv manages, rebuilding a .venv that is missing, broken or on
 another Python (a board running on the old one is stopped first), and sync
 requirements, write run.config.json and seed.json from
@@ -2409,9 +2417,29 @@ def find_uv():
     return None
 
 
+def uv_installer_env(folder):
+    """The environment for uv's installer, or None when nothing here can check
+    a download. The installer compares each file it fetches with the
+    fingerprint it carries only when a sha256sum command exists, and macOS has
+    shasum instead, so a sha256sum that calls shasum is put in folder and
+    first on PATH."""
+    env = {**os.environ, "INSTALLER_NO_MODIFY_PATH": "1"}
+    if shutil.which("sha256sum"):
+        return env
+    shasum = shutil.which("shasum")
+    if not shasum:
+        return None
+    shim = Path(folder) / "sha256sum"
+    shim.write_text(f"#!/bin/sh\nexec {shlex.quote(shasum)} -a 256 \"$@\"\n")
+    shim.chmod(0o755)
+    env["PATH"] = folder + os.pathsep + env.get("PATH", "")
+    return env
+
+
 def install_uv():
     """Install uv and return its path, or stop. Homebrew when it is there,
-    otherwise uv's own installer into the home folder, told not to touch any
+    otherwise uv's own installer, locked to UV_PIN and run only when it has
+    the expected fingerprint, into the home folder and told not to touch any
     shell profile. uv is required; there is no fallback to a plain venv."""
     brew = shutil.which("brew")
     if brew:
@@ -2425,14 +2453,22 @@ def install_uv():
                              "Install uv yourself, then run ./install.sh again."))
         print("uv is not installed. Installing it with the astral.sh installer")
         print("into your home.")
-        script = subprocess.run(["curl", "-LsSf", UV_INSTALL_URL], capture_output=True, text=True)
-        if script.returncode != 0 or not script.stdout:
-            sys.exit(problem("Could not download the uv installer.",
-                             "Install uv yourself, then run ./install.sh again."))
-        env = {**os.environ, "INSTALLER_NO_MODIFY_PATH": "1"}
-        if subprocess.run(["sh"], input=script.stdout, text=True, env=env).returncode != 0:
-            sys.exit(problem("The uv installer did not finish.",
-                             "Install uv yourself, then run ./install.sh again."))
+        with tempfile.TemporaryDirectory() as folder:
+            env = uv_installer_env(folder)
+            if env is None:
+                sys.exit(problem("Cannot check what the uv installer downloads: neither sha256sum nor shasum is here.",
+                                 "Nothing was run. Install uv yourself, then run ./install.sh again."))
+            script = subprocess.run(["curl", "--proto", "=https", "--tlsv1.2", "-LsSf", UV_INSTALL_URL],
+                                    capture_output=True)
+            if script.returncode != 0 or not script.stdout:
+                sys.exit(problem("Could not download the uv installer.",
+                                 "Install uv yourself, then run ./install.sh again."))
+            if hashlib.sha256(script.stdout).hexdigest() != UV_INSTALL_SHA256:
+                sys.exit(problem("The uv installer from astral.sh is not the one this checkout expects.",
+                                 "Nothing was run. Install uv yourself, then run ./install.sh again."))
+            if subprocess.run(["sh"], input=script.stdout, env=env).returncode != 0:
+                sys.exit(problem("The uv installer did not finish.",
+                                 "Install uv yourself, then run ./install.sh again."))
     uv = find_uv()
     if not uv:
         sys.exit(problem("uv is installed but still not found.",

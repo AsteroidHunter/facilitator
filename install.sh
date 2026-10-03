@@ -7,7 +7,12 @@ CLAUDE_URL='https://code.claude.com/docs/en/overview'
 CODEX_URL='https://developers.openai.com/codex/cli'
 CHROME_URL='https://www.google.com/chrome/'
 TAILSCALE_URL='https://tailscale.com/download'
-UV_INSTALL_URL='https://astral.sh/uv/install.sh'
+# uv's own installer, locked to one release and run only when what comes back
+# has exactly this fingerprint; keep both in step with UV_PIN and
+# UV_INSTALL_SHA256 in facilitator.
+UV_PIN='0.12.22'
+UV_INSTALL_URL="https://astral.sh/uv/$UV_PIN/install.sh"
+UV_INSTALL_SHA256='58488ae8dbd0773134c92c85e901430e33f99d975bd7f929d26aa9ab0c2f9390'
 MIN_PYTHON='3.9'      # runs the setup and the command; keep in step with MIN_PYTHON in facilitator
 MANAGED_PYTHON='3.14' # the Python .venv is built on; keep in step with APP_PYTHON in facilitator
 UV_MIN='0.9.0'        # the first uv that installs Python 3.14.0; keep in step with UV_MIN in facilitator
@@ -185,20 +190,55 @@ find_uv() {
   return 1
 }
 
+# sha256_of <file>: the file's SHA-256 as lowercase hex, from shasum (macOS)
+# or sha256sum; fails when neither is here.
+sha256_of() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    return 1
+  fi
+}
+
 # Install uv, with Homebrew when it is there and otherwise with uv's own
-# installer, told not to touch any shell profile.
+# installer for exactly UV_PIN, told not to touch any shell profile. That
+# installer runs only when the file that came back has UV_INSTALL_SHA256. It
+# checks what it downloads against the fingerprints it carries only when a
+# sha256sum command exists, and macOS has shasum instead, so one is put first
+# on PATH for it.
 install_uv() {
-  local script
+  local dir file got status=0
   if command -v brew >/dev/null 2>&1; then
     say 'uv is not installed. Installing it with Homebrew.'
     brew install uv || stop 'Homebrew could not install uv.' 'Install uv yourself, then run ./install.sh again.'
   else
     command -v curl >/dev/null 2>&1 || stop 'curl is needed to fetch the uv installer.' 'Install uv yourself, then run ./install.sh again.'
+    if ! command -v shasum >/dev/null 2>&1 && ! command -v sha256sum >/dev/null 2>&1; then
+      stop 'Cannot check what the uv installer downloads: neither sha256sum nor shasum is here.' 'Nothing was run. Install uv yourself, then run ./install.sh again.'
+    fi
     say 'uv is not installed. Installing it with the astral.sh installer'
     say 'into your home.'
-    script="$(curl -LsSf "$UV_INSTALL_URL")" || script=''
-    [ -n "$script" ] || stop 'Could not download the uv installer.' 'Install uv yourself, then run ./install.sh again.'
-    printf '%s\n' "$script" | INSTALLER_NO_MODIFY_PATH=1 sh || stop 'The uv installer did not finish.' 'Install uv yourself, then run ./install.sh again.'
+    dir="$(mktemp -d)" || stop 'Could not make a folder for the uv installer.' 'Install uv yourself, then run ./install.sh again.'
+    file="$dir/install.sh"
+    if ! curl --proto '=https' --tlsv1.2 -LsSf "$UV_INSTALL_URL" -o "$file" || [ ! -s "$file" ]; then
+      rm -rf "$dir"
+      stop 'Could not download the uv installer.' 'Install uv yourself, then run ./install.sh again.'
+    fi
+    got="$(sha256_of "$file")" || got=''
+    if [ "$got" != "$UV_INSTALL_SHA256" ]; then
+      rm -rf "$dir"
+      stop 'The uv installer from astral.sh is not the one this checkout expects.' 'Nothing was run. Install uv yourself, then run ./install.sh again.'
+    fi
+    mkdir "$dir/bin"
+    if ! command -v sha256sum >/dev/null 2>&1; then
+      printf '#!/bin/sh\nexec %q -a 256 "$@"\n' "$(command -v shasum)" > "$dir/bin/sha256sum"
+      chmod +x "$dir/bin/sha256sum"
+    fi
+    PATH="$dir/bin:$PATH" INSTALLER_NO_MODIFY_PATH=1 sh "$file" || status=$?
+    rm -rf "$dir"
+    [ "$status" -eq 0 ] || stop 'The uv installer did not finish.' 'Install uv yourself, then run ./install.sh again.'
   fi
 }
 
