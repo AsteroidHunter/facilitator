@@ -9,7 +9,7 @@
 // way back from a section, a way to put the whole page away (the red one of the
 // three window buttons at its top left, Escape, a click outside it), every on and
 // off setting a switch, no purple, every setting still writing what it always wrote,
-// the colour picker gone from the bar and the pen a plain mark like the gear. On
+// the colour picker gone from the bar and the bell a plain mark like the gear. On
 // the phone the drawer keeps its own size, white, edge and corners, and holds the
 // list of sections, each one opening inside it with a way back; Notifications is
 // the Editor's switch and really subscribes and unsubscribes the phone, and the
@@ -242,7 +242,7 @@ after(async () => {
 
 // ---- the bar ------------------------------------------------------------------------
 
-test("the bar has no colour picker and the pen is a plain mark like the gear", async () => {
+test("the bar has no colour picker and the bell is a plain mark like the gear", async () => {
   const { page, problems } = await open("/", WIDE);
   try {
     const bar = await page.evaluate(() => {
@@ -254,17 +254,19 @@ test("the bar has no colour picker and the pen is a plain mark like the gear", a
                  inBar: !!el.closest(".bar") };
       };
       const pick = document.getElementById("bgpick");
-      return { pen: dress(document.getElementById("editbtn")), gear: dress(document.getElementById("setbtn")),
-               pickInBar: !!document.querySelector(".bar #bgpick"), pickInPage: !!pick.closest(".sp-page") };
+      return { bell: dress(document.getElementById("chimebtn")), gear: dress(document.getElementById("setbtn")),
+               pickInBar: !!document.querySelector(".bar #bgpick"), pickInPage: !!pick.closest(".sp-page"),
+               pencil: !!document.getElementById("editbtn") };
     });
     assert.equal(bar.pickInBar, false, "the colour picker is still on the bar");
     assert.equal(bar.pickInPage, true, "the colour picker is not in the settings page");
-    assert.equal(bar.pen.inBar, true, "the pen left the bar");
-    assert.equal(bar.pen.background, "rgba(0, 0, 0, 0)", "the pen still sits on a tinted box");
-    assert.equal(bar.pen.border, "none", "the pen still has a border");
-    assert.equal(bar.pen.shadow, "none", "the pen still has a shadow");
-    assert.equal(bar.pen.mark, bar.gear.mark, "the pen mark is not the gear's size");
-    assert.equal(bar.pen.color, bar.gear.color, "the pen mark is not the gear's colour");
+    assert.equal(bar.pencil, false, "the pencil is still on the bar");
+    assert.equal(bar.bell.inBar, true, "the bell left the bar");
+    assert.equal(bar.bell.background, "rgba(0, 0, 0, 0)", "the bell still sits on a tinted box");
+    assert.equal(bar.bell.border, "none", "the bell still has a border");
+    assert.equal(bar.bell.shadow, "none", "the bell still has a shadow");
+    assert.equal(bar.bell.mark, bar.gear.mark, "the bell mark is not the gear's size");
+    assert.equal(bar.bell.color, bar.gear.color, "the bell mark is not the gear's colour");
     assert.deepEqual(problems, []);
   } finally {
     await closePage(page);

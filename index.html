@@ -68,12 +68,15 @@
     border-radius:4px; background:none; cursor:pointer; flex:none}
   #bgpick::-webkit-color-swatch-wrapper{padding:2px}
   #bgpick::-webkit-color-swatch{border:none; border-radius:2px}
-  /* the pen is a mark like the gear beside it: 15px, the sub ink, no box, the
-     accent under a pointer and while the layout is being edited */
-  #editbtn{display:flex; align-items:center; padding:2px; border:none; background:none;
+  /* the bell is a mark like the gear beside it: 15px, the sub ink, no box, the
+     full ink under a pointer. a slash drawn over it, with a clear gap cut
+     round the slash so it reads at this size, means the reply chime is off */
+  #chimebtn{display:flex; align-items:center; padding:2px; border:none; background:none;
     color:var(--sub); cursor:pointer; transition:color .2s; flex:none;
     margin-left:auto}   /* holds the right edge now the status row is gone */
-  #editbtn:hover, body.editmode #editbtn{color:var(--accent)}
+  #chimebtn:hover{color:var(--ink)}
+  #chimebtn .chime-slash, #chimebtn .chime-gap{display:none}
+  #chimebtn[aria-pressed="false"] :is(.chime-slash, .chime-gap){display:inline}
   /* the install control, in the soft tint the edit button used to wear: the same
      face, size, colours, corner and padding, and no margin of its own, since the
      button before it already holds the right edge. It is hidden except while
@@ -2060,7 +2063,7 @@
      is edited is the file and not a picture of it */
   :is(#magic3, #magic4) .md-fm-raw{height:auto; font-size:11.5px; line-height:1.8}
   /* a box taken off this tab is absent from the board, and stays absent while
-     the layout pencil is on: the pencil arranges only the boxes that are on
+     edit mode is on: edit mode arranges only the boxes that are on
      screen, so a removed box shows no faint ghost and carries no control. */
   body.focus:not(.layout-ready) #stage{visibility:hidden}
   body.focus .region-off{visibility:hidden; pointer-events:none}
@@ -2744,7 +2747,6 @@
   body[data-resp-mode="portrait"] #magic4,
   body[data-resp-mode="portrait"] #goalbox,
   body[data-resp-mode="portrait"] #respnav,
-  body[data-resp-mode="portrait"] #editbtn,
   /* the page switcher would float over the full-width card's composer here; it
      stays a landscape control (page switching is still there in the wider modes
      and in the phone app) */
@@ -2880,7 +2882,6 @@
      every resize, and transitioning that would set the whole app sliding */
   body.focus #stage{transition:opacity .18s ease, visibility .18s ease}
   body.focus.pageblank #stage{visibility:hidden; opacity:0; pointer-events:none}
-  body.focus.pageblank #editbtn{visibility:hidden}   /* the board's own arranging goes with the board */
   /* in-app project tabs: the board filtered to one project per tab; labels
      come from the lane directories at runtime, never from this file. Real tab
      shapes seated on the bar's bottom edge; the active one opens into the page.
@@ -3035,7 +3036,7 @@
      about the cure: a mark has to be visible to be found, so every tab the
      pointer crossed grew one, and a menu charges a second click for a single
      word. the dwell buys the same safety with time instead of ink.
-     20260824: the pencil is for boxes and for nothing else */
+     20260824: edit mode is for boxes and for nothing else */
   /* the band is new room, not the tab's own padding: the label keeps its 16px
      of air on both sides while the band is open, so the name never shifts
      inside its tab and only the tabs after it move, which is the movement that
@@ -3323,9 +3324,8 @@
   @keyframes homefade{from{opacity:0}}
   body.focus.home :is(#newproj, #homepair, #homeline){animation:homefade .18s ease both}
   body.focus.home :is(#npbrand, #nppanel, #npstart){animation:none}
-  body.focus.home #editbtn{visibility:hidden}
-  /* on-canvas edit mode: the bar's pencil toggles it; boxes then drag with no
-     keys held and wear small squares that snap-resize them */
+  /* on-canvas edit mode: boxes drag with no keys held and wear small squares
+     that snap-resize them. Nothing on the bar turns it on now (setEditMode) */
   body.editmode :is(main, #clockbox, #rail, #tickets, #magic1, #magic2, #magic3, #magic4, #goalbox),
   body.editmode :is(main, #clockbox, #rail, #tickets, #magic1, #magic2, #magic3, #magic4,
     #goalbox) *{cursor:move}
@@ -3335,7 +3335,7 @@
   .rhandle{position:absolute; width:9px; height:9px; background:#fff;
     border:1px solid var(--accent); border-radius:2px; pointer-events:auto;
     box-shadow:0 1px 3px rgba(60,45,20,.25)}
-  /* the region cross, one per box while the pencil is on: a plain black cross,
+  /* the region cross, one per box while edit mode is on: a plain black cross,
      no chip behind it. it sits just outside the top right corner, clear of the
      resize squares and of whatever the box itself is holding */
   .rkill{position:absolute; width:16px; height:16px;
@@ -3478,7 +3478,7 @@
   <span id="tabbar"></span>
   <span id="projnote"></span>
   <span class="name" id="boardname">facilitator</span>
-  <button id="editbtn" type="button" title="edit layout" aria-label="edit layout" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></button>
+  <button id="chimebtn" type="button" title="Reply chime on. Click to mute." aria-label="Reply chime" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><defs><mask id="chimegap" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="#fff" stroke="none"/><path class="chime-gap" d="M3 3 21 21" stroke="#000" stroke-width="5"/></mask></defs><g mask="url(#chimegap)"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></g><path class="chime-slash" d="M3 3 21 21"/></svg></button>
   <button id="installbtn" type="button" hidden>Install app</button>
   <button id="setbtn" type="button" title="settings" aria-label="settings" aria-haspopup="dialog" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-1 1.47V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.6 1.6 0 0 0 4.6 15a1.6 1.6 0 0 0-1.47-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 8.9a1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.6 1.6 0 0 0 8.88 4.6H9a1.6 1.6 0 0 0 1-1.47V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77V9a1.6 1.6 0 0 0 1.47 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.47 1z"/></svg></button>
 </div>
@@ -9553,6 +9553,113 @@ function age(ts){
   return Math.floor(s / 86400) + "d";
 }
 
+// ---- the reply chime ---------------------------------------------------------
+// One soft two-note bell when a card turns to the reader's turn. The board's
+// readings show that as a card's turnTs moving, the same event a phone is told
+// about, so no card already waiting at load counts. The first reply rings at
+// once and any reply in the next two minutes is silent, so a burst gives one
+// chime. While this window is in front a reply on the project on screen is
+// silent too, since it is in view; every other project rings, and with the
+// window behind or hidden every project does. Chrome plays sound only after a
+// click or key press, and a chime that cannot play is dropped, never held for
+// later. The bell on the bar mutes it. The choice is kept the way the board's
+// settings are, but under a key the board's store does not list, so it stays in
+// this browser's own storage until the board's list takes it in
+const CHIME_MUTED_KEY = "chimemuted";
+const CHIME_LAST_KEY = "chimelast";   // when a window of this browser last rang, so two windows do not both ring
+const CHIME_GAP_MS = 2 * 60 * 1000;
+const CHIME_VOLUME = 0.6;
+let chimeCtx = null;
+let chimeRang = 0;
+let chimeTurns = new Map();   // card id -> the newest turnTs read for it
+let chimeClock = 0;           // the board's clock at the newest reading
+let chimeFirst = true;        // the first reading only sets the baseline
+
+// the chosen sound: C5 then G5, pure sine, a soft 45 ms start, 0.91 s in all
+function chimeBellRoundA(ctx, when, volume) {
+  const out = ctx.createGain();
+  out.gain.value = volume;
+  out.connect(ctx.destination);
+  const gap = 0.23, len = 0.66;
+  [[523.25, 0], [783.99, gap]].forEach(function (n) {
+    const start = when + n[1];
+    const osc = ctx.createOscillator(), g = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = n[0];
+    g.gain.setValueAtTime(0, start);
+    g.gain.linearRampToValueAtTime(0.24, start + 0.045);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + len);
+    g.gain.linearRampToValueAtTime(0, start + len + 0.02);
+    osc.connect(g); g.connect(out);
+    osc.start(start); osc.stop(start + len + 0.03);
+  });
+  return gap + len + 0.02;
+}
+
+function chimeMuted(){ return settingsStore.getItem(CHIME_MUTED_KEY) === "1"; }
+// the bell as the store has it: read again on every reading, so a window that
+// did not take the click shows the new state within a second
+function chimeShowBell(){
+  const btn = document.getElementById("chimebtn");
+  const on = String(!chimeMuted());
+  if (btn.getAttribute("aria-pressed") === on) return;
+  btn.setAttribute("aria-pressed", on);
+  btn.title = on === "true" ? "Reply chime on. Click to mute." : "Reply chime muted. Click to unmute.";
+}
+document.getElementById("chimebtn").addEventListener("click", () => {
+  if (chimeMuted()) settingsStore.removeItem(CHIME_MUTED_KEY);
+  else settingsStore.setItem(CHIME_MUTED_KEY, "1");
+  chimeShowBell();
+});
+chimeShowBell();
+
+function chimeEnsure(){
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!chimeCtx && AC) chimeCtx = new AC();
+    if (chimeCtx && chimeCtx.state !== "running") Promise.resolve(chimeCtx.resume()).catch(() => {});
+  } catch (err) {}
+}
+for (const type of ["pointerdown", "click", "keydown"])
+  addEventListener(type, () => { if (!chimeCtx || chimeCtx.state !== "running") chimeEnsure(); }, true);
+
+function chimeRing(){
+  const t = Date.now();
+  let last = chimeRang;
+  try { last = Math.max(last, Number(localStorage.getItem(CHIME_LAST_KEY)) || 0); } catch (err) {}
+  if (last <= t && t - last < CHIME_GAP_MS) return;
+  chimeEnsure();
+  if (!chimeCtx || chimeCtx.state !== "running") return;
+  try { chimeBellRoundA(chimeCtx, chimeCtx.currentTime + 0.03, CHIME_VOLUME); } catch (err) { return; }
+  chimeRang = t;
+  try { localStorage.setItem(CHIME_LAST_KEY, String(t)); } catch (err) {}
+}
+
+// whether any of these replies is one to ring for
+function chimeWanted(turned){
+  const front = document.visibilityState === "visible" && document.hasFocus();
+  const shown = homeOpen || activeOwner === DRAFT ? null : activeOwner;   // home and an unfinished tab show no project
+  return turned.some(b => !front || (b.owner || "facilitator") !== shown);
+}
+
+// every reading goes through here. A card seen before turned when its turnTs
+// rose; a card new to the page turned when its turnTs is later than the board's
+// clock at the reading before. The newest value is kept, so a reading that
+// arrives late with older numbers changes nothing
+function chimeWatch(state){
+  chimeShowBell();
+  const turned = [], next = new Map();
+  for (const b of state.boxes || []){
+    const ts = Number(b.turnTs) || 0, was = chimeTurns.get(b.id);
+    if (!chimeFirst && ts > (was === undefined ? (chimeClock || Infinity) : was)) turned.push(b);
+    next.set(b.id, Math.max(ts, was || 0));
+  }
+  chimeTurns = next;
+  chimeClock = Math.max(chimeClock, Number(state.now) || 0);
+  chimeFirst = false;
+  if (turned.length && !chimeMuted() && chimeWanted(turned)) chimeRing();
+}
+
 // The caret installs this callback below. If a data update actually moves or
 // restyles the focused editor, hand that change to the same event-driven queue.
 function focusedCaretContext(){
@@ -9604,6 +9711,11 @@ async function poll(){
   noteDoing("render");
   try {
     if (!validateActiveOwner(state)) return;
+    // the reply chime reads the same reading, on its own try so a card that will
+    // not draw cannot silence it and it cannot stop the draw
+    try { chimeWatch(state); } catch (e) {
+      if (typeof reportProblem === "function") reportProblem("error", e);
+    }
     // the read marks and the bar's arrangement are the board's, so they ride
     // in on the state: taken in here, ahead of anything that draws from them,
     // and this browser's old copies handed over once on the first load
@@ -10429,7 +10541,7 @@ function applySavedLayout(){
   if (!ownerReady) return;
   // a box that belongs to the file navigator is put on this tab or taken off it
   // first, so everything below only ever sees the boxes this tab really has.
-  // the edit handles are pinned to the boxes that were there when the pencil
+  // the edit handles are pinned to the boxes that were there when edit mode
   // went on, so a box that just arrived or left gets them rebuilt
   if (fileNavBoxes() && editMode) buildHandles();
   const src = layoutSource();
@@ -10504,10 +10616,11 @@ addEventListener("pointerup", () => {
   dragging = null;
 });
 
-// the pencil: on-canvas edit mode. while it is on, a plain drag moves a
-// region and the small squares on its edges resize it; everything snaps to
-// the same star grid and saves under the same keys as the option gestures,
-// which keep working in both modes
+// on-canvas edit mode. while it is on, a plain drag moves a region and the
+// small squares on its edges resize it; everything snaps to the same star grid
+// and saves under the same keys as the option gestures, which keep working in
+// both modes. the bar has no control for it any more, so only a direct call to
+// setEditMode(true) turns it on
 let editMode = false;
 let editPending = null;    // pointerdown seen; becomes a drag only after real movement
 let sizing = null;
@@ -10518,7 +10631,7 @@ document.getElementById("stage").appendChild(handleLayer);
 let handleItems = [];
 let killItems = [];
 let handleRaf = 0;
-// the cross on each box while the pencil is on. hiding is per tab and never
+// the cross on each box while edit mode is on. hiding is per tab and never
 // inherited from another tab, so putting a box away here leaves every other tab
 // exactly as it was
 function toggleRegionHidden(id){
@@ -10541,7 +10654,6 @@ function setEditMode(on){
   if (on && !onBoardPage()) return;   // no board on this page, nothing to arrange
   editMode = on;
   document.body.classList.toggle("editmode", on);
-  document.getElementById("editbtn").setAttribute("aria-pressed", on ? "true" : "false");
   if (on){
     buildHandles();
     trackHandles();
@@ -10554,7 +10666,6 @@ function setEditMode(on){
     sizing = null;
   }
 }
-document.getElementById("editbtn").addEventListener("click", () => setEditMode(!editMode));
 
 // ---- settings --------------------------------------------------------------
 // the board's own choices for this browser, on one page over the whole window,
@@ -10625,7 +10736,7 @@ function trackHandles(){
   for (const it of handleItems){
     const r = it.el.getBoundingClientRect();
     // a removed box is off the board in edit mode as well, so it wears no
-    // resize handles: the pencil only arranges the boxes that are on screen.
+    // resize handles: edit mode only arranges the boxes that are on screen.
     if (it.el.classList.contains("region-off")){ it.hd.style.display = "none"; continue; }
     if (!r.width && !r.height){ it.hd.style.display = "none"; continue; }
     it.hd.style.display = "";

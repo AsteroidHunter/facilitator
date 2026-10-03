@@ -184,7 +184,7 @@ test("a navigator put away on the board's own tab comes back once, where it was"
     await selectProject(page, "facilitator");
 
     // the cross still puts it away, and it stays away on later loads
-    await page.click("#editbtn");
+    await page.evaluate(() => setEditMode(true));
     await page.waitForSelector('.rkill[data-region="magic4"]', { visible: true });
     await page.click('.rkill[data-region="magic4"]');
     await new Promise(resolve => setTimeout(resolve, 400));

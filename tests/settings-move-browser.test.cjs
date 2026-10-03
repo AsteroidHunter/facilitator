@@ -173,10 +173,10 @@ test("a board arranged on one port shows the same at the port it moved to, from 
   await page.mouse.move(clock.x + 150, clock.y, { steps: 10 });
   await page.mouse.up();
   await page.keyboard.up("Alt");
-  await page.click("#editbtn");
+  await page.evaluate(() => setEditMode(true));
   await page.waitForSelector('.rkill[data-region="magic1"]', { visible: true });
   await page.click('.rkill[data-region="magic1"]');
-  await page.click("#editbtn");
+  await page.evaluate(() => setEditMode(false));
   await page.$eval("#bgpick", el => { el.value = "#e9efe4"; el.dispatchEvent(new Event("input", { bubbles: true })); });
   await page.click("#setbtn");
   await page.waitForSelector(".sp-veil.open");

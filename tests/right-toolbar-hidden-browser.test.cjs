@@ -39,7 +39,7 @@ const look = page => page.evaluate(() => {
     wide: innerWidth, tall: innerHeight,
     frame: R($("#appframe")), bar: R($(".bar")),
     house: glyph("#homeico"), gear: glyph("#setbtn"),
-    pen: R($("#editbtn")), gearBox: R($("#setbtn")),
+    bell: R($("#chimebtn")), gearBox: R($("#setbtn")),
   };
 });
 
@@ -53,7 +53,7 @@ function expectHidden(g, label) {
   near(g.frame.x, g.tall - g.frame.bottom, label + ": the margin equals the bottom");
   near(g.wide - g.gear.right, g.house.x, label + ": the gear mirrors the house");
   near(g.gear.y, g.house.y, label + ": the gear and the house share a top inset");
-  near(g.pen.x + g.pen.w + 14, g.gearBox.x, label + ": the pen sits 14px left of the gear");
+  near(g.bell.x + g.bell.w + 14, g.gearBox.x, label + ": the bell sits 14px left of the gear");
 }
 
 test("the page has no toolbar or Notes drawer on a project tab or on the home page", async () => {
