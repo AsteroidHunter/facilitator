@@ -1,9 +1,11 @@
 // The phone page's motion, driven headless at an iPhone size against its own
 // fixture server: the card's two fades, the sent box's arrival, the send that
-// lands at once and moves on, both drawers crossing the page on one straight
+// lands at once and moves on, the card list (the card goes down by 55% of the
+// screen while the ticket box comes in from the left above it, both on one
+// fraction), the settings crossing the page from the right on one straight
 // sideways line at full strength while the shade under them grows and the page
-// itself draws back towards the middle of the screen, the tab bar keeping its
-// scroll, and settings.
+// itself draws back towards the middle of the screen, and the tab bar keeping
+// its scroll.
 // Screenshots land under /tmp/m362-motion-shots.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
@@ -195,7 +197,7 @@ async function startPageSamples(page, duration = 700) {
       const style = getComputedStyle(el);
       const m = new DOMMatrix(style.transform);
       let out = 0, depth = 0;
-      for (const one of ["#drawer", "#settings"]) {
+      for (const one of ["#settings"]) {
         const panel = document.querySelector(one);
         const at = 1 - Math.abs(new DOMMatrix(getComputedStyle(panel).transform).m41) /
           panel.getBoundingClientRect().width;
@@ -311,16 +313,122 @@ async function assertPageStayedCentred(page, where) {
   return { frames: samples.length, apart, low: Math.min(...sizes), high: Math.max(...sizes) };
 }
 
-// a pull from an edge, held at a fraction of the menu's width so the frame it
+// the card list at one moment: the card (#pane) and the ticket box (#tickets)
+// each read for how far it has gone, as a share of its own full run. the card's
+// run is --list-drop down, the box's is its own width and the page's left gap
+// across, so both shares are read off the pictures and not off the number the
+// script wrote
+async function readList(page) {
+  return page.evaluate(() => {
+    const surface = document.getElementById("page");
+    const pane = document.getElementById("pane");
+    const box = document.getElementById("tickets");
+    const bed = document.getElementById("dockbed");
+    const ps = getComputedStyle(pane), bs = getComputedStyle(box);
+    const drop = parseFloat(getComputedStyle(surface).getPropertyValue("--list-drop"));
+    const dm = new DOMMatrix(ps.transform), bm = new DOMMatrix(bs.transform);
+    const run = box.offsetLeft + box.offsetWidth;
+    const pr = pane.getBoundingClientRect(), br = box.getBoundingClientRect(), sr = surface.getBoundingClientRect();
+    const tabs = box.querySelector("#tikhead").getBoundingClientRect();
+    return {
+      open: box.classList.contains("open"),
+      live: box.classList.contains("live"),
+      v: Number(ps.getPropertyValue("--list-v")),
+      boxV: Number(bs.getPropertyValue("--list-v")),
+      bedV: Number(getComputedStyle(bed).getPropertyValue("--bed-v")),
+      drop, run,
+      down: dm.m42, across: dm.m41,
+      cardAt: drop ? dm.m42 / drop : 0,
+      boxAt: 1 + bm.m41 / run,
+      boxY: bm.m42,
+      boxVisibility: bs.visibility,
+      boxOpacity: Number(bs.opacity), cardOpacity: Number(ps.opacity),
+      boxShade: bs.boxShadow, boxFill: bs.backgroundColor, boxAfter: getComputedStyle(box, "::after").content,
+      paneMs: ps.transitionDuration, paneMoves: ps.transitionProperty, paneCurve: ps.transitionTimingFunction,
+      boxMs: bs.transitionDuration, boxMoves: bs.transitionProperty, boxCurve: bs.transitionTimingFunction,
+      cardPointer: ps.pointerEvents,
+      cardLeft: pr.left, cardRight: pr.right, cardTop: pr.top, cardFoot: pr.bottom,
+      boxLeft: br.left, boxRight: br.right, boxTop: br.top, boxFoot: br.bottom,
+      boxWidth: br.width, boxHeight: br.height,
+      tabsTop: tabs.top,
+      cardRestTop: pane.offsetTop, cardRestLeft: pane.offsetLeft, cardWidth: pane.offsetWidth, cardHeight: pane.offsetHeight,
+      pageLeft: sr.left, pageTop: sr.top, pageFoot: sr.bottom,
+      pageScale: new DOMMatrix(getComputedStyle(surface).transform).a,
+      scrim: Number(getComputedStyle(document.getElementById("scrim")).opacity),
+      scrimPointer: getComputedStyle(document.getElementById("scrim")).pointerEvents,
+      viewportWidth: innerWidth, viewportHeight: innerHeight,
+      bodyHeight: document.body.clientHeight,
+      shown: document.querySelector("article.box.sel")?.id || null,
+      selected: selectedId,
+    };
+  });
+}
+
+// every frame of a run of the card list, card and box read in the same frame
+async function startListSamples(page, duration = 900) {
+  await page.evaluate(ms => {
+    window.__listSamples = [];
+    const surface = document.getElementById("page");
+    const pane = document.getElementById("pane");
+    const box = document.getElementById("tickets");
+    const until = performance.now() + ms;
+    const take = () => {
+      const ps = getComputedStyle(pane), bs = getComputedStyle(box);
+      const drop = parseFloat(getComputedStyle(surface).getPropertyValue("--list-drop"));
+      const dm = new DOMMatrix(ps.transform), bm = new DOMMatrix(bs.transform);
+      const run = box.offsetLeft + box.offsetWidth;
+      const br = box.getBoundingClientRect();
+      window.__listSamples.push({
+        cardAt: drop ? dm.m42 / drop : 0, boxAt: 1 + bm.m41 / run,
+        across: dm.m41, boxY: bm.m42,
+        boxTop: br.top, boxFoot: br.bottom, boxLeft: br.left, boxRight: br.right,
+        visibility: bs.visibility, boxOpacity: Number(bs.opacity), cardOpacity: Number(ps.opacity),
+        paneTop: pane.offsetTop, paneHeight: pane.offsetHeight, paneWidth: pane.offsetWidth,
+        boxOffsetW: box.offsetWidth, boxOffsetH: box.offsetHeight, boxOffsetLeft: box.offsetLeft,
+        pageScale: new DOMMatrix(getComputedStyle(surface).transform).a,
+        scrim: Number(getComputedStyle(document.getElementById("scrim")).opacity),
+      });
+      if (performance.now() < until) requestAnimationFrame(take);
+    };
+    requestAnimationFrame(take);
+  }, duration);
+}
+
+// the whole of what was asked of the card list's run: the card goes down and
+// the box comes in on one fraction in every frame, straight down and straight
+// across, at full strength, and nothing on the page is laid out again
+async function assertListInStep(page, where) {
+  const samples = await page.evaluate(() => window.__listSamples || []);
+  assert.ok(samples.length >= 20, `too few card-list frames sampled ${where}: ${samples.length}`);
+  let apart = 0;
+  for (const [i, s] of samples.entries()) {
+    assert.ok(Math.abs(s.cardAt - s.boxAt) < 0.03,
+      `the card and the ticket box parted at frame ${i} ${where} (card ${s.cardAt.toFixed(3)}, box ${s.boxAt.toFixed(3)})`);
+    apart = Math.max(apart, Math.abs(s.cardAt - s.boxAt));
+    assert.ok(Math.abs(s.across) < 0.01, `the card moved sideways at frame ${i} ${where} (${s.across})`);
+    assert.ok(Math.abs(s.boxY) < 0.01, `the ticket box moved up or down at frame ${i} ${where} (${s.boxY})`);
+    assert.equal(s.cardOpacity, 1, `the card was see-through at frame ${i} ${where}`);
+    assert.equal(s.boxOpacity, 1, `the ticket box was see-through at frame ${i} ${where}`);
+    assert.ok(Math.abs(s.pageScale - 1) < 1e-6, `the page drew back at frame ${i} ${where} (${s.pageScale})`);
+    assert.equal(s.scrim, 0, `a shade came over the page at frame ${i} ${where}`);
+  }
+  // nothing was laid out again: every layout measure is the same in every frame
+  for (const key of ["paneTop", "paneHeight", "paneWidth", "boxOffsetW", "boxOffsetH", "boxOffsetLeft"])
+    assert.equal(new Set(samples.map(s => s[key])).size, 1, `${key} changed while the card list ran ${where}`);
+  const cards = samples.map(s => s.cardAt);
+  const seen = samples.filter(s => s.visibility === "visible");
+  return { frames: samples.length, apart, low: Math.min(...cards), high: Math.max(...cards), seen: seen.length };
+}
+
+// a pull from an edge, held at a fraction of the menu's travel so the frame it
 // stands on can be looked at, and then let go
 async function pull(page, side, fraction, hold) {
-  const width = await page.evaluate(one => document.querySelector(one).getBoundingClientRect().width,
-    side === "right" ? "#settings" : "#drawer");
+  const width = await page.evaluate(right => right ? settings.offsetWidth : menuTravel(tickets), side === "right");
   const from = side === "right" ? 384 : 6;
   const travel = Math.round(width * fraction) * (side === "right" ? -1 : 1);
   await page.touchscreen.touchStart(from, 500);
   for (let step = 1; step <= 8; step++) await page.touchscreen.touchMove(from + Math.round(travel * step / 8), 500);
-  if (hold) await hold();
+  if (hold) { await settle(100); await hold(); }   // the last move is taken on the next frame
   await page.touchscreen.touchEnd();
   await settle(750);
 }
@@ -571,210 +679,207 @@ test("a second press of the send arrow moves on to the card that has waited long
   }
 });
 
-test("the card list crosses the page on one line, at full strength, over a growing shade and a page drawn back", async () => {
+test("the card list drops the card by 55% of the screen while the ticket box comes in above it, on one fraction", async () => {
   const { page, problems } = await openPhone("/m");
   try {
     await page.waitForSelector("article.box.sel", { timeout: 5000 });
-    const shut = await readMenu(page, "#drawer");
+    const shut = await readList(page);
     assert.equal(shut.open, false);
-    assertPageDrewBack(shut, 0, "with the card list closed");
-    // the page's own depth is on the menu's clock and nobody else's
-    assert.match(shut.pageMoves, /transform/, "the page's size is not a timed part of the run");
-    assert.match(shut.pageMs, /0\.55s/, "the page's depth is on another clock than the menu");
-    assert.equal(shut.scrim, "0.00");
-    assert.equal(shut.lift, 0, "the menu waits off its own line");
-    assert.equal(shut.top, 0, "the menu waits below the top of the screen");
-    assert.equal(shut.fade, "1.00", "the menu waits at less than its full strength");
-    assert.equal(shut.depth, 0, "the menu waits with a shade already under it");
-    assert.equal(shut.left, -shut.width, "the card list does not wait beyond the left edge");
-    assert.equal(shut.width, 278, "the card list is not about 15% narrower than its former 328px width");
-    // the two exposed corners are rounder, and the two at the screen edge stay square
-    assert.deepEqual(shut.corners, ["0px", "12px", "12px", "0px"], "the card list's exposed corners are not 12px");
-    assert.match(shut.ms, /0\.55s/, "the run is not 550ms");
-    assert.match(shut.curve, /cubic-bezier\(0\.445, 0\.05, 0\.55, 0\.95\)/, "a tap does not open on the ease in and out");
-    assert.match(shut.panelMs, /0\.55s/, "the menu itself is on another clock than the page");
-    // nothing about the menu itself fades or lifts: its own transition list is
-    // the sideways travel and the taking away, and the depth is on its shade
-    assert.equal(shut.shade, "none", "the depth is still on the menu instead of its own layer");
-    assert.match(shut.depthMs, /0\.55s/, "the shade is on another clock than the travel");
-    await shot(page, "drawer-closed");
+    assert.equal(shut.live, false);
+    assert.equal(shut.v, 0);
+    assert.equal(shut.down, 0, "the card waits off its resting place");
+    assert.equal(shut.across, 0);
+    assert.equal(shut.boxVisibility, "hidden", "the ticket box is on show with the list shut");
+    assert.ok(shut.boxRight <= shut.pageLeft + 0.5,
+      `the shut ticket box is not wholly beyond the page's left edge (${shut.boxRight} of ${shut.pageLeft})`);
+    assert.ok(Math.abs(shut.drop - 0.55 * shut.viewportHeight) <= 1,
+      `the card's drop is not 55% of the screen's height (${shut.drop} of ${shut.viewportHeight})`);
+    assert.equal(shut.bedV, 0);
+    assert.equal(shut.pageScale, 1, "the page is not at its resting size with the list shut");
+    // the list is the board's holder: nothing painted behind the names and rows,
+    // no shade of its own, and no second layer over it
+    assert.equal(shut.boxFill, "rgba(0, 0, 0, 0)", "the ticket box paints a ground of its own");
+    assert.equal(shut.boxShade, "none", "the ticket box casts a shade");
+    assert.match(shut.boxAfter, /^(none|normal)$/, "the ticket box carries a layer over itself");
+    // one clock, the same for the card and the box, and only a transform on it
+    assert.match(shut.paneMoves, /transform/);
+    assert.match(shut.boxMoves, /transform/);
+    assert.match(shut.paneMs, /0\.55s/, "the card's run is not 550ms");
+    assert.match(shut.boxMs, /0\.55s/, "the box's run is not 550ms");
+    assert.match(shut.paneCurve, /cubic-bezier\(0\.445, 0\.05, 0\.55, 0\.95\)/, "a tap does not move the card on the ease in and out");
+    assert.match(shut.boxCurve, /cubic-bezier\(0\.445, 0\.05, 0\.55, 0\.95\)/, "a tap does not move the box on the ease in and out");
+    await shot(page, "list-closed");
 
-    await startPageSamples(page);
-    await startMenuSamples(page, "#drawer");
+    await startListSamples(page);
     await page.evaluate(() => openDrawer());
     await settle(250);
-    const half = await readMenu(page, "#drawer");
-    assert.ok(half.shift < 0 && half.shift > -half.width, `the card list did not travel over time (${half.shift})`);
-    assert.equal(half.fade, "1.00", `the menu went see-through on the way in (${half.fade})`);
-    assert.equal(half.lift, 0, `the menu left its line on the way in (${half.lift})`);
-    assert.equal(half.top, 0, `the menu's head moved on the way in (${half.top})`);
-    assert.ok(half.depth > 0 && half.depth < 1, `the shade under the menu did not grow over time (${half.depth})`);
-    assert.ok(half.pageScale < 1 && half.pageScale > pageSizeAt(1),
-      `the page did not draw back part of the way over time (${half.pageScale})`);
-    assertPageDrewBack(half, half.out, "while the card list was opening");
-    await shot(page, "drawer-half");
+    const half = await readList(page);
+    assert.ok(half.cardAt > 0 && half.cardAt < 1, `the card did not travel over time (${half.cardAt})`);
+    assert.ok(Math.abs(half.cardAt - half.boxAt) < 0.03,
+      `the card and the box are not at the same place in their runs (${half.cardAt}, ${half.boxAt})`);
+    assert.equal(half.across, 0, "the card moved sideways on the way down");
+    assert.equal(half.boxY, 0, "the box moved up or down on the way in");
+    assert.equal(half.cardOpacity, 1);
+    assert.equal(half.boxOpacity, 1);
+    assert.equal(half.boxVisibility, "visible", "the box was not on show part of the way in");
+    await shot(page, "list-half");
 
     await settle(500);
-    const out = await readMenu(page, "#drawer");
+    const out = await readList(page);
     assert.equal(out.open, true);
-    assert.equal(out.shift, 0, "the card list did not land against the left edge");
-    assert.equal(out.left, 0);
-    assertPageDrewBack(out, 1, "with the card list open");
-    assert.equal(out.pageScale, pageSizeAt(1), "the page did not land on the depth it was given");
-    // the resting step in and then the same step again: about six pixels off each
-    // side and twelve off the top and the foot at this size
-    assert.ok(Math.abs(out.pageWidth - PHONE.width * pictureAt(1)) < 0.05,
-      `the open page's picture is not ${(pictureAt(1) * 100).toFixed(2)}% of the screen (${out.pageWidth})`);
-    assert.ok(Math.abs(out.pageLeft - PHONE.width * (1 - pictureAt(1)) / 2) < 0.05,
-      `the open page does not step in about 6px at the side (${out.pageLeft})`);
-    assert.ok(Math.abs(out.pageTop - PHONE.height * (1 - pictureAt(1)) / 2) < 0.05,
-      `the open page does not step in about 12px at the top (${out.pageTop})`);
-    assert.match(out.depthShade, /rgba\(0, 0, 0, 0\.1\) 2px 0px 6px/, "the card list has no close shade under its edge");
-    assert.match(out.depthShade, /rgba\(0, 0, 0, 0\.2\) 10px 0px 26px/, "the card list has no wide shade past its edge");
-    assert.equal(out.depth, 1, "the shade did not come up to its full weight");
-    assert.equal(out.lift, 0, "the menu did not land on its own line");
-    assert.equal(out.top, 0, "the menu did not land against the top of the screen");
-    assert.equal(out.foot, out.height, "the menu did not land against the foot of the screen");
-    assert.equal(out.fade, "1.00", "the menu is not at its full strength");
-    assert.equal(out.scrim, "1.00");
-    const opening = await assertMenuHeldItsLine(page, "while the card list opened");
-    assert.ok(opening.first < 0.15, `the shade was already deep as the run began (${opening.first})`);
-    assert.equal(opening.last, 1, `the shade did not finish at its full weight (${opening.last})`);
-    const drewBack = await assertPageStayedCentred(page, "while the card list opened");
-    assert.ok(drewBack.high > 0.999, `the page had already drawn back as the run began (${drewBack.high})`);
-    assert.ok(drewBack.low < 0.9855, `the page never drew back over the run (${drewBack.low})`);
-    await shot(page, "drawer-open");
+    assert.equal(out.v, 1);
+    assert.equal(out.boxV, 1, "the box was not written the card's fraction");
+    assert.equal(out.bedV, 1, "the row's bed was not written the card's fraction");
+    assert.ok(Math.abs(out.down - out.drop) < 0.5, `the card did not land its drop below its place (${out.down} of ${out.drop})`);
+    assert.ok(Math.abs(out.down - 0.55 * out.viewportHeight) <= 1, "the card is not down 55% of the screen");
+    assert.equal(out.across, 0);
+    assert.equal(out.boxVisibility, "visible");
+    // the box lies above the card in the card's own column, from the top the
+    // card rests at, and stops short of the card's top edge
+    assert.ok(Math.abs(out.boxLeft - out.cardLeft) < 0.6, `the box's left edge is not the card's (${out.boxLeft}, ${out.cardLeft})`);
+    assert.ok(Math.abs(out.boxRight - out.cardRight) < 0.6, `the box's right edge is not the card's (${out.boxRight}, ${out.cardRight})`);
+    assert.ok(Math.abs(out.boxTop - (out.cardTop - out.down)) < 0.6,
+      `the box does not start at the top the card rested at (${out.boxTop}, ${out.cardTop - out.down})`);
+    assert.ok(out.cardTop - out.boxFoot > 8 && out.cardTop - out.boxFoot < 12,
+      `the box's foot is not just clear of the card's top edge (${out.cardTop - out.boxFoot})`);
+    assert.ok(Math.abs(out.boxHeight - (out.drop - (out.cardTop - out.boxFoot))) < 1.01);
+    assert.ok(out.boxFoot < out.viewportHeight * 0.56, `the box runs below the top 55% of the screen (${out.boxFoot})`);
+    assert.equal(out.cardPointer, "none", "the card with the list out still takes a touch");
+    // no side drawer's company: no shade over the page, no page drawn back
+    assert.equal(out.scrim, 0, "a shade lies over the page with the list out");
+    assert.equal(out.scrimPointer, "none");
+    assert.equal(out.pageScale, 1, "the page drew back for the card list");
+    assert.equal(out.cardOpacity, 1);
+    const opening = await assertListInStep(page, "while the card list opened");
+    assert.ok(opening.low < 0.35, `the run was already well along as the samples began (${opening.low})`);
+    assert.ok(opening.high > 0.999, `the run did not finish (${opening.high})`);
+    assert.ok(opening.seen >= 15, `the box was on show for too few frames (${opening.seen})`);
+    await shot(page, "list-open");
 
-    await startPageSamples(page);
-    await startMenuSamples(page, "#drawer");
+    await startListSamples(page);
     await page.evaluate(() => closeDrawer());
     await settle(750);
-    const back = await readMenu(page, "#drawer");
+    const back = await readList(page);
     assert.equal(back.open, false);
-    assert.equal(back.shift, -back.width, "the card list did not leave the screen");
-    assertPageDrewBack(back, 0, "with the card list closed again");
-    assert.equal(back.lift, 0);
-    assert.equal(back.top, 0);
-    assert.equal(back.fade, "1.00");
-    assert.equal(back.depth, 0, "the shade did not go back to nothing");
-    const closing = await assertMenuHeldItsLine(page, "while the card list closed");
-    assert.ok(closing.first > 0.85, `the shade was not deep as the leaving began (${closing.first})`);
-    assert.ok(closing.last < 0.15, `the shade was still deep as the leaving ended (${closing.last})`);
-    const cameBack = await assertPageStayedCentred(page, "while the card list closed");
-    assert.ok(cameBack.low < 0.9855, `the page was not drawn back as the leaving began (${cameBack.low})`);
-    assert.ok(cameBack.high > 0.9999, `the page did not come back towards its full size (${cameBack.high})`);
-    // and where it settled is exactly its full size, which the reading above shows
-    assert.equal(back.pageScale, 1, "the page did not come back to exactly its full size");
+    assert.equal(back.down, 0, "the card did not come back to its place");
+    assert.equal(back.v, 0);
+    assert.equal(back.bedV, 0);
+    assert.equal(back.boxVisibility, "hidden", "the box was left on show after it went");
+    assert.ok(back.boxRight <= back.pageLeft + 0.5, "the box did not leave past the page's left edge");
+    const closing = await assertListInStep(page, "while the card list closed");
+    assert.ok(closing.high > 0.65, `the run was not well out as the leaving began (${closing.high})`);
+    assert.ok(closing.low < 0.001, `the card did not come all the way back (${closing.low})`);
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
   }
 });
 
-test("a run cut short partway turns back on the same line, at the same strength", async () => {
+test("a run cut short partway turns back on the same fraction for the card and the box", async () => {
   const { page, problems } = await openPhone("/m");
   try {
     await page.waitForSelector("article.box.sel", { timeout: 5000 });
     // an opening stopped and sent back before it arrives
-    await startPageSamples(page, 1100);
-    await startMenuSamples(page, "#drawer", 1100);
+    await startListSamples(page, 1100);
     await page.evaluate(() => { openDrawer(); setTimeout(() => closeDrawer(), 180); });
     await settle(1200);
-    const cutOpen = await assertMenuHeldItsLine(page, "when an opening card list was sent back");
-    const cutPage = await assertPageStayedCentred(page, "when an opening card list was sent back");
-    assert.ok(cutOpen.high < 0.6, `the shade ran past the travel it was cut at (${cutOpen.high})`);
-    // the page went back from where it had got to, so it never reached the full depth
-    assert.ok(cutPage.low > pageSizeAt(0.6), `the page ran past the depth it was cut at (${cutPage.low})`);
-    assert.ok(cutPage.low < 1, `the page did not draw back at all before it was cut (${cutPage.low})`);
-    const backAgain = await readMenu(page, "#drawer");
+    const cutOpen = await assertListInStep(page, "when an opening card list was sent back");
+    assert.ok(cutOpen.high < 0.6, `the run went past the place it was cut at (${cutOpen.high})`);
+    assert.ok(cutOpen.high > 0.02, `the run did not start before it was cut (${cutOpen.high})`);
+    const backAgain = await readList(page);
     assert.equal(backAgain.open, false, "the card list did not go back where it came from");
-    assert.equal(backAgain.shift, -backAgain.width);
-    assert.equal(backAgain.lift, 0);
-    assert.equal(backAgain.fade, "1.00");
-    assert.equal(backAgain.depth, 0);
-    assertPageDrewBack(backAgain, 0, "after an opening card list was sent back");
+    assert.equal(backAgain.down, 0);
+    assert.equal(backAgain.boxVisibility, "hidden");
 
     // and a closing stopped and brought back out again
     await page.evaluate(() => openDrawer());
     await settle(750);
-    await startPageSamples(page, 1100);
-    await startMenuSamples(page, "#drawer", 1100);
+    await startListSamples(page, 1100);
     await page.evaluate(() => { closeDrawer(); setTimeout(() => openDrawer(), 180); });
     await settle(1200);
-    await assertMenuHeldItsLine(page, "when a closing card list was brought back");
-    const backOut = await assertPageStayedCentred(page, "when a closing card list was brought back");
-    // it was turned around before it was all the way back, so it never sat at full size
-    assert.ok(backOut.high < 1, `the page came the whole way back before it was turned around (${backOut.high})`);
-    const outAgain = await readMenu(page, "#drawer");
+    const backOut = await assertListInStep(page, "when a closing card list was brought back");
+    assert.ok(backOut.low > 0.3, `the card came too far back before it was turned around (${backOut.low})`);
+    assert.ok(backOut.low < 1, `the card did not start back before it was turned around (${backOut.low})`);
+    const outAgain = await readList(page);
     assert.equal(outAgain.open, true, "the card list did not come back out");
-    assert.equal(outAgain.shift, 0);
-    assert.equal(outAgain.lift, 0);
-    assert.equal(outAgain.top, 0);
-    assert.equal(outAgain.fade, "1.00");
-    assert.equal(outAgain.depth, 1);
-    assertPageDrewBack(outAgain, 1, "after a closing card list was brought back");
+    assert.ok(Math.abs(outAgain.down - outAgain.drop) < 0.5);
+    assert.equal(outAgain.boxVisibility, "visible");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
   }
 });
 
-test("a pull past the middle opens the card list and one short of it goes back", async () => {
+test("a pull past the middle opens the card list, both parts follow the finger, and the reverse swipe undoes both", async () => {
   const { page, problems } = await openPhone("/m");
   try {
     await page.waitForSelector("article.box.sel", { timeout: 5000 });
     await pull(page, "left", 0.4);
-    const shy = await readMenu(page, "#drawer");
-    assert.equal(shy.open, false, "a pull short of the middle opened the menu");
-    assert.equal(shy.shift, -shy.width);
-    assert.equal(shy.lift, 0);
-    assert.equal(shy.fade, "1.00");
-    assert.equal(shy.depth, 0, "the shade stayed behind after a pull that went back");
-    assertPageDrewBack(shy, 0, "after a short card-list pull");
+    const shy = await readList(page);
+    assert.equal(shy.open, false, "a pull short of the middle opened the list");
+    assert.equal(shy.down, 0, "the card stayed down after a pull that went back");
+    assert.equal(shy.v, 0);
+    assert.equal(shy.boxVisibility, "hidden");
 
     let midway = null;
     await pull(page, "left", 0.6, async () => {
-      midway = await readMenu(page, "#drawer");
+      midway = await readList(page);
       // asked of the browser directly: the page's own screenshot, taken with a
       // finger down, makes this Chrome send the touch again at a third of its place
       const cdp = await page.createCDPSession();
       const { data } = await cdp.send("Page.captureScreenshot", { format: "png" });
       await cdp.detach();
-      await writeFile(path.join(SHOTS, "drawer-dragged.png"), Buffer.from(data, "base64"));
+      await writeFile(path.join(SHOTS, "list-dragged.png"), Buffer.from(data, "base64"));
     });
-    assert.ok(midway.shift < 0 && midway.shift > -midway.width, "the card list does not follow the finger");
-    assert.equal(midway.ms, "0s", "the card list is on a clock while the finger holds it");
-    assert.equal(midway.depthMs, "0s", "the shade is on a clock while the finger holds it");
-    assert.equal(midway.pageMs, "0s", "the page's depth is on a clock while the finger holds it");
-    // the frame the finger stands on is the whole point: sideways only, full
-    // strength, and a shade that has come up as far as the pull has
-    assert.equal(midway.lift, 0, `the card list left its line under the finger (${midway.lift})`);
-    assert.equal(midway.top, 0, `the card list's head moved under the finger (${midway.top})`);
-    assert.equal(midway.foot, midway.height, "the card list's foot moved under the finger");
-    assert.equal(midway.fade, "1.00", `the card list went see-through under the finger (${midway.fade})`);
-    assert.ok(midway.depth > 0.3 && midway.depth < 0.9, `the shade does not follow the finger (${midway.depth})`);
-    assert.ok(Math.abs(midway.depth - (1 - Math.abs(midway.shift) / midway.width)) < 0.03,
-      `the shade is not worth what the finger has pulled out (${midway.shift}px of ${midway.width}, shade ${midway.depth})`);
-    // the frame the finger stands on for the page too: drawn back by exactly
-    // what the finger has pulled out, evenly, and nowhere else
-    assert.ok(midway.pageScale < 1 && midway.pageScale > pageSizeAt(1),
-      `the page is not partly drawn back under the finger (${midway.pageScale})`);
-    assertPageDrewBack(midway, midway.out, "during a card-list pull");
-    const held = await readMenu(page, "#drawer");
-    assert.equal(held.open, true, "a pull past the middle did not open the menu");
-    assert.equal(held.shift, 0);
-    assert.equal(held.lift, 0);
-    assert.equal(held.fade, "1.00");
-    assert.equal(held.depth, 1, "the shade did not finish coming up after the finger let go");
-    assertPageDrewBack(held, 1, "after a card-list pull");
-    assert.match(held.curve, /cubic-bezier\(0\.215, 0\.61, 0\.355, 1\)/, "a released drag does not finish on the ease out");
+    assert.ok(Math.abs(midway.cardAt - 0.6) < 0.02, `the card is not where 60% of the pull puts it (${midway.cardAt})`);
+    assert.ok(Math.abs(midway.boxAt - 0.6) < 0.02, `the box is not where 60% of the pull puts it (${midway.boxAt})`);
+    assert.equal(midway.boxVisibility, "visible", "the box was not on show under the finger");
+    // only a transform changes, and not on a clock while the finger holds it
+    assert.doesNotMatch(midway.paneMoves, /transform/, "the card is on a clock while the finger holds it");
+    assert.doesNotMatch(midway.boxMoves, /transform/, "the box is on a clock while the finger holds it");
+    assert.equal(midway.across, 0);
+    assert.equal(midway.boxY, 0);
+    assert.equal(midway.cardOpacity, 1);
+    assert.equal(midway.pageScale, 1);
+    assert.equal(midway.scrim, 0);
+    const held = await readList(page);
+    assert.equal(held.open, true, "a pull past the middle did not open the list");
+    assert.ok(Math.abs(held.down - held.drop) < 0.5, "the card did not finish its drop after the finger let go");
+    assert.equal(held.boxVisibility, "visible");
+    assert.match(held.paneCurve, /cubic-bezier\(0\.215, 0\.61, 0\.355, 1\)/, "a released drag does not finish the card on the ease out");
+    assert.match(held.boxCurve, /cubic-bezier\(0\.215, 0\.61, 0\.355, 1\)/, "a released drag does not finish the box on the ease out");
+
+    // the reverse swipe, over the card, short of the middle: it stays out
+    const run = await page.evaluate(() => menuTravel(tickets));
+    const swipe = async (fraction, hold) => {
+      const from = 330, travel = -Math.round(run * fraction);
+      await page.touchscreen.touchStart(from, 600);
+      for (let step = 1; step <= 8; step++) await page.touchscreen.touchMove(from + Math.round(travel * step / 8), 600);
+      if (hold) { await settle(100); await hold(); }
+      await page.touchscreen.touchEnd();
+      await settle(750);
+    };
+    await swipe(0.3);
+    const stayed = await readList(page);
+    assert.equal(stayed.open, true, "a reverse swipe short of the middle shut the list");
+    assert.ok(Math.abs(stayed.down - stayed.drop) < 0.5);
+
+    let undoing = null;
+    await swipe(0.6, async () => { undoing = await readList(page); });
+    assert.ok(Math.abs(undoing.cardAt - 0.4) < 0.03, `the card is not where 60% of the swipe back puts it (${undoing.cardAt})`);
+    assert.ok(Math.abs(undoing.boxAt - 0.4) < 0.03, `the box is not where 60% of the swipe back puts it (${undoing.boxAt})`);
+    const shutAgain = await readList(page);
+    assert.equal(shutAgain.open, false, "the reverse swipe did not shut the list");
+    assert.equal(shutAgain.down, 0, "the reverse swipe did not bring the card back");
+    assert.equal(shutAgain.boxVisibility, "hidden", "the reverse swipe left the box on show");
+    assert.equal(shutAgain.shown, shy.shown, "a swipe over the card changed the card shown");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
   }
 });
 
-test("the overlaid card list still scrolls vertically and every uncovered pixel, edge strip and all, dismisses it", async () => {
+test("the box scrolls on its own, a tap on a ticket switches the card and leaves the list out, and a tap on the card shuts it", async () => {
   const ids = [];
   for (let n = 1; n <= 18; n++) ids.push(await create(`Scrollable card ${n}`));
   const { page, problems } = await openPhone("/m");
@@ -788,22 +893,24 @@ test("the overlaid card list still scrolls vertically and every uncovered pixel,
       const list = document.querySelector('#tiklist .tikpane[data-view="todo"]');
       return { top: list.scrollTop, room: list.scrollHeight - list.clientHeight };
     });
-    assert.ok(before.room > 300, `the card-list fixture does not overflow enough to scroll (${before.room})`);
+    assert.ok(before.room > 200, `the ticket box under test does not overflow enough to scroll (${before.room})`);
 
-    await page.touchscreen.touchStart(120, 720);
-    for (let y = 660; y >= 240; y -= 60) await page.touchscreen.touchMove(120, y);
+    const lane = await page.evaluate(() => {
+      const r = document.querySelector('#tiklist .tikpane[data-view="todo"]').getBoundingClientRect();
+      return { x: r.left + r.width / 2, top: r.top, bottom: r.bottom };
+    });
+    assert.ok(lane.bottom - lane.top > 150, `the box's list is too short to scroll in (${lane.bottom - lane.top})`);
+    await page.touchscreen.touchStart(lane.x, lane.bottom - 20);
+    for (let y = lane.bottom - 70; y >= lane.top + 20; y -= 50) await page.touchscreen.touchMove(lane.x, y);
     await page.touchscreen.touchEnd();
     await settle(300);
-    const scrolled = await page.evaluate(() => ({
-      top: document.querySelector('#tiklist .tikpane[data-view="todo"]').scrollTop,
-      open: document.getElementById("drawer").classList.contains("open"),
-    }));
-    assert.ok(scrolled.top > 100, `the overlaid card list did not scroll (${scrolled.top})`);
-    assert.equal(scrolled.open, true, "a vertical scroll dismissed the card list");
-    assertPageDrewBack(await readMenu(page, "#drawer"), 1, "after a vertical card-list scroll");
+    const scrolled = await readList(page);
+    const scrollTop = await page.evaluate(() => document.querySelector('#tiklist .tikpane[data-view="todo"]').scrollTop);
+    assert.ok(scrollTop > 100, `the box's list did not scroll (${scrollTop})`);
+    assert.equal(scrolled.open, true, "a vertical scroll shut the card list");
+    assert.ok(Math.abs(scrolled.down - scrolled.drop) < 0.5, "a vertical scroll moved the card");
 
-    // a control on the open list is worked by a real touch: the shade lies under
-    // the list, not over it
+    // a control in the box is worked by a real touch
     await page.touchscreen.tap(...await page.evaluate(() => {
       const r = document.getElementById("tv-deferred").getBoundingClientRect();
       return [r.left + r.width / 2, r.top + r.height / 2];
@@ -811,59 +918,121 @@ test("the overlaid card list still scrolls vertically and every uncovered pixel,
     await settle(300);
     const switched = await page.evaluate(() => ({
       view: document.getElementById("tv-deferred").classList.contains("on"),
-      open: document.getElementById("drawer").classList.contains("open"),
+      open: tickets.classList.contains("open"),
     }));
-    assert.equal(switched.view, true, "a touch on a control in the open card list did nothing");
-    assert.equal(switched.open, true, "a touch on the card list's own control dismissed it");
+    assert.equal(switched.view, true, "a touch on a name in the box did nothing");
+    assert.equal(switched.open, true, "a touch on the box's own name shut the list");
     await page.evaluate(() => document.getElementById("tv-todo").click());
+    await settle(400);
 
-    // a touch over a control on the page behind is taken by the shade: it shuts
-    // the list, and the control it landed on is left alone. the point is picked
-    // clear of the open list, so what stops it is the shade and not the list
-    const covered = await page.evaluate(() => {
-      const box = document.querySelector("article.box.sel textarea").getBoundingClientRect();
-      return { x: box.right - 6, y: box.top + box.height / 2,
-               edge: document.getElementById("drawer").getBoundingClientRect().right };
+    // a tap on a ticket in view switches the card and the list stays out
+    const target = await page.evaluate(() => {
+      const view = document.querySelector('#tiklist .tikpane[data-view="todo"]');
+      const pane = view.getBoundingClientRect();
+      const row = [...view.querySelectorAll(".trow")].find(t => {
+        const r = t.getBoundingClientRect();
+        return r.top >= pane.top + 4 && r.bottom <= pane.bottom - 4 && !t.classList.contains("on");
+      });
+      const r = row.getBoundingClientRect();
+      return { id: row.dataset.id, x: r.left + 40, y: r.top + r.height / 2, was: selectedId };
     });
-    assert.ok(covered.x > covered.edge,
-      `the covered control under test is not clear of the open card list (${covered.x} of ${covered.edge})`);
-    await page.touchscreen.tap(covered.x, covered.y);
+    await shot(page, "list-before-ticket-tap");
+    await page.touchscreen.tap(target.x, target.y);
     await settle(750);
-    const inert = await readMenu(page, "#drawer");
-    assert.equal(inert.open, false, "a touch over the covered page did not dismiss the card list");
-    assert.equal(await page.evaluate(() =>
-      document.activeElement === document.querySelector("article.box.sel textarea")), false,
-      "a covered control took the touch through the shade");
+    const picked = await readList(page);
+    assert.equal(picked.selected, target.id, "the tap did not switch the card");
+    assert.equal(picked.shown, "box-" + target.id, "the card on screen is not the ticket that was tapped");
+    assert.notEqual(target.id, target.was);
+    assert.equal(picked.open, true, "the list shut when a ticket was tapped");
+    assert.ok(Math.abs(picked.down - picked.drop) < 0.5, "the card came back up when a ticket was tapped");
+    assert.equal(picked.boxVisibility, "visible");
+    assert.equal(await page.evaluate(() => document.querySelector("#tiklist .trow.on")?.dataset.id), target.id,
+      "the row that was tapped is not the one marked");
+    await shot(page, "list-ticket-switched");
 
-    await page.evaluate(() => openDrawer());
+    // a tap on the card that shows, below the box, shuts the list and leaves
+    // the card as it was switched
+    await page.touchscreen.tap(195, 740);
     await settle(750);
-    // the thin strip the drawn-back page leaves along the screen's own edge is
-    // part of what shuts the list, so nothing on show is a dead spot
-    const strip = await readMenu(page, "#drawer");
-    assert.ok(strip.pageRight > 2 && strip.pageFoot > 6,
-      `the open page left no edge strip to test (${strip.pageRight}, ${strip.pageFoot})`);
-    const corner = [strip.viewportWidth - 1, strip.viewportHeight - 1];
-    assert.ok(corner[0] > strip.viewportWidth - strip.pageRight && corner[1] > strip.viewportHeight - strip.pageFoot,
-      "the corner under test is not outside the page's own picture");
-    await page.touchscreen.tap(...corner);
-    await settle(750);
-    const dismissed = await readMenu(page, "#drawer");
-    assert.equal(dismissed.open, false, "a tap on the strip the page left did not dismiss the card list");
-    assert.equal(dismissed.shift, -dismissed.width);
-    assertPageDrewBack(dismissed, 0, "after card-list dismissal");
-
-    // and the middle of what is left of the page shuts it too
-    await page.evaluate(() => openDrawer());
-    await settle(750);
-    await page.touchscreen.tap(360, 700);
-    await settle(750);
-    const shut = await readMenu(page, "#drawer");
-    assert.equal(shut.open, false, "a tap on the uncovered page did not dismiss the card list");
-    assertPageDrewBack(shut, 0, "after a tap on the uncovered page");
+    const shut = await readList(page);
+    assert.equal(shut.open, false, "a tap on the visible card did not shut the list");
+    assert.equal(shut.down, 0);
+    assert.equal(shut.boxVisibility, "hidden");
+    assert.equal(shut.selected, target.id, "shutting the list changed the card");
+    assert.equal(shut.shown, "box-" + target.id);
+    assert.equal(await page.evaluate(() => document.activeElement === document.querySelector("article.box.sel textarea")),
+      false, "a tap that shut the list went through to the card's field");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
     for (const id of ids) await api(`/close?box=${id}`);
+  }
+});
+
+test("the ticket circle opens the list and shuts it again, and the row stays on its own layer above the card with its fuzzy top edge and shadow", async () => {
+  const { page, problems } = await openPhone("/m");
+  try {
+    await page.waitForSelector("article.box.sel", { timeout: 5000 });
+    const bed = () => page.evaluate(() => {
+      const el = document.getElementById("dockbed");
+      const own = getComputedStyle(el), before = getComputedStyle(el, "::before"), after = getComputedStyle(el, "::after");
+      const sheet = getComputedStyle(el.firstElementChild);
+      return {
+        z: own.zIndex, dockZ: getComputedStyle(document.getElementById("dock")).zIndex,
+        paneZ: getComputedStyle(document.getElementById("pane")).zIndex,
+        touch: own.pointerEvents, parent: el.parentElement.id,
+        mask: before.webkitMaskImage || before.maskImage,
+        sheetMask: sheet.webkitMaskImage || sheet.maskImage, sheetOpacity: Number(sheet.opacity),
+        shadow: after.backgroundImage, shadowMask: after.webkitMaskImage || after.maskImage,
+        shadowOpacity: Number(after.opacity), shadowLift: new DOMMatrix(after.transform).m42,
+        buttons: [...document.querySelectorAll("#dock .dockbtn")].length,
+      };
+    });
+    const rest = await bed();
+    assert.equal(rest.parent, "page");
+    assert.equal(rest.buttons, 4, "the row is not four buttons");
+    assert.equal(rest.touch, "none", "the bed takes a touch");
+    assert.ok(Number(rest.z) > 0 && (rest.paneZ === "auto" || Number(rest.paneZ) < Number(rest.z)),
+      `the bed is not on a layer above the card (${rest.z} over ${rest.paneZ})`);
+    assert.ok(Number(rest.dockZ) > Number(rest.z), "the buttons are not above their bed");
+    // the Mac card's fade: the paper's top edge is a four-step ramp from nothing
+    for (const one of [rest.mask, rest.sheetMask]) {
+      assert.match(one, /linear-gradient/, "the bed's top edge is not a fade");
+      assert.match(one, /rgba\(0, 0, 0, 0\) 0px/, "the fade does not begin at nothing");
+      assert.match(one, /rgba\(0, 0, 0, 0\.35\)/);
+      assert.match(one, /rgba\(0, 0, 0, 0\.8\)/);
+    }
+    assert.match(rest.shadow, /linear-gradient/, "the bed has no shadow along its edge");
+    assert.match(rest.shadowMask, /linear-gradient/, "the shadow is not eased out at its two ends");
+    assert.equal(rest.sheetOpacity, 0, "the second sheet is up with the card at rest");
+    assert.ok(Math.abs(rest.shadowOpacity - 0.3) < 0.01, `the shadow is not light at rest (${rest.shadowOpacity})`);
+
+    const circle = await page.evaluate(() => {
+      const r = document.getElementById("tikbtn").getBoundingClientRect();
+      return [r.left + r.width / 2, r.top + r.height / 2];
+    });
+    await page.touchscreen.tap(...circle);
+    await settle(750);
+    const out = await readList(page);
+    assert.equal(out.open, true, "the ticket circle did not open the list");
+    assert.ok(Math.abs(out.down - out.drop) < 0.5);
+    const lowered = await bed();
+    assert.equal(lowered.sheetOpacity, 1, "the second sheet did not come up with the card down");
+    assert.ok(Math.abs(lowered.shadowOpacity - 1) < 0.01, `the shadow did not come to its full weight (${lowered.shadowOpacity})`);
+    assert.ok(lowered.shadowLift < -3, `the shadow did not rise with the second sheet (${lowered.shadowLift})`);
+    // the circle still takes a touch with the card down, and a second touch shuts the list
+    await shot(page, "list-open-bed");
+    await page.touchscreen.tap(...circle);
+    await settle(750);
+    const shut = await readList(page);
+    assert.equal(shut.open, false, "the ticket circle did not shut the list");
+    assert.equal(shut.down, 0);
+    const resting = await bed();
+    assert.equal(resting.sheetOpacity, 0);
+    assert.ok(Math.abs(resting.shadowOpacity - 0.3) < 0.01);
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
   }
 });
 
@@ -931,15 +1100,17 @@ test("the project list stays where he scrolled it, across a poll and a rebuild, 
   }
 });
 
-test("the settings come in from the right, holding the header, the list of sections and the notifications control", async () => {
+test("the settings come in from the right as a full-page drawer, holding the header, the list of sections and the notifications control", async () => {
   const { page, problems } = await openPhone("/m");
   try {
     await page.waitForSelector("article.box.sel", { timeout: 5000 });
     const shut = await readMenu(page, "#settings");
     assert.equal(shut.open, false);
+    assert.equal(shut.left, shut.viewportWidth, "the settings panel does not wait beyond the right edge");
     assert.equal(shut.right, -shut.width, "the settings panel does not wait beyond the right edge");
-    assert.equal(shut.width, 278, "settings is not about 15% narrower than its former 328px width");
-    assert.deepEqual(shut.corners, ["12px", "0px", "0px", "12px"], "the settings panel's exposed corners are not 12px");
+    assert.equal(shut.width, shut.viewportWidth, "settings is not the full width of the screen");
+    assert.equal(shut.height, shut.viewportHeight, "settings is not the full height of the screen");
+    assert.deepEqual(shut.corners, ["12px", "0px", "0px", "12px"], "the settings panel's exposed corners are not 12 units");
     assert.equal(shut.lift, 0, "settings waits off its own line");
     assert.equal(shut.top, 0, "settings waits below the top of the screen");
     assert.equal(shut.fade, "1.00", "settings waits at less than its full strength");
@@ -971,7 +1142,7 @@ test("the settings come in from the right, holding the header, the list of secti
         paper: ink.getPropertyValue("--paper").trim(),
         ink: ink.getPropertyValue("--ink").trim(),
         accent: ink.getPropertyValue("--accent").trim(),
-        gone: !document.getElementById("drawerfoot") && !document.querySelector("#drawer #notify"),
+        gone: !document.getElementById("drawerfoot") && !document.querySelector("#tickets #notify"),
       };
     });
     assert.equal(made.header, "Settings", "the panel's header is not Settings");
@@ -1001,10 +1172,14 @@ test("the settings come in from the right, holding the header, the list of secti
     assert.equal(out.open, true);
     assert.equal(out.shift, 0, "settings did not land against the right edge");
     assert.equal(out.right, 0);
+    assert.equal(out.left, 0, "the open settings do not reach the screen's left edge");
+    assert.equal(out.width, out.viewportWidth, "the open settings are not the screen's full width");
+    assert.equal(out.scrim, "1.00", "the shade over the page did not come up with the settings");
     assertPageDrewBack(out, 1, "with settings open");
     assert.equal(out.pageScale, 0.985, "the page did not land on the depth it was given for settings");
-    assert.match(out.depthShade, /rgba\(0, 0, 0, 0\.1\) -2px 0px 6px/, "settings has no close shade under its edge");
-    assert.match(out.depthShade, /rgba\(0, 0, 0, 0\.2\) -10px 0px 26px/, "settings has no wide shade past its edge");
+    // units outside the page are real pixels
+    assert.ok(out.depthShade.includes("rgba(0, 0, 0, 0.1) -2px 0px 6px"), `settings has no close shade under its edge (${out.depthShade})`);
+    assert.ok(out.depthShade.includes("rgba(0, 0, 0, 0.2) -10px 0px 26px"), `settings has no wide shade past its edge (${out.depthShade})`);
     assert.equal(out.depth, 1, "the shade under settings did not come up to its full weight");
     assert.equal(out.lift, 0);
     assert.equal(out.top, 0);
@@ -1082,12 +1257,16 @@ test("a pull from the right edge brings the settings in", async () => {
     assert.equal(out.open, true, "a pull past the middle did not bring the settings in");
     assert.equal(out.shift, 0);
     assertPageDrewBack(out, 1, "after a settings pull");
-    // and a tap on what is left of the page shuts it again, the strip the page
-    // has drawn back from included
-    await page.touchscreen.tap(0, 0);
+    assert.equal(out.left, 0, "a settings pull did not bring the panel against the left edge");
+    // the panel is the whole screen, so nothing of the page is left to tap: the
+    // swipe back, from anywhere on it, shuts it again
+    const from = 120;
+    await page.touchscreen.touchStart(from, 500);
+    for (let step = 1; step <= 8; step++) await page.touchscreen.touchMove(from + Math.round(250 * step / 8), 500);
+    await page.touchscreen.touchEnd();
     await settle(750);
     const shut = await readMenu(page, "#settings");
-    assert.equal(shut.open, false, "a tap on the strip the page left did not shut the settings");
+    assert.equal(shut.open, false, "a swipe back did not shut the settings");
     assert.equal(shut.shift, shut.width);
     assertPageDrewBack(shut, 0, "after settings dismissal");
     assert.deepEqual(problems, []);
@@ -1096,37 +1275,32 @@ test("a pull from the right edge brings the settings in", async () => {
   }
 });
 
-test("turned on its side both menus keep the same sideways run", async () => {
+test("turned on its side the card goes down 55% of the shorter screen, and the settings take the whole of the wider one", async () => {
   const sideOn = { ...PHONE, width: 844, height: 390 };
   const { page, problems } = await openPhone("/m", { viewport: sideOn });
   try {
     await page.waitForSelector("article.box.sel", { timeout: 5000 });
-    const shut = await readMenu(page, "#drawer");
-    assert.equal(shut.width, 289, "the side-on card list did not keep the narrower cap");
-    assert.equal(shut.height, 390, "the side-on card list is not the full height of the screen");
-    assert.equal(shut.left, -shut.width, "the side-on card list does not wait beyond the left edge");
-    assert.equal(shut.depth, 0, "the side-on card list waits with a shade already under it");
+    const shut = await readList(page);
+    assert.ok(Math.abs(shut.drop - 0.55 * 390) <= 1, `the side-on drop is not 55% of the screen's height (${shut.drop})`);
+    assert.equal(shut.boxVisibility, "hidden");
+    assert.equal(shut.down, 0);
 
-    await startPageSamples(page);
-    await startMenuSamples(page, "#drawer");
+    await startListSamples(page);
     await page.evaluate(() => openDrawer());
     await settle(750);
-    const left = await readMenu(page, "#drawer");
-    assert.equal(left.left, 0, "the side-on card list did not land against the left edge");
-    assert.equal(left.top, 0, "the side-on card list did not land against the top of the screen");
-    assert.equal(left.foot, left.height, "the side-on card list does not run the whole height");
-    assert.equal(left.fade, "1.00", "the side-on card list is not at its full strength");
-    assert.equal(left.depth, 1, "the shade under the side-on card list did not come up");
-    assertPageDrewBack(left, 1, "with the side-on card list open");
-    // side on the page is wider than it is tall, so the step in is bigger at the
-    // sides than at the top: the same fraction of each of its own measures
-    assert.ok(left.pageLeft > left.pageTop,
-      `the side-on page did not step in by its own measures (${left.pageLeft} and ${left.pageTop})`);
-    await assertMenuHeldItsLine(page, "while the side-on card list opened");
-    await assertPageStayedCentred(page, "while the side-on card list opened");
-    await shot(page, "sideon-drawer-open");
+    const left = await readList(page);
+    assert.equal(left.open, true);
+    assert.ok(Math.abs(left.down - left.drop) < 0.5, `the side-on card did not land its drop (${left.down} of ${left.drop})`);
+    assert.ok(Math.abs(left.boxLeft - left.cardLeft) < 0.6 && Math.abs(left.boxRight - left.cardRight) < 0.6,
+      "the side-on box is not the card's width");
+    assert.ok(left.boxWidth > 700, `the side-on box does not follow the wider card (${left.boxWidth})`);
+    assert.ok(left.boxHeight > 100 && left.cardTop - left.boxFoot > 8,
+      `the side-on box does not fit above the card (${left.boxHeight}, clear by ${left.cardTop - left.boxFoot})`);
+    assert.equal(left.pageScale, 1, "the page drew back for the side-on card list");
+    await assertListInStep(page, "while the side-on card list opened");
+    await shot(page, "sideon-list-open");
 
-    // and the right-hand one, over the same wider page
+    // and the settings, over the same wider page: the whole of its width
     await page.evaluate(() => closeDrawer());
     await settle(750);
     await startPageSamples(page);
@@ -1134,10 +1308,12 @@ test("turned on its side both menus keep the same sideways run", async () => {
     await page.evaluate(() => showMenu(settings));
     await settle(750);
     const right = await readMenu(page, "#settings");
+    assert.equal(right.width, 844, "the side-on settings are not the screen's width");
     assert.equal(right.right, 0, "the side-on settings did not land against the right edge");
+    assert.equal(right.left, 0, "the side-on settings do not reach the left edge");
     assert.equal(right.top, 0, "the side-on settings did not land against the top of the screen");
-    assert.equal(right.foot, right.height, "the side-on settings does not run the whole height");
-    assert.equal(right.fade, "1.00", "the side-on settings is not at its full strength");
+    assert.equal(right.foot, right.height, "the side-on settings do not run the whole height");
+    assert.equal(right.fade, "1.00", "the side-on settings are not at their full strength");
     assert.equal(right.depth, 1, "the shade under the side-on settings did not come up");
     assertPageDrewBack(right, 1, "with the side-on settings open");
     await assertMenuHeldItsLine(page, "while the side-on settings came in");
@@ -1152,6 +1328,7 @@ test("turned on its side both menus keep the same sideways run", async () => {
     const upright = await readMenu(page, "#settings");
     assert.equal(upright.viewportWidth, PHONE.width, "the page did not take the upright screen");
     assert.equal(upright.open, true, "the turn shut settings");
+    assert.equal(upright.width, PHONE.width, "the settings did not take the upright screen's width");
     assertPageDrewBack(upright, 1, "with settings open after the turn back upright");
     await shot(page, "turned-back-settings-open");
     await page.evaluate(() => hideMenu(settings));
@@ -1159,36 +1336,39 @@ test("turned on its side both menus keep the same sideways run", async () => {
     const done = await readMenu(page, "#settings");
     assert.equal(done.open, false);
     assertPageDrewBack(done, 0, "with settings shut after the turn back upright");
+
+    // and the card's drop is the upright screen's 55% once the list is opened again
+    await page.evaluate(() => openDrawer());
+    await settle(750);
+    const again = await readList(page);
+    assert.ok(Math.abs(again.drop - 0.55 * PHONE.height) <= 1, `the drop kept the side-on screen's measure (${again.drop})`);
+    assert.ok(Math.abs(again.down - again.drop) < 0.5, `the card did not land the upright drop (${again.down})`);
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
   }
 });
 
-test("reduced motion keeps both overlays immediate and the wide-phone cap narrower", async () => {
+test("reduced motion keeps both overlays immediate, and the settings are the whole of a wide phone's screen", async () => {
   const widePhone = { ...PHONE, width: 430, height: 932 };
   const { page, problems } = await openPhone("/m", { viewport: widePhone, reduced: true });
   try {
     await page.waitForSelector("article.box.sel", { timeout: 5000 });
     await page.evaluate(() => openDrawer());
-    const left = await readMenu(page, "#drawer");
-    assert.equal(left.width, 289, "the wide-phone card list did not keep the 15% narrower cap");
-    assert.equal(left.shift, 0);
-    assert.equal(left.ms, "0s", "reduced motion left a card-list transition running");
-    // the shade layer is a ::after, which a bare star does not reach, so it is
-    // named in the reduced-motion rule and lands with the menu
-    assert.equal(left.depthMs, "0s", "reduced motion left the card list's shade running");
-    assert.equal(left.depth, 1, "the card list arrived without its shade");
-    assert.equal(left.lift, 0);
-    assert.equal(left.top, 0);
-    assert.equal(left.fade, "1.00");
-    assert.equal(left.pageMs, "0s", "reduced motion left the page's depth running");
-    assertPageDrewBack(left, 1, "with reduced-motion card list open");
-    assert.equal(left.pageScale, 0.985, "the page did not reach its depth at once under reduced motion");
+    const left = await readList(page);
+    assert.equal(left.open, true);
+    assert.ok(Math.abs(left.drop - 0.55 * 932) <= 1, `the wide phone's drop is not 55% of its screen (${left.drop})`);
+    assert.ok(Math.abs(left.down - left.drop) < 0.5, "reduced motion did not put the card down at once");
+    assert.equal(left.paneMs, "0s", "reduced motion left a card transition running");
+    assert.equal(left.boxMs, "0s", "reduced motion left a box transition running");
+    assert.equal(left.boxVisibility, "visible", "the box was not on show at once");
+    assert.ok(Math.abs(left.boxAt - 1) < 0.001 && Math.abs(left.boxLeft - left.cardLeft) < 0.6, "the box did not arrive at once");
+    assert.equal(left.bedV, 1);
+    assert.equal(left.pageScale, 1, "the page drew back for the card list under reduced motion");
 
     await page.evaluate(() => { closeDrawer(); showMenu(settings); });
     const right = await readMenu(page, "#settings");
-    assert.equal(right.width, 289, "the wide-phone settings panel did not keep the 15% narrower cap");
+    assert.equal(right.width, 430, "the wide phone's settings are not the screen's width");
     assert.equal(right.shift, 0);
     assert.equal(right.ms, "0s", "reduced motion left a settings transition running");
     assert.equal(right.depthMs, "0s", "reduced motion left settings' shade running");
@@ -1196,12 +1376,13 @@ test("reduced motion keeps both overlays immediate and the wide-phone cap narrow
     assert.equal(right.lift, 0);
     assert.equal(right.top, 0);
     assert.equal(right.fade, "1.00");
-    const gone = await readMenu(page, "#drawer");
-    assert.equal(gone.shift, -gone.width, "the card list did not leave at once under reduced motion");
-    assert.equal(gone.depth, 0, "the card list's shade lingered under reduced motion");
     assert.equal(right.pageMs, "0s", "reduced motion left the page's depth running under settings");
     assertPageDrewBack(right, 1, "with reduced-motion settings open");
-    // and it comes back to its full size at once when the last menu goes
+    const gone = await readList(page);
+    assert.equal(gone.open, false, "opening the settings left the card list out");
+    assert.equal(gone.down, 0, "the card did not come back at once under reduced motion");
+    assert.equal(gone.boxVisibility, "hidden", "the box lingered under reduced motion");
+    // and it comes back to its full size at once when the settings go
     await page.evaluate(() => hideMenu(settings));
     const flat = await readMenu(page, "#settings");
     assert.equal(flat.shift, flat.width, "settings did not leave at once under reduced motion");

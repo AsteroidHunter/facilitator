@@ -443,8 +443,8 @@ test("enabled recorder overhead is measured during render, drawer and viewport w
       const started = performance.now();
       for (let i = 0; i < count; i++) {
         apply(lastState);
-        showMenu(i % 2 ? settings : drawer);
-        hideMenu(i % 2 ? settings : drawer);
+        showMenu(i % 2 ? settings : tickets);
+        hideMenu(i % 2 ? settings : tickets);
         for (let n = 0; n < 6; n++) {
           fixtureViewport(844 - ((i + n) % 4) * 4, (i + n) % 2 ? 4 : 0);
           reconcile();
@@ -535,7 +535,7 @@ test("the shortcut preserves draft and focus; broken instrumentation cannot stop
   assert.equal((await f.readLog()).find(r => r.kind === "incident" && r.reason === "manual").events.at(-1).source, "shortcut");
   await page.evaluate(() => {
     window.phoneHistory = new Proxy({}, { get() { throw new Error("broken recorder fixture"); } });
-    select("m3"); showMenu(drawer); hideMenu(drawer);
+    select("m3"); showMenu(tickets); hideMenu(tickets);
     els.m3.ta.value = "Invented send despite diagnostics"; doSend("m3");
     fixtureViewport(500, 8); fixtureViewport(844);
   });

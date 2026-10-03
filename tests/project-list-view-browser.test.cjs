@@ -445,7 +445,7 @@ test("the phone: the drawer's tabs are one project's choice, not the phone's", a
   const { page, problems, context } = await openPhone();
   try {
     await tapTab(page, A);
-    await page.evaluate(() => showMenu(drawer));
+    await page.evaluate(() => showMenu(tickets));
     await settle(700);
     await assertShowing(page, A, "todo", "the phone before anything is picked");
     await page.screenshot({ path: path.join(SHOTS, "phone-1-a-doing.png") });
@@ -454,25 +454,25 @@ test("the phone: the drawer's tabs are one project's choice, not the phone's", a
     await assertShowing(page, A, "done", "the phone after picking done");
     await page.screenshot({ path: path.join(SHOTS, "phone-2-a-done.png") });
 
-    await page.evaluate(() => hideMenu(drawer));
+    await page.evaluate(() => hideMenu(tickets));
     await settle(700);
     await tapTab(page, B);
-    await page.evaluate(() => showMenu(drawer));
+    await page.evaluate(() => showMenu(tickets));
     await settle(700);
     await assertShowing(page, B, "todo", "the phone's first visit to another project");
     await page.screenshot({ path: path.join(SHOTS, "phone-3-b-doing.png") });
 
     await clickView(page, "deferred");
-    await page.evaluate(() => hideMenu(drawer));
+    await page.evaluate(() => hideMenu(tickets));
     await settle(700);
     await tapTab(page, A);
-    await page.evaluate(() => showMenu(drawer));
+    await page.evaluate(() => showMenu(tickets));
     await settle(700);
     await assertShowing(page, A, "done", "the phone going back to the first project");
-    await page.evaluate(() => hideMenu(drawer));
+    await page.evaluate(() => hideMenu(tickets));
     await settle(700);
     await tapTab(page, C);
-    await page.evaluate(() => showMenu(drawer));
+    await page.evaluate(() => showMenu(tickets));
     await settle(700);
     await assertShowing(page, C, "todo", "a project the phone has picked nothing for");
     assert.deepEqual(problems, []);

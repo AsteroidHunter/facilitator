@@ -208,15 +208,19 @@ test("the ticket opens the card list, the gear the settings, and the plus makes 
     await page.tap("#tikbtn");
     await settle(800);
     assert.equal((await state(page)).drawer, true, "the ticket did not open the card list");
-    await page.touchscreen.tap(IPHONE_13_MINI.width - 20, 300);   // the shade shuts it
+    // the card is down, below the box; a tap on the card shuts the list
+    await page.touchscreen.tap(IPHONE_13_MINI.width / 2, IPHONE_13_MINI.height * 0.8);
     await settle(800);
-    assert.equal((await state(page)).drawer, false);
+    assert.equal((await state(page)).drawer, false, "a tap on the card did not shut the list");
     await page.tap("#setbtn");
     await settle(800);
     assert.equal((await state(page)).settings, true, "the gear did not open the settings");
-    await page.touchscreen.tap(20, 300);
+    // the settings fill the screen, so there is no shade to tap: a swipe to the right puts them away
+    await page.touchscreen.touchStart(100, 400);
+    for (let x = 140; x <= 380; x += 40) await page.touchscreen.touchMove(x, 402);
+    await page.touchscreen.touchEnd();
     await settle(800);
-    assert.equal((await state(page)).settings, false);
+    assert.equal((await state(page)).settings, false, "a swipe to the right did not put the settings away");
 
     const created = page.waitForResponse(r => new URL(r.url()).pathname === "/create");
     await page.tap("#tikadd");

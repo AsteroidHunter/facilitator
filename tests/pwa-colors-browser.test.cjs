@@ -106,12 +106,12 @@ async function capture(name, side="left"){
     const scrim=getComputedStyle(document.getElementById("scrim"));
     return {pageFill:ps.backgroundColor,pageImage:ps.backgroundImage,bodyFill:bs.backgroundColor,
       cardFill:getComputedStyle(pane).backgroundColor,
-      drawerFill:getComputedStyle(document.getElementById("drawer")).backgroundColor,
+      listFill:getComputedStyle(document.getElementById("tickets")).backgroundColor,
       drawerItems:[...document.querySelectorAll(".trow")].map(el=>({id:el.dataset.id,classes:el.className,fill:getComputedStyle(el).backgroundColor})),
       scrimFill:scrim.backgroundColor,scrimOpacity:Number(scrim.opacity),pageTop:sr.top,pageScale:new DOMMatrix(ps.transform).a,
       drawerOpen:drawerOpen(),settingsOpen:settings.classList.contains("open"),
       paneReplyLength:document.querySelector(".box.sel .reply").textContent.length,
-      transitions:document.getAnimations().filter(a=>["page","drawer","settings","scrim"].includes(a.effect?.target?.id)).length,
+      transitions:document.getAnimations().filter(a=>["page","pane","tickets","settings","scrim"].includes(a.effect?.target?.id)).length,
       points:{canvas:{x:innerWidth/2,y:6},
         abovePage:{x:side==="right"?18:innerWidth-18,y:0.2},
         insidePage:{x:side==="right"?18:innerWidth-18,y:20}}};
@@ -131,7 +131,7 @@ function unified(state){
   assert.equal(state.bodyFill,state.pageFill);
   assert.equal(state.pageImage,"none","a page-only highlight creates the recession seam");
   assert.equal(state.cardFill,"rgb(255, 255, 255)","card's intentional white changed");
-  assert.equal(state.drawerFill,"rgb(255, 255, 255)","drawer's intentional white changed");
+  assert.equal(state.listFill,"rgba(0, 0, 0, 0)","the card list paints a panel of its own over the paper");
   assert.equal(state.scrimFill,"rgba(33, 29, 23, 0.18)","drawer dimming changed");
   const seam=state.pixels.abovePage.map((v,i)=>Math.abs(v-state.pixels.insidePage[i]));
   assert.ok(Math.max(...seam)<=1,`top seam in ${state.name}: ${JSON.stringify(state.pixels)}`);
@@ -142,7 +142,7 @@ function unified(state){
   }
 }
 
-test("workspace paper remains connected across tabs and receding drawer frames",async()=>{
+test("workspace paper remains connected across tabs, the card list's frames and the settings' receding frames",async()=>{
   const dense=await page.evaluate(()=>navigationPool(lastState).find(b=>els[b.id]?.reply.textContent.length>400).id);
   const sparse=await create("A quiet garden card");
   await page.waitForFunction(id=>!!els[id],{},sparse);
@@ -165,7 +165,12 @@ test("workspace paper remains connected across tabs and receding drawer frames",
   for(const state of evidence)unified(state);
   assert.ok(evidence.find(s=>s.name==="populated-normal").paneReplyLength>400);
   assert.equal(evidence.find(s=>s.name==="sparse-normal").paneReplyLength,0);
-  assert.ok(evidence.filter(s=>s.name.endsWith("opening")||s.name.endsWith("closing")).every(s=>s.transitions>0&&s.pageScale<1&&s.pageScale>.985),"did not inspect actual drawer animation frames");
-  assert.ok(evidence.filter(s=>s.name.endsWith("-open")).every(s=>s.pageScale===.985&&s.scrimOpacity===1));
+  const inRun=s=>s.name.endsWith("opening")||s.name.endsWith("closing");
+  // the card list draws the page back not at all and the shade not at all: the card goes down and the box comes in
+  assert.ok(evidence.filter(s=>inRun(s)&&s.name.includes("drawer")).every(s=>s.transitions>0&&s.pageScale===1&&s.scrimOpacity===0),"did not inspect actual card list animation frames");
+  assert.ok(evidence.filter(s=>s.name.endsWith("-drawer-open")).every(s=>s.pageScale===1&&s.scrimOpacity===0&&s.drawerOpen));
+  // the settings draw it back
+  assert.ok(evidence.filter(s=>inRun(s)&&s.name.startsWith("settings")).every(s=>s.transitions>0&&s.pageScale<1&&s.pageScale>.985),"did not inspect actual settings animation frames");
+  assert.ok(evidence.filter(s=>s.name==="settings-open").every(s=>s.pageScale===.985&&s.scrimOpacity===1));
   assert.ok(evidence.filter(s=>s.name.endsWith("-closed")).every(s=>s.pageScale===1&&s.scrimOpacity===0));
 });

@@ -88,6 +88,8 @@ function custom(css, name, rowSelectors) {
   return v;
 }
 const px = v => { const m = /^(-?[\d.]+)px$/.exec(v || ""); return m ? Number(m[1]) : NaN; };
+// a length as a count of the page's units: a plain px as it is, or the phone's N * var(--u) as N
+const units = v => { const m = /^calc\((-?[\d.]+) \* var\(--u\)\)$/.exec(v || ""); return m ? Number(m[1]) : px(v); };
 // a length as written, a plain px or a calc() of them, worked out
 function lengthOf(v) {
   if (v == null) return NaN;
@@ -390,7 +392,7 @@ for (const [where, surface] of Object.entries(SURFACES)) {
 
   test(`${where}: the corner is cut along the crease and the flap is its mirror, white, with the ticket's corner at the tip`, () => {
     const css = surface.css;
-    const fold = px(custom(css, "--fold", [".trow", ".trow.testc"]));
+    const fold = units(custom(css, "--fold", [".trow", ".trow.testc"]));
     // the cut and the crease layer's triangle read no edge width; these only fill the evaluator
     const edge = .8, drawn = 1;
     assert.equal(fold, surface.fold, `the fold is not ${surface.fold}px here`);
@@ -420,7 +422,7 @@ for (const [where, surface] of Object.entries(SURFACES)) {
     assert.equal(face["background-color"], "inherit", "the face does not take the row's own fill");
     assert.equal(face.border, ticket.border, "the face's edge is not the ticket's");
     assert.equal(face["border-radius"], "inherit");
-    assert.equal(ticket["border-radius"], "5px");
+    assert.equal(units(ticket["border-radius"]), 5);
 
     // the cut, on the face: only the corner beyond the crease goes; the other
     // corners are the rectangle's own, so the ticket's rounding keeps them
@@ -483,7 +485,7 @@ for (const [where, surface] of Object.entries(SURFACES)) {
 
   test(`${where}: every line the fold draws is the ticket edge, read from the board's own edge settings`, () => {
     const css = surface.css;
-    const fold = px(custom(css, "--fold", [".trow", ".trow.testc"]));
+    const fold = units(custom(css, "--fold", [".trow", ".trow.testc"]));
     const flap = style(css, ".trow.testc::after");
     // the two free edges are borders asked for exactly what a ticket edge is
     // asked for, so the browser snaps both to the same device pixel
@@ -543,7 +545,7 @@ for (const [where, surface] of Object.entries(SURFACES)) {
     // the base row keeps its own edge, corner and shade, and the selected row
     // its lift, with no ready-to-test exception left beside either
     const base = style(css, ".trow");
-    assert.equal(base["border-radius"], "5px");
+    assert.equal(units(base["border-radius"]), 5);
     assert.equal(base.border, "var(--edge) solid var(--line)");
     assert.equal(base["box-shadow"], "0 1px 4px rgba(60,45,20,.05)");
     assert.equal(base.overflow, "hidden");

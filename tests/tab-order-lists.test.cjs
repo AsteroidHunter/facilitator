@@ -218,7 +218,7 @@ const SURFACES = {
     async step(page, dir) {
       await page.evaluate(() => { if (menuOut()) closeDrawer(); });
       await page.waitForFunction(() => !menuOut(), { timeout: 5000 });
-      await pause(400);
+      await pause(800);
       const y = await page.evaluate(() => {
         const blocked = "button,input,textarea,a,[contenteditable],[role='textbox'],.cm-editor,.answered.sent.open";
         for (let y = 120; y < 700; y += 10) {

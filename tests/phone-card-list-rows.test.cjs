@@ -72,7 +72,7 @@ async function pull(page) {
   await page.touchscreen.touchStart(6, 500);
   for (let x = 30; x <= 300; x += 30) await page.touchscreen.touchMove(x, 500);
   await page.touchscreen.touchEnd();
-  await page.waitForFunction(() => document.getElementById("drawer").classList.contains("open"), { timeout: 3000 });
+  await page.waitForFunction(() => document.getElementById("tickets").classList.contains("open"), { timeout: 3000 });
   await settle(300);
 }
 
@@ -406,12 +406,17 @@ test("a long list keeps its place when rows arrive, and a tap on a row opens tha
       return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
     }, target.id);
     await page.touchscreen.tap(point.x, point.y);
-    await page.waitForFunction(id => selectedId === id && !document.getElementById("drawer").classList.contains("open"), { timeout: 3000 }, target.id);
+    await page.waitForFunction(id => selectedId === id, { timeout: 3000 }, target.id);
     await settle(800);
+    assert.equal(await page.evaluate(() => document.getElementById("tickets").classList.contains("open")), true,
+      "a tap on a row shut the list");
     assert.equal(await page.evaluate(() => document.querySelector("article.box.sel .title").textContent), target.title);
     await page.screenshot({ path: path.join(SHOTS, "5-picked.png") });
 
-    // the row of the card now on show wears the mark when the list is next opened
+    // the row of the card now on show wears the mark at once, and again when the list is next opened
+    assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll("#tiksheet .trow.on")].map(r => r.dataset.id)), [target.id]);
+    await page.evaluate(() => closeDrawer());
+    await settle(800);
     await page.evaluate(() => openDrawer());
     await settle(400);
     assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll("#tiksheet .trow.on")].map(r => r.dataset.id)), [target.id]);

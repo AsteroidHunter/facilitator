@@ -368,7 +368,7 @@ test("a full reading requested before create cannot erase the card being named",
       focused: document.activeElement === els[id]?.titleEl,
       title: els[id]?.titleEl.textContent || "",
       createOps: ops.filter(op => op.kind === "create").length,
-      drawerOpen: document.getElementById("drawer").classList.contains("open"),
+      drawerOpen: document.getElementById("tickets").classList.contains("open"),
     }), result.id), {
       present: true, selected: true, editing: true, focused: true,
       title: "Naming during delayed reading", createOps: 0, drawerOpen: false,
@@ -565,16 +565,18 @@ test("a pull from the left edge brings in the card list with the desktop's three
   const { page, problems } = await openPhone("/m");
   try {
     await page.waitForSelector("article.box.sel", { timeout: 5000 });
-    assert.equal(await page.evaluate(() => document.getElementById("drawer").classList.contains("open")), false);
+    assert.equal(await page.evaluate(() => document.getElementById("tickets").classList.contains("open")), false);
+    const restTop = await page.evaluate(() => document.getElementById("pane").getBoundingClientRect().top);
     await page.touchscreen.touchStart(6, 500);
     for (let x = 30; x <= 300; x += 30) await page.touchscreen.touchMove(x, 500);
     await page.touchscreen.touchEnd();
-    await settle(400);
+    await settle(800);
     const drawer = await page.evaluate(() => {
-      const rect = document.getElementById("drawer").getBoundingClientRect();
+      const rect = document.getElementById("tickets").getBoundingClientRect();
+      const pane = document.getElementById("pane").getBoundingClientRect();
       return {
-        open: document.getElementById("drawer").classList.contains("open"),
-        left: rect.left,
+        open: document.getElementById("tickets").classList.contains("open"),
+        left: rect.left, paneLeft: pane.left, paneTop: pane.top, boxBottom: rect.bottom, height: innerHeight,
         labels: [...document.querySelectorAll("#tikhead .tvb")].map(b => b.textContent),
         // the sheet draws all three sections; the shown one is the doing pane
         rows: [...document.querySelectorAll('.tikpane[data-view="todo"] .trow')].map(r => ({
@@ -583,7 +585,11 @@ test("a pull from the left edge brings in the card list with the desktop's three
       };
     });
     assert.equal(drawer.open, true, "the pull did not open the drawer");
-    assert.equal(drawer.left, 0);
+    // the box has come in to the card's left edge, and the card has gone down 55% of the screen with the foot
+    // of the box clear of the card's top edge
+    assert.ok(Math.abs(drawer.left - drawer.paneLeft) < 1, "the box did not come in to the card's left edge");
+    assert.ok(Math.abs(drawer.paneTop - restTop - drawer.height * 0.55) < 2, "the card did not go down 55% of the screen");
+    assert.ok(drawer.boxBottom <= drawer.paneTop, "the box stands over the card");
     assert.deepEqual(drawer.labels, ["Doing", "Deferred", "Done"], "labels differ from the desktop list, or carry counts");
     const titles = drawer.rows.map(r => r.title);
     assert.ok(titles.includes("Working on the phone"));
@@ -609,11 +615,11 @@ test("a pull from the left edge brings in the card list with the desktop's three
     await page.evaluate(() => document.querySelector('.tikpane[data-view="done"] .trow').click());
     await settle(300);
     const picked = await page.evaluate(() => ({
-      open: document.getElementById("drawer").classList.contains("open"),
+      open: document.getElementById("tickets").classList.contains("open"),
       title: document.querySelector("article.box.sel .title").textContent,
       titleColour: getComputedStyle(document.querySelector("article.box.sel .title")).color,
     }));
-    assert.equal(picked.open, false, "picking a card left the drawer open");
+    assert.equal(picked.open, true, "picking a card shut the list");
     assert.equal(picked.title, "Done on the phone");
     assert.equal(picked.titleColour, "rgb(47, 107, 60)", "a done card's title is not the desktop's green");
     await page.screenshot({ path: path.join(SHOTS, "test-phone-done-card.png") });
@@ -844,7 +850,7 @@ test("the defer chip parks, the history steps back, the plus makes a card to nam
     const newId = (await (await created).json()).id;
     await page.waitForFunction(cardId => document.querySelector(`#box-${cardId}.sel .title`)?.isContentEditable, { timeout: 3000 }, newId);
     const naming = await page.evaluate(() => ({
-      drawerOpen: document.getElementById("drawer").classList.contains("open"),
+      drawerOpen: document.getElementById("tickets").classList.contains("open"),
       placeholder: getComputedStyle(document.querySelector("article.box.sel .title"), "::before").content,
     }));
     assert.equal(naming.drawerOpen, false);

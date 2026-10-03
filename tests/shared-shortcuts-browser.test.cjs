@@ -2190,7 +2190,7 @@ test("control shift comma is the phone's card list key and the board's nothing; 
     await phone.page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
     await settle(300);
     const opened = () => phone.page.evaluate(() => ({
-      drawer: document.getElementById("drawer").classList.contains("open"),
+      drawer: document.getElementById("tickets").classList.contains("open"),
       settings: document.getElementById("settings").classList.contains("open"),
     }));
     for (const [key, mods] of [[",", ["Meta", "Shift"]], [".", ["Meta", "Shift"]], [".", ["Control", "Shift"]]]) {

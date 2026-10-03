@@ -41,7 +41,7 @@ function world() {
   const boxes = { m1: box("m1"), m2: box("m2") };
   const cards = { addEventListener: on("#cards"), clientWidth: 360 };
   const panel = side => ({ dataset: { side } });
-  const drawer = panel("left"), settings = panel("right");
+  const tickets = panel("left"), settings = panel("right");
   const document = {
     addEventListener: on("document"), body, activeElement: body,
     getElementById: id => id === "cards" ? cards : id === "pane" ? { classList: classList() } : null,
@@ -50,7 +50,7 @@ function world() {
   };
   const els = { m1: { box: boxes.m1 }, m2: { box: boxes.m2 } };
   const context = vm.createContext({
-    document, drawer, settings, innerWidth: 390, selectedId: "m1", hist: null,
+    document, tickets, settings, innerWidth: 390, selectedId: "m1", hist: null,
     els,
     // the page builds the card coming in when it is not built yet
     ensureCard: id => els[id] || null,
@@ -59,7 +59,7 @@ function world() {
     matchMedia: () => ({ matches: false }),
     menuOut: () => null, dismissEditor() {}, closeProjects() {}, tracePhone() {}, traceFrameOpportunity() {},
     phoneEnterRole: () => "other",
-    menuWidth: () => 300, menuSign: p => p === settings ? -1 : 1,
+    menuTravel: () => 300, menuSign: p => p === settings ? -1 : 1,
     paintMenu: (p, at) => calls.push(["paint", p.dataset.side, Math.round(at * 100) / 100]),
     runMenu: (p, v) => calls.push(["run", p.dataset.side, v]),
     cardStepTarget: dir => ({ id: dir > 0 ? "m2" : "m1" }),

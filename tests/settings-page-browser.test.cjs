@@ -162,11 +162,12 @@ async function openIfShut(page) {
 }
 
 // the phone opens its settings drawer with a pull from the right edge
+// the drawer is the whole width of the screen, so the pull goes over 70% of it
 async function openPhone(page, width = PHONE.width) {
-  const from = width - 6, y = 500;
+  const from = width - 6, y = 500, each = Math.round(width * 0.7 / 8);
   await page.touchscreen.touchStart(from, y);
   for (let step = 1; step <= 8; step++) {
-    await page.touchscreen.touchMove(from - 30 * step, y);
+    await page.touchscreen.touchMove(from - each * step, y);
     await settle(16);
   }
   await page.touchscreen.touchEnd();
@@ -954,10 +955,9 @@ function drawerView(page) {
   }, SECTIONS, HELD);
 }
 
-test("phone: a pull from the right edge brings in the drawer, in its own size and style, holding the page", async () => {
+test("phone: a pull from the right edge brings in the drawer, the whole screen wide, in its own style, holding the page", async () => {
   const { page, problems } = await open("/m", PHONE);
   try {
-    const wide = Math.min(PHONE.width * 0.714, 289);
     assert.equal(await page.evaluate(() => document.querySelectorAll("#setico, #sethead, #setgroup").length), 0,
       "the phone carries a gear or the drawer's old header and controls");
     assert.equal(await page.evaluate(() => document.querySelectorAll("#settings .sp-page").length), 1,
@@ -969,8 +969,8 @@ test("phone: a pull from the right edge brings in the drawer, in its own size an
     await openPhone(page);
     const box = await cover(page, "#settings");
     assert.equal(box.right, box.width, "the drawer does not stand on the right edge");
-    assert.equal(box.right - box.left, Math.round(wide), "the drawer is not about 71% of the screen wide");
-    assert.ok(box.left > 0 && box.top <= 0 && box.bottom >= box.height, "the drawer is not a full-height panel: " + JSON.stringify(box));
+    assert.equal(box.right - box.left, PHONE.width, "the drawer is not the whole screen wide");
+    assert.ok(box.left === 0 && box.top <= 0 && box.bottom >= box.height, "the drawer is not a full-page panel: " + JSON.stringify(box));
     const look = await page.evaluate(() => {
       const style = getComputedStyle(document.getElementById("settings"));
       return { fill: style.backgroundColor, filter: style.backdropFilter, edge: style.borderLeftStyle,
@@ -983,7 +983,8 @@ test("phone: a pull from the right edge brings in the drawer, in its own size an
     assert.equal(look.filter, "none", "the drawer blurs the board behind it");
     assert.equal(look.glass, false, "the drawer wears the note's glass");
     assert.equal(look.edge, "solid", "the drawer has no edge line on its left");
-    assert.deepEqual(look.corners, ["12px", "0px", "0px", "12px"], "the drawer's exposed corners are not 12px");
+    // twelve units, and a unit outside the page is a real pixel
+    assert.deepEqual(look.corners, ["12px", "0px", "0px", "12px"], "the drawer's exposed corners are not 12 units");
     assert.equal(look.scrim, "rgba(33, 29, 23, 0.18)", "the shade over the page is not the drawer's");
     assert.equal(look.veil, null, "the shade was told which side is coming");
     const bare = await page.evaluate(() => {
@@ -1056,13 +1057,13 @@ test("phone: the drawer opens on the list of sections and each one opens inside 
   }
 });
 
-test("phone: the drawer stays narrow, with the list and sections, in a wide window", async () => {
+test("phone: the drawer is the whole window wide, with the list and sections one at a time, in a wide window", async () => {
   const wide = { ...PHONE, width: 1100, height: 800 };
   const { page, problems } = await open("/m", wide);
   try {
     await openPhone(page, wide.width);
     const box = await cover(page, "#settings");
-    assert.equal(box.right - box.left, 289, "the drawer is not capped at 289px");
+    assert.equal(box.right - box.left, wide.width, "the drawer is not the whole window wide");
     const list = await drawerView(page);
     assert.deepEqual(list.items, ["Editor", "Notifications", "Diagnostics"]);
     assert.deepEqual(list.panes, [], "a section shows beside the list");
@@ -1105,17 +1106,21 @@ test("phone: typed formatting is still stored as it was", async () => {
   }
 });
 
-test("phone: a tap on the shade and a swipe toward the edge put the drawer away", async () => {
+test("phone: a swipe toward the edge and the escape key put the drawer away, and there is no shade to tap", async () => {
   const { page, problems } = await open("/m", PHONE);
   try {
     const out = () => page.evaluate(() => document.getElementById("settings").classList.contains("open"));
     await openPhone(page);
     assert.equal(await out(), true);
-    await page.touchscreen.tap(20, 400);
-    await settle(700);
-    assert.equal(await out(), false, "a tap on the shade left the drawer open");
+    // the drawer covers the screen, so the shade is under it and takes no tap
+    assert.equal(await page.evaluate(() => {
+      const at = document.elementFromPoint(20, 400);
+      return !!at && !!at.closest("#settings");
+    }), true, "something other than the drawer is under a finger at the screen's left");
+    await page.touchscreen.tap(20, 600);
+    await settle(300);
+    assert.equal(await out(), true, "a tap inside the drawer put it away");
 
-    await openPhone(page);
     await swipeRight(page);
     assert.equal(await out(), false, "a swipe toward the edge did not put the drawer away");
     assert.equal(await page.evaluate(() => document.body.classList.contains("menuout")), false);
@@ -1127,15 +1132,15 @@ test("phone: a tap on the shade and a swipe toward the edge put the drawer away"
     await swipeRight(page);
     assert.equal(await out(), false);
 
-    // inside a section the shade and a swipe still put the whole drawer away, and it
+    // inside a section the escape key and a swipe still put the whole drawer away, and it
     // opens on the list the next time
-    for (const how of ["shade", "swipe"]) {
+    for (const how of ["escape", "swipe"]) {
       await openPhone(page);
       await page.tap('.sp-item[data-section="diagnostics"]');
       await settle(80);
       assert.equal((await drawerView(page)).view, "pane");
-      if (how === "shade") await page.touchscreen.tap(20, 400);
-      else await swipeRight(page, 600, 170, 370);
+      if (how === "escape") await page.keyboard.press("Escape");
+      else await swipeRight(page, 600, 100, 370);
       await settle(700);
       assert.equal(await out(), false, "a " + how + " in a section left the drawer open");
       await openPhone(page);

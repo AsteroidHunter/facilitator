@@ -249,7 +249,7 @@ test("the plus shows the card being made, and every press while it is on its way
     const landed = await page.evaluate(() => ({
       pending: document.getElementById("tikadd").classList.contains("pending"),
       stored: JSON.parse(localStorage.getItem("pendops") || "[]").length,
-      drawerOpen: document.getElementById("drawer").classList.contains("open"),
+      drawerOpen: document.getElementById("tickets").classList.contains("open"),
       title: document.querySelector("article.box.sel .title").textContent,
     }));
     assert.equal(landed.pending, false, "the plus still breathes after the card landed");

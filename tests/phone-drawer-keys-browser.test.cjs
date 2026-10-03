@@ -200,12 +200,13 @@ test("control+shift+comma opens and shuts the card list, from the card and from 
     assert.equal(s.drawer, true, "the key did not open the card list");
     assert.equal(s.settings, false);
     assert.equal(s.menuOut, true);
+    assert.ok(s.scale === "" || Number(s.scale) === 1, "the list drew the page back, which only the settings do");
     await shot(page, "cards-open-from-card");
     await chord(page, "Comma");
     s = await read(page);
     assert.equal(s.drawer, false, "the key did not shut the card list");
     assert.equal(s.menuOut, false);
-    assert.equal(Number(s.scale), 1, "the page did not come back to full size");
+    assert.ok(s.scale === "" || Number(s.scale) === 1, "the page was left drawn back");
 
     await page.evaluate(() => els[selectedId].ta.focus({ preventScroll: true }));
     await page.keyboard.type("half a thought");
@@ -655,7 +656,7 @@ test("a drawer left open takes no typing for the card behind it", async () => {
   const { page } = await openPhone(ids.doing[5]);
   try {
     const stays = (panel) => page.evaluate(sel => !!document.activeElement.closest(sel), panel);
-    for (const [key, panel] of [["Comma", "#drawer"], ["gear", "#settings"]]) {
+    for (const [key, panel] of [["Comma", "#tickets"], ["gear", "#settings"]]) {
       if (key === "gear") await openSettings(page);
       else await chord(page, key);
       await page.keyboard.type("abc");
