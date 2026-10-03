@@ -868,15 +868,38 @@ test("the order is stop, wait for the socket, start, confirm the child, then the
   assert.deepEqual(run.said, ["Board restarted."]);
 });
 
-test("the only signals the CLI can send are one SIGTERM and one liveness probe", async () => {
-  const source = await readFile(cliPath, "utf8");
-  const calls = [...source.matchAll(/os\.kill\(([^)]*)\)/g)].map(m => m[1].trim()).sort();
-  assert.deepEqual(calls, ["pid, 0", "pid, signal.SIGTERM"],
-    `the CLI signals something else now: ${calls.join(" | ")}`);
-  assert.doesNotMatch(source, /signal\.SIGKILL/, "the CLI can now send SIGKILL");
-  assert.doesNotMatch(source, /killpg|getpgid|pkill|killall/,
-    "the CLI can now reach a whole process group");
-});
+// one top-level Python function's code, from its def to the line before the next
+// top-level statement, with docstrings and comments taken out
+const pySource = (source, name) => {
+  const found = source.match(new RegExp(`^def ${name}\\([\\s\\S]*?\\n(?=\\S)`, "m"));
+  assert.ok(found, `${name} is not in the CLI`);
+  return found[0].replace(/"""[\s\S]*?"""/g, "").replace(/#[^\n]*/g, "");
+};
+
+test("the only signals the CLI can send are one SIGTERM, one liveness probe and, for stop --force alone, one SIGKILL",
+  async () => {
+    const source = await readFile(cliPath, "utf8");
+    const calls = [...source.matchAll(/os\.kill\(([^)]*)\)/g)].map(m => m[1].trim()).sort();
+    assert.deepEqual(calls, ["pid, 0", "pid, signal.SIGKILL", "pid, signal.SIGTERM"],
+      `the CLI signals something else now: ${calls.join(" | ")}`);
+    assert.doesNotMatch(source, /killpg|getpgid|pkill|killall/,
+      "the CLI can now reach a whole process group");
+
+    // the SIGKILL has one home, and one caller that only reaches it under --force
+    assert.ok(pySource(source, "end_server").includes("os.kill(pid, signal.SIGKILL)"),
+      "the SIGKILL is no longer in end_server");
+    assert.equal([...source.matchAll(/\bend_server\(/g)].length, 2,
+      "end_server has a caller other than stop_board");
+    const board = pySource(source, "stop_board");
+    const gate = board.indexOf("if not force:");
+    const call = board.indexOf("end_server(");
+    assert.ok(gate !== -1 && call > gate && board.slice(gate, call).includes("return"),
+      "stop_board reaches the SIGKILL without --force");
+    for (const polite of ["stop_server", "signal_server", "wait_for_exit", "cmd_restart"]) {
+      assert.doesNotMatch(pySource(source, polite), /SIGKILL|end_server/,
+        `${polite} can now reach the SIGKILL`);
+    }
+  });
 
 test("only the listening socket's owner is ever looked at, never a connection", async () => {
   const { stdout } = await probe([
@@ -1015,6 +1038,26 @@ test("the browser is only ever read: nothing in the script drives it", async () 
     "the browser script no longer walks every window's tabs, so app windows can be missed");
   assert.ok(script.includes('exists process "Google Chrome"'),
     "Chrome is spoken to before it is known to be running, which can start it");
+
+  // stop's window walk reads in the same way, and only the close script closes
+  const walk = pySource(source, "chrome_windows");
+  for (const verb of ["activate", "reload", "close", "delete", "set URL", "make new", "open location"]) {
+    assert.ok(!walk.includes(verb), `the window walk can ${verb} a page: ${walk}`);
+  }
+  assert.ok(walk.includes("every window") && walk.includes("every tab of w"),
+    "the window walk no longer reads every window's tabs");
+  assert.ok(walk.includes('exists process "Google Chrome"'),
+    "the window walk speaks to Chrome before it is known to be running");
+
+  // the one script that closes sits after both reading scripts, in a constant of its own
+  const closer = source.indexOf("CLOSE_WINDOW_SCRIPT = ");
+  assert.ok(closer > end, "the close script is inside the reading slice");
+  assert.equal(source.split("close win").length - 1, 1, "more than one place closes a window");
+  assert.ok(source.indexOf("close win") > closer, "a window is closed outside the close script");
+  for (const reader of ["chrome_page_urls", "chrome_windows", "board_page_open"]) {
+    assert.ok(!pySource(source, reader).includes("CLOSE_WINDOW_SCRIPT"),
+      `${reader} can reach the close script`);
+  }
 });
 
 test("with nothing listening, restart simply starts the server and signals no one", async () => {
