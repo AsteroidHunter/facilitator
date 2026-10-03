@@ -79,6 +79,46 @@ test("the board's own page and a call with no browser in it still get through", 
   assert.equal((await call("GET", "/state", { Host: `localhost:${board.port}` })).status, 200);
 });
 
+test("the push, notification-log, settings and script routes of the board's own page get through, and another site's calls to them do not", async () => {
+  const script = { "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "no-cors", "Sec-Fetch-Dest": "script" };
+  const served = await call("GET", "/board-settings.js", script);
+  assert.equal(served.status, 200);
+  assert.match(served.headers["content-type"], /javascript/);
+  const stolen = await call("GET", "/board-settings.js", { ...script, "Sec-Fetch-Site": "cross-site" });
+  assert.equal(stolen.status, 403, "another site's script tag cannot read the board's settings");
+
+  // the chime's mute is a board setting, written by the page with a plain fetch
+  const wrote = await call("POST", "/settings", SAME, JSON.stringify({ chimemuted: "1" }));
+  assert.equal(wrote.status, 200, wrote.text);
+  assert.equal(JSON.parse((await call("GET", "/settings", SAME)).text).values.chimemuted, "1");
+  assert.equal((await call("POST", "/settings", evil(), JSON.stringify({ chimemuted: "0" }))).status, 403);
+  assert.equal(JSON.parse((await call("GET", "/settings", SAME)).text).values.chimemuted, "1",
+    "another site changed the mute");
+
+  // the phone page and its worker report a push and the notification state to the client log
+  const notices = JSON.stringify({ page: "phone", client: "phone", reports: [
+    { kind: "pushreceived", outcome: "shown", ms: 41, status: 200, ago: 3, n: 7, worker: "facilitator-m-7" },
+    { kind: "notifycheck", source: "start", perm: "granted", reg: true, sub: "no" },
+    { kind: "notifylost", source: "return", reg: true },
+  ] });
+  const logged = await call("POST", "/clientlog", SAME, notices);
+  assert.equal(logged.status, 200, logged.text);
+  assert.equal(JSON.parse(logged.text).written, 3);
+  assert.equal((await call("POST", "/clientlog", evil(), notices)).status, 403);
+
+  // a phone link is stored and taken away by the page; another site cannot do either
+  const link = JSON.stringify({ endpoint: "https://push.example/endpoint-one", keys: { p256dh: "a", auth: "b" } });
+  assert.equal((await call("POST", "/push/subscribe", evil(), link)).status, 403);
+  const stored = await call("POST", "/push/subscribe", SAME, link);
+  assert.equal(stored.status, 200, stored.text);
+  assert.equal((await call("POST", "/push/unsubscribe", evil(), link)).status, 403);
+  assert.equal((await call("POST", "/push/unsubscribe", SAME, link)).status, 200);
+
+  // what facilitator stop, restart and status read: no browser, so no Origin and no fetch metadata
+  const reader = { "User-Agent": "Python-urllib/3.14" };
+  assert.equal((await call("GET", "/state", reader)).status, 200);
+});
+
 test("a page from another website is refused, whatever it asks for, and changes nothing", async () => {
   const phrase = "marmalade-quarry-4417";
   const cases = [
