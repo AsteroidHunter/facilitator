@@ -227,7 +227,7 @@ export function makeBoard(clock, cards){
     if (board.carryNow) out.now = clock.sec;
     if (out.changed) Object.assign(out, {
       title: "facilitator", tabs: { order: [], closed: [] }, pwds: { facilitator: "/lane/facilitator" },
-      projects: [], paused: false, boxes: board.boxes.map(phoneBox),
+      projects: [], boxes: board.boxes.map(phoneBox),
     });
     return [200, out];
   }
@@ -235,7 +235,7 @@ export function makeBoard(clock, cards){
   function uiState(){
     const out = {
       boxes: board.boxes.map(b => ({ ...phoneBox(b), reply: "", replyShort: "", context: "" })),
-      rev: board.rev, pwds: { facilitator: "/lane/facilitator" }, projects: [], paused: false,
+      rev: board.rev, pwds: { facilitator: "/lane/facilitator" }, projects: [],
       tabs: { order: [], closed: [] }, title: "facilitator", agents: {},
     };
     if (board.carryNow) out.now = clock.sec;
@@ -448,8 +448,7 @@ export function makeDesktop(ctx, board, clock){
       // the section the card is filed under, and the toc entry beside it
       page.sections[b.id] = cs === "done" ? "done" : cs === "parked" ? "later" : "now";
       el.toc.className = cs === "parked" ? "t-later" : cs === "done" ? "t-done" : "";
-      if (el.metaNote.textContent && el.metaNote.textContent.indexOf("send failed") !== 0 &&
-          el.metaNote.dataset.flagnote !== "1") el.metaNote.textContent = "";
+      if (el.metaNote.textContent && el.metaNote.dataset.flagnote !== "1") el.metaNote.textContent = "";
     }
     page.order = ctx.poolOf(state).map(b => b.id);
     page.list = ctx.viewPool(state).map(b => b.id);

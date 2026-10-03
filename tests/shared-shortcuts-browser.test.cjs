@@ -146,6 +146,30 @@ function undoKeysBeyond(page) {
   return page.evaluate(() => window.__undoKeysBeyond.splice(0));
 }
 
+// the keys named, as they reach the end of the page's own handling, and whether
+// anything canceled them. Added last, so a canceled chord shows here as canceled
+function watchKeys(page, keys) {
+  return page.evaluate(names => {
+    window.__keysSeen = [];
+    addEventListener("keydown", event => {
+      if (names.includes(event.key)) window.__keysSeen.push({ key: event.key, prevented: event.defaultPrevented });
+    });
+  }, keys);
+}
+
+function keysSeen(page) {
+  return page.evaluate(() => window.__keysSeen.splice(0));
+}
+
+// every card on the page, with what it shows and which are selected: a key that
+// moves, closes or hops a card would change one of these
+function cardsLook(page) {
+  return page.evaluate(() => ({
+    shown: (document.querySelector("article.box.sel") || {}).id || null,
+    boxes: [...document.querySelectorAll("article.box")].map(box => box.id + ":" + box.className).sort(),
+  }));
+}
+
 // both keyboards' undo, both cases a caps lock or a shifted key delivers, and
 // the shifted redo beside each
 async function pressUndoChords(page) {
@@ -220,13 +244,18 @@ function assertUndoStackIntact(stack, where) {
 
 // the cards the list is showing, in the order it shows them, which is the order
 // the walking keys have to keep. the sheet draws all three sections at once, so
-// the shown cards are the current section's pane
+// the shown cards are the current section's pane. the phone draws its list only
+// while the drawer is on show, so the drawer is opened for the reading and shut
 function listOrder(page) {
   return page.evaluate(() => {
+    const opened = typeof openDrawer === "function" && typeof drawerOpen === "function" && !drawerOpen();
+    if (opened) openDrawer();
     const sheet = document.getElementById("tiksheet");
     const view = typeof curView === "function" ? curView() : null;
     const scope = sheet && view ? sheet.querySelector('.tikpane[data-view="' + view + '"]') : document.getElementById("tiklist");
-    return scope ? [...scope.querySelectorAll(".trow")].map(row => row.dataset.id) : [];
+    const order = scope ? [...scope.querySelectorAll(".trow")].map(row => row.dataset.id) : [];
+    if (opened) closeDrawer();
+    return order;
   });
 }
 
@@ -289,6 +318,8 @@ before(async () => {
   for (const name of await readdir(path.join(ROOT, "assets"))) {
     await copyFile(path.join(ROOT, "assets", name), path.join(fixtureDir, "assets", name));
   }
+  // the board's own default is off; the shortcut checks run through the editor, so it is on
+  await writeFile(path.join(fixtureDir, "run.config.json"), JSON.stringify({ compose_format_default: true }));
   await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
     title: "phone shortcuts test",
     items: [
@@ -385,7 +416,7 @@ test("control shift left and right walk the cards the list shows, and the caret 
   }
 });
 
-test("command shift brackets walk the same cards, in and out of a row", async () => {
+test("command shift brackets step no card, in or out of a row, and are left to the browser", async () => {
   await clearLane();
   const ids = [];
   for (const name of ["First on the brackets", "Second on the brackets", "Third on the brackets"]) {
@@ -396,16 +427,19 @@ test("command shift brackets walk the same cards, in and out of a row", async ()
   const { page, problems } = await openPhone(`/m?box=${ids[0]}`);
   try {
     await page.waitForSelector(`#box-${ids[0]}.sel`, { timeout: 5000 });
-    const order = await listOrder(page);
-    const at = order.indexOf(ids[0]);
+    await watchKeys(page, ["[", "]", "{", "}"]);
+    const before = await cardsLook(page);
     await chord(page, "]", "Meta", "Shift");
-    assert.equal(await shownId(page), order[(at + 1) % order.length], "the right bracket did not step on");
     await chord(page, "[", "Meta", "Shift");
-    assert.equal(await shownId(page), ids[0], "the left bracket did not step back");
+    assert.equal(await shownId(page), ids[0], "a command shift bracket moved the card on show");
     await page.focus(SEL);
     await chord(page, "]", "Meta", "Shift");
-    assert.deepEqual(await activeRow(page), { row: true, box: await shownId(page) },
-      "the caret did not go with the bracket");
+    await chord(page, "[", "Meta", "Shift");
+    assert.deepEqual(await activeRow(page), { row: true, box: ids[0] }, "a command shift bracket moved the caret");
+    assert.deepEqual(await cardsLook(page), before, "a command shift bracket changed a card");
+    const seen = await keysSeen(page);
+    assert.equal(seen.length, 4, "a command shift bracket never reached the end of the page's own handling");
+    assert.deepEqual(seen.filter(entry => entry.prevented), [], "the page canceled a command shift bracket");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
@@ -444,16 +478,16 @@ test("control shift up and down step the card's older replies and come back to l
   }
 });
 
-test("command and a number jumps to that tab, counted along the bar", async () => {
+test("command and a number jumps to that project, counted along the project list", async () => {
   const { page, problems } = await openPhone("/m");
   try {
-    await page.waitForFunction(() => document.querySelectorAll("#tabbar .ptab").length >= 2, { timeout: 5000 });
-    const bar = await page.evaluate(() => [...document.querySelectorAll("#tabbar .ptab")].map(tab => tab.dataset.owner));
-    assert.deepEqual(bar, ["facilitator", "pastureland"], "the bar is not the two lanes this fixture seeds");
+    await page.waitForFunction(() => document.querySelectorAll("#projlist .projrow").length >= 2, { timeout: 5000 });
+    const bar = await page.evaluate(() => [...document.querySelectorAll("#projlist .projrow")].map(row => row.dataset.owner));
+    assert.deepEqual(bar, ["facilitator", "pastureland"], "the list is not the two lanes this fixture seeds");
     await chord(page, "2", "Meta");
     await page.waitForFunction(() => activeOwner === "pastureland", { timeout: 3000 });
-    assert.equal(await page.evaluate(() => document.querySelector("#tabbar .ptab.on").dataset.owner), "pastureland",
-      "the bar did not seat the tab the number jumped to");
+    assert.equal(await page.evaluate(() => document.querySelector("#projlist .projrow.on").dataset.owner), "pastureland",
+      "the list did not check the project the number jumped to");
     await chord(page, "1", "Meta");
     await page.waitForFunction(() => activeOwner === "facilitator", { timeout: 3000 });
     // a number past the end of the bar is nobody's tab, and moves nothing
@@ -488,6 +522,292 @@ test("command t makes a card in the lane on show, with its name ready to be type
   }
 });
 
+// a card made with command t is the card on show, its name ready, whichever way
+// the board's readings and the answer to the create happen to fall in order
+test("desktop command t shows the new card at once, with its name ready to be typed", async () => {
+  await clearLane();
+  const { page, problems } = await openDesktop();
+  try {
+    const created = page.waitForResponse(response => new URL(response.url()).pathname === "/create");
+    await chord(page, "t", "Meta");
+    const madeId = (await (await created).json()).id;
+    await page.waitForFunction(id => selectedId === id && document.querySelector(`#box-${id}.sel .title`)?.isContentEditable,
+      { timeout: 3000 }, madeId);
+    assert.equal(await shownId(page), madeId, "the new card is not the one on show");
+    await page.keyboard.type("Named from the desktop keyboard");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(id => lastState?.boxes.find(box => box.id === id)?.title === "Named from the desktop keyboard",
+      { timeout: 3000 }, madeId);
+    assert.equal((await savedBox(madeId)).title, "Named from the desktop keyboard");
+    assert.deepEqual(await activeRow(page), { row: true, box: madeId },
+      "naming the new card did not end with the caret in its row");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("desktop command t lands on the new card when a reading draws it before the create answer arrives", async () => {
+  await clearLane();
+  const { page, problems } = await openDesktop();
+  try {
+    // the answer to the create is held after the server has made the card, so the
+    // board's own next reading finds the card and draws it first
+    await page.evaluate(() => {
+      const real = window.fetch;
+      window.fetch = async (url, init) => {
+        const answer = await real(url, init);
+        if (String(url).startsWith("/create")) await new Promise(resolve => { window.__answerNow = resolve; });
+        return answer;
+      };
+    });
+    const known = await page.evaluate(() => Object.keys(els));
+    await chord(page, "t", "Meta");
+    await page.waitForFunction(ids => Object.keys(els).some(id => !ids.includes(id)), { timeout: 4000 }, known);
+    const madeId = await page.evaluate(ids => Object.keys(els).find(id => !ids.includes(id)), known);
+    assert.notEqual(await page.evaluate(() => selectedId), madeId,
+      "the card was landed on before the create answer, so this run did not meet the order it is for");
+    await page.evaluate(() => window.__answerNow());
+    await page.waitForFunction(id => selectedId === id && document.querySelector(`#box-${id}.sel .title`)?.isContentEditable,
+      { timeout: 3000 }, madeId);
+    assert.equal(await shownId(page), madeId, "the new card is not the one on show");
+    assert.equal(await page.evaluate(() => localStorage.getItem("focusbox")), null,
+      "the wish to land on the new card was left behind");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("desktop command t keeps the new card when a reading asked before it arrives after it", async () => {
+  await clearLane();
+  const { page, problems } = await openDesktop();
+  try {
+    // one reading is asked for now and handed to the page only when let go, after
+    // the card is made: it is older than the card and knows nothing of it
+    await page.evaluate(() => {
+      const real = window.fetch;
+      let held = false;
+      window.fetch = async (url, init) => {
+        const answer = await real(url, init);
+        if (String(url).startsWith("/state") && !held) {
+          held = true;
+          await new Promise(resolve => { window.__letGo = resolve; });
+        }
+        return answer;
+      };
+      poll();
+    });
+    const created = page.waitForResponse(response => new URL(response.url()).pathname === "/create");
+    await chord(page, "t", "Meta");
+    const madeId = (await (await created).json()).id;
+    await page.waitForFunction(id => selectedId === id && document.querySelector(`#box-${id}.sel .title`)?.isContentEditable,
+      { timeout: 3000 }, madeId);
+    await page.evaluate(() => window.__letGo());
+    await settle(600);
+    assert.deepEqual(
+      await page.evaluate(id => ({ drawn: !!els[id], selected: selectedId === id, naming: !!els[id]?.titleEl.isContentEditable }), madeId),
+      { drawn: true, selected: true, naming: true },
+      "an older reading took the new card away once it had landed");
+    assert.equal(await shownId(page), madeId, "the new card is no longer the one on show");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("a card with no name shows a name to click, and its title can be typed into", async () => {
+  await clearLane();
+  const madeId = await create("");
+  const { page, problems } = await openDesktop();
+  try {
+    await page.waitForFunction(id => !!els[id], { timeout: 5000 }, madeId);
+    await page.click(`#tiklist .trow[data-id="${madeId}"]`);
+    await page.waitForSelector(`#box-${madeId}.sel`, { timeout: 3000 });
+    const title = await page.evaluate(id => {
+      const el = els[id].titleEl;
+      return { height: el.getBoundingClientRect().height, placeholder: getComputedStyle(el, "::before").content, naming: el.isContentEditable };
+    }, madeId);
+    assert.ok(title.height > 10, "a card with no name has no title line to click");
+    assert.equal(title.placeholder, '"Card Name"', "a card with no name does not say where its name goes");
+    assert.equal(title.naming, false, "a card picked by hand started out renaming");
+    await page.click(`#box-${madeId}.sel .title`);
+    await page.waitForFunction(id => els[id].titleEl.isContentEditable && document.activeElement === els[id].titleEl,
+      { timeout: 3000 }, madeId);
+    await page.keyboard.type("Named by a click");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(id => lastState?.boxes.find(box => box.id === id)?.title === "Named by a click",
+      { timeout: 3000 }, madeId);
+    assert.equal((await savedBox(madeId)).title, "Named by a click");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
+const PASTED_LINE = "Pre-pub: Clean up install, update and uninstall so existing settings survive.";
+const PASTED_MARKUP = "<meta charset='utf-8'><span style=\"color: rgb(20, 20, 20); font-family: Georgia, serif; font-size: 13px; font-style: italic; background-color: rgb(255, 255, 200);\">"
+  + PASTED_LINE + "</span>";
+
+// a real paste; the clipboard may be the machine's, so what was on it is put back
+async function pasteFromClipboard(page, parts) {
+  await browser.defaultBrowserContext().overridePermissions(origin,
+    ["clipboard-read", "clipboard-write", "clipboard-sanitized-write"]);
+  const held = await page.evaluate(async () => {
+    const kept = [];
+    try {
+      for (const item of await navigator.clipboard.read()) {
+        const texts = {};
+        for (const type of item.types) if (type.startsWith("text/")) texts[type] = await (await item.getType(type)).text();
+        if (Object.keys(texts).length) kept.push(texts);
+      }
+    } catch (error) {}
+    return kept;
+  });
+  const put = items => page.evaluate(async list => {
+    await navigator.clipboard.write(list.map(texts => new ClipboardItem(
+      Object.fromEntries(Object.entries(texts).map(([type, text]) => [type, new Blob([text], { type })])))));
+  }, items);
+  try {
+    await put([parts]);
+    await page.keyboard.down("Meta");
+    await page.keyboard.down("KeyV", { commands: ["Paste"] });
+    await page.keyboard.up("KeyV");
+    await page.keyboard.up("Meta");
+    await settle(300);
+  } finally {
+    if (held.length) await put(held);
+  }
+}
+
+// the words before the title's caret, and whether the board's caret bar stands on the last letter
+function titleCaret(page, id) {
+  return page.evaluate(cardId => {
+    const title = els[cardId].titleEl;
+    const selection = getSelection();
+    const range = selection.rangeCount ? selection.getRangeAt(0) : null;
+    if (!range || !range.collapsed || !title.contains(range.startContainer)) return { inTitle: false };
+    const before = document.createRange();
+    before.selectNodeContents(title);
+    before.setEnd(range.startContainer, range.startOffset);
+    let last = null;
+    const walk = document.createTreeWalker(title, NodeFilter.SHOW_TEXT);
+    for (let node = walk.nextNode(); node; node = walk.nextNode()) if (/\S/.test(node.data)) last = node;
+    let letter = null;
+    if (last) {
+      let end = last.data.length;
+      while (end > 0 && /\s/.test(last.data[end - 1])) end--;
+      const glyph = document.createRange();
+      glyph.setStart(last, end - 1);
+      glyph.setEnd(last, end);
+      letter = glyph.getBoundingClientRect();
+    }
+    const bar = document.getElementById("fatcaret");
+    const drawn = bar.getBoundingClientRect();
+    return {
+      inTitle: true,
+      wordsBefore: before.toString(),
+      drawn: bar.classList.contains("on"),
+      onLastLetter: !!letter && Math.abs(drawn.left - letter.right) < 3 &&
+        drawn.top > letter.top - 4 && drawn.bottom < letter.bottom + 4,
+    };
+  }, id);
+}
+
+function titleLook(page, id) {
+  return page.evaluate(cardId => {
+    const title = els[cardId].titleEl;
+    const style = getComputedStyle(title);
+    return {
+      words: title.textContent,
+      pieces: title.childNodes.length,
+      markup: title.children.length,
+      look: [style.fontFamily, style.fontSize, style.fontWeight, style.fontStyle, style.color, style.backgroundColor].join("|"),
+    };
+  }, id);
+}
+
+async function assertCaretAfter(page, id, words, where) {
+  const caret = await titleCaret(page, id);
+  assert.equal(caret.inTitle, true, `${where}: the caret is not in the title`);
+  assert.equal(caret.wordsBefore, words, `${where}: the caret is not after the last pasted letter`);
+  assert.equal(caret.drawn, true, `${where}: the board draws no caret`);
+  assert.equal(caret.onLastLetter, true, `${where}: the caret is drawn away from the last letter`);
+}
+
+// a copied line ends in a break, and a page copied from brings its own font
+test("a line pasted into a new card's title is plain, and the caret and typing carry on after it", async () => {
+  await clearLane();
+  const cases = [
+    { name: "a copied line with its markup", click: false, typed: "", parts: { "text/html": PASTED_MARKUP + "<br>", "text/plain": PASTED_LINE + "\n" } },
+    { name: "a copied line after a click into the title", click: true, typed: "", parts: { "text/plain": PASTED_LINE + "\n" } },
+    { name: "plain words with no break", click: true, typed: "", parts: { "text/plain": PASTED_LINE } },
+    { name: "a copied line after some typing", click: true, typed: "A ", parts: { "text/html": PASTED_MARKUP, "text/plain": PASTED_LINE + "\n" } },
+  ];
+  for (const c of cases) {
+    const { page, problems } = await openDesktop();
+    try {
+      const created = page.waitForResponse(response => new URL(response.url()).pathname === "/create");
+      await chord(page, "t", "Meta");
+      const madeId = (await (await created).json()).id;
+      await page.waitForFunction(id => selectedId === id && document.querySelector(`#box-${id}.sel .title`)?.isContentEditable,
+        { timeout: 3000 }, madeId);
+      if (c.click) await page.click(`#box-${madeId}.sel .title`);
+      if (c.typed) await page.keyboard.type(c.typed);
+      const plain = await titleLook(page, madeId);
+      await pasteFromClipboard(page, c.parts);
+      const words = c.typed + PASTED_LINE;
+      const pasted = await titleLook(page, madeId);
+      assert.equal(pasted.words, words, `${c.name}: the title is not the pasted line alone`);
+      assert.equal(pasted.markup, 0, `${c.name}: the paste brought markup into the title`);
+      assert.equal(pasted.pieces, 1, `${c.name}: the paste split the title into pieces`);
+      assert.equal(pasted.look, plain.look, `${c.name}: the pasted words are not in the title's own font`);
+      await assertCaretAfter(page, madeId, words, `${c.name}, after the paste`);
+      await settle(3200);   // the board's readings come in twice inside this
+      await assertCaretAfter(page, madeId, words, `${c.name}, after the board's readings`);
+      await page.keyboard.type("!");
+      await settle(120);
+      await assertCaretAfter(page, madeId, words + "!", `${c.name}, after typing`);
+      await page.keyboard.press("Enter");
+      await page.waitForFunction((id, title) => lastState?.boxes.find(box => box.id === id)?.title === title,
+        { timeout: 3000 }, madeId, words + "!");
+      assert.equal((await savedBox(madeId)).title, words + "!", `${c.name}: the saved title is not the pasted line`);
+      const row = await page.evaluate(id => document.querySelector(`#tiklist .trow[data-id="${id}"]`)?.textContent || "", madeId);
+      assert.ok(row.includes(words + "!"), `${c.name}: the list row does not show the pasted title`);
+      assert.deepEqual(problems, []);
+    } finally {
+      await page.close();
+    }
+  }
+});
+
+test("a line pasted into a named title goes in at the caret, and clicking away saves it", async () => {
+  await clearLane();
+  const madeId = await create("A");
+  const { page, problems } = await openDesktop();
+  try {
+    await selectDesktop(page, madeId);
+    await page.click(`#box-${madeId}.sel .title`);
+    await page.waitForFunction(id => els[id].titleEl.isContentEditable && document.activeElement === els[id].titleEl,
+      { timeout: 3000 }, madeId);
+    await page.keyboard.press("End");
+    await page.keyboard.type(" ");
+    await pasteFromClipboard(page, { "text/html": PASTED_MARKUP, "text/plain": PASTED_LINE + "\n" });
+    const words = "A " + PASTED_LINE;
+    const pasted = await titleLook(page, madeId);
+    assert.equal(pasted.words, words, "the title is not the old name and the pasted line");
+    assert.equal(pasted.markup, 0, "the paste brought markup into the title");
+    await assertCaretAfter(page, madeId, words, "named title, after the paste");
+    await page.mouse.click(DESKTOP.width - 10, DESKTOP.height / 2);
+    await page.waitForFunction((id, title) => lastState?.boxes.find(box => box.id === id)?.title === title,
+      { timeout: 3000 }, madeId, words);
+    assert.equal((await savedBox(madeId)).title, words);
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
+
 test("escape puts the caret out of the row and leaves the words in it", async () => {
   await clearLane();
   const id = await create("Escape on the phone");
@@ -513,16 +833,21 @@ test("escape puts the caret out of the row and leaves the words in it", async ()
   }
 });
 
-test("backspace closes the card on show, and only the cards the board's own key closes", async () => {
+test("backspace and delete close no card, in the row or out of it", async () => {
   await clearLane();
-  const id = await create("Closed from the keyboard");
+  const id = await create("Left standing by the keyboard");
   await api(`/reply?box=${id}`, "A reply to answer.");
-  const keep = await create("Left standing after the close");
+  const keep = await create("Left standing beside it");
   await api(`/reply?box=${keep}`, "Another reply.");
   const { page, problems } = await openPhone(`/m?box=${id}`);
+  const closes = [];
+  page.on("request", request => {
+    if (new URL(request.url()).pathname === "/close") closes.push(request.url());
+  });
   try {
     await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
-    // with the caret in the row the key is the row's, and closes nothing
+    await watchKeys(page, ["Backspace", "Delete"]);
+    // with the caret in the row the key is the row's, as it always was
     await page.focus(SEL);
     await page.keyboard.type("ab");
     await page.keyboard.press("Backspace");
@@ -530,31 +855,37 @@ test("backspace closes the card on show, and only the cards the board's own key 
     assert.equal(await page.evaluate(() => document.querySelector("article.box.sel textarea").value), "a",
       "the key in the row did not rub out a letter");
     assert.equal((await savedBox(id)).done, false, "a backspace in the row closed the card");
+    // the row edits its own text and may cancel the key for that, which is its
+    // business; what is asked below is what the page does with the key out of it
+    await keysSeen(page);
 
     await page.evaluate(() => {
       const row = document.querySelector("article.box.sel textarea");
       row.value = "";
       row.blur();
     });
-    const closed = page.waitForResponse(response => new URL(response.url()).pathname === "/close");
     await page.keyboard.press("Backspace");
-    assert.equal((await closed).status(), 200);
+    await page.keyboard.press("Delete");
     await settle(400);
-    assert.equal((await savedBox(id)).done, true, "the key did not close the card");
-    assert.equal(await shownId(page), keep, "the close left the screen on the card that has gone");
+    assert.equal((await savedBox(id)).done, false, "a key out of the row closed the card");
+    assert.equal(await shownId(page), id, "a key out of the row moved the screen off the card");
 
-    // a card an agent dropped is not one the cross appears on, and the key
-    // leaves it exactly as the board's key does
     await chord(page, "2", "Meta");
     await page.waitForFunction(() => activeOwner === "pastureland", { timeout: 3000 });
     await page.evaluate(() => {
+      openDrawer();
       [...document.querySelectorAll("#tiklist .trow")].find(row => row.dataset.id === "1.1").click();
     });
     await settle(150);
     assert.equal(await shownId(page), "1.1");
     await page.keyboard.press("Backspace");
+    await page.keyboard.press("Delete");
     await settle(400);
-    assert.equal((await savedBox("1.1")).done, false, "the key closed a card the board's own key leaves alone");
+    assert.equal((await savedBox("1.1")).done, false, "a key closed a card the cross is not on");
+    assert.deepEqual(closes, [], "a backspace or delete asked the board to close a card");
+    const seen = await keysSeen(page);
+    assert.equal(seen.length, 4, "a key never reached the end of the page's own handling");
+    assert.deepEqual(seen.filter(entry => entry.prevented), [], "the page canceled a backspace or delete");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
@@ -562,7 +893,7 @@ test("backspace closes the card on show, and only the cards the board's own key 
 });
 
 for (const surface of ["phone", "desktop"]) {
-  test(`${surface} Control+L and Control+N move the selected card to Deferred and Doing`, async () => {
+  test(`${surface} Control+L and Control+N move no card, and the letters stay in the fields`, async () => {
     await clearLane();
     const id = await create(`${surface} destination keys`);
     await api(`/reply?box=${id}`, "A reply to answer.");
@@ -604,53 +935,40 @@ for (const surface of ["phone", "desktop"]) {
           { key: "l", ctrlKey: true, isComposing: true }, { key: "n", ctrlKey: true, isComposing: true },
           { key: "l", ctrlKey: true, repeat: true }, { key: "n", ctrlKey: true, repeat: true },
           { key: "s", ctrlKey: true }, { key: "s", ctrlKey: true, shiftKey: true },
-        ]) dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ...options }));
+        // a key press lands on an element, never on the window itself
+        ]) document.body.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ...options }));
       });
       assert.equal(requests.length, 0, "a modified, composing or scroll key changed card state");
 
-      let response = page.waitForResponse(r => new URL(r.url()).pathname === "/park");
-      await chord(page, "l", "Control");
-      assert.equal((await response).status(), 200);
-      await page.waitForFunction(cardId => els[cardId].box.classList.contains("parked"), {}, id);
-      assert.equal((await savedBox(id)).parked, true);
-      await page.evaluate(cardId => {
-        select(cardId);
-        dispatchEvent(new KeyboardEvent("keydown", { key: "l", ctrlKey: true, repeat: true, bubbles: true }));
-      }, neighbour);
-      assert.equal((await savedBox(neighbour)).parked, false,
-        "holding Control+L moved the next selected card to Deferred");
-      assert.equal(requests.length, 1, "the repeated Control+L sent another state request");
-      await page.evaluate(cardId => select(cardId), id);
-      await chord(page, "l", "Control");
-      await settle(120);
-      assert.equal(requests.length, 1, "Control+L toggled an already Deferred card");
-
-      response = page.waitForResponse(r => new URL(r.url()).pathname === "/park" && new URL(r.url()).searchParams.get("v") === "0");
-      await chord(page, "n", "Control");
-      assert.equal((await response).status(), 200);
-      await page.waitForFunction(cardId => !els[cardId].box.classList.contains("parked"), {}, id);
-      assert.equal((await savedBox(id)).parked, false);
-      await chord(page, "n", "Control");
-      await settle(120);
-      assert.equal(requests.length, 2, "Control+N sent a request for an already Doing card");
-
-      await api(`/done?box=${id}&v=1`);
-      await page.evaluate(() => poll());
-      await page.waitForFunction(cardId => els[cardId].box.classList.contains("done"), {}, id);
-      response = page.waitForResponse(r => new URL(r.url()).pathname === "/done" && new URL(r.url()).searchParams.get("v") === "0");
-      await chord(page, "n", "Control");
-      assert.equal((await response).status(), 200);
-      assert.equal((await savedBox(id)).done, false, "Control+N did not restore a Done card to Doing");
-
-      await api(`/done?box=${id}&v=1`);
-      await page.evaluate(() => poll());
-      await page.waitForFunction(cardId => els[cardId].box.classList.contains("done"), {}, id);
-      response = page.waitForResponse(r => new URL(r.url()).pathname === "/park" && new URL(r.url()).searchParams.get("v") === "1");
-      await chord(page, "l", "Control");
-      assert.equal((await response).status(), 200);
-      const moved = await savedBox(id);
-      assert.equal(moved.parked, true, "Control+L did not move a Done card to Deferred");
-      assert.equal(moved.done, false, "Control+L left the card in Done");
+      // with the card selected and no caret anywhere, in each section it can be
+      // in, the chords ask the board for nothing, leave the card where it is, and
+      // reach the end of the page's handling uncanceled for the browser to use
+      await watchKeys(page, ["l", "n"]);
+      for (const [section, put] of [
+        ["Doing", async () => {}],
+        ["Deferred", () => api(`/park?box=${id}&v=1`)],
+        ["Done", () => api(`/done?box=${id}&v=1`)],
+      ]) {
+        await put();
+        await page.evaluate(() => poll());
+        await settle(250);
+        await page.evaluate(cardId => select(cardId), id);
+        await page.evaluate(() => document.activeElement.blur());
+        assert.equal(await page.evaluate(() => selectedId), id, `the ${section} card was not the selected one`);
+        const before = await savedBox(id);
+        await chord(page, "l", "Control");
+        await chord(page, "n", "Control");
+        await settle(200);
+        const after = await savedBox(id);
+        assert.deepEqual([after.parked, after.done], [before.parked, before.done],
+          `a Control chord moved a ${section} card`);
+        assert.equal(await page.evaluate(() => selectedId), id, `a Control chord hopped off the ${section} card`);
+      }
+      assert.equal(requests.length, 0, "Control+L or Control+N asked the board to move a card");
+      assert.equal((await savedBox(neighbour)).parked, false, "a Control chord moved the neighbouring card");
+      const seen = await keysSeen(page);
+      assert.equal(seen.length, 6, "a Control chord never reached the end of the page's own handling");
+      assert.deepEqual(seen.filter(entry => entry.prevented), [], "the page canceled Control+L or Control+N");
       assert.deepEqual(problems, []);
     } finally {
       await page.close();
@@ -658,17 +976,15 @@ for (const surface of ["phone", "desktop"]) {
   });
 }
 
-for (const { surface, route, action } of [
-  { surface: "phone", route: "/m", action: "button" },
-  { surface: "phone", route: "/m", action: "shortcut" },
-  { surface: "desktop", route: "/", action: "button" },
-  { surface: "desktop", route: "/", action: "shortcut" },
-  { surface: "document page", route: "/page", action: "button" },
+for (const { surface, route } of [
+  { surface: "phone", route: "/m" },
+  { surface: "desktop", route: "/" },
+  { surface: "document page", route: "/page" },
 ]) {
-  test(`${surface} Snooze ${action} shows another Doing card`, async () => {
+  test(`${surface} Snooze button shows another Doing card`, async () => {
     await clearLane();
-    const deferred = await create(`${surface} ${action} to defer`);
-    const next = await create(`${surface} ${action} to show`);
+    const deferred = await create(`${surface} button to defer`);
+    const next = await create(`${surface} button to show`);
     const { page, problems } = route === "/m"
       ? await openPhone(`${route}?box=${deferred}`) : await openDesktop(route);
     try {
@@ -679,34 +995,22 @@ for (const { surface, route, action } of [
         return url.pathname === "/park" && url.searchParams.get("box") === deferred &&
           url.searchParams.get("v") === "1";
       });
-      if (action === "button"){
-        await page.evaluate(id => document.getElementById("box-" + id).querySelector(".arcbtn").click(), deferred);
-      } else {
-        await page.evaluate(() => document.activeElement.blur());
-        await chord(page, "l", "Control");
-      }
+      await page.evaluate(id => document.getElementById("box-" + id).querySelector(".arcbtn").click(), deferred);
       assert.equal((await response).status(), 200);
       await page.waitForFunction(id => selectedId === id, { timeout: 5000 }, next);
       assert.equal(await shownId(page), next);
       assert.equal((await savedBox(deferred)).parked, true);
       assert.equal(await page.evaluate(() => activeOwner), "facilitator");
 
-      // Opening the Deferred list is a deliberate selection; a second Control+L
-      // is still a destination, and the sun may reverse the park in place. the
-      // document page never shows its cards and keeps its moon's old toggle
+      // Opening the Deferred list is a deliberate selection, and the sun may
+      // reverse the park in place. the document page never shows its cards and
+      // keeps its moon's old toggle
       await page.evaluate(id => {
         document.getElementById("tv-deferred").click();
         select(id);
       }, deferred);
       await settle(100);
       assert.equal(await shownId(page), deferred);
-      if (action === "shortcut"){
-        await page.evaluate(() => document.activeElement.blur());
-        await chord(page, "l", "Control");
-        await settle(100);
-        assert.equal((await savedBox(deferred)).parked, true);
-        assert.equal(await shownId(page), deferred);
-      }
       await page.evaluate(({ id, wake }) => document.getElementById("box-" + id).querySelector(wake).click(),
         { id: deferred, wake: route === "/page" ? ".arcbtn" : ".sunbtn" });
       await page.waitForFunction(id => !els[id].box.classList.contains("parked"), { timeout: 5000 }, deferred);
@@ -989,7 +1293,10 @@ test("phone double Enter waits for delivery, rejects held repeats, and cancels o
     await page.evaluate(() => window.__sendReplies.shift()(400));
     await page.waitForFunction(id => localSends(id).some(op => op.state === "failed"), { timeout: 3000 }, from);
     assert.equal(await shownId(page), from, "a refused send moved away from its failure");
-    assert.match(await page.evaluate(id => els[id].sent.textContent, from), /not sent/i);
+    assert.deepEqual(await page.evaluate(id => {
+      const row = els[id].sent.querySelector(".answmsg[data-op]");
+      return [!!row.querySelector(".answmark .answretry"), row.innerText.trim()];
+    }, from), [true, "refused double Enter"], "a refused send did not stay in the row with its mark and no words");
     assert.deepEqual(problems.filter(problem => !/status of 400 \(Bad Request\)/.test(problem)), []);
   } finally {
     await page.close();
@@ -1140,11 +1447,18 @@ test("desktop double Enter waits for delivery and failed sends restore their tex
       field.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await page.evaluate(() => window.__sendReplies.shift()(500));
-    await page.waitForFunction(id => els[id].metaNote.textContent.includes("send failed"), { timeout: 3000 }, from);
+    await page.waitForFunction(id => (els[id].sentHeld || []).length === 1, { timeout: 3000 }, from);
     assert.equal(await shownId(page), from);
-    assert.equal(await page.$eval(SEL, field => field.value),
-      "newer draft\n\ndesktop failure remains visible",
-      "restoring a failed send changed or replaced text typed while it was pending");
+    assert.equal(await page.$eval(SEL, field => field.value), "newer draft\n",
+      "a failed send changed or replaced text typed while it was pending");
+    assert.equal(await page.evaluate(id => els[id].metaNote.textContent, from), "", "a failed send left a sentence");
+    assert.equal(await page.evaluate(() => !!document.querySelector("article.box.sel .answmark .answretry")), true,
+      "a failed send did not stay in the sent messages with its mark");
+    // the cross asks the board, which has no record of it, and the words go back after the draft
+    await page.evaluate(() => document.querySelector("article.box.sel .answmark .answcross").click());
+    await page.waitForFunction(() => document.querySelector("article.box.sel textarea").value ===
+      "newer draft\n\ndesktop failure remains visible", { timeout: 3000 });
+    assert.equal(await page.evaluate(id => (els[id].sentHeld || []).length, from), 0);
 
     await page.$eval(SEL, field => {
       field.value = "the first send arrow stays";
@@ -1168,9 +1482,9 @@ test("desktop double Enter waits for delivery and failed sends restore their tex
     await page.evaluate(() => document.querySelector("article.box.sel .sendbtn").click());
     await page.waitForFunction(() => window.__sendReplies.length === 1);
     await page.evaluate(() => window.__sendReplies.shift()(500));
-    await page.waitForFunction(id => els[id].metaNote.textContent.includes("send failed"), { timeout: 3000 }, from);
+    await page.waitForFunction(id => (els[id].sentHeld || []).length === 1, { timeout: 3000 }, from);
     assert.equal(await shownId(page), from);
-    assert.equal(await page.$eval(SEL, field => field.value), "failed arrow message");
+    assert.equal(await page.$eval(SEL, field => field.value), "", "a failed arrow send refilled the row instead of staying in the sent messages");
     assert.equal(await page.evaluate(() => !!arrowAgainFor(selectedId)), false);
     await page.$eval(SEL, field => {
       field.value = "arrow expires on this card";
@@ -1263,8 +1577,12 @@ test("desktop aliases walk the visible cards and preserve their focus rules", as
       row: true, box: order[(start + 1) % order.length],
     }, "desktop card stepping did not focus the destination composer");
 
+    const stepped = order[(start + 1) % order.length];
     await chord(page, "[", "Meta", "Shift");
-    assert.equal(await shownId(page), ids[0], "the bracket alias did not step back");
+    assert.equal(await shownId(page), stepped, "command shift bracket walked the cards");
+    assert.deepEqual(await activeRow(page), { row: true, box: stepped }, "command shift bracket moved the caret");
+    await chord(page, "ArrowLeft", "Control", "Shift");
+    assert.equal(await shownId(page), ids[0], "the arrow pair did not step back");
     await page.keyboard.type("abcd");
     await page.keyboard.press("ArrowLeft");
     assert.equal(await page.$eval(SEL, field => field.selectionStart), 3,
@@ -1662,6 +1980,12 @@ test("desktop mini capture keeps its subset ahead of typing and the board", asyn
     await page.waitForFunction(() => miniOrder.length >= 2 && selectedId !== null, { timeout: 5000 });
     await selectDesktop(page, first);
     await page.evaluate(id => { miniGo(id); renderMiniCards(lastState); }, first);
+    // the small card is hidden in the default layout, so it is shown for this lane
+    await page.evaluate(() => {
+      settingsStore.setItem("show.facilitator.magic2", "1");
+      applySavedLayout();
+    });
+    await page.waitForFunction(() => !document.getElementById("magic2").classList.contains("region-off"));
     await page.click("#magic2 .mbox:not(.off) textarea");
     const mainBefore = await shownId(page);
     await chord(page, "ArrowRight", "Control", "Shift");
@@ -1707,11 +2031,11 @@ test("desktop mini capture keeps its subset ahead of typing and the board", asyn
     const blockedAt = await shownId(page);
     await chord(page, "]", "Meta", "Shift");
     assert.equal(await shownId(page), blockedAt,
-      "a mini textarea let bracket navigation reach the board");
+      "a mini textarea let a command shift bracket reach the board");
     await page.evaluate(() => document.activeElement.blur());
     await chord(page, "]", "Meta", "Shift");
-    assert.notEqual(await shownId(page), blockedAt,
-      "a bracket outside mini typing was redirected away from the board");
+    assert.equal(await shownId(page), blockedAt,
+      "a command shift bracket outside mini typing walked the board");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
@@ -1729,14 +2053,18 @@ test("desktop capture and component barriers retain keyboard priority", async ()
   try {
     await selectDesktop(page, current);
     await page.evaluate(at => editTitle(at), current);
+    await chord(page, "ArrowRight", "Control", "Shift");
     await chord(page, "]", "Meta", "Shift");
     assert.equal(await shownId(page), current, "the shared title let board navigation escape its barrier");
-    // and the same chord is live the moment the naming ends, so the barrier is
-    // what held it, not a key that does nothing
+    // and the walking chord is live the moment the naming ends, so the barrier
+    // is what held it, not a key that does nothing. the command shift bracket
+    // walks nowhere either way
     await page.evaluate(at => els[at].titleEl.blur(), current);
     await settle(120);
     await chord(page, "]", "Meta", "Shift");
-    assert.equal(await shownId(page), neighbour, "the bracket outside the naming did not reach the board");
+    assert.equal(await shownId(page), current, "a command shift bracket outside the naming walked the board");
+    await chord(page, "ArrowRight", "Control", "Shift");
+    assert.notEqual(await shownId(page), current, "the walking chord outside the naming did not reach the board");
     await selectDesktop(page, current);
 
     await page.evaluate(() => {
@@ -1793,6 +2121,8 @@ test("CodeMirror keeps its own undo and redo, and the board stays where it is", 
     await watchUndoKeys(page);
     await page.evaluate(async ({ currentId }) => {
       select(currentId);
+      // the fixture names no navigator lane, so the panel is mounted for this one by hand
+      fileNavMounts(["unused", "pastureland"]);
       fileNavBoxes();
       const host = fileNavBuild(FILENAV_MOUNTS.pastureland);
       host.style.left = "32px";

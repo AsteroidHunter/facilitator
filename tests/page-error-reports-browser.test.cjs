@@ -91,10 +91,11 @@ async function settleReports() {
 
 // a page in its own browsing context, so one test's storage is never the next
 // test's starting point
-async function open(route, viewport) {
+async function open(route, viewport, agent) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   if (viewport) await page.setViewport(viewport);
+  if (agent) await page.setUserAgent(agent);
   await page.goto(origin + route, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => typeof startReporter === "function", { timeout: 5000 });
   // the tests count the same events the reporter does, so a case can wait for
@@ -324,6 +325,96 @@ test("the page view outside the sandbox reports like the other two", async () =>
   }
 });
 
+// ---- which window sent it -----------------------------------------------------
+// Every line names the kind of window and carries an id made once per page
+// load. The three agents are what the built apps and a phone report.
+
+const APP_AGENTS = {
+  electron: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) FacilitatorElectron/0.2.246 Chrome/152.0.7977.130 Electron/44.4.5 Safari/537.36",
+  tauri: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)",
+  phone: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+};
+
+// the browser prefixes a throw's message, and some lines have no message at all
+const saying = text => report => typeof report.message === "string" && report.message.includes(text);
+
+test("a line from a Chrome window says chrome and carries an id for that page load", async () => {
+  await settleReports();
+  const { page, context } = await open("/");
+  try {
+    await throwInPage(page, "which window threw this");
+    await hide(page);
+    const fresh = await newReports(report => /which window threw this/.test(report.message));
+    const thrown = fresh.find(report => /which window threw this/.test(report.message));
+    assert.equal(thrown.client, "chrome");
+    assert.match(thrown.window, /^[a-f0-9]{16}$/);
+    assert.ok(!JSON.stringify(thrown).includes("Mozilla"), "the user agent reached the file");
+  } finally {
+    await context.close();
+  }
+});
+
+test("one page load keeps one id across batches, and a second load has its own", async () => {
+  await settleReports();
+  const first = await open("/");
+  const second = await open("/");
+  try {
+    await throwInPage(first.page, "load one, batch one");
+    await hide(first.page);
+    await throwInPage(first.page, "load one, batch two");
+    await hide(first.page);
+    await throwInPage(second.page, "load two, batch one");
+    await hide(second.page);
+    const fresh = await newReports(report => /load (one|two), batch/.test(report.message), 3);
+    const idOf = message => fresh.find(saying(message)).window;
+    assert.equal(idOf("load one, batch one"), idOf("load one, batch two"), "one load changed its id");
+    assert.notEqual(idOf("load one, batch one"), idOf("load two, batch one"), "two loads shared an id");
+  } finally {
+    await first.context.close();
+    await second.context.close();
+  }
+});
+
+for (const [name, agent] of Object.entries(APP_AGENTS)) {
+  test(`a page whose user agent is the ${name}'s says ${name}, and the phone page says the same`, async () => {
+    for (const [route, viewport, pageName] of [["/", null, "board"], ["/m", PHONE, "phone"]]) {
+      await settleReports();
+      const message = `thrown under the ${name} agent on ${pageName}`;
+      const { page, context } = await open(route, viewport, agent);
+      try {
+        await throwInPage(page, message);
+        await hide(page);
+        const fresh = await newReports(saying(message));
+        const thrown = fresh.find(saying(message));
+        assert.equal(thrown.page, pageName);
+        assert.equal(thrown.client, name);
+        assert.match(thrown.window, /^[a-f0-9]{16}$/);
+      } finally {
+        await context.close();
+      }
+    }
+  });
+}
+
+test("the page view and the phone page, in Chrome, say chrome and carry an id", async () => {
+  for (const [route, viewport, pageName] of [["/page", null, "page"], ["/m", PHONE, "phone"]]) {
+    await settleReports();
+    const message = `${pageName} in chrome names its window`;
+    const { page, context } = await open(route, viewport);
+    try {
+      await throwInPage(page, message);
+      await hide(page);
+      const fresh = await newReports(saying(message));
+      const thrown = fresh.find(saying(message));
+      assert.equal(thrown.page, pageName);
+      assert.equal(thrown.client, "chrome");
+      assert.match(thrown.window, /^[a-f0-9]{16}$/);
+    } finally {
+      await context.close();
+    }
+  }
+});
+
 // ---- the banner and the render ------------------------------------------------
 // One try used to wrap the fetch and the render together, so three throws from
 // anywhere in the render path painted "the server is unreachable" over a server
@@ -366,13 +457,11 @@ async function untilBanner(page, shown, ms = 8000) {
 }
 
 // the phone reads the board through its own short reading, and draws only
-// when the board has changed: its render runs once per change, and its note
-// for a board that stopped answering says so in its own words
-const PHONE_STALE = /^Reconnecting to the board\. Last update \d{1,2}:\d{2} (AM|PM)\.$/;
-
+// when the board has changed: its render runs once per change, and it paints no
+// banner for a board that stopped answering (a null says so)
 for (const [name, route, viewport, readRoute, saidWhenGone] of [
   ["board", "/", null, "/state", UNREACHABLE],
-  ["phone page", "/m", PHONE, "/m/state", PHONE_STALE],
+  ["phone page", "/m", PHONE, "/m/state", null],
 ]) {
   test(`a render that throws on the ${name} leaves the banner alone and is reported`, async () => {
     await settleReports();
@@ -408,18 +497,29 @@ for (const [name, route, viewport, readRoute, saidWhenGone] of [
     }
   });
 
-  test(`a server the ${name} cannot reach paints the banner, and it clears when it comes back`, async () => {
+  test(`a server the ${name} cannot reach ${saidWhenGone === null ? "paints no banner" : "paints the banner, and it clears when it comes back"}`, async () => {
     await settleReports();
     const { page, context } = await open(route, viewport);
     try {
       await cutTheWire(page, false);
-      const gone = await untilBanner(page, true);
-      if (typeof saidWhenGone === "string") assert.equal(gone.said, saidWhenGone, "the banner does not say what it always said");
-      else assert.match(gone.said, saidWhenGone, "the note does not say the board is being reached for again");
+      if (saidWhenGone === null) {
+        // an app in use: three failed readings and the page still says nothing
+        await page.waitForFunction(() => pollFails >= 3, { timeout: 20000 });
+        const shown = await banner(page);
+        assert.deepEqual(shown, { shown: false, said: "" }, "the phone painted a banner for a board that stopped answering");
+        assert.equal(await page.evaluate(() => document.body.classList.contains("down")), false);
+      } else {
+        const gone = await untilBanner(page, true);
+        assert.equal(gone.said, saidWhenGone, "the banner does not say what it always said");
+      }
 
       await cutTheWire(page, true);
-      if (readRoute === "/m/state") await page.evaluate(() => resume());   // the phone reads again on a wake, not on a clock it has backed off
-      await untilBanner(page, false);
+      if (readRoute === "/m/state") {
+        await page.evaluate(() => resume());   // the phone reads again on a wake, not on a clock it has backed off
+        await page.waitForFunction(() => pollFails === 0, { timeout: 10000 });
+      } else {
+        await untilBanner(page, false);
+      }
 
       await hide(page);
       const fresh = await newReports(report => report.kind === "fetch");

@@ -20,6 +20,8 @@
   const ASLEEP = 10000; // the wall clock this far ahead of the page's own means sleep
 
   let page = null;                 // "board", "phone" or "page"; null until started
+  let client = "other";            // the kind of window this page is open in
+  let windowId = "";               // 16 random hex characters, new on every page load
   let doing = "idle";              // the one word the page last said it was doing
   let freezes = 0;                 // lateness is an event, not a kind: each is its own
   let incidents = null;            // the phone's recent history, only in memory
@@ -27,6 +29,26 @@
 
   function cut(text) {
     return String(text == null ? "" : text).slice(0, FIELD);
+  }
+
+  // which kind of window this is, as one short word. The user agent is read
+  // here and never sent: Electron adds its own token, the Tauri app is the bare
+  // system WebKit view (no Version or Safari token, which the Safari browser has),
+  // and a touch screen on a Mac user agent is an iPad. Anything else is "other"
+  function clientOf(agent, touchPoints) {
+    const ua = String(agent || "");
+    if (/\b(iPhone|iPad|iPod|Android)\b/.test(ua) || (/Macintosh/.test(ua) && touchPoints > 1)) return "phone";
+    if (/Electron\//.test(ua)) return "electron";
+    if (/Chrome\//.test(ua)) return /\b(Edg|OPR)\//.test(ua) ? "other" : "chrome";
+    if (/Safari\//.test(ua)) return "safari";
+    if (/Macintosh/.test(ua) && /AppleWebKit\//.test(ua)) return "tauri";
+    return "other";
+  }
+
+  // the batch as the route reads it: which page, which kind of window, and which
+  // load of it, so lines from two windows showing the same page can be told apart
+  function batchOf(reports) {
+    return JSON.stringify({ page: page, client: client, window: windowId, reports: reports });
   }
 
   // the card open right now. Each page declares selectedId itself, so this is
@@ -93,8 +115,7 @@
     for (const report of queued.values()) reports.push(report);
     queued.clear();
     try {
-      navigator.sendBeacon("/clientlog", new Blob(
-        [JSON.stringify({ page: page, reports: reports })], { type: "application/json" }));
+      navigator.sendBeacon("/clientlog", new Blob([batchOf(reports)], { type: "application/json" }));
     } catch (e) {
       // the page is going away and there is nowhere left to say so
     }
@@ -166,6 +187,8 @@
   window.startReporter = function (name) {
     if (page) return;
     page = name;
+    client = clientOf(navigator.userAgent, navigator.maxTouchPoints);
+    windowId = Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
     if (name === "phone") {
       try {
         incidents = phoneHistory(window.fetch);
@@ -224,7 +247,7 @@
     const ENTRIES = 40, AGE = 60000, BYTES = 12 * 1024;
     const COALESCE = 250, UI_SLOW = 150, REQUEST_SLOW = 2000;
     const COOLDOWN = 30000, SAVES_PER_MINUTE = 4, SAVE_TIMEOUT = 4000;
-    const POST_MS = 20000, SPARSE_AGE = 120000;
+    const POST_MS = 20000, SPARSE_AGE = 120000, FRAME_WATCH = 5000;
     const STUCK_COOLDOWN = 120000;   // one no-scroll save per card in this long
     const events = new Set(["create", "select", "focus", "send", "operation", "request",
       "render", "stage", "observer", "drawer", "viewport", "lifecycle", "problem", "freeze", "mark",
@@ -284,12 +307,16 @@
     const opPattern = /^(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/;
     let ring = [], lost = 0, sparseLost = 0, suppressed = 0, seq = 0, generation = 0;
     const important = [], work = [], life = [], pollBuckets = [], observerBuckets = [];
-    let collecting = null, worker = "unknown", activeRequest = null;
-    const session = Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+    const collecting = new Set();   // saves still recording their 20 seconds of recovery
+    let worker = "unknown", activeRequest = null;
+    const session = windowId;
     let lastResume = -Infinity, lastAuto = -Infinity, attempts = [];
     const stuck = new Map();   // card -> when its last no-scroll save was made
     let viewport = null, viewportTimer = null, viewportAt = -Infinity, viewportKey = "";
-    let held = null, pendingManual = null, beaconed = null, busy = false, build = "phone-diag-unidentified", schema = 1;
+    let held = null, beaconed = null, busy = false, sending = null, inflight = Promise.resolve();
+    let build = "phone-diag-unidentified", schema = 1;
+    let lastFrame = null, frameEpoch = generation, watching = false, watchUntil = -Infinity, watchedRev = null;
+    let watchFrames = () => {};   // set once the frame callback exists, below
     const cap = (n, max) => Math.min(max, Math.max(0, Math.round(n)));
     // Even a broken getter, unavailable clock, or disabled reporter must never
     // escape into a send, focus, navigation or keyboard reconciliation.
@@ -325,7 +352,9 @@
           entry.part === "reply-swap" ? important : work;
       target.push(entry);
       const limit = target === important ? 60 : target === work ? 40 : 8;
-      const cutoff = collecting ? collecting.markAt - SPARSE_AGE : entry.time - SPARSE_AGE;
+      let from = collecting.size ? Infinity : entry.time;
+      for (const current of collecting) from = Math.min(from, current.markAt);
+      const cutoff = from - SPARSE_AGE;
       while (target.length && (target.length > limit || target[0].time < cutoff)) {
         target.shift(); sparseLost = cap(sparseLost + 1, 1000000000);
       }
@@ -362,6 +391,10 @@
       }
       drainViewport();
       append(event, fields, now);
+      if (event === "render" && typeof fields.rev === "number" && fields.rev !== watchedRev) {
+        watchedRev = fields.rev;
+        watchFrames();
+      }
       if (event === "operation" && fields.outcome === "failed") automatic("problem");
     }
     function begin(event, detail) {
@@ -509,7 +542,7 @@
     function fitReport(report, maxBytes, maxEvents) {
       let body;
       for (;;) {
-        body = JSON.stringify({ page: "phone", reports: [report] });
+        body = batchOf([report]);
         if ((body.length <= maxBytes && report.events.length <= maxEvents) ||
             report.events.length <= 1) return body;
         const lastPost = [...report.events].reverse().find(e => e.at > 0 && e.event !== "mark");
@@ -586,21 +619,23 @@
       attempts.push(now);
       return true;
     }
-    function upload() {
-      if (busy) return Promise.resolve({ status: "busy" });
-      if (!held) return Promise.resolve({ status: "failed" });
+    // One report goes out at a time. A report asked for while another is going
+    // out follows it as soon as it finishes, so a save is never refused for that.
+    function upload(report) {
+      if (busy) return report === sending ? inflight : inflight.then(() => upload(report));
+      if (!report) return Promise.resolve({ status: "failed" });
       if (navigator.onLine === false) return Promise.resolve({ status: "offline" });
       if (!permit()) return Promise.resolve({ status: "limited" });
-      busy = true;
+      busy = true; sending = report;
       // JSON and transport start on a later task, after the triggering work.
-      return new Promise(resolve => setTimeout(async () => {
+      inflight = new Promise(resolve => setTimeout(async () => {
         let timer = null;
         try {
           const controller = new AbortController();
           timer = setTimeout(() => controller.abort(), SAVE_TIMEOUT);
-          let submitted = held;
+          let submitted = report;
           let response = await realFetch.call(window, "/clientlog", { method: "POST",
-            headers: { "content-type": "application/json" }, body: bodyOf(held),
+            headers: { "content-type": "application/json" }, body: bodyOf(report),
             signal: controller.signal, keepalive: true });
           // A v5 refusal steps down to v4, and a v4 refusal to v3.
           while (response.status === 400 && submitted.v >= 4) {
@@ -616,23 +651,24 @@
           }
           const answer = response.ok ? await response.json() : null;
           if (answer?.ok === true && answer.written === 1 && answer.dropped === 0) {
-            held = null;
+            if (held === report) held = null;
             resolve({ status: submitted._enterOmitted || submitted._scrollOmitted ? "saved-legacy" : "saved" });
           } else resolve({ status: "failed" });
         } catch (_) { resolve({ status: "failed" }); }
-        finally { if (timer !== null) clearTimeout(timer); busy = false; }
+        finally { if (timer !== null) clearTimeout(timer); busy = false; sending = null; }
       }, 0));
+      return inflight;
     }
     function automatic(reason, detail) {
       const now = performance.now();
-      if (!reasons.has(reason) || document.hidden || busy || collecting || pendingManual ||
+      if (!reasons.has(reason) || document.hidden || busy || collecting.size ||
           (held && held.reason === "manual") || now - lastAuto < COOLDOWN) {
         suppressed = cap(suppressed + 1, 1000000000); return false;
       }
       lastAuto = now;
-      held = capture(reason, detail);
-      if (schema >= 3) collect(held, false);
-      else upload();
+      const initial = capture(reason, detail);
+      if (schema >= 3) collect(initial, false);
+      else { held = initial; upload(initial); }
       return true;
     }
     // A swipe on a scrollable response that moved nothing, as the page judged
@@ -651,28 +687,23 @@
       const markAt = initial._markAt;
       return new Promise(resolve => {
         const current = { initial, markAt, resolve, timer: null, manual };
-        collecting = current;
+        collecting.add(current);
         current.timer = setTimeout(() => {
-          if (collecting !== current) return;
-          collecting = null;
-          held = finishCollection(initial);
-          upload().then(resolve);
+          if (!collecting.delete(current)) return;
+          const report = finishCollection(initial);
+          held = report;
+          upload(report).then(resolve);
         }, POST_MS);
       });
     }
+    // A press starts its own marker and its own 20 seconds at once, even while an
+    // automatic save is still recording or sending; it goes out when it is ready.
     function mark(source, detail, retry = false) {
-      if (busy || collecting) {
-        if (!pendingManual) pendingManual = capture("manual", { ...detail, source });
-        return Promise.resolve({ status: "busy" });
-      }
-      if (retry && pendingManual) {
-        held = pendingManual; pendingManual = null;
-      } else if (!retry || !held) {
-        pendingManual = null;
-        held = capture("manual", { ...detail, source });
-      }
-      if (schema >= 3 && !retry) return collect(held, true);
-      return upload();
+      if (retry && held) return upload(held);
+      const report = capture("manual", { ...detail, source });
+      if (schema >= 3 && !retry) return collect(report, true);
+      held = report;
+      return upload(report);
     }
     function lifecycle(value, detail = {}) {
       if (value === "visible" || value === "pageshow") beaconed = null;
@@ -687,22 +718,32 @@
     note("lifecycle", { lifecycle: "start" });
     // Neither callback proves that pixels were presented. Together they show
     // whether script callbacks and frame opportunities stopped around an input.
-    let lastFrame = null, frameEpoch = generation;
-    if (typeof requestAnimationFrame === "function") {
-      const frame = safe(time => {
-        if (!document.hidden && schema >= 3 && lastFrame !== null && frameEpoch === generation) {
-          const gap = time - lastFrame;
-          if (gap >= 250 && time - lastResume > gap + 100) {
-            note("frame", { ms: gap });
-            if (gap >= 1000) automatic("freeze");
-          }
+    // Frames are watched only for FRAME_WATCH after a touch, a key or a new board
+    // reading, so a page with nothing going on asks for none. The 100 ms timer
+    // below still catches every stall.
+    const onFrame = safe(time => {
+      if (!document.hidden && schema >= 3 && lastFrame !== null && frameEpoch === generation) {
+        const gap = time - lastFrame;
+        if (gap >= 250 && time - lastResume > gap + 100) {
+          note("frame", { ms: gap });
+          if (gap >= 1000) automatic("freeze");
         }
-        lastFrame = document.hidden ? null : time;
-        frameEpoch = generation;
-        requestAnimationFrame(frame);
-      });
-      requestAnimationFrame(frame);
-    }
+      }
+      frameEpoch = generation;
+      if (document.hidden || performance.now() >= watchUntil) { watching = false; lastFrame = null; return; }
+      lastFrame = time;
+      requestAnimationFrame(onFrame);
+    });
+    watchFrames = safe(() => {
+      watchUntil = performance.now() + FRAME_WATCH;
+      if (watching || schema < 3 || document.hidden || typeof requestAnimationFrame !== "function") return;
+      watching = true;
+      lastFrame = performance.now();
+      frameEpoch = generation;
+      requestAnimationFrame(onFrame);
+    });
+    for (const type of ["touchstart", "touchmove", "touchend", "touchcancel", "pointerdown", "keydown"])
+      document.addEventListener(type, watchFrames, { capture: true, passive: true });
     let due = performance.now() + 100;
     setInterval(safe(() => {
       const now = performance.now(), late = now - due;
@@ -745,13 +786,13 @@
       }),
       hide: safe(() => {
         drainViewport();
-        if (collecting) {
-          const current = collecting;
-          collecting = null; clearTimeout(current.timer);
-          held = finishCollection(current.initial);
+        for (const current of [...collecting]) {
+          collecting.delete(current); clearTimeout(current.timer);
+          const finished = finishCollection(current.initial);
+          if (current.manual || held?.reason !== "manual") held = finished;
           current.resolve({ status: "failed" }); // a beacon is never a persistence acknowledgement
         }
-        const report = pendingManual || (!busy ? held : null);
+        const report = held !== sending ? held : null;
         if (report && report !== beaconed && navigator.sendBeacon && permit()) {
           if (navigator.sendBeacon("/clientlog", new Blob([bodyOf(report)], { type: "application/json" })))
             beaconed = report;

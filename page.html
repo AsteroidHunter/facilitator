@@ -15,7 +15,7 @@
     /* every edge reads --line; --line-strong is only faint ink and small fills.
        the grey and its reason are card-tokens.css's, which this page does not load */
     --line:#CACACA; --line-strong:#D8CFBE;
-    --accent:#432BFF; --accent-soft:#EEEBFF;
+    --accent:var(--ink); --accent-soft:#F3F3F3;
     --green:#2F6B3C; --green-bg:#EDF4E8; --green-line:#C4D9BB;
     --must:#A8442A; --must-bg:#F7EAE4;
     --could:#8A6D1F; --could-bg:#F5EFDD;
@@ -69,12 +69,6 @@
   @keyframes pulse{50%{opacity:.35}}
   .prog{font:12px var(--mono); color:var(--sub); white-space:nowrap}
   .prog b{color:var(--green); font-weight:500}
-  .endbtn{
-    font:12px var(--mono); color:var(--sub); background:none; border:var(--edge) solid var(--line);
-    border-radius:99px; padding:4px 12px; cursor:pointer; transition:.2s;
-  }
-  .endbtn:hover{border-color:var(--must); color:var(--must)}
-  .endbtn.arm{border-color:var(--must); color:#fff; background:var(--must)}
   #bgpick{width:24px; height:20px; padding:0; border:var(--edge) solid var(--line);
     border-radius:4px; background:none; cursor:pointer; flex:none}
   #bgpick::-webkit-color-swatch-wrapper{padding:2px}
@@ -94,13 +88,9 @@
     font:13px/1.4 var(--sans); color:var(--ink); cursor:pointer}
   #setpanel .setrow input{margin:2px 0 0; flex:none; accent-color:var(--accent)}
   #setpanel .sethelp{margin:5px 0 0 22px; font:11.5px/1.45 var(--mono); color:var(--sub)}
-  .pausebtn{font:12px var(--mono); color:var(--accent); background:var(--accent-soft);
-    border:none; border-radius:4px; padding:4px 12px; cursor:pointer; transition:.2s}
-  .pausebtn:hover{background:#E2DCFC}
-  body.paused .pausebtn{background:var(--accent); color:#fff}
   #editbtn{font:13px var(--mono); color:var(--accent); background:var(--accent-soft);
     border:none; border-radius:4px; padding:3px 9px; cursor:pointer; transition:.2s; flex:none}
-  #editbtn:hover{background:#E2DCFC}
+  #editbtn:hover{background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft))}
   body.editmode #editbtn{background:var(--accent); color:#fff}
 
   /* ---- layout ----------------------------------------------------------- */
@@ -116,14 +106,14 @@
   }
   #tocgrip{position:fixed; left:calc(var(--tocw) - 3px); top:45px; bottom:0; width:7px;
     cursor:col-resize; z-index:6}
-  #tocgrip:hover, #tocgrip.drag{background:var(--accent-soft)}
+  #tocgrip:hover, #tocgrip.drag{background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft))}
   body.resizing{user-select:none; cursor:col-resize}
   #toc .toc-group{margin:0 0 18px}
   #toc .toc-bucket{font:11px var(--mono); letter-spacing:.09em; text-transform:uppercase;
     color:var(--sub); margin:0 6px 7px}
   .toc-entry{display:flex; align-items:center; gap:8px; padding:4px 6px; border-radius:7px;
     cursor:pointer; font:13px/1.3 var(--sans); color:var(--ink)}
-  .toc-entry:hover{background:var(--accent-soft)}
+  .toc-entry:hover{background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft))}
   .toc-entry .tage{font:10px var(--mono); color:#B4AA99; flex:none; width:30px; text-align:right}
   .toc-entry .tnum{font:10.5px var(--mono); color:var(--sub); flex:none; width:26px}
   .toc-entry .tdot{width:7px; height:7px; border-radius:50%; flex:none; background:var(--line-strong)}
@@ -177,7 +167,7 @@
        border:var(--edge) solid var(--line); border-radius:6px; padding:2px 7px; flex:none}
   .title{font:500 17.5px/1.25 var(--serif); flex:1; min-width:0}
   .title[contenteditable]{outline:none}
-  .title[contenteditable]:empty::before{content:"Chat Name"; color:var(--line-strong)}
+  .title[contenteditable]:empty::before{content:"Card Name"; color:var(--bubble-fill, #F3F3F3)}
   .donebtn, .parkbtn{
     flex:none; font:12px var(--mono); color:var(--sub); background:none; cursor:pointer;
     border:var(--edge) solid var(--line); border-radius:99px; padding:3px 11px; transition:.2s;
@@ -276,32 +266,28 @@
   body.offline #offline{display:block}
   body.offline .dot{background:#C0442A !important; animation:none}
 
-  .endnote{display:none; margin:40px 2px; font:italic 400 17px var(--serif); color:var(--sub)}
-  body.ended .endnote{display:block}
   @media (prefers-reduced-motion: reduce){ *{animation:none !important; transition:none !important} }
 
   /* ============ structural skin: square corners + bracket buttons =========== */
-  .box, textarea, .sendbtn, .donebtn, .parkbtn, .addbtn, .addinput, .endbtn,
+  .box, textarea, .sendbtn, .donebtn, .parkbtn, .addbtn, .addinput,
   .toc-entry{border-radius:4px !important}
   .num{background:transparent; border:none; padding:0; width:auto}
   /* buttons: borderless soft-tint boxes; the old hover glow is the resting look */
-  .sendbtn, .donebtn, .parkbtn, .addbtn, .endbtn{border:none !important}
+  .sendbtn, .donebtn, .parkbtn, .addbtn{border:none !important}
   .sendbtn{background:var(--accent-soft); color:var(--accent); font-weight:600;
     min-height:38px; padding:0 16px; display:flex; align-items:center}
-  .sendbtn:hover{background:#E2DCFC; transform:none}
+  .sendbtn:hover{background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft)); transform:none}
   .sendbtn:active{transform:scale(.97)}
   .donebtn{background:var(--green-bg); color:var(--green)}
   .donebtn:hover{background:#DEEDD9}
   .parkbtn{background:var(--later-bg); color:var(--later)}
   .parkbtn:hover{background:#DFE3EA}
   .addbtn{background:var(--accent-soft); color:var(--accent)}
-  .addbtn:hover{background:#E2DCFC}
-  .endbtn{background:var(--must-bg); color:var(--must)}
-  .endbtn:hover{background:#F2DCD3}
+  .addbtn:hover{background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft))}
   .box.done .donebtn{background:var(--green); color:#fff}
   .box.parked .parkbtn{background:var(--later); color:#fff}
   .ctx{
-    font-style:normal; color:#3A3563;
+    font-style:normal; color:var(--ink);
     background:var(--accent-soft); border:var(--edge) solid var(--line);
     border-radius:4px; padding:7px 11px; margin:9px 14px 0;
   }
@@ -700,8 +686,8 @@
   #todolist{flex:1; overflow-y:auto; padding:var(--sp-s) 0}
   .todorow{display:flex; align-items:center; gap:var(--sp-x);
     padding:var(--sp-xs) var(--sp-x); cursor:pointer}
-  .todorow:hover{background:var(--accent-soft)}
-  .todorow.sel{background:var(--accent-soft)}
+  .todorow:hover{background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft))}
+  .todorow.sel{background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft))}
   .tdot{width:11px; height:11px; border-radius:50%; flex:none; cursor:pointer;
     border:var(--edge) solid var(--line); background:#E9ECEF}
   .todorow.done .tdot{background:#59D624; border-color:#3E9C1B}
@@ -745,7 +731,7 @@
   .dotk.ongoing{background:#FFD43B; border-color:#C9A21E}
   .dotk.pending{background:#E9ECEF; border-color:#B4AA99}
   .dotk.goal{background:#C0392B; border-color:#8E2A1F}
-  .dotk.sel{box-shadow:0 0 0 3px var(--accent-soft)}
+  .dotk.sel{box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 10%, var(--accent-soft))}
   #taskchip{position:fixed; left:var(--rail-x); top:calc(var(--oy) + var(--ch)*var(--chip-y));
     font:12px var(--mono); color:var(--sub)}
   body.focus #taskchip:not(:empty){display:block}
@@ -778,7 +764,7 @@
   }
   .tocadd:hover{color:var(--accent)}
   #toc .toc-bucket{display:flex; align-items:center; gap:6px}
-  .toc-entry.t-sel{background:var(--accent-soft)}
+  .toc-entry.t-sel{background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft))}
   /* the card grid's quiet compass: rows are projects, columns their cards */
   #navpad{display:none}
   body.focus #navpad{
@@ -1035,10 +1021,10 @@
   #docroot{display:none}
   body.docview #stage{display:none !important}
   /* the bar keeps only its tabs in this view: the name label, the bar clock,
-     the sandbox word, pause, end session, the listener tag and the await
+     the sandbox word, the listener tag and the await
      count all stay out. the big day block below is the only clock here */
-  body.docview .live, body.docview .prog, body.docview #pausebtn,
-  body.docview #endbtn, body.docview #editbtn, body.docview #bgpick,
+  body.docview .live, body.docview .prog,
+  body.docview #editbtn, body.docview #bgpick,
   body.docview .name{display:none !important}
   #docclock, #docmock{display:none}
 
@@ -1140,7 +1126,7 @@
   .doctask:empty::before{content:"Task"; color:var(--line-strong)}
   .doctitle{font:700 30px/1.25 var(--inter); font-style:normal;
     letter-spacing:.005em; color:var(--ink); outline:none; cursor:text}
-  .doctitle:empty::before{content:"Chat Name"; color:var(--line-strong)}
+  .doctitle:empty::before{content:"Card Name"; color:var(--bubble-fill, #F3F3F3)}
   .docpath{margin-top:3px; font:11.5px var(--mono); color:#B4AA99;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   /* your own unanswered message keeps the board's right-hand voice */
@@ -1275,8 +1261,6 @@
   <span class="prog" id="prog"></span>
   <button id="editbtn" title="edit layout">✎</button>
   <input type="color" id="bgpick" title="background color (temporary)" value="#F5F4F1">
-  <button class="pausebtn" id="pausebtn">pause listeners</button>
-  <button class="endbtn" id="endbtn">End session</button>
   <span id="setwrap">
     <button id="setbtn" type="button" title="settings" aria-label="settings" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-1 1.47V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.6 1.6 0 0 0 4.6 15a1.6 1.6 0 0 0-1.47-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 8.9a1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.6 1.6 0 0 0 8.88 4.6H9a1.6 1.6 0 0 0 1-1.47V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77V9a1.6 1.6 0 0 0 1.47 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.47 1z"/></svg></button>
   </span>
@@ -1288,7 +1272,7 @@
      is seated under the mark by the script that opens it. -->
 <div id="setpanel" role="group" aria-label="settings">
   <label class="setrow"><input type="checkbox" id="setformat"><span>Format text while typing</span></label>
-  <p class="sethelp">Bold, italic, strikethrough, quotes and bullets are drawn in the composer as you type. The message is still sent as Markdown.</p>
+  <p class="sethelp">Bold, italic, strikethrough, quotes and bullets are drawn in the composer as you type.</p>
 </div>
 
 <div id="offline"></div>
@@ -1349,7 +1333,6 @@
   <div id="pwdline"></div>
   <div id="sections"></div>
   <div id="carousel"></div>
-  <p class="endnote">Session ended. Claude is writing the wrap-up in the terminal — decisions, updated buckets, next steps.</p>
 </main>
 </div>
 
@@ -1401,10 +1384,16 @@
   </div>
 </div>
 
+<script src="/board-settings.js"></script>
 <script src="/card-markdown.js"></script>
 <script src="/card-report.js"></script>
 <script src="/compose-format.js"></script>
 <script>
+// the board's own settings, shared with the board page: box places and sizes,
+// the background colour, the outline's width and the task headings below,
+// kept beside the board by board-settings.js. It reads and writes the way
+// localStorage does; a page served without that file uses this browser's own
+const settingsStore = globalThis.boardSettings || localStorage;
 const SECTIONS = [["toolmeta", "Tool meta"], ["triagemeta", "Triage meta"],
                   ["now", "Now"], ["done", "Done"], ["later", "Later"]];
 // the two meta sections: the tool's own lane on top, the active project lane
@@ -2083,7 +2072,7 @@ function makeBox(b, i, state){
       metaNote.textContent = errors.join("\n");
       ta.dispatchEvent(new Event("input"));
     });
-    ta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); doSend(b.id); } });
+    ta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.altKey){ e.preventDefault(); doSend(b.id); } });
     send.addEventListener("click", () => doSend(b.id));
     done.addEventListener("click", e => { e.stopPropagation(); toggleFlag(b.id, "done"); });
     park.addEventListener("click", e => { e.stopPropagation(); toggleFlag(b.id, "park"); });
@@ -2175,7 +2164,7 @@ function editTitle(id, opts){
   };
   t.onkeydown = e => {
     e.stopPropagation();   // card-switching keys must not fire while naming
-    if (e.key === "Enter"){ e.preventDefault(); commit(); el.ta.focus(); }
+    if (e.key === "Enter" && !e.altKey){ e.preventDefault(); commit(); el.ta.focus(); }
     else if (e.key === "Tab"){ e.preventDefault(); commit(); (e.shiftKey ? el.arc : el.ta).focus(); }
     else if (e.key === "Escape"){
       if (!old && !t.textContent.trim()) commit();
@@ -2461,12 +2450,6 @@ function apply(state){
   live.textContent = writingBoxes.length
       ? ("replying to " + writingBoxes.map(x => x.id).join(" + ") + (state.queued ? " · " + state.queued + " queued" : ""))
       : state.queued ? (state.queued + " queued") : "idle";
-  document.body.classList.toggle("paused", !!state.paused);
-  document.getElementById("pausebtn").textContent = state.paused ? "resume listeners" : "pause listeners";
-  if (state.paused){
-    dot.classList.remove("on");
-    live.textContent = "paused" + (state.queued ? " · " + state.queued + " queued" : "");
-  }
   // board title comes from state (seeded via seed.json), not from the page
   if (state.title && document.title !== state.title){
     document.title = state.title;
@@ -2505,11 +2488,10 @@ function apply(state){
     renderCarousel(state);
     renderTodos(state);
   }
-  document.body.classList.toggle("ended", !!state.end);
 
   // listener presence, per agent: each is either long-polling (listening),
   // composing a claimed reply (busy), or recently between the two. Otherwise: offline.
-  const offOwners = state.paused ? [] : Object.keys(state.listening || NAME).filter(ow =>
+  const offOwners = Object.keys(state.listening || NAME).filter(ow =>
     (state.everListened || {})[ow] &&
     !state.listening[ow] && !state.busy[ow] && state.listenerGap[ow] > 300);
   document.body.classList.toggle("offline", offOwners.length > 0);
@@ -2734,7 +2716,8 @@ function queueState(b){ return b.parked ? cardState({ ...b, parked: false, state
 // notes attach by, so a change to it has to be carried into the quick note
 // system as well: card-logic.js ticketNum, quickNoteRef and QUICK_NOTE_REF (the
 // "card N" / "cN" parser) and quickNoteCard; server.py _post_quicknote_new and
-// _post_quicknote_attach; index.html syncQuickNoteChip (the note chip)
+// _post_quicknote_attach; parked/quick-note.js syncQuickNoteChip (the note
+// chip). the quick note is hidden in this version and kept so it can come back
 function ticketNum(id){
   const s = String(id == null ? "" : id);
   const m = /^m(\d+)$/.exec(s);
@@ -3066,6 +3049,9 @@ async function poll(){
   noteDoing("render");
   try {
     if (!validateActiveOwner(state)) return;
+    // the settings have a revision of their own; another window's changes
+    // are read when it moves
+    if (settingsStore.notice) settingsStore.notice(state.settingsRev);
     const caretBefore = focusedCaretContext();
     if (!lastState) build(state);
     apply(state);
@@ -3096,13 +3082,6 @@ addEventListener("keydown", e => {
     // replies and back toward live, in and out of the text box
     e.preventDefault();
     histStep(e.key === "ArrowUp" ? 1 : -1);
-    return;
-  }
-  if (e.metaKey && e.shiftKey && ["[", "]", "{", "}"].includes(e.key)){
-    // command+shift+brackets: previous/next card, works while typing,
-    // cursor lands in the next card's text box
-    e.preventDefault();
-    nav(e.key === "[" || e.key === "{" ? -1 : 1, 0, { focus: true });
     return;
   }
   // command+z and control+z are left to the text box: undo is the editor's, and
@@ -3147,20 +3126,9 @@ addEventListener("keydown", e => {
       const w = Math.max(2 * GRID, Math.round((r.width + dw) / GRID) * GRID);
       const h = Math.max(2 * GRID, Math.round((r.height + dh) / GRID) * GRID);
       el.style.width = w + "px"; el.style.height = h + "px";
-      localStorage.setItem("size." + activeOwner + "." + regionId(el), JSON.stringify({ w, h }));
+      settingsStore.setItem("size." + activeOwner + "." + regionId(el), JSON.stringify({ w, h }));
       return;
     }
-  }
-  // the document view has no card-closing key: a stray backspace over a page
-  // of prose must never close a real chat
-  if ((e.key === "Backspace" || e.key === "Delete") && selectedId && !DOC){
-    const b = lastState?.boxes.find(x => x.id === selectedId);
-    if (b?.bucket === "meta"){   // same cards the remove cross appears on
-      e.preventDefault();
-      fetch("/close?box=" + encodeURIComponent(selectedId), { method: "POST" })
-        .then(() => poll()).catch(() => {});
-    }
-    return;
   }
   const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[e.key];   // up/down freed; cmd+number switches projects
   if (d && !DOC){ e.preventDefault(); nav(d[0], d[1]); }   // left and right do nothing in the document view
@@ -3185,32 +3153,18 @@ document.getElementById("ndown").addEventListener("click", () => nav(0, 1));
 
 {
   const pick = document.getElementById("bgpick");
-  const saved = localStorage.getItem("bgcolor");
+  const saved = settingsStore.getItem("bgcolor");
   if (saved){ document.body.style.setProperty("--paper", saved); pick.value = saved; }
   pick.addEventListener("input", () => {
     document.body.style.setProperty("--paper", pick.value);
-    localStorage.setItem("bgcolor", pick.value);
+    settingsStore.setItem("bgcolor", pick.value);
   });
 }
-document.getElementById("pausebtn").addEventListener("click", async () => {
-  await fetch("/pause?v=" + (lastState?.paused ? 0 : 1), { method: "POST" }).catch(() => {});
-  poll();
-});
-
-let endArmed = false;
-document.getElementById("endbtn").addEventListener("click", async e => {
-  const btn = e.currentTarget;
-  if (!endArmed){ endArmed = true; btn.textContent = "Sure? End it"; btn.classList.add("arm");
-    setTimeout(() => { endArmed = false; btn.textContent = "End session"; btn.classList.remove("arm"); }, 3500);
-    return; }
-  await fetch("/end", { method: "POST" }).catch(() => {});
-  btn.textContent = "Ended"; btn.disabled = true;
-});
 
 // resizable outline: drag the grip, clamped, remembered
 {
   const clamp = w => Math.max(170, Math.min(420, w));
-  const saved = parseInt(localStorage.getItem("tocw") || "", 10);
+  const saved = parseInt(settingsStore.getItem("tocw") || "", 10);
   if (saved) document.documentElement.style.setProperty("--tocw", clamp(saved) + "px");
   const grip = document.getElementById("tocgrip");
   grip.addEventListener("mousedown", e => {
@@ -3222,7 +3176,7 @@ document.getElementById("endbtn").addEventListener("click", async e => {
     };
     const up = () => {
       grip.classList.remove("drag"); document.body.classList.remove("resizing");
-      localStorage.setItem("tocw", parseInt(getComputedStyle(document.documentElement).getPropertyValue("--tocw"), 10));
+      settingsStore.setItem("tocw", parseInt(getComputedStyle(document.documentElement).getPropertyValue("--tocw"), 10));
       removeEventListener("mousemove", move); removeEventListener("mouseup", up);
     };
     addEventListener("mousemove", move); addEventListener("mouseup", up);
@@ -3273,7 +3227,7 @@ async function doQSend(){
   } finally { qsend.disabled = false; }
 }
 qsend.addEventListener("click", doQSend);
-qta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); doQSend(); } });
+qta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.altKey){ e.preventDefault(); doQSend(); } });
 
 if (!MOCK){ setInterval(pollQ, 2500); pollQ(); }   // the sandbox asks the server for nothing
 
@@ -3339,7 +3293,7 @@ function regionId(el){ return el.tagName === "MAIN" ? "main" : el.id; }
 function applySavedLayout(){
   if (!ownerReady) return;
   for (const el of document.querySelectorAll(REGION_SEL)){
-    const saved = dragEnabled ? localStorage.getItem("pos." + activeOwner + "." + regionId(el)) : null;
+    const saved = dragEnabled ? settingsStore.getItem("pos." + activeOwner + "." + regionId(el)) : null;
     if (saved){
       try {
         const p = JSON.parse(saved);
@@ -3352,7 +3306,7 @@ function applySavedLayout(){
       el.style.left = "";
       el.style.top = "";
     }
-    const sz = dragEnabled ? localStorage.getItem("size." + activeOwner + "." + regionId(el)) : null;
+    const sz = dragEnabled ? settingsStore.getItem("size." + activeOwner + "." + regionId(el)) : null;
     if (sz){
       try {
         const p = JSON.parse(sz);
@@ -3390,7 +3344,7 @@ addEventListener("pointermove", e => {
 });
 addEventListener("pointerup", () => {
   if (!dragging) return;
-  localStorage.setItem("pos." + activeOwner + "." + regionId(dragging.el),
+  settingsStore.setItem("pos." + activeOwner + "." + regionId(dragging.el),
     JSON.stringify({ x: dragging.x, y: dragging.y }));
   document.body.classList.remove("dragging");
   dragging = null;
@@ -3547,11 +3501,11 @@ addEventListener("pointerup", () => {
   sizing = null;
   if (!s.moved) return;
   squelchClick = true;
-  localStorage.setItem("size." + activeOwner + "." + regionId(s.el),
+  settingsStore.setItem("size." + activeOwner + "." + regionId(s.el),
     JSON.stringify({ w: s.outw, h: s.outh }));
   if (s.x != null || s.y != null){
     // a moved origin must be saved too or the resize half-reverts on reload
-    localStorage.setItem("pos." + activeOwner + "." + regionId(s.el),
+    settingsStore.setItem("pos." + activeOwner + "." + regionId(s.el),
       JSON.stringify({ x: s.x != null ? s.x : onStar(s.left), y: s.y != null ? s.y : onStar(s.top) }));
   }
 });
@@ -4007,15 +3961,16 @@ document.getElementById("taskstatus").addEventListener("click", () => {
 // outline on the left, the chats as sections in the middle, typing as the
 // only control. nothing below runs unless DOC is on.
 
-// tasks have no server endpoint this round, so the page keeps them itself.
-// every task read and write goes through this one object; when the server
-// grows a home for them, only load and save change.
+// tasks have no route of their own: they are kept with the board's settings
+// (board-settings.js), so they are the board's and not one browser's, and
+// survive the board moving to another port. every task read and write goes
+// through this one object; a route of their own would change only load and save.
 const docTasks = {
   key(lane){ return "doc.tasks." + lane; },
   load(lane){
     if (MOCK) return docMockTasks;   // the sandbox holds its tasks in memory, never in the real key
     try {
-      const raw = JSON.parse(localStorage.getItem(this.key(lane)) || "[]");
+      const raw = JSON.parse(settingsStore.getItem(this.key(lane)) || "[]");
       if (!Array.isArray(raw)) return [];
       return raw
         .filter(t => t && typeof t.title === "string")
@@ -4025,7 +3980,7 @@ const docTasks = {
   },
   save(lane, list){
     if (MOCK){ docMockTasks = list; return; }   // memory only; a reload resets the sandbox
-    try { localStorage.setItem(this.key(lane), JSON.stringify(list)); } catch (e) {}
+    try { settingsStore.setItem(this.key(lane), JSON.stringify(list)); } catch (e) {}
   },
 };
 
@@ -4132,7 +4087,7 @@ function docEditTitle(id){
   };
   t.onkeydown = e => {
     e.stopPropagation();
-    if (e.key === "Enter"){ e.preventDefault(); commit(); }
+    if (e.key === "Enter" && !e.altKey){ e.preventDefault(); commit(); }
     else if (e.key === "Escape"){ end(); t.textContent = old; if (mirror) mirror.textContent = old; t.blur(); }
   };
   t.onblur = () => { if (t.isContentEditable) commit(); };
@@ -4165,7 +4120,7 @@ function docEditHead(el){
   };
   el.onkeydown = e => {
     e.stopPropagation();
-    if (e.key === "Enter"){ e.preventDefault(); commit(); }
+    if (e.key === "Enter" && !e.altKey){ e.preventDefault(); commit(); }
     else if (e.key === "Escape"){ end(); el.textContent = old; if (mirror) mirror.textContent = old; el.blur(); }
   };
   el.onblur = () => { if (el.isContentEditable) commit(); };
@@ -4197,7 +4152,7 @@ function docSection(b){
   const sep = h("div", "docsep");
   const line = h("div", "docreply");
   line.setAttribute("contenteditable", "plaintext-only");
-  // the line's typed formatting, on unless the setting says otherwise. it is
+  // the line's typed formatting, on when the setting says so. it is
   // wired before anything is hung on the line, because the line keeps one
   // public face whichever of the two it is wearing and the handle is what
   // carries a listener across a change of face
@@ -4207,7 +4162,7 @@ function docSection(b){
   });
   line.addEventListener("focus", () => docSelect(b.id, { quiet: true }));
   line.addEventListener("keydown", e => {
-    if (e.key === "Enter" && !e.shiftKey){
+    if (e.key === "Enter" && !e.shiftKey && !e.altKey){
       e.preventDefault();
       const text = (line.textContent || "").trim();
       if (!text) return;
@@ -4410,7 +4365,7 @@ async function docCompose(text){
 const DOCMOCKPWD = "/Users/you/projects/example";   // a made-up folder, never a real one
 const DOCMOCKANSWER = "A reply would land here; this sandbox answers every message with this line.";
 let docMockState = null;   // built at boot, thrown away on reload
-let docMockTasks = [];     // the task headings, held here instead of localStorage
+let docMockTasks = [];     // the task headings, held here instead of the board's settings
 let docMockSeq = 0;
 
 function docMockChat(id, title, mins, st, reply){
@@ -4518,7 +4473,7 @@ if (DOC){
     newline: e => e.shiftKey, placeholder: restingBlock,
   });
   nl.addEventListener("keydown", e => {
-    if (e.key === "Enter" && !e.shiftKey){
+    if (e.key === "Enter" && !e.shiftKey && !e.altKey){
       e.preventDefault();
       const text = (nl.textContent || "").trim();
       if (!text) return;

@@ -26,6 +26,10 @@ const PHONE = { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, h
 const KEYBOARD = 336;          // an iPhone keyboard with its accessory bar, in css px
 const ACCESSORY = 54;          // a small reported obstruction, such as a hardware-keyboard accessory strip
 const INSET = 6;               // --app-inset, the card's thin margin from an edge
+// the row of buttons' band, 10 + 48 + 10: the card's foot stands on it at rest,
+// so a keyboard lifts the foot by its height less the band, plus the thin gap
+const BAND = 68;
+const LIFT = KEYBOARD + INSET - BAND;
 const SEL = "article.box.sel textarea";
 
 let browser, child, fixtureDir, origin;
@@ -142,6 +146,8 @@ before(async () => {
   for (const name of await readdir(path.join(ROOT, "assets"))) {
     await copyFile(path.join(ROOT, "assets", name), path.join(fixtureDir, "assets", name));
   }
+  // the board's own default is off; the blink checks read the editor, so it is on
+  await writeFile(path.join(fixtureDir, "run.config.json"), JSON.stringify({ compose_format_default: true }));
   await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
     title: "phone shell test",
     items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator", context: "Meta." }],
@@ -294,10 +300,9 @@ test("the keyboard raises the card's bottom edge and the typing row, and nothing
     const view = box.querySelector(".replyview");
     const round = value => Math.round(value * 10) / 10;
     const edge = (el, side) => round(el.getBoundingClientRect()[side]);
-    const bar = document.querySelector(".bar"), pane = document.getElementById("pane");
+    const pane = document.getElementById("pane");
     const topbar = box.querySelector(".topbar");
     return {
-      barTop: edge(bar, "top"), barBottom: edge(bar, "bottom"),
       cardTop: edge(pane, "top"), cardBottom: edge(pane, "bottom"),
       titleBarTop: edge(topbar, "top"), titleBarBottom: edge(topbar, "bottom"),
       rowBottom: edge(box.querySelector(".compose"), "bottom"),
@@ -315,14 +320,14 @@ test("the keyboard raises the card's bottom edge and the typing row, and nothing
     await settle(450);
     const up = await marks();
     const rose = Math.round(rest.rowBottom - up.rowBottom);
-    assert.ok(Math.abs(rose - KEYBOARD) <= 2, `the typing row rose ${rose}, not the keyboard's ${KEYBOARD}`);
+    assert.ok(Math.abs(rose - LIFT) <= 2, `the typing row rose ${rose}, not the keyboard's ${KEYBOARD} less the band`);
     // the card's own bottom edge comes up with the row it carries, so the row
     // sits on the keyboard with the card's edge just under it
     assert.equal(Math.round(rest.cardBottom - up.cardBottom), rose,
       "the card's bottom edge did not rise with the typing row");
-    // and nothing above that edge moves: the strip keeps its place, the card
-    // keeps its gap under the strip, and the title bar never leaves
-    for (const key of ["barTop", "barBottom", "cardTop", "titleBarTop", "titleBarBottom"]) {
+    // and nothing above that edge moves: the card keeps its top edge under the
+    // status bar, and the title bar never leaves
+    for (const key of ["cardTop", "titleBarTop", "titleBarBottom"]) {
       assert.equal(up[key], rest[key], `${key} moved with the keyboard: ${rest[key]} to ${up[key]}`);
     }
     assert.ok(up.titleBarBottom <= up.visible,
@@ -427,10 +432,10 @@ test("the close starts at focus loss and leaves no residue", async () => {
     assert.equal(down.lifting, false, "the settle window did not close");
     assert.equal(down.kbInset, "0px", "the keyboard inset was left on after the close");
     assert.equal(down.paneRoom, "0px", "the card kept the keyboard's room after the close");
-    assert.equal(down.answer, up.answer + KEYBOARD, "the answer did not get its height back after the close");
+    assert.equal(down.answer, up.answer + LIFT, "the answer did not get its height back after the close");
     assert.equal(down.winX, 0, "a window scroll was left after the close");
     assert.equal(down.winY, 0, "a window scroll was left after the close");
-    assert.equal(down.foot, PHONE.height - INSET, "the card foot moved across the close");
+    assert.equal(down.foot, PHONE.height - BAND, "the card foot moved across the close");
     assert.ok(down.rowBottom > PHONE.height - KEYBOARD, "the composer did not come back down");
     assert.deepEqual(problems, []);
   } finally {
@@ -466,7 +471,7 @@ test("repeated keyboard cycles keep the answer's place and accumulate nothing", 
     assert.equal(after.paneRoom, "0px", "the keyboard's room accumulated across cycles");
     assert.equal(after.winX, 0);
     assert.equal(after.winY, 0);
-    assert.equal(after.foot, PHONE.height - INSET, "the card foot drifted across cycles");
+    assert.equal(after.foot, PHONE.height - BAND, "the card foot drifted across cycles");
     assert.ok(Math.abs(after.replyScroll - place) <= 1, `the answer's place drifted to ${after.replyScroll} from ${place}`);
     assert.deepEqual(problems, []);
   } finally {
@@ -474,7 +479,7 @@ test("repeated keyboard cycles keep the answer's place and accumulate nothing", 
   }
 });
 
-test("the accessory strip going while the field stays focused returns the composer cleanly", async () => {
+test("the accessory strip going while the field stays focused leaves the composer cleanly where it stood", async () => {
   const id = await create("Shell accessory close on the phone");
   await api(`/reply?box=${id}`, "A reply to answer.");
   const { page, problems } = await openPhone(`/m?box=${id}`, { fake: true });
@@ -486,7 +491,10 @@ test("the accessory strip going while the field stays focused returns the compos
     const up = await page.evaluate(shellShape);
     assert.equal(up.obstructed, true);
     assert.equal(up.kb, false, "the accessory strip was read as a full keyboard");
-    assert.ok(up.rowBottom <= PHONE.height - ACCESSORY, "the composer did not rise over the accessory strip");
+    // the strip is inside the row of buttons' band: the composer already stands
+    // over it and does not move for it
+    assert.ok(up.rowBottom <= PHONE.height - BAND, "the composer is not over the band the strip takes");
+    assert.equal(up.foot, PHONE.height - BAND, "the card foot moved for a strip inside the band");
     assert.equal(await page.evaluate(() => editing()), true, "the field was not focused for the accessory test");
     // the strip goes but the field keeps its focus, the way a hardware keyboard leaves it
     await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height);
@@ -495,8 +503,8 @@ test("the accessory strip going while the field stays focused returns the compos
     assert.equal(down.obstructed, false, "the card stayed obstructed after the strip went");
     assert.equal(down.kbInset, "0px", "the inset was left on after the strip went");
     assert.equal(down.paneRoom, "0px", "the card kept the strip's room after the strip went");
-    assert.equal(down.foot, PHONE.height - INSET, "the card foot moved after the strip went");
-    assert.ok(down.rowBottom > PHONE.height - ACCESSORY, "the composer did not return after the strip went");
+    assert.equal(down.foot, PHONE.height - BAND, "the card foot moved after the strip went");
+    assert.equal(down.rowBottom, up.rowBottom, "the composer moved when the strip went");
     assert.equal(await page.evaluate(() => editing()), true, "the field lost focus when only the strip went");
     assert.deepEqual(problems, []);
   } finally {
@@ -521,8 +529,8 @@ test("a card switch while the keyboard is up hands the new card the shorter answ
     await page.evaluate(h => window.__keyboard.set(h, 0), PHONE.height - KEYBOARD);
     await settle(450);
     const upA = await answer();
-    assert.ok(Math.abs((rest.height - upA.height) - KEYBOARD) <= 2,
-      `card A's answer lost ${rest.height - upA.height}, not the keyboard's ${KEYBOARD}`);
+    assert.ok(Math.abs((rest.height - upA.height) - LIFT) <= 2,
+      `card A's answer lost ${rest.height - upA.height}, not the keyboard's ${KEYBOARD} less the band`);
     // move to card B while the keyboard is still up, the way a hardware-keyboard
     // hotkey move does, carrying the caret into the next card's row so the
     // keyboard never goes; then close and come back to A

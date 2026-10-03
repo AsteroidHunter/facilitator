@@ -83,7 +83,7 @@ function boardState({ cards = 705, seed = 912, dir } = {}){
   const projects = LANES.slice(1).map(([id]) => ({ id, name: id, dir: path.join(dir || "/tmp", id) }));
   return {
     title: "facilitator", boxes, inbox: [], busy: {}, claimed: {}, busy_ts: {}, ack: {},
-    end: false, paused: false, next_mid: 1, next_bid: cards + 1, rev: 5000, ops: {},
+    next_mid: 1, next_bid: cards + 1, rev: 5000, ops: {},
     reply_variants_version: 1, history_counts_version: 1, projects,
     tabs: { order: LANES.map(([id]) => id), closed: [] },
   };

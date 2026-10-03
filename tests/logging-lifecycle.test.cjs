@@ -111,7 +111,8 @@ test("a start writes one start line with the port it bound and the level in forc
     assert.equal(starts[0].level, "info");
     assert.equal(starts[0].log_level, "info", "the start line does not say which level is in force");
     assert.equal(starts[0].port, port);
-    assert.equal(starts[0].boxes, 4, "the start line does not count the board's cards");
+    // the two cards the seed names and no built-in one
+    assert.equal(starts[0].boxes, 2, "the start line does not count the board's cards");
     assert.equal(starts[0].push_ok, undefined, "a board with no push ever sent claims one");
     assert.equal(starts[0].box, undefined);
     // and the file it wrote to is the day's own, and is the only place it

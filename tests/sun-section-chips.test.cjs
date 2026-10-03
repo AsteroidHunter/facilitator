@@ -94,7 +94,7 @@ async function context() {
       return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) });
     },
     els: {}, lastState: null, selectedId: null, activeOwner: "facilitator", lastSel: {},
-    poll() {}, select() {}, deselect() {}, growPend() {}, apply() {}, editTitle() {},
+    poll() {}, select() {}, deselect() {}, growPend() {}, apply() {}, editTitle() {}, pasteIntoTitle() {},
   };
   const ctx = vm.createContext(sandbox);
   vm.runInContext(await readFile(path.join(ROOT, "card-logic.js"), "utf8"), ctx, { filename: "card-logic.js" });
@@ -180,7 +180,7 @@ async function desktopMini() {
 async function phone() {
   const html = await readFile(path.join(ROOT, "m.html"), "utf8");
   const icon = between(html, "const MOON_ICON = ", "</svg>';");
-  const close = between(html, "async function closeCard(id, hop = true){", "  poll();\n}");
+  const close = between(html, "async function closeCard(id){", "  poll();\n}");
   const build = between(html, '  const arc = h("button", "arcbtn");', "  topbar.append(histctl, sun, arc, x);");
   const paint = between(html, '    const cs = cardState(b);\n    el.box.classList.toggle("done", cs === "done");',
     "    paintSectionChips(el, b);");
@@ -227,7 +227,17 @@ for (const [name, make] of [["desktop large card", desktopLarge], ["desktop smal
     assert.equal(el.sun.getAttribute("aria-label"), "move to doing");
     // the same inline svg approach at the same glyph size as the moon beside it
     const size = svg => /viewBox="0 0 24 24" width="9" height="9"/.test(svg);
-    assert.ok(size(el.arc.innerHTML), "the moon glyph changed size");
+    if (name !== "desktop small card") {
+      // the big card on either page sizes both glyphs in css, by the top row's one mark size, so
+      // its moon carries no size of its own and the sun's shared one is overruled
+      assert.doesNotMatch(/<svg [^>]*>/.exec(el.arc.innerHTML)?.[0] || "", /\s(width|height)=/, "the moon glyph carries a size of its own");
+      const rule = name === "phone card"
+        ? /\n  :is\(\.arcbtn, \.sunbtn\) svg\{width:var\(--bar-mark\); height:var\(--bar-mark\)\}/
+        : /body\.focus \.box\.sel :is\(\.arcbtn, \.sunbtn\) svg\{width:var\(--bar-mark\); height:var\(--bar-mark\)\}/;
+      assert.match(surface.html, rule);
+    } else {
+      assert.ok(size(el.arc.innerHTML), "the moon glyph changed size");
+    }
     assert.ok(size(el.sun.innerHTML), "the sun glyph is not the moon's size");
     // the middle is a hollow ring: nothing fills it, and it is drawn by a stroke
     // of the same weight and round ends as the rays
@@ -369,7 +379,7 @@ function pressSection(surface, id, el, section, prevent) {
   }[surface.name];
   // the large card's done is its keyboard close, declared just above the move
   if (surface.name === "desktop large card")
-    vm.runInContext(between(surface.html, "async function boardCloseCard(id, hop){", "\n}"), ctx);
+    vm.runInContext(between(surface.html, "async function boardCloseCard(id){", "\n}"), ctx);
   vm.runInContext(between(surface.html, move, "\n}"), ctx);
   ctx.miniFocused = false;
   ctx.selectedId = id;
@@ -389,25 +399,30 @@ const HOP_KEYS = {
   doing: {
     "control+shift+[": { key: "{", code: "BracketLeft", ctrlKey: true, shiftKey: true },
     "[": { key: "[", code: "BracketLeft" },
-    "control+n": { key: "n", code: "KeyN", ctrlKey: true },
   },
   deferred: {
     "control+shift+]": { key: "}", code: "BracketRight", ctrlKey: true, shiftKey: true },
     "]": { key: "]", code: "BracketRight" },
-    "control+l": { key: "l", code: "KeyL", ctrlKey: true },
   },
   done: {
     "control+shift+\\": { key: "|", code: "Backslash", ctrlKey: true, shiftKey: true },
     "\\": { key: "\\", code: "Backslash" },
-    backspace: { key: "Backspace", code: "Backspace" },
-    delete: { key: "Delete", code: "Delete" },
   },
+};
+// keys that move, close and step nothing: the browser and the system keep them
+const REMOVED_KEYS = {
+  "control+n": { key: "n", code: "KeyN", ctrlKey: true },
+  "control+l": { key: "l", code: "KeyL", ctrlKey: true },
+  backspace: { key: "Backspace", code: "Backspace" },
+  delete: { key: "Delete", code: "Delete" },
+  "command+shift+[": { key: "{", code: "BracketLeft", metaKey: true, shiftKey: true },
+  "command+shift+]": { key: "}", code: "BracketRight", metaKey: true, shiftKey: true },
 };
 const HOP_CHIP = { doing: "sun", deferred: "arc", done: "x" };
 // the page's own key handling: its action table and what it calls, from the
 // first line to the table's end, and the scope its listener dispatches in
 const TABLES = {
-  "desktop large card": { from: "async function boardCloseCard(id, hop){", to: "const boardShortcutActions = {",
+  "desktop large card": { from: "async function boardCloseCard(id){", to: "const boardShortcutActions = {",
                           table: "boardShortcutActions", scope: "card" },
   "desktop small card": { from: "const miniShortcutActions = {", to: "function miniSectionMove(e, section){",
                           table: "miniShortcutActions", scope: "mini" },
@@ -459,7 +474,7 @@ async function byKey(make, kind, keyEvent, selected) {
               preventDefault() { e.defaultPrevented = true; }, stopPropagation() {} };
   w.ctx.dispatchCardShortcut(e, actions, TABLES[w.surface.name].scope);
   await flush();
-  return { requests: w.surface.env.requests.map(asked), landed: w.landed };
+  return { requests: w.surface.env.requests.map(asked), landed: w.landed, prevented: e.defaultPrevented };
 }
 
 for (const [name, make] of [["desktop large card", desktopLarge], ["phone card", phone]]) {
@@ -477,13 +492,19 @@ for (const [name, make] of [["desktop large card", desktopLarge], ["phone card",
           const key = await byKey(make, kind, keyEvent);
           const what = `${keyName} on a ${kind} card`;
           assert.deepEqual(key.landed, chip.landed, `${what} did not land where the ${HOP_CHIP[section]} lands`);
-          if (keyName === "backspace" || keyName === "delete") {
-            // backspace still sends its close to a done card, as it always did
-            assert.deepEqual(key.requests, [{ path: "/close", box: CARDS[kind].id, v: null, method: "POST" }], what);
-          } else if (keyName !== "control+n") {
-            assert.deepEqual(key.requests, chip.requests, `${what} asked something other than its chip`);
-          }
+          assert.deepEqual(key.requests, chip.requests, `${what} asked something other than its chip`);
         }
+      }
+    }
+  });
+
+  test(`${name}: control+n, control+l, backspace, delete and command+shift+[ and ] move, close and hop nothing`, async () => {
+    for (const kind of Object.keys(CARDS)) {
+      for (const [keyName, keyEvent] of Object.entries(REMOVED_KEYS)) {
+        const key = await byKey(make, kind, keyEvent);
+        assert.deepEqual(key.requests, [], `${keyName} on a ${kind} card asked the board`);
+        assert.deepEqual(key.landed, [], `${keyName} on a ${kind} card moved the selection`);
+        assert.equal(key.prevented, false, `${keyName} on a ${kind} card was cancelled`);
       }
     }
   });
@@ -531,13 +552,15 @@ test("desktop small card: its section keys land exactly where its chips land, wh
     for (const section of ["doing", "deferred", "done"]) {
       const chip = await byChip(desktopMini, kind, section, "m9");
       for (const [keyName, keyEvent] of Object.entries(HOP_KEYS[section])) {
-        // control+n, control+l and backspace are not the small card's keys
-        if (!/^(control\+shift\+.|.)$/.test(keyName)) continue;
         const key = await byKey(desktopMini, kind, keyEvent, "m9");
         assert.deepEqual(key.landed, chip.landed, `${keyName} on a small ${kind} card`);
         assert.deepEqual(key.landed, [], `${keyName} on a small ${kind} card hopped`);
         assert.deepEqual(key.requests, chip.requests, `${keyName} on a small ${kind} card`);
       }
+    }
+    for (const [keyName, keyEvent] of Object.entries(REMOVED_KEYS)) {
+      const key = await byKey(desktopMini, kind, keyEvent, "m9");
+      assert.deepEqual([key.requests, key.landed, key.prevented], [[], [], false], `${keyName} on a small ${kind} card`);
     }
   }
 });
@@ -545,11 +568,17 @@ test("desktop small card: its section keys land exactly where its chips land, wh
 // ---- where each surface draws its chips ---------------------------------------------------
 test("the desktop bar lays the chips out sun, moon, cross", async () => {
   const html = await readFile(path.join(ROOT, "index.html"), "utf8");
-  // the cross is ordered to the bar's end; the moon and the sun keep document order
-  assert.match(html, /body\.focus \.box\.sel \.xbtn\{\s*position:relative; flex:none; order:5;/);
+  // each chip has its own column of the bar's grid, sun then moon then cross, and every
+  // square is the one named size
+  assert.match(html, /grid-template-areas:"hist sun moon cross"/);
+  assert.match(html, /body\.focus \.box\.sel \.sunbtn\{grid-area:sun\}/);
+  assert.match(html, /body\.focus \.box\.sel \.arcbtn\{grid-area:moon\}/);
+  assert.match(html, /body\.focus \.box\.sel \.xbtn\{\s*grid-area:cross; position:relative;/);
+  assert.match(html, /body\.focus \.box\.sel \.xbtn\{[^}]*width:var\(--bar-sq\); height:var\(--bar-sq\)/);
+  assert.equal(html.match(/--bar-sq:/g).length, 1, "the top row's square is named in more than one place");
   const chipRule = between(html, "  body.focus .box.sel .arcbtn, body.focus .box.sel .sunbtn{", "}");
   assert.doesNotMatch(chipRule, /[\s;{]order:/);
-  assert.match(chipRule, /width:16px; height:16px; border-radius:var\(--sq\)/);
+  assert.match(chipRule, /width:var\(--bar-sq\); height:var\(--bar-sq\); border-radius:var\(--sq\)/);
   // the focus ring runs cross, moon, sun, and a shift tab out of the title lands on the sun
   assert.match(html, /const ring = \[titleEl, ta, clip, send, x, arc, sun\];/);
   const logic = await readFile(path.join(ROOT, "card-logic.js"), "utf8");
@@ -577,7 +606,10 @@ test("the small card seats the round yellow sun one seat left of the moon", asyn
 test("the phone bar and its entry carry the sun", async () => {
   const html = await readFile(path.join(ROOT, "m.html"), "utf8");
   const chipRule = between(html, "  .sunbtn, .arcbtn, .xbtn{", "}");
-  assert.match(chipRule, /width:28px; height:28px/);
+  assert.match(chipRule, /width:var\(--bar-sq\); height:var\(--bar-sq\)/);
+  assert.equal(html.match(/--bar-sq:/g).length, 1, "the top row's square is named in more than one place");
+  assert.match(html, /grid-template-areas:"hist sun moon cross"/);
+  assert.match(html, /\.sunbtn\{grid-area:sun\}\s*\.arcbtn\{grid-area:moon\}\s*\.xbtn\{grid-area:cross\}/);
   assert.doesNotMatch(chipRule, /[\s;{]order:/);
   assert.match(html, /els\[b\.id\] = \{ box, body, reply, replyview, meta, ta, twin, send, tick, titleEl, sun, arc, x,/);
 });

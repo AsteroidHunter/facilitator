@@ -254,7 +254,7 @@ class ParkRules(unittest.TestCase):
 
     def test_the_record_stays_off_the_board_and_out_of_the_card(self):
         self.park(v=1, sid="pageone", seq=1)
-        self.assertEqual(set(self.box), self.keys, "no page's name is written onto a card")
+        self.assertEqual(set(self.box), self.keys | {"parked_ts"}, "no page's name is written onto a card")
         self.assertNotIn("park_order", self.server._state, "and none of it is saved with the board")
         self.assertEqual(self.server._PARK_ORDER[(CARD, "pageone")]["seq"], 1)
 

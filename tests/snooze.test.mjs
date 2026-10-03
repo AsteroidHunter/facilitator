@@ -75,7 +75,8 @@ test("a second tap during that delay unsnoozes at once and the board ends unsnoo
   page.tap("1");
   assert.equal(clock.ms, at);
   assert.equal(page.parked("1"), false, "the reversal is on screen in the same turn");
-  assert.deepEqual(page.list, ["1", "2"], "and the card is back in the doing list");
+  // the doing list runs oldest waiting turn first, and card 2 has waited longer
+  assert.deepEqual(page.list, ["2", "1"], "and the card is back in the doing list");
 
   await clock.advance(2000);   // the first request lands: the board parks the card
   assert.equal(board.box("1").parked, true);
@@ -164,7 +165,7 @@ test("a refused request goes back to the board's word, says so, and the same chi
 
   assert.equal(page.parked("1"), false, "a definite refusal is not a snooze");
   assert.equal(page.waiting("1"), false);
-  assert.deepEqual(page.list, ["1", "2"]);
+  assert.deepEqual(page.list, ["2", "1"]);
   assert.match(page.note("1"), /snooze failed \(503\)/);
   assert.match(page.note("1"), /try again/);
   assert.equal(page.card("1").meta.dataset.flagnote, "1",
@@ -223,7 +224,7 @@ test("an unconfirmed tap is held while readings are asked, then ends at its wind
   assert.equal(page.parked("1"), false, "the card goes back to the board's word rather than lying on");
   assert.match(page.note("1"), /snooze not confirmed/);
   assert.match(page.note("1"), /try again/);
-  assert.deepEqual(page.list, ["1", "2"]);
+  assert.deepEqual(page.list, ["2", "1"]);
 });
 
 test("a tap made while a request is out is what goes next, once that one is over", async () => {
@@ -367,7 +368,7 @@ test("an empty answer on an unchanged board ends as not confirmed, never as a sn
   await clock.advance(10500);   // past the window, counted from the tap
   assert.equal(page.parked("1"), false, "the board never had it, and the card ends up saying so");
   assert.match(page.note("1"), /snooze not confirmed/);
-  assert.deepEqual(page.list, ["1", "2"]);
+  assert.deepEqual(page.list, ["2", "1"]);
 });
 
 test("an explicit no with no reason is a refusal, and the chip asks again at once", async () => {
@@ -464,7 +465,7 @@ test("snoozing the selected Doing card advances while Deferred browsing stays pu
   const { clock, board, page } = await openPage();
   board.delays["/park"] = 2500;
   page.select("1");
-  assert.deepEqual(page.list, ["1", "2"]);
+  assert.deepEqual(page.list, ["2", "1"]);
 
   page.tap("1");
   assert.deepEqual(page.list, ["2"], "the doing tab loses it at once");
@@ -479,11 +480,11 @@ test("snoozing the selected Doing card advances while Deferred browsing stays pu
   assert.deepEqual(page.list, [], "and loses it again on the reversing tap");
   assert.equal(page.selected(), "1", "deliberate Deferred browsing keeps its selection");
   page.setView("todo");
-  assert.deepEqual(page.list, ["1", "2"]);
+  assert.deepEqual(page.list, ["2", "1"]);
 
   await clock.advance(6000);
   assert.equal(board.box("1").parked, false);
-  assert.deepEqual(page.list, ["1", "2"], "and the board's answers change nothing that was already right");
+  assert.deepEqual(page.list, ["2", "1"], "and the board's answers change nothing that was already right");
   assert.equal(page.selected(), "1");
 });
 

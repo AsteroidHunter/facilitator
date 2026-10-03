@@ -67,6 +67,14 @@ test("dash, plus, star and ordered lists support nesting and continuation", () =
     '<ol start="3"><li>three</li><li>four</li></ol>');
 });
 
+test("a numbered list names its widest number's digit count only past one digit", () => {
+  const items = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => `${from + i}. item`).join("\n");
+  assert.match(markdown.render(items(1, 9)), /^<ol><li>/);
+  assert.match(markdown.render(items(1, 16)), /^<ol class="md-ol2"><li>/);
+  assert.match(markdown.render(items(98, 102)), /^<ol start="98" class="md-ol3"><li>/);
+  assert.match(markdown.render("- a\n- b"), /^<ul><li>/);
+});
+
 test("fences stay separate beside lists and quotes and expose a safe language label", () => {
   const html = markdown.render(
     "- before\n```js\" onmouseover=\"globalThis.pwned=1\nlet x = 1;\n```\n" +

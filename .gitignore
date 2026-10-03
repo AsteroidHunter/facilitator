@@ -3,6 +3,12 @@
 /state.json.bak-*
 /state.tmp
 /transcript.jsonl
+# held by the running server: one per folder, naming its pid and port
+/server.lock
+# the desktop pages' settings and the Spotify sign-in, kept beside state.json
+/settings.json
+/settings.json.tmp
+/settings.json.bad-*
 
 # the phone page's push signing key pair: made by openssl on first need, private
 /vapid-key.pem
@@ -15,6 +21,10 @@
 # the home page's token counts, per log file, made by tokens.py on first need
 /tokens-cache.json
 /tokens-cache.json.tmp
+
+# Claude Code's plan limits for the home page, written by claude-statusline.py
+/claude-limits.json
+/claude-limits.json.tmp
 
 # real seed content: private discussion topics, never committed
 /seed.json
@@ -32,6 +42,12 @@
 /.facilitator-install.json
 /.facilitator-skills.json
 /.facilitator-skills.tmp
+/.facilitator-statusline.json
+/.facilitator-statusline.tmp
+
+# which numbered update steps have run in this checkout, written by facilitator update
+/.facilitator-updates.json
+/.facilitator-updates.tmp
 
 .DS_Store
 __pycache__/

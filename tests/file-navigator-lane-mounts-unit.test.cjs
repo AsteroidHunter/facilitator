@@ -1,7 +1,7 @@
 // Deterministic, browser-free regression for the navigator mount map and the
 // visibility of a configured reader. It extracts the ACTUAL FILENAV_SLOTS + fileNavMounts
 // bytes and the DEFAULT_HIDDEN_REGIONS + regionHidden bytes from index.html and
-// runs them in a tiny sandbox with a fake localStorage, so which box each lane
+// runs them in a tiny sandbox with a fake settings store, so which box each lane
 // lands on, and whether that box is on screen by default, are checked without
 // any browser. This guards the real source: if fileNavMounts goes back to dropping
 // lanes past the two slots, if an overflow lane starts landing on magic box 3
@@ -41,12 +41,13 @@ const MOUNT_SRC = between("const FILENAV_SLOTS = [", "return FILENAV_MOUNTS;\n}"
 const HIDDEN_SET = between('const DEFAULT_HIDDEN_REGIONS = new Set([', ']);');
 const REGION_HIDDEN = fnSource("function regionHidden(owner, id)");
 
-// Build a runnable copy of the real blocks with a Map-backed localStorage. The
-// two blocks share FILENAV_MOUNTS and localStorage, exactly as they do in the page.
+// Build a runnable copy of the real blocks with a Map-backed settings store,
+// the board's own (board-settings.js) that the page reads these keys from. The
+// two blocks share FILENAV_MOUNTS and the store, exactly as they do in the page.
 function build() {
   const preamble = `
     const __store = new Map();
-    const localStorage = {
+    const settingsStore = {
       getItem: k => __store.has(k) ? __store.get(k) : null,
       setItem: (k, v) => __store.set(k, String(v)),
       removeItem: k => __store.delete(k),
@@ -59,7 +60,7 @@ function build() {
     ctl.slotBoxes = () => FILENAV_SLOTS.map(s => s.box);
     ctl.boxOf = lane => (FILENAV_MOUNTS[lane] && FILENAV_MOUNTS[lane].box) || null;
     ctl.lanes = () => Object.keys(FILENAV_MOUNTS);
-    ctl.set = (k, v) => localStorage.setItem(k, v);
+    ctl.set = (k, v) => settingsStore.setItem(k, v);
     ctl.clear = () => __store.clear();
   `;
   const factory = new Function("ctl",
@@ -140,7 +141,7 @@ test("the reader box is the only default-hidden region a configured lane reveals
   // the third lane's box shows, but the other default-hidden boxes stay hidden:
   // the change is scoped to the reader, not a wholesale reveal of the layout
   assert.equal(m.regionHidden(C, READER_BOX), false);
-  for (const id of ["magic3", "magic2", "rail", "goalbox"]) {
+  for (const id of ["magic3", "magic1", "magic2", "rail", "goalbox"]) {
     if (id === READER_BOX) continue;
     assert.equal(m.regionHidden(C, id), true, id + " should stay hidden for a configured lane");
   }
@@ -149,12 +150,12 @@ test("the reader box is the only default-hidden region a configured lane reveals
 test("a lane with no configured reader keeps the plain default layout", () => {
   const m = build();
   m.fileNavMounts([A, B, C]);   // NONE is not among them
-  for (const id of ["magic3", "magic4", "magic2", "rail", "goalbox"]) {
+  for (const id of ["magic3", "magic4", "magic1", "magic2", "rail", "goalbox"]) {
     assert.equal(m.regionHidden(NONE, id), true,
       NONE + " has no reader, so " + id + " must stay hidden by default");
   }
   // and its always-on elements are still on
-  for (const id of ["main", "clockbox", "tickets", "magic1"]) {
+  for (const id of ["main", "clockbox", "tickets"]) {
     assert.equal(m.regionHidden(NONE, id), false, id + " is a default element and must show");
   }
 });

@@ -96,7 +96,11 @@ async function open(route, viewport, opts = {}) {
   await page.setViewport(viewport);
   // each page starts where a browser that has never been opened starts, and only
   // on its first document: a reload inside a check is one of the things being
-  // asked about, so it must find what the page itself wrote down
+  // asked about, so it must find what the page itself wrote down. The desktop
+  // pages keep the choice with the board's settings and the phone keeps its
+  // own, so the case's choice goes to both
+  await fetch(origin + "/settings", { method: "POST",
+    body: JSON.stringify({ composeformat: opts.setting === undefined ? null : opts.setting }) });
   await page.evaluateOnNewDocument(setting => {
     try {
       if (sessionStorage.getItem("compose-format-check")) return;
@@ -208,6 +212,12 @@ before(async () => {
   for (const name of await readdir(path.join(ROOT, "assets"))) {
     await copyFile(path.join(ROOT, "assets", name), path.join(fixtureDir, "assets", name));
   }
+  // a board that has formatting on for a browser that has chosen nothing; the
+  // default a board ships with is off and is covered by the format-default checks.
+  // the file navigator mounts only on the lanes a board names for it
+  await writeFile(path.join(fixtureDir, "run.config.json"), JSON.stringify({
+    compose_format_default: true, navigator_lanes: ["pastureland"],
+  }));
   await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
     title: "compose formatting fixture",
     items: [
@@ -351,7 +361,7 @@ test("a quote bar, bullets, a carried marker and an empty bullet that ends the l
   }
 });
 
-test("the setting is on by default, turns off to a plain field and keeps the draft either way", async () => {
+test("the setting follows a board that turns it on, turns off to a plain field and keeps the draft either way", async () => {
   await clearLane();
   const id = await card("Desktop setting", "A reply to answer.");
   const { page, problems } = await open("/", DESKTOP);
@@ -359,10 +369,10 @@ test("the setting is on by default, turns off to a plain field and keeps the dra
   try {
     await pickDesktopCard(page, id);
     await editorOn(page);
-    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), null,
+    assert.equal(await page.evaluate(() => (globalThis.boardSettings || localStorage).getItem("composeformat")), null,
       "the setting wrote itself down before anybody touched it");
     assert.equal(await page.evaluate(() => ComposeFormat.enabled()), true,
-      "the setting did not stand on by default");
+      "the setting did not stand on from the board's default");
     assert.equal(await page.evaluate(() => document.getElementById("setformat").checked), true,
       "the settings panel did not show the setting on");
 
@@ -382,7 +392,7 @@ test("the setting is on by default, turns off to a plain field and keeps the dra
       editors: document.querySelectorAll(".cffield").length,
       tag: document.activeElement.tagName,
       mirror: document.querySelector("article.box.sel textarea").classList.contains("cfmirror"),
-      stored: localStorage.getItem("composeformat"),
+      stored: (globalThis.boardSettings || localStorage).getItem("composeformat"),
       checked: document.getElementById("setformat").checked,
     }));
     assert.equal(off.payload, words, "the draft did not come back byte for byte");
@@ -439,10 +449,11 @@ test("the setting is on by default, turns off to a plain field and keeps the dra
     assert.equal(back.payload, words + " typed plainly", "turning the setting back on lost words");
     assert.deepEqual(back.italic, ["these"], "the words were not drawn again");
 
-    // and the choice is the browser's, kept across a reload
+    // and the choice is kept across a reload, with the board's settings
+    await page.waitForFunction(() => !globalThis.boardSettings || !boardSettings.busy);
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => lastState !== null, { timeout: 15000 });
-    assert.equal(await page.evaluate(() => localStorage.getItem("composeformat")), "1",
+    assert.equal(await page.evaluate(() => (globalThis.boardSettings || localStorage).getItem("composeformat")), "1",
       "the setting did not keep the reader's word");
     assert.deepEqual(problems, []);
   } finally {
@@ -574,12 +585,18 @@ test("a send that fails keeps the words, and an attachment still joins them", as
     await page.focus(ROW);
     await page.keyboard.type("words that will not go");
     await page.keyboard.press("Enter");
-    await page.waitForFunction(() => {
-      const note = document.querySelector("article.box.sel .meta span");
-      return !!note && note.textContent.length > 0;
-    }, { timeout: 8000 });
-    assert.equal(await page.$eval(ROW, row => row.value), "words that will not go",
+    // the words leave the row at the press and a send that does not get through
+    // keeps them in the sent panel under a fail mark; the cross gives them back
+    const HELD = 'article.box.sel .answered.sent .answmsg[data-badge="fail"]';
+    await page.waitForSelector(HELD, { timeout: 8000 });
+    assert.equal(await page.$eval(HELD, row => row.dataset.text), "words that will not go",
       "a failed send lost the words it could not deliver");
+    assert.equal(await page.$eval(ROW, row => row.value), "",
+      "a failed send left its words in the row as well as in the sent panel");
+    await page.click(HELD + " .answcross");
+    await page.waitForFunction(() => document.querySelector("article.box.sel textarea").value ===
+      "words that will not go", { timeout: 8000 });
+    assert.equal(await page.$(HELD), null, "the cross left the message in the sent panel");
     // the refusal is taken off before the interception is, or a request still on
     // its way reaches a handler with nothing left to answer it
     page.off("request", refuse);
@@ -589,7 +606,9 @@ test("a send that fails keeps the words, and an attachment still joins them", as
     const address = await page.evaluate(async () => {
       const row = document.querySelector("article.box.sel textarea");
       row.value = "";
-      await attach([new File([new Uint8Array([1, 2, 3])], "shot.png", { type: "image/png" })], row);
+      // the board reads a file's kind from its first bytes, so these are a PNG's
+      const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13]);
+      await attach([new File([png], "shot.png", { type: "image/png" })], row);
       return row.value;
     });
     assert.match(address, /^\/uploads\/.+\n$/, "the attachment did not join the row: " + address);
@@ -607,6 +626,11 @@ test("the small card beside the big one formats and sends the same way", async (
   const MINI = "#magic2 .mbox:not(.off) textarea";
   try {
     await page.waitForFunction(() => miniOrder.length > 0, { timeout: 10000 });
+    // the small card is put away until the reader shows it
+    await page.evaluate(() => {
+      settingsStore.setItem("show." + activeOwner + ".magic2", "1");
+      applySavedLayout();
+    });
     await page.evaluate(cardId => { miniGo(cardId); renderMiniCards(lastState); }, id);
     await page.waitForSelector("#magic2 .mbox:not(.off) .cffield", { timeout: 30000 });
     await page.focus(MINI);
@@ -685,38 +709,40 @@ test("the board's own file navigator and the card row keep separate words and se
   }
 });
 
-test("the board's settings panel opens over the board, works and closes", async () => {
+test("the board's settings page opens as an overlay over the board, works and closes", async () => {
   await clearLane();
-  const id = await card("Settings panel", "A reply to answer.");
+  const id = await card("Settings page", "A reply to answer.");
   const { page, problems } = await open("/", DESKTOP);
   try {
     await pickDesktopCard(page, id);
     await editorOn(page);
     await page.click("#setbtn");
     await settle(250);
+    await page.click('.sp-item[data-section="editor"]');
+    await settle(100);
     const out = await page.evaluate(() => {
-      const panel = document.getElementById("setpanel");
+      const view = document.querySelector(".sp-page");
       const mark = document.getElementById("setbtn");
-      const rect = panel.getBoundingClientRect();
-      const markRect = mark.getBoundingClientRect();
+      const rect = view.getBoundingClientRect();
       const middle = document.elementFromPoint(Math.round(rect.left + rect.width / 2),
                                                Math.round(rect.top + rect.height / 2));
       return {
         open: document.body.classList.contains("setopen"),
-        shown: getComputedStyle(panel).display,
-        onTop: !!middle && panel.contains(middle),
-        underTheMark: Math.abs(rect.right - markRect.right) <= 1 && rect.top > markRect.bottom,
-        insideTheWindow: rect.left >= 0 && rect.right <= document.documentElement.clientWidth,
-        label: panel.querySelector(".setrow span").textContent,
+        shown: getComputedStyle(view.closest(".sp-veil")).display,
+        onTop: !!middle && view.contains(middle),
+        centredAtSeventhTenths: Math.abs(rect.width / document.documentElement.clientWidth - 0.7) < 0.01
+          && Math.abs(rect.height / document.documentElement.clientHeight - 0.7) < 0.01
+          && Math.abs(rect.left - (document.documentElement.clientWidth - rect.right)) <= 1
+          && Math.abs(rect.top - (document.documentElement.clientHeight - rect.bottom)) <= 1,
+        label: view.querySelector(".sp-pane.on .setrow span").textContent,
         checked: document.getElementById("setformat").checked,
         expanded: mark.getAttribute("aria-expanded"),
       };
     });
-    assert.equal(out.open, true, "the mark did not open the panel");
+    assert.equal(out.open, true, "the mark did not open the page");
     assert.equal(out.shown, "block");
-    assert.equal(out.onTop, true, "the panel was drawn under the board it opens over");
-    assert.equal(out.underTheMark, true, "the panel was not seated under its own mark");
-    assert.equal(out.insideTheWindow, true, "the panel hung off the side of the window");
+    assert.equal(out.onTop, true, "the page was drawn under the board it opens over");
+    assert.equal(out.centredAtSeventhTenths, true, "the page is not a centred overlay at about 70% of the window");
     assert.equal(out.label, "Format text while typing");
     assert.equal(out.checked, true);
     assert.equal(out.expanded, "true");
@@ -726,23 +752,24 @@ test("the board's settings panel opens over the board, works and closes", async 
     await page.click("#setformat");
     await settle(250);
     assert.equal(await page.evaluate(() => ComposeFormat.enabled()), false,
-      "the panel's mark did not turn the setting off");
-    await page.waitForFunction(() => document.querySelectorAll(".cffield").length === 0,
-      { timeout: 10000 });
+      "the page's mark did not turn the setting off");
     await page.click("#setformat");
-    await editorOn(page);
+    await settle(250);
+    assert.equal(await page.evaluate(() => ComposeFormat.enabled()), true);
 
-    // and it closes on a click outside it, and on escape
-    await page.mouse.click(700, 500);
+    // and it closes on the red window button, and on escape, and hands the focus back to its mark
+    await page.click(".sp-red");
     await settle(200);
     assert.equal(await page.evaluate(() => document.body.classList.contains("setopen")), false,
-      "a click on the board left the panel open");
+      "the red button left the page open");
+    assert.equal(await page.evaluate(() => document.activeElement.id), "setbtn");
     await page.click("#setbtn");
     await settle(200);
     await page.keyboard.press("Escape");
     await settle(200);
     assert.equal(await page.evaluate(() => document.body.classList.contains("setopen")), false,
-      "escape left the panel open");
+      "escape left the page open");
+    await editorOn(page);
     assert.deepEqual(problems, []);
   } finally {
     await page.close();

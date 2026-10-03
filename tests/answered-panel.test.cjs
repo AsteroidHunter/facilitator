@@ -189,12 +189,26 @@ function all(node) {
   for (const child of node.children) out.push(child, ...all(child));
   return out;
 }
-// a selector list of plain tags, plain classes, or a tag with a class
+// a selector list of plain tags, plain classes, a tag with a class, a data
+// attribute that is present, and a node under another
+function matchesOne(node, part) {
+  const attrs = [...part.matchAll(/\[data-([\w-]+)\]/g)].map(m => m[1].replace(/-(\w)/g, (_, c) => c.toUpperCase()));
+  const [tag, ...cls] = part.replace(/\[[^\]]*\]/g, "").split(".");
+  if (tag && node.tagName !== tag.toUpperCase()) return false;
+  if (!cls.every(name => node.classList.contains(name))) return false;
+  return attrs.every(name => node.dataset && node.dataset[name] !== undefined);
+}
 function matches(node, selector) {
   return selector.split(",").map(part => part.trim()).some(part => {
-    const [tag, ...cls] = part.split(".");
-    if (tag && node.tagName !== tag.toUpperCase()) return false;
-    return cls.every(name => node.classList.contains(name));
+    const chain = part.split(/\s+/);
+    if (!matchesOne(node, chain.pop())) return false;
+    let at = node.parentNode;
+    for (let i = chain.length - 1; i >= 0; i--) {
+      while (at && !matchesOne(at, chain[i])) at = at.parentNode;
+      if (!at) return false;
+      at = at.parentNode;
+    }
+    return true;
   });
 }
 // the tags of an html string, nested as written, and the text between them as
@@ -234,7 +248,9 @@ class FakeResizeObserver {
 // no localStorage is handed in on purpose: a panel that tried to remember a
 // word about a reply would throw here rather than pass quietly. timers are held
 // rather than run, so a test decides when the one behind a run goes off, and
-// the reduced motion setting is the test's to turn on
+// the reduced motion setting is the test's to turn on. animation frames are held
+// too: frame() lets go of the callbacks waiting for one, and callbacks they ask
+// for wait for the next
 // the strength the sheet gives the dissolve at the cut: whole while a long batch
 // stands cut, nothing otherwise, unless a run has written it inline
 function shadeOf(clip) {
@@ -247,9 +263,10 @@ function sandbox() {
   FakeResizeObserver.made = [];
   const counts = { timers: 0, rooms: 0, again: 0 };
   const timers = new Map();
+  const frames = new Map();
   let seq = 0;
   const context = vm.createContext({
-    Date, Promise, console,
+    Date, Promise, console, AbortSignal, crypto: require("node:crypto").webcrypto,
     // a range reports the line boxes the test laid its text node out on, and a
     // query for the card's own motion finds whatever the test says is moving
     document: {
@@ -267,6 +284,8 @@ function sandbox() {
     ResizeObserver: FakeResizeObserver,
     setTimeout: (fn, ms) => { counts.timers++; timers.set(++seq, { fn, ms }); return seq; },
     clearTimeout: id => { timers.delete(id); },
+    requestAnimationFrame: fn => { frames.set(++seq, fn); return seq; },
+    cancelAnimationFrame: id => { frames.delete(id); },
     setInterval: () => 0, clearInterval: () => {},
     stillness: false,
     matchMedia: query => ({ matches: /prefers-reduced-motion: reduce/.test(query) && context.stillness }),
@@ -300,7 +319,20 @@ function sandbox() {
     timers.delete(id);
     timer.fn();
   };
-  return { context, counts, run, pending, ring };
+  // the newest timer waiting for this many ms, let go
+  const ringFor = ms => {
+    const found = [...timers].filter(([, timer]) => timer.ms === ms).pop();
+    assert.ok(found, `no timer waits ${ms}ms`);
+    timers.delete(found[0]);
+    found[1].fn();
+  };
+  const frame = () => {
+    const due = [...frames.values()];
+    frames.clear();
+    for (const fn of due) fn(0);
+  };
+  const waiting = () => frames.size;
+  return { context, counts, run, pending, ring, ringFor, frame, waiting };
 }
 // the end of the height's transition on a panel's cut, as a browser fires it
 function landRun(panel) {
@@ -673,7 +705,7 @@ test("a message's blank tail is taken off before it is drawn, and a blank messag
     markdown.render("Invented line one\nInvented line two"),
     markdown.render("Invented paragraph"),
     markdown.render("Invented tail with spaces"),
-  ], "a blank tail was drawn, or a blank message added a block and its hairline");
+  ], "a blank tail was drawn, or a blank message added a block and its blank line");
   for (const b of blocks(el.answ))
     assert.ok(!b.html.includes(ZWSP) && !b.html.includes(JOINER), `an invisible tail survived: ${JSON.stringify(b.html)}`);
   // a batch whose every message is blank has nothing to show
@@ -851,7 +883,7 @@ function rules(css, selector) {
   return out;
 }
 
-test("the sheet draws one grey panel with no frame, hairlines between messages and an arrow only when long", () => {
+test("the sheet draws one grey panel with no frame, a blank line between messages and an arrow only when long", () => {
   const panel = rule(TOKENS, ".answered");
   assert.match(panel, /background:var\(--answ-fill\)/, "the panel is not drawn in its own fill");
   assert.match(panel, /--answ-fill:var\(--bubble-fill\)/, "the panel's fill is not the bubble's grey");
@@ -873,10 +905,12 @@ test("the sheet draws one grey panel with no frame, hairlines between messages a
   assert.match(rule(TOKENS, ".answclip"), /position:relative;.*--answ-shade:0/);
   assert.match(rule(TOKENS, ".answered.more:not(.open) .answclip"), /--answ-shade:1/,
     "a cut batch does not dissolve");
-  const hairline = rule(TOKENS, ".answmsg + .answmsg");
-  assert.match(hairline, /border-top:0px solid var\(--line\)/, "two messages are not split by a hairline");
-  assert.match(hairline, /margin-top:calc\(var\(--answ-line\) \/ 2 - \.5px\)/);
-  assert.match(hairline, /padding-top:calc\(var\(--answ-line\) \/ 2 - \.5px\)/);
+  // one message from the next: a whole blank line of the panel's type, half
+  // over the message's edge and half under it, and no rule drawn in it
+  const between = rule(TOKENS, ".answmsg + .answmsg");
+  assert.ok(!/border/.test(between), "two messages are split by a rule");
+  assert.match(between, /margin-top:calc\(var\(--answ-line\) \/ 2\);/);
+  assert.match(between, /padding-top:calc\(var\(--answ-line\) \/ 2\);/);
   assert.match(rule(TOKENS, ".answmsg p, .answmsg ul, .answmsg ol"), /margin-bottom:var\(--answ-line\)/);
   assert.match(rule(TOKENS, ".answfoot"), /display:none/, "the strip shows on a batch that fits");
   assert.match(rule(TOKENS, ".answered.more .answfoot"), /display:flex/, "a long batch has no strip");
@@ -936,6 +970,11 @@ test("each surface types the panel's measures and seats it in the answer's colum
     const body = css.slice(at, css.indexOf("}", at));
     for (const name of measures) assert.ok(body.includes(name + ":"), `${where} leaves ${name} unset`);
     assert.match(body, /var\(--inter\)/, `${where} does not set the panel in the title's face`);
+    // the cut and its dissolve are counted in the surface's own line
+    const line = /--answ-line:([\d.]+)px/.exec(body)[1];
+    for (const name of ["--answ-peek", "--answ-fade"])
+      assert.match(body, new RegExp(name + ":calc\\(" + line.replace(".", "\\.") + "px \\* "),
+        `${where}'s ${name} is not counted in its own ${line}px line`);
   }
   // the large card's seat stands in the answer's own column on both pages
   const column = "padding:0 calc(var(--pad-x)*5/3 - var(--sbar)) var(--sp-s) calc(var(--pad-x)*2/3);";
@@ -1085,27 +1124,35 @@ test("the band over the answer holds still while the sent panel runs", () => {
   assert.equal(context.sentBand(fullCard("c2"), 77), 77);
 });
 
-test("a message the phone has not had confirmed carries its state and a line, and keeps its block as it lands", () => {
+test("a message the phone has not had confirmed carries its state and its badge, and keeps its block as it lands", () => {
   const { context } = sandbox();
   const el = fullCard("c1");
   const confirmed = { text: "Invented confirmed message." };
   const onWay = { text: "Invented message on its way.", op: "op-1" };
-  context.syncSent(el, [confirmed, { ...onWay, state: "pending", note: "Sending" }], true);
+  context.syncSent(el, [confirmed, { ...onWay, state: "pending", badge: "ring" }], true);
   const row = el.sent.querySelector(".answstack").children[1];
   assert.equal(row.classList.contains("pending"), true, "the unconfirmed message is not dressed as one");
   assert.equal(row.dataset.op, "op-1", "the message does not name its operation");
-  assert.equal(row.querySelector(".answnote").textContent, "Sending");
-  // the board refuses it: the same block says so
-  context.syncSent(el, [confirmed, { ...onWay, state: "failed", note: "Not sent, tap to take the words back" }]);
+  assert.equal(row.dataset.badge, "ring");
+  assert.ok(row.querySelector(".answmark").querySelector(".tsqring"), "the send still being tried wears no ring");
+  assert.equal(textsOf(row.querySelector(".answmark")).length, 0, "the ring has words on it");
+  // the board refuses it: the same block wears the red mark and the cross
+  context.syncSent(el, [confirmed, { ...onWay, state: "failed", badge: "fail" }]);
   const same = el.sent.querySelector(".answstack").children[1];
   assert.equal(same, row, "a new state drew the message again");
   assert.equal(row.classList.contains("failed"), true);
   assert.equal(row.classList.contains("pending"), false);
-  assert.equal(row.querySelector(".answnote").textContent, "Not sent, tap to take the words back");
-  // confirmed after all: the block stays, and its line and dress go
+  assert.equal(row.dataset.badge, "fail");
+  const mark = row.querySelector(".answmark");
+  assert.deepEqual(mark.children.map(node => node.dataset.act), ["cross", "retry"], "the mark is not the arrow with a cross");
+  assert.equal(mark.querySelector(".tsqring"), null, "the ring stayed under the mark");
+  assert.equal(row.querySelectorAll(".answmark").length, 1, "a new badge stood beside the old one");
+  assert.equal(textsOf(mark).length, 0, "the mark has words on it");
+  // confirmed after all: the block stays, and its badge and dress go
   context.syncSent(el, [confirmed, { text: onWay.text }]);
   assert.equal(el.sent.querySelector(".answstack").children[1], row, "landing drew the message again");
-  assert.equal(row.querySelector(".answnote"), null, "a confirmed message kept its line");
+  assert.equal(row.querySelector(".answmark"), null, "a confirmed message kept its badge");
+  assert.equal(row.dataset.badge, undefined);
   assert.equal(row.classList.contains("failed"), false);
   assert.equal(row.dataset.op, undefined);
 });
@@ -1114,9 +1161,9 @@ test("a message the phone has not had confirmed carries its state and a line, an
 // a card on show with a sent panel standing, laid out the way a browser would
 // report it: the card's body, the answer's view under the title, scrolled a
 // little, and the seat at the foot
-function turningCard(context) {
+function turningCard(context, batch = context.sentBatch(SENT)) {
   const el = fullCard("c1");
-  context.syncSent(el, context.sentBatch(SENT), true);
+  context.syncSent(el, batch, true);
   el.body.rect = { top: 100, bottom: 900 };
   el.replyview.rect = { top: 120, bottom: 900 };
   el.sentwrap.rect = { top: 700, bottom: 790 };
@@ -1346,22 +1393,25 @@ test("every new motion is a transform or a fade, and nothing in a run is a mask"
   const part = TOKENS.slice(from, to);
   assert.ok(from > 0 && to > from);
   assert.ok(!/mask/.test(part.replace(/\/\*[\s\S]*?\*\//g, "")), "a panel or the turn still draws a mask");
-  assert.ok(!/@property/.test(TOKENS), "a custom property is still run");
+  // the one registered property is the panel's grey, so that it can run with the words
+  assert.deepEqual([...TOKENS.matchAll(/@property (--[a-z-]+)/g)].map(m => m[1]), ["--answ-fill"], "a custom property is still run");
   assert.ok(!/--answ-cut/.test(TOKENS + LOGIC), "the old run dissolve is still there");
   assert.ok(!/blur|filter/.test(part.replace(/\/\*[\s\S]*?\*\//g, "")), "a panel or the turn draws a blur");
   // every transition there: the fold's own height run, carried over as it was,
-  // and otherwise strength and transforms alone, but for the one top margin a
-  // panel over the answer is held down by while it is cut off its top, which
-  // has to keep step with that height run on every frame
+  // and otherwise strength and transforms alone, but for the bottom margin that
+  // is the room for the mark and the panel's grey: a panel cut back is never held
+  // down by a margin that grows, its head stays where it is
   const transitions = [...part.matchAll(/transition:([^;}]+)/g)].map(m => m[1].trim());
   for (const t of transitions)
     for (const one of t.split(","))
-      assert.ok(/^(height|opacity|transform|margin-top) /.test(one.trim()), `a run moves something other than height, strength or a transform: ${one}`);
+      assert.ok(/^(height|opacity|transform|margin-bottom|--answ-fill) /.test(one.trim()), `a run moves something other than height, strength or a transform: ${one}`);
   assert.equal(transitions.filter(t => t.startsWith("height")).length, 1, "a new run changes a height");
-  assert.equal(transitions.filter(t => /margin-top/.test(t)).length, 1, "a margin moves somewhere other than the panel's own run");
+  assert.equal(transitions.filter(t => /margin-top/.test(t)).length, 0, "a margin holds a panel down while it is cut back");
+  assert.equal(transitions.filter(t => /margin-bottom/.test(t)).length, 2, "the room for the mark runs somewhere other than the panel");
   assert.match(rule(TOKENS, ".answered.motion"),
-    /transition:transform var\(--answ-move\) var\(--gentle\), margin-top var\(--answ-move\) var\(--gentle\)/,
-    "the panel's top margin does not run on the cut's own length and curve");
+    /transition:transform var\(--answ-move\) var\(--gentle\),\s*margin-bottom var\(--answ-move\) var\(--gentle\), --answ-fill var\(--answ-move\) var\(--gentle\)/,
+    "the panel's run does not carry the room's and the grey's own run on the cut's length and curve");
+  assert.ok(!/margin-top/.test(LOGIC.replace(/\/\/[^\n]*/g, "")), "the script still holds a panel down with a margin");
   // the arrival and the print are strength and a transform, and the glide a transform
   for (const name of ["answarrive", "cardprint"]) {
     const block = keyframes(TOKENS, name);
@@ -1390,9 +1440,11 @@ test("both pages seat the sent panel at the foot and hand the turn a pass that d
   for (const [where, text] of [["card-logic.js", LOGIC], ["card-tokens.css", TOKENS], ["index.html", DESKTOP], ["m.html", PHONE]])
     for (const name of retired)
       assert.ok(!text.includes(name), `${where} still carries the old sent box's ${name}`);
-  for (const [where, text] of [["the desktop", DESKTOP], ["the phone", PHONE]]) {
+  // the phone's file tray sits between the sent panel and the row
+  for (const [where, text, foot] of [["the desktop", DESKTOP, "meta, sentwrap, bottombar"],
+    ["the phone", PHONE, "meta, sentwrap, tray, bottombar"]]) {
     assert.match(text, /const sentwrap = h\("div", "sentwrap"\);/, `${where} builds no seat for the sent panel`);
-    assert.match(text, /pendwrap\.append\(meta, sentwrap, bottombar\);/, `${where} does not seat it over the row`);
+    assert.ok(text.includes(`pendwrap.append(${foot});`), `${where} does not seat it over the row`);
     // the turn is asked before anything of the new answer is drawn, and handed
     // the new page once both panels have been drawn
     const ask = text.indexOf("const turn = el.reply.dataset.raw !== rawReply ? turnBegin(el, b) : null;");
@@ -1408,43 +1460,45 @@ test("both pages seat the sent panel at the foot and hand the turn a pass that d
     assert.match(text, /sentBand\(el, boxBand\(el\.replyview, el\.pendwrap\)\)/, `${where} does not hold the band for a run`);
     assert.match(text, /turnAgain = /, `${where} cannot show an answer it held back`);
   }
-  // the sends: the desktop lands the message after the board has it, the phone
-  // at once with its line, and both as an arrival
-  assert.match(DESKTOP, /el\.sentItems = \[\.\.\.el\.sentItems, \{ text, stage: "sent" \}\];[\s\S]{0,80}syncSent\(el, el\.sentItems, true\);/);
-  assert.match(DESKTOP, /own\.sentItems = \[\.\.\.own\.sentItems, \{ text, stage: "sent" \}\];[\s\S]{0,80}syncSent\(own, own\.sentItems, true\);/);
+  // the sends: both pages draw the message faded as an arrival when it is sent,
+  // and the desktop saves it as sent once the board has answered
+  assert.match(DESKTOP, /const sentItem = sentLaunch\(el, text, "\/send\?box=" \+ encodeURIComponent\(id\)\);/);
+  assert.match(DESKTOP, /sentLanded\(el, sentItem\);/);
+  assert.match(DESKTOP, /sentFailed\(el, sentItem, result === "refused"\);/);
+  assert.match(DESKTOP, /const sentItem = sentLaunch\(own, text, /);
+  assert.match(DESKTOP, /sentLanded\(own, sentItem\);/);
+  assert.match(LOGIC, /el\.sentItems = \[\.\.\.el\.sentItems, item\];[\s\S]{0,200}syncSent\(el, el\.sentItems, true\);/);
   assert.match(PHONE, /drawSent\(el, id, true\);/);
-  assert.match(PHONE, /panel\.addEventListener\("click", e => sentPress\(e\), true\);/,
-    "the phone's tap to take words back is not heard before the panel's own");
+  assert.match(LOGIC, /panel\.addEventListener\("click", e => sentBadgePress\(el, e\)\);/,
+    "the press on a badge is not heard on the shared panel");
 });
 
-test("the turn keeps to the composer the reader is in, the right one included, and to a board that is covered", () => {
+test("the turn keeps to the composer the reader is in, and to a board that is covered", () => {
   const { context, run, pending } = sandbox();
   // a key counts only in a row that holds the caret: the formatter's own input
   // as it puts its editor on, to every card on load, is nobody typing
-  const bar = element("textarea"), right = element("textarea");
+  const idle = element("textarea"), typing = element("textarea");
   context.ComposeFormat = { focused: ta => ta === context.caret };
-  context.noteTyping(bar);
-  assert.equal(bar.typedAt, undefined, "a row with no caret was taken for typing");
-  context.caret = right;
-  context.noteTyping(right);
-  assert.ok(Date.now() - right.typedAt < 1000, "a key into the row with the caret was not noted");
-  // the composer on the right holds the card's draft, so it is the card's el.ta:
-  // typing there holds the new answer back as typing in the bar does
+  context.noteTyping(idle);
+  assert.equal(idle.typedAt, undefined, "a row with no caret was taken for typing");
+  context.caret = typing;
+  context.noteTyping(typing);
+  assert.ok(Date.now() - typing.typedAt < 1000, "a key into the row with the caret was not noted");
+  // typing in the card's composer holds the new answer back
   run("turnAgain = againSpy");
   const el = turningCard(context);
-  el.bar = { ta: bar };
-  el.ta = right;
-  assert.equal(context.turnBegin(el, NEXT), run("TURN_HELD"), "typing in the composer on the right did not hold the answer");
+  el.ta = typing;
+  assert.equal(context.turnBegin(el, NEXT), run("TURN_HELD"), "typing in the composer did not hold the answer");
   assert.equal(el.body.querySelector(".turnsheet"), null);
-  right.typedAt = 0;
+  typing.typedAt = 0;
   assert.equal(pending().at(-1).ms, 500);
-  // and with the bar stepped aside for it, the seat stands at the card's floor:
-  // the picture reaches down to the seat's foot wherever the seat stands
+  // with the seat standing at the card's floor, the picture reaches down to the
+  // seat's foot wherever the seat stands
   el.sentwrap.rect = { top: 780, bottom: 900 };
   const turn = context.turnBegin(el, NEXT);
   assert.equal(turn.mode, "glide");
   assert.equal(el.body.querySelector(".turnsheet").style.height, "800px", "the picture does not reach the seat at the floor");
-  assert.equal(context.caret, right, "the turn took the caret out of the composer on the right");
+  assert.equal(context.caret, typing, "the turn took the caret out of the composer");
   // a board the page has covered, as the desktop's home page covers its stage,
   // is not on show: the answer swaps as it always did, and nothing is held
   const covered = sandbox();
@@ -1455,12 +1509,10 @@ test("the turn keeps to the composer the reader is in, the right one included, a
   hidden.readAt = Date.now();
   assert.equal(covered.context.turnBegin(hidden, NEXT), null, "a covered card turned, or held its answer back");
   assert.equal(hidden.body.querySelector(".turnsheet"), null);
-  // the pages: the right composer's keys are noted, and a reply landing on the
-  // card in use is read whatever the turn does, the answer held back included
-  assert.match(DESKTOP, /xc\.ta\.addEventListener\("input", \(\) => \{[^}]*noteTyping\(xc\.ta\);/,
-    "a key into the composer on the right is not noted");
+  // the pages: a reply landing on the card in use is read whatever the turn
+  // does, the answer held back included
   for (const [where, text, rule] of [["the desktop", DESKTOP, "readOnArrival(el, b, b.id === selectedId && !browsing);"],
-      ["the phone", PHONE, "readOnArrival(el, b, b.id === selectedId && !drawerOpen());"]]) {
+      ["the phone", PHONE, "readOnArrival(el, b, b.id === selectedId && !browsing && !drawerOpen());"]]) {
     const ask = text.indexOf("const held = turn === TURN_HELD;");
     const read = text.indexOf(rule, ask);
     const go = text.indexOf("turnGo(el, turn);", ask);
@@ -1473,41 +1525,53 @@ test("the turn keeps to the composer the reader is in, the right one included, a
 // ---- the delivery marks ------------------------------------------------------------------
 const stagesOf = panel => panel.querySelector(".answstack").children.map(node => node.classList.contains("undelivered"));
 
-test("the sent panel reads the board's own record: faded until delivered, then Delivered, then Read", () => {
+test("the sent panel reads the board's own record: faded until the board has it, then Delivered, then Read", () => {
   const { context, counts } = sandbox();
   const el = fullCard("c1");
   el.sentRoom = context.roomSpy;
-  // on the board, and no agent has received it: the panel and the words faded, no mark
-  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }], true);
+  // not yet saved by the board: the panel and the words faded, and no word
+  context.syncSent(el, [{ text: "Invented one.", stage: "local" }], true);
   const panel = el.sent;
-  assert.equal(panel.classList.contains("undelivered"), true, "a message nobody has received is not faded");
+  assert.equal(panel.classList.contains("undelivered"), true, "a message the board has not saved is not faded");
   assert.deepEqual(stagesOf(panel), [true]);
-  assert.equal(panel.dataset.tag, undefined, "a message nobody has received carries a mark");
+  assert.equal(panel.dataset.tag, undefined, "a message the board has not saved carries a mark");
+  assert.equal(panel.querySelector(".answmark"), null, "a message still on its way carries a mark");
   assert.equal(panel.getAttribute("aria-label"), "your messages waiting for a reply");
-  // the agent confirmed the claim: full ink, and Delivered under the panel. a
-  // message sent after it waits faded on its own, and the panel's grey is back
+  // the board saved it: full ink, and Delivered under the panel. a message sent
+  // after it waits faded on its own, and the panel's grey is back
   const first = panel.querySelector(".answmsg");
   const rooms = counts.rooms;
-  context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }, { text: "Invented two.", stage: "sent" }]);
+  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }, { text: "Invented two.", stage: "local" }]);
   assert.equal(panel.querySelector(".answmsg"), first, "a change of stage drew the message again");
-  assert.equal(panel.classList.contains("undelivered"), false, "the panel stayed faded with a message delivered");
-  assert.deepEqual(stagesOf(panel), [false, true], "the message not yet delivered is not faded on its own");
+  assert.equal(panel.classList.contains("undelivered"), false, "the panel stayed faded with a message saved");
+  assert.deepEqual(stagesOf(panel), [false, true], "the message not yet saved is not faded on its own");
   assert.equal(panel.dataset.tag, "Delivered");
   assert.equal(panel.getAttribute("aria-label"), "your messages waiting for a reply, delivered");
   assert.ok(counts.rooms > rooms, "the card was not told the mark took its room");
+  // an agent picked it up, its listener confirmed the claim: Read, at full ink
+  context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }]);
+  assert.equal(panel.dataset.tag, "Read", "a message an agent picked up was not called read");
+  assert.deepEqual(stagesOf(panel), [false]);
+  assert.equal(panel.getAttribute("aria-label"), "your messages waiting for a reply, read");
   // the mark names the newest message that has got anywhere
+  context.syncSent(el, [{ text: "Invented one.", stage: "read" }, { text: "Invented two.", stage: "sent" }]);
+  assert.equal(panel.dataset.tag, "Delivered", "a later message only saved was called read");
   context.syncSent(el, [{ text: "Invented one.", stage: "read" }, { text: "Invented two.", stage: "delivered" }]);
-  assert.equal(panel.dataset.tag, "Delivered", "a later message still only delivered was called read");
+  assert.equal(panel.dataset.tag, "Read");
   context.syncSent(el, [{ text: "Invented one.", stage: "read" }, { text: "Invented two.", stage: "read" }]);
   assert.equal(panel.dataset.tag, "Read");
-  assert.equal(panel.getAttribute("aria-label"), "your messages waiting for a reply, read");
-  // the phone's own message, not yet on the board: faded, with its own line
+  // the phone's own message, not yet on the board: faded, with nothing in its
+  // row while it is on its way, and with the ring only when it is being tried again
   const phone = fullCard("c2");
-  context.syncSent(phone, [{ text: "Invented from the phone.", stage: "local", state: "pending", note: "Sending", op: "op-1" }], true);
+  context.syncSent(phone, [{ text: "Invented from the phone.", stage: "local", state: "pending", op: "op-1" }], true);
   assert.equal(phone.sent.classList.contains("undelivered"), true);
   const row = phone.sent.querySelector(".answmsg");
   assert.equal(row.classList.contains("pending"), true);
-  assert.equal(row.querySelector(".answnote").textContent, "Sending", "the phone's own line was lost");
+  assert.equal(row.querySelector(".answmark"), null, "a send on its way wears a badge");
+  context.syncSent(phone, [{ text: "Invented from the phone.", stage: "local", state: "pending", badge: "ring", op: "op-1" }]);
+  assert.ok(phone.sent.querySelector(".tsqring"), "a send being tried again wears no ring");
+  assert.equal(textsOf(phone.sent.querySelector(".answmark")).length, 0, "the ring has words on it");
+  assert.equal(phone.sent.classList.contains("undelivered"), true);
   // a board too old to say leaves the panel as it always was
   const old = fullCard("c3");
   context.syncSent(old, context.sentBatch(["Invented unmarked."]));
@@ -1516,6 +1580,188 @@ test("the sent panel reads the board's own record: faded until delivered, then D
   // the panel over an answer says Read: the answer under it is the proof
   context.syncAnswered(el, context.liveAnswered(liveBox()));
   assert.equal(el.answ.dataset.tag, "Read", "the panel over an answer does not say read");
+  assert.equal(el.answ.dataset.mark, "Read", "the panel over an answer is not drawn with its word");
+});
+
+// the mark's own motion: the record (data-tag), the word on show (data-mark), and
+// the two classes the sheet draws the run by
+const markOf = panel => [panel.dataset.tag, panel.dataset.mark, panel.classList.contains("markin"), panel.classList.contains("markout")];
+
+test("a mark comes in on a panel that is standing, and the card is told of its room once the run has landed", () => {
+  const { context, counts, run, pending, ringFor } = sandbox();
+  const el = fullCard("c1");
+  el.sentRoom = context.roomSpy;
+  context.syncSent(el, [{ text: "Invented one.", stage: "local" }], true);
+  const panel = el.sent;
+  panel.isConnected = true;
+  assert.deepEqual(markOf(panel), [undefined, undefined, false, false]);
+  assert.equal(run("MARK_IN_MS"), 330, "the mark does not come in over the fold's run");
+  assert.equal(run("MARK_OUT_MS"), 165, "the mark does not go out over half of it");
+  // saved by the board: the word is on show and comes in at once, over the run
+  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }]);
+  assert.deepEqual(markOf(panel), ["Delivered", "Delivered", true, false], "the mark did not come in");
+  assert.ok(pending().some(t => t.ms === 350), "no clock ends the mark's run");
+  // the room's own run ends with the mark's: the card is told once, after
+  const rooms = counts.rooms;
+  ringFor(350);
+  assert.equal(panel.classList.contains("markin"), false, "the mark's dress outlived its run");
+  assert.equal(counts.rooms, rooms + 1, "the card was not told once the room had opened");
+  // the same word again does nothing
+  const runs = () => pending().filter(t => t.ms === 165 || t.ms === 350).length;
+  const armed = runs();
+  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }, { text: "Invented two.", stage: "local" }]);
+  assert.deepEqual(markOf(panel), ["Delivered", "Delivered", false, false], "the same word ran again");
+  assert.equal(runs(), armed, "the same word armed a run");
+});
+
+test("a mark giving way to the next goes out, is swapped while it is not seen, and comes in: two words are never on show", () => {
+  const { context, counts, pending, ringFor } = sandbox();
+  const el = fullCard("c1");
+  el.sentRoom = context.roomSpy;
+  // a panel drawn already marked shows its word at once and runs nothing
+  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }], true);
+  const panel = el.sent;
+  panel.isConnected = true;
+  assert.deepEqual(markOf(panel), ["Delivered", "Delivered", false, false], "a panel drawn marked ran a mark in");
+  assert.ok(!pending().some(t => t.ms === 165 || t.ms === 350), "a panel drawn marked armed a run");
+  // an agent picked it up: the record says Read at once, and the word on show is
+  // still the old one while it fades out
+  context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }]);
+  assert.deepEqual(markOf(panel), ["Read", "Delivered", false, true], "the old word was not faded out first");
+  const rooms = counts.rooms;
+  ringFor(165);
+  assert.deepEqual(markOf(panel), ["Read", "Read", true, false], "the new word did not come in when the old had gone");
+  ringFor(350);
+  assert.deepEqual(markOf(panel), ["Read", "Read", false, false]);
+  assert.equal(counts.rooms, rooms, "a word for a word moved the room");
+  // a word that goes with none after it: faded out, then the room closes with it
+  context.syncSent(el, [{ text: "Invented one.", stage: "local" }]);
+  assert.deepEqual(markOf(panel), [undefined, "Read", false, true]);
+  const closing = counts.rooms;
+  ringFor(165);
+  assert.deepEqual(markOf(panel), [undefined, undefined, false, false], "a word with nothing after it was left on show");
+  ringFor(350);
+  assert.equal(counts.rooms, closing + 1, "the card was not told the room closed");
+});
+
+test("a change that lands while a mark is going out is not started again, and the last word is the one that lands", () => {
+  const { context, pending, ringFor } = sandbox();
+  const el = fullCard("c1");
+  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }], true);
+  const panel = el.sent;
+  context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }]);
+  assert.equal(pending().filter(t => t.ms === 165).length, 1);
+  // the record moves again before the swap: no second run is armed, and the word
+  // that lands is the record's when the swap is made
+  context.syncSent(el, [{ text: "Invented one.", stage: "local" }]);
+  assert.equal(pending().filter(t => t.ms === 165).length, 1, "a second fade out was armed");
+  assert.deepEqual(markOf(panel), [undefined, "Delivered", false, true]);
+  ringFor(165);
+  assert.deepEqual(markOf(panel), [undefined, undefined, false, false], "an old target was swapped in");
+  // a word still coming in when the next change has swapped it again: the clock
+  // of the run before leaves the dress of the run that is on
+  const { context: again, pending: waiting, ringFor: letGo } = sandbox();
+  const two = fullCard("c1");
+  again.syncSent(two, [{ text: "Invented one.", stage: "sent" }], true);
+  again.syncSent(two, [{ text: "Invented one.", stage: "delivered" }]);
+  letGo(165);
+  again.syncSent(two, [{ text: "Invented one.", stage: "sent" }]);
+  letGo(165);
+  const clocks = waiting().filter(t => t.ms === 350);
+  assert.equal(clocks.length, 2, "each run has its own clock");
+  clocks[0].fn();
+  assert.equal(two.sent.classList.contains("markin"), true, "an older run's clock took the newer run's dress off");
+  clocks[1].fn();
+  assert.equal(two.sent.classList.contains("markin"), false);
+});
+
+test("a reader who asked for no motion, or a panel that was not standing, is given the word at once", () => {
+  const { context, pending } = sandbox();
+  context.stillness = true;
+  const el = fullCard("c1");
+  context.syncSent(el, [{ text: "Invented one.", stage: "local" }], true);
+  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }]);
+  assert.deepEqual(markOf(el.sent), ["Delivered", "Delivered", false, false], "the mark ran against the setting");
+  context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }]);
+  assert.deepEqual(markOf(el.sent), ["Read", "Read", false, false], "the mark was swapped with a run against the setting");
+  context.syncSent(el, [{ text: "Invented one.", stage: "local" }]);
+  assert.deepEqual(markOf(el.sent), [undefined, undefined, false, false]);
+  assert.ok(!pending().some(t => t.ms === 165 || t.ms === 350), "a clock stands behind a mark that did not run");
+  // the panel over an answer is drawn with its word, and a page that draws it again keeps it
+  const { context: live } = sandbox();
+  const card = fullCard("c2");
+  live.syncAnswered(card, live.liveAnswered(liveBox()));
+  assert.deepEqual(markOf(card.answ), ["Read", "Read", false, false], "the panel over an answer ran its word in");
+  live.syncAnswered(card, live.liveAnswered(liveBox()));
+  assert.deepEqual(markOf(card.answ), ["Read", "Read", false, false]);
+  // and the timed refresh waits out a mark's run as it does a panel's
+  live.moving = [".answered.markin"];
+  assert.equal(live.cardsMoving(), true, "a mark coming in did not hold the refresh");
+  live.moving = [".answered.markout"];
+  assert.equal(live.cardsMoving(), true, "a mark going out did not hold the refresh");
+});
+
+test("the page turn flips the sent panel's mark on the way up and holds the new panel's mark out, so no two words are drawn together", () => {
+  const { context, run, ringFor } = sandbox();
+  const saved = SENT.map(text => ({ text, stage: "sent" }));
+  const el = turningCard(context, saved);
+  ringFor(run("SENT_ARRIVE_MS") + 60);
+  // the panel was in the middle of a change when the reader's reply came: the
+  // picture is taken as still, without the classes that move
+  context.syncSent(el, SENT.map(text => ({ text, stage: "delivered" })));
+  assert.equal(el.sent.classList.contains("markout"), true);
+  const turn = context.turnBegin(el, NEXT);
+  const page = el.body.querySelector(".turnpage");
+  const old = page.querySelector(".answered.sent");
+  assert.equal(old.classList.contains("markout") || old.classList.contains("markin"), false,
+    "the picture of the panel carried a mark's motion in");
+  assert.equal(old.dataset.mark, "Delivered");
+  el.reply.dataset.raw = "The invented new answer.";
+  el.reply.innerHTML = markdown.render(el.reply.dataset.raw);
+  context.syncSent(el, context.sentBatch([]));
+  el.answwrap.rect = { top: 120, bottom: 200 };
+  context.syncAnswered(el, context.liveAnswered(NEXT));
+  context.turnGo(el, turn);
+  // the new page's panel stands behind the old, and holds its word out
+  const fresh = page.children[0].querySelector(".answered");
+  assert.equal(fresh.dataset.mark, "Read");
+  assert.equal(fresh.classList.contains("markout"), true, "the new page's mark is drawn under the old panel's");
+  // the old panel turns its own word to Read on the way up
+  assert.deepEqual(markOf(old), ["Read", "Delivered", false, true], "the old panel's mark did not go out");
+  ringFor(165);
+  assert.deepEqual(markOf(old), ["Read", "Read", true, false], "the old panel's mark did not come in as Read");
+  assert.equal(fresh.classList.contains("markout"), true, "the new page's mark was let out during the glide");
+  // the panel that stays is the card's own, and was never held out
+  assert.deepEqual(markOf(el.answ), ["Read", "Read", false, false]);
+  // one that was still faded when the reply landed takes its full ink up with it
+  const other = sandbox();
+  const faded = turningCard(other.context, SENT.map(text => ({ text, stage: "local" })));
+  const held = other.context.turnBegin(faded, NEXT);
+  const picture = faded.body.querySelector(".turnpage").querySelector(".answered.sent");
+  assert.equal(picture.classList.contains("undelivered"), true);
+  assert.equal(picture.querySelectorAll(".undelivered").length > 1, true, "the picture's messages were not faded");
+  faded.reply.innerHTML = markdown.render("The invented new answer.");
+  other.context.syncSent(faded, other.context.sentBatch([]));
+  faded.answwrap.rect = { top: 120, bottom: 200 };
+  other.context.syncAnswered(faded, other.context.liveAnswered(NEXT));
+  other.context.turnGo(faded, held);
+  assert.equal(picture.querySelectorAll(".undelivered").length, 0, "the picture stayed faded on its way to the new page");
+  assert.deepEqual(markOf(picture), ["Read", "Read", true, false], "no mark came in on the panel that had none");
+});
+
+test("both pages draw the marks from the shared files alone, and the sheet runs them on the fold's own curve and length", () => {
+  assert.ok(!/data-mark|data-tag|markin|markout/.test(DESKTOP + PHONE), "a page draws a mark of its own");
+  assert.match(TOKENS, /@property --answ-fill\{syntax:"<color>"; inherits:true; initial-value:transparent\}/,
+    "the panel's grey cannot run without being a colour");
+  assert.ok(rules(TOKENS, ".answered").some(one => /transition:margin-bottom var\(--answ-move\) var\(--gentle\), --answ-fill var\(--answ-move\) var\(--gentle\)/.test(one)),
+    "the room and the grey do not run on the fold's length and curve");
+  assert.match(rule(TOKENS, ".answered.motion"), /margin-bottom var\(--answ-move\) var\(--gentle\),\s*--answ-fill var\(--answ-move\) var\(--gentle\)/,
+    "a run in progress dropped the room's and the grey's own run");
+  const props = [...keyframes(TOKENS, "markin").matchAll(/([a-z-]+):/g)].map(m => m[1]);
+  assert.deepEqual([...new Set(props)].sort(), ["opacity", "transform"], "the mark comes in on more than strength and a transform");
+  assert.match(rule(TOKENS, ".answered.markin::after"), /animation:markin var\(--answ-move\) var\(--gentle\) backwards/);
+  assert.match(rule(TOKENS, ".answered.markout::after"), /opacity:0; transition:opacity calc\(var\(--answ-move\) \/ 2\) var\(--gentle\)/);
+  assert.match(TOKENS, /--answ-move:\.33s/, "the fold's run is not the length the mark's clocks are set for");
 });
 
 test("the panel's list is the board's reading: a note's messages first, read, then the queue where it stands", () => {
@@ -1534,17 +1780,254 @@ test("the panel's list is the board's reading: a note's messages first, read, th
   assert.match(DESKTOP, /el\.sentItems = sentFrom\(b\);\s*syncSent\(el, el\.sentItems\);/);
   assert.match(PHONE, /el\.sentItems = sentFrom\(b\);\s*drawSent\(el, b\.id\);/);
   assert.match(PHONE, /el\.sentItems = \[\.\.\.el\.sentItems, \{ text: op\.text, stage: "sent" \}\];/);
-  assert.match(PHONE, /batch\.push\(\{ text: op\.text, op: op\.id, state: op\.state, note: opNote\(op\), stage: "local" \}\);/,
+  assert.match(PHONE, /batch\.push\(\{ text: op\.text, op: op\.id, state: op\.state, badge: opBadge\(op\), stage: "local" \}\);/,
     "the phone's own messages are not marked as not yet on the board");
   // and the sheet draws the stages: faded words and grey, the one quiet mark in its room
   assert.match(rule(TOKENS, ".answered.undelivered"), /--answ-fill:color-mix\(in srgb, var\(--bubble-fill\) 50%, var\(--card, #fff\)\)/);
-  assert.match(rule(TOKENS, ".answmsg.undelivered > :not(.answnote)"), /opacity:\.5/);
+  assert.match(rule(TOKENS, ".answmsg.undelivered > :not(.answmark)"), /opacity:\.5/);
   assert.match(rule(TOKENS, ".answmsg > *"), /transition:opacity var\(--answ-move\) var\(--gentle\)/);
-  assert.match(rule(TOKENS, ".answered[data-tag]"), /margin-bottom:var\(--answ-tag\)/);
-  const mark = rule(TOKENS, ".answered[data-tag]::after");
-  assert.match(mark, /content:attr\(data-tag\); position:absolute; top:100%; right:var\(--answ-round\);/);
+  assert.match(rule(TOKENS, ".answered[data-mark]"), /margin-bottom:var\(--answ-tag\)/);
+  const mark = rule(TOKENS, ".answered[data-mark]::after");
+  assert.match(mark, /content:attr\(data-mark\); position:absolute; top:100%; right:var\(--answ-round\);/);
   assert.match(mark, /font:10\.5px\/1\.35 var\(--mono\); color:var\(--sub\);/);
   assert.match(mark, /pointer-events:none/);
+});
+
+test("a send is faded from the press, Delivered once the board answers, and taken out again if the board does not", () => {
+  const { context } = sandbox();
+  const el = fullCard("c1");
+  const item = context.sentLaunch(el, "Invented one.");
+  assert.equal(item.stage, "local");
+  assert.equal(el.sent.classList.contains("undelivered"), true, "a send on its way is not faded");
+  assert.equal(el.sent.dataset.tag, undefined, "a send on its way carries a word");
+  assert.equal(el.sendGuard, Infinity, "a reading asked before the board had it may replace the list");
+  // a second send while the first is out: the guard stands until both have settled
+  const second = context.sentLaunch(el, "Invented two.");
+  context.sentLanded(el, item);
+  assert.equal(item.stage, "sent");
+  assert.equal(el.sendGuard, Infinity, "the guard came down with a send still out");
+  assert.equal(el.sent.dataset.tag, "Delivered");
+  assert.deepEqual(stagesOf(el.sent), [false, true], "the send still out is not faded on its own");
+  context.sentLanded(el, second);
+  assert.ok(Number.isFinite(el.sendGuard), "the guard did not come down once every send had settled");
+  assert.equal(el.sent.classList.contains("undelivered"), false);
+  // landing again, or failing one that landed, changes nothing
+  context.sentLanded(el, second);
+  context.sentFailed(el, second, false);
+  assert.deepEqual([...el.sentItems.map(m => m.stage)], ["sent", "sent"]);
+  assert.equal(el.sendsOut, 0);
+  assert.equal((el.sentHeld || []).length, 0);
+  // a send the board did not take stays in the panel, held out of the board's readings
+  const lost = context.sentLaunch(el, "Invented three.");
+  assert.equal(el.sent.querySelectorAll(".answmsg").length, 3);
+  context.sentFailed(el, lost, false);
+  assert.equal(lost.stage, "local", "a send the board did not take was called sent");
+  assert.deepEqual([...el.sentItems.map(m => m.text)], ["Invented one.", "Invented two."]);
+  assert.deepEqual([...el.sentHeld.map(m => m.text)], ["Invented three."]);
+  assert.equal(el.sent.querySelectorAll(".answmsg").length, 3, "a send the board did not take left the panel");
+  assert.equal(el.sendsOut, 0);
+  assert.ok(Number.isFinite(el.sendGuard));
+  // the board's reading replaces its own list and the held send is still drawn
+  context.syncSent(el, [{ text: "Invented one.", stage: "sent" }]);
+  assert.deepEqual(el.sent.querySelectorAll(".answmsg").map(row => row.dataset.text), ["Invented one.", "Invented three."],
+    "the board's reading took the held send away");
+  // the only message failed: the panel stays, holding it
+  const alone = fullCard("c2");
+  const only = context.sentLaunch(alone, "Invented only.");
+  context.sentFailed(alone, only, false);
+  assert.ok(alone.sent, "a panel holding the one failed message went");
+  assert.equal(alone.sent.classList.contains("undelivered"), true);
+});
+
+// the badge of a failed send, and what each press on it does. fetch is the
+// test's own, so each answer the board could give is the test's to choose
+function held(context, text, route = "/send?box=c1") {
+  const el = fullCard("c1");
+  Object.assign(el, { tick() {} });
+  el.ta.value = "";
+  const item = context.sentLaunch(el, text, route);
+  context.sentFailed(el, item, false);
+  return { el, item };
+}
+const reply = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
+
+test("a failed send wears the red round mark with its cross, and no words", () => {
+  const { context } = sandbox();
+  const { el, item } = held(context, "Invented failed.");
+  const mark = el.sent.querySelector(".answmark");
+  assert.ok(mark, "a failed send wears no mark");
+  assert.equal(mark.dataset.kind, "fail");
+  assert.equal(textsOf(mark).length, 0, "the mark carries words");
+  assert.ok(mark.querySelector(".answretry"), "no circular arrow");
+  assert.ok(mark.querySelector(".answcross"), "no cross");
+  assert.match(mark.querySelector(".answretry").innerHTML, /<polyline/);
+  assert.equal(el.sent.querySelector(".answmsg").dataset.op, item.op);
+  assert.equal(el.sent.querySelector(".answnote"), null);
+  // the same message tried again by the phone itself shows the ring and no buttons
+  item.badge = "ring";
+  context.syncSent(el, el.sentItems);
+  assert.ok(el.sent.querySelector(".tsqring"));
+  assert.equal(el.sent.querySelector(".answretry"), null);
+  assert.equal(el.sent.querySelector(".answcross"), null);
+});
+
+test("the arrow sends the held message again under its own id, and lands it once", async () => {
+  const { context } = sandbox();
+  const { el, item } = held(context, "Invented retry.");
+  const id = item.op;
+  const seen = [];
+  context.fetch = async (url, init) => { seen.push([url, init.method, init.body]); return reply(200, { ok: true }); };
+  let landed = 0;
+  item.landed = () => { landed++; };
+  await context.sentRetry(el, item);
+  assert.deepEqual(seen, [["/send?box=c1&op=" + encodeURIComponent(id), "POST", "Invented retry."]], "the retry did not reuse the id");
+  assert.equal(item.stage, "sent");
+  assert.equal(landed, 1);
+  assert.equal((el.sentHeld || []).length, 0);
+  assert.equal(el.sent.dataset.tag, "Delivered");
+  assert.equal(el.sent.querySelector(".answmark"), null, "a landed message kept its mark");
+  // pressing it again does nothing: it is no longer held
+  await context.sentRetry(el, item);
+  assert.equal(seen.length, 1);
+  // a retry that does not get through puts the mark back
+  const second = context.sentLaunch(el, "Invented again.", "/send?box=c1");
+  context.sentFailed(el, second, false);
+  context.fetch = async () => { throw new Error("offline"); };
+  await context.sentRetry(el, second);
+  assert.equal(second.badge, "fail");
+  assert.equal(el.sentHeld.length, 1);
+  assert.equal(el.sendsOut, 0);
+});
+
+test("the arrow on a refused message does nothing and shows no reason", async () => {
+  const { context } = sandbox();
+  const el = fullCard("c1");
+  const item = context.sentLaunch(el, "Invented refused.", "/send?box=c1");
+  context.sentFailed(el, item, true);
+  let asked = 0;
+  context.fetch = async () => { asked++; return reply(200, {}); };
+  await context.sentRetry(el, item);
+  assert.equal(asked, 0, "the arrow sent a refused message again");
+  assert.equal(item.badge, "fail");
+  assert.equal(el.sentHeld.length, 1);
+  assert.ok(el.sent.querySelector(".answmark"));
+  assert.equal(textsOf(el.sent.querySelector(".answmark")).length, 0);
+});
+
+test("a try is told landed, refused or failed by what the board answers", async () => {
+  const { context } = sandbox();
+  const item = { text: "Invented.", op: "op-x", route: "/send?box=c1" };
+  const tries = [];
+  context.fetch = async (url, init) => { tries.push(init.signal && typeof init.signal.aborted); return reply(context.said); };
+  for (const [status, want] of [[200, "landed"], [400, "refused"], [409, "refused"], [413, "refused"], [500, "failed"], [502, "failed"], [401, "failed"]]) {
+    context.said = status;
+    assert.equal(await context.sentTry(item), want, `${status}`);
+  }
+  assert.ok(tries.every(t => t === "boolean"), "a try has no time limit");
+  context.fetch = async () => { throw new Error("offline"); };
+  assert.equal(await context.sentTry(item), "failed");
+});
+
+test("the cross asks the board first: landed makes the row Delivered, not landed gives the words back", async () => {
+  const { context } = sandbox();
+  // the board has it
+  let h = held(context, "Invented landed.");
+  h.el.ta.value = "Invented draft.";
+  let asked = [];
+  context.fetch = async url => { asked.push(url); return reply(200, { status: "applied", kind: "send", box: "c1", result: {} }); };
+  let landed = 0;
+  h.item.landed = () => { landed++; };
+  await context.sentCross(h.el, h.item);
+  assert.deepEqual(asked, ["/op?id=" + encodeURIComponent(h.item.op)]);
+  assert.equal(h.el.ta.value, "Invented draft.", "words were taken back for a message that landed");
+  assert.equal(h.item.stage, "sent");
+  assert.equal(h.el.sent.dataset.tag, "Delivered");
+  assert.equal(h.el.sent.querySelector(".answmark"), null);
+  assert.equal(landed, 1);
+  // the board does not have it
+  h = held(context, "Invented not landed.");
+  h.el.ta.value = "Invented draft.";
+  context.fetch = async () => reply(200, { status: "unknown" });
+  await context.sentCross(h.el, h.item);
+  assert.equal(h.el.ta.value, "Invented draft.\n\nInvented not landed.", "the words did not go back after the draft");
+  assert.equal(h.el.sent, null, "the message stayed in the panel");
+  // with nothing in the bar the words go in alone
+  h = held(context, "Invented alone.");
+  context.fetch = async () => reply(200, { status: "unknown" });
+  await context.sentCross(h.el, h.item);
+  assert.equal(h.el.ta.value, "Invented alone.");
+});
+
+test("the cross does nothing while the board cannot be asked, and a refused message gives its words back at once", async () => {
+  const { context } = sandbox();
+  let h = held(context, "Invented unreachable.");
+  context.fetch = async () => { throw new Error("offline"); };
+  await context.sentCross(h.el, h.item);
+  assert.equal(h.el.ta.value, "");
+  assert.equal(h.el.sentHeld.length, 1, "the message was taken back with no answer from the board");
+  assert.ok(h.el.sent.querySelector(".answmark"));
+  context.fetch = async () => reply(503, {});
+  await context.sentCross(h.el, h.item);
+  assert.equal(h.el.sentHeld.length, 1);
+  assert.equal(h.el.ta.value, "");
+  // past the receipt's certain window "unknown" proves nothing
+  h.item.ts = Date.now() - 37 * 3600 * 1000;
+  context.fetch = async () => reply(200, { status: "unknown" });
+  await context.sentCross(h.el, h.item);
+  assert.equal(h.el.sentHeld.length, 1);
+  assert.equal(h.el.ta.value, "");
+  // once it can be asked, it is
+  h.item.ts = Date.now();
+  await context.sentCross(h.el, h.item);
+  assert.equal(h.el.ta.value, "Invented unreachable.");
+  // a refused message is known not to have landed: no question is asked
+  const el = fullCard("c2");
+  Object.assign(el, { tick() {} });
+  el.ta.value = "";
+  const refused = context.sentLaunch(el, "Invented refused.", "/send?box=c2");
+  context.sentFailed(el, refused, true);
+  let asked = 0;
+  context.fetch = async () => { asked++; return reply(200, {}); };
+  await context.sentCross(el, refused);
+  assert.equal(asked, 0);
+  assert.equal(el.ta.value, "Invented refused.");
+  assert.equal(el.sent, null);
+});
+
+test("a reading the board answers asks once about each held message, and a landed one becomes Delivered", async () => {
+  const { context } = sandbox();
+  const h = held(context, "Invented late.");
+  let asked = 0;
+  context.fetch = async () => { asked++; return reply(200, { status: "unknown" }); };
+  await context.sentAskHeld(h.el);
+  await context.sentAskHeld(h.el);
+  assert.equal(asked, 1, "the board was asked again for a message it had already said unknown for");
+  assert.equal(h.el.sentHeld.length, 1);
+  const g = held(context, "Invented landed late.");
+  context.fetch = async () => reply(200, { status: "applied", kind: "send", box: "c1", result: {} });
+  await context.sentAskHeld(g.el);
+  assert.equal(g.item.stage, "sent");
+  assert.equal(g.el.sentHeld.length, 0);
+  assert.equal(g.el.sent.dataset.tag, "Delivered");
+  // a board that could not be reached is asked again at the next reading
+  const k = held(context, "Invented waiting.");
+  context.fetch = async () => { throw new Error("offline"); };
+  await context.sentAskHeld(k.el);
+  assert.equal(k.item.checked, false);
+});
+
+test("a press on the mark's buttons goes to the page, and no press on its row opens the panel", () => {
+  const { context } = sandbox();
+  const { el, item } = held(context, "Invented pressed.");
+  const calls = [];
+  context.sentMarkAct = (card, op, act) => { calls.push([op, act]); };
+  const cross = el.sent.querySelector(".answcross");
+  const retry = el.sent.querySelector(".answretry");
+  let stopped = 0;
+  context.sentBadgePress(el, { target: retry, stopPropagation() { stopped++; } });
+  context.sentBadgePress(el, { target: cross, stopPropagation() { stopped++; } });
+  assert.deepEqual(calls, [[item.op, "retry"], [item.op, "cross"]]);
+  assert.equal(stopped, 2);
 });
 
 test("the small card turns the same way, its three pieces pictured and carried up in one glide", () => {
@@ -1558,7 +2041,7 @@ test("the small card turns the same way, its three pieces pictured and carried u
   box.append(answwrap, reply, sentwrap);
   const el = { box, reply, answwrap, answ: null, answId: null, sentwrap, sent: null, sentKey: "", sentItems: [],
                ta: element("textarea") };
-  context.syncSent(el, [{ text: SENT[0], stage: "delivered" }], true);
+  context.syncSent(el, [{ text: SENT[0], stage: "sent" }], true);
   box.rect = { top: 0, bottom: 400 };
   reply.rect = { top: 40, bottom: 300 };
   sentwrap.rect = { top: 300, bottom: 360 };
@@ -1606,36 +2089,35 @@ test("the small card turns the same way, its three pieces pictured and carried u
   assert.match(DESKTOP, /#magic2 \.turnsheet\{background:inherit\}/);
 });
 
-// ---- cutting back without moving the view --------------------------------------------------
-// the answer's scroller as a browser keeps it: its content is the answer (base)
-// under the panel, the panel's cut and the top margin it is held down by, plus
-// whatever room is held at its foot, and whenever the page is laid out a scroll
-// past the new end is pulled back to it. the cut is laid out, and so pulls the
-// scroll, whenever the panel reads how tall its preview stands. every scroll a
-// layout leaves is kept (seen), so a pull inside a press shows even when the
-// script writes the scroll back before the press is over. under is where the
-// answer under the panel stands in the view: the reader's words, which a cut
-// back must not move. a run caught part way stands its cut at clip.midRun and
-// its margin at panel.midDrop
-function scrollingView(view, clip, panel, base, height) {
+// ---- cutting back the way it opened ----------------------------------------------------------
+// the answer's scroller as a browser keeps it: its content is the panel's cut at
+// the head of it (seat down from the start of the content), the answer (base)
+// under it and whatever room is held at its foot, and whenever the page is laid
+// out a scroll past the new end is pulled back to it (pulled). the cut is laid
+// out, and so pulls the scroll, whenever the panel reads how tall its preview
+// stands. every scroll a layout leaves is kept (seen) and every scroll the
+// script writes (writes), so a pull inside a press shows even when the script
+// writes the scroll back before the press is over. the view's top is at 0 on
+// the screen unless a test puts it elsewhere, and the panel reports where its
+// own head stands. head is where the panel's head stands on the screen, foot
+// where its foot does, which is where the answer under the panel stands too,
+// both from the view's top. a run caught part way stands its cut at clip.midRun
+function scrollingView(view, clip, base, height, seat = 0) {
   let top = 0;
   let laying = false;
   const seen = [];
+  const pulled = [];
+  const writes = [];
   const slack = () => parseFloat(view.style.getPropertyValue("--answ-slack")) || 0;
-  const margin = () => {
-    const inline = panel.style.getPropertyValue("margin-top");
-    if (!inline) return 0;
-    return panel.midDrop != null ? panel.midDrop : parseFloat(inline) || 0;
-  };
   Object.defineProperty(view, "scrollHeight", { configurable: true,
-    get: () => base + clip.getBoundingClientRect().height + margin() + slack() });
+    get: () => base + clip.getBoundingClientRect().height + slack() });
   const layout = () => {
     const max = Math.max(0, view.scrollHeight - view.clientHeight);
-    if (top > max) top = max;
+    if (top > max) { pulled.push({ from: top, to: max }); top = max; }
     seen.push(top);
   };
   Object.defineProperty(view, "scrollTop", { configurable: true,
-    get: () => top, set: value => { top = Math.max(0, value); layout(); } });
+    get: () => top, set: value => { writes.push(value); top = Math.max(0, value); layout(); } });
   view.clientHeight = height;
   const cut = clip.clientHeight;
   Object.defineProperty(clip, "clientHeight", { configurable: true,
@@ -1643,181 +2125,343 @@ function scrollingView(view, clip, panel, base, height) {
       if (!laying) { laying = true; layout(); laying = false; }
       return cut;
     } });
-  const under = () => clip.getBoundingClientRect().height + margin() - top;
-  return { layout, slack, seen, under };
+  clip.parentNode.getBoundingClientRect = () => {
+    const at = (view.rect ? view.rect.top : 0) + seat - top;
+    const tall = clip.getBoundingClientRect().height;
+    return { top: at, bottom: at + tall, left: 0, right: 0, width: 0, height: tall };
+  };
+  const foot = () => seat + clip.getBoundingClientRect().height - top;
+  const head = () => seat - top;
+  return { layout, slack, seen, pulled, writes, foot, head, seat, top: () => top };
 }
-// the panel's top margin as a browser reports it: where a run caught part way
-// has it (midDrop), else what is written
-function reportMargins(context) {
-  const computed = context.getComputedStyle;
-  context.getComputedStyle = (node, pseudo) => Object.assign(computed(node, pseudo), {
-    marginTop: node.midDrop != null ? node.midDrop + "px" : node.style.getPropertyValue("margin-top") || "0px",
-  });
+// a run played the way a browser plays it: at each height the transition has the
+// cut at, the layout it leaves, then the frame's own callbacks, then what the
+// frame draws
+function playRun(view, clip, frame, heights) {
+  const drawn = [];
+  for (const h of heights) {
+    clip.midRun = h;
+    view.layout();
+    frame();
+    view.layout();
+    drawn.push({ cut: h, scroll: view.seen.at(-1), foot: view.foot(), head: view.head() });
+  }
+  return drawn;
+}
+// the press that cuts an open panel back. the transition starts from the height
+// the panel stands at, which is what any layout inside the press itself reads
+function cutBack(panel, clip, from) {
+  clip.midRun = from;
+  panel.fire("click", { target: panel });
+}
+// a card whose panel has been opened, standing in a scroller as the test says: base
+// of answer under the 240 batch, a view height tall, the panel seat down from the
+// start of the content
+function openedCard(base, height, seat = 0) {
+  const s = sandbox();
+  const el = card("c1");
+  s.context.syncAnswered(el, s.context.liveAnswered(liveBox()));
+  const clip = layOutLong(el.answ, FakeResizeObserver.made[0]);
+  el.answ.fire("click", { target: el.answ });
+  landRun(el.answ);
+  return { ...s, el, panel: el.answ, clip, view: scrollingView(el.replyview, clip, base, height, seat) };
+}
+// a cut played from its press over the heights given, checked for what the reader
+// sees. the part of the panel above the view's top (hidden) is given up first: the
+// scroll goes back on every frame by what the cut has taken so far, no further
+// than the hidden part, so the foot and the answer under it stay where they stand
+// until the hidden part is used up and come up by the rest of the cut, and the
+// panel's head is never scrolled into sight. the press writes the scroll once, the
+// frames once each, and the browser never pulls it
+function cutOnScreen(view, panel, clip, frame, from, heights, where) {
+  const scroll = view.top();
+  const hidden = Math.floor(Math.max(0, 0 - view.head()));
+  const scrolls = heights.map(h => scroll - Math.max(0, Math.min(hidden, from - h)));
+  view.writes.length = 0;
+  view.pulled.length = 0;
+  cutBack(panel, clip, from);
+  assert.equal(panel.classList.contains("motion"), true, `${where}: the cut back did not run`);
+  assert.deepEqual(view.writes, [scroll], `${where}: the press did more to the scroll than put the reader back where they were`);
+  const frames = playRun(view, clip, frame, heights);
+  assert.deepEqual(frames.map(f => f.scroll), scrolls, `${where}: the scroll did not go back by what the cut had taken, up to the hidden part`);
+  assert.deepEqual(frames.map(f => f.foot), heights.map((h, i) => view.seat + h - scrolls[i]),
+    `${where}: the foot did not come up by what the cut takes past the hidden part`);
+  assert.deepEqual(frames.map(f => f.head), scrolls.map(s => view.seat - s), `${where}: the panel's head is not where the scroll leaves it`);
+  if (hidden > 0)
+    assert.ok(frames.every(f => f.head <= 0), `${where}: the panel's head came into sight during the run`);
+  assert.deepEqual(view.pulled, [], `${where}: the browser pulled the view during the run`);
+  assert.deepEqual(view.writes, hidden > 0 ? [scroll, ...scrolls] : [scroll],
+    `${where}: the scroll was written other than once for the press and once for each frame of a followed run`);
+  return frames;
 }
 
-test("cutting a panel back leaves the answer under it where it is, before, during and after the run", () => {
-  const { context } = sandbox();
-  reportMargins(context);
-  const el = card("c1");
-  context.syncAnswered(el, context.liveAnswered(liveBox()));
-  const panel = el.answ;
+test("a cut back with more of the panel above the view than the cut takes off scrolls the view back with the cut, so the answer stays where it stands", () => {
+  const { el, panel, clip, view, frame, waiting } = openedCard(400, 400);
   assert.equal(panel.answView, el.replyview, "the panel does not know the scroller it rides in");
-  const clip = layOutLong(panel, FakeResizeObserver.made[0]);
-  panel.fire("click", { target: panel });
-  landRun(panel);
-  // the phone's case: a batch opened taller than the view, its arrow reached by
-  // scrolling the panel's head out of sight. 600 of answer under a 240 batch,
-  // a 400 view, scrolled 440 down
-  const view = scrollingView(el.replyview, clip, panel, 600, 400);
-  el.replyview.scrollTop = 440;
-  assert.equal(view.under(), -200);
+  // 400 of answer under a 240 batch in a 400 view, scrolled 200 down: the head
+  // stands 200 above the view's top, the foot 40 below it, and the cut takes 182
+  // off the batch, which is less than the 200 hidden
+  el.replyview.scrollTop = 200;
+  assert.equal(view.head(), -200);
+  assert.equal(view.foot(), 40);
   view.seen.length = 0;
-  // cut back: the 182 it takes comes off the panel's top, so the arrow and the
-  // answer under it hold still while the panel's head comes down
-  panel.fire("click", { target: panel });
+  view.pulled.length = 0;
+  view.writes.length = 0;
+  cutBack(panel, clip, 240);
   assert.equal(panel.classList.contains("motion"), true, "the cut back did not run");
   assert.deepEqual(clip.style.heights.slice(-2), ["240px", "58px"], "the run is not the panel's cut shrinking");
-  assert.equal(panel.style.getPropertyValue("margin-top"), "182px", "the panel is not held down while its cut comes up");
-  assert.deepEqual([...new Set(view.seen)], [440], "the view was pulled while the press was handled");
-  assert.equal(view.slack(), 0, "room was held under an answer that did not need it");
-  assert.equal(view.under(), -200, "the answer under the panel moved as the cut began");
-  // a frame part way: the cut half come up, the margin half grown, and still
-  // nothing the reader is looking at moves
-  clip.midRun = 149; panel.midDrop = 91;
-  view.layout();
-  assert.equal(el.replyview.scrollTop, 440, "the view was pulled while the panel shrank");
-  assert.equal(view.under(), -200, "the answer under the panel moved while the panel shrank");
-  // landed: the margin comes off and the scroll goes up by as much, in one step
-  clip.midRun = null; panel.midDrop = null;
+  // the press itself moves nothing: the view is where it was, room is held under
+  // the answer for what the cut takes so no layout of the run pulls the scroll,
+  // and the view is asked to follow the cut on its frames
+  assert.deepEqual([...new Set(view.seen)], [200], "the view was pulled while the press was handled");
+  assert.deepEqual(view.writes, [200], "the press did more to the scroll than put the reader back where they were");
+  assert.equal(view.slack(), 142, "the room held is not what the run needs");
+  assert.equal(panel.style.getPropertyValue("margin-top"), "", "the panel is held down by a margin");
+  assert.equal(waiting(), 1, "the view is not asked to follow the cut on its frames");
+  // the frames: the cut at heights the transition passes through. the scroll goes
+  // back by what the cut has taken, so the foot and the answer under it do not move
+  // at all, and the head, still above the view, comes down with the scroll
+  const frames = playRun(view, clip, frame, [240, 208, 149, 100, 72, 58]);
+  assert.deepEqual(frames.map(f => f.scroll), [200, 168, 109, 60, 32, 18], "the scroll did not go back with the cut");
+  assert.deepEqual(frames.map(f => f.foot), Array(6).fill(40), "the foot and the answer under it moved");
+  assert.deepEqual(frames.map(f => f.head), [-200, -168, -109, -60, -32, -18]);
+  assert.ok(frames.every(f => f.head < 0), "the panel's head came into sight during the run");
+  assert.deepEqual(view.pulled, [], "the browser pulled the view during the run");
+  assert.deepEqual(view.writes, [200, 200, 168, 109, 60, 32, 18], "the scroll was written other than once per frame");
+  assert.equal(panel.style.getPropertyValue("margin-top"), "", "a margin was written during the run");
+  assert.equal(waiting(), 1, "the follow does not ask for the frame after this one");
+  // landed: the far end is written for a run that ends between frames, the room
+  // the view no longer stands on is let go, and the frame that was still waiting
+  // finds the run over and asks for no more
+  clip.midRun = null;
   landRun(panel);
-  assert.equal(panel.style.getPropertyValue("margin-top"), "", "the margin was left on the panel");
-  assert.equal(el.replyview.scrollTop, 258, "the scroll was not given the drop back");
-  assert.equal(view.under(), -200, "the answer under the panel moved as the panel landed");
-  assert.equal(view.slack(), 0, "room was left held once the panel had landed");
+  assert.equal(el.replyview.scrollTop, 18, "the scroll did not land where the cut leaves it");
+  assert.equal(view.foot(), 40, "the answer moved as the panel landed");
+  assert.equal(view.head(), -18);
+  assert.deepEqual(view.pulled, [], "the browser pulled the scroll as the panel landed");
+  assert.equal(view.slack(), 0, "room was kept that the view does not stand on");
+  frame();
+  assert.equal(waiting(), 0, "the follow went on asking for frames after the run landed");
+  assert.deepEqual(view.writes, [200, 200, 168, 109, 60, 32, 18, 18], "the landing wrote more than the far end");
+});
 
-  // a panel whose head is on screen has no scroll above it: it is cut from its
-  // foot as ever, and the answer under it comes up
-  panel.fire("click", { target: panel });
-  landRun(panel);
-  el.replyview.scrollTop = 0;
-  panel.fire("click", { target: panel });
-  assert.equal(panel.style.getPropertyValue("margin-top"), "", "a panel standing whole on screen was held down");
+test("a cut back with less of the panel above the view than the cut takes off scrolls back by the hidden part, and the answer rises by the rest", () => {
+  const { el, panel, clip, view, frame, waiting } = openedCard(400, 400);
+  // scrolled 100 down: 100 of the head is above the view, the cut takes 182
+  el.replyview.scrollTop = 100;
+  assert.equal(view.foot(), 140);
+  const frames = cutOnScreen(view, panel, clip, frame, 240, [240, 208, 149, 100, 72, 58], "the hidden part shorter than the cut");
+  assert.deepEqual(frames.map(f => f.scroll), [100, 68, 9, 0, 0, 0], "the scroll did not go back by the hidden part");
+  assert.deepEqual(frames.map(f => f.foot), [140, 140, 140, 100, 72, 58],
+    "the answer did not stay put while the hidden part lasted and come up by the rest");
+  assert.deepEqual(frames.map(f => f.head), [-100, -68, -9, 0, 0, 0], "the panel's head went past the top of the view");
+  assert.equal(view.slack(), 42, "the room held is not what the run needs");
+  clip.midRun = null;
   landRun(panel);
   assert.equal(el.replyview.scrollTop, 0);
-  assert.equal(view.under(), 58);
+  assert.equal(view.foot(), 58);
+  assert.equal(frames[0].foot - view.foot(), 182 - 100, "the answer did not rise by what the hidden part could not give");
+  assert.equal(view.slack(), 0, "room was kept that the view does not stand on");
+  assert.deepEqual(view.pulled, []);
+  frame();
+  assert.equal(waiting(), 0);
 
+  // a hidden part that is not a whole number of points is counted down, so the
+  // scroll stops with the head still above the view, not at its top
+  const part = openedCard(400, 400, 0.6);
+  part.el.replyview.scrollTop = 100;
+  const rounded = cutOnScreen(part.view, part.panel, part.clip, part.frame, 240, [240, 208, 149, 100, 58], "the hidden part in fractions");
+  assert.deepEqual(rounded.map(f => f.scroll), [100, 68, 9, 1, 1]);
+  assert.ok(rounded.every(f => f.head < 0), "the panel's head reached the view's top");
+  part.clip.midRun = null;
+  landRun(part.panel);
+  assert.equal(part.el.replyview.scrollTop, 1);
+  assert.equal(part.view.head(), 0.6 - 1, "the head was scrolled into sight");
+});
+
+test("a cut back with nothing of the panel above the view is cut from its foot with the scroll left alone, as ever", () => {
+  // the panel at the top, its head in sight
+  const top = openedCard(400, 400);
+  assert.equal(top.view.top(), 0);
+  const flush = cutOnScreen(top.view, top.panel, top.clip, top.frame, 240, [240, 149, 58], "the panel at the top");
+  assert.deepEqual(flush.map(f => f.foot), [240, 149, 58], "the answer under the panel does not come up with its foot");
+  assert.deepEqual(flush.map(f => f.scroll), [0, 0, 0]);
+  assert.equal(top.waiting(), 0, "the view is asked to follow a cut that has nothing above the view");
+  assert.equal(top.view.slack(), 0, "room was held under a view standing at its top");
+  top.clip.midRun = null;
+  landRun(top.panel);
+  assert.equal(top.el.replyview.scrollTop, 0);
+  assert.equal(top.view.foot(), 58);
+  assert.equal(top.waiting(), 0);
+  // the view scrolled a little, but the panel standing further down than that:
+  // its head is in sight, so nothing is above the view and the scroll stays
+  const seated = openedCard(400, 400, 30);
+  seated.el.replyview.scrollTop = 20;
+  assert.equal(seated.view.head(), 10);
+  const kept = cutOnScreen(seated.view, seated.panel, seated.clip, seated.frame, 240, [240, 149, 58], "the head in sight");
+  assert.deepEqual(kept.map(f => f.scroll), [20, 20, 20]);
+  assert.deepEqual(kept.map(f => f.foot), [250, 159, 68]);
+  assert.equal(seated.waiting(), 0, "the view is asked to follow a cut that has nothing above the view");
+  seated.clip.midRun = null;
+  landRun(seated.panel);
+  assert.equal(seated.el.replyview.scrollTop, 20, "the scroll moved as the panel landed");
+});
+
+test("a cut back that is turned, taken by the reader, met by a short answer or a keyboard, or made plain, keeps the reader where the cut puts them", () => {
   // a press that catches the cut part way turns it round where it stands: the
-  // scroll is given what the margin stood at, and the answer under it stays
-  panel.fire("click", { target: panel });
-  landRun(panel);
-  el.replyview.scrollTop = 440;
-  panel.fire("click", { target: panel });
-  clip.midRun = 149; panel.midDrop = 91;
-  view.layout();
-  view.seen.length = 0;
-  panel.fire("click", { target: panel });
-  assert.equal(panel.classList.contains("open"), true, "the second press did not turn the run round");
-  assert.equal(el.replyview.scrollTop, 349, "the scroll was not given back what the margin stood at");
-  assert.equal(panel.style.getPropertyValue("margin-top"), "", "the opening run kept the cut's margin");
-  assert.equal(clip.style.heights.at(-2), "149px", "the opening run did not start where the cut stood");
-  assert.equal(view.under(), -200, "the answer under the panel jumped as the run turned round");
-  assert.ok(view.seen.every(at => at === 440 || at === 349), "the view was pulled while the run turned round");
-  clip.midRun = null; panel.midDrop = null;
-  landRun(panel);
+  // scroll has not moved, the opening starts from the height the cut had reached,
+  // the foot does not jump, nothing is written, and the follow of the cut stops
+  const turned = openedCard(400, 400);
+  turned.el.replyview.scrollTop = 200;
+  cutBack(turned.panel, turned.clip, 240);
+  playRun(turned.view, turned.clip, turned.frame, [240, 149]);
+  assert.equal(turned.view.top(), 109);
+  turned.view.seen.length = 0;
+  turned.view.writes.length = 0;
+  turned.panel.fire("click", { target: turned.panel });
+  assert.equal(turned.panel.classList.contains("open"), true, "the second press did not turn the run round");
+  assert.equal(turned.el.replyview.scrollTop, 109, "the scroll moved as the run turned round");
+  assert.equal(turned.clip.style.heights.at(-2), "149px", "the opening run did not start where the cut stood");
+  assert.equal(turned.view.foot(), 40, "the foot jumped as the run turned round");
+  assert.ok(turned.view.seen.every(at => at === 109), "the view was pulled while the run turned round");
+  assert.deepEqual(turned.view.writes, [], "the scroll was written as the run turned round");
+  turned.frame();
+  assert.equal(turned.waiting(), 0, "the cut's follow went on after a press turned the run round");
+  assert.deepEqual(turned.view.writes, [], "the cut's follow wrote the scroll after a press turned the run round");
+  turned.clip.midRun = null;
+  landRun(turned.panel);
+  assert.equal(turned.el.replyview.scrollTop, 109);
+  assert.equal(turned.view.slack(), 0);
 
-  // an answer too short to stand the view on while the cut takes more than the
-  // drop gives back: 100 of answer under the 240 batch in a 300 view, scrolled
-  // 40 to its end. 40 comes off the top, room is held so the view is never
-  // pulled, and on landing the room goes with nothing moving
-  const short = sandbox();
-  reportMargins(short.context);
-  const brief = card("c3");
-  short.context.syncAnswered(brief, short.context.liveAnswered({ ...liveBox(), id: "c3" }));
-  const briefClip = layOutLong(brief.answ, FakeResizeObserver.made[0]);
-  brief.answ.fire("click", { target: brief.answ });
-  landRun(brief.answ);
-  const briefView = scrollingView(brief.replyview, briefClip, brief.answ, 100, 300);
-  brief.replyview.scrollTop = 40;
-  assert.equal(brief.replyview.scrollTop, 40);
-  briefView.seen.length = 0;
-  brief.answ.fire("click", { target: brief.answ });
-  assert.equal(brief.answ.style.getPropertyValue("margin-top"), "40px");
-  assert.equal(briefView.slack(), 142, "the room held is not what the run needs");
-  assert.deepEqual([...new Set(briefView.seen)], [40], "the short answer's view was pulled while the press was handled");
-  briefClip.midRun = 58; brief.answ.midDrop = 40;
-  briefView.layout();
-  assert.equal(brief.replyview.scrollTop, 40, "the short answer's view was pulled by the end of the run");
-  assert.equal(briefView.under(), 58);
-  briefClip.midRun = null; brief.answ.midDrop = null;
-  landRun(brief.answ);
-  assert.equal(brief.replyview.scrollTop, 0);
-  assert.equal(briefView.under(), 58, "the short answer jumped as the panel landed");
-  assert.equal(briefView.slack(), 0, "room was kept under a view standing at its top");
+  // a press that catches the opening part way and cuts it back: the room is
+  // counted from the whole the panel stands at when the run is settled, not from
+  // the height the opening had reached, so the cut's end is not pulled
+  const caught = openedCard(400, 400);
+  caught.el.replyview.scrollTop = 200;
+  cutBack(caught.panel, caught.clip, 240);
+  playRun(caught.view, caught.clip, caught.frame, [240, 100]);
+  caught.clip.midRun = null;
+  landRun(caught.panel);
+  assert.equal(caught.view.top(), 18);
+  caught.panel.fire("click", { target: caught.panel });
+  playRun(caught.view, caught.clip, caught.frame, [58, 149]);
+  caught.el.replyview.scrollTop = 140;
+  const back = cutOnScreen(caught.view, caught.panel, caught.clip, caught.frame, 149, [149, 100, 58], "the opening caught and cut back");
+  assert.deepEqual(back.map(f => f.foot), [9, 9, 9], "the answer moved while the hidden part lasted");
+  assert.equal(caught.view.slack(), 82, "the room is not counted from the whole panel");
+  caught.clip.midRun = null;
+  landRun(caught.panel);
+  assert.equal(caught.el.replyview.scrollTop, 49);
+  assert.deepEqual(caught.view.pulled, [], "the cut's end was pulled after the opening was caught");
+
+  // a reader who takes the scroll during the run keeps it: the follow writes
+  // nothing more, the room is not let go of while the run is on, and the landing
+  // lets go of what the reader no longer stands on
+  const taken = openedCard(400, 400);
+  taken.el.replyview.scrollTop = 200;
+  cutBack(taken.panel, taken.clip, 240);
+  playRun(taken.view, taken.clip, taken.frame, [240, 149]);
+  taken.el.replyview.scrollTop = 30;
+  taken.el.replyview.fire("scroll");
+  assert.equal(taken.view.slack(), 142, "room was let go of while the run was on");
+  taken.view.pulled.length = 0;
+  taken.view.writes.length = 0;
+  playRun(taken.view, taken.clip, taken.frame, [100]);
+  assert.equal(taken.el.replyview.scrollTop, 30, "the run fought the reader for the scroll");
+  assert.deepEqual(taken.view.writes, [], "the run wrote the scroll a reader had taken");
+  assert.equal(taken.waiting(), 0, "the follow went on after the reader took the scroll");
+  taken.clip.midRun = null;
+  landRun(taken.panel);
+  assert.equal(taken.el.replyview.scrollTop, 30, "the landing moved a scroll the reader had taken");
+  assert.equal(taken.view.slack(), 0);
+  assert.deepEqual(taken.view.pulled, []);
+
+  // an answer too short to stand the view on: 100 of answer under the 240 batch
+  // in a 300 view, scrolled 40 to its end. the whole 40 is hidden, so the scroll
+  // goes back to the top with the cut, the answer holds still until then, and
+  // room is held for the run
+  const short = openedCard(100, 300);
+  short.el.replyview.scrollTop = 40;
+  assert.equal(short.el.replyview.scrollTop, 40);
+  const shortFrames = cutOnScreen(short.view, short.panel, short.clip, short.frame, 240, [240, 149, 58], "the short answer");
+  assert.equal(short.view.slack(), 182, "the room held is not what the short answer needs");
+  assert.deepEqual(shortFrames.map(f => f.foot), [200, 149, 58]);
+  short.clip.midRun = null;
+  landRun(short.panel);
+  assert.equal(short.el.replyview.scrollTop, 0, "the short answer's view did not land at its top");
+  assert.equal(short.view.foot(), 58);
+  assert.equal(short.view.slack(), 0, "room was kept that the short answer's view does not stand on");
+  assert.deepEqual(short.view.pulled, [], "the short answer's view was pulled as the panel landed");
 
   // the phone's keyboard, put away by the press: the view grows while the run
   // goes, as far as the window under its top, and the room held covers it. 100
   // of answer under the 240 batch in a 150 view with the keyboard up, scrolled
   // 190 to its end, the view's top 100 down a 450 window
-  const typing = sandbox();
-  reportMargins(typing.context);
+  const typing = openedCard(100, 150);
   typing.context.innerHeight = 450;
-  const row = card("c4");
-  typing.context.syncAnswered(row, typing.context.liveAnswered({ ...liveBox(), id: "c4" }));
-  const rowClip = layOutLong(row.answ, FakeResizeObserver.made[0]);
-  row.answ.fire("click", { target: row.answ });
-  landRun(row.answ);
-  const rowView = scrollingView(row.replyview, rowClip, row.answ, 100, 150);
-  row.replyview.rect = { top: 100, bottom: 250 };
-  row.replyview.scrollTop = 190;
-  assert.equal(rowView.under(), 50);
-  row.answ.fire("click", { target: row.answ });
-  assert.equal(rowView.slack(), 200, "no room was held for the view to grow into");
+  typing.el.replyview.rect = { top: 100, bottom: 250 };
+  typing.el.replyview.scrollTop = 190;
+  assert.equal(typing.view.foot(), 50);
+  typing.view.writes.length = 0;
+  cutBack(typing.panel, typing.clip, 240);
+  assert.equal(typing.view.slack(), 382, "no room was held for the view to grow into");
   // part way, the keyboard is gone and the view stands 350 tall
-  row.replyview.clientHeight = 350;
-  rowClip.midRun = 120; row.answ.midDrop = 120;
-  rowView.layout();
-  assert.equal(row.replyview.scrollTop, 190, "the view was pulled as it grew");
-  assert.equal(rowView.under(), 50, "the answer under the panel moved as the view grew");
-  rowClip.midRun = null; row.answ.midDrop = null;
-  landRun(row.answ);
-  assert.equal(row.replyview.scrollTop, 8);
-  assert.equal(rowView.under(), 50, "the answer jumped as the panel landed with the keyboard gone");
-  assert.equal(rowView.slack(), 200, "the room the grown view stands on was let go under it");
-  row.replyview.scrollTop = 0;
-  row.replyview.fire("scroll");
-  assert.equal(rowView.slack(), 0, "room was kept once the reader had scrolled off it");
+  const grown = playRun(typing.view, typing.clip, typing.frame, [240]);
+  typing.el.replyview.clientHeight = 350;
+  grown.push(...playRun(typing.view, typing.clip, typing.frame, [149, 100]));
+  assert.deepEqual(grown.map(f => f.scroll), [190, 99, 50], "the scroll did not go back with the cut as the view grew");
+  assert.deepEqual(grown.map(f => f.head), [-190, -99, -50]);
+  assert.deepEqual(grown.map(f => f.foot), [50, 50, 50], "the answer moved as the view grew");
+  assert.deepEqual(typing.view.pulled, [], "the view was pulled as it grew");
+  assert.deepEqual(typing.view.writes, [190, 190, 99, 50], "the scroll was written other than once per frame as the view grew");
+  typing.clip.midRun = null;
+  landRun(typing.panel);
+  assert.equal(typing.el.replyview.scrollTop, 8, "the scroll did not land where the cut leaves it with the keyboard gone");
+  assert.equal(typing.view.foot(), 50, "the answer jumped as the panel landed with the keyboard gone");
+  assert.equal(typing.view.slack(), 200, "the room the grown view stands on was let go under it");
+  assert.deepEqual(typing.view.pulled, []);
+  typing.el.replyview.scrollTop = 0;
+  typing.el.replyview.fire("scroll");
+  assert.equal(typing.view.slack(), 0, "room was kept once the reader had scrolled off it");
 
-  // with no motion asked for, the flip keeps the answer under the panel too
-  const still = sandbox();
-  still.context.stillness = true;
-  const flat = card("c2");
-  still.context.syncAnswered(flat, still.context.liveAnswered({ ...liveBox(), id: "c2" }));
-  const flatClip = layOutLong(flat.answ, FakeResizeObserver.made[0]);
-  flat.answ.fire("click", { target: flat.answ });
-  const flatView = scrollingView(flat.replyview, flatClip, flat.answ, 600, 400);
-  flat.replyview.scrollTop = 440;
-  flat.answ.fire("click", { target: flat.answ });
-  assert.equal(flat.answ.classList.contains("open"), false);
-  assert.equal(flat.answ.classList.contains("motion"), false, "a run went against the setting");
-  assert.equal(flat.replyview.scrollTop, 258);
-  assert.equal(flatView.under(), -200, "the plain flip moved the answer under the panel");
-  assert.equal(flatView.slack(), 0);
+  // with no motion asked for, the flip is the same on the screen: the scroll goes
+  // back by what the cut takes up to the hidden part, at once, and the answer
+  // under the panel is where the run would have left it
+  const flat = openedCard(400, 400);
+  flat.context.stillness = true;
+  flat.el.replyview.scrollTop = 200;
+  flat.panel.fire("click", { target: flat.panel });
+  assert.equal(flat.panel.classList.contains("open"), false);
+  assert.equal(flat.panel.classList.contains("motion"), false, "a run went against the setting");
+  assert.equal(flat.el.replyview.scrollTop, 18, "the plain flip did not scroll back with the cut");
+  assert.equal(flat.view.foot(), 40, "the plain flip moved the answer under the panel");
+  assert.deepEqual(flat.view.pulled, [], "the plain flip pulled the view");
+  assert.equal(flat.view.slack(), 0);
+  assert.equal(flat.waiting(), 0, "a plain flip asked for frames");
+  const level = openedCard(400, 400);
+  level.context.stillness = true;
+  level.panel.fire("click", { target: level.panel });
+  assert.equal(level.el.replyview.scrollTop, 0, "the plain flip of a panel at the top moved the view");
+  assert.equal(level.view.foot(), 58);
 });
 
-test("the room a cut back holds is a spacer under the answer, never the scroller's own padding", () => {
+test("the room a cut back holds and the answer's run-out are one spacer under the answer, never the scroller's own padding", () => {
   // the answer's scroller is a flex item, which cannot stand shorter than its
   // padding: room held in it pushed the scroller past the card, and the band
   // the fade over the typing row is cut to, read off the scroller's foot, grew
-  // with it and masked the answer out
+  // with it and masked the answer out. the run-out is a spacer for the other
+  // reason: an engine may leave padding out of the scrollable height, and an
+  // answer that ends inside the run-out then cannot be scrolled
   for (const [where, css, spacer] of [["the phone", PHONE, "\n  .replyview::after{"],
       ["the desktop", DESKTOP, "\n  body.focus .box.sel .replyview::after{"]]) {
     assert.doesNotMatch(css, /padding-bottom:[^;}]*--answ-slack/, `${where} still holds the room in the scroller's padding`);
+    assert.doesNotMatch(css, /padding-bottom:[^;}]*--boxband/, `${where} still hands the run-out back as padding`);
     const at = css.indexOf(spacer);
     assert.ok(at > 0, `${where} has no spacer for the held room`);
-    assert.match(css.slice(at, css.indexOf("}", at) + 1), /content:""; flex:none; height:var\(--answ-slack, 0px\)/);
+    assert.match(css.slice(at, css.indexOf("}", at) + 1),
+      /content:""; flex:none; height:calc\(var\(--answ-slack, 0px\) \+ var\(--boxband, 0px\) \+ var\(--replyfade, 0px\)\)/,
+      `${where} spacer does not carry the held room and the run-out`);
   }
-  assert.match(PHONE, /padding-bottom:calc\(var\(--boxband, 0px\) \+ var\(--replyfade\)\);/);
-  assert.match(DESKTOP, /padding-bottom:calc\(var\(--boxband, 0px\) \+ var\(--replyfade\)\);/);
 });
 
 test("a panel whose own lane was scrolled comes down to its head on the run, not in a jump first", () => {

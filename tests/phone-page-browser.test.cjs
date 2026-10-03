@@ -143,7 +143,7 @@ after(async () => {
   if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
 });
 
-test("the card fills the phone with thin margins, tabs on top, prose through the shared renderer", async () => {
+test("the card fills the phone from a thin top margin down to the row of buttons, prose through the shared renderer", async () => {
   const id = await create("Phone page renders the shared markdown");
   const reply = "The phone card shows the **full** reply.\n\nSee [the runbook](https://example.com/runbook) and this block:\n\n" +
     "```python\nprint('hello from the card')\n```\n\n- one\n- two";
@@ -155,28 +155,41 @@ test("the card fills the phone with thin margins, tabs on top, prose through the
     await page.waitForSelector(`#box-${id}.sel`, { timeout: 5000 });
     const shape = await page.evaluate(() => {
       const pane = document.getElementById("pane").getBoundingClientRect();
-      const bar = document.querySelector(".bar").getBoundingClientRect();
+      const dock = document.getElementById("dock").getBoundingClientRect();
       return {
-        tabs: [...document.querySelectorAll("#tabbar .ptab")].map(t => t.textContent),
-        activeTab: document.querySelector("#tabbar .ptab.on")?.dataset.owner,
-        barTop: bar.top, barBottom: bar.bottom,
+        projects: [...document.querySelectorAll("#projlist .projrow")].map(t => t.textContent),
+        activeProject: document.querySelector("#projlist .projrow.on")?.dataset.owner,
+        capsule: document.getElementById("projname").textContent,
         left: pane.left, top: pane.top,
         right: innerWidth - pane.right, bottom: innerHeight - pane.bottom,
+        dock: { left: dock.left, right: innerWidth - dock.right, bottom: innerHeight - dock.bottom, height: dock.height },
+        buttons: [...document.querySelectorAll("#dock .dockbtn")].map(b => {
+          const r = b.getBoundingClientRect();
+          return [b.id, Math.round(r.width), Math.round(r.height), getComputedStyle(b).borderRadius, b.classList.contains("qn-glass")];
+        }),
         width: innerWidth, height: innerHeight,
         visible: [...document.querySelectorAll("article.box")].filter(b => getComputedStyle(b).display !== "none").length,
-        nothingElse: !document.querySelector("#magic1, #magic2, #magic3, #qchat, #clockbox"),
+        nothingElse: !document.querySelector("#magic1, #magic2, #magic3, #qchat, #clockbox, #tabbar"),
       };
     });
-    assert.equal(shape.tabs.length, 2, "one tab per project lane");
-    assert.ok(shape.tabs.every(label => label.trim().length > 0), "a tab without a label");
-    assert.equal(shape.activeTab, "facilitator");
-    assert.ok(shape.barTop >= 4 && shape.barTop <= 12, `tabs sit at the top with a thin margin (${shape.barTop})`);
+    assert.equal(shape.projects.length, 2, "one row per project lane in the list");
+    assert.ok(shape.projects.every(label => label.trim().length > 0), "a project without a label");
+    assert.equal(shape.activeProject, "facilitator");
+    assert.ok(shape.capsule.trim().length > 0, "the capsule names no project");
+    assert.ok(shape.top >= 4 && shape.top <= 12, `the card starts at the top with a thin margin (${shape.top})`);
     assert.ok(shape.left >= 4 && shape.left <= 12, `thin left margin (${shape.left})`);
     assert.ok(shape.right >= 4 && shape.right <= 12, `thin right margin (${shape.right})`);
-    assert.ok(shape.bottom >= 4 && shape.bottom <= 12, `thin bottom margin (${shape.bottom})`);
-    assert.ok(shape.top >= shape.barBottom && shape.top <= shape.barBottom + 12, "the card starts right under the tabs");
+    // the card stands on the band iOS gives a paired keyboard's bar, and the
+    // row of buttons is laid where that bar's pill is: 48 tall, 10 off the
+    // bottom edge, 16 in from each side
+    assert.equal(shape.bottom, 68, `the card does not stand on the row's band (${shape.bottom})`);
+    assert.deepEqual(shape.dock, { left: 16, right: 16, bottom: 10, height: 48 });
+    // four glass buttons: a circle, the long capsule, a short one, a circle
+    const capsule = shape.width - 32 - 48 - 72 - 48 - 3 * 8;
+    assert.deepEqual(shape.buttons, [["tikbtn", 48, 48, "24px", true], ["projbtn", capsule, 48, "24px", true],
+      ["tikadd", 72, 48, "24px", true], ["setbtn", 48, 48, "24px", true]]);
     assert.equal(shape.visible, 1, "exactly one card is shown");
-    assert.ok(shape.nothingElse, "nothing but tabs, card and drawer");
+    assert.ok(shape.nothingElse, "nothing but the card, the row of buttons and the drawers");
 
     const prose = await page.evaluate(() => {
       const box = document.querySelector("article.box.sel");
@@ -407,21 +420,25 @@ test("phone navigation waits for send confirmation, respects manual moves, and s
       apply(lastState); select("nav-a");
       return { drawer: viewPool(lastState).map(box => box.id), navigation: navigationPool(lastState).map(box => box.id) };
     });
-    assert.deepEqual(initial.navigation, ["nav-a", "nav-b", "nav-e", "nav-d"],
+    // the waiting cards are a queue, the oldest turn first (000d31d), with the
+    // equal stamps in the board's order and the queued card after them
+    assert.deepEqual(initial.navigation, ["nav-b", "nav-e", "nav-a", "nav-d"],
       "the selected workspace, comparator, and stable tie were not the laptop sequence");
-    assert.deepEqual(initial.drawer, ["nav-a", "nav-c", "nav-b", "nav-e", "nav-d"],
+    assert.deepEqual(initial.drawer, ["nav-b", "nav-e", "nav-c", "nav-a", "nav-d"],
       "workspace navigation hid the rest of the lane from the drawer");
 
+    // the step from the equal tie skips the other workspace's card between them
+    await page.evaluate(() => select("nav-e"));
     await page.keyboard.down("Control"); await page.keyboard.down("Shift");
     await page.keyboard.press("ArrowRight");
     await page.keyboard.up("Shift"); await page.keyboard.up("Control");
-    assert.equal(await page.evaluate(() => selectedId), "nav-b",
+    assert.equal(await page.evaluate(() => selectedId), "nav-a",
       "keyboard traversal entered another workspace or skipped list order");
     await page.evaluate(() => select("nav-d"));
     await page.keyboard.down("Control"); await page.keyboard.down("Shift");
     await page.keyboard.press("ArrowRight");
     await page.keyboard.up("Shift"); await page.keyboard.up("Control");
-    assert.equal(await page.evaluate(() => selectedId), "nav-a", "workspace traversal did not wrap");
+    assert.equal(await page.evaluate(() => selectedId), "nav-b", "workspace traversal did not wrap");
 
     // A held response proves that local durable drawing no longer moves first.
     await page.evaluate(() => {
@@ -443,11 +460,11 @@ test("phone navigation waits for send confirmation, respects manual moves, and s
 
     // A deliberate move while confirmation is outstanding owns selection.
     await page.evaluate(() => stepCard(1, false));
-    assert.equal(await page.evaluate(() => selectedId), "nav-b");
+    assert.equal(await page.evaluate(() => selectedId), "nav-d");
     await page.evaluate(() => window.__sendReplies.shift()());
     await page.waitForFunction(() => localSends("nav-a").length === 0);
     await settle(50);
-    assert.equal(await page.evaluate(() => selectedId), "nav-b",
+    assert.equal(await page.evaluate(() => selectedId), "nav-d",
       "a delayed successful receipt stole a later manual selection");
 
     // With no intervening move, success advances to the oldest eligible card.
@@ -476,7 +493,7 @@ test("phone navigation waits for send confirmation, respects manual moves, and s
       "a delayed confirmation stole selection after a filter change");
     await page.evaluate(() => setView("todo"));
 
-    // A board refusal never advances and leaves the take-back safeguard intact.
+    // A board refusal never advances and leaves the red mark and its cross in the row, with no words on it.
     await page.evaluate(() => {
       select("nav-a"); els["nav-a"].ta.value = "fabricated refused send"; doSend("nav-a");
     });
@@ -484,7 +501,10 @@ test("phone navigation waits for send confirmation, respects manual moves, and s
     await page.evaluate(() => window.__sendReplies.shift()(400));
     await page.waitForFunction(() => localSends("nav-a").some(op => op.state === "failed"));
     assert.equal(await page.evaluate(() => selectedId), "nav-a");
-    assert.match(await page.evaluate(() => els["nav-a"].sent.textContent), /not sent/i);
+    assert.deepEqual(await page.evaluate(() => {
+      const row = els["nav-a"].sent.querySelector(".answmsg[data-op]");
+      return [!!row.querySelector(".answmark .answretry"), !!row.querySelector(".answmark .answcross"), row.innerText.trim()];
+    }), [true, true, "fabricated refused send"]);
 
     // A lost first response retries under the same operation id and advances only on recovery.
     await page.evaluate(() => {
@@ -554,8 +574,8 @@ test("a pull from the left edge brings in the card list with the desktop's three
       const bg = sel => getComputedStyle(document.querySelector(sel)).backgroundColor;
       return { working: bg("#tiklist .trow.working"), yours: bg("#tiklist .trow.yours") };
     });
-    assert.equal(colours.working, "rgb(240, 250, 235)", "working green differs from the desktop's #F0FAEB");
-    assert.equal(colours.yours, "rgb(255, 251, 232)", "yours yellow differs from the desktop's #FFFBE8");
+    assert.equal(colours.working, "rgb(243, 255, 240)", "working green differs from the desktop's #F3FFF0");
+    assert.equal(colours.yours, "rgb(255, 251, 235)", "yours yellow differs from the desktop's #FFFBEB");
     await page.screenshot({ path: path.join(SHOTS, "test-phone-drawer.png") });
 
     await page.evaluate(() => document.getElementById("tv-deferred").click());
@@ -622,10 +642,12 @@ test("the composer sends through /send, the plus attaches a picture, the cross c
     const upload = page.waitForResponse(r => new URL(r.url()).pathname === "/upload");
     await clip.uploadFile(picture);
     assert.equal((await upload).status(), 200);
-    await page.waitForFunction(() => document.querySelector("article.box.sel textarea").value.includes("/uploads/"), { timeout: 3000 });
-    const field = await page.evaluate(() => document.querySelector("article.box.sel textarea").value);
-    assert.match(field, /^\/uploads\/\d+-phone-shot\.png\n$/, "the picture's address did not join the message the way the desktop does");
-    const url = field.trim();
+    // the picture waits in the tray over the row, uploaded, and the row is left alone
+    await page.waitForFunction(id => els[id].trayItems[0]?.state === "done", { timeout: 3000 }, id);
+    const url = await page.evaluate(id => els[id].trayItems[0].url, id);
+    assert.match(url, /^\/uploads\/\d+-phone-shot\.png$/, "the picture did not land in the tray");
+    assert.equal(await page.evaluate(() => document.querySelector("article.box.sel textarea").value), "",
+      "the picture's address was typed into the row");
     uploaded.push(path.basename(url));
     const served = await fetch(origin + url);
     assert.equal(served.status, 200);
@@ -746,6 +768,10 @@ test("the defer chip parks, the history steps back, the plus makes a card to nam
   const { page, problems } = await openPhone(`/m?box=${id}`);
   try {
     await page.waitForSelector(`#box-${id}.sel.hashist`, { timeout: 5000 });
+    // the view is one choice per project and the phone keeps it between pages, so
+    // the tests before this one may have left it on done; this lane is put on
+    // doing by name, which is where a park moves the screen on
+    await page.evaluate(() => setTicketViewOf(activeOwner, "todo"));
     await page.evaluate(() => document.querySelector("article.box.sel .histbtn.older").click());
     await page.waitForFunction(() => document.querySelector("article.box.sel .histpos").textContent === "1 of 2", { timeout: 3000 });
     const older = await page.evaluate(() => ({
@@ -763,19 +789,28 @@ test("the defer chip parks, the history steps back, the plus makes a card to nam
     const parked = page.waitForResponse(r => new URL(r.url()).pathname === "/park");
     await page.evaluate(() => document.querySelector("article.box.sel .arcbtn").click());
     assert.equal(new URL((await parked).url()).searchParams.get("v"), "1");
-    await page.waitForFunction(() => document.querySelector("article.box.sel").classList.contains("parked"), { timeout: 3000 });
+    // a card parked from doing leaves the screen for the doing card below it
+    // (db32309), so the parked card is read where it stands and then put back
+    // on screen to be woken
+    await page.waitForFunction(cardId => document.getElementById("box-" + cardId).classList.contains("parked"),
+      { timeout: 3000 }, id);
+    assert.notEqual(await page.evaluate(() => selectedId), id, "a parked card stayed on screen in the doing view");
     assert.equal((await savedBox(id)).parked, true);
-    assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector("article.box.sel .title")).color), "rgb(90, 100, 115)",
-      "a parked card's title is not the desktop's later colour");
+    assert.equal(await page.evaluate(cardId => getComputedStyle(document.querySelector(`#box-${cardId} .title`)).color, id),
+      "rgb(90, 100, 115)", "a parked card's title is not the desktop's later colour");
     // a deferred card's moon is switched off; the sun is what brings it back
-    assert.equal(await page.evaluate(() => document.querySelector("article.box.sel .arcbtn").getAttribute("aria-disabled")), "true");
+    assert.equal(await page.evaluate(cardId => document.querySelector(`#box-${cardId} .arcbtn`).getAttribute("aria-disabled"), id), "true");
+    await page.evaluate(cardId => select(cardId), id);
+    await page.waitForSelector(`#box-${id}.sel`, { timeout: 3000 });
     const unparked = page.waitForResponse(r => new URL(r.url()).pathname === "/park");
     await page.evaluate(() => document.querySelector("article.box.sel .sunbtn").click());
     assert.equal(new URL((await unparked).url()).searchParams.get("v"), "0");
 
-    await page.evaluate(() => openDrawer());
+    // the plus in the row of buttons, with the drawer shut
+    assert.equal(await page.evaluate(() => document.getElementById("tikadd").closest("#dock") !== null), true,
+      "the new card's plus is not in the row of buttons");
     const created = page.waitForResponse(r => new URL(r.url()).pathname === "/create");
-    await page.evaluate(() => document.getElementById("tikadd").click());
+    await page.tap("#tikadd");
     const newId = (await (await created).json()).id;
     await page.waitForFunction(cardId => document.querySelector(`#box-${cardId}.sel .title`)?.isContentEditable, { timeout: 3000 }, newId);
     const naming = await page.evaluate(() => ({
@@ -783,7 +818,7 @@ test("the defer chip parks, the history steps back, the plus makes a card to nam
       placeholder: getComputedStyle(document.querySelector("article.box.sel .title"), "::before").content,
     }));
     assert.equal(naming.drawerOpen, false);
-    assert.equal(naming.placeholder, '"Chat Name"');
+    assert.equal(naming.placeholder, '"Card Name"');
     await page.keyboard.type("Named on the phone");
     await page.keyboard.press("Enter");
     await page.waitForFunction(cardId => lastState?.boxes.find(b => b.id === cardId)?.title === "Named on the phone", { timeout: 3000 }, newId);
@@ -829,7 +864,8 @@ test("the manifest, icons and service worker are served and the worker registers
     });
     assert.equal(new URL(registration.scope).pathname, "/m");
     assert.equal(new URL(registration.script).pathname, "/m-sw.js");
-    assert.equal(await page.evaluate(() => document.getElementById("notify").textContent), "Notifications");
+    assert.equal(await page.evaluate(() => document.querySelector('label[for="notify"] span').textContent), "Notifications");
+    assert.equal(await page.evaluate(() => document.getElementById("notify").getAttribute("role")), "switch");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();

@@ -101,6 +101,7 @@ async function barShape(page) {
       return {
         shown: !el.hidden && box.width > 0,
         top: Math.round(box.top), height: Math.round(box.height),
+        middle: Math.round(box.top + box.height / 2),
         font: style.font, colour: style.color, background: style.backgroundColor,
         radius: style.borderTopLeftRadius, padding: style.padding, border: style.borderStyle,
         text: el.textContent,
@@ -253,21 +254,22 @@ test("no offer, no control: the bar is as it was", async () => {
   await page.close();
 });
 
-test("an offer puts the control in the bar, dressed as the button beside it", async () => {
+test("an offer puts the soft-tint control in the bar, level with the pen mark", async () => {
   const { page, problems } = await openBoard();
   await page.evaluate(sendOffer);
   const shape = await barShape(page);
   assert.equal(shape.install.shown, true, "the offer left the bar unchanged");
   assert.equal(shape.install.text, "Install app");
-  // the same dress as its neighbour, and the same seat in the row
-  assert.equal(shape.install.font, shape.edit.font);
-  assert.equal(shape.install.colour, shape.edit.colour);
-  assert.equal(shape.install.background, shape.edit.background);
-  assert.equal(shape.install.radius, shape.edit.radius);
-  assert.equal(shape.install.padding, shape.edit.padding);
-  assert.equal(shape.install.border, shape.edit.border);
-  assert.equal(shape.install.height, shape.edit.height);
-  assert.equal(shape.install.top, shape.edit.top);
+  // the control is a soft-tint button with no border, and the pen beside it is
+  // a plain mark with neither box nor border
+  assert.notEqual(shape.install.background, "rgba(0, 0, 0, 0)");
+  assert.equal(shape.install.radius, "4px");
+  assert.equal(shape.install.border, "none");
+  assert.equal(shape.edit.background, "rgba(0, 0, 0, 0)");
+  assert.equal(shape.edit.border, "none");
+  // one row: their middles line up
+  assert.ok(Math.abs(shape.install.middle - shape.edit.middle) <= 1,
+    `the control sits at ${shape.install.middle} and the pen at ${shape.edit.middle}`);
 
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "mac-install-button.png") });
   assert.deepEqual(problems, []);

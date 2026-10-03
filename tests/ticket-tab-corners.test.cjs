@@ -3,8 +3,9 @@
 // 20260922, m807: the Mac board dropped the pill. Its names read Doing, Deferred
 // and Done at 14px, the selected one at weight 700 in ink with no fill, border
 // or standing shade, the others at 500; any name dips into a 0.6-depth sunk
-// shade while pressed, for at least 80ms; the well's shade is --sunk-deep at
-// 90% depth; and selecting a name moves no name and not the well.
+// shade while pressed, for at least 80ms; the list stands on the paper with no
+// box of its own, a 1px divider in --line sits 6px under the names; and
+// selecting a name moves no name, not the list and not the divider.
 // The phone's card drawer follows the board's names and weight, at its own
 // sizes, and draws no recessed well: its rows sit straight on the drawer. Both
 // surfaces are driven headless here so a drift on either is caught.
@@ -126,7 +127,7 @@ function assertShade(shadow, want, what) {
 // y offset, blur and alpha scaled by one depth
 const sunkAt = d => [[.22 * d, 0, 3 * d, 7 * d, 0], [.14 * d, 0, 1 * d, 2 * d, 0]];
 
-// every name's look and box, and the well's, read in one pass
+// every name's look and box, and the list's, read in one pass
 const boardTabs = page => page.evaluate(() => [...document.querySelectorAll("#tikhead .tvb")].map(t => {
   const cs = getComputedStyle(t);
   const r = t.getBoundingClientRect();
@@ -143,10 +144,33 @@ const boardTabs = page => page.evaluate(() => [...document.querySelectorAll("#ti
     rect: [r.left, r.top, r.width, r.height],
   };
 }));
-const wellBox = page => page.evaluate(() => {
+const listBox = page => page.evaluate(() => {
   const w = document.getElementById("tiklist");
   const r = w.getBoundingClientRect();
-  return { shadow: getComputedStyle(w).boxShadow, rect: [r.left, r.top, r.width, r.height] };
+  const cs = getComputedStyle(w);
+  return {
+    shadow: cs.boxShadow, fill: cs.backgroundColor,
+    borders: ["Top", "Right", "Bottom", "Left"].map(s => cs["border" + s + "Width"]),
+    radius: cs.borderTopLeftRadius, rect: [r.left, r.top, r.width, r.height],
+  };
+});
+// the divider under the names, drawn by #tikhead::after, against the lowest
+// name's foot, with the --line colour read off a probe
+const dividerBox = page => page.evaluate(() => {
+  const head = document.getElementById("tikhead");
+  const hr = head.getBoundingClientRect();
+  const feet = [...document.querySelectorAll("#tikhead .tvb")].map(t => t.getBoundingClientRect().bottom);
+  const cs = getComputedStyle(head, "::after");
+  const probe = document.createElement("i");
+  probe.style.cssText = "position:fixed;width:1px;height:1px;background:var(--line)";
+  document.body.appendChild(probe);
+  const line = getComputedStyle(probe).backgroundColor;
+  probe.remove();
+  const scale = hr.width / head.offsetWidth;
+  return {
+    content: cs.content, width: cs.borderTopWidth, style: cs.borderTopStyle, color: cs.borderTopColor, line,
+    gap: (hr.top + parseFloat(cs.top) * scale - Math.max(...feet)) / scale,
+  };
 });
 
 test("the board's ticket names carry no pill, read by weight, and dip on press", async () => {
@@ -169,7 +193,7 @@ test("the board's ticket names carry no pill, read by weight, and dip on press",
 
     const ink = await page.evaluate(() => getComputedStyle(document.body).color);
     const before = await boardTabs(page);
-    const wellBefore = await wellBox(page);
+    const listBefore = await listBox(page);
     assert.deepEqual(before.map(t => t.label), ["Doing", "Deferred", "Done"]);
     assert.deepEqual(before.map(t => t.on), [true, false, false]);
     for (const t of before) {
@@ -189,10 +213,20 @@ test("the board's ticket names carry no pill, read by weight, and dip on press",
     const plex = await page.$eval('link[href*="IBM+Plex+Sans"]', l => l.getAttribute("href"));
     assert.match(plex, /IBM\+Plex\+Sans:wght@[\d;]*\b700\b/, "IBM Plex Sans is not loaded at 700");
 
-    // the well sits at 90% of --sunk-deep
-    assertShade(wellBefore.shadow, sunkAt(.9), "the list well is not at 90% depth");
+    // the list stands on the paper: no shade, fill, border or rounding of its own
+    assert.equal(listBefore.shadow, "none", "the list carries a shade");
+    assert.ok(listBefore.fill === "rgba(0, 0, 0, 0)" || listBefore.fill === "transparent", `the list has a fill (${listBefore.fill})`);
+    assert.deepEqual(listBefore.borders, ["0px", "0px", "0px", "0px"], "the list has a border");
+    assert.equal(listBefore.radius, "0px", "the list is rounded");
 
-    // a click still selects, and selecting moves no name and not the well
+    // a 1px divider in --line, 6px below the names' foot
+    const divider = await dividerBox(page);
+    assert.equal(divider.width, "1px", "the divider is not 1px");
+    assert.equal(divider.style, "solid");
+    assert.equal(divider.color, divider.line, "the divider is not in --line");
+    assert.ok(Math.abs(divider.gap - 6) < 0.05, `the divider is ${divider.gap}px below the names, not 6`);
+
+    // a click still selects, and selecting moves no name and not the list
     await page.click("#tv-done");
     await settle(400);
     const after = await boardTabs(page);
@@ -200,7 +234,8 @@ test("the board's ticket names carry no pill, read by weight, and dip on press",
     assert.equal(await page.evaluate(() => curView()), "done");
     assert.deepEqual(after.map(t => t.weight), ["500", "500", "700"]);
     assert.deepEqual(after.map(t => t.rect), before.map(t => t.rect), "a name moved when the selection changed");
-    assert.deepEqual((await wellBox(page)).rect, wellBefore.rect, "the well moved when the selection changed");
+    assert.deepEqual((await listBox(page)).rect, listBefore.rect, "the list moved when the selection changed");
+    assert.deepEqual(await dividerBox(page), divider, "the divider moved when the selection changed");
 
     // a press brings the 0.6-depth shade in and a release takes it back out, on
     // the selected name and an unselected one alike, by pointer and by key. the
@@ -256,8 +291,9 @@ test("the phone drawer's names carry no pill and its rows sit in no well", async
     await page.goto(origin + "/m", { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => typeof lastState !== "undefined" && lastState !== null, { timeout: 8000 });
     await settle(400);
-    if (!(await page.$("#tabbar .ptab.on"))) {
-      await page.click("#tabbar .ptab");
+    // a project open, chosen in the capsule's list if none is yet
+    if (!(await page.$("#projlist .projrow.on"))) {
+      await page.evaluate(() => { openProjects(); document.querySelector("#projlist .projrow").click(); });
       await settle(300);
     }
     // the card drawer holds the doing, deferred and done row; open it and pick doing
@@ -268,7 +304,7 @@ test("the phone drawer's names carry no pill and its rows sit in no well", async
 
     const ink = await page.evaluate(() => getComputedStyle(document.body).color);
     const before = await boardTabs(page);
-    const wellBefore = await wellBox(page);
+    const listBefore = await listBox(page);
     assert.deepEqual(before.map(t => t.label), ["Doing", "Deferred", "Done"]);
     assert.deepEqual(before.map(t => t.on), [true, false, false]);
     for (const t of before) {
@@ -304,7 +340,7 @@ test("the phone drawer's names carry no pill and its rows sit in no well", async
     const after = await boardTabs(page);
     assert.deepEqual(after.map(t => t.weight), ["500", "500", "700"]);
     assert.deepEqual(after.map(t => t.rect), before.map(t => t.rect), "a phone name moved when the selection changed");
-    assert.deepEqual((await wellBox(page)).rect, wellBefore.rect, "the phone list moved when the selection changed");
+    assert.deepEqual((await listBox(page)).rect, listBefore.rect, "the phone list moved when the selection changed");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();

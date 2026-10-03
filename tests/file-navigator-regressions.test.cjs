@@ -2,12 +2,6 @@
 // panel). The fixture serves the reshaped, bounded per-directory listing that
 // /navfiles now answers, plus /navfile and /navimg, from a synthetic tree, so the
 // page's real fileNavList/fileNavDrawList/open paths are exercised end to end.
-//
-// NOTE ON EXECUTION: this suite launches headed Chrome through puppeteer. Under
-// the standing background-only browser policy (browser-testing-policy) automated
-// browser actions were paused mid-task, so this file was UPDATED to the new
-// contract but NOT executed by the implementing worker. Root runs it during
-// integration on the owned background browser.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { readFile } = require("node:fs/promises");
@@ -135,6 +129,10 @@ async function navigator(lane = "pastureland", width = 340) {
   await page.setViewport({ width: 900, height: 760, deviceScaleFactor: 2 });
   await page.goto(`${origin}/index.html`, { waitUntil: "domcontentloaded" });
   await page.evaluate(async ({ selectedLane, panelWidth }) => {
+    // the stage stays hidden, and so takes no click or focus, until a board's
+    // layout has been laid out. this page has no board, so it is shown the way
+    // that does
+    document.body.classList.add("layout-ready");
     fileNavMounts(["website", "pastureland"]);
     activeOwner = selectedLane;
     fileNavBoxes();
@@ -147,6 +145,10 @@ async function navigator(lane = "pastureland", width = 340) {
     fileNavKind = "internal";
     fileNavData = null; fileNavSig = "";
     await fileNavList();
+    // the stage comes in on a short fade
+    const stage = document.getElementById("stage");
+    while (getComputedStyle(stage).visibility !== "visible")
+      await new Promise(resolve => requestAnimationFrame(resolve));
   }, { selectedLane: lane, panelWidth: width });
   await page.waitForSelector(".fnavrow");
   return page;

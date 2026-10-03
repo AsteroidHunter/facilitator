@@ -1,7 +1,9 @@
-// A sent box that folds open or shut must never flash a scrollbar for the length
-// of the motion, and its rows must not slide sideways. The lane inside the box
-// scrolls once the box is settled; while it moves it is clipped, and it hides its
-// bar and holds no gutter, so the row column keeps one x with no bar ever drawn.
+// The panel of waiting messages at a card's foot, when it folds open or shut, must
+// never draw a scrollbar for the length of the motion, and its messages must not
+// slide sideways. Open, a long batch stops at the card's cap and scrolls inside the
+// cut; at every frame of either run that lane hides its bar and holds no gutter,
+// so the column of messages keeps one x with no bar ever drawn. Every frame of
+// each run is read from inside the page, so a slow machine cannot miss the motion.
 // Every card, message and answer below is invented.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
@@ -60,7 +62,7 @@ before(async () => {
   origin = `http://127.0.0.1:${port}`;
   for (let i = 0; i < 160; i++){ try { if ((await fetch(origin + "/state")).ok) break; } catch {} await wait(25); }
   cardId = (await api("/create?owner=facilitator", "Invented scroll motion card")).id;
-  // enough messages on each side that both boxes overflow their open height
+  // enough messages on each side that both panels overflow their open height
   for (let i = 1; i <= 10; i++)
     await api(`/send?box=${cardId}`, `Invented earlier message ${i} that the reply below answers and fills the box.`);
   await claim();
@@ -89,29 +91,26 @@ async function openCard(kind){
   await page.evaluate(id => select(id), cardId);
   await page.waitForFunction(id => {
     const el = els[id];
-    return el?.answ && el?.pend && !el.answ.classList.contains("rising") && !el.pend.classList.contains("rising");
+    const stage = document.getElementById("stage");
+    return el?.answ && el?.sent && !el.answ.classList.contains("motion") && !el.sent.classList.contains("motion") &&
+      (!stage || getComputedStyle(stage).visibility === "visible");
   }, {}, cardId);
   await page.evaluate(() => document.fonts && document.fonts.ready);
   await wait(350);
   return page;
 }
-// the answered messages over the reply are a plain panel now, with no lane and
-// no fold run of its own, so the sent box is the one box here that folds
-const LANE = ".pendwrap .pendlist";
-async function boxOpen(page){
-  return page.evaluate(id => {
-    const p = els[id].pend;
-    return !!(p && p.classList.contains("open"));
-  }, cardId);
-}
+// the answered messages over the reply are a plain panel with no lane of its own,
+// so the waiting panel is the one panel here whose cut scrolls once it is open
+const PANEL = ".sentwrap .answered";
 function readLane(id){
-  const pend = els[id].pend;
-  const lane = pend.querySelector(".pendscroll");
-  const rows = pend.querySelectorAll(".pendmsg");
+  const panel = els[id].sent;
+  const lane = panel.querySelector(".answclip");
+  const rows = panel.querySelectorAll(".answmsg");
   const row = rows[rows.length - 1];
   const cs = getComputedStyle(lane);
   return {
-    motion: pend.classList.contains("motion"),
+    motion: panel.classList.contains("motion"),
+    open: panel.classList.contains("open"),
     overflows: lane.scrollHeight > lane.clientHeight + 1,
     overflowY: cs.overflowY,
     scrollbarWidth: cs.scrollbarWidth,
@@ -119,38 +118,63 @@ function readLane(id){
     rowRight: row ? Math.round(row.getBoundingClientRect().right * 100) / 100 : null,
   };
 }
+// one press on the panel, with every frame of the run it starts read as it is
+// drawn, and the panel read again once the run has landed
+async function pressAndWatch(page){
+  await page.evaluate((id, source) => {
+    const read = eval("(" + source + ")");
+    window.__frames = [];
+    window.__watching = true;
+    const frame = () => {
+      const now = read(id);
+      if (now.motion) window.__frames.push(now);
+      if (window.__watching) requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  }, cardId, readLane.toString());
+  await page.click(`#box-${cardId} ${PANEL}`);
+  await wait(900);
+  const frames = await page.evaluate(() => { window.__watching = false; return window.__frames; });
+  return { frames, settled: await page.evaluate(readLane, cardId) };
+}
 
 for (const kind of ["desktop", "phone"]) {
-  test(`${kind}: the waiting box shows no scrollbar while it folds and never shifts its rows`, async () => {
+  test(`${kind}: the waiting panel shows no scrollbar while it folds and never shifts its messages`, async () => {
     const page = await openCard(kind);
-    const selector = `#box-${cardId} ${LANE}`;
-    if (await boxOpen(page)) { await page.click(selector); await wait(700); }
+    try {
+      if ((await page.evaluate(readLane, cardId)).open) await pressAndWatch(page);
+      const cut = await page.evaluate(readLane, cardId);
+      assert.ok(cut.rowRight != null, "the waiting panel holds no messages");
 
-    await page.click(selector);   // fold open
-    // sample partway through the run, where the lane is shorter than its rows
-    let motion = null;
-    for (let t = 0; t < 6 && !motion; t++) {
-      await wait(t === 0 ? 70 : 35);
-      const s = await page.evaluate(readLane, cardId);
-      if (s.motion && s.overflows) motion = s;
-    }
-    assert.ok(motion, "did not catch the fold mid-motion with the lane overflowing");
-    // the lane must not present a scrollbar for the length of the motion
-    assert.equal(motion.overflowY, "hidden",
-      `a scrollbar shows while the box folds: overflow-y is ${motion.overflowY}`);
+      const opening = await pressAndWatch(page);
+      // the run was caught while the lane was shorter than its messages
+      assert.ok(opening.frames.some(f => f.overflows),
+        `did not catch the fold mid-motion with the lane overflowing: ${opening.frames.length} frames read`);
+      // settled and genuinely scrolling, the lane hides its bar and reserves no
+      // gutter for one
+      assert.ok(opening.settled.open && !opening.settled.motion, "the panel did not open and settle");
+      assert.ok(opening.settled.overflows, "the panel did not stay tall enough to scroll when open");
+      assert.equal(opening.settled.scrollbarWidth, "none",
+        `the open lane still shows a bar: scrollbar-width is ${opening.settled.scrollbarWidth}`);
+      assert.equal(opening.settled.gutter, 0, `the open lane still holds a gutter: ${opening.settled.gutter}px`);
 
-    await wait(700);
-    const settled = await page.evaluate(readLane, cardId);
-    // settled and genuinely scrolling, the lane hides its bar and reserves no
-    // gutter for one, and the rows still sit at one x through the fold
-    assert.ok(settled.overflows, "the box did not stay tall enough to scroll when settled");
-    assert.equal(settled.scrollbarWidth, "none",
-      `the settled lane still shows a bar: scrollbar-width is ${settled.scrollbarWidth}`);
-    assert.equal(settled.gutter, 0,
-      `the settled lane still holds a gutter: ${settled.gutter}px`);
-    assert.ok(motion.rowRight != null && settled.rowRight != null &&
-      Math.abs(settled.rowRight - motion.rowRight) <= 0.5,
-      `rows slid sideways: motion ${motion.rowRight} settled ${settled.rowRight}`);
-    await page.close();
+      const closing = await pressAndWatch(page);
+      console.log(`  ${kind}: ${opening.frames.length} frames read opening, ${closing.frames.length} cutting back, ` +
+        `open lane ${JSON.stringify(opening.settled)}`);
+      assert.ok(closing.frames.length > 0, "did not catch the cut back mid-motion");
+      assert.ok(!closing.settled.open && !closing.settled.motion, "the panel did not cut back and settle");
+
+      // no frame of either run draws a bar or holds a gutter, and the messages
+      // stand at one x through both runs
+      for (const [run, seen] of [["opening", opening.frames], ["cutting back", closing.frames]])
+        for (const f of seen) {
+          assert.equal(f.scrollbarWidth, "none", `a scrollbar can show while the panel is ${run}: ${JSON.stringify(f)}`);
+          assert.equal(f.gutter, 0, `the lane holds a gutter while the panel is ${run}: ${JSON.stringify(f)}`);
+          assert.ok(Math.abs(f.rowRight - cut.rowRight) <= 0.5,
+            `messages slid sideways while the panel is ${run}: ${f.rowRight} against ${cut.rowRight}`);
+        }
+      assert.ok(Math.abs(opening.settled.rowRight - cut.rowRight) <= 0.5,
+        `messages slid sideways once open: ${opening.settled.rowRight} against ${cut.rowRight}`);
+    } finally { await page.close(); }
   });
 }

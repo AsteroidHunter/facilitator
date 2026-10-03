@@ -2,7 +2,7 @@
 //
 // install turns a fresh checkout into a running board in one command, and is
 // safe to run again; uninstall removes exactly what install made and keeps the
-// board's data unless --wipe is given. The heavy steps (uv and npm) are stubbed
+// board's data, always. The heavy steps (uv and npm) are stubbed
 // with fakes that create the same files those tools would, so the test checks
 // the orchestration and the file set before and after rather than downloading
 // anything. state is stubbed too, so nothing here ever touches a real port.
@@ -29,18 +29,20 @@ async function freshClone() {
   dirs.push(base);
   const dir = path.join(base, "facilitator");
   await mkdir(dir);
-  for (const name of ["facilitator", "shell_integration.py", "run.config.example.json", "seed.example.json", "requirements.txt"]) {
+  for (const name of ["facilitator", "shell_integration.py", "claude-statusline.py", "run.config.example.json", "seed.example.json", "requirements.txt"]) {
     await copyFile(path.join(ROOT, name), path.join(dir, name));
   }
   await cp(path.join(ROOT, '.agents'), path.join(dir, '.agents'), { recursive: true });
   return dir;
 }
 
-// the board's data, as if it had once run: kept without --wipe, gone with it
+// the board's data, as if it had once run: uninstall always keeps it
 async function fabricateData(dir) {
   await writeFile(path.join(dir, "state.json"), "{}");
   await writeFile(path.join(dir, "transcript.jsonl"), "\n");
   await writeFile(path.join(dir, "vapid-key.pem"), "key");
+  await writeFile(path.join(dir, "bridge-auth.json"), "{}");
+  await writeFile(path.join(dir, "bridge-auth.lock"), "");
   await mkdir(path.join(dir, "uploads"), { recursive: true });
   await writeFile(path.join(dir, "uploads", "keep.png"), "img");
   // where the server saves attachments now, beside other internal files
@@ -74,7 +76,7 @@ function loadCli(dir) {
 // fakes for uv and npm that create the files those tools create, so the file
 // set is real even though nothing is downloaded; state and the tailnet are
 // stubbed so nothing touches a port or Tailscale.
-function stubs({ uv = true, node = true, brew = false, up = false } = {}) {
+function stubs({ uv = true, node = true, brew = false, up = false, uvSays = "uv 0.11.18 (fake)" } = {}) {
   return [
     `UV = ${JSON.stringify(UV)}`,
     `NPM = ${JSON.stringify(NPM)}`,
@@ -91,9 +93,15 @@ function stubs({ uv = true, node = true, brew = false, up = false } = {}) {
     "    here = cli.HERE",
     "    if argv[:2] == [UV, 'venv']:",
     "        (here/'.venv'/'bin').mkdir(parents=True, exist_ok=True)",
-    "        (here/'.venv'/'bin'/'python').write_text('x')",
-    "        (here/'.venv'/'bin'/'python3').write_text('x')",
+    "        (here/'.venv'/'pyvenv.cfg').write_text('home = /fake\\nversion_info = 3.14.0\\n')",
+    "        for name in ('python', 'python3'):",
+    "            (here/'.venv'/'bin'/name).write_text('#!/bin/sh\\n')",
+    "            os.chmod(here/'.venv'/'bin'/name, 0o755)",
     "        return types.SimpleNamespace(returncode=0, stdout='', stderr='')",
+    "    if argv[:3] == [UV, 'python', 'install']:",
+    "        return types.SimpleNamespace(returncode=0, stdout='', stderr='')",
+    "    if argv == [UV, '--version']:",
+    `        return types.SimpleNamespace(returncode=0, stdout=${JSON.stringify(uvSays + "\n")}, stderr='')`,
     "    if argv[:3] == [UV, 'pip', 'sync']:",
     "        return types.SimpleNamespace(returncode=0, stdout='Audited', stderr='')",
     "    if argv[:2] == [NPM, 'install']:",
@@ -175,7 +183,7 @@ test("install uses the script while uninstall remains a command", async () => {
   const dir = await freshClone();
   const source = await readFile(path.join(dir, "facilitator"), "utf8");
   assert.doesNotMatch(source, /^ {2}facilitator install$/m);
-  assert.match(source, /^ {2}facilitator uninstall \[--wipe\] \[--keep-attachments \| --remove-attachments\]$/m, "uninstall is not in the usage");
+  assert.match(source, /^ {2}facilitator uninstall \[--keep-attachments \| --remove-attachments\]$/m, "uninstall is not in the usage");
   assert.match(source, /elif cmd == "_install" and os\.environ\.get\("FACILITATOR_INTERNAL_INSTALL"\)/);
   assert.match(source, /elif cmd == "uninstall":\n\s+cmd_uninstall\(args\)/, "uninstall is not dispatched");
 
@@ -183,7 +191,8 @@ test("install uses the script while uninstall remains a command", async () => {
     .then(() => null, error => error);
   assert.ok(unknown, "an unknown command was accepted");
   assert.doesNotMatch(unknown.stderr, /facilitator install/);
-  assert.match(unknown.stderr, /facilitator uninstall \[--wipe\]/);
+  assert.match(unknown.stderr, /facilitator uninstall \[--keep-attachments \| --remove-attachments\]/);
+  assert.doesNotMatch(source, /wipe/i, "the facilitator command still mentions wipe");
 });
 
 test("install creates the environment, the config and the test deps in one run", async () => {
@@ -195,19 +204,39 @@ test("install creates the environment, the config and the test deps in one run",
   assert.ok(res.files.package_json && res.files.package_lock);
   assert.equal(res.files.state, false, "install fabricated board data");
 
-  assert.match(res.out, /python: \d+\.\d+\.\d+ meets the 3\.9 minimum/, res.out);
-  assert.match(res.out, /uv: found/);
-  assert.match(res.out, /environment: creating \.venv/);
-  assert.match(res.out, /packages: syncing to requirements\.txt/);
-  assert.match(res.out, /config: wrote run\.config\.json from run\.config\.example\.json/);
-  assert.match(res.out, /config: wrote seed\.json from seed\.example\.json/);
-  assert.match(res.out, /node packages: installing puppeteer-core for the tests/);
-  assert.match(res.out, /Board installed\. Start it with:/);
-  assert.match(res.out, /facilitator run/);
-  assert.match(res.out, /run\.config\.json \(edit it\)/);
+  assert.match(res.out, /✓ Python \d+\.\d+\.\d+ runs this setup\./, res.out);
+  assert.match(res.out, /✓ uv found\./);
+  assert.match(res.out, /Creating the environment in \.venv on Python 3\.14\.\n✓ Environment created\./);
+  assert.match(res.out, /Syncing packages to requirements\.txt\.\n✓ Packages synced\./);
+  assert.match(res.out, /✓ Wrote run\.config\.json from run\.config\.example\.json\./);
+  assert.match(res.out, /✓ Wrote seed\.json from seed\.example\.json\./);
+  assert.match(res.out, /Installing puppeteer-core for the tests\.\n✓ Test packages installed\./);
+  assert.match(res.out, /✓ Board installed\.\n\nConfig lives beside this command: run\.config\.json \(edit it\)\nand seed\.json\.\n$/);
+  assert.doesNotMatch(res.out, /Start it with/, "install.sh ends with the next steps, so the board step does not repeat them");
+  assert.doesNotMatch(res.out, /\n\n\n/, "two blank lines in a row");
 
   const kinds = res.calls.map(c => `${c[0]} ${c[1]}`);
   assert.ok(kinds.includes(`${UV} venv`) && kinds.includes(`${UV} pip`) && kinds.includes(`${NPM} install`), kinds.join(" | "));
+  // the app's Python comes from uv and nowhere else, before the environment
+  // that stands on it, which stands before the packages go in
+  const lines = res.calls.map(c => c.join(" "));
+  const at = line => lines.indexOf(line);
+  assert.ok(at(`${UV} python install --no-bin 3.14`) >= 0, lines.join(" | "));
+  assert.ok(at(`${UV} python install --no-bin 3.14`) < at(`${UV} venv --clear --managed-python --python 3.14 .venv`), lines.join(" | "));
+  assert.ok(at(`${UV} venv --clear --managed-python --python 3.14 .venv`) < at(`${UV} pip sync --python .venv/bin/python requirements.txt`), lines.join(" | "));
+});
+
+test("uv is found before the Python is checked, so a missing Python can be left to uv", async () => {
+  const dir = await freshClone();
+  const order = [
+    "FIND, CHECK = cli.find_uv, cli.check_python",
+    "cli.find_uv = lambda: (CALLS.append(['order', 'uv']), FIND())[1]",
+    "cli.check_python = lambda: (CALLS.append(['order', 'python']), CHECK())[1]",
+  ].join("\n");
+  const res = await run(dir, stubs() + "\n" + order + "\n" + snapshot("cli.cmd_install(['install'])"));
+  assert.equal(res.exit, null, res.out);
+  const seen = res.calls.filter(c => c[0] === "order").map(c => c[1]);
+  assert.deepEqual(seen.slice(0, 2), ["uv", "python"], seen.join(" "));
 });
 
 test("a second install changes nothing and says so", async () => {
@@ -217,10 +246,10 @@ test("a second install changes nothing and says so", async () => {
 
   assert.equal(again.exit, null, again.out);
   assert.ok(installed(again.files));
-  assert.match(again.out, /environment: \.venv present/);
-  assert.match(again.out, /config: run\.config\.json present/);
-  assert.match(again.out, /config: seed\.json present/);
-  assert.match(again.out, /node packages: present \(for the tests\)/);
+  assert.match(again.out, /✓ Environment found in \.venv \(Python 3\.14\)\./);
+  assert.match(again.out, /✓ run\.config\.json found\./);
+  assert.match(again.out, /✓ seed\.json found\./);
+  assert.match(again.out, /✓ Test packages found\./);
 
   // the environment is not rebuilt and the test deps are not reinstalled; only
   // the idempotent sync runs again
@@ -233,7 +262,7 @@ test("a user's own config is left untouched by install", async () => {
   const dir = await freshClone();
   await writeFile(path.join(dir, "run.config.json"), JSON.stringify({ port: 9001, lanes: [], mine: true }));
   const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
-  assert.match(res.out, /config: run\.config\.json present/);
+  assert.match(res.out, /✓ run\.config\.json found\./);
   const kept = JSON.parse(await readFile(path.join(dir, "run.config.json"), "utf8"));
   assert.equal(kept.mine, true, "install overwrote a config the user had already written");
 });
@@ -246,8 +275,8 @@ test("uninstall preserves a preexisting config and an edited generated seed", as
   const result = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
   assert.equal(await readFile(path.join(dir, "run.config.json"), "utf8"), '{"mine":true}');
   assert.equal(await readFile(path.join(dir, "seed.json"), "utf8"), '{"edited":true}');
-  assert.match(result.out, /kept run\.config\.json/);
-  assert.match(result.out, /kept changed seed\.json/);
+  assert.match(result.out, /⊘ Kept run\.config\.json: it is not recorded as installer-owned\./);
+  assert.match(result.out, /⊘ Kept seed\.json: it has changed since install\./);
 });
 
 test("without node, the test deps are skipped and named as such", async () => {
@@ -257,14 +286,14 @@ test("without node, the test deps are skipped and named as such", async () => {
   assert.equal(res.files.node_modules, false);
   assert.equal(res.files.package_json, false);
   assert.ok(res.files.venv && res.files.run_config && res.files.seed);
-  assert.match(res.out, /node packages: node not found; skipped \(needed only to run the tests\)/);
+  assert.match(res.out, /⊘ Skipped the test packages: node was not found\.\nThey are needed only to run the tests\./);
 });
 
 test("when uv is missing and Homebrew is here, install uses brew then continues", async () => {
   const dir = await freshClone();
   const res = await run(dir, stubs({ uv: false, brew: true }) + "\n" + snapshot("cli.cmd_install(['install'])"));
   assert.equal(res.exit, null, res.out);
-  assert.match(res.out, /uv: not found; installing with Homebrew/);
+  assert.match(res.out, /uv is not installed\. Installing it with Homebrew\.\n✓ uv installed\./);
   assert.ok(res.calls.some(c => c[0] === "/fake/brew" && c[1] === "install"), "brew was not used");
   assert.equal(res.calls.some(c => c[0] === "sh"), false, "the astral installer ran with brew present");
   assert.ok(installed(res.files), "the install did not continue after uv was installed");
@@ -274,12 +303,35 @@ test("when uv is missing and there is no brew, install uses the astral.sh script
   const dir = await freshClone();
   const res = await run(dir, stubs({ uv: false, brew: false }) + "\n" + snapshot("cli.cmd_install(['install'])"));
   assert.equal(res.exit, null, res.out);
-  assert.match(res.out, /uv: not found; installing with the astral\.sh installer into your home/);
+  assert.match(res.out, /uv is not installed\. Installing it with the astral\.sh installer\ninto your home\.\n✓ uv installed\./);
   assert.ok(res.calls.some(c => c[0] === "curl"), "the installer was not downloaded");
   assert.ok(res.calls.some(c => c[0] === "sh"), "the installer script was not run");
   assert.equal(res.sh_no_modify, "1", "the installer was allowed to change a shell profile");
   assert.equal(res.calls.some(c => c[0] === "/fake/brew"), false);
   assert.ok(installed(res.files), "the install did not continue after uv was installed");
+});
+
+test("a uv older than 0.9.0, or one that cannot say its version, stops install in one line before anything is made", async () => {
+  const TAIL = " is too old to install Python 3.14: upgrade it to 0.9.0 or newer (brew upgrade uv, or uv self update), then run ./install.sh again.";
+  for (const [label, options, who] of [
+    ["found", { uvSays: "uv 0.8.19 (Homebrew 2025-09-19)" }, "uv 0.8.19"],
+    ["just installed", { uv: false, brew: true, uvSays: "uv 0.8.19" }, "uv 0.8.19"],
+    ["unreadable", { uvSays: "something else" }, `The uv at ${UV}, whose version could not be read,`],
+  ]) {
+    const dir = await freshClone();
+    const res = await run(dir, stubs(options) + "\n" + snapshot("cli.cmd_install(['install'])"));
+    assert.ok(typeof res.exit === "string" && res.exit.trim() === `⚠ ${who}${TAIL}`, `${label}: ${JSON.stringify(res.exit)}`);
+    assert.doesNotMatch(res.out, /✓ uv (found|installed)\./, label);
+    assert.equal(res.files.venv, false, label);
+    assert.equal(res.files.run_config, false, label);
+    assert.equal(res.calls.some(c => c[0] === UV && c[1] !== "--version"), false, `${label}: uv was used anyway`);
+  }
+  // 0.9.0 itself is enough, and 0.10 is newer than 0.9
+  for (const uvSays of ["uv 0.9.0", "uv 0.10.2 (Homebrew)"]) {
+    const dir = await freshClone();
+    const res = await run(dir, stubs({ uvSays }) + "\n" + snapshot("cli.cmd_install(['install'])"));
+    assert.equal(res.exit, null, `${uvSays}: ${res.out}`);
+  }
 });
 
 test("find_uv prefers a uv on PATH", async () => {
@@ -311,50 +363,100 @@ test("uninstall removes the environment, node deps and config, and keeps the boa
   assert.ok(res.files.state && res.files.transcript && res.files.uploads && res.files.internal_uploads
     && res.files.logs && res.files.vapid, JSON.stringify(res.files));
 
-  assert.match(res.out, /removed \.venv/);
-  assert.match(res.out, /removed node_modules/);
-  assert.match(res.out, /removed run\.config\.json/);
-  assert.match(res.out, /kept state\.json/);
-  assert.match(res.out, /kept transcript\.jsonl/);
-  assert.match(res.out, /kept card attachments in .*facilitator-internal\/uploads/);
-  assert.match(res.out, /kept card attachments in .*facilitator\/uploads/);
-  assert.match(res.out, /kept logs/);
-  assert.match(res.out, /kept vapid-key\.pem/);
+  assert.match(res.out, /✓ Removed \.venv\./);
+  assert.match(res.out, /✓ Removed node_modules\./);
+  assert.match(res.out, /✓ Removed run\.config\.json\./);
+  assert.doesNotMatch(res.out, /Kept (state|transcript|logs|vapid|bridge-auth)|Kept card attachments in|not present|are kept/);
 });
 
-test("uninstall --wipe removes the board's data but keeps attachments with no terminal to ask on", async () => {
+test("uninstall keeps only the attachments section, then check-mark lines and the finish", async () => {
+  const dir = await freshClone();
+  const home = path.join(dir, "home");
+  await mkdir(home);
+  const env = { SHELL: "/bin/zsh" };
+  const setup = ["import shell_integration", "shell_integration.install()",
+    stubs(), snapshot("cli.cmd_install(['install'])")].join("\n");
+  assert.equal((await run(dir, setup, env)).exit, null);
+  await fabricateData(dir);
+
+  const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"), env);
+  assert.equal(res.exit, null, res.out);
+  const lines = res.out.split("\n");
+  const at = lines.indexOf("Card attachments");
+  assert.ok(at > 0, res.out);
+  assert.equal(lines[at - 1], "", "no blank line before the section title");
+  assert.equal(lines[at + 1], "─".repeat("Card attachments".length), "the rule under the title");
+  assert.equal(lines[at + 2], "", "no blank line after the rule");
+  assert.deepEqual(lines.filter(line => /^─+$/.test(line)).length, 1, "more than one section");
+  assert.doesNotMatch(res.out, /\d\. |Command and skill|Board files|Board data/);
+  assert.doesNotMatch(res.out, /\n\n\n/, "two blank lines in a row");
+  const tail = res.out.slice(res.out.indexOf("Pass --remove-attachments to remove them.\n"));
+  assert.equal(tail, [
+    "Pass --remove-attachments to remove them.",
+    "",
+    "✓ facilitator command and agent skill removed",
+    "✓ Removed .venv.",
+    "✓ Removed node_modules.",
+    "✓ Removed package.json.",
+    "✓ Removed package-lock.json.",
+    "✓ Removed run.config.json.",
+    "✓ Removed seed.json.",
+    "",
+    "✦ Uninstall finished.",
+    "",
+    "This folder was left in place.",
+    "",
+  ].join("\n"));
+});
+
+test("uninstall keeps attachments with no terminal to ask on", async () => {
   const dir = await freshClone();
   await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
   await fabricateData(dir);
 
-  const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--wipe'])"));
+  const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
   assert.equal(res.exit, null, res.out);
-  for (const key of ["venv", "node_modules", "run_config", "seed", "state", "transcript", "logs", "vapid"]) {
-    assert.equal(res.files[key], false, `${key} survived --wipe`);
-  }
   assert.ok(res.files.uploads && res.files.internal_uploads, "attachments went without a clear no");
   assert.doesNotMatch(res.out, /Keep your card attachments/, "a noninteractive run was asked");
-  assert.match(res.out, /card attachments: kept, no terminal to ask on \(pass --remove-attachments to remove them\)/);
-  assert.match(res.out, /removed state\.json/);
-  assert.match(res.out, /removed transcript\.jsonl/);
-  assert.match(res.out, /removed logs/);
-  assert.match(res.out, /removed vapid-key\.pem/);
+  assert.match(res.out, /⊘ Keeping your card attachments: there is no terminal to ask on\.\nPass --remove-attachments to remove them\./);
 });
 
-test("uninstall --wipe --remove-attachments also removes both attachment folders and nothing above them", async () => {
+test("uninstall --wipe is refused like any unknown option and deletes no board data", async () => {
   const dir = await freshClone();
   await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
   await fabricateData(dir);
 
-  const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--wipe', '--remove-attachments'])"));
+  const res = await run(dir, stubs() + "\n" + answering("n\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--wipe'])"));
+  assert.match(String(res.exit), /^\n⚠ Unknown option: --wipe\.\n  uninstall takes --keep-attachments or --remove-attachments\./);
+  assert.doesNotMatch(res.out, /Keep your card attachments|uninstaller/, "a refused run asked or showed the banner");
+  assert.ok(installed(res.files) && res.files.uploads && res.files.internal_uploads, JSON.stringify(res.files));
+  assert.ok(res.files.state && res.files.transcript && res.files.logs && res.files.vapid, JSON.stringify(res.files));
+  assert.equal(await readFile(path.join(dir, "bridge-auth.json"), "utf8"), "{}");
+  assert.equal(await readFile(path.join(dir, "bridge-auth.lock"), "utf8"), "");
+
+  const real = await execFileAsync("python3", [path.join(dir, "facilitator"), "uninstall", "--wipe"], { cwd: dir })
+    .then(() => null, error => error);
+  assert.ok(real, "uninstall accepted --wipe");
+  assert.equal(real.code, 1);
+  assert.match(real.stderr, /⚠ Unknown option: --wipe\./);
+  assert.match(real.stderr, /usage: facilitator uninstall \[--keep-attachments \| --remove-attachments\]/);
+});
+
+test("uninstall --remove-attachments removes both attachment folders and nothing above them", async () => {
+  const dir = await freshClone();
+  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
+  await fabricateData(dir);
+
+  const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--remove-attachments'])"));
   assert.equal(res.exit, null, res.out);
-  for (const key of ["venv", "state", "transcript", "logs", "vapid", "uploads", "internal_uploads"]) {
-    assert.equal(res.files[key], false, `${key} survived --wipe --remove-attachments`);
+  for (const key of ["venv", "uploads", "internal_uploads"]) {
+    assert.equal(res.files[key], false, `${key} survived --remove-attachments`);
   }
+  assert.ok(res.files.state && res.files.transcript && res.files.logs && res.files.vapid, "board data went with the attachments");
   assert.equal(res.files.internal_notes, true, "the internal folder's other files went too");
   assert.doesNotMatch(res.out, /Keep your card attachments/, "the flag did not answer the question");
-  assert.match(res.out, /removed card attachments folder .*facilitator-internal\/uploads/);
-  assert.match(res.out, /removed card attachments folder .*facilitator\/uploads/);
+  assert.match(res.out, /✓ Removed card attachments folder .*facilitator-internal\/uploads\./);
+  assert.match(res.out, /✓ Removed card attachments folder .*facilitator\/uploads\./);
 });
 
 // a terminal on stdin that answers the attachments question with the given text
@@ -376,10 +478,10 @@ test("the attachments question comes right after the banner, before anything is 
   assert.equal(res.exit, null, res.out);
   const title = res.out.indexOf("uninstaller");
   const question = res.out.indexOf("Keep your card attachments (pictures and files you attached to cards)? [Y/n] ");
-  const removed = res.out.indexOf("removed ");
+  const removed = res.out.indexOf("✓ Removed ");
   assert.ok(title >= 0 && res.out.slice(0, title).includes("█████"), res.out);
   assert.ok(title < question && question < removed, res.out);
-  assert.doesNotMatch(res.out.slice(title, question), /removed|kept/, "something was done before the question");
+  assert.doesNotMatch(res.out.slice(title, question), /✓ Removed|⊘ Kept/, "something was done before the question");
 });
 
 for (const [said, name] of [["\n", "Enter"], ["maybe\n", "an unclear answer"], ["", "end of input"]]) {
@@ -388,12 +490,12 @@ for (const [said, name] of [["\n", "Enter"], ["maybe\n", "an unclear answer"], [
     await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
     await fabricateData(dir);
 
-    const res = await run(dir, stubs() + "\n" + answering(said) + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--wipe'])"));
+    const res = await run(dir, stubs() + "\n" + answering(said) + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
     assert.equal(res.exit, null, res.out);
     assert.match(res.out, /Keep your card attachments/);
     assert.ok(res.files.uploads && res.files.internal_uploads, `${name} removed attachments`);
     assert.equal(await readFile(path.join(internalUploads(dir), "card.png"), "utf8"), "img");
-    assert.equal(res.files.state, false, "--wipe did not go ahead");
+    assert.equal(res.files.state, true, "uninstall removed the board's data");
   });
 }
 
@@ -407,11 +509,11 @@ for (const said of ["n\n", " No \n"]) {
     assert.equal(res.exit, null, res.out);
     assert.equal(res.files.internal_uploads, false, "the server's attachments folder survived a no");
     assert.equal(res.files.uploads, false, "the old in-repo attachments folder survived a no");
-    // the folder above and the rest of the board's data stay without --wipe
+    // the folder above and the rest of the board's data stay
     assert.equal(res.files.internal_notes, true, "the internal folder's other files went");
     assert.ok(res.files.state && res.files.transcript && res.files.logs && res.files.vapid, JSON.stringify(res.files));
-    assert.match(res.out, /removed card attachments folder .*facilitator-internal\/uploads/);
-    assert.match(res.out, /kept state\.json/);
+    assert.match(res.out, /✓ Removed card attachments folder .*facilitator-internal\/uploads\./);
+    assert.doesNotMatch(res.out, /Kept state\.json/);
   });
 }
 
@@ -430,13 +532,13 @@ test("a clear no never follows a link out of the attachments folder", async () =
   await rm(path.join(dir, "uploads"), { recursive: true });
   await symlink(path.join(outside, "pictures"), path.join(dir, "uploads"));
 
-  const res = await run(dir, stubs() + "\n" + answering("no\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--wipe'])"));
+  const res = await run(dir, stubs() + "\n" + answering("no\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
   assert.equal(res.exit, null, res.out);
   assert.equal(res.files.internal_uploads, false, "the attachments folder with links inside was not removed");
   assert.equal(await readFile(path.join(outside, "pictures", "precious.png"), "utf8"), "img");
   assert.equal(await readFile(path.join(outside, "file.png"), "utf8"), "img");
   assert.ok((await lstat(path.join(dir, "uploads"))).isSymbolicLink(), "the linked old folder was removed");
-  assert.match(res.out, /kept card attachments link .*facilitator\/uploads \(a link is not followed; remove it by hand\)/);
+  assert.match(res.out, /⊘ Kept card attachments link .*facilitator\/uploads\.\nA link is not followed\. Remove it by hand\./);
   assert.equal(res.files.internal_notes, true, "the internal folder's other files went");
 });
 
@@ -446,25 +548,25 @@ test("no attachment folders means no question", async () => {
   const res = await run(dir, stubs() + "\n" + answering("n\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
   assert.equal(res.exit, null, res.out);
   assert.doesNotMatch(res.out, /Keep your card attachments/);
-  assert.match(res.out, /card attachments: none found/);
+  assert.match(res.out, /No card attachments found\./);
 });
 
-test("--keep-attachments keeps them through --wipe without asking, and both flags together are refused", async () => {
+test("--keep-attachments keeps them without asking, and both flags together are refused", async () => {
   const dir = await freshClone();
   await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
   await fabricateData(dir);
 
   const both = await run(dir, stubs() + "\n" + answering("n\n") + "\n"
     + snapshot("cli.cmd_uninstall(['uninstall', '--keep-attachments', '--remove-attachments'])"));
-  assert.match(String(both.exit), /give --keep-attachments or --remove-attachments, not both/);
+  assert.match(String(both.exit), /^\n⚠ Both --keep-attachments and --remove-attachments were given\.\n  Give one of them, not both\.$/);
   assert.ok(installed(both.files) && both.files.internal_uploads, "a refused run removed something");
 
   const res = await run(dir, stubs() + "\n" + answering("n\n") + "\n"
-    + snapshot("cli.cmd_uninstall(['uninstall', '--wipe', '--keep-attachments'])"));
+    + snapshot("cli.cmd_uninstall(['uninstall', '--keep-attachments'])"));
   assert.equal(res.exit, null, res.out);
   assert.doesNotMatch(res.out, /Keep your card attachments/, "the flag did not answer the question");
   assert.ok(res.files.uploads && res.files.internal_uploads, "--keep-attachments removed attachments");
-  assert.equal(res.files.state, false, "--wipe did not go ahead");
+  assert.equal(res.files.state, true, "uninstall removed the board's data");
 });
 
 test("uninstall has no dry run: --dry-run is refused before anything is asked or removed", async () => {
@@ -473,12 +575,12 @@ test("uninstall has no dry run: --dry-run is refused before anything is asked or
   await fabricateData(dir);
 
   const res = await run(dir, stubs() + "\n" + answering("n\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--dry-run'])"));
-  assert.match(String(res.exit), /uninstall takes --wipe, --keep-attachments or --remove-attachments; got --dry-run/);
+  assert.match(String(res.exit), /^\n⚠ Unknown option: --dry-run\.\n  uninstall takes --keep-attachments or --remove-attachments\./);
   assert.doesNotMatch(res.out, /Keep your card attachments|uninstaller/, "a refused run asked or showed the banner");
   assert.ok(installed(res.files) && res.files.uploads && res.files.internal_uploads, JSON.stringify(res.files));
 });
 
-test("uninstall --wipe removes owned skill links but keeps another personal skill", async () => {
+test("uninstall removes owned skill links but keeps another personal skill", async () => {
   const dir = await freshClone();
   const home = path.join(dir, 'home');
   await mkdir(home);
@@ -495,7 +597,7 @@ test("uninstall --wipe removes owned skill links but keeps another personal skil
   await mkdir(other);
   await writeFile(path.join(other, 'SKILL.md'), 'mine');
   await fabricateData(dir);
-  const removed = await run(dir, stubs() + '\n' + snapshot("cli.cmd_uninstall(['uninstall', '--wipe'])"), env);
+  const removed = await run(dir, stubs() + '\n' + snapshot("cli.cmd_uninstall(['uninstall'])"), env);
   assert.equal(removed.exit, null, removed.out);
   for (const host of ['.claude', '.agents'])
     await assert.rejects(lstat(path.join(home, host, 'skills/facilitator')), { code: 'ENOENT' });
@@ -503,14 +605,37 @@ test("uninstall --wipe removes owned skill links but keeps another personal skil
   assert.equal(await readFile(path.join(dir, '.agents/skills/facilitator/SKILL.md'), 'utf8').then(Boolean), true);
 });
 
-test("a second uninstall is harmless and says nothing is present", async () => {
+test("uninstall takes back a Claude limits entry an older install added to the Claude Code settings", async () => {
+  const dir = await freshClone();
+  const home = path.join(dir, "home");
+  await mkdir(home);
+  const env = { SHELL: "/bin/zsh" };
+  const setup = ["import shell_integration", "shell_integration.install()",
+    stubs(), snapshot("cli.cmd_install(['install'])")].join("\n");
+  const first = await run(dir, setup, env);
+  assert.equal(first.exit, null, first.out);
+  const settings = path.join(home, ".claude", "settings.json");
+  await assert.rejects(lstat(settings), { code: "ENOENT" }, "install must not add the entry any more");
+
+  const older = require("./fixtures/older-statusline-installs.json")["made from nothing"];
+  const fill = text => text.split("@SCRIPT@").join(path.join(dir, "claude-statusline.py")).split("@SETTINGS@").join(settings);
+  await writeFile(settings, fill(older.after));
+  await writeFile(path.join(dir, ".facilitator-statusline.json"), fill(older.record));
+  const removed = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"), env);
+  assert.equal(removed.exit, null, removed.out);
+  assert.match(removed.out, /✓ facilitator command and agent skill removed/);
+  assert.doesNotMatch(removed.out, /settings\.json|Claude limits entry/);
+  await assert.rejects(lstat(settings), { code: "ENOENT" });
+});
+
+test("a second uninstall is harmless and prints no removal lines", async () => {
   const dir = await freshClone();
   await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
   await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
   const again = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
   assert.equal(again.exit, null, again.out);
-  assert.match(again.out, /\.venv not present/);
-  assert.match(again.out, /run\.config\.json not present/);
+  assert.doesNotMatch(again.out, /not present|✓ /);
+  assert.match(again.out, /✦ Uninstall finished\./);
 });
 
 test("uninstall refuses while the board answers on the port, and removes nothing", async () => {
@@ -519,7 +644,7 @@ test("uninstall refuses while the board answers on the port, and removes nothing
 
   const res = await run(dir, stubs({ up: true }) + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
   assert.equal(typeof res.exit, "string", "a running board did not stop the uninstall");
-  assert.match(res.exit, /the board is up on port \d+; stop that server first, then run uninstall again/, res.exit);
+  assert.match(res.exit, /^\n⚠ The board is up on port \d+\.\n  Stop that server first, then run uninstall again\.$/, res.exit);
   assert.doesNotMatch(res.out, /Keep your card attachments/, "a refused uninstall asked about attachments");
   // nothing was removed
   assert.ok(installed(res.files), "files were removed while the board was up");
@@ -547,5 +672,5 @@ test("uninstall refuses unknown options before it touches anything", async () =>
     .then(() => null, error => error);
   assert.ok(refused, "uninstall accepted an unknown option");
   assert.equal(refused.code, 1);
-  assert.match(refused.stderr, /uninstall takes --wipe, --keep-attachments or --remove-attachments; got --bogus/, refused.stderr);
+  assert.match(refused.stderr, /⚠ Unknown option: --bogus\.\n  uninstall takes --keep-attachments or --remove-attachments\./, refused.stderr);
 });

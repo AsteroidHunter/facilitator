@@ -8,7 +8,7 @@ const source = readFileSync(path.join(__dirname, "..", "card-report.js"), "utf8"
 const OP = "12345678-1234-4234-8234-123456789abc";
 function fixture(name = "phone") {
   let now = 0, next = 0, answer = "saved";
-  const timers = new Map(), intervals = [], windowEvents = {}, documentEvents = {}, calls = [], beacons = [];
+  const timers = new Map(), intervals = [], windowEvents = {}, documentEvents = {}, calls = [], beacons = [], frames = [];
   const listen = store => (name, fn) => (store[name] ||= []).push(fn);
   const fire = (store, name, value = {}) => { for (const fn of store[name] || []) fn(value); };
   const classes = new Set();
@@ -21,6 +21,7 @@ function fixture(name = "phone") {
     performance: { now: () => now }, Date: { now: () => 1800000000000 + now },
     setTimeout(fn, ms = 0) { const id = ++next; timers.set(id, { fn, at: now + ms }); return id; },
     clearTimeout(id) { timers.delete(id); }, setInterval(fn, ms) { intervals.push({ fn, ms }); },
+    requestAnimationFrame(fn) { frames.push(fn); return frames.length; },
     addEventListener: listen(windowEvents),
     fetch: async (url, init = {}) => {
       if (url !== "/clientlog") {
@@ -43,6 +44,9 @@ function fixture(name = "phone") {
   return {
     context, history: context.phoneHistory, calls, beacons, navigator, document, classes,
     fireDocument: (name, value) => fire(documentEvents, name, value),
+    // frames asked for and not yet delivered; a frame at `time` runs each of them
+    frames: () => frames.length,
+    frame(time) { for (const fn of frames.splice(0)) fn(time); },
     now: value => { now = value; }, answer: value => { answer = value; },
     tick: ms => { for (const interval of intervals) if (interval.ms === ms) interval.fn(); },
     hidden(value) { document.hidden = value; fire(documentEvents, "visibilitychange"); },
@@ -221,6 +225,67 @@ test("v3 timer detects a visible gap but ignores a resumed page's delayed callba
   const pending = resumed.history.mark("settings");
   resumed.now(30000); await resumed.run(); await pending;
   assert.equal(latest(resumed).events.some(e => e.event === "freeze" || e.event === "timer"), false);
+});
+
+test("frames are asked for only around touches, keys and new board readings, and the watch ends on its own", () => {
+  const f = fixture(); f.history.capability(3);
+  for (let t = 100; t <= 60000; t += 100) { f.now(t); f.tick(100); }
+  assert.equal(f.frames(), 0, "a page with nothing going on asked for a frame");
+
+  f.now(61000); f.fireDocument("touchstart");
+  assert.equal(f.frames(), 1);
+  f.fireDocument("touchmove"); f.fireDocument("touchmove");
+  assert.equal(f.frames(), 1, "one frame is pending, not one per event");
+  for (let t = 61016; t < 66000; t += 16) { f.now(t); f.frame(t); assert.equal(f.frames(), 1, `no frame asked for at ${t}`); }
+  f.now(66100); f.frame(66100);
+  assert.equal(f.frames(), 0, "the watch never ended");
+
+  let at = 70000;
+  for (const type of ["touchend", "touchcancel", "pointerdown", "keydown"]) {
+    f.now(at); f.fireDocument(type);
+    assert.equal(f.frames(), 1, `${type} did not start the watch`);
+    f.now(at + 5100); f.frame(at + 5100);
+    assert.equal(f.frames(), 0);
+    at += 10000;
+  }
+
+  f.now(at); f.history.note("render", { rev: 5, phase: "start" });
+  assert.equal(f.frames(), 1, "a new board reading did not start the watch");
+  f.now(at + 5100); f.frame(at + 5100);
+  f.history.note("render", { rev: 5, phase: "start" });
+  assert.equal(f.frames(), 0, "the same reading again started the watch");
+  f.history.note("render", { rev: 6, phase: "start" });
+  assert.equal(f.frames(), 1);
+  f.now(at + 10200); f.frame(at + 10200);
+
+  f.hidden(true);
+  f.fireDocument("touchstart");
+  assert.equal(f.frames(), 0, "a hidden page asked for a frame");
+  f.hidden(false);
+
+  const old = fixture();
+  old.fireDocument("keydown");
+  assert.equal(old.frames(), 0, "a receiver that keeps no frames was still watched");
+});
+
+test("a stall right after a touch is recorded as a frame gap, and a long one saves a freeze", async () => {
+  const f = fixture(); f.history.capability(3);
+  for (let t = 100; t <= 50000; t += 100) { f.now(t); f.tick(100); }
+  f.fireDocument("touchstart");
+  f.now(50650); f.frame(50650);
+  const pending = f.history.mark("settings");
+  f.now(71000); await f.run();
+  assert.equal((await pending).status, "saved");
+  assert.ok(latest(f).events.some(e => e.event === "frame" && e.ms === 650), "the stall was not recorded");
+  assert.equal(f.calls.length, 1, "a short stall saved a history of its own");
+
+  const long = fixture(); long.history.capability(3);
+  for (let t = 100; t <= 50000; t += 100) { long.now(t); long.tick(100); }
+  long.fireDocument("keydown");
+  long.now(51400); long.frame(51400);
+  long.now(72000); await long.run();
+  assert.equal(latest(long).reason, "freeze");
+  assert.ok(latest(long).events.some(e => e.event === "frame" && e.ms === 1400));
 });
 
 test("normal history stays in RAM, with entry and age eviction and a bounded marker batch", async () => {
@@ -419,26 +484,34 @@ test("offline and unconfirmed saves retain the noticed moment for an explicit re
   assert.equal(latest(f).marked, 1800000000010);
 });
 
-test("a manual marker made during an automatic upload is retained for retry", async () => {
+test("a manual save made during an automatic upload is sent right after it, not refused", async () => {
   const f = fixture();
   f.answer("timeout");
   f.context.reportProblem("render", new Error("fixture automatic problem"));
-  assert.equal((await f.history.mark("shortcut", { box: "m12" })).status, "busy");
-  await f.run(); f.now(4000); await f.run();
+  await f.run();
+  assert.equal(f.calls.length, 1);
+  let status = null;
+  const pending = f.history.mark("shortcut", { box: "m12" }).then(answer => { status = answer.status; });
+  await f.run();
+  assert.equal(f.calls.length, 1, "the manual save did not wait for the automatic one");
   f.answer("saved");
-  assert.equal((await f.mark("settings", {}, true)).status, "saved");
-  assert.equal(latest(f).reason, "manual");
+  f.now(4000); await f.run(); await pending;
+  assert.equal(status, "saved");
+  assert.deepEqual(f.calls.map(c => c.reports[0].reason), ["problem", "manual"]);
   assert.equal(latest(f).events.at(-1).source, "shortcut");
   assert.equal(latest(f).box, "m12");
 });
 
-test("telemetry failures, timeout, and busy saves stay separate from legacy error batches", async () => {
+test("telemetry failures, timeout, and queued saves stay separate from legacy error batches", async () => {
   const f = fixture();
   f.answer("timeout");
   const pending = f.history.mark("settings");
-  assert.equal((await f.history.mark("shortcut")).status, "busy");
+  const queued = f.history.mark("shortcut");
   await f.run(); f.now(4000); await f.run();
   assert.equal((await pending).status, "failed");
+  f.now(8000); await f.run();
+  assert.equal((await queued).status, "failed");
+  assert.equal(f.calls.length, 2);
   f.context.reportProblem("render", new Error("fixture render failed"));
   f.history.hide();
   f.fire("pagehide");
@@ -455,6 +528,70 @@ test("telemetry failures, timeout, and busy saves stay separate from legacy erro
   f.fire("pagehide");
   const legacy = JSON.parse(await f.beacons.at(-1).body.text());
   assert.equal(legacy.reports[0].route, "/broken");
+});
+
+const marks = report => report.events.filter(e => e.event === "mark");
+
+test("a manual press while an automatic save is recording records its own 20 seconds and follows it", async () => {
+  const f = fixture(); f.history.capability(5);
+  f.now(5000); f.history.freeze(3000);
+  f.now(12000);
+  let status = null;
+  const pending = f.history.mark("shortcut", { box: "m12" }).then(answer => { status = answer.status; });
+  f.now(20000); f.history.note("scroll", { action: "response-scroll", phase: "end", ms: 1800, count: 12 });
+  f.now(25000); await f.run();
+  assert.deepEqual(f.calls.map(c => c.reports[0].reason), ["freeze"]);
+  assert.equal(status, null, "a press was reported before its own recovery and the server reply");
+  f.now(31000); f.history.note("scroll", { action: "response-scroll", phase: "end", ms: 900, count: 4 });
+  f.now(32000); await f.run(); await pending;
+  assert.equal(status, "saved");
+  assert.deepEqual(f.calls.map(c => c.reports[0].reason), ["freeze", "manual"]);
+  const [automatic, manual] = f.calls.map(c => c.reports[0]);
+  assert.deepEqual(marks(automatic).map(e => [e.reason, e.at]), [["freeze", 0]]);
+  assert.deepEqual(marks(manual).map(e => [e.reason, e.at]), [["manual", 0]]);
+  assert.equal(manual.marked, 1800000012000);
+  assert.equal(manual.box, "m12");
+  assert.deepEqual(manual.events.filter(e => e.event === "scroll").map(e => e.at), [8000, 19000]);
+  assert.deepEqual(automatic.events.filter(e => e.event === "scroll").map(e => e.at), [15000]);
+});
+
+test("a manual press whose recording ends during an automatic upload waits for it and says saved only once the server has it", async () => {
+  const f = fixture(); f.history.capability(5);
+  f.now(5000); f.history.freeze(3000);
+  f.now(6000);
+  let status = null;
+  const pending = f.history.mark("shortcut").then(answer => { status = answer.status; });
+  f.answer("timeout");
+  f.now(25000); await f.run();
+  assert.equal(f.calls.length, 1);
+  f.now(26000); await f.run();
+  assert.equal(f.calls.length, 1, "the second upload started while the first was still out");
+  assert.equal(status, null);
+  f.answer("dropped");
+  f.now(29000); await f.run(); await pending;
+  assert.deepEqual(f.calls.map(c => c.reports[0].reason), ["freeze", "manual"]);
+  assert.equal(status, "failed", "a report the server dropped was called saved");
+  f.answer("saved");
+  assert.equal((await f.mark("settings", {}, true)).status, "saved");
+  assert.equal(latest(f).reason, "manual");
+  assert.equal(latest(f).marked, 1800000006000);
+  assert.equal(f.calls.length, 3);
+});
+
+test("hiding the page while two saves are recording sends the manual one and holds it for retry", async () => {
+  const f = fixture(); f.history.capability(5);
+  f.now(5000); f.history.freeze(3000);
+  f.now(12000);
+  const pending = f.history.mark("shortcut", { box: "m12" });
+  f.now(15000); f.history.hide();
+  assert.equal((await pending).status, "failed");
+  const sent = (await Promise.all(f.beacons.map(async e => JSON.parse(await e.body.text()))))
+    .flatMap(b => b.reports).filter(r => r.kind === "incident");
+  assert.deepEqual(sent.map(r => r.reason), ["manual"]);
+  assert.equal(f.calls.length, 0);
+  assert.equal((await f.mark("settings", {}, true)).status, "saved");
+  assert.equal(latest(f).reason, "manual");
+  assert.equal(latest(f).marked, 1800000012000);
 });
 
 test("invalid field getters and missing transport cannot throw through recorder calls", async () => {

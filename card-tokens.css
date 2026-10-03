@@ -17,7 +17,7 @@
      lighter #DEDEDE would have spread over 1.6. white less #DEDEDE is 33
      levels, times 1.6 is about 53, and white less 53 is #CACACA */
   --line:#CACACA; --line-strong:#D8CFBE;
-  --accent:#432BFF; --accent-soft:#EEEBFF;
+  --accent:var(--ink); --accent-soft:var(--bubble-fill);
   --green:#2F6B3C; --green-bg:#EDF4E8; --green-line:#C4D9BB;
   --must:#A8442A; --must-bg:#F7EAE4;
   --could:#8A6D1F; --could-bg:#F5EFDD;
@@ -80,6 +80,49 @@
   --gentle:cubic-bezier(.42,.06,.38,1);
   --sunk-deep:inset 0 3px 7px rgba(60,45,20,.22), inset 0 1px 2px rgba(60,45,20,.14);
 }
+
+/* ---- the top bar's marks, and the card's working spinner ------------------ */
+/* --hist-glyph-w and --hist-glyph-h are the chevron each history arrow draws,
+   centred in its seat. each page sets the seat itself, --hist-cell, on its own
+   bar, from the square every element of its top row stands in.
+   --bar-mark is the size of the sun, the moon and the cross, drawn across
+   inside those squares, and --cardspin-s the size of the working spinner. they
+   are two sizes on purpose: the marks are one thing and the spinner another,
+   and each is written here once so the board and the phone cannot part. the
+   cross's two lines are --cross-t thick, the share of their length
+   --cross-weight they had when they were 9px long and 1.2px thick, so the
+   cross keeps its proportions at any mark size.
+   the spinner is always in the bar and only its strength changes, so showing
+   or hiding it moves nothing. the fade is the history arrows' own, --spin-fade
+   on the --gentle curve. its line is the working ticket's | / - \ , drawn in
+   the title's ink in the board's mono at the box's size, --cardspin-s.
+   a green card is always in doing, where the sun is off, so on both pages the
+   spinner takes the sun's place: it stands in the sun's own cell of the bar's
+   grid, centred, so it shares the centre of the sun's mark by construction,
+   and the two cross-fade on one curve and one clock. the sun's mark is faded
+   and not the button, so the button keeps the off fade the chips give it and
+   the sun returns to exactly that look. the glyph is not lifted, so it is
+   centred on the sun's mark */
+:root{
+  --hist-glyph-w:11px; --hist-glyph-h:7px;
+  --bar-mark:10px; --cardspin-s:11px;
+  --cross-weight:calc(1.2 / 9); --cross-t:calc(var(--bar-mark) * var(--cross-weight));
+  --spin-fade:.26s;
+}
+.cardspin{
+  color:var(--ink); pointer-events:none;
+  opacity:0; transition:opacity var(--spin-fade) var(--gentle);
+}
+.cardspin.on{opacity:1}
+.cardspin::before{
+  content:attr(data-f); flex:none; display:block;
+  width:var(--cardspin-s); height:var(--cardspin-s);
+  font:600 var(--cardspin-s)/var(--cardspin-s) var(--mono);
+  text-align:center; white-space:nowrap;
+}
+.topbar > .cardspin{grid-area:sun; place-self:center}
+.sunbtn svg{transition:opacity var(--spin-fade) var(--gentle)}
+.topbar:has(> .cardspin.on) .sunbtn svg{opacity:0}
 
 /* ---- the owner's grey ---------------------------------------------------- */
 /* --bubble-fill is the grey the owner's own words stand on: the panel of the
@@ -187,6 +230,10 @@
 .cardmd ul, .cardmd ol{margin:0 0 9px; padding-left:22px}
 .cardmd li{margin:2px 0}
 .cardmd li > ul, .cardmd li > ol{margin:3px 0 2px}
+/* the 22px indent holds a one digit number; the renderer names a longer list and it takes one more digit's width for each extra digit */
+.cardmd ol.md-ol2{padding-left:calc(22px + 1ch)}
+.cardmd ol.md-ol3{padding-left:calc(22px + 2ch)}
+.cardmd ol.md-ol4{padding-left:calc(22px + 3ch)}
 .cardmd h1, .cardmd h2, .cardmd h3, .cardmd h4, .cardmd h5, .cardmd h6{
   margin:13px 0 7px; color:var(--ink); font-family:var(--inter); line-height:1.25;
 }
@@ -274,8 +321,9 @@
    has a dissolve to draw again.
    --answ-stop is written by the script and by nothing else: the foot of the
    last line with text, when the preview's own cut would otherwise land in
-   blank, a paragraph break or the air round a hairline, or when a batch that
-   fits ends on a blank tail. without it the cut is the surface's own preview */
+   blank, a paragraph break or the air between two messages, or when a batch
+   that fits ends on a blank tail. without it the cut is the surface's own
+   preview */
 .answclip{position:relative; max-height:var(--answ-stop, var(--answ-peek)); overflow:hidden; --answ-shade:0}
 .answered.more:not(.open) .answclip{--answ-shade:1}
 .answclip::after{
@@ -306,14 +354,16 @@
    reader left them with a transform and lets it go, so they travel rather than
    jump. the column moves in the sent panel's cut, the whole panel in a small
    card's seat.
-   and a panel over the answer whose head is scrolled out of sight is cut back
-   off its top: the script holds it down by a top margin that grows on the same
-   run and curve as the cut shrinks, so the arrow pressed and the answer under
-   it stand still (openAnswered in card-logic.js). it is the one thing in a run
-   that is neither a height, a strength nor a transform, because it has to keep
-   step with the cut's height on every frame to the pixel, and a transform runs
-   on a clock of its own apart from the layout */
-.answered.motion{transition:transform var(--answ-move) var(--gentle), margin-top var(--answ-move) var(--gentle)}
+   and a panel over the answer is cut back from its foot, which comes up on the
+   height's own run. the part of the panel scrolled above the view is given up
+   first: the script scrolls back by what the cut has taken so far, on every
+   frame, so the answer under the panel stays where it stands, and holds room
+   under the answer so the browser never pulls the scroll (openAnswered and
+   followCut in card-logic.js) */
+.answered.motion{
+  transition:transform var(--answ-move) var(--gentle),
+    margin-bottom var(--answ-move) var(--gentle), --answ-fill var(--answ-move) var(--gentle);
+}
 .answered.motion .answstack{transition:transform var(--answ-move) var(--gentle)}
 .answered.motion .answstack, .answered.motion .answfoot,
 .replyview:has(> .answwrap .answered.motion) > .reply{will-change:transform}
@@ -328,9 +378,8 @@
 .answmsg{white-space:pre-wrap; overflow-wrap:break-word}
 .answmsg p, .answmsg ul, .answmsg ol{margin-bottom:var(--answ-line)}
 .answmsg + .answmsg{
-  margin-top:calc(var(--answ-line) / 2 - .5px);
-  padding-top:calc(var(--answ-line) / 2 - .5px);
-  border-top:0px solid var(--line);
+  margin-top:calc(var(--answ-line) / 2);
+  padding-top:calc(var(--answ-line) / 2);
 }
 /* the strip at the foot of a long batch, the grey the arrow stands in: its own
    height, taller than the panel's air, with the arrow centred in it so it has
@@ -371,27 +420,65 @@
 .answered.arrive, .answmsg.arrive{animation:answarrive var(--answ-come) var(--gentle)}
 
 /* ---- the delivery marks -------------------------------------------------- */
-/* where a sent message stands with the agent, from the board's own record
-   (card-logic.js names the stages). a message no agent has received yet is
-   drawn faded: its words at half strength, and while every message in the
-   panel is still waiting, the panel's grey too, mixed halfway to the card's
-   white, and the dissolve at the cut with it. delivered, it takes its full ink;
-   the words come up over the fold's own length, and only their strength
-   changes. a line the phone writes under a message of its own stays at full
-   strength, since it is what says how the sending is going.
+/* where a sent message stands (card-logic.js names the stages). a message the
+   board has not saved yet is drawn faded: its words at half strength, and while
+   every message in the panel is still unsaved, the panel's grey too, mixed
+   halfway to the card's white, and the dissolve at the cut with it. once the
+   board has it, it takes its full ink; the words come up over the fold's own
+   length, and only their strength changes. a line the phone writes under a
+   message of its own stays at full strength, since it is what says how the
+   sending is going.
    the one mark a panel carries, Delivered or Read, stands under its foot at the
    right, in the card's quiet mono, stepped in by the corner's own radius so it
    sits under the straight edge. the panel keeps room for it under itself, so
-   nothing stands on it */
+   nothing stands on it.
+   the panel takes its delivery on the fold's own run: the grey firms up with the
+   words, the room for the mark opens under the foot on the same curve, and the
+   mark comes in with a short rise and a fade. a mark giving way to the next one
+   fades out over half of that and the next comes in, so the two words are never
+   on screen together (card-logic.js swaps the word between the two and says
+   which is on show in data-mark; data-tag is where the board's record has it).
+   the grey is a registered colour so that it can run at all. a page that
+   builds the panel already marked draws it as it is: nothing here moves until
+   the mark changes on a panel that is standing */
+@property --answ-fill{syntax:"<color>"; inherits:true; initial-value:transparent}
+@keyframes markin{from{opacity:0; transform:translate3d(0, calc(var(--answ-rise) / 2), 0)}}
+.answered{transition:margin-bottom var(--answ-move) var(--gentle), --answ-fill var(--answ-move) var(--gentle)}
 .answered.undelivered{--answ-fill:color-mix(in srgb, var(--bubble-fill) 50%, var(--card, #fff))}
 .answmsg > *{transition:opacity var(--answ-move) var(--gentle)}
-.answmsg.undelivered > :not(.answnote){opacity:.5}
-.answered[data-tag]{margin-bottom:var(--answ-tag)}
-.answered[data-tag]::after{
-  content:attr(data-tag); position:absolute; top:100%; right:var(--answ-round);
+.answmsg.undelivered > :not(.answmark){opacity:.5}
+/* a message that is not getting through wears a badge inside its row, and
+   nothing is written on it (card-logic.js: sentBadge). the row gives up a
+   column on its right for it and the badge stands in that column, at the
+   row's vertical middle, always at full strength. the red round mark is 18px,
+   systemRed, with a white glyph, 2px from the edge; it holds the circular
+   arrow that sends the message again, and the small cross to its left, in the
+   tray's dark, takes the message back. a row with only the ring keeps 26px on
+   its right, a row with the mark and the cross 46px. the ring a send still
+   being tried again on its own wears is drawn by the page, in the mark's place */
+.answmsg{position:relative}
+.answmsg[data-badge]{padding-right:26px}
+.answmsg[data-badge=fail]{padding-right:46px}
+.answmark{
+  position:absolute; right:2px; top:50%; transform:translateY(-50%);
+  display:flex; align-items:center; gap:6px;
+}
+.answmsg + .answmsg > .answmark{top:calc(50% + var(--answ-line) / 4)}
+.answretry, .answcross{
+  position:relative; flex:none; padding:0; border:none; border-radius:50%;
+  color:#fff; display:grid; place-items:center; cursor:pointer;
+}
+.answretry{width:18px; height:18px; background:#ff3b30}
+.answcross{width:16px; height:16px; background:rgba(33,29,23,.72)}
+.answretry::after, .answcross::after{content:""; position:absolute; inset:-6px -3px}
+.answered[data-mark]{margin-bottom:var(--answ-tag)}
+.answered[data-mark]::after{
+  content:attr(data-mark); position:absolute; top:100%; right:var(--answ-round);
   padding-top:3px; font:10.5px/1.35 var(--mono); color:var(--sub);
   white-space:nowrap; pointer-events:none;
 }
+.answered.markin::after{animation:markin var(--answ-move) var(--gentle) backwards}
+.answered.markout::after{opacity:0; transition:opacity calc(var(--answ-move) / 2) var(--gentle)}
 
 /* ---- the page turn and the print ----------------------------------------- */
 /* the answer to the sent panel's messages lands on the card on show and the card
@@ -444,13 +531,13 @@
    so the caret still shows in the note, and over everything else the board
    draws. at phone width the card sits near the top, so a keyboard coming up
    from below covers none of it */
-/* the veil dims the board by a quarter of the board's ink, the owner's own
-   setting from the tuning mock: enough to say the board is covered, and the
+/* the veil dims the board by fifteen percent of the board's ink, the setting
+   from the tuning mock: enough to say the board is covered, and the
    glass over it still reads as a light pane. it fades in by its colour and never by its
    opacity: anything with an opacity under one cuts off what a backdrop filter
    inside it can see, so an opacity fade would leave the card's glass blurring a
    flat veil, with the board gone, for as long as the fade ran */
-.qn-veil{display:none; position:fixed; inset:0; z-index:90; --qn-veil:25%;
+.qn-veil{display:none; position:fixed; inset:0; z-index:90; --qn-veil:15%;
   background:color-mix(in srgb, var(--ink) var(--qn-veil), transparent)}
 .qn-veil.open{display:grid; place-items:center; animation:qnveilin .14s ease-out}
 @keyframes qnveilin{from{background-color:transparent}}
@@ -466,20 +553,20 @@
    the see-through half the player gave up when its face went opaque, and which
    the board's chat glass (--c3-glass in index.html) still wears: a backdrop
    blur(16px) saturate(180%), the numbers the player's own note records, which
-   the owner then tuned in the mock to blur 15px and saturate 200%, with the
+   was then tuned in the mock to blur 15px and saturate 180%, with the
    lighting at twice the player's strength (--qn-edge 2). the player's third
    term, brightness(.98), is left off, since it only greys.
    the face is where the note parts from both. the player's is an opaque tint,
    the chat's a near clear .03 grey over a white canvas. a note floats over the
-   whole board, words and colours and all, so its face is white at .56: nearly
-   half of what is behind comes through, which is the glass, and the rest is
-   white enough that the words stay dark on light over anything (see the text
-   boost on .qn-card below for the numbers).
+   whole board, words and colours and all, so its face is white at .77: about
+   a quarter of what is behind comes through, which is the glass, and the rest
+   is white enough that the words stay dark on light over anything (see the
+   text boost on .qn-card below for the numbers).
    every value the owner may want to tune is a custom property here, so the
    mock's sliders move exactly these: --qn-blur, --qn-sat, --qn-tint and
    --qn-edge, the last scaling every white highlight in the lighting at once */
 .qn-glass{--qn-ring:#c7c7cc;
-  --qn-blur:15px; --qn-sat:200%; --qn-tint:.56; --qn-edge:2;
+  --qn-blur:15px; --qn-sat:180%; --qn-tint:.77; --qn-edge:2;
   border:none; border-radius:9px;
   background-color:rgba(255,255,255,var(--qn-tint));
   background-image:
@@ -517,13 +604,13 @@
   aspect-ratio:4 / 3}
 /* the text boost: a little more white behind where the words are, feathered so
    it never reads as a box, and stopping short of the edge so the rim stays the
-   clearest glass on the card. at the owner's .22 over the face's .56 it makes
-   the middle of the card white at about .66. worked in the web's own contrast
-   rule, the board's ink on the middle then stands at 13 to 1 over the veiled
-   board, and at 7 to 1 even with nothing but black behind the note; the rim,
-   without the boost, is still 5 to 1 over black. a blur of the board is never
+   clearest glass on the card. at .22 over the face's .77 it makes
+   the middle of the card white at about .82. worked in the web's own contrast
+   rule, the board's ink on the middle then stands at 15 to 1 over the veiled
+   board, and at 11 to 1 even with nothing but black behind the note; the rim,
+   without the boost, is still 9 to 1 over black. a blur of the board is never
    that dark, so the words read everywhere */
-.qn-card::before{content:""; position:absolute; inset:14px; border-radius:6px;
+.qn-card::before, .sp-page::before{content:""; position:absolute; inset:14px; border-radius:6px;
   background:rgba(255,255,255,var(--qn-boost)); filter:blur(10px); pointer-events:none}
 /* the field is the whole card and wears nothing of its own: every rule a page
    gives its text boxes (a fill, a border, a focus ring, a floor and a cap) is
@@ -546,10 +633,130 @@
    rim and shadow: nothing shows through and nothing is blurred */
 @media (prefers-reduced-transparency: reduce){
   .qn-glass{background-color:#fff; backdrop-filter:none; -webkit-backdrop-filter:none}
-  .qn-card::before{display:none}
+  .qn-card::before, .sp-page::before{display:none}
 }
 /* and a browser that cannot blur what is behind gets nearly solid white, since
    an unblurred board through a half clear face would sit under the words */
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
   .qn-glass{background-color:rgba(255,255,255,.94)}
 }
+
+/* ---- the settings page --------------------------------------------------- */
+/* the board's own choices, on one page drawn in the quick note's glass, so the
+   board is seen blurred through it. the desktop board seats it in a veil of its
+   own (.sp-veil), the quick note's veil, as a centred overlay seven tenths of the
+   window across and down with the note's own corners; the phone seats it as its
+   right hand menu over the whole screen. the page itself is the same on both.
+   wide, a column of sections stands on the left and the chosen section's
+   settings on the right. narrow, which is the page's own width at or under the
+   board's single column width, only the list of sections shows, a tap shows one
+   section, and the back mark on the bar above goes back to the list. the page
+   marks itself data-narrow when it is */
+.sp-page{box-sizing:border-box; display:flex; flex-direction:column; min-height:0;
+  border-radius:0; --qn-boost:.22; color:var(--ink); font:14px/1.4 var(--sans)}
+.sp-veil.open{display:block}
+/* the top rim is one line. the note's shadow stack draws it twice: a white
+   highlight on the first row and a faint dark band two rows deep, which shows
+   as a second, grey line beneath the white one, and the two hide the grey ring
+   that goes round the other three sides. both are left out here, so the ring is
+   the top edge as well, and the rest of the stack, the bottom and side rims,
+   the inner glow and the outer shadow, is the note's own */
+.sp-veil .sp-page{position:absolute; inset:15%; border-radius:9px; overflow:hidden;
+  box-shadow:
+    inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
+    inset 0 0 0 1px var(--qn-ring),
+    inset 0 0 2px rgba(255,255,255,calc(.35 * var(--qn-edge))),
+    inset 0 12px 12px -6px rgba(255,255,255,calc(.55 * var(--qn-edge))),
+    0 1px 2px -1px rgba(0,0,0,.18),
+    0 1px 3px rgba(0,0,0,.07),
+    0 8px 20px rgba(0,0,0,.06)}
+.sp-veil .sp-page:focus{outline:none}
+.sp-head, .sp-body{position:relative}
+.sp-head{flex:none; display:flex; align-items:center; gap:8px;
+  padding:calc(14px + env(safe-area-inset-top, 0px)) 20px 12px;
+  border-bottom:var(--edge) solid var(--line)}
+.sp-title{flex:1; min-width:0; margin:0; font:625 17px/1.25 var(--inter); color:var(--ink)}
+/* the window buttons of the desktop page, at the top left as on any Mac window:
+   three 12px circles 8px apart in the system's own red, yellow and green, on
+   the page's own left margin. the red one does anything, and its x stays hidden
+   until a pointer is over the group, as it does on a Mac window. the yellow and
+   the green are drawn as a Mac draws a button that cannot be used: a flat light
+   grey with a slightly darker ring, and no mark under a pointer */
+.sp-lights{flex:none; display:flex; gap:8px; margin-right:12px}
+.sp-light{flex:none; box-sizing:border-box; display:block; width:12px; height:12px;
+  margin:0; padding:0; border:none; border-radius:50%; cursor:default;
+  box-shadow:inset 0 0 0 .5px rgba(0,0,0,.14)}
+.sp-light svg{display:block; opacity:0; transition:opacity .12s}
+.sp-lights:hover .sp-red svg{opacity:1}
+.sp-red{background:#FF5F57; color:#4D0000}
+.sp-yellow, .sp-green{background:#DCDCDC; box-shadow:inset 0 0 0 .5px #C3C3C3}
+/* the marks on the bar are the tab bar's own: 15px, the sub ink, no box, and
+   the ink under a pointer. the padding is only the room a finger needs, and
+   the margin takes it back so the mark stands on the page's own margin */
+.sp-icon{flex:none; display:flex; padding:8px; border:none; background:none;
+  color:var(--sub); cursor:pointer; transition:color .18s}
+.sp-icon:hover{color:var(--ink)}
+.sp-icon[hidden]{display:none}
+.sp-icon svg{display:block}
+.sp-back{margin:-8px 0 -8px -8px}
+.sp-body{flex:1; min-height:0; display:grid; grid-template-columns:260px minmax(0, 1fr)}
+.sp-list{display:flex; flex-direction:column; gap:2px; padding:16px 12px; overflow-y:auto;
+  border-right:var(--edge) solid var(--line)}
+/* a section is a borderless button on the page: the press shade under a pointer,
+   and the same shade held on the one that is chosen */
+.sp-item{display:flex; align-items:center; justify-content:space-between; gap:8px;
+  width:100%; padding:9px 12px; border:none; border-radius:var(--sq); background:none;
+  color:var(--ink); font:500 14px/1.3 var(--sans); text-align:left; cursor:pointer}
+.sp-item:hover{background:color-mix(in srgb, #000 var(--press), transparent)}
+.sp-item.on{background:color-mix(in srgb, #000 var(--press), transparent); color:var(--ink)}
+.sp-next{display:none; flex:none; color:var(--sub)}
+.sp-next svg{display:block}
+.sp-panes{overflow-y:auto; padding:24px 32px 40px}
+.sp-pane{display:none}
+.sp-pane.on{display:block}
+.sp-panehead{margin:0 0 6px; font:625 15px/1.25 var(--inter); color:var(--ink)}
+/* a choice is a row: its words on the left with one line under them saying what
+   it does, and the control on the right */
+.sp-pane .setrow{display:flex; align-items:center; justify-content:space-between; gap:20px;
+  padding:14px 0; border-top:var(--edge) solid var(--line)}
+.sp-pane .setlabel{display:flex; flex-direction:column; gap:3px; min-width:0;
+  font:14px/1.35 var(--sans); color:var(--ink); cursor:pointer}
+.sp-pane .sethelp{margin:0; font:12px/1.5 var(--sans); color:var(--sub)}
+.sp-pane .sethelp:empty{display:none}
+/* an on and off choice is a switch: a pill that is the line grey when off and the
+   ink when on, and a white pill knob that slides across. it is still the row's
+   own checkbox, drawn over, so the click, the label and the space bar all work */
+.sp-pane .setrow input[type="checkbox"]{flex:none; position:relative; box-sizing:border-box;
+  width:46px; height:24px; margin:0; border:none; border-radius:12px;
+  -webkit-appearance:none; appearance:none; background:var(--line); cursor:pointer;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.14); transition:background-color .18s}
+.sp-pane .setrow input[type="checkbox"]::before{content:""; position:absolute;
+  top:3px; left:3px; width:27px; height:18px; border-radius:9px; background:var(--card);
+  box-shadow:0 1px 2px rgba(0,0,0,.28); transition:transform .18s var(--gentle)}
+.sp-pane .setrow input[type="checkbox"]:checked{background:var(--ink)}
+.sp-pane .setrow input[type="checkbox"]:checked::before{transform:translateX(13px)}
+@media (prefers-reduced-motion: reduce){
+  .sp-pane .setrow input[type="checkbox"], .sp-pane .setrow input[type="checkbox"]::before{transition:none}
+}
+/* an action is a button with the words that go with it under it. it is the
+   card's own kind of control, no border and the card's white for a fill, with
+   the board's one press shade mixed into that fill */
+.sp-pane .setact{display:flex; flex-direction:column; align-items:flex-start; gap:8px;
+  padding:14px 0; border-top:var(--edge) solid var(--line)}
+.sp-btn{font:500 14px/1.2 var(--sans); color:var(--ink); background:var(--card);
+  border:none; border-radius:var(--sq); padding:9px 14px; cursor:pointer}
+.sp-btn:hover, .sp-btn:active{background:color-mix(in srgb, #000 var(--press), var(--card))}
+.sp-btn:disabled{opacity:.6; cursor:default}
+.sp-btn:disabled:hover{background:var(--card)}
+.sp-page[data-narrow] .sp-body{grid-template-columns:minmax(0, 1fr)}
+.sp-page[data-narrow] .sp-list{gap:0; padding:0; border-right:none}
+.sp-page[data-narrow] .sp-item{padding:15px 20px; border-radius:0; font-size:15px;
+  border-bottom:var(--edge) solid var(--line)}
+.sp-page[data-narrow] .sp-item.on{background:none; color:var(--ink)}
+.sp-page[data-narrow] .sp-item.on:hover{background:color-mix(in srgb, #000 var(--press), transparent)}
+.sp-page[data-narrow] .sp-next{display:block}
+.sp-page[data-narrow] .sp-panes{padding:0 20px 32px}
+.sp-page[data-narrow] .sp-panehead{display:none}
+.sp-page[data-narrow] .sp-panehead + .setrow, .sp-page[data-narrow] .sp-panehead + .setact{border-top:none}
+.sp-page[data-narrow][data-view="list"] .sp-panes{display:none}
+.sp-page[data-narrow][data-view="pane"] .sp-list{display:none}

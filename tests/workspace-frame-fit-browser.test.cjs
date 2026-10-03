@@ -58,9 +58,11 @@ after(async () => { if (fx) await fx.stop(); });
 
 test("an active player below the conversation stays inside the app frame", async () => {
   // A saved low position makes the player the lowest region in a window short
-  // enough that the fit is height-bound.
+  // enough that the fit is height-bound. The player is off in the default layout,
+  // so this browser has turned it on.
   const { context, page } = await fx.openBoard(
-    { "magicrename.1": "1", "pos.facilitator.magic1": JSON.stringify({ x: 90, y: 760 }) },
+    { "magicrename.1": "1", "show.facilitator.magic1": "1",
+      "pos.facilitator.magic1": JSON.stringify({ x: 90, y: 760 }) },
     { width: 1400, height: 900 });
   try {
     await fillPlayer(page, ALBUM);
@@ -81,9 +83,11 @@ test("an active player below the conversation stays inside the app frame", async
 });
 
 test("the default board also fits inside the frame after a fullscreen-sized window shrinks", async () => {
-  // no custom position, active player: leaving a large window for a shorter one
-  // (a width change drives the refit) must land every region inside the frame
-  const { context, page } = await fx.openBoard(null, { width: 2400, height: 1500 });
+  // no custom position, active player turned on: leaving a large window for a
+  // shorter one (a width change drives the refit) must land every region inside
+  // the frame
+  const { context, page } = await fx.openBoard({ "show.facilitator.magic1": "1" },
+    { width: 2400, height: 1500 });
   try {
     await fillPlayer(page, ALBUM);
     await page.setViewport({ width: 1440, height: 900 });

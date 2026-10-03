@@ -404,7 +404,8 @@ test("the answer dissolves under the title as it scrolls and into the sent box a
         air: cs.getPropertyValue("--replyair").trim(),
         mask: cs.webkitMaskImage,
         composite: cs.webkitMaskComposite || cs.maskComposite,
-        runout: cs.paddingBottom,
+        runout: getComputedStyle(view, "::after").height,
+        padding: cs.paddingBottom,
         scrolls: view.scrollHeight > view.clientHeight + 1,
       };
     });
@@ -418,6 +419,7 @@ test("the answer dissolves under the title as it scrolls and into the sent box a
     assert.equal(rest.mask.match(/linear-gradient/g).length, 3, "the mask is not the desktop's three layers");
     assert.match(rest.composite, /intersect/);
     assert.equal(rest.runout, (parseFloat(rest.band) + 22).toFixed(0) + "px", "the scroll's run-out is not the band plus the ramp");
+    assert.equal(rest.padding, "0px", "the run-out is still the scroller's padding and not content");
     assert.equal(rest.scrolls, true, "the answer under test does not scroll");
     await shot(page, "fade-rest");
 
@@ -425,9 +427,12 @@ test("the answer dissolves under the title as it scrolls and into the sent box a
     const scrolled = await page.evaluate(async () => {
       const view = document.querySelector("article.box.sel .replyview");
       const read = () => getComputedStyle(view).getPropertyValue("--upband").trim();
+      // the band is written by the scroll event, which comes on the next frame, so
+      // the read waits for that event and not for a fixed time
       const step = async to => {
+        const landed = new Promise(r => { view.addEventListener("scroll", r, { once: true }); setTimeout(r, 2000); });
         view.scrollTop = to;
-        await new Promise(r => setTimeout(r, 60));
+        await landed;
         return read();
       };
       return { small: await step(7), deep: await step(400) };
@@ -473,7 +478,9 @@ test("the sent line lands on the tap, the panel comes up with it cut, and the po
     assert.equal(atOnce.animation, "answarrive", "the arrival is not the shared rise and fade");
     assert.equal(atOnce.open, false, "the send landed the panel open");
     assert.equal(atOnce.field, "", "the words were left in the row he types on");
-    assert.equal(atOnce.square, false, "the send square stayed up with nothing to send");
+    // the arrow stays up for a quick second press, which is how a send moves on
+    // (393061c), and goes back down once that window has passed
+    assert.equal(atOnce.square, true, "the send square went down at once instead of waiting for a second press");
     // a burst over the arrival: the panel coming up out of the row
     await shot(page, "send-mid-1");
     await settle(120);
@@ -490,14 +497,16 @@ test("the sent line lands on the tap, the panel comes up with it cut, and the po
         opacity: cs.opacity,
         transform: cs.transform,
         rows: [...document.querySelectorAll("article.box.sel .sentwrap .answmsg")].map(r => r.dataset.text),
-        line: document.querySelector("article.box.sel .sentwrap .answnote"),
+        line: document.querySelector("article.box.sel .sentwrap .answmark"),
       };
     });
     assert.equal(settled.classes, "answered sent", "the arrival left its dress on the panel");
     assert.equal(settled.opacity, "1");
     assert.equal(settled.transform, "none");
     assert.deepEqual(settled.rows, ["Landed before the server answered"], "the poll doubled the sent line");
-    assert.equal(settled.line, null, "a confirmed message kept the line an unconfirmed one wears");
+    assert.equal(settled.line, null, "a confirmed message kept the mark an unconfirmed one wears");
+    await page.waitForFunction(() => !document.querySelector("article.box.sel .sendbtn").classList.contains("show"),
+      { timeout: 3000 }).catch(() => assert.fail("the send square stayed up with nothing to send, past the second press's window"));
     const saved = await (await fetch(origin + "/state")).json();
     assert.deepEqual(saved.boxes.find(b => b.id === id).pendingTexts, ["Landed before the server answered"]);
     await shot(page, "send-settled");
@@ -509,7 +518,7 @@ test("the sent line lands on the tap, the panel comes up with it cut, and the po
   }
 });
 
-test("a send moves on to the card that has waited longest, on the desktop's wait", async () => {
+test("a second press of the send arrow moves on to the card that has waited longest, on the desktop's wait", async () => {
   const board = await readFile(path.join(ROOT, "index.html"), "utf8");
   const phone = await readFile(path.join(ROOT, "m.html"), "utf8");
   const wait = source => source.match(/const AUTONEXT_MS = (\d+)/)[1];
@@ -527,6 +536,15 @@ test("a send moves on to the card that has waited longest, on the desktop's wait
   try {
     await page.waitForSelector(`#box-${from}.sel`, { timeout: 5000 });
     await page.type("article.box.sel textarea", "Off you go");
+    // the first press of the arrow sends and stays on the card (393061c); a second
+    // press inside the quick window is the one that moves on
+    await page.evaluate(() => document.querySelector("article.box.sel .sendbtn").click());
+    const stayed = await page.evaluate(() => ({
+      selected: selectedId,
+      up: document.querySelector("article.box.sel .sendbtn").classList.contains("show"),
+    }));
+    assert.equal(stayed.selected, from, "the first press of the send arrow moved on");
+    assert.equal(stayed.up, true, "the send arrow did not stay up for a second press");
     await page.evaluate(() => document.querySelector("article.box.sel .sendbtn").click());
     await page.waitForFunction(id => selectedId === id, { timeout: 3000 }, waiting);
     const landed = await page.evaluate(() => ({
@@ -704,7 +722,12 @@ test("a pull past the middle opens the card list and one short of it goes back",
     let midway = null;
     await pull(page, "left", 0.6, async () => {
       midway = await readMenu(page, "#drawer");
-      await shot(page, "drawer-dragged");
+      // asked of the browser directly: the page's own screenshot, taken with a
+      // finger down, makes this Chrome send the touch again at a third of its place
+      const cdp = await page.createCDPSession();
+      const { data } = await cdp.send("Page.captureScreenshot", { format: "png" });
+      await cdp.detach();
+      await writeFile(path.join(SHOTS, "drawer-dragged.png"), Buffer.from(data, "base64"));
     });
     assert.ok(midway.shift < 0 && midway.shift > -midway.width, "the card list does not follow the finger");
     assert.equal(midway.ms, "0s", "the card list is on a clock while the finger holds it");
@@ -746,8 +769,10 @@ test("the overlaid card list still scrolls vertically and every uncovered pixel,
     await page.waitForSelector("article.box.sel", { timeout: 5000 });
     await page.evaluate(() => openDrawer());
     await settle(750);
+    // the groups sit side by side on one sheet and each group scrolls on its own,
+    // so the pane of the open view is the list that scrolls
     const before = await page.evaluate(() => {
-      const list = document.getElementById("tiklist");
+      const list = document.querySelector('#tiklist .tikpane[data-view="todo"]');
       return { top: list.scrollTop, room: list.scrollHeight - list.clientHeight };
     });
     assert.ok(before.room > 300, `the card-list fixture does not overflow enough to scroll (${before.room})`);
@@ -757,7 +782,7 @@ test("the overlaid card list still scrolls vertically and every uncovered pixel,
     await page.touchscreen.touchEnd();
     await settle(300);
     const scrolled = await page.evaluate(() => ({
-      top: document.getElementById("tiklist").scrollTop,
+      top: document.querySelector('#tiklist .tikpane[data-view="todo"]').scrollTop,
       open: document.getElementById("drawer").classList.contains("open"),
     }));
     assert.ok(scrolled.top > 100, `the overlaid card list did not scroll (${scrolled.top})`);
@@ -829,65 +854,71 @@ test("the overlaid card list still scrolls vertically and every uncovered pixel,
   }
 });
 
-test("the tab bar stays where he scrolled it, across a poll and a tap", async () => {
-  // enough lanes to fill the bar past the width of the screen. the folder each
-  // lane is given is only a name to the page, and nothing is written in it
+test("the project list stays where he scrolled it, across a poll and a rebuild, and a row in view switches lane", async () => {
+  // enough lanes to run the list past the room over the row of buttons. the
+  // folder each lane is given is only a name to the page, and nothing is
+  // written in it
   const home = require("node:os").homedir();
-  for (const name of ["Lane two", "Lane three", "Lane four", "Lane five", "Lane six"]) {
-    const made = await fetch(`${origin}/project?name=${encodeURIComponent(name)}`, { method: "POST", body: home });
+  for (let n = 2; n <= 17; n++) {
+    const made = await fetch(`${origin}/project?name=${encodeURIComponent("Lane " + n)}`, { method: "POST", body: home });
     assert.equal(made.status, 200, "the fixture could not add a lane");
   }
   const { page, problems } = await openPhone("/m");
   try {
-    await page.waitForFunction(() => document.querySelectorAll("#tabbar .ptab").length >= 7, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelectorAll("#projlist .projrow").length >= 18, { timeout: 5000 });
+    await page.evaluate(() => openProjects());
+    await settle(300);
     const room = await page.evaluate(() => {
-      const lane = document.querySelector(".bar");
-      return lane.scrollWidth - lane.clientWidth;
+      const list = document.getElementById("projmenu");
+      return list.scrollHeight - list.clientHeight;
     });
-    assert.ok(room > 60, `the bar under test does not overflow (${room})`);
+    assert.ok(room > 60, `the list under test does not overflow (${room})`);
+    const place = Math.floor(room / 2);
 
-    await page.evaluate(() => { document.querySelector(".bar").scrollLeft = 120; });
+    await page.evaluate(at => { document.getElementById("projmenu").scrollTop = at; }, place);
     await page.evaluate(() => poll());
     await settle(1600);   // a hand-run poll and the clock's own one behind it
     const afterPoll = await page.evaluate(() => ({
-      at: document.querySelector(".bar").scrollLeft,
+      at: document.getElementById("projmenu").scrollTop,
+      open: document.body.classList.contains("projopen"),
       polls: !!lastState,
     }));
     assert.equal(afterPoll.polls, true);
-    assert.equal(afterPoll.at, 120, "a poll yanked the bar back to the start");
-    await shot(page, "tabbar-scrolled");
+    assert.equal(afterPoll.open, true, "a poll shut the list");
+    assert.equal(afterPoll.at, place, "a poll yanked the list back to its head");
+    await shot(page, "projlist-scrolled");
 
-    // a tap on a tab standing in view leaves the bar exactly where it is
+    // the list keeps its place when the lanes themselves are drawn again
+    await page.evaluate(() => { document.getElementById("projlist").dataset.sig = ""; renderTabs(lastState); });
+    assert.equal(await page.evaluate(() => document.getElementById("projmenu").scrollTop), place,
+      "a rebuild of the list lost the place he scrolled to");
+
+    // a tap on a row standing in view switches lane and shuts the list
     const tapped = await page.evaluate(() => {
-      const lane = document.querySelector(".bar").getBoundingClientRect();
-      const tab = [...document.querySelectorAll("#tabbar .ptab")].find(t => {
+      const list = document.getElementById("projmenu").getBoundingClientRect();
+      const row = [...document.querySelectorAll("#projlist .projrow")].find(t => {
         const r = t.getBoundingClientRect();
-        return r.left >= lane.left + 2 && r.right <= lane.right - 2 && !t.classList.contains("on");
+        return r.top >= list.top + 2 && r.bottom <= list.bottom - 2 && !t.classList.contains("on");
       });
-      tab.click();
-      return tab.dataset.owner;
+      row.click();
+      return row.dataset.owner;
     });
     await settle(300);
     const afterTap = await page.evaluate(() => ({
-      at: document.querySelector(".bar").scrollLeft,
       owner: activeOwner,
-      on: document.querySelector("#tabbar .ptab.on").dataset.owner,
+      on: document.querySelector("#projlist .projrow.on").dataset.owner,
+      open: document.body.classList.contains("projopen"),
     }));
     assert.equal(afterTap.owner, tapped, "the tap did not change lane");
     assert.equal(afterTap.on, tapped);
-    assert.equal(afterTap.at, 120, "a tap yanked the bar back to the start");
-
-    // and the bar keeps its place when the lanes themselves are drawn again
-    await page.evaluate(() => { document.getElementById("tabbar").dataset.sig = ""; renderTabs(lastState); });
-    assert.equal(await page.evaluate(() => document.querySelector(".bar").scrollLeft), 120,
-      "a rebuild of the tabs lost the place he scrolled to");
+    assert.equal(afterTap.open, false, "the list stayed open after the choice");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
   }
 });
 
-test("the settings come in from the right, with the header, its mark and the notifications control", async () => {
+test("the settings come in from the right, holding the header, the list of sections and the notifications control", async () => {
   const { page, problems } = await openPhone("/m");
   try {
     await page.waitForSelector("article.box.sel", { timeout: 5000 });
@@ -904,23 +935,26 @@ test("the settings come in from the right, with the header, its mark and the not
     assertPageDrewBack(shut, 0, "with settings closed");
 
     const made = await page.evaluate(() => {
-      const head = document.getElementById("sethead");
-      const gear = document.querySelector("#setmark svg");
+      const head = document.querySelector("#setpage .sp-head");
+      const gear = document.querySelector("#setpage .sp-item .sp-next svg");
       const button = document.getElementById("notify");
       const ink = getComputedStyle(document.documentElement);
       const own = getComputedStyle(button);
       return {
-        header: head.textContent.trim(),
+        header: head.querySelector(".sp-title").textContent.trim(),
+        items: [...document.querySelectorAll("#setpage .sp-item")].map(one => one.textContent.trim()),
         gear: !!gear,
         gearStroke: gear && gear.getAttribute("stroke"),
         gearFill: gear && gear.getAttribute("fill"),
         gearWeight: gear && gear.getAttribute("stroke-width"),
-        label: button.textContent,
-        indent: getComputedStyle(document.getElementById("setgroup")).paddingLeft,
+        label: document.querySelector('label[for="notify"] span').textContent,
+        role: button.getAttribute("role"),
+        type: button.type,
+        indent: getComputedStyle(document.querySelector("#setpage .sp-item")).paddingLeft,
         headPad: getComputedStyle(head).paddingLeft,
         fill: own.backgroundColor,
         border: own.borderStyle,
-        colour: own.color,
+        knob: getComputedStyle(button, "::before").backgroundColor,
         paper: ink.getPropertyValue("--paper").trim(),
         ink: ink.getPropertyValue("--ink").trim(),
         accent: ink.getPropertyValue("--accent").trim(),
@@ -928,15 +962,18 @@ test("the settings come in from the right, with the header, its mark and the not
       };
     });
     assert.equal(made.header, "Settings", "the panel's header is not Settings");
-    assert.equal(made.gear, true, "the header carries no gear");
-    assert.equal(made.gearStroke, "currentColor", "the gear is not drawn in the card's line style");
+    assert.deepEqual(made.items, ["Editor", "Notifications", "Diagnostics"], "the panel does not list the sections");
+    assert.equal(made.gear, true, "a section in the list carries no mark");
+    assert.equal(made.gearStroke, "currentColor", "the mark is not drawn in the card's line style");
     assert.equal(made.gearFill, "none");
-    assert.equal(made.gearWeight, "1.9", "the gear is not the weight the plus is drawn at");
+    assert.equal(made.gearWeight, "1.9", "the mark is not the weight the plus is drawn at");
     assert.equal(made.label, "Notifications");
-    assert.ok(parseFloat(made.indent) > parseFloat(made.headPad), "Notifications is not stepped in under the header");
+    assert.equal(made.role, "switch", "the control is not a switch");
+    assert.equal(made.type, "checkbox");
+    assert.equal(made.indent, made.headPad, "the list is not lined up under the header");
     assert.equal(made.border, "none", "the control has a border");
-    assert.equal(made.fill, "rgb(255, 255, 255)", "the control is not on the phone's own paper");
-    assert.equal(made.colour, "rgb(33, 29, 23)", "the control is not in the board's own ink");
+    assert.equal(made.fill, "rgb(202, 202, 202)", "the switch is not the light grey when off");
+    assert.equal(made.knob, "rgb(255, 255, 255)", "the switch's knob is not white");
     assert.equal(made.gone, true, "the old button is still in the card list");
 
     // the mark and the fill are the app's own and nothing new
@@ -968,9 +1005,10 @@ test("the settings come in from the right, with the header, its mark and the not
       `the page did not draw back over the settings run (${sank.low} to ${sank.high})`);
     await shot(page, "settings-open");
 
-    // the control does what the button in the card list did: it asks, and says
-    // what it was told. the headless browser has no push service, so what is
-    // proved here is the ask and the answer being shown
+    // turning the switch on does what the button in the card list did: it asks,
+    // and says what it was told. the headless browser has no push service, so
+    // what is proved here is the ask, the answer being shown and the switch
+    // going back off
     const asked = await page.evaluate(async () => {
       const said = [];
       const real = Notification.requestPermission;
@@ -978,10 +1016,12 @@ test("the settings come in from the right, with the header, its mark and the not
       document.getElementById("notify").click();
       await new Promise(r => setTimeout(r, 200));
       Notification.requestPermission = real;
-      return { said, note: document.getElementById("notifynote").textContent };
+      return { said, note: document.getElementById("notifynote").textContent,
+               on: document.getElementById("notify").checked };
     });
     assert.deepEqual(asked.said, ["asked"], "the control did not ask for notifications");
     assert.match(asked.note, /Notifications are off/, "the control did not show what it was told");
+    assert.equal(asked.on, false, "the switch stayed on after a refusal");
     await shot(page, "settings-refused");
 
     await startPageSamples(page);

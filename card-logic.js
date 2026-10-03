@@ -53,16 +53,29 @@ const CARD_SHORTCUT_DEFINITIONS = [
       (e.key === "ArrowLeft" || e.key === "ArrowRight")
       ? (e.key === "ArrowLeft" ? -1 : 1) : null,
   },
+  // up and down walk the open card list; a page with no such list leaves them alone
+  {
+    action: "drawerWalk", mini: false,
+    match: e => !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey && !e.isComposing &&
+      (e.key === "ArrowUp" || e.key === "ArrowDown")
+      ? (e.key === "ArrowUp" ? -1 : 1) : null,
+  },
+  // command+shift+comma and +period match the physical keys: e.key reads "<" and ">" on a US layout but "," and "." on iOS
+  {
+    action: "cardsDrawer", mini: false,
+    match: e => e.metaKey && e.shiftKey && !e.ctrlKey && !e.altKey &&
+      !e.repeat && !e.isComposing && e.code === "Comma" ? true : null,
+  },
+  {
+    action: "settingsDrawer", mini: false,
+    match: e => e.metaKey && e.shiftKey && !e.ctrlKey && !e.altKey &&
+      !e.repeat && !e.isComposing && e.code === "Period" ? true : null,
+  },
   {
     action: "history", mini: false,
     match: e => e.ctrlKey && !e.metaKey && e.shiftKey &&
       (e.key === "ArrowUp" || e.key === "ArrowDown")
       ? (e.key === "ArrowUp" ? 1 : -1) : null,
-  },
-  {
-    action: "navigate", mini: false,
-    match: e => e.metaKey && e.shiftKey && ["[", "]", "{", "}"].includes(e.key)
-      ? (e.key === "[" || e.key === "{" ? -1 : 1) : null,
   },
   // command+z and control+z are the editor's undo and nothing of ours. The card
   // pages had a return-to-the-previous-card on that chord until 20260910; it
@@ -88,21 +101,6 @@ const CARD_SHORTCUT_DEFINITIONS = [
     match: e => e.key === "Enter" && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey &&
       !e.repeat && !e.isComposing && !e.defaultPrevented ? true : null,
   },
-  {
-    action: "close", mini: false,
-    match: e => e.key === "Backspace" || e.key === "Delete" ? true : null,
-  },
-  // control+n moves the selected card to Doing ("now") and control+l to
-  // Deferred ("later"). Plain letters are no command: a stray n or s used to
-  // move a card. Inside a text box macOS keeps control+n and control+l for the
-  // caret, so the pages act on these only when nothing is being typed
-  {
-    action: "destination", mini: false,
-    match: e => e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey &&
-      !e.repeat && !e.isComposing && !e.defaultPrevented &&
-      (e.key === "n" || e.key === "N" || e.key === "l" || e.key === "L")
-      ? ((e.key === "l" || e.key === "L") ? "deferred" : "doing") : null,
-  },
   // control+u unfolds the selected card's ticket while it wears the
   // ready-to-test fold, as a click on the folded corner does. nothing on this
   // mac, in chrome or in either shape of the composer answers control+u, so,
@@ -114,11 +112,27 @@ const CARD_SHORTCUT_DEFINITIONS = [
       !e.repeat && !e.isComposing && !e.defaultPrevented &&
       (e.key === "u" || e.key === "U") ? true : null,
   },
+  // control+enter moves to the card that has waited longest, as the second
+  // Enter of a double Enter does. a composer sends what it holds and takes the
+  // key itself, so only a press nothing else answered gets here. a held key's
+  // repeats are recognized so the page can keep them from the browser
+  {
+    action: "advance", mini: false,
+    match: e => controlEnter(e) && !e.isComposing && !e.defaultPrevented ? true : null,
+  },
+  // control+r jumps to a random card in the list whose ticket is neither green
+  // nor grey
+  {
+    action: "random", mini: false,
+    match: e => e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey &&
+      !e.isComposing && !e.defaultPrevented &&
+      (e.key === "r" || e.key === "R") ? true : null,
+  },
   // control+shift+[, ] and \ move the selected card to Doing, Deferred and
   // Done, typing or not. macOS text boxes give these chords no meaning and the
   // composer's editor is told to leave them to the page (PAGE_CHORDS in
   // compose-format.js), which cancels them on the way, so an event already
-  // cancelled still counts here. command+shift+[ and ] stay card steps above
+  // cancelled still counts here
   {
     action: "sectionChord", mini: true,
     match: e => e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey &&
@@ -168,6 +182,32 @@ function dispatchCardShortcut(event, actions, scope = "card"){
 function cardShortcutEditing(target){
   return !!target && typeof target.closest === "function" &&
     !!target.closest("textarea, input, [contenteditable], [role='textbox'], .cm-editor");
+}
+
+// control and enter and nothing else: shift keeps its new line, command sends
+// as plain Enter does, and option does nothing of the page's
+function controlEnter(e){
+  return e.key === "Enter" && e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey;
+}
+
+// the two standing boxes sit in the lists but are not cards to walk to
+function isStandingBox(id){ return id === "0" || id === "t0"; }
+
+// a green ticket: work is under way on the card. a done card the agent still
+// holds keeps its green, as its row keeps pulsing
+function ticketGreen(b){
+  return queueState(b) === "working" ||
+    (queueState(b) === "done" && cardState({ ...b, done: false, parked: false, state: null }) === "working");
+}
+
+// a grey ticket: a message is waiting for the agent to pick it up
+function ticketQueued(b){ return queueState(b) === "queued"; }
+
+// the id of a random card in pool, never the one on screen, a standing box, a
+// green ticket or a grey one; null when none is left
+function pickRandomCard(pool, currentId, random = Math.random){
+  const open = pool.filter(b => b.id !== currentId && !isStandingBox(b.id) && !ticketGreen(b) && !ticketQueued(b));
+  return open.length ? open[Math.floor(random() * open.length)].id : null;
 }
 
 // ---- the three section keys ------------------------------------------------------
@@ -441,8 +481,10 @@ function queueState(b){ return b.parked ? cardState({ ...b, parked: false, state
 // quickNoteSession (which card a note attaches to) and quickNotesByCard (the
 // chip's grouping); in server.py _post_quicknote_new and _post_quicknote_attach
 // (the attach routes, which take a card id) and _remove_empty_meta_box (frees a
-// removed card's notes); in index.html syncQuickNoteChip (the note chip); and
-// the tests quick-note-refs.test.cjs and quick-notes.test.cjs
+// removed card's notes while QUICK_NOTES_ON is set); in parked/quick-note.js
+// syncQuickNoteChip (the note chip); and the tests quick-note-refs.test.cjs and
+// quick-notes.test.cjs. the quick note is hidden in this version and kept so it
+// can come back
 function ticketNum(id){
   const s = String(id == null ? "" : id);
   const m = /^m(\d+)$/.exec(s);
@@ -930,18 +972,43 @@ function cardSection(b){ return TICKET_VIEWS.find(view => viewFilterFor(b, view)
 function viewPoolFor(state, view){ return poolOf(state).filter(b => viewFilterFor(b, view)); }
 function viewPool(state){ return viewPoolFor(state, curView()); }
 
+// when a card became the reader's turn. agentTs is written as the turn goes back
+// to the reader; a card the agent never answered ages by its own ts; one with
+// neither stamp cannot be aged and counts as the newest
+function waitingSince(b){ return b.agentTs || b.ts || Number.MAX_SAFE_INTEGER; }
+
+// when the board put a card in the section it stands in. a card with no stamp
+// yet is one this page has just moved there, ahead of the board's reading, so it
+// counts as the most recent
+function restedSince(b, field){ return b[field] || Number.MAX_SAFE_INTEGER; }
+
 function poolOf(state){
   const keep = poolScope ? poolScope(state) : null;
+  const legacy = (a, b) => {
+    // an untouched new card stays on top; the first send drops it into the
+    // waiting group; anything green (in progress) sinks below all of that
+    const g = x => ({ "new": 0, yours: 1, queued: 2, working: 3, done: 4 })[queueState(x)];
+    if (g(a) !== g(b)) return g(a) - g(b);
+    if (g(a) === 0) return (b.ts || 0) - (a.ts || 0);   // newest created on top
+    // the waiting group is a queue: oldest turn first, so old turns do not go
+    // stale below newer ones. this is the same measure the post-send jump uses
+    // to pick the longest-waiting card; equal stamps keep the board's order
+    if (g(a) === 1) return waitingSince(a) - waitingSince(b);
+    return (b.ts || 0) - (a.ts || 0);                    // queued and working: newest first
+  };
+  // the three sections lie one after another: doing, deferred, done. doing keeps
+  // the order above; deferred runs by when each card was deferred and done by
+  // when each was marked done, most recent first, and cards with equal stamps
+  // fall back to the order above
+  const part = x => { const s = cardState(x); return s === "done" ? 2 : s === "parked" ? 1 : 0; };
+  const stamp = { 1: "parkedTs", 2: "doneTs" };
   return state.boxes.filter(b =>
     b.owner === activeOwner && b.id !== "q" && (!keep || keep(b)))
     .sort((a, b) => {
-      // an untouched new card stays on top; the first send drops it into the
-      // waiting group; anything green (in progress) sinks below all of that
-      const g = x => ({ "new": 0, yours: 1, queued: 2, working: 3, done: 4 })[queueState(x)];
-      if (g(a) !== g(b)) return g(a) - g(b);
-      if (g(a) === 0) return (b.ts || 0) - (a.ts || 0);   // newest created on top
-      if (g(a) === 1) return (b.agentTs || 0) - (a.agentTs || 0);   // newest reply on top: latest cards come to the top. it was oldest first for a day so a batch came back in send order, which was not wanted
-      return (b.ts || 0) - (a.ts || 0);                    // waiting, working and done: newest first
+      const pa = part(a), pb = part(b);
+      if (pa !== pb) return pa - pb;
+      if (pa) return restedSince(b, stamp[pa]) - restedSince(a, stamp[pa]) || legacy(a, b);
+      return legacy(a, b);
     });
 }
 
@@ -1050,28 +1117,23 @@ function markSeen(id){
 // it counts as read. use is the page's own way of saying so, markSeen unless
 // the page does more. the input is asked about the caret, because the
 // formatter also says input when it puts its editor on or takes it off, which
-// it does to every card on load, and that is nobody reading anything. id is
-// the card, or for a composer that holds one card's draft and then another's
-// the question that names the card at that moment, with nothing when it holds none
+// it does to every card on load, and that is nobody reading anything
 function readOnCompose(ta, id, use = markSeen){
-  const read = () => {
-    const card = typeof id === "function" ? id() : id;
-    if (card) use(card);
-  };
-  ta.addEventListener("focus", read);
-  ta.addEventListener("input", () => { if (ComposeFormat.focused(ta)) read(); });
+  ta.addEventListener("focus", () => use(id));
+  ta.addEventListener("input", () => { if (ComposeFormat.focused(ta)) use(id); });
 }
-// a reply that lands while the reader's caret is in that card's composer, on
-// a page that is on screen, is read the moment it lands: the reader is in the
-// card. inUse is the page's word that this is the card being used. el.replyCount
-// is the count this page last drew, so a first drawing or a reload has nothing
-// to compare with and marks nothing. called after seenSync, so the mark covers
-// the reply that just came
+// a reply that lands on the card the reader has selected, while the page is
+// on screen and its window is in front, is read the moment it lands. inUse is
+// the page's word that this is the card being used. a window behind another
+// app leaves the reply unread until the reader comes back and uses the card.
+// el.replyCount is the count this page last drew, so a first drawing or a
+// reload has nothing to compare with and marks nothing. called after
+// seenSync, so the mark covers the reply that just came
 function readOnArrival(el, b, inUse){
   const was = el.replyCount, now = b.replies || 0;
   el.replyCount = now;
   if (was == null || now <= was || !inUse) return false;
-  if (document.visibilityState !== "visible" || !ComposeFormat.focused(el.ta)) return false;
+  if (document.visibilityState !== "visible" || !document.hasFocus()) return false;
   markSeen(b.id);
   return true;
 }
@@ -1253,7 +1315,7 @@ function seatSquare(ta, square){
 //
 // the panel is one block and nothing else: no frame around it, no bubble inside
 // it, no time and no label. the messages stand in it one under another in the
-// order they were sent, with a hairline between one message and the next. a
+// order they were sent, with a blank line between one message and the next. a
 // batch taller than the panel's preview is shown cut to its first lines, fading
 // out over a strip at the panel's foot that carries a small arrow pointing down,
 // and a click or a tap anywhere on it opens the whole batch in place, on the old
@@ -1370,26 +1432,29 @@ function answeredPanel(room){
 // the two ends stay on the panel for the length of the run (answSpan), for a
 // page that has to hold one of its own measures still while the panel moves.
 //
-// cutting back never moves what the reader is looking at, before, during or
-// after the run. the panel rides at the head of the answer's own scroller
-// (answView), and the arrow of a batch opened taller than the view is reached
-// by scrolling the panel's head up out of sight. cut from its foot with its
-// head held there, as every cut once was, the arrow and the whole of the answer
-// under it went up by all the cut took: the view slid up and the panel left it
-// out of the top. so the cut is taken off the panel's top as far as the scroll
-// above the panel reaches (answDrop): a top margin holds the panel down,
-// growing on the same run and curve as the cut shrinks, so the arrow and the
-// answer under it stand still while the panel's head comes down to meet them,
-// and on landing the margin comes off and the scroll goes up by as much, in one
-// step. a panel whose head is on screen has no scroll above it and is cut from
-// its foot, as ever. a press that catches such a run gives the scroll what the
-// margin stood at then (settleAnswered), so it turns round where it stands.
-// an answer short enough that the view would stand past its end while the cut
-// takes more than the drop gives back, or while a keyboard the press put away
-// gives the view its room back, would have its scroll pulled by the browser
-// and the drop given back short on landing, the answer jumping. so room is held
-// under it for the run (holdSlack), and before anything is measured, and once
-// the run has landed only what the view stands on is kept (trimSlack).
+// cutting back is one motion: the panel's foot comes up, and the answer under
+// it with it, on the height's run. the panel rides at the head of the answer's
+// own scroller (answView), and the arrow of a batch opened taller than the view
+// is reached by scrolling the panel's head up out of sight. from there the
+// answer under the panel would rise by all the cut takes, so the scroll goes
+// back on every frame of the run by as much as the cut has taken so far
+// (followCut), read off the height the frame is drawn at, up to the part of the
+// panel that stands above the view: the answer and the panel's foot stay
+// exactly where they stand on the screen, the panel's head stays above the view
+// until the run ends, and the words in the part of the panel still in sight
+// slide down as it shortens. a cut longer than the part hidden above scrolls
+// back by the hidden part and no further, and the answer rises by the rest. a
+// panel whose head is in sight has nothing hidden above it, and is cut from its
+// foot with the scroll left alone. the browser pulls a scroll that a shortening
+// layout leaves past the end of the answer, and it did so at the start of the
+// cut, a step ahead of it, so the view shifted before the panel moved. so room
+// is held under the answer for the run (holdSlack), enough that the view is
+// never stood past its end at any frame, before anything is measured, kept from
+// being let go of while the run is on (answHeld), and once it has landed only
+// what the view stands on is kept (trimSlack), which is until the scroll moves
+// off it. the room also covers an answer short enough to end in it, and a
+// keyboard the press put away giving the view its room back while the run is on.
+// a scroll that anything else moves during the run is left to it.
 // a panel whose own lane was scrolled while it stood open (the sent panel's
 // cut, or a small card's seat) comes down to the head of its batch over the
 // same run, on a transform, rather than jumping there first.
@@ -1408,12 +1473,18 @@ function openAnswered(panel, open, change){
   const lane = open ? null : answeredLane(panel);
   const off = lane ? lane.scrollTop : 0;
   settleAnswered(panel);
-  // the scroller the panel rides in, where the reader has it once any drop has
-  // been given back, and how much answer there is with no room held under it
+  // the scroller the panel rides in, where the reader has it, and how much
+  // answer there is with no room held under it, the panel standing as tall as
+  // its sheet gives it (wide), which is more than from for a run caught opening
   const seat = panel.answView || null;
   const view = open ? null : seat;
   const at = view ? view.scrollTop : 0;
+  // the part of the panel above the top of the view, in whole points so the head
+  // is never scrolled into sight
+  const hidden = view ?
+    Math.floor(Math.max(0, view.getBoundingClientRect().top - panel.getBoundingClientRect().top)) : 0;
   const whole = view ? view.scrollHeight - heldSlack(view) : 0;
+  const wide = view ? clip.getBoundingClientRect().height : 0;
   if (view) holdSlack(view, heldSlack(view) + from);   // room enough that no layout below can pull the scroll
   if (change) change();
   // a cut always shows the head of the batch, so a lane that was scrolled while
@@ -1426,19 +1497,15 @@ function openAnswered(panel, open, change){
   const still = typeof matchMedia === "function" &&
     matchMedia("(prefers-reduced-motion: reduce)").matches;
   const to = clip.getBoundingClientRect().height;
-  // what the cut takes, how much of it comes off the panel's top, and the room
-  // the answer needs under it so the view is never stood past its end. the
-  // view can grow while the run is on, as tall as the window under its top: a
-  // press on the phone puts the keyboard away, and the view takes its room back.
-  // the drop is whole points, since a scroll is set in whole points and a part
-  // of one given back on landing would be cut off it as a step
-  const taken = Math.max(0, from - to);
-  const drop = view ? Math.min(at, Math.floor(taken)) : 0;
+  // the room the answer needs under it so the view is never stood past its end,
+  // at any frame, most of all at the foot of the run. the view can grow while the
+  // run is on, as tall as the window under its top: a press on the phone puts the
+  // keyboard away, and the view takes its room back
   const reach = view ? Math.max(view.clientHeight,
     (typeof innerHeight === "number" ? innerHeight : 0) - view.getBoundingClientRect().top) : 0;
-  const room = view && at > 0 ? Math.max(0, Math.ceil(at + reach - whole + taken - drop)) : 0;
+  const room = view && at > 0 ? Math.max(0, Math.ceil(at + reach - whole + wide - to)) : 0;
   if (still || !from){
-    if (view) view.scrollTop = at - drop;
+    if (view) view.scrollTop = at - Math.max(0, Math.min(hidden, from - to));
     if (seat) trimSlack(seat);
     if (panel.answRoom) panel.answRoom();
     return;
@@ -1448,25 +1515,28 @@ function openAnswered(panel, open, change){
   const words = lane === clip ? panel.querySelector(".answstack") : lane ? panel : null;
   clip.style.height = from + "px";
   clip.style.setProperty("--answ-shade", shadeFrom);
-  if (drop) panel.style.setProperty("margin-top", "0px");
   if (words && off) words.style.transform = "translate3d(0, " + (-off) + "px, 0)";
   void clip.offsetWidth;   // the start values land untimed
   panel.answSpan = { from, to, band: null };
-  panel.answDrop = drop;
   panel.classList.add("motion");
   clip.style.height = to + "px";
   clip.style.setProperty("--answ-shade", shadeTo);
-  if (drop) panel.style.setProperty("margin-top", drop + "px");   // the head comes down as the cut comes up
   if (words && off) words.style.transform = "";   // and down to the batch's head on the run
   // the room this run needs in place of what the measuring held, with the
   // reader where they were, in the same step, before any frame is drawn
-  if (view){ holdSlack(view, room); view.scrollTop = at; }
+  if (view){
+    holdSlack(view, room);
+    view.scrollTop = at;
+    view.answHeld = true;
+  }
+  const follow = view && hidden > 0 ? followCut(panel, view, clip, at, hidden, from) : null;
   const done = e => {
     if (e && (e.target !== clip || e.propertyName !== "height")) return;
     clip.removeEventListener("transitionend", done);
     clearTimeout(timer);
     if (mine !== panel.answRun) return;   // a newer run owns the panel now
-    settleAnswered(panel);   // the drop comes off, and the scroll goes up by it
+    if (follow) follow.land(to);
+    settleAnswered(panel);
     if (!open) fitAnswered(panel);
     if (seat) trimSlack(seat);
     if (panel.answRoom) panel.answRoom();
@@ -1475,31 +1545,47 @@ function openAnswered(panel, open, change){
   const timer = setTimeout(done, FOLD_TIMER_MS);
 }
 
+// the scroll going back with a cut, on every frame of its run: the frame's own
+// height is read in the frame callback, which runs after the transition's value
+// for that frame is set and before it is laid out and drawn, so the scroll and
+// the height are written for the same frame. land writes the far end, for a run
+// that ends between frames or on its timer. a scroll that is not where the last
+// write left it has been moved by something else, and is not written again
+function followCut(panel, view, clip, at, hidden, from){
+  const mine = panel.answRun;
+  const run = { seen: view.scrollTop, moved: false };
+  const write = height => {
+    if (run.moved) return;
+    if (Math.abs(view.scrollTop - run.seen) > 1){ run.moved = true; return; }
+    view.scrollTop = at - Math.max(0, Math.min(hidden, from - height));
+    run.seen = view.scrollTop;
+  };
+  const frame = () => {
+    if (panel.answRun !== mine || !panel.answSpan || run.moved) return;
+    write(clip.getBoundingClientRect().height);
+    if (!run.moved) requestAnimationFrame(frame);
+  };
+  run.land = write;
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(frame);
+  return run;
+}
+
 // the run's own dress taken off: the timing and the inline ends, so the panel
 // stands at the height and the dissolve the sheet gives it
 function settleAnswered(panel){
   const clip = panel.querySelector(".answclip");
-  // a cut back that holds the panel down: what its margin stands at now, landed
-  // or caught part way, read while the run is still on it
-  const drop = panel.answDrop || 0;
-  const now = drop ? parseFloat(getComputedStyle(panel).marginTop) : 0;
-  const stood = drop ? (isNaN(now) ? drop : Math.max(0, Math.min(drop, now))) : 0;
-  const view = drop ? panel.answView : null;
-  const at = view ? view.scrollTop : 0;
-  // room for all that is about to come off, so no layout on the way can pull
-  // the scroll; whoever settles lets go of what the view does not stand on
-  if (view) holdSlack(view, heldSlack(view) + stood + clip.getBoundingClientRect().height);
-  panel.answDrop = 0;
+  const view = panel.answView;
+  // room for all the clip's height that may come off, so no layout on the way
+  // can pull the scroll; whoever settles lets go of what the view does not
+  // stand on
+  if (view && view.answHeld){
+    holdSlack(view, heldSlack(view) + clip.getBoundingClientRect().height);
+    view.answHeld = false;
+  }
   panel.classList.remove("motion");
   panel.answSpan = null;
   clip.style.height = "";
   clip.style.removeProperty("--answ-shade");
-  // and the margin taken off with the scroll given back as much in the same
-  // step, so the answer under the panel does not move
-  if (drop){
-    panel.style.removeProperty("margin-top");
-    if (view) view.scrollTop = Math.max(0, at - stood);
-  }
   // and the hold a scrolled lane's words were given, if a run was cut short on it
   for (const node of [panel, panel.querySelector(".answstack")])
     if (node.style.transform) node.style.transform = "";
@@ -1543,7 +1629,7 @@ function holdSlack(view, held){
 // so it stands on none
 function trimSlack(view){
   const held = heldSlack(view);
-  if (!held) return;
+  if (!held || view.answHeld) return;
   const need = view.scrollTop > 0 ?
     Math.max(0, Math.ceil(view.scrollTop + view.clientHeight - (view.scrollHeight - held))) : 0;
   if (need >= held) return;
@@ -1563,7 +1649,7 @@ function answeredShade(panel){
 
 // what counts as something to read. a line or a paragraph holding nothing but
 // spaces, breaks or the invisible joiners a paste brings along is blank, and so
-// is the air a paragraph break or the hairline between two messages leaves: a
+// is the air a paragraph break leaves and the air between two messages: a
 // blank line of the panel's type, which is exactly what a cut can land in.
 // the joiners are named by their code points so none of them sits unseen in
 // this file: zero width space, non joiner and joiner, the word joiner and the
@@ -1615,9 +1701,9 @@ function answeredInk(stack){
 // the sheet cuts a long batch two and three quarter lines down, so the third
 // line is seen dissolving. that cut is kept only while a line of text really
 // runs through it with at least half of itself showing: when it lands in blank,
-// a paragraph break, the air round the hairline between two messages or a line
-// with nothing on it, the preview is stopped at the foot of the last line that
-// has text instead, and it is that line the cut dissolves. a batch with no text
+// a paragraph break, the air between two messages or a line with nothing on
+// it, the preview is stopped at the foot of the last line that has text
+// instead, and it is that line the cut dissolves. a batch with no text
 // past the cut is no long batch at all, however tall its blank tail: it gets no
 // strip, no arrow and no fade, and it stands exactly as tall as its text.
 // an open panel shows everything and so cannot say, and neither can one part
@@ -1653,18 +1739,46 @@ function fitAnswered(panel){
 
 // one message is one block of the card's own prose: the same markdown, the same
 // attachment markup and the same wrapping the answer is drawn in, and nothing
-// around it. the hairline the sheet draws between two blocks is the whole of
-// what tells one message from the next, so a message with nothing to read in it
-// adds no block, or it would stand as an empty hairline.
+// around it. the blank line the sheet leaves between two blocks is the whole
+// of what tells one message from the next, so a message with nothing to read in
+// it adds no block, or it would stand as a second blank line.
 // the blocks already standing are kept for as long as they hold the same words
 // in the same place, so a pass that only adds a message, or only changes the
-// note under one, draws nothing above it again and leaves a pick of those
-// words alone. a message may carry a short note under its words and a state
-// the page dresses it in: the phone says so of a message the board has not
-// confirmed yet. and a sent message carries its stage with the agent (see the
-// delivery marks further down): one that no agent has received yet is drawn
-// faded, and takes its full ink once it is delivered
+// badge on one, draws nothing above it again and leaves a pick of those
+// words alone. a message may carry a badge in its row (sentBadge, below) and a
+// state the page dresses it in: the phone says so of a message the board has not
+// confirmed yet. and a sent message carries its stage (see the delivery marks
+// further down): one the board has not saved yet is drawn faded, and takes its
+// full ink once the board has it
 const ANSWERED_STATES = ["pending", "unsure", "failed"];
+
+// the badge a sent row wears while its message is not through, inside the row
+// and with no words on it. ring is the attachment tray's own turning ring, for
+// a send the phone is still trying again on its own. fail is a red round mark
+// holding a circular arrow that sends it again, with a small cross beside it
+// that takes the message back. the press on either is heard in syncSent
+const SENT_RING = '<svg class="tsqring" viewBox="0 0 24 24" aria-hidden="true">' +
+  '<circle class="track" cx="12" cy="12" r="10.5"/><circle class="arc" cx="12" cy="12" r="10.5"/></svg>';
+const SENT_RETRY = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"' +
+  ' stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>';
+const SENT_CROSS = '<svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M1 1l6 6M7 1L1 7" ' +
+  'stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+function sentBadge(kind){
+  const badge = h("span", "answmark");
+  badge.dataset.kind = kind;
+  if (kind === "ring"){ badge.innerHTML = SENT_RING; return badge; }
+  const cross = h("button", "answcross");
+  cross.type = "button"; cross.dataset.act = "cross";
+  cross.setAttribute("aria-label", "take the message back");
+  cross.innerHTML = SENT_CROSS;
+  const retry = h("button", "answretry");
+  retry.type = "button"; retry.dataset.act = "retry";
+  retry.setAttribute("aria-label", "send again");
+  retry.innerHTML = SENT_RETRY;
+  badge.append(cross, retry);
+  return badge;
+}
 function stackAnswered(panel, batch){
   const stack = panel.querySelector(".answstack");
   const want = batch.filter(m => !ANSWERED_BLANK.test(answeredText(m)));
@@ -1685,11 +1799,12 @@ function stackAnswered(panel, batch){
     msg.classList.toggle("undelivered", sentUndelivered(m));
     if (m.op) msg.dataset.op = m.op;
     else delete msg.dataset.op;
-    let note = msg.querySelector(".answnote");
-    if (m.note){
-      if (!note){ note = h("div", "answnote"); msg.appendChild(note); }
-      if (note.textContent !== m.note) note.textContent = m.note;
-    } else if (note) note.remove();
+    const kind = m.badge || "";
+    if (kind) msg.dataset.badge = kind;
+    else delete msg.dataset.badge;
+    let badge = [...msg.children].find(node => node.classList.contains("answmark"));
+    if (badge && badge.dataset.kind !== kind){ badge.remove(); badge = null; }
+    if (kind && !badge) msg.appendChild(sentBadge(kind));
   });
 }
 
@@ -1739,7 +1854,7 @@ function syncAnswered(el, meta, room = answeredRoomChanged){
     // every message here has been answered by the reply under it, which is the
     // board's one proof that the agent read it: the panel says so, quietly,
     // under its foot (the delivery marks, below)
-    el.answ.dataset.tag = SENT_TAGS.read;
+    setMark(el.answ, SENT_TAGS.read);
     // on a large card the panel rides at the head of the answer's own
     // scroller, whose scroll a cut back must leave where the reader has it
     el.answ.answView = el.replyview || null;
@@ -1771,29 +1886,170 @@ const SENT_ARRIVE_MS = 260;   // the sheet's --answ-come
 function sentBatch(texts){ return (texts || []).map(text => ({ text })); }
 
 // ---- the delivery marks ------------------------------------------------------------------
-// where each sent message stands with the agent, from the board's own record of
-// it (pendingStates and notedTexts on a reading, server.py's _pending_states):
-//   local      this phone has not had the board confirm it yet. the phone's own
-//              line under the words says how that is going (Sending, Not sent
-//              yet, retrying, and the rest)
-//   sent       on the board, and no agent has confirmed receiving it: drawn
+// a sent message is in one of three states, and a page holds it under one of
+// four stage names: the first is the page's own, the rest the board's, from its
+// record of the message (pendingStates and notedTexts on a reading, server.py's
+// _pending_states):
+//   local      the board has not saved it yet, so it would be lost if the page
+//              were closed: a send still on its way (the phone's own, or the
+//              desktop's between the press and the board's answer). drawn
 //              faded, the panel's grey and the words both, while every message
-//              in the panel is still only sent, and the words alone when an
-//              older message in it has been delivered
-//   delivered  the agent's listener confirmed the claim carrying it
-//   read       the agent has written back since it received it: a progress
+//              in the panel is still local, and the words alone when an older
+//              message in it is saved. no word stands for it, the fade says it.
+//              a send that is not getting through keeps this stage and wears
+//              the badge of its row (sentBadge) as well: a failure, not a state
+//   sent       the board has saved it: Delivered, at full ink
+//   delivered  an agent has picked it up, its listener confirmed the claim
+//              carrying it: Read
+//   read       the agent has written back since it picked it up: a progress
 //              note over its claim, a note that took it toward the answer still
-//              to come, or the answer itself. the board cannot see inside an
-//              agent, so read here means written back about, and a message read
-//              but not yet written about stays delivered
+//              to come, or the answer itself. it looks as delivered does, Read
 // the panel carries one quiet mark under its foot, the way a chat marks the
 // newest message that has got anywhere: Delivered or Read for the newest
-// message in it that is at least delivered, and nothing while none is. the
+// message in it that the board has saved, and nothing while none is. the
 // panel over an answer always reads Read, since the answer under it is the
 // board's proof. a message with no stage (a board too old to say) is drawn as
 // it always was and marks nothing
-const SENT_TAGS = { delivered: "Delivered", read: "Read" };
-function sentUndelivered(m){ return m.stage === "sent" || m.stage === "local"; }
+const SENT_TAGS = { sent: "Delivered", delivered: "Read", read: "Read" };
+function sentUndelivered(m){ return m.stage === "local"; }
+// a send on its way to the board, drawn faded from the press: el is the card's
+// page object, which holds its sentItems and its guard. the board's readings
+// are kept from replacing the list for as long as any send is out, since one
+// asked before the board had the words knows nothing of them. every send is an
+// operation, its id minted here before the first try and kept for every try
+// after it; route is the path it is posted to, without the id
+function sentLaunch(el, text, route){
+  const item = { text, stage: "local", op: newOpId(), ts: Date.now(), route };
+  el.sentItems = [...el.sentItems, item];
+  el.sendsOut = (el.sendsOut || 0) + 1;
+  el.sendGuard = Infinity;
+  syncSent(el, el.sentItems, true);
+  return item;
+}
+function sentSettled(el){
+  el.sendsOut = Math.max(0, (el.sendsOut || 0) - 1);
+  if (!el.sendsOut) el.sendGuard = Date.now();
+}
+// the board answered: the message is saved, and stands as sent until a reading
+// says more. a reading asked before this moment may not take it away
+function sentLanded(el, item){
+  if (item.stage !== "local") return;
+  item.stage = "sent";
+  sentSettled(el);
+  syncSent(el, el.sentItems);
+}
+// one try of a send, under the id it was minted with. the board keeps a receipt
+// beside the message, so a try asked again after a lost answer is answered from
+// the receipt and the words never land twice. landed is the board's yes and
+// refused its no, which sending again cannot change. failed is anything else,
+// no answer within OP_TRY_MS included, and says nothing about whether the words
+// landed
+const SENT_REFUSED = new Set([400, 409, 413]);
+async function sentTry(item){
+  let r;
+  try {
+    r = await fetch(item.route + "&op=" + encodeURIComponent(item.op),
+      { method: "POST", body: item.text, signal: AbortSignal.timeout(OP_TRY_MS) });
+  } catch (e) { return "failed"; }
+  return r.ok ? "landed" : SENT_REFUSED.has(r.status) ? "refused" : "failed";
+}
+// the try did not get through. the message stays in the panel, faded as it was,
+// with the fail badge, and is held out of the board's readings, which would
+// otherwise take it away. refused is the board's own no
+function sentFailed(el, item, refused){
+  if (item.stage !== "local") return;
+  item.badge = "fail"; item.refused = !!refused; item.checked = false;
+  el.sentItems = el.sentItems.filter(m => m !== item);
+  el.sentHeld = [...(el.sentHeld || []), item];
+  sentSettled(el);
+  syncSent(el, el.sentItems);
+}
+function sentHeldOut(el, item){
+  el.sentHeld = (el.sentHeld || []).filter(m => m !== item);
+}
+// the arrow: the held message goes out again under its own id, drawn as any
+// send on its way is. a refused message is not sent again
+async function sentRetry(el, item){
+  if (item.refused || !(el.sentHeld || []).includes(item)) return;
+  sentHeldOut(el, item);
+  item.badge = "";
+  el.sentItems = [...el.sentItems, item];
+  el.sendsOut = (el.sendsOut || 0) + 1;
+  el.sendGuard = Infinity;
+  syncSent(el, el.sentItems);
+  const result = await sentTry(item);
+  if (result === "landed"){
+    sentLanded(el, item);
+    if (item.landed) item.landed();
+  } else sentFailed(el, item, result === "refused");
+}
+// the board has the held message after all: it stands as sent, Delivered, and
+// nothing is taken back
+function sentHeldLanded(el, item){
+  sentHeldOut(el, item);
+  item.badge = ""; item.stage = "sent";
+  el.sentItems = [...el.sentItems, item];
+  if (!el.sendsOut) el.sendGuard = Date.now();
+  syncSent(el, el.sentItems);
+  if (item.landed) item.landed();
+}
+// the words go back in the typing row, after what is already there and never
+// over it, and the message leaves the panel
+function sentBack(el, item){
+  sentHeldOut(el, item);
+  const draft = el.ta.value;
+  el.ta.value = draft.trim() ? draft.trimEnd() + "\n\n" + item.text : item.text;
+  el.tick();
+  syncSent(el, el.sentItems);
+}
+// what a lookup of the board's receipt for an operation answers, or null when
+// the board could not be reached, which is no answer at all
+async function askReceipt(id){
+  try {
+    const r = await fetch("/op?id=" + encodeURIComponent(id), { signal: AbortSignal.timeout(OP_TRY_MS) });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (e) { return null; }
+}
+// the cross. a refused message is known not to have landed, so its words come
+// back at once. any other failure leaves it unknown, so the board is asked
+// first: landed, and the row becomes Delivered with nothing taken back; not
+// landed, and the words go back; no answer, and nothing happens
+async function sentCross(el, item){
+  if (!(el.sentHeld || []).includes(item) || item.asking) return;
+  if (item.refused){ sentBack(el, item); return; }
+  item.asking = true;
+  let said;
+  try { said = await askReceipt(item.op); } finally { item.asking = false; }
+  if (!said || !(el.sentHeld || []).includes(item)) return;
+  if (said.status === "applied") sentHeldLanded(el, item);
+  else if (said.status === "unknown" && Date.now() - item.ts < OP_CERTAIN_MS) sentBack(el, item);
+}
+// a reading the board has just answered asks it once about each held message
+// it has not been asked about, so a send whose answer was lost on the way and
+// that landed is shown Delivered rather than as failed
+async function sentAskHeld(el){
+  for (const item of [...(el.sentHeld || [])]){
+    if (item.refused || item.checked || item.asking) continue;
+    item.asking = true;
+    let said;
+    try { said = await askReceipt(item.op); } finally { item.asking = false; }
+    if (!said) continue;
+    item.checked = true;
+    if (said.status === "applied" && (el.sentHeld || []).includes(item)) sentHeldLanded(el, item);
+  }
+}
+// how long after the press the board's answer "unknown" still proves the words
+// never landed. a receipt is kept at least two days from the moment the board
+// committed it, which is never before the press, so inside this window no
+// receipt means no commit. past it, unknown proves nothing
+const OP_CERTAIN_MS = 36 * 3600 * 1000;
+// how long one try waits for the board's answer
+const OP_TRY_MS = 10000;
+function newOpId(){
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, "0")).join("");
+}
 // the panel's list, out of the board's reading of a card: what a note has
 // already taken toward the answer to come, which is read, then the queued
 // messages, each where it stands
@@ -1802,23 +2058,76 @@ function sentFrom(b){
   const texts = (b && b.pendingTexts) || [], states = (b && b.pendingStates) || [];
   return noted.concat(texts.map((text, i) => ({ text, stage: states[i] || "" })));
 }
-// the panel's one mark, and whether every message in it is still undelivered
-function sentMarks(panel, shown){
-  const got = [...shown].reverse().find(m => SENT_TAGS[m.stage]);
-  const tag = got ? SENT_TAGS[got.stage] : "";
+// the mark's own motion, which the sheet draws (card-tokens.css): a word comes
+// in over the fold's run (--answ-move), and one giving way to another goes out
+// over half of it first. data-tag is where the board's record has the panel,
+// data-mark the word on show, and they part only for the length of a change.
+// a panel drawn with its mark, or a reader who asked for no motion, is given the
+// word at once; the change of a panel already standing is the one that moves.
+// a change that lands while another is going is not started again: the swap
+// under way reads the record when it lands. clocks end it, since a page that
+// runs no transitions never says so
+const MARK_OUT_MS = 165;   // half the sheet's --answ-move
+const MARK_IN_MS = 330;    // the sheet's --answ-move
+function setMark(panel, tag, live){
   if (tag) panel.dataset.tag = tag;
   else delete panel.dataset.tag;
+  if (panel.classList.contains("markout")) return;
+  const shown = panel.dataset.mark || "";
+  if (tag === shown) return;
+  if (!live || stillMotion()){ showMark(panel, tag, false); return; }
+  if (!shown){ showMark(panel, tag, true); return; }
+  panel.classList.add("markout");
+  setTimeout(() => {
+    panel.classList.remove("markout");
+    showMark(panel, panel.dataset.tag || "", true);
+  }, MARK_OUT_MS);
+}
+function showMark(panel, tag, comes){
+  const roomMoves = !panel.dataset.mark !== !tag;
+  const run = panel.markRun = (panel.markRun || 0) + 1;
+  panel.classList.remove("markin");
+  if (tag) panel.dataset.mark = tag;
+  else delete panel.dataset.mark;
+  if (!comes) return;
+  if (tag) panel.classList.add("markin");
+  // the room under the foot opens or closes on the same run, and whoever wants
+  // to know about the room is told once it has stopped
+  setTimeout(() => {
+    if (panel.markRun === run) panel.classList.remove("markin");
+    if (roomMoves && panel.isConnected && panel.answRoom) panel.answRoom();
+  }, MARK_IN_MS + 20);
+}
+// the panel's one mark, and whether every message in it is still unsaved by the
+// board. live is a panel that was standing before this reading
+function sentMarks(panel, shown, live){
+  const got = [...shown].reverse().find(m => SENT_TAGS[m.stage]);
+  const tag = got ? SENT_TAGS[got.stage] : "";
+  setMark(panel, tag, live);
   panel.classList.toggle("undelivered", shown.every(sentUndelivered));
   panel.setAttribute("aria-label", "your messages waiting for a reply" + (tag ? ", " + tag.toLowerCase() : ""));
 }
 
+// the press on a badge's arrow or cross. the page says what each does to the
+// message it belongs to (sentMarkAct), the panel's own press is not given it
+function sentBadgePress(el, e){
+  const button = e.target && e.target.closest && e.target.closest(".answmark button");
+  const row = button && button.closest(".answmsg[data-op]");
+  if (!row) return;
+  e.stopPropagation();
+  sentMarkAct(el, row.dataset.op, button.dataset.act);
+}
+
+// the messages this page sent that did not get through (el.sentHeld) stand in
+// the panel after what the board has, since a reading of the board knows
+// nothing of them
 function syncSent(el, batch, arrive){
   if (!el || !el.sentwrap) return;
-  const shown = (batch || []).filter(m => !ANSWERED_BLANK.test(answeredText(m)));
+  const shown = (batch || []).concat(el.sentHeld || []).filter(m => !ANSWERED_BLANK.test(answeredText(m)));
   if (!shown.length){ dropSent(el); return; }
-  // what the panel is drawn from: the words, and the state, the note and the
-  // stage with the agent of each. a pass bringing the same again touches no dom
-  const key = JSON.stringify(shown.map(m => [answeredText(m), m.state || "", m.note || "", m.stage || ""]));
+  // what the panel is drawn from: the words, and the state, the badge and the
+  // stage of each. a pass bringing the same again touches no dom
+  const key = JSON.stringify(shown.map(m => [answeredText(m), m.op || "", m.state || "", m.badge || "", m.stage || ""]));
   if (el.sent && el.sentKey === key) return;
   el.sentKey = key;
   const room = el.sentRoom || null;
@@ -1826,6 +2135,7 @@ function syncSent(el, batch, arrive){
   if (!panel){
     panel = el.sent = answeredPanel(room);
     panel.classList.add("sent");
+    panel.addEventListener("click", e => sentBadgePress(el, e));
     el.sentwrap.appendChild(panel);
     stackAnswered(panel, shown);
     sentMarks(panel, shown);
@@ -1834,7 +2144,7 @@ function syncSent(el, batch, arrive){
     if (room) room();
     return;
   }
-  sentMarks(panel, shown);
+  sentMarks(panel, shown, true);
   const had = panel.querySelector(".answstack").children.length;
   if (arrive && panel.classList.contains("open")){
     // the run tells the room itself once it has landed
@@ -1892,7 +2202,7 @@ function sentBand(el, band){
 // reader did goes at once
 function cardsMoving(){
   return typeof document !== "undefined" && typeof document.querySelector === "function" &&
-    !!document.querySelector(".answered.motion, .turnsheet");
+    !!document.querySelector(".answered.motion, .answered.markin, .answered.markout, .turnsheet");
 }
 
 // ---- the page turn -----------------------------------------------------------------------
@@ -1949,12 +2259,26 @@ function scrollCardTop(el){
   el.quietScroll = Date.now();
   (el.replyview || el.reply).scrollTop = 0;
 }
+function cardLaidOut(el){
+  return !!(el.replyview || el.reply).getBoundingClientRect().height;
+}
+// a new answer swapped in with no page turn opens at its head: now if the card is laid out, else when it is next shown
+function headOnSwap(el, b){
+  if (cardOnShow(el) && b.replyKind !== "agent") return;
+  if (cardLaidOut(el)) scrollCardTop(el);
+  else el.headDue = true;
+}
+// a card hidden with display:none is handed back the scroll it was left at when it is shown again
+function openAtHead(el){
+  if (!el.headDue || !cardLaidOut(el)) return;
+  el.headDue = false;
+  scrollCardTop(el);
+}
 // and a key into a row, which is what says the reader is typing. each page calls
-// it from its rows' input: the card's own bar, the phone's row, and the desktop's
-// composer on the right while it holds a card's draft, which is then that card's
-// el.ta. the formatter also says input when it puts its editor on or takes it
-// off, to every card on load, and that is nobody typing, so only a row holding
-// the caret counts, the way readOnCompose counts it
+// it from its rows' input: the card's own bar and the phone's row. the
+// formatter also says input when it puts its editor on or takes it off, to
+// every card on load, and that is nobody typing, so only a row holding the
+// caret counts, the way readOnCompose counts it
 function noteTyping(ta){
   if (typeof ComposeFormat === "object" && ComposeFormat && ComposeFormat.focused(ta)) ta.typedAt = Date.now();
 }
@@ -2041,8 +2365,8 @@ function turnPicture(el, node, turn, shift){
   copy.style.margin = "0";
   if (node === el.replyview)
     copy.style.setProperty("--boxband", (typeof boxBand === "function" ? boxBand(node, el.pendwrap) : 0) + "px");
-  for (const one of [copy, ...copy.querySelectorAll(".arrive, .printing")])
-    one.classList.remove("arrive", "printing");
+  for (const one of [copy, ...copy.querySelectorAll(".arrive, .printing, .markin, .markout")])
+    one.classList.remove("arrive", "printing", "markin", "markout");
   return copy;
 }
 
@@ -2099,10 +2423,22 @@ function turnGo(el, turn){
   // stands just under it, and all of it comes up on the one transform
   const fresh = turnParts(el).after.filter(node => node && node.getBoundingClientRect().height)
     .map(node => turnPicture(el, node, turn, lift));
+  // its panel stands exactly behind the sent panel, whose own mark turns on the
+  // way up, so its mark is held out and the two words are never drawn together
+  for (const copy of fresh)
+    for (const one of copy.querySelectorAll(".answered")) one.classList.add("markout");
   turn.page.prepend(...fresh);
   void turn.page.offsetWidth;   // the sheet stands as the reader left it before it moves
   turn.page.classList.add("gliding");
   turn.page.style.transform = "translate3d(0, " + (-lift) + "px, 0)";
+  // the sent panel is on its way to being the panel over the answer, which reads
+  // Read: its mark turns on the way up, and a panel still faded takes its full
+  // grey and ink with it, so the swap when the sheet goes is not one
+  const rising = turn.page.querySelector(".answered.sent");
+  if (rising){
+    setMark(rising, SENT_TAGS.read, true);
+    for (const one of [rising, ...rising.querySelectorAll(".undelivered")]) one.classList.remove("undelivered");
+  }
   clearTimeout(turn.timer);
   const done = e => {
     if (e && (e.target !== turn.page || e.propertyName !== "transform")) return;
@@ -2243,9 +2579,9 @@ function flagShown(id, kind){
 
 function toggleFlag(id, kind){ return setFlag(id, kind, !flagShown(id, kind)); }
 
-// Control+n and control+l name destinations, unlike the moon's reversible tap. Read
-// the held value so a second key during an unanswered request is judged against
-// what the card already shows, then use the same ordered flag requests as a tap.
+// A destination is named, unlike the moon's reversible tap. Read the held value
+// so a second request during an unanswered one is judged against what the card
+// already shows, then use the same ordered flag requests as a tap.
 function setCardDestination(id, destination){
   if (destination === "deferred"){
     if (!flagShown(id, "park")) return setFlag(id, "park", true);
@@ -2256,13 +2592,28 @@ function setCardDestination(id, destination){
   }
 }
 
+// the Doing list as both pages draw it, top to bottom, by card id
+function doingOrder(state){ return state ? viewPoolFor(state, "todo").map(b => b.id) : []; }
+
+// where the screen goes when a card leaves Doing: the card below it, else the
+// one above it, else nothing. order is the list from before the card left; a
+// card that was not in it gets the top card; the standing boxes are skipped
+function doingNeighbour(id, order){
+  const at = order.indexOf(id);
+  const open = x => x !== id && !isStandingBox(x);
+  if (at < 0) return order.find(open) ?? null;
+  return order.slice(at + 1).find(open) ?? order.slice(0, at).reverse().find(open) ?? null;
+}
+
 // Closing a card and snoozing the card on screen use the same Doing fallback.
-// the hop says so to select, and the desktop keeps a card it only browsed to
-// browsed on the card it lands on
-function selectNextDoing(id){
-  const doing = lastState ? poolOf(lastState).filter(b =>
-    !b.done && !b.parked && b.id !== id && b.id !== "0" && b.id !== "t0") : [];
-  if (doing.length) select(doing[0].id, { hop: true }); else deselect();
+// order is taken at the tap, before the repaint drops the card from the list.
+// A card that is not on screen leaves the screen alone. the hop says so to
+// select, and both pages show the card they land on browsed
+function selectNextDoing(id, order){
+  if (selectedId !== id) return;
+  const live = new Set(doingOrder(lastState));
+  const next = doingNeighbour(id, order.filter(x => x === id || live.has(x)));
+  if (next) select(next, { hop: true }); else deselect();
 }
 
 // ---- the three section chips ---------------------------------------------------
@@ -2316,7 +2667,7 @@ function paintSectionChips(el, b){
 // the sun's own move: whatever holds the card out of doing is lifted, through
 // the same ordered flag requests a tap on the moon makes. a card the board
 // holds both parked and done shows as done, so its face carries no parked class
-// and control+n's read of it sees none; the reading's own park flag is asked as
+// and setCardDestination's read of it sees none; the reading's own park flag is asked as
 // well here, or the sun would lift the done and leave the card in deferred
 function wakeCard(id){
   const b = typeof lastState === "undefined" ? null : lastState?.boxes.find(x => x.id === id);
@@ -2354,6 +2705,7 @@ function setFlag(id, kind, want){
     typeof selectedId !== "undefined" && selectedId === id &&
     typeof curView === "function" && curView() === "todo" &&
     current && current.owner === activeOwner && !current.done && !current.parked;
+  const order = advance ? doingOrder(lastState) : null;   // before the card is painted out of the list
   const spec = flagSpec(kind);
   const key = flagKey(id, kind);
   const hold = flagHolds[key] || (flagHolds[key] = { id, kind, truth: null, boxRef: null, sending: 0 });
@@ -2367,7 +2719,7 @@ function setFlag(id, kind, want){
   paintFlag(id, spec, want, true);                                  // the card, in this same turn
   const going = hold.sending ? Promise.resolve() : sendFlag(key);   // the board, before any redraw
   flagRepaint();                                                    // the list, the tabs, the place
-  if (advance) selectNextDoing(id);
+  if (advance) selectNextDoing(id, order);
   return going;
 }
 
@@ -2680,7 +3032,7 @@ function editTitle(id, opts){
   };
   t.onkeydown = e => {
     e.stopPropagation();   // card-switching keys must not fire while naming
-    if (e.key === "Enter"){ e.preventDefault(); commit(); el.ta.focus(); }
+    if (e.key === "Enter" && !e.altKey){ e.preventDefault(); commit(); el.ta.focus(); }
     else if (keyboardTitle && e.key === "Tab"){ e.preventDefault(); commit(); (e.shiftKey ? (el.sun || el.arc) : el.ta).focus(); }
     else if (e.key === "Escape"){
       if (!old && !t.textContent.trim()) commit();
@@ -2710,7 +3062,6 @@ function jumpNextYellow(fromId, opts, source){
   // neither stamp cannot be aged, so it sorts last instead of posing as the
   // oldest thing here. the filter above already made a fresh array, so nothing
   // else sees this sort, and equal stamps keep the list's own order
-  const waitingSince = b => b.agentTs || b.ts || Number.MAX_SAFE_INTEGER;
   const listOrder = new Map(p.map((b, i) => [b.id, i]));
   p.sort((a, b) => waitingSince(a) - waitingSince(b) || listOrder.get(a.id) - listOrder.get(b.id));
   select(p[0].id, opts);
@@ -2821,20 +3172,52 @@ async function histStep(id, dir){   // +1 steps older, -1 steps back toward live
 // exists; each rebuild stamps the current frame itself, so the ticker and the
 // poll-driven re-renders never fight over the text. ages return on the next
 // quiet poll.
+// the card's own spinner (cardSpinner below) turns on the same clock: the
+// interval also lives while a card shows one, since a phone draws no rows while
+// its drawer is shut.
 const SPIN_FRAMES = ["|","/","-","\\"];   // the classic terminal spinner, bolder than braille dots
 let spinFrame = 0, spinTimer = null;
 function syncSpinner(){
-  const has = document.querySelector("#tiklist .trow.working");
+  const has = document.querySelector("#tiklist .trow.working, .cardspin.on");
   if (has && spinTimer == null){
     spinTimer = setInterval(() => {
       const ages = document.querySelectorAll("#tiklist .trow.working .tage");
-      if (!ages.length){ clearInterval(spinTimer); spinTimer = null; return; }
+      const cards = document.querySelectorAll(".cardspin.on");
+      if (!ages.length && !cards.length){ clearInterval(spinTimer); spinTimer = null; return; }
       spinFrame = (spinFrame + 1) % SPIN_FRAMES.length;
       for (const a of ages) a.textContent = SPIN_FRAMES[spinFrame];
+      for (const c of cards) c.dataset.f = SPIN_FRAMES[spinFrame];
     }, 180);
   } else if (!has && spinTimer != null){
     clearInterval(spinTimer); spinTimer = null;
   }
+}
+
+// ---- the card's own spinner ------------------------------------------------------------
+// the list's green ticket has a twin in the card's top bar, in the sun's place:
+// the same four frames on the same clock, drawn by the shared sheet
+// (card-tokens.css, .cardspin) from the frame written in data-f. it is always
+// in the bar and only its strength changes, so it fades in, as the sun's mark
+// fades out, when the card turns green and out when the reply comes back, and
+// shows or hides without moving anything. a done or deferred card never shows
+// it, even where its ticket still pulses under a claim the agent holds.
+function cardSpinning(b){
+  const s = cardState(b);
+  return s !== "done" && s !== "parked" && ticketGreen(b);
+}
+function makeCardSpinner(){
+  const spin = h("span", "cardspin");
+  spin.setAttribute("role", "img");
+  spin.setAttribute("aria-label", "working");
+  spin.setAttribute("aria-hidden", "true");
+  spin.dataset.f = SPIN_FRAMES[spinFrame];
+  return spin;
+}
+function setCardSpinner(spin, on){
+  if (!spin || spin.classList.contains("on") === on) return;
+  if (on) spin.dataset.f = SPIN_FRAMES[spinFrame];
+  spin.classList.toggle("on", on);
+  spin.setAttribute("aria-hidden", on ? "false" : "true");
 }
 
 // ---- quick notes ------------------------------------------------------------------
@@ -2846,6 +3229,8 @@ function syncSpinner(){
 // reading a reference out of the text, finding the card it names, what an edit
 // does to the attachment, the session that saves as the owner types, and the
 // overlay itself, so the phone can open the same element once it has a way in.
+// hidden in this version: no page builds the overlay or starts a session, and
+// the server answers 404 on every quick note route (QUICK_NOTES_ON, server.py).
 
 // the reference: card, card and a space, or c, then the number, standing as a
 // word of its own. a letter, digit or underscore on either side makes it part of
@@ -2857,7 +3242,7 @@ function syncSpinner(){
 // _migrate, and seeded ids as written in _seed_state), and the figure shown for
 // an id is ticketNum in this file (copied in page.html). when that numbering
 // changes, this parser, quickNoteCard below, the attach routes in server.py and
-// index.html syncQuickNoteChip have to change with it
+// parked/quick-note.js syncQuickNoteChip have to change with it
 const QUICK_NOTE_REF = /(^|[^\p{L}\p{N}_])(?:card[ \t\u00a0]*|c)(\d+)(?![\p{L}\p{N}_]|\.\d)/iu;
 function quickNoteRef(text){
   const m = QUICK_NOTE_REF.exec(String(text == null ? "" : text));
@@ -3169,4 +3554,209 @@ function quickNoteOverlay(host, opts){
     if (open && !card.contains(e.target)) ta.focus();
   });
   return { open: openOverlay, close, isOpen: () => open, session, root: veil };
+}
+
+// ---- the settings page ---------------------------------------------------------
+// the board's own choices on one page, the same one on the desktop board, where
+// it is an overlay, and on the phone, where it fills the screen. each page keeps
+// its controls in the markup, grouped
+// under one element per section carrying data-section and data-label, so every
+// control keeps its id and its own wiring; this builds the page around them and
+// moves each group into its pane. nothing here reads or writes a setting.
+// the width it turns from a column of sections beside the settings to a list
+// that opens one section at a time is 989px, the board's own single column width
+const SETTINGS_NARROW_PX = 989;
+const SETTINGS_NARROW = "(max-width: " + SETTINGS_NARROW_PX + "px)";
+const SETTINGS_MARKS = {
+  back: '<path d="M15 5l-7 7 7 7"/>',
+  next: '<path d="M9 5l7 7-7 7"/>',
+};
+function settingsMark(name){
+  const svg = h("span");
+  svg.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" ' +
+    'stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    SETTINGS_MARKS[name] + '</svg>';
+  return svg.firstChild;
+}
+
+// the three window buttons a Mac window wears at its top left. the red one puts
+// the page away, and its x shows while a pointer is over the group; the yellow
+// and the green have nothing to do, since the page cannot be minimised or
+// zoomed, so they are greyed out, carry no mark, and the keyboard skips them
+const SETTINGS_LIGHTS = ["red", "yellow", "green"];
+function settingsLights(close){
+  const group = h("div", "sp-lights");
+  for (const name of SETTINGS_LIGHTS){
+    const light = h(name === "red" ? "button" : "span", "sp-light sp-" + name);
+    if (name === "red"){
+      light.type = "button";
+      light.setAttribute("aria-label", "Close settings");
+      light.addEventListener("click", close);
+      light.innerHTML = '<svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" ' +
+        'stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3.75 3.75l4.5 4.5M8.25 3.75l-4.5 4.5"/></svg>';
+    } else {
+      light.setAttribute("role", "button");
+      light.setAttribute("aria-disabled", "true");
+      light.setAttribute("aria-label", name === "yellow" ? "Minimise" : "Maximise");
+    }
+    group.appendChild(light);
+  }
+  return group;
+}
+
+// fills root, which becomes the page, from source, the element holding the
+// section groups. opts.close puts the whole page away. opts.lights, on the
+// desktop, adds the window buttons that do it. opts.narrow, where the
+// window is not what decides, is a query like matchMedia's that says when the
+// page is narrow. what comes back moves between the list and one section, and
+// says where it stands
+function settingsPage(root, source, opts){
+  const narrow = opts.narrow || matchMedia(SETTINGS_NARROW);
+  root.classList.add("qn-glass", "sp-page");
+  root.setAttribute("role", "dialog");
+  root.setAttribute("aria-modal", "true");
+  root.setAttribute("aria-label", "Settings");
+
+  const back = h("button", "sp-icon sp-back");
+  back.type = "button";
+  back.setAttribute("aria-label", "Back to settings");
+  back.appendChild(settingsMark("back"));
+  const title = h("h2", "sp-title", "Settings");
+  const head = h("div", "sp-head");
+  if (opts.lights) head.appendChild(settingsLights(() => opts.close()));
+  head.append(back, title);
+
+  const list = h("nav", "sp-list");
+  list.setAttribute("aria-label", "Settings sections");
+  const panes = h("div", "sp-panes");
+  const sections = [...source.querySelectorAll(":scope > [data-section]")].map(group => {
+    const id = group.dataset.section, label = group.dataset.label;
+    const item = h("button", "sp-item");
+    item.type = "button";
+    item.dataset.section = id;
+    item.append(h("span", "", label));
+    const next = h("span", "sp-next");
+    next.appendChild(settingsMark("next"));
+    item.appendChild(next);
+    const pane = h("section", "sp-pane");
+    pane.id = "settings-" + id;
+    pane.setAttribute("aria-label", label);
+    pane.appendChild(h("h3", "sp-panehead", label));
+    pane.append(...group.childNodes);
+    list.appendChild(item);
+    panes.appendChild(pane);
+    return { id, label, item, pane };
+  });
+  source.remove();
+  const body = h("div", "sp-body");
+  body.append(list, panes);
+  root.replaceChildren(head, body);
+
+  let current = sections[0], view = "list";
+  function paint(){
+    const detail = narrow.matches && view === "pane";
+    root.dataset.view = view;
+    root.toggleAttribute("data-narrow", narrow.matches);
+    back.hidden = !detail;
+    title.textContent = detail ? current.label : "Settings";
+    for (const s of sections){
+      const on = s === current;
+      s.item.classList.toggle("on", on);
+      s.pane.classList.toggle("on", on);
+      if (on && !narrow.matches) s.item.setAttribute("aria-current", "true");
+      else s.item.removeAttribute("aria-current");
+    }
+  }
+  function show(id){
+    const next = sections.find(s => s.id === id);
+    if (!next) return;
+    current = next;
+    view = "pane";
+    panes.scrollTop = 0;
+    paint();
+    if (narrow.matches) back.focus({ preventScroll: true });
+  }
+  function toList(){
+    view = "list";
+    paint();
+    if (narrow.matches) current.item.focus({ preventScroll: true });
+  }
+  for (const s of sections) s.item.addEventListener("click", () => show(s.id));
+  back.addEventListener("click", toList);
+  if (typeof narrow.addEventListener === "function") narrow.addEventListener("change", paint);
+  paint();
+  return {
+    show, list: toList, root,
+    section: () => current.id,
+    inDetail: () => narrow.matches && view === "pane",
+    // it opens on the list; where the list is not alone, the section last seen shows beside it
+    reset(){ view = "list"; panes.scrollTop = 0; paint(); },
+    focus(){ current.item.focus({ preventScroll: true }); },
+  };
+}
+
+// a query like matchMedia's, on the width of one element instead of the window
+function widthQuery(el, limit){
+  const heard = [];
+  if (typeof ResizeObserver === "function") new ResizeObserver(() => heard.forEach(fn => fn())).observe(el);
+  return {
+    get matches(){ return el.getBoundingClientRect().width <= limit; },
+    addEventListener(type, fn){ heard.push(fn); },
+  };
+}
+
+// the desktop's seat for the page: a veil over the whole window, the same one
+// the quick note opens over, with the page centred on it at about seven tenths
+// of the window each way. the page turns between its two layouts by its own
+// width, not the window's. a press on the veil outside the page, Escape and the
+// red window button all put the whole page away from either view, and no key
+// goes on to the board it covers. opts carries onOpen and onClose for the page's
+// own bookkeeping
+function settingsOverlay(host, source, opts){
+  const veil = h("div", "qn-veil sp-veil");
+  veil.setAttribute("aria-hidden", "true");
+  const seat = h("div");
+  // a press on bare glass leaves focus on the page, so Escape still reaches the veil
+  seat.tabIndex = -1;
+  veil.appendChild(seat);
+  host.appendChild(veil);
+  let open = false, back = null, downOutside = false;
+  const page = settingsPage(seat, source, { close, lights: true, narrow: widthQuery(seat, SETTINGS_NARROW_PX) });
+  function openOverlay(){
+    if (open) return;
+    open = true;
+    back = document.activeElement;
+    veil.classList.add("open");
+    page.reset();
+    veil.setAttribute("aria-hidden", "false");
+    if (opts.onOpen) opts.onOpen();
+    page.focus();
+  }
+  function close(){
+    if (!open) return;
+    open = false;
+    veil.classList.remove("open");
+    veil.setAttribute("aria-hidden", "true");
+    if (opts.onClose) opts.onClose();
+    const to = back;
+    back = null;
+    if (to && to.isConnected && typeof to.focus === "function") to.focus({ preventScroll: true });
+    else if (seat.contains(document.activeElement)) document.activeElement.blur();
+  }
+  veil.addEventListener("keydown", e => {
+    e.stopPropagation();
+    if (e.key === "Escape"){ e.preventDefault(); close(); }
+  });
+  // a press that starts and ends on the veil, outside the page, puts it away;
+  // a selection dragged out of the page and let go on the veil does not
+  veil.addEventListener("pointerdown", e => { downOutside = e.target === veil; });
+  veil.addEventListener("click", e => {
+    if (downOutside && e.target === veil) close();
+    downOutside = false;
+  });
+  // and focus cannot wander onto the board behind it
+  document.addEventListener("focusin", e => {
+    if (open && !seat.contains(e.target)) page.focus();
+  });
+  return { open: openOverlay, close, isOpen: () => open, page, root: veil };
 }

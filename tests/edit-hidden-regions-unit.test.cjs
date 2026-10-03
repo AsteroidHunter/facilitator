@@ -1,7 +1,7 @@
 // Deterministic, browser-free regression for the edit-mode treatment of removed
 // widgets. It extracts the ACTUAL trackHandles, toggleRegionHidden, regionHidden
 // and DEFAULT_HIDDEN_REGIONS bytes from index.html and runs them in tiny
-// sandboxes with fake DOM/localStorage, plus reads the shipped stylesheet, so
+// sandboxes with a fake DOM and settings store, plus reads the shipped stylesheet, so
 // the fix is pinned against the real source rather than a paraphrase of it.
 //
 // What it guards:
@@ -14,7 +14,7 @@
 //     very next frame (immediate removal of the box and every control on it).
 //   - toggleRegionHidden writes only per-tab hide/show keys and never rewrites a
 //     saved position or size, so arranging does not disturb custom layouts.
-//   - per-project visibility, the four-widget default layout, an explicit
+//   - per-project visibility, the three-widget default layout, an explicit
 //     reveal, and a data-driven file navigator all still resolve correctly.
 //
 // Every lane/owner name here is invented, never a configured project name.
@@ -176,7 +176,8 @@ function buildRegions(seed) {
     let applyCalls = 0;
     const writes = [];
     const __store = new Map(${JSON.stringify(Object.entries(seed || {}))});
-    const localStorage = {
+    // the board's settings store, which the page reads these keys from
+    const settingsStore = {
       getItem: k => __store.has(k) ? __store.get(k) : null,
       setItem: (k, v) => { writes.push(["set", k]); __store.set(k, String(v)); },
       removeItem: k => { writes.push(["remove", k]); __store.delete(k); },
@@ -188,7 +189,7 @@ function buildRegions(seed) {
     ctl.toggle = id => toggleRegionHidden(id);
     ctl.setOwner = o => { activeOwner = o; };
     ctl.setMounts = m => { FILENAV_MOUNTS = m; };
-    ctl.get = k => localStorage.getItem(k);
+    ctl.get = k => settingsStore.getItem(k);
     ctl.writes = () => writes.slice();
     ctl.applyCalls = () => applyCalls;
     ctl.defaultHidden = DEFAULT_HIDDEN_REGIONS;
@@ -199,64 +200,72 @@ function buildRegions(seed) {
   return ctl;
 }
 
-test("the default four-widget layout: only the four core boxes show on a fresh lane", () => {
+test("the default layout: only the clock, the ticket list and the card show on a fresh lane", () => {
   const r = buildRegions();
   const owner = "willow";
-  for (const id of ["main", "clockbox", "tickets", "magic1"])
-    assert.equal(r.regionHidden(owner, id), false, id + " must be one of the four default-visible boxes");
-  for (const id of ["rail", "magic2", "magic3", "magic4", "goalbox"])
+  for (const id of ["main", "clockbox", "tickets"])
+    assert.equal(r.regionHidden(owner, id), false, id + " must be one of the three default-visible boxes");
+  for (const id of ["rail", "magic1", "magic2", "magic3", "magic4", "goalbox"])
     assert.equal(r.regionHidden(owner, id), true, id + " must be hidden by default");
-  // the default-hidden set is exactly these five and no more
+  // the default-hidden set is exactly these six and no more
   assert.deepEqual([...r.defaultHidden].sort(),
-    ["goalbox", "magic2", "magic3", "magic4", "rail"]);
+    ["goalbox", "magic1", "magic2", "magic3", "magic4", "rail"]);
 });
 
 test("hiding a visible box marks it hidden for this tab only and reapplies the layout", () => {
   const r = buildRegions();
   r.setOwner("cedar");
-  assert.equal(r.regionHidden("cedar", "magic1"), false);
-  r.toggle("magic1");
-  assert.equal(r.get("hide.cedar.magic1"), "1", "an explicit hide key is written for this tab");
-  assert.equal(r.regionHidden("cedar", "magic1"), true, "the box is now hidden on this tab");
-  assert.equal(r.regionHidden("birch", "magic1"), false, "another tab is untouched");
+  assert.equal(r.regionHidden("cedar", "clockbox"), false);
+  r.toggle("clockbox");
+  assert.equal(r.get("hide.cedar.clockbox"), "1", "an explicit hide key is written for this tab");
+  assert.equal(r.regionHidden("cedar", "clockbox"), true, "the box is now hidden on this tab");
+  assert.equal(r.regionHidden("birch", "clockbox"), false, "another tab is untouched");
   assert.ok(r.applyCalls() >= 1, "toggling must reapply the layout so the change shows at once");
 });
 
 test("restoring a removed box clears the hide and reveals it on this tab only", () => {
-  const r = buildRegions({ "hide.cedar.magic1": "1" });
+  const r = buildRegions({ "hide.cedar.clockbox": "1" });
   r.setOwner("cedar");
-  assert.equal(r.regionHidden("cedar", "magic1"), true);
-  r.toggle("magic1");
-  assert.equal(r.get("hide.cedar.magic1"), null, "the hide key is cleared");
-  assert.equal(r.get("show.cedar.magic1"), "1", "an explicit show key is written");
-  assert.equal(r.regionHidden("cedar", "magic1"), false);
+  assert.equal(r.regionHidden("cedar", "clockbox"), true);
+  r.toggle("clockbox");
+  assert.equal(r.get("hide.cedar.clockbox"), null, "the hide key is cleared");
+  assert.equal(r.get("show.cedar.clockbox"), "1", "an explicit show key is written");
+  assert.equal(r.regionHidden("cedar", "clockbox"), false);
 });
 
 test("toggling visibility never rewrites a saved position or size", () => {
   // a lane with a custom layout already saved for the box being toggled
   const r = buildRegions({
-    "pos.cedar.magic1": JSON.stringify({ x: 300, y: 200 }),
-    "size.cedar.magic1": JSON.stringify({ w: 400, h: 320 }),
+    "pos.cedar.clockbox": JSON.stringify({ x: 300, y: 200 }),
+    "size.cedar.clockbox": JSON.stringify({ w: 400, h: 320 }),
   });
   r.setOwner("cedar");
-  r.toggle("magic1");   // hide
-  r.toggle("magic1");   // restore
+  r.toggle("clockbox");   // hide
+  r.toggle("clockbox");   // restore
   for (const [, key] of r.writes())
     assert.ok(!/^(pos|size)\./.test(key),
       "hiding/restoring must not touch a saved position or size key, but wrote " + key);
   // the custom layout survives untouched
-  assert.equal(r.get("pos.cedar.magic1"), JSON.stringify({ x: 300, y: 200 }));
-  assert.equal(r.get("size.cedar.magic1"), JSON.stringify({ w: 400, h: 320 }));
+  assert.equal(r.get("pos.cedar.clockbox"), JSON.stringify({ x: 300, y: 200 }));
+  assert.equal(r.get("size.cedar.clockbox"), JSON.stringify({ w: 400, h: 320 }));
 });
 
 test("per-project visibility survives a reload (keys are read back per tab)", () => {
   // simulate a reload: rebuild from the persisted store
-  const seed = { "hide.cedar.magic1": "1", "show.cedar.magic2": "1" };
+  const seed = { "hide.cedar.clockbox": "1", "show.cedar.magic2": "1", "show.cedar.magic1": "1" };
   const r = buildRegions(seed);
-  assert.equal(r.regionHidden("cedar", "magic1"), true, "cedar's hidden box stays hidden after reload");
+  assert.equal(r.regionHidden("cedar", "clockbox"), true, "cedar's hidden box stays hidden after reload");
   assert.equal(r.regionHidden("cedar", "magic2"), false, "cedar's revealed box stays revealed after reload");
-  assert.equal(r.regionHidden("birch", "magic1"), false, "birch is unaffected by cedar's choices");
+  assert.equal(r.regionHidden("cedar", "magic1"), false, "cedar's player stays on screen after reload");
+  assert.equal(r.regionHidden("birch", "clockbox"), false, "birch is unaffected by cedar's choices");
   assert.equal(r.regionHidden("birch", "magic2"), true, "birch keeps the default for magic2");
+  assert.equal(r.regionHidden("birch", "magic1"), true, "birch keeps the default for magic1");
+});
+
+test("an explicit hide on the player keeps it hidden and leaves its saved place alone", () => {
+  const r = buildRegions({ "hide.cedar.magic1": "1", "pos.cedar.magic1": JSON.stringify({ x: 90, y: 760 }) });
+  assert.equal(r.regionHidden("cedar", "magic1"), true);
+  assert.equal(r.get("pos.cedar.magic1"), JSON.stringify({ x: 90, y: 760 }), "its saved place is left as it was");
 });
 
 test("a data-driven file navigator shows by default and still honours an explicit hide", () => {
