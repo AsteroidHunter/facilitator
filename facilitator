@@ -227,7 +227,10 @@ def bridge_log(kind, level="info", **fields):
                       + f".{int(now % 1 * 1000):03d}Z",
                 "level": level, "kind": kind}
         line.update({name: value for name, value in fields.items() if value is not None})
-        with (LOG_DIR / f"bridge-{time.strftime('%Y%m%d')}.log").open("a") as f:
+        fd = os.open(LOG_DIR / f"bridge-{time.strftime('%Y%m%d')}.log",
+                     os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        with os.fdopen(fd, "a") as f:
+            os.fchmod(fd, 0o600)
             f.write(json.dumps(line) + "\n")
         for old in sorted(LOG_DIR.glob("bridge-*.log"))[:-LOG_KEEP]:
             old.unlink(missing_ok=True)
