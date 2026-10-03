@@ -551,6 +551,137 @@ test("no attachment folders means no question", async () => {
   assert.match(res.out, /No card attachments found\./);
 });
 
+// another copy of the board beside this one: it reads the same internal folder
+async function addCopy(dir, name = "facilitator-second") {
+  const copy = path.join(dir, "..", name);
+  await mkdir(copy, { recursive: true });
+  await writeFile(path.join(copy, "server.py"), "");
+  await writeFile(path.join(copy, "facilitator"), "");
+  return copy;
+}
+
+const SHARED_QUESTION = "Remove it for them as well? [y/N] ";
+
+test("a no with another copy beside this one asks again, and Enter keeps the shared folder", async () => {
+  const dir = await freshClone();
+  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
+  await fabricateData(dir);
+  await addCopy(dir);
+
+  const res = await run(dir, stubs() + "\n" + answering("n\n\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
+  assert.equal(res.exit, null, res.out);
+  assert.equal(res.files.internal_uploads, true, "the folder another copy uses was removed on one answer");
+  assert.equal(await readFile(path.join(internalUploads(dir), "card.png"), "utf8"), "img");
+  assert.equal(res.files.uploads, false, "this copy's own attachments folder stayed");
+  assert.match(res.out, /Another copy of the board uses .*facilitator-internal\/uploads: facilitator-second\./);
+  assert.ok(res.out.includes(SHARED_QUESTION), res.out);
+  assert.match(res.out, /⊘ Keeping .*facilitator-internal\/uploads for the other copies\./);
+  assert.doesNotMatch(res.out, /Removed card attachments folder .*facilitator-internal/);
+  assert.match(res.out, /✓ Removed card attachments folder .*facilitator\/uploads\./);
+});
+
+test("the second question comes before anything is removed, and names every other copy", async () => {
+  const dir = await freshClone();
+  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
+  await fabricateData(dir);
+  await addCopy(dir, "facilitator-worktree-a");
+  await addCopy(dir, "facilitator-worktree-b");
+
+  const res = await run(dir, stubs() + "\n" + answering("n\n\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
+  assert.equal(res.exit, null, res.out);
+  const first = res.out.indexOf("Keep your card attachments");
+  const second = res.out.indexOf(SHARED_QUESTION);
+  const removed = res.out.indexOf("✓ Removed ");
+  assert.ok(first >= 0 && first < second && second < removed, res.out);
+  assert.match(res.out, /: facilitator-worktree-a, facilitator-worktree-b\./);
+});
+
+test("a yes at the second question removes the shared folder and nothing above it", async () => {
+  const dir = await freshClone();
+  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
+  await fabricateData(dir);
+  const copy = await addCopy(dir);
+
+  const res = await run(dir, stubs() + "\n" + answering("n\ny\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
+  assert.equal(res.exit, null, res.out);
+  assert.equal(res.files.internal_uploads, false, "a yes did not remove the shared folder");
+  assert.equal(res.files.uploads, false);
+  assert.equal(res.files.internal_notes, true, "the internal folder's other files went");
+  assert.equal(await readFile(path.join(copy, "server.py"), "utf8"), "", "the other copy was touched");
+  assert.match(res.out, /✓ Removed card attachments folder .*facilitator-internal\/uploads\./);
+});
+
+test("a keep at the first question does not ask about the shared folder", async () => {
+  const dir = await freshClone();
+  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
+  await fabricateData(dir);
+  await addCopy(dir);
+
+  const res = await run(dir, stubs() + "\n" + answering("\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
+  assert.equal(res.exit, null, res.out);
+  assert.ok(!res.out.includes(SHARED_QUESTION), "kept attachments were asked about again");
+  assert.ok(res.files.uploads && res.files.internal_uploads);
+});
+
+test("--remove-attachments with no terminal still keeps the folder another copy uses", async () => {
+  const dir = await freshClone();
+  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
+  await fabricateData(dir);
+  await addCopy(dir);
+
+  const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--remove-attachments'])"));
+  assert.equal(res.exit, null, res.out);
+  assert.equal(res.files.internal_uploads, true, "the shared folder went with nobody to ask");
+  assert.equal(res.files.uploads, false, "this copy's own folder stayed");
+  assert.match(res.out, /⊘ Keeping .*facilitator-internal\/uploads for the other copies: there is no terminal to ask on\./);
+});
+
+test("--remove-attachments on a terminal still asks before removing the shared folder", async () => {
+  const dir = await freshClone();
+  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
+  await fabricateData(dir);
+  await addCopy(dir);
+
+  const no = await run(dir, stubs() + "\n" + answering("\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--remove-attachments'])"));
+  assert.equal(no.exit, null, no.out);
+  assert.ok(no.out.includes(SHARED_QUESTION), no.out);
+  assert.doesNotMatch(no.out, /Keep your card attachments/, "the flag did not answer the first question");
+  assert.equal(no.files.internal_uploads, true);
+
+  const yes = await run(dir, stubs() + "\n" + answering("yes\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--remove-attachments'])"));
+  assert.equal(yes.exit, null, yes.out);
+  assert.equal(yes.files.internal_uploads, false);
+});
+
+test("an unclear answer or end of input at the second question keeps the shared folder", async () => {
+  for (const said of ["n\nmaybe\n", "n\n"]) {
+    const dir = await freshClone();
+    await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
+    await fabricateData(dir);
+    await addCopy(dir);
+
+    const res = await run(dir, stubs() + "\n" + answering(said) + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
+    assert.equal(res.exit, null, res.out);
+    assert.equal(res.files.internal_uploads, true, `${JSON.stringify(said)} removed the shared folder`);
+  }
+});
+
+test("folders beside this one that are not copies of the board do not count", async () => {
+  const dir = await freshClone();
+  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
+  await fabricateData(dir);
+  await mkdir(path.join(dir, "..", "facilitator-wiki"));
+  await writeFile(path.join(dir, "..", "facilitator-wiki", "page.md"), "x");
+  await mkdir(path.join(dir, "..", "facilitator-halfway"));
+  await writeFile(path.join(dir, "..", "facilitator-halfway", "server.py"), "");
+  await writeFile(path.join(dir, "..", "stray-file"), "x");
+
+  const res = await run(dir, stubs() + "\n" + answering("n\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
+  assert.equal(res.exit, null, res.out);
+  assert.ok(!res.out.includes(SHARED_QUESTION), "a folder that is no copy was treated as one");
+  assert.equal(res.files.internal_uploads, false);
+});
+
 test("--keep-attachments keeps them without asking, and both flags together are refused", async () => {
   const dir = await freshClone();
   await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));

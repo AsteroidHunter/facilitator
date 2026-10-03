@@ -61,7 +61,9 @@
       and vapid-key.pem).
       After its banner it asks whether to keep the card
       attachments; Enter, an unclear answer or no terminal keeps them, and the
-      two flags answer without asking.
+      two flags answer without asking. The folder another copy of the board
+      beside this one also reads is asked about again and kept unless the
+      answer is a clear yes, flag or not; with no terminal it is kept.
       Never removes this folder or stops a running server.
   facilitator password set
       prompt twice for the phone bridge password; replacing it signs out every
@@ -2357,12 +2359,18 @@ an older install added. Keeps board data and bridge credentials. Never removes
 this folder or stops a running server.
 Card attachments are asked about after the banner and kept unless the
 answer is a clear no; with no terminal they are kept.
---keep-attachments and --remove-attachments answer without asking."""
+--keep-attachments and --remove-attachments answer without asking.
+The attachments folder beside this one is read by every other copy of the
+board in the same parent folder, so when there is one, removing it is asked
+about again and kept unless the answer is a clear yes, even with
+--remove-attachments; with no terminal it is kept."""
 # card attachments, worked out exactly as server.py works them out: new ones
 # save in the sibling internal folder, and the old in-repo uploads/ still
 # serves the ones saved before that move
 ATTACHMENT_DIRS = (HERE.parent / "facilitator-internal" / "uploads", HERE / "uploads")
+SHARED_ATTACHMENTS = ATTACHMENT_DIRS[0]
 ATTACHMENT_QUESTION = "Keep your card attachments (pictures and files you attached to cards)? [Y/n] "
+SHARED_QUESTION = "Remove it for them as well? [y/N] "
 BANNER_GLYPHS = {
     "F": ["█████", "█    ", "████ ", "█    ", "█    "],
     "A": ["█████", "█   █", "█████", "█   █", "█   █"],
@@ -2793,6 +2801,49 @@ def keep_attachments(answer):
     return said.strip().lower() not in ("n", "no")
 
 
+def other_copies():
+    """Names of the other copies of the board in this folder's parent. Each
+    reads the same attachments folder beside it, so what is saved there is
+    theirs as much as this copy's."""
+    names = []
+    try:
+        for child in sorted(HERE.parent.iterdir()):
+            if (child.is_symlink() or not child.is_dir()
+                    or os.path.realpath(child) == os.path.realpath(HERE)):
+                continue
+            if (child / "server.py").is_file() and (child / "facilitator").is_file():
+                names.append(child.name)
+    except OSError:
+        pass
+    return names
+
+
+def keep_shared_attachments(path, copies):
+    """True unless the owner clearly says yes. The folder at path is read by
+    other copies of the board, so removing it takes their attachments too:
+    a flag does not answer for them, and no terminal keeps it."""
+    who = (f"Another copy of the board uses {path}: " if len(copies) == 1
+           else f"Other copies of the board use {path}: ") + ", ".join(copies) + "."
+    print()
+    print(who)
+    if not sys.stdin.isatty():
+        skipped(f"Keeping {path} for the other copies: there is no terminal to ask on.")
+        print("Remove it by hand when no other copy needs it.")
+        return True
+    try:
+        said = input(SHARED_QUESTION)
+    except EOFError:
+        print("")
+        said = ""
+    except KeyboardInterrupt:
+        print("")
+        sys.exit(problem("Stopped at the attachments question.", "Nothing was removed.", blank=True))
+    if said.strip().lower() in ("y", "yes"):
+        return False
+    skipped(f"Keeping {path} for the other copies.")
+    return True
+
+
 def remove_attachments(path):
     """Remove one attachment folder and nothing above it. A link is left alone
     rather than followed, and rmtree unlinks any link inside without following
@@ -2842,11 +2893,16 @@ def cmd_uninstall(args):
     print("Uninstall asks about your card attachments first, apart from the")
     print("rest of the board's data. Only a clear no removes them.")
     print()
+    copies, keep_shared = [], True
     if attachments:
         print("Your card attachments are in:")
         for path in attachments:
             print(f"  {path}")
         keep = keep_attachments(answer)
+        if SHARED_ATTACHMENTS in attachments:
+            copies = other_copies()
+        if not keep and copies:
+            keep_shared = keep_shared_attachments(SHARED_ATTACHMENTS, copies)
     else:
         print("No card attachments found.")
         keep = True
@@ -2883,6 +2939,8 @@ def cmd_uninstall(args):
 
     if not keep:
         for path in attachments:
+            if copies and path == SHARED_ATTACHMENTS and keep_shared:
+                continue
             remove_attachments(path)
 
     note = bridge_note(port)
