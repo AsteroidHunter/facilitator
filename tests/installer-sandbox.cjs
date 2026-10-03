@@ -3,6 +3,7 @@
 // fakes, then /usr/bin and /bin only, so no real Chrome lookup, uv, brew, node or
 // download can be reached. Every fake that is called writes a line to calls.log.
 const { execFile } = require("node:child_process");
+const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
@@ -67,7 +68,8 @@ async function script(file, text) {
 // check) or "apple" (python3 is the /usr/bin/python3 macOS ships, which has no
 // scrypt).
 // uv: "present", "brew" (a fake brew installs it), "curl" (a fake curl hands
-// back an installer that puts it in the home folder) or "absent". The fake's
+// back an installer that puts it in the home folder), "curl-tampered" (the
+// same, but what it hands back is not what the checkout expects) or "absent". The fake's
 // venv writes a pyvenv.cfg naming venvPython, and a .venv/bin/python3 that
 // hands over to the real python, so what runs on .venv really runs. It says
 // it is uvVersion when asked.
@@ -128,17 +130,37 @@ chmod +x "${target}"
 `);
   }
 
-  if (uv === "curl") {
-    await script(path.join(tools, "curl"), `#!/bin/sh
-echo "curl $*" >> "${log}"
-cat <<'SCRIPT'
-echo "uv installer ran with INSTALLER_NO_MODIFY_PATH=$INSTALLER_NO_MODIFY_PATH" >> "${log}"
+  if (uv === "curl" || uv === "curl-tampered") {
+    // the installer the fake curl hands back, and the fingerprint this copy of
+    // the checkout is made to expect for it: "curl-tampered" serves something
+    // else under that fingerprint. The installer's own check is probed too.
+    const installer = `echo "uv installer ran with INSTALLER_NO_MODIFY_PATH=$INSTALLER_NO_MODIFY_PATH" >> "${log}"
+printf x > "$HOME/probe.txt"
+echo "uv installer checks with $(sha256sum -b "$HOME/probe.txt" | awk '{printf $1}')" >> "${log}"
 mkdir -p "$HOME/.local/bin"
 cat > "$HOME/.local/bin/uv" <<'FAKE'
 ${fakeUv}FAKE
 chmod +x "$HOME/.local/bin/uv"
-SCRIPT
+`;
+    const served = uv === "curl" ? installer : `echo "a changed uv installer ran" >> "${log}"\n`;
+    await fs.writeFile(path.join(dir, "served-installer.sh"), served);
+    await script(path.join(tools, "curl"), `#!/bin/sh
+echo "curl $*" >> "${log}"
+out=''
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = -o ]; then out="$2"; shift; fi
+  shift
+done
+if [ -n "$out" ]; then cat "${path.join(dir, "served-installer.sh")}" > "$out"; else cat "${path.join(dir, "served-installer.sh")}"; fi
 `);
+    const sum = crypto.createHash("sha256").update(installer).digest("hex");
+    for (const [file, line, pin] of [
+      ["facilitator", /^UV_INSTALL_SHA256 = "[0-9a-f]{64}"$/m, `UV_INSTALL_SHA256 = "${sum}"`],
+      ["install.sh", /^UV_INSTALL_SHA256='[0-9a-f]{64}'$/m, `UV_INSTALL_SHA256='${sum}'`],
+    ]) {
+      const text = await fs.readFile(path.join(repo, file), "utf8");
+      if (line.test(text)) await fs.writeFile(path.join(repo, file), text.replace(line, pin));
+    }
   }
 
   const env = { HOME: home, SHELL: "/bin/zsh", TERM: "xterm-256color", LANG: "en_US.UTF-8",

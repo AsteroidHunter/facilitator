@@ -309,17 +309,45 @@ test("the python3 macOS ships runs the setup, and the app password is set on .ve
   });
 });
 
-test("with no uv and no Homebrew, uv's own installer runs, told to leave the shell profile alone", async () => {
-  await using({ python: "missing", uv: "curl" }, async f => {
-    const { code, text } = await f.piped();
-    assert.equal(code, 0, text);
-    assert.match(text, /uv is not installed\. Installing it with the astral\.sh installer\ninto your home\.\n✓ uv installed\./);
-    const calls = await f.calls();
-    assert.ok(calls.includes("curl -LsSf https://astral.sh/uv/install.sh"), calls.join(" | "));
-    assert.ok(calls.includes("uv installer ran with INSTALLER_NO_MODIFY_PATH=1"), calls.join(" | "));
-    assert.equal(await f.has(path.join(f.repo, ".venv", "bin", "python")), true);
+const PROBE_SHA256 = require("node:crypto").createHash("sha256").update("x").digest("hex");
+
+// both ways uv gets installed: by install.sh when no python3 can run the
+// setup, and by the command when one can
+for (const python of ["missing", "system"]) {
+  test(`with no uv and no Homebrew, uv's own installer runs, told to leave the shell profile alone (${python} python3)`, async () => {
+    await using({ python, uv: "curl" }, async f => {
+      const { code, text } = await f.piped();
+      assert.equal(code, 0, text);
+      assert.match(text, /uv is not installed\. Installing it with the astral\.sh installer\ninto your home\.\n✓ uv installed\./);
+      const calls = await f.calls();
+      assert.ok(calls.some(line => /^curl --proto =https --tlsv1\.2 -LsSf https:\/\/astral\.sh\/uv\/0\.12\.22\/install\.sh/.test(line)), calls.join(" | "));
+      assert.ok(!calls.some(line => /astral\.sh\/uv\/install\.sh/.test(line)), "the unpinned address was fetched");
+      assert.ok(calls.includes("uv installer ran with INSTALLER_NO_MODIFY_PATH=1"), calls.join(" | "));
+      assert.equal(await f.has(path.join(f.repo, ".venv", "bin", "python")), true);
+    });
   });
-});
+
+  test(`the uv installer is given a working sha256sum to check its own downloads with (${python} python3)`, async () => {
+    await using({ python, uv: "curl" }, async f => {
+      const { code, text } = await f.piped();
+      assert.equal(code, 0, text);
+      const calls = await f.calls();
+      assert.ok(calls.includes(`uv installer checks with ${PROBE_SHA256}`), calls.join(" | "));
+    });
+  });
+
+  test(`a uv installer that is not the expected one is refused and never run (${python} python3)`, async () => {
+    await using({ python, uv: "curl-tampered" }, async f => {
+      const { code, text } = await f.piped();
+      assert.equal(code, 1, text);
+      assert.match(text, /⚠ The uv installer from astral\.sh is not the one this checkout expects\.\n  Nothing was run\./);
+      const calls = await f.calls();
+      assert.ok(!calls.includes("a changed uv installer ran"), "the changed installer ran");
+      assert.equal(await f.has(path.join(f.home, ".local", "bin", "uv")), false);
+      assert.equal(await f.has(path.join(f.repo, ".venv")), false);
+    });
+  });
+}
 
 test("a uv older than 0.9.0 cannot install Python 3.14, so the run stops in one line before .venv is made", async () => {
   const LINE = "⚠ uv 0.8.19 is too old to install Python 3.14: upgrade it to 0.9.0 or newer "

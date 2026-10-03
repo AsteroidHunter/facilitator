@@ -76,15 +76,26 @@ function loadCli(dir) {
 // fakes for uv and npm that create the files those tools create, so the file
 // set is real even though nothing is downloaded; state and the tailnet are
 // stubbed so nothing touches a port or Tailscale.
-function stubs({ uv = true, node = true, brew = false, up = false, uvSays = "uv 0.11.18 (fake)" } = {}) {
+// installer: what astral.sh hands back for the uv installer: "good" is the text
+// the fingerprint in this checkout is made to match, "tampered" is other text
+// and "empty" is a download that came to nothing. sha256sum and shasum: the
+// path of that checking command on this machine, or null when it is missing.
+function stubs({ uv = true, node = true, brew = false, up = false, uvSays = "uv 0.11.18 (fake)",
+  installer = "good", sha256sum = "/fake/sha256sum", shasum = null } = {}) {
+  const served = { good: "INSTALLER", tampered: "b'#!/bin/sh\\necho changed\\n'", empty: "b''" }[installer];
+  const tool = path => path ? JSON.stringify(path) : "None";
   return [
+    "import hashlib",
     `UV = ${JSON.stringify(UV)}`,
     `NPM = ${JSON.stringify(NPM)}`,
     "BREW = '/fake/brew'",
-    `WHICH = {'uv': ${uv ? "UV" : "None"}, 'node': ${node ? "'/fake/node'" : "None"}, 'npm': ${node ? "NPM" : "None"}, 'brew': ${brew ? "BREW" : "None"}, 'curl': '/fake/curl'}`,
+    `WHICH = {'uv': ${uv ? "UV" : "None"}, 'node': ${node ? "'/fake/node'" : "None"}, 'npm': ${node ? "NPM" : "None"}, 'brew': ${brew ? "BREW" : "None"}, 'curl': '/fake/curl', 'sha256sum': ${tool(sha256sum)}, 'shasum': ${tool(shasum)}}`,
     "cli.shutil.which = lambda name: WHICH.get(name)",
     `UVSTATE = {'uv': ${uv ? "UV" : "None"}}`,
     "cli.find_uv = lambda: UVSTATE['uv']",
+    "INSTALLER = b'#!/bin/sh\\ntrue\\n'",
+    "cli.UV_INSTALL_SHA256 = hashlib.sha256(INSTALLER).hexdigest()",
+    "REAL_RUN = subprocess.run",
     "CALLS = []",
     "SH = {'no_modify': None}",
     "def fake_run(argv, **kw):",
@@ -113,10 +124,19 @@ function stubs({ uv = true, node = true, brew = false, up = false, uvSays = "uv 
     "        UVSTATE['uv'] = UV",
     "        return types.SimpleNamespace(returncode=0, stdout='', stderr='')",
     "    if argv and argv[0] == 'curl':",
-    "        return types.SimpleNamespace(returncode=0, stdout='#!/bin/sh\\ntrue\\n', stderr='')",
+    `        return types.SimpleNamespace(returncode=0, stdout=${served}, stderr=b'')`,
     "    if argv and argv[0] == 'sh':",
     "        UVSTATE['uv'] = UV",
-    "        SH['no_modify'] = (kw.get('env') or {}).get('INSTALLER_NO_MODIFY_PATH')",
+    "        env = kw.get('env') or {}",
+    "        SH['no_modify'] = env.get('INSTALLER_NO_MODIFY_PATH')",
+    "        SH['input'] = kw.get('input')",
+    "        first = (env.get('PATH') or '').split(os.pathsep)[0]",
+    "        shim = os.path.join(first, 'sha256sum')",
+    "        if first and os.path.isfile(shim):",
+    "            probe = os.path.join(here, 'probe.txt')",
+    "            open(probe, 'wb').write(b'x')",
+    "            SH['shim'] = open(shim).read()",
+    "            SH['shim_says'] = REAL_RUN([shim, '-b', probe], capture_output=True, text=True).stdout",
     "        return types.SimpleNamespace(returncode=0, stdout='', stderr='')",
     "    raise AssertionError('unexpected subprocess: ' + ' '.join(map(str, argv)))",
     "cli.subprocess.run = fake_run",
@@ -155,7 +175,8 @@ function snapshot(callLine) {
     "  'logs': ex(cli.LOG_DIR),",
     "  'vapid': ex(here/'vapid-key.pem'),",
     "}",
-    "print('RESULT ' + json.dumps({'out': buf.getvalue(), 'exit': result_exit, 'files': files, 'calls': CALLS, 'sh_no_modify': SH['no_modify']}))",
+    "sh = {k: (v.decode() if isinstance(v, bytes) else v) for k, v in SH.items()}",
+    "print('RESULT ' + json.dumps({'out': buf.getvalue(), 'exit': result_exit, 'files': files, 'calls': CALLS, 'sh_no_modify': SH['no_modify'], 'sh': sh}))",
   ].join("\n");
 }
 
@@ -309,6 +330,60 @@ test("when uv is missing and there is no brew, install uses the astral.sh script
   assert.equal(res.sh_no_modify, "1", "the installer was allowed to change a shell profile");
   assert.equal(res.calls.some(c => c[0] === "/fake/brew"), false);
   assert.ok(installed(res.files), "the install did not continue after uv was installed");
+});
+
+const UV_PIN = "0.12.22";
+const UV_PIN_SHA256 = "58488ae8dbd0773134c92c85e901430e33f99d975bd7f929d26aa9ab0c2f9390";
+
+test("the uv installer is one exact version, fetched over https only and run only as downloaded", async () => {
+  const dir = await freshClone();
+  const res = await run(dir, stubs({ uv: false }) + "\n" + snapshot("cli.cmd_install(['install'])"));
+  assert.equal(res.exit, null, res.out);
+  const curl = res.calls.find(c => c[0] === "curl");
+  assert.deepEqual(curl, ["curl", "--proto", "=https", "--tlsv1.2", "-LsSf", `https://astral.sh/uv/${UV_PIN}/install.sh`]);
+  assert.equal(res.sh.input, "#!/bin/sh\ntrue\n", "what ran is not what was checked");
+
+  const source = await readFile(path.join(dir, "facilitator"), "utf8");
+  assert.match(source, new RegExp(`^UV_PIN = "${UV_PIN.replace(/\./g, "\\.")}"$`, "m"));
+  assert.match(source, new RegExp(`^UV_INSTALL_SHA256 = "${UV_PIN_SHA256}"$`, "m"));
+  assert.doesNotMatch(source, /astral\.sh\/uv\/install\.sh/, "the unpinned address is still there");
+});
+
+test("a uv installer that does not match its fingerprint is refused and never run", async () => {
+  for (const installer of ["tampered", "empty"]) {
+    const dir = await freshClone();
+    const res = await run(dir, stubs({ uv: false, installer }) + "\n" + snapshot("cli.cmd_install(['install'])"));
+    assert.ok(typeof res.exit === "string", `${installer}: the install went on`);
+    assert.equal(res.calls.some(c => c[0] === "sh"), false, `${installer}: the downloaded script ran`);
+    assert.doesNotMatch(res.out, /✓ uv installed\./);
+    assert.equal(res.files.venv, false, `${installer}: the environment was made`);
+  }
+  const dir = await freshClone();
+  const res = await run(dir, stubs({ uv: false, installer: "tampered" }) + "\n" + snapshot("cli.cmd_install(['install'])"));
+  assert.equal(res.exit.trim(), "⚠ The uv installer from astral.sh is not the one this checkout expects.\n  Nothing was run. Install uv yourself, then run ./install.sh again.");
+});
+
+test("uv's installer checks its own downloads on a Mac, which has shasum and no sha256sum", {
+  skip: !require("node:fs").existsSync("/usr/bin/shasum") && "no shasum here",
+}, async () => {
+  const dir = await freshClone();
+  const res = await run(dir, stubs({ uv: false, sha256sum: null, shasum: "/usr/bin/shasum" }) + "\n" + snapshot("cli.cmd_install(['install'])"));
+  assert.equal(res.exit, null, res.out);
+  assert.match(res.sh.shim, /shasum/, "no sha256sum was provided to the installer");
+  // the same line a sha256sum prints for the file holding one letter
+  assert.equal(res.sh.shim_says.split(" ")[0], require("node:crypto").createHash("sha256").update("x").digest("hex"));
+  assert.match(res.sh.shim_says, / \*.*probe\.txt\n$/, "the shim did not answer in sha256sum's format");
+});
+
+test("where sha256sum already exists the installer is given no stand-in, and with no way to check at all it is not run", async () => {
+  const dir = await freshClone();
+  const have = await run(dir, stubs({ uv: false }) + "\n" + snapshot("cli.cmd_install(['install'])"));
+  assert.equal(have.exit, null, have.out);
+  assert.equal(have.sh.shim, undefined, "a stand-in hid the real sha256sum");
+
+  const none = await run(dir, stubs({ uv: false, sha256sum: null, shasum: null }) + "\n" + snapshot("cli.cmd_install(['install'])"));
+  assert.equal(none.exit.trim(), "⚠ Cannot check what the uv installer downloads: neither sha256sum nor shasum is here.\n  Nothing was run. Install uv yourself, then run ./install.sh again.");
+  assert.equal(none.calls.some(c => c[0] === "sh"), false);
 });
 
 test("a uv older than 0.9.0, or one that cannot say its version, stops install in one line before anything is made", async () => {
