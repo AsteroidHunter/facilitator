@@ -438,8 +438,20 @@ test("a finger on the composer fades the row before the focus comes, and a touch
     await page.touchscreen.touchEnd();
     await settle(900);
     assert.deepEqual(await row(), { away: false, typing: false }, "a touch that brought no focus left the row out of sight");
-    // the touch on the reading area is not a touch on the typing row
-    const reading = await middle(page, "article.box.sel .reply");
+    // the touch on the reading area is not a touch on the typing row. The point is taken on the part of
+    // the answer that shows above the composer: a long answer's own middle can lie under the composer.
+    const reading = await page.$eval("article.box.sel .reply", reply => {
+      const r = reply.getBoundingClientRect();
+      const card = reply.closest("article.box").getBoundingClientRect();
+      const compose = reply.closest("article.box").querySelector(".compose").getBoundingClientRect();
+      const top = Math.max(r.top, card.top), bottom = Math.min(r.bottom, compose.top);
+      return { x: r.left + r.width / 2, y: (top + bottom) / 2 };
+    });
+    const hit = await page.evaluate(({ x, y }) => {
+      const el = document.elementFromPoint(x, y);
+      return { onAnswer: !!el?.closest(".reply"), onComposer: !!el?.closest(".compose") };
+    }, reading);
+    assert.deepEqual(hit, { onAnswer: true, onComposer: false }, "the touch point for the answer is not on the answer");
     await page.touchscreen.touchStart(reading.x, reading.y);
     await settle(60);
     assert.equal((await row()).away, false, "a touch on the answer faded the row");
