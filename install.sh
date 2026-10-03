@@ -17,15 +17,19 @@ MIN_PYTHON='3.9'      # runs the setup and the command; keep in step with MIN_PY
 MANAGED_PYTHON='3.14' # the Python .venv is built on; keep in step with APP_PYTHON in facilitator
 UV_MIN='0.9.0'        # the first uv that installs Python 3.14.0; keep in step with UV_MIN in facilitator
 
-if [ "$#" -gt 0 ]; then
-  if [ "$#" -eq 1 ] && { [ "$1" = "--help" ] || [ "$1" = "-h" ]; }; then
-    printf 'usage: ./install.sh\n\n'
-    printf 'Check for Claude Code or Codex and Chrome, set up a private Python\n'
-    printf 'environment for this checkout, offer the phone client (Tailscale and\n'
-    printf 'an app password), and register the command and shared agent skill.\n'
-    exit 0
-  fi
-  printf '\n⚠ Unknown option or argument: %s.\n  usage: ./install.sh\n' "$*" >&2
+DEV_FLAG=''
+if [ "$#" -eq 1 ] && { [ "$1" = "--help" ] || [ "$1" = "-h" ]; }; then
+  printf 'usage: ./install.sh [--dev]\n\n'
+  printf 'Check for Claude Code or Codex and Chrome, set up a private Python\n'
+  printf 'environment for this checkout, offer the phone client (Tailscale and\n'
+  printf 'an app password), and register the command and shared agent skill.\n'
+  printf -- '--dev also installs the packages only the tests need, locked to the\n'
+  printf 'versions in tests/package-lock.json; it needs node and npm.\n'
+  exit 0
+elif [ "$#" -eq 1 ] && [ "$1" = "--dev" ]; then
+  DEV_FLAG=1
+elif [ "$#" -gt 0 ]; then
+  printf '\n⚠ Unknown option or argument: %s.\n  usage: ./install.sh [--dev]\n' "$*" >&2
   exit 2
 fi
 
@@ -377,14 +381,18 @@ section '3. Python'
 say 'Setup builds a private Python environment in .venv with uv, installs'
 say 'the pinned packages, and writes run.config.json and seed.json from'
 say 'their examples when they are missing. Your own Python is not changed.'
-say 'When node is here it also installs the packages the tests need.'
+if [ -n "$DEV_FLAG" ]; then
+  say 'With --dev, the packages only the tests need are installed too.'
+else
+  say 'The packages only the tests need are left out; ./install.sh --dev adds them.'
+fi
 printf '\n'
 FRESH=1
 if [ -z "$PY" ]; then
   bootstrap_python
   preflight
 fi
-FACILITATOR_INTERNAL_INSTALL=1 "$PY" "$REPO/facilitator" _install
+FACILITATOR_INTERNAL_INSTALL=1 "$PY" "$REPO/facilitator" _install ${DEV_FLAG:+--dev}
 
 section '4. Phone client'
 if [ ! -t 0 ]; then

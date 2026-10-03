@@ -54,8 +54,8 @@
       pair, and off takes it away.
       --dry-run prints the commands instead of running them
   facilitator uninstall [--keep-attachments | --remove-attachments]
-      remove what install made: the .venv, node_modules and the generated config
-      files, owned shell command, owned agent-skill links, and any Claude Code
+      remove what install made: the .venv, tests/node_modules and the generated
+      config files, owned shell command, owned agent-skill links, and any Claude Code
       status line entry an older install added. Keeps the board's data
       (state.json, transcript.jsonl, settings.json, logs, bridge credentials
       and vapid-key.pem).
@@ -2343,10 +2343,13 @@ UV_HOME_BINS = ("~/.local/bin/uv", "~/.cargo/bin/uv")
 UV_PIN = "0.12.22"
 UV_INSTALL_URL = f"https://astral.sh/uv/{UV_PIN}/install.sh"
 UV_INSTALL_SHA256 = "58488ae8dbd0773134c92c85e901430e33f99d975bd7f929d26aa9ab0c2f9390"
+TESTS_DIR = HERE / "tests"
 INSTALL_RECORD = HERE / ".facilitator-install.json"
-INSTALL_ARTIFACTS = (".venv", "node_modules", "package.json", "package-lock.json",
-                     "run.config.json", "seed.json")
-INSTALL_HELP = """usage: ./install.sh
+# node_modules, package.json and package-lock.json in the checkout's root are
+# what installs before --dev made; uninstall still takes them back from those
+INSTALL_ARTIFACTS = (".venv", "tests/node_modules", "node_modules", "package.json",
+                     "package-lock.json", "run.config.json", "seed.json")
+INSTALL_HELP = """usage: ./install.sh [--dev]
 
 Check that Claude Code or Codex and Chrome are here, then make this checkout
 runnable: find or install uv (0.9.0 or newer; when there is no Homebrew its
@@ -2354,14 +2357,17 @@ own installer is fetched for one exact release and run only when it matches
 its fingerprint), build the private .venv on a
 Python 3.14 that uv manages, rebuilding a .venv that is missing, broken or on
 another Python (a board running on the old one is stopped first), and sync
-requirements, write run.config.json and seed.json from
-the examples when they are missing, and install test dependencies when node is
-present. In an interactive terminal it asks about the phone client (Tailscale,
-then an app password). It ends by registering the facilitator command and the
-shared agent skill. Safe to run again; a second run changes nothing."""
+requirements, and write run.config.json and seed.json from
+the examples when they are missing. In an interactive terminal it asks about
+the phone client (Tailscale, then an app password). It ends by registering
+the facilitator command and the shared agent skill. Safe to run again; a
+second run changes nothing.
+--dev also installs the packages only the tests need, into tests/node_modules,
+from tests/package-lock.json with npm ci and without running any package's
+scripts. It needs node and npm; without --dev they are not used."""
 UNINSTALL_HELP = """usage: facilitator uninstall [--keep-attachments | --remove-attachments]
 
-Remove what install made: the .venv, node_modules, generated config,
+Remove what install made: the .venv, tests/node_modules, generated config,
 owned command and agent-skill links, and any Claude Code status line entry
 an older install added. Keeps board data and bridge credentials. Never removes
 this folder or stops a running server.
@@ -2666,22 +2672,30 @@ def ensure_config():
             print(f"Ports {DEFAULT_PORT} and {DEFAULT_PORT + 1} are in use here, so it names {port} and {port + 1}.")
 
 
-def ensure_node_deps():
-    """Install the test dependencies when node is here, and say plainly that
-    they are only for the tests. Skipped without node, since the board itself
-    does not need them."""
+def find_node_tools():
+    """The npm to use for the test packages, or None when node or npm is missing."""
     npm = shutil.which("npm")
-    if not (shutil.which("node") and npm):
-        skipped("Skipped the test packages: node was not found.")
-        print("They are needed only to run the tests.")
-        return
-    if (HERE / "node_modules" / "puppeteer-core").exists():
+    return npm if shutil.which("node") and npm else None
+
+
+def ensure_test_packages(npm):
+    """Install the packages only the tests need, exactly as tests/package-lock.json
+    names them: npm ci, which takes nothing the lockfile does not fix, and
+    without any package's install scripts. They are left alone when the version
+    tests/package.json pins is already there."""
+    pinned = json.loads((TESTS_DIR / "package.json").read_text())["dependencies"]["puppeteer-core"]
+    try:
+        have = json.loads((TESTS_DIR / "node_modules" / "puppeteer-core" / "package.json").read_text())["version"]
+    except (OSError, ValueError, KeyError):
+        have = None
+    if have == pinned:
         ok("Test packages found.")
         return
-    print("Installing puppeteer-core for the tests.")
-    if subprocess.run([npm, "install", "puppeteer-core"], cwd=str(HERE)).returncode != 0:
-        sys.exit(problem("npm could not install puppeteer-core.",
-                         "See the output above, then run ./install.sh again."))
+    print("Installing the test packages from tests/package-lock.json.")
+    if subprocess.run([npm, "ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+                      cwd=str(TESTS_DIR)).returncode != 0:
+        sys.exit(problem("npm could not install the test packages.",
+                         "See the output above, then run ./install.sh --dev again."))
     ok("Test packages installed.")
 
 
@@ -2692,14 +2706,20 @@ def cmd_install(args):
     if any(w in ("-h", "--help") for w in words):
         print(INSTALL_HELP)
         return
-    if words:
-        sys.exit("install takes no options; got " + " ".join(words) + "\n" + INSTALL_HELP)
+    extra = [w for w in words if w != "--dev"]
+    if extra:
+        sys.exit("install takes only --dev; got " + " ".join(extra) + "\n" + INSTALL_HELP)
+    dev = "--dev" in words
     # keep these lines in order with uv's and npm's when the output is a pipe
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)
     # install.sh prints this step's intro and its blank line before it gets here
     global _after_intro
     _after_intro = True
+    npm = find_node_tools() if dev else None
+    if dev and not npm:
+        sys.exit(problem("--dev needs node and npm, and they were not found.",
+                         "Install Node.js, then run ./install.sh --dev again."))
     previous = read_install_record()
     before = {name: (HERE / name).exists() for name in INSTALL_ARTIFACTS}
     try:
@@ -2707,7 +2727,8 @@ def cmd_install(args):
         check_python()
         ensure_env(uv)
         ensure_config()
-        ensure_node_deps()
+        if dev:
+            ensure_test_packages(npm)
     except SystemExit as stop:
         if env_stopped_board and isinstance(stop.code, str):
             stop.code += ("\n  The board was stopped to rebuild .venv and is down. Once this is"
@@ -2956,6 +2977,7 @@ def cmd_uninstall(args):
         ok("facilitator command and agent skill removed")
 
     made = [(".venv", HERE / ".venv"),
+            ("tests/node_modules", TESTS_DIR / "node_modules"),
             ("node_modules", HERE / "node_modules"),
             ("package.json", HERE / "package.json"),
             ("package-lock.json", HERE / "package-lock.json"),
