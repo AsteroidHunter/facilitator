@@ -5890,6 +5890,34 @@ notifySwitch.addEventListener("change", async () => {
     if (sub && Notification.permission === "granted"){ await sendSubscription(sub); notifyState(true, ""); }
   } catch (err) {}
 })();
+// each time the app starts or comes back, the log is told what the phone holds
+// for notifications: the permission, whether the worker is registered and
+// whether it holds a subscription, as words and never the address. Permission
+// with no subscription is its own line. It only reads; the switch is untouched.
+// The worker is then asked to send the push records it has kept.
+let noticeCheckedAt = 0;
+async function noticeCheck(source){
+  const now = Date.now();
+  if (source === "return" && now - noticeCheckedAt < 10000) return;
+  noticeCheckedAt = now;
+  const asked = "Notification" in window ? Notification.permission : "unsupported";
+  const perm = ["granted", "denied", "default"].includes(asked) ? asked : "unsupported";
+  let reg = null, sub = "no";
+  try {
+    if ("serviceWorker" in navigator){
+      reg = swReg || (await navigator.serviceWorker.getRegistration("/m")) || null;
+      if (reg && "PushManager" in window) sub = (await reg.pushManager.getSubscription()) ? "yes" : "no";
+    }
+  } catch (_) { sub = "error"; }
+  try {
+    window.reportNotice?.({ kind: "notifycheck", source, perm, reg: !!reg, sub });
+    if (perm === "granted" && sub === "no") window.reportNotice?.({ kind: "notifylost", source, reg: !!reg });
+    (navigator.serviceWorker?.controller || reg?.active)?.postMessage({ kind: "push-log-flush" });
+  } catch (_) {}
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) noticeCheck("return"); });
+window.addEventListener("pageshow", e => { if (e.persisted) noticeCheck("return"); });
+noticeCheck("start");
 </script>
 </body>
 </html>

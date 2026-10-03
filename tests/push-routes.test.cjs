@@ -694,3 +694,130 @@ test("a bridge drop between subscriptions stops the batch and keeps earlier resu
     ["/ok/one", "/nobody/home"], "the gone subscription before the bridge drop was kept");
   await setTailscale(CONNECTED, servesBoard());
 });
+
+// ---- what the log says about the subscriptions themselves --------------------
+// Each phone's link is followed by a short name made from its endpoint, never
+// the endpoint, and every change to the set says how many are held after it.
+// This is what shows, when a switch turns itself off, which link went and when.
+
+const { createHash } = require("node:crypto");
+const recOf = endpoint => createHash("sha256").update(endpoint).digest("hex").slice(0, 8);
+
+async function linesOfKind(kind, count, match = () => true, ms = 3000) {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const lines = (await events()).filter(event => event.kind === kind && match(event));
+    if (lines.length >= count) return lines;
+    if (Date.now() > deadline) throw new Error(`expected ${count} ${kind} lines, saw ${lines.length}`);
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+}
+
+async function heldPaths() {
+  return (await stateFile()).push_subs.map(sub => new URL(sub.endpoint).pathname);
+}
+
+test("a new subscription, the same one again, and one taken away each say so with the count left", async () => {
+  assert.deepEqual(await heldPaths(), ["/ok/one", "/nobody/home"], "the fixture's subscriptions are not the ones this test counts from");
+  const before = {
+    sub: (await events()).filter(e => e.kind === "pushsub").length,
+    unsub: (await events()).filter(e => e.kind === "pushunsub").length,
+  };
+  const endpoint = pushOrigin + "/ok/five";
+  const sub = { endpoint, keys: receiverKeys };
+
+  assert.equal((await post("/push/subscribe", JSON.stringify(sub))).body.count, 3);
+  assert.equal((await post("/push/subscribe", JSON.stringify({ ...sub, keys: { ...receiverKeys, auth: b64url(randomBytes(16)) } }))).body.count, 3);
+  assert.equal((await post("/push/subscribe", "not json")).status, 400, "a bad subscription was accepted");
+  const added = (await linesOfKind("pushsub", before.sub + 2)).slice(before.sub);
+  assert.equal(added.length, 2, "a refused subscription wrote a line");
+  assert.deepEqual(added.map(line => [line.action, line.rec, line.session, line.count, line.level]), [
+    ["new", recOf(endpoint), true, 3, "info"],
+    ["replaced", recOf(endpoint), true, 3, "info"],
+  ]);
+
+  assert.deepEqual(await post("/push/unsubscribe", JSON.stringify({ endpoint })), { status: 200, body: { ok: true } });
+  assert.equal((await post("/push/unsubscribe", JSON.stringify({ endpoint }))).status, 200);
+  assert.equal((await post("/push/unsubscribe", "not json")).status, 400, "a bad request was accepted");
+  const removed = (await linesOfKind("pushunsub", before.unsub + 2)).slice(before.unsub);
+  assert.equal(removed.length, 2, "a refused unsubscribe wrote a line");
+  assert.deepEqual(removed.map(line => [line.rec, line.removed, line.count]), [
+    [recOf(endpoint), true, 2],
+    [recOf(endpoint), false, 2],
+  ]);
+  assert.deepEqual(await heldPaths(), ["/ok/one", "/nobody/home"]);
+});
+
+test("a subscription the push service reports gone is logged as removed, with the count left and the name its pushes carried", async () => {
+  const endpoint = pushOrigin + "/gone/six";
+  assert.equal((await post("/push/subscribe", JSON.stringify({ endpoint, keys: receiverKeys }))).body.count, 3);
+  const id = await create("Push to a phone that has gone");
+  assert.equal((await post(`/reply?box=${id}`, "answer")).status, 200);
+
+  const [gone] = await linesOfKind("pushgone", 1, line => line.rec === recOf(endpoint));
+  assert.ok(gone, "the removal was not written down");
+  assert.deepEqual([gone.status, gone.count, gone.box, gone.level], [410, 2, id, "info"]);
+  assert.deepEqual(await heldPaths(), ["/ok/one", "/nobody/home"]);
+
+  const pushed = (await events()).filter(line => line.kind === "push" && line.box === id);
+  assert.ok(pushed.some(line => line.rec === recOf(endpoint) && line.status === 410), "the push to it did not carry its name");
+  assert.ok(pushed.some(line => line.rec === recOf(pushOrigin + "/ok/one") && line.status === 201));
+  assert.equal(new Set(pushed.map(line => line.rec)).size, pushed.length, "two subscriptions shared a name");
+});
+
+test("a subscription whose sign-in has ended is skipped and said so, and is not removed", async () => {
+  const login = await fetch(bridgeOrigin + "/auth/login", {
+    method: "POST", headers: { Origin: bridgeOrigin, "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "FixturePush7!" }),
+  });
+  const second = login.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(second && second !== bridgeCookie, "a second sign-in did not issue its own session");
+  const endpoint = pushOrigin + "/ok/seven";
+  const subscribed = await fetch(bridgeOrigin + "/push/subscribe", {
+    method: "POST", body: JSON.stringify({ endpoint, keys: receiverKeys }),
+    headers: { Origin: bridgeOrigin, Cookie: second },
+  });
+  assert.equal((await subscribed.json()).count, 3);
+  const out = await fetch(bridgeOrigin + "/auth/logout", { method: "POST", headers: { Origin: bridgeOrigin, Cookie: second } });
+  assert.equal(out.status, 200);
+
+  const beforePushes = pushes.length;
+  const id = await create("Push after one phone signed out");
+  assert.equal((await post(`/reply?box=${id}`, "answer")).status, 200);
+  await pushesAfter(beforePushes + 1);
+  const [skipped] = await linesOfKind("pushsession", 1, line => line.box === id);
+  assert.ok(skipped, "the skipped phone was not written down");
+  assert.deepEqual([skipped.rec, skipped.reason, skipped.count], [recOf(endpoint), "no live session", 3]);
+  assert.ok(!pushes.slice(beforePushes).some(push => push.path === "/ok/seven"), "a push went to a signed-out phone");
+  assert.ok((await heldPaths()).includes("/ok/seven"), "the signed-out phone's subscription was removed, which nothing does today");
+
+  assert.equal((await post("/push/unsubscribe", JSON.stringify({ endpoint }))).status, 200);
+  assert.deepEqual(await heldPaths(), ["/ok/one", "/nobody/home"]);
+});
+
+test("the subscription lines carry only their listed fields, and no endpoint, key, cookie or title is in any line", async () => {
+  const listed = {
+    pushsub: ["action", "rec", "session", "count"],
+    pushunsub: ["rec", "removed", "count"],
+    pushgone: ["rec", "status", "count"],
+    pushsession: ["rec", "reason", "count"],
+  };
+  const seen = new Set();
+  for (const line of await events()) {
+    if (!(line.kind in listed)) continue;
+    seen.add(line.kind);
+    const names = Object.keys(line).filter(name => !["ts", "level", "kind", "box"].includes(name));
+    assert.deepEqual(names.sort(), [...listed[line.kind]].sort(), `a ${line.kind} line carries other fields`);
+    assert.match(line.rec, /^[0-9a-f]{8}$/);
+  }
+  assert.deepEqual([...seen].sort(), Object.keys(listed).sort(), "a kind of line was never written, so it was not checked");
+
+  const everything = (await events()).map(line => JSON.stringify(line)).join("\n");
+  const forbidden = [
+    ...["/ok/one", "/ok/five", "/ok/seven", "/gone/two", "/gone/six", "/refused/three", "/nobody/home"],
+    pushOrigin, receiverKeys.p256dh, receiverKeys.auth, bridgeCookie, bridgeCookie.split("=")[1], publicKey,
+    ...["Push on reply", "Push to a gone phone", "Push to a phone that has gone", "Push after one phone signed out",
+        "First distinct notification", "A push the service refuses"],
+  ];
+  for (const word of forbidden) assert.ok(!everything.includes(word), `${word} reached the log`);
+});

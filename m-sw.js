@@ -35,6 +35,19 @@ const KEPT = [...SHELL, SPLASH, VENDORED];
 const SHELL_DEADLINE_MS = 8000;   // static files wait this long before the kept copy
 const PUSH_DEADLINE_MS = 6000;    // wait at most this long for auth before dropping a push
 
+/* A record of each push, kept in the worker's own database because the board
+   may be out of reach when a push arrives and the page may not be open. Only
+   fixed words and numbers are kept, never the push's title, its box, or any
+   address. The records go to the client log when a request to the board has
+   just worked, or when the page opens, and are removed once the board has taken
+   them. The oldest are dropped past the cap. A cache would not do: the
+   activate step above deletes every cache that is not CACHE. */
+const PUSH_LOG_DB = "facilitator-m-push-log";
+const PUSH_LOG_STORE = "pushes";
+const PUSH_LOG_KEEP = 50;
+const PUSH_LOG_BATCH = 20;        // the most reports the board takes in one request
+const PUSH_LOG_DEADLINE_MS = 4000;
+
 /* The white screen a page open shows when the server cannot answer it: the same
    screen m.html draws when the app is opened and its first reading is not
    answered, with the same icon, words, typeface, sizes, colours and centring. The rules and the
@@ -151,6 +164,102 @@ function bounded(request, ms) {
   return fetch(request, { signal: AbortSignal.timeout(ms) });
 }
 
+// One transaction on the push record store; work gets the store and a setter
+// for the value the call returns once the transaction has completed.
+async function pushLogRun(mode, work) {
+  const db = await new Promise((resolve, reject) => {
+    const open = indexedDB.open(PUSH_LOG_DB, 1);
+    open.onupgradeneeded = () => {
+      open.result.createObjectStore(PUSH_LOG_STORE, { keyPath: "id", autoIncrement: true });
+    };
+    open.onsuccess = () => resolve(open.result);
+    open.onerror = () => reject(open.error);
+    open.onblocked = () => reject(new Error("blocked"));
+  });
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(PUSH_LOG_STORE, mode);
+      let result;
+      tx.oncomplete = () => resolve(result);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+      work(tx.objectStore(PUSH_LOG_STORE), value => { result = value; });
+    });
+  } finally {
+    db.close();
+  }
+}
+
+function pushLogAdd(record) {
+  return pushLogRun("readwrite", store => {
+    store.add(record);
+    store.getAllKeys().onsuccess = event => {
+      const keys = event.target.result;
+      for (const key of keys.slice(0, Math.max(0, keys.length - PUSH_LOG_KEEP))) store.delete(key);
+    };
+  });
+}
+
+function pushLogRows() {
+  return pushLogRun("readonly", (store, give) => {
+    store.getAll().onsuccess = event => give(event.target.result);
+  });
+}
+
+function pushLogDrop(ids) {
+  return pushLogRun("readwrite", store => { for (const id of ids) store.delete(id); });
+}
+
+function pushLogWhole(value, most) {
+  return Math.max(0, Math.min(most, Math.round(Number(value)) || 0));
+}
+
+// The oldest records go first, 20 to a request, and a request the board did not
+// take leaves its records where they are. Nothing here ever throws.
+let pushLogSending = null;
+function pushLogFlush() {
+  if (pushLogSending) return pushLogSending;
+  pushLogSending = (async () => {
+    try {
+      const rows = await pushLogRows();
+      for (let from = 0; from < rows.length; from += PUSH_LOG_BATCH) {
+        const part = rows.slice(from, from + PUSH_LOG_BATCH);
+        const now = Date.now();
+        const reports = part.map(row => {
+          const report = { kind: "pushreceived", outcome: row.outcome };
+          if (row.outcome === "skipped") report.reason = row.reason;
+          report.ms = pushLogWhole(row.ms, 600000);
+          report.status = pushLogWhole(row.status, 599);
+          report.ago = pushLogWhole((now - row.at) / 1000, 7776000);
+          report.n = pushLogWhole(row.id, 1e12);
+          report.worker = row.worker;
+          return report;
+        });
+        const answer = await fetch("/clientlog", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ page: "phone", reports }),
+          signal: AbortSignal.timeout(PUSH_LOG_DEADLINE_MS),
+        });
+        if (!answer.ok) return;
+        await pushLogDrop(part.map(row => row.id));
+      }
+    } catch (error) {
+    } finally {
+      pushLogSending = null;
+    }
+  })();
+  return pushLogSending;
+}
+
+// Keep one record, and when the board has just answered, send what is kept.
+async function pushLogNote(record, reachable) {
+  try {
+    await pushLogAdd({ ...record, worker: CACHE });
+    if (reachable) await pushLogFlush();
+  } catch (error) {}
+}
+
 self.addEventListener("install", event => {
   self.skipWaiting();
   event.waitUntil((async () => {
@@ -175,6 +284,8 @@ self.addEventListener("activate", event => {
 self.addEventListener("message", event => {
   if (event.data?.kind === "diagnostic-worker" && event.ports?.[0])
     event.ports[0].postMessage({ kind: "diagnostic-worker", cache: CACHE });
+  // The page asks for the kept push records to be sent whenever it opens.
+  if (event.data?.kind === "push-log-flush") event.waitUntil(pushLogFlush());
 });
 
 self.addEventListener("fetch", event => {
@@ -235,10 +346,25 @@ self.addEventListener("push", event => {
     // A push service can hold an encrypted title for hours after sign-out.
     // The server may have accepted it while the session was still live, so
     // ask again at delivery time and show nothing if the answer is unavailable.
+    // Each push is also noted (shown, or skipped and why) after the decision
+    // is made, so the note can never change it.
+    const began = Date.now();
+    let answered = 0;
+    let skip = "";
     try {
       const status = await bounded("/auth/check", PUSH_DEADLINE_MS);
-      if (!status.ok || !(await status.json()).authenticated) return;
-    } catch (_) { return; }
+      answered = Number(status.status) || 0;
+      if (!status.ok) skip = "check-failed";
+      else if (!(await status.json()).authenticated) skip = "not-signed-in";
+    } catch (error) {
+      skip = /^(TimeoutError|AbortError)$/.test(error?.name) ? "timeout"
+        : answered ? "other" : "check-failed";
+    }
+    const note = { at: began, ms: Date.now() - began, status: answered };
+    if (skip) {
+      await pushLogNote({ ...note, outcome: "skipped", reason: skip }, false);
+      return;
+    }
     let title = "facilitator";
     let box = "";
     try {
@@ -248,10 +374,16 @@ self.addEventListener("push", event => {
         box = data.box;
       }
     } catch (error) {}
-    await self.registration.showNotification(title, {
-      tag: "facilitator-" + (box || "board"),
-      data: { box },
-    });
+    try {
+      await self.registration.showNotification(title, {
+        tag: "facilitator-" + (box || "board"),
+        data: { box },
+      });
+    } catch (error) {
+      await pushLogNote({ ...note, outcome: "skipped", reason: "show-failed" }, true);
+      throw error;
+    }
+    await pushLogNote({ ...note, outcome: "shown" }, true);
   })());
 });
 
