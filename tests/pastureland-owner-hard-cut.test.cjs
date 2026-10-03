@@ -215,13 +215,11 @@ test("shipped source and examples carry no built-in project owner", async () => 
   assert.doesNotMatch(server, /pastureland|qchat/);
 
   const runConfig = JSON.parse(await readFile(path.join(ROOT, "run.config.example.json"), "utf8"));
-  assert.deepEqual(runConfig.lanes.map(lane => lane.owner), ["facilitator", "example"]);
-  assert.ok(Array.isArray(runConfig.navigator_lanes));
-  assert.ok(runConfig.lanes[1].prompt.includes("owner=example"));
+  assert.deepEqual(runConfig.lanes, [], "the example config names a lane");
+  assert.deepEqual(runConfig.navigator_lanes, [], "the example config names a navigator lane");
 
   const seed = JSON.parse(await readFile(path.join(ROOT, "seed.example.json"), "utf8"));
-  assert.ok(seed.items.some(item => item.bucket === "meta" && item.owner === "facilitator"),
-    "the example seed has no neutral standing card");
+  assert.deepEqual(seed.items, [], "the example seed holds a card");
   assert.ok(seed.items.every(item => item.owner !== "pastureland"));
 
   for (const page of ["index.html", "page.html", "m.html"]) {

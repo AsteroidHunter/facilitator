@@ -3869,6 +3869,12 @@ function seedSeenOnce(st){
 function renderTabs(st){
   if (!FOCUS || !st) return;
   if (tabDrag?.mode === "reorder" || tabGlide) return;   // a live drag owns the bar; the repaint lands after the drop
+  // a board with no project to show opens on the home page, where one is added.
+  // asked once per load, so leaving home by the plus is not undone on the next paint
+  if (!homeChecked){
+    homeChecked = true;
+    if (!LOCKED && !draft && !homeOpen && !allRowsOf(st).length) setHome(true);
+  }
   // a tab closed while the reader was on it, or closed in another window: the board
   // steps to the first tab still in the bar. it may never sit on a lane the bar
   // is not showing. setTab repaints on its own, and the paint below is the same
@@ -4308,6 +4314,7 @@ const HOME_EVERY = 5 * 60 * 1000;
 const LIMITS_EVERY = 60 * 1000;
 const LIMITS_TICK = 15 * 1000;
 let homeOpen = false;
+let homeChecked = false;
 let homePanel = null;
 let homeLimits = null;
 let homeTimer = null;
