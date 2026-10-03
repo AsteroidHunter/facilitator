@@ -1,4 +1,4 @@
-// The reply chime on the Mac board and the bell that mutes it. The page's audio
+// The reply chime on the Mac board and the speaker that mutes it. The page's audio
 // context is a recording stand-in that, like Chrome, plays only after a click or
 // key press, so a test can count chimes and read the sound each one built. Replies
 // are real ones, posted to a throwaway board, and reach the page through its own
@@ -143,7 +143,7 @@ async function beside(page) {
   await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
 }
 
-test("the pencil is gone, the edit code is kept, and the bell is a plain mark beside the gear", async () => {
+test("the pencil is gone, the edit code is kept, and the speaker is a plain mark beside the gear", async () => {
   const { context, page, problems } = await open();
   try {
     const bar = await page.evaluate(() => {
@@ -155,28 +155,49 @@ test("the pencil is gone, the edit code is kept, and the bell is a plain mark be
           w: box.width, h: box.height, mid: box.top + box.height / 2, left: box.left, right: box.right,
           inBar: !!el.closest(".bar") };
       };
-      const slash = document.querySelector("#chimebtn .chime-slash");
-      return { bell: dress(document.getElementById("chimebtn")), gear: dress(document.getElementById("setbtn")),
-        pencil: document.getElementById("editbtn"), slash: getComputedStyle(slash).display,
+      const style = el => {
+        const s = el.querySelector("svg");
+        return ["viewBox", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin"].map(a => s.getAttribute(a));
+      };
+      const shown = sel => getComputedStyle(document.querySelector(sel)).display;
+      const ink = document.querySelector("#chimebtn svg").getBBox();
+      return { speaker: dress(document.getElementById("chimebtn")), gear: dress(document.getElementById("setbtn")),
+        pencil: document.getElementById("editbtn"),
+        waves: shown("#chimebtn .chime-waves"), x: shown("#chimebtn .chime-x"),
+        wavePaths: document.querySelectorAll("#chimebtn .chime-waves path").length,
+        xPaths: document.querySelectorAll("#chimebtn .chime-x path").length,
+        bodyPaths: document.querySelectorAll("#chimebtn svg > path").length,
+        leftovers: document.querySelectorAll("#chimebtn mask, #chimebtn .chime-slash, #chimebtn .chime-gap").length,
+        speakerStyle: style(document.getElementById("chimebtn")), gearStyle: style(document.getElementById("setbtn")),
+        ink: { l: ink.x, t: ink.y, r: ink.x + ink.width, b: ink.y + ink.height },
         label: document.getElementById("chimebtn").getAttribute("aria-label"),
         title: document.getElementById("chimebtn").title,
         pressed: document.getElementById("chimebtn").getAttribute("aria-pressed"),
         editCode: typeof setEditMode };
     });
     assert.equal(bar.pencil, null, "the pencil is still on the bar");
-    assert.equal(bar.bell.inBar, true);
-    assert.equal(bar.bell.color, bar.gear.color, "the bell is not the gear's ink");
-    assert.equal(bar.bell.background, "rgba(0, 0, 0, 0)");
-    assert.equal(bar.bell.border, "none");
-    assert.equal(bar.bell.shadow, "none");
-    assert.equal(bar.bell.padding, bar.gear.padding);
-    assert.equal(bar.bell.mark, "15x15");
-    assert.equal(bar.bell.mark, bar.gear.mark);
-    assert.equal(bar.bell.w, bar.gear.w);
-    assert.equal(bar.bell.h, bar.gear.h);
-    assert.ok(Math.abs(bar.bell.mid - bar.gear.mid) <= 0.5, "the bell and the gear are on one line");
-    assert.ok(Math.abs(bar.bell.right + 14 - bar.gear.left) <= 0.6, "the bell sits 14px left of the gear");
-    assert.equal(bar.slash, "none", "the slash shows while the chime is on");
+    assert.equal(bar.speaker.inBar, true);
+    assert.equal(bar.speaker.color, bar.gear.color, "the speaker is not the gear's ink");
+    assert.equal(bar.speaker.background, "rgba(0, 0, 0, 0)");
+    assert.equal(bar.speaker.border, "none");
+    assert.equal(bar.speaker.shadow, "none");
+    assert.equal(bar.speaker.padding, bar.gear.padding);
+    assert.equal(bar.speaker.mark, "15x15");
+    assert.equal(bar.speaker.mark, bar.gear.mark);
+    assert.equal(bar.speaker.w, bar.gear.w);
+    assert.equal(bar.speaker.h, bar.gear.h);
+    assert.ok(Math.abs(bar.speaker.mid - bar.gear.mid) <= 0.5, "the speaker and the gear are on one line");
+    assert.ok(Math.abs(bar.speaker.right + 14 - bar.gear.left) <= 0.6, "the speaker sits 14px left of the gear");
+    assert.deepEqual(bar.speakerStyle, bar.gearStyle, "the speaker's box, fill, ink, stroke width and line ends are not the gear's");
+    assert.deepEqual(bar.speakerStyle, ["0 0 24 24", "none", "currentColor", "1.9", "round", "round"]);
+    assert.equal(bar.bodyPaths, 1, "the speaker's body and cone are one outline");
+    assert.equal(bar.wavePaths, 2, "the speaker has two sound waves");
+    assert.equal(bar.xPaths, 1, "the muted x is one path of two strokes");
+    assert.equal(bar.leftovers, 0, "a slash or mask is still in the markup");
+    assert.equal(bar.waves, "inline", "the waves are hidden while the chime is on");
+    assert.equal(bar.x, "none", "the x shows while the chime is on");
+    assert.ok(bar.ink.l >= 1 && bar.ink.t >= 1 && bar.ink.r <= 23 && bar.ink.b <= 23,
+      "the speaker's drawing runs past the 24 box: " + JSON.stringify(bar.ink));
     assert.equal(bar.pressed, "true");
     assert.equal(bar.label, "Reply chime");
     assert.match(bar.title, /chime on.*mute/i);
@@ -192,13 +213,13 @@ test("the pencil is gone, the edit code is kept, and the bell is a plain mark be
   } finally { await context.close(); }
 });
 
-test("the bell's style uses no purple or blue, and the chime code has no em dash", async () => {
+test("the speaker's style uses no purple or blue, and the chime code has no em dash", async () => {
   const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
-  const style = html.split("\n").filter(line => /#chimebtn|chime-slash/.test(line) && !line.includes("<button")).join("\n");
-  assert.ok(style.includes("#chimebtn"), "the bell's style rules were not found");
+  const style = html.split("\n").filter(line => /#chimebtn|chime-x/.test(line) && !line.includes("<button")).join("\n");
+  assert.ok(style.includes("#chimebtn"), "the speaker's style rules were not found");
   assert.doesNotMatch(style, /--accent|432bff/i);
   const markup = html.split("\n").find(line => line.includes('id="chimebtn"'));
-  assert.ok(markup, "the bell's markup was not found");
+  assert.ok(markup, "the speaker's markup was not found");
   assert.doesNotMatch(markup, /--accent|432bff/i);
   const code = html.slice(html.indexOf("// ---- the reply chime"), html.indexOf("// The caret installs this callback"));
   assert.ok(code.length > 1000, "the chime code was not found");
@@ -346,14 +367,14 @@ test("with the window not in front every project rings, the one on screen too", 
   } finally { await context.close(); }
 });
 
-test("the bell mutes and unmutes: slash, label and state follow, nothing rings while muted", async () => {
+test("the speaker mutes and unmutes: waves and x, label and state follow, nothing rings while muted", async () => {
   const { context, page, problems } = await open({ viewport: { ...VIEW, deviceScaleFactor: 3 } });
   try {
     const look = () => page.evaluate(() => {
       const b = document.getElementById("chimebtn");
       return { pressed: b.getAttribute("aria-pressed"), title: b.title,
-        slash: getComputedStyle(b.querySelector(".chime-slash")).display,
-        gap: getComputedStyle(b.querySelector(".chime-gap")).display,
+        waves: getComputedStyle(b.querySelector(".chime-waves")).display,
+        x: getComputedStyle(b.querySelector(".chime-x")).display,
         stored: (globalThis.boardSettings || localStorage).getItem("chimemuted"), label: b.getAttribute("aria-label") };
     });
     const bar = async name => {
@@ -369,19 +390,20 @@ test("the bell mutes and unmutes: slash, label and state follow, nothing rings w
 
     const on = await look();
     assert.equal(on.pressed, "true");
-    assert.equal(on.slash, "none");
+    assert.equal(on.waves, "inline");
+    assert.equal(on.x, "none");
     assert.equal(on.stored, null);
-    await bar("bell-on");
+    await bar("speaker-on");
 
     await page.click("#chimebtn");
     const off = await look();
     assert.equal(off.pressed, "false");
-    assert.equal(off.slash, "inline", "no slash over the bell when muted");
-    assert.equal(off.gap, "inline");
+    assert.equal(off.waves, "none", "the waves stayed when muted");
+    assert.equal(off.x, "inline", "no x in place of the waves when muted");
     assert.equal(off.stored, "1");
     assert.match(off.title, /muted.*unmute/i);
     assert.equal(off.label, "Reply chime");
-    await bar("bell-off");
+    await bar("speaker-off");
 
     await replies(page, garden);
     await replies(page, orchard);
@@ -391,7 +413,8 @@ test("the bell mutes and unmutes: slash, label and state follow, nothing rings w
     await page.keyboard.press("Enter");
     const again = await look();
     assert.equal(again.pressed, "true");
-    assert.equal(again.slash, "none", "the slash stayed after unmuting");
+    assert.equal(again.waves, "inline", "the waves did not come back after unmuting");
+    assert.equal(again.x, "none", "the x stayed after unmuting");
     assert.equal(again.stored, null);
     assert.match(again.title, /chime on.*mute/i);
 
@@ -413,8 +436,8 @@ test("the choice to mute is the board's setting and is kept across a reload, and
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => document.body.classList.contains("layout-ready") && typeof lastState !== "undefined" && lastState);
     const pressed = () => page.evaluate(() => document.getElementById("chimebtn").getAttribute("aria-pressed"));
-    assert.equal(await pressed(), "false", "the bell came back on after a reload");
-    assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector("#chimebtn .chime-slash")).display), "inline");
+    assert.equal(await pressed(), "false", "the speaker came back on after a reload");
+    assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector("#chimebtn .chime-x")).display), "inline");
     await replies(page, garden);
     assert.equal(await rings(page), 0, "a muted board rang after a reload");
 
@@ -423,7 +446,7 @@ test("the choice to mute is the board's setting and is kept across a reload, and
     assert.equal(await onBoard(), undefined, "unmuting did not clear the board's setting");
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => document.body.classList.contains("layout-ready") && typeof lastState !== "undefined" && lastState);
-    assert.equal(await pressed(), "true", "the bell stayed muted after being turned on");
+    assert.equal(await pressed(), "true", "the speaker stayed muted after being turned on");
     await replies(page, orchard);
     assert.equal(await rings(page), 1);
     assert.deepEqual(problems, []);
