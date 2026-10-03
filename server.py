@@ -5794,7 +5794,7 @@ SETTINGS_KEYS_MAX = 4000        # keys in the whole store
 SETTINGS_KEY = re.compile(
     r"(?:(?:layoutbak\.)?(?:pos|size)|hide|show)\.[^\x00-\x1f\x7f]{1,200}\.[A-Za-z0-9_-]{1,64}"
     r"|doc\.tasks\.[^\x00-\x1f\x7f]{1,200}"
-    r"|bgcolor|tocw|composeformat|home\.chart"
+    r"|bgcolor|tocw|composeformat|chimemuted|home\.chart"
     r"|magicrename\.1|layoutsync\.1|hideseed\.1|layoutvisibility\.[12]|navrestore\.1")
 SPOTIFY_FIELDS = frozenset({"access", "refresh", "expires", "scopes"})
 SPOTIFY_VALUE_MAX = 4096

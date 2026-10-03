@@ -354,7 +354,7 @@ test("the bell mutes and unmutes: slash, label and state follow, nothing rings w
       return { pressed: b.getAttribute("aria-pressed"), title: b.title,
         slash: getComputedStyle(b.querySelector(".chime-slash")).display,
         gap: getComputedStyle(b.querySelector(".chime-gap")).display,
-        stored: localStorage.getItem("chimemuted"), label: b.getAttribute("aria-label") };
+        stored: (globalThis.boardSettings || localStorage).getItem("chimemuted"), label: b.getAttribute("aria-label") };
     });
     const bar = async name => {
       if (!SHOTS) return;
@@ -401,10 +401,15 @@ test("the bell mutes and unmutes: slash, label and state follow, nothing rings w
   } finally { await context.close(); }
 });
 
-test("the choice to mute is kept across a reload, and so is being on", async () => {
+const settled = page => page.waitForFunction(() => !globalThis.boardSettings || !boardSettings.busy);
+const onBoard = async () => (await (await fetch(fx.origin + "/settings")).json()).values.chimemuted;
+
+test("the choice to mute is the board's setting and is kept across a reload, and so is being on", async () => {
   const { context, page, problems } = await open();
   try {
     await page.click("#chimebtn");
+    await settled(page);
+    assert.equal(await onBoard(), "1", "the mute did not reach the board's settings");
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => document.body.classList.contains("layout-ready") && typeof lastState !== "undefined" && lastState);
     const pressed = () => page.evaluate(() => document.getElementById("chimebtn").getAttribute("aria-pressed"));
@@ -414,6 +419,8 @@ test("the choice to mute is kept across a reload, and so is being on", async () 
     assert.equal(await rings(page), 0, "a muted board rang after a reload");
 
     await page.click("#chimebtn");
+    await settled(page);
+    assert.equal(await onBoard(), undefined, "unmuting did not clear the board's setting");
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => document.body.classList.contains("layout-ready") && typeof lastState !== "undefined" && lastState);
     assert.equal(await pressed(), "true", "the bell stayed muted after being turned on");
@@ -434,6 +441,10 @@ test("a window that is not the one clicked takes the new choice within a reading
     // the first window is behind now, so the wait asks on a timer, not on frames
     await first.page.waitForFunction(() => document.getElementById("chimebtn").getAttribute("aria-pressed") === "false",
       { timeout: 5000, polling: 200 });
+    // the choice is the board's, so it is put back for the tests after this one
+    await second.click("#chimebtn");
+    await settled(second);
+    assert.equal(await onBoard(), undefined);
   } finally { await first.context.close(); }
 });
 
