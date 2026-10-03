@@ -660,6 +660,18 @@ LOG_DIR = Path(os.environ.get("FACILITATOR_LOG_DIR")
                or (HERE.parent / "facilitator-internal" / "logs"))
 
 
+def _private_opener(path, flags):
+    """An opener for open(): the file is readable by this account alone. The
+    creation mode is cut by the umask and does not touch a file that already
+    exists, so the mode is also set on the open file itself."""
+    fd = os.open(path, flags, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+    except OSError:
+        pass   # a volume that keeps no modes still takes the write
+    return fd
+
+
 def _configured_level() -> str:
     """The level in force: the environment variable wins over run.config.json's
     log_level, which wins over info. Never raises, and a value that names no
@@ -775,6 +787,10 @@ class DatedRotatingHandler(logging.handlers.RotatingFileHandler):
         folder.mkdir(parents=True, exist_ok=True)
         super().__init__(str(self._file()), maxBytes=LOG_MAX_BYTES,
                          backupCount=0, encoding="utf-8", delay=delay)
+
+    def _open(self):
+        return open(self.baseFilename, self.mode, encoding=self.encoding,
+                    errors=self.errors, opener=_private_opener)
 
     def _file(self) -> Path:
         """<stem>-<day><suffix>, and <stem>-<day>.1<suffix> for a second roll
@@ -2132,7 +2148,7 @@ def _ensure_reply_schema_boundary() -> None:
             "schema": TRANSCRIPT_REPLY_SCHEMA,
             "version": REPLY_VARIANTS_VERSION,
         }
-        with TRANSCRIPT_PATH.open("a") as transcript:
+        with open(TRANSCRIPT_PATH, "a", opener=_private_opener) as transcript:
             # A crash or manual repair may have left a truncated final JSON
             # object with no newline. Separate it before the schema event so
             # the durable boundary is independently parseable and all later
@@ -2452,7 +2468,7 @@ def _commit_side_effects() -> None:
             # event then appends none of the batch instead of a prefix of it.
             encoded = "".join(json.dumps(event) + "\n"
                               for event, _kind, _box, _chars, _fields in due)
-            with TRANSCRIPT_PATH.open("a") as f:
+            with open(TRANSCRIPT_PATH, "a", opener=_private_opener) as f:
                 f.write(encoded)
         except Exception as e:
             _side_effect_failure("transcriptfail", rows=len(due),
@@ -2543,7 +2559,7 @@ def _save() -> None:
     payload = json.dumps(_state, indent=1)
     tmp = STATE_PATH.with_suffix(".tmp")
     try:
-        with tmp.open("w") as f:
+        with open(tmp, "w", opener=_private_opener) as f:
             f.write(payload)
             f.flush()
             _durable_fsync(f.fileno())
@@ -3151,8 +3167,8 @@ def _push_key_file() -> Path:
     with _push_lock:
         if not PUSH_KEY_PATH.is_file():
             pem = _openssl(["ecparam", "-genkey", "-name", "prime256v1", "-noout"])
-            PUSH_KEY_PATH.write_bytes(pem)
-            os.chmod(PUSH_KEY_PATH, 0o600)
+            with open(PUSH_KEY_PATH, "wb", opener=_private_opener) as key_file:
+                key_file.write(pem)
     return PUSH_KEY_PATH
 
 
@@ -4703,6 +4719,41 @@ def _sweep_upload_parts() -> None:
                 pass
     except OSError:
         pass
+
+
+# The files the board keeps about its owner's work, by name, for the sweep
+# below. server.py, the pages and run.config.json are not among them.
+PRIVATE_FILES = ("state.json", "state.json.bak-*", "state.tmp", "transcript.jsonl", "settings.json",
+                 "settings.json.tmp", "settings.json.bad-*", "vapid-key.pem", "bridge-auth.json",
+                 "tokens-cache.json", "tokens-cache.json.tmp", "claude-limits.json",
+                 "claude-limits.json.tmp", "server.lock")
+PRIVATE_LOGS = ("server-*.log", "client-*.jsonl", "bridge-*.log")
+
+
+def _tighten_private_files() -> None:
+    """Files an earlier board, or an earlier version of this one, left readable
+    by other accounts on the machine lose the group and other permissions.
+    Only regular files under the board's own names are touched: never a link,
+    a folder, or anything else that happens to sit in the same place."""
+    places = ((HERE, PRIVATE_FILES), (LOG_DIR, PRIVATE_LOGS),
+              (INTERNAL_UPLOADS, ("*",)), (HERE / "uploads", ("*",)))
+    narrowed = 0
+    for folder, patterns in places:
+        for pattern in patterns:
+            try:
+                found = list(folder.glob(pattern))
+            except OSError:
+                continue
+            for path in found:
+                try:
+                    seen = path.lstat()
+                    if stat.S_ISREG(seen.st_mode) and seen.st_mode & 0o077:
+                        os.chmod(path, stat.S_IMODE(seen.st_mode) & ~0o077)
+                        narrowed += 1
+                except OSError:
+                    pass
+    if narrowed:
+        _info("private", files=narrowed)
 
 
 def _post_clientlog(q: Query, raw: bytes):
@@ -7245,6 +7296,7 @@ def main() -> None:
     try:
         INTERNAL_UPLOADS.mkdir(parents=True, exist_ok=True)
         _sweep_upload_parts()
+        _tighten_private_files()
         _load()
         with _lock:
             _state["busy"] = {ow: None for ow in OWNERS}  # a restart never resumes mid-claim

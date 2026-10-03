@@ -256,7 +256,10 @@ class TokenLedger:
             body = {"version": CACHE_VERSION, "files": self.files}
             if self.limits:
                 body["limits"] = self.limits
-            tmp.write_text(json.dumps(body, separators=(",", ":")))
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as out:
+                os.fchmod(fd, 0o600)
+                out.write(json.dumps(body, separators=(",", ":")))
             os.replace(tmp, self.cache_path)
         except OSError:
             # a cache that cannot be written only costs the next run a rescan

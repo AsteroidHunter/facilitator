@@ -6,7 +6,7 @@ const { after, before, beforeEach, test } = require("node:test");
 const { execFile } = require("node:child_process");
 const { createServer } = require("node:http");
 const {
-  chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile,
+  chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile,
 } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
@@ -263,6 +263,19 @@ test("toggle from off enables persistently, preserves unrelated config, and prin
   assert.deepEqual(await serveState(), expected);
   assert.equal(mutations(await fakeCalls()).length, 1, "repeated on mutated Serve again");
   assert.equal((await bridgeLogs()).length, 1, "repeated on logged another transition");
+});
+
+test("the file that records the share going up is readable by its owner alone", async () => {
+  const previous = process.umask(0o022);
+  try {
+    const result = await bridge(["on"]);
+    assert.equal(result.code, 0, result.stderr);
+    const names = (await readdir(logsDir)).filter(name => name.startsWith("bridge-"));
+    assert.ok(names.length > 0, "no log was written");
+    for (const name of names) assert.equal((await stat(path.join(logsDir, name))).mode & 0o777, 0o600, name);
+  } finally {
+    process.umask(previous);
+  }
 });
 
 test("old unguarded Serve root must be removed before the protected bridge can start", async () => {
