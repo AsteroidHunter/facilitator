@@ -64,9 +64,9 @@ async function fixture(t, options = {}) {
   const origin = `http://127.0.0.1:${port}`;
   let source = await fs.readFile(path.join(ROOT, "server.py"), "utf8");
   if (options.schema === 2)
-    source = execFileSync("git", ["show", "994ea18:server.py"], { cwd: ROOT, encoding: "utf8" });
+    source = execFileSync("git", ["show", "f85c7ab:server.py"], { cwd: ROOT, encoding: "utf8" });
   if (options.schema === 3)
-    source = execFileSync("git", ["show", "97edd47:server.py"], { cwd: ROOT, encoding: "utf8" });
+    source = execFileSync("git", ["show", "b67554e:server.py"], { cwd: ROOT, encoding: "utf8" });
   const patched = source.replace("PORT = 8877", `PORT = ${port}`)
     .replace('TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"',
              'TAILSCALE_APP = "/facilitator-test/no-tailscale-app"');
