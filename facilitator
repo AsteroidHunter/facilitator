@@ -8,10 +8,17 @@
       pair, run moves the board to the next free pair, writes the new port
       into run.config.json, points the phone's Tailscale link at it when that
       link was this board's own, and says so in one line. The board stays on
-      that pair until it is taken too. --attach types the attach
+      that pair until it is taken too. Once a phone password has been set
+      (facilitator password set), run also leaves the phone bridge on, with
+      the checks `facilitator bridge on` makes, and says nothing when it does
+      or when it already was; when it cannot (Tailscale not connected, say) it
+      prints one line saying the phone link is off and why, and the board is
+      up all the same. With no password set it does nothing about the bridge.
+      --attach types the attach
       instruction into the lane's existing tmux claude (send-keys), and
       --spawn additionally creates a fresh session
       for lanes with no reachable one. --force ignores the lane-covered guard.
+      --dry-run names the bridge step too.
   facilitator restart [--dry-run]
       stop this board's server and start it again on the same port. One
       process is stopped: the one holding the listening socket, read back as
@@ -34,9 +41,16 @@
       with other tabs is left open and said so. Chrome is never started, and
       when it cannot be asked one line says so. A server still there after
       10 seconds is left alone and reported; --force then ends it outright
-      with one SIGKILL to that same process, read a third time first. Touches
-      no lane, no tmux session, no bridge and no saved file. --dry-run says
-      what it would do and does nothing.
+      with one SIGKILL to that same process, read a third time first. Once
+      the server is gone (or was not running), and a phone password has been
+      set, the phone bridge is taken off as `facilitator bridge off` does it:
+      only this board's root handler goes, every other Serve path, port,
+      Funnel route and Service stays. It says nothing when the bridge is off
+      already or goes off, and one line when it cannot be taken off; a stop
+      that leaves the server running leaves the bridge as it is. With no
+      password set it only notes an active bridge. Touches no lane, no tmux
+      session and no saved file. --dry-run says what it would do and does
+      nothing.
   facilitator status
       one-line board state
   facilitator bridge [on|off] [--dry-run]
@@ -48,7 +62,9 @@
       proxying to a password-gated listener. A saved phone session lasts until
       sign-out. Set or reset the app password with `facilitator password set`.
       Needs HTTPS certificates switched on once for the tailnet, in the
-      Tailscale admin console; says so and stops when they are off. When run
+      Tailscale admin console; says so and stops when they are off. run and
+      stop make the same change themselves once a password is set, so this
+      command is for switching the link by hand and for the QR code. When run
       moved the board and could not move the link with it, the config keeps
       the old port as moved_from: on points that old rule at the board's
       pair, and off takes it away.
@@ -1588,7 +1604,9 @@ def cmd_run(args):
     creates fresh ones. A real run says the board is up and nothing more, and
     those two options add one line per lane they act on; --dry-run keeps its
     longer account. A board that had to move to a free pair gets one line more
-    saying so, and the phone's link is pointed at the new pair with it."""
+    saying so, and the phone's link is pointed at the new pair with it. On a
+    checkout with a phone password the link is then left on, silently when it
+    is, and in one line when it cannot be."""
     cfg = load_config()
     check_lanes(cfg)
     dry = "--dry-run" in args
@@ -1596,16 +1614,26 @@ def cmd_run(args):
     do_spawn = "--spawn" in args
     do_attach = "--attach" in args or do_spawn
     port, moved_from = place_board(int(cfg["port"]), dry)
+    link_said = False
     if not dry:
         if moved_from is not None:
             linked, problem = repoint_bridge(moved_from, port)
             print(moved_line(moved_from, port, linked, cfg))
             if problem:
                 print(problem)
+                link_said = True
         print(f"Board up on http://127.0.0.1:{port}")
         print("Facilitator is live!")
     cfg = {**cfg, "port": port}
     open_app(cfg, dry)
+    if bridge_set_up():
+        if dry:
+            print("bridge: would leave the phone link on, as facilitator bridge on does; "
+                  "nothing changes when it already is")
+        elif not link_said:
+            said = follow_bridge("on", port)
+            if said:
+                print(said)
     st = state(port)
     for lane in cfg["lanes"]:
         ow = lane["owner"]
@@ -1776,14 +1804,19 @@ def stop_dry_run(cfg, port, owner, force):
     if force and owner is not None:
         print("stop (dry run): with --force the server would be ended outright if it "
               f"is still there after {STOP_WAIT:.0f}s.")
+    if bridge_set_up():
+        print("stop (dry run): once the server is gone, the phone link would be taken off, "
+              "as facilitator bridge off does.")
 
 
 def cmd_stop(args):
     """End this board's server, then close the windows that show nothing but
     the board. The server goes first: if it is refused or will not go, no
     window is touched, and a Chrome permission prompt cannot delay the stop.
-    Nothing here touches a lane, a tmux session, the bridge or a saved file.
-    Unknown words are refused rather than ignored."""
+    Nothing here touches a lane, a tmux session or a saved file. On a checkout
+    with a phone password the phone link is taken off last, once the server is
+    gone, and left alone when the stop was refused. Unknown words are refused
+    rather than ignored."""
     extra = [a for a in args[1:] if a not in ("--dry-run", "--force")]
     if extra:
         sys.exit("stop takes --dry-run, --force and nothing else; got " + " ".join(extra))
@@ -1804,8 +1837,12 @@ def cmd_stop(args):
         print("Board stopped.")
     for line in close_board_windows(cfg, port):
         print(line)
-    if owner is not None:
-        # last, because it can be slow, and it must never change the outcome
+    # last, because it can be slow, and it must never change the outcome
+    if bridge_set_up():
+        said = follow_bridge("off", port)
+        if said:
+            print(said)
+    elif owner is not None:
         try:
             note = bridge_note(port)
         except Exception:
@@ -2242,7 +2279,13 @@ def cmd_bridge(args):
     if parsed is None:
         return
     requested, dry = parsed
-    port = board_port()
+    switch_bridge(requested, dry, board_port())
+
+
+def switch_bridge(requested, dry, port, quiet=False):
+    """The work of `facilitator bridge` for the board's pair at port. Quiet,
+    which run and stop use, prints neither the code and its instructions nor
+    "Bridge is off."; every check, change and exit is the same."""
     ts = find_tailscale()
     if ts is None:
         sys.exit("tailscale: not found on PATH or at " + TAILSCALE_APP)
@@ -2265,16 +2308,21 @@ def cmd_bridge(args):
             bridge_off_steps(ts, name, raw, moved)
             write_config_port(port)
             bridge_log("shareoff", port=moved)
-            print("Bridge is off.")
+            if not quiet:
+                print("Bridge is off.")
             return
         move_bridge(ts, status, name, raw, moved, port)
         write_config_port(port)
-        show_way_in(url)
+        if not quiet:
+            show_way_in(url)
         return
 
     if desired == "off":
         if not analysis["active"]:
-            print("bridge: already off; no changes would be made" if dry else "Bridge is off.")
+            if dry:
+                print("bridge: already off; no changes would be made")
+            elif not quiet:
+                print("Bridge is off.")
             return
         if not analysis["removable"]:
             bridge_conflict(analysis)
@@ -2290,7 +2338,8 @@ def cmd_bridge(args):
         if after["active"]:
             sys.exit("tailscale: the bridge is still on after Tailscale reported success; inspect `tailscale serve status`")
         bridge_log("shareoff", port=port)
-        print("Bridge is off.")
+        if not quiet:
+            print("Bridge is off.")
         return
 
     if analysis["legacy"]:
@@ -2299,7 +2348,7 @@ def cmd_bridge(args):
     if analysis["on"]:
         if dry:
             print("bridge: already on; no changes would be made")
-        else:
+        elif not quiet:
             show_way_in(url)
         return
     if analysis["active"] or analysis["enable_blocked"]:
@@ -2321,7 +2370,43 @@ def cmd_bridge(args):
     if not after["on"]:
         sys.exit("tailscale: the bridge is not safely on after Tailscale reported success; inspect `tailscale serve status`")
     bridge_log("shareon", port=port)
-    show_way_in(url)
+    if not quiet:
+        show_way_in(url)
+
+
+def bridge_set_up():
+    """True when this checkout has a phone password, which is what makes run
+    and stop look after the phone link. Nothing is made to find out: a checkout
+    with no password file, or with no phone code beside the command, is not
+    asked and no lock file appears."""
+    if not (HERE / "bridge_auth.py").is_file():
+        return False
+    try:
+        import bridge_auth
+        return bridge_auth.AUTH_FILE.exists() and bridge_auth.configured()
+    except (ImportError, OSError):
+        return False
+
+
+def follow_bridge(requested, port):
+    """What run and stop do about the phone link, through the same code and
+    checks as `facilitator bridge on` and `off`, silently. None when it went
+    through, else the one plain line saying the link is not as asked and why.
+    A stop with no Tailscale at all has no link to take away and says nothing.
+    Whatever goes wrong here is a line and never the outcome of the command."""
+    if requested == "off" and find_tailscale() is None:
+        return None
+    try:
+        switch_bridge(requested, False, port, quiet=True)
+    except SystemExit as stop:
+        reason = str(stop.code)
+    except Exception as error:
+        reason = f"{type(error).__name__} while talking to tailscale"
+    else:
+        return None
+    if requested == "on":
+        return f"The phone link is off ({reason}). Run facilitator bridge on when that is fixed."
+    return f"The phone link could not be taken off ({reason}). Run facilitator bridge off when that is fixed."
 
 
 # --- install and uninstall: the environment, the config and the test deps ---
