@@ -14,7 +14,7 @@
    start; it could only make one look connected when it was not. */
 
 /* New cache name drops previously kept authenticated pages and manifests. */
-const CACHE = "facilitator-m-7";
+const CACHE = "facilitator-m-8";
 const SHELL = ["/card-markdown.js", "/card-tokens.css", "/card-logic.js",
                "/compose-format.js"];
 /* The squid the page paints the phone's own launch image from. It is kept
@@ -35,13 +35,15 @@ const KEPT = [...SHELL, SPLASH, VENDORED];
 const SHELL_DEADLINE_MS = 8000;   // static files wait this long before the kept copy
 const PUSH_DEADLINE_MS = 6000;    // wait at most this long for auth before dropping a push
 
-/* A record of each push, kept in the worker's own database because the board
-   may be out of reach when a push arrives and the page may not be open. Only
-   fixed words and numbers are kept, never the push's title, its box, or any
-   address. The records go to the client log when a request to the board has
-   just worked, or when the page opens, and are removed once the board has taken
+/* A record of each push, and of each tap on a notification, kept in the
+   worker's own database because the board may be out of reach when one happens
+   and the page may not be open. Only fixed words and numbers are kept, never
+   the push's title or any address; a tap keeps the card's id and its own tap
+   id. The records go to the client log when a request to the board has just
+   worked, or when the page opens, and are removed once the board has taken
    them. The oldest are dropped past the cap. A cache would not do: the
-   activate step above deletes every cache that is not CACHE. */
+   activate step above deletes every cache that is not CACHE. A record with no
+   kind is a push; a tap's is "notifytap". */
 const PUSH_LOG_DB = "facilitator-m-push-log";
 const PUSH_LOG_STORE = "pushes";
 const PUSH_LOG_KEEP = 50;
@@ -214,6 +216,19 @@ function pushLogWhole(value, most) {
   return Math.max(0, Math.min(most, Math.round(Number(value)) || 0));
 }
 
+// One tap as the board takes it: fixed words, the card's id, the tap's id and
+// bounded numbers. The opened word belongs to a tap that asked for a window.
+function tapReport(row) {
+  const report = {
+    kind: "notifytap", box: row.box, tap: row.tap,
+    windows: pushLogWhole(row.windows, 1000), route: row.route, focus: row.focus,
+  };
+  if (row.route === "open") report.opened = row.opened;
+  report.ms = pushLogWhole(row.ms, 600000);
+  if (row.age != null) report.age = pushLogWhole(row.age, 7776000);
+  return report;
+}
+
 // The oldest records go first, 20 to a request, and a request the board did not
 // take leaves its records where they are. Nothing here ever throws.
 let pushLogSending = null;
@@ -226,6 +241,7 @@ function pushLogFlush() {
         const part = rows.slice(from, from + PUSH_LOG_BATCH);
         const now = Date.now();
         const reports = part.map(row => {
+          if (row.kind === "notifytap") return tapReport(row);
           const report = { kind: "pushreceived", outcome: row.outcome };
           if (row.outcome === "skipped") report.reason = row.reason;
           report.ms = pushLogWhole(row.ms, 600000);
@@ -377,7 +393,7 @@ self.addEventListener("push", event => {
     try {
       await self.registration.showNotification(title, {
         tag: "facilitator-" + (box || "board"),
-        data: { box },
+        data: { box, shown: Date.now() },
       });
     } catch (error) {
       await pushLogNote({ ...note, outcome: "skipped", reason: "show-failed" }, true);
@@ -387,21 +403,72 @@ self.addEventListener("push", event => {
   })());
 });
 
+// Eight random hex characters made for each tap. They go to the page in the
+// message and in the opened address, so one tap can be followed from this
+// worker's line to the page's own.
+function tapId() {
+  let bytes;
+  try { bytes = crypto.getRandomValues(new Uint8Array(4)); }
+  catch (error) { bytes = Array.from({ length: 4 }, () => Math.floor(Math.random() * 256)); }
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+const TAP_BOX = /^(?:[mt]?\d+(?:\.\d+)*|q)$/;
+
+// How many windows this worker controls on the page, as the loop below sees them.
+function tapWindows(windows) {
+  try { return windows.filter(client => new URL(client.url).pathname === "/m").length; }
+  catch (error) { return 0; }
+}
+
+// What one tap did, kept and sent like a push's record. It is written after the
+// tap has been acted on and never throws. The notification's own time is the
+// one the push handler gave it, or the browser's if an older worker showed it.
+async function tapNote(notification, tap, box, began, seen) {
+  try {
+    const shownAt = Number(notification.data && notification.data.shown) || Number(notification.timestamp) || 0;
+    const record = {
+      kind: "notifytap", at: began, tap,
+      box: typeof box === "string" && box.length <= 32 && TAP_BOX.test(box) ? box : "",
+      windows: seen.windows, route: seen.route, focus: seen.focus,
+      ms: seen.ms == null ? Date.now() - began : seen.ms,
+    };
+    if (seen.route === "open") record.opened = seen.opened;
+    if (shownAt > 0) record.age = pushLogWhole((Date.now() - shownAt) / 1000, 7776000);
+    await pushLogNote(record, true);
+  } catch (error) {}
+}
+
 self.addEventListener("notificationclick", event => {
   event.notification.close();
   const box = event.notification.data && event.notification.data.box;
-  const target = "/m" + (box ? "?box=" + encodeURIComponent(box) : "");
+  const began = Date.now();
+  const tap = tapId();
+  const target = "/m" + (box ? "?box=" + encodeURIComponent(box) + "&tap=" + tap : "");
   event.waitUntil((async () => {
-    // Only a page controlled by this worker is known to have the matching
-    // message listener. postMessage has no delivery acknowledgement, so a
-    // loading or stale uncontrolled /m window could otherwise consume the
-    // target silently and prevent the URL fallback below.
-    const windows = await self.clients.matchAll({ type: "window" });
-    for (const client of windows) {
-      if (new URL(client.url).pathname !== "/m") continue;
-      try { await client.focus(); } catch (error) {}
-      try { client.postMessage({ box }); return; } catch (error) {}
+    // What was done, for the line the finally block keeps. "failed" stands until
+    // the windows have been listed; "rejected" until a window has been opened.
+    const seen = { windows: 0, route: "failed", focus: "none", opened: "rejected", ms: null };
+    try {
+      // Only a page controlled by this worker is known to have the matching
+      // message listener. postMessage has no delivery acknowledgement, so a
+      // loading or stale uncontrolled /m window could otherwise consume the
+      // target silently and prevent the URL fallback below.
+      const windows = await self.clients.matchAll({ type: "window" });
+      seen.windows = tapWindows(windows);
+      for (const client of windows) {
+        if (new URL(client.url).pathname !== "/m") continue;
+        try { await client.focus(); seen.focus = "ok"; } catch (error) { seen.focus = "rejected"; }
+        try { client.postMessage({ box, tap }); seen.route = "message"; seen.ms = Date.now() - began; return; } catch (error) {}
+      }
+      seen.route = "open";
+      try {
+        seen.opened = (await self.clients.openWindow(target)) ? "client" : "null";
+      } finally {
+        seen.ms = Date.now() - began;
+      }
+    } finally {
+      await tapNote(event.notification, tap, box, began, seen);
     }
-    await self.clients.openWindow(target);
   })());
 });

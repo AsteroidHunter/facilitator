@@ -6,7 +6,7 @@ const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { OK, plain, fakeIndexedDB, loadWorker } = require("./push-record-fixture.cjs");
 
-const WORKER = "facilitator-m-7";
+const WORKER = "facilitator-m-8";
 const slow = (harness, ms, answer) => async init => { harness.clock.now += ms; return answer(init); };
 const answered = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
 const reports = harness => harness.logged().flatMap(batch => batch.reports);
@@ -17,7 +17,7 @@ test("a shown push is kept with how long the check took, then sent once and let 
   await harness.push({ box: "m101", title: "First card" });
 
   assert.deepEqual(harness.shown, [
-    { title: "First card", options: { tag: "facilitator-m101", data: { box: "m101" } } },
+    { title: "First card", options: { tag: "facilitator-m101", data: { box: "m101", shown: harness.clock.now } } },
   ]);
   assert.deepEqual(harness.logged(), [{
     page: "phone",

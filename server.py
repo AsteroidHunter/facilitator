@@ -413,13 +413,18 @@ Endpoints:
                                (never coordinates) and the no-scroll reason.
                                All versions share four writes per minute across
                                incident reasons.
-                               Three more kinds come from the phone alone, each
+                               Six more kinds come from the phone alone, each
                                with fixed fields and nothing else: pushreceived
                                (its worker's record of one push, shown or
                                skipped and why), notifycheck (permission and
                                whether a subscription exists, at open and on
-                               return) and notifylost (permission granted, no
-                               subscription). A field outside the list or a
+                               return), notifylost (permission granted, no
+                               subscription), and three that follow one tap on
+                               a notification by one tap id: notifytap (what
+                               the worker did with the tap), notifyarrive (the
+                               card reaching the page and what stood over it)
+                               and notifyresult (whether the card was shown
+                               once drawn). A field outside the list or a
                                value outside its words is a 400.
                                Confirmation follows a successful log write/flush
   GET  /thread?box=ID&n=N   -> last N user/agent/note messages of a box from the
@@ -1017,7 +1022,8 @@ def _log_file() -> Path:
 # cycle has fresh counters every time and only the server's cap is a cap.
 CLIENT_PAGES = ("board", "phone", "page")
 CLIENT_KINDS = ("error", "rejection", "fetch", "render", "slow", "incident",
-                "pushreceived", "notifycheck", "notifylost")
+                "pushreceived", "notifycheck", "notifylost",
+                "notifytap", "notifyarrive", "notifyresult")
 # the kind of window a page is open in, and its id for one page load: the same
 # page in the Chrome window, the Electron app and the Tauri app is otherwise
 # indistinguishable. Only these names and 16 hex characters are ever kept
@@ -1182,14 +1188,19 @@ def _incident_valid(page: str, report: dict) -> bool:
 
 
 # What the phone says about its notifications: a push reaching its worker and
-# whether it was shown, and what the page finds when it opens or comes back.
-# Every field is a fixed word, a flag or a bounded number, so no report can
-# carry an address, a key, a token or any text; a report with a field not
-# listed, or a value not allowed, refuses the whole batch.
+# whether it was shown, what the page finds when it opens or comes back, and
+# what became of each tap on a notification (the worker's own line, the card
+# reaching the page, and where the card stood once drawn). Every field is a
+# fixed word, a flag or a bounded number, or a card id or tap id of a fixed
+# form, so no report can carry an address, a key, a token or any text; a report
+# with a field not listed, or a value not allowed, refuses the whole batch.
 NOTICE_FIELDS = {
     "pushreceived": ("outcome", "reason", "ms", "status", "ago", "n", "worker"),
     "notifycheck": ("source", "perm", "reg", "sub"),
     "notifylost": ("source", "reg"),
+    "notifytap": ("box", "tap", "windows", "route", "focus", "opened", "ms", "age"),
+    "notifyarrive": ("tap", "box", "via", "reading", "found", "visible", "menu", "home", "hist"),
+    "notifyresult": ("tap", "box", "shown", "covered", "pending"),
 }
 NOTICE_CHOICES = {
     "outcome": ("shown", "skipped"),
@@ -1197,13 +1208,27 @@ NOTICE_CHOICES = {
     "source": ("start", "return"),
     "perm": ("granted", "denied", "default", "unsupported"),
     "sub": ("yes", "no", "error"),
+    "route": ("message", "open", "failed"),
+    "focus": ("ok", "rejected", "none"),
+    "opened": ("client", "null", "rejected"),
+    "via": ("message", "url"),
+    "reading": ("yes", "no"), "found": ("yes", "no"), "visible": ("yes", "no"),
+    "home": ("yes", "no"), "hist": ("yes", "no"), "shown": ("yes", "no"), "pending": ("yes", "no"),
+    "menu": ("cards", "settings", "projects", "none"),
+    "covered": ("cards", "settings", "projects", "none"),
 }
-NOTICE_NUMBERS = {"ms": 600000, "status": 599, "ago": 7776000, "n": 1000000000000}
+NOTICE_NUMBERS = {"ms": 600000, "status": 599, "ago": 7776000, "n": 1000000000000,
+                  "windows": 1000, "age": 7776000}
+# a tap's id is eight hex characters made by the worker; a page opened with no
+# id, by an older worker, says "none"
+NOTICE_TAP = re.compile(r"(?:[a-f0-9]{8}|none)", re.ASCII)
 
 
 def _notice_valid(page: str, report: dict) -> bool:
     """Exactly the fields the kind allows, each of an allowed value. A push
-    that was shown has no reason and one that was skipped must have one."""
+    that was shown has no reason and one that was skipped must have one. A
+    tap that asked for a window says how that went and no other tap does; the
+    age of the notification is left out when the worker could not tell."""
     allowed = NOTICE_FIELDS[report["kind"]]
     wanted = {"kind", *allowed}
     if report["kind"] == "pushreceived":
@@ -1211,6 +1236,11 @@ def _notice_valid(page: str, report: dict) -> bool:
             wanted.discard("reason")
         elif report.get("outcome") != "skipped":
             return False
+    if report["kind"] == "notifytap":
+        if report.get("route") != "open":
+            wanted.discard("opened")
+        if "age" not in report:
+            wanted.discard("age")
     if page != "phone" or set(report) != wanted:
         return False
     for name, value in report.items():
@@ -1227,6 +1257,13 @@ def _notice_valid(page: str, report: dict) -> bool:
                 return False
         elif name == "worker":
             if not isinstance(value, str) or not INCIDENT_BUILD.fullmatch(value):
+                return False
+        elif name == "tap":
+            if (not isinstance(value, str) or not NOTICE_TAP.fullmatch(value)
+                    or (value == "none" and report["kind"] == "notifytap")):
+                return False
+        elif name == "box":
+            if not _incident_box(value):
                 return False
         else:
             return False
@@ -1268,7 +1305,8 @@ def _client_fields(report: dict) -> dict:
         names = ("v", "reason", "marked", "lost", "suppressed", "events")
         return {k: report[k] for k in (*names, "build", "worker", "session") if k in report}
     if report["kind"] in NOTICE_FIELDS:
-        out = {k: report[k] for k in NOTICE_FIELDS[report["kind"]] if k in report and k != "ago"}
+        # a card's id is the line's own box, written beside the kind
+        out = {k: report[k] for k in NOTICE_FIELDS[report["kind"]] if k in report and k not in ("ago", "box")}
         if "ago" in report:
             # the worker says how long ago the push came; the line says when
             then = time.time() - report["ago"]

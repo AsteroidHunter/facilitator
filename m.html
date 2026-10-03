@@ -4659,6 +4659,58 @@ function goToBox(id){
   browse(id);
   apply(lastState);
 }
+// what the log is told of a notification tap, from the card reaching this page
+// (notifyarrive) to where it stands once drawn, or two seconds on (notifyresult).
+// the worker's own line (notifytap) shares the tap id. only fixed words, yes and
+// no, the card's id and the tap's id are written, and none of it changes what a
+// tap does: goToBox runs as it always did and a failure here is swallowed
+function tapArrived(id, tap, via){
+  tapNoteArrive(id, tap, via);
+  try { goToBox(id); } finally { tapNoteResult(id, tap); }
+}
+function tapWords(id, tap){
+  return {
+    tap: typeof tap === "string" && /^[a-f0-9]{8}$/.test(tap) ? tap : "none",
+    box: typeof id === "string" && id.length <= 32 && /^(?:[mt]?\d+(?:\.\d+)*|q)$/.test(id) ? id : "",
+  };
+}
+// what is open over the card: the card list, the settings or the project list
+function tapMenu(){
+  const out = menuOut();
+  return out === drawer ? "cards" : out === settings ? "settings" : projOpen() ? "projects" : "none";
+}
+function tapNoteArrive(id, tap, via){
+  try {
+    const yes = on => on ? "yes" : "no";
+    window.reportNotice?.({ kind: "notifyarrive", ...tapWords(id, tap), via,
+      reading: yes(lastState), found: yes(lastState?.boxes.some(b => b.id === id)),
+      visible: yes(!document.hidden), menu: tapMenu(), home: yes(homeOpen),
+      hist: yes(hist && hist.id === selectedId) });
+  } catch (_) {}
+}
+// the result is written once: as soon as the card is the selected one, built and
+// no longer waited for, looked at every tenth of a second, or after two seconds
+function tapNoteResult(id, tap){
+  try {
+    const began = Date.now();
+    let written = false;
+    const write = () => {
+      if (written) return;
+      written = true;
+      try {
+        const yes = on => on ? "yes" : "no";
+        window.reportNotice?.({ kind: "notifyresult", ...tapWords(id, tap),
+          shown: yes(selectedId === id), covered: tapMenu(), pending: yes(wantBox === id) });
+      } catch (_) {}
+    };
+    const look = () => {
+      if (written) return;
+      if ((selectedId === id && els[id] && wantBox !== id) || Date.now() - began >= 2000) write();
+      else setTimeout(look, 100);
+    };
+    look();
+  } catch (_) {}
+}
 // the poll's pass over one card's sent panel: the confirmed messages are the
 // board's, and this phone's own unconfirmed ones are drawn after them, so a panel
 // with nothing confirmed yet still stands for what is on its way. a pass
@@ -5976,7 +6028,16 @@ if ("serviceWorker" in navigator){
     .then(reg => { swReg = reg; identifyWorker(); })
     .catch(() => {});   // plain http off localhost has no worker, and the page works without one
   navigator.serviceWorker.addEventListener("controllerchange", identifyWorker);
-  navigator.serviceWorker.addEventListener("message", e => { if (e.data?.box) goToBox(e.data.box); });
+  navigator.serviceWorker.addEventListener("message", e => { if (e.data?.box) tapArrived(e.data.box, e.data.tap, "message"); });
+}
+// a page a notification opened by its address: the card is held in wantBox until
+// the first reading is drawn, and the log is told it arrived
+{
+  const asked = new URLSearchParams(location.search);
+  if (asked.get("box")){
+    tapNoteArrive(asked.get("box"), asked.get("tap"), "url");
+    tapNoteResult(asked.get("box"), asked.get("tap"));
+  }
 }
 function keyBytes(b64url){
   const pad = "=".repeat((4 - b64url.length % 4) % 4);
