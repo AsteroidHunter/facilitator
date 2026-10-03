@@ -24,6 +24,7 @@ const { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
+const { readMark } = require("./squid-mark.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
@@ -267,6 +268,32 @@ test("the bar has no colour picker and the bell is a plain mark like the gear", 
     assert.equal(bar.bell.shadow, "none", "the bell still has a shadow");
     assert.equal(bar.bell.mark, bar.gear.mark, "the bell mark is not the gear's size");
     assert.equal(bar.bell.color, bar.gear.color, "the bell mark is not the gear's colour");
+    assert.deepEqual(problems, []);
+  } finally {
+    await closePage(page);
+  }
+});
+
+test("the settings button on the bar is the squid in its own colours, as tall as its 15px mark", async () => {
+  const { page, problems } = await open("/", WIDE);
+  try {
+    const button = await page.$eval("#setbtn", el => ({
+      tag: el.tagName, type: el.getAttribute("type"), title: el.title, label: el.getAttribute("aria-label"),
+      haspopup: el.getAttribute("aria-haspopup"), expanded: el.getAttribute("aria-expanded"),
+      marks: el.querySelectorAll("svg").length, hidden: el.querySelector("svg").getAttribute("aria-hidden"),
+      images: el.querySelectorAll("img").length,
+    }));
+    assert.deepEqual(button, { tag: "BUTTON", type: "button", title: "settings", label: "settings",
+      haspopup: "dialog", expanded: "false", marks: 1, hidden: "true", images: 0 });
+    const mark = await page.evaluate(readMark, "#setbtn");
+    assert.deepEqual([mark.w, mark.h], [15, 15], "the mark is not the 15px box the bar's marks stand in");
+    assert.deepEqual(mark.fills, ["#f89d0f", "#0c0b0a"], "the squid is not its orange with black eyes");
+    assert.equal(mark.stroked, false, "the mark is still a line drawing");
+    assert.equal(mark.other, 0, "the squid has a colour besides its orange and its black");
+    assert.equal(mark.black, 2, "the squid does not have two square eyes");
+    assert.ok(mark.orange > 60, "the squid has no body");
+    assert.deepEqual([mark.top, mark.bottom], [0, 0], "the squid does not fill its box from top to bottom");
+    assert.equal(mark.left, mark.right, "the squid is not centred in its box");
     assert.deepEqual(problems, []);
   } finally {
     await closePage(page);
