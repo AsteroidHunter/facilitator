@@ -786,22 +786,32 @@ test("the defer chip parks, the history steps back, the plus makes a card to nam
     await page.evaluate(() => document.querySelector("article.box.sel .histbtn.newer").click());
     await page.waitForFunction(() => document.querySelector("article.box.sel .reply").textContent === "Second reply, the live one.", { timeout: 3000 });
 
+    // the tapped card is painted parked on the tap itself, before the screen
+    // moves on, so that is watched for rather than read afterwards
+    await page.evaluate(cardId => {
+      const box = document.getElementById("box-" + cardId);
+      window.__paintedParked = false;
+      new MutationObserver(() => { if (box.classList.contains("parked")) window.__paintedParked = true; })
+        .observe(box, { attributes: true, attributeFilter: ["class"] });
+    }, id);
     const parked = page.waitForResponse(r => new URL(r.url()).pathname === "/park");
     await page.evaluate(() => document.querySelector("article.box.sel .arcbtn").click());
     assert.equal(new URL((await parked).url()).searchParams.get("v"), "1");
     // a card parked from doing leaves the screen for the doing card below it
-    // (db32309), so the parked card is read where it stands and then put back
-    // on screen to be woken
-    await page.waitForFunction(cardId => document.getElementById("box-" + cardId).classList.contains("parked"),
-      { timeout: 3000 }, id);
-    assert.notEqual(await page.evaluate(() => selectedId), id, "a parked card stayed on screen in the doing view");
+    // (db32309), and the page takes down a card that is in neither order and is
+    // not near the one on show, so the parked card is put back on screen to be
+    // woken, and is built again as the board holds it
+    await page.waitForFunction(cardId => selectedId !== cardId, { timeout: 3000 }, id);
+    assert.equal(await page.evaluate(() => window.__paintedParked), true, "the tapped card was not painted parked on the tap");
     assert.equal((await savedBox(id)).parked, true);
+    await page.evaluate(cardId => select(cardId), id);
+    await page.waitForSelector(`#box-${id}.sel`, { timeout: 3000 });
+    assert.equal(await page.evaluate(cardId => document.getElementById("box-" + cardId).classList.contains("parked"), id), true,
+      "a parked card was not built as parked");
     assert.equal(await page.evaluate(cardId => getComputedStyle(document.querySelector(`#box-${cardId} .title`)).color, id),
       "rgb(90, 100, 115)", "a parked card's title is not the desktop's later colour");
     // a deferred card's moon is switched off; the sun is what brings it back
     assert.equal(await page.evaluate(cardId => document.querySelector(`#box-${cardId} .arcbtn`).getAttribute("aria-disabled"), id), "true");
-    await page.evaluate(cardId => select(cardId), id);
-    await page.waitForSelector(`#box-${id}.sel`, { timeout: 3000 });
     const unparked = page.waitForResponse(r => new URL(r.url()).pathname === "/park");
     await page.evaluate(() => document.querySelector("article.box.sel .sunbtn").click());
     assert.equal(new URL((await unparked).url()).searchParams.get("v"), "0");
