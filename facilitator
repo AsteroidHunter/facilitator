@@ -622,11 +622,16 @@ def window_url(cfg):
 
 def open_app(cfg, dry):
     url = window_url(cfg)
+    # a config without the app_fullscreen key launches exactly as it always did
+    full = cfg.get("app_fullscreen") is True
     if dry:
-        print(f"window: would open {url} as a chromeless app window")
+        kind = "a chromeless full-screen app window" if full else "a chromeless app window"
+        print(f"window: would open {url} as {kind}")
         return
-    opened = subprocess.run(["open", "-na", "Google Chrome", "--args", f"--app={url}"],
-                            capture_output=True, text=True, check=False)
+    command = ["open", "-na", "Google Chrome", "--args", f"--app={url}"]
+    if full:
+        command.append("--start-fullscreen")
+    opened = subprocess.run(command, capture_output=True, text=True, check=False)
     if opened.returncode != 0:
         said = (opened.stderr or "").strip().splitlines()
         detail = f" ({said[0]})" if said else ""

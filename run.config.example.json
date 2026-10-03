@@ -1,6 +1,7 @@
 {
   "port": 8877,
   "log_level": "info",
+  "app_fullscreen": true,
   "image_panel_lane": "",
   "spotify_client_id": "",
   "navigator_lanes": ["example"],
