@@ -183,7 +183,12 @@ before(async () => {
   require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(app, "server.py")));
   await writeFile(path.join(app, "seed.json"), JSON.stringify({
     title: "transport fixture",
-    items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" }],
+    // a lane exists only where a card or the run config names it, so the
+    // seats test has a card for its second lane
+    items: [
+      { id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" },
+      { id: "1.1", bucket: "now", title: "A lane card", owner: "pastureland" },
+    ],
   }));
   await startServer();
 });

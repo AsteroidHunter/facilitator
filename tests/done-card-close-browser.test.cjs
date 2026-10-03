@@ -225,7 +225,7 @@ test("index mini closes a freshly replied card without rebuilding its empty birt
   }
 });
 
-test("index Delete key uses the authoritative close endpoint", async () => {
+test("index Delete and Backspace keys close nothing", async () => {
   const page = await openBoard("/");
   try {
     const id = await addEmptyBirth(page, "index keyboard close");
@@ -235,14 +235,21 @@ test("index Delete key uses the authoritative close endpoint", async () => {
       select(cardId);
       document.activeElement?.blur();
     }, id);
-
-    const response = page.waitForResponse(candidate => {
-      const url = new URL(candidate.url());
-      return url.pathname === "/close" && url.searchParams.get("box") === id;
+    const closeRequests = [];
+    page.on("request", request => {
+      if (new URL(request.url()).pathname === "/close") closeRequests.push(request.url());
     });
+
     await page.keyboard.press("Delete");
-    assert.equal((await response).status(), 200);
-    await expectDoneOnly(id);
+    await page.keyboard.press("Backspace");
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.deepEqual(closeRequests, [], "a keyboard key closed the card");
+    const saved = await savedBox(id);
+    assert.ok(saved);
+    assert.equal(saved.done, false);
+    const kinds = (await transcriptFor(id)).map(event => event.kind);
+    assert.equal(kinds.includes("done"), false);
+    assert.equal(kinds.includes("delete"), false);
   } finally {
     await page.close();
   }

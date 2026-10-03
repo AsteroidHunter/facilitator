@@ -141,7 +141,7 @@ test("a launch brings the board up on the port, a stop by pid frees it, and a re
   try {
     assert.equal(first.argv[0], path.join(fixtureDir, ".venv", "bin", "python3"), first.argv.join(" "));
     assert.match(first.argv[1], /server\.py$/);
-    assert.deepEqual(first.said, [`server: started on ${port}`]);
+    assert.deepEqual(first.said, [], "a start that worked printed something");
     const state = await (await fetch(`http://127.0.0.1:${port}/state`)).json();
     assert.equal(state.title, "cli launch fixture");
     const revBefore = state.rev;
@@ -149,12 +149,14 @@ test("a launch brings the board up on the port, a stop by pid frees it, and a re
     const status = await probe("cli.cmd_status()");
     assert.match(status.stdout, /^server up, \d+ boxes, 1 queued \| facilitator: last heard/m, status.stdout);
     const again = await probe(`cli.ensure_server(${port}, False)`);
-    assert.match(again.stdout, /^server: already up on/m, "a second launch started a second server");
+    assert.equal(again.stdout, "", "a board that was already up was announced");
+    const againDry = await probe(`cli.ensure_server(${port}, True)`);
+    assert.match(againDry.stdout, /^server: already up on/m, "a dry run did not say the board is up");
 
     await stopByPid(first.pid);
     const second = await launch();
     try {
-      assert.deepEqual(second.said, [`server: started on ${port}`]);
+      assert.deepEqual(second.said, []);
       const back = await (await fetch(`http://127.0.0.1:${port}/state`)).json();
       assert.deepEqual(back.boxes.find(b => b.id === "0").pendingTexts, ["kept across the restart"], "the restart lost the queued message");
       assert.ok(back.rev > revBefore, "the revision did not carry across the restart");

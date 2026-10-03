@@ -621,35 +621,34 @@ test("a phone drawer or a swipe keeps the chord and stops a motion", async () =>
   assert.deepEqual(f.calls, [["history", "c1", -1], ["step", 1]]);
 });
 
-// control+n and control+l through each page's own action table: they move the
-// selected card only while nothing is being typed, where macOS keeps them for
-// the caret, and no plain letter or control+s moves it at all
+// control+n and control+l through each page's own action table: no command of
+// the page, typing or not, so macOS and the browser keep them, and no plain
+// letter or control+s moves the selected card at all
 for (const name of ["index.html", "m.html"]) {
-  test(`${name} control+n and control+l move the card only when not typing`, async () => {
+  test(`${name} control+n and control+l are left alone, and no plain letter or control+s moves the card`, async () => {
     const f = await page(name, calls => ({
       FOCUS: true, boardKeysLive: () => true, miniFocused: false, p3Zoom: null,
       lastState: { boxes: [{ id: "c1", bucket: "meta" }] },
       setCardDestination: (id, where) => calls.push(["destination", id, where]),
     }));
-    const typing = { composer: f.a.parts.content, textarea: f.a.parts.ta, title: f.a.parts.title };
-    for (const [where, target] of Object.entries(typing)) {
-      for (const key of ["n", "l"]) {
+    const targets = { composer: f.a.parts.content, textarea: f.a.parts.ta, title: f.a.parts.title,
+                      reply: f.a.parts.reply, page: f.doc.body };
+    for (const [where, target] of Object.entries(targets)) {
+      for (const key of ["n", "N", "l", "L"]) {
         assert.equal(f.press({ key }, target).defaultPrevented, false, `${where} control+${key}`);
       }
     }
-    assert.deepEqual(f.calls, [], "a destination key moved the card while typing");
+    assert.deepEqual(f.calls, [], "a destination key moved the card");
     for (const key of ["n", "N", "s", "S", "l", "L"]) f.press({ key, ctrlKey: false }, f.doc.body);
     assert.deepEqual(f.calls, [], "a plain letter moved the card");
     f.press({}, f.doc.body); f.release("S");
     f.press({}, f.a.parts.content); f.release("S");
     assert.deepEqual(f.calls, [], "control+s moved the card");
-    assert.equal(f.press({ key: "n" }, f.doc.body).defaultPrevented, true);
-    assert.equal(f.press({ key: "L" }, f.doc.body).defaultPrevented, true);
     for (const over of [{ shiftKey: true }, { metaKey: true }, { altKey: true }, { repeat: true }]) {
       f.press({ key: "n", ...over }, f.doc.body);
       f.press({ key: "l", ...over }, f.doc.body);
     }
-    assert.deepEqual(f.calls, [["destination", "c1", "doing"], ["destination", "c1", "deferred"]]);
+    assert.deepEqual(f.calls, []);
   });
 }
 
@@ -666,8 +665,7 @@ const SECTIONS = [
 const sectionChord = ({ code, shifted }, over = {}) => ({ key: shifted, code, ctrlKey: true, shiftKey: true, ...over });
 const sectionAlone = ({ code, key }, over = {}) => ({ key, code, ctrlKey: false, ...over });
 
-// hops records the shared hop to the next doing card (selectNextDoing), and the
-// phone's closeCard records whether it was asked to hop, its default being yes
+// hops records the shared hop to the next doing card (selectNextDoing)
 async function sectionPage(name) {
   const moves = [], requests = [], hops = [];
   const f = await page(name, calls => ({
@@ -677,7 +675,7 @@ async function sectionPage(name) {
     sectionKeyMove: (id, section, el, close) => { moves.push({ id, section, el, close }); return true; },
     nav: dir => calls.push(["nav", dir]),
     stepCard: dir => calls.push(["step", dir]),
-    closeCard: (id, hop) => calls.push(["closeCard", id, hop !== false]),
+    closeCard: id => calls.push(["closeCard", id]),
     selectNextDoing: id => hops.push(id),
     poll() {},
     fetch: (url, init) => { requests.push([url, init && init.method]); return Promise.resolve({}); },
@@ -767,48 +765,30 @@ for (const name of ["index.html", "m.html"]) {
     assert.deepEqual(f.moves, []);
   });
 
-  test(`${name} command+shift+[ and ], control+n, control+l and backspace are unchanged beside the section keys`, async () => {
+  test(`${name} command+shift+[ and ], control+n, control+l, backspace and delete do nothing on the page`, async () => {
     const f = await sectionPage(name);
-    const step = name === "index.html" ? "nav" : "step";
-    f.press({ key: "{", code: "BracketLeft", ctrlKey: false, metaKey: true, shiftKey: true }, f.a.parts.content);
-    f.press({ key: "}", code: "BracketRight", ctrlKey: false, metaKey: true, shiftKey: true }, f.doc.body);
-    f.press({ key: "n", code: "KeyN" }, f.doc.body);
-    f.press({ key: "l", code: "KeyL" }, f.doc.body);
-    // still nothing while typing
-    f.press({ key: "n", code: "KeyN" }, f.a.parts.content);
-    const back = f.press({ key: "Backspace", code: "Backspace", ctrlKey: false }, f.doc.body);
-    assert.equal(back.defaultPrevented, true);
-    // and backspace in the composer is the composer's
-    assert.equal(f.press({ key: "Backspace", code: "Backspace", ctrlKey: false }, f.a.parts.content).defaultPrevented, false);
-    await settle();
-    const closed = name === "index.html" ? [] : [["closeCard", "c1", true]];
-    assert.deepEqual(f.calls, [[step, -1], [step, 1], ["destination", "c1", "doing"],
-                               ["destination", "c1", "deferred"], ...closed]);
-    if (name === "index.html") {
-      assert.deepEqual(f.requests, [["/close?box=c1", "POST"]]);
-      // backspace now hops to the next doing card, once the close has answered
-      assert.deepEqual(f.hops, ["c1"]);
-    }
-    assert.deepEqual(f.moves, []);
-  });
-
-  test(`${name} backspace and delete hop only where the cross would, and still close a done card`, async () => {
-    for (const key of ["Backspace", "Delete"]) {
-      const live = await sectionPage(name);
-      live.press({ key, code: key, ctrlKey: false }, live.doc.body);
-      await settle();
-      const done = await sectionPage(name);
-      done.a.el.x = fadedCross();
-      assert.equal(done.press({ key, code: key, ctrlKey: false }, done.doc.body).defaultPrevented, true);
-      await settle();
-      if (name === "index.html") {
-        assert.deepEqual([live.requests, live.hops], [[["/close?box=c1", "POST"]], ["c1"]], `${key} on a live card`);
-        assert.deepEqual([done.requests, done.hops], [[["/close?box=c1", "POST"]], []], `${key} on a done card`);
-      } else {
-        assert.deepEqual(live.calls, [["closeCard", "c1", true]], `${key} on a live card`);
-        assert.deepEqual(done.calls, [["closeCard", "c1", false]], `${key} on a done card`);
+    const keys = [
+      { key: "{", code: "BracketLeft", ctrlKey: false, metaKey: true, shiftKey: true },
+      { key: "}", code: "BracketRight", ctrlKey: false, metaKey: true, shiftKey: true },
+      { key: "[", code: "BracketLeft", ctrlKey: false, metaKey: true, shiftKey: true },
+      { key: "]", code: "BracketRight", ctrlKey: true, metaKey: true, shiftKey: true },
+      { key: "n", code: "KeyN" }, { key: "l", code: "KeyL" },
+      { key: "Backspace", code: "Backspace", ctrlKey: false }, { key: "Delete", code: "Delete", ctrlKey: false },
+    ];
+    const done = f.a.el.x;
+    for (const faded of [false, true]) {
+      f.a.el.x = faded ? fadedCross() : done;
+      for (const target of [f.doc.body, f.a.parts.reply, f.a.parts.content, f.a.parts.ta, f.a.parts.title]) {
+        for (const over of keys) {
+          assert.equal(f.press(over, target).defaultPrevented, false, `${over.key} on ${target === f.doc.body ? "the page" : "a field"}`);
+        }
       }
     }
+    await settle();
+    assert.deepEqual(f.calls, [], "a removed key reached a page command");
+    assert.deepEqual(f.requests, [], "a removed key closed a card");
+    assert.deepEqual(f.hops, []);
+    assert.deepEqual(f.moves, []);
   });
 
   test(`${name} done is the page's own close, and it hops`, async () => {
@@ -821,7 +801,7 @@ for (const name of ["index.html", "m.html"]) {
     if (name === "index.html") {
       assert.deepEqual(f.requests, [["/close?box=c1", "POST"]], "not the cross's close");
       assert.deepEqual(f.hops, ["c1"], "the done key did not hop");
-    } else assert.deepEqual(f.calls, [["closeCard", "c1", true]], "not the cross's close");
+    } else assert.deepEqual(f.calls, [["closeCard", "c1"]], "not the cross's close");
   });
 }
 

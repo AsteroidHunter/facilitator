@@ -86,6 +86,9 @@ before(async () => {
     items: [{
       id: "m1", bucket: "meta", title: "Variants", owner: "facilitator",
       context: "Fresh seed\n\n---\n\nStill authored text",
+    }, {
+      id: "m2", bucket: "meta", title: "Legacy", owner: "facilitator",
+      context: "Second seed",
     }],
   }));
   await writeFile(path.join(fixtureDir, "transcript.jsonl"), [
@@ -153,7 +156,7 @@ test("reply migration distinguishes explicit state and uses one durable transcri
   explicit.reply = "conflicting legacy shim";
   explicit.reply_full = "Explicit full\n---\nkept";
   explicit.reply_short = "Explicit short";
-  const legacy = saved.boxes.find(item => item.id === "t0");
+  const legacy = saved.boxes.find(item => item.id === "m2");
   legacy.reply = "Legacy compact\n---\nLegacy full";
   delete legacy.reply_full;
   delete legacy.reply_short;
@@ -163,8 +166,8 @@ test("reply migration distinguishes explicit state and uses one durable transcri
   state = await api("/state");
   assert.equal(box(state.body).replyFull, "Explicit full\n---\nkept");
   assert.equal(box(state.body).replyShort, "Explicit short");
-  assert.equal(box(state.body, "t0").replyFull, "Legacy full");
-  assert.equal(box(state.body, "t0").replyShort, "Legacy compact");
+  assert.equal(box(state.body, "m2").replyFull, "Legacy full");
+  assert.equal(box(state.body, "m2").replyShort, "Legacy compact");
 
   // Two complete restarts prove explicit full text is never parsed again.
   for (let restart = 0; restart < 2; restart++) {
@@ -173,8 +176,8 @@ test("reply migration distinguishes explicit state and uses one durable transcri
     state = await api("/state");
     assert.equal(box(state.body).replyFull, "Explicit full\n---\nkept");
     assert.equal(box(state.body).replyShort, "Explicit short");
-    assert.equal(box(state.body, "t0").replyFull, "Legacy full");
-    assert.equal(box(state.body, "t0").replyShort, "Legacy compact");
+    assert.equal(box(state.body, "m2").replyFull, "Legacy full");
+    assert.equal(box(state.body, "m2").replyShort, "Legacy compact");
   }
   assert.deepEqual((await api("/thread?box=m1&n=30")).body, firstThread.body,
     "restart moved the transcript schema boundary");

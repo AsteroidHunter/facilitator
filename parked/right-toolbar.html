@@ -1,0 +1,17 @@
+<!-- Parked for v0: the script that restored the open panel, and the toolbar's markup. index.html does not include this file. -->
+<script>
+  // restore the toolbar's open panel before the first paint
+  (function(){
+    try {
+      var tool = localStorage.getItem("railtool");
+      if (tool) document.documentElement.dataset.rail = tool;
+    } catch (e) {}
+  })();
+</script>
+
+<div id="toolbar">
+  <button class="tool" id="tool-notes" data-tool="notes" type="button" aria-controls="railpanel" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z"/><path d="M15 3v4a2 2 0 0 0 2 2h4"/></svg></button>
+</div>
+<div id="railpanel" class="qn-glass">
+  <div id="railnotes" data-tool="notes" tabindex="-1" hidden></div>
+</div>

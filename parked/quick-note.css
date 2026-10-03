@@ -1,0 +1,29 @@
+/* Parked for v0: the quick note's corner peek and card chip styles. index.html does not load this file. */
+  /* the quick note's corner: a small piece of the note's own card that peeks
+     out of the window's bottom right corner while the pointer is there, with no
+     words on it. it wears the card's glass (.qn-glass in card-tokens.css) in
+     the card's own four by three, at a third of its size, 160 by 120. it lives
+     outside the stage, in the window's own pixels, so it is the window's corner
+     whatever the stage is scaled to. at rest it stands wholly past the corner,
+     hidden, so it covers nothing: the goal box, the navigator's box and
+     anything dragged near the corner keep every pixel and every click. out, it
+     shows its top left part, about 96 by 72, which clears the goal box's
+     pencil. it stands under the overlay (90) and over the board */
+  .qnpeek{position:fixed; right:0; bottom:0; z-index:85; box-sizing:border-box;
+    width:160px; height:120px; padding:0; margin:0;
+    cursor:pointer; visibility:hidden; transform:translate(100%, 100%);
+    transition:transform .2s var(--gentle), visibility 0s linear .2s}
+  .qnpeek.out{visibility:visible; transform:translate(40%, 40%);
+    transition:transform .2s var(--gentle), visibility 0s}
+  /* a card with a quick note attached says so in its top bar in the plainest
+     words there are, left of the three section chips, in the bar's own muted
+     mono and the chips' own press. where it finally sits is still open */
+  body.focus .box.sel .qnchip{flex:none; height:16px; padding:0 5px; border:none;
+    border-radius:var(--sq); background:var(--card); cursor:pointer;
+    font:11.5px/16px var(--mono); color:var(--sub)}
+  body.focus .box.sel .qnchip:hover{color:var(--ink);
+    background:color-mix(in srgb, #000 var(--press), var(--card))}
+  .qnchip[hidden]{display:none}
+  @media (prefers-reduced-motion: reduce){
+    .qnpeek, .qnpeek.out{transition:none}
+  }

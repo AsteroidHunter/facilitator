@@ -330,7 +330,7 @@ test("the board page loads the same painter, keeps no copy of its own and still 
   const page = await readFile(path.join(ROOT, "m.html"), "utf8");
   const include = page.indexOf('<script src="/m-splash.js"></script>');
   assert.ok(include > 0, "the board page does not load the painter");
-  const main = page.indexOf('<script>\ndocument.getElementById("signout")');
+  const main = page.indexOf('<script>\n// the turn off mark asks before it signs out');
   assert.ok(main > include, "the painter is loaded after the page's own script");
   for (const name of ["splashLayout", "splashHandleBox", "applySplashFont", "drawSplashHandle",
                       "paintSplash", "isAppleHomeScreenTarget", "installStartupImage"]) {
@@ -384,7 +384,13 @@ test("signed in, /m carries the shared card sheet's own text in place of its lin
   assert.ok((await request(port, "/")).text.includes(SHEET_LINK), "the desktop page stopped linking the sheet");
   const worker = await readFile(path.join(ROOT, "m-sw.js"), "utf8");
   assert.match(worker, /const SHELL = \[[^\]]*"\/card-tokens\.css"/, "the phone's worker stopped keeping the sheet");
-  assert.match(worker, /if \(request\.mode === "navigate"\) return;/, "the worker answers page opens now");
+  // a page open is asked of the server every time; the worker keeps no copy of
+  // it and only stands the server-down screen in when the server cannot answer
+  assert.match(worker, /if \(request\.mode === "navigate"\) \{\s*if \(url\.pathname === "\/m"\) event\.respondWith\(openPage\(request\)\);\s*return;\s*\}/,
+    "the worker does something other than ask the server for a page open");
+  const openPage = worker.slice(worker.indexOf("async function openPage"), worker.indexOf("function bounded"));
+  assert.ok(openPage.includes("await fetch(request)") && !/caches/.test(openPage),
+    "the worker answers a page open from a kept copy");
   // the served page's scripts still parse
   for (const code of inlineScripts(served.text)) new vm.Script(code, { filename: "m.html" });
 });

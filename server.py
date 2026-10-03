@@ -1,9 +1,14 @@
 """Triage facilitator — thinnest possible local server.
 
-The local board uses port 8877; Tailscale Serve targets the separately gated
-loopback port 8878. Every route on that socket requires a persistent session,
-except the install/sign-in page, its manifest and icons, and auth endpoints.
-An old Serve mapping to 8877 prevents startup until it is removed.
+The board listens on a pair of loopback ports: the one run.config.json names
+(port, 8877 when it names none) for the desktop and the agents, and the one
+above it, which Tailscale Serve targets, separately gated. `facilitator run`
+moves the pair to a free one when something else holds it and writes the new
+port into the config. Every route on the gated socket requires a persistent
+session, except the install/sign-in page, its manifest and icons, and auth
+endpoints. An old Serve mapping to the board's own port prevents startup
+until it is removed. One server per folder: server.lock beside state.json is
+held for as long as the server runs, and names its pid and port.
 
 One page, one state file. The human types into per-item boxes; messages queue
 FIFO; the agent (Claude, in the terminal session that launched this) drains the
@@ -13,7 +18,9 @@ Endpoints:
   GET  /                    -> index.html, the card board
   GET  /page                -> page.html, the same lanes drawn as one typed page
   GET  /state               -> full UI state (page polls this), with rev, the
-                               board's revision: every saved change moves it
+                               board's revision: every saved change moves it,
+                               and settingsRev, the settings' own revision
+                               (see /settings)
   GET  /m/state[?since=R][&delta=E][&ops=A,B] -> what the phone reads: {rev,
                                changed, live, ...}. With since naming the
                                revision the phone already holds and nothing
@@ -112,10 +119,21 @@ Endpoints:
   POST /delete?box=ID       -> legacy empty-meta removal route. A stale caller
                                that sends a nonempty meta card here closes it to
                                done instead, so old tabs cannot erase a thread
-  POST /upload?name=F       -> body = raw attachment bytes; saves to the sibling internal
+  POST /upload?name=F[&op=ID] -> body = raw attachment bytes; saves to the sibling internal
                                folder ../facilitator-internal/uploads/ (outside the
                                repo, never pushed), returns {"url": "/uploads/..."}
-                               unchanged; GET /uploads/<file> serves it back
+                               unchanged; GET /uploads/<file> serves it back. The
+                               bytes stream to a hidden part file, owner-only, and
+                               are put in place only once complete and only if
+                               their first bytes are the kind the name says (415
+                               otherwise; an SVG carrying script is refused too).
+                               The body may go UPLOAD_STALL_TIMEOUT with nothing
+                               arriving and UPLOAD_TIME_LIMIT in all (408). ID is
+                               the caller's operation id: a repeat under the same
+                               ID is answered with the file already stored
+  GET  /upload?op=ID        -> the receipt of that upload: {"url": ...} once
+                               stored, {"arriving": true} while it is still coming,
+                               404 when this server run has no record of it
   GET  /uploads/<file>      -> a previously uploaded attachment: served from the internal
                                uploads folder, falling back to the old in-repo
                                uploads/ for images saved before the move
@@ -146,7 +164,11 @@ Endpoints:
                                the board and the phone page carry in common
   GET  /compose-format.js   -> the composer's typed formatting: the setting,
                                and the editor layer the card pages put over a
-                               composer while it is on
+                               composer while it is on. The board's default
+                               for a page with no stored choice, from
+                               run.config.json's compose_format_default (off
+                               when the key is missing), is written in front
+                               of the file as it goes out
   GET  /home-widgets.js, /home-widgets.css -> the home page's token panel: its
                                heatmap and line chart, the pill that switches
                                them, and their sheet, fetched by the board the
@@ -279,14 +301,63 @@ Endpoints:
                                below zero; an unknown box or a bad count is a
                                400 with nothing stored at all. Answers the
                                stored counts for the ids it was given
+  GET  /board-settings.js   -> the desktop pages' settings store, the file
+                               beside this one, with the board's settings
+                               written in front of it as
+                               globalThis.BOARD_SETTINGS = {rev, values}, so a
+                               page has them before its first line runs. The
+                               settings are what the reader arranges on the
+                               desktop pages: each lane's box places, sizes,
+                               hides and shows, the background colour, the
+                               outline's width, formatting while typing, the
+                               home chart, the typed page's tasks and the
+                               one-time layout passes, under the key names and
+                               text values the browsers kept them under. They
+                               live in settings.json beside state.json, so
+                               every address the board is opened at shows the
+                               same board
+  GET  /settings            -> {rev, values}: the same settings, for a page
+                               whose /state says settingsRev has moved
+  POST /settings[?seed=1]   -> body = {"<key>": "<value>" or null, ...}: sets
+                               or removes those keys and keeps every other, so
+                               two windows changing different boxes both keep
+                               theirs, and the last write to one key wins. A
+                               key outside the fixed patterns (SETTINGS_KEY), a
+                               value over SETTINGS_VALUE_MAX characters or a
+                               store past SETTINGS_KEYS_MAX keys is a 400 with
+                               nothing stored. seed=1 is a browser's one-time
+                               copy of what it already held: applied only
+                               while the store is empty, and seeded says
+                               whether it was. Answers {ok, rev, values}.
+                               Never moves the board's revision, so a box
+                               dragged on the desktop sends no phone a new board
+  GET  /spotify/session     -> the Spotify sign-in magic box 1 plays with,
+                               {access, refresh, expires, scopes}, or {} when
+                               none is kept: in settings.json, owner-only, so a
+                               board that moved needs no new sign-in. Answered
+                               only to a local page: on the board's own port,
+                               never the phone's, with no Tailscale forwarding
+                               header, a loopback Host and no cross-site fetch;
+                               a 404 to anything else. It never travels in
+                               /state, /settings or /board-settings.js
+  POST /spotify/session[?seed=1] -> body = those four fields as text, replacing
+                               the kept sign-in ({} drops it). Local only as
+                               above, and a 403 unless Origin is the page's own
+                               loopback address. seed=1 is a browser's one-time
+                               copy, applied only while none is kept
+  The five quick note routes below are OFF in this version
+  (QUICK_NOTES_ON is False): each answers 404, the same as an unknown route,
+  and /state carries no quicknotes. The notes already stored in state.json
+  are left as they are. The entries say what the routes do with the switch on.
   GET  /quicknotes          -> {notes, rev}: every quick note, oldest first, each
                                {id, text, created, updated, card}. A quick note
                                is plain text the owner jots down from the
                                board's corner; card is the id of the card it is
-                               attached to, or null while it stands alone. /state
-                               carries the same list without the text, which is
-                               enough for a card to show it has a note; the text
-                               itself travels only on these routes
+                               attached to, or null while it stands alone. With
+                               the switch on, /state carries the same list
+                               without the text, which is enough for a card to
+                               show it has a note; the text itself travels only
+                               on these routes
   POST /quicknote/new[?card=ID] -> body = the note's text, kept as typed and
                                never stripped. Makes a note, ids qn1, qn2...
                                never reused, attached to card ID when one is
@@ -308,8 +379,12 @@ Endpoints:
                                phone bridge hands a signed-in session through to
                                them exactly as it does to every other route
   POST /clientlog          -> body = {"page": "board"|"phone"|"page",
+                               "client": "chrome"|"electron"|"tauri"|"safari"|
+                               "phone"|"other", "window": 16 hex characters,
                                "reports": [...]}: what a page noticed and has no
-                               other way to say. One report per thrown error,
+                               other way to say. Client and window name the kind
+                               of window and the page load that sent it, and are
+                               kept on every line. One report per thrown error,
                                rejected promise, failed request, failed render
                                or timer that ran late, each carrying its kind,
                                its message, where it happened, the card that was
@@ -367,6 +442,19 @@ Endpoints:
                                which says what counts; run.config.json's
                                token_logs names other folders. Only counts
                                come back, and missing logs are zeros
+  GET  /limits              -> how much of its plan each coding agent has used,
+                               what the home page's limits box draws: {"claude":
+                               {...}, "codex": {...}} holding only the tools with
+                               a window to show, each window ("five_hour",
+                               "weekly") {used, resets}: a whole percent from 0
+                               to 100, 0 once the reset time has passed, and the
+                               reset as epoch seconds or null, plus "fetched"
+                               (epoch seconds when Codex was last read, or
+                               null), "now" (this server's clock) and
+                               "refreshing" (a renewal is running). It answers
+                               at once from the last reading; one five minutes
+                               old is renewed in the background. limits.py
+                               beside this file says where each number comes from
   GET  /pickdir             -> the system folder chooser on the desktop this
                                server runs in: blocks until a folder is chosen,
                                then {"path": "..."}; a dismissed chooser answers
@@ -399,10 +487,6 @@ Endpoints:
                                card green and resets the steal timer, no release.
                                The messages the claim holds at that moment are
                                read from then on (pendingStates on /state)
-  POST /end                 -> ask the agent to wrap up once the queue drains
-  POST /pause?v=1|0         -> pause / resume both listeners (laptop-close mode):
-                               while paused /wait returns {"paused":true} at once
-                               and agents idle locally, re-checking /state ~1/min
   GET  /fresh?owner=O       -> while O's agent holds a card: any messages that
                                landed on that card after the claim, handed over
                                and folded into the claim, so the one reply
@@ -428,9 +512,7 @@ Endpoints:
                                message_via runs beside it, one entry per message
                                in the same order, "mini" for a small card message
                                and null for a big card one. Also returns
-                               {"idle":true} on timeout, {"paused":true} while
-                               paused, or {"end":true} once ended and O's queue
-                               is drained.
+                               {"idle":true} on timeout.
                                Delivery is confirmed, always: ack carries a short
                                token and the claim counts as provisional until
                                POST /ack names it. There is no unconfirmed mode.
@@ -498,7 +580,8 @@ its own agent). Each owner has its own busy/claim slot and listener-presence
 tracking, so the lanes drain the same board without blocking each other.
 
 State persists to state.json next to this file; every send/reply also appends
-to transcript.jsonl so the discussion survives anything. A first-ever start
+to transcript.jsonl so the discussion survives anything. The desktop pages'
+settings and the Spotify sign-in persist to settings.json beside it. A first-ever start
 (no state.json) seeds the board title and boxes from seed.json if present;
 see seed.example.json. Real discussion content never ships in this code.
 """
@@ -630,6 +713,19 @@ def _spotify_client_id() -> str:
     return str(cfg.get("spotify_client_id") or "").strip()
 
 
+def _compose_format_default() -> bool:
+    """Whether formatting while typing starts on in a browser that has stored no
+    choice of its own, read from run.config.json (machine-local, gitignored)
+    under `compose_format_default`. Only true turns it on: a missing key, a
+    missing file or any other value leaves it off. A browser's own stored
+    choice always wins over this."""
+    try:
+        cfg = json.loads((HERE / "run.config.json").read_text())
+    except Exception:
+        return False
+    return isinstance(cfg, dict) and cfg.get("compose_format_default") is True
+
+
 class DatedRotatingHandler(logging.handlers.RotatingFileHandler):
     """A file per day per kind, capped by size and pruned by count.
 
@@ -748,6 +844,7 @@ class HumanLineFormatter(logging.Formatter):
 LOG_LEVEL = _configured_level()
 IMAGE_PANEL_LANE = _image_panel_lane()
 SPOTIFY_CLIENT_ID = _spotify_client_id()
+COMPOSE_FORMAT_DEFAULT = _compose_format_default()
 LOGGER = logging.getLogger("facilitator")
 LOGGER.setLevel(LOG_LEVELS[LOG_LEVEL])
 LOGGER.propagate = False
@@ -798,7 +895,15 @@ def _error(kind: str, box: str = "", /, **fields) -> None:
 # into the .venv beside this file from requirements.txt. Imported here, after
 # the logger exists, so a board started without them writes one line saying
 # so and says one sentence on the terminal, instead of dying of an import
-# nobody is there to read.
+# nobody is there to read. A Python older than 3.11 is turned away the same
+# way, before them: the request bodies are read under asyncio.timeout, which
+# 3.11 brought, so on an older one the board would start and then fail every
+# change made on it. facilitator run starts it on the Python 3.14 in .venv.
+if sys.version_info < (3, 11):
+    _running = ".".join(str(part) for part in sys.version_info[:3])
+    _error("startuprefused", reason="python is older than 3.11")
+    sys.exit(f"facilitator's server needs Python 3.11 or newer and this is {_running}. Start it with "
+             "facilitator run, which uses the Python 3.14 in .venv, or run ./install.sh to rebuild .venv.")
 try:
     import anyio
     import h11
@@ -813,11 +918,8 @@ try:
     from uvicorn.protocols.http.h11_impl import H11Protocol
 except ImportError:
     _error("startuprefused", reason="requirements are not installed")
-    setup = ("uv pip sync --python .venv/bin/python requirements.txt"
-             if (HERE / ".venv").is_dir()
-             else "uv venv .venv, then uv pip sync --python .venv/bin/python requirements.txt")
-    sys.exit("facilitator needs the packages in requirements.txt: beside server.py run " + setup + ", "
-             "then start the board with .venv/bin/python3 server.py or facilitator run")
+    sys.exit("facilitator needs the packages in requirements.txt: beside server.py run ./install.sh, "
+             "which builds .venv on Python 3.14 and installs them, then start the board with facilitator run")
 
 
 CRASH_FRAMES = 12           # frames a crash line walks back through, innermost last
@@ -865,6 +967,11 @@ def _log_file() -> Path:
 # cycle has fresh counters every time and only the server's cap is a cap.
 CLIENT_PAGES = ("board", "phone", "page")
 CLIENT_KINDS = ("error", "rejection", "fetch", "render", "slow", "incident")
+# the kind of window a page is open in, and its id for one page load: the same
+# page in the Chrome window, the Electron app and the Tauri app is otherwise
+# indistinguishable. Only these names and 16 hex characters are ever kept
+CLIENT_NAMES = ("chrome", "electron", "tauri", "safari", "phone", "other")
+CLIENT_WINDOW_ID = re.compile(r"[a-f0-9]{16}", re.ASCII)
 CLIENT_MAX_BODY = 16 * 1024   # bytes in one batch
 CLIENT_MAX_REPORTS = 20       # reports in one batch
 CLIENT_MAX_CHARS = 500        # characters of any one string a report carries
@@ -1063,7 +1170,24 @@ def _client_fields(report: dict) -> dict:
     return out
 
 
-def _client_batch(page: str, reports: list) -> tuple:
+def _client_who(batch: dict):
+    """Which window sent a batch: its kind and its id for this page load. A page
+    opened before the board was updated sends neither, so each may be missing,
+    but neither may be anything else. None when one is not what a page sends."""
+    who = {}
+    if "client" in batch:
+        if batch["client"] not in CLIENT_NAMES:
+            return None
+        who["client"] = batch["client"]
+    if "window" in batch:
+        value = batch["window"]
+        if not isinstance(value, str) or not CLIENT_WINDOW_ID.fullmatch(value):
+            return None
+        who["window"] = value
+    return who
+
+
+def _client_batch(page: str, reports: list, who: dict) -> tuple:
     """One batch to the client file, under the per key per minute cap: how many
     were written and how many were dropped. What the cap drops is counted and
     said, so a file missing lines says how many are missing rather than quietly
@@ -1089,14 +1213,14 @@ def _client_batch(page: str, reports: list) -> tuple:
             fields = _client_fields(report)
             if report["kind"] == "incident":
                 record = CLIENT_LOGGER.makeRecord(CLIENT_LOGGER.name, logging.INFO, "", 0, "incident", (), None,
-                                                  extra={"box": report["box"], "fields": {"page": page, **fields}})
+                                                  extra={"box": report["box"], "fields": {"page": page, **who, **fields}})
                 _client_file.emit_confirmed(record)
             else:
-                _client_event(report["kind"], str(report.get("box") or "")[:64], page=page, **fields)
+                _client_event(report["kind"], str(report.get("box") or "")[:64], page=page, **who, **fields)
             window[1] += 1
             written += 1
     for count, sample in lost.values():
-        _client_event("dropped", str(sample.get("box") or "")[:64], page=page,
+        _client_event("dropped", str(sample.get("box") or "")[:64], page=page, **who,
                       report=sample["kind"], message=str(sample.get("message") or "")[:CLIENT_MAX_CHARS],
                       line=sample.get("line") if isinstance(sample.get("line"), int) else None,
                       dropped=count)
@@ -1121,6 +1245,9 @@ def _lane_dirs() -> dict:
             for ln in lanes if ln.get("owner") and ln.get("dir")}
 STATE_PATH = HERE / "state.json"
 TRANSCRIPT_PATH = HERE / "transcript.jsonl"
+# held by the running server for as long as it runs: one server per folder,
+# and the pid and port it names are how the CLI finds this board on any port
+SERVER_LOCK = HERE / "server.lock"
 # uploaded images now save outside the repo, in the sibling internal folder
 # (not a git repo, never pushed); reads still fall back to the old in-repo
 # uploads/ so the images saved there before this change keep resolving
@@ -1136,7 +1263,34 @@ UPLOAD_TYPES = {**IMG_TYPES,
                 ".opus": "audio/ogg", ".weba": "audio/webm",
                 ".pdf": "application/pdf", ".doc": "application/msword",
                 ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
-PORT = 8877
+# The board's pair of ports: PORT for the desktop and the agents, and the
+# phone's guarded socket one above it. run.config.json's port names the pair,
+# and `facilitator run` moves it to a free pair when something else holds this
+# one, so the port is read rather than assumed. A test's copy of this file sets
+# FACILITATOR_TEST_PORT, which wins over the config, so no config a test
+# carries can steer it onto a real port; older tests swap the text of the line
+# below for their own port, which lands the same way.
+DEFAULT_PORT = 8877
+
+
+def _configured_port() -> int:
+    """FACILITATOR_TEST_PORT when it is set, else run.config.json's port when
+    it is a whole number from 1 to 65534 (the pair needs the one above it),
+    else DEFAULT_PORT. Read here, once, because the sockets are bound before
+    anything else is read; a missing or unreadable config is the default, the
+    way the agent skill's helper reads it."""
+    named = os.environ.get("FACILITATOR_TEST_PORT")
+    if named:
+        return int(named)
+    try:
+        value = json.loads((HERE / "run.config.json").read_text()).get("port")
+        number = None if isinstance(value, bool) else int(value)
+    except Exception:
+        number = None
+    return number if number is not None and 1 <= number <= 65534 else DEFAULT_PORT
+
+
+PORT = _configured_port()
 BRIDGE_PORT = PORT + 1  # a distinct socket; never infer trust from Host or proxy headers
 # ---- the transport's bounds ------------------------------------------------------
 # What the board accepts at once and how long it lets a peer sit on the line.
@@ -1155,6 +1309,13 @@ BODY_READ_TIMEOUT = 30.0        # seconds a request body may take to arrive
 GRACEFUL_STOP_TIMEOUT = 3       # seconds a stop waits for open requests before cutting them
 MAX_TEXT_BODY = 1024 * 1024     # bytes of a plain text body: a message, a reply, a text file
 MAX_UPLOAD_BODY = 100 * 1024 * 1024   # bytes of one attachment
+# an attachment is not held to BODY_READ_TIMEOUT: a phone video over a slow
+# link can need minutes, and a flat total cuts a slow but steady upload as
+# surely as a dead one. It is cut when nothing has arrived for the first clock,
+# and in any case once the second has run out
+UPLOAD_STALL_TIMEOUT = 60.0     # seconds an upload may go with no bytes arriving
+UPLOAD_TIME_LIMIT = 3600.0      # seconds a whole upload may take
+UPLOAD_RECEIPTS = 256           # finished uploads remembered by operation id, newest kept
 MAX_IMG_PREVIEW = 25 * 1024 * 1024    # bytes of an in-root image the navigator will preview inline
 # the control bytes a real text file never carries: every C0 control except tab,
 # newline, carriage return and form feed. A file can decode as utf-8 and still be
@@ -1619,7 +1780,7 @@ def _seed_state() -> dict:
         # into the quick note system as well: card-logic.js quickNoteRef and
         # quickNoteCard (which also settles a seeded 12 against a made m12),
         # _post_quicknote_new and _post_quicknote_attach in this file, and
-        # index.html syncQuickNoteChip
+        # parked/quick-note.js syncQuickNoteChip
         "boxes": [
             {
                 "id": it["id"], "bucket": it["bucket"], "title": it["title"],
@@ -1639,8 +1800,6 @@ def _seed_state() -> dict:
         # itself: {box, token, ts, confirmed} for the claim in play, None when
         # the lane holds nothing
         "ack": {ow: None for ow in OWNERS},
-        "end": False,
-        "paused": False,
         "next_mid": 1,
         "next_bid": 1,
     }
@@ -1886,9 +2045,43 @@ def _ensure_reply_schema_boundary() -> None:
     _state["transcript_reply_variants_version"] = REPLY_VARIANTS_VERSION
 
 
+def _backfill_rest_stamps() -> None:
+    """Give each parked or done card that has no parked_ts or done_ts the time of
+    the latest park or done event the transcript holds for it, and its own ts
+    when the transcript holds none. Only a missing stamp is filled and nothing
+    else on a card is touched, so a start with every stamp in place reads no
+    transcript and changes nothing. Callers hold _lock or run before serving."""
+    missing = [(b, flag, stamp)
+               for b in _state["boxes"]
+               for flag, stamp in (("parked", "parked_ts"), ("done", "done_ts"))
+               if b.get(flag) and not isinstance(b.get(stamp), (int, float))]
+    if not missing:
+        return
+    latest: dict = {}   # (box id, event kind) -> time of the last such row in file order
+    try:
+        with TRANSCRIPT_PATH.open(errors="replace") as transcript:
+            for line in transcript:
+                try:
+                    event = json.loads(line)
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(event, dict) or event.get("kind") not in ("park", "done"):
+                    continue
+                bid, ts = event.get("box"), event.get("ts")
+                if isinstance(bid, str) and isinstance(ts, (int, float)) and not isinstance(ts, bool):
+                    latest[(bid, event["kind"])] = ts
+    except FileNotFoundError:
+        pass
+    now = time.time()
+    for b, flag, stamp in missing:
+        kind = "park" if flag == "parked" else "done"
+        b[stamp] = latest.get((b["id"], kind)) or b.get("ts") or now
+
+
 def _migrate() -> None:
     """Apply each versioned, idempotent upgrade to saved board state."""
-    _state.setdefault("paused", False)
+    _state.pop("paused", None)   # the pause switch is gone; drop what an older board saved
+    _state.pop("end", None)   # the end switch is gone; drop what an older board saved
     _state.setdefault("title", "facilitator")
     # owners come from data, not code: the built-in facilitator, the lanes named
     # in run.config.json, the stored project lanes, and any owner a saved card
@@ -1905,8 +2098,9 @@ def _migrate() -> None:
     # it is the source of every card number, so a change to it has to be carried
     # into the quick note system too: card-logic.js quickNoteRef and quickNoteCard
     # (the "card N" / "cN" parser and its lookup), _post_quicknote_new and
-    # _post_quicknote_attach in this file (the attach routes) and index.html
-    # syncQuickNoteChip (the note chip); _create_box_record lists them in full
+    # _post_quicknote_attach in this file (the attach routes) and
+    # parked/quick-note.js syncQuickNoteChip (the note chip);
+    # _create_box_record lists them in full
     _state.setdefault("next_bid", 1 + max(
         [int(b["id"][1:]) for b in _state["boxes"]
          if b["id"].startswith("m") and b["id"][1:].isdigit()] or [0]))
@@ -2107,6 +2301,10 @@ def _migrate() -> None:
         [int(n["id"][2:]) for n in _state["quicknotes"]
          if isinstance(n, dict) and str(n.get("id", "")).startswith("qn")
          and str(n["id"])[2:].isdigit()] or [0]))
+    # when each deferred or done card was put there, for the Deferred and Done
+    # tabs to list by: cards saved before the board stamped them are filled once
+    # from the transcript and from then on the routes keep the stamps
+    _backfill_rest_stamps()
     _save()
 
 
@@ -2329,10 +2527,23 @@ def _box_has_content(box: dict) -> bool:
             bool(box.get("pending")))
 
 
+def _stamp_rest(box: dict, now: float) -> None:
+    """Keep parked_ts and done_ts in step with the parked and done flags: a stamp
+    is written the moment its flag turns on, kept while the flag stays on, and
+    dropped when it turns off. The Deferred and Done tabs list by these times.
+    Callers hold _lock, change the flags first and save after."""
+    for flag, stamp in (("parked", "parked_ts"), ("done", "done_ts")):
+        if box.get(flag):
+            box.setdefault(stamp, now)
+        else:
+            box.pop(stamp, None)
+
+
 def _mark_box_done(box: dict) -> str:
     box["done"] = True
     box["parked"] = False
     box["testing"] = False   # a closed card is not awaiting a test
+    _stamp_rest(box, time.time())
     _log("done", box["id"], "")
     return "done"
 
@@ -2348,10 +2559,12 @@ def _remove_empty_meta_box(box: dict) -> str:
         _state["busy"][ow] = None
         _state["claimed"][ow] = []
     # a quick note attached to the card that is going stands alone again,
-    # rather than naming a card the board no longer has
-    for note in _state.get("quicknotes", []):
-        if note.get("card") == bid:
-            note["card"] = None
+    # rather than naming a card the board no longer has. with the quick note
+    # hidden the stored notes are left exactly as they are
+    if QUICK_NOTES_ON:
+        for note in _state.get("quicknotes", []):
+            if note.get("card") == bid:
+                note["card"] = None
     _log("delete", bid, box["title"])
     return "deleted"
 
@@ -3192,6 +3405,7 @@ def _phone_box(b: dict) -> dict:
         "done": b["done"], "replies": b["replies"], "olderReplies": _older_replies(b),
         "ball": b.get("ball", "you"),
         "parked": b.get("parked", False), "ts": b.get("ts", 0), "owner": ow,
+        "parkedTs": b.get("parked_ts", 0), "doneTs": b.get("done_ts", 0),
         "pending": len(b["pending"]),
         "pendingTexts": [m["text"] for m in b["pending"]],
         "pendingStamps": [m.get("ts", 0) for m in b["pending"]],
@@ -3261,7 +3475,7 @@ def _phone_state(since: int | None, ops: list[str], epoch: str = "") -> bytes:
             "title": _state.get("title", "facilitator"),
             "tabs": _state.get("tabs", {"order": [], "closed": []}),
             "pwds": _lane_pwds(), "projects": _state.get("projects", []),
-            "paused": _state.get("paused", False), "epoch": PHONE_EPOCH,
+            "epoch": PHONE_EPOCH,
         })
         if base is None:
             cards = texts
@@ -3387,6 +3601,10 @@ def _ui_state() -> dict:
                 "olderReplies": _older_replies(b),
                 "ball": b.get("ball", "you"),
                 "parked": b.get("parked", False),
+                # when the card was deferred and when it was marked done, which
+                # is what the Deferred and Done tabs list by; 0 while it is not
+                "parkedTs": b.get("parked_ts", 0),
+                "doneTs": b.get("done_ts", 0),
                 "ts": b.get("ts", 0),
                 "context": b.get("context", ""),
                 "owner": b.get("owner", "facilitator"),
@@ -3446,6 +3664,10 @@ def _ui_state() -> dict:
         # the revision this snapshot is of: every saved change moves it, so a
         # reader holding one can tell whether a later answer is newer
         "rev": st.get("rev", 0),
+        # the settings' own revision, apart from the board's: a page that sees
+        # it move reads /settings again, so a box arranged in one window
+        # reaches the others without the board itself changing
+        "settingsRev": _settings_rev(),
         # the board's own clock when this reading was made, the way the phone's
         # readings already carry it: a page names the moment of a click by it,
         # so the times it sends back are the board's and not the browser's
@@ -3455,8 +3677,6 @@ def _ui_state() -> dict:
         "projects": st.get("projects", []),
         "busy": st["busy"],
         "queued": len(st["inbox"]),
-        "end": st["end"],
-        "paused": st.get("paused", False),
         "title": st.get("title", "facilitator"),
         # the lane whose own internal folder feeds the image panel, read
         # from run.config.json; empty leaves the panel off on every tab
@@ -3480,7 +3700,7 @@ def _ui_state() -> dict:
         # the quick notes without their words: enough for a card to show that a
         # note is attached to it. the words travel only on the note routes, so
         # a reading taken every second never carries them
-        "quicknotes": [_quicknote_meta(n) for n in st.get("quicknotes", [])],
+        **({"quicknotes": [_quicknote_meta(n) for n in st.get("quicknotes", [])]} if QUICK_NOTES_ON else {}),
         "listenerGap": {ow: round(time.time() - _last_wait.get(ow, 0.0), 1) for ow in OWNERS},
         # the row tag's truth: the lane's last stated agent name, and alive
         # meaning connected now, seen within the steal window, or holding a card
@@ -3512,11 +3732,15 @@ def _ui_state() -> dict:
 class Query(dict):
     """The query string parsed the way it always was, plus the raw string for
     the one route that has to tell a blank value from an absent one, the
-    request path for the routes that read a name out of it, and the encodings
-    the caller takes, for the one route whose answer is compressed."""
+    request path for the routes that read a name out of it, the encodings
+    the caller takes, for the one route whose answer is compressed, and
+    whether the request is a local page's and names its own origin, for the
+    routes only a page on this Mac may use (_local_request)."""
     raw: str = ""
     path: str = ""
     accept_encoding: str = ""
+    local: bool = False
+    same_origin: bool = False
 
     def one(self, name: str, default: str = "") -> str:
         values = self.get(name)
@@ -3543,6 +3767,17 @@ def _get_page(q: Query, _):
     # the second UI: the same lanes and the same cards drawn as one typed
     # page, in its own file so editing it can never touch the card board
     return 200, (HERE / "page.html").read_bytes(), "text/html; charset=utf-8"
+
+
+def _get_compose_format(q: Query, _):
+    # the composer's file with the board's default written in front of it on the
+    # same line, so every page knows it before its first composer is built and
+    # the file's line numbers stay the file's own
+    p = HERE / "compose-format.js"
+    if not p.is_file():
+        return 404, {"error": "not found"}
+    lead = b"globalThis.COMPOSE_FORMAT_DEFAULT=" + (b"true" if COMPOSE_FORMAT_DEFAULT else b"false") + b";"
+    return 200, lead + p.read_bytes(), "application/javascript; charset=utf-8"
 
 
 def _sweep_clocks() -> None:
@@ -3802,10 +4037,7 @@ _token_ledger = None
 _token_ledger_lock = threading.Lock()
 
 
-def _get_tokens_daily(q: Query, _):
-    days = q.one("days", "365")
-    if not re.fullmatch(r"[0-9]{1,4}", days) or not 1 <= int(days) <= TOKENS_MAX_DAYS:
-        return 400, {"error": f"days must be a whole number from 1 to {TOKENS_MAX_DAYS}"}
+def _ledger():
     import tokens
     try:
         cfg = json.loads((HERE / "run.config.json").read_text())
@@ -3818,8 +4050,40 @@ def _get_tokens_daily(q: Query, _):
         # to them starts a ledger over them from the same cache
         if _token_ledger is None or _token_ledger.roots != folders:
             _token_ledger = tokens.TokenLedger(folders, TOKENS_CACHE)
-        ledger = _token_ledger
-    return 200, ledger.daily(int(days))
+        return _token_ledger
+
+
+def _get_tokens_daily(q: Query, _):
+    days = q.one("days", "365")
+    if not re.fullmatch(r"[0-9]{1,4}", days) or not 1 <= int(days) <= TOKENS_MAX_DAYS:
+        return 400, {"error": f"days must be a whole number from 1 to {TOKENS_MAX_DAYS}"}
+    return 200, _ledger().daily(int(days))
+
+
+# the limits box on the home page: the 5-hour and weekly windows of Claude Code
+# and of Codex as a percent used, for the tools that have a number to show.
+# Claude's come from the file claude-statusline.py writes beside this one
+# (gitignored); Codex's from its own app server, at most once in five minutes,
+# or from its session logs. limits.py is loaded when the page first asks. The
+# first ask waits for Codex; every later one is answered at once from the last
+# reading, with the time it was taken, while a stale reading is renewed in the
+# background (`refreshing` says so).
+CLAUDE_LIMITS = HERE / "claude-limits.json"
+_limits = None
+_limits_lock = threading.Lock()
+
+
+def _get_limits(q: Query, _):
+    import limits
+    global _limits
+    with _limits_lock:
+        if _limits is None:
+            _limits = limits.Limits(CLAUDE_LIMITS, lambda: _ledger().latest_limits())
+        reader = _limits
+    shown = reader.answer()
+    _debug("limits", source=reader.source,
+           tools=sum(1 for tool in ("claude", "codex") if tool in shown))
+    return 200, shown
 
 
 def _get_dirs(q: Query, _):
@@ -4123,11 +4387,9 @@ def _wait_leave(owner: str) -> None:
 
 def _wait_poll(owner: str):
     """One pass over the lane: the clocks, the steal-back, then a claim if a
-    box is waiting. Answers (kind, payload) with kind one of paused, end or
-    claim, or None when there is nothing to say yet."""
+    box is waiting. Answers the claim, or None when there is nothing to say
+    yet."""
     with _lock:
-        if _state.get("paused"):  # laptop-close mode: send the listener home
-            return "paused", {"paused": True}
         # the short clock first: a hand-off nobody confirmed comes back
         # after 90 seconds, long before the steal-back below notices
         _release_unacked()
@@ -4185,10 +4447,7 @@ def _wait_poll(owner: str):
                     # the receipt this hand-off has to come back with
                     "ack": token,
                 }
-                return "claim", payload
-        if _state["end"] and _state["busy"][owner] is None and not any(
-                (_box(i) or {}).get("owner", "facilitator") == owner for i in _state["inbox"]):
-            return "end", {"end": True}
+                return payload
         return None
 
 
@@ -4217,21 +4476,109 @@ def _rollback_claim(owner: str, bid: str, token: str) -> bool:
 
 # -- POST -----------------------------------------------------------------------
 
-def _post_upload(q: Query, raw: bytes):
-    if not raw:
-        return 400, {"error": "empty upload"}
-    name = q.one("name", "file")
-    safe = "".join(c for c in name if c.isalnum() or c in "._- ").strip()[-100:] or "file"
-    if Path(safe).suffix.lower() not in UPLOAD_TYPES:
-        return 415, {"error": "unsupported file type; choose an image, video, audio, PDF or Word file"}
-    up = INTERNAL_UPLOADS
-    up.mkdir(parents=True, exist_ok=True)
-    # Exclusive creation keeps simultaneous uploads with the same name distinct.
-    stamp = time.time_ns()
-    fname = f"{stamp}-{safe}"
-    with (up / fname).open("xb") as target:
-        target.write(raw)
-    return 200, {"url": "/uploads/" + quote(fname)}
+# ---- attachments ----------------------------------------------------------------
+# What an upload is allowed to be. The name only says which kind of file the
+# sender means; the first bytes say which kind arrived, and the two have to
+# agree, so a page renamed as a picture never reaches the uploads folder. The
+# checks are loose within a kind on purpose (any of the box names a QuickTime
+# file may open with, a bare frame as well as a tag for MP3, RTF as well as the
+# Word binary for .doc), because a real file turned away is the worse mistake:
+# what keeps an odd file harmless is how /uploads serves it, with nosniff and a
+# sandbox, and this is the layer in front of that. The words are the phone's:
+# it shows them to the owner as they are.
+UPLOAD_HEAD = 4096              # bytes of the start of a file its kind is read from
+_ISO_BOXES = (b"ftyp", b"moov", b"mdat", b"wide", b"free", b"skip", b"pnot")
+UPLOAD_KINDS = {
+    ".png": ("a PNG picture", lambda h: h.startswith(b"\x89PNG\r\n\x1a\n")),
+    ".jpg": ("a JPEG picture", lambda h: h.startswith(b"\xff\xd8\xff")),
+    ".jpeg": ("a JPEG picture", lambda h: h.startswith(b"\xff\xd8\xff")),
+    ".gif": ("a GIF picture", lambda h: h.startswith((b"GIF87a", b"GIF89a"))),
+    ".webp": ("a WebP picture", lambda h: h[:4] == b"RIFF" and h[8:12] == b"WEBP"),
+    ".svg": ("an SVG picture", lambda h: b"<svg" in h.lower()),
+    ".mp4": ("an MP4 video", lambda h: h[4:8] in _ISO_BOXES),
+    ".m4v": ("an M4V video", lambda h: h[4:8] in _ISO_BOXES),
+    ".mov": ("a QuickTime video", lambda h: h[4:8] in _ISO_BOXES),
+    ".webm": ("a WebM video", lambda h: h.startswith(b"\x1a\x45\xdf\xa3")),
+    ".ogv": ("an Ogg video", lambda h: h.startswith(b"OggS")),
+    ".mp3": ("an MP3 recording", lambda h: h.startswith(b"ID3") or (len(h) > 1 and h[0] == 0xFF and h[1] & 0xE0 == 0xE0)),
+    ".m4a": ("an M4A recording", lambda h: h[4:8] in _ISO_BOXES),
+    ".aac": ("an AAC recording", lambda h: h.startswith((b"ID3", b"ADIF")) or (len(h) > 1 and h[0] == 0xFF and h[1] & 0xF0 == 0xF0)),
+    ".wav": ("a WAV recording", lambda h: h[:4] == b"RIFF" and h[8:12] == b"WAVE"),
+    ".ogg": ("an Ogg recording", lambda h: h.startswith(b"OggS")),
+    ".oga": ("an Ogg recording", lambda h: h.startswith(b"OggS")),
+    ".opus": ("an Opus recording", lambda h: h.startswith(b"OggS")),
+    ".weba": ("a WebM recording", lambda h: h.startswith(b"\x1a\x45\xdf\xa3")),
+    ".pdf": ("a PDF", lambda h: b"%PDF-" in h[:1024]),
+    ".doc": ("a Word document", lambda h: h.startswith((b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1", b"{\\rtf"))),
+    ".docx": ("a Word document", lambda h: h.startswith(b"PK\x03\x04")),
+}
+# what an SVG may not carry: script in any of the ways a document can hold it,
+# an event handler on any element, a javascript: link, or HTML embedded in it.
+# /uploads already serves an SVG where none of this could run; refusing it here
+# means the folder never holds one that would run anywhere else
+_SVG_SCRIPT = re.compile(rb"<script|<handler|<foreignobject|<iframe|<embed|<object|javascript:"
+                         rb"|<[^<]{0,4096}?[\s\"'/]on[a-z]+\s*=", re.IGNORECASE)
+_SVG_OVERLAP = 8192             # longer than any match above, so a read boundary never splits one
+UPLOAD_WORDS = {
+    "type": "That kind of file cannot be attached. Choose an image, video, audio, PDF or Word file.",
+    "large": "The file is larger than 100 MiB, so it was not attached.",
+    "empty": "The file is empty, so it was not attached.",
+    "script": "That SVG carries script, so it was not attached.",
+    "stalled": "The upload stopped arriving for a minute, so it was not saved.",
+    "late": "The upload took longer than an hour, so it was not saved.",
+    "op": "That upload id is not one this board can use.",
+    "other": "That upload id belongs to another file.",
+    "arriving": "That upload is still arriving.",
+}
+# the operation ids of finished uploads, oldest first, and the ones still
+# coming in. Both are this server run's alone and touched only on the loop: an
+# upload changes no board state, so a receipt lost to a restart costs a second
+# copy of one file, never a second message
+_upload_receipts: dict[str, dict] = {}
+_uploads_arriving: set[str] = set()
+
+
+def _upload_name(name: str) -> str:
+    """The name a file is kept under after its stamp: letters, digits, dot,
+    dash, underscore and space, the last 100 of them."""
+    return "".join(c for c in name if c.isalnum() or c in "._- ").strip()[-100:] or "file"
+
+
+def _upload_kind_error(ext: str, head: bytes) -> str | None:
+    """Plain words when the start of a file is not the kind its name says."""
+    kind = UPLOAD_KINDS.get(ext)
+    if kind is None:
+        return UPLOAD_WORDS["type"]
+    words, matches = kind
+    return None if matches(head) else f"That file is not {words}, whatever its name says, so it was not attached."
+
+
+def _svg_carries_script(path: Path) -> bool:
+    """The whole file is read for it, a MiB at a time with an overlap so a
+    marker cut in two by the read is still seen whole."""
+    tail = b""
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            window = tail + chunk
+            if _SVG_SCRIPT.search(window):
+                return True
+            tail = window[-_SVG_OVERLAP:]
+    return False
+
+
+def _sweep_upload_parts() -> None:
+    """Part files an upload left behind when the server stopped under it. One
+    still younger than an upload may take could belong to a server starting
+    beside this one, so only older ones go."""
+    try:
+        for part in INTERNAL_UPLOADS.glob(".*.part"):
+            try:
+                if time.time() - part.stat().st_mtime > UPLOAD_TIME_LIMIT:
+                    part.unlink()
+            except OSError:
+                pass
+    except OSError:
+        pass
 
 
 def _post_clientlog(q: Query, raw: bytes):
@@ -4244,7 +4591,8 @@ def _post_clientlog(q: Query, raw: bytes):
         batch = None
     page = batch.get("page") if isinstance(batch, dict) else None
     reports = batch.get("reports") if isinstance(batch, dict) else None
-    if (page not in CLIENT_PAGES or not isinstance(reports, list) or not reports
+    who = _client_who(batch) if isinstance(batch, dict) else None
+    if (page not in CLIENT_PAGES or who is None or not isinstance(reports, list) or not reports
             or not all(isinstance(r, dict) and r.get("kind") in CLIENT_KINDS
                        for r in reports)):
         # nothing of a batch this board cannot read is stored, the way
@@ -4255,7 +4603,7 @@ def _post_clientlog(q: Query, raw: bytes):
     if any(r["kind"] == "incident" and not _incident_valid(page, r) for r in reports):
         return 400, {"error": "bad incident history"}
     try:
-        written, dropped = _client_batch(page, reports)
+        written, dropped = _client_batch(page, reports, who)
     except OSError:
         return 503, {"error": "the diagnostic log could not be written"}
     return 200, {"ok": True, "written": written, "dropped": dropped}
@@ -4357,6 +4705,7 @@ def _post_send(q: Query, text: str):
             msg["op"] = op
         box["pending"].append(msg)
         box["parked"] = False
+        _stamp_rest(box, msg["ts"])
         # fresh feedback lowers the ready-to-test marker: the reader has answered,
         # so any earlier "ready to try" no longer stands. This sits past the op
         # receipt above, so a deduplicated retry of an already-accepted send
@@ -4556,6 +4905,7 @@ def _post_done(q: Query, text: str):
         if box["done"]:
             box["parked"] = False
             box["testing"] = False   # a done card is not awaiting a test
+        _stamp_rest(box, time.time())
         _log("done" if box["done"] else "undone", bid, "")
         _save()
         _notify()
@@ -4757,6 +5107,7 @@ def _post_park(q: Query, text: str):
         box["parked"] = want
         if box["parked"]:
             box["done"] = False
+        _stamp_rest(box, time.time())
         _log("park" if box["parked"] else "unpark", bid, "")
         _save()
         _notify()
@@ -4856,7 +5207,8 @@ def _create_box_record(owner: str, title: str) -> dict:
     # system as well: card-logic.js quickNoteRef and QUICK_NOTE_REF (the
     # "card N" / "cN" parser), quickNoteCard and quickNoteAttachStep; in this
     # file _post_quicknote_new and _post_quicknote_attach (the attach routes)
-    # and _remove_empty_meta_box; index.html syncQuickNoteChip (the note chip)
+    # and _remove_empty_meta_box; parked/quick-note.js syncQuickNoteChip (the
+    # note chip)
     bid_new = f"m{_state['next_bid']}"  # never reused, even after deletes
     _state["next_bid"] += 1
     # keep each meta section grouped: insert after its last same-owner meta box
@@ -5289,6 +5641,185 @@ def _post_seen(q: Query, text: str):
         return 200, {"ok": True, "seen": out}
 
 
+# ---- the board's settings ---------------------------------------------------------
+# What the reader arranges on the desktop pages: where each box sits and how
+# big it is, which boxes are put away, the background colour, the outline's
+# width, formatting while typing, the home chart, the typed page's tasks, and
+# the one-time layout passes that go with them. They lived in each browser's
+# own storage, filed under the board's address, so the board opened at another
+# address (a port it moved to) started from nothing. Now they are the board's,
+# kept under the browsers' own key names and text values so the pages read
+# them exactly as before. In a file of their own and not in state.json: every
+# state.json save moves the board's revision, and a box dragged on the desktop
+# must not send every phone the board again.
+#
+# The Spotify sign-in is kept in the same file, under "spotify", and never
+# travels on these routes: /spotify/session alone answers it, to a local page.
+SETTINGS_PATH = HERE / "settings.json"
+SETTINGS_VALUE_MAX = 65536      # characters in one value; a box's place is a few dozen
+SETTINGS_KEYS_MAX = 4000        # keys in the whole store
+# the keys a page may keep here, the same list as SETTINGS_KEY in
+# board-settings.js. A lane is any printable text (a lane id keeps the letters
+# of its folder's name), a box is one of the page's element ids
+SETTINGS_KEY = re.compile(
+    r"(?:(?:layoutbak\.)?(?:pos|size)|hide|show)\.[^\x00-\x1f\x7f]{1,200}\.[A-Za-z0-9_-]{1,64}"
+    r"|doc\.tasks\.[^\x00-\x1f\x7f]{1,200}"
+    r"|bgcolor|tocw|composeformat|home\.chart"
+    r"|magicrename\.1|layoutsync\.1|hideseed\.1|layoutvisibility\.[12]|navrestore\.1")
+SPOTIFY_FIELDS = frozenset({"access", "refresh", "expires", "scopes"})
+SPOTIFY_VALUE_MAX = 4096
+_settings_lock = threading.Lock()
+_settings: dict | None = None   # the file as last written, read the first time it is asked for
+
+
+def _settings_file() -> dict:
+    """The settings as kept: {rev, values, spotify}. Callers hold
+    _settings_lock. A file that cannot be read as settings is moved aside
+    under a dated name rather than written over, and the board starts with
+    none beside it."""
+    global _settings
+    if _settings is not None:
+        return _settings
+    try:
+        raw = json.loads(SETTINGS_PATH.read_text())
+        values = raw.get("values", {})
+        spotify = raw.get("spotify", {})
+        if not isinstance(values, dict) or not isinstance(spotify, dict):
+            raise ValueError("not a settings file")
+        _settings = {"rev": int(raw.get("rev", 0)),
+                     "values": {k: v for k, v in values.items() if isinstance(k, str) and isinstance(v, str)},
+                     "spotify": {k: v for k, v in spotify.items() if k in SPOTIFY_FIELDS and isinstance(v, str)}}
+    except FileNotFoundError:
+        _settings = {"rev": 0, "values": {}, "spotify": {}}
+    except (OSError, ValueError, TypeError, AttributeError) as e:
+        kept = SETTINGS_PATH.with_name(f"settings.json.bad-{time.strftime('%Y%m%dT%H%M%S')}")
+        try:
+            SETTINGS_PATH.replace(kept)
+            _error("settingsbad", kept=kept.name, error=type(e).__name__)
+        except OSError as moved:
+            _error("settingsbad", error=type(e).__name__, reason=moved.strerror or type(moved).__name__)
+        _settings = {"rev": 0, "values": {}, "spotify": {}}
+    return _settings
+
+
+def _settings_rev() -> int:
+    with _settings_lock:
+        return _settings_file()["rev"]
+
+
+def _save_settings(store: dict) -> None:
+    """settings.json the way state.json is written: a temp file beside it,
+    flushed to the disk, then one rename. Owner-only, since it holds the
+    Spotify sign-in. The caller installs the new store in memory only after
+    this returns, so a save that fails leaves memory as the file still is."""
+    global _settings
+    payload = json.dumps(store, indent=1)
+    tmp = SETTINGS_PATH.with_name("settings.json.tmp")
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(payload)
+            f.flush()
+            _durable_fsync(f.fileno())
+        os.replace(tmp, SETTINGS_PATH)
+    except OSError as e:
+        tmp.unlink(missing_ok=True)
+        _error("savefail", step="settings", reason=e.strerror or type(e).__name__)
+        raise SaveFailed("settings") from e
+    _settings = store
+
+
+def _settings_answer(store: dict) -> dict:
+    """What a page is told of the settings: never the Spotify sign-in."""
+    return {"rev": store["rev"], "values": dict(store["values"])}
+
+
+def _get_settings(q: Query, _):
+    with _settings_lock:
+        return 200, _settings_answer(_settings_file())
+
+
+def _get_board_settings_js(q: Query, _):
+    # the store's file with the board's settings written in front of it on the
+    # same line, the way /compose-format.js carries its default: every value is
+    # there before a page's first line runs, so nothing is drawn twice, and the
+    # file's line numbers stay the file's own
+    p = HERE / "board-settings.js"
+    if not p.is_file():
+        return 404, {"error": "not found"}
+    with _settings_lock:
+        lead = "globalThis.BOARD_SETTINGS=" + json.dumps(_settings_answer(_settings_file())) + ";"
+    return 200, lead.encode() + p.read_bytes(), "application/javascript; charset=utf-8"
+
+
+def _post_settings(q: Query, text: str):
+    # set or remove the named keys and keep every other one: two windows
+    # arranging different boxes both keep theirs, and of two writes to the
+    # same key the one that lands last stands, as it did in a browser
+    try:
+        changes = json.loads(text) if text else None
+    except ValueError:
+        changes = None
+    if not isinstance(changes, dict) or not changes:
+        return 400, {"error": "bad settings"}
+    # every key and value is checked before anything is kept
+    for key, value in changes.items():
+        if not SETTINGS_KEY.fullmatch(key):
+            return 400, {"error": "unknown setting"}
+        if value is not None and (not isinstance(value, str) or len(value) > SETTINGS_VALUE_MAX):
+            return 400, {"error": "bad setting value"}
+    seed = q.one("seed") == "1"
+    with _settings_lock:
+        store = _settings_file()
+        if seed and store["values"]:
+            # a browser's one-time copy lands only on an empty store: the
+            # first browser to load this code keeps its arrangement, and any
+            # later one takes the board's
+            return 200, {"ok": True, "seeded": False, **_settings_answer(store)}
+        values = dict(store["values"])
+        for key, value in changes.items():
+            if value is None:
+                values.pop(key, None)
+            else:
+                values[key] = value
+        if len(values) > SETTINGS_KEYS_MAX:
+            return 400, {"error": "too many settings"}
+        new = {**store, "rev": store["rev"] + 1, "values": values}
+        _save_settings(new)
+        return 200, {"ok": True, **({"seeded": True} if seed else {}), **_settings_answer(new)}
+
+
+def _get_spotify_session(q: Query, _):
+    if not q.local:
+        return 404, {"error": "not found"}
+    with _settings_lock:
+        return 200, dict(_settings_file()["spotify"])
+
+
+def _post_spotify_session(q: Query, text: str):
+    if not q.local:
+        return 404, {"error": "not found"}
+    if not q.same_origin:
+        return 403, {"error": "origin refused"}
+    try:
+        rec = json.loads(text) if text else None
+    except ValueError:
+        rec = None
+    if not isinstance(rec, dict) or any(
+            key not in SPOTIFY_FIELDS or not isinstance(value, str) or len(value) > SPOTIFY_VALUE_MAX
+            for key, value in rec.items()):
+        return 400, {"error": "bad sign-in"}
+    with _settings_lock:
+        store = _settings_file()
+        if q.one("seed") == "1" and store["spotify"]:
+            return 200, {"ok": True, "seeded": False, **store["spotify"]}
+        _save_settings({**store, "spotify": rec})
+        return 200, {"ok": True, **rec}
+
+
+# hidden in v0: False refuses the quick note routes, drops quicknotes from /state, leaves stored notes alone
+QUICK_NOTES_ON = False
+
 # ---- quick notes ------------------------------------------------------------------
 # a few lines the owner jots down without leaving what they are doing: plain
 # text, standing alone unless it names a card, and then attached to that card.
@@ -5389,24 +5920,6 @@ def _post_quicknote_del(q: Query, text: str):
         return 200, {"ok": True, "id": note["id"], "rev": _state["rev"]}
 
 
-def _post_pause(q: Query, text: str):
-    with _lock:
-        _state["paused"] = q.one("v", "1") == "1"
-        _log("pause" if _state["paused"] else "unpause", "", "")
-        _save()
-        _notify()  # in-flight waiters return {"paused":true} at once
-        return 200, {"ok": True, "paused": _state["paused"]}
-
-
-def _post_end(q: Query, text: str):
-    with _lock:
-        _state["end"] = True
-        _log("end", "", "")
-        _save()
-        _notify()
-        return 200, {"ok": True}
-
-
 # ---- the transport --------------------------------------------------------------
 # One process, one worker, one owner of the board's state: uvicorn accepts the
 # connections and speaks HTTP, a small Starlette application routes them, and
@@ -5427,7 +5940,37 @@ def _query(scope: dict) -> Query:
     q.path = scope.get("path", "")
     q.accept_encoding = next((v.decode("latin-1") for k, v in scope.get("headers") or ()
                               if k == b"accept-encoding"), "")
+    q.local, q.same_origin = _local_request(scope)
     return q
+
+
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost"})
+
+
+def _local_request(scope: dict) -> tuple[bool, bool]:
+    """(local, same origin) for one request. Local means a page on this Mac
+    asked the board's own port straight: not the phone's socket, not through
+    Tailscale Serve (which adds X-Forwarded-For), with a loopback Host (a name
+    some other site points at this machine is not one), and not a fetch
+    another site set off. Same origin means it also names its own loopback
+    address as its Origin, which a page writing anything has to. The phone's
+    socket answers nobody here, however signed in: the bridge gate refuses
+    these routes before they are reached, and this is the second wall."""
+    server = scope.get("server") or (None, None)
+    headers = {k.lower(): v for k, v in scope.get("headers") or ()}
+    if server[1] != PORT or b"x-forwarded-for" in headers or b"tailscale-headers-info" in headers:
+        return False, False
+    if headers.get(b"sec-fetch-site", b"").strip().lower() == b"cross-site":
+        return False, False
+    host = headers.get(b"host", b"").decode("latin-1").strip().lower()
+    try:
+        name, port = urlparse("//" + host).hostname, urlparse("//" + host).port
+    except ValueError:
+        return False, False
+    if name not in LOOPBACK_HOSTS or port not in (None, PORT):
+        return False, False
+    origin = headers.get(b"origin", b"").decode("latin-1").strip().lower()
+    return True, origin == "http://" + host
 
 
 def _answer(status: int, payload, ctype: str | None = None, *,
@@ -5535,6 +6078,150 @@ def _state_endpoint(fn, body: str = "none", cap: int = MAX_TEXT_BODY,
                     too_large: str = "body too large"):
     """An endpoint whose route may change the board or its lazy clocks."""
     return _endpoint(fn, body, cap, too_large, stateful=True)
+
+
+# -- the attachment upload ---------------------------------------------------------
+# The one body that is not read whole into memory: up to MAX_UPLOAD_BODY of it
+# goes straight to a hidden part file beside the uploads, created for the owner
+# alone, and is linked into place under its kept name only once all of it has
+# come and its first bytes are the kind its name says. Every way out before
+# that removes the part, so a cut, a refusal or a stop leaves nothing that could
+# be served. The receipts below are what make a retry safe: the phone names
+# each upload with an operation id, and the same id asked again is answered with
+# the file already stored rather than a second copy.
+
+UPLOAD_WRITE = 1024 * 1024      # bytes gathered before each write to the part file
+
+
+class _UploadRefused(Exception):
+    def __init__(self, status: int, words: str) -> None:
+        super().__init__(words)
+        self.status, self.words = status, words
+
+
+async def _upload_to_part(request: Request, part: Path, got: dict) -> bytes:
+    """The body into the part file, counted into got["bytes"] as it comes;
+    answers the first UPLOAD_HEAD bytes. One clock is moved on with every
+    chunk that arrives, to the silence limit or the whole upload's end,
+    whichever is sooner."""
+    loop = asyncio.get_running_loop()
+    ends = loop.time() + UPLOAD_TIME_LIMIT
+    head, gathered = bytearray(), bytearray()
+    fd = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as target:
+        try:
+            async with asyncio.timeout(min(UPLOAD_STALL_TIMEOUT, UPLOAD_TIME_LIMIT)) as clock:
+                async for chunk in request.stream():
+                    clock.reschedule(min(loop.time() + UPLOAD_STALL_TIMEOUT, ends))
+                    got["bytes"] += len(chunk)
+                    if got["bytes"] > MAX_UPLOAD_BODY:
+                        raise _UploadRefused(413, UPLOAD_WORDS["large"])
+                    if len(head) < UPLOAD_HEAD:
+                        head += chunk[:UPLOAD_HEAD - len(head)]
+                    gathered += chunk
+                    if len(gathered) >= UPLOAD_WRITE:
+                        await run_in_threadpool(target.write, bytes(gathered))
+                        gathered.clear()
+        except TimeoutError:
+            raise _UploadRefused(408, UPLOAD_WORDS["late" if loop.time() >= ends - 1 else "stalled"])
+        if gathered:
+            await run_in_threadpool(target.write, bytes(gathered))
+    return bytes(head)
+
+
+async def _post_upload(request: Request) -> Response:
+    q = _query(request.scope)
+    route = q.path
+    safe = _upload_name(q.one("name", "file"))
+    ext = Path(safe).suffix.lower()
+    # what can be refused before a byte of the body is asked for is refused
+    # first, and the connection is closed with its unread bytes
+    if ext not in UPLOAD_TYPES:
+        return _answer(415, {"error": UPLOAD_WORDS["type"]}, route=route, close=True)
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_UPLOAD_BODY:
+        return _answer(413, {"error": UPLOAD_WORDS["large"]}, route=route, close=True)
+    op = q.one("op")
+    if op and not INCIDENT_OP.fullmatch(op):
+        return _answer(400, {"error": UPLOAD_WORDS["op"]}, route=route, close=True)
+    if op and op in _uploads_arriving:
+        return _answer(409, {"error": UPLOAD_WORDS["arriving"]}, route=route, close=True)
+    kept = _upload_receipts.get(op) if op else None
+    if kept is not None and kept["name"] != safe:
+        return _answer(409, {"error": UPLOAD_WORDS["other"]}, route=route, close=True)
+    INTERNAL_UPLOADS.mkdir(parents=True, exist_ok=True)
+    stamp = time.time_ns()
+    part = INTERNAL_UPLOADS / f".{stamp}-{secrets.token_hex(4)}.part"
+    started = time.monotonic()
+    got = {"bytes": 0}
+    if op:
+        _uploads_arriving.add(op)
+    try:
+        head = await _upload_to_part(request, part, got)
+        size = got["bytes"]
+        if kept is not None:
+            # the retry of an upload already stored: its bytes are let go and
+            # the answer is the one its first try was given
+            return _answer(200, {"url": kept["url"], "replayed": True}, route=route)
+        if not size:
+            raise _UploadRefused(400, UPLOAD_WORDS["empty"])
+        wrong = _upload_kind_error(ext, head)
+        if wrong:
+            raise _UploadRefused(415, wrong)
+        if ext == ".svg" and await run_in_threadpool(_svg_carries_script, part):
+            raise _UploadRefused(415, UPLOAD_WORDS["script"])
+        # the kept name is taken with an exclusive create, so two uploads
+        # stamped alike stay two files, and the part is then renamed over it
+        # in one step, so no reader ever sees half a file under that name
+        for bump in range(8):
+            fname = f"{stamp + bump}-{safe}"
+            try:
+                os.close(os.open(INTERNAL_UPLOADS / fname, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+                break
+            except FileExistsError:
+                continue
+        else:
+            raise _UploadRefused(409, "Another upload took that name; try again.")
+        try:
+            os.replace(part, INTERNAL_UPLOADS / fname)
+        except OSError:
+            (INTERNAL_UPLOADS / fname).unlink(missing_ok=True)
+            raise
+        url = "/uploads/" + quote(fname)
+        if op:
+            _upload_receipts[op] = {"url": url, "name": safe, "size": size}
+            while len(_upload_receipts) > UPLOAD_RECEIPTS:
+                del _upload_receipts[next(iter(_upload_receipts))]
+        _info("upload", route=route, bytes=size, ms=round((time.monotonic() - started) * 1000))
+        return _answer(200, {"url": url}, route=route)
+    except _UploadRefused as refused:
+        return _answer(refused.status, {"error": refused.words}, route=route, close=True)
+    except ClientDisconnect:
+        # the phone went: out of signal, asleep, or its own clock ran out. Not
+        # an error, but the one line a failed phone upload leaves behind, so it
+        # says how far the upload got
+        _info("uploadcut", route=route, bytes=got["bytes"], ms=round((time.monotonic() - started) * 1000))
+        return Response(status_code=400)
+    finally:
+        if op:
+            _uploads_arriving.discard(op)
+        part.unlink(missing_ok=True)
+
+
+async def _get_upload_receipt(request: Request) -> Response:
+    """Whether an upload under this operation id is stored, still coming in,
+    or unknown to this server run. On the loop, like the upload itself, so the
+    two never read the receipts from different threads."""
+    q = _query(request.scope)
+    op = q.one("op")
+    if not INCIDENT_OP.fullmatch(op):
+        return _answer(400, {"error": UPLOAD_WORDS["op"]}, route=q.path)
+    if op in _uploads_arriving:
+        return _answer(200, {"arriving": True}, route=q.path)
+    kept = _upload_receipts.get(op)
+    if kept is None:
+        return _plain(404, {"error": "no upload under that id"})
+    return _answer(200, {"url": kept["url"], "size": kept["size"]}, route=q.path)
 
 
 # -- the agent's long poll ----------------------------------------------------------
@@ -5655,10 +6342,7 @@ class WaitRoute:
                                                      route=route), scope, receive, send)
                         return
                     if outcome is not None:
-                        kind, payload = outcome
-                        if kind != "claim":
-                            await _send_response(_answer(200, payload, route=route), scope, receive, send)
-                            return
+                        payload = outcome
                         bid, token = payload["box"], payload["ack"]
                         if gone.is_set():
                             # the listener left while the claim was being made
@@ -5723,7 +6407,7 @@ _last_overload: dict = {}
 # read routes, the ones that share READ_SLOTS: every GET except the small
 # answers that a command loop or a waking phone depends on
 UNCOUNTED_GETS = frozenset({"/unread", "/op", "/fresh", "/wait", "/push/key", "/worktrees",
-                            "/dirs", "/pickdir"})
+                            "/dirs", "/pickdir", "/upload"})
 
 
 def _overload(which: str, route: str) -> None:
@@ -5896,6 +6580,7 @@ ROUTES = [
     Route("/history", _endpoint(_get_history), methods=["GET"]),
     Route("/log", _endpoint(_get_log), methods=["GET"]),
     Route("/tokens/daily", _endpoint(_get_tokens_daily), methods=["GET"]),
+    Route("/limits", _endpoint(_get_limits), methods=["GET"]),
     Route("/dirs", _endpoint(_get_dirs), methods=["GET"]),
     Route("/pickdir", _endpoint(_get_pickdir), methods=["GET"]),
     Route("/uploads/{rest:path}", _endpoint(_get_upload), methods=["GET"]),
@@ -5907,7 +6592,7 @@ ROUTES = [
     Route("/card-markdown.js", _static("card-markdown.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/card-tokens.css", _static("card-tokens.css", "text/css; charset=utf-8"), methods=["GET"]),
     Route("/card-logic.js", _static("card-logic.js", "application/javascript; charset=utf-8"), methods=["GET"]),
-    Route("/compose-format.js", _static("compose-format.js", "application/javascript; charset=utf-8"), methods=["GET"]),
+    Route("/compose-format.js", _endpoint(_get_compose_format), methods=["GET"]),
     Route("/card-report.js", _static("card-report.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/home-widgets.js", _static("home-widgets.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/home-widgets.css", _static("home-widgets.css", "text/css; charset=utf-8"), methods=["GET"]),
@@ -5930,7 +6615,8 @@ ROUTES = [
     Route("/navfiles", _endpoint(_get_navfiles), methods=["GET"]),
     Route("/navfile", _endpoint(_get_navfile), methods=["GET"]),
     Route("/navimg", _endpoint(_get_navimg), methods=["GET"]),
-    Route("/upload", _endpoint(_post_upload, "raw", MAX_UPLOAD_BODY, "upload too large"), methods=["POST"]),
+    Route("/upload", _post_upload, methods=["POST"]),
+    Route("/upload", _get_upload_receipt, methods=["GET"]),
     Route("/clientlog", _endpoint(_post_clientlog, "raw", CLIENT_MAX_BODY, "report batch too large"), methods=["POST"]),
     Route("/navsave", _endpoint(_post_navsave, "raw", MAX_TEXT_BODY), methods=["POST"]),
     Route("/send", _state_endpoint(_post_send, "text"), methods=["POST"]),
@@ -5961,13 +6647,19 @@ ROUTES = [
     Route("/push/unsubscribe", _state_endpoint(_post_push_unsubscribe, "text"), methods=["POST"]),
     Route("/tabs", _state_endpoint(_post_tabs, "text"), methods=["POST"]),
     Route("/seen", _state_endpoint(_post_seen, "text"), methods=["POST"]),
-    Route("/quicknotes", _endpoint(_get_quicknotes), methods=["GET"]),
-    Route("/quicknote/new", _state_endpoint(_post_quicknote_new, "raw", MAX_TEXT_BODY, "note too large"), methods=["POST"]),
-    Route("/quicknote/save", _state_endpoint(_post_quicknote_save, "raw", MAX_TEXT_BODY, "note too large"), methods=["POST"]),
-    Route("/quicknote/attach", _state_endpoint(_post_quicknote_attach, "text"), methods=["POST"]),
-    Route("/quicknote/del", _state_endpoint(_post_quicknote_del, "text"), methods=["POST"]),
-    Route("/pause", _state_endpoint(_post_pause, "text"), methods=["POST"]),
-    Route("/end", _state_endpoint(_post_end, "text"), methods=["POST"]),
+    # the desktop pages' settings, in settings.json and never in state.json
+    Route("/board-settings.js", _endpoint(_get_board_settings_js), methods=["GET"]),
+    Route("/settings", _endpoint(_get_settings), methods=["GET"]),
+    Route("/settings", _endpoint(_post_settings, "text"), methods=["POST"]),
+    Route("/spotify/session", _endpoint(_get_spotify_session), methods=["GET"]),
+    Route("/spotify/session", _endpoint(_post_spotify_session, "text"), methods=["POST"]),
+    *([
+        Route("/quicknotes", _endpoint(_get_quicknotes), methods=["GET"]),
+        Route("/quicknote/new", _state_endpoint(_post_quicknote_new, "raw", MAX_TEXT_BODY, "note too large"), methods=["POST"]),
+        Route("/quicknote/save", _state_endpoint(_post_quicknote_save, "raw", MAX_TEXT_BODY, "note too large"), methods=["POST"]),
+        Route("/quicknote/attach", _state_endpoint(_post_quicknote_attach, "text"), methods=["POST"]),
+        Route("/quicknote/del", _state_endpoint(_post_quicknote_del, "text"), methods=["POST"]),
+    ] if QUICK_NOTES_ON else []),
 ]
 
 
@@ -6128,6 +6820,36 @@ def _listen(port: int = PORT) -> socket.socket:
     return sock
 
 
+_held_lock: int | None = None   # the descriptor holding SERVER_LOCK, never closed
+
+
+def _take_lock() -> bool:
+    """One server per folder. Once the port could move, the bind stopped being
+    enough: a second server from this folder on another pair would bind
+    happily and then write the same state.json as the first. So the server
+    takes an exclusive lock on SERVER_LOCK and holds it until it exits, when
+    the kernel lets go of it whatever ended the process, a kill included.
+
+    False when another process holds it. Once taken, the file says which pid
+    and which pair holds it, for the CLI; it is never removed, and a reader
+    checks what it names rather than trusting it, so a stale one is harmless."""
+    global _held_lock
+    fd = os.open(SERVER_LOCK, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        return False
+    record = json.dumps({"pid": os.getpid(), "port": PORT, "bridge": BRIDGE_PORT}) + "\n"
+    try:
+        os.ftruncate(fd, 0)
+        os.pwrite(fd, record.encode(), 0)
+    except OSError:
+        pass   # the lock is what matters; the CLI falls back to the configured port
+    _held_lock = fd
+    return True
+
+
 def _legacy_target_in(config: object) -> bool:
     """Any Serve proxy to the old unguarded socket is unsafe after upgrade."""
     if isinstance(config, dict):
@@ -6184,7 +6906,7 @@ def _require_bridge_components():
 def _make_server(bridge_gate=None) -> BoardServer:
     if bridge_gate is None:
         bridge_gate = _require_bridge_components()
-    app = bridge_gate(build_app(), BRIDGE_PORT)
+    app = bridge_gate(build_app(), BRIDGE_PORT, _info)
     config = uvicorn.Config(
         app, host="127.0.0.1", port=PORT,
         log_config=None, access_log=False, server_header=False,
@@ -6205,17 +6927,19 @@ def main() -> None:
     _quiet_uvicorn()
     _warn_legacy_config()
 
-    # Own the listening socket before touching durable board data. In
-    # particular, a replacement started while the old server still owns the
-    # port must not migrate state or append the transcript schema boundary: the
-    # old process can still append legacy rows until it has actually stopped.
+    # Own the listening sockets and the folder's lock before touching durable
+    # board data. In particular, a replacement started while the old server
+    # still owns the port must not migrate state or append the transcript
+    # schema boundary: the old process can still append legacy rows until it
+    # has actually stopped.
     bridge_gate = _require_bridge_components()
     _refuse_legacy_serve()
     try:
         sock = _listen()
     except OSError as error:
         _error("bindfail", port=PORT,
-               reason=f"facilitator could not listen on 127.0.0.1:{PORT}: {error}")
+               reason=f"facilitator could not listen on 127.0.0.1:{PORT}, the first of "
+                      f"its two ports {PORT} and {BRIDGE_PORT}: {error}")
         raise SystemExit(1) from None
 
     try:
@@ -6223,7 +6947,18 @@ def main() -> None:
     except OSError as error:
         sock.close()
         _error("bindfail", port=BRIDGE_PORT,
-               reason=f"facilitator could not listen on 127.0.0.1:{BRIDGE_PORT}: {error}")
+               reason=f"facilitator could not listen on 127.0.0.1:{BRIDGE_PORT}, the phone's "
+                      f"port of its two ports {PORT} and {BRIDGE_PORT}: {error}")
+        raise SystemExit(1) from None
+
+    # Taken after the bind, so a second server on this same pair still fails
+    # there as it always has, and before state.json is read, so a second server
+    # from this folder on ANOTHER pair leaves having touched nothing
+    if not _take_lock():
+        sock.close()
+        bridge_sock.close()
+        _error("lockfail", port=PORT,
+               reason="another server from this folder is already running; this one stayed down")
         raise SystemExit(1) from None
     server = _make_server(bridge_gate)
 
@@ -6246,6 +6981,7 @@ def main() -> None:
 
     try:
         INTERNAL_UPLOADS.mkdir(parents=True, exist_ok=True)
+        _sweep_upload_parts()
         _load()
         with _lock:
             _state["busy"] = {ow: None for ow in OWNERS}  # a restart never resumes mid-claim

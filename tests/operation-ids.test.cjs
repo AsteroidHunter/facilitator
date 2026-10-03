@@ -395,7 +395,7 @@ test("the first start with receipts keeps a copy of the old state file beside it
   const legacy = {
     title: "older board", boxes: [{ id: "0", bucket: "meta", title: "Old standing card", owner: "facilitator",
       reply: "kept", pending: [{ mid: 1, text: "still queued", ts: 1 }], done: false, replies: 1 }],
-    inbox: ["0"], busy: {}, claimed: {}, busy_ts: {}, ack: {}, end: false, paused: false, next_mid: 2, next_bid: 1,
+    inbox: ["0"], busy: {}, claimed: {}, busy_ts: {}, ack: {}, next_mid: 2, next_bid: 1,
   };
   await writeFile(path.join(dir, "state.json"), JSON.stringify(legacy));
   const legacyPort = await require('./fixture-auth.cjs').freePortPair();

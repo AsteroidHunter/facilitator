@@ -52,6 +52,8 @@ before(async () => {
   await mkdir(path.join(fixtureDir, 'assets'));
   for (const name of await readdir(path.join(ROOT, 'assets')))
     await copyFile(path.join(ROOT, 'assets', name), path.join(fixtureDir, 'assets', name));
+  // the board's own default is off; these checks read the editor, so it is on
+  await writeFile(path.join(fixtureDir, 'run.config.json'), JSON.stringify({ compose_format_default: true }));
   await writeFile(path.join(fixtureDir, 'seed.json'), JSON.stringify({
     title: 'Sequential bullet typing fixture',
     items: [{ id: '0', bucket: 'meta', title: 'Fixture metadata', owner: 'facilitator', context: 'Invented content.' }],
@@ -120,6 +122,9 @@ async function open(platform) {
   if (platform.name === 'phone') await page.waitForSelector('#loading', { hidden: true, timeout: 30000 });
   await page.evaluate(() => document.fonts.ready);
   await page.focus(ROW);
+  // the phone's typing row slides the text left as the plus steps aside, then switches to its
+  // resting layout; a caret read before that is read mid-slide
+  if (platform.name === 'phone') await page.waitForSelector('.bottombar.wide', { timeout: 5000 });
   return { page, problems };
 }
 

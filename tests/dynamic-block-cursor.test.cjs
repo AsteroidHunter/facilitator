@@ -240,7 +240,7 @@ const boardState = boxes => ({
   boxes,
   pwd: "/tmp/lane", pwds: { facilitator: "/tmp/lane" },
   projects: [], busy: { facilitator: null }, queued: 0,
-  end: false, paused: false, title: "facilitator",
+  title: "facilitator",
   listening: { facilitator: false }, everListened: {}, workspaces: {},
   listenerGap: { facilitator: 0 },
   agents: { facilitator: { name: "claude", alive: false, away: false } },
@@ -555,7 +555,7 @@ test("a new card's empty title matches the placeholder's first letter", async ()
     assert.ok(empty.selected, "the new card was not selected");
     assert.ok(empty.editing, "the new card's title did not take the rename cursor");
     assert.equal(empty.text, "", "the new card's title was not empty");
-    assert.equal(empty.placeholder, '"Chat Name"', "the new card did not show its placeholder");
+    assert.equal(empty.placeholder, '"Card Name"', "the new card did not show its placeholder");
     assert.ok(empty.caretOn, "no block cursor stood on the empty title");
 
     await page.keyboard.type("C");

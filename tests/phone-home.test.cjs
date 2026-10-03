@@ -1,11 +1,12 @@
-// the home page on the phone. the house heads the phone's tab row the way it
-// heads the board's bar, a tab in every way but its mark; a tap on it opens the
-// board's own home page, the token panel from home-widgets.js and nothing else,
-// and a tap on any project tab brings that project's board back. held here four
+// the home page on the phone. the house heads the project list the capsule in
+// the row of buttons opens, the way it heads the board's bar, with the board's
+// own mark; a tap on it opens the board's own home page, the token panel from
+// home-widgets.js and nothing else, and choosing any project in the list brings
+// that project's board back. held here four
 // ways: m.html's markup and sheet read as text; the page's own home block lifted
-// out and run against a small DOM, with no browser; GET /tokens/daily on the
-// bridge socket of a fixture server, refused without a session and served with
-// one; and the page itself at an iPhone 13 mini's size (375 by 812, device
+// out and run against a small DOM, with no browser; GET /tokens/daily and
+// GET /limits on the bridge socket of a fixture server, refused without a
+// session and served with one; and the page itself at an iPhone 13 mini's size (375 by 812, device
 // scale 3, touch), signed in over that socket, driven by taps. every count is
 // invented and HOME points into the fixture, so no real log is ever read
 const assert = require("node:assert/strict");
@@ -63,45 +64,43 @@ const between = (text, from, to) => {
 };
 
 // ---- the markup and the sheet ---------------------------------------------------------
-test("the house heads the phone's tab row, a tab in all but its mark", () => {
-  const row = between(PHONE, '<div id="tabrow">', '<div id="offline">');
-  const house = /<button id="homeico"[^>]*>([\s\S]*?)<\/button>/.exec(row);
-  assert.ok(house, "the house is a button in the tab row");
-  assert.match(house[0], /class="ptab"/, "it wears the tabs' own class");
+test("the house heads the phone's project list, a row of the list with the board's own mark", () => {
+  // no tab row across the top any more: the card is the first thing in the page
+  assert.doesNotMatch(PHONE, /id="tabrow"|id="tabbar"/, "the old tab row is still in the page");
+  assert.match(between(PHONE, '<div id="page">', "</main>"), /^<div id="page">\s*<main id="pane"/);
+  // the capsule in the row of buttons opens the list
+  const dock = between(PHONE, '<nav id="dock"', "</nav>");
+  assert.match(dock, /<button id="projbtn"[^>]*aria-controls="projmenu"/, "the capsule does not open the list");
+  const list = between(PHONE, '<div id="projmenu"', "<aside");
+  const house = /<button id="homeico"[^>]*>([\s\S]*?)<\/button>/.exec(list);
+  assert.ok(house, "the house is a button in the project list");
+  assert.match(house[0], /class="projrow"/, "it wears the list's own rows' class");
   assert.match(house[0], /type="button"/);
   assert.match(house[0], /aria-label="Home"/);
   assert.match(house[0], /aria-pressed="false"/);
-  // the board's own mark, stroke for stroke
-  const mark = /<button id="homeico"[^>]*>(<svg[\s\S]*?<\/svg>)<\/button>/;
-  assert.equal(mark.exec(row)[1], mark.exec(BOARD)[1], "the phone's house is not the board's");
-  // at the left end, outside the scroller, so tab scrolling never takes it away
-  assert.ok(row.indexOf('id="homeico"') < row.indexOf('<div class="bar"><span id="tabbar"></span></div>'));
-  assert.doesNotMatch(between(PHONE, '<div class="bar">', "</div>"), /homeico/);
+  // the board's own mark, stroke for stroke, ahead of its name
+  const mark = /<button id="homeico"[^>]*>(<svg[\s\S]*?<\/svg>)/;
+  assert.equal(mark.exec(list)[1], /<button id="homeico"[^>]*>(<svg[\s\S]*?<\/svg>)<\/button>/.exec(BOARD)[1],
+    "the phone's house is not the board's");
+  // at the head of the list, ahead of the projects
+  assert.ok(list.indexOf('id="homeico"') < list.indexOf('<div id="projlist">'), "the house does not head the list");
 
   const rules = rulesOf(PHONE);
-  // the tab's height, type and seat come from .ptab; the house only narrows its sides
-  const own = declsFor(rules, "#homeico");
-  for (const k of Object.keys(own))
-    assert.ok(/^(margin-left|padding-left|padding-right|z-index)$/.test(k), `the house sets its own ${k}`);
-  assert.equal(declsFor(rules, ".ptab").height, "39px");
-  assert.equal(declsFor(rules, ".ptab.on").background, "var(--seat)");
-  // the row carries the bar's bottom line under the house, and the scroller
-  // keeps its place in it
-  assert.match(declsFor(rules, "#tabrow").background, /linear-gradient\(to top, var\(--line\) var\(--edge-drawn\)/);
-  assert.equal(declsFor(rules, "#tabrow .bar")["min-width"], "0");
-  assert.equal(declsFor(rules, ".bar")["overflow-x"], "auto");
+  // the house is a row of the list in every way: nothing of its own in the sheet
+  assert.deepEqual(declsFor(rules, "#homeico"), {}, "the house sets something of its own");
+  assert.equal(declsFor(rules, ".projrow")["min-height"], "44px");
 });
 
-test("the home page takes the card's place, holds only the token panel and keeps the card as it was", () => {
-  // inside the pane, beside the card, loaded only when home first opens
+test("the home page takes the card's place, holds the heading and the panels and keeps the card as it was", () => {
+  // inside the pane, beside the card, its files brought in by script, never by a tag
   const pane = between(PHONE, '<main id="pane"', "</main>");
-  assert.match(pane, /<section id="home" aria-label="Home"><div id="homeplot"><\/div><\/section>/);
+  assert.match(pane, /<section id="home" aria-label="Home"><div id="homestack">\s*<div id="homebrand"><span id="homemark" aria-hidden="true"><\/span><span id="homebrandcopy"><span id="homebrandname">Facilitator<\/span><span id="homeversion"><\/span><\/span><\/div>\s*<div id="homeplot"><\/div><div id="homelimits" hidden><\/div>\s*<\/div><\/section>/);
   assert.doesNotMatch(PHONE, /<script src="\/home-widgets\.js">/);
   assert.doesNotMatch(PHONE, /<link[^>]*home-widgets\.css/);
   const rules = rulesOf(PHONE);
   assert.equal(declsFor(rules, "#home").display, "none");
   const up = declsFor(rules, "body.home #home");
-  assert.equal(up.display, "block");
+  assert.equal(up.display, "flex");
   assert.equal(up.position, "absolute");
   assert.equal(up.inset, "calc(-1 * var(--edge-drawn))", "the panel's edge lands on the card's own");
   // the card is hidden, not taken out of the layout, so it comes back as left
@@ -117,10 +116,10 @@ test("the home page takes the card's place, holds only the token panel and keeps
   const side = parseFloat(declsFor(rules, "#home .tk-panel")["padding-left"]);
   assert.equal(declsFor(rules, "#home .tk-panel")["padding-right"], side + "px");
   assert.ok(inset + side >= edge, `the lane starts ${inset + side}px in, inside the ${edge}px pull strip`);
-  // no new colour in any rule of the house, the row or the home page: the
-  // palette is the board's through its variables, and the one literal is the
-  // opaque end of the tabs' fade, which is a mask and never drawn
-  for (const r of rules.filter(r => r.selectors.some(s => /#home|#homeico|#tabrow/.test(s))))
+  // no new colour in any rule of the house or the home page: the palette is
+  // the board's through its variables, and the one literal allowed is the
+  // opaque end of a fade, which is a mask and never drawn
+  for (const r of rules.filter(r => r.selectors.some(s => /#home|#homeico/.test(s))))
     for (const [k, v] of Object.entries(r.decls)) {
       const where = `${r.selectors.join(", ")} sets ${k}: ${v}`;
       assert.doesNotMatch(v, /rgba?\(|hsla?\(/i, where);
@@ -129,14 +128,23 @@ test("the home page takes the card's place, holds only the token panel and keeps
     }
 });
 
-test("while home is up no tab is seated, the card is not read and the board's keys are off", () => {
-  // a project tab's tap leaves home; the bar's own redraw never does
-  const tab = between(PHONE, 't.addEventListener("click", () => {', "});");
-  assert.match(tab, /if \(tabCarried\) return;\n\s+if \(homeOpen\) setHome\(false\);[^\n]*\n\s+setTab\(ow\);/);
+test("while home is up no project is checked, the capsule reads Home, the card is not read and the board's keys are off", () => {
+  // a project chosen in the list leaves home; the list's own redraw never does
+  const choose = between(PHONE, "function chooseRow(row){", "\n}\n");
+  // the house is its own press: a tap on it in the list only shuts the list,
+  // and never reaches the choice; the open project's own row lets go of the
+  // card, but never while home is up
+  assert.match(between(PHONE, 'projMenu.addEventListener("click", e => {', "});"),
+    /if \(row === house\) closeProjects\(\);\n\s+else chooseRow\(row\);/);
+  assert.doesNotMatch(choose, /house/);
+  assert.match(choose, /if \(ow === activeOwner && !homeOpen [^\n]*\{ unselectShown\(\); return; \}\n\s+if \(homeOpen\) setHome\(false\);[^\n]*\n\s+setTab\(ow\);/);
   assert.doesNotMatch(between(PHONE, "function setTab(owner){", "\n}\n"), /setHome/);
-  assert.match(PHONE, /t\.classList\.toggle\("on", t\.dataset\.owner === activeOwner && !homeOpen\);/);
+  const paint = between(PHONE, "function renderTabs(st){", "\n}\n");
+  assert.doesNotMatch(paint, /setHome/);
+  assert.match(paint, /on = ow === activeOwner && !homeOpen/);
+  assert.match(paint, /const name = homeOpen \? "Home" : labelOf\(st, activeOwner\);/);
   // shown is read, but a card under the home page is not shown
-  assert.match(between(PHONE, "function select(id){", "\n}\n"), /\n  if \(!homeOpen\) markSeen\(id\);\n/);
+  assert.match(between(PHONE, "function select(id, opts){", "\n}\n"), /\n  if \(chosen && !homeOpen\) markSeen\(id\);\n/);
   // a card picked in the drawer, a card just made and a notification's card
   // are each shown on their board
   assert.match(between(PHONE, 'r.addEventListener("click", e => {', "});"), /if \(homeOpen\) setHome\(false\);[^\n]*\n\s+select\(b\.id\); closeDrawer\(\);/);
@@ -197,7 +205,7 @@ const walk = (el, out = []) => { for (const c of el.children) { out.push(c); wal
 function daysEnding(n) {
   return Array.from({ length: n }, (_, k) => ({ date: day(n - 1 - k), total: k % 3 ? 1e6 * k : 0 }));
 }
-function phoneHome({ stored = {}, want = null, serve = true, state = { rev: 1 } } = {}) {
+function phoneHome({ stored = {}, want = null, serve = true, state = { rev: 1 }, index = "" } = {}) {
   const block = between(PHONE, "// ---- the home page ----", "// ---- the drawer's list");
   const doc = { listeners: {}, hidden: false };
   doc.createElement = tag => new El(tag, doc);
@@ -205,12 +213,10 @@ function phoneHome({ stored = {}, want = null, serve = true, state = { rev: 1 } 
   doc.head = new El("head", doc);
   doc.addEventListener = (type, fn) => { (doc.listeners[type] ||= []).push(fn); };
   const byId = {};
-  for (const id of ["homeico", "homeplot", "tabrow"]) byId[id] = new El(id === "homeico" ? "button" : "div", doc);
-  const lane = new El("div", doc);
-  byId.tabrow.parts = { ".bar": lane };
+  for (const id of ["homeico", "homeplot", "homeversion", "homemark"]) byId[id] = new El(id === "homeico" ? "button" : "div", doc);
   doc.getElementById = id => byId[id] || null;
   const store = new Map(Object.entries(stored));
-  const fetched = [], tabs = [], blurred = [], timers = new Map();
+  const fetched = [], tabs = [], blurred = [], unselected = [], idle = [], timers = new Map();
   let nextTimer = 0;
   const ctx = {
     console, document: doc, homeOpen: false, lastState: state, wantBox: want,
@@ -218,10 +224,13 @@ function phoneHome({ stored = {}, want = null, serve = true, state = { rev: 1 } 
                     removeItem: k => store.delete(k) },
     renderTabs: st => tabs.push(st),
     dismissEditor: () => blurred.push(true),
+    unselectShown: () => unselected.push(true),
     setInterval: (fn, ms) => { timers.set(++nextTimer, { fn, ms }); return nextTimer; },
     clearInterval: id => { timers.delete(id); },
+    requestIdleCallback: fn => { idle.push(fn); },
     fetch: async url => { fetched.push(url);
-      return { ok: true, json: async () => ({ days: daysEnding(371), found: { claude: true, codex: false } }) }; },
+      return { ok: true, text: async () => index,
+               json: async () => ({ days: daysEnding(371), found: { claude: true, codex: false } }) }; },
   };
   ctx.window = ctx;
   // appending the script is where a browser fetches it: here the real file
@@ -238,13 +247,13 @@ function phoneHome({ stored = {}, want = null, serve = true, state = { rev: 1 } 
   };
   vm.createContext(ctx);
   vm.runInContext(block, ctx);
-  return { ctx, doc, byId, lane, store, fetched, tabs, blurred, timers, net, is: name => vm.runInContext(name, ctx) };
+  return { ctx, doc, byId, store, fetched, tabs, blurred, unselected, idle, timers, net, is: name => vm.runInContext(name, ctx) };
 }
 
 test("the phone's house opens home, fetches the widgets then, and leaving puts everything back", async () => {
   const h = phoneHome();
   const house = h.byId.homeico;
-  assert.equal(h.doc.head.children.length, 0, "nothing fetched on boot");
+  assert.equal(h.doc.head.children.length, 0, "the block itself fetches nothing; the page's idle warm-up is the load handler's");
   house.click();
   assert.equal(h.ctx.homeOpen, true);
   assert.ok(h.doc.body.classList.contains("home"));
@@ -252,7 +261,8 @@ test("the phone's house opens home, fetches the widgets then, and leaving puts e
   assert.equal(house.getAttribute("aria-pressed"), "true");
   assert.equal(h.store.get("homeopen"), "1");
   assert.equal(h.blurred.length, 1, "the card's typing and its keyboard go with the card");
-  assert.equal(h.tabs.length, 1, "the tabs are drawn again with none seated");
+  assert.equal(h.unselected.length, 1, "the card on screen is unselected when home opens");
+  assert.equal(h.tabs.length, 1, "the list and the capsule are drawn again with no project checked");
   await settle();
   const [sheet, script] = h.doc.head.children;
   assert.equal(sheet.href, "/home-widgets.css");
@@ -269,7 +279,7 @@ test("the phone's house opens home, fetches the widgets then, and leaving puts e
   await settle();
   assert.deepEqual(h.fetched, ["/tokens/daily?days=371"]);
 
-  // leaving, as a project tab's tap does
+  // leaving, as choosing a project in the list does
   h.ctx.setHome(false);
   assert.equal(h.ctx.homeOpen, false);
   assert.ok(!h.doc.body.classList.contains("home"));
@@ -277,7 +287,7 @@ test("the phone's house opens home, fetches the widgets then, and leaving puts e
   assert.equal(house.getAttribute("aria-pressed"), "false");
   assert.equal(h.store.has("homeopen"), false);
   assert.equal(h.timers.size, 0, "no asking while home is shut");
-  assert.equal(h.tabs.length, 2, "and the tab is seated again");
+  assert.equal(h.tabs.length, 2, "and the open project is checked again");
 
   // back again: the same panel, asked again, nothing fetched twice
   house.click();
@@ -285,15 +295,6 @@ test("the phone's house opens home, fetches the widgets then, and leaving puts e
   assert.equal(h.doc.head.children.length, 2);
   assert.equal(h.byId.homeplot.children.length, 1);
   assert.deepEqual(h.fetched, ["/tokens/daily?days=371", "/tokens/daily?days=371"]);
-
-  // the tabs pass under the house through a fade only while scrolled
-  const row = h.byId.tabrow;
-  h.lane.scrollLeft = 40;
-  for (const fn of h.lane.listeners.scroll) fn();
-  assert.ok(row.classList.contains("scrolled"));
-  h.lane.scrollLeft = 0;
-  for (const fn of h.lane.listeners.scroll) fn();
-  assert.ok(!row.classList.contains("scrolled"));
 });
 
 test("a reopen comes back to home, except onto a notification's card, and a failed load says so and asks again", async () => {
@@ -303,10 +304,21 @@ test("a reopen comes back to home, except onto a notification's card, and a fail
   assert.equal(back.ctx.homeOpen, true);
   await settle();
   assert.deepEqual(back.fetched, ["/tokens/daily?days=371"]);
+  // the heading's mark and version are asked for when idle too; they are no part of the warm-up
+  const warm = h => h.idle.filter(fn => fn.name !== "brandAsk");
+  assert.equal(warm(back).length, 0, "going straight onto home needs no idle warm-up");
 
   const card = phoneHome({ stored: { homeopen: "1" }, want: "m12" });
   for (const fn of card.doc.listeners.DOMContentLoaded) fn();
   assert.equal(card.ctx.homeOpen, false, "a notification's card is shown on its board");
+  // the page warms the home files when it is idle, and opens nothing
+  assert.equal(warm(card).length, 1);
+  assert.equal(card.doc.head.children.length, 0);
+  warm(card)[0]();
+  await settle();
+  assert.equal(card.doc.head.children.length, 2, "the sheet and the script came in");
+  assert.equal(card.ctx.homeOpen, false);
+  assert.deepEqual(card.fetched, [], "no counts are asked for until home opens");
 
   // the board out of reach: home says so, with no ellipsis, and no counts are asked for
   const away = phoneHome({ serve: false });
@@ -325,6 +337,49 @@ test("a reopen comes back to home, except onto a notification's card, and a fail
   away.byId.homeico.click();
   await settle();
   assert.deepEqual(away.fetched, ["/tokens/daily?days=371"]);
+});
+
+test("the heading's version and mark are the board page's own, kept a day and not written in the phone page", async () => {
+  const version = /id="npversion">(v\d+\.\d+\.\d+)</.exec(BOARD)[1];
+  const mark = /id="npmark" src="(data:image\/png;base64,[^"]+)"/.exec(BOARD)[1];
+  assert.doesNotMatch(PHONE, new RegExp(version.replace(/\./g, "\\.")), "the version is written in the phone page");
+  assert.ok(!PHONE.includes(mark.slice(0, 80)), "the mark is written in the phone page");
+
+  // nothing kept: the word stands alone until the board page has been read, once the phone is idle
+  const first = phoneHome({ index: BOARD });
+  for (const fn of first.doc.listeners.DOMContentLoaded) fn();
+  assert.equal(first.byId.homeversion.textContent, "");
+  assert.equal(first.byId.homemark.classList.contains("on"), false);
+  const ask = first.idle.filter(fn => fn.name === "brandAsk");
+  assert.equal(ask.length, 1, "asked for once, when idle");
+  assert.deepEqual(first.fetched, [], "nothing is fetched before the phone is idle");
+  await ask[0]();
+  assert.deepEqual(first.fetched, ["/"]);
+  assert.equal(first.byId.homeversion.textContent, version);
+  assert.equal(first.byId.homemark.style.backgroundImage, `url("${mark}")`);
+  assert.ok(first.byId.homemark.classList.contains("on"));
+  const kept = JSON.parse(first.store.get("homebrand"));
+  assert.deepEqual([kept.version, kept.mark], [version, mark]);
+
+  // kept and fresh: drawn at once and not asked for again
+  const again = phoneHome({ index: BOARD, stored: { homebrand: JSON.stringify({ ...kept, at: Date.now() - 3600e3 }) } });
+  for (const fn of again.doc.listeners.DOMContentLoaded) fn();
+  assert.equal(again.byId.homeversion.textContent, version);
+  assert.ok(again.byId.homemark.classList.contains("on"));
+  assert.equal(again.idle.filter(fn => fn.name === "brandAsk").length, 0, "a day's keep is not asked for again");
+
+  // kept a day ago: drawn at once and asked for again when idle
+  const old = phoneHome({ index: BOARD, stored: { homebrand: JSON.stringify({ ...kept, at: Date.now() - 25 * 3600e3 }) } });
+  for (const fn of old.doc.listeners.DOMContentLoaded) fn();
+  assert.equal(old.byId.homeversion.textContent, version);
+  assert.equal(old.idle.filter(fn => fn.name === "brandAsk").length, 1);
+
+  // a page that does not carry them, or cannot be had, leaves the heading as it is
+  const bare = phoneHome({ index: "<html></html>" });
+  for (const fn of bare.doc.listeners.DOMContentLoaded) fn();
+  await bare.idle.find(fn => fn.name === "brandAsk")();
+  assert.equal(bare.byId.homeversion.textContent, "");
+  assert.equal(bare.store.has("homebrand"), false);
 });
 
 // ---- a fixture server with a bridge password and invented logs -------------------------
@@ -352,7 +407,7 @@ before(async () => {
   copyBridgeFiles(app);
   for (const name of ["index.html", "m.html", "m-sw.js", "m-manifest.json", "card-markdown.js", "card-tokens.css",
                       "card-logic.js", "card-report.js", "compose-format.js", "cm-markdown.js",
-                      "home-widgets.js", "home-widgets.css", "tokens.py"])
+                      "home-widgets.js", "home-widgets.css", "tokens.py", "limits.py"])
     fs.copyFileSync(path.join(ROOT, name), path.join(app, name));
   fs.cpSync(path.join(ROOT, "assets"), path.join(app, "assets"), { recursive: true });
   fs.writeFileSync(path.join(app, "state.json"), JSON.stringify(boardState({ cards: 24, seed: 916, dir: outer })));
@@ -366,6 +421,8 @@ before(async () => {
   const env = { ...process.env, HOME: home, TZ: "UTC", FACILITATOR_TEST_PORT: String(port),
                 FACILITATOR_LOG_DIR: path.join(outer, "logs") };
   delete env.CLAUDE_CONFIG_DIR; delete env.CODEX_HOME;
+  // no codex on the fixture's path, so the limits route never starts one
+  fs.mkdirSync(path.join(outer, "nobin")); env.PATH = path.join(outer, "nobin");
   const child = spawn(PYTHON, [path.join(app, "server.py")], { cwd: app, env, stdio: ["ignore", "pipe", "pipe"] });
   let output = "";
   for (const s of [child.stdout, child.stderr]) { s.setEncoding("utf8"); s.on("data", c => { output += c; }); }
@@ -431,8 +488,32 @@ test("the bridge refuses /tokens/daily without a session and serves it with one"
   assert.equal((await request(bridge, route, { Cookie: gone })).status, 401);
 });
 
+test("the bridge refuses /limits without a session and serves the numbers with one", async () => {
+  const { outer, port, bridge, cookie } = fixture;
+  const ahead = Math.floor(Date.now() / 1000) + 3600;
+  fs.writeFileSync(path.join(outer, "app", "claude-limits.json"), JSON.stringify({
+    five_hour: { used_percentage: 12, resets_at: ahead }, seven_day: { used_percentage: 34, resets_at: ahead } }));
+  for (const headers of [{}, { Cookie: "__Host-facilitator_session=not-a-session" }]) {
+    const refused = await request(bridge, "/limits", headers);
+    assert.equal(refused.status, 401, JSON.stringify(headers));
+    assert.deepEqual(JSON.parse(refused.text), { error: "sign in required" });
+    assert.doesNotMatch(refused.text, /used|five_hour|weekly/, "a refusal carries no numbers");
+  }
+  const served = await request(bridge, "/limits", { Cookie: cookie });
+  assert.equal(served.status, 200, served.text);
+  assert.match(served.type, /^application\/json/);
+  const answer = JSON.parse(served.text);
+  const { fetched, now, refreshing, ...numbers } = answer;
+  assert.deepEqual(numbers, { claude: { five_hour: { used: 12, resets: ahead }, weekly: { used: 34, resets: ahead } } });
+  assert.equal(typeof now, "number");
+  assert.ok(fetched <= now && now - fetched < 60, "when it was read, by the server's clock");
+  assert.equal(refreshing, false, "nothing to renew: no codex on this server");
+  const local = JSON.parse((await request(port, "/limits")).text);
+  assert.deepEqual(local.claude, answer.claude);
+});
+
 // ---- the page at an iPhone 13 mini's size, over the bridge -------------------------------
-test("on the phone the house opens home, the pill and the tips work by tap, and a project tab goes back", async () => {
+test("on the phone the house in the project list opens home, the pill and the tips work by tap, and a project goes back", async () => {
   const puppeteer = require("puppeteer-core");
   const browser = await puppeteer.launch({ executablePath: CHROME, headless: true,
     userDataDir: path.join(fixture.outer, "chrome"), args: ["--disable-background-networking", "--no-first-run"] });
@@ -450,31 +531,41 @@ test("on the phone the house opens home, the pill and the tips work by tap, and 
       headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: pass }) })).status, PASS), 200);
     await page.goto(origin + "/m", { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => typeof lastState !== "undefined" && lastState !== null, { timeout: 15000 });
-    await page.waitForSelector("#tabbar .ptab.on", { timeout: 5000 });
+    await page.waitForSelector("#projlist .projrow.on", { timeout: 5000 });
 
-    // the house: at the left end of the row, a tab's height, not seated, and nothing fetched yet
+    // the capsule in the row along the bottom names the open project, its list
+    // is shut, the house heads that list unchecked, and nothing is fetched yet
     const board = await page.evaluate(() => {
-      const r = el => el.getBoundingClientRect();
-      const house = r(document.getElementById("homeico"));
-      const tabs = [...document.querySelectorAll("#tabbar .ptab")].map(r);
-      return { house: { left: house.left, right: house.right, top: house.top, height: house.height },
-               tabs: tabs.map(t => ({ left: t.left, top: t.top, height: t.height })),
+      const cap = document.getElementById("projbtn").getBoundingClientRect();
+      return { capsule: { bottom: cap.bottom, height: cap.height },
+               name: document.getElementById("projname").textContent,
+               open: document.body.classList.contains("projopen"),
+               rows: document.querySelectorAll("#projlist .projrow").length,
+               first: document.querySelector("#projmenu .projrow").id,
                pressed: document.getElementById("homeico").getAttribute("aria-pressed"),
-               seated: document.querySelectorAll("#tabbar .ptab.on").length,
-               widgets: !!document.getElementById("homesheet"),
+               checked: document.querySelectorAll("#projlist .projrow.on").length,
                home: getComputedStyle(document.getElementById("home")).display };
     });
-    assert.ok(board.tabs.length >= 2, "the fixture has project tabs");
-    assert.ok(board.tabs.every(t => t.left >= board.house.right), "the house stands left of every tab");
-    assert.ok(board.tabs.every(t => t.top === board.house.top && t.height === board.house.height),
-              "the house is a tab's height, on the tabs' line");
-    assert.ok(board.house.left < 20, "at the row's left end");
+    assert.ok(board.rows >= 2, "the fixture has projects");
+    assert.equal(board.capsule.height, 48, "the capsule is not the bar's 48px");
+    assert.equal(board.capsule.bottom, IPHONE_13_MINI.height - 10, "the capsule is not 10px off the bottom edge");
+    assert.notEqual(board.name, "Home");
+    assert.equal(board.open, false);
+    assert.equal(board.first, "homeico", "the house does not head the list");
     assert.equal(board.pressed, "false");
-    assert.equal(board.seated, 1);
-    assert.equal(board.widgets, false, "the widgets wait for home");
+    assert.equal(board.checked, 1);
     assert.equal(board.home, "none");
+    // the page brings the home files in when it is idle, and opens nothing
+    await page.waitForSelector("#homesheet", { timeout: 8000 });
+    await page.waitForFunction(() => !!window.TokenWidgets, { timeout: 8000 });
+    assert.equal(await page.evaluate(() => document.body.classList.contains("home")), false);
+    assert.equal(await page.evaluate(() => document.querySelectorAll("#homeplot .tk-panel").length), 0, "no panel until home opens");
 
-    // a tap on the house: home, the board's own panel, drawn from the bridge's /tokens/daily
+    // a tap on the capsule, then on the house: home, the board's own panel,
+    // drawn from the bridge's /tokens/daily
+    await page.tap("#projbtn");
+    await page.waitForFunction(() => document.body.classList.contains("projopen"), { timeout: 3000 });
+    await settle(300);
     await page.tap("#homeico");
     await page.waitForSelector("svg.tk-heat", { timeout: 10000 });
     const home = await page.evaluate(() => {
@@ -486,12 +577,30 @@ test("on the phone the house opens home, the pill and the tips work by tap, and 
       return { body: document.body.classList.contains("home"),
                pressed: document.getElementById("homeico").getAttribute("aria-pressed"),
                houseSeated: document.getElementById("homeico").classList.contains("on"),
-               seated: document.querySelectorAll("#tabbar .ptab.on").length,
+               seated: document.querySelectorAll("#projlist .projrow.on").length,
+               name: document.getElementById("projname").textContent,
+               open: document.body.classList.contains("projopen"),
                days: document.querySelectorAll(".tk-day").length,
                sum: document.querySelector(".tk-sum").textContent,
-               panel: { left: panel.left, right: panel.right, top: panel.top }, pane: { left: pane.left, right: pane.right, top: pane.top },
+               heading: document.querySelector(".tk-title").textContent,
+               subtitle: !!document.querySelector(".tk-what"),
+               panel: { left: panel.left, right: panel.right, top: panel.top, bottom: panel.bottom },
+               pane: { left: pane.left, right: pane.right, top: pane.top },
+               page: { top: r(document.getElementById("home")).top, bottom: r(document.getElementById("home")).bottom },
+               brand: { top: r(document.getElementById("homebrand")).top, bottom: r(document.getElementById("homebrand")).bottom },
+               versionBottom: r(document.getElementById("homeversion")).bottom,
+               brandName: document.getElementById("homebrandname").textContent,
+               limitsBottom: document.getElementById("homelimits").hidden ? null : r(document.getElementById("homelimits")).bottom,
                lane: { left: r(scroll).left, right: r(scroll).right },
                chartWidth: document.querySelector(".tk-chart svg").getBoundingClientRect().width,
+               chart: { top: r(document.querySelector(".tk-chart svg")).top, bottom: r(document.querySelector(".tk-chart svg")).bottom },
+               view: { top: r(document.querySelector(".tk-view")).top, bottom: r(document.querySelector(".tk-view")).bottom },
+               rows: { top: Math.min(...[...document.querySelectorAll(".tk-day")].map(d => r(d).top)),
+                       bottom: Math.max(...[...document.querySelectorAll(".tk-day")].map(d => r(d).bottom)) },
+               head: r(document.querySelector(".tk-head")).bottom,
+               foot: { top: r(document.querySelector(".tk-foot")).top, bottom: r(document.querySelector(".tk-foot")).bottom },
+               panelBottom: panel.bottom,
+               expected: TokenWidgets.geometry(r(document.querySelector(".tk-view")).height),
                atLatest: scroll.scrollLeft >= scroll.scrollWidth - scroll.clientWidth - 1 && scroll.scrollWidth > scroll.clientWidth,
                card: getComputedStyle(document.getElementById("cards")).visibility,
                cardParts: [...document.querySelectorAll("#cards *")].filter(n => getComputedStyle(n).visibility !== "hidden").length,
@@ -502,16 +611,40 @@ test("on the phone the house opens home, the pill and the tips work by tap, and 
     });
     assert.equal(home.body, true);
     assert.equal(home.pressed, "true");
-    assert.equal(home.houseSeated, true, "the house is the one seated");
-    assert.equal(home.seated, 0, "no project tab is seated on home");
+    assert.equal(home.houseSeated, true, "the house is the one checked");
+    assert.equal(home.seated, 0, "a project is checked on home");
+    assert.equal(home.name, "Home", "the capsule does not read Home");
+    assert.equal(home.open, false, "the list stayed open over home");
     assert.equal(home.days, 365);
     assert.match(home.sum, /^1\.14K tokens in the last year$/);
+    assert.equal(home.heading, "Token consumption per day");
+    assert.equal(home.subtitle, false, "no line under the heading");
     // the panel spans the pane, which is the screen within the app's margins
     assert.ok(Math.abs(home.panel.left - home.pane.left) < 1 && Math.abs(home.panel.right - home.pane.right) < 1);
-    assert.ok(Math.abs(home.panel.top - home.pane.top) < 1);
-    // the chart keeps its own size and opens on the latest weeks, clear of the menus' strips
-    assert.equal(home.chartWidth, 769);
+    // the heading stands above the panel with its version hanging into a gap a
+    // little wider than the 8px between the boxes, and the three stand in the
+    // middle of the page, to within the line's spare room above the word
+    assert.equal(home.brandName, "Facilitator");
+    const gap = home.panel.top - home.versionBottom;
+    assert.ok(gap > 8 && gap < 16, "the heading is " + gap + "px above the panel");
+    const stackBottom = home.limitsBottom ?? home.panel.bottom;
+    assert.ok(Math.abs((home.brand.top - home.page.top) - (home.page.bottom - stackBottom)) <= 5,
+              JSON.stringify({ page: home.page, brand: home.brand, stackBottom }));
+    // the chart is drawn to the view's height, 200 here, never stretched, and
+    // scrolls sideways, opening on the latest weeks, clear of the menus' strips
+    assert.equal(home.view.bottom - home.view.top, 200);
+    assert.equal(home.chartWidth, home.expected.width);
+    assert.ok(home.chartWidth > home.lane.right - home.lane.left, "the year is wider than the screen, so it scrolls");
     assert.ok(home.atLatest, "the heatmap opens on its latest weeks");
+    // the box hugs the chart: the chart fills its view top to bottom, the
+    // squares and month names fill the chart but for a few pixels, and the
+    // panel ends a padding under the foot
+    assert.ok(Math.abs(home.chart.top - home.view.top) < 0.5 && Math.abs(home.chart.bottom - home.view.bottom) < 0.5,
+              JSON.stringify({ chart: home.chart, view: home.view }));
+    assert.ok(home.rows.top - home.view.top < 30 && home.view.bottom - home.rows.bottom < 8, JSON.stringify(home.rows));
+    assert.ok(home.expected.cell >= 18, "squares far larger than the 11px strip they were");
+    assert.ok(home.view.top - home.head <= 15 && home.foot.top - home.view.bottom <= 11, "no band over or under the chart");
+    assert.ok(home.panelBottom - home.foot.bottom <= 16, "the box ends under the foot");
     assert.ok(home.lane.left > 28 && home.lane.right < 375 - 28, JSON.stringify(home.lane));
     assert.equal(home.card, "hidden");
     assert.equal(home.hadHistory, true, "the card behind shows its history arrows on its board");
@@ -555,16 +688,21 @@ test("on the phone the house opens home, the pill and the tips work by tap, and 
     await settle(150);
     assert.equal(await page.$eval(".tk-tip", t => t.hidden), false, "a tap on the line shows its tip");
     assert.equal(await page.$eval(".tk-dot", d => d.getAttribute("visibility")), "visible");
+    // the line's foot names the tool the counts come from: the fixture's logs are Claude's alone
+    assert.equal(await page.$eval(".tk-sum", s => s.textContent), "Includes data from Claude");
+    assert.equal(await page.$eval(".tk-legend", l => l.textContent), "Daily7-day average", "the legend stays");
 
-    // a tap on a project tab: that project's board, the tab seated, the house not
-    const owner = await page.$eval("#tabbar .ptab:last-child", t => t.dataset.owner);
-    await page.$eval("#tabbar .ptab:last-child", t => t.scrollIntoView());
-    await page.tap(`#tabbar .ptab[data-owner="${owner}"]`);
+    // a project chosen in the list: that project's board, its row checked, the house not
+    const owner = await page.$eval("#projlist .projrow:last-child", t => t.dataset.owner);
+    await page.tap("#projbtn");
+    await page.waitForFunction(() => document.body.classList.contains("projopen"), { timeout: 3000 });
+    await settle(300);
+    await page.tap(`#projlist .projrow[data-owner="${owner}"]`);
     await settle(300);
     const back = await page.evaluate(() => ({
       body: document.body.classList.contains("home"),
       pressed: document.getElementById("homeico").getAttribute("aria-pressed"),
-      seated: document.querySelector("#tabbar .ptab.on")?.dataset.owner,
+      seated: document.querySelector("#projlist .projrow.on")?.dataset.owner,
       home: getComputedStyle(document.getElementById("home")).display,
       card: getComputedStyle(document.getElementById("cards")).visibility,
       stored: localStorage.getItem("homeopen") }));

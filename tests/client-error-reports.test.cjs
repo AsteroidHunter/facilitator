@@ -262,6 +262,79 @@ test("a report is stored whatever it says, and the board's own file still says n
   }
 });
 
+const WINDOW = "0123456789abcdef";
+
+test("every line says which kind of window sent it and which load of it, the dropped notice too", async () => {
+  await reportsSince();
+  const looping = report({ message: "one window repeating itself", line: 6161 });
+  const sent = await send({
+    page: "board", client: "tauri", window: WINDOW,
+    reports: [report({ message: "first from the tauri window", line: 6100, box: "m12" }),
+              ...Array.from({ length: 12 }, () => looping)],
+  });
+  assert.deepEqual(sent, { status: 200, body: { ok: true, written: 11, dropped: 2 } });
+  const fresh = await reportsSince();
+  assert.equal(fresh.length, 12);
+  assert.deepEqual(fresh.map(line => line.kind).sort(), [...Array(11).fill("error"), "dropped"].sort());
+  for (const line of fresh) {
+    assert.equal(line.page, "board");
+    assert.equal(line.client, "tauri", `a ${line.kind} line lost its client`);
+    assert.equal(line.window, WINDOW, `a ${line.kind} line lost its window`);
+  }
+});
+
+test("each window kind the pages name is stored as sent", async () => {
+  await reportsSince();
+  const names = ["chrome", "electron", "tauri", "safari", "phone", "other"];
+  for (const [n, name] of names.entries()) {
+    const sent = await send({ page: "board", client: name, window: WINDOW,
+      reports: [report({ message: `thrown in the ${name} window`, line: 6300 + n })] });
+    assert.equal(sent.status, 200, name);
+  }
+  const fresh = await reportsSince();
+  assert.deepEqual(fresh.map(line => line.client), names);
+});
+
+test("a page from before the fields existed is still stored, with neither on its lines", async () => {
+  await reportsSince();
+  const sent = await send({ page: "board", reports: [report({ message: "an older page", line: 6400 })] });
+  assert.equal(sent.status, 200);
+  const [line] = await reportsSince();
+  assert.equal(line.message, "an older page");
+  assert.equal("client" in line, false);
+  assert.equal("window" in line, false);
+});
+
+test("a client name or window id outside the fixed forms is refused and nothing is stored", async () => {
+  const before = (await reports()).length;
+  for (const bad of [
+    { client: "firefox" }, { client: "Chrome" }, { client: "" }, { client: null }, { client: 7 },
+    { client: true }, { client: ["tauri"] }, { client: { name: "tauri" } },
+    { client: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)" },
+    { window: "" }, { window: "0123" }, { window: "0123456789abcdef0" }, { window: "0123456789ABCDEF" },
+    { window: "0123456789abcdeg" }, { window: "0123456789abcdef\n" }, { window: 1234567890123456 },
+    { window: null }, { window: ["0123456789abcdef"] }, { window: "x".repeat(4000) },
+    { window: "http://127.0.0.1:8877/" }, { client: "tauri", window: "nope" },
+    { client: "nope", window: WINDOW },
+  ]) {
+    const refused = await send({ page: "board", ...bad, reports: [report({ line: 6500 })] });
+    assert.equal(refused.status, 400, JSON.stringify(bad).slice(0, 60));
+    assert.equal(refused.body.error, "bad report batch");
+  }
+  assert.equal((await reports()).length, before, "a refused batch wrote something");
+});
+
+test("a report cannot carry a client or window of its own into the line", async () => {
+  await reportsSince();
+  const sent = await send({ page: "board", client: "electron", window: WINDOW,
+    reports: [report({ message: "a report claiming another window", line: 6600,
+                       client: "chrome", window: "fedcba9876543210" })] });
+  assert.equal(sent.status, 200);
+  const [line] = await reportsSince();
+  assert.equal(line.client, "electron");
+  assert.equal(line.window, WINDOW);
+});
+
 function incident() {
   return { kind: "incident", v: 1, reason: "manual", marked: 1800000000000,
     box: "m12", lost: 0, suppressed: 0, events: [
@@ -339,11 +412,12 @@ test("v3 accepts bounded prelude and recovery events while rejecting private fie
     { event:"scroll", action:"response-scroll", phase:"end", ms:1900,
       count:17, at:19000, visible:true, online:true, resume:1 },
   ];
-  assert.deepEqual(await send({ page:"phone", reports:[revised] }),
+  assert.deepEqual(await send({ page:"phone", client:"phone", window:revised.session, reports:[revised] }),
     { status:200, body:{ ok:true, written:1, dropped:0 } });
   const [written] = await reportsSince();
   assert.deepEqual(written.events, revised.events);
   assert.equal(written.worker, "facilitator-m-5");
+  assert.equal(written.window, written.session, "the phone's session is its window id");
   const changes = [
     r => { r.events[0].text = "private message"; },
     r => { r.events[0].x = 42; },
@@ -408,10 +482,12 @@ test("v4 keeps bounded Enter decisions and rejects private or malformed fields",
 
 test("a confirmed incident shares the dated client stream and leaves existing report fields intact", async () => {
   await reportsSince();
-  const result = await send({ page: "phone", reports: [incident(), report({ line: 5950, message: "fixture failure" })] });
+  const result = await send({ page: "phone", client: "phone", window: WINDOW,
+    reports: [incident(), report({ line: 5950, message: "fixture failure" })] });
   assert.deepEqual(result, { status: 200, body: { ok: true, written: 2, dropped: 0 } });
   const lines = await reportsSince();
   assert.equal(lines.length, 2);
+  for (const line of lines) assert.deepEqual([line.client, line.window], ["phone", WINDOW]);
   assert.deepEqual(lines[0].events, incident().events);
   assert.equal(lines[0].marked, 1800000000000);
   assert.equal(lines[0].box, "m12");

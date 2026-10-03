@@ -68,6 +68,7 @@ test('bridge gates every route, persists sessions, signs out and rejects legacy 
       'm-splash.js','m-sw.js','m-manifest.json','seed.example.json','index.html','page.html','manifest.json',
       'sw.js','card-markdown.js','card-tokens.css','card-logic.js','card-report.js',
       'compose-format.js','cm-markdown.js']) await fs.copyFile(path.join(ROOT,file), path.join(app,file));
+    require('./fixture-auth.cjs').copyBridgeFiles(app);
     await fs.cp(path.join(ROOT,'assets'), path.join(app,'assets'), { recursive:true });
     const source = await fs.readFile(path.join(app,'server.py'),'utf8');
     await fs.writeFile(path.join(app,'server.py'), source.replace('PORT = 8877', 'PORT = int(os.environ["FACILITATOR_TEST_PORT"])'));
@@ -117,7 +118,7 @@ test('bridge gates every route, persists sessions, signs out and rejects legacy 
       '/wait?owner=facilitator&timeout=0','/log','/dirs','/push/key'])
       assert.equal((await request(port+1,route)).status,401, route);
     assert.equal((await request(port+1,'/clientlog','POST','{}',{Origin:`http://127.0.0.1:${port+1}`})).status,401);
-    assert.match((await request(port+1,'/m')).text,/Adding the Facilitator to the Home Screen/);
+    assert.match((await request(port+1,'/m')).text,/Tap <strong>Add to Home Screen<\/strong>/);
     assert.equal((await request(port+1,'/m-icon-180.png')).status,200);
     assert.match((await request(port+1,'/m-manifest.json')).text,/"name": "Facilitator"/);
     const origin = { Origin:`http://127.0.0.1:${port+1}` };
@@ -147,7 +148,7 @@ test('bridge gates every route, persists sessions, signs out and rejects legacy 
     const login = await request(port+1,'/auth/login','POST',JSON.stringify({password:PASS}),origin);
     assert.equal(login.status,200,login.text);
     const cookie = login.headers['set-cookie'][0].split(';')[0];
-    assert.match(login.headers['set-cookie'][0],/Secure; HttpOnly; SameSite=Strict/);
+    assert.match(login.headers['set-cookie'][0],/Secure; HttpOnly; SameSite=Lax/);
     const auth = { Cookie:cookie };
     assert.equal((await request(port+1,'/state','GET',null,auth)).status,200);
     assert.match((await request(port+1,'/m','GET',null,auth)).text,/<aside id="settings"/);
@@ -210,11 +211,21 @@ test('bridge gates every route, persists sessions, signs out and rejects legacy 
     await reopened.goto(`http://127.0.0.1:${port+1}/m`,{waitUntil:'domcontentloaded'});
     await reopened.waitForSelector('#settings');
     assert.equal(await reopened.$('.login-face'),null, 'reopening the installed profile asked for a password');
-    assert.equal(await reopened.$eval('#signout',el => el.textContent.trim()),'Sign out');
+    assert.equal(await reopened.$eval('#signout',el => el.getAttribute('aria-label')),'Log out');
     await reopened.evaluate(() => showMenu(settings));
     await new Promise(resolve => setTimeout(resolve,650));
     if (shots) await reopened.screenshot({path:path.join(shots,'signed-in-drawer.png')});
+    // the turn off mark asks first: Cancel keeps the session, Log Out ends it
+    const asking = shown => reopened.waitForFunction(want => document.getElementById('signoutask').hidden !== want, {}, shown);
     await reopened.click('#signout');
+    await asking(true);
+    await reopened.click('#signoutno');
+    await asking(false);
+    assert.equal(await reopened.evaluate(async () => (await (await fetch('/auth/check')).json()).authenticated),true,
+      'Cancel signed out');
+    await reopened.click('#signout');
+    await asking(true);
+    await reopened.click('#signoutyes');
     await reopened.waitForSelector('.install-face');
     assert.equal(await reopened.evaluate(async () => (await (await fetch('/auth/check')).json()).authenticated),false);
     await reopened.waitForFunction(() =>

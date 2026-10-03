@@ -121,10 +121,6 @@ def inspect(args):
         output("claim_held", box=state["busy"][owner], **common)
     elif state["listening"].get(owner) or state["listenerGap"].get(owner, 1e9) < 60:
         output("listener_present", **common)
-    elif state.get("end"):
-        output("ended", **common)
-    elif state.get("paused"):
-        output("paused", **common)
     else:
         output("ready", **common)
 
@@ -159,8 +155,8 @@ def wait(args):
                 return
             claim.pop("ack", None)
             output("claim", owner=owner, **claim)
-        elif claim.get("idle") or claim.get("paused") or claim.get("end"):
-            output("idle" if claim.get("idle") else "paused" if claim.get("paused") else "ended", owner=owner)
+        elif claim.get("idle"):
+            output("idle", owner=owner)
         else:
             output("protocol_error", detail="wait response has no claim or state")
     except (OSError, ValueError, urllib.error.HTTPError) as problem:

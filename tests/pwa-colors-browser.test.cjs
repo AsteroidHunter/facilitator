@@ -87,7 +87,8 @@ before(async()=>{
   const loadedFonts=await page.evaluate(()=>[...document.fonts].filter(f=>f.status==="loaded").map(f=>f.family.replace(/["']/g,"")));
   if(FONT_CACHE) assert.ok(loadedFonts.includes("Inter")&&loadedFonts.includes("IBM Plex Sans"),"cached product fonts did not load: "+JSON.stringify(loadedFonts));
   await page.waitForFunction(()=>lastState!==null); cdp=await page.createCDPSession();
-  await page.addStyleTag({content:"#page{padding-top:calc(44px + var(--app-inset));--pad-b:calc(34px + var(--app-inset))}"});
+  // a phone's top safe area; the foot is the row of buttons' band whatever the safe area
+  await page.addStyleTag({content:"#page{padding-top:calc(44px + var(--app-inset))}"});
   await page.waitForFunction(()=>!document.getElementById("loading"),{timeout:15000});
   await pause(300); // Let the fixture safe-area padding finish its keyboard-clock transition.
   if(SHOTS){await mkdir(SHOTS,{recursive:true});await writeFile(path.join(SHOTS,"font-evidence.json"),JSON.stringify({viewport:PHONE,loadedFonts,cachedFonts:!!FONT_CACHE},null,2));}
@@ -96,22 +97,22 @@ after(async()=>{if(browser)await browser.close();if(child&&child.exitCode===null
 
 async function capture(name, side="left"){
   const state=await page.evaluate(side=>{
-    const sheet=document.getElementById("page"), tab=document.querySelector(".ptab.on"), bar=document.querySelector(".bar");
-    const ps=getComputedStyle(sheet), ts=getComputedStyle(tab), bs=getComputedStyle(document.body),
-      sr=sheet.getBoundingClientRect(), tr=tab.getBoundingClientRect(), br=bar.getBoundingClientRect();
+    // the page's paper shows above the card, under the status bar, read clear of
+    // the card's shadow; the gap between the card's foot and the row of buttons
+    // is the same paper but carries both their shadows
+    const sheet=document.getElementById("page"), pane=document.getElementById("pane");
+    const ps=getComputedStyle(sheet), bs=getComputedStyle(document.body),
+      sr=sheet.getBoundingClientRect();
     const scrim=getComputedStyle(document.getElementById("scrim"));
     return {pageFill:ps.backgroundColor,pageImage:ps.backgroundImage,bodyFill:bs.backgroundColor,
-      tabFill:ts.backgroundColor,tabSeat:ts.getPropertyValue("--seat").trim(),
-      tabBefore:getComputedStyle(tab,"::before").backgroundImage,tabAfter:getComputedStyle(tab,"::after").backgroundImage,
-      cardFill:getComputedStyle(document.getElementById("pane")).backgroundColor,
+      cardFill:getComputedStyle(pane).backgroundColor,
       drawerFill:getComputedStyle(document.getElementById("drawer")).backgroundColor,
       drawerItems:[...document.querySelectorAll(".trow")].map(el=>({id:el.dataset.id,classes:el.className,fill:getComputedStyle(el).backgroundColor})),
       scrimFill:scrim.backgroundColor,scrimOpacity:Number(scrim.opacity),pageTop:sr.top,pageScale:new DOMMatrix(ps.transform).a,
       drawerOpen:drawerOpen(),settingsOpen:settings.classList.contains("open"),
       paneReplyLength:document.querySelector(".box.sel .reply").textContent.length,
       transitions:document.getAnimations().filter(a=>["page","drawer","settings","scrim"].includes(a.effect?.target?.id)).length,
-      points:{tab:{x:tr.left+8,y:tr.bottom-8},strip:{x:innerWidth-12,y:br.top+4},
-        canvas:{x:innerWidth-12,y:br.top-12},
+      points:{canvas:{x:innerWidth/2,y:6},
         abovePage:{x:side==="right"?18:innerWidth-18,y:0.2},
         insidePage:{x:side==="right"?18:innerWidth-18,y:20}}};
   },side);
@@ -127,16 +128,15 @@ async function capture(name, side="left"){
 }
 function unified(state){
   assert.equal(state.pageFill,"rgb(255, 255, 255)");
-  assert.equal(state.bodyFill,state.pageFill);assert.equal(state.tabFill,state.pageFill);
-  assert.equal(state.pageImage,"none","page-only highlight creates the tab mismatch and recession seam");
-  assert.ok(state.tabBefore.includes(state.pageFill)&&state.tabAfter.includes(state.pageFill));
+  assert.equal(state.bodyFill,state.pageFill);
+  assert.equal(state.pageImage,"none","a page-only highlight creates the recession seam");
   assert.equal(state.cardFill,"rgb(255, 255, 255)","card's intentional white changed");
   assert.equal(state.drawerFill,"rgb(255, 255, 255)","drawer's intentional white changed");
   assert.equal(state.scrimFill,"rgba(33, 29, 23, 0.18)","drawer dimming changed");
   const seam=state.pixels.abovePage.map((v,i)=>Math.abs(v-state.pixels.insidePage[i]));
   assert.ok(Math.max(...seam)<=1,`top seam in ${state.name}: ${JSON.stringify(state.pixels)}`);
   if(state.name.endsWith("normal")||state.name.endsWith("closed")){
-    for(const key of ["tab","strip","canvas"]){
+    for(const key of ["canvas"]){
       const pixel=state.pixels[key];assert.ok(pixel.every(v=>Math.abs(v-255)<=1),`${state.name} ${key} differs: ${pixel}`);
     }
   }

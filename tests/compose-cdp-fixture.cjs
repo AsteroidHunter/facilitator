@@ -106,6 +106,8 @@ async function start() {
   for (const name of await readdir(path.join(ROOT, "assets"))) {
     await copyFile(path.join(ROOT, "assets", name), path.join(board.dir, "assets", name));
   }
+  // the board's own default is off; these checks read the editor, so it is on
+  await writeFile(path.join(board.dir, "run.config.json"), JSON.stringify({ compose_format_default: true }));
   await writeFile(path.join(board.dir, "seed.json"), JSON.stringify({
     title: "compose audit fixture",
     items: [
@@ -262,7 +264,10 @@ async function open(route, viewport, opts = {}) {
   await page.setViewport(viewport);
   // The tab was made on the fixture's own url, so the hooks below have to be
   // hung and the page read again for them to be on its first script. Nothing
-  // about this brings the tab forward.
+  // about this brings the tab forward. The desktop pages keep the setting with
+  // the board's settings and the phone keeps its own, so it goes to both.
+  await fetch(board.origin + "/settings", { method: "POST",
+    body: JSON.stringify({ composeformat: opts.setting === undefined ? null : opts.setting }) });
   await page.evaluateOnNewDocument(setting => {
     try {
       localStorage.clear();

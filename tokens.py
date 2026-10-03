@@ -6,9 +6,11 @@ Two tools write the logs read here, one JSON object per line:
 
   Claude Code  every *.jsonl under ~/.claude/projects, one file per session
                and per subagent. An assistant line carries message.usage and a
-               timestamp. One message can be written on several lines, and a
-               resumed session copies earlier turns into its new file, so each
-               message id is counted once, the first time it is seen.
+               timestamp. One message can be written on several lines, the
+               early ones of a subagent's reply with a placeholder output
+               count, and a resumed session copies earlier turns into its new
+               file, so each message id is counted once, at the largest usage
+               any of its lines carries, on the day of the line counted first.
   Codex        every *.jsonl under ~/.codex/sessions and
                ~/.codex/archived_sessions. A token_usage_record line carries
                one model response's usage and is counted once per response id.
@@ -16,7 +18,9 @@ Two tools write the logs read here, one JSON object per line:
                its token_count events instead: an event's last_token_usage is
                counted when the thread's running total has moved since the
                event before it, so a snapshot repeated while nothing ran is not
-               counted twice.
+               counted twice, and once per running total across all files, so
+               a forked thread's file replaying its parent's events adds
+               nothing.
 
 Which tokens count. Every model response is split four ways:
 
@@ -40,11 +44,19 @@ exist is only nothing to count.
 The counts are kept in a cache file (tokens-cache.json beside state.json) so a
 request never reads gigabytes twice. Per log file it holds the size and stamp
 last seen, how far the file has been read, a fingerprint of its first bytes,
-what it added to each day and short hashes of the ids it counted. A request
-stats every file and reads only what was appended since; a file that shrank or
-whose first bytes changed is read again from the start. A file that has gone
-keeps its counts, since Claude Code clears old transcripts away on its own and
-the year would otherwise lose its early months. The cache holds no log text.
+what it added to each day and short hashes of the ids it counted, a Claude
+message's with the day and four counts counted for it, kept by the one file
+that carries the most of it. A request stats every file and reads only what
+was appended since; a file that shrank or whose first bytes changed is read
+again from the start. A file that has gone keeps its counts, since Claude Code
+clears old transcripts away on its own and the year would otherwise lose its
+early months. The cache holds no log text.
+
+Beside the counts the ledger keeps one more thing: the newest plan limits
+Codex wrote down. Each token_count event can carry the percent of the 5-hour
+and weekly windows used and when they reset; the event with the latest stamp
+is kept as a few numbers, and it is what the home page's limits box falls back
+on when Codex itself cannot be asked. It is a latest value, not a count.
 """
 from __future__ import annotations
 
@@ -58,13 +70,15 @@ from pathlib import Path
 
 KINDS = ("input", "cache_write", "cache_read", "output")
 TOOLS = ("claude", "codex")
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 HEAD_BYTES = 512     # the first bytes of a file, fingerprinted to tell a rewrite from an append
+TAIL_FILES = 6       # newest Codex files whose ends are searched for limits when none are known
+TAIL_BYTES = 1 << 20 # how much of a file's end is searched
 # the cheap test a line has to pass before it is parsed: most lines are not
 # usage at all, and the tool results in them can be large
 WANTED = {
     "claude": (b'"usage"',),
-    "codex": (b"token_usage_record", b"token_count", b"session_meta"),
+    "codex": (b"token_usage_record", b"token_count"),
 }
 
 
@@ -172,6 +186,22 @@ def _claude_usage(obj):
     return message.get("id"), obj.get("timestamp"), counts
 
 
+def _epoch(stamp) -> float | None:
+    if not isinstance(stamp, str):
+        return None
+    try:
+        moment = datetime.datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=datetime.timezone.utc)
+    return moment.timestamp()
+
+
+def _num(value) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
 def _codex_counts(usage) -> tuple:
     """Codex reports cached input inside input and reasoning inside output, so
     fresh input is what is left of input once the cached part is taken out."""
@@ -190,8 +220,18 @@ class TokenLedger:
         self.roots = {tool: tuple(folders.get(tool, ())) for tool in TOOLS}
         self.cache_path = Path(cache_path) if cache_path else None
         self.lock = threading.Lock()
+        self.limits = None
+        self.searched = False
         self.files = self._load()
-        self.seen = {fp for rec in self.files.values() for fp in rec.get("ids", ())}
+        # Codex ids already counted, and for each Claude message id the record
+        # of the file that holds what is counted for it (see _message)
+        self.seen = set()
+        self.claude = {}
+        for rec in self.files.values():
+            if rec.get("tool") == "claude":
+                self.claude.update(dict.fromkeys(rec.get("ids", ()), rec))
+            else:
+                self.seen.update(rec.get("ids", ()))
 
     def _load(self) -> dict:
         if not self.cache_path:
@@ -202,6 +242,9 @@ class TokenLedger:
             return {}
         if not isinstance(data, dict) or data.get("version") != CACHE_VERSION:
             return {}
+        limits = data.get("limits")
+        if isinstance(limits, dict) and _num(limits.get("at")) is not None:
+            self.limits = limits
         files = data.get("files")
         return files if isinstance(files, dict) else {}
 
@@ -210,8 +253,10 @@ class TokenLedger:
             return
         tmp = self.cache_path.with_name(self.cache_path.name + ".tmp")
         try:
-            tmp.write_text(json.dumps({"version": CACHE_VERSION, "files": self.files},
-                                      separators=(",", ":")))
+            body = {"version": CACHE_VERSION, "files": self.files}
+            if self.limits:
+                body["limits"] = self.limits
+            tmp.write_text(json.dumps(body, separators=(",", ":")))
             os.replace(tmp, self.cache_path)
         except OSError:
             # a cache that cannot be written only costs the next run a rescan
@@ -227,6 +272,7 @@ class TokenLedger:
         """Read what each log file has gained since the last refresh."""
         zone = zone_key()
         changed = False
+        known = self.limits
         for tool in TOOLS:
             for path, st in _log_files(self.roots[tool]):
                 rec = self.files.get(path)
@@ -235,15 +281,70 @@ class TokenLedger:
                     continue
                 if self._read(path, tool, st, rec, zone):
                     changed = True
-        if changed:
+        if self.limits is None and not self.searched:
+            # a cache made before limits were kept has read every file whole and
+            # will not read them again, so the newest files' ends are searched once
+            self.searched = True
+            self._search_tails()
+        if changed or self.limits != known:
             self._save()
+
+    def _search_tails(self) -> None:
+        newest = sorted(_log_files(self.roots["codex"]), key=lambda found: found[1].st_mtime)
+        for path, st in newest[-TAIL_FILES:]:
+            try:
+                with open(path, "rb") as f:
+                    start = max(st.st_size - TAIL_BYTES, 0)
+                    f.seek(start)
+                    chunk = f.read(TAIL_BYTES)
+            except OSError:
+                continue
+            lines = chunk.split(b"\n")
+            for line in lines[1:] if start else lines:
+                if b"token_count" not in line or b"rate_limits" not in line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except ValueError:
+                    continue
+                payload = obj.get("payload") if isinstance(obj, dict) else None
+                if isinstance(payload, dict) and payload.get("type") == "token_count":
+                    self._note_limits(obj, payload)
+
+    def _note_limits(self, obj: dict, payload: dict) -> None:
+        """Keep the plan limits of the newest token_count event: only numbers,
+        and only the account's own bucket, never a model's."""
+        got = payload.get("rate_limits")
+        if not isinstance(got, dict) or got.get("limit_id") not in (None, "codex"):
+            return
+        stamp = _epoch(obj.get("timestamp"))
+        if stamp is None or (self.limits and stamp < self.limits["at"]):
+            return
+        record = {"at": stamp}
+        for name in ("primary", "secondary"):
+            window = got.get(name)
+            used = _num(window.get("used_percent")) if isinstance(window, dict) else None
+            if used is not None:
+                record[name] = {"used_percent": used, "window_minutes": _num(window.get("window_minutes")),
+                                "resets_at": _num(window.get("resets_at"))}
+        if len(record) > 1:
+            self.limits = record
 
     def _fresh(self, tool: str, zone: str) -> dict:
         rec = {"tool": tool, "size": 0, "mtime": 0, "offset": 0, "head": "", "head_len": 0,
-               "zone": zone, "days": {}, "ids": []}
+               "zone": zone, "days": {}, "ids": {} if tool == "claude" else []}
         if tool == "codex":
-            rec.update(records=0, meter_days={}, session=None, last=None)
+            rec.update(records=0, meter_days={}, last=None)
         return rec
+
+    def _forget(self, rec: dict) -> None:
+        """Free the ids a record holds, for the file to count them again when
+        it is read from the start."""
+        if rec.get("tool") == "claude":
+            for fp in rec.get("ids", ()):
+                self.claude.pop(fp, None)
+        else:
+            self.seen.difference_update(rec.get("ids", ()))
 
     def _read(self, path: str, tool: str, st, rec, zone: str) -> bool:
         """Bring one file's record up to date. False when the file could not be
@@ -286,7 +387,7 @@ class TokenLedger:
         f.seek(0)
         head = f.read(HEAD_BYTES)
         if rec:
-            self.seen.difference_update(rec.get("ids", ()))
+            self._forget(rec)
         rec = self._fresh(tool, zone)
         self._head(rec, head)
         return rec
@@ -332,28 +433,60 @@ class TokenLedger:
 
     def _claude(self, obj: dict, rec: dict, days_of) -> None:
         got = _claude_usage(obj)
-        if got:
-            mid, stamp, counts = got
-            self._add(rec, "days", "claude", mid, days_of(stamp), counts)
+        if not got:
+            return
+        mid, stamp, counts = got
+        if mid is None:
+            self._add(rec, "days", "claude", None, days_of(stamp), counts)
+        else:
+            self._message(rec, mid, days_of(stamp), counts)
+
+    def _message(self, rec: dict, raw_id, day, counts) -> None:
+        """Count a message at the largest of each kind any of its lines carries,
+        on the day it was first counted on. A streamed reply repeats its usage
+        on every line, the early ones of a subagent's with a placeholder output.
+        The counted usage sits in one file's ids and days: a line that carries
+        more of any kind than is counted moves the message to its own file's
+        record with the larger counts, so a file read again from the start gets
+        back what it carried, whichever other files carry the message too."""
+        if not any(counts):
+            return
+        fp = _fingerprint("claude", raw_id)
+        owner = self.claude.get(fp)
+        if owner is None:
+            if day is None:
+                return
+            counted = [day, *counts]
+        else:
+            have = owner["ids"][fp]
+            counted = [have[0]] + [max(a, b) for a, b in zip(have[1:], counts)]
+            if counted == have:
+                return
+            del owner["ids"][fp]
+            row = owner["days"][have[0]]
+            for i, value in enumerate(have[1:]):
+                row[i] -= value
+            if not any(row):
+                del owner["days"][have[0]]
+        rec["ids"][fp] = counted
+        self.claude[fp] = rec
+        row = rec["days"].setdefault(counted[0], [0, 0, 0, 0])
+        for i, value in enumerate(counted[1:]):
+            row[i] += value
 
     def _codex(self, obj: dict, rec: dict, days_of) -> None:
         kind = obj.get("type")
         payload = obj.get("payload")
         if not isinstance(payload, dict):
             return
-        if kind == "session_meta":
-            # a spawned thread's file can carry its parent's metadata after its
-            # own; the first one is the thread this file belongs to. only its
-            # fingerprint is kept, like every id here
-            if rec.get("session") is None and isinstance(payload.get("id"), str):
-                rec["session"] = _fingerprint("thread", payload["id"])
-        elif kind == "token_usage_record":
+        if kind == "token_usage_record":
             usage = payload.get("usage")
             if isinstance(usage, dict):
                 rec["records"] += 1
                 self._add(rec, "days", "codex", payload.get("response_id"),
                           days_of(obj.get("timestamp")), _codex_counts(usage))
         elif kind == "event_msg" and payload.get("type") == "token_count":
+            self._note_limits(obj, payload)
             info = payload.get("info")
             if not isinstance(info, dict):
                 return
@@ -365,9 +498,10 @@ class TokenLedger:
             if running == rec.get("last"):
                 return
             rec["last"] = running
-            # the thread and its running total name one step of that thread, so
-            # a file moved into the archive is not counted a second time
-            self._add(rec, "meter_days", "codex", f"{rec.get('session')}:{running}",
+            # a running total names one step of a thread whichever file holds
+            # it, so a file moved into the archive, or a forked thread's file
+            # replaying its parent's events, is not counted a second time
+            self._add(rec, "meter_days", "codex", running,
                       days_of(obj.get("timestamp")), _codex_counts(last))
 
     def _tally(self) -> dict:
@@ -386,6 +520,14 @@ class TokenLedger:
                 for i, value in enumerate(counts[:4]):
                     row[i] += _n(value)
         return out
+
+    def latest_limits(self) -> dict | None:
+        """The plan limits on the newest Codex token_count event seen, as
+        {"at": epoch seconds, "primary": {"used_percent", "window_minutes",
+        "resets_at"}, "secondary": {...}}, or None when no event carried any."""
+        with self.lock:
+            self.refresh()
+            return self.limits
 
     def daily(self, days: int = 365, today: datetime.date | None = None) -> dict:
         """The last `days` days ending today, oldest first, every one present.

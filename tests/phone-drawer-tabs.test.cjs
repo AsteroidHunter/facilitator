@@ -1,8 +1,8 @@
 // The phone's card drawer follows the board's ticket names: Doing, Deferred and
 // Done, capitalized, the selected one marked by weight and ink with no pill, and
-// every name dipping while pressed. Unlike the board it draws no recessed well
-// around the list: in a drawer this narrow the rows sit straight on the drawer.
-// The board keeps its well. Read from the sources, with no browser, so a drift on
+// every name dipping while pressed. Like the board it draws no recessed well
+// around the list: the rows sit straight on the drawer. The board's list stands
+// on the paper too, its edges fading. Read from the sources, with no browser, so a drift on
 // either page is caught wherever the suite runs.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
@@ -184,7 +184,7 @@ test("the phone drawer lists tickets with no embedded well around them", async (
   assert.equal(row.background, "#fff");
 });
 
-test("the board is unchanged: capitalized names, no pill, and its well kept", async () => {
+test("the board is unchanged: capitalized names, no pill, and its list on the paper with faded edges", async () => {
   const board = await read("index.html");
   const rules = rulesOf(board);
   assert.deepEqual(labels(board), ["Doing", "Deferred", "Done"]);
@@ -197,11 +197,16 @@ test("the board is unchanged: capitalized names, no pill, and its well kept", as
   assert.equal(on.background, "transparent");
   assert.equal(declsFor(rules, "#tikhead .tvb.pressed")["box-shadow"], DIP);
   assert.match(board, /IBM\+Plex\+Sans:wght@[\d;]*\b700\b/);
-  // the board's recessed well stays: white fill, hairline, 7px corner, and the
-  // --sunk-deep shade at 90% depth
-  const well = declsFor(rules, "#tiklist");
-  assert.equal(well.background, "var(--card)");
-  assert.equal(well.border, "var(--edge) solid var(--line)");
-  assert.equal(well["border-radius"], "7px");
-  assert.equal(well["box-shadow"], "inset 0 2.7px 6.3px rgba(60,45,20,.198), inset 0 .9px 1.8px rgba(60,45,20,.126)");
+  // the board's list stands on the paper: no fill, edge, corner or shade of its
+  // own, still clipping the sheet of three sections
+  const list = declsFor(rules, "#tiklist");
+  for (const key of ["background", "border", "border-radius", "box-shadow"])
+    assert.equal(key in list, false, `#tiklist still sets ${key}: ${list[key]}`);
+  assert.equal(list.overflow, "clip");
+  // a thin divider in --line sits under the three names, and each section's top
+  // and foot fade under a mask sized by how far it has scrolled and how far it can
+  assert.equal(declsFor(rules, "#tikhead::after")["border-top"], "var(--edge) solid var(--line)");
+  const pane = declsFor(rules, ".tikpane");
+  assert.match(pane["mask-image"], /var\(--upband, 0px\)/);
+  assert.match(pane["mask-image"], /var\(--downband, 0px\)/);
 });

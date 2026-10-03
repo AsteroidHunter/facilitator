@@ -47,11 +47,32 @@ class FakeElement {
     this.classList = {
       add: (...n) => { this.className = [...new Set([...names(), ...n])].join(" "); },
       contains: n => names().includes(n),
+      toggle: (n, force) => {
+        const want = force === undefined ? !names().includes(n) : !!force;
+        this.className = (want ? [...new Set([...names(), n])] : names().filter(x => x !== n)).join(" ");
+        return want;
+      },
     };
   }
   get textContent() { return this._text; }
   set textContent(v) { this._text = String(v ?? ""); this.children = []; }
   appendChild(child) { child.parentElement = this; this.children.push(child); return child; }
+  get firstElementChild() { return this.children[0] || null; }
+  get nextElementSibling() {
+    const at = this.parentElement ? this.parentElement.children.indexOf(this) : -1;
+    return at < 0 ? null : this.parentElement.children[at + 1] || null;
+  }
+  insertBefore(child, ref) {
+    child.parentElement = this;
+    const at = ref ? this.children.indexOf(ref) : -1;
+    if (at < 0) this.children.push(child); else this.children.splice(at, 0, child);
+    return child;
+  }
+  remove() {
+    if (!this.parentElement) return;
+    this.parentElement.children.splice(this.parentElement.children.indexOf(this), 1);
+    this.parentElement = null;
+  }
   setAttribute() {}
   addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
   get offsetHeight() { return ROW.h; }
@@ -110,6 +131,15 @@ function pageHelpers() {
   )(sandbox.getComputedStyle, sandbox.fetch, sandbox.poll, false, encodeURIComponent);
 }
 
+// the phone's painter keeps its rows on the section it is handed, so a second
+// pass over the same section changes those rows in place
+const phonePainter = () => new Function("queueState", "cardState", "h", "seenReplies", "shortAge",
+  "SPIN_FRAMES", "spinFrame", "selectedId", "testReady", "appendOmniRowArt", "omniRowFace",
+  "select", "closeDrawer", "onFold", "unfoldTicket", "homeOpen", "setHome",
+  `${functionSource(HTML.phone, "paintPhonePane", "renderTickets")}; return paintPhonePane;`,
+)(queueState, cardState, h, {}, () => "5m", SPIN, 0, "none", testReady, appendOmniRowArt, sandbox.omniRowFace,
+  record("select"), record("closeDrawer"), logic("onFold"), logic("unfoldTicket"), false, record("setHome"));
+
 // each surface's painter, handed one pool and the view it is drawing, answers
 // with the rows it drew
 const PAINT = {
@@ -125,14 +155,8 @@ const PAINT = {
     return pane.children;
   },
   phone: (pool, view = "todo") => {
-    const paint = new Function("queueState", "cardState", "h", "seenReplies", "shortAge",
-      "SPIN_FRAMES", "spinFrame", "selectedId", "testReady", "appendOmniRowArt",
-      "select", "closeDrawer", "onFold", "unfoldTicket", "homeOpen", "setHome",
-      `${functionSource(HTML.phone, "paintPhonePane", "renderTickets")}; return paintPhonePane;`,
-    )(queueState, cardState, h, {}, () => "5m", SPIN, 0, "none", testReady, appendOmniRowArt,
-      record("select"), record("closeDrawer"), logic("onFold"), logic("unfoldTicket"), false, record("setHome"));
     const pane = new FakeElement("div");
-    paint(pane, pool, view, "sig", { agents: {} });
+    phonePainter()(pane, pool, view, { agents: {} }, noop);
     return pane.children;
   },
   page: (pool, view = "todo") => {
@@ -202,9 +226,9 @@ test("control+u is the unfold key, with control alone and not composing, and onl
     assert.equal(resolve(key(k)), null);
     assert.equal(resolve(key(k, { metaKey: true })), null);
   }
-  // the keys around it are the ones they were
-  assert.deepEqual(resolve(key("n", { ctrlKey: true })), { action: "destination", value: "doing" });
-  assert.deepEqual(resolve(key("l", { ctrlKey: true })), { action: "destination", value: "deferred" });
+  // the keys around it are the ones they were, and control+n and control+l are no command
+  assert.equal(resolve(key("n", { ctrlKey: true })), null);
+  assert.equal(resolve(key("l", { ctrlKey: true })), null);
   assert.deepEqual(resolve(key("s", { ctrlKey: true })), { action: "responseScroll", value: true });
   assert.deepEqual(resolve(key("M", { ctrlKey: true, shiftKey: true })), { action: "diagnostic", value: true });
 });
@@ -380,23 +404,12 @@ for (const where of SURFACES) {
 }
 
 // the signature a list is repainted on, for one pool: the board and the typed
-// page keep it on the list they paint, the phone works it out before painting
+// page keep it on the list they paint
 const SIG = {
   desktop: pool => PAINT.desktop(pool)[0].parentElement.dataset.sig,
   page: pool => PAINT.page(pool)[0].parentElement.dataset.sig,
-  phone: pool => {
-    const got = [], pane = new FakeElement("div");
-    const document = { getElementById: () => ({ querySelector: () => pane }) };
-    new Function("document", "paintViewTabs", "activeOwner", "TICKET_VIEWS", "viewPoolFor", "seenReplies",
-      "selectedId", "testReady", "tracePhone", "paintPhonePane", "syncSpinner", "endPhoneTrace",
-      "tikTravelIntent", "tikShownView", "curView", "moveTicketSheet", "Date",
-      `${functionSource(HTML.phone, "renderTickets", "setView")}\nreturn renderTickets;`,
-    )(document, noop, "lane", ["todo"], () => pool, {}, "none", testReady, noop, (p, b, n, sig) => got.push(sig),
-      noop, noop, null, "todo", () => "todo", noop, DateStub)({ agents: {} });
-    return got[0];
-  },
 };
-for (const where of SURFACES) {
+for (const where of Object.keys(SIG)) {
   test(`${where}: an unfold repaints the row, so the fold does not stay on screen`, () => {
     const folded = SIG[where]([card()]);
     const unfolded = SIG[where]([card({ testing: false })]);
@@ -404,6 +417,22 @@ for (const where of SURFACES) {
     assert.notEqual(unfolded, folded, "unfolding left the folded row standing");
   });
 }
+test("phone: an unfold changes the row in place, so the fold does not stay on screen", async () => {
+  foldPx = 12;
+  const paint = phonePainter(), pane = new FakeElement("div");
+  paint(pane, [card()], "todo", { agents: {} }, noop);
+  const row = rowOf(pane.children, "m1");
+  assert.ok(classes(row).includes("testc"), "the card was not folded to begin with");
+  paint(pane, [card({ testing: false })], "todo", { agents: {} }, noop);
+  assert.equal(pane.children.length, 1);
+  assert.equal(rowOf(pane.children, "m1"), row, "the row was drawn again rather than changed");
+  assert.ok(!classes(row).includes("testc"), "unfolding left the folded row standing");
+  calls.length = 0;
+  click(row, 3, 3);
+  await settle();
+  assert.deepEqual(asked(), [], "the unfolded row's corner still unfolds");
+  assert.deepEqual(named("select"), [["m1"]]);
+});
 
 // ---- the sheets: each rule's selectors, as in ticket-test-fold.test.cjs -----------
 function rulesOf(css) {
