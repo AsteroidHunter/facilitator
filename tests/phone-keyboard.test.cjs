@@ -527,8 +527,8 @@ test("a paired keyboard's bar no taller than the row's band leaves the card wher
     // the card list is pulled over the page. a menu coming out lets go of
     // whatever is being typed in, which is what puts a keyboard away, so the
     // strip measured off a focused row is no longer something to keep clear of:
-    // the page hands that room back and says so. the menu's own picture still
-    // steps the page in behind it
+    // the page hands that room back and says so. the list does not draw the page
+    // back: the card goes down and the page keeps its size
     await page.evaluate(() => openDrawer());
     await settle(750);
     assert.equal(await page.evaluate(() => drawerOpen()), true, "the card drawer did not open over the adjusted page");
@@ -538,7 +538,7 @@ test("a paired keyboard's bar no taller than the row's band leaves the card wher
     assert.equal(behind.obstructed, false, "the page kept clear of a strip nothing holds up any more");
     assert.equal(behind.inset, "0px", "the accessory inset stayed on with nothing focused");
     const size = await page.evaluate(() => new DOMMatrix(getComputedStyle(document.getElementById("page")).transform).a);
-    near(size, REST, "the open drawer did not draw the adjusted page back", 0.0005);
+    near(size, 1, "the open list drew the page back, which only the settings do", 0.0005);
 
     // the strip goes with the focus on a phone, so the viewport reports itself
     // whole again, and the card keeps the room whether the menu is out or not

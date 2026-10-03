@@ -1,7 +1,7 @@
-// The phone's card drawer follows the board's ticket names: Doing, Deferred and
+// The phone's card list follows the board's ticket names: Doing, Deferred and
 // Done, capitalized, the selected one marked by weight and ink with no pill, and
 // every name dipping while pressed. Like the board it draws no recessed well
-// around the list: the rows sit straight on the drawer. The board's list stands
+// around the list: the rows sit straight on the paper. The board's list stands
 // on the paper too, its edges fading. Read from the sources, with no browser, so a drift on
 // either page is caught wherever the suite runs.
 const assert = require("node:assert/strict");
@@ -65,9 +65,9 @@ test("the phone drawer's selected tab wears no pill and reads by weight", async 
   // a clear edge on all four sides of every name, so selection moves nothing,
   // and the ID-scoped shorthand outranks .ptab.on's hairline colour
   assert.equal(name.border, "var(--edge) solid transparent");
-  assert.equal(name["font-size"], "14px", "the names are not a pixel over the phone's 13px tabs");
+  assert.equal(name["font-size"], "calc(14 * var(--u))", "the names are not a pixel over the phone's 13px tabs");
   assert.equal(name["box-shadow"], REST, "a name stands in a shade at rest");
-  assert.equal(name["border-radius"], "7px");
+  assert.equal(name["border-radius"], "calc(7 * var(--u))");
   // selection is weight and ink, with no fill, edge or shade of its own
   assert.equal(on["font-weight"], "700");
   assert.equal(on.color, "var(--ink)");
@@ -158,29 +158,32 @@ test("a press dips a phone tab for at least 80ms, by finger and by key", async (
   assert.equal(deferred.classList.contains("pressed"), false, "a letter pressed the name");
 });
 
-test("the phone drawer lists tickets with no embedded well around them", async () => {
+test("the phone card list lists tickets with no embedded well around them", async () => {
   const rules = rulesOf(await read("m.html"));
   const list = declsOnId(rules, "tiklist");
   // nothing that would draw the box: no fill, edge, rounding, inset shade or
-  // outline, and no margin setting the list in from the drawer's sides
+  // outline. the list reaches out past the holder on both sides and past its foot
+  // by negative margins, as the board's does, so a lifted row's shadow is not cut
   for (const [k, v] of list)
-    assert.ok(!/^(background|border|box-shadow|outline|margin)/.test(k), `#tiklist still sets ${k}: ${v}`);
-  // it still clips the sheet of three sections and fills the drawer below the names
+    assert.ok(!/^(background|border|box-shadow|outline)/.test(k), `#tiklist still sets ${k}: ${v}`);
+  // it still clips the sheet of three sections and fills the holder below the names
   const own = declsFor(rules, "#tiklist");
-  assert.equal(own.overflow, "hidden");
+  assert.equal(own.overflow, "clip");
   assert.equal(own.flex, "1");
   assert.equal(own["min-height"], "0");
-  // the rows keep their spacing through each section's own padding and gap,
-  // in line with the names' 8px sides above
+  assert.equal(own.margin, "0 calc(var(--list-side) * -1) calc(var(--list-air) * -1)");
+  // the rows keep their spacing through each section's own padding and gap, which
+  // pad back in by the amount the list reaches out, so every row stands in line
+  // with the names above
   const pane = declsFor(rules, ".tikpane");
-  assert.equal(pane.padding, "10px 8px");
-  assert.equal(pane.gap, "6px");
+  assert.equal(pane.gap, "calc(6 * var(--u))");
   assert.equal(pane["overflow-y"], "auto");
-  assert.match(declsFor(rules, "#tikhead").padding, /^6px 8px 0$/);
+  assert.match(pane.padding, /var\(--list-side\)/);
+  assert.match(declsFor(rules, "#tikhead").padding, /^calc\(6 \* var\(--u\)\) 0 0$/);
   // the rows themselves keep their own edge, fill and shade
   const row = declsFor(rules, ".trow");
   assert.equal(row.border, "var(--edge) solid var(--line)");
-  assert.equal(row["border-radius"], "5px");
+  assert.equal(row["border-radius"], "calc(5 * var(--u))");
   assert.equal(row.background, "#fff");
 });
 

@@ -58,12 +58,13 @@
     /* the menus' motion, taken from the drawer this page's menus are drawn
        from: one run of 550ms, an ease in and out on a tap and an ease out on
        the release of a drag, so a drag that is already moving is not asked to
-       start again. --drawer-curve is the one in force, written by the script
-       at whichever of the two the run was begun by */
+       start again. every moving layer states both curves in its own rules, the
+       second under body.menurelease, which the script sets for a run begun by
+       a release; writing one variable on the root for it would restyle the
+       whole document */
     --drawer-ms:.55s;
     --drawer-tap:cubic-bezier(.445,.05,.55,.95);
     --drawer-drag:cubic-bezier(.215,.61,.355,1);
-    --drawer-curve:var(--drawer-tap);
     /* the row of buttons along the bottom (#dock), laid where iOS 26 draws the
        bar a paired keyboard brings up: a 48px pill whose foot is 10px off the
        screen's bottom edge, 16px in from each side, 20px on the two widest
@@ -137,18 +138,34 @@
      across the run rather than the OS or browser's own tint, so a long-press
      pick of the sent words or the prose reads the same here as on the board */
   ::selection{background:#000; color:#fff}
+  /* the numbers the menus' motion is written in, registered so each stays on
+     the element it is written to: an unregistered one is inherited by every
+     element below it and each change restyles them all. --list-v is how far
+     the card list is out, --bed-v the same on the row's bed, whose own pieces
+     are all that stands below it, --shift how far the settings are out as a
+     share of their own width, --panel-depth the weight of their shade, and
+     --listfade the depth of the list's own fade, a length so the script can
+     read it in pixels at whatever size the page stands */
+  @property --list-v{syntax:"<number>"; inherits:false; initial-value:0}
+  @property --bed-v{syntax:"<number>"; inherits:true; initial-value:0}
+  @property --page-scale{syntax:"<number>"; inherits:false; initial-value:1}
+  @property --shift{syntax:"<percentage>"; inherits:false; initial-value:100%}
+  @property --panel-depth{syntax:"<number>"; inherits:true; initial-value:0}
+  @property --listfade{syntax:"<length>"; inherits:true; initial-value:0px}
   /* the page: the card and the row of buttons under it, on the paper, as one
-     surface. both menus cross over it, with the shade between them and it, and
-     the surface itself draws back a little while either one is out. at rest it
-     already stands --rest-gap in from each edge, laid out at --rest of full
-     size, and a menu draws it back from there */
+     surface. the card list is laid on it above the card, and pulling the list
+     out drops the card by the list's height; the settings cross over it with
+     the shade between them and it, and the surface itself draws back a little
+     while they are out. at rest it already stands --rest-gap in from each
+     edge, laid out at --rest of full size, and the settings draw it back from
+     there */
   #page{
     position:absolute; inset:var(--rest-gap); z-index:10;
-    display:flex; flex-direction:column; overflow:hidden;
-    padding:calc(var(--rest) * env(safe-area-inset-top, 0px) + var(--app-inset))
-            calc(var(--rest) * env(safe-area-inset-right, 0px) + var(--app-inset))
-            var(--pad-b)
-            calc(var(--rest) * env(safe-area-inset-left, 0px) + var(--app-inset));
+    display:flex; flex-direction:column; overflow:clip;
+    --pg-t:calc(var(--rest) * env(safe-area-inset-top, 0px) + var(--app-inset));
+    --pg-r:calc(var(--rest) * env(safe-area-inset-right, 0px) + var(--app-inset));
+    --pg-l:calc(var(--rest) * env(safe-area-inset-left, 0px) + var(--app-inset));
+    padding:var(--pg-t) var(--pg-r) var(--pad-b) var(--pg-l);
     -webkit-tap-highlight-color:transparent;
     /* the foot's clearance. at rest it is the band the row of buttons stands
        in, which covers the home indicator's safe area too. while an editor is
@@ -172,20 +189,23 @@
     /* The page and the exposed canvas share one paper. A page-only highlight
        would reveal a seam when the page draws back. */
     background:var(--paper);
-    /* the depth a menu opens onto. as one comes out the whole page draws back
-       towards the middle of the screen, by the same fraction the menu's travel
-       and its shade are worth, so the card reads as a stage set back rather
+    /* the depth the settings open onto. as they come out the whole page draws
+       back towards the middle of the screen, by the same fraction their travel
+       and their shade are worth, so the card reads as a stage set back rather
        than as something pushed aside. it goes nowhere sideways and nothing is
        laid out again: the page keeps the size it rests at and only its
        picture is drawn smaller, from its own middle, so every edge steps in
        by the same amount, --sink of the page's size, on top of the step it
        already stands in at rest. --page-scale is written by the script and is
-       exactly 1 with both menus shut */
+       exactly 1 with the settings shut. the card list does not draw it back */
     --page-scale:1;
+    --list-drop:0px;
     transform:scale(var(--page-scale));
     transform-origin:50% 50%;
-    transition:transform var(--drawer-ms) var(--drawer-curve);
+    transition:transform var(--drawer-ms) var(--drawer-tap);
   }
+  body.menurelease #page{transition:transform var(--drawer-ms) var(--drawer-drag)}
+  body.menudrag #page{transition:none}
   /* the lift is the whole of the keyboard's visible motion: how far the card's
      own bottom edge, and the typing row standing on it, come up. the page's own
      bottom clearance never changes, so the card's top edge is untouched by a
@@ -211,32 +231,32 @@
   body.obstructed, body.lifting{top:var(--shell-top, 0px); height:var(--shell-h, 100%)}
   button{font-family:inherit; -webkit-appearance:none; appearance:none}
 
-  /* ---- the tab's type and seat, which the drawer's three names wear ---------- */
+  /* ---- the tab's type and seat, which the card list's three names wear ------ */
   /* the desktop bar's seated tab at phone size. the project tabs that used to
      cross the top of this page wore it too; they are the project list now (the
-     row of buttons, below), and the drawer's Doing, Deferred and Done keep it */
+     row of buttons, below), and the list's Doing, Deferred and Done keep it */
   .ptab{
-    flex:none; font:500 13px/16px var(--sans); color:var(--sub);
+    flex:none; font:500 calc(13 * var(--u))/16px var(--sans); color:var(--sub);
     background:transparent; border:var(--edge) solid transparent; border-bottom:none;
-    border-radius:7px 7px 0 0; cursor:pointer; user-select:none; -webkit-user-select:none;
+    border-radius:calc(7 * var(--u)) calc(7 * var(--u)) 0 0; cursor:pointer; user-select:none; -webkit-user-select:none;
     /* the top border is room at the edge's width; the padding gives back what
        it no longer takes, so the label sits where it did */
-    position:relative; height:39px; padding:calc(1px - var(--edge-drawn)) 16px 6px;
+    position:relative; height:calc(39 * var(--u)); padding:calc(1px - var(--edge-drawn)) calc(16 * var(--u)) calc(6 * var(--u));
     --seat:var(--paper);
   }
   .ptab.on{color:var(--ink); background:var(--seat); border-color:var(--line)}
   .ptab.on::before, .ptab.on::after{
-    content:""; position:absolute; bottom:0; width:10px; height:8px; pointer-events:none;
+    content:""; position:absolute; bottom:0; width:calc(10 * var(--u)); height:calc(8 * var(--u)); pointer-events:none;
   }
   .ptab.on::before{
-    left:-8px;
-    background:radial-gradient(circle 8px at 0 0, transparent 0 calc(8px - var(--edge-drawn)),
-      var(--line) calc(8px - var(--edge-drawn)) 8px, var(--seat) 8px);
+    left:calc(-8 * var(--u));
+    background:radial-gradient(circle calc(8 * var(--u)) at 0 0, transparent 0 calc(8 * var(--u) - var(--edge-drawn)),
+      var(--line) calc(8 * var(--u) - var(--edge-drawn)) calc(8 * var(--u)), var(--seat) calc(8 * var(--u)));
   }
   .ptab.on::after{
-    right:-8px;
-    background:radial-gradient(circle 8px at 100% 0, transparent 0 calc(8px - var(--edge-drawn)),
-      var(--line) calc(8px - var(--edge-drawn)) 8px, var(--seat) 8px);
+    right:calc(-8 * var(--u));
+    background:radial-gradient(circle calc(8 * var(--u)) at 100% 0, transparent 0 calc(8 * var(--u) - var(--edge-drawn)),
+      var(--line) calc(8 * var(--u) - var(--edge-drawn)) calc(8 * var(--u)), var(--seat) calc(8 * var(--u)));
   }
   /* ---- the row of buttons along the bottom ------------------------------------ */
   /* four buttons in the band iOS gives a paired keyboard's bar: the card list's
@@ -264,6 +284,53 @@
   }
   #dock.away{opacity:0; visibility:hidden; pointer-events:none;
     transition:opacity .1s ease-out, visibility 0s linear .1s}
+  /* the bed the row stands on, a layer of its own over the card whether the
+     card list is out or not. the paper fills the band and its top edge goes out
+     into the card on the ramp the card's own fades wear: nothing at the edge,
+     .35 of the paper at .38 of the depth, .80 at .72 of it and all of it at the
+     depth, so a card that has gone down under the row is not cut off by a line.
+     with the card at rest its foot stands on the edge and the band is just the
+     row's own. as the card goes down under the row a second sheet of paper,
+     the same ramp starting a little higher, fades in with it, so the card's
+     lines are gone before they reach the buttons. a soft shadow lies along the
+     edge, light at rest and at its full weight with the card down, rising with
+     the second sheet. it takes no touch */
+  #dockbed{
+    position:absolute; z-index:1; left:0; right:0; bottom:0; height:var(--dock-band);
+    --bed-fade:calc(22 * var(--u)); --bed-lift:calc(12 * var(--u)); pointer-events:none;
+    opacity:1; visibility:visible; transition:opacity .18s var(--gentle), visibility 0s;
+  }
+  #dock.away ~ #dockbed{opacity:0; visibility:hidden; transition:opacity .1s ease-out, visibility 0s linear .1s}
+  #dockbed::before, #dockbed > i{
+    display:block; position:absolute; left:0; right:0; bottom:0; top:0; background:var(--paper);
+    -webkit-mask-image:linear-gradient(to bottom,
+      rgba(0,0,0,0) 0,
+      rgba(0,0,0,.35) calc(var(--bed-fade)*.38),
+      rgba(0,0,0,.80) calc(var(--bed-fade)*.72),
+      rgba(0,0,0,1) var(--bed-fade));
+    mask-image:linear-gradient(to bottom,
+      rgba(0,0,0,0) 0,
+      rgba(0,0,0,.35) calc(var(--bed-fade)*.38),
+      rgba(0,0,0,.80) calc(var(--bed-fade)*.72),
+      rgba(0,0,0,1) var(--bed-fade));
+  }
+  #dockbed::before{content:""}
+  #dockbed > i{
+    top:calc(-1 * var(--bed-lift)); opacity:var(--bed-v);
+    transition:opacity var(--drawer-ms) var(--drawer-tap);
+  }
+  #dockbed::after{
+    content:""; position:absolute; left:0; right:0; bottom:calc(100% - 8 * var(--u)); height:calc(26 * var(--u));
+    background:linear-gradient(to top, rgba(60,45,20,0), rgba(60,45,20,.12) 31%, rgba(60,45,20,.055) 62%, rgba(60,45,20,0));
+    -webkit-mask-image:linear-gradient(to right, transparent, #000 calc(12 * var(--u)), #000 calc(100% - 12 * var(--u)), transparent);
+    mask-image:linear-gradient(to right, transparent, #000 calc(12 * var(--u)), #000 calc(100% - 12 * var(--u)), transparent);
+    opacity:calc(.3 + .7 * var(--bed-v));
+    transform:translateY(calc(-1 * var(--bed-lift) * var(--bed-v)));
+    transition:opacity var(--drawer-ms) var(--drawer-tap), transform var(--drawer-ms) var(--drawer-tap);
+  }
+  body.menurelease #dockbed > i{transition:opacity var(--drawer-ms) var(--drawer-drag)}
+  body.menurelease #dockbed::after{transition:opacity var(--drawer-ms) var(--drawer-drag), transform var(--drawer-ms) var(--drawer-drag)}
+  body.menudrag #dockbed > i, body.menudrag #dockbed::after{transition:none}
   #dock .dockbtn{
     flex:none; height:100%; margin:0; padding:0;
     border-radius:calc(var(--dock-h) / 2); color:var(--ink); cursor:pointer;
@@ -400,6 +467,23 @@
     margin-bottom:calc(0px - var(--kb-lift, 0px));
     transition:margin-bottom var(--kb-anim);
   }
+  /* the card list pulled out drops the card by --list-drop, the list's own
+     height and the share of the screen it is given, written on the page by the
+     script. the fraction is --list-v, written on the card with the list's, so
+     the two cross on one number; what is under the screen's foot and the row's
+     bed is out of sight. only its picture moves, and a finger's run is not
+     timed. the two transitions are the keyboard's lift and this one, each
+     rule stating both. a card with the list out takes no touch: a tap on it is
+     a tap on the page behind it, which shuts the list, and a touch of the
+     card's own controls too */
+  #pane{
+    transform:translate(0, calc(var(--list-v) * var(--list-drop, 0px)));
+    transition:margin-bottom var(--kb-anim), transform var(--drawer-ms) var(--drawer-tap);
+  }
+  body.menurelease #pane{transition:margin-bottom var(--kb-anim), transform var(--drawer-ms) var(--drawer-drag)}
+  body.menudrag #pane{transition:margin-bottom var(--kb-anim)}
+  body.listout #pane{will-change:transform}
+  body.listout #pane, body.listout #pane *{pointer-events:none !important}
   /* a card only browsed to sits level with the page: the drop shadow is the
      selected card's, and the hairline edge stays */
   body.browsing main{box-shadow:none}
@@ -952,79 +1036,108 @@
   .answcross svg{width:calc(8 * var(--u)); height:calc(8 * var(--u))}
   .copybtn svg{width:calc(12 * var(--u)); height:calc(12 * var(--u))}
 
-  /* ---- the card list off the left edge, the settings off the right --------- */
-  /* the shade over the page while a menu is out, and the tap that shuts it. it
-     lies between the page and either menu, so the menu stays clear. it is the
-     page's sister and not its child, so it keeps the whole screen while the
-     page draws back: the thin strip the page leaves along each edge takes the
-     same shade as the rest and shuts the menu on a tap like the rest */
+  /* ---- the card list above the card, the settings off the right edge ------ */
+  /* the shade over the page while the settings are out, and the tap that shuts
+     them. it lies between the page and the settings, so they stay clear. it is
+     the page's sister and not its child, so it keeps the whole screen while the
+     page draws back. the card list casts none, and the page does not draw back
+     for it */
   #scrim{position:absolute; inset:0; background:rgba(33,29,23,.18);
     opacity:var(--scrimv, 0); pointer-events:none; z-index:19;
-    transition:opacity var(--drawer-ms) var(--drawer-curve)}
-  body.menuout #scrim{pointer-events:auto}
-  /* the page's own picture changes frame by frame while a menu is out, so it is
-     given a layer of its own for the run */
-  body.menuout #page{will-change:transform}
-  /* both menus cross over the page from their own edge along one straight
+    transition:opacity var(--drawer-ms) var(--drawer-tap)}
+  body.menurelease #scrim{transition:opacity var(--drawer-ms) var(--drawer-drag)}
+  body.menudrag #scrim{transition:none}
+  body.setout #scrim{pointer-events:auto}
+  /* the page's own picture changes frame by frame while the settings are out, so
+     it is given a layer of its own for the run */
+  body.setout #page{will-change:transform}
+  /* the card list: the board's ticket box at the phone's size, laid on the page
+     in the space the card leaves above it. it takes the card's width, from the
+     card's own edges, and the top the card has at rest, and stands as tall as
+     the card goes down, less --list-gap, so its foot is clear of the card's top
+     edge. it comes in from the page's left edge on the card's fraction, --list-v,
+     written on it with the card's, so the two cross together and a finger
+     carries both. it lies under the card, so as the card goes down it uncovers
+     the box and does not cut across it. the holder paints nothing, as on the
+     board; the list inside is the board's own and fades at its ends. it is on show only while
+     it is out, and is taken away for the whole run that puts it back, so it
+     disappears once it has finished leaving */
+  #tickets{
+    --line-gap:calc(6 * var(--u)); --list-gap:calc(10 * var(--u));
+    position:absolute; z-index:0; left:var(--pg-l); right:var(--pg-r); top:var(--pg-t);
+    height:max(0px, calc(var(--list-drop, 0px) - var(--list-gap)));
+    background:transparent; border:none; border-radius:0; box-shadow:none;
+    display:flex; flex-direction:column; overflow:visible; gap:calc(var(--line-gap) + var(--u));
+    transform:translate3d(calc((var(--list-v) - 1) * (100% + var(--pg-l))), 0, 0);
+    visibility:hidden; --menuwait:var(--drawer-ms);
+    transition:transform var(--drawer-ms) var(--drawer-tap), visibility 0s linear var(--menuwait);
+  }
+  body.menurelease #tickets{
+    transition:transform var(--drawer-ms) var(--drawer-drag), visibility 0s linear var(--menuwait)}
+  body.menudrag #tickets{transition:visibility 0s linear var(--menuwait)}
+  #tickets.live{visibility:visible; --menuwait:0s; will-change:transform}
+  /* the settings cross over the page from the right edge along one straight
      sideways line, at full strength for every frame of it: nothing about them
      rises, sinks or fades. the depth is carried under them, by the shade that
-     grows from nothing to its full weight as the menu comes out and back to
-     nothing as it leaves, and by the page drawing back from all four edges on
-     that same fraction, so the menu reads as lifting off the page and settling
-     back onto it while its own picture holds its line */
-  /* the one being shown is the only one visible. it is taken away for as long
-     as the run that puts it back: no wait on the way in, and the whole run on
-     the way out, so it disappears only once it has finished leaving */
-  #drawer, #settings{
-    position:fixed; top:0; bottom:0; width:min(71.4vw, 289px); z-index:20;
+     grows from nothing to its full weight as they come out and back to nothing
+     as they leave, and by the page drawing back from all four edges on that same
+     fraction, so they read as lifting off the page and settling back onto it
+     while their own picture holds its line. they are the whole width of the
+     screen, and are taken away for as long as the run that puts them back */
+  #settings{
+    position:fixed; top:0; bottom:0; left:0; width:100%; z-index:20;
     background:#fff;
     display:flex; flex-direction:column;
     padding-top:env(safe-area-inset-top, 0px); padding-bottom:env(safe-area-inset-bottom, 0px);
+    border-left:var(--edge) solid var(--line); border-radius:calc(12 * var(--u)) 0 0 calc(12 * var(--u));
+    --shift:100%;
     transform:translateX(var(--shift));
-    opacity:1;
     visibility:hidden; --menuwait:var(--drawer-ms);
-    transition:transform var(--drawer-ms) var(--drawer-curve),
+    transition:transform var(--drawer-ms) var(--drawer-tap),
                visibility 0s linear var(--menuwait);
   }
-  /* the shade lies on a layer of its own, over the page and past the menu's
-     outer edge, so its weight can change without the menu being drawn again.
+  body.menurelease #settings{
+    transition:transform var(--drawer-ms) var(--drawer-drag), visibility 0s linear var(--menuwait)}
+  body.menudrag #settings{transition:visibility 0s linear var(--menuwait)}
+  /* the shade lies on a layer of its own, over the page and past the panel's
+     leading edge, so its weight can change without the panel being drawn again.
      it is the pair a raised card casts: a close one under the edge and a wide
-     soft one beyond it. --panel-depth is how far out the menu is, written by
-     the script, and it is the whole of the depth */
-  #drawer::after, #settings::after{
+     soft one beyond it. --panel-depth is how far out the panel is, written by
+     the script, and it is the whole of the depth. it is pulled out by the width
+     the panel's own edge line is drawn at, so the shade starts exactly where
+     the panel ends */
+  #settings::after{
     content:""; position:absolute; top:0; bottom:0; pointer-events:none;
-    border-radius:inherit; opacity:var(--panel-depth, 0);
-    transition:opacity var(--drawer-ms) var(--drawer-curve);
+    left:calc(-1 * var(--edge-drawn)); right:0; border-radius:inherit;
+    box-shadow:calc(-2 * var(--u)) 0 calc(6 * var(--u)) rgba(0,0,0,.10), calc(-10 * var(--u)) 0 calc(26 * var(--u)) rgba(0,0,0,.20);
+    opacity:var(--panel-depth, 0);
+    transition:opacity var(--drawer-ms) var(--drawer-tap);
   }
-  /* while a menu is on show its shade gets its own layer, so a finger changing
-     the shade frame by frame never asks for the menu to be drawn again */
-  #drawer.live::after, #settings.live::after{will-change:opacity}
-  #drawer.live, #settings.live{visibility:visible; --menuwait:0s}
-  /* the two exposed corners are a little rounder than the board's small inset
-     panels. the two at the screen edge stay square. each shade layer is pulled
-     out by the width the menu's own edge line is drawn at, so the shade starts
-     exactly where the menu ends */
-  #drawer{--shift:-100%; left:0; border-right:var(--edge) solid var(--line);
-    border-radius:0 12px 12px 0}
-  #drawer::after{left:0; right:calc(-1 * var(--edge-drawn));
-    box-shadow:2px 0 6px rgba(0,0,0,.10), 10px 0 26px rgba(0,0,0,.20)}
-  #settings{--shift:100%; right:0; border-left:var(--edge) solid var(--line);
-    border-radius:12px 0 0 12px}
-  #settings::after{left:calc(-1 * var(--edge-drawn)); right:0;
-    box-shadow:-2px 0 6px rgba(0,0,0,.10), -10px 0 26px rgba(0,0,0,.20)}
-  /* a finger is followed frame by frame, so the moving layers are not timed */
-  body.menudrag #scrim, body.menudrag #page, body.menudrag #drawer, body.menudrag #settings,
-  body.menudrag #drawer::after, body.menudrag #settings::after{transition:none}
-  #tikhead{flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 8px 0; border-bottom:none}
-  /* the drawer tabs reuse the tabs' type and spacing, three equal segments,
+  body.menurelease #settings::after{transition:opacity var(--drawer-ms) var(--drawer-drag)}
+  body.menudrag #settings::after{transition:none}
+  /* while the settings are on show their shade gets its own layer, so a finger
+     changing the shade frame by frame never asks for the panel to be drawn again */
+  #settings.live::after{will-change:opacity}
+  #settings.live{visibility:visible; --menuwait:0s}
+  /* the board's ticket holder, as index.html draws it, at the phone's size: the
+     three names over a divider drawn --line-gap below their foot, and the list
+     under it */
+  #tikhead{position:relative; flex:none; display:flex; align-items:flex-end; gap:calc(4 * var(--u)); padding:calc(6 * var(--u)) 0 0; border-bottom:none}
+  #tikhead::after{
+    content:""; position:absolute; pointer-events:none;
+    top:calc(100% + var(--line-gap));
+    left:var(--edge-drawn); right:var(--edge-drawn); height:0;
+    border-top:var(--edge) solid var(--line);
+  }
+  /* the list's tabs reuse the tabs' type and spacing, three equal segments,
      but they no longer draw the seated-tab shape:
      top:0 drops the lift a .ptab carries so all three names share one baseline.
      like the board, the names read Doing, Deferred and Done at a pixel over the
      .ptab's 13, and every name carries a clear edge on all four sides, the
      selected one included, so a name measures the same selected or not and the
      list below never moves. the ID-scoped border outranks .ptab.on's hairline. */
-  #tikhead .tvb{flex:1; --seat:var(--card); height:auto; padding:calc(6px + 1px - var(--edge-drawn)) 0 5px;
-    top:0; font-size:14px; border:var(--edge) solid transparent}
+  #tikhead .tvb{flex:1; --seat:var(--card); height:auto; padding:calc(6 * var(--u)) 0 calc(5 * var(--u));
+    top:0; font-size:calc(14 * var(--u)); border:var(--edge) solid transparent}
   /* no selected pill, as on the board: the selected name wears no fill, border
      or standing shade and shows selection by weight and ink alone, 700 over the
      500 every name has (Plex Sans is asked for at 700 for this, see the font
@@ -1034,9 +1147,9 @@
      .pressed, which the script beside the tab taps sets from pointer and key
      events) the --sunk-deep recipe at 0.6 depth eases in over 80ms and back out
      over 160ms on release. the rest state is two clear zero-size inset layers so
-     the shade interpolates cleanly; the 7px radius only shapes that shade. */
+     the shade interpolates cleanly; the radius only shapes that shade. */
   #tikhead .tvb{
-    border-radius:7px;
+    border-radius:calc(7 * var(--u));
     box-shadow:inset 0 0 0 rgba(60,45,20,0), inset 0 0 0 rgba(60,45,20,0);
     transition:color .18s, box-shadow .16s ease-out;
   }
@@ -1047,39 +1160,73 @@
   }
   #tikhead .tvb.on::before, #tikhead .tvb.on::after{display:none}
   /* the new-card plus that stood in a strip over the names is the row's plus
-     now, so the names head the drawer */
-  .tiknote{font:italic 12.5px var(--sans); color:#7A2E1B; padding:8px 12px}
-  /* the list: unlike the board, the phone draws no recessed well here. a boxed
-     inset inside a drawer this narrow read as a frame within a frame, so the
-     list has no fill, edge, rounding or sunk shade of its own and the rows sit
-     straight on the drawer, their sides in line with the names above through
-     the sections' own padding. it still clips a horizontal sheet of three
-     sections and shows one at a time, so a tab change travels the sheet across
-     it while the list and the names above never move. */
-  #tiklist{flex:1; min-height:0; overflow:hidden;
-    position:relative; display:flex; flex-direction:column}
+     now, so the names head the list */
+  .tiknote{font:italic calc(12.5 * var(--u)) var(--sans); color:#7A2E1B; padding:calc(8 * var(--u)) calc(12 * var(--u))}
+  /* the list: the tickets stand on the paper, with no fill, edge or shade round
+     them. it clips a horizontal sheet of three sections and shows one at a
+     time, so a tab change travels the sheet across the list while the list and
+     the names above never move. it starts just under the divider and reaches
+     --list-side past the holder on both sides and --list-air past its foot, so
+     the lifted row's shadow is not cut on bare paper and the foot fades as
+     deep as the top; each section pads the same amounts back inside, so every
+     row stands where it did. it clips without scrolling, so a row revealed in
+     it cannot shift the holder sideways; each section scrolls its own rows */
+  #tiklist{--listfade:calc(22 * var(--u)); --list-air:calc(7 * var(--u)); --list-side:calc(20 * var(--u));
+    position:relative; flex:1; min-height:0; overflow:clip;
+    display:flex; flex-direction:column;
+    margin:0 calc(var(--list-side) * -1) calc(var(--list-air) * -1)}
   /* doing|deferred|done laid left to right, one section wide each; section i rests
      at translateX(-i*100%) and the list clips all but the shown one */
   #tiksheet{flex:1; min-height:0; display:flex; flex-direction:row; will-change:transform}
+  /* each section scrolls its own rows and keeps its own scroll position; the row
+     padding and gap live here, so the sheet moves the rows and never the list.
+     the section's top and foot dissolve under the same ramp the answer wears,
+     --listfade deep: --upband is how far the section has scrolled and --downband
+     how far it still can, each capped at that depth by the script beside the
+     list, so an edge with nothing past it stays at full ink and a section that
+     fits wears no fade at all. a mask does not scroll with the rows.
+     scroll-padding keeps a row that is scrolled into view clear of both ramps */
   .tikpane{flex:0 0 100%; min-width:0; height:100%; overflow-y:auto; overflow-x:hidden;
-    -webkit-overflow-scrolling:touch; display:flex; flex-direction:column; gap:6px; padding:10px 8px;
-    scroll-padding:14px 0}
+    -webkit-overflow-scrolling:touch; display:flex; flex-direction:column; gap:calc(6 * var(--u));
+    padding:calc(var(--edge-drawn) + 10 * var(--u))
+            calc(var(--list-side) + var(--edge-drawn))
+            calc(var(--list-air) + var(--edge-drawn) + 10 * var(--u))
+            calc(var(--list-side) + var(--edge-drawn));
+    scroll-padding-block:var(--listfade);
+    -webkit-mask-image:linear-gradient(to bottom,
+      rgba(0,0,0,0) 0,
+      rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
+      rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
+      rgba(0,0,0,1) var(--upband, 0px),
+      rgba(0,0,0,1) calc(100% - var(--downband, 0px)),
+      rgba(0,0,0,.80) calc(100% - var(--downband, 0px)*.72),
+      rgba(0,0,0,.35) calc(100% - var(--downband, 0px)*.38),
+      rgba(0,0,0,0) 100%);
+    mask-image:linear-gradient(to bottom,
+      rgba(0,0,0,0) 0,
+      rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
+      rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
+      rgba(0,0,0,1) var(--upband, 0px),
+      rgba(0,0,0,1) calc(100% - var(--downband, 0px)),
+      rgba(0,0,0,.80) calc(100% - var(--downband, 0px)*.72),
+      rgba(0,0,0,.35) calc(100% - var(--downband, 0px)*.38),
+      rgba(0,0,0,0) 100%)}
   .trow{
-    position:relative; flex:none; height:52px;
-    border:var(--edge) solid var(--line); border-radius:5px; background:#fff;
+    position:relative; flex:none; height:calc(52 * var(--u));
+    border:var(--edge) solid var(--line); border-radius:calc(5 * var(--u)); background:#fff;
     box-shadow:0 1px 4px rgba(60,45,20,.05);
     display:flex; flex-direction:column; cursor:pointer; overflow:hidden;
     transition:border-color .3s, background-color .3s;
   }
   .trowin{display:flex; align-items:center; gap:var(--sp-x); height:100%; padding:0 var(--sp-x)}
   .trow.seen .ttl{color:#847A6B}
-  .ttl{flex:1; min-width:0; font:500 15px/1.3 var(--sans); color:var(--ink);
+  .ttl{flex:1; min-width:0; font:500 calc(15 * var(--u))/calc(1.3 * var(--ln)) var(--sans); color:var(--ink);
     display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden}
-  .tmeta{flex:none; display:flex; flex-direction:column; align-items:flex-end; gap:2px}
-  .tmeta .tage{font:600 12.5px var(--mono); color:var(--sub); font-variant-numeric:tabular-nums; min-height:16px}
-  .tmeta .teng{font:400 10.5px var(--mono); color:#B4AA99}
+  .tmeta{flex:none; display:flex; flex-direction:column; align-items:flex-end; gap:calc(2 * var(--u))}
+  .tmeta .tage{font:600 calc(12.5 * var(--u)) var(--mono); color:var(--sub); font-variant-numeric:tabular-nums; min-height:calc(16 * var(--u))}
+  .tmeta .teng{font:400 calc(10.5 * var(--u)) var(--mono); color:#B4AA99}
   .tnum{font:inherit; font-weight:400; color:#C1C1C1; margin-right:.45em}
-  .tempty{font:italic 12.5px var(--sans); color:#B4AA99; padding:8px 12px}
+  .tempty{font:italic calc(12.5 * var(--u)) var(--sans); color:#B4AA99; padding:calc(8 * var(--u)) calc(12 * var(--u))}
   .trow.working{background:#F3FFF0; border-color:var(--line)}
   .trow.yours{background:#FFFBEB; border-color:var(--line)}
   .trow.queuedc{background:#F7F7F7; border-color:var(--line)}
@@ -1088,12 +1235,12 @@
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
   /* a ready-to-test row wears no fill or edge of its own: its whole marker is
      the folded top right corner, drawn for this page and the desktop alike in
-     card-tokens.css. this row is 52px to the desktop's 64.8, and a 16px flap
-     here would lie up to 3px over the top of the age's last letter when it is
-     a d or an h, and touch an m or a w, so the phone folds 12px: the desktop's
-     fold scaled to this row, rounded down, which stays over 2.5px clear of all
+     card-tokens.css. this row is 52 to the desktop's 64.8, and a 16 flap
+     here would lie up to 3 over the top of the age's last letter when it is
+     a d or an h, and touch an m or a w, so the phone folds 12: the desktop's
+     fold scaled to this row, rounded down, which stays over 2.5 clear of all
      four */
-  .trow.testc{--fold:12px}
+  .trow.testc{--fold:calc(12 * var(--u))}
   /* ---- the settings, on the panel off the right edge ---------------------- */
   /* the panel keeps its own white, edge, corners and top inset. the page
      card-logic.js builds inside it is the shared one, and here it is bare: none
@@ -1248,8 +1395,8 @@
   /* Omni cards use the supplied playing-card art in place of the row's
      internal id. State, age, agent label and actions remain the ordinary ones. */
   .trow.omni-ticket{background:#fff}
-  .trow.omni-ticket .trowin{padding-left:7px}
-  .omni-art{display:block; flex:none; width:auto; height:44px; max-width:38px;
+  .trow.omni-ticket .trowin{padding-left:calc(7 * var(--u))}
+  .omni-art{display:block; flex:none; width:auto; height:calc(44 * var(--u)); max-width:calc(38 * var(--u));
     object-fit:contain; object-position:center}
   .box.omni-card{background:#fff !important}
   .box.omni-card .head{display:flex; align-items:center; gap:calc(12 * var(--u));
@@ -1271,7 +1418,7 @@
     --omni-dir:to top right; --omni-sun:calc(160 * var(--u)); --omni-core:calc(50 * var(--u));
     --omni-c:calc(var(--omni-p) * 100%);
     --omni-x:calc(var(--omni-p) * 100%); --omni-y:calc((1 - var(--omni-p)) * 100%)}
-  .trow > .omni-sweep{--omni-dir:45deg; --omni-sun:56px; --omni-core:18px}
+  .trow > .omni-sweep{--omni-dir:45deg; --omni-sun:calc(56 * var(--u)); --omni-core:calc(18 * var(--u))}
   .omni-sweep::before, .omni-sweep::after{content:""; position:absolute; inset:0; z-index:40}
   .omni-sweep::before{
     mix-blend-mode:multiply;
@@ -1365,6 +1512,17 @@
 </script>
 
 <div id="page">
+  <!-- the card list, the board's ticket box at this size: the three names over
+       the list. it lies on the page above the card, in the space the card
+       leaves when it is pulled down -->
+  <aside id="tickets" aria-label="cards" data-side="left">
+    <div id="tikhead">
+      <button id="tv-todo" class="ptab tvb on" type="button">Doing</button>
+      <button id="tv-deferred" class="ptab tvb" type="button">Deferred</button>
+      <button id="tv-done" class="ptab tvb" type="button">Done</button>
+    </div>
+    <div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div>
+  </aside>
   <main id="pane" class="blank">
     <div id="empty">no cards on this tab yet</div>
     <div id="cards"></div>
@@ -1385,6 +1543,8 @@
     <button id="tikadd" class="dockbtn qn-glass" type="button" title="new card" aria-label="new card"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
     <button id="setbtn" class="dockbtn round qn-glass" type="button" title="Settings" aria-label="Settings"><span class="squidmark" aria-hidden="true"><img src="/m-splash-squid.png" alt="" draggable="false"></span></button>
   </nav>
+  <!-- what the row stands on, over the card: see #dockbed in the sheet -->
+  <div id="dockbed" aria-hidden="true"><i></i></div>
 </div>
 <div id="scrim"></div>
 <!-- the places the project's capsule opens: Home, with the board's house, then
@@ -1395,15 +1555,6 @@
   <div id="projsep"></div>
   <div id="projlist"></div>
 </div>
-
-<aside id="drawer" aria-label="cards" data-side="left">
-  <div id="tikhead">
-    <button id="tv-todo" class="ptab tvb on" type="button">Doing</button>
-    <button id="tv-deferred" class="ptab tvb" type="button">Deferred</button>
-    <button id="tv-done" class="ptab tvb" type="button">Done</button>
-  </div>
-  <div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div>
-</aside>
 
 <!-- the settings: card-logic.js builds the page into #setpage from the groups in
      #setsrc, one to a section, and moves each group into its pane, so every
@@ -2006,7 +2157,7 @@ function drawCard(el, b, state){
     }
   }
   // a reply landing on the selected card while the window is in front is read
-  // as it lands, unless the drawer is covering the card. a browsed card is not
+  // as it lands, unless the card list is out over it. a browsed card is not
   // read
   readOnArrival(el, b, b.id === selectedId && !browsing && !drawerOpen());
   // the card reads its own name, Omni Card #N for an Omni ticket; an Omni
@@ -3820,13 +3971,13 @@ document.addEventListener("DOMContentLoaded", () => {
   else (window.requestIdleCallback || (fn => setTimeout(fn, 300)))(homeWarm);
 });
 
-// ---- the drawer's list, the desktop's ticket panel ----------------------------------
-// the list is drawn only while the drawer is on show, and opening the drawer
-// draws whatever changed while it was away. each section keeps its rows by card:
-// a reading touches the rows that differ and leaves the others where they stand.
-// a tap selects the card and closes the drawer, so selection never travels the
+// ---- the card list, the desktop's ticket box ----------------------------------------
+// the list is drawn only while it is on show, and bringing it out draws whatever
+// changed while it was away. each section keeps its rows by card: a reading
+// touches the rows that differ and leaves the others where they stand. a tap
+// selects the card and leaves the list out, so selection never travels the
 // sheet; only a tab tap does.
-// one section of the drawer's sheet. touch() is called before the first change
+// one section of the list's sheet. touch() is called before the first change
 // the pass makes; the answer says whether a row started or stopped working
 function paintPhonePane(pane, pool, view, state, touch){
   let kept = phonePanes.get(pane);
@@ -3915,17 +4066,17 @@ function phoneRow(b, marks, age, eng){
   r.appendChild(inner);
   r.dataset.id = b.id;
   const part = { row: r, ttl, age: ageEl, eng: engEl, marks };
-  // a tap on the folded corner unfolds the ticket and keeps the drawer open;
-  // anywhere else on the row opens the card
+  // a tap on the folded corner unfolds the ticket; anywhere else on the row
+  // switches the card below to it. the list stays out either way
   r.addEventListener("click", e => {
     if ((part.marks & ROW_FOLDED) && onFold(r, e)){ unfoldTicket(b.id); return; }
     if (homeOpen) setHome(false);   // a card picked from home is shown on its board
-    select(b.id); closeDrawer();
+    select(b.id);
   });
   return part;
 }
 function ticketsShown(){
-  const at = document.getElementById("drawer");
+  const at = document.getElementById("tickets");
   return !!at && (at.classList.contains("live") || at.classList.contains("open"));
 }
 function renderTickets(state, action = "state", shown = ticketsShown()){
@@ -3996,22 +4147,31 @@ document.getElementById("tv-done").addEventListener("click", () => setView("done
 document.getElementById("tikadd").addEventListener("click", createCard);
 
 // ---- the two menus, and the one motion they share --------------------------------
-// the card list is pulled over the page from the left edge and settings from the
-// right. one number, the fraction the menu is out by, drives its sideways
-// travel, the weight of the shade it casts, the shade over the page, and how
-// far the page itself draws back towards the middle of the screen. the menu
-// holds one line and full strength throughout; what grows is the depth under
-// it. the run is 550ms, on an ease in and out when begun by a tap and an ease
-// out when a drag lets go part way. a release past halfway opens
+// the card list is pulled out from the left edge and the settings from the
+// right. one number, the fraction a menu is out by, drives all of what moves
+// for it. for the card list it is --list-v, written on the card, on the list and
+// on the row's bed: the card goes down by the list's height while the list comes
+// in from the left, on the one fraction, so a finger carries both and a swipe
+// turned back part way turns both back together. for the settings it is their
+// sideways travel, the weight of the shade they cast, the shade over the page,
+// and how far the page itself draws back towards the middle of the screen.
+// everything that moves is a transform or an opacity, so nothing is laid out
+// again while it does, and nothing is timed by the script: a finger is followed
+// at the pace the screen delivers it, and a release hands the rest to the
+// stylesheet's transitions. the run is 550ms, on an ease in and out when begun
+// by a tap and an ease out when a drag lets go part way. a release past halfway
+// opens
 const page = document.getElementById("page");
-const drawer = document.getElementById("drawer");
+const cardPane = document.getElementById("pane");
+const tickets = document.getElementById("tickets");
+const dockbed = document.getElementById("dockbed");
 const settings = document.getElementById("settings");
 const scrim = document.getElementById("scrim");
-const menus = [drawer, settings];   // the left one first: the drag reads the side off each
+const menus = [tickets, settings];   // the left one first: the drag reads the side off each
 // the settings are the page card-logic.js builds, seated in this panel as its
-// list of sections and always in its narrow form, since the panel is never wider
-// than 289px whatever the window. its back mark goes from a section to the list;
-// the shade and a swipe shut the panel, as they do the card list
+// list of sections and always in its narrow form, whatever the window. its back
+// mark goes from a section to the list; a swipe shuts the panel, as it does the
+// card list
 const settingsView = settingsPage(document.getElementById("setpage"), document.getElementById("setsrc"), {
   close: () => hideMenu(settings),
   narrow: { matches: true },
@@ -4020,33 +4180,66 @@ for (const panel of menus) panel.addEventListener("transitionend", e => {
   if (e.target === panel && e.propertyName === "transform")
     tracePhone("note", "drawer", { side: panel.dataset.side, phase: "end", shown: panel.classList.contains("open") });
 });
-function menuWidth(panel){ return panel.getBoundingClientRect().width; }
+// how far a menu's leading edge travels from off the page to where it rests: the
+// list's outer edge from the page's left edge, the settings' own width. a finger
+// is measured against it, so the edge stays under the finger
+function menuTravel(panel){
+  return panel === tickets ? tickets.offsetLeft + tickets.offsetWidth : panel.offsetWidth;
+}
 function menuSign(panel){ return panel.dataset.side === "right" ? -1 : 1; }   // direction the panel enters
 function menuOut(){ return menus.find(p => p.classList.contains("open")) || null; }
-// how far in the page draws with a menu the whole way out: the share of its size
-// it already gives up at rest, --sink in the sheet, read from there so the two
-// cannot differ. enough to read as a step back, and little enough that the words
-// on it are not noticeably smaller
+// how far in the page draws with the settings the whole way out: the share of
+// its size it already gives up at rest, --sink in the sheet, read from there so
+// the two cannot differ. enough to read as a step back, and little enough that
+// the words on it are not noticeably smaller
 const PAGE_SINK = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sink"));
-// the one number, painted onto the shade, the menu and the page. the travel is
-// written as a share of the menu's own width, which is the same shape as the
-// resting value in the sheet, and the page's size as a plain scale: every one of
-// the four is then a function of the fraction alone, so a run turned back
-// partway turns all four back together and on one clock, a shut menu leaves the
-// page at exactly 1, and a turn of the phone can leave no stale offset or size
-// behind
+// how far down the card goes with the list out, as a share of the screen's
+// height. the card's own translate takes lengths and its percentages are of
+// its own size, so the distance is written on the page in pixels, which the
+// card and the list both read it from, and again only when the screen's height
+// changes
+const LIST_DROP = 0.55;
+let listDropAt = "";
+function sizeList(){
+  const at = Math.round(document.body.clientHeight * LIST_DROP) + "px";
+  if (at === listDropAt) return;
+  listDropAt = at;
+  page.style.setProperty("--list-drop", at);
+}
+sizeList();
+addEventListener("resize", sizeList);
+addEventListener("orientationchange", sizeList);
+// the one number, painted onto what the menu moves. the list's travel is a
+// function of the fraction alone, as is the card's, so a run turned back
+// partway turns both back together and on one clock, and a shut list leaves
+// the card at exactly where it rests. the settings' travel is written as a
+// share of their own width, which is the same shape as the resting value in
+// the sheet, and the page's size as a plain scale, so a turn of the phone can
+// leave no stale offset or size behind
 function paintMenu(panel, v){
-  // the list is drawn as the drawer first comes on show, so a tap or a pull opens it onto current rows
-  if (panel === drawer && v > 0 && !panel.classList.contains("live") && lastState) renderTickets(lastState, "drawer", true);
-  const dir = menuSign(panel);
-  // the settings come out on their list
-  if (v && panel === settings && !panel.classList.contains("live")) settingsView.reset();
-  panel.style.setProperty("--shift", (dir * (v - 1) * 100).toFixed(3) + "%");
-  scrim.style.setProperty("--scrimv", v ? v.toFixed(4) : "0");
-  page.style.setProperty("--page-scale", (1 - PAGE_SINK * v).toFixed(5));
-  panel.style.setProperty("--panel-depth", v.toFixed(4));   // how far off the page it stands
+  const num = v ? v.toFixed(4) : "0";
+  if (panel === tickets){
+    // the list is drawn as it first comes on show, so a tap or a pull opens it onto current rows
+    if (v > 0 && !panel.classList.contains("live")){
+      sizeList();
+      if (lastState) renderTickets(lastState, "drawer", true);
+    }
+    cardPane.style.setProperty("--list-v", num);
+    tickets.style.setProperty("--list-v", num);
+    dockbed.style.setProperty("--bed-v", num);
+  } else {
+    // the settings come out on their list
+    if (v && !panel.classList.contains("live")) settingsView.reset();
+    panel.style.setProperty("--shift", ((1 - v) * 100).toFixed(3) + "%");
+    scrim.style.setProperty("--scrimv", num);
+    page.style.setProperty("--page-scale", (1 - PAGE_SINK * v).toFixed(5));
+    panel.style.setProperty("--panel-depth", num);   // how far off the page it stands
+  }
   panel.classList.toggle("live", v > 0);   // and the other one is not on show at all
-  document.body.classList.toggle("menuout", v > 0);
+  const cls = document.body.classList;
+  cls.toggle("listout", tickets.classList.contains("live"));
+  cls.toggle("setout", settings.classList.contains("live"));
+  cls.toggle("menuout", menus.some(p => p.classList.contains("live")));
 }
 // Release editor focus so the phone can dismiss its keyboard before a drawer
 // opens. The same editing test also controls keyboard viewport clearance.
@@ -4057,52 +4250,62 @@ function dismissEditor(){
   at.blur();
   endPhoneTrace(trace, { action: "drawer", part: "blur" });
 }
-// a run, on whichever of the two curves the thing that began it hands in. the
-// drag's dress comes off first and the page is measured while it is off, so what
-// follows is a run from where the finger left it and not a jump
-function runMenu(panel, v, curve){
-  // Closing a drawer leaves focus alone. Opening one shuts the project list.
+// a run, begun by a tap or by the release of a drag. a release runs on the ease
+// out, a tap on the ease in and out; the stylesheet states both for every layer
+// that moves, under body.menurelease for the release. the drag's dress comes off
+// first, after the drag's last position has been settled, so what follows is a
+// run from where the finger left it and not a jump
+function runMenu(panel, v, release){
+  // Closing a menu leaves focus alone. Opening one shuts the project list.
   if (v > 0){ dismissEditor(); closeProjects(); }
-  document.documentElement.style.setProperty("--drawer-curve", curve);
-  if (document.body.classList.contains("menudrag")){
-    document.body.classList.remove("menudrag");
-    void page.offsetWidth;
-  }
+  const cls = document.body.classList;
+  if (cls.contains("menudrag")) getComputedStyle(cardPane).getPropertyValue("--list-v");
+  cls.toggle("menurelease", !!release);
+  cls.remove("menudrag");
   const menuTrace = tracePhone("begin", "phase", { action: "drawer", part: "menu-commit" });
   panel.classList.toggle("open", v > 0);
   paintMenu(panel, v);
   endPhoneTrace(menuTrace, { action: "drawer", part: "menu-commit" });
 }
-function showMenu(panel, curve){
+function showMenu(panel, release){
+  // one menu is out at a time: the row is reachable with the list out, so the
+  // gear can ask for the settings and the ticket for the list while the other is up
+  const other = menuOut();
+  if (other && other !== panel) hideMenu(other);
   const trace = tracePhone("begin", "drawer", { side: panel.dataset.side });
-  runMenu(panel, 1, curve || "var(--drawer-tap)");
+  runMenu(panel, 1, release);
   const scrollTrace = tracePhone("begin", "phase", { action: "drawer", part: "scroll-view" });
   panel.querySelector(".trow.on")?.scrollIntoView({ block: "nearest" });
   endPhoneTrace(scrollTrace, { action: "drawer", part: "scroll-view" });
   endPhoneTrace(trace, { side: panel.dataset.side, shown: true });
   traceFrameOpportunity("drawer");
 }
-function hideMenu(panel, curve){
+function hideMenu(panel, release){
   const trace = tracePhone("begin", "drawer", { side: panel.dataset.side });
-  runMenu(panel, 0, curve || "var(--drawer-tap)");
+  runMenu(panel, 0, release);
   endPhoneTrace(trace, { side: panel.dataset.side, shown: false });
   traceFrameOpportunity("drawer");
 }
-function openDrawer(){ showMenu(drawer); }
-function closeDrawer(){ hideMenu(drawer); }
-function drawerOpen(){ return drawer.classList.contains("open"); }
+function openDrawer(){ showMenu(tickets); }
+function closeDrawer(){ hideMenu(tickets); }
+function drawerOpen(){ return tickets.classList.contains("open"); }
 scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu(out); });
+// a tap on the card with the list out lands on the page behind it, since the
+// card takes no touch then, and shuts the list. the card stays where it is
+// shown, with the ticket it was switched to
+page.addEventListener("click", e => { if (e.target === page && drawerOpen()) closeDrawer(); });
 // the two circles at the ends of the row bring the same two menus a pull from
-// that side does: the ticket the card list, the gear the settings
-document.getElementById("tikbtn").addEventListener("click", openDrawer);
+// that side does: the ticket the card list, and again to shut it, the gear the
+// settings
+document.getElementById("tikbtn").addEventListener("click", () => { if (drawerOpen()) closeDrawer(); else openDrawer(); });
 document.getElementById("setbtn").addEventListener("click", () => showMenu(settings));
 {
   const EDGE = 28;    // how far in from an edge a pull may begin
-  let panel = null, x0 = 0, y0 = 0, at = 0, live = false, opening = false, decided = false;
+  let panel = null, x0 = 0, y0 = 0, at = 0, live = false, opening = false, decided = false, travel = 1;
   const start = (x, y) => {
     const out = menuOut();
     if (out){ panel = out; opening = false; }
-    else if (x <= EDGE){ panel = drawer; opening = true; }
+    else if (x <= EDGE){ panel = tickets; opening = true; }
     else if (x >= innerWidth - EDGE){ panel = settings; opening = true; }
     else { panel = null; return; }
     live = true; decided = false; x0 = x; y0 = y; at = opening ? 0 : 1;
@@ -4117,10 +4320,12 @@ document.getElementById("setbtn").addEventListener("click", () => showMenu(setti
       // Dismiss during a recognized opening pull, before the panel travels.
       if (opening){ dismissEditor(); closeProjects(); }
       tracePhone("note", "drawer", { side: panel.dataset.side, phase: "start" });
+      document.body.classList.remove("menurelease");
       document.body.classList.add("menudrag");
+      travel = menuTravel(panel) || 1;
     }
-    const w = menuWidth(panel), d = menuSign(panel) * dx;
-    at = Math.max(0, Math.min(1, (opening ? d : w + d) / w));
+    const d = menuSign(panel) * dx;
+    at = Math.max(0, Math.min(1, (opening ? d : travel + d) / travel));
     paintMenu(panel, at);
   };
   const end = () => {
@@ -4128,7 +4333,7 @@ document.getElementById("setbtn").addEventListener("click", () => showMenu(setti
     live = false;
     if (!decided) return;
     // let go past the middle and it opens, before it and it goes back
-    runMenu(panel, at > 0.5 ? 1 : 0, "var(--drawer-drag)");
+    runMenu(panel, at > 0.5 ? 1 : 0, true);
   };
   // every listener here is passive, the mouse ones too. they sit on the whole
   // document, and one that may cancel a touch (on the phone a mouse listener
@@ -4145,6 +4350,29 @@ document.getElementById("setbtn").addEventListener("click", () => showMenu(setti
   document.addEventListener("mousedown", e => { if (e.button === 0) start(e.clientX, e.clientY); }, { passive: true });
   document.addEventListener("mousemove", e => move(e.clientX, e.clientY), { passive: true });
   document.addEventListener("mouseup", end, { passive: true });
+}
+
+// the list's fades, the board's own: for each section of the list, how far it
+// has scrolled, --upband, and how far it still can, --downband, in whole pixels
+// and capped at --listfade, the depth of the ramp. a section at the top of its
+// scroll wears no band at the top, one at its end none at the foot, and one that
+// fits none at all. a number is only written when it changes. the bands are
+// read again when the rows are rebuilt and when a section changes size, since
+// either moves how far it can scroll without a scroll event. this feeds a mask
+// and nothing else, so it changes what is painted and never what is measured
+function tickBands(pane){
+  if (!pane._fade) pane._fade = parseFloat(getComputedStyle(pane).getPropertyValue("--listfade")) || 0;
+  const up = Math.min(Math.round(pane.scrollTop), pane._fade);
+  const down = Math.min(Math.max(0, Math.round(pane.scrollHeight - pane.clientHeight - pane.scrollTop)), pane._fade);
+  if (up !== pane._up){ pane._up = up; pane.style.setProperty("--upband", up + "px"); }
+  if (down !== pane._down){ pane._down = down; pane.style.setProperty("--downband", down + "px"); }
+}
+for (const pane of document.querySelectorAll(".tikpane")){
+  const read = () => tickBands(pane);
+  pane.addEventListener("scroll", read, { passive: true });
+  new MutationObserver(read).observe(pane, { childList: true });
+  if (window.ResizeObserver) new ResizeObserver(read).observe(pane);
+  read();
 }
 
 // Keep only the start, first intended move, and end of a gesture. Coordinates
@@ -4177,7 +4405,7 @@ document.getElementById("setbtn").addEventListener("click", () => showMenu(setti
   // the shade while a menu is out, the startup curtain, or a menu still leaving
   const layerOf = target => target.closest?.("#scrim") ? "scrim"
     : target.closest?.("#loading") ? "curtain"
-    : target.closest?.("#drawer:not(.open), #settings:not(.open)") ? "panel" : null;
+    : target.closest?.("#tickets:not(.open), #settings:not(.open)") ? "panel" : null;
   const taken = (t, by, side) => {
     if (t.taken) return;
     t.taken = by;
@@ -4220,7 +4448,7 @@ document.getElementById("setbtn").addEventListener("click", () => showMenu(setti
     touch = action || layer ? { action, layer, x: p.clientX, y: p.clientY, intended: false } : null;
     if (!touch) return;
     if (layer) touch.side = layer === "scrim" ? menuOut()?.dataset.side
-      : layer === "panel" ? target.closest("#drawer, #settings").dataset.side : undefined;
+      : layer === "panel" ? target.closest("#tickets, #settings").dataset.side : undefined;
     if (!scroller) {
       if (action) tracePhone("note", "input", { action, part: "touch", box: selectedId });
       return;
@@ -5855,7 +6083,7 @@ const phoneShortcutActions = {
     e.preventDefault();
     saveDiagnostic("shortcut");
   },
-  cardsDrawer(e){ toggleMenuKey(e, drawer); },
+  cardsDrawer(e){ toggleMenuKey(e, tickets); },
   navigate(e, shortcut){
     e.preventDefault();
     stepCard(shortcut.value, phoneShortcutTyping(e.target));
@@ -5932,12 +6160,11 @@ const phoneShortcutActions = {
 // no card on screen to walk, close or move. the diagnostic save still answers
 const homeShortcutActions = { diagnostic: phoneShortcutActions.diagnostic };
 
-// a key swaps one drawer for the other, and shuts the one that is out
+// a key brings its menu out, swapping it for the one that is out, and shuts it
+// when it is the one that is out
 function toggleMenuKey(e, panel){
   e.preventDefault();
-  const out = menuOut();
-  if (out === panel){ hideMenu(panel); return; }
-  if (out) hideMenu(out);
+  if (menuOut() === panel){ hideMenu(panel); return; }
   showMenu(panel);
 }
 

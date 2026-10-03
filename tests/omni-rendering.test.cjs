@@ -64,7 +64,9 @@ for (const [name, size, open] of [["index.html", "17.5px", ["body.focus .box.sel
     assert.match(sweep, name === "m.html"
       ? /--omni-dir:to top right; --omni-sun:calc\(160 \* var\(--u\)\); --omni-core:calc\(50 \* var\(--u\)\);/
       : /--omni-dir:to top right; --omni-sun:160px; --omni-core:50px;/);
-    assert.match(html, /\.trow > \.omni-sweep\{--omni-dir:45deg; --omni-sun:56px; --omni-core:18px\}/);
+    assert.match(html, name === "m.html"
+      ? /\.trow > \.omni-sweep\{--omni-dir:45deg; --omni-sun:calc\(56 \* var\(--u\)\); --omni-core:calc\(18 \* var\(--u\)\)\}/
+      : /\.trow > \.omni-sweep\{--omni-dir:45deg; --omni-sun:56px; --omni-core:18px\}/);
     // less yellow: every colour in the light, the working shine and the glint's
     // edge is white with at most a trace of warmth, red over blue by no more than 25
     const block = html.slice(html.indexOf(".omni-sweep{"), html.indexOf("@keyframes omni-glint"));

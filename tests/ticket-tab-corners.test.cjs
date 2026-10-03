@@ -17,6 +17,7 @@ const { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
+const { REST } = require("./phone-rest-geometry.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
@@ -297,7 +298,7 @@ test("the phone drawer's names carry no pill and its rows sit in no well", async
       await settle(300);
     }
     // the card drawer holds the doing, deferred and done row; open it and pick doing
-    await page.evaluate(() => showMenu(drawer));
+    await page.evaluate(() => showMenu(tickets));
     await settle(600);
     await page.click("#tv-todo");
     await settle(300);
@@ -308,7 +309,8 @@ test("the phone drawer's names carry no pill and its rows sit in no well", async
     assert.deepEqual(before.map(t => t.label), ["Doing", "Deferred", "Done"]);
     assert.deepEqual(before.map(t => t.on), [true, false, false]);
     for (const t of before) {
-      assert.equal(t.size, "14px", `phone ${t.id} is not at 14px`);
+      // the list is on the page now, so its 14 units are the page's resting share of a pixel
+      assert.equal(t.size, `${+(14 * REST).toFixed(2)}px`, `phone ${t.id} is not at 14 units`);
       assert.equal(t.weight, t.on ? "700" : "500", `phone ${t.id} has the wrong weight`);
       assert.ok(t.fill === "rgba(0, 0, 0, 0)" || t.fill === "transparent", `phone ${t.id} has a fill (${t.fill})`);
       for (const border of t.borders)
@@ -332,7 +334,8 @@ test("the phone drawer's names carry no pill and its rows sit in no well", async
     assert.equal(list.shadow, "none", "the phone list carries a sunk shade");
     assert.deepEqual(list.borders, ["0px", "0px", "0px", "0px"], "the phone list draws an edge");
     assert.equal(list.radius, "0px");
-    assert.equal(list.margin, "0px");
+    // the list reaches 20 units past each side and 7 below, so the rows' shades and the fade are not clipped
+    assert.equal(list.margin, `0px ${+(-20 * REST).toFixed(3)}px ${+(-7 * REST).toFixed(3)}px`);
 
     // selecting moves no name and not the list
     await page.click("#tv-done");

@@ -988,17 +988,17 @@ test("the curtain sits outside the page the menus scale, and the menus still wor
     assert.equal(held.insidePage, false, "the curtain is inside the page, which is scaled while a menu is out");
     assert.equal(held.parent, "BODY");
     await page.waitForFunction(() => !document.getElementById("loading"), { timeout: 20000 });
-    // the drawer still opens on the page the curtain was over
+    // the card list still opens on the page the curtain was over
     await page.evaluate(() => openDrawer());
     await new Promise(resolve => setTimeout(resolve, 800));
     const open = await page.evaluate(() => ({
-      shift: getComputedStyle(document.getElementById("drawer")).transform,
-      scale: getComputedStyle(document.getElementById("page")).transform,
+      shift: getComputedStyle(document.getElementById("tickets")).transform,
+      down: new DOMMatrix(getComputedStyle(document.getElementById("pane")).transform).m42,
       rows: document.querySelectorAll("#tiklist .trow").length,
-      visible: getComputedStyle(document.getElementById("drawer")).visibility,
+      visible: getComputedStyle(document.getElementById("tickets")).visibility,
     }));
     assert.equal(open.visible, "visible", "the drawer did not open after the curtain went");
-    assert.notEqual(open.scale, "none", "the page did not draw back for the drawer");
+    assert.ok(open.down > 100, "the card did not go down for the list");
     assert.ok(open.rows > 0, "the drawer's list was empty after a live reading");
     await page.evaluate(() => closeDrawer());
     await new Promise(resolve => setTimeout(resolve, 800));

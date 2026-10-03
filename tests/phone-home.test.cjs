@@ -68,7 +68,8 @@ const between = (text, from, to) => {
 test("the house heads the phone's project list, a row of the list with the board's own mark", () => {
   // no tab row across the top any more: the card is the first thing in the page
   assert.doesNotMatch(PHONE, /id="tabrow"|id="tabbar"/, "the old tab row is still in the page");
-  assert.match(between(PHONE, '<div id="page">', "</main>"), /^<div id="page">\s*<main id="pane"/);
+  // the card is the first thing in the page, with only the card list laid under it
+  assert.match(between(PHONE, '<div id="page">', "</main>"), /^<div id="page">\s*(<!--[^>]*-->\s*)?<aside id="tickets"[\s\S]*<\/aside>\s*<main id="pane"/);
   // the capsule in the row of buttons opens the list
   const dock = between(PHONE, '<nav id="dock"', "</nav>");
   assert.match(dock, /<button id="projbtn"[^>]*aria-controls="projmenu"/, "the capsule does not open the list");
@@ -150,9 +151,11 @@ test("while home is up no project is checked, the capsule reads Home, the card i
   assert.match(paint, /const name = homeOpen \? "Home" : labelOf\(st, activeOwner\);/);
   // shown is read, but a card under the home page is not shown
   assert.match(between(PHONE, "function select(id, opts){", "\n}\n"), /\n  if \(chosen && !homeOpen\) markSeen\(id\);\n/);
-  // a card picked in the drawer, a card just made and a notification's card
-  // are each shown on their board
-  assert.match(between(PHONE, 'r.addEventListener("click", e => {', "});"), /if \(homeOpen\) setHome\(false\);[^\n]*\n\s+select\(b\.id\); closeDrawer\(\);/);
+  // a card picked in the list, a card just made and a notification's card
+  // are each shown on their board; the list stays open under a pick
+  const pick = between(PHONE, 'r.addEventListener("click", e => {', "});");
+  assert.match(pick, /if \(homeOpen\) setHome\(false\);[^\n]*\n\s+select\(b\.id\);\n/);
+  assert.doesNotMatch(pick, /closeDrawer/, "a pick in the list shut it");
   assert.match(between(PHONE, "if (pendingFocus && els[pendingFocus]){", "\n  }\n"), /if \(homeOpen\) setHome\(false\);[^\n]*\n\s+select\(id\);/);
   assert.match(between(PHONE, "function goToBox(id){", "\n}\n"), /^function goToBox\(id\)\{\n  if \(homeOpen\) setHome\(false\);/);
   // the keys: only the diagnostic save answers on home
@@ -211,7 +214,7 @@ function daysEnding(n) {
   return Array.from({ length: n }, (_, k) => ({ date: day(n - 1 - k), total: k % 3 ? 1e6 * k : 0 }));
 }
 function phoneHome({ stored = {}, want = null, serve = true, state = { rev: 1 }, index = "" } = {}) {
-  const block = between(PHONE, "// ---- the home page ----", "// ---- the drawer's list");
+  const block = between(PHONE, "// ---- the home page ----", "// ---- the card list, the desktop's ticket box");
   const doc = { listeners: {}, hidden: false };
   doc.createElement = tag => new El(tag, doc);
   doc.body = new El("body", doc);

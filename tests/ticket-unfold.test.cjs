@@ -319,7 +319,7 @@ for (const where of SURFACES) {
     await settle();
     assert.deepEqual(asked(), [], "a click off the fold unfolded the ticket");
     assert.deepEqual(named("select"), [["m1"], ["m1"], ["m2"]]);
-    if (where === "phone") assert.equal(named("closeDrawer").length, 3);
+    if (where === "phone") assert.deepEqual(named("closeDrawer"), [], "a tap on a ticket shut the card list, which stays out");
   });
 }
 
