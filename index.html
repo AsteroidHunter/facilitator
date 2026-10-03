@@ -68,15 +68,16 @@
     border-radius:4px; background:none; cursor:pointer; flex:none}
   #bgpick::-webkit-color-swatch-wrapper{padding:2px}
   #bgpick::-webkit-color-swatch{border:none; border-radius:2px}
-  /* the bell is a mark like the gear beside it: 15px, the sub ink, no box, the
-     full ink under a pointer. a slash drawn over it, with a clear gap cut
-     round the slash so it reads at this size, means the reply chime is off */
+  /* the speaker is a mark like the gear beside it: 15px, the sub ink, no box,
+     the full ink under a pointer. a small x in place of its two waves means
+     the reply chime is off */
   #chimebtn{display:flex; align-items:center; padding:2px; border:none; background:none;
     color:var(--sub); cursor:pointer; transition:color .2s; flex:none;
     margin-left:auto}   /* holds the right edge now the status row is gone */
   #chimebtn:hover{color:var(--ink)}
-  #chimebtn .chime-slash, #chimebtn .chime-gap{display:none}
-  #chimebtn[aria-pressed="false"] :is(.chime-slash, .chime-gap){display:inline}
+  #chimebtn .chime-x{display:none}
+  #chimebtn[aria-pressed="false"] .chime-waves{display:none}
+  #chimebtn[aria-pressed="false"] .chime-x{display:inline}
   /* the install control, in the soft tint the edit button used to wear: the same
      face, size, colours, corner and padding, and no margin of its own, since the
      button before it already holds the right edge. It is hidden except while
@@ -3478,7 +3479,7 @@
   <span id="tabbar"></span>
   <span id="projnote"></span>
   <span class="name" id="boardname">facilitator</span>
-  <button id="chimebtn" type="button" title="Reply chime on. Click to mute." aria-label="Reply chime" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><defs><mask id="chimegap" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="#fff" stroke="none"/><path class="chime-gap" d="M3 3 21 21" stroke="#000" stroke-width="5"/></mask></defs><g mask="url(#chimegap)"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></g><path class="chime-slash" d="M3 3 21 21"/></svg></button>
+  <button id="chimebtn" type="button" title="Reply chime on. Click to mute." aria-label="Reply chime" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><g class="chime-waves"><path d="M15 8a5.5 5.5 0 0 1 0 8"/><path d="M18.1 5.5a9.5 9.5 0 0 1 0 13"/></g><g class="chime-x"><path d="M15 9l6 6M21 9l-6 6"/></g></svg></button>
   <button id="installbtn" type="button" hidden>Install app</button>
   <button id="setbtn" type="button" title="settings" aria-label="settings" aria-haspopup="dialog" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-1 1.47V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.6 1.6 0 0 0 4.6 15a1.6 1.6 0 0 0-1.47-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 8.9a1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.6 1.6 0 0 0 8.88 4.6H9a1.6 1.6 0 0 0 1-1.47V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77V9a1.6 1.6 0 0 0 1.47 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.47 1z"/></svg></button>
 </div>
@@ -9557,7 +9558,7 @@ function age(ts){
 // silent too, since it is in view; every other project rings, and with the
 // window behind or hidden every project does. Chrome plays sound only after a
 // click or key press, and a chime that cannot play is dropped, never held for
-// later. The bell on the bar mutes it. The choice is one of the board's
+// later. The speaker on the bar mutes it. The choice is one of the board's
 // settings, kept in settings.json like the background colour
 const CHIME_MUTED_KEY = "chimemuted";
 const CHIME_LAST_KEY = "chimelast";   // when a window of this browser last rang, so two windows do not both ring
@@ -9591,9 +9592,9 @@ function chimeBellRoundA(ctx, when, volume) {
 }
 
 function chimeMuted(){ return settingsStore.getItem(CHIME_MUTED_KEY) === "1"; }
-// the bell as the store has it: read again on every reading, so a window that
+// the speaker as the store has it: read again on every reading, so a window that
 // did not take the click shows the new state within a second
-function chimeShowBell(){
+function chimeShowSpeaker(){
   const btn = document.getElementById("chimebtn");
   const on = String(!chimeMuted());
   if (btn.getAttribute("aria-pressed") === on) return;
@@ -9603,9 +9604,9 @@ function chimeShowBell(){
 document.getElementById("chimebtn").addEventListener("click", () => {
   if (chimeMuted()) settingsStore.removeItem(CHIME_MUTED_KEY);
   else settingsStore.setItem(CHIME_MUTED_KEY, "1");
-  chimeShowBell();
+  chimeShowSpeaker();
 });
-chimeShowBell();
+chimeShowSpeaker();
 
 function chimeEnsure(){
   try {
@@ -9641,7 +9642,7 @@ function chimeWanted(turned){
 // clock at the reading before. The newest value is kept, so a reading that
 // arrives late with older numbers changes nothing
 function chimeWatch(state){
-  chimeShowBell();
+  chimeShowSpeaker();
   const turned = [], next = new Map();
   for (const b of state.boxes || []){
     const ts = Number(b.turnTs) || 0, was = chimeTurns.get(b.id);
