@@ -658,28 +658,23 @@ function samplePhases(a, b, count, gap) {
       const age = document.querySelector(`#tiklist .trow.working[data-id="${id}"] .tage`);
       return age ? age.textContent : null;
     };
+    // the frame the card's own last-message time says it should show at the
+    // clock of the timer's last tick: whole 180 ms steps, four to a turn
+    const should = id => {
+      const ts = lastState.boxes.find(x => x.id === id).ts;
+      const step = Math.floor((spinNow - ts * 1000) / 180);
+      return ["|", "/", "-", "\\"][((step % 4) + 4) % 4];
+    };
     const timer = setInterval(() => {
       try {
         out.push({
-          tick: spinTick,
-          startA: spinStarts.get(a), startB: spinStarts.get(b),
           cardA: els[a].cardSpin.dataset.f, cardB: els[b].cardSpin.dataset.f,
           rowA: row(a), rowB: row(b),
+          shouldA: should(a), shouldB: should(b),
         });
       } catch (err) { clearInterval(timer); resolve([{ error: String(err) }]); return; }
       if (out.length >= count) { clearInterval(timer); resolve(out); }
     }, gap);
-  });
-}
-
-function startsOver(id, ms) {
-  return new Promise(resolve => {
-    const out = [];
-    const began = performance.now();
-    const timer = setInterval(() => {
-      out.push(spinStarts.get(id));
-      if (performance.now() - began >= ms) { clearInterval(timer); resolve(out); }
-    }, 50);
   });
 }
 
@@ -702,76 +697,90 @@ async function workingCard(title) {
 }
 
 for (const kind of ["desktop", "phone"]) {
-  test(`${kind}: cards that started working at different times turn out of step, and a ticket turns with its own card`, async () => {
+  test(`${kind}: working cards with different last-message times show different frames right after a load, and a reload keeps them`, async () => {
     await clearLane();
     const a = await workingCard(`Phase first on the ${kind}`);
+    await settle(350);   // between one and three steps, so the two frames can never coincide
     const b = await workingCard(`Phase second on the ${kind}`);
     assert.equal((await working(a, true)).status, 200);
+    assert.equal((await working(b, true)).status, 200);
     const { page, problems } = await openCard(kind, a);
     if (kind === "phone") await page.evaluate(() => openDrawer());
     await seatIs(page, a, true);
-    await settle(400);
-    const firstStart = await page.evaluate(id => spinStarts.get(id), a);
-    assert.equal(typeof firstStart, "number", "the first card has no start");
+    await seatIs(page, b, true);
+    const stamps = await page.evaluate(ids => ids.map(id => lastState.boxes.find(x => x.id === id).ts), [a, b]);
+    const apart = (stamps[1] - stamps[0]) * 1000;
+    assert.ok(apart > 200 && apart < 520, `the two cards' last-message times are ${apart} ms apart`);
 
-    let apart = false;
-    for (let attempt = 0; attempt < 10 && !apart; attempt++) {
-      assert.equal((await working(b, true)).status, 200);
-      await seatIs(page, b, true);
-      await settle(300);
+    const check = async what => {
       const samples = await page.evaluate(samplePhases, a, b, 30, 40);
-      assert.equal(samples[0].error, undefined, `reading the phases failed: ${samples[0].error}`);
-      const gap = ((samples[0].startB - samples[0].startA) % 4 + 4) % 4;
+      assert.equal(samples[0].error, undefined, `${what}: reading the frames failed: ${samples[0].error}`);
       for (const s of samples) {
-        assert.equal(s.startA, firstStart, "the first card's start moved while the second began");
-        assert.equal(s.cardA, FRAMES[(s.tick - s.startA) % 4], "a card is not on the frame counted from its own start");
-        assert.equal(s.cardB, FRAMES[(s.tick - s.startB) % 4], "a card is not on the frame counted from its own start");
-        if (s.rowA !== null) assert.equal(s.rowA, s.cardA, "a ticket and its card show different frames");
-        if (s.rowB !== null) assert.equal(s.rowB, s.cardB, "a ticket and its card show different frames");
-        if (kind === "desktop") assert.ok(s.rowA !== null && s.rowB !== null, "a working ticket was not in the list");
-        if (gap === 0) assert.equal(s.cardA, s.cardB, "cards a whole turn apart are not on the same frame");
-        else assert.notEqual(s.cardA, s.cardB, "cards that started at different times show the same frame");
+        assert.equal(s.cardA, s.shouldA, `${what}: a card is not on the frame its last-message time gives`);
+        assert.equal(s.cardB, s.shouldB, `${what}: a card is not on the frame its last-message time gives`);
+        assert.notEqual(s.cardA, s.cardB, `${what}: cards with different last-message times show the same frame`);
+        if (s.rowA !== null) assert.equal(s.rowA, s.cardA, `${what}: a ticket and its card show different frames`);
+        if (s.rowB !== null) assert.equal(s.rowB, s.cardB, `${what}: a ticket and its card show different frames`);
+        if (kind === "desktop") assert.ok(s.rowA !== null && s.rowB !== null, `${what}: a working ticket was not in the list`);
       }
-      if (gap !== 0) apart = true;
-      else {
-        assert.equal((await working(b, false)).status, 200);
-        await page.waitForFunction(id => !spinStarts.has(id), { timeout: 5000 }, b);
-      }
+    };
+    await check("first load");
+
+    for (let again = 1; again <= 2; again++) {
+      await settle(500 + again * 130);
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await page.waitForFunction(() => lastState !== null, { timeout: 5000 });
+      if (kind === "phone") await page.evaluate(() => openDrawer());
+      await seatIs(page, a, true);
+      await seatIs(page, b, true);
+      assert.deepEqual(await page.evaluate(ids => ids.map(id => lastState.boxes.find(x => x.id === id).ts), [a, b]), stamps, "a last-message time moved");
+      await check(`reload ${again}`);
     }
-    assert.ok(apart, "the second card never started a quarter turn or more away from the first");
     assert.deepEqual(problems, []);
     await page.close();
   });
 
-  test(`${kind}: a card keeps its phase through polls and re-renders and forgets it when it stops working`, async () => {
+  test(`${kind}: a card keeps the frame its last-message time gives through polls, re-renders and a new message, and lets go when it stops`, async () => {
     await clearLane();
     const a = await workingCard(`Phase kept on the ${kind}`);
+    await settle(350);
+    const b = await workingCard(`Phase kept beside it on the ${kind}`);
     assert.equal((await working(a, true)).status, 200);
+    assert.equal((await working(b, true)).status, 200);
     const { page, problems } = await openCard(kind, a);
+    if (kind === "phone") await page.evaluate(() => openDrawer());
     await seatIs(page, a, true);
-    await settle(300);
-    const start = await page.evaluate(id => spinStarts.get(id), a);
-    assert.equal(typeof start, "number");
+    await seatIs(page, b, true);
+
+    const agree = async what => {
+      const samples = await page.evaluate(samplePhases, a, b, 40, 50);
+      assert.equal(samples[0].error, undefined, `${what}: reading the frames failed: ${samples[0].error}`);
+      for (const s of samples) {
+        assert.equal(s.cardA, s.shouldA, `${what}: a card left the frame its last-message time gives`);
+        assert.equal(s.cardB, s.shouldB, `${what}: a card left the frame its last-message time gives`);
+        if (s.rowA !== null) assert.equal(s.rowA, s.cardA, `${what}: a ticket and its card show different frames`);
+        if (s.rowB !== null) assert.equal(s.rowB, s.cardB, `${what}: a ticket and its card show different frames`);
+      }
+    };
+    await agree("at first");
 
     // a new card on the board and several polls redraw the cards and the list
     const other = await create(`Phase bystander on the ${kind}`);
     assert.equal((await api(`/reply?box=${other}`, "Answer.")).status, 200);
-    await page.waitForFunction(id => lastState.boxes.some(b => b.id === id), { timeout: 5000 }, other);
-    const reads = await page.evaluate(startsOver, a, 3000);
-    assert.ok(reads.length > 0 && reads.every(s => s === start), `the start moved across polls: ${[...new Set(reads)]}`);
-    const after = await page.evaluate(id => ({ start: spinStarts.get(id), tick: spinTick, frame: els[id].cardSpin.dataset.f }), a);
-    assert.equal(after.start, start);
-    assert.equal(after.frame, FRAMES[(after.tick - start) % 4]);
+    await page.waitForFunction(id => lastState.boxes.some(x => x.id === id), { timeout: 5000 }, other);
+    await settle(1500);
+    await agree("after polls and a redraw");
+
+    // a message on a working card moves its last-message time, and its frame follows it
+    assert.equal((await api(`/send?box=${a}`, "One more thing.")).status, 200);
+    await page.waitForFunction(id => lastState.boxes.find(x => x.id === id).pending > 0, { timeout: 5000 }, a);
+    await settle(400);
+    await agree("after a new message");
 
     assert.equal((await working(a, false)).status, 200);
-    await page.waitForFunction(id => !spinStarts.has(id), { timeout: 5000 }, a);
     await seatIs(page, a, false);
-    await settle(700);
-    assert.equal((await working(a, true)).status, 200);
-    await seatIs(page, a, true);
-    await settle(300);
-    const again = await page.evaluate(id => spinStarts.get(id), a);
-    assert.ok(again > start, `a card that began working again kept its old start (${start}, ${again})`);
+    await page.waitForFunction(id => !spinTs.has(id), { timeout: 5000 }, a);
+    assert.equal(await page.evaluate(id => spinTs.has(id), b), true, "the other card lost its time");
     assert.deepEqual(problems, []);
     await page.close();
   });

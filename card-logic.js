@@ -3169,24 +3169,46 @@ async function histStep(id, dir){   // +1 steps older, -1 steps back toward live
 // ---- the list's spinner ----------------------------------------------------------------
 // while a row works its age is noise; the slot carries a terminal spinner
 // instead. one interval serves every green row and only lives while one
-// exists. each card turns on its own phase: its frame is the number of ticks
-// since the page first drew it working, so cards that started at different
-// times are out of step, while a ticket and its own card, which share that
-// start, always show the same frame. the board carries no start time for a
-// working card, so the start is the tick on which the page first drew it
-// working; it is kept across renders and polls and forgotten once the card
-// stops working. rows are drawn with their frame already in place, so the
-// ticker and the poll-driven re-renders never fight over the text. ages
-// return on the next quiet poll.
+// exists. each card turns on its own phase: its frame is the whole number of
+// 180 ms steps between the card's last message or reply (its ts, which every
+// reading carries) and the clock at the timer's last tick, so cards whose
+// last word came at different times are out of step, and the same card shows
+// the same frame after a reload and on either page. a ticket and its own
+// card read the same card and the same tick, so they always match. a new
+// message or reply on a working card moves its ts, and so its spinner by a
+// step, once. a card with no ts falls back to counting ticks from when the
+// page first drew it working, kept across renders and polls and forgotten
+// once the card stops working. rows are drawn with their frame already in
+// place, so the ticker and the poll-driven re-renders never fight over the
+// text. ages return on the next quiet poll.
 // the card's own spinner (cardSpinner below) turns on the same clock: the
 // interval also lives while a card shows one, since a phone draws no rows while
 // its drawer is shut.
 const SPIN_FRAMES = ["|","/","-","\\"];   // the classic terminal spinner, bolder than braille dots
-let spinTick = 0, spinTimer = null;
-const spinStarts = new Map();   // card id -> the tick it was first drawn working
-function spinGlyph(id){
+const SPIN_STEP_MS = 180;
+let spinTick = 0, spinTimer = null, spinNow = 0;
+const spinStarts = new Map();   // card id -> the tick it was first drawn working (no ts)
+const spinTs = new Map();       // card id -> the ts its last reading carried
+function spinNote(b){
+  if (b && b.id && typeof b.ts === "number" && b.ts > 0) spinTs.set(b.id, b.ts);
+}
+// the clock every frame is read from: the one the last tick took, so a row and
+// a card drawn between ticks still agree, and the present while no timer runs
+function spinClock(){ return spinTimer != null && spinNow ? spinNow : Date.now(); }
+function spinGlyph(id, b){
+  spinNote(b);
+  let ts = spinTs.get(id);
+  if (ts === undefined && typeof lastState !== "undefined" && lastState && lastState.boxes){
+    const known = lastState.boxes.find(x => x.id === id);
+    if (known && typeof known.ts === "number" && known.ts > 0) ts = known.ts;
+  }
+  const n = SPIN_FRAMES.length;
+  if (ts > 0){
+    const step = Math.floor((spinClock() - ts * 1000) / SPIN_STEP_MS);
+    return SPIN_FRAMES[((step % n) + n) % n];
+  }
   if (!spinStarts.has(id)) spinStarts.set(id, spinTick);
-  return SPIN_FRAMES[(spinTick - spinStarts.get(id)) % SPIN_FRAMES.length];
+  return SPIN_FRAMES[(spinTick - spinStarts.get(id)) % n];
 }
 function spinCardId(el){
   const box = el.closest("article.box");
@@ -3205,6 +3227,7 @@ function spinRefresh(stamp){
     for (const b of lastState.boxes) if (ticketGreen(b)) live.add(b.id);
   }
   for (const id of [...spinStarts.keys()]) if (!live.has(id)) spinStarts.delete(id);
+  for (const id of [...spinTs.keys()]) if (!live.has(id)) spinTs.delete(id);
   if (!stamp) return;
   for (const r of rows){
     const age = r.querySelector(".tage");
@@ -3218,15 +3241,17 @@ function spinRefresh(stamp){
 function syncSpinner(){
   const has = document.querySelector("#tiklist .trow.working, .cardspin.on");
   if (has && spinTimer == null){
+    spinNow = Date.now();
     spinTimer = setInterval(() => {
       if (!document.querySelector("#tiklist .trow.working .tage, .cardspin.on")){ clearInterval(spinTimer); spinTimer = null; return; }
       spinTick++;
+      spinNow = Date.now();
       spinRefresh(true);
-    }, 180);
+    }, SPIN_STEP_MS);
   } else if (!has && spinTimer != null){
     clearInterval(spinTimer); spinTimer = null;
   }
-  spinRefresh(false);
+  spinRefresh(true);
 }
 
 // ---- the card's own spinner ------------------------------------------------------------
@@ -3239,7 +3264,9 @@ function syncSpinner(){
 // it, even where its ticket still pulses under a claim the agent holds.
 function cardSpinning(b){
   const s = cardState(b);
-  return s !== "done" && s !== "parked" && ticketGreen(b);
+  const on = s !== "done" && s !== "parked" && ticketGreen(b);
+  if (on) spinNote(b);   // the card's ts is what its frame is counted from
+  return on;
 }
 function makeCardSpinner(){
   const spin = h("span", "cardspin");

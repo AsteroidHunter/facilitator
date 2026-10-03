@@ -3565,7 +3565,7 @@ function paintPhonePane(pane, pool, view, state, touch){
     const s = queueState(b);
     const busy = s === "working" || (s === "done" && cardState({ ...b, done: false, parked: false, state: null }) === "working");
     const marks = rowMarks(b, s, busy);
-    const age = busy ? spinGlyph(b.id) : s === "done" ? "done" : shortAge(b.agentTs);
+    const age = busy ? spinGlyph(b.id, b) : s === "done" ? "done" : shortAge(b.agentTs);
     const ag = state.agents?.[b.owner];
     const eng = ag ? (ag.alive ? ag.name : "offline") : "";
     let part = rows.get(b.id);
