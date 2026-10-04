@@ -8,8 +8,8 @@ const vm = require("node:vm");
 const html = readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
 const between = (a, b) => html.slice(html.indexOf(a), html.indexOf(b, html.indexOf(a)));
 
-function fixture({ home = false, closed = [], widths = [100, 140, 80] } = {}) {
-  const handlers = {}, tasks = new Map(), frames = new Map(), images = [], switches = [], writes = [], opens = [];
+function fixture({ home = false, closed = [], widths = [100, 140, 80], render = false } = {}) {
+  const handlers = {}, tasks = new Map(), frames = new Map(), images = [], switches = [], writes = [], opens = [], observers = [];
   let id = 0, now = 0, context;
   class Element {
     constructor(cls = "", owner = null) {
@@ -28,38 +28,68 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80] } = {}) {
     appendChild(el) { if (el.parentNode) el.remove(); this.children.push(el); el.parentNode = this; el.isConnected = true; return el; }
     remove() { if (this.parentNode) this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1); this.parentNode = null; this.isConnected = false; }
     set innerHTML(value) {
-      if (value.includes("feImage")) { this.appendChild(new Element()); this.appendChild(new Element()); }
+      for (const m of value.matchAll(/<(feImage|feDisplacementMap)\b/g)) {
+        const child = new Element(); child.tagName = m[1]; this.appendChild(child);
+      }
     }
     get firstElementChild() { return this.children[0]; }
     get lastElementChild() { return this.children.at(-1); }
     addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
     querySelectorAll(selector) {
+      if (selector === "feImage") return this.children.filter(el => el.tagName === selector);
+      if (selector.includes(".plabel")) return Object.values(tabs).filter(t => !t.classes.has("closed")).flatMap(t => t.children);
       return this.children.filter(el => el.classList.contains("ptab") &&
         (!selector.includes(":not(.draft)") || !el.classList.contains("draft")));
     }
     querySelector(selector) {
+      if (selector === "feDisplacementMap") return this.children.find(el => el.tagName === selector);
+      if ([".plabel", ".ptabx"].includes(selector)) return this.children.find(el => el.classes.has(selector.slice(1)));
       if (selector === ".ptab.on, .ptab.draft") return this.children.find(el => el.classes.has("on") || el.classes.has("draft"));
       return null;
     }
-    closest() { return this; }
+    closest(selector) {
+      const name = selector.endsWith(".ptab") ? "ptab" : selector.slice(1);
+      for (let el = this; el; el = el.parentNode) if (el.classes.has(name)) return el;
+      return null;
+    }
+    getAnimations() { return this.animations || []; }
     matches(selector) { return selector === ":hover" && this.hovered; }
     getBoundingClientRect() {
       if (this === oval || this === bar) return { left: 40, top: 6, width: 320, height: 32, right: 360, bottom: 38 };
+      if (this.classes.has("plabel") || this.classes.has("ptabx")) {
+        const r = this.parentNode.getBoundingClientRect(), cross = this.classes.has("ptabx");
+        const width = cross ? 24 : this.parentNode.baseWidth - 28, left = cross ? r.right - 27 : r.left + 14;
+        const top = r.top + (cross ? 4 : 8), height = cross ? 24 : 16;
+        return { left, top, width, height, right: left + width, bottom: top + height };
+      }
+      if (this.classes.has("seatlens")) {
+        const r = this.parentNode.getBoundingClientRect(), scale = this.pressScale || 1;
+        const width = r.width * scale, height = 32 * scale, left = r.left + (r.width - width) / 2, top = r.top + (32 - height) / 2;
+        return { left, top, width, height, right: left + width, bottom: top + height };
+      }
       if (this.classes.has("ptab")) {
         const order = context.lastState.order;
         const before = order.slice(0, order.indexOf(this.dataset.owner)).map(ow => tabs[ow]);
         const widthOf = el => el.classes.has("closed") ? 0 : el.baseWidth + (el.classes.has("armed") ? 12 : 0);
-        const left = 40 + before.reduce((sum, el) => sum + widthOf(el), 0);
-        return { left, top: 6, width: widthOf(this), height: 32, right: left + widthOf(this), bottom: 38 };
+        const move = (this.style.transform || "").match(/translate(?:X)?\(([-.\d]+)px(?:,\s*([-.\d]+)px)?/);
+        const left = 40 + before.reduce((sum, el) => sum + widthOf(el), 0) + Number(move?.[1] || 0);
+        const top = 6 + Number(move?.[2] || 0);
+        return { left, top, width: widthOf(this), height: 32, right: left + widthOf(this), bottom: top + 32 };
       }
-      const left = 40 + Number((this.style.transform || "").match(/translateX\(([-.\d]+)/)?.[1] || 0);
-      return { left, top: 6, width: parseFloat(this.style.width) || 0, height: 32, right: left + (parseFloat(this.style.width) || 0), bottom: 38 };
+      const move = (this.style.transform || "").match(/translate(?:X)?\(([-.\d]+)px(?:,\s*([-.\d]+)px)?/);
+      const independent = (this.style.translate || "").split(" ").map(v => parseFloat(v) || 0);
+      const left = 40 + (parseFloat(this.style.left) || 0) + Number(move?.[1] || 0) + (independent[0] || 0);
+      const top = 6 + Number(move?.[2] || 0) + (independent[1] || 0);
+      return { left, top, width: parseFloat(this.style.width) || 0, height: 32, right: left + (parseFloat(this.style.width) || 0), bottom: top + 32 };
     }
   }
   const oval = new Element("taboval"), bar = new Element(), body = new Element();
   const tabs = Object.fromEntries(["a", "b", "c"].map((ow, i) => {
     const tab = new Element("ptab" + (closed.includes(ow) ? " closed" : ""), ow);
-    tab.baseWidth = widths[i]; oval.appendChild(tab); return [ow, tab];
+    tab.baseWidth = widths[i];
+    const label = new Element("plabel"); label.textContent = "Project " + ow; tab.appendChild(label);
+    tab.appendChild(new Element("ptabx"));
+    oval.appendChild(tab); return [ow, tab];
   }));
   const dispatch = (type, event = {}) => (handlers[type] || []).forEach(fn => fn(event));
   const document = {
@@ -77,13 +107,22 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80] } = {}) {
     addEventListener: (type, fn) => (handlers[type] ||= []).push(fn),
   };
   context = vm.createContext({
-    console, document, Uint8ClampedArray, tabDrag: null, tabGlide: null,
-    activeOwner: "a", homeOpen: home, draft: null, selectedId: null, browsing: false,
+    console, document, Uint8ClampedArray, devicePixelRatio: 1, tabDrag: null, tabGlide: null,
+    activeOwner: "a", homeOpen: home, draft: null, selectedId: null, browsing: false, workspaceFade: null,
     validActiveOwnerIds: new Set(["a", "b", "c"]), DRAFT: "__new__", LOCKED: false,
     lastState: { order: ["a", "b", "c"], closed: [...closed] },
-    h: (tag, cls) => new Element(cls), ResizeObserver: class { observe() {} unobserve() {} },
-    getComputedStyle: () => ({ columnGap: "0" }),
-    requestAnimationFrame(fn) { frames.set(++id, fn); return id; },
+    h: (tag, cls) => Object.assign(new Element(cls), { tagName: tag }), ResizeObserver: class { observe() {} unobserve() {} },
+    MutationObserver: class { constructor(fn) { this.fn = fn; observers.push(this); } observe() {} },
+    getComputedStyle(el) {
+      const tab = el.closest(".ptab"), cross = el.classes.has("ptabx"), armed = tab?.classes.has("armed");
+      return { columnGap: "0", width: el.style.width || el.parentNode?.style.width || "0px",
+        opacity: cross ? (armed ? (el.classes.has("off") ? ".3" : "1") : "0") : (el.classes.has("tearing") ? ".45" : "1"),
+        visibility: cross && !armed ? "hidden" : "visible", color: tab?.classes.has("on") ? "rgb(30,30,30)" : "rgb(100,100,100)",
+        fontFamily: "sans-serif", fontSize: "13px", lineHeight: "16px", fontWeight: tab?.classes.has("unread") ? "600" : "500",
+        fontStyle: "normal", fontStretch: "100%", letterSpacing: "normal", fontFeatureSettings: "normal", fontVariationSettings: "normal",
+        whiteSpace: "nowrap", textTransform: "none" };
+    },
+    requestAnimationFrame(fn) { frames.set(++id, fn); return id; }, cancelAnimationFrame: key => frames.delete(key),
     setTimeout(fn, ms) { tasks.set(++id, { fn, at: now + ms }); return id; }, clearTimeout: key => tasks.delete(key),
     addEventListener: document.addEventListener,
     location: { pathname: "/" }, open: (...args) => opens.push(args),
@@ -91,6 +130,7 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80] } = {}) {
     tabRecord: st => st, allRowsOf: st => st.order, rowsOf: st => st.order.filter(ow => !st.closed.includes(ow)),
     writeTabs(record) { writes.push(JSON.parse(JSON.stringify(record))); Object.assign(context.lastState, record); },
     setTab(ow) { switches.push(ow); context.activeOwner = ow; context.homeOpen = false; context.draft = null; context.renderTabs(); },
+    navigateTab(ow) { context.setTab(ow); }, // async navigation timing is covered by workspace-transition.test.cjs
     unselectShown() { context.unselected = true; },
     renderTabs() {
       if (["select", "reorder"].includes(context.tabDrag?.mode) || context.tabGlide) return;
@@ -100,7 +140,8 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80] } = {}) {
       }
     },
   });
-  vm.runInContext(between("function lensOffset(", "// the bar is painted in the middle"), context);
+  vm.runInContext(between("const LENS_ZOOM =", "// the bar is painted in the middle"), context);
+  if (!render) vm.runInContext("queueLensPaint = () => {}", context);
   const seat = vm.runInContext("tabSeat", context);
   oval.appendChild(seat.el);
   vm.runInContext(between("function tabKillMark(", "// the plus tab: a fresh tab"), context);
@@ -123,7 +164,7 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80] } = {}) {
   function move(x, y = 22, buttons = 1) { dispatch("mousemove", { clientX: x, clientY: y, buttons }); }
   function up(x, y = 22, target = tabs.a) { dispatch("mouseup", { clientX: x, clientY: y, screenX: x, screenY: y, target }); }
   const click = ow => tabs[ow].listeners.click.forEach(fn => fn());
-  return { context, seat, tabs, oval, document, images, switches, writes, opens, dispatch, down, move, up, click, tick,
+  return { context, seat, tabs, oval, bar, document, images, switches, writes, opens, observers, frames, dispatch, down, move, up, click, tick,
     get: source => vm.runInContext(source, context),
   };
 }
@@ -244,8 +285,8 @@ test("center sampling enlarges by 1.075 and the rim adds inward curved displacem
   const x = 75, dx = offset(x, 16, 100)[0];
   assert.ok(Math.abs((x + dx - 50) - (x - 50) / 1.075) < 1e-9);
   assert.deepEqual([...offset(50, 16, 100)], [0, 0]);
-  assert.ok(offset(50, 3, 100)[1] > (16 - 3) * (1 - 1 / 1.075) + 2);
-  assert.ok(offset(3, 16, 100)[0] > (50 - 3) * (1 - 1 / 1.075) + 2);
+  assert.ok(offset(50, 1.25, 100)[1] > (16 - 1.25) * (1 - 1 / 1.075) + .46);
+  assert.ok(offset(1.25, 16, 100)[0] > (50 - 1.25) * (1 - 1 / 1.075) + .46);
 });
 
 test("sampling remains inside the captured rectangle for short, long and fractional pills", () => {
@@ -256,13 +297,20 @@ test("sampling remains inside the captured rectangle for short, long and fractio
   }
 });
 
-test("encoded maps reconstruct the desired offsets within quantization error and cache repeated widths", () => {
-  const f = fixture(), map = f.context.lensMap(143.2), pixels = f.images.at(-1);
-  assert.equal(f.context.lensMap(143.1), map); assert.equal(f.images.length, 1);
+test("encoded zoom and rim maps have exact neutral centers and bounded quantization error", () => {
+  const f = fixture(), map = f.context.lensMap(143), [zoom, rim] = f.images;
+  assert.equal(f.context.lensMap(143), map); assert.equal(f.images.length, 2);
+  const k = 1 - 1 / 1.075, decode = byte => (byte - 128) / 254;
   for (let y = 0; y < 32; y += 3) for (let x = 0; x < 143; x += 7) {
     const expected = f.context.lensOffset(x + .5, y + .5, 143), i = (y * 143 + x) * 4;
-    for (let axis = 0; axis < 2; axis++) assert.ok(Math.abs(map.scale * (pixels.data[i + axis] / 255 - .5) - expected[axis]) <= map.scale / 510 + 1e-9);
-    assert.equal(pixels.data[i + 3], 255);
+    for (let axis = 0; axis < 2; axis++) {
+      const actual = map.span * k * decode(zoom.data[i + axis]) + 2 / 1.075 * decode(rim.data[i + axis]);
+      assert.ok(Math.abs(actual - expected[axis]) <= (map.span * k + 2 / 1.075) / 508 + 1e-9);
+    }
+    assert.equal(rim.data[i + 3], 255);
+    if (f.context.lensDepth(x + .5, y + .5, 143) >= 2.5) {
+      assert.equal(rim.data[i], 128); assert.equal(rim.data[i + 1], 128);
+    }
   }
   for (let width = 200; width < 280; width++) f.context.lensMap(width);
   assert.equal(f.get("lensMaps.size"), 64);
@@ -271,8 +319,137 @@ test("encoded maps reconstruct the desired offsets within quantization error and
 test("lens resizing updates local map dimensions; translation alone needs no regenerated map", () => {
   const f = fixture(), el = f.seat.face;
   f.context.resizeLens(el, 100); const first = el.lens.map;
-  f.down(); f.move(170); assert.equal(el.lens.map, first); assert.equal(f.images.length, 1);
+  f.down(); f.move(170); assert.equal(el.lens.map, first); assert.equal(f.images.length, 2);
   f.context.resizeLens(el, 140.25);
-  assert.equal(el.lens.image.attributes.width, "140.25"); assert.notEqual(el.lens.map, first);
+  assert.equal(el.lens.images[0].attributes.width, "140.25"); assert.notEqual(el.lens.map, first);
   assert.equal(el.attributes["aria-hidden"], "true");
+});
+
+test("the native rim mapping is monotonic through the old fold and smooth at both ends", () => {
+  const f = fixture(), sample = (y, zoom) => y + f.context.lensOffset(50, y, 100, 32, zoom)[1];
+  for (const zoom of [1.075, 1.075 * 1.04, 1.075 * 1.1]) {
+    let previous = sample(0, zoom);
+    for (let y = .01; y < 16; y += .01) {
+      const next = sample(y, zoom); assert.ok(next > previous, `fold at ${y}, zoom ${zoom}`); previous = next;
+    }
+    const e = 1e-5, slope = y => (sample(y + e, zoom) - sample(y - e, zoom)) / (2 * e);
+    for (const join of [0, 2.5, 3.5, 6]) assert.ok(Math.abs(slope(join) - 1 / zoom) < .0001, `kink at ${join}`);
+  }
+});
+
+test("the inner mask completely replaces original ink and feathers only after the nonlinear rim ends", () => {
+  const f = fixture(), alpha = f.context.lensCenterAlpha;
+  assert.equal(alpha(-1), 0); assert.equal(alpha(2.5), 0); assert.equal(alpha(3.5), 1); assert.equal(alpha(16), 1);
+  assert.ok(alpha(3) > 0 && alpha(3) < 1);
+  const e = 1e-6;
+  for (const join of [2.5, 3.5]) assert.ok(Math.abs((alpha(join + e) - alpha(join - e)) / (2 * e)) < .00001);
+  f.context.devicePixelRatio = 2; f.context.lensMap(87.375);
+  const map = f.images[0]; assert.equal(map.width, 175); assert.equal(map.height, 64);
+  for (const width of [28, 32, 87.375, 480]) {
+    const css = f.context.lensCenterMask(width);
+    assert.doesNotMatch(css, /url\(/, "an undecoded mask image could expose the broken center for a frame");
+    assert.equal((css.match(/gradient\(/g) || []).length, 3);
+    const first = css.slice(0, css.indexOf(" left top/"));
+    const stops = [...first.matchAll(/rgba\(0,0,0,([\d.]+)\) ([\d.]+)px/g)].map(m => [Number(m[2]), Number(m[1])]);
+    const at = distance => {
+      if (distance <= stops[0][0]) return stops[0][1];
+      for (let i = 1; i < stops.length; i++) if (distance <= stops[i][0]) {
+        const [a, va] = stops[i - 1], [b, vb] = stops[i]; return va + (vb - va) * (distance - a) / (b - a);
+      }
+      return stops.at(-1)[1];
+    };
+    const r = Math.min(width, 32) / 2, horizontal = width >= 32;
+    for (let y = .125; y < 32; y += .5) for (let x = .125; x < width; x += .5) {
+      const long = horizontal ? x : y, across = horizontal ? y : x, length = horizontal ? width : 32;
+      const a = long <= 2 * r ? at(Math.hypot(long - r, across - r)) : 0;
+      const b = long >= length - 2 * r ? at(Math.hypot(long - (length - r), across - r)) : 0;
+      const c = long >= r && long <= length - r ? at(Math.abs(across - r)) : 0;
+      const coverage = 1 - (1 - a) * (1 - b) * (1 - c), depth = f.context.lensDepth(x, y, width);
+      if (depth >= 3.5) assert.equal(coverage, 1, "original center pixels can leak through");
+      if (depth <= 2.5) assert.equal(coverage, 0, "the clear copy conceals the actual optical rim");
+    }
+  }
+});
+
+function assertCopyPosition(f, source, face = f.seat.face) {
+  const copy = face.lens.copies.get(source); assert.ok(copy, "source has no visual copy");
+  const numbers = copy.style.transform.match(/[-+]?\d*\.?\d+(?:e[-+]?\d+)?/gi).map(Number);
+  const [x, y, scaleX, scaleY] = numbers;
+  const r = face.getBoundingClientRect(), s = source.getBoundingClientRect();
+  const width = parseFloat(face.style.width || face.parentNode.style.width), px = r.width / width, py = r.height / 32;
+  const zoom = 1.075 * py, cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  assert.ok(Math.abs((r.left + x * px) - (cx + (s.left - cx) * zoom)) < 1e-8, "horizontal copy drift");
+  assert.ok(Math.abs((r.top + y * py) - (cy + (s.top - cy) * zoom)) < 1e-8, "vertical copy drift");
+  assert.ok(Math.abs(scaleX * px - zoom) < 1e-8); assert.ok(Math.abs(scaleY * py - zoom) < 1e-8);
+  return copy;
+}
+
+test("the center uses plain inert text, with the existing glass classes and no copied controls or IDs", () => {
+  const f = fixture({ render: true }), face = f.seat.face, clear = face.lens.clear;
+  assert.equal(face.classList.contains("qn-glass"), true, "the shared glass material was replaced");
+  assert.equal(clear.classList.contains("qn-glass"), true);
+  assert.equal(clear.inert, true); assert.equal(clear.attributes["aria-hidden"], "true");
+  assert.equal(face.lens.copies.size, 3);
+  for (const source of Object.values(f.tabs).map(t => t.querySelector(".plabel"))) {
+    const copy = assertCopyPosition(f, source);
+    assert.equal(copy.tagName, "span"); assert.equal(copy.textContent, source.textContent);
+    assert.deepEqual(copy.listeners, {}); assert.equal(copy.attributes.id, undefined); assert.equal(copy.dataset.owner, undefined);
+    assert.equal(copy.style.filter, undefined);
+  }
+  const css = between("  body.focus #tabbar .projectlens{", "  /* The outer seat moves");
+  const surface = css.slice(0, css.indexOf("}"));
+  assert.doesNotMatch(surface, /background:|box-shadow:/, "a bespoke material overrides the shared control recipe");
+  assert.match(css, /background-image:inherit; box-shadow:inherit/);
+  assert.match(css, /background-color:color-mix\(in srgb, var\(--paper\), #fff calc\(var\(--qn-tint\) \* 100%\)\)/);
+  assert.match(css, /backdrop-filter:none/);
+});
+
+test("copy geometry tracks fractional slide/width and press states, with no new PNGs for pressing", () => {
+  const f = fixture({ render: true }), label = f.tabs.b.querySelector(".plabel");
+  for (const width of [100, 112.375, 139.75]) {
+    f.seat.el.style.width = width + "px"; f.seat.el.style.transform = "translateX(47.625px)";
+    f.context.paintLenses(); const images = f.images.length;
+    for (const press of [1, 1.025, 1.075, 1.1, 1.03, 1]) {
+      f.seat.face.pressScale = press; f.context.paintLenses(); assertCopyPosition(f, label);
+      assert.equal(f.images.length, images, "press regenerated a geometry map");
+      const expected = Math.max(width, 32) * (1 - 1 / (1.075 * press));
+      assert.ok(Math.abs(Number(f.seat.face.lens.zoom.attributes.scale) - expected) < 1e-9);
+    }
+  }
+});
+
+test("renames, unread weights, closed/draft names and close-band opacity synchronize without stale copies", () => {
+  const f = fixture({ render: true }), label = f.tabs.a.querySelector(".plabel"), face = f.seat.face;
+  const before = face.lens.copies.get(label);
+  label.textContent = "A renamed project"; f.tabs.a.classList.add("unread", "armed"); f.context.paintLenses();
+  assert.equal(face.lens.copies.get(label), before); assert.equal(before.textContent, "A renamed project");
+  assert.equal(before.style.fontWeight, "600");
+  const cross = f.tabs.a.querySelector(".ptabx"); assertCopyPosition(f, cross);
+  assert.equal(face.lens.copies.get(cross).classList.contains("lenscross"), true);
+  cross.classes.add("off"); f.context.paintLenses(); assert.equal(face.lens.copies.get(cross).style.opacity, "0.3");
+  f.tabs.a.classes.delete("armed"); f.context.paintLenses(); assert.equal(face.lens.copies.has(cross), false);
+  f.tabs.b.classes.add("closed"); f.tabs.c.classes.add("draft"); f.tabs.c.querySelector(".plabel").textContent = "New Project";
+  f.context.paintLenses(); assert.equal(face.lens.copies.has(f.tabs.b.querySelector(".plabel")), false);
+  assert.equal(face.lens.copies.get(f.tabs.c.querySelector(".plabel")).textContent, "New Project");
+});
+
+test("both the selected and temporary lens follow translated/reordered label positions", () => {
+  const f = fixture({ render: true }); f.tabs.b.classes.add("armed"); f.down("b"); f.move(45);
+  const held = f.context.tabDrag.held; f.context.paintLenses();
+  for (const source of Object.values(f.tabs).map(t => t.querySelector(".plabel"))) {
+    assertCopyPosition(f, source); assertCopyPosition(f, source, held);
+  }
+  f.up(45); f.tick(250); f.context.paintLenses();
+  assert.equal(f.get("liveLenses.size"), 1); assert.equal(held.isConnected, false);
+});
+
+test("rendering work stops at rest, ignores its own copy mutations and follows active CSS motion", () => {
+  const f = fixture({ render: true }); assert.equal(f.frames.size, 0);
+  const copy = [...f.seat.face.lens.copies.values()][0];
+  f.observers[0].fn([{ target: copy }]); assert.equal(f.frames.size, 0, "copy mutations caused an endless paint loop");
+  f.observers[0].fn([{ target: f.tabs.a.querySelector(".plabel") }]); assert.equal(f.frames.size, 1);
+  f.bar.animations = [{ playState: "running" }]; f.tick(16); assert.equal(f.frames.size, 1);
+  f.bar.animations = []; f.tick(16); assert.equal(f.frames.size, 0);
+  f.bar.listeners.pointerover[0](); assert.equal(f.frames.size, 1); f.tick(16); assert.equal(f.frames.size, 0);
+  f.document.visibilityState = "hidden"; f.context.queueLensPaint(); f.tick(16); assert.equal(f.frames.size, 0);
 });
