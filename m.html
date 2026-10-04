@@ -3937,7 +3937,8 @@ function homeWarm(){
 // written again here. they are kept in this phone and asked for again after a
 // day, once the page is idle; the word is written here, so until they come
 // the heading shows the word alone
-const BRAND_KEY = "homebrand";
+// A new keep drops the former terminal-framed mark on the next load.
+const BRAND_KEY = "homebrand.squid";
 const BRAND_EVERY = 24 * 60 * 60 * 1000;
 function brandPaint(b){
   if (!b || !b.version || !b.mark) return;
