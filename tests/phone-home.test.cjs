@@ -68,8 +68,8 @@ const between = (text, from, to) => {
 test("the house heads the phone's project list, a row of the list with the board's own mark", () => {
   // no tab row across the top any more: the card is the first thing in the page
   assert.doesNotMatch(PHONE, /id="tabrow"|id="tabbar"/, "the old tab row is still in the page");
-  // the card is the first thing in the page, with only the card list laid under it
-  assert.match(between(PHONE, '<div id="page">', "</main>"), /^<div id="page">\s*(<!--[^>]*-->\s*)?<aside id="tickets"[\s\S]*<\/aside>\s*<main id="pane"/);
+  // the card is the first thing in the page, with only the card list, in the window it is seen through, laid under it
+  assert.match(between(PHONE, '<div id="page">', "</main>"), /^<div id="page">\s*(<!--[^>]*-->\s*)?<div id="tikwin"><aside id="tickets"[\s\S]*<\/aside><\/div>\s*<main id="pane"/);
   // the capsule in the row of buttons opens the list
   const dock = between(PHONE, '<nav id="dock"', "</nav>");
   assert.match(dock, /<button id="projbtn"[^>]*aria-controls="projmenu"/, "the capsule does not open the list");

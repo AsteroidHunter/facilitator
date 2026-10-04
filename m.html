@@ -141,13 +141,11 @@
   /* the numbers the menus' motion is written in, registered so each stays on
      the element it is written to: an unregistered one is inherited by every
      element below it and each change restyles them all. --list-v is how far
-     the card list is out, --bed-v the same on the row's bed, whose own pieces
-     are all that stands below it, --shift how far the settings are out as a
+     the card list is out, --shift how far the settings are out as a
      share of their own width, --panel-depth the weight of their shade, and
      --listfade the depth of the list's own fade, a length so the script can
      read it in pixels at whatever size the page stands */
   @property --list-v{syntax:"<number>"; inherits:false; initial-value:0}
-  @property --bed-v{syntax:"<number>"; inherits:true; initial-value:0}
   @property --page-scale{syntax:"<number>"; inherits:false; initial-value:1}
   @property --shift{syntax:"<percentage>"; inherits:false; initial-value:100%}
   @property --panel-depth{syntax:"<number>"; inherits:true; initial-value:0}
@@ -285,24 +283,44 @@
   #dock.away{opacity:0; visibility:hidden; pointer-events:none;
     transition:opacity .1s ease-out, visibility 0s linear .1s}
   /* the bed the row stands on, a layer of its own over the card whether the
-     card list is out or not. the paper fills the band and its top edge goes out
-     into the card on the ramp the card's own fades wear: nothing at the edge,
-     .35 of the paper at .38 of the depth, .80 at .72 of it and all of it at the
-     depth, so a card that has gone down under the row is not cut off by a line.
-     with the card at rest its foot stands on the edge and the band is just the
-     row's own. as the card goes down under the row a second sheet of paper,
-     the same ramp starting a little higher, fades in with it, so the card's
-     lines are gone before they reach the buttons. a soft shadow lies along the
-     edge, light at rest and at its full weight with the card down, rising with
-     the second sheet. it takes no touch */
+     card list is out or not. its top edge goes out into the card on the ramp
+     the card's own fades wear: nothing at the edge, .35 of the paper at .38 of
+     the depth, .80 at .72 of it and all of it at the depth, so a card that has
+     gone down under the row is not cut off by a line. the first sheet fills the
+     band from the card's resting foot, with its ramp in the air over the
+     buttons, so the paper is whole from the buttons' tops down and no line of a
+     card going down shows beside or between them. with the card at rest its
+     foot stands on that edge and the band is just the row's own. a second
+     sheet, --bed-air of whole paper over the buttons' tops and the full ramp,
+     --bed-fade, above that, rests lowered so its top edge is that same edge.
+     the card's foot leaves that edge the moment the list starts to come out,
+     so the sheet rises then, over --bed-ms, and the white band and the start
+     of its fade stand that much higher for the whole slide and with the list
+     out; it settles back over the last --bed-ms of the card's run home, as
+     the foot lands. the bed casts no shadow. it takes no touch */
   #dockbed{
     position:absolute; z-index:1; left:0; right:0; bottom:0; height:var(--dock-band);
-    --bed-fade:calc(22 * var(--u)); --bed-lift:calc(12 * var(--u)); pointer-events:none;
+    --bed-air:calc(16 * var(--u)); --bed-fade:calc(22 * var(--u)); --bed-ms:calc(var(--drawer-ms) * .3);
+    pointer-events:none;
     opacity:1; visibility:visible; transition:opacity .18s var(--gentle), visibility 0s;
   }
   #dock.away ~ #dockbed{opacity:0; visibility:hidden; transition:opacity .1s ease-out, visibility 0s linear .1s}
-  #dockbed::before, #dockbed > i{
-    display:block; position:absolute; left:0; right:0; bottom:0; top:0; background:var(--paper);
+  #dockbed::before, #dockbed > i{display:block; position:absolute; left:0; right:0; background:var(--paper)}
+  #dockbed::before{
+    content:""; top:0; bottom:0;
+    -webkit-mask-image:linear-gradient(to bottom,
+      rgba(0,0,0,0) 0,
+      rgba(0,0,0,.35) calc(var(--dock-foot)*.38),
+      rgba(0,0,0,.80) calc(var(--dock-foot)*.72),
+      rgba(0,0,0,1) var(--dock-foot));
+    mask-image:linear-gradient(to bottom,
+      rgba(0,0,0,0) 0,
+      rgba(0,0,0,.35) calc(var(--dock-foot)*.38),
+      rgba(0,0,0,.80) calc(var(--dock-foot)*.72),
+      rgba(0,0,0,1) var(--dock-foot));
+  }
+  #dockbed > i{
+    bottom:calc(100% - var(--dock-foot)); height:calc(var(--bed-air) + var(--bed-fade));
     -webkit-mask-image:linear-gradient(to bottom,
       rgba(0,0,0,0) 0,
       rgba(0,0,0,.35) calc(var(--bed-fade)*.38),
@@ -313,24 +331,10 @@
       rgba(0,0,0,.35) calc(var(--bed-fade)*.38),
       rgba(0,0,0,.80) calc(var(--bed-fade)*.72),
       rgba(0,0,0,1) var(--bed-fade));
+    transform:translateY(calc(var(--bed-air) + var(--bed-fade) - var(--dock-foot)));
+    transition:transform var(--bed-ms) ease-in calc(var(--drawer-ms) - var(--bed-ms));
   }
-  #dockbed::before{content:""}
-  #dockbed > i{
-    top:calc(-1 * var(--bed-lift)); opacity:var(--bed-v);
-    transition:opacity var(--drawer-ms) var(--drawer-tap);
-  }
-  #dockbed::after{
-    content:""; position:absolute; left:0; right:0; bottom:calc(100% - 8 * var(--u)); height:calc(26 * var(--u));
-    background:linear-gradient(to top, rgba(60,45,20,0), rgba(60,45,20,.12) 31%, rgba(60,45,20,.055) 62%, rgba(60,45,20,0));
-    -webkit-mask-image:linear-gradient(to right, transparent, #000 calc(12 * var(--u)), #000 calc(100% - 12 * var(--u)), transparent);
-    mask-image:linear-gradient(to right, transparent, #000 calc(12 * var(--u)), #000 calc(100% - 12 * var(--u)), transparent);
-    opacity:calc(.3 + .7 * var(--bed-v));
-    transform:translateY(calc(-1 * var(--bed-lift) * var(--bed-v)));
-    transition:opacity var(--drawer-ms) var(--drawer-tap), transform var(--drawer-ms) var(--drawer-tap);
-  }
-  body.menurelease #dockbed > i{transition:opacity var(--drawer-ms) var(--drawer-drag)}
-  body.menurelease #dockbed::after{transition:opacity var(--drawer-ms) var(--drawer-drag), transform var(--drawer-ms) var(--drawer-drag)}
-  body.menudrag #dockbed > i, body.menudrag #dockbed::after{transition:none}
+  body.listout #dockbed > i{transform:none; transition:transform var(--bed-ms) ease-out}
   #dock .dockbtn{
     flex:none; height:100%; margin:0; padding:0;
     border-radius:calc(var(--dock-h) / 2); color:var(--ink); cursor:pointer;
@@ -1052,23 +1056,47 @@
      it is given a layer of its own for the run */
   body.setout #page{will-change:transform}
   /* the card list: the board's ticket box at the phone's size, laid on the page
-     in the space the card leaves above it. it takes the card's width, from the
-     card's own edges, and the top the card has at rest, and stands as tall as
-     the card goes down, less --list-gap, so its foot is clear of the card's top
-     edge. it comes in from the page's left edge on the card's fraction, --list-v,
-     written on it with the card's, so the two cross together and a finger
-     carries both. it lies under the card, so as the card goes down it uncovers
-     the box and does not cut across it. the holder paints nothing, as on the
-     board; the list inside is the board's own and fades at its ends. it is on show only while
-     it is out, and is taken away for the whole run that puts it back, so it
-     disappears once it has finished leaving */
+     in the space the card leaves above it. that space is the card's column,
+     from the card's own edges, and the drop, from the top the card has at rest;
+     the box takes --list-share of it each way and stands in its middle, so there
+     is paper all round it. it comes in from the page's left edge on the card's
+     fraction, --list-v, written on it with the card's, so the two cross together
+     and a finger carries both. it lies under the card and is seen only through
+     #tikwin, a window whose foot is the card's top edge: the window goes down
+     with the card and the box inside goes up by as much, so the box holds still
+     and the card's going down uncovers it, and no part of it shows beside the
+     card or under it. the window paints nothing and takes no touch. the holder
+     paints nothing, as on the board; the list inside is the board's own and
+     fades at its ends. it is on show only while it is out, and is taken away
+     for the whole run that puts it back, so it disappears once it has finished
+     leaving. the window is laid a drop above the page, so with the list shut
+     neither it nor the box stands moved by the drop, and the drop written
+     after the page is first drawn starts no run of theirs */
+  #tikwin{
+    position:absolute; z-index:0; left:0; right:0; top:calc(-1 * var(--list-drop, 0px));
+    height:calc(var(--pg-t) + var(--list-drop, 0px));
+    overflow:clip; pointer-events:none;
+    transform:translate3d(0, calc(var(--list-v) * var(--list-drop, 0px)), 0);
+    transition:transform var(--drawer-ms) var(--drawer-tap);
+  }
+  body.menurelease #tikwin{transition:transform var(--drawer-ms) var(--drawer-drag)}
+  body.menudrag #tikwin{transition:none}
+  body.listout #tikwin{will-change:transform}
   #tickets{
-    --line-gap:calc(6 * var(--u)); --list-gap:calc(10 * var(--u));
-    position:absolute; z-index:0; left:var(--pg-l); right:var(--pg-r); top:var(--pg-t);
-    height:max(0px, calc(var(--list-drop, 0px) - var(--list-gap)));
+    --line-gap:calc(6 * var(--u)); --list-share:.9;
+    position:absolute; pointer-events:auto;
+    left:calc(var(--pg-l) + (100% - var(--pg-l) - var(--pg-r)) * (1 - var(--list-share)) / 2);
+    width:calc((100% - var(--pg-l) - var(--pg-r)) * var(--list-share));
+    /* the window's top is a drop above the page's */
+    top:calc(var(--list-drop, 0px) + var(--pg-t) + var(--list-drop, 0px) * (1 - var(--list-share)) / 2);
+    height:calc(var(--list-drop, 0px) * var(--list-share));
     background:transparent; border:none; border-radius:0; box-shadow:none;
     display:flex; flex-direction:column; overflow:visible; gap:calc(var(--line-gap) + var(--u));
-    transform:translate3d(calc((var(--list-v) - 1) * (100% + var(--pg-l))), 0, 0);
+    /* across: its right edge from the page's left edge, its own width and its
+       left, which is half of what the column leaves, a share of its own width.
+       down: what the window has gone down, taken back */
+    transform:translate3d(calc((var(--list-v) - 1) * (var(--pg-l) + 100% * (1 + var(--list-share)) / (2 * var(--list-share)))),
+      calc(-1 * var(--list-v) * var(--list-drop, 0px)), 0);
     visibility:hidden; --menuwait:var(--drawer-ms);
     transition:transform var(--drawer-ms) var(--drawer-tap), visibility 0s linear var(--menuwait);
   }
@@ -1519,15 +1547,16 @@
 <div id="page">
   <!-- the card list, the board's ticket box at this size: the three names over
        the list. it lies on the page above the card, in the space the card
-       leaves when it is pulled down -->
-  <aside id="tickets" aria-label="cards" data-side="left">
+       leaves when it is pulled down, seen through a window that ends at the
+       card's top edge -->
+  <div id="tikwin"><aside id="tickets" aria-label="cards" data-side="left">
     <div id="tikhead">
       <button id="tv-todo" class="ptab tvb on" type="button">Doing</button>
       <button id="tv-deferred" class="ptab tvb" type="button">Deferred</button>
       <button id="tv-done" class="ptab tvb" type="button">Done</button>
     </div>
     <div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div>
-  </aside>
+  </aside></div>
   <main id="pane" class="blank">
     <div id="empty">no cards on this tab yet</div>
     <div id="cards"></div>
@@ -4155,8 +4184,8 @@ document.getElementById("tikadd").addEventListener("click", createCard);
 // the card list is pulled out from the left edge and the settings from the
 // right. one number, the fraction a menu is out by, drives all of what moves
 // for it. for the card list it is --list-v, written on the card, on the list and
-// on the row's bed: the card goes down by the list's height while the list comes
-// in from the left, on the one fraction, so a finger carries both and a swipe
+// on the window the list is seen through: the card goes down while the list
+// comes in from the left, on the one fraction, so a finger carries both and a swipe
 // turned back part way turns both back together. for the settings it is their
 // sideways travel, the weight of the shade they cast, the shade over the page,
 // and how far the page itself draws back towards the middle of the screen.
@@ -4169,7 +4198,7 @@ document.getElementById("tikadd").addEventListener("click", createCard);
 const page = document.getElementById("page");
 const cardPane = document.getElementById("pane");
 const tickets = document.getElementById("tickets");
-const dockbed = document.getElementById("dockbed");
+const tikwin = document.getElementById("tikwin");
 const settings = document.getElementById("settings");
 const scrim = document.getElementById("scrim");
 const menus = [tickets, settings];   // the left one first: the drag reads the side off each
@@ -4232,7 +4261,7 @@ function paintMenu(panel, v){
     }
     cardPane.style.setProperty("--list-v", num);
     tickets.style.setProperty("--list-v", num);
-    dockbed.style.setProperty("--bed-v", num);
+    tikwin.style.setProperty("--list-v", num);
   } else {
     // the settings come out on their list
     if (v && !panel.classList.contains("live")) settingsView.reset();
