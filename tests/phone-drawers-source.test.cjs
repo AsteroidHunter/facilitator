@@ -88,11 +88,9 @@ test("the card goes down 55% of the screen and the box comes in, both on the one
   assert.match(page, /<div id="tikwin"><aside id="tickets"/, "the box is not inside its window");
   // the one fraction is written on the card, the box and the window together
   assert.match(MENUS, /cardPane\.style\.setProperty\("--list-v", num\);\s*tickets\.style\.setProperty\("--list-v", num\);\s*tikwin\.style\.setProperty\("--list-v", num\);/);
-  // a tap on the card that shows, and the box's own rows, leave the list out
+  // A tap on the card below closes the list. Row taps are exercised by the
+  // behavioral checks in phone-drawer-taps.test.cjs.
   assert.match(MENUS, /page\.addEventListener\("click", e => \{ if \(e\.target === page && drawerOpen\(\)\) closeDrawer\(\); \}\);/);
-  const row = HTML.slice(HTML.indexOf('r.addEventListener("click", e => {'), HTML.indexOf("return part;", HTML.indexOf('r.addEventListener("click", e => {')));
-  assert.match(row, /select\(b\.id\);\s*\}\);/, "a tap on a ticket does not switch the card");
-  assert.doesNotMatch(row, /closeDrawer|hideMenu/, "a tap on a ticket shuts the list");
 });
 
 test("what moves for the drawers is a transform or an opacity, and no script carries a frame", () => {

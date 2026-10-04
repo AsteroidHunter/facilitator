@@ -6,10 +6,12 @@
 // control+shift+left and right step to the previous or next card with the list's
 // lift following, plain left and right do nothing, Enter picks the card the
 // lifted ticket is on and shuts the drawer, and Escape shuts it and leaves the
-// card browsed. while a drawer is out the other bindings do not reach the card.
+// card browsed. Ctrl+S scrolls the list while it is open, and a double ticket
+// tap selects and closes it. Other bindings do not reach the card behind it.
 //
-// Headless, a real keyboard through puppeteer. The board is invented and lives in
-// a temp directory; nothing here touches the real board or port 8877.
+// Attach to an existing test Chrome, creating only background targets in its
+// existing window/context. Never launch, activate or close the browser. The
+// board is invented in a temp directory; nothing touches a real board.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawn } = require("node:child_process");
@@ -21,8 +23,7 @@ const path = require("node:path");
 const puppeteer = require("puppeteer-core");
 
 const ROOT = path.resolve(__dirname, "..");
-const CHROME = process.env.CHROME_PATH ||
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const CDP_URL = process.env.CHROME_CDP_URL || "http://127.0.0.1:9222";
 const PYTHON = process.env.FACILITATOR_TEST_PYTHON || "python3";
 const SHOTS = process.env.DRAWER_KEYS_SHOTS || "";
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
@@ -31,6 +32,8 @@ const COPIED = ["m.html", "m-sw.js", "m-manifest.json", "sw.js", "manifest.json"
                 "index.html", "page.html"];
 
 let browser = null;
+let browserSession = null;
+const ownedTargets = new Set();
 let child = null;
 let fixtureDir = "";
 let origin = "";
@@ -62,7 +65,7 @@ async function card(title, reply) {
 }
 
 async function openPhone(id, { formatted = false } = {}) {
-  const page = await browser.newPage();
+  const page = await backgroundPage();
   const problems = [];
   await page.setViewport(PHONE);
   await page.evaluateOnNewDocument(on => {
@@ -80,6 +83,36 @@ async function openPhone(id, { formatted = false } = {}) {
   if (formatted) await page.waitForSelector("article.box.sel .cffield", { timeout: 30000 });
   await settle(400);
   return { page, problems };
+}
+
+async function backgroundPage() {
+  const info = await browserSession.send("Target.getTargets");
+  assert.ok(info.targetInfos.some(t => t.type === "page"), "no existing browser window; target creation stopped");
+  let wanted = null, timer = null;
+  const seen = [];
+  let receive;
+  const found = new Promise((resolve, reject) => {
+    receive = resolve;
+    timer = setTimeout(() => reject(new Error("the background target did not attach")), 10000);
+  });
+  const created = target => {
+    if (target._targetId === wanted) receive(target);
+    else seen.push(target);
+  };
+  browser.on("targetcreated", created);
+  try {
+    const { targetId } = await browserSession.send("Target.createTarget",
+      { url: "about:blank", background: true, newWindow: false });
+    wanted = targetId;
+    ownedTargets.add(targetId);
+    const early = seen.find(t => t._targetId === targetId);
+    if (early) receive(early);
+    return await (await found).page();
+  } finally {
+    clearTimeout(timer);
+    browser.off("targetcreated", created);
+    found.catch(() => {});
+  }
 }
 
 const read = page => page.evaluate(() => ({
@@ -123,6 +156,10 @@ async function shot(page, name) {
 }
 
 before(async () => {
+  browser = await puppeteer.connect({ browserURL: CDP_URL, defaultViewport: null });
+  browserSession = await browser.target().createCDPSession();
+  const info = await browserSession.send("Target.getTargets");
+  assert.ok(info.targetInfos.some(t => t.type === "page"), "no existing browser window; nothing will be opened");
   fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-drawer-keys-"));
   await mkdir(path.join(fixtureDir, "logs"));
   const port = await freePort();
@@ -173,14 +210,14 @@ before(async () => {
     ids.done.push(id);
   }
 
-  browser = await puppeteer.launch({
-    executablePath: CHROME, headless: true,
-    args: ["--disable-background-networking", "--no-first-run"],
-  });
 });
 
 after(async () => {
-  if (browser) await browser.close();
+  for (const targetId of ownedTargets) {
+    try { await browserSession.send("Target.closeTarget", { targetId }); } catch {}
+  }
+  if (browserSession) await browserSession.detach();
+  if (browser) await browser.disconnect();
   if (child && child.exitCode === null) {
     child.kill("SIGTERM");
     await once(child, "exit");
@@ -626,13 +663,15 @@ test("the old bindings reach the card with no drawer out, and none of them does 
     for (const name of SPIED)
       assert.ok(reached.has(name), name + " was never reached with no drawer out, so this test proves nothing");
 
-    // the card list takes control+shift+left and right as its own; every other key stays off
+    // The list takes the step and scroll keys as its own. Other keys stay off.
     const STEPS = ["ArrowLeft", "ArrowRight"];
     const isStep = ([code, modifiers]) => STEPS.includes(code) && modifiers.length === 2;
     await chord(page, "Comma");
     await calls(page);
-    for (const key of OLD_KEYS.filter(k => !isStep(k))) await chord(page, key[0], key[1], 120);
+    for (const key of OLD_KEYS.filter(k => !isStep(k) && k[0] !== "KeyS")) await chord(page, key[0], key[1], 120);
     assert.deepEqual(await calls(page), [], "a key reached the card behind the open card list");
+    await chord(page, "KeyS", ["Control"], 120);
+    assert.deepEqual(await calls(page), ["responseScrollKey"], "the list did not take its scroll key");
     assert.equal((await read(page)).selected, ids.doing[5]);
     for (const code of STEPS) {
       await chord(page, code, ["Control", "Shift"], 120);
@@ -808,5 +847,147 @@ test("control+shift+left and right with the list out never type into the compose
     const now = await typed();
     for (const id of Object.keys(now)) assert.equal(now[id], id in was ? was[id] : "", `a step typed into the composer of ${id}`);
     await chord(page, "Comma");
+  } finally { await page.close(); }
+});
+
+// ---- scrolling the list and selecting it by touch ---------------------------------
+
+const scrollTops = page => page.evaluate(() => ({
+  list: drawerPane().scrollTop,
+  response: els[selectedId].replyview.scrollTop,
+}));
+
+async function holdS(page, ms = 160) {
+  await page.keyboard.down("KeyS");
+  await settle(ms);
+  await page.keyboard.up("KeyS");
+}
+
+test("Ctrl+S and double S scroll the PWA list while open, then the response when closed", async () => {
+  const id = ids.doing[5];
+  await api(`/reply?box=${id}`, Array.from({ length: 60 }, (_, n) => `Paragraph ${n}: a long response to scroll.`).join("\n\n"));
+  const { page, problems } = await openPhone(id);
+  try {
+    await chord(page, "Comma");
+    await page.evaluate(() => {
+      drawerPane().scrollTop = 350;
+      els[selectedId].replyview.scrollTop = 350;
+      document.getElementById("tv-todo").focus({ preventScroll: true });
+    });
+    const start = await scrollTops(page);
+    assert.ok(start.list > 100 && start.response > 100, "both fixture surfaces must scroll");
+    await shot(page, "scroll-list-before");
+    await page.keyboard.down("Control");
+    await holdS(page, 100);
+    const down = await scrollTops(page);
+    assert.ok(down.list > start.list, "holding S did not scroll the open list down");
+    assert.equal(down.response, start.response, "the covered response scrolled");
+    // Control is still held and the second S starts inside the 300ms window.
+    await holdS(page, 200);
+    const up = await scrollTops(page);
+    assert.ok(up.list < down.list, "the second S did not scroll the list up");
+    assert.equal(up.response, start.response);
+    await page.keyboard.up("Control");
+    await settle(150);
+    assert.deepEqual(await scrollTops(page), up, "a released key left a scroll running");
+    await shot(page, "scroll-list-after-double-s");
+
+    // A held-key repeat must not change direction or restart the motion.
+    await page.keyboard.down("Control");
+    await page.keyboard.down("KeyS"); await settle(100);
+    const beforeRepeat = await scrollTops(page);
+    await page.keyboard.down("KeyS"); await settle(100);
+    assert.ok((await scrollTops(page)).list > beforeRepeat.list, "the repeat reversed the list");
+    await page.keyboard.up("KeyS"); await page.keyboard.up("Control");
+    await page.evaluate(() => document.activeElement.blur());
+    await press(page, "Escape");
+    assert.equal((await read(page)).drawer, false);
+    const closed = await scrollTops(page);
+    await page.keyboard.down("Control");
+    await holdS(page, 100);
+    const cardDown = await scrollTops(page);
+    assert.ok(cardDown.response > closed.response, "closing the list did not restore response scrolling");
+    assert.equal(cardDown.list, closed.list);
+    await holdS(page, 200);
+    assert.ok((await scrollTops(page)).response < cardDown.response, "double S did not return to the response");
+    await page.keyboard.up("Control");
+    await shot(page, "scroll-response-after-drawer-closes");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.keyboard.up("KeyS"); await page.keyboard.up("Control");
+    await page.close();
+  }
+});
+
+async function rowPoint(page, id) {
+  return page.evaluate(wanted => {
+    const row = drawerRows().find(r => r.dataset.id === wanted);
+    const rect = row.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  }, id);
+}
+
+async function tapRow(page, id) {
+  const { x, y } = await rowPoint(page, id);
+  await page.touchscreen.tap(x, y);
+}
+
+test("one touch tap selects immediately and two taps on the same ticket close the PWA drawer", async () => {
+  const { page, problems } = await openPhone(ids.doing[5]);
+  try {
+    await chord(page, "Comma");
+    const target = await page.evaluate(() => {
+      const rows = drawerRows();
+      const at = rows.findIndex(r => r.dataset.id === selectedId);
+      const row = rows[at + 1];
+      row.scrollIntoView({ block: "center" });
+      window.__ticketClicks = [];
+      document.getElementById("tiklist").addEventListener("click", e => {
+        window.__ticketClicks.push({ trusted: e.isTrusted, type: e.pointerType });
+      });
+      return row.dataset.id;
+    });
+    await settle(150);
+    await tapRow(page, target);
+    const single = await read(page);
+    assert.equal(single.selected, target, "the first touch did not select immediately");
+    assert.equal(single.browsing, false);
+    assert.equal(single.drawer, true, "the first touch closed the drawer");
+    assert.notEqual(single.focus, "TEXTAREA");
+    await shot(page, "touch-single-selects-drawer-stays-open");
+    await settle(350);
+    await tapRow(page, target);
+    assert.equal((await read(page)).drawer, true, "a late second tap closed the drawer");
+    await tapRow(page, target);
+    const twice = await read(page);
+    assert.equal(twice.selected, target);
+    assert.equal(twice.browsing, false);
+    assert.equal(twice.drawer, false, "the second touch did not close the drawer");
+    assert.notEqual(twice.focus, "TEXTAREA");
+    const clicks = await page.evaluate(() => window.__ticketClicks);
+    assert.equal(clicks.length, 3);
+    assert.ok(clicks.every(e => e.trusted && e.type === "touch"), "the test did not drive native touch clicks");
+    await settle(650);
+    await shot(page, "touch-double-selects-and-closes");
+    assert.deepEqual(problems, []);
+  } finally { await page.close(); }
+});
+
+test("quick touch taps on different tickets keep the PWA drawer open", async () => {
+  const { page } = await openPhone(ids.doing[5]);
+  try {
+    await chord(page, "Comma");
+    const pair = await page.evaluate(() => {
+      const rows = drawerRows();
+      const at = rows.findIndex(r => r.dataset.id === selectedId);
+      rows[at].scrollIntoView({ block: "center" });
+      return [rows[at].dataset.id, rows[at + 1].dataset.id];
+    });
+    await settle(150);
+    await tapRow(page, pair[0]); await tapRow(page, pair[1]);
+    const result = await read(page);
+    assert.equal(result.selected, pair[1]);
+    assert.equal(result.drawer, true);
+    assert.equal(result.browsing, false);
   } finally { await page.close(); }
 });

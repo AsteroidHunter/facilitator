@@ -1246,6 +1246,7 @@
       rgba(0,0,0,0) 100%)}
   .trow{
     position:relative; flex:none; height:calc(52 * var(--u));
+    touch-action:manipulation;
     border:var(--edge) solid var(--line); border-radius:calc(5 * var(--u)); background:#fff;
     box-shadow:0 1px 4px rgba(60,45,20,.05);
     display:flex; flex-direction:column; cursor:pointer; overflow:hidden;
@@ -4086,6 +4087,17 @@ function rowMarks(b, s, busy){
 function setRowMarks(row, marks){
   for (let i = 0; i < ROW_MARKS.length; i++) row.classList.toggle(ROW_MARKS[i], (marks & (1 << i)) !== 0);
 }
+const TICKET_TAP_MS = 300;
+let lastTicketTap = null;
+function pickTicket(id){
+  const at = performance.now(), last = lastTicketTap;
+  const twice = drawerOpen() && last && last.id === id && selectedId === id &&
+    last.owner === activeOwner && last.view === curView() && at - last.at < TICKET_TAP_MS;
+  if (homeOpen) setHome(false);   // a card picked from home is shown on its board
+  select(id);                   // the first tap selects immediately, with no double-tap wait
+  lastTicketTap = drawerOpen() && !twice ? { id, owner: activeOwner, view: curView(), at } : null;
+  if (twice) closeDrawer();
+}
 function phoneRow(b, marks, age, eng){
   const r = h("div", "trow" + (b.id === selectedId ? " on" : "") +
               ROW_MARKS.map((name, i) => (marks & (1 << i) ? " " + name : "")).join(""));
@@ -4102,11 +4114,11 @@ function phoneRow(b, marks, age, eng){
   r.dataset.id = b.id;
   const part = { row: r, ttl, age: ageEl, eng: engEl, marks };
   // a tap on the folded corner unfolds the ticket; anywhere else on the row
-  // switches the card below to it. the list stays out either way
+  // selects the card below immediately. a second tap on the same ticket also
+  // shuts the list, including touch clicks that never produce a dblclick
   r.addEventListener("click", e => {
-    if ((part.marks & ROW_FOLDED) && onFold(r, e)){ unfoldTicket(b.id); return; }
-    if (homeOpen) setHome(false);   // a card picked from home is shown on its board
-    select(b.id);
+    if ((part.marks & ROW_FOLDED) && onFold(r, e)){ lastTicketTap = null; unfoldTicket(b.id); return; }
+    pickTicket(b.id);
   });
   return part;
 }
@@ -4142,6 +4154,8 @@ function renderTickets(state, action = "state", shown = ticketsShown()){
 // been given a view opens on doing
 function setView(v){
   if (!setTicketViewOf(activeOwner, v)) return;
+  lastTicketTap = null;
+  dropResponseScroll();
   cancelAutoNext();
   paintViewTabs();
   // the render holds the sheet where it is; the travel then animates it from its
@@ -4292,6 +4306,8 @@ function dismissEditor(){
 // first, after the drag's last position has been settled, so what follows is a
 // run from where the finger left it and not a jump
 function runMenu(panel, v, release){
+  lastTicketTap = null;
+  dropResponseScroll();
   // Closing a menu leaves focus alone. Opening one shuts the project list.
   if (v > 0){ dismissEditor(); closeProjects(); }
   const cls = document.body.classList;
@@ -6204,16 +6220,38 @@ function toggleMenuKey(e, panel){
   showMenu(panel);
 }
 
+function drawerPane(){
+  return document.querySelector('#tiksheet .tikpane[data-view="' + curView() + '"]');
+}
 // the card list's rows, top to bottom, for the section it is showing
 function drawerRows(){
-  const pane = document.querySelector('#tiksheet .tikpane[data-view="' + curView() + '"]');
+  const pane = drawerPane();
   return pane ? [...pane.querySelectorAll(".trow")] : [];
+}
+// Give the existing scroll motion a stable target for each section. Its frame
+// guard then stops on a close, a section/project change, or a drawer drag just
+// as it stops on a card change. The card behind the list is never the target.
+const drawerScrollers = new WeakMap();
+function phoneDrawerScrollCard(){
+  if (homeOpen || !drawerOpen() || document.body.classList.contains("menudrag")) return null;
+  const pane = drawerPane();
+  if (!pane) return null;
+  if (!drawerScrollers.has(pane)) drawerScrollers.set(pane, { replyview: pane });
+  return { id: curView(), owner: activeOwner, el: drawerScrollers.get(pane) };
 }
 
 // while a drawer is out its keys are the whole table, so the card behind it is left alone
 const menuShortcutActions = {
   diagnostic: phoneShortcutActions.diagnostic,
   cardsDrawer: phoneShortcutActions.cardsDrawer,
+  responseScroll(e){
+    if (!drawerOpen() || phoneShortcutTyping(e.target)) return;
+    // The list owns the chord even with one of its buttons focused. Its own
+    // typing guard above replaces the response's card-specific source check;
+    // speed, direction, repeat handling and release timing stay shared.
+    responseScrollKey({ target: document.body, repeat: e.repeat,
+      preventDefault: () => e.preventDefault() }, phoneDrawerScrollCard);
+  },
   // control+shift+left and right step the card with the list out; the list's
   // highlight follows, and the caret stays out of the card behind it
   navigate(e, shortcut){
