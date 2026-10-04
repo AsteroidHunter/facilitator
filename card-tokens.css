@@ -312,7 +312,7 @@
   padding:var(--answ-pad-y) var(--answ-pad-x);
   background:var(--answ-fill); border-radius:var(--answ-round);
   font:var(--answ-font); color:var(--ink); text-align:left;
-  --answ-move:.33s; --answ-come:.26s; --answ-rise:6px;
+  --answ-move:.33s; --answ-come:.26s; --answ-rise:6px; --answ-gone:.4s;
   --answ-fill:var(--bubble-fill); --answ-tag:calc(17 * var(--u));
 }
 /* the cut. a batch longer than the preview shows its first lines and dissolves
@@ -447,7 +447,13 @@
    which is on show in data-mark; data-tag is where the board's record has it).
    the grey is a registered colour so that it can run at all. a page that
    builds the panel already marked draws it as it is: nothing here moves until
-   the mark changes on a panel that is standing */
+   the mark changes on a panel that is standing.
+   once the reply to the messages lands, the word has nothing left to say: it
+   fades out on its own, over --answ-gone and on the same curve, with nothing
+   but its strength changing (markgone), and stays gone. the panel over a reply
+   is never given a word, so a card drawn with its reply already there shows
+   none. the room under the foot is kept either way (kept), so the reply under
+   the panel stands where it stood with the word and nothing moves when it goes */
 @property --answ-fill{syntax:"<color>"; inherits:true; initial-value:transparent}
 @keyframes markin{from{opacity:0; transform:translate3d(0, calc(var(--answ-rise) / 2), 0)}}
 .answered{transition:margin-bottom var(--answ-move) var(--gentle), --answ-fill var(--answ-move) var(--gentle)}
@@ -478,7 +484,7 @@
 .answretry{width:calc(18 * var(--u)); height:calc(18 * var(--u)); background:#ff3b30}
 .answcross{width:calc(16 * var(--u)); height:calc(16 * var(--u)); background:rgba(33,29,23,.72)}
 .answretry::after, .answcross::after{content:""; position:absolute; inset:calc(-6 * var(--u)) calc(-3 * var(--u))}
-.answered[data-mark]{margin-bottom:var(--answ-tag)}
+.answered[data-mark], .answered.kept{margin-bottom:var(--answ-tag)}
 .answered[data-mark]::after{
   content:attr(data-mark); position:absolute; top:100%; right:var(--answ-round);
   padding-top:calc(3 * var(--u)); font:calc(10.5 * var(--u))/1.35 var(--mono); color:var(--sub);
@@ -486,6 +492,7 @@
 }
 .answered.markin::after{animation:markin var(--answ-move) var(--gentle) backwards}
 .answered.markout::after{opacity:0; transition:opacity calc(var(--answ-move) / 2) var(--gentle)}
+.answered.markgone::after{opacity:0; transition:opacity var(--answ-gone) var(--gentle)}
 
 /* ---- the page turn and the print ----------------------------------------- */
 /* the answer to the sent panel's messages lands on the card on show and the card
