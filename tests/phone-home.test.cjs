@@ -143,12 +143,12 @@ test("while home is up no project is checked, the capsule reads Home, the card i
   assert.match(between(PHONE, 'projMenu.addEventListener("click", e => {', "});"),
     /if \(row === house\) closeProjects\(\);\n\s+else chooseRow\(row\);/);
   assert.doesNotMatch(choose, /house/);
-  assert.match(choose, /if \(ow === activeOwner && !homeOpen [^\n]*\{ if \(workspaceFade\) navigateTab\(ow\); unselectShown\(\); return; \}\n\s+navigateTab\(ow\);/);
-  assert.doesNotMatch(between(PHONE, "function setTab(owner){", "\n}\n"), /setHome/);
+  assert.match(choose, /if \(ow === activeOwner && !homeOpen [^\n]*\{ unselectShown\(\); return; \}\n\s+const entering = homeOpen \|\| ow !== activeOwner;\n\s+if \(homeOpen\) setHome\(false\);[^\n]*\n\s+setTab\(ow, entering\);/);
+  assert.doesNotMatch(between(PHONE, "function setTab(owner, entrance = false){", "\n}\n"), /setHome/);
   const paint = between(PHONE, "function renderTabs(st){", "\n}\n");
   assert.doesNotMatch(paint, /setHome/);
-  assert.match(paint, /on = ow === navOwner && !navHome/);
-  assert.match(paint, /const name = navHome \? "Home" : labelOf\(st, navOwner\);/);
+  assert.match(paint, /on = ow === activeOwner && !homeOpen/);
+  assert.match(paint, /const name = homeOpen \? "Home" : labelOf\(st, activeOwner\);/);
   // shown is read, but a card under the home page is not shown
   assert.match(between(PHONE, "function select(id, opts){", "\n}\n"), /\n  if \(chosen && !homeOpen\) markSeen\(id\);\n/);
   // a card picked in the list, a card just made and a notification's card
@@ -157,7 +157,7 @@ test("while home is up no project is checked, the capsule reads Home, the card i
   assert.match(pick, /if \(homeOpen\) setHome\(false\);[^\n]*\n\s+select\(id\);/);
   assert.match(pick, /if \(twice\) closeDrawer\(\);/, "only a second ticket tap shuts the list");
   assert.match(between(PHONE, "if (pendingFocus && els[pendingFocus]){", "\n  }\n"), /if \(homeOpen\) setHome\(false\);[^\n]*\n\s+select\(id\);/);
-  assert.match(between(PHONE, "function goToBox(id){", "\n}\n"), /^function goToBox\(id\)\{\n  workspaceFade\?\.cancel\(\);\n  if \(homeOpen\) setHome\(false\);/);
+  assert.match(between(PHONE, "function goToBox(id){", "\n}\n"), /^function goToBox\(id\)\{\n  if \(homeOpen\) setHome\(false\);/);
   // the keys: only the diagnostic save answers on home
   assert.match(PHONE, /const homeShortcutActions = \{ diagnostic: phoneShortcutActions\.diagnostic \};/);
   assert.match(PHONE, /dispatchCardShortcut\(e, homeOpen \? homeShortcutActions : phoneShortcutActions\);/);
@@ -228,7 +228,6 @@ function phoneHome({ stored = {}, want = null, serve = true, state = { rev: 1 },
   let nextTimer = 0;
   const ctx = {
     console, document: doc, homeOpen: false, lastState: state, wantBox: want,
-    workspaceFade: null, navigateWorkspace: (_key, swap) => { if (!ctx.homeOpen) swap(); },
     localStorage: { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)),
                     removeItem: k => store.delete(k) },
     renderTabs: st => tabs.push(st),

@@ -199,16 +199,13 @@ function desktop() {
     els, lastState: state, lastSel: {}, selectedId: null, shownId: null, browsing: false,
     FOCUS: true, activeOwner: "lane", draft: null, DRAFT: "__draft__", editMode: false, setEditMode: noop,
     miniFocused: false, p3Zoom: null,
-    workspaceFade: null, prepareHome: noop,
-    navigateWorkspace: (_key, swap) => { if (!vm.runInContext("homeOpen", sandbox)) swap(); },
-    navigateTab: owner => sandbox.setTab(owner),
     // what the board's own boardKeysLive asks, beside the home page's homeOpen
     pageWarn: null, pageMenu: null, qnOpen: false, setOpen: false, onBoardPage: () => true,
     cancelAutoNext: noop, histExit: noop, syncDesktopHistoryAvailability: noop, updatePwd: noop,
     snapCard: noop, renderTabs: noop, rowsOf: () => ["lane"],
     // what setTab asks of the rest of the board
     ownerReady: true, validActiveOwnerIds: new Set(["lane", "other"]), LOCKED: null, endDraft: noop,
-    applySavedLayout: noop, panelPoll: noop, chatPoll: noop, fileNavPoll: noop, apply: noop,
+    projectEntrance: noop, applySavedLayout: noop, panelPoll: noop, chatPoll: noop, fileNavPoll: noop, apply: noop,
   };
   sandbox.window = sandbox; sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
@@ -224,7 +221,7 @@ function desktop() {
     between(html, "function setBrowsing(on){", "\nfunction updatePwd("),
     between(html, "function nav(dx, dy, opts){", "\n// keep a valid selection"),
     between(html, "function applySelection(state){", "\nfunction statusOf("),
-    block(html, "function setTab(owner){"),
+    block(html, "function setTab(owner, entrance = false){"),
     block(html, "function deselect(){"),
     between(html, "function boardResponseCard(){", "\n// the grid compass") +
       between(html, "const boardShortcutTyping = cardShortcutEditing;", "\naddEventListener(\"keydown\", e => {\n  if (!FOCUS) return;"),

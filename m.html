@@ -546,6 +546,9 @@
      does under a swipe, and the page is pulled out by the edge's drawn width
      the same way, so the panel's edge lands on the card's own and the panel
      spans the screen within the app's thin margins */
+  /* Project entrances copy the Mac Home fade; the phone's Home stays as it was. */
+  @keyframes homefade{from{opacity:0}}
+  body:not(.home) :is(#pane, #tikwin).project-enter{animation:homefade .18s ease both}
   #home{display:none}
   body.home main{background:transparent; border-color:transparent; box-shadow:none; overflow:visible}
   /* every part of the card, the history arrows too, which set their own */
@@ -3284,7 +3287,6 @@ function doSend(id, opts){
 // breathes until the board answers. once the card is there the next press is
 // a deliberate second card
 function createCard(){
-  workspaceFade?.cancel();
   const trace = tracePhone("begin", "create");
   if (!validOwners.has(activeOwner)){ endPhoneTrace(trace); return; }
   if (pendingCreate()){ wakeOps(); endPhoneTrace(trace); return; }
@@ -3539,30 +3541,7 @@ function deselect(){
   for (const r of document.querySelectorAll("#tiklist .trow")) r.classList.remove("on");
   reachLater();
 }
-// Keep the selection setters synchronous for restore, poll repairs and card
-// arrivals. Reader navigation alone asks for a fade, on this page's content.
-let workspaceFade = null;
-function navigateWorkspace(key, swap){
-  workspaceFade ||= workspaceTransition({
-    current: () => homeOpen ? "home" : "project:" + activeOwner,
-    roots: () => ["pane", "tikwin"].map(id => document.getElementById(id)),
-    enabled: () => !!lastState,
-  });
-  workspaceFade.request(key, () => {
-    try { swap(); } finally { if (lastState) renderTabs(lastState); }
-  });
-  if (lastState) renderTabs(lastState);   // the navigation follows the request, the workspace follows at zero
-}
-function navigateTab(owner){
-  if (!validOwners.has(owner)) return;
-  navigateWorkspace("project:" + owner, () => {
-    if (!validOwners.has(owner)) return;   // the destination may have gone during the fade
-    if (homeOpen) setHome(false);
-    setTab(owner);
-  });
-}
-function setTab(owner){
-  workspaceFade?.cancel();
+function setTab(owner, entrance = false){
   if (!validOwners.has(owner)) return;
   activeOwner = owner; localStorage.setItem("activeproj", owner);
   const pick = lastState && pickInRow(lastState, owner);
@@ -3572,6 +3551,7 @@ function setTab(owner){
     apply(lastState);
     endPhoneTrace(trace, { action: "project", part: "apply" });
   }
+  if (entrance) projectEntrance([document.getElementById("pane"), document.getElementById("tikwin")]);
 }
 // the board's tabs, in the board's order and without the ones the board has
 // closed. this page is a bridge, so its list shows exactly those; a board that
@@ -3620,20 +3600,16 @@ function renderTabs(st){
     }
     projMenu.scrollTop = at;
   }
-  // Navigation follows the requested place while the old workspace fades out.
-  const place = workspaceFade?.destination() || (homeOpen ? "home" : "project:" + activeOwner);
-  const navHome = place === "home", navOwner = navHome ? activeOwner : place.slice(8);
-  house.classList.toggle("on", navHome);
-  house.setAttribute("aria-pressed", String(navHome));
+  // no project is checked while home is up: the house is
   let others = false;
   for (const row of projList.querySelectorAll(".projrow")){
-    const ow = row.dataset.owner, on = ow === navOwner && !navHome, unread = laneUnread(st, ow);
+    const ow = row.dataset.owner, on = ow === activeOwner && !homeOpen, unread = laneUnread(st, ow);
     row.classList.toggle("on", on);
     row.setAttribute("aria-pressed", String(on));
     row.classList.toggle("unread", unread);
     if (unread && !on) others = true;
   }
-  const name = navHome ? "Home" : labelOf(st, navOwner);
+  const name = homeOpen ? "Home" : labelOf(st, activeOwner);
   const label = document.getElementById("projname");
   if (label.textContent !== name) label.textContent = name;
   projBtn.setAttribute("aria-label", name + (others ? ", unread replies elsewhere" : "") + ", choose a project");
@@ -3662,8 +3638,10 @@ function chooseRow(row){
   closeProjects();
   const ow = row.dataset.owner;
   if (!ow) return;
-  if (ow === activeOwner && !homeOpen && selectedId && !browsing){ if (workspaceFade) navigateTab(ow); unselectShown(); return; }
-  navigateTab(ow);
+  if (ow === activeOwner && !homeOpen && selectedId && !browsing){ unselectShown(); return; }
+  const entering = homeOpen || ow !== activeOwner;
+  if (homeOpen) setHome(false);   // a project leaves home for its board
+  setTab(ow, entering);
 }
 // the list's own taps. the house's press opens home through its own listener
 // (the home page, below), and every row shuts the list
@@ -3998,7 +3976,6 @@ function brandStart(){
   if (!b || !(Date.now() - b.at < BRAND_EVERY)) (window.requestIdleCallback || (fn => setTimeout(fn, 300)))(brandAsk);
 }
 function setHome(on){
-  workspaceFade?.cancel();
   homeOpen = !!on;
   try {
     if (homeOpen) localStorage.setItem(HOME_KEY, "1");
@@ -4025,8 +4002,8 @@ function setHome(on){
 // the house is a place, like a tab: pressing it while home is up changes
 // nothing, unless the panel could not be loaded, when it asks again
 house.addEventListener("click", () => {
-  if (homeOpen && !homePanel) homeShow();
-  navigateWorkspace("home", () => setHome(true));
+  if (!homeOpen) setHome(true);
+  else if (!homePanel) homeShow();
 });
 // put back once the whole script has run, as the board does, unless a
 // notification opened the page on a card, which is shown on its board
@@ -4964,7 +4941,6 @@ function validateOwners(state){
 }
 // a card asked for by a notification: its tab first, then the card itself
 function goToBox(id){
-  workspaceFade?.cancel();
   if (homeOpen) setHome(false);   // a notification's card is shown on its board
   if (!lastState) { wantBox = id; return; }
   const b = lastState.boxes.find(x => x.id === id);
@@ -6188,7 +6164,7 @@ const phoneShortcutActions = {
   tab(e, shortcut){
     if (!lastState) return;
     const ow = barOwners(lastState)[shortcut.value];
-    if (ow){ e.preventDefault(); navigateTab(ow); }
+    if (ow){ e.preventDefault(); setTab(ow, ow !== activeOwner); }
   },
   // the first Escape leaves the reply box; the next one unselects the card,
   // which stays on screen browsed. a key something else answered first, or
