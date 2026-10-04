@@ -12101,6 +12101,71 @@ installBtn.addEventListener("click", () => {
   installBtn.hidden = true;
   try { offer.prompt(); } catch (e) {}
 });
+
+// ---- the Mac page's browser shortcuts ------------------------------------------
+// Find and reload stay Chrome's. The card/editor commands and native window/OS
+// controls keep their existing paths; only the listed page defaults are held.
+function chromeShortcutBlocked(e){
+  if (e.isComposing || e.ctrlKey) return false;
+  const raw = (e.key || "").toLowerCase();
+  const physical = /^Key[A-Z]$/.test(e.code || "") ? e.code.slice(3).toLowerCase() :
+    ({ Equal: "=", Minus: "-", Digit0: "0", BracketLeft: "[", BracketRight: "]",
+       Period: ".", Comma: ",", Slash: "/", Backspace: "backspace" })[e.code];
+  // Option changes letters into accents/symbols on a Mac. Chrome's Option
+  // commands also use physical keys. Otherwise respect a layout's character,
+  // falling back to its code only for an unidentified or non-ASCII key.
+  const key = physical && (e.altKey || raw === "dead" || raw === "unidentified" ||
+    !raw || (raw.length === 1 && !/[\x20-\x7e]/.test(raw))) ? physical : raw;
+  if (!e.metaKey) return !e.altKey && !e.shiftKey && ["escape", "f7", "f12"].includes(key);
+  if (e.altKey) return !e.shiftKey && ["p", "i", "j", "c", "l", "b"].includes(key);
+  if (key === "g" || key === "n") return true;   // next/previous find; new/incognito window
+  if (e.shiftKey) return ["c", "j", "backspace", "/", "?", "+", "="].includes(key);
+  if (key === "arrowleft" || key === "arrowright"){
+    // Command+arrows remain line/caret movement in either editor and native
+    // fields. A text node inside a decorated editor is part of that editor.
+    const editing = e.composedPath().some(node => node.isContentEditable ||
+      node.matches?.("input, textarea, [role='textbox'], .cm-editor"));
+    return !editing;
+  }
+  return ["s", "p", "e", ".", "+", "=", "-", "0", "[", "]", "y", ","].includes(key);
+}
+
+function installChromeShortcutGuard(){
+  if (!/^Mac/.test(navigator.platform) && navigator.userAgentData?.platform !== "macOS") return;
+  addEventListener("keydown", e => {
+    if (e.defaultPrevented || !e.cancelable || !chromeShortcutBlocked(e)) return;
+    // Register last in the page so earlier window capture handlers have had
+    // their turn. If one stopped here, only its browser default remains.
+    if (e.cancelBubble){ e.preventDefault(); return; }
+    const path = e.composedPath();
+    let timer = 0;
+    const clear = () => {
+      clearTimeout(timer);
+      for (const node of path){
+        if (node !== window) node.removeEventListener("keydown", afterCapture, true);
+        node.removeEventListener("keydown", afterBubble);
+      }
+    };
+    const cancel = () => { e.preventDefault(); clear(); };
+    // App handlers must see the original defaultPrevented state: Escape's
+    // card action checks it, and CodeMirror must get to run file-save first.
+    // A window-only listener would miss titles/settings that stop propagation.
+    // These temporary observers run after the existing handlers at each node,
+    // canceling only where propagation ends, never swallowing an app handler.
+    const afterCapture = event => { if (event === e && e.cancelBubble) cancel(); };
+    const afterBubble = event => {
+      if (event === e && (e.cancelBubble || event.currentTarget === window || !e.bubbles)) cancel();
+    };
+    for (const node of path){
+      if (node !== window) node.addEventListener("keydown", afterCapture, true);
+      node.addEventListener("keydown", afterBubble);
+    }
+    // Cleanup also covers a handler that cancels and stops immediately. A
+    // task, not a microtask, keeps observers installed for the whole dispatch.
+    timer = setTimeout(clear, 0);
+  }, true);
+}
+installChromeShortcutGuard();
 </script>
 </body>
 </html>
