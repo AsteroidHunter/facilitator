@@ -1410,6 +1410,9 @@
   }
 
   /* card prose, the .cardmd rules, is shared with the desktop: card-tokens.css */
+  /* give the numbers their own inset from the prose edge; the shared padding
+     still reserves the marker's width, including wider counters */
+  .reply.cardmd ol{margin-inline-start:var(--sp-s)}
   /* the star on its own does not reach a ::before or a ::after, and layers like
      the menus' shade live on those, so they are named here too */
   @media (prefers-reduced-motion: reduce){
